@@ -1,7 +1,8 @@
 # Home — technical design
 
-Status: proposed for review. No Home application, packages, commands or integrations described here have been implemented.
-Updated: 2026-09-07
+Status: proposed production architecture for review. A local finance spike is implemented in this repository; this document is **not** a delivery inventory and still describes the intended Vercel + Neon/Postgres path.
+Current delivery: [build status](build-status.md) (September 8, 2026). Local money-action persistence is SQLite — [wallet runtime spike](wallet-runtime-spike.md). Neon/Postgres below remains the proposed production store, not what `bun dev` uses.
+Updated: 2026-09-08 (status header only; body is the 2026-09-07 design)
 Product scope: [Home product scope](product-scope.md)
 Build chunks and review: [Home implementation plan](implementation-plan.md)
 

@@ -8,18 +8,41 @@ Home is a mobile-first financial app designed around local currencies: sign in b
 
 Real wallet signatures and funded end-to-end flows have not been exercised. Stock trading and external Base-account trading remain gated; Borrow requires a compatible deployed account, and hosted funding requires Coinbase access/origin configuration. See [build status](docs/build-status.md) for validation evidence and remaining limits.
 
-## Run locally
+## Get started
 
-Requires Bun 1.3.12 and Node.js with `node:sqlite` support (22.13+; validated on Node 24).
+This repository is meant to be **cloned and run**, then customized. Brand, regions, asset selection, and providers are replaceable; each operator uses their own projects and credentials. See [Fork and extend](docs/fork-and-extend.md) when you are ready to change those. The [docs index](docs/README.md) lists setup, design, and registry notes.
+
+### Prerequisites
+
+- **Bun 1.3.12** — pinned as `packageManager` in `package.json`.
+- **Node.js 22 or newer** — `engines.node` is `>=22`. Local money-action persistence uses `node:sqlite`, which needs Node **22.13+**. The spike was validated on **Node 24**.
+
+### Run locally
 
 ```sh
 bun install --frozen-lockfile
 bun dev
 ```
 
-Open http://localhost:3000. The server binds to loopback; development document navigation from `127.0.0.1` redirects to the canonical `localhost` origin. Configure that exact origin in the CDP project. Browsing works without credentials; email sign-in requires the public CDP project ID and matching server verification credentials. Store configuration in gitignored `apps/web/.env.local` using the root `.env.example`; do not overwrite an existing local environment file.
+Open http://localhost:3000. The server binds to loopback; development document navigation from `127.0.0.1` redirects to the canonical `localhost` origin.
 
-Money-action records use a private, automatically created SQLite database under `.local/`. No hosted database is needed for the local spike. This is not shared production persistence; review the [wallet runtime notes](docs/wallet-runtime-spike.md) before deployment.
+### Environment
+
+For a fresh clone, copy the root example into the web app (gitignored). **Do not overwrite** an existing `apps/web/.env.local`.
+
+```sh
+cp .env.example apps/web/.env.local
+```
+
+If that file already exists, add only missing variables.
+
+| Without CDP credentials | Needs your CDP project |
+|---|---|
+| Landing, browsing, public Morpho vault reads, informational Invest | Email sign-in, server session validation, authenticated balances and money actions |
+
+Email sign-in needs the public CDP project ID (`NEXT_PUBLIC_CDP_PROJECT_ID`) and matching server keys (`CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`) from **your** project. Configure the exact origin `http://localhost:3000` in that CDP project. Optional: `CODEX_API_KEY` for Invest USD snapshots; `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT` for the Base Account path. Never commit secrets or prefix server keys with `NEXT_PUBLIC_`. Details: [CDP setup](docs/cdp-setup.md).
+
+### Scripts
 
 ```sh
 bun test        # Deterministic unit and contract tests; live probes stay opt-in
@@ -31,10 +54,19 @@ bun run --cwd apps/web test:browser-auth # Actual-component auth scenarios with 
 bun start       # Serve a production build
 ```
 
-Edit `apps/web/app/home-experience.tsx` for the Home shell, `apps/web/features/` for account/Invest/Savings UI, `apps/web/app/globals.css` for visual tokens, and `apps/web/config/` for presentation settings and sourced asset identities. Keep one root `bun.lock`. Real configuration belongs only in the gitignored `apps/web/.env.local`; never commit secrets.
+GitHub Actions CI on pull requests and pushes to `main` runs `bun install --frozen-lockfile` then `bun check`. Live probes stay opt-in and are not enabled in CI.
+
+### Local persistence
+
+Money-action records use a private, automatically created SQLite database under `.local/` (typically `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace). No hosted database is needed for the local spike. **This is not shared production persistence.** Read [wallet runtime notes](docs/wallet-runtime-spike.md) and [build status](docs/build-status.md) before any deployment. The production store described in [technical design](docs/technical-design.md) is Neon/Postgres; it is not what `bun dev` uses.
+
+Edit `apps/web/app/home-experience.tsx` for the Home shell, `apps/web/features/` for account/Invest/Savings UI, `apps/web/app/globals.css` for visual tokens, and `apps/web/config/` for presentation settings and sourced asset identities. Keep one root `bun.lock`. Real configuration belongs only in the gitignored `apps/web/.env.local`.
 
 ## Start here
 
+- [Get started](#get-started) — clone, install, env, `bun dev`.
+- [Fork and extend](docs/fork-and-extend.md) — brand, regions, assets, providers, local-spike vs production.
+- [Docs index](docs/README.md) — run/operate, design, and registry docs.
 - [CDP setup](docs/cdp-setup.md) — project/origins, email login, server validation and privacy defaults.
 - [SQL setup](docs/cdp-sql.md) — explicit authentication mode, bounded smoke tests and history limitations.
 - [Morpho setup](docs/morpho-setup.md) — USDC vault candidates and read-only verification.
@@ -54,11 +86,11 @@ Country selection controls presentation, not eligibility. Wallet and savings val
 
 Venice/agent inference, Rain cards, additional funding providers, unrestricted assets, and broader borrowing markets are not implemented.
 
-## Forking and contributing
+## Forking
 
-Fork this repository to follow along or build your own version. Brand, regions, asset selection and providers are designed to be replaceable. Each operator will configure their own provider projects, credentials and deployment. See the implementation plan for the next build slice; design feedback and focused pull requests are welcome. Pull requests and pushes to `main` run GitHub Actions CI: `bun install --frozen-lockfile` then `bun check`. Live probes stay opt-in and are not enabled in CI.
+Fork this repository to run your own Home or follow along. Brand, regions, asset selection and providers are designed to be replaceable — [fork and extend](docs/fork-and-extend.md) is the how-to. Each operator configures their own provider projects, credentials and deployment.
 
-Never commit credentials or funded-wallet secrets. Documented token/provider support is separate from a tested integration.
+Focused pull requests are welcome. If you send one, run `bun check` first. Never commit credentials or funded-wallet secrets. Documented token/provider support is separate from a tested integration.
 
 ## License
 
