@@ -19,6 +19,7 @@
     "@coinbase/cdp-sdk": "1.55.0",
     "@neondatabase/serverless": "1.1.0",
     "@radix-ui/react-select": "2.3.7",
+    "liveline": "0.0.7",
     "lucide-react": "1.42.0",
     "motion": "13.2.0",
     "next": "16.3.4",

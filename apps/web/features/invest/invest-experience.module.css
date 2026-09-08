@@ -38,6 +38,11 @@
   padding: 2px 0 10px;
 }
 
+.detailExperience .screenHeader {
+  min-height: 44px;
+  padding: 0 0 6px;
+}
+
 .screenHeader h2,
 .screenHeader h3 {
   margin: 0;
@@ -187,10 +192,22 @@
   color: #c3372a;
 }
 
+.detailExperience {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100svh - 12.5rem);
+  overflow-x: clip;
+}
+
+.detailExperience .screenHeader,
+.detailExperience .priceHeader {
+  flex-shrink: 0;
+}
+
 .priceHeader {
   display: grid;
   gap: 6px;
-  padding: 8px 2px 16px;
+  padding: 4px 2px 12px;
 }
 
 .priceHeader strong {
@@ -208,23 +225,23 @@
 }
 
 .chartBlock {
-  display: grid;
-  gap: 12px;
-  min-height: 220px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
 }
 
 .ranges {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 4px;
-  border-radius: var(--control-radius);
-  background: var(--home-canvas);
-  padding: 3px;
+  gap: 6px;
+  padding: 0 2px;
 }
 
 .ranges button {
   min-height: 34px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--control-radius);
   background: transparent;
   color: var(--home-muted);
@@ -233,51 +250,36 @@
   font-weight: 700;
   transition:
     background-color var(--motion-chip) ease,
-    color var(--motion-chip) ease,
-    box-shadow var(--motion-chip) ease;
+    border-color var(--motion-chip) ease,
+    color var(--motion-chip) ease;
 }
 
 .ranges button[aria-pressed="true"] {
-  background: var(--home-white);
+  border-color: var(--home-hairline);
+  background: var(--home-canvas);
   color: var(--home-ink);
-  box-shadow: inset 0 0 0 1px var(--home-hairline);
 }
 
-.chart {
-  width: 100%;
-  height: 190px;
-}
-
-.chartStatus,
+.chartStage,
 .chartEmpty {
-  display: grid;
-  min-height: 190px;
-  place-items: center;
-  color: var(--home-muted);
-  font-size: 0.8rem;
-}
-
-.chartLoading {
-  min-height: 190px;
-  border-radius: var(--panel-radius);
+  display: flex;
+  flex: 1 1 auto;
+  width: calc(100% + 32px);
+  min-height: 260px;
+  margin-inline: -16px;
   background: var(--home-canvas);
 }
 
-.axis {
-  fill: var(--home-muted);
-  font-size: 10px;
+.chartStage > div {
+  flex: 1;
+  min-height: 260px;
 }
 
-.line {
-  fill: none;
-  stroke: var(--home-blue);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.75;
-}
-
-.area {
-  fill: rgba(0, 82, 255, 0.06);
+.chartEmpty {
+  align-items: center;
+  justify-content: center;
+  color: var(--home-muted);
+  font-size: 0.8rem;
 }
 
 .cta {
@@ -285,15 +287,15 @@
   bottom: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1.15fr 1fr;
   gap: 8px;
-  margin-top: 22px;
+  margin-top: 12px;
   background: var(--home-canvas);
   padding: 12px 0 4px;
 }
 
 .cta button {
-  min-height: 48px;
+  min-height: 54px;
   border-radius: var(--control-radius);
   cursor: pointer;
   font-size: 0.92rem;
@@ -329,8 +331,28 @@
 }
 
 @media (max-width: 719px) {
+  .detailExperience {
+    min-height: calc(100svh - 11.25rem - env(safe-area-inset-bottom));
+  }
+
   .cta {
     bottom: calc(70px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (min-width: 720px) {
+  .chartStage,
+  .chartEmpty {
+    width: calc(100% + 72px);
+    margin-inline: -36px;
+  }
+}
+
+@media (min-width: 1080px) {
+  .chartStage,
+  .chartEmpty {
+    width: calc(100% + 104px);
+    margin-inline: -52px;
   }
 }
 

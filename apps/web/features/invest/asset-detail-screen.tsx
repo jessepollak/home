@@ -24,7 +24,10 @@ export function AssetDetailScreen({
   const history = usePriceHistory(asset.id as InvestAssetId, range);
   const price = getMarketDisplay(asset.id, market);
   return (
-    <section className={styles.experience} aria-labelledby="invest-asset-title">
+    <section
+      className={`${styles.experience} ${styles.detailExperience}`}
+      aria-labelledby="invest-asset-title"
+    >
       <header className={styles.screenHeader}>
         <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
           <BackIcon />

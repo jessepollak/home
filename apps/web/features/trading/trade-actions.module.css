@@ -63,15 +63,16 @@
   bottom: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  flex-shrink: 0;
+  grid-template-columns: 1.15fr 1fr;
   gap: 8px;
-  margin-top: 22px;
+  margin-top: 12px;
   background: var(--home-canvas);
   padding: 12px 0 4px;
 }
 
 .stickyActions button {
-  min-height: 48px;
+  min-height: 54px;
   border: 1px solid var(--home-hairline);
   border-radius: var(--control-radius);
   background: var(--home-white);
