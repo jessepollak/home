@@ -14,7 +14,8 @@ mock.module("liveline", () => ({
 }));
 
 const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
-const { PriceChart, toLivelinePoints, visibleWindowSeconds } = await import("./price-chart");
+const { LIVELINE_PLOT_PADDING, PriceChart, toLivelinePoints, visibleWindowSeconds } =
+  await import("./price-chart");
 
 function stubMatchMedia(reducedMotion: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -77,6 +78,9 @@ describe("PriceChart Liveline", () => {
     expect(chart.data).toEqual(toLivelinePoints(points));
     expect(chart.value).toBe(64210);
     expect(chart.window).toBeGreaterThanOrEqual(7 * 86_400);
+    expect(chart.padding).toEqual(LIVELINE_PLOT_PADDING);
+    expect(LIVELINE_PLOT_PADDING.right).toBeGreaterThanOrEqual(32);
+    expect(LIVELINE_PLOT_PADDING.left).toBeGreaterThanOrEqual(16);
   });
 
   test("wires range chips to the history callback", () => {
@@ -105,7 +109,7 @@ describe("PriceChart Liveline", () => {
 });
 
 describe("PriceChart states", () => {
-  test("preserves loading, empty, and error states", () => {
+  test("reserves the chart stage and keeps Liveline mounted through loading, empty, and error", () => {
     const { rerender } = render(
       <PriceChart
         range="1D"
@@ -113,10 +117,13 @@ describe("PriceChart states", () => {
         onRangeChange={() => {}}
       />,
     );
-    expect(
-      within(document.body).getByRole("status", { name: "Loading price history" }),
-    ).toBeTruthy();
+    const loadingStage = within(document.body).getByRole("status", {
+      name: "Loading price history",
+    });
+    expect(loadingStage).toBeTruthy();
+    expect(within(loadingStage).getByTestId("liveline")).toBeTruthy();
     expect(livelineCalls[0]?.loading).toBe(true);
+    expect(livelineCalls[0]?.data).toEqual([]);
 
     rerender(
       <PriceChart
@@ -126,6 +133,7 @@ describe("PriceChart states", () => {
       />,
     );
     expect(within(document.body).getByText("No price history for this range.")).toBeTruthy();
+    expect(within(document.body).getByTestId("liveline")).toBeTruthy();
 
     rerender(
       <PriceChart
@@ -135,6 +143,83 @@ describe("PriceChart states", () => {
       />,
     );
     expect(within(document.body).getByText("Price history unavailable.")).toBeTruthy();
+    expect(within(document.body).getByTestId("liveline")).toBeTruthy();
+  });
+
+  test("keeps the last good series in place while a new range loads", () => {
+    stubMatchMedia(false);
+    const week = [
+      { time: "2026-09-01T00:00:00.000Z", value: "62000" },
+      { time: "2026-09-07T00:00:00.000Z", value: "64210" },
+    ];
+    const { rerender } = render(
+      <PriceChart
+        assetId="cbbtc"
+        range="1W"
+        history={{ status: "ready", points: week }}
+        onRangeChange={() => {}}
+      />,
+    );
+    expect(livelineCalls[0]?.data).toEqual(toLivelinePoints(week));
+    livelineCalls.length = 0;
+
+    rerender(
+      <PriceChart
+        assetId="cbbtc"
+        range="1D"
+        history={{ status: "loading", points: [] }}
+        onRangeChange={() => {}}
+      />,
+    );
+    expect(within(document.body).getByRole("img", { name: "1W price history" })).toBeTruthy();
+    expect(livelineCalls[0]?.loading).toBe(false);
+    expect(livelineCalls[0]?.data).toEqual(toLivelinePoints(week));
+
+    const day = [
+      { time: "2026-09-08T00:00:00.000Z", value: "64100" },
+      { time: "2026-09-08T12:00:00.000Z", value: "64300" },
+    ];
+    rerender(
+      <PriceChart
+        assetId="cbbtc"
+        range="1D"
+        history={{ status: "ready", points: day }}
+        onRangeChange={() => {}}
+      />,
+    );
+    expect(within(document.body).getByRole("img", { name: "1D price history" })).toBeTruthy();
+    expect(livelineCalls.at(-1)?.data).toEqual(toLivelinePoints(day));
+  });
+
+  test("does not keep a previous asset series when the detail asset changes", () => {
+    stubMatchMedia(false);
+    const week = [
+      { time: "2026-09-01T00:00:00.000Z", value: "62000" },
+      { time: "2026-09-07T00:00:00.000Z", value: "64210" },
+    ];
+    const { rerender } = render(
+      <PriceChart
+        assetId="cbbtc"
+        range="1W"
+        history={{ status: "ready", points: week }}
+        onRangeChange={() => {}}
+      />,
+    );
+    livelineCalls.length = 0;
+
+    rerender(
+      <PriceChart
+        assetId="eth"
+        range="1W"
+        history={{ status: "loading", points: [] }}
+        onRangeChange={() => {}}
+      />,
+    );
+    expect(
+      within(document.body).getByRole("status", { name: "Loading price history" }),
+    ).toBeTruthy();
+    expect(livelineCalls[0]?.loading).toBe(true);
+    expect(livelineCalls[0]?.data).toEqual([]);
   });
 });
 

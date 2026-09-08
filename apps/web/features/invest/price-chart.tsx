@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo, useRef, useSyncExternalStore } from "react";
 import { Liveline, type LivelinePoint } from "liveline";
 import {
   MARKET_PRICE_RANGES,
@@ -19,13 +19,23 @@ const RANGE_SECONDS: Record<MarketPriceRange, number> = {
   "1Y": 365 * 86_400,
 };
 
+/** Liveline pulse ring max is 21px + 1.5 stroke; keep the live tip inside the plot. */
+export const LIVELINE_PLOT_PADDING = {
+  top: 24,
+  right: 36,
+  bottom: 28,
+  left: 16,
+} as const;
+
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
 
 export function PriceChart({
+  assetId,
   range,
   history,
   onRangeChange,
 }: {
+  assetId?: string;
   range: MarketPriceRange;
   history: PriceHistoryState;
   onRangeChange: (range: MarketPriceRange) => void;
@@ -44,55 +54,74 @@ export function PriceChart({
           </button>
         ))}
       </div>
-      <ChartBody history={history} range={range} />
+      <ChartBody assetId={assetId} history={history} range={range} />
     </div>
   );
 }
 
 function ChartBody({
+  assetId,
   history,
   range,
 }: {
+  assetId?: string;
   history: PriceHistoryState;
   range: MarketPriceRange;
 }) {
   const reduceMotion = usePrefersReducedMotion();
+  const lastGood = useRef<{
+    assetId?: string;
+    points: LivelinePoint[];
+    range: MarketPriceRange;
+  } | null>(null);
 
-  if (history.status === "loading") {
-    return (
-      <div className={styles.chartStage} role="status" aria-label="Loading price history">
-        <AssetLiveline
-          points={[]}
-          range={range}
-          loading
-          reduceMotion={reduceMotion}
-        />
-      </div>
-    );
+  const incoming = toLivelinePoints(history.points);
+  if (lastGood.current && lastGood.current.assetId !== assetId) {
+    lastGood.current = null;
+  }
+  if (history.status === "ready" && incoming.length > 0) {
+    lastGood.current = { assetId, points: incoming, range };
+  } else if (history.status !== "loading") {
+    lastGood.current = null;
   }
 
-  if (history.status !== "ready" || history.points.length === 0) {
-    return (
-      <p className={styles.chartEmpty} role="status">
-        {history.status === "error"
-          ? "Price history unavailable."
-          : "No price history for this range."}
-      </p>
-    );
-  }
+  const held = lastGood.current;
+  const series =
+    incoming.length > 0 && (history.status === "ready" || history.status === "loading")
+      ? {
+          points: incoming,
+          range: history.status === "ready" ? range : (held?.range ?? range),
+        }
+      : history.status === "loading" && held
+        ? held
+        : { points: [] as LivelinePoint[], range };
 
-  const points = toLivelinePoints(history.points);
-  if (points.length === 0) {
-    return (
-      <p className={styles.chartEmpty} role="status">
-        No price history for this range.
-      </p>
-    );
-  }
+  const waitingFirstPaint = history.status === "loading" && series.points.length === 0;
+  const unavailable =
+    history.status !== "loading" &&
+    (history.status === "error" || series.points.length === 0);
+  const stageRole = waitingFirstPaint || unavailable ? "status" : "img";
+  const stageLabel = waitingFirstPaint
+    ? "Loading price history"
+    : unavailable
+      ? undefined
+      : `${series.range} price history`;
 
   return (
-    <div className={styles.chartStage} role="img" aria-label={`${range} price history`}>
-      <AssetLiveline points={points} range={range} reduceMotion={reduceMotion} />
+    <div className={styles.chartStage} role={stageRole} aria-label={stageLabel}>
+      <AssetLiveline
+        points={series.points}
+        range={series.range}
+        loading={waitingFirstPaint}
+        reduceMotion={reduceMotion}
+      />
+      {unavailable ? (
+        <p className={styles.chartMessage} role="status">
+          {history.status === "error"
+            ? "Price history unavailable."
+            : "No price history for this range."}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -135,7 +164,7 @@ function AssetLiveline({
       lineWidth={2.5}
       formatTime={formatTime}
       formatValue={formatChartValue}
-      padding={{ top: 16, right: 12, bottom: 28, left: 4 }}
+      padding={LIVELINE_PLOT_PADDING}
       style={{ height: "100%" }}
     />
   );

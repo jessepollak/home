@@ -49,4 +49,11 @@ describe("Direction 1 — Vercel Editorial tokens", () => {
     expect(chart).toContain("fill");
     expect(invest).toContain("background: var(--home-canvas)");
   });
+
+  test("reserves the asset-detail chart stage so header and CTAs do not jump", () => {
+    expect(invest).toContain("min-height: 304px");
+    expect(invest).toContain("min-height: 260px");
+    expect(chart).toContain("right: 36");
+    expect(chart).toContain("left: 16");
+  });
 });

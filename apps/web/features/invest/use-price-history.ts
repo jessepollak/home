@@ -77,9 +77,18 @@ export function usePriceHistory(
     return () => controller.abort();
   }, [assetId, range, requestKey]);
 
-  return loaded.key === requestKey
-    ? loaded.state
-    : { status: "loading", points: [] };
+  if (loaded.key === requestKey) {
+    return loaded.state;
+  }
+
+  const sameAsset = loaded.key.startsWith(`${assetId}:`);
+  return {
+    status: "loading",
+    points:
+      sameAsset && loaded.state.status === "ready" && loaded.state.points.length > 0
+        ? loaded.state.points
+        : [],
+  };
 }
 
 function parseHistoryResponse(value: unknown): MarketPriceHistoryResponse | null {

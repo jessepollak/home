@@ -244,7 +244,7 @@
   flex: 1;
   flex-direction: column;
   gap: 10px;
-  min-height: 0;
+  min-height: 304px;
 }
 
 .ranges {
@@ -275,26 +275,32 @@
   color: var(--home-ink);
 }
 
-.chartStage,
-.chartEmpty {
+.chartStage {
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   width: calc(100% + 32px);
   min-height: 260px;
   margin-inline: -16px;
+  overflow: hidden;
   background: var(--home-canvas);
 }
 
 .chartStage > div {
   flex: 1;
+  min-width: 0;
   min-height: 260px;
 }
 
-.chartEmpty {
-  align-items: center;
-  justify-content: center;
+.chartMessage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
   color: var(--home-muted);
   font-size: 0.8rem;
+  pointer-events: none;
 }
 
 .cta {
@@ -356,16 +362,14 @@
 }
 
 @media (min-width: 720px) {
-  .chartStage,
-  .chartEmpty {
+  .chartStage {
     width: calc(100% + 72px);
     margin-inline: -36px;
   }
 }
 
 @media (min-width: 1080px) {
-  .chartStage,
-  .chartEmpty {
+  .chartStage {
     width: calc(100% + 104px);
     margin-inline: -52px;
   }
