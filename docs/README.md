@@ -57,6 +57,7 @@ Old URLs still resolve: [technical-design.md](technical-design.md) and [implemen
 |---|---|
 | [Currency defaults](currency-defaults.md) | Confirmed default token per currency (including **CADD** and **wARS**) |
 | [Stablecoin candidates](stablecoin-candidates.json) | Sourced Base contract metadata; verification pending, funding disabled |
+| [IDRX onramp research](idrx-onramp.md) | Indonesia issuer 1:1 mint (VA / hosted checkout); sandbox/smoke still open |
 | [Invest data](invest-data.md) | Stock/meme identities and price/eligibility boundaries |
 
 Code registries that match these docs: `apps/web/config/regions.ts`, `apps/web/config/invest-assets.ts`, `apps/web/config/portfolio-assets.ts`.

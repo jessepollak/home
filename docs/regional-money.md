@@ -57,7 +57,7 @@ Proposed first mappings to validate end to end: USD → USDC, EUR → EURC, IDR 
 
 - [Circle USDC addresses](https://developers.circle.com/stablecoins/usdc-contract-addresses): Base `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
 - [Circle EURC on Base](https://www.circle.com/es/blog/eurc-is-coming-to-base): `0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42`, matching the dashboard.
-- [IDRX issuer contracts](https://docs.idrx.co/introduction/supported-chain-and-contract-address): Base `0x18Bc5bcC660cf2B9cE3cd51a404aFe1a0cBD3C22`, matching the dashboard. [Issuer denomination](https://docs.idrx.co/) identifies IDR.
+- [IDRX issuer contracts](https://docs.idrx.co/introduction/supported-chain-and-contract-address): Base `0x18Bc5bcC660cf2B9cE3cd51a404aFe1a0cBD3C22` (2 decimals), matching the dashboard. [Issuer denomination](https://docs.idrx.co/) identifies IDR. Issuer mint/onramp research: [idrx-onramp.md](idrx-onramp.md) (2026-09-08; no smoke yet).
 
 The JSON preserves dashboard addresses/decimals as candidates with `enabled: false`. Those are source observations, not RPC checks or a production allowlist. USDC decimals remain unchecked in that file. Do not promote the file directly to runtime configuration.
 

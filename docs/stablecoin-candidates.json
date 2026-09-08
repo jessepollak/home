@@ -18,15 +18,18 @@
     {
       "chainId": 8453,
       "address": "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
+      "checksumAddress": "0x18Bc5bcC660cf2B9cE3cd51a404aFe1a0cBD3C22",
       "symbol": "IDRX",
       "currency": "IDR",
       "decimals": 2,
       "region": "Indonesia",
       "countryCode": "ID",
       "source": "https://dune.com/queries/4780995",
-      "verification": "dashboard-listed",
+      "verification": "issuer-address-documented",
       "enabled": false,
       "issuerAddressSource": "https://docs.idrx.co/introduction/supported-chain-and-contract-address",
+      "researchNote": "idrx-onramp.md",
+      "researchCheckedAt": "2026-09-08",
       "selectedProduct": true
     },
     {
