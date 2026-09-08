@@ -130,6 +130,8 @@ Weekdays ~9:00 PT. 15–20 min per lane. Async-first. Quiet if nothing actionabl
 | Hazel | Design / proof on open UI PRs that day |
 | Hannah | Eng review and labels. Never merge. |
 
+**Shared (all lanes):** File or bump issues. Ping Hannah on merge-blockers. Quiet if clean.
+
 ### Hank
 
 - `owner:hank` tickets.
