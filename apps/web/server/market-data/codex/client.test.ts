@@ -10,6 +10,7 @@ import {
   CODEX_PRICE_SOURCE_URL,
   CODEX_TOKEN_PRICES_QUERY,
 } from "./config";
+import { MARKET_PRICE_DISPLAY_FRESHNESS_MS } from "./public-contract";
 
 const NOW_ISO = "2026-09-07T20:30:00.000Z";
 const NOW_MS = Date.parse(NOW_ISO);
@@ -125,9 +126,54 @@ describe("Codex market price reader", () => {
     });
   });
 
+  test("keeps allowlisted thinner-market rows older than five minutes when Codex still has coverage", async () => {
+    const doge = investAssets.find(({ id }) => id === "cbdoge");
+    const ltc = investAssets.find(({ id }) => id === "cbltc");
+    const toshi = investAssets.find(({ id }) => id === "toshi");
+    if (!doge || !ltc || !toshi) throw new Error("expected invest roster ids");
+
+    const rows = [
+      row({
+        address: doge.contractAddress,
+        price: "0.090026586654",
+        timestamp: String(NOW_SECONDS - 6 * 60),
+      }),
+      row({
+        address: ltc.contractAddress,
+        price: "54.155267889",
+        timestamp: String(NOW_SECONDS - 9 * 60),
+      }),
+      row({
+        address: toshi.contractAddress,
+        price: "0.000122856768656",
+        timestamp: String(NOW_SECONDS - 17 * 60),
+      }),
+    ].join(",");
+    const result = await createCodexMarketPricesReader({
+      apiKey: "fixture-key",
+      fetchImpl: (async () => responseFromRows(rows)),
+      now,
+    })();
+
+    const crypto = result.markets.crypto;
+    const meme = result.markets.meme;
+    expect(crypto?.status).toBe("ready");
+    expect(meme?.status).toBe("ready");
+    if (crypto?.status !== "ready" || meme?.status !== "ready") {
+      throw new Error("unreachable");
+    }
+    expect(crypto.snapshots.map(({ assetId, displayPrice }) => [assetId, displayPrice])).toEqual([
+      ["cbdoge", "$0.090026586654"],
+      ["cbltc", "$54.155267889"],
+    ]);
+    expect(meme.snapshots.map(({ assetId, displayPrice }) => [assetId, displayPrice])).toEqual([
+      ["toshi", "$0.000122856768656"],
+    ]);
+  });
+
   test("treats null, zero, negative, malformed, stale, future, duplicate, and out-of-scope records as unavailable", async () => {
     const [first, second, third, fourth, fifth, sixth] = investAssets;
-    const stale = NOW_SECONDS - 5 * 60 - 1;
+    const stale = NOW_SECONDS - MARKET_PRICE_DISPLAY_FRESHNESS_MS / 1_000 - 1;
     const future = NOW_SECONDS + 61;
     const rows = [
       "null",

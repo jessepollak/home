@@ -20,7 +20,7 @@ import {
 } from "./config";
 import { parseJsonWithNumberLexemes } from "./lossless-json";
 import {
-  MARKET_PRICE_FRESHNESS_MS,
+  MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   MARKET_PRICES_VERSION,
   type MarketPricesResponse,
 } from "./public-contract";
@@ -302,7 +302,9 @@ function normalizeSnapshots(
     const sourceTimeMs = timestampSeconds * 1_000;
     if (!Number.isSafeInteger(sourceTimeMs)) continue;
     if (sourceTimeMs > fetchedAt.getTime() + CODEX_MAX_FUTURE_SKEW_MS) continue;
-    if (fetchedAt.getTime() - sourceTimeMs > MARKET_PRICE_FRESHNESS_MS) continue;
+    if (fetchedAt.getTime() - sourceTimeMs > MARKET_PRICE_DISPLAY_FRESHNESS_MS) {
+      continue;
+    }
 
     const asOf = new Date(sourceTimeMs);
     if (Number.isNaN(asOf.getTime())) continue;

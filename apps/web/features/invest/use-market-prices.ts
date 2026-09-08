@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { investAssets } from "@/config/invest-assets";
 import {
-  MARKET_PRICE_FRESHNESS_MS,
+  MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   MARKET_PRICES_VERSION,
   type MarketPricesResponse,
 } from "@/server/market-data/codex/public-contract";
@@ -41,7 +41,7 @@ export function useMarketPrices({
   endpoint = MARKET_PRICES_ENDPOINT,
   fetchImpl = fetch,
   now = Date.now,
-  freshnessMs = MARKET_PRICE_FRESHNESS_MS,
+  freshnessMs = MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   refreshCooldownMs = VISIBILITY_REFRESH_COOLDOWN_MS,
 }: UseMarketPricesOptions = {}): PricedInvestMarketProps {
   const [marketResponse, setMarketResponse] = useState<MarketPricesResponse>(() =>
@@ -123,7 +123,7 @@ export function useMarketPrices({
 export function ageMarketPricesResponse(
   response: MarketPricesResponse,
   currentTimeMs: number,
-  freshnessMs = MARKET_PRICE_FRESHNESS_MS,
+  freshnessMs = MARKET_PRICE_DISPLAY_FRESHNESS_MS,
 ): MarketPricesResponse {
   let changed = false;
   const markets: Record<string, MarketDataState> = {};

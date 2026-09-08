@@ -50,7 +50,7 @@ The per-process cache is not a project-wide production rate limiter. Multiple in
 
 Codex's current reference describes `TokenPrice.priceUsd` as a GraphQL `Float`, so the JSON response carries a numeric token rather than an arbitrary-precision JSON string. Home parses the response text losslessly and preserves the exact numeric lexeme instead of first coercing it through JavaScript `number`. Positive decimal and exponent forms are accepted. Null, missing, malformed, non-finite, negative, or zero prices are unavailable, never fabricated as zero.
 
-Records are accepted only when address plus network match an allowlisted configured asset. Out-of-scope, duplicate, malformed, stale, or more-than-60-seconds-future records are omitted. Source freshness is based only on Codex `timestamp`, with a five-minute budget; request/fetch time is retained separately and never substituted for trade freshness.
+Records are accepted only when address plus network match an allowlisted configured asset. Out-of-scope, duplicate, malformed, stale, or more-than-60-seconds-future records are omitted. Source freshness is based only on Codex `timestamp`; request/fetch time is retained separately and never substituted for trade freshness. Invest discover uses a 24-hour display budget because Codex timestamps last trade, not last fetch — thinner Base markets (cbDOGE, cbLTC, TOSHI) routinely age past five minutes while still returning a price for the exact allowlisted contract. Portfolio valuation quotes keep the five-minute budget. Missing, null, or wrong-identity rows stay omitted; Home does not substitute a native-asset or other-network spot price.
 
 Official references reviewed:
 
@@ -65,7 +65,7 @@ The authenticated live schema accepts `GetPriceInput`, matching the current publ
 
 A bounded three-request recovery batch was completed on September 7, 2026. The first diagnostic received HTTP 401 `UNAUTHENTICATED` because the probe's initial loader did not apply dotenv parsing; it is not evidence that the rotated key is invalid. The second request loaded only the scoped credential with Bun's dotenv handling and received HTTP 400: `GetTokenPricesInput` was unknown and the field expected `[GetPriceInput]`. The third and final request used `GetPriceInput`, received HTTP 200 with no GraphQL errors, and returned exactly 11 rows matched to the 11 requested Base contracts. No raw response, header, credential, prefix, or hash was recorded.
 
-Codex returned a numeric `priceUsd` token and an integer Unix-seconds `timestamp` for every requested contract. At the successful probe around `2026-09-07T23:01:23Z`, 8 of 11 records were within Home's five-minute freshness budget and can flow through the current lossless adapter into the existing `MarketDataState`/`PricedInvestExperience` wrapper. Three records were present but stale and therefore remain explicitly omitted rather than being shown or replaced with an underlying equity or native-asset spot price.
+Codex returned a numeric `priceUsd` token and an integer Unix-seconds `timestamp` for every requested contract. At the successful probe around `2026-09-07T23:01:23Z`, every requested Base contract had coverage. Eight records were within five minutes; `cbltc` (~9 minutes), `cbada` (~5 minutes), and `toshi` (~17 minutes) were older last-trade stamps. Those three were previously omitted by the five-minute discover budget (issue #41). They now display under the 24-hour indication window, still labeled with Codex `asOf` and still never replaced with an underlying equity or native-asset spot price.
 
 | Asset ID | Base representation | Source timestamp (UTC) | Current wrapper result at probe time |
 | --- | --- | --- | --- |
@@ -76,10 +76,10 @@ Codex returned a numeric `priceUsd` token and an integer Unix-seconds `timestamp
 | `cbbtc` | cbBTC | `2026-09-07T23:01:21Z` | Fresh; displayable |
 | `cbxrp` | cbXRP | `2026-09-07T23:00:13Z` | Fresh; displayable |
 | `cbdoge` | cbDOGE | `2026-09-07T22:58:09Z` | Fresh; displayable |
-| `cbltc` | cbLTC | `2026-09-07T22:52:23Z` | Present but stale; omitted |
-| `cbada` | cbADA | `2026-09-07T22:56:05Z` | Present but stale; omitted |
+| `cbltc` | cbLTC | `2026-09-07T22:52:23Z` | Last trade older than five minutes; displayable under the 24-hour indication budget |
+| `cbada` | cbADA | `2026-09-07T22:56:05Z` | Last trade older than five minutes; displayable under the 24-hour indication budget |
 | `degen` | DEGEN | `2026-09-07T23:00:53Z` | Fresh; displayable |
-| `toshi` | TOSHI | `2026-09-07T22:44:15Z` | Present but stale; omitted |
+| `toshi` | TOSHI | `2026-09-07T22:44:15Z` | Last trade older than five minutes; displayable under the 24-hour indication budget |
 
 This closes the provider authentication and schema gate for the rotated key. It does not guarantee that every contract will always have a fresh trade-derived timestamp; null, missing, malformed, or stale future reads continue to stay explicit. No main composition change is needed because `app/page.tsx` already renders `PricedInvestExperience`.
 

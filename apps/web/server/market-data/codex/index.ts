@@ -18,6 +18,7 @@ export {
   CODEX_TOKEN_PRICES_QUERY,
 } from "./config";
 export {
+  MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   MARKET_PRICE_FRESHNESS_MS,
   MARKET_PRICES_VERSION,
   type MarketPricesResponse,

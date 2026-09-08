@@ -1,7 +1,10 @@
 import "@/features/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import type { MarketPricesResponse } from "@/server/market-data/codex/public-contract";
+import {
+  MARKET_PRICE_DISPLAY_FRESHNESS_MS,
+  type MarketPricesResponse,
+} from "@/server/market-data/codex/public-contract";
 import type { UseMarketPricesOptions } from "./use-market-prices";
 
 const { cleanup, render, waitFor, within } = await import("@testing-library/react");
@@ -107,8 +110,28 @@ describe("useMarketPrices", () => {
     );
   });
 
+  test("keeps a thinner-market Codex indication older than five minutes", async () => {
+    const asOf = new Date(Date.now() - 17 * 60_000).toISOString();
+    render(
+      <HookProbe
+        options={{
+          fetchImpl: (async () => Response.json(responseWithSnapshot(asOf))),
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("stock-detail").textContent).toBe(
+        "$123.4567890123456789",
+      ),
+    );
+    expect(page().getByTestId("stock-status").textContent).toBe("ready");
+  });
+
   test("uses the source timestamp, not fetchedAt, for immediate staleness", async () => {
-    const staleAsOf = new Date(Date.now() - 5 * 60_000 - 1).toISOString();
+    const staleAsOf = new Date(
+      Date.now() - MARKET_PRICE_DISPLAY_FRESHNESS_MS - 1,
+    ).toISOString();
     render(
       <HookProbe
         options={{
