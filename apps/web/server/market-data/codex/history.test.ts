@@ -13,16 +13,25 @@ const NOW_MS = Date.parse(NOW_ISO);
 const now = () => new Date(NOW_MS);
 const bitcoin = investAssets.find((asset) => asset.id === "cbbtc")!;
 
-function barsResponse(points: { t: number; c: string }[], status = "ok") {
+function barsResponse(
+  points: { t: number; c: string | null }[],
+  status = "ok",
+) {
   return Response.json({
     data: {
       getBars: {
         t: points.map((point) => point.t),
-        c: points.map((point) => Number(point.c)),
+        c: points.map((point) =>
+          point.c === null ? null : Number(point.c),
+        ),
         s: status,
       },
     },
   });
+}
+
+function rawBarsResponse(getBars: unknown) {
+  return Response.json({ data: { getBars } });
 }
 
 describe("Codex market history reader", () => {
@@ -71,15 +80,92 @@ describe("Codex market history reader", () => {
     });
   });
 
-  test("returns empty instead of fabricating a series when Codex has no bars", async () => {
-    const result = await createCodexMarketHistoryReader({
+  test("returns empty for explicit no_data and valid empty ok bars", async () => {
+    const noData = await createCodexMarketHistoryReader({
       apiKey: "fixture-key",
       now,
       fetchImpl: async () => barsResponse([], "no_data"),
     })("cbbtc", "1D");
+    const emptyOk = await createCodexMarketHistoryReader({
+      apiKey: "fixture-key",
+      now,
+      fetchImpl: async () => barsResponse([]),
+    })("cbbtc", "1D");
 
-    expect(result.status).toBe("empty");
-    expect(result.points).toEqual([]);
+    expect(noData).toMatchObject({ status: "empty", points: [] });
+    expect(emptyOk).toMatchObject({ status: "empty", points: [] });
+  });
+
+  test("accepts nullable close values and preserves valid non-null close lexemes", async () => {
+    const result = await createCodexMarketHistoryReader({
+      apiKey: "fixture-key",
+      now,
+      fetchImpl: async () =>
+        barsResponse([
+          { t: 1757200000, c: null },
+          { t: 1757286400, c: "64210.5" },
+        ]),
+    })("cbbtc", "1D");
+    const allNull = await createCodexMarketHistoryReader({
+      apiKey: "fixture-key",
+      now,
+      fetchImpl: async () => barsResponse([{ t: 1757200000, c: null }]),
+    })("cbbtc", "1D");
+
+    expect(result).toMatchObject({
+      status: "ready",
+      points: [
+        { time: new Date(1757286400 * 1000).toISOString(), value: "64210.5" },
+      ],
+    });
+    expect(allNull).toMatchObject({ status: "empty", points: [] });
+  });
+
+  test("rejects malformed bar structures and values instead of treating them as empty", async () => {
+    const malformedBars = [
+      { s: "ok", t: [1757332800], c: [] },
+      { s: "ok", t: [] },
+      { s: "ok", c: [] },
+      { t: [], c: [] },
+      { s: "unexpected", t: [], c: [] },
+      { s: "ok", t: ["bad-timestamp"], c: [1] },
+      { s: "ok", t: [1757332800], c: ["bad-price"] },
+    ];
+
+    for (const getBars of malformedBars) {
+      const reader = createCodexMarketHistoryReader({
+        apiKey: "fixture-key",
+        now,
+        fetchImpl: async () => rawBarsResponse(getBars),
+      });
+
+      await expect(reader("cbbtc", "1D")).rejects.toBeInstanceOf(
+        CodexMarketDataError,
+      );
+    }
+  });
+
+  test("does not cache malformed history and recovers from a valid response", async () => {
+    let calls = 0;
+    const reader = createCodexMarketHistoryReader({
+      apiKey: "fixture-key",
+      now,
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 1
+          ? rawBarsResponse({ s: "ok", t: [1757332800], c: [] })
+          : barsResponse([{ t: 1757332800, c: "64210.5" }]);
+      },
+    });
+
+    await expect(reader("cbbtc", "1D")).rejects.toBeInstanceOf(
+      CodexMarketDataError,
+    );
+    await expect(reader("cbbtc", "1D")).resolves.toMatchObject({
+      status: "ready",
+      points: [{ value: "64210.5" }],
+    });
+    expect(calls).toBe(2);
   });
 
   test("rejects unknown assets and ranges without calling Codex", async () => {

@@ -275,21 +275,38 @@ async function executeCodexBars({
 function normalizeBars(data: unknown): MarketPriceHistoryPoint[] {
   const record = readRecord(data);
   const bars = readRecord(record?.getBars);
-  if (!bars) return [];
-  if (typeof bars.s === "string" && bars.s !== "ok") return [];
-  if (!Array.isArray(bars.t) || !Array.isArray(bars.c)) return [];
-  if (bars.t.length !== bars.c.length) return [];
+  if (!bars) throwMalformedBars();
+
+  const status = bars.s;
+  if (status !== "ok" && status !== "no_data") throwMalformedBars();
+  if (!Array.isArray(bars.t) || !Array.isArray(bars.c)) throwMalformedBars();
+  if (bars.t.length !== bars.c.length) throwMalformedBars();
+  if (status === "no_data") {
+    if (bars.t.length !== 0) throwMalformedBars();
+    return [];
+  }
 
   const points: MarketPriceHistoryPoint[] = [];
   for (let index = 0; index < bars.t.length; index += 1) {
     const timestampSeconds = readInteger(bars.t[index]);
-    const value = readPositiveDecimal(bars.c[index]);
-    if (timestampSeconds === null || !value) continue;
+    if (timestampSeconds === null) throwMalformedBars();
+
     const time = new Date(timestampSeconds * 1_000);
-    if (Number.isNaN(time.getTime())) continue;
+    if (Number.isNaN(time.getTime())) throwMalformedBars();
+
+    // Codex documents close values as nullable Float entries. A null close has
+    // no point to expose, while every non-null close must be a valid price.
+    if (bars.c[index] === null) continue;
+    const value = readPositiveDecimal(bars.c[index]);
+    if (!value) throwMalformedBars();
+
     points.push({ time: time.toISOString(), value });
   }
   return points;
+}
+
+function throwMalformedBars(): never {
+  throw new CodexMarketDataError("Codex market history returned malformed bars.");
 }
 
 function createHistoryResponse({

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createErrorMarketHistoryResponse } from "@/server/market-data/codex/history";
+import {
+  createCodexMarketHistoryReader,
+  createErrorMarketHistoryResponse,
+} from "@/server/market-data/codex/history";
 import type { MarketPriceHistoryResponse } from "@/server/market-data/codex/history-contract";
 import { createMarketPriceHistoryHandler } from "./handler";
 import { dynamic, runtime } from "./route";
@@ -59,7 +62,7 @@ describe("GET /api/market-prices/history", () => {
     expect(calls).toBe(0);
   });
 
-  test("does not leak upstream errors or credentials", async () => {
+  test("does not leak unexpected upstream errors or credentials", async () => {
     const GET = createMarketPriceHistoryHandler(async () => {
       throw new Error("upstream body and fixture-secret");
     });
@@ -72,6 +75,29 @@ describe("GET /api/market-prices/history", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body).toBe(JSON.stringify(createErrorMarketHistoryResponse("cbbtc", "1W")));
     expect(body).not.toContain("upstream body");
+    expect(body).not.toContain("fixture-secret");
+  });
+
+  test("returns a sanitized no-store 502 for malformed upstream history", async () => {
+    const reader = createCodexMarketHistoryReader({
+      apiKey: "fixture-secret",
+      fetchImpl: async () =>
+        Response.json({
+          data: {
+            getBars: { s: "ok", t: [1757332800], c: [] },
+          },
+        }),
+    });
+    const GET = createMarketPriceHistoryHandler(reader);
+    const response = await GET(
+      new Request("http://home.test/api/market-prices/history?assetId=cbbtc&range=1W"),
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body).toBe(JSON.stringify(createErrorMarketHistoryResponse("cbbtc", "1W")));
+    expect(body).not.toContain("malformed");
     expect(body).not.toContain("fixture-secret");
   });
 });
