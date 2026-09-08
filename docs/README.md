@@ -2,7 +2,7 @@
 
 **Current delivery state is [build status](build-status.md)** (snapshot September 8, 2026). Start there, then the money-action contract and the current-tree review. Target/production-destination docs are demoted below so they cannot be mistaken for the live app.
 
-If you want to run or fork Home, use the root [Get started](../README.md#get-started) path and [Fork and extend](fork-and-extend.md). Contributors: [CONTRIBUTING](../CONTRIBUTING.md).
+If you want to run or fork Home, start with the root [Get started](../README.md#get-started) path and [Fork and extend](fork-and-extend.md). Sending a focused PR or joining as a second engineer is optional — see [CONTRIBUTING](../CONTRIBUTING.md).
 
 ## Current tree (read first)
 
@@ -17,7 +17,7 @@ If you want to run or fork Home, use the root [Get started](../README.md#get-sta
 | Doc | Use it for |
 |---|---|
 | [Fork and extend](fork-and-extend.md) | Brand, regions, assets, provider seams, local-spike vs production persistence |
-| [UI PR previews](ui-pr-previews.md) | Before+after images in the GitHub PR description for UI / core-flow PRs |
+| [UI PR previews](ui-pr-previews.md) | Before/After **table** in the GitHub PR description for UI / core-flow PRs |
 | [CDP setup](cdp-setup.md) | Your CDP project, `localhost` origin, email login, server validation, privacy defaults |
 | [CDP SQL](cdp-sql.md) | Indexed Base history adapter, auth modes, bounded smoke tests |
 | [Base Account](base-account.md) | Optional SIWE path (`NEXT_PUBLIC_ENABLE_BASE_ACCOUNT`); not enabled by default |

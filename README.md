@@ -70,14 +70,15 @@ Current tree first. Target and archive docs are last so they cannot be mistaken 
 2. [Build status](docs/build-status.md) — what is delivered and which gates remain.
 3. [Wallet runtime](docs/wallet-runtime-spike.md) — prepare → claim → submit → receipt; SQLite is local-spike only.
 4. [Architecture review](docs/architecture-review-2026-09.md) — current-tree patterns, risks, contribution contract.
-5. [CONTRIBUTING](CONTRIBUTING.md) — how to pick a slice.
-6. [Docs index](docs/README.md) — full map (operate / product intent / target / archive).
-7. [Fork and extend](docs/fork-and-extend.md) — brand, regions, assets, providers.
-8. [CDP setup](docs/cdp-setup.md) · [SQL setup](docs/cdp-sql.md) · [Morpho setup](docs/morpho-setup.md) · [Invest data](docs/invest-data.md)
+5. [Docs index](docs/README.md) — full map (operate / product intent / target / archive).
+6. [Fork and extend](docs/fork-and-extend.md) — brand, regions, assets, providers.
+7. [CDP setup](docs/cdp-setup.md) · [SQL setup](docs/cdp-sql.md) · [Morpho setup](docs/morpho-setup.md) · [Invest data](docs/invest-data.md)
 
 Product intent (not delivery state): [product scope](docs/product-scope.md), [regional money](docs/regional-money.md), [currency defaults](docs/currency-defaults.md), [stablecoin candidates](docs/stablecoin-candidates.json).
 
 Target / archive (not the current tree): [target architecture](docs/target-architecture.md) (formerly technical design), [archived implementation plan](docs/archive/implementation-plan-2026-09-07.md).
+
+Sending a focused PR / joining as eng #2 is optional: see [CONTRIBUTING](CONTRIBUTING.md).
 
 ## Stack and boundaries
 
@@ -89,9 +90,9 @@ Venice/agent inference, Rain cards, additional funding providers, unrestricted a
 
 ## Forking
 
-Fork this repository to run your own Home or follow along. Brand, regions, asset selection and providers are designed to be replaceable — [fork and extend](docs/fork-and-extend.md) is the how-to. Each operator configures their own provider projects, credentials and deployment. See [CONTRIBUTING](CONTRIBUTING.md) and the [architecture review](docs/architecture-review-2026-09.md) for how to pick a slice; [build status](docs/build-status.md) is the scoreboard.
+Fork this repository to run your own Home. Brand, regions, asset selection and providers are designed to be replaceable — [fork and extend](docs/fork-and-extend.md) is the how-to. Each operator configures their own provider projects, credentials and deployment.
 
-Focused pull requests are welcome. If you send one, run `bun check` first. Never commit credentials or funded-wallet secrets. Documented token/provider support is separate from a tested integration.
+Sending a focused PR is optional. If you do, run `bun check` first. For UI / core-flow PRs, put a Before/After table in the GitHub description ([UI PR previews](docs/ui-pr-previews.md)). Never commit credentials or funded-wallet secrets. Documented token/provider support is separate from a tested integration.
 
 ## License
 

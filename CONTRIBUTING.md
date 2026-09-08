@@ -1,5 +1,7 @@
 # Contributing to Home
 
+Home is meant to be cloned, run, and forked first. This file is for focused pull requests and engineer onboarding, not the primary path for operators.
+
 Home is a local finance spike, not a production-approved money app. Read this before opening a PR.
 
 ## Start here
