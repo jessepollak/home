@@ -17,7 +17,7 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | Doc | Use it for |
 |---|---|
 | [Fork and extend](fork-and-extend.md) | Brand, regions, assets, provider seams, local-spike vs production persistence |
-| [UI PR previews](ui-pr-previews.md) | Before/After **table** in the GitHub PR description for UI / core-flow PRs |
+| [UI PR previews](ui-pr-previews.md) | Before/After **table** preferred when both exist; after-only OK when before isn’t useful |
 | [CDP setup](cdp-setup.md) | Your CDP project, `localhost` origin, email login, server validation, privacy defaults |
 | [CDP SQL](cdp-sql.md) | Indexed Base history adapter, auth modes, bounded smoke tests |
 | [Base Account](base-account.md) | Optional SIWE path (`NEXT_PUBLIC_ENABLE_BASE_ACCOUNT`); not enabled by default |
