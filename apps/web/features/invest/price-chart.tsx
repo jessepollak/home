@@ -9,6 +9,11 @@ import styles from "./invest-experience.module.css";
 const chartWidth = 320;
 const chartHeight = 190;
 const pad = { top: 12, right: 60, bottom: 28, left: 8 };
+const axisCharacterWidth = 6;
+const axisLabelGap = 8;
+const maxYAxisRightPadding = 160;
+// A leading digit plus 16 fraction digits preserves distinct finite doubles.
+const maxScientificFractionDigits = 16;
 
 export function PriceChart({
   range,
@@ -93,7 +98,7 @@ function ChartBody({
           className={styles.axis}
           x={label.x}
           y={chartHeight - 8}
-          textAnchor="middle"
+          textAnchor={label.textAnchor}
         >
           {label.text}
         </text>
@@ -122,8 +127,10 @@ function layoutSeries(
   const end = times[times.length - 1] ?? start;
   const valueSpan = max - min;
   const timeSpan = end - start;
-  const innerWidth = chartWidth - pad.left - pad.right;
   const innerHeight = chartHeight - pad.top - pad.bottom;
+  const yLabels = yAxisLabels(min, max, pad.top, innerHeight);
+  const rightPadding = yAxisRightPadding(yLabels);
+  const innerWidth = chartWidth - pad.left - rightPadding;
 
   const coords = values.map((value, index) => {
     const x =
@@ -145,7 +152,7 @@ function layoutSeries(
   return {
     line,
     area,
-    yLabels: yAxisLabels(min, max, pad.top, innerHeight),
+    yLabels,
     xLabels: xAxisLabels(times, range, pad.left, innerWidth),
   };
 }
@@ -166,6 +173,7 @@ function xAxisLabels(
         id: `time-${first}`,
         text: formatAxisTime(first, range, span),
         x: left + width / 2,
+        textAnchor: "middle" as const,
       },
     ];
   }
@@ -174,10 +182,13 @@ function xAxisLabels(
   const labels = [];
   for (let index = 0; index < ticks; index += 1) {
     const time = first + (span * index) / Math.max(ticks - 1, 1);
+    const textAnchor: "start" | "middle" | "end" =
+      index === 0 ? "start" : index === ticks - 1 ? "end" : "middle";
     labels.push({
       id: `time-${Math.round(time)}-${index}`,
       text: formatAxisTime(time, range, span),
       x: left + (width * index) / Math.max(ticks - 1, 1),
+      textAnchor,
     });
   }
   return labels;
@@ -225,6 +236,14 @@ function yAxisLabels(min: number, max: number, top: number, height: number) {
   ];
 }
 
+function yAxisRightPadding(labels: readonly { text: string }[]) {
+  const longestLabel = Math.max(0, ...labels.map((label) => label.text.length));
+  return Math.min(
+    maxYAxisRightPadding,
+    Math.max(pad.right, longestLabel * axisCharacterWidth + axisLabelGap + 4),
+  );
+}
+
 function priceTickFormatter(min: number, max: number) {
   const magnitude = Math.max(Math.abs(min), Math.abs(max));
   const tickStep = Math.abs(max - min) / 2;
@@ -250,9 +269,37 @@ function priceTickFormatter(min: number, max: number) {
       ? Math.max(4, fractionDigitsForMagnitude(magnitude))
       : Math.max(4, fractionDigitsForStep(tickStep));
   if (fractionDigits > 12) {
-    return (value: number) => value.toExponential(2);
+    const scientificFractionDigits =
+      tickStep === 0
+        ? 2
+        : scientificFractionDigitsForStep(tickStep, magnitude, min, max);
+    return (value: number) => value.toExponential(scientificFractionDigits);
   }
   return (value: number) => value.toFixed(fractionDigits);
+}
+
+function scientificFractionDigitsForStep(
+  step: number,
+  magnitude: number,
+  min: number,
+  max: number,
+) {
+  const exponent = Math.floor(Math.log10(magnitude));
+  const normalizedStep = step / 10 ** exponent;
+  let fractionDigits = Math.min(
+    maxScientificFractionDigits,
+    Math.max(2, Math.round(-Math.log10(normalizedStep))),
+  );
+  const ticks = [min, (min + max) / 2, max];
+
+  while (
+    fractionDigits < maxScientificFractionDigits &&
+    new Set(ticks.map((value) => value.toExponential(fractionDigits))).size < ticks.length
+  ) {
+    fractionDigits += 1;
+  }
+
+  return fractionDigits;
 }
 
 function fractionDigitsForStep(step: number) {
