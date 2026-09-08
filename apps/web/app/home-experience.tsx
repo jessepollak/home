@@ -152,6 +152,7 @@ export function HomeExperience({
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(
     initialAccountSettingsOpen,
   );
+  const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
   const shellPath = routeMode === "landing" ? "/" : "/dashboard";
 
   const closeAccount = useCallback(() => {
@@ -170,6 +171,7 @@ export function HomeExperience({
       );
       setActiveNavigation(location.panel);
       setIsAccountSettingsOpen(location.account === "settings");
+      if (location.account !== "settings") setSettingsOpenedInApp(false);
       setIsAccountOpen(location.account === "signin");
     };
     window.addEventListener("popstate", onPopState);
@@ -261,6 +263,7 @@ export function HomeExperience({
     const skipHistory =
       activeNavigation === nextNavigation && !isAccountSettingsOpen;
     setIsAccountSettingsOpen(false);
+    setSettingsOpenedInApp(false);
     setActiveNavigation(nextNavigation);
     setNavigationRequest((request) => request + 1);
     if (skipHistory) return;
@@ -271,6 +274,7 @@ export function HomeExperience({
 
   function openAccountSettings() {
     setIsAccountSettingsOpen(true);
+    setSettingsOpenedInApp(true);
     const current = parseShellLocation(
       new URLSearchParams(window.location.search),
     );
@@ -302,7 +306,22 @@ export function HomeExperience({
 
   function closeAccountSettings() {
     setIsAccountSettingsOpen(false);
-    router.back();
+    if (settingsOpenedInApp) {
+      setSettingsOpenedInApp(false);
+      router.back();
+      return;
+    }
+    const current = parseShellLocation(
+      new URLSearchParams(window.location.search),
+    );
+    router.replace(
+      shellHref(shellPath, {
+        panel: activeNavigation,
+        shelf: current.shelf,
+        asset: current.asset,
+      }),
+      { scroll: false },
+    );
   }
 
   function signOut() {

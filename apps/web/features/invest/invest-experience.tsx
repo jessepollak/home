@@ -43,21 +43,31 @@ export function InvestExperience({
     }
     return initialView ?? { screen: "hub" };
   });
+  const [inAppChildDepth, setInAppChildDepth] = useState(0);
   const markets = { stockMarket, memeMarket, cryptoMarket };
 
   useEffect(() => {
     const onPopState = () => {
       setView(investViewFromSearch(new URLSearchParams(window.location.search)));
+      setInAppChildDepth((depth) => Math.max(0, depth - 1));
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  function go(next: InvestView, history: "push" | "replace") {
+  function go(next: InvestView) {
     setView(next);
-    const href = investHref(next);
-    if (history === "push") router.push(href, { scroll: false });
-    else router.replace(href, { scroll: false });
+    setInAppChildDepth((depth) => depth + 1);
+    router.push(investHref(next), { scroll: false });
+  }
+
+  function leaveChild(parent: InvestView) {
+    setView(parent);
+    if (inAppChildDepth > 0) {
+      router.back();
+      return;
+    }
+    router.replace(investHref(parent), { scroll: false });
   }
 
   if (view.screen === "category") {
@@ -69,9 +79,9 @@ export function InvestExperience({
         shelfId={shelf.id}
         assets={shelf.assets}
         market={marketForAsset(shelf.assets[0], markets)}
-        onBack={() => go({ screen: "hub" }, "replace")}
+        onBack={() => leaveChild({ screen: "hub" })}
         onOpenAsset={(asset, from) =>
-          go({ screen: "detail", assetId: asset.id, from }, "push")
+          go({ screen: "detail", assetId: asset.id, from })
         }
       />
     );
@@ -85,11 +95,10 @@ export function InvestExperience({
         asset={asset}
         market={marketForAsset(asset, markets)}
         onBack={() =>
-          go(
+          leaveChild(
             view.from === "hub"
               ? { screen: "hub" }
               : { screen: "category", shelfId: view.from },
-            "replace",
           )
         }
       />
@@ -101,9 +110,9 @@ export function InvestExperience({
       stockMarket={stockMarket}
       memeMarket={memeMarket}
       cryptoMarket={cryptoMarket}
-      onSeeAll={(shelfId) => go({ screen: "category", shelfId }, "push")}
+      onSeeAll={(shelfId) => go({ screen: "category", shelfId })}
       onOpenAsset={(asset: InvestAsset) =>
-        go({ screen: "detail", assetId: asset.id, from: "hub" }, "push")
+        go({ screen: "detail", assetId: asset.id, from: "hub" })
       }
     />
   );

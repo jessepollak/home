@@ -378,6 +378,7 @@ function HomeHarness({
   sessionFetch = async () => Response.json(session()),
   initialAccountOpen = false,
   initialPanel,
+  initialAccountSettingsOpen = false,
   detectedCountry = null,
   routeMode = "dashboard",
 }: {
@@ -385,6 +386,7 @@ function HomeHarness({
   sessionFetch?: SessionFetch;
   initialAccountOpen?: boolean;
   initialPanel?: "home" | "invest" | "save";
+  initialAccountSettingsOpen?: boolean;
   detectedCountry?: string | null;
   routeMode?: "landing" | "dashboard";
 }) {
@@ -394,6 +396,7 @@ function HomeHarness({
         detectedCountry={detectedCountry}
         initialAccountOpen={initialAccountOpen}
         initialPanel={initialPanel}
+        initialAccountSettingsOpen={initialAccountSettingsOpen}
         routeMode={routeMode}
         savingsContent={<section aria-label="Savings module">Savings fixture</section>}
         investContent={<section aria-label="Invest module">Invest fixture</section>}
@@ -1218,5 +1221,21 @@ describe("login-state home experience", () => {
     });
     expect(page().queryByRole("region", { name: "Invest module" })).toBeNull();
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+  });
+
+  test("replaces deep-linked account settings instead of backing out of Home", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        initialAccountSettingsOpen
+      />,
+    );
+
+    expect(await page().findByRole("combobox", { name: "Country" })).toBeTruthy();
+    await page().findByRole("button", { name: "Sign out" });
+    fireEvent.click(page().getByRole("button", { name: "Done" }));
+    expect(backCalls).toBe(0);
+    expect(replaceCalls).toEqual(["/dashboard"]);
+    expect(await page().findByRole("heading", { name: "Balances" })).toBeTruthy();
   });
 });

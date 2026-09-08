@@ -5,12 +5,15 @@ import type { MarketDataState } from "./invest-market";
 
 const pushCalls: string[] = [];
 const replaceCalls: string[] = [];
+let backCalls = 0;
 
 mock.module("next/navigation", () => ({
   useRouter: () => ({
     push: (href: string) => pushCalls.push(href),
     replace: (href: string) => replaceCalls.push(href),
-    back: () => {},
+    back: () => {
+      backCalls += 1;
+    },
   }),
 }));
 
@@ -49,6 +52,7 @@ afterEach(() => {
   window.fetch = originalFetch;
   pushCalls.length = 0;
   replaceCalls.length = 0;
+  backCalls = 0;
 });
 
 const originalFetch = window.fetch;
@@ -67,9 +71,58 @@ describe("invest discovery flow", () => {
     expect(page().queryByText("Buy")).toBeNull();
     expect(page().queryByText("Sell")).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Back to Invest" }));
-    expect(replaceCalls).toEqual(["/dashboard?panel=invest"]);
+    expect(backCalls).toBe(1);
+    expect(replaceCalls).toEqual([]);
     expect(page().getByRole("heading", { name: "Invest" })).toBeTruthy();
     expect(page().queryByText("Cardano")).toBeNull();
+  });
+
+  test("pops stacked in-app category and detail without replacing the hub", async () => {
+    window.fetch = (async () =>
+      Response.json({
+        version: 1,
+        provider: "codex",
+        assetId: "cbbtc",
+        range: "1W",
+        fetchedAt: "2026-09-07T20:00:00.000Z",
+        status: "empty",
+        points: [],
+      })) as unknown as typeof fetch;
+
+    render(<InvestExperience cryptoMarket={readyCrypto} />);
+    fireEvent.click(page().getAllByRole("button", { name: "See all ›" })[1]!);
+    await waitFor(() =>
+      expect(page().getByRole("heading", { name: "Crypto" })).toBeTruthy(),
+    );
+    fireEvent.click(page().getByRole("button", { name: "Bitcoin details" }));
+    await waitFor(() =>
+      expect(page().getByRole("heading", { name: "Bitcoin" })).toBeTruthy(),
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(backCalls).toBe(1);
+    expect(replaceCalls).toEqual([]);
+    expect(page().getByRole("heading", { name: "Crypto" })).toBeTruthy();
+
+    fireEvent.click(page().getByRole("button", { name: "Back to Invest" }));
+    expect(backCalls).toBe(2);
+    expect(replaceCalls).toEqual([]);
+    expect(page().getByRole("heading", { name: "Invest" })).toBeTruthy();
+  });
+
+  test("replaces a deep-linked category back to the hub", async () => {
+    render(
+      <InvestExperience
+        cryptoMarket={readyCrypto}
+        initialView={{ screen: "category", shelfId: "crypto" }}
+      />,
+    );
+
+    expect(page().getByRole("heading", { name: "Crypto" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back to Invest" }));
+    expect(backCalls).toBe(0);
+    expect(replaceCalls).toEqual(["/dashboard?panel=invest"]);
+    expect(page().getByRole("heading", { name: "Invest" })).toBeTruthy();
   });
 
   test("opens Bitcoin detail with compact header, chart ranges, and trade CTA only there", async () => {
