@@ -88,4 +88,4 @@ Venice/agent inference, Rain cards, additional funding providers, unrestricted a
 - Keep configuration and secrets out of git. `.env.local` is gitignored; use permission `0600` for real keys.
 - Country, language, and eligibility stay separate. A region switch must not imply residency or unlock a restricted stock.
 - Exact asset, network, and user approval remain part of financial review. Documented token support is not a tested live integration.
-- `bun check` is the same gate CI runs (`bun install --frozen-lockfile` then `bun check`) if you send a focused PR. User-visible UI / core-flow PRs should attach before/after images in the GitHub PR description ([UI PR previews](ui-pr-previews.md)).
+- `bun check` is the same gate CI runs (`bun install --frozen-lockfile` then `bun check`) if you send a focused PR. User-visible UI / core-flow PRs should attach before/after images in a table in the GitHub PR description ([UI PR previews](ui-pr-previews.md)).

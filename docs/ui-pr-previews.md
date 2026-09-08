@@ -16,7 +16,18 @@ Skip docs-only, CI-only, and pure server PRs.
 
 Add before/after images directly in the **GitHub PR description** (upload or attach in the PR body) with short captions. ~390px width is preferred for Home.
 
-**Do not commit** preview PNGs under `docs/pr-previews/` or elsewhere for new PRs. GitHub hosts the upload when you paste or drop it into the description. Size with HTML after GitHub inserts the URL:
+**Do not commit** preview PNGs under `docs/pr-previews/` or elsewhere for new PRs. GitHub hosts the upload when you paste or drop it into the description. Size with HTML after GitHub inserts the URL.
+
+When both before and after exist, use a two-column markdown table:
+
+```markdown
+| Before | After |
+| --- | --- |
+| <img alt="Home before" src="https://github.com/user-attachments/assets/<id>" width="390" /> | <img alt="Home after" src="https://github.com/user-attachments/assets/<id>" width="390" /> |
+| Previous hero. | Quiet hero, Add money / Send / Receive. |
+```
+
+After-only is fine as a single image (or one column) when a before shot isn’t useful:
 
 ```markdown
 **Home (after)** — quiet hero, Add money / Send / Receive.
