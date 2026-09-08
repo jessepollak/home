@@ -163,9 +163,9 @@ describe("Permit2 trade finalization", () => {
 
   test("appends a Base Account ERC-1271 signature without wrapping an EOA", async () => {
     const store = new MemoryTradeIntentStore();
-    const stored = {
+    const stored: TradeIntent = {
       ...intent(),
-      owner: { subject: "trade-user", address: SMART, chainId: 8453, accountProvider: "base-account" as const },
+      owner: { subject: "trade-user", address: SMART, chainId: 8453, accountProvider: "base-account" },
     };
     await store.issue(stored);
     const walletSignature = `0x${"ab".repeat(80)}` as const;
