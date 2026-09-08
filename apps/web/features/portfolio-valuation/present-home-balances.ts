@@ -77,24 +77,26 @@ function presentCashBucket(bucket: CashBucket): HomeAssetBalanceItem {
     };
   }
 
-  const displayBalance = bucket.indicativeValue
-    ? formatPresentationFiat(bucket.indicativeValue, bucket.denominationCurrency)
-    : bucket.tokenAmountBaseUnits !== null && bucket.tokenDecimals !== null
-      ? formatPresentationFiat(
-          {
-            atoms: bucket.tokenAmountBaseUnits,
-            scale: bucket.tokenDecimals,
-          },
-          bucket.denominationCurrency,
-        )
-      : "Unavailable";
+  if (bucket.indicativeValue) {
+    return {
+      id: bucket.id,
+      group: "cash",
+      name,
+      displayBalance: formatPresentationFiat(
+        bucket.indicativeValue,
+        bucket.denominationCurrency,
+      ),
+      currencyCode: bucket.denominationCurrency,
+    };
+  }
 
+  const readFailed = bucket.valuationStatus === "read-unavailable";
   return {
     id: bucket.id,
     group: "cash",
     name,
-    displayBalance,
+    displayBalance: readFailed ? "Unavailable" : "—",
     currencyCode: bucket.denominationCurrency,
-    tone: bucket.valuationStatus === "read-unavailable" ? "error" : "default",
+    tone: readFailed ? "error" : "muted",
   };
 }

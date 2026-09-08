@@ -110,4 +110,81 @@ describe("presentPortfolioValuation", () => {
     expect(serialized).not.toContain("Wallet & savings");
     expect(serialized).not.toContain("Unavailable");
   });
+
+  test("keeps unpriced cash visibly unpriced instead of treating token units as fiat", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        cashBuckets: [
+          {
+            id: "cash:usd",
+            roles: ["canonical-usd"],
+            assetKey: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+            symbol: "USDC",
+            denominationCurrency: "USD",
+            tokenAmountBaseUnits: "100000000",
+            tokenDecimals: 6,
+            indicativeValue: null,
+            valuationStatus: "unpriced",
+          },
+          {
+            id: "cash:eur",
+            roles: ["selected-local"],
+            assetKey: "eip155:8453/erc20:0x60a3e35cc302bfa44cb288bc5a4f316e2f531371",
+            symbol: "EURC",
+            denominationCurrency: "EUR",
+            tokenAmountBaseUnits: "25000000",
+            tokenDecimals: 6,
+            indicativeValue: null,
+            valuationStatus: "unpriced",
+          },
+        ],
+      }),
+      error: null,
+    });
+
+    expect(presented.items.map((item) => item.displayBalance)).toEqual([
+      "—",
+      "—",
+    ]);
+    expect(presented.items.every((item) => item.tone === "muted")).toBe(true);
+    const serialized = JSON.stringify(presented);
+    expect(serialized).not.toContain("$100");
+    expect(serialized).not.toContain("€25");
+    expect(serialized).not.toContain("100.00");
+    expect(serialized).not.toContain("25.00");
+  });
+
+  test("marks a failed cash read as unavailable without inventing a fiat amount", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        cashBuckets: [
+          {
+            id: "cash:usd",
+            roles: ["canonical-usd"],
+            assetKey: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+            symbol: "USDC",
+            denominationCurrency: "USD",
+            tokenAmountBaseUnits: null,
+            tokenDecimals: 6,
+            indicativeValue: null,
+            valuationStatus: "read-unavailable",
+          },
+        ],
+      }),
+      error: null,
+    });
+
+    expect(presented.items).toEqual([
+      {
+        id: "cash:usd",
+        group: "cash",
+        name: "US dollar",
+        displayBalance: "Unavailable",
+        currencyCode: "USD",
+        tone: "error",
+      },
+    ]);
+  });
 });
