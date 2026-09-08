@@ -7,6 +7,10 @@ const invest = readFileSync(
   resolve(import.meta.dir, "../features/invest/invest-experience.module.css"),
   "utf8",
 );
+const chart = readFileSync(
+  resolve(import.meta.dir, "../features/invest/price-chart.tsx"),
+  "utf8",
+);
 
 describe("Direction 1 — Vercel Editorial tokens", () => {
   test("locks the signed Home + Invest palette", () => {
@@ -29,8 +33,10 @@ describe("Direction 1 — Vercel Editorial tokens", () => {
     expect(globals).toContain("--motion-press: 0ms");
   });
 
-  test("keeps the Invest chart wash at a whisper", () => {
-    expect(invest).toContain("rgba(0, 82, 255, 0.06)");
-    expect(invest).toContain("stroke-width: 1.75");
+  test("keeps the Invest Liveline wash on Direction 1 blue", () => {
+    expect(chart).toContain('const LINE_COLOR = "#0052ff"');
+    expect(chart).toContain('theme="light"');
+    expect(chart).toContain("fill");
+    expect(invest).toContain("background: var(--home-canvas)");
   });
 });

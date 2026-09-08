@@ -16,6 +16,22 @@ mock.module("liveline", () => ({
 const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const { PriceChart, toLivelinePoints, visibleWindowSeconds } = await import("./price-chart");
 
+function stubMatchMedia(reducedMotion: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string) => ({
+      matches: reducedMotion && query.includes("prefers-reduced-motion"),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => true,
+    }),
+  });
+}
+
 function renderChart(
   points: readonly MarketPriceHistoryPoint[],
   range: MarketPriceRange = "1W",
@@ -40,6 +56,7 @@ afterEach(() => {
 
 describe("PriceChart Liveline", () => {
   test("feeds converted history to Liveline with locked Direction 1 props", () => {
+    stubMatchMedia(false);
     const points = [
       { time: "2026-09-01T00:00:00.000Z", value: "62000" },
       { time: "2026-09-07T00:00:00.000Z", value: "64210" },
@@ -79,32 +96,11 @@ describe("PriceChart Liveline", () => {
   });
 
   test("turns pulse and momentum off when motion is reduced", () => {
-    const original = window.matchMedia;
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: (query: string) => ({
-        matches: query.includes("prefers-reduced-motion"),
-        media: query,
-        onchange: null,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        addListener: () => {},
-        removeListener: () => {},
-        dispatchEvent: () => true,
-      }),
-    });
-
-    try {
-      renderChart([{ time: "2026-09-07T00:00:00.000Z", value: "64210" }]);
-      expect(livelineCalls[0]?.pulse).toBe(false);
-      expect(livelineCalls[0]?.momentum).toBe(false);
-      expect(livelineCalls[0]?.lerpSpeed).toBe(1);
-    } finally {
-      Object.defineProperty(window, "matchMedia", {
-        configurable: true,
-        value: original,
-      });
-    }
+    stubMatchMedia(true);
+    renderChart([{ time: "2026-09-07T00:00:00.000Z", value: "64210" }]);
+    expect(livelineCalls[0]?.pulse).toBe(false);
+    expect(livelineCalls[0]?.momentum).toBe(false);
+    expect(livelineCalls[0]?.lerpSpeed).toBe(1);
   });
 });
 
