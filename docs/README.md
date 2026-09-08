@@ -2,7 +2,7 @@
 
 **Current delivery state is [build status](build-status.md)** (snapshot September 8, 2026). Start there, then the money-action contract and the current-tree review. Target/production-destination docs are demoted below so they cannot be mistaken for the live app.
 
-If you want to run or fork Home, start with the root [Get started](../README.md#get-started) path and [Fork and extend](fork-and-extend.md). Sending a focused PR or joining as a second engineer is optional — see [CONTRIBUTING](../CONTRIBUTING.md).
+If you want to run or fork Home, start with the root [Get started](../README.md#get-started) path and [Fork and extend](fork-and-extend.md). Sending a focused PR or joining as a second engineer is optional — see [CONTRIBUTING](../CONTRIBUTING.md). The in-repo agent crew follows the [operating manual](operating-manual.md).
 
 ## Current tree (read first)
 
@@ -16,6 +16,7 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 
 | Doc | Use it for |
 |---|---|
+| [Operating manual](operating-manual.md) | Agent-team roles, GitHub issue labels, proof bar, Jesse-only merge |
 | [Fork and extend](fork-and-extend.md) | Brand, regions, assets, provider seams, local-spike vs production persistence |
 | [UI PR previews](ui-pr-previews.md) | Before/After **table** of inline embeds preferred when both exist; after-only OK when before isn’t useful |
 | [CDP setup](cdp-setup.md) | Your CDP project, `localhost` origin, email login, server validation, privacy defaults |

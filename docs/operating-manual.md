@@ -1,0 +1,124 @@
+# Operating manual
+
+Status: agent-team operating contract, September 8, 2026. How Jesse's in-repo crew works. Not a product inventory and not production authorization.
+
+**Current-state docs:** [build status](build-status.md), [contribution contract](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers), [UI direction](ui-direction.md), [UI PR previews](ui-pr-previews.md), [docs index](README.md). Human onboarding: [CONTRIBUTING](../CONTRIBUTING.md).
+
+## Mission
+
+Build Home as an app anyone can clone, run, contribute to, and extend. Fork-first. Operators customize brand, regions, assets, and providers in their own clone. Focused PRs back to this repo are optional for operators and required for the crew.
+
+## Roles
+
+| Name | Role |
+|---|---|
+| Jesse (`jessepollak`) | Human owner. Final +1 and merge. Everything ships through this GitHub account. |
+| j | CEO / ops |
+| Hunter | PM. Drive order. |
+| Hannah | TL / eng. Engineering sequencing and eng review. |
+| Hank | Backend |
+| Holly | Frontend |
+| Hazel | Design |
+| Hope | DevRel / DX |
+
+GitHub assignees are unused. Ownership is labels.
+
+## Task persistence
+
+GitHub Issues on `jessepollak/home` are the board for agent-team / multi-bot work.
+
+The private `.git/feedback-inbox.md` is **not** the crew board. That file stays for solo human intake in a checkout. See [AGENTS.md](../AGENTS.md).
+
+Every crew issue should carry one `owner:*`, one `status:*`, and one `lane:*`. Labels already exist on the repo.
+
+### `owner:*`
+
+| Label | Who |
+|---|---|
+| `owner:hannah` | Hannah (TL / eng) |
+| `owner:hank` | Hank (backend) |
+| `owner:holly` | Holly (frontend) |
+| `owner:hazel` | Hazel (design) |
+| `owner:hope` | Hope (DevRel / DX) |
+| `owner:hunter` | Hunter (PM) |
+| `owner:j` | j (CEO / ops) |
+
+Keep one owner. Re-label when ownership moves. Do not assign the GitHub user — it will always be Jesse.
+
+### `status:*`
+
+| Label | Meaning |
+|---|---|
+| `status:todo` | Not started |
+| `status:working` | In progress |
+| `status:ready-for-review` | Ready for eng review (Hannah) |
+| `status:blocked` | Blocked; name the dependency on the issue |
+| `status:needs-jesse` | Needs a Jesse decision or merge |
+
+`status:needs-jesse` is not a substitute for Hannah's review. Eng review first; Jesse last.
+
+### `lane:*`
+
+| Label | Meaning |
+|---|---|
+| `lane:backend` | Backend / money / data |
+| `lane:frontend` | Frontend / UI |
+| `lane:design` | Design |
+| `lane:dx` | Docs / contributing / DX |
+| `lane:product` | Product / triage |
+| `lane:ops` | Ops / playbook |
+
+Stay in your lane. Shared files are listed in the [architecture review](architecture-review-2026-09.md#appendix--merge-hotspots-coordinate-dont-both-edit); do not both edit a hotspot.
+
+## Drive order
+
+- Hunter sets what the crew works on and in what product order.
+- Hannah sequences engineering and unblocks lanes.
+- Do not start a second board, a parallel coordinator, or a shadow inbox for the same work.
+
+## 1:1s and learning retros
+
+About every 12 hours, and after a 1:1: write durable learnings into agent memory. Chat is not memory. If a rule should survive the next session, put it in memory or in this manual.
+
+## Mistakes
+
+A mistake that changes how the crew should work goes through j (ops):
+
+1. Short postmortem — what happened, blast radius, what we change.
+2. Update this manual if the rule is durable.
+3. Broadcast so the rest of the crew sees it.
+
+Do not silently patch process in one bot's memory only.
+
+## PRs
+
+Small, reviewable, one lane. Same contribution contract as any engineer: [architecture review § D](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers).
+
+Money-loop gates (do not weaken). Full list in the contribution contract:
+
+- Never accept client-authored calldata / call plans.
+- Never double-dispatch. Claim is the only grant of `dispatch`.
+- Never authorize from `?wallet=` or a client user id.
+- Never confirm from the client. Receipt + `verifiedExecution` only.
+- Never use JS floats for token amounts, debt, or settlement.
+- Never treat country or UI copy as eligibility.
+
+`bun check` must be green. Do not enable live Morpho/CDP SQL smokes or funded-wallet secrets in pull-request CI.
+
+## Proof bar
+
+User-visible work needs proof in the PR description: screenshots, a before/after, or a short repro. [UI PR previews](ui-pr-previews.md) is the screenshot convention. A reviewer should understand the change without opening the branch.
+
+Docs-only, CI-only, and pure server PRs can skip screenshots. They still need a clear claim of what changed and how it was checked (`bun check` at minimum).
+
+## Merge policy
+
+Crew may review. Hannah's eng review can proceed.
+
+**Only Jesse (`jessepollak`) gives the final +1 and merges.** Merge waits on Jesse even when Hannah has reviewed. Third-party PRs already required Jesse +1; crew PRs use the same bar.
+
+When a PR is ready for Jesse, mark the issue `status:needs-jesse` (and say so on the PR). Do not merge your own work. Do not treat a crew +1 as merge permission.
+
+## Product tone
+
+Direct, minimal UI. Follow [UI direction](ui-direction.md). No decorative kickers, no compliance essays on product screens, no pill-like buttons. Legal copy belongs only in Account → Disclosures / Terms.
