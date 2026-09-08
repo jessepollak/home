@@ -535,7 +535,9 @@ describe("login-state home experience", () => {
       />,
     );
 
-    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
+    expect(page().queryByRole("link", { name: "Add money" })).toBeNull();
+    expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
     expect(page().getByText("Updating…")).toBeTruthy();
     expect(document.body.textContent).not.toContain(ADDRESS);
     expect(page().queryByText("Checking your account…")).toBeNull();
@@ -562,6 +564,26 @@ describe("login-state home experience", () => {
     fireEvent.click(page().getByRole("button", { name: "Close receive dialog" }));
     expect(page().queryByRole("dialog", { name: "Receive" })).toBeNull();
     expect(page().queryByText("One home for your money.")).toBeNull();
+  });
+
+  test("holds signed-out dashboard on a placeholder and redirects without portfolio chrome", async () => {
+    render(<HomeHarness accountSdk={sdk()} routeMode="dashboard" />);
+
+    expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
+    expect(page().queryByRole("link", { name: "Add money" })).toBeNull();
+    expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
+    expect(page().queryByRole("heading", { name: "Activity" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Save" })).toBeNull();
+    expect(page().queryByText("Setup in progress")).toBeNull();
+    expect(page().queryByText("One home for your money.")).toBeNull();
+
+    await waitFor(() => expect(replaceCalls).toEqual(["/?account=signin"]));
+
+    expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
+    expect(page().queryByRole("link", { name: "Add money" })).toBeNull();
+    expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
+    expect(page().queryByRole("heading", { name: "Activity" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Save" })).toBeNull();
   });
 
   test("treats a verified session without a smart account as authenticated but not ready", async () => {
@@ -598,7 +620,9 @@ describe("login-state home experience", () => {
 
     await waitFor(() => expect(replaceCalls).toEqual(["/"]));
     expect(document.body.textContent).not.toContain("0x1111…1111");
-    expect(page().getByText("Updating…")).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
+    expect(page().queryByRole("link", { name: "Add money" })).toBeNull();
+    expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
 
     const retry = await page().findByRole("button", { name: "Retry sign out" });
     fireEvent.click(retry);
