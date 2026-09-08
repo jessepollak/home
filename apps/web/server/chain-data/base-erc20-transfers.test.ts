@@ -70,7 +70,9 @@ describe("Base ERC20 transfer query", () => {
     expect(sql).toContain("HAVING sum(toInt8(action)) > 0");
     expect(sql).toContain(`lower(toString(parameters['from'])) = '${WALLET}'`);
     expect(sql).toContain(`lower(toString(parameters['to'])) = '${WALLET}'`);
-    expect(sql).toContain(`lower(toString(address)) IN ('${TOKEN}')`);
+    expect(sql).toContain(`address IN ('${TOKEN}')`);
+    expect(sql).not.toContain("lower(toString(address))");
+    expect(sql).toContain("LIMIT 10000");
     expect(sql).toContain("any(toString(parameters['value'])) AS amount_base_units");
     expect(sql).toContain("any(block_number) AS block_number_numeric");
     expect(sql).toContain("any(log_index) AS log_index_numeric");

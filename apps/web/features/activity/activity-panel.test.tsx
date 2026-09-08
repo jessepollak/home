@@ -16,11 +16,12 @@ const OTHER = "0x3333333333333333333333333333333333333333" as const;
 function session(
   subject: string,
   address: typeof WALLET_A | typeof WALLET_B,
+  accountProvider: VerifiedAccountSession["accountProvider"] = "cdp-embedded",
 ): VerifiedAccountSession {
   return {
     user: { subject },
     smartAccount: { address, chainId: 8453 },
-    accountProvider: "cdp-embedded",
+    accountProvider,
   };
 }
 
@@ -108,6 +109,20 @@ describe("ActivityPanel", () => {
       `https://basescan.org/tx/0x${"a".repeat(64)}`,
     );
     expect(view.queryByText("Activity coverage")).toBeNull();
+  });
+
+  test("renders Base Account session transfers the same as email CDP", async () => {
+    const view = render(
+      <ActivityPanel
+        session={session("siwe-subject", WALLET_A, "base-account")}
+        fetchActivity={async (query) =>
+          pageFor(query, WALLET_A, { amount: "10000000" })
+        }
+      />,
+    );
+
+    await waitFor(() => expect(view.getByText("Received")).toBeTruthy());
+    expect(view.getByText("+10 USDC")).toBeTruthy();
   });
 
   test("keeps the pagination window and first-page freshness stable while deduplicating overlap", async () => {
@@ -227,6 +242,7 @@ describe("ActivityPanel", () => {
     await waitFor(() =>
       expect(view.getByText("Activity is temporarily unavailable.")).toBeTruthy(),
     );
+    expect(view.queryByText("No transfer history was inferred from this error.")).toBeNull();
     fireEvent.click(view.getByText("Try again"));
     await waitFor(() =>
       expect(view.getByText("No activity yet")).toBeTruthy(),
@@ -236,5 +252,27 @@ describe("ActivityPanel", () => {
       <ActivityPanel session={null} fetchActivity={fetchActivity} />,
     );
     expect(view.getByText("No activity yet")).toBeTruthy();
+  });
+
+  test("surfaces the safe server activity error code and message", async () => {
+    const failure = new Error("Authenticated resource is unavailable.");
+    Object.assign(failure, {
+      status: 504,
+      code: "ACTIVITY_TIMEOUT",
+      serverMessage: "Recent Base activity timed out. Try again.",
+    });
+    const view = render(
+      <ActivityPanel
+        session={session("subject-a", WALLET_A)}
+        fetchActivity={async () => {
+          throw failure;
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(view.getByText("Activity is temporarily unavailable.")).toBeTruthy(),
+    );
+    expect(view.getByText("Recent Base activity timed out. Try again.")).toBeTruthy();
+    expect(view.queryByText("No transfer history was inferred from this error.")).toBeNull();
   });
 });

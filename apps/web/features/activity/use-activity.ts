@@ -27,6 +27,7 @@ type OwnedActivityState =
       page: null;
       loadingMore: false;
       loadMoreError: false;
+      error: { code: string | null; message: string | null };
     }
   | {
       requestKey: string;
@@ -109,10 +110,14 @@ export function useActivity(
             page: null,
             loadingMore: false,
             loadMoreError: false,
+            error: {
+              code: "ACTIVITY_RESPONSE_INVALID",
+              message: "Activity history could not be verified.",
+            },
           });
         }
       },
-      () => {
+      (reason) => {
         if (controller.signal.aborted || sequence.current !== requestSequence) {
           return;
         }
@@ -122,6 +127,7 @@ export function useActivity(
           page: null,
           loadingMore: false,
           loadMoreError: false,
+          error: readActivityFailure(reason),
         });
       },
     );
@@ -240,6 +246,29 @@ export function useActivity(
           };
 
   return { ...visibleState, retry, refresh, loadMore };
+}
+
+function readActivityFailure(reason: unknown): {
+  code: string | null;
+  message: string | null;
+} {
+  if (!reason || typeof reason !== "object") {
+    return { code: null, message: null };
+  }
+  const code =
+    "code" in reason &&
+    typeof reason.code === "string" &&
+    /^[A-Z][A-Z0-9_]{1,64}$/.test(reason.code)
+      ? reason.code
+      : null;
+  const message =
+    "serverMessage" in reason &&
+    typeof reason.serverMessage === "string" &&
+    reason.serverMessage.length > 0 &&
+    reason.serverMessage.length <= 200
+      ? reason.serverMessage
+      : null;
+  return { code, message };
 }
 
 function markLoadMoreFailed(

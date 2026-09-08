@@ -1458,6 +1458,7 @@ export function AccountWalletSessionOwner({
       }
       if (!response.ok) {
         let code: string | null = null;
+        let serverMessage: string | null = null;
         try {
           const payload: unknown = await response.json();
           if (
@@ -1465,17 +1466,21 @@ export function AccountWalletSessionOwner({
             typeof payload === "object" &&
             "error" in payload &&
             payload.error &&
-            typeof payload.error === "object" &&
-            "code" in payload.error &&
-            typeof payload.error.code === "string"
+            typeof payload.error === "object"
           ) {
-            code = payload.error.code;
+            const error = payload.error;
+            if ("code" in error && typeof error.code === "string") {
+              code = error.code;
+            }
+            if ("message" in error && typeof error.message === "string") {
+              serverMessage = error.message;
+            }
           }
         } catch {
           // The fixed-endpoint caller only needs the bounded status/code seam.
         }
         const unavailable = new Error("Authenticated resource is unavailable.");
-        Object.assign(unavailable, { status: response.status, code });
+        Object.assign(unavailable, { status: response.status, code, serverMessage });
         throw unavailable;
       }
       try {

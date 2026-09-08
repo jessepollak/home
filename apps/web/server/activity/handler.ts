@@ -66,25 +66,7 @@ export function createActivityHandler(dependencies: {
       );
       return privateJson(page, 200);
     } catch (error) {
-      if (error instanceof ChainDataError && error.code === "invalid-input") {
-        return privateError(
-          "INVALID_ACTIVITY_REQUEST",
-          "Use a valid activity window and pagination cursor.",
-          400,
-        );
-      }
-      if (error instanceof ChainDataError && error.code === "not-configured") {
-        return privateError(
-          "ACTIVITY_NOT_CONFIGURED",
-          "CDP SQL activity is not configured. Set CDP_SQL_AUTH_MODE and its required server credentials.",
-          503,
-        );
-      }
-      return privateError(
-        "ACTIVITY_UNAVAILABLE",
-        "Recent Base activity is temporarily unavailable.",
-        502,
-      );
+      return activityReadError(error);
     }
   };
 }
@@ -163,6 +145,50 @@ function readRequestedProvider(request: Request): AccountProvider | null {
     return "cdp-embedded";
   }
   return requested === "base-account" ? "base-account" : null;
+}
+
+function activityReadError(error: unknown): Response {
+  if (error instanceof ChainDataError) {
+    switch (error.code) {
+      case "invalid-input":
+        return privateError(
+          "INVALID_ACTIVITY_REQUEST",
+          "Use a valid activity window and pagination cursor.",
+          400,
+        );
+      case "not-configured":
+        return privateError(
+          "ACTIVITY_NOT_CONFIGURED",
+          "CDP SQL activity is not configured. Set CDP_SQL_AUTH_MODE and its required server credentials.",
+          503,
+        );
+      case "timed-out":
+        return privateError(
+          "ACTIVITY_TIMEOUT",
+          "Recent Base activity timed out. Try again.",
+          504,
+        );
+      case "rate-limited":
+        return privateError(
+          "ACTIVITY_RATE_LIMITED",
+          "Activity is rate limited. Try again shortly.",
+          429,
+        );
+      case "unauthorized":
+        return privateError(
+          "ACTIVITY_UNAUTHORIZED",
+          "Activity history authentication was rejected.",
+          502,
+        );
+      default:
+        break;
+    }
+  }
+  return privateError(
+    "ACTIVITY_UNAVAILABLE",
+    "Recent Base activity is temporarily unavailable.",
+    502,
+  );
 }
 
 function privateError(code: string, message: string, status: number): Response {

@@ -26,6 +26,9 @@ const TRANSFER_SIGNATURE = "Transfer(address,address,uint256)";
 const MAX_LOG_ID_LENGTH = 256;
 // Includes UTF-8, JSON escaping, and base64 expansion of bounded log IDs.
 const MAX_ENCODED_CURSOR_LENGTH = 4096;
+// CDP SQL rejects result sets above 10,000 rows. Cap grouped history before
+// pagination so a busy wallet cannot fail the whole page.
+const MAX_GROUPED_TRANSFER_ROWS = 10_000;
 
 export type BaseErc20TransferHistoryOptions = {
   assets: readonly BaseErc20Asset[];
@@ -107,7 +110,7 @@ FROM (
     any(toString(parameters['value'])) AS amount_base_units
   FROM base.events
   WHERE event_signature = '${TRANSFER_SIGNATURE}'
-    AND lower(toString(address)) IN (${assetAddresses})
+    AND address IN (${assetAddresses})
     AND block_timestamp >= parseDateTime64BestEffort(${sqlString(request.from)})
     AND block_timestamp < parseDateTime64BestEffort(${sqlString(request.to)})
     AND (
@@ -116,6 +119,8 @@ FROM (
     )
   GROUP BY log_id
   HAVING sum(toInt8(action)) > 0
+  ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, log_id DESC
+  LIMIT ${MAX_GROUPED_TRANSFER_ROWS}
 )
 WHERE 1 = 1${cursorClause}
 ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, log_id DESC

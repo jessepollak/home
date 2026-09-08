@@ -78,6 +78,7 @@ export const getRecentBaseActivity: ActivityReader = async (
     })),
     transport: createCdpSqlHttpTransport({
       auth: createCdpSqlAuthFromEnv(),
+      timeoutMs: 20_000,
     }),
   });
   return createActivityReader((input) => history.listTransfers(input))(

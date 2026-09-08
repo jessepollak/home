@@ -70,10 +70,21 @@ export type ActivityReadyState = {
   loadMoreError: boolean;
 };
 
+export type ActivityFailure = {
+  code: string | null;
+  message: string | null;
+};
+
 export type ActivityState =
   | { status: "unavailable"; page: null; loadingMore: false; loadMoreError: false }
   | { status: "loading"; page: null; loadingMore: false; loadMoreError: false }
-  | { status: "error"; page: null; loadingMore: false; loadMoreError: false }
+  | {
+      status: "error";
+      page: null;
+      loadingMore: false;
+      loadMoreError: false;
+      error: ActivityFailure;
+    }
   | ActivityReadyState;
 
 export type FetchActivity = (

@@ -65,7 +65,11 @@ export function ActivityPanel({
         {leading}
         <div className={styles.error} role="alert">
           <strong>Activity is temporarily unavailable.</strong>
-          <span>No transfer history was inferred from this error.</span>
+          {activity.error.message ? (
+            <span>{activity.error.message}</span>
+          ) : activity.error.code ? (
+            <span>{activity.error.code}</span>
+          ) : null}
           <button type="button" onClick={activity.retry}>
             Try again
           </button>
