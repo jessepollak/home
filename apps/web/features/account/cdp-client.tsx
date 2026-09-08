@@ -21,6 +21,7 @@ import {
   useVerifySiweSignature,
 } from "@coinbase/cdp-hooks";
 import {
+  Component,
   createContext,
   useCallback,
   useContext,
@@ -31,6 +32,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  signInProviderUnavailableCopy,
+  type SignInAvailability,
+} from "./sign-in-copy";
 import {
   BaseAccountConnectorError,
   connectBaseAccount,
@@ -126,6 +131,7 @@ export type AccountResourceOptions = {
 
 export type AccountWalletClient = {
   projectConfigured: boolean;
+  signInAvailability: SignInAvailability;
   baseAccountEnabled: boolean;
   isInitialized: boolean;
   isSignedIn: boolean;
@@ -160,60 +166,96 @@ export type AccountWalletClient = {
 
 const AccountWalletContext = createContext<AccountWalletClient | null>(null);
 
-const unavailableClient: AccountWalletClient = {
-  projectConfigured: false,
-  baseAccountEnabled: false,
-  isInitialized: true,
-  isSignedIn: false,
-  ownerKey: null,
-  status: "signed-out",
-  session: null,
-  message: "Sign-in is not configured for this deployment.",
-  requestEmailCode: async () => {
-    throw new Error("CDP project is not configured.");
-  },
-  verifyEmailCode: async () => {
-    throw new Error("CDP project is not configured.");
-  },
-  signInWithBaseAccount: async () => {
-    throw new BaseAccountLoginError("disabled");
-  },
-  cancelSignInAttempt: () => {},
-  fetchPortfolio: async () => {
-    throw new Error("Portfolio is unavailable.");
-  },
-  fetchPortfolioValuation: async () => {
-    throw new Error("Portfolio valuation is unavailable.");
-  },
-  fetchActivity: async () => {
-    throw new Error("Activity is unavailable.");
-  },
-  fetchSavingsPositions: async () => {
-    throw new Error("Savings positions are unavailable.");
-  },
-  fetchAccountResource: async () => {
-    throw new Error("Authenticated resource is unavailable.");
-  },
-  prepareMoneyAction: async () => {
-    throw new TransferExecutionError("unavailable");
-  },
-  executeMoneyAction: async () => {
-    throw new TransferExecutionError("unavailable");
-  },
-  fetchOperations: async () => {
-    throw new Error("Operations are unavailable.");
-  },
-  pendingTransfer: null,
-  sendTransfer: async () => {
-    throw new TransferExecutionError("unavailable");
-  },
-  checkPendingTransfer: async () => {
-    throw new TransferExecutionError("unavailable");
-  },
-  startNewTransfer: () => {},
-  retrySessionValidation: async () => {},
-  signOut: async () => {},
-};
+export function createBlockedAccountWalletClient(
+  reason: Exclude<SignInAvailability, "ready">,
+): AccountWalletClient {
+  const projectConfigured = reason !== "unconfigured";
+  const blockedMessage = projectConfigured
+    ? signInProviderUnavailableCopy.body
+    : null;
+  const blockedError = projectConfigured
+    ? "Sign-in is unavailable."
+    : "CDP project is not configured.";
+
+  return {
+    projectConfigured,
+    signInAvailability: reason,
+    baseAccountEnabled: false,
+    isInitialized: true,
+    isSignedIn: false,
+    ownerKey: null,
+    status: "signed-out",
+    session: null,
+    message: blockedMessage,
+    requestEmailCode: async () => {
+      throw new Error(blockedError);
+    },
+    verifyEmailCode: async () => {
+      throw new Error(blockedError);
+    },
+    signInWithBaseAccount: async () => {
+      throw new BaseAccountLoginError("disabled");
+    },
+    cancelSignInAttempt: () => {},
+    fetchPortfolio: async () => {
+      throw new Error("Portfolio is unavailable.");
+    },
+    fetchPortfolioValuation: async () => {
+      throw new Error("Portfolio valuation is unavailable.");
+    },
+    fetchActivity: async () => {
+      throw new Error("Activity is unavailable.");
+    },
+    fetchSavingsPositions: async () => {
+      throw new Error("Savings positions are unavailable.");
+    },
+    fetchAccountResource: async () => {
+      throw new Error("Authenticated resource is unavailable.");
+    },
+    prepareMoneyAction: async () => {
+      throw new TransferExecutionError("unavailable");
+    },
+    executeMoneyAction: async () => {
+      throw new TransferExecutionError("unavailable");
+    },
+    fetchOperations: async () => {
+      throw new Error("Operations are unavailable.");
+    },
+    pendingTransfer: null,
+    sendTransfer: async () => {
+      throw new TransferExecutionError("unavailable");
+    },
+    checkPendingTransfer: async () => {
+      throw new TransferExecutionError("unavailable");
+    },
+    startNewTransfer: () => {},
+    retrySessionValidation: async () => {},
+    signOut: async () => {},
+  };
+}
+
+const unconfiguredClient = createBlockedAccountWalletClient("unconfigured");
+const providerUnavailableClient = createBlockedAccountWalletClient(
+  "provider-unavailable",
+);
+
+class CdpHooksErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
 
 export type AccountWalletSdkBoundary = {
   isInitialized: boolean;
@@ -2035,6 +2077,7 @@ export function AccountWalletSessionOwner({
   const client = useMemo<AccountWalletClient>(
     () => ({
       projectConfigured: true,
+      signInAvailability: "ready",
       baseAccountEnabled,
       isInitialized,
       isSignedIn: sdkIsSignedIn && !isSessionSuppressed,
@@ -2155,6 +2198,20 @@ function AccountWalletBridge({
   );
 }
 
+export function AccountWalletClientProvider({
+  client,
+  children,
+}: {
+  client: AccountWalletClient;
+  children: ReactNode;
+}) {
+  return (
+    <AccountWalletContext.Provider value={client}>
+      {children}
+    </AccountWalletContext.Provider>
+  );
+}
+
 export function CdpAccountProvider({
   projectId,
   baseAccountEnabled = false,
@@ -2178,18 +2235,26 @@ export function CdpAccountProvider({
 
   if (!config) {
     return (
-      <AccountWalletContext.Provider value={unavailableClient}>
+      <AccountWalletClientProvider client={unconfiguredClient}>
         {children}
-      </AccountWalletContext.Provider>
+      </AccountWalletClientProvider>
     );
   }
 
   return (
-    <CDPHooksProvider config={config}>
-      <AccountWalletBridge baseAccountEnabled={baseAccountEnabled}>
-        {children}
-      </AccountWalletBridge>
-    </CDPHooksProvider>
+    <CdpHooksErrorBoundary
+      fallback={
+        <AccountWalletClientProvider client={providerUnavailableClient}>
+          {children}
+        </AccountWalletClientProvider>
+      }
+    >
+      <CDPHooksProvider config={config}>
+        <AccountWalletBridge baseAccountEnabled={baseAccountEnabled}>
+          {children}
+        </AccountWalletBridge>
+      </CDPHooksProvider>
+    </CdpHooksErrorBoundary>
   );
 }
 

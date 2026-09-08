@@ -11,8 +11,14 @@ const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
 );
 const { useMemo, useState } = await import("react");
-const { AccountSignInSheet } = await import("./account-screen");
-const { AccountWalletSessionOwner, useAccountWallet } = await import("./cdp-client");
+const { AccountSignInSheet, SignInBlockedPanel } = await import("./account-screen");
+const {
+  AccountWalletClientProvider,
+  AccountWalletSessionOwner,
+  CdpAccountProvider,
+  createBlockedAccountWalletClient,
+  useAccountWallet,
+} = await import("./cdp-client");
 
 function page() {
   return within(document.body);
@@ -290,5 +296,58 @@ describe("production account sign-in sheet", () => {
     fireEvent.click(dialog, { clientX: 20, clientY: 20 });
     await waitFor(() => expect((dialog as HTMLDialogElement).open).toBe(false));
     expect(document.activeElement).toBe(trigger);
+  });
+
+  test("missing public project ID shows setup guidance instead of an outage", async () => {
+    render(
+      <CdpAccountProvider projectId={null}>
+        <button type="button" onClick={() => {}}>
+          Open account
+        </button>
+        <AccountSignInSheet open onClose={() => {}} />
+      </CdpAccountProvider>,
+    );
+
+    const dialog = await page().findByRole("dialog", { name: "Sign in to Home" });
+    expect((dialog as HTMLDialogElement).open).toBe(true);
+    expect(page().getByText("Sign-in is not configured")).toBeTruthy();
+    expect(page().getByText(/NEXT_PUBLIC_CDP_PROJECT_ID/)).toBeTruthy();
+    expect(page().getByText(/\.env\.example/)).toBeTruthy();
+    expect(page().getByText(/apps\/web\/\.env\.local/)).toBeTruthy();
+    const setupLink = page().getByRole("link", { name: "docs/cdp-setup.md" });
+    expect((setupLink as HTMLAnchorElement).href).toContain("docs/cdp-setup.md");
+    expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
+    expect(page().queryByText("Sign-in is unavailable")).toBeNull();
+    expect(page().queryByText("Try again later.")).toBeNull();
+    expect(page().queryByText("Sign-in is not configured for this deployment.")).toBeNull();
+  });
+
+  test("configured provider outage uses different copy from missing project ID", () => {
+    render(
+      <AccountWalletClientProvider
+        client={createBlockedAccountWalletClient("provider-unavailable")}
+      >
+        <AccountSignInSheet open onClose={() => {}} />
+      </AccountWalletClientProvider>,
+    );
+
+    expect(page().getByText("Sign-in is unavailable")).toBeTruthy();
+    expect(page().getByText("The sign-in service is not responding. Try again later.")).toBeTruthy();
+    expect(page().queryByText("Sign-in is not configured")).toBeNull();
+    expect(page().queryByText(/NEXT_PUBLIC_CDP_PROJECT_ID/)).toBeNull();
+    expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
+    expect(page().queryByRole("link", { name: "docs/cdp-setup.md" })).toBeNull();
+  });
+
+  test("blocked-panel reasons stay visually distinct", () => {
+    const unconfigured = render(
+      <SignInBlockedPanel reason="unconfigured" />,
+    );
+    expect(unconfigured.getByText("Sign-in is not configured")).toBeTruthy();
+    unconfigured.unmount();
+
+    render(<SignInBlockedPanel reason="provider-unavailable" />);
+    expect(page().getByText("Sign-in is unavailable")).toBeTruthy();
+    expect(page().queryByText("Sign-in is not configured")).toBeNull();
   });
 });

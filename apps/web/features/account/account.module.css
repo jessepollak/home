@@ -203,12 +203,27 @@
 }
 
 .statusPanel p {
-  margin: 7px 0 13px;
+  margin: 7px 0 0;
   color: #5b616e;
+}
+
+.statusPanel p + p {
+  margin-top: 8px;
+}
+
+.statusPanel a {
+  color: #0052ff;
+  font-weight: 700;
+}
+
+.statusPanel code {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.9em;
 }
 
 .statusPanel .secondaryButton {
   width: 100%;
+  margin-top: 13px;
 }
 
 .spinner {

@@ -15,6 +15,12 @@ import {
   useAccountWallet,
   type BaseAccountLoginPhase,
 } from "./cdp-client";
+import {
+  CDP_SETUP_DOC_HREF,
+  CDP_SETUP_DOC_LABEL,
+  signInProviderUnavailableCopy,
+  signInUnconfiguredCopy,
+} from "./sign-in-copy";
 import styles from "./account.module.css";
 
 const RESEND_COOLDOWN_SECONDS = 30;
@@ -62,6 +68,35 @@ function baseAccountPhaseMessage(phase: BaseAccountLoginPhase): string {
   }
 }
 
+export function SignInBlockedPanel({
+  reason,
+}: {
+  reason: "unconfigured" | "provider-unavailable";
+}) {
+  if (reason === "unconfigured") {
+    return (
+      <div className={styles.statusPanel} role="alert">
+        <strong>{signInUnconfiguredCopy.heading}</strong>
+        <p>
+          This deployment is missing <code>NEXT_PUBLIC_CDP_PROJECT_ID</code>.
+        </p>
+        <p>
+          Copy <code>.env.example</code> to <code>apps/web/.env.local</code>, then
+          follow{" "}
+          <a href={CDP_SETUP_DOC_HREF}>{CDP_SETUP_DOC_LABEL}</a>.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.statusPanel} role="alert">
+      <strong>{signInProviderUnavailableCopy.heading}</strong>
+      <p>{signInProviderUnavailableCopy.body}</p>
+    </div>
+  );
+}
+
 export function AccountSignInSheet({
   open,
   onClose,
@@ -73,6 +108,7 @@ export function AccountSignInSheet({
 }) {
   const {
     projectConfigured,
+    signInAvailability,
     baseAccountEnabled,
     status,
     session,
@@ -107,6 +143,11 @@ export function AccountSignInSheet({
   const activeBaseAccountPhase = baseAccountFailed ? null : baseAccountPhase;
   const isBusy =
     isSendingCode || isVerifyingCode || activeBaseAccountPhase !== null;
+  const signInBlocked =
+    signInAvailability === "unconfigured" ||
+    signInAvailability === "provider-unavailable";
+  const isChecking =
+    !signInBlocked && (status === "restoring" || status === "validating");
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current;
@@ -321,8 +362,6 @@ export function AccountSignInSheet({
     }
   }
 
-  const isChecking = status === "restoring" || status === "validating";
-
   return (
     <>
     <dialog
@@ -348,142 +387,147 @@ export function AccountSignInSheet({
         </button>
       </div>
 
-      {!projectConfigured ? (
-        <div className={styles.statusPanel} role="alert">
-          <strong>Sign-in is unavailable.</strong>
-          <p>Try again later.</p>
-        </div>
-      ) : null}
+      {signInBlocked ? (
+        <SignInBlockedPanel
+          reason={
+            signInAvailability === "provider-unavailable"
+              ? "provider-unavailable"
+              : "unconfigured"
+          }
+        />
+      ) : (
+        <>
+          {message ? (
+            <p className={styles.notice} role="status">
+              {message}
+            </p>
+          ) : null}
+          {authError ? (
+            <p className={styles.error} role="alert">
+              {authError}
+            </p>
+          ) : null}
 
-      {message ? (
-        <p className={styles.notice} role="status">
-          {message}
-        </p>
-      ) : null}
-      {authError ? (
-        <p className={styles.error} role="alert">
-          {authError}
-        </p>
-      ) : null}
-
-      {activeBaseAccountPhase && !isProviderHandoff ? (
-        <div className={styles.pendingPanel} aria-live="polite">
-          <span className={styles.spinner} aria-hidden="true" />
-          {baseAccountPhaseMessage(activeBaseAccountPhase)}
-        </div>
-      ) : isChecking ? (
-        <div className={styles.pendingPanel} aria-live="polite">
-          <span className={styles.spinner} aria-hidden="true" />
-          Verifying your secure session…
-        </div>
-      ) : status === "unavailable" ? (
-        <div className={styles.statusPanel} role="alert">
-          <strong>We could not verify this session.</strong>
-          <p>Your account details remain hidden.</p>
-          <button
-            className={styles.secondaryButton}
-            type="button"
-            onClick={() => void retrySessionValidation()}
-          >
-            Try again
-          </button>
-        </div>
-      ) : projectConfigured && flowId ? (
-        <form className={styles.form} onSubmit={handleOtpSubmit}>
-          <div className={styles.fieldHeader}>
-            <label htmlFor="account-otp">Verification code</label>
-            <button
-              className={styles.textButton}
-              type="button"
-              onClick={changeEmail}
-              disabled={isVerifyingCode || isSendingCode}
-            >
-              Change email
-            </button>
-          </div>
-          <input
-            id="account-otp"
-            className={styles.otpInput}
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]{6}"
-            maxLength={6}
-            value={otp}
-            onChange={(event) =>
-              setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))
-            }
-            disabled={isVerifyingCode}
-            aria-describedby="account-otp-help"
-            autoFocus
-            data-initial-focus
-          />
-          <p id="account-otp-help" className={styles.fieldHelp}>
-            Sent to {email}. The code expires for your protection.
-          </p>
-          <button
-            className={styles.primaryButton}
-            type="submit"
-            disabled={isVerifyingCode || otp.length !== 6}
-          >
-            {isVerifyingCode ? "Verifying…" : "Verify and continue"}
-          </button>
-          <button
-            className={styles.secondaryButton}
-            type="button"
-            onClick={() => {
-              setOtp("");
-              void sendCode(email);
-            }}
-            disabled={isSendingCode || resendSeconds > 0}
-          >
-            {isSendingCode
-              ? "Sending…"
-              : resendSeconds > 0
-                ? `Resend code in ${resendSeconds}s`
-                : "Resend code"}
-          </button>
-        </form>
-      ) : projectConfigured ? (
-        <form className={styles.form} onSubmit={handleEmailSubmit}>
-          <label htmlFor="account-email">Email address</label>
-          <input
-            id="account-email"
-            className={styles.input}
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            disabled={isSendingCode}
-            required
-            autoFocus
-            data-initial-focus
-          />
-          <button
-            className={styles.primaryButton}
-            type="submit"
-            disabled={isSendingCode}
-          >
-            {isSendingCode ? "Sending code…" : "Continue with email"}
-          </button>
-          {baseAccountEnabled ? (
-            <>
-              <div className={styles.signInDivider} role="separator">
-                <span>or</span>
-              </div>
+          {activeBaseAccountPhase && !isProviderHandoff ? (
+            <div className={styles.pendingPanel} aria-live="polite">
+              <span className={styles.spinner} aria-hidden="true" />
+              {baseAccountPhaseMessage(activeBaseAccountPhase)}
+            </div>
+          ) : isChecking ? (
+            <div className={styles.pendingPanel} aria-live="polite">
+              <span className={styles.spinner} aria-hidden="true" />
+              Verifying your secure session…
+            </div>
+          ) : status === "unavailable" ? (
+            <div className={styles.statusPanel} role="alert">
+              <strong>We could not verify this session.</strong>
+              <p>Your account details remain hidden.</p>
               <button
                 className={styles.secondaryButton}
                 type="button"
-                onClick={() => void handleBaseAccountSignIn()}
+                onClick={() => void retrySessionValidation()}
               >
-                Continue with Base Account
+                Try again
               </button>
-            </>
+            </div>
+          ) : projectConfigured && flowId ? (
+            <form className={styles.form} onSubmit={handleOtpSubmit}>
+              <div className={styles.fieldHeader}>
+                <label htmlFor="account-otp">Verification code</label>
+                <button
+                  className={styles.textButton}
+                  type="button"
+                  onClick={changeEmail}
+                  disabled={isVerifyingCode || isSendingCode}
+                >
+                  Change email
+                </button>
+              </div>
+              <input
+                id="account-otp"
+                className={styles.otpInput}
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                value={otp}
+                onChange={(event) =>
+                  setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))
+                }
+                disabled={isVerifyingCode}
+                aria-describedby="account-otp-help"
+                autoFocus
+                data-initial-focus
+              />
+              <p id="account-otp-help" className={styles.fieldHelp}>
+                Sent to {email}. The code expires for your protection.
+              </p>
+              <button
+                className={styles.primaryButton}
+                type="submit"
+                disabled={isVerifyingCode || otp.length !== 6}
+              >
+                {isVerifyingCode ? "Verifying…" : "Verify and continue"}
+              </button>
+              <button
+                className={styles.secondaryButton}
+                type="button"
+                onClick={() => {
+                  setOtp("");
+                  void sendCode(email);
+                }}
+                disabled={isSendingCode || resendSeconds > 0}
+              >
+                {isSendingCode
+                  ? "Sending…"
+                  : resendSeconds > 0
+                    ? `Resend code in ${resendSeconds}s`
+                    : "Resend code"}
+              </button>
+            </form>
+          ) : projectConfigured ? (
+            <form className={styles.form} onSubmit={handleEmailSubmit}>
+              <label htmlFor="account-email">Email address</label>
+              <input
+                id="account-email"
+                className={styles.input}
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                disabled={isSendingCode}
+                required
+                autoFocus
+                data-initial-focus
+              />
+              <button
+                className={styles.primaryButton}
+                type="submit"
+                disabled={isSendingCode}
+              >
+                {isSendingCode ? "Sending code…" : "Continue with email"}
+              </button>
+              {baseAccountEnabled ? (
+                <>
+                  <div className={styles.signInDivider} role="separator">
+                    <span>or</span>
+                  </div>
+                  <button
+                    className={styles.secondaryButton}
+                    type="button"
+                    onClick={() => void handleBaseAccountSignIn()}
+                  >
+                    Continue with Base Account
+                  </button>
+                </>
+              ) : null}
+            </form>
           ) : null}
-        </form>
-      ) : null}
+        </>
+      )}
 
     </dialog>
     {open && isProviderHandoff && !baseAccountFailed ? (

@@ -23,9 +23,12 @@ mock.module("next/navigation", () => ({
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
 );
-const { AccountWalletSessionOwner } = await import(
-  "@/features/account/cdp-client"
-);
+const {
+  AccountWalletClientProvider,
+  AccountWalletSessionOwner,
+  CdpAccountProvider,
+  createBlockedAccountWalletClient,
+} = await import("@/features/account/cdp-client");
 const { BASE_CHAIN_ID } = await import("@/features/account/session-client");
 const { HomeExperience, PortfolioHomeExperience } = await import(
   "./home-experience"
@@ -414,7 +417,7 @@ afterEach(() => {
 });
 
 describe("login-state home experience", () => {
-  test("renders a focused sign-in/create-account landing with no dashboard while signed out", async () => {
+  test("renders Sign in and Create account as the same CDP email flow while signed out", async () => {
     render(<HomeHarness accountSdk={sdk()} routeMode="landing" />);
 
     await page().findByRole("heading", {
@@ -437,6 +440,48 @@ describe("login-state home experience", () => {
     const dialog = await page().findByRole("dialog", { name: "Sign in to Home" });
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(page().getByRole("textbox", { name: "Email address" })).toBeTruthy();
+    expect(page().queryByText("Sign-in is not configured")).toBeNull();
+  });
+
+  test("hides Create account when CDP is unconfigured and Sign in explains setup", async () => {
+    render(
+      <CdpAccountProvider projectId={null}>
+        <HomeExperience routeMode="landing" />
+      </CdpAccountProvider>,
+    );
+
+    await page().findByRole("heading", {
+      name: "One home for your money.",
+    });
+    const main = page().getByRole("main");
+    expect(within(main).queryByRole("button", { name: "Create account" })).toBeNull();
+    fireEvent.click(within(main).getByRole("button", { name: "Sign in" }));
+
+    const dialog = await page().findByRole("dialog", { name: "Sign in to Home" });
+    expect((dialog as HTMLDialogElement).open).toBe(true);
+    expect(page().getByText("Sign-in is not configured")).toBeTruthy();
+    expect(page().getByRole("link", { name: "docs/cdp-setup.md" })).toBeTruthy();
+    expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
+  });
+
+  test("hides Create account when the configured sign-in provider is unavailable", async () => {
+    render(
+      <AccountWalletClientProvider
+        client={createBlockedAccountWalletClient("provider-unavailable")}
+      >
+        <HomeExperience routeMode="landing" />
+      </AccountWalletClientProvider>,
+    );
+
+    await page().findByRole("heading", {
+      name: "One home for your money.",
+    });
+    const main = page().getByRole("main");
+    expect(within(main).queryByRole("button", { name: "Create account" })).toBeNull();
+    fireEvent.click(within(main).getByRole("button", { name: "Sign in" }));
+    expect(await page().findByText("Sign-in is unavailable")).toBeTruthy();
+    expect(page().queryByText("Sign-in is not configured")).toBeNull();
+    expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
   });
 
   test("keeps email OTP open and routes only after the current server-verified login", async () => {

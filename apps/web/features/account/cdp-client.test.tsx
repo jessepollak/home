@@ -18,6 +18,7 @@ const { act, cleanup, fireEvent, render, waitFor, within } = await import(
 const {
   AccountWalletSessionOwner,
   CdpAccountProvider,
+  createBlockedAccountWalletClient,
   useAccountWallet,
 } = await import("./cdp-client");
 const { BASE_CHAIN_ID } = await import("./session-client");
@@ -126,6 +127,8 @@ function AccountProbe({ moneyAction }: { moneyAction?: PreparedMoneyAction }) {
   return (
     <div>
       <output data-testid="status">{client.status}</output>
+      <output data-testid="availability">{client.signInAvailability}</output>
+      <output data-testid="configured">{String(client.projectConfigured)}</output>
       <output data-testid="address">
         {client.session?.smartAccount?.address ?? "private-details-hidden"}
       </output>
@@ -1513,10 +1516,27 @@ describe("production account session owner", () => {
     );
 
     expect(page().getByTestId("status").textContent).toBe("signed-out");
+    expect(page().getByTestId("availability").textContent).toBe("unconfigured");
+    expect(page().getByTestId("configured").textContent).toBe("false");
     expect(page().getByTestId("address").textContent).toBe(
       "private-details-hidden",
     );
     fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
     expect(page().getByTestId("status").textContent).toBe("signed-out");
+  });
+
+  test("keeps a configured-but-down provider distinct from missing project ID", () => {
+    const unconfigured = createBlockedAccountWalletClient("unconfigured");
+    const providerDown = createBlockedAccountWalletClient(
+      "provider-unavailable",
+    );
+
+    expect(unconfigured.projectConfigured).toBe(false);
+    expect(unconfigured.signInAvailability).toBe("unconfigured");
+    expect(unconfigured.message).toBeNull();
+    expect(providerDown.projectConfigured).toBe(true);
+    expect(providerDown.signInAvailability).toBe("provider-unavailable");
+    expect(providerDown.message).toContain("Try again later");
+    expect(providerDown.message).not.toContain("NEXT_PUBLIC_CDP_PROJECT_ID");
   });
 });
