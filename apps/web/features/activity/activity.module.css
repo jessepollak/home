@@ -121,26 +121,6 @@
   font-size: 0.75rem;
 }
 
-.coverage {
-  margin: 14px 0 0;
-  border-top: 1px solid rgba(10, 11, 13, 0.1);
-  padding-top: 10px;
-  color: #747b87;
-  font-size: 0.68rem;
-}
-
-.coverage summary {
-  width: fit-content;
-  cursor: pointer;
-  color: #565c68;
-  font-weight: 700;
-}
-
-.coverage p {
-  margin: 9px 0 0;
-  line-height: 1.5;
-}
-
 @keyframes spin {
   to {
     transform: rotate(360deg);

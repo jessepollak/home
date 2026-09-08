@@ -115,7 +115,6 @@ export function ActivityPanel({
           {activity.loadingMore ? "Loading…" : activity.loadMoreError ? "Retry more" : "Load more"}
         </button>
       ) : null}
-      {isEmpty ? null : <CoverageNote />}
     </section>
   );
 }
@@ -168,20 +167,6 @@ function TransferActivityRow({ transfer }: { transfer: ActivityTransfer }) {
         title: "View on BaseScan",
       }}
     />
-  );
-}
-
-function CoverageNote() {
-  return (
-    <details className={styles.coverage}>
-      <summary>Activity coverage</summary>
-      <p>
-        Coverage is limited to recent Base ERC-20 transfers for USDC and listed
-        Coinbase wrapped tokens in this 31-day window. Native ETH transfers and
-        complete ERC-4337 account history are not included. Indexed activity is
-        informational and is not transaction receipt confirmation.
-      </p>
-    </details>
   );
 }
 
