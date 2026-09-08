@@ -57,7 +57,7 @@ Keep one owner. Re-label when ownership moves. Do not assign the GitHub user —
 
 One `status:*` at a time. Swap; do not stack. When you advance, remove the previous status label.
 
-Prefer `status:working`. Do not use `status:in-progress` — deprecated; ignore it if present.
+Prefer `status:working`. Do not use `status:in-progress` — deprecated. If you see it, remove it and apply the single current `status:*` (usually `status:working`).
 
 #### Status label hygiene
 
@@ -77,6 +77,8 @@ Never on draft PRs.
 Never before eng LGTM. Never on draft PRs. Never leave `needs-jesse` on an issue whose linked PR is still draft.
 
 `status:needs-jesse` is not a substitute for Hannah's review. Eng review first; Jesse last.
+
+On jessepollak-authored crew PRs, GitHub blocks formal `APPROVE` / `REQUEST_CHANGES`. Hannah's eng LGTM is a COMMENT, then she labels `status:needs-jesse`.
 
 **Remove** both `status:ready-for-review` and `status:needs-jesse` when any of:
 
