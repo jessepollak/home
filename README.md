@@ -94,7 +94,7 @@ Venice/agent inference, Rain cards, additional funding providers, unrestricted a
 
 Fork this repository to run your own Home. Brand, regions, asset selection and providers are designed to be replaceable — [fork and extend](docs/fork-and-extend.md) is the how-to. Each operator configures their own provider projects, credentials and deployment.
 
-Sending a focused PR is optional. If you do, run `bun check` first. For UI / core-flow PRs, prefer a Before/After table in the GitHub description when both shots exist; after-only is OK when a before shot isn’t useful ([UI PR previews](docs/ui-pr-previews.md)). Never commit credentials or funded-wallet secrets. Documented token/provider support is separate from a tested integration.
+Sending a focused PR is optional. If you do, run `bun check` first. For UI / core-flow PRs, prefer a Before/After table of **inline embeds** in the GitHub description when both shots exist; after-only is OK when a before shot isn’t useful ([UI PR previews](docs/ui-pr-previews.md)). Never commit credentials or funded-wallet secrets. Documented token/provider support is separate from a tested integration.
 
 ## License
 
