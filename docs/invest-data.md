@@ -13,7 +13,7 @@ The asset registry keeps a deliberately small distinction:
 - Contract identity is always `chainId + contractAddress`; neither a display ticker nor a token ticker is a contract identity.
 - Price snapshots are labelled per represented token, for example “Per cbBTC token.” Home does not calculate a native-asset conversion, a stock-share multiplier, a stablecoin peg, or an executable redemption amount.
 
-This is enough for the current seam and can also describe a local stablecoin or another tokenized stock without introducing a generalized instrument ontology. It does not change region eligibility or currency defaults. Any future receive or review surface must show the exact token symbol, network, and contract; a Bitcoin / BTC display label must never be treated as permission to send native BTC to a Base address.
+This is enough for the current seam and can also describe a local stablecoin or another tokenized stock without introducing a generalized instrument ontology. It does not change region eligibility or currency defaults. Registry and docs record the exact token symbol, network, and contract for builders. Product list and discovery UI must not surface contract lists, restriction notes, or disclosure blocks; those belong only under Account → Disclosures / Terms. Review or confirm may show the token symbol, network, and other facts needed to complete an action. A Bitcoin / BTC display label must never be treated as permission to send native BTC to a Base address.
 
 ## Tokenized stocks
 
@@ -32,7 +32,7 @@ Primary sources:
 - Base announcement and restriction summary: https://blog.base.org/tokenized-stocks
 - Canonical contract identity: the Base explorer link attached to each instrument on the official roster; those links are preserved in `apps/web/config/invest-assets.ts`.
 
-A familiar company ticker is only a display label. Coinbase’s token symbol and exact Base contract remain visible in the token details. Corporate actions can alter a token-to-share relationship, and Home does not infer or execute par exchange.
+A familiar company ticker is only a display label. Coinbase’s token symbol and exact Base contract stay in the registry and builder docs, not on the Invest list. Corporate actions can alter a token-to-share relationship, and Home does not infer or execute par exchange.
 
 No route, liquidity, wallet compatibility, user eligibility, or trade execution has been verified for Home.
 
@@ -54,7 +54,7 @@ Verification sources and method:
 - Contract explorer links: the BaseScan token page for each Coinbase-published address, preserved in `apps/web/config/invest-assets.ts`.
 - ERC-20 token names, symbols, and decimals were read from those exact contracts on Base chain 8453 with `eth_call` (`name()`, `symbol()`, and `decimals()`) on September 7, 2026. The returned names were Coinbase Wrapped BTC/DOGE/XRP/LTC/ADA and the returned token symbols and decimals match the table.
 
-These are Base ERC-20 representations, not native BTC, XRP Ledger, Dogecoin, Litecoin, or Cardano deposits. The UI therefore presents familiar native names and tickers first but always exposes the `cb…` token symbol, Base 8453, decimals, and contract separately.
+These are Base ERC-20 representations, not native BTC, XRP Ledger, Dogecoin, Litecoin, or Cardano deposits. The registry records the `cb…` token symbol, Base 8453, decimals, and contract for builders. Product list and discovery UI must not surface those as contract lists, backing essays, or source roster walls. List rows may keep a short asset identity so a familiar ticker is not mistaken for a native-network deposit; legal and eligibility copy stays under Account → Disclosures / Terms.
 
 ### Investigated but excluded
 
@@ -63,7 +63,7 @@ These are Base ERC-20 representations, not native BTC, XRP Ledger, Dogecoin, Lit
 
 ## Base-native meme sample
 
-This sample is intentionally small and informational. Inclusion is not an endorsement and does not imply liquidity, suitability, eligibility, or a Home trading route.
+This sample is intentionally small and informational. Inclusion in the registry is not an endorsement and does not imply liquidity, suitability, eligibility, or a Home trading route. Do not put that disclaimer, or any similar compliance essay, on the Invest list.
 
 | Project | Symbol | Base contract | Primary project source | Contract source |
 | --- | --- | --- | --- | --- |

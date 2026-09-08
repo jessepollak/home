@@ -68,8 +68,11 @@ describe("finance-first presentation", () => {
     expect(markup).not.toContain("Price unavailable");
     expect(markup).not.toContain(">0.00<");
     expect(markup).not.toContain("Stock contracts");
+    expect(markup).not.toContain("Meme contracts");
+    expect(markup).not.toContain("Wrapped token contracts");
     expect(markup).not.toContain("Available only in eligible jurisdictions");
     expect(markup).not.toContain("Stock access is unavailable");
+    expect(markup).not.toContain("not an endorsement");
     expect(markup).not.toContain("Buy");
     expect(markup).not.toContain("Sell");
     expect(markup).not.toContain("<form");

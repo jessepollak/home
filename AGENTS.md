@@ -15,6 +15,8 @@ When the user asks to add a task, issue, bug, feature request, or design feedbac
 ## UI direction
 
 - Keep the interface direct and minimal. Avoid decorative kickers such as "Secure account" above an already clear "Sign in to Home" heading, redundant explanations, and generic reassurance copy.
-- Remove prose that does not help the user make a decision or complete the current action. Preserve essential field labels, actionable errors/recovery instructions, accessibility text, and required safety/transaction disclosures. Removing copy must not change authentication or privacy behavior.
+- Remove prose that does not help the user make a decision or complete the current action. Preserve essential field labels, actionable errors/recovery instructions, and accessibility text. Removing copy must not change authentication or privacy behavior.
+- Do not put legal disclosures, eligibility essays, contract lists, source roster walls, "not an endorsement," or similar compliance copy on product screens (Home, Save, Invest, Borrow, Fund, etc.). Those belong only in **Account → Disclosures / Terms** (or an equivalent settings section). Account should gain that Disclosures / Terms destination if it is missing; do not park the copy on product surfaces in the meantime.
+- Keep **actionable** transaction review facts the user needs to confirm an action (amount, fee, slippage, network) on review/confirm — not catalog footnotes on list or discovery screens.
 - Buttons should use smaller, less pill-like corner radii, with base.org as the visual reference. Apply changes consistently through shared styles while preserving accessible hit targets and interaction states.
 - These preferences guide future work; recording them does not mean the pending UI cleanup has been implemented. The inbox tracks execution status.

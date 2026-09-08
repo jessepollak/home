@@ -115,7 +115,7 @@ Cache keys include mode, network, account, provider and query inputs. Clear priv
 
 Make common customization possible without changing application logic:
 
-- `brand`: app name, logos, theme tokens, support URL, disclosures and optional fork-owned builder attribution.
+- `brand`: app name, logos, theme tokens, support URL, and optional fork-owned builder attribution. Legal disclosures and terms belong in Account → Disclosures / Terms (or an equivalent settings section), not on Home, Save, Invest, Borrow, or Fund screens.
 - `locales`: translated message catalogs, formatting and text direction. Country and language remain separate preferences.
 - `regions`: fiat unit, default asset reference, available product candidates and payment-method preferences.
 - `assets/products`: verified addresses/decimals, provider identifiers, issuer/source links, reviewed-at date, vault version or market parameters.
@@ -134,7 +134,7 @@ Demo fixtures are synthetic and deterministic, including pending and failed scen
 
 Use the [regional money specification](regional-money.md), [confirmed currency defaults](currency-defaults.md) and sourced candidate registry. Defaults are confirmed, including CADD for Canada and wARS for Argentina; held candidates stay unavailable for live funding. Each enabled region maps to an ISO currency and an explicit Base asset reference; token selection is verified against issuer documentation and actual provider routes. The dashboard's roster includes multiple issuers per currency and multiple contracts for some tickers, so ticker-only matching is insufficient.
 
-Everyday balances, amount entry and funding/send screens lead with native currency names and symbols. Token/issuer/network appear secondarily in account details, receive instructions and transaction review. Keep currency code, token symbol and contract identity separate. Locale controls formatting, not asset denomination; never convert integer token amounts through floating-point numbers for display. Fiat fraction digits do not define ERC-20 decimals. Show tiny positive amounts without rounding them to zero.
+Everyday balances, amount entry and funding/send screens lead with native currency names and symbols. Token, issuer, and network are builder-registry facts; show them on review/confirm or receive instructions only when the user needs them to complete an action. Do not put contract lists, eligibility essays, or disclosure blocks on list or discovery screens. Keep currency code, token symbol and contract identity separate in data. Locale controls formatting, not asset denomination; never convert integer token amounts through floating-point numbers for display. Fiat fraction digits do not define ERC-20 decimals. Show tiny positive amounts without rounding them to zero.
 
 Changing country updates presentation and future funding defaults; it does not convert holdings or rename USD exposure as local cash. Converted portfolio totals remain explicitly estimated. Multiple assets in one currency retain separate positions and execution references even if the UI groups them. A matching peg is a denomination choice, not permission to assume par execution/redemption.
 
