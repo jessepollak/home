@@ -417,7 +417,7 @@ function readUserOperationEvents(
   for (const value of logsValue) {
     if (!isRecord(value) || typeof value.address !== "string") continue;
     if (!ENTRY_POINT_ABIS.has(value.address.toLowerCase())) continue;
-    if (!Array.isArray(value.topics) || value.topics.length < 3) continue;
+    if (!Array.isArray(value.topics) || value.topics.length < 4) continue;
     const topics = value.topics;
     if (
       typeof topics[0] !== "string" ||

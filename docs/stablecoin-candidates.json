@@ -153,12 +153,12 @@
       "symbol": "TRYB",
       "currency": "TRY",
       "decimals": 8,
-      "region": "T\u00fcrkiye",
+      "region": "Türkiye",
       "countryCode": "TR",
       "source": "https://dune.com/queries/4780995",
       "verification": "dashboard-listed",
       "enabled": false,
-      "selectedProduct": true
+      "selectedProduct": false
     },
     {
       "chainId": 8453,
@@ -166,7 +166,7 @@
       "symbol": "TRYB",
       "currency": "TRY",
       "decimals": 6,
-      "region": "T\u00fcrkiye",
+      "region": "Türkiye",
       "countryCode": "TR",
       "source": "https://dune.com/queries/4780995",
       "verification": "dashboard-listed",
@@ -486,5 +486,5 @@
     "UGX": "UGXC",
     "THB": "THBT"
   },
-  "selectionNote": "TRYB selects the product family only; neither contract is chosen until the duplicate deployment is resolved. Every enabled flag remains false."
+  "selectionNote": "TRYB contract selection resolved: 0xfb8718a69aed7726afb3f04d2bd4bfde1bdcb294 (6 decimals) confirmed as the canonical Base deployment via on-chain verification in PR #1. The 8-decimal deployment (0x1a9be8a692de04bcb7ce5cddd03afca97d732c62) is marked selectedProduct: false. Both enabled flags remain false pending funding-route testing."
 }
