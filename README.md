@@ -58,7 +58,7 @@ GitHub Actions CI on pull requests and pushes to `main` runs `bun install --froz
 
 ### Local persistence
 
-Money-action records use a private, automatically created SQLite database under `.local/` (typically `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace). No hosted database is needed for the local spike. **This is not shared production persistence.** Read [wallet runtime notes](docs/wallet-runtime-spike.md) and [build status](docs/build-status.md) before any deployment. The Neon/Postgres store in [target architecture](docs/target-architecture.md) is a production destination, not what `bun dev` uses.
+Money-action records use a private, automatically created SQLite database under `.local/` (typically `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace). No hosted database is needed for the local spike. **This is not shared production persistence** and is not multi-instance safe on Vercel. Read [wallet runtime notes](docs/wallet-runtime-spike.md), [Vercel deploy](docs/vercel-deploy.md), and [build status](docs/build-status.md) before any deployment. The Neon/Postgres store in [target architecture](docs/target-architecture.md) is a production destination, not what `bun dev` uses.
 
 Edit `apps/web/app/home-experience.tsx` for the Home shell, `apps/web/features/` for account/Invest/Savings UI, `apps/web/app/globals.css` for visual tokens, and `apps/web/config/` for presentation settings and sourced asset identities. Keep one root `bun.lock`. Real configuration belongs only in the gitignored `apps/web/.env.local`.
 
@@ -73,6 +73,7 @@ Current tree first. Target and archive docs are last so they cannot be mistaken 
 5. [Docs index](docs/README.md) — full map (operate / product intent / target / archive).
 6. [Fork and extend](docs/fork-and-extend.md) — brand, regions, assets, providers.
 7. [CDP setup](docs/cdp-setup.md) · [SQL setup](docs/cdp-sql.md) · [Morpho setup](docs/morpho-setup.md) · [Invest data](docs/invest-data.md)
+8. [Vercel deploy](docs/vercel-deploy.md) — bun monorepo build settings; SQLite is not multi-instance safe.
 
 Product intent (not delivery state): [product scope](docs/product-scope.md), [regional money](docs/regional-money.md), [currency defaults](docs/currency-defaults.md), [stablecoin candidates](docs/stablecoin-candidates.json).
 

@@ -2,7 +2,7 @@
 
 Status: **target / not the current tree.** This is the 2026-09-07 production-destination design (Vercel + Neon Postgres + CDP webhooks, later `packages/*`). It is not a map of `apps/web/` today and not a delivery inventory.
 
-**Current tree (read these first):** [build status](build-status.md) · [wallet runtime spike](wallet-runtime-spike.md) · [architecture review](architecture-review-2026-09.md) · [docs index](README.md)
+**Current tree (read these first):** [build status](build-status.md) · [wallet runtime spike](wallet-runtime-spike.md) · [Vercel deploy](vercel-deploy.md) (bun settings; Neon is not implemented) · [architecture review](architecture-review-2026-09.md) · [docs index](README.md)
 
 Formerly published as `docs/technical-design.md`. Historical two-hour slice plan: [archived implementation plan](archive/implementation-plan-2026-09-07.md). Product intent: [product scope](product-scope.md).
 Updated: 2026-09-08 (relocated and retitled; body is the 2026-09-07 design).

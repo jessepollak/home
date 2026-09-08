@@ -4,7 +4,7 @@
 **Scope:** Current `main` (`0d9db14` and parents). Read of `apps/web/`, `docs/`, `.github/workflows/ci.yml`, and root workspace scripts. No production refactor in this review.  
 **Audience:** Founder + engineer #2. This is a hiring/onboarding contract, not a redesign.
 
-**Current-state docs:** [build status](build-status.md), [wallet runtime spike](wallet-runtime-spike.md), [docs index](README.md), [README](../README.md).  
+**Current-state docs:** [build status](build-status.md), [wallet runtime spike](wallet-runtime-spike.md), [Vercel deploy](vercel-deploy.md), [docs index](README.md), [README](../README.md).  
 **Target / archive (not the live tree):** [target architecture](target-architecture.md) (formerly `technical-design.md`), [archived implementation plan](archive/implementation-plan-2026-09-07.md). Product intent: [product scope](product-scope.md).
 
 ---

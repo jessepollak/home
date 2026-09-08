@@ -8,7 +8,8 @@ This path used to hold the 2026-09-07 production-destination design. It is **tar
 
 1. [Build status](build-status.md) — what is delivered and which gates remain
 2. [Wallet runtime spike](wallet-runtime-spike.md) — prepare → claim → submit → receipt
-3. [Architecture review](architecture-review-2026-09.md) — patterns, risks, contribution contract
-4. [Docs index](README.md)
+3. [Vercel deploy](vercel-deploy.md) — bun monorepo build settings; SQLite is not multi-instance safe
+4. [Architecture review](architecture-review-2026-09.md) — patterns, risks, contribution contract
+5. [Docs index](README.md)
 
-The Neon / Vercel / webhook design was not deleted. It lives at the target-architecture link above. Local `bun dev` still uses SQLite under `.local/`.
+The Neon / Vercel / webhook design was not deleted. It lives at the target-architecture link above. Local `bun dev` still uses SQLite under `.local/`. Neon/Postgres is not implemented in this tree.

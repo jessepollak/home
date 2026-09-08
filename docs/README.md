@@ -24,6 +24,7 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | [Morpho setup](morpho-setup.md) | USDC vault candidates and read verification; deposit/withdraw status is in [build status](build-status.md) |
 | [Codex prices](codex-prices.md) | Optional server-only Invest USD snapshots |
 | [Portfolio](portfolio.md) | USDC/ETH reads, regional valuation, `BASE_RPC_URL` |
+| [Vercel deploy](vercel-deploy.md) | Bun monorepo install/build on Vercel; **SQLite money-action store is not multi-instance safe** |
 
 `apps/web/server/borrowing/README.md` documents the single cbBTC/USDC Morpho market used by the local Borrow spike.
 

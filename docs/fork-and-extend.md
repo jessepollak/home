@@ -79,7 +79,7 @@ The running app is a **local finance spike**, not a production-approved deployme
 | Public Base RPC by default | Operator-managed `BASE_RPC_URL` |
 | Durable operations recoverable on this machine only | Shared, backed-up app records |
 
-The SQLite adapter is injectable (`MoneyActionStore`) so a production store can replace it without changing feature plan contracts. Replacing it is separate work. Do not point a fork at someone else's database or CDP project.
+The SQLite adapter is injectable (`MoneyActionStore`) so a production store can replace it without changing feature plan contracts. Replacing it is separate work. Do not point a fork at someone else's database or CDP project. Bun monorepo Vercel settings (and the serverless SQLite blocker) are in [Vercel deploy](vercel-deploy.md).
 
 Venice/agent inference, Rain cards, additional funding providers, unrestricted assets, and broader borrow markets are not implemented. Stock trading and external Base-account trading remain gated.
 
