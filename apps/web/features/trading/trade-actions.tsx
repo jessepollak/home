@@ -31,7 +31,13 @@ import {
 } from "./types";
 import styles from "./trade-actions.module.css";
 
-export function TradeActions({ asset }: { asset: InvestAsset }) {
+export function TradeActions({
+  asset,
+  layout = "row",
+}: {
+  asset: InvestAsset;
+  layout?: "row" | "sticky";
+}) {
   const account = useAccountWallet();
   const refreshMoneyData = useMoneyDataRefresh();
   const status = getTradeAssetStatus(asset.id);
@@ -56,7 +62,11 @@ export function TradeActions({ asset }: { asset: InvestAsset }) {
 
   if (!status) return null;
   if (status.status === "eligibility-required") {
-    return <div className={styles.locked} role="note">Stock execution requires verified issuer and provider eligibility.</div>;
+    return (
+      <div className={layout === "sticky" ? styles.lockedSticky : styles.locked} role="note">
+        Stock execution requires verified issuer and provider eligibility.
+      </div>
+    );
   }
 
   const tradeAsset = status.asset;
@@ -156,7 +166,10 @@ export function TradeActions({ asset }: { asset: InvestAsset }) {
 
   return (
     <>
-      <div className={styles.rowActions} aria-label={`Trade ${asset.displayName}`}>
+      <div
+        className={layout === "sticky" ? styles.stickyActions : styles.rowActions}
+        aria-label={`Trade ${asset.displayName}`}
+      >
         <button type="button" disabled={!canTrade} onClick={() => open("buy")}>Buy</button>
         <button type="button" disabled={!canTrade} onClick={() => open("sell")}>Sell</button>
       </div>

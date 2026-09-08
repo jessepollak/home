@@ -51,27 +51,28 @@ const vaultsFixture: MorphoVaultsResult = {
 };
 
 describe("finance-first presentation", () => {
-  test("puts investable asset rows ahead of contract disclosures without invented prices", () => {
+  test("leads Invest with a discovery hub and no invented prices, trades, or disclosures", () => {
     const markup = renderToStaticMarkup(<InvestExperience />);
 
-    expect(markup).toContain('id="invest-stocks-title"');
+    expect(markup).toContain('id="invest-title"');
+    expect(markup).toContain("Invest");
+    expect(markup).toContain("Browse on Base");
+    expect(markup).toContain("Stocks");
+    expect(markup).toContain("Crypto");
+    expect(markup).toContain("Memes");
     expect(markup).toContain("NVIDIA");
-    expect(markup).toContain("Degen");
     expect(markup).toContain("Bitcoin");
-    expect(markup).toContain("cbBTC token representation · Base 8453");
-    expect(markup).toContain("Price unavailable");
+    expect(markup).toContain("Degen");
+    expect(markup).toContain("See all");
+    expect(markup).not.toContain("Cardano");
+    expect(markup).not.toContain("Price unavailable");
     expect(markup).not.toContain(">0.00<");
-    expect(markup.indexOf("NVIDIA")).toBeLessThan(
-      markup.indexOf("Stock contracts, eligibility, and sources"),
-    );
-    expect(markup.indexOf("Degen")).toBeLessThan(
-      markup.indexOf("Meme contracts, risks, and sources"),
-    );
-    expect(markup.indexOf("Bitcoin")).toBeLessThan(
-      markup.indexOf("Wrapped token contracts, backing, and source"),
-    );
+    expect(markup).not.toContain("Stock contracts");
+    expect(markup).not.toContain("Available only in eligible jurisdictions");
+    expect(markup).not.toContain("Stock access is unavailable");
+    expect(markup).not.toContain("Buy");
+    expect(markup).not.toContain("Sell");
     expect(markup).not.toContain("<form");
-    expect(markup).not.toContain("<button");
     expect(markup).not.toContain("Approve");
     expect(markup).not.toContain("Sign transaction");
   });
@@ -95,14 +96,12 @@ describe("finance-first presentation", () => {
 
     expect(markup).toContain("Bitcoin");
     expect(markup).toContain("BTC");
-    expect(markup).toContain("cbBTC token representation");
-    expect(markup).toContain("Per cbBTC token");
     expect(markup).toContain("$100,000 supplied");
     expect(markup).not.toContain("1 cbBTC = 1 BTC");
     expect(markup).not.toContain("cbETH");
   });
 
-  test("keeps the supplied price provenance link on an asset row", () => {
+  test("shows a supplied hub price without exposing source chrome on the shelf row", () => {
     const markup = renderToStaticMarkup(
       <InvestExperience stockMarket={{
         status: "ready",
@@ -115,10 +114,9 @@ describe("finance-first presentation", () => {
         }],
       }} />,
     );
-    expect(markup).toContain('href="https://prices.example.test/nvdac"');
-    expect(markup).toContain("Price fixture");
     expect(markup).toContain("$231.71");
     expect(markup).not.toContain("$231.708792875");
+    expect(markup).not.toContain('href="https://prices.example.test/nvdac"');
   });
 
   test("leads savings with an unavailable USDC position and leaves every vault unselected", () => {

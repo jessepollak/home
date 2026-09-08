@@ -19,6 +19,7 @@ export type MarketDisplay = {
   value: string;
   detail: string;
   sourceUrl?: string;
+  changeLabel?: string;
   tone: "muted" | "error" | "ready";
 };
 

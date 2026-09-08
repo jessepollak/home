@@ -29,6 +29,7 @@
 }
 
 .rowActions button:disabled,
+.stickyActions button:disabled,
 .prepare:disabled,
 .dialog header button:disabled {
   cursor: not-allowed;
@@ -49,6 +50,48 @@
   color: #686f7b;
   font-size: 0.62rem;
   text-align: right;
+}
+
+.lockedSticky {
+  margin-top: 22px;
+  color: #686f7b;
+  font-size: 0.78rem;
+}
+
+.stickyActions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 22px;
+  background: #fff;
+  padding: 12px 0 4px;
+}
+
+.stickyActions button {
+  min-height: 48px;
+  border: 1px solid rgba(10, 11, 13, 0.16);
+  border-radius: 8px;
+  background: #fff;
+  color: #0a0b0d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 720;
+}
+
+.stickyActions button:first-child {
+  border-color: #0052ff;
+  background: #0052ff;
+  color: #fff;
+}
+
+@media (max-width: 719px) {
+  .stickyActions {
+    bottom: calc(70px + env(safe-area-inset-bottom));
+  }
 }
 
 .dialog {

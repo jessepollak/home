@@ -349,6 +349,7 @@ function HomeHarness({
         initialAccountOpen={initialAccountOpen}
         routeMode={routeMode}
         savingsContent={<section aria-label="Savings module">Savings fixture</section>}
+        investContent={<section aria-label="Invest module">Invest fixture</section>}
         assetBalances={{
           status: "ready",
           displayTotal: "$12.34",
@@ -994,9 +995,14 @@ describe("login-state home experience", () => {
     expect(page().getByText("Sets how money is shown")).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Done" }));
 
-    fireEvent.click(page().getByRole("button", { name: "Save" }));
-    const savings = page().getByRole("region", { name: "Savings module" });
-    expect(savings).toBeTruthy();
+    const tabs = page().getByRole("navigation", { name: "Main navigation" });
+    expect(within(tabs).queryByRole("button", { name: "Save" })).toBeNull();
+    expect(within(tabs).getByRole("button", { name: "Home" })).toBeTruthy();
+    expect(within(tabs).getByRole("button", { name: "Invest" })).toBeTruthy();
+
+    fireEvent.click(within(tabs).getByRole("button", { name: "Invest" }));
+    const invest = page().getByRole("region", { name: "Invest module" });
+    expect(invest).toBeTruthy();
     expect(document.activeElement).toBe(
       document.getElementById("navigation-panel"),
     );
