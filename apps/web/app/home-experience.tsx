@@ -554,9 +554,7 @@ function HomePanel({
     : assetBalances?.status === "unavailable"
       ? "Balance unavailable"
       : "Total balance";
-  const balanceItems = (assetBalances?.items ?? []).filter(
-    (item) => item.group !== "asset",
-  );
+  const balanceItems = assetBalances?.items ?? [];
   const [indexedTransactionHashes, setIndexedTransactionHashes] = useState<string[]>([]);
   const [localActionCount, setLocalActionCount] = useState(0);
   const updateIndexedTransactionHashes = useCallback((hashes: string[]) => {
@@ -592,7 +590,7 @@ function HomePanel({
                 icon={
                   <CurrencyMark
                     currency={asset.currencyCode}
-                    symbol={asset.name}
+                    symbol={asset.detail ?? asset.name}
                   />
                 }
                 iconTone="mark"

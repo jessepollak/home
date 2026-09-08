@@ -1,6 +1,31 @@
 import { describe, expect, test } from "bun:test";
-import type { PortfolioValuationSnapshot } from "@/server/valuation/types";
+import {
+  PORTFOLIO_NATIVE_ASSET_KEY,
+  PORTFOLIO_USDC_ASSET_KEY,
+  nativeEthAsset,
+  verifiedLocalCashAssets,
+} from "@/config/portfolio-assets";
+import type {
+  DirectPortfolioHolding,
+  PortfolioValuationSnapshot,
+} from "@/server/valuation/types";
 import { presentPortfolioValuation } from "./present-home-balances";
+
+function directHolding(
+  overrides: Partial<DirectPortfolioHolding> &
+    Pick<DirectPortfolioHolding, "id" | "assetKey" | "name" | "symbol">,
+): DirectPortfolioHolding {
+  return {
+    kind: "direct",
+    decimals: 18,
+    assetKind: "native",
+    contractAddress: null,
+    cashCurrency: null,
+    balanceBaseUnits: "0",
+    readStatus: "ready",
+    ...overrides,
+  };
+}
 
 function snapshot(
   overrides: Partial<PortfolioValuationSnapshot> = {},
@@ -185,6 +210,165 @@ describe("presentPortfolioValuation", () => {
         currencyCode: "USD",
         tone: "error",
       },
+    ]);
+  });
+
+  test("emits nonzero ETH as an asset row without inventing a fiat amount", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: nativeEthAsset.id,
+              assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+              name: nativeEthAsset.name,
+              symbol: nativeEthAsset.symbol,
+              balanceBaseUnits: "50000000000000000",
+            }),
+          ],
+          omissions: [],
+        },
+      }),
+      error: null,
+    });
+
+    expect(presented.items.filter((item) => item.group === "cash")).toHaveLength(2);
+    expect(presented.items.filter((item) => item.group === "asset")).toEqual([
+      {
+        id: `asset:${PORTFOLIO_NATIVE_ASSET_KEY}`,
+        group: "asset",
+        name: "Ethereum",
+        detail: "ETH",
+        displayBalance: "0.05 ETH",
+        currencyCode: null,
+      },
+    ]);
+    expect(JSON.stringify(presented.items)).not.toContain("USDC");
+  });
+
+  test("omits zero ETH and keeps selected local cash out of the asset list", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "ID",
+        quoteCurrency: "IDR",
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: nativeEthAsset.id,
+              assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+              name: nativeEthAsset.name,
+              symbol: nativeEthAsset.symbol,
+            }),
+            directHolding({
+              id: verifiedLocalCashAssets.IDR.id,
+              assetKey: verifiedLocalCashAssets.IDR.assetKey,
+              name: verifiedLocalCashAssets.IDR.name,
+              symbol: verifiedLocalCashAssets.IDR.symbol,
+              decimals: verifiedLocalCashAssets.IDR.decimals,
+              assetKind: "erc20",
+              contractAddress: verifiedLocalCashAssets.IDR.contractAddress,
+              cashCurrency: "IDR",
+              balanceBaseUnits: "250000",
+            }),
+          ],
+          omissions: [],
+        },
+        cashBuckets: [
+          {
+            id: "cash:usd",
+            roles: ["canonical-usd"],
+            assetKey: PORTFOLIO_USDC_ASSET_KEY,
+            symbol: "USDC",
+            denominationCurrency: "USD",
+            tokenAmountBaseUnits: "0",
+            tokenDecimals: 6,
+            indicativeValue: { atoms: "0", scale: 6 },
+            valuationStatus: "priced",
+          },
+          {
+            id: `cash:${verifiedLocalCashAssets.IDR.assetKey}`,
+            roles: ["selected-local"],
+            assetKey: verifiedLocalCashAssets.IDR.assetKey,
+            symbol: "IDRX",
+            denominationCurrency: "IDR",
+            tokenAmountBaseUnits: "250000",
+            tokenDecimals: 2,
+            indicativeValue: { atoms: "250000", scale: 2 },
+            valuationStatus: "priced",
+          },
+        ],
+      }),
+      error: null,
+    });
+
+    expect(presented.items.map((item) => item.group)).toEqual(["cash", "cash"]);
+    expect(presented.items.map((item) => item.name)).toEqual([
+      "US dollar",
+      "Indonesian rupiah",
+    ]);
+  });
+
+  test("surfaces funded nonselected local cash as an asset row", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "US",
+        quoteCurrency: "USD",
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: verifiedLocalCashAssets.IDR.id,
+              assetKey: verifiedLocalCashAssets.IDR.assetKey,
+              name: verifiedLocalCashAssets.IDR.name,
+              symbol: verifiedLocalCashAssets.IDR.symbol,
+              decimals: verifiedLocalCashAssets.IDR.decimals,
+              assetKind: "erc20",
+              contractAddress: verifiedLocalCashAssets.IDR.contractAddress,
+              cashCurrency: "IDR",
+              balanceBaseUnits: "10000",
+            }),
+            directHolding({
+              id: verifiedLocalCashAssets.EUR.id,
+              assetKey: verifiedLocalCashAssets.EUR.assetKey,
+              name: verifiedLocalCashAssets.EUR.name,
+              symbol: verifiedLocalCashAssets.EUR.symbol,
+              decimals: verifiedLocalCashAssets.EUR.decimals,
+              assetKind: "erc20",
+              contractAddress: verifiedLocalCashAssets.EUR.contractAddress,
+              cashCurrency: "EUR",
+              balanceBaseUnits: "0",
+            }),
+          ],
+          omissions: [],
+        },
+        cashBuckets: [
+          {
+            id: "cash:usd",
+            roles: ["canonical-usd", "selected-local"],
+            assetKey: PORTFOLIO_USDC_ASSET_KEY,
+            symbol: "USDC",
+            denominationCurrency: "USD",
+            tokenAmountBaseUnits: "10000000",
+            tokenDecimals: 6,
+            indicativeValue: { atoms: "10000000", scale: 6 },
+            valuationStatus: "priced",
+          },
+        ],
+      }),
+      error: null,
+    });
+
+    expect(presented.items.map((item) => [item.group, item.name, item.displayBalance])).toEqual([
+      ["cash", "US dollar", "$10.00"],
+      ["asset", "Indonesian rupiah", "100 IDRX"],
     ]);
   });
 });

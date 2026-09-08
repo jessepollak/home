@@ -11,6 +11,7 @@ import type {
   VerifiedAccountSession,
 } from "@/features/account/session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "@/features/account/session-types";
+import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
 import { presentationRegions, type RegionId } from "@/config/regions";
 
 const replaceCalls: string[] = [];
@@ -127,11 +128,15 @@ function valuationSnapshot({
   address = ADDRESS,
   usdc = "0",
   eth = "0",
+  idrx = "0",
+  eurc = "0",
 }: {
   region: RegionId;
   address?: typeof ADDRESS | typeof ADDRESS_B;
   usdc?: string;
   eth?: string;
+  idrx?: string;
+  eurc?: string;
 }) {
   const currency = presentationRegions[region].currency.code;
   const usdcKey =
@@ -161,6 +166,32 @@ function valuationSnapshot({
       contractAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
       cashCurrency: "USD",
       balanceBaseUnits: usdc,
+      readStatus: "ready",
+    },
+    {
+      kind: "direct",
+      id: verifiedLocalCashAssets.EUR.id,
+      assetKey: verifiedLocalCashAssets.EUR.assetKey,
+      name: verifiedLocalCashAssets.EUR.name,
+      symbol: verifiedLocalCashAssets.EUR.symbol,
+      decimals: verifiedLocalCashAssets.EUR.decimals,
+      assetKind: "erc20",
+      contractAddress: verifiedLocalCashAssets.EUR.contractAddress,
+      cashCurrency: "EUR",
+      balanceBaseUnits: eurc,
+      readStatus: "ready",
+    },
+    {
+      kind: "direct",
+      id: verifiedLocalCashAssets.IDR.id,
+      assetKey: verifiedLocalCashAssets.IDR.assetKey,
+      name: verifiedLocalCashAssets.IDR.name,
+      symbol: verifiedLocalCashAssets.IDR.symbol,
+      decimals: verifiedLocalCashAssets.IDR.decimals,
+      assetKind: "erc20",
+      contractAddress: verifiedLocalCashAssets.IDR.contractAddress,
+      cashCurrency: "IDR",
+      balanceBaseUnits: idrx,
       readStatus: "ready",
     },
     ...[
@@ -279,7 +310,13 @@ function valuationSnapshot({
 
 function valuationResponse(
   input: RequestInfo | URL,
-  options: { address?: typeof ADDRESS | typeof ADDRESS_B; usdc?: string; eth?: string } = {},
+  options: {
+    address?: typeof ADDRESS | typeof ADDRESS_B;
+    usdc?: string;
+    eth?: string;
+    idrx?: string;
+    eurc?: string;
+  } = {},
 ) {
   const region = new URL(String(input), "http://localhost").searchParams.get(
     "region",
@@ -641,9 +678,13 @@ describe("login-state home experience", () => {
         return Response.json(activityPage(input));
       }
       if (String(input).startsWith("/api/portfolio/valuation?")) {
-        return valuationResponse(input, { usdc: "0", eth: "1" });
+        return valuationResponse(input, {
+          usdc: "0",
+          eth: "50000000000000000",
+          idrx: "10000",
+        });
       }
-      return Response.json(portfolioSnapshot({ usdc: "0", eth: "1" }));
+      return Response.json(portfolioSnapshot({ usdc: "0", eth: "50000000000000000" }));
     };
 
     render(
@@ -659,11 +700,15 @@ describe("login-state home experience", () => {
     expect(page().queryByText("Wallet and savings only · Borrow separate")).toBeNull();
     expect(page().getByText("US dollar")).toBeTruthy();
     expect(page().getByText("Brazilian real")).toBeTruthy();
+    expect(page().getByText("Ethereum")).toBeTruthy();
+    expect(page().getByText("0.05 ETH")).toBeTruthy();
+    expect(page().getByText("Indonesian rupiah")).toBeTruthy();
+    expect(page().getByText("100 IDRX")).toBeTruthy();
+    expect(page().queryByText("Euro")).toBeNull();
     expect(page().getAllByText("$0.00").length).toBeGreaterThanOrEqual(1);
     expect(page().getAllByText("R$ 0,00").length).toBeGreaterThanOrEqual(1);
     expect(page().queryByText("USD / USDC")).toBeNull();
     expect(page().queryByText("BRL / BRZ")).toBeNull();
-    expect(page().queryByText("Ethereum")).toBeNull();
     expect(document.body.textContent).not.toContain("Not available yet");
     expect(page().queryByRole("button", { name: "Save", hidden: false })).toBeTruthy();
     expect(page().queryByRole("button", { name: "Save", current: "page" })).toBeNull();

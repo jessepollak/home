@@ -1,4 +1,8 @@
-import type { CashBucket } from "@/server/valuation/types";
+import { formatBaseUnitAmount } from "@/features/portfolio";
+import type {
+  CashBucket,
+  PortfolioValuationSnapshot,
+} from "@/server/valuation/types";
 import {
   formatPresentationFiat,
   presentationCurrencyName,
@@ -58,7 +62,10 @@ export function presentPortfolioValuation(
       : totalUnavailable
         ? "Balance unavailable"
         : undefined,
-    items: snapshot.cashBuckets.map(presentCashBucket),
+    items: [
+      ...snapshot.cashBuckets.map(presentCashBucket),
+      ...presentAssetRows(snapshot),
+    ],
   };
 }
 
@@ -99,4 +106,40 @@ function presentCashBucket(bucket: CashBucket): HomeAssetBalanceItem {
     currencyCode: bucket.denominationCurrency,
     tone: readFailed ? "error" : "muted",
   };
+}
+
+function presentAssetRows(
+  snapshot: PortfolioValuationSnapshot,
+): HomeAssetBalanceItem[] {
+  const cashAssetKeys = new Set<string>(
+    snapshot.cashBuckets.flatMap((bucket) =>
+      bucket.assetKey ? [bucket.assetKey] : [],
+    ),
+  );
+
+  const items: HomeAssetBalanceItem[] = [];
+  for (const holding of snapshot.inventory.holdings) {
+    if (holding.kind !== "direct") continue;
+    const isNative = holding.assetKind === "native";
+    const isNonselectedLocalCash =
+      holding.cashCurrency !== null && !cashAssetKeys.has(holding.assetKey);
+    if (!isNative && !isNonselectedLocalCash) continue;
+    if (holding.readStatus !== "ready" || holding.balanceBaseUnits === null) {
+      continue;
+    }
+    if (holding.balanceBaseUnits === "0") continue;
+
+    items.push({
+      id: `asset:${holding.assetKey}`,
+      group: "asset",
+      name: holding.name,
+      detail: holding.symbol,
+      displayBalance: `${formatBaseUnitAmount(
+        holding.balanceBaseUnits,
+        holding.decimals,
+      )} ${holding.symbol}`,
+      currencyCode: holding.cashCurrency,
+    });
+  }
+  return items;
 }
