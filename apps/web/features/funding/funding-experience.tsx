@@ -253,11 +253,19 @@ function FundingExperienceBoundary({
       <main className={styles.page}>
         <div className={styles.shell}>
           <header className={styles.header}>
-            <Link className={styles.back} href="/dashboard">← Dashboard</Link>
+            <Link className={styles.back} href="/">← Home</Link>
           </header>
           <section className={styles.card}>
             <h1 className={styles.title}>Add money</h1>
             <p className={styles.lead}>Sign in and verify a Base account before showing a funding address.</p>
+            <div className={styles.actions}>
+              <Link className={styles.signIn} href="/?account=signin">
+                Sign in
+              </Link>
+              <Link className={styles.home} href="/">
+                Home
+              </Link>
+            </div>
           </section>
         </div>
       </main>

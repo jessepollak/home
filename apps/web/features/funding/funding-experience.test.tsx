@@ -202,4 +202,37 @@ describe("FundingExperience", () => {
     expect(page().queryByText(ADDRESS_A)).toBeNull();
     expect(page().getByText(/Sign in and verify a Base account/)).toBeTruthy();
   });
+
+  test("signed-out empty state links Sign in to the landing account entry", () => {
+    render(
+      <FundingExperienceForWallet
+        wallet={{
+          ownerKey: null,
+          status: "signed-out",
+          session: null,
+          fetchPortfolio: async () => {
+            throw new Error("signed out");
+          },
+          fetchActivity: async () => {
+            throw new Error("signed out");
+          },
+          fetchAccountResource: async () => {
+            throw new Error("signed out");
+          },
+        }}
+        navigateToHostedOnramp={() => {}}
+      />,
+    );
+
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().getByText(/Sign in and verify a Base account/)).toBeTruthy();
+    expect(page().getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe(
+      "/?account=signin",
+    );
+    expect(page().getByRole("link", { name: "Home" }).getAttribute("href")).toBe("/");
+    expect(page().getByRole("link", { name: "← Home" }).getAttribute("href")).toBe("/");
+    expect(page().queryByRole("button", { name: "Copy address" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Continue to Coinbase" })).toBeNull();
+    expect(page().queryByText(ADDRESS_A)).toBeNull();
+  });
 });
