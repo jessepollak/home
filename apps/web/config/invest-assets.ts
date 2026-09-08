@@ -286,9 +286,7 @@ export function shortenContractAddress(address: `0x${string}`): string {
   return `${address.slice(0, 8)}…${address.slice(-4)}`;
 }
 
-export function findInvestAssetByAddress(
-  address: string,
-): (typeof investAssets)[number] | undefined {
+export function findInvestAssetByAddress(address: string): InvestAsset | undefined {
   const key = address.toLowerCase();
   return investAssets.find(
     (asset) => asset.contractAddress.toLowerCase() === key,
