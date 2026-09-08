@@ -6,6 +6,7 @@ import type {
   MoneyActionDraft,
   PreparedMoneyAction,
 } from "@/features/money-actions/types";
+import { MoneyActionIssueError } from "@/server/money-actions/issue";
 import { readAuthorizedMoneyActionSession } from "@/server/money-actions/session";
 import { SavingsActionError } from "./prepare";
 import type { PrepareSavingsAction, SavingsActionInput } from "./types";
@@ -63,9 +64,20 @@ export function createSavingsActionsHandler(dependencies: {
             return privateJson(errorBody("SAVINGS_ACTION_UNSUPPORTED", error.message), 422);
           case "limit-exceeded":
             return privateJson(errorBody("SAVINGS_ACTION_LIMIT_EXCEEDED", error.message), 409);
+          case "rpc":
+            return privateJson(errorBody("SAVINGS_ACTION_RPC", error.message), 502);
           default:
             return privateJson(errorBody("SAVINGS_ACTION_UNAVAILABLE", error.message), 502);
         }
+      }
+      if (error instanceof MoneyActionIssueError) {
+        return privateJson(
+          errorBody(
+            "SAVINGS_ACTION_ISSUE",
+            "The savings review could not be stored for this account.",
+          ),
+          502,
+        );
       }
       return privateJson(
         errorBody("SAVINGS_ACTION_UNAVAILABLE", "Savings action preparation is temporarily unavailable."),

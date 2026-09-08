@@ -84,4 +84,32 @@ describe("SavingsActions", () => {
     expect(within(document.body).getByText("3.50%")).toBeTruthy();
     expect(within(document.body).getByText("10.00%")).toBeTruthy();
   });
+
+  test("surfaces a safe RPC error code instead of the opaque unavailable copy", async () => {
+    render(
+      <SavingsActions
+        session={session}
+        candidates={[candidate]}
+        fetchAccountResource={async () => {
+          throw Object.assign(new Error("unavailable"), {
+            status: 502,
+            code: "SAVINGS_ACTION_RPC",
+            serverMessage: "Base RPC rejected a savings state read: execution reverted",
+          });
+        }}
+      />,
+    );
+
+    fireEvent.change(within(document.body).getByLabelText("Vault"), {
+      target: { value: VAULT },
+    });
+    fireEvent.change(within(document.body).getByLabelText("USDC amount"), {
+      target: { value: "5" },
+    });
+    fireEvent.click(within(document.body).getByRole("button", { name: "Review deposit" }));
+
+    expect((await within(document.body).findByRole("alert")).textContent).toBe(
+      "Base RPC rejected a savings state read: execution reverted (SAVINGS_ACTION_RPC) No transaction was submitted.",
+    );
+  });
 });

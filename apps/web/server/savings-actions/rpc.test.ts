@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morpho/config";
-import { createSavingsActionStateReader } from "./rpc";
+import { SAVINGS_ACTION_RPC_BATCH_SIZE, createSavingsActionStateReader } from "./rpc";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const VAULT = MORPHO_V1_CANDIDATE_ADDRESSES[0];
@@ -80,9 +80,49 @@ describe("savings action RPC state", () => {
       fee: BigInt("250000000000000000"),
       block: { number: "16", numberHex: "0x10", hash: BLOCK_HASH },
     });
-    const batch = requests.find(Array.isArray) as Array<{ method: string; params: unknown[] }>;
-    expect(batch).toHaveLength(8);
-    expect(batch.every((entry) => entry.method === "eth_call" && entry.params[1] === "0x10")).toBeTrue();
+    const batches = requests.filter(Array.isArray) as Array<Array<{ method: string; params: unknown[] }>>;
+    expect(batches.every((batch) => batch.length <= SAVINGS_ACTION_RPC_BATCH_SIZE)).toBeTrue();
+    expect(batches.flat()).toHaveLength(8);
+    expect(batches.flat().every((entry) => entry.method === "eth_call" && entry.params[1] === "0x10")).toBeTrue();
     expect((requests.at(-1) as { params: unknown[] }).params[0]).toBe("0x10");
+  });
+
+  test("surfaces the rejected savings read instead of a mismatched batch", async () => {
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as
+        | { id: number; method: string; params: unknown[] }
+        | Array<{ id: number; method: string; params: unknown[] }>;
+      const respond = (entry: { id: number; method: string; params: unknown[] }) => {
+        if (entry.method === "eth_chainId") {
+          return { jsonrpc: "2.0", id: entry.id, result: "0x2105" };
+        }
+        if (entry.method === "eth_getBlockByNumber") {
+          return {
+            jsonrpc: "2.0",
+            id: entry.id,
+            result: { number: "0x10", hash: BLOCK_HASH, timestamp: "0x64" },
+          };
+        }
+        return {
+          jsonrpc: "2.0",
+          id: entry.id,
+          error: { code: -32000, message: "execution reverted" },
+        };
+      };
+      return Response.json(Array.isArray(body) ? body.map(respond) : respond(body));
+    }) as typeof fetch;
+
+    await expect(createSavingsActionStateReader({
+      fetchImpl,
+      rpcUrl: "https://rpc.example.test",
+    })({
+      kind: "deposit",
+      accountAddress: ACCOUNT,
+      vaultAddress: VAULT,
+      amount: BigInt("2000000"),
+    })).rejects.toMatchObject({
+      name: "SavingsActionRpcError",
+      message: "Base RPC rejected a savings state read: execution reverted",
+    });
   });
 });

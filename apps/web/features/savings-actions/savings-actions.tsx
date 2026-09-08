@@ -250,10 +250,39 @@ function parsePreparedAction(
 function messageForPrepareError(error: unknown): string {
   if (error instanceof SavingsActionClientError) return error.message;
   const status = isRecord(error) && typeof error.status === "number" ? error.status : null;
-  if (status === 400) return "Enter a valid positive USDC amount for a configured vault.";
-  if (status === 409) return "That amount exceeds the current onchain account balance or vault limit. No transaction was submitted.";
-  if (status === 422) return "This vault no longer has a verified supported canonical-USDC action route.";
+  const code = isRecord(error) && typeof error.code === "string" ? error.code : null;
+  const serverMessage = isRecord(error) && typeof error.serverMessage === "string"
+    ? error.serverMessage
+    : null;
+  if (code === "SAVINGS_ACTION_INVALID" || status === 400) {
+    return "Enter a valid positive USDC amount for a configured vault.";
+  }
+  if (code === "SAVINGS_ACTION_LIMIT_EXCEEDED" || status === 409) {
+    return "That amount exceeds the current onchain account balance or vault limit. No transaction was submitted.";
+  }
+  if (code === "SAVINGS_ACTION_UNSUPPORTED" || status === 422) {
+    return "This vault no longer has a verified supported canonical-USDC action route.";
+  }
+  if (code === "UNAUTHENTICATED") {
+    return "Your verified account changed. Sign in again to prepare this savings action.";
+  }
+  if (code === "AUTH_UNAVAILABLE") {
+    return "Authentication is temporarily unavailable. No transaction was submitted.";
+  }
+  if (code === "SAVINGS_ACTION_ISSUE") {
+    return "The savings review could not be stored for this account. No transaction was submitted.";
+  }
+  if (code && serverMessage && isSafePrepareMessage(serverMessage)) {
+    return `${serverMessage} (${code}) No transaction was submitted.`;
+  }
+  if (code && code !== "SAVINGS_ACTION_UNAVAILABLE") {
+    return `Savings action preparation failed (${code}). No transaction was submitted.`;
+  }
   return "Savings action preparation is temporarily unavailable. No transaction was submitted.";
+}
+
+function isSafePrepareMessage(message: string): boolean {
+  return message.length > 0 && message.length <= 240 && !/[<>]/.test(message) && !/https?:\/\//i.test(message);
 }
 
 class SavingsActionClientError extends Error {}

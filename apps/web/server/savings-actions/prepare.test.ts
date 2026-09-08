@@ -3,6 +3,7 @@ import type { VerifiedAccountSession } from "@/features/account/session-types";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morpho/config";
 import type { Address } from "@/server/morpho/types";
 import { SavingsActionError, createPrepareSavingsAction } from "./prepare";
+import { SavingsActionRpcError } from "./rpc";
 import type { SavingsActionState, SavingsActionStateReader } from "./types";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
@@ -157,6 +158,71 @@ describe("Morpho savings action preparation", () => {
     })).rejects.toMatchObject({
       name: "SavingsActionError",
       reason: "limit-exceeded",
+    } satisfies Partial<SavingsActionError>);
+  });
+
+  test("prepares a 5 USDC Gauntlet-shaped deposit and retries a transient RPC read once", async () => {
+    let attempts = 0;
+    const prepare = createPrepareSavingsAction({
+      now: () => new Date("2026-09-08T21:13:00.000Z"),
+      readState: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new SavingsActionRpcError("The Base source block changed while savings state was fetched.");
+        }
+        return {
+          ...baseState,
+          fee: BigInt(0),
+          allowance: BigInt(0),
+          usdcBalance: BigInt("9000000"),
+          limit: BigInt("100364354472113921"),
+          previewShares: BigInt("4502349201208201236"),
+        };
+      },
+    });
+
+    const action = await prepare({
+      session,
+      action: {
+        kind: "deposit",
+        vaultAddress: VAULT,
+        amountBaseUnits: "5000000",
+      },
+    });
+
+    expect(attempts).toBe(2);
+    expect(action.kind).toBe("save-deposit");
+    expect(action.amounts[0]).toEqual(expect.objectContaining({
+      symbol: "USDC",
+      amountBaseUnits: "5000000",
+      direction: "spend",
+    }));
+    expect(action.amounts[1]).toEqual(expect.objectContaining({
+      amountBaseUnits: "4502349201208201236",
+      estimated: true,
+      direction: "receive",
+    }));
+    expect(action.warnings.join(" ")).toContain("Current vault fee: 0%");
+  });
+
+  test("preserves the RPC failure instead of wrapping it as a generic unavailable error", async () => {
+    const prepare = createPrepareSavingsAction({
+      readState: async () => {
+        throw new SavingsActionRpcError("Base RPC rejected a savings state read: execution reverted");
+      },
+    });
+
+    await expect(prepare({
+      session,
+      action: {
+        kind: "deposit",
+        vaultAddress: VAULT,
+        amountBaseUnits: "5000000",
+      },
+    })).rejects.toMatchObject({
+      name: "SavingsActionError",
+      reason: "rpc",
+      message: "Base RPC rejected a savings state read: execution reverted",
     } satisfies Partial<SavingsActionError>);
   });
 });

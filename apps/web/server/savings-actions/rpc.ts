@@ -18,6 +18,7 @@ import type {
 } from "./types";
 
 export const SAVINGS_ACTION_RPC_TIMEOUT_MS = 6_000;
+export const SAVINGS_ACTION_RPC_BATCH_SIZE = 2;
 
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const blockHashPattern = /^0x[0-9a-fA-F]{64}$/;
@@ -83,12 +84,18 @@ export function createSavingsActionStateReader(options: {
       );
       const block = parseBlock(latest.result);
       const reads = createPinnedReads(input.kind, input.accountAddress, input.vaultAddress, input.amount, block.numberHex);
-      const responses = await executeBatch(
-        fetchImpl,
-        rpcUrl,
-        reads.map(({ rpcRequest }) => rpcRequest),
-        controller.signal,
-      );
+      const responses = (
+        await Promise.all(
+          chunkReads(reads, SAVINGS_ACTION_RPC_BATCH_SIZE).map((chunk) =>
+            executeBatch(
+              fetchImpl,
+              rpcUrl,
+              chunk.map(({ rpcRequest }) => rpcRequest),
+              controller.signal,
+            ),
+          ),
+        )
+      ).flat();
       const resultById = new Map(responses.map((response) => [response.id, response.result]));
       const read = (label: string) => {
         const entry = reads.find((candidate) => candidate.label === label);
@@ -229,7 +236,7 @@ async function executeBatch(
   requests: RpcRequest[],
   signal: AbortSignal,
 ): Promise<RpcSuccess[]> {
-  if (requests.length < 1 || requests.length > 8) {
+  if (requests.length < 1 || requests.length > SAVINGS_ACTION_RPC_BATCH_SIZE) {
     throw new SavingsActionRpcError("The savings RPC batch size is invalid.");
   }
   const value = await transport(fetchImpl, rpcUrl, requests, signal);
@@ -286,15 +293,34 @@ function request(id: number, method: string, params: unknown[]): RpcRequest {
 }
 
 function parseSuccess(value: unknown): RpcSuccess | null {
+  if (!isRecord(value) || value.jsonrpc !== "2.0") return null;
+  if ("error" in value) {
+    throw new SavingsActionRpcError(rpcErrorMessage(value.error));
+  }
   if (
-    !isRecord(value) ||
-    value.jsonrpc !== "2.0" ||
     typeof value.id !== "number" ||
     !Number.isSafeInteger(value.id) ||
-    !("result" in value) ||
-    "error" in value
+    !("result" in value)
   ) return null;
   return value as RpcSuccess;
+}
+
+function rpcErrorMessage(value: unknown): string {
+  if (!isRecord(value) || typeof value.message !== "string") {
+    return "Base RPC rejected a savings state read.";
+  }
+  const message = value.message.trim();
+  if (!message) return "Base RPC rejected a savings state read.";
+  const clipped = message.length > 160 ? `${message.slice(0, 157)}...` : message;
+  return `Base RPC rejected a savings state read: ${clipped}`;
+}
+
+function chunkReads<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function parseBlock(value: unknown): BlockMetadata {

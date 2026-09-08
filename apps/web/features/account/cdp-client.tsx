@@ -1539,10 +1539,32 @@ export function AccountWalletSessionOwner({
       }
       assertActive();
       if (!response.ok) {
+        let code: string | null = null;
+        let serverMessage: string | null = null;
+        try {
+          const payload: unknown = await response.json();
+          if (
+            payload &&
+            typeof payload === "object" &&
+            "error" in payload &&
+            payload.error &&
+            typeof payload.error === "object"
+          ) {
+            const error = payload.error;
+            if ("code" in error && typeof error.code === "string") {
+              code = error.code;
+            }
+            if ("message" in error && typeof error.message === "string") {
+              serverMessage = error.message;
+            }
+          }
+        } catch {
+          // Money-action callers only need the bounded status/code seam.
+        }
         const failure = new TransferExecutionError(
           response.status === 409 ? "submission-pending" : "unavailable",
         );
-        Object.assign(failure, { status: response.status });
+        Object.assign(failure, { status: response.status, code, serverMessage });
         throw failure;
       }
       try {

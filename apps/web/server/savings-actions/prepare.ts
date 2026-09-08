@@ -8,11 +8,12 @@ import {
 } from "@/server/morpho/config";
 import type { Address } from "@/server/morpho/types";
 import {
+  SavingsActionAbiError,
   encodeApproveCall,
   encodeDepositCall,
   encodeWithdrawCall,
 } from "./abi";
-import { getSavingsActionState } from "./rpc";
+import { SavingsActionRpcError, getSavingsActionState } from "./rpc";
 import type {
   PrepareSavingsAction,
   SavingsActionInput,
@@ -30,6 +31,7 @@ export type SavingsActionErrorReason =
   | "unsupported-vault"
   | "unsupported-asset"
   | "limit-exceeded"
+  | "rpc"
   | "unavailable";
 
 export class SavingsActionError extends Error {
@@ -54,24 +56,23 @@ export function createPrepareSavingsAction(options: {
     const normalizedAction = normalizeAction(action);
     const amount = BigInt(normalizedAction.amountBaseUnits);
 
+    const readInput = {
+      kind: normalizedAction.kind,
+      accountAddress,
+      vaultAddress: normalizedAction.vaultAddress,
+      amount,
+    };
     let state;
     try {
-      state = await readState(
-        {
-          kind: normalizedAction.kind,
-          accountAddress,
-          vaultAddress: normalizedAction.vaultAddress,
-          amount,
-        },
-        signal,
-      );
+      state = await readState(readInput, signal);
     } catch (error) {
-      if (error instanceof SavingsActionError) throw error;
-      throw new SavingsActionError(
-        "unavailable",
-        "Current onchain savings state is unavailable.",
-        { cause: error },
-      );
+      const mapped = mapReadStateError(error);
+      if (mapped.reason !== "rpc") throw mapped;
+      try {
+        state = await readState(readInput, signal);
+      } catch (retryError) {
+        throw mapReadStateError(retryError);
+      }
     }
 
     if (state.assetAddress.toLowerCase() !== BASE_USDC_ADDRESS.toLowerCase()) {
@@ -258,6 +259,18 @@ function normalizeAction(action: SavingsActionInput): SavingsActionInput {
     vaultAddress: action.vaultAddress.toLowerCase() as Address,
     amountBaseUnits: amount.toString(10),
   };
+}
+
+function mapReadStateError(error: unknown): SavingsActionError {
+  if (error instanceof SavingsActionError) return error;
+  if (error instanceof SavingsActionRpcError || error instanceof SavingsActionAbiError) {
+    return new SavingsActionError("rpc", error.message, { cause: error });
+  }
+  return new SavingsActionError(
+    "unavailable",
+    "Current onchain savings state is unavailable.",
+    { cause: error },
+  );
 }
 
 function verifiedAccountAddress(session: VerifiedAccountSession): Address {
