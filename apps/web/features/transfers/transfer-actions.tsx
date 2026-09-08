@@ -234,6 +234,7 @@ function SendDialog({
   const [intentId, setIntentId] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<ConfirmedTransfer | null>(null);
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
+  const [recoveringAction, setRecoveringAction] = useState(false);
   const [step, setStep] = useState<SendStep>("compose");
   const [error, setError] = useState<string | null>(null);
   const displayStep = open && pendingTransfer && step === "compose" ? "recovery" : step;
@@ -251,7 +252,7 @@ function SendDialog({
       if (!active || !value || typeof value !== "object" || !("operations" in value) || !Array.isArray(value.operations)) return;
       const operation = value.operations.find((candidate) =>
         candidate && typeof candidate === "object" && "status" in candidate &&
-        ["submitting", "submitted", "unknown"].includes(String(candidate.status)) &&
+        ["submitting", "submitted", "included", "unknown"].includes(String(candidate.status)) &&
         "action" in candidate && candidate.action && typeof candidate.action === "object" &&
         "kind" in candidate.action && candidate.action.kind === "send",
       ) as { action?: PreparedMoneyAction } | undefined;
@@ -259,6 +260,7 @@ function SendDialog({
       if (operation?.action && recoveredRequest) {
         setPreparedAction(operation.action);
         setRequest(recoveredRequest);
+        setRecoveringAction(true);
         setStep("review");
       }
     }).catch(() => {
@@ -275,6 +277,7 @@ function SendDialog({
     setIntentId(null);
     setConfirmed(null);
     setPreparedAction(null);
+    setRecoveringAction(false);
     setStep("compose");
     setError(null);
   }
@@ -441,8 +444,15 @@ function SendDialog({
         <MoneyActionReview
           action={preparedAction}
           execute={executeMoneyAction}
+          recovering={recoveringAction}
           onClose={() => {
+            if (recoveringAction) {
+              reset();
+              onClose();
+              return;
+            }
             setPreparedAction(null);
+            setRecoveringAction(false);
             setError(null);
             setStep("compose");
           }}

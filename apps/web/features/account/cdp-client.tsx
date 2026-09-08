@@ -1790,9 +1790,11 @@ export function AccountWalletSessionOwner({
           return recoverBaseCalls(prepared.id, operation.submissionId, baseConnection.current, assertStillActive);
         }
         if (operation.status === "submitting") {
-          await recordMoneyActionStatus(fetchMoneyActionApi, prepared.id, "unknown");
+          return operationResult(
+            await recordMoneyActionStatus(fetchMoneyActionApi, prepared.id, "unknown"),
+          );
         }
-        throw new TransferExecutionError("submission-unknown");
+        return operationResult(operation);
       }
 
       async function recoverBaseCalls(

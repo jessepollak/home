@@ -45,4 +45,20 @@ describe("recent Home operation activity", () => {
     expect(dedupeRecentMoneyActions([operation()], new Set())).toHaveLength(1);
     expect(dedupeRecentMoneyActions([operation()], new Set([transactionHash]))).toEqual([]);
   });
+
+  test("keeps an unresolved send without submission refs and accepts compact ISO timestamps", () => {
+    const unresolved = {
+      ...operation(),
+      status: "submitting" as const,
+      attemptCount: 1,
+      transactionHash: "",
+      userOperationHash: "",
+      createdAt: "2026-09-08T05:00:00Z",
+      updatedAt: "2026-09-08T05:02:00Z",
+    };
+    const parsed = parseRecentMoneyActions({ operations: [unresolved] }, session);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.status).toBe("submitting");
+    expect(parsed[0]?.transactionHash).toBeUndefined();
+  });
 });

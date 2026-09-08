@@ -197,6 +197,71 @@ describe("TransferActions modals", () => {
     expect(checks).toBe(1);
   });
 
+  test("reopens an unresolved durable send as Check status recover, not a second prepare", async () => {
+    const recipientData = `${RECIPIENT.slice(2).padStart(64, "0")}${BigInt(100000).toString(16).padStart(64, "0")}`;
+    const action = {
+      id: "11111111-1111-4111-8111-111111111111",
+      reviewHash: "a".repeat(64),
+      owner: {
+        subject: "subject-a",
+        address: ADDRESS,
+        chainId: 8453 as const,
+        accountProvider: "cdp-embedded" as const,
+      },
+      kind: "send" as const,
+      title: "Send USDC",
+      calls: [{
+        to: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const,
+        data: `0xa9059cbb${recipientData}` as `0x${string}`,
+        value: "0",
+      }],
+      amounts: [{
+        assetId: "usdc" as const,
+        symbol: "USDC",
+        decimals: 6,
+        amountBaseUnits: "100000",
+        direction: "spend" as const,
+      }],
+      warnings: ["Network fee shown by wallet."],
+      createdAt: "2026-09-08T05:00:00.000Z",
+      expiresAt: "2026-12-08T05:10:00.000Z",
+    };
+    let prepares = 0;
+    let executes = 0;
+    render(
+      <TransferActionsForWallet
+        wallet={{
+          ...verifiedWallet(),
+          prepareMoneyAction: async () => {
+            prepares += 1;
+            return action;
+          },
+          executeMoneyAction: async () => {
+            executes += 1;
+            return { id: action.id, status: "unknown" };
+          },
+          fetchOperations: async () => ({
+            operations: [{
+              action,
+              status: "submitting",
+              attemptCount: 1,
+              createdAt: action.createdAt,
+              updatedAt: action.createdAt,
+            }],
+          }),
+        }}
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    expect(await page().findByRole("button", { name: "Check status" })).toBeTruthy();
+    expect(page().getByRole("alert").textContent).toMatch(/do not submit it again/);
+    expect(page().queryByRole("button", { name: "Confirm action" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Check status" }));
+    await waitFor(() => expect(executes).toBe(1));
+    expect(prepares).toBe(0);
+  });
+
   test("hides an open private modal immediately when the verified owner changes", () => {
     const view = render(<TransferActionsForWallet wallet={verifiedWallet()} />);
     fireEvent.click(page().getByRole("button", { name: "Receive" }));

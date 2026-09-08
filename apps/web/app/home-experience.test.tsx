@@ -974,6 +974,94 @@ describe("login-state home experience", () => {
     }
   });
 
+  test("surfaces an unresolved send after refresh with Check status recover and no second prepare", async () => {
+    const actionId = "11111111-1111-4111-8111-111111111111";
+    const action = {
+      id: actionId,
+      reviewHash: "a".repeat(64),
+      owner: {
+        subject: "subject-home",
+        address: ADDRESS,
+        chainId: 8453,
+        accountProvider: "cdp-embedded",
+      },
+      kind: "send",
+      title: "Send USDC",
+      calls: [{ to: ADDRESS_B, data: "0x", value: "0" }],
+      amounts: [{
+        assetId: "usdc",
+        symbol: "USDC",
+        decimals: 6,
+        amountBaseUnits: "100000",
+        direction: "spend",
+      }],
+      warnings: ["Network fee shown by wallet."],
+      createdAt: "2026-09-08T05:00:00.000Z",
+      expiresAt: "2026-12-08T05:10:00.000Z",
+    };
+    const unresolved = {
+      action,
+      status: "submitting",
+      attemptCount: 1,
+      createdAt: action.createdAt,
+      updatedAt: "2026-09-08T05:02:00.000Z",
+    };
+    let claims = 0;
+    let prepares = 0;
+    let sends = 0;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return Response.json(session());
+      if (String(input).startsWith("/api/activity?")) return Response.json(activityPage(input));
+      if (input === "/api/actions/operations") return Response.json({ operations: [unresolved] });
+      if (input === `/api/actions/${actionId}`) {
+        return Response.json({
+          operation: { ...unresolved, status: claims > 0 ? "unknown" : "submitting" },
+        });
+      }
+      if (input === `/api/actions/${actionId}/claim`) {
+        claims += 1;
+        return Response.json({
+          action,
+          disposition: "recover",
+          operation: { ...unresolved, status: "submitting" },
+        });
+      }
+      if (input === `/api/actions/${actionId}/status`) {
+        return Response.json({ operation: { ...unresolved, status: "unknown" } });
+      }
+      if (input === "/api/actions/send/prepare") {
+        prepares += 1;
+        return Response.json(action);
+      }
+      if (String(input).startsWith("/api/portfolio/valuation?")) {
+        return valuationResponse(input, { usdc: "10000000" });
+      }
+      return Response.json(portfolioSnapshot({ usdc: "10000000" }));
+    };
+
+    render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({
+          isSignedIn: true,
+          ownerKey: OWNER,
+          sendUserOperation: async () => {
+            sends += 1;
+            return { userOperationHash: `0x${"ab".repeat(32)}` };
+          },
+        })}
+        sessionFetch={sessionFetch}
+      />,
+    );
+
+    expect(await page().findByText("Send USDC")).toBeTruthy();
+    expect(page().getByText(/Wallet submission unresolved/)).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Check status" }));
+    await waitFor(() => expect(page().getByText(/Outcome unknown/)).toBeTruthy());
+    expect(claims).toBe(1);
+    expect(prepares).toBe(0);
+    expect(sends).toBe(0);
+  });
+
   test("keeps navigation, country selection, exact asset units, and account-query sheet behavior reachable", async () => {
     const view = render(
       <HomeHarness

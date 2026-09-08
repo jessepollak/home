@@ -23,11 +23,13 @@ export type RecentMoneyActionOperation = {
 
 export type FetchRecentMoneyActions = (signal?: AbortSignal) => Promise<unknown>;
 export type ReadRecentMoneyAction = (id: string, signal?: AbortSignal) => Promise<unknown>;
+export type RecoverRecentMoneyAction = (action: PreparedMoneyAction) => Promise<unknown>;
 
 export function RecentMoneyActions({
   session,
   fetchOperations,
   readOperation,
+  recoverOperation,
   refreshTrigger,
   excludeTransactionHashes = [],
   embedded = false,
@@ -36,6 +38,7 @@ export function RecentMoneyActions({
   session: VerifiedAccountSession | null;
   fetchOperations: FetchRecentMoneyActions;
   readOperation: ReadRecentMoneyAction;
+  recoverOperation?: RecoverRecentMoneyAction;
   refreshTrigger?: string | number;
   excludeTransactionHashes?: Iterable<string>;
   embedded?: boolean;
@@ -117,6 +120,13 @@ export function RecentMoneyActions({
                   ? { ...current, checkingIds: [...new Set([...current.checkingIds, operation.action.id])] }
                   : current);
                 try {
+                  if (recoverOperation) {
+                    try {
+                      await recoverOperation(operation.action);
+                    } catch {
+                      // Claim recover inspects the existing attempt only; keep the durable row.
+                    }
+                  }
                   const refreshed = parseReadOperation(await readOperation(operation.action.id), session!);
                   if (refreshed) {
                     setState((current) => current?.ownerKey === ownerKey
@@ -160,12 +170,17 @@ export function parseRecentMoneyActions(
       !isOperationStatus(candidate.status) ||
       typeof candidate.attemptCount !== "number" || !Number.isSafeInteger(candidate.attemptCount) || candidate.attemptCount < 0 ||
       typeof candidate.createdAt !== "string" || !validIso(candidate.createdAt) ||
-      typeof candidate.updatedAt !== "string" || !validIso(candidate.updatedAt) ||
-      (candidate.transactionHash !== undefined && !isHash(candidate.transactionHash)) ||
-      (candidate.userOperationHash !== undefined && !isHash(candidate.userOperationHash))
+      typeof candidate.updatedAt !== "string" || !validIso(candidate.updatedAt)
     ) continue;
+    const transactionHash = optionalHash(candidate.transactionHash);
+    const userOperationHash = optionalHash(candidate.userOperationHash);
+    if (transactionHash === false || userOperationHash === false) continue;
     seen.add(action.id);
-    parsed.push(candidate as unknown as RecentMoneyActionOperation);
+    parsed.push({
+      ...(candidate as unknown as RecentMoneyActionOperation),
+      ...(transactionHash ? { transactionHash } : { transactionHash: undefined }),
+      ...(userOperationHash ? { userOperationHash } : { userOperationHash: undefined }),
+    });
   }
   return parsed.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
@@ -245,10 +260,7 @@ function replaceOperation(
 }
 
 function isReadRecoverable(operation: RecentMoneyActionOperation): boolean {
-  return Boolean(
-    operation.transactionHash &&
-    ["submitting", "submitted", "included", "unknown"].includes(operation.status),
-  );
+  return ["submitting", "submitted", "included", "unknown"].includes(operation.status);
 }
 
 function labelForStatus(status: MoneyActionOperationStatus): string {
@@ -273,8 +285,13 @@ function iconForStatus(status: MoneyActionOperationStatus): string {
 }
 
 function validIso(value: string): boolean {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) && date.toISOString() === value;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value)) return false;
+  return Number.isFinite(new Date(value).getTime());
+}
+
+function optionalHash(value: unknown): `0x${string}` | undefined | false {
+  if (value === undefined || value === null || value === "") return undefined;
+  return isHash(value) ? value : false;
 }
 
 function isHash(value: unknown): value is `0x${string}` {

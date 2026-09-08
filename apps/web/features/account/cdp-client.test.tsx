@@ -1169,6 +1169,64 @@ describe("production account session owner", () => {
     }
   });
 
+  test("recovers a claimed send with no submission refs without calling sendUserOperation", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    let claims = 0;
+    let sends = 0;
+    let statusWrites = 0;
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}/claim`) {
+        claims += 1;
+        return Response.json({
+          action,
+          disposition: "recover",
+          operation: {
+            action,
+            status: "submitting",
+            attemptCount: 1,
+            claimedAt: "2026-09-08T05:02:00.000Z",
+            createdAt: action.createdAt,
+            updatedAt: "2026-09-08T05:02:00.000Z",
+          },
+        });
+      }
+      if (input === `/api/actions/${action.id}/status`) {
+        statusWrites += 1;
+        expect(JSON.parse(String(init?.body))).toEqual({ status: "unknown" });
+        return Response.json({
+          operation: {
+            action,
+            status: "unknown",
+            attemptCount: 1,
+            claimedAt: "2026-09-08T05:02:00.000Z",
+            createdAt: action.createdAt,
+            updatedAt: "2026-09-08T05:02:01.000Z",
+          },
+        });
+      }
+      throw new Error(`unexpected recover request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            sends += 1;
+            return { userOperationHash: `0x${"ab".repeat(32)}` };
+          },
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("unknown"));
+    expect(claims).toBe(1);
+    expect(statusWrites).toBe(1);
+    expect(sends).toBe(0);
+  });
+
   test("uses the verified embedded smart account, fresh integer balance, and a complete user-operation receipt", async () => {
     const hash = `0x${"ab".repeat(32)}` as `0x${string}`;
     const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;

@@ -12,6 +12,7 @@ export type MoneyActionReviewProps = {
   onClose: () => void;
   onConfirmed: (result: OperationResult) => void;
   execute?: (action: PreparedMoneyAction) => Promise<OperationResult>;
+  recovering?: boolean;
 };
 
 export function MoneyActionReview(props: MoneyActionReviewProps) {
@@ -30,22 +31,40 @@ function MoneyActionReviewContent({
   onClose,
   onConfirmed,
   execute,
+  recovering = false,
 }: MoneyActionReviewProps & {
   execute: (action: PreparedMoneyAction) => Promise<OperationResult>;
 }) {
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [unresolved, setUnresolved] = useState(recovering);
+  const [error, setError] = useState<string | null>(() =>
+    recovering
+      ? "The existing submission is unresolved. Check its status; do not submit it again."
+      : null,
+  );
   const [expired] = useState(() => Date.parse(action.expiresAt) <= Date.now());
+  const checkOnly = expired || unresolved;
 
   async function confirm() {
     if (pending) return;
     setPending(true);
-    setError(null);
+    if (!checkOnly) setError(null);
     try {
       const result = await execute(action);
-      if (result.status === "confirmed") onConfirmed(result);
-      else setError(messageForStatus(result.status));
+      if (result.status === "confirmed") {
+        setUnresolved(false);
+        onConfirmed(result);
+        return;
+      }
+      if (isTerminalStatus(result.status)) {
+        setUnresolved(false);
+        setError(messageForStatus(result.status));
+        return;
+      }
+      setUnresolved(true);
+      setError(messageForStatus(result.status));
     } catch {
+      setUnresolved(true);
       setError("The existing submission is unresolved. Check its status; do not submit it again.");
     } finally {
       setPending(false);
@@ -100,8 +119,10 @@ function MoneyActionReviewContent({
         <button type="button" disabled={pending} onClick={() => void confirm()}>
           {pending
             ? "Checking submission…"
-            : expired
-              ? "Check action status"
+            : checkOnly
+              ? expired && !unresolved
+                ? "Check action status"
+                : "Check status"
               : action.kind === "swap"
                 ? "Confirm swap"
                 : "Confirm action"}
@@ -119,6 +140,10 @@ function presentReviewWarning(warning: string): string {
     /the final wallet review binds/i,
     "final confirmation binds",
   );
+}
+
+function isTerminalStatus(status: OperationResult["status"]): boolean {
+  return status === "rejected" || status === "expired" || status === "failed";
 }
 
 function messageForStatus(status: OperationResult["status"]): string {

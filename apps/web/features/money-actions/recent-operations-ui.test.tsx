@@ -12,7 +12,15 @@ const session = {
   accountProvider: "cdp-embedded" as const,
 };
 
-function operation(status: "prepared" | "submitted" | "unknown" | "confirmed") {
+function operation(
+  status: "prepared" | "submitted" | "submitting" | "unknown" | "confirmed",
+  refs: { transactionHash?: typeof HASH | null } = {},
+) {
+  const transactionHash = refs.transactionHash === null
+    ? undefined
+    : refs.transactionHash ?? (status === "prepared" || status === "submitting" || status === "unknown"
+      ? undefined
+      : HASH);
   return {
     action: {
       id: "11111111-1111-4111-8111-111111111111",
@@ -33,7 +41,7 @@ function operation(status: "prepared" | "submitted" | "unknown" | "confirmed") {
     },
     status,
     attemptCount: status === "prepared" ? 0 : 1,
-    ...(status === "prepared" ? {} : { transactionHash: HASH }),
+    ...(transactionHash ? { transactionHash } : {}),
     createdAt: "2026-09-08T05:00:00.000Z",
     updatedAt: status === "confirmed" ? "2026-09-08T05:03:00.000Z" : "2026-09-08T05:02:00.000Z",
   };
@@ -61,6 +69,35 @@ describe("RecentMoneyActions recovery", () => {
     await waitFor(() => expect(reads).toBe(2));
     await waitFor(() => expect(within(document.body).getByText(/Confirmed/)).toBeTruthy());
     expect(within(document.body).queryByRole("button", { name: "Check status" })).toBeNull();
+  });
+
+  test("keeps Check status on a claimed send with no submission refs and recovers without rebroadcasting", async () => {
+    let recovers = 0;
+    let reads = 0;
+    const unresolved = operation("submitting");
+    render(
+      <RecentMoneyActions
+        session={session}
+        fetchOperations={async () => ({ operations: [unresolved] })}
+        recoverOperation={async (action) => {
+          recovers += 1;
+          expect(action.id).toBe(unresolved.action.id);
+          return { id: action.id, status: "unknown" };
+        }}
+        readOperation={async () => {
+          reads += 1;
+          return { operation: recovers === 0 ? unresolved : operation("unknown") };
+        }}
+      />,
+    );
+
+    const check = await within(document.body).findByRole("button", { name: "Check status" });
+    expect(within(document.body).getByText(/Wallet submission unresolved/)).toBeTruthy();
+    fireEvent.click(check);
+    await waitFor(() => expect(recovers).toBe(1));
+    await waitFor(() => expect(within(document.body).getByText(/Outcome unknown/)).toBeTruthy());
+    expect(reads).toBeGreaterThan(0);
+    expect(within(document.body).getByRole("button", { name: "Check status" })).toBeTruthy();
   });
 
   test("never background-claims or checks a merely prepared action", async () => {

@@ -49,6 +49,45 @@ describe("MoneyActionReview", () => {
     await waitFor(() => expect(executions).toBe(1));
   });
 
+  test("keeps Check status after an unresolved execute and retries recover without a new prepare", async () => {
+    const liveAction = { ...action, expiresAt: "2026-12-08T01:10:00.000Z" };
+    let executions = 0;
+    render(
+      <MoneyActionReview
+        action={liveAction}
+        onClose={() => {}}
+        execute={async () => {
+          executions += 1;
+          throw new Error("lost submission refs");
+        }}
+        onConfirmed={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm action" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/unresolved/));
+    fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+    await waitFor(() => expect(executions).toBe(2));
+    expect(screen.queryByRole("button", { name: "Confirm action" })).toBeNull();
+  });
+
+  test("opens a recovering review on Check status instead of a second confirm", () => {
+    const liveAction = { ...action, expiresAt: "2026-12-08T01:10:00.000Z" };
+    render(
+      <MoneyActionReview
+        action={liveAction}
+        recovering
+        onClose={() => {}}
+        execute={async () => ({ id: liveAction.id, status: "unknown" })}
+        onConfirmed={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Check status" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Confirm action" })).toBeNull();
+    expect(screen.getByRole("alert").textContent).toMatch(/do not submit it again/);
+  });
+
   test("labels a finite maximum spend as up to", () => {
     render(
       <MoneyActionReview

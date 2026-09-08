@@ -19,4 +19,5 @@ export type {
   FetchRecentMoneyActions,
   ReadRecentMoneyAction,
   RecentMoneyActionOperation,
+  RecoverRecentMoneyAction,
 } from "./recent-operations";
