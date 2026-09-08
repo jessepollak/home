@@ -12,7 +12,7 @@ Home is a local finance spike, not a production-approved money app. Read this be
 4. [Architecture review (2026-09)](docs/architecture-review-2026-09.md) — patterns to keep, risks, **contribution contract**, and first-week slices.
 5. [Docs index](docs/README.md) — operate, product intent, and demoted target/archive docs.
 
-Later, if you are working on production persistence or hosting: [target architecture](docs/target-architecture.md) (Vercel + Neon + webhooks, later `packages/*`). That file is **not** a map of the current tree. The 2026-09-07 two-hour chunk plan is [archived](docs/archive/implementation-plan-2026-09-07.md).
+Later, if you are working on hosting: [Vercel deploy](docs/vercel-deploy.md) (bun settings + Neon `DATABASE_URL`). Broader webhooks/`packages/*` ideas stay in [target architecture](docs/target-architecture.md), which is **not** a map of the current tree. The 2026-09-07 two-hour chunk plan is [archived](docs/archive/implementation-plan-2026-09-07.md).
 
 ## Local checks
 

@@ -72,14 +72,14 @@ Changing a vault or market address is not enough: adapters check chain, exact co
 
 The running app is a **local finance spike**, not a production-approved deployment. See [build status](build-status.md) and [wallet runtime](wallet-runtime-spike.md).
 
-| Local spike (what `bun dev` uses) | Proposed production ([target architecture](target-architecture.md), not the current tree) |
+| Local spike (what `bun dev` uses) | Hosted / proposed production |
 |---|---|
-| Node `node:sqlite` money-action store under `.local/` (`apps/web/.local/home-money-actions.sqlite` when Next runs from `apps/web`) | Neon Postgres via Vercel Marketplace + Drizzle |
-| No hosted database, webhooks, or shared persistence | CDP webhooks, request-driven status, isolated preview/production databases |
+| Node `node:sqlite` money-action store under `.local/` when `DATABASE_URL` is unset | Neon Postgres `MoneyActionStore` when `DATABASE_URL` is set ([Vercel deploy](vercel-deploy.md)); Drizzle/webhooks still [target architecture](target-architecture.md) |
+| No webhooks or CDP-hosted shared history write path | CDP webhooks, request-driven status, isolated preview/production databases |
 | Public Base RPC by default | Operator-managed `BASE_RPC_URL` |
-| Durable operations recoverable on this machine only | Shared, backed-up app records |
+| Durable operations recoverable on this machine only (SQLite) | Shared money-action rows on Neon when `DATABASE_URL` is configured |
 
-The SQLite adapter is injectable (`MoneyActionStore`) so a production store can replace it without changing feature plan contracts. Replacing it is separate work. Do not point a fork at someone else's database or CDP project. Bun monorepo Vercel settings (and the serverless SQLite blocker) are in [Vercel deploy](vercel-deploy.md).
+`MoneyActionStore` stays injectable. Exactly one adapter is active per process. Do not point a fork at someone else's database or CDP project. Bun monorepo Vercel settings are in [Vercel deploy](vercel-deploy.md).
 
 Venice/agent inference, Rain cards, additional funding providers, unrestricted assets, and broader borrow markets are not implemented. Stock trading and external Base-account trading remain gated.
 

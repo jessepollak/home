@@ -9,7 +9,7 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | Doc | Use it for |
 |---|---|
 | [Build status](build-status.md) | What is integrated, validation evidence, remaining gates |
-| [Wallet runtime spike](wallet-runtime-spike.md) | Prepare → claim → sign → reconcile; **SQLite under `.local/` is local-spike only** |
+| [Wallet runtime spike](wallet-runtime-spike.md) | Prepare → claim → sign → reconcile; SQLite locally, Neon/Postgres when `DATABASE_URL` is set |
 | [Architecture review](architecture-review-2026-09.md) | Current-tree patterns, risks, contribution contract, first-week slices |
 
 ## Run & operate
@@ -24,7 +24,7 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | [Morpho setup](morpho-setup.md) | USDC vault candidates and read verification; deposit/withdraw status is in [build status](build-status.md) |
 | [Codex prices](codex-prices.md) | Optional server-only Invest USD snapshots |
 | [Portfolio](portfolio.md) | USDC/ETH reads, regional valuation, `BASE_RPC_URL` |
-| [Vercel deploy](vercel-deploy.md) | Bun monorepo install/build on Vercel; **SQLite money-action store is not multi-instance safe** |
+| [Vercel deploy](vercel-deploy.md) | Bun monorepo install/build on Vercel; hosted money actions need Neon `DATABASE_URL` |
 
 `apps/web/server/borrowing/README.md` documents the single cbBTC/USDC Morpho market used by the local Borrow spike.
 
@@ -41,7 +41,7 @@ These describe UX and presentation rules. They are not a feature inventory.
 
 ## Target / archive (not the current tree)
 
-Do not start a clone or a PR from these. Neon, webhooks, and `packages/*` are production-destination ideas.
+Do not start a clone or a PR from these. Webhooks, Drizzle, and `packages/*` remain production-destination ideas. A Neon money-action adapter is already in the current tree when `DATABASE_URL` is set.
 
 | Doc | Use it for |
 |---|---|

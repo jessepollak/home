@@ -6,11 +6,17 @@ Team/onboarding context: [architecture review](architecture-review-2026-09.md). 
 
 Home money actions now use a server-issued prepare → review → atomic claim → user-wallet submission → receipt reconciliation lifecycle. The shared contract is `apps/web/features/money-actions/types.ts`; reviewed feature adapters issue plans through `issueMoneyAction`. Browsers submit only a prepared action id and immutable review hash. The server returns the canonical calls bound to the verified CDP subject, Base address, chain 8453, and selected account provider.
 
-## Local-only persistence
+## Persistence
 
-The current durable store is a small Node-only `node:sqlite` adapter at `apps/web/server/money-actions/sqlite-store.node.ts`. It writes ignored runtime data to `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace (or `.local/home-money-actions.sqlite` relative to the active process working directory), with directory mode `0700` and database mode `0600`. It stores action plans, immutable review hashes, owner tuples, statuses, attempts, and public chain/provider operation references. It stores no access tokens, signatures, emails, OTPs, private keys, or provider credentials.
+`MoneyActionStore` (`apps/web/server/money-actions/store.ts`) is the durable port. Exactly one adapter is active per process — SQLite **or** Postgres, never both. Selection lives in `apps/web/server/money-actions/runtime-store.ts`.
 
-**This SQLite adapter is local-spike persistence. It is not production persistence for Vercel** and is not multi-instance safe on serverless. Bun monorepo build settings and this blocker: [Vercel deploy](vercel-deploy.md). A production release still needs the reviewed deployment database described in [target architecture](target-architecture.md) (not the current tree); the `MoneyActionStore` boundary is injectable so that replacement does not change feature plan contracts or browser execution semantics. Neon/Postgres is not implemented here.
+**Local `bun dev` (no `DATABASE_URL`):** Node-only `node:sqlite` at `apps/web/server/money-actions/sqlite-store.node.ts`. It writes ignored runtime data to `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace (or `.local/home-money-actions.sqlite` relative to the active process working directory), with directory mode `0700` and database mode `0600`.
+
+**Hosted / `DATABASE_URL` set:** Neon/Postgres adapter at `apps/web/server/money-actions/postgres-store.ts` using `@neondatabase/serverless`. The Vercel path does not load `node:sqlite`. Schema: `apps/web/server/money-actions/migrations/001_money_action_operations.sql`. Operator migrate: `bun run money-actions:migrate`. Setup: [Vercel deploy](vercel-deploy.md).
+
+Both adapters store action plans, immutable review hashes, owner tuples, statuses, attempts, and public chain/provider operation references. They store no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
+
+This is **not** production authorization. Feature plan contracts and browser execution are unchanged. CDP webhooks, Drizzle, and the rest of [target architecture](target-architecture.md) remain later work.
 
 ## Endpoints
 

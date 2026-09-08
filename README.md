@@ -52,13 +52,14 @@ bun build       # Production build
 bun check       # Tests, lint, typecheck and production build
 bun run --cwd apps/web test:browser-auth # Actual-component auth scenarios with mocked boundaries
 bun start       # Serve a production build
+bun run money-actions:migrate  # Apply Neon money-action schema (needs DATABASE_URL)
 ```
 
 GitHub Actions CI on pull requests and pushes to `main` runs `bun install --frozen-lockfile` then `bun check`. Live probes stay opt-in and are not enabled in CI.
 
 ### Local persistence
 
-Money-action records use a private, automatically created SQLite database under `.local/` (typically `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace). No hosted database is needed for the local spike. **This is not shared production persistence** and is not multi-instance safe on Vercel. Read [wallet runtime notes](docs/wallet-runtime-spike.md), [Vercel deploy](docs/vercel-deploy.md), and [build status](docs/build-status.md) before any deployment. The Neon/Postgres store in [target architecture](docs/target-architecture.md) is a production destination, not what `bun dev` uses.
+Money-action records use a private, automatically created SQLite database under `.local/` (typically `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace) when `DATABASE_URL` is unset. No hosted database is needed for local `bun dev`. On Vercel, set server-only `DATABASE_URL` (Neon) and run `bun run money-actions:migrate`. The hosted path does not load `node:sqlite`. Read [wallet runtime notes](docs/wallet-runtime-spike.md), [Vercel deploy](docs/vercel-deploy.md), and [build status](docs/build-status.md) before any deployment. This is not production authorization.
 
 Edit `apps/web/app/home-experience.tsx` for the Home shell, `apps/web/features/` for account/Invest/Savings UI, `apps/web/app/globals.css` for visual tokens, and `apps/web/config/` for presentation settings and sourced asset identities. Keep one root `bun.lock`. Real configuration belongs only in the gitignored `apps/web/.env.local`.
 
@@ -68,12 +69,12 @@ Current tree first. Target and archive docs are last so they cannot be mistaken 
 
 1. [Get started](#get-started) — clone, install, env, `bun dev`.
 2. [Build status](docs/build-status.md) — what is delivered and which gates remain.
-3. [Wallet runtime](docs/wallet-runtime-spike.md) — prepare → claim → submit → receipt; SQLite is local-spike only.
+3. [Wallet runtime](docs/wallet-runtime-spike.md) — prepare → claim → submit → receipt; SQLite locally, Neon when `DATABASE_URL` is set.
 4. [Architecture review](docs/architecture-review-2026-09.md) — current-tree patterns, risks, contribution contract.
 5. [Docs index](docs/README.md) — full map (operate / product intent / target / archive).
 6. [Fork and extend](docs/fork-and-extend.md) — brand, regions, assets, providers.
 7. [CDP setup](docs/cdp-setup.md) · [SQL setup](docs/cdp-sql.md) · [Morpho setup](docs/morpho-setup.md) · [Invest data](docs/invest-data.md)
-8. [Vercel deploy](docs/vercel-deploy.md) — bun monorepo build settings; SQLite is not multi-instance safe.
+8. [Vercel deploy](docs/vercel-deploy.md) — bun monorepo build settings; hosted money actions need Neon `DATABASE_URL`.
 
 Product intent (not delivery state): [product scope](docs/product-scope.md), [regional money](docs/regional-money.md), [currency defaults](docs/currency-defaults.md), [stablecoin candidates](docs/stablecoin-candidates.json).
 

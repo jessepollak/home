@@ -9,13 +9,15 @@
     "lint": "eslint . --max-warnings 0",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "bun test",
-    "test:browser-auth": "playwright test --config playwright.config.ts"
+    "test:browser-auth": "playwright test --config playwright.config.ts",
+    "money-actions:migrate": "bun ./server/money-actions/migrate.ts"
   },
   "dependencies": {
     "@base-org/account": "2.5.10",
     "@coinbase/cdp-core": "0.0.123",
     "@coinbase/cdp-hooks": "0.0.123",
     "@coinbase/cdp-sdk": "1.55.0",
+    "@neondatabase/serverless": "1.1.0",
     "@radix-ui/react-select": "2.3.7",
     "lucide-react": "1.42.0",
     "motion": "13.2.0",

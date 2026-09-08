@@ -1,10 +1,10 @@
 # Vercel deploy (bun monorepo)
 
-Status: operator build-settings note, September 8, 2026. How to import this repository on Vercel. **Not** a production authorization and **not** a hosted-database setup.
+Status: operator build-settings note, September 8, 2026. How to import this repository on Vercel and wire hosted money-action persistence. **Not** a production authorization.
 
 Home is a bun workspace (`workspaces: ["apps/*"]`). Install and build from the **repository root**. The Next.js app lives in `apps/web`; root scripts already change directory there (`bun run --cwd apps/web build`).
 
-Current delivery: [build status](build-status.md). Local money-action persistence: [wallet runtime](wallet-runtime-spike.md). Neon/Postgres remains a [target architecture](target-architecture.md) destination — it is **not** implemented in this tree.
+Current delivery: [build status](build-status.md). Persistence: [wallet runtime](wallet-runtime-spike.md). Broader Neon/webhooks/`packages/*` destination: [target architecture](target-architecture.md).
 
 ## Project settings
 
@@ -39,23 +39,49 @@ Copy the names from the root [`.env.example`](../.env.example) into the Vercel p
 | `DISABLE_CDP_ERROR_REPORTING` | Privacy default | Unset or `true` keeps CDP SDK error reporting off |
 | `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT` | Optional SIWE path | Leave unset for email-only |
 | `CODEX_API_KEY` | Optional Invest USD snapshots | Server-only |
+| `DATABASE_URL` | Hosted money-action persistence | Neon pooled connection string. Leave unset for local `bun dev` (SQLite). Required on Vercel if money actions should persist. Server-only. |
 
 Browsing works without credentials. Email sign-in and authenticated money actions need **your** CDP project. Add each deployed origin (preview and production) to that project's allowed origins. Details: [CDP setup](cdp-setup.md).
 
 Optional server-only `BASE_RPC_URL` is documented in [portfolio](portfolio.md); it is not in `.env.example`.
 
-## Blocker: `node:sqlite` is not multi-instance safe
+## Money-action store: SQLite XOR Postgres
 
-**A green Vercel build is not a public money-action deploy.**
+Exactly one store is active per process. There is no dual-write.
 
-`SqliteMoneyActionStore` (`apps/web/server/money-actions/sqlite-store.node.ts`) uses Node `node:sqlite` and writes a process-local file under `.local/` (typically `apps/web/.local/home-money-actions.sqlite` when Next runs from `apps/web`). That adapter is **local-spike only**.
+| Runtime | Selection | Adapter |
+|---|---|---|
+| Local `bun dev` with `DATABASE_URL` unset | SQLite | `SqliteMoneyActionStore` (`node:sqlite`, `.local/`) |
+| `DATABASE_URL` set | Postgres/Neon only | `PostgresMoneyActionStore` (`@neondatabase/serverless`) |
+| Vercel without `DATABASE_URL` | Fail closed | Does **not** load `node:sqlite` |
 
-On Vercel serverless it is not shared across instances, not durable across deploys or cold starts, and not safe for concurrent prepares/claims. Money actions on a public URL need a shared Postgres/Neon `MoneyActionStore`. **That store is not in this repository.** The `MoneyActionStore` port is injectable; replacing SQLite is a separate engineering PR. Do not treat [target architecture](target-architecture.md) as evidence that Neon/Drizzle is implemented.
+`apps/web/server/money-actions/runtime-store.ts` selects the adapter. Tests keep using `setMoneyActionStoreForTests`. Feature plan contracts and browser execution are unchanged.
 
-Do not enable authenticated money actions on a public deploy until that shared store exists.
+### Operator setup (Neon on Vercel)
+
+1. Provision Neon through the Vercel Marketplace on this project (Jesse-owned console step). That injects server-only `DATABASE_URL` (use the **pooled** connection for runtime).
+2. Apply the schema once per database:
+   ```sh
+   bun run money-actions:migrate
+   ```
+   Equivalent SQL: `apps/web/server/money-actions/migrations/001_money_action_operations.sql` (Neon SQL editor also works). The hosted store applies the same `CREATE IF NOT EXISTS` statements on first use.
+3. Confirm `DATABASE_URL` is set for Production and Preview. Do not set it in `.env.local` unless you intend to use Postgres instead of SQLite locally.
+4. Redeploy. Hosted selection must not import `node:sqlite`.
+
+The table stores action plans, immutable review hashes, owner tuples, statuses, attempts, and public chain/provider refs. It stores no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
+
+This adapter is **not** production authorization. Do not enable authenticated money actions on a public deploy without `DATABASE_URL`, and do not treat a green build as a funded-wallet approval. CDP webhooks, Drizzle, and the rest of [target architecture](target-architecture.md) are still later work.
+
+Optional live adapter tests (throwaway Neon branch only):
+
+```sh
+MONEY_ACTION_PG_TEST_URL=postgresql://… bun test apps/web/server/money-actions/store.test.ts
+```
+
+CI uses the in-process Postgres test double plus SQLite and Memory. It does not require `DATABASE_URL`.
 
 ## Out of scope here
 
-- Neon Marketplace, Drizzle, or any Postgres adapter
-- CDP webhooks, migrations, or a Deploy button
+- CDP webhooks or a Deploy button
+- Drizzle / `packages/*` extraction
 - Production authorization or funded end-to-end smoke

@@ -12,7 +12,7 @@
 ## A. Executive summary
 
 - **Conditional go for engineer #2.** The money-action kernel is already a real contract (server-issued plans, owner tuple, atomic claim, immutable submission refs). A second engineer can ship in parallel *if* they stay in a feature lane and treat `apps/web/server/money-actions/` as a single-writer zone.
-- **Do not hire #2 into “make this production-ready this week.”** Local `node:sqlite` plus an in-process sensitive-payload overlay is explicitly not multi-instance persistence. Neon/Drizzle/webhooks from [target architecture](target-architecture.md) are **not implemented**. Shipping a second store without store-contract parity is the fastest way to double-dispatch.
+- **Do not hire #2 into “make this production-ready this week.”** Local `node:sqlite` plus an in-process sensitive-payload overlay is explicitly not multi-instance persistence. A Neon/Postgres `MoneyActionStore` now exists for `DATABASE_URL`; Drizzle/webhooks from [target architecture](target-architecture.md) are still later. Shipping a store without store-contract parity is the fastest way to double-dispatch.
 - **The live app is a Bun monorepo with one Next.js app** (`apps/web`). There is no `packages/core`, `packages/db`, `lib/api`, TanStack Query, Zod, or `POST /api/webhooks/cdp`. The 2026-09-07 design that described that missing tree now lives at [target architecture](target-architecture.md); old `technical-design.md` / `implementation-plan.md` URLs are stubs.
 - **Strongest existing pattern:** thin `app/api/*/route.ts` factories + injectable `MoneyActionStore` + session-derived owner. Browsers submit intents or `{ reviewHash }`, never call plans. Keep this.
 - **Strongest safety tests already exist:** owner isolation, atomic claim (`dispatch` vs `recover`), immutable submission handles, and a Node SQLite race probe. CI runs `bun check` (372 passing unit/contract tests + lint + typecheck + build). Playwright auth and the SQLite probe are **not** in CI.
@@ -45,9 +45,9 @@ There is **no** `apps/web/lib/`. Cross-cutting auth is `apps/web/server/cdp/` pl
 
 - Interface: `apps/web/server/money-actions/store.ts` (`issue`, `claim`, `get`, `list`, `recordSubmission`, `updateStatus`).
 - Test implementation: `MemoryMoneyActionStore` in the same file.
-- Runtime default: `SqliteMoneyActionStore` in `apps/web/server/money-actions/sqlite-store.node.ts`, lazy-loaded from `apps/web/server/money-actions/runtime-store.ts`.
+- Runtime selection: `apps/web/server/money-actions/runtime-store.ts` — `DATABASE_URL` → `PostgresMoneyActionStore`; else local `SqliteMoneyActionStore`. Vercel without `DATABASE_URL` fails closed and does not load `node:sqlite`.
 - Test override: `setMoneyActionStoreForTests`.
-- **Postgres does not exist yet.** Replacement is supposed to implement this interface without changing feature plan contracts (`docs/wallet-runtime-spike.md`).
+- Both adapters implement this interface without changing feature plan contracts (`docs/wallet-runtime-spike.md`). Never dual-write.
 
 Any new store method must land in **memory + SQLite (+ future Postgres)** in the same PR, with `store.test.ts` updated.
 
@@ -211,7 +211,7 @@ Print this. Use it as the PR checklist.
 ### Required tests before a finance PR
 
 - [ ] `bun test` covers the new branch (handler + prepare/issue or parser).
-- [ ] If you touched `MoneyActionStore` or SQLite schema: `store.test.ts` **and** `scripts/probe-money-actions-sqlite.mjs`.
+- [ ] If you touched `MoneyActionStore` or SQLite/Postgres schema: `store.test.ts` (Memory + SQLite + Postgres contract) **and** `scripts/probe-money-actions-sqlite.mjs`.
 - [ ] If you touched auth/session: a test that a client-supplied wallet/user id cannot change scope.
 - [ ] If you touched a route: `app/api/<route>/route.test.ts` still asserts Node runtime, `force-dynamic`, and unauthenticated rejection before provider calls.
 - [ ] If you touched valuation math or amounts: exact bigint/decimal fixtures; no `Number` for token amounts.
@@ -287,7 +287,7 @@ Small, reviewable PRs that exercise good seams. None require a live funded trans
 
 8. **Split money-action execution out of `cdp-client.tsx`** (`M`, one PR, no behavior change). Move `executeMoneyAction` / recover / `assertMoneyActionDispatchable` to `features/money-actions/execute.ts` (or similar) and keep `cdp-client.tsx` as session + `fetchAccountResource`. Unblocks parallel feature PRs.
 
-**Defer:** Neon/Drizzle cutover, CDP webhooks, `packages/*` extraction, generic action framework, live funded send, stock eligibility, extra Borrow markets, Venice/Rain. Those are production milestones, not onboarding exercises.
+**Defer:** Drizzle cutover, CDP webhooks, `packages/*` extraction, generic action framework, live funded send, stock eligibility, extra Borrow markets, Venice/Rain. Those are production milestones, not onboarding exercises. The Neon money-action adapter is selected with `DATABASE_URL`; local `bun dev` stays on SQLite.
 
 ---
 

@@ -12,7 +12,8 @@
     "lint": "bun run --cwd apps/web lint",
     "typecheck": "bun run --cwd apps/web typecheck",
     "test": "bun run --cwd apps/web test",
-    "check": "bun run test && bun run lint && bun run typecheck && bun run build"
+    "check": "bun run test && bun run lint && bun run typecheck && bun run build",
+    "money-actions:migrate": "bun run --cwd apps/web money-actions:migrate"
   },
   "trustedDependencies": ["sharp", "unrs-resolver"]
 }
