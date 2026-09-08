@@ -58,12 +58,7 @@ export function AssetDetailScreen({
         </span>
       </div>
 
-      <PriceChart
-        assetId={asset.id}
-        range={range}
-        history={history}
-        onRangeChange={setRange}
-      />
+      <PriceChart range={range} history={history} onRangeChange={setRange} />
       <TradeActions asset={asset} layout="sticky" />
     </section>
   );

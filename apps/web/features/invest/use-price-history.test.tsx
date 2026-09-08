@@ -53,8 +53,8 @@ afterEach(() => {
 
 describe("usePriceHistory", () => {
   test("keeps the last ready series while a new range for the same asset loads", async () => {
-    window.fetch = (async (_input) => {
-      const url = String(_input);
+    window.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
       const range = url.includes("range=1D") ? "1D" : "1W";
       if (range === "1D") {
         await new Promise((resolve) => setTimeout(resolve, 30));
@@ -80,5 +80,31 @@ describe("usePriceHistory", () => {
 
     await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
     expect(page().getByTestId("first").textContent).toBe("64100");
+  });
+
+  test("does not keep another asset’s series while the next history loads", async () => {
+    window.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const assetId = url.includes("assetId=cbltc") ? "cbltc" : "cbbtc";
+      if (assetId === "cbltc") {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      }
+      return Response.json(
+        historyPayload(assetId, "1W", [
+          {
+            time: "2026-09-01T00:00:00.000Z",
+            value: assetId === "cbltc" ? "110" : "62000",
+          },
+        ]),
+      );
+    }) as unknown as typeof fetch;
+
+    const { rerender } = render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
+    expect(page().getByTestId("first").textContent).toBe("62000");
+
+    rerender(<HookProbe assetId="cbltc" range="1W" />);
+    expect(page().getByTestId("status").textContent).toBe("loading");
+    expect(page().getByTestId("count").textContent).toBe("0");
   });
 });

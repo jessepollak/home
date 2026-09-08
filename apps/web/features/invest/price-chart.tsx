@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { Liveline, type LivelinePoint } from "liveline";
 import {
   MARKET_PRICE_RANGES,
@@ -30,12 +30,10 @@ export const LIVELINE_PLOT_PADDING = {
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
 
 export function PriceChart({
-  assetId,
   range,
   history,
   onRangeChange,
 }: {
-  assetId?: string;
   range: MarketPriceRange;
   history: PriceHistoryState;
   onRangeChange: (range: MarketPriceRange) => void;
@@ -54,47 +52,27 @@ export function PriceChart({
           </button>
         ))}
       </div>
-      <ChartBody assetId={assetId} history={history} range={range} />
+      <ChartBody history={history} range={range} />
     </div>
   );
 }
 
 function ChartBody({
-  assetId,
   history,
   range,
 }: {
-  assetId?: string;
   history: PriceHistoryState;
   range: MarketPriceRange;
 }) {
   const reduceMotion = usePrefersReducedMotion();
-  const lastGood = useRef<{
-    assetId?: string;
-    points: LivelinePoint[];
-    range: MarketPriceRange;
-  } | null>(null);
-
-  const incoming = toLivelinePoints(history.points);
-  if (lastGood.current && lastGood.current.assetId !== assetId) {
-    lastGood.current = null;
-  }
-  if (history.status === "ready" && incoming.length > 0) {
-    lastGood.current = { assetId, points: incoming, range };
-  } else if (history.status !== "loading") {
-    lastGood.current = null;
-  }
-
-  const held = lastGood.current;
+  const incoming = useMemo(
+    () => toLivelinePoints(history.points),
+    [history.points],
+  );
   const series =
     incoming.length > 0 && (history.status === "ready" || history.status === "loading")
-      ? {
-          points: incoming,
-          range: history.status === "ready" ? range : (held?.range ?? range),
-        }
-      : history.status === "loading" && held
-        ? held
-        : { points: [] as LivelinePoint[], range };
+      ? { points: incoming, range }
+      : { points: [] as LivelinePoint[], range };
 
   const waitingFirstPaint = history.status === "loading" && series.points.length === 0;
   const unavailable =
