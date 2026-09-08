@@ -21,9 +21,9 @@ const RANGE_SECONDS: Record<MarketPriceRange, number> = {
 
 /** Pulse ring max is 21px; momentum chevrons sit ~25px to the right of the live tip. */
 export const LIVELINE_PLOT_PADDING = {
-  top: 24,
-  right: 48,
-  bottom: 28,
+  top: 32,
+  right: 52,
+  bottom: 36,
   left: 16,
 } as const;
 
