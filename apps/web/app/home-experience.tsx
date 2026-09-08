@@ -15,6 +15,7 @@ import {
   writeAnonymousCountryPreference,
 } from "@/config/country-preference";
 import { savePanelId, type ShellPanelId } from "@/config/navigation";
+import { parseShellLocation, shellHref } from "@/config/shell-location";
 import { PrimaryNavigation } from "@/components/primary-navigation";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
@@ -55,6 +56,8 @@ export type HomeExperienceProps = {
   investContent?: ReactNode;
   savingsContent?: ReactNode;
   initialAccountOpen?: boolean;
+  initialPanel?: ShellPanelId;
+  initialAccountSettingsOpen?: boolean;
   assetBalances?: HomeAssetBalancesPresentation;
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";
@@ -119,6 +122,8 @@ export function HomeExperience({
   investContent,
   savingsContent,
   initialAccountOpen = false,
+  initialPanel = "home",
+  initialAccountSettingsOpen = false,
   assetBalances,
   landingVisual,
   routeMode = "landing",
@@ -137,21 +142,39 @@ export function HomeExperience({
   const [resolutionSource, setResolutionSource] =
     useState<ResolutionSource>(initial.source);
   const [activeNavigation, setActiveNavigation] =
-    useState<ShellPanelId>("home");
+    useState<ShellPanelId>(initialPanel);
   const [navigationRequest, setNavigationRequest] = useState(0);
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
   const [isPreferenceReady, setIsPreferenceReady] = useState(false);
   const [preferenceMessage, setPreferenceMessage] = useState("");
   const [isAccountOpen, setIsAccountOpen] = useState(initialAccountOpen);
-  const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
+  const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(
+    initialAccountSettingsOpen,
+  );
+  const shellPath = routeMode === "landing" ? "/" : "/dashboard";
 
   const closeAccount = useCallback(() => {
     setIsAccountOpen(false);
     if (initialAccountOpen) {
       router.replace("/", { scroll: false });
+      return;
     }
+    router.back();
   }, [initialAccountOpen, router]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const location = parseShellLocation(
+        new URLSearchParams(window.location.search),
+      );
+      setActiveNavigation(location.panel);
+      setIsAccountSettingsOpen(location.account === "settings");
+      setIsAccountOpen(location.account === "signin");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   useEffect(() => {
     const persistedCountry = readAnonymousCountryPreference(
@@ -235,21 +258,51 @@ export function HomeExperience({
   }
 
   function navigateTo(nextNavigation: ShellPanelId) {
+    const skipHistory =
+      activeNavigation === nextNavigation && !isAccountSettingsOpen;
     setIsAccountSettingsOpen(false);
     setActiveNavigation(nextNavigation);
     setNavigationRequest((request) => request + 1);
+    if (skipHistory) return;
+    router.push(shellHref(shellPath, { panel: nextNavigation }), {
+      scroll: false,
+    });
+  }
+
+  function openAccountSettings() {
+    setIsAccountSettingsOpen(true);
+    const current = parseShellLocation(
+      new URLSearchParams(window.location.search),
+    );
+    router.push(
+      shellHref(shellPath, {
+        panel: activeNavigation,
+        account: "settings",
+        shelf: current.shelf,
+        asset: current.asset,
+      }),
+      { scroll: false },
+    );
   }
 
   function openAccount() {
     if (isVerified || (account.status === "unavailable" && account.isSignedIn)) {
-      setIsAccountSettingsOpen(true);
+      openAccountSettings();
       return;
     }
     setIsAccountOpen(true);
+    if (
+      parseShellLocation(new URLSearchParams(window.location.search)).account ===
+      "signin"
+    ) {
+      return;
+    }
+    router.push(shellHref("/", { account: "signin" }), { scroll: false });
   }
 
   function closeAccountSettings() {
     setIsAccountSettingsOpen(false);
+    router.back();
   }
 
   function signOut() {
@@ -290,7 +343,7 @@ export function HomeExperience({
             onDashboard={() => router.replace("/dashboard")}
             onSignIn={openAccount}
             onSignOut={signOut}
-            onOpenSettings={() => setIsAccountSettingsOpen(true)}
+            onOpenSettings={openAccountSettings}
           />
         )}
       </header>

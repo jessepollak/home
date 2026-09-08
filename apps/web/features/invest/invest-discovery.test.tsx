@@ -3,6 +3,17 @@ import "@/features/account/dom-test-harness";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { MarketDataState } from "./invest-market";
 
+const pushCalls: string[] = [];
+const replaceCalls: string[] = [];
+
+mock.module("next/navigation", () => ({
+  useRouter: () => ({
+    push: (href: string) => pushCalls.push(href),
+    replace: (href: string) => replaceCalls.push(href),
+    back: () => {},
+  }),
+}));
+
 mock.module("@/features/trading/trade-actions", () => ({
   TradeActions: ({ asset }: { asset: { displayName: string } }) => (
     <div aria-label={`Trade ${asset.displayName}`}>
@@ -36,6 +47,8 @@ const readyCrypto: MarketDataState = {
 afterEach(() => {
   cleanup();
   window.fetch = originalFetch;
+  pushCalls.length = 0;
+  replaceCalls.length = 0;
 });
 
 const originalFetch = window.fetch;
@@ -48,10 +61,15 @@ describe("invest discovery flow", () => {
     await waitFor(() =>
       expect(page().getByRole("heading", { name: "Crypto" })).toBeTruthy(),
     );
+    expect(pushCalls).toEqual(["/dashboard?panel=invest&shelf=crypto"]);
     expect(page().getByText("Cardano")).toBeTruthy();
     expect(page().getByText("ADA")).toBeTruthy();
     expect(page().queryByText("Buy")).toBeNull();
     expect(page().queryByText("Sell")).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Back to Invest" }));
+    expect(replaceCalls).toEqual(["/dashboard?panel=invest"]);
+    expect(page().getByRole("heading", { name: "Invest" })).toBeTruthy();
+    expect(page().queryByText("Cardano")).toBeNull();
   });
 
   test("opens Bitcoin detail with compact header, chart ranges, and trade CTA only there", async () => {
@@ -72,6 +90,7 @@ describe("invest discovery flow", () => {
     await waitFor(() =>
       expect(page().getByRole("heading", { name: "Bitcoin" })).toBeTruthy(),
     );
+    expect(pushCalls).toEqual(["/dashboard?panel=invest&asset=cbbtc"]);
     expect(page().getByText("$64,210.00")).toBeTruthy();
     expect(page().getByText("cbBTC · Base")).toBeTruthy();
     expect(page().getByRole("group", { name: "Price range" }).textContent).toContain(

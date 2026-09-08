@@ -1,6 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+mock.module("next/navigation", () => ({
+  useRouter: () => ({
+    push: () => {},
+    replace: () => {},
+    back: () => {},
+  }),
+}));
+
 import { renderToStaticMarkup } from "react-dom/server";
-import { InvestExperience } from "./invest/invest-experience";
+const { InvestExperience } = await import("./invest/invest-experience");
 import { SavingsExperience } from "./savings/savings-experience";
 import type { MorphoVaultsResult } from "@/server/morpho/types";
 
