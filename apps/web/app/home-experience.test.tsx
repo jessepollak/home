@@ -348,13 +348,14 @@ function HomeHarness({
         savingsContent={<section aria-label="Savings module">Savings fixture</section>}
         assetBalances={{
           status: "ready",
-          displayTotal: "12.34 USDC",
+          displayTotal: "$12.34",
           items: [
             {
               id: "usdc",
-              name: "USDC",
-              detail: "Base account",
-              displayBalance: "12.34 USDC",
+              group: "cash",
+              name: "US dollar",
+              displayBalance: "$12.34",
+              currencyCode: "USD",
             },
           ],
         }}
@@ -488,8 +489,8 @@ describe("login-state home experience", () => {
       />,
     );
 
-    expect(page().getByRole("heading", { name: "Portfolio" })).toBeTruthy();
-    expect(page().getByText("Balances hidden while account verification completes")).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(page().getByText("Updating…")).toBeTruthy();
     expect(document.body.textContent).not.toContain(ADDRESS);
     expect(page().queryByText("Checking your account…")).toBeNull();
 
@@ -498,12 +499,14 @@ describe("login-state home experience", () => {
       await pendingSession.promise;
     });
 
-    await page().findByRole("heading", { name: "Portfolio" });
-    expect(page().getByText("Wallet & savings value")).toBeTruthy();
-    expect(page().getByRole("heading", { name: "Assets" })).toBeTruthy();
+    await page().findByRole("button", { name: "Account" });
+    expect(page().queryByText("Wallet & savings value")).toBeNull();
+    expect(page().queryByText("Wallet & savings")).toBeNull();
     expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();
+    expect(page().getAllByText("$12.34").length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(page().getByRole("button", { name: "Account" }));
     expect(page().getByTitle(ADDRESS).textContent).toBe("0x1111…1111");
-    expect(page().getAllByText("12.34 USDC").length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(page().getByRole("button", { name: "Done" }));
     expect(page().getByRole("link", { name: "Add money" }).getAttribute("href")).toBe("/fund");
     expect(page().getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
     expect(page().getByRole("button", { name: "Receive" }).hasAttribute("disabled")).toBe(false);
@@ -523,8 +526,7 @@ describe("login-state home experience", () => {
       />,
     );
 
-    await page().findByRole("heading", { name: "Portfolio" });
-    expect(page().getByText("Account pending")).toBeTruthy();
+    fireEvent.click(await page().findByRole("button", { name: "Account" }));
     expect(page().getByText("Setup in progress")).toBeTruthy();
     expect(page().queryByText("One home for your money.")).toBeNull();
   });
@@ -544,12 +546,13 @@ describe("login-state home experience", () => {
       />,
     );
 
-    await page().findByTitle(ADDRESS);
+    fireEvent.click(await page().findByRole("button", { name: "Account" }));
+    expect(page().getByTitle(ADDRESS)).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Sign out" }));
 
     await waitFor(() => expect(replaceCalls).toEqual(["/"]));
     expect(document.body.textContent).not.toContain("0x1111…1111");
-    expect(page().getByText("Balances hidden while account verification completes")).toBeTruthy();
+    expect(page().getByText("Updating…")).toBeTruthy();
 
     const retry = await page().findByRole("button", { name: "Retry sign out" });
     fireEvent.click(retry);
@@ -580,17 +583,19 @@ describe("login-state home experience", () => {
       />,
     );
 
-    await page().findByText("Wallet and savings only · Borrow separate");
-    expect(
-      page().getByRole("heading", { name: "Wallet & savings value" }),
-    ).toBeTruthy();
-    expect(page().getByText("0 USDC")).toBeTruthy();
-    expect(page().getByText("<0.000001 ETH on Base")).toBeTruthy();
-    expect(page().getByText("USD / USDC")).toBeTruthy();
-    expect(page().getByText("BRL / BRZ")).toBeTruthy();
-    expect(page().getByText("Ethereum")).toBeTruthy();
-    expect(document.body.textContent).toContain("BRL 0.00");
-    expect(document.body.textContent).not.toContain("Total balance");
+    await page().findByText("US dollar");
+    expect(page().queryByText("Wallet & savings value")).toBeNull();
+    expect(page().queryByText("Wallet and savings only · Borrow separate")).toBeNull();
+    expect(page().getByText("US dollar")).toBeTruthy();
+    expect(page().getByText("Brazilian real")).toBeTruthy();
+    expect(page().getAllByText("$0.00").length).toBeGreaterThanOrEqual(1);
+    expect(page().getAllByText("R$ 0,00").length).toBeGreaterThanOrEqual(1);
+    expect(page().queryByText("USD / USDC")).toBeNull();
+    expect(page().queryByText("BRL / BRZ")).toBeNull();
+    expect(page().queryByText("Ethereum")).toBeNull();
+    expect(document.body.textContent).not.toContain("Not available yet");
+    expect(page().queryByRole("button", { name: "Save", hidden: false })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Save", current: "page" })).toBeNull();
 
     const portfolioRequest = requests.find(
       (request) => request.input === "/api/portfolio",
@@ -640,8 +645,9 @@ describe("login-state home experience", () => {
       />,
     );
 
-    expect(await page().findByText("Wallet and savings value unavailable")).toBeTruthy();
-    expect(page().getByText("Unavailable")).toBeTruthy();
+    expect(await page().findByLabelText("Total balance")).toBeTruthy();
+    expect(page().getByText("—")).toBeTruthy();
+    expect(page().queryByText("Wallet and savings value unavailable")).toBeNull();
   });
 
   test("clears the previous wallet amount before a newly verified owner portfolio resolves", async () => {
@@ -686,7 +692,7 @@ describe("login-state home experience", () => {
       />,
     );
 
-    await page().findByText("99 USDC");
+    await page().findByText("$99.00");
 
     view.rerender(
       <PortfolioHomeHarness
@@ -699,8 +705,8 @@ describe("login-state home experience", () => {
       />,
     );
 
-    await page().findByText("Updating wallet and savings value");
-    expect(page().queryByText("99 USDC")).toBeNull();
+    await page().findByText("Updating…");
+    expect(page().queryByText("$99.00")).toBeNull();
 
     await act(async () => {
       pendingValuation.resolve(
@@ -711,7 +717,7 @@ describe("login-state home experience", () => {
       );
       await pendingValuation.promise;
     });
-    expect(await page().findByText("2.5 USDC")).toBeTruthy();
+    expect(await page().findByText("$2.50")).toBeTruthy();
   });
 
   test("propagates Base provider selection from sign-in through the real portfolio composition", async () => {
@@ -768,7 +774,7 @@ describe("login-state home experience", () => {
       />,
     );
 
-    expect(await page().findByText("4.25 USDC")).toBeTruthy();
+    expect(await page().findByText("$4.25")).toBeTruthy();
     const authenticatedRequests = requests.filter(
       (request) =>
         request.input === "/api/session" ||
@@ -883,8 +889,8 @@ describe("login-state home experience", () => {
       />,
     );
 
-    await page().findByText("5 USDC");
-    await page().findByText("No supported token transfers in this window.");
+    await page().findByText("$5.00");
+    await page().findByText("No activity yet");
     fireEvent.click(page().getByRole("button", { name: "Send" }));
     fireEvent.change(page().getByLabelText("Recipient address"), {
       target: { value: ADDRESS_B },
@@ -930,9 +936,18 @@ describe("login-state home experience", () => {
       />,
     );
 
-    await page().findByTitle(ADDRESS);
+    await page().findByRole("button", { name: "Account" });
+    expect(page().queryByRole("combobox", { name: "Country" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Invest", current: "page" })).toBeNull();
+    expect(
+      page().getByRole("navigation", { name: "Main navigation" }).textContent,
+    ).not.toContain("Save");
+    expect(page().getAllByText("$12.34").length).toBeGreaterThanOrEqual(1);
+
+    fireEvent.click(page().getByRole("button", { name: "Account" }));
     expect(page().getByRole("combobox", { name: "Country" }).textContent).toContain("Brazil");
-    expect(page().getAllByText("12.34 USDC").length).toBe(2);
+    expect(page().getByText("Sets how money is shown")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Done" }));
 
     fireEvent.click(page().getByRole("button", { name: "Save" }));
     const savings = page().getByRole("region", { name: "Savings module" });

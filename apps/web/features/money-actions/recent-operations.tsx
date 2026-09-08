@@ -30,12 +30,16 @@ export function RecentMoneyActions({
   readOperation,
   refreshTrigger,
   excludeTransactionHashes = [],
+  embedded = false,
+  onVisibleCountChange,
 }: {
   session: VerifiedAccountSession | null;
   fetchOperations: FetchRecentMoneyActions;
   readOperation: ReadRecentMoneyAction;
   refreshTrigger?: string | number;
   excludeTransactionHashes?: Iterable<string>;
+  embedded?: boolean;
+  onVisibleCountChange?: (count: number) => void;
 }) {
   const ownerKey = session?.smartAccount
     ? `${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.accountProvider}`
@@ -85,11 +89,20 @@ export function RecentMoneyActions({
 
   const visibleState = state?.ownerKey === ownerKey ? state : null;
   const visible = dedupeRecentMoneyActions(visibleState?.operations ?? [], excluded);
+  const visibleCount = visible.length + (visibleState?.unavailable ? 1 : 0);
+
+  useEffect(() => {
+    onVisibleCountChange?.(visibleCount);
+  }, [onVisibleCountChange, visibleCount]);
+
   if (visible.length === 0 && !visibleState?.unavailable) return null;
 
   return (
-    <section className={styles.section} aria-labelledby="home-operations-title">
-      <h3 id="home-operations-title">Home actions</h3>
+    <section
+      className={styles.section}
+      aria-labelledby={embedded ? undefined : "home-operations-title"}
+    >
+      {embedded ? null : <h3 id="home-operations-title">Home actions</h3>}
       {visibleState?.unavailable ? (
         <p className={styles.message}>Recent Home actions are temporarily unavailable.</p>
       ) : (

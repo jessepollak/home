@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
 import { cryptoAssets } from "@/config/invest-assets";
 
@@ -85,4 +86,6 @@ export type ActivityPanelProps = {
   fetchActivity: FetchActivity;
   refreshTrigger?: string | number;
   onTransactionHashesChange?: (hashes: string[]) => void;
+  leading?: ReactNode;
+  suppressEmpty?: boolean;
 };

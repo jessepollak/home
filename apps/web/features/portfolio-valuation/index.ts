@@ -1,4 +1,14 @@
-export { formatFiatValue } from "./format";
+export {
+  formatFiatValue,
+  formatPresentationFiat,
+  presentationCurrencyName,
+  presentationCurrencySymbol,
+} from "./format";
+export {
+  presentPortfolioValuation,
+  type HomeAssetBalanceItem,
+  type HomeAssetBalancesPresentation,
+} from "./present-home-balances";
 export {
   PortfolioValuationResponseError,
   parsePortfolioValuationSnapshot,

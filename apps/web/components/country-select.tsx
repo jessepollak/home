@@ -12,12 +12,14 @@ type CountrySelectProps = {
   value: RegionId;
   onValueChange: (regionId: RegionId) => void;
   describedBy: string;
+  variant?: "default" | "settings";
 };
 
 export function CountrySelect({
   value,
   onValueChange,
   describedBy,
+  variant = "default",
 }: CountrySelectProps) {
   return (
     <Select.Root
@@ -30,7 +32,11 @@ export function CountrySelect({
         id="country"
         aria-label="Country"
         aria-describedby={describedBy}
-        className="flex min-h-[47px] w-full items-center justify-between rounded-[8px] border border-[#d5d9e0] bg-white px-[13px] text-left text-[0.9rem] font-semibold text-[#0a0b0d] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#0052ff] data-[state=open]:border-[#0052ff]"
+        className={
+          variant === "settings"
+            ? "flex min-h-11 items-center justify-end gap-1 border-0 bg-transparent p-0 text-right text-[0.92rem] font-semibold text-[#0a0b0d] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#0052ff]"
+            : "flex min-h-[47px] w-full items-center justify-between rounded-[8px] border border-[#d5d9e0] bg-white px-[13px] text-left text-[0.9rem] font-semibold text-[#0a0b0d] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#0052ff] data-[state=open]:border-[#0052ff]"
+        }
       >
         <Select.Value />
         <Select.Icon aria-hidden="true" className="ml-3 shrink-0 text-[#32353d]">

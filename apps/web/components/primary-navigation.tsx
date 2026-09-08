@@ -1,17 +1,16 @@
 "use client";
 
-import { ChartNoAxesCombined, House, PiggyBank } from "lucide-react";
-import { navigationItems, type NavigationId } from "@/config/navigation";
+import { ChartNoAxesCombined, House } from "lucide-react";
+import { navigationItems, type NavigationId, type ShellPanelId } from "@/config/navigation";
 import styles from "./primary-navigation.module.css";
 
 type PrimaryNavigationProps = {
-  activeNavigation: NavigationId;
+  activeNavigation: ShellPanelId;
   onNavigate: (id: NavigationId) => void;
 };
 
 const navigationIcons = {
   home: House,
-  save: PiggyBank,
   invest: ChartNoAxesCombined,
 } satisfies Record<NavigationId, typeof House>;
 

@@ -17,7 +17,7 @@ The local read-only build includes:
 - Presentation-only country selection for the United States, Brazil, Indonesia, and a neutral global fallback.
 - Anonymous explicit country choices remembered in browser storage after hydration.
 - Separate, English-only language display; selecting a country does not imply translation or eligibility.
-- Home, Save, and Invest navigation with truthful unconnected, empty, and unavailable states.
+- Home and Invest navigation, with Save reachable from the Home teaser.
 - Typed region configuration plus pure resolver tests for supported, unknown, missing, and override cases.
 - Root-scoped CDP email authentication, backend session validation, and verified account address display.
 - Informational Stocks/Memes browsing, public Morpho USDC vault snapshots, and a server-only CDP SQL history adapter.

@@ -19,6 +19,8 @@ export function ActivityPanel({
   fetchActivity,
   refreshTrigger,
   onTransactionHashesChange,
+  leading,
+  suppressEmpty = false,
 }: ActivityPanelProps) {
   const activity = useActivity(session, fetchActivity, refreshTrigger);
   const transactionHashKey = activity.status === "ready"
@@ -33,10 +35,8 @@ export function ActivityPanel({
     return (
       <section className={styles.panel} aria-labelledby="activity-title">
         <PanelHeader onRefresh={null} />
-        <p className={styles.empty}>
-          Recent activity appears when a verified Base smart account is ready.
-        </p>
-        <CoverageNote />
+        {leading}
+        {suppressEmpty ? null : <p className={styles.empty}>No activity yet</p>}
       </section>
     );
   }
@@ -49,11 +49,11 @@ export function ActivityPanel({
         aria-busy="true"
       >
         <PanelHeader onRefresh={null} />
+        {leading}
         <div className={styles.loading} role="status">
           <span className={styles.spinner} aria-hidden="true" />
           Loading recent activity…
         </div>
-        <CoverageNote />
       </section>
     );
   }
@@ -62,6 +62,7 @@ export function ActivityPanel({
     return (
       <section className={styles.panel} aria-labelledby="activity-title">
         <PanelHeader onRefresh={null} />
+        {leading}
         <div className={styles.error} role="alert">
           <strong>Activity is temporarily unavailable.</strong>
           <span>No transfer history was inferred from this error.</span>
@@ -69,25 +70,28 @@ export function ActivityPanel({
             Try again
           </button>
         </div>
-        <CoverageNote />
       </section>
     );
   }
 
   const { page } = activity;
+  const isEmpty = page.transfers.length === 0;
   return (
     <section className={styles.panel} aria-labelledby="activity-title">
       <PanelHeader onRefresh={activity.refresh} />
-      <p className={styles.freshness} role="status">
-        {page.source.stale ? "Data may be delayed" : "Updated"}{" "}
-        <time dateTime={page.source.executionTimestamp}>
-          {formatActivityDate(page.source.executionTimestamp)}
-        </time>
-        {page.source.cached ? " · cached result" : ""}
-      </p>
+      {leading}
+      {isEmpty ? null : (
+        <p className={styles.freshness} role="status">
+          {page.source.stale ? "Data may be delayed" : "Updated"}{" "}
+          <time dateTime={page.source.executionTimestamp}>
+            {formatActivityDate(page.source.executionTimestamp)}
+          </time>
+          {page.source.cached ? " · cached result" : ""}
+        </p>
+      )}
 
-      {page.transfers.length === 0 ? (
-        <p className={styles.empty}>No supported token transfers in this window.</p>
+      {isEmpty ? (
+        suppressEmpty ? null : <p className={styles.empty}>No activity yet</p>
       ) : (
         <ol className={styles.list}>
           {page.transfers.map((transfer) => (
@@ -111,7 +115,7 @@ export function ActivityPanel({
           {activity.loadingMore ? "Loading…" : activity.loadMoreError ? "Retry more" : "Load more"}
         </button>
       ) : null}
-      <CoverageNote />
+      {isEmpty ? null : <CoverageNote />}
     </section>
   );
 }
@@ -119,10 +123,7 @@ export function ActivityPanel({
 function PanelHeader({ onRefresh }: { onRefresh: (() => void) | null }) {
   return (
     <div className={styles.header}>
-      <div>
-        <p className={styles.kicker}>Base · recent 31 days</p>
-        <h2 id="activity-title">Activity</h2>
-      </div>
+      <h2 id="activity-title">Activity</h2>
       {onRefresh ? (
         <button className={styles.refreshButton} type="button" onClick={onRefresh}>
           Refresh

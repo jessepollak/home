@@ -230,16 +230,12 @@ describe("ActivityPanel", () => {
     );
     fireEvent.click(view.getByText("Try again"));
     await waitFor(() =>
-      expect(view.getByText("No supported token transfers in this window.")).toBeTruthy(),
+      expect(view.getByText("No activity yet")).toBeTruthy(),
     );
 
     view.rerender(
       <ActivityPanel session={null} fetchActivity={fetchActivity} />,
     );
-    expect(
-      view.getByText(
-        "Recent activity appears when a verified Base smart account is ready.",
-      ),
-    ).toBeTruthy();
+    expect(view.getByText("No activity yet")).toBeTruthy();
   });
 });

@@ -52,6 +52,15 @@
   color: #0a0b0d;
 }
 
+.icon[data-tone="mark"] {
+  overflow: hidden;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
 .identity,
 .value {
   display: grid;

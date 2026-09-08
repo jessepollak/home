@@ -24,10 +24,10 @@
 }
 
 .header h2 {
-  margin: 6px 0 0;
-  font-size: 1.65rem;
-  font-weight: 650;
-  letter-spacing: -0.035em;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
 }
 
 .refreshButton,
@@ -81,12 +81,9 @@
 }
 
 .empty {
-  margin: 20px 0 0;
-  border: 1px dashed rgba(10, 11, 13, 0.18);
-  color: #606773;
+  margin: 18px 0 0;
+  color: #717886;
   font-size: 0.84rem;
-  padding: 20px;
-  text-align: center;
 }
 
 .error {

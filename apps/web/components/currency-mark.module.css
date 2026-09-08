@@ -1,0 +1,33 @@
+.mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  font-size: 0.92rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.usd {
+  background: #2775ca;
+  color: #ffffff;
+}
+
+.brl {
+  background: transparent;
+}
+
+.fallback {
+  background: #d8dce3;
+  color: #32353d;
+  font-size: 0.62rem;
+  letter-spacing: -0.02em;
+}

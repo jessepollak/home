@@ -10,7 +10,7 @@ export type RowExplorerLink = {
 type FinanceRowProps = {
   kind: "activity" | "balance" | "asset";
   icon: ReactNode;
-  iconTone?: "neutral" | "incoming" | "outgoing" | "self" | "outlined";
+  iconTone?: "neutral" | "incoming" | "outgoing" | "self" | "outlined" | "mark";
   label: ReactNode;
   context?: ReactNode;
   contextTitle?: string;

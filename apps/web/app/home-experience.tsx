@@ -14,23 +14,22 @@ import {
   readAnonymousCountryPreference,
   writeAnonymousCountryPreference,
 } from "@/config/country-preference";
-import type { NavigationId } from "@/config/navigation";
+import { savePanelId, type ShellPanelId } from "@/config/navigation";
 import { PrimaryNavigation } from "@/components/primary-navigation";
+import { CurrencyMark } from "@/components/currency-mark";
 import {
   presentationRegions,
   resolvePresentation,
-  type PresentationRegion,
   type RegionId,
   type ResolutionSource,
 } from "@/config/regions";
-import { CountrySelect } from "@/components/country-select";
-import { AssetRow, BalanceRow } from "@/components/finance-rows";
+import { BalanceRow } from "@/components/finance-rows";
 import { HomeMark } from "@/components/home-mark";
 import { AccountSignInSheet } from "@/features/account/account-screen";
+import { AccountSettings } from "@/features/account/account-settings";
 import { useAccountWallet } from "@/features/account/cdp-client";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
 import { ActivityPanel, type FetchActivity } from "@/features/activity";
-import { formatTokenAmount } from "@/features/formatting";
 import {
   MoneyDataRefreshProvider,
   RecentMoneyActions,
@@ -40,28 +39,15 @@ import {
   type VerifiedPortfolioSession,
 } from "@/features/portfolio";
 import {
-  formatFiatValue,
+  presentPortfolioValuation,
   usePortfolioValuation,
-  type PortfolioValuationState,
+  type HomeAssetBalanceItem,
+  type HomeAssetBalancesPresentation,
 } from "@/features/portfolio-valuation";
 import { TransferActions } from "@/features/transfers";
+import { PiggyBank } from "lucide-react";
 
-export type HomeAssetBalanceItem = {
-  id: string;
-  group?: "cash" | "asset";
-  name: string;
-  detail: string;
-  displayBalance: string;
-  displayContext?: string;
-  tone?: "default" | "muted" | "error";
-};
-
-export type HomeAssetBalancesPresentation = {
-  status: "loading" | "ready" | "unavailable";
-  displayTotal: string | null;
-  statusLabel?: string;
-  items: readonly HomeAssetBalanceItem[];
-};
+export type { HomeAssetBalanceItem, HomeAssetBalancesPresentation };
 
 export type HomeExperienceProps = {
   detectedCountry?: string | null;
@@ -121,140 +107,10 @@ export function PortfolioHomeExperience(
   );
 }
 
-function presentPortfolioValuation(
-  valuation: PortfolioValuationState,
-): HomeAssetBalancesPresentation {
-  if (valuation.status === "loading") {
-    return {
-      status: "loading",
-      displayTotal: null,
-      statusLabel: "Updating wallet and savings value",
-      items: [],
-    };
-  }
-  if (valuation.status !== "ready") {
-    return {
-      status: "unavailable",
-      displayTotal: null,
-      statusLabel: "Wallet and savings value unavailable",
-      items: [],
-    };
-  }
-
-  const { snapshot } = valuation;
-  const needsQuoteCurrency =
-    snapshot.total.status === "unavailable-no-quote-currency";
-  const totalUnavailable = snapshot.total.status === "unavailable";
-  const cashItems: HomeAssetBalanceItem[] = snapshot.cashBuckets.map((bucket) => {
-    if (bucket.valuationStatus === "unsupported") {
-      return {
-        id: bucket.id,
-        group: "cash",
-        name: `${bucket.denominationCurrency} / ${bucket.symbol}`,
-        detail: "Verified Base contract unavailable",
-        displayBalance: "Unavailable",
-        tone: "muted",
-      };
-    }
-    const amount =
-      bucket.tokenAmountBaseUnits !== null && bucket.tokenDecimals !== null
-        ? formatTokenAmount(bucket.tokenAmountBaseUnits, bucket.tokenDecimals)
-        : null;
-    return {
-      id: bucket.id,
-      group: "cash",
-      name: `${bucket.denominationCurrency} / ${bucket.symbol}`,
-      detail:
-        bucket.roles.length === 2
-          ? "USDC on Base · local cash"
-          : `${bucket.symbol} on Base`,
-      displayBalance: amount ? `${amount} ${bucket.symbol}` : "Unavailable",
-      displayContext: bucket.indicativeValue
-        ? `${formatFiatValue(
-            bucket.indicativeValue,
-            bucket.denominationCurrency,
-          )} indicative`
-        : bucket.valuationStatus === "unpriced"
-          ? "Exact-contract price unavailable"
-          : undefined,
-      tone:
-        bucket.valuationStatus === "read-unavailable" ? "error" : "default",
-    };
-  });
-
-  const lineByKey = new Map(
-    snapshot.lines.map((line) => [line.holdingAssetKey, line]),
-  );
-  const cashKeys = new Set<string>(
-    snapshot.cashBuckets.flatMap((bucket) =>
-      bucket.assetKey ? [bucket.assetKey] : [],
-    ),
-  );
-  const assetItems = snapshot.inventory.holdings.flatMap<HomeAssetBalanceItem>(
-    (holding) => {
-      if (cashKeys.has(holding.assetKey) || holding.readStatus !== "ready") return [];
-      const amount =
-        holding.kind === "direct"
-          ? holding.balanceBaseUnits
-          : holding.underlyingBaseUnits;
-      const decimals =
-        holding.kind === "direct" ? holding.decimals : holding.underlyingDecimals;
-      if (amount === null || BigInt(amount) === BigInt(0)) return [];
-      const line = lineByKey.get(holding.assetKey);
-      const quantity = formatTokenAmount(amount, decimals);
-      return [
-        {
-          id: holding.id,
-          group: "asset",
-          name: holding.name,
-          detail:
-            holding.kind === "vault-position"
-              ? `${quantity} USDC in Morpho vault`
-              : `${quantity} ${holding.symbol} on Base`,
-          displayBalance:
-            line?.value && snapshot.quoteCurrency
-              ? formatFiatValue(line.value, snapshot.quoteCurrency)
-              : "Unpriced",
-          displayContext:
-            line?.status === "unpriced" ? "Price unavailable" : undefined,
-          tone: line?.status === "unpriced" ? "muted" : "default",
-        },
-      ];
-    },
-  );
-
-  return {
-    status: "ready",
-    displayTotal:
-      snapshot.total.value && snapshot.total.currency
-        ? formatFiatValue(snapshot.total.value, snapshot.total.currency)
-        : needsQuoteCurrency
-          ? "Choose a country"
-          : totalUnavailable
-            ? "Unavailable"
-            : "—",
-    statusLabel: needsQuoteCurrency
-      ? "Choose a country to select a local valuation currency"
-      : totalUnavailable
-        ? "Wallet and savings value unavailable"
-        : snapshot.total.status === "partial"
-          ? "Partial · wallet and savings only · Borrow separate"
-          : "Wallet and savings only · Borrow separate",
-    items: [...cashItems, ...assetItems],
-  };
-}
-
 type RegionStyle = CSSProperties & {
   "--region-accent": string;
   "--region-accent-soft": string;
   "--region-surface": string;
-};
-
-const sourceLabels: Record<ResolutionSource, string> = {
-  explicit: "Your country choice",
-  persisted: "Saved country choice",
-  detected: "Suggested country",
-  fallback: "No country selected",
 };
 
 export function HomeExperience({
@@ -280,13 +136,14 @@ export function HomeExperience({
   const [resolutionSource, setResolutionSource] =
     useState<ResolutionSource>(initial.source);
   const [activeNavigation, setActiveNavigation] =
-    useState<NavigationId>("home");
+    useState<ShellPanelId>("home");
   const [navigationRequest, setNavigationRequest] = useState(0);
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
   const [isPreferenceReady, setIsPreferenceReady] = useState(false);
   const [preferenceMessage, setPreferenceMessage] = useState("");
   const [isAccountOpen, setIsAccountOpen] = useState(initialAccountOpen);
+  const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
 
   const closeAccount = useCallback(() => {
     setIsAccountOpen(false);
@@ -376,16 +233,26 @@ export function HomeExperience({
     );
   }
 
-  function navigateTo(nextNavigation: NavigationId) {
+  function navigateTo(nextNavigation: ShellPanelId) {
+    setIsAccountSettingsOpen(false);
     setActiveNavigation(nextNavigation);
     setNavigationRequest((request) => request + 1);
   }
 
   function openAccount() {
+    if (isVerified || (account.status === "unavailable" && account.isSignedIn)) {
+      setIsAccountSettingsOpen(true);
+      return;
+    }
     setIsAccountOpen(true);
   }
 
+  function closeAccountSettings() {
+    setIsAccountSettingsOpen(false);
+  }
+
   function signOut() {
+    setIsAccountSettingsOpen(false);
     if (routeMode === "dashboard") {
       explicitLogoutRef.current = true;
       router.replace("/", { scroll: false });
@@ -396,42 +263,39 @@ export function HomeExperience({
   return (
     <div className="app-frame" style={regionStyle}>
       <header className="app-header">
-        <HomeMark
-          onClick={() => {
-            if (isVerified) navigateTo("home");
-          }}
-        />
-
-        <div className="header-country" title={sourceLabels[resolutionSource]}>
-          <CountrySelect
-            value={regionId}
-            onValueChange={selectRegion}
-            describedBy="preference-status"
+        {isAccountSettingsOpen ? (
+          <h1 className="account-settings-title">Account</h1>
+        ) : (
+          <HomeMark
+            onClick={() => {
+              if (isVerified) navigateTo("home");
+            }}
           />
-          <p id="preference-status" className="sr-status" aria-live="polite">
-            {preferenceMessage ||
-              (isPreferenceReady
-                ? `${sourceLabels[resolutionSource]}.`
-                : "Checking saved country preference.")}
-          </p>
-        </div>
+        )}
 
-        <HeaderAccountAction
-          status={account.status}
-          isSignedIn={account.isSignedIn}
-          routeMode={routeMode}
-          onDashboard={() => router.replace("/dashboard")}
-          onSignIn={openAccount}
-          onSignOut={signOut}
-        />
+        {isAccountSettingsOpen ? (
+          <button
+            className="header-done-link"
+            type="button"
+            onClick={closeAccountSettings}
+          >
+            Done
+          </button>
+        ) : (
+          <HeaderAccountAction
+            status={account.status}
+            isSignedIn={account.isSignedIn}
+            routeMode={routeMode}
+            onDashboard={() => router.replace("/dashboard")}
+            onSignIn={openAccount}
+            onSignOut={signOut}
+            onOpenSettings={() => setIsAccountSettingsOpen(true)}
+          />
+        )}
       </header>
 
       {routeMode === "dashboard" ? (
         <main className="app-main app-main-authenticated">
-          <div className="main-heading">
-            <h1>Portfolio</h1>
-          </div>
-
           {isUnavailable ? (
             <div className="dashboard-notice" role="alert">
               <span>{account.message ?? "Your private details remain hidden."}</span>
@@ -441,53 +305,76 @@ export function HomeExperience({
             </div>
           ) : null}
 
-          <PrimaryNavigation
-            activeNavigation={activeNavigation}
-            onNavigate={navigateTo}
-          />
-
-          <section
-            ref={panelStageRef}
-            className="panel-stage"
-            id="navigation-panel"
-            tabIndex={-1}
-            aria-labelledby={`${activeNavigation}-nav`}
-            aria-busy={isChecking}
-          >
-            {activeNavigation === "home" ? (
-              <HomePanel
-                region={region}
-                accountAddress={
-                  isVerified ? account.session?.smartAccount?.address ?? null : null
-                }
-                assetBalances={
-                  isVerified
-                    ? assetBalances
-                    : {
-                        status: "loading",
-                        displayTotal: null,
-                        statusLabel: "Balances hidden while account verification completes",
-                        items: [],
-                      }
-                }
-                activitySession={activitySession}
-                fetchActivity={account.fetchActivity}
-                fetchOperations={account.fetchOperations}
-                readOperation={readOperation}
-                activityRefreshTrigger={activityRefreshTrigger}
-                onTransferConfirmed={onTransferConfirmed}
+          {isAccountSettingsOpen ? (
+            <AccountSettings
+              regionId={regionId}
+              onRegionChange={selectRegion}
+              resolutionSource={resolutionSource}
+              preferenceMessage={preferenceMessage}
+              isPreferenceReady={isPreferenceReady}
+              accountAddress={
+                isVerified ? account.session?.smartAccount?.address ?? null : null
+              }
+              onSignOut={signOut}
+            />
+          ) : (
+            <>
+              <PrimaryNavigation
+                activeNavigation={activeNavigation}
                 onNavigate={navigateTo}
               />
-            ) : null}
-            {activeNavigation === "save"
-              ? isVerified
-                ? (savingsContent ?? <EmptyPanel label="Savings" />)
-                : <EmptyPanel label="Savings verifying" />
-              : null}
-            {activeNavigation === "invest"
-              ? (investContent ?? <EmptyPanel label="Investments" />)
-              : null}
-          </section>
+
+              <section
+                ref={panelStageRef}
+                className="panel-stage"
+                id="navigation-panel"
+                tabIndex={-1}
+                aria-labelledby={
+                  activeNavigation === savePanelId
+                    ? undefined
+                    : `${activeNavigation}-nav`
+                }
+                aria-label={
+                  activeNavigation === savePanelId ? "Savings" : undefined
+                }
+                aria-busy={isChecking}
+              >
+                {activeNavigation === "home" ? (
+                  <HomePanel
+                    assetBalances={
+                      isVerified
+                        ? assetBalances
+                        : {
+                            status: "loading",
+                            displayTotal: null,
+                            statusLabel: "Updating…",
+                            items: [],
+                          }
+                    }
+                    activitySession={activitySession}
+                    fetchActivity={account.fetchActivity}
+                    fetchOperations={account.fetchOperations}
+                    readOperation={readOperation}
+                    activityRefreshTrigger={activityRefreshTrigger}
+                    onTransferConfirmed={onTransferConfirmed}
+                    onOpenSave={() => navigateTo(savePanelId)}
+                  />
+                ) : null}
+                {activeNavigation === savePanelId
+                  ? (
+                    <div id="save-panel">
+                      {isVerified
+                        ? (savingsContent ?? <EmptyPanel label="Savings" />)
+                        : <EmptyPanel label="Savings verifying" />}
+                    </div>
+                  )
+                  : null}
+                {activeNavigation === "invest"
+                  ? (investContent ?? <EmptyPanel label="Investments" />)
+                  : null}
+              </section>
+            </>
+          )}
         </main>
       ) : (
         <SignedOutLanding
@@ -518,6 +405,7 @@ function HeaderAccountAction({
   onDashboard,
   onSignIn,
   onSignOut,
+  onOpenSettings,
 }: {
   status: ReturnType<typeof useAccountWallet>["status"];
   isSignedIn: boolean;
@@ -525,6 +413,7 @@ function HeaderAccountAction({
   onDashboard: () => void;
   onSignIn: () => void;
   onSignOut: () => void;
+  onOpenSettings: () => void;
 }) {
   if (status === "signout-error") {
     return (
@@ -548,8 +437,8 @@ function HeaderAccountAction({
         Dashboard
       </button>
     ) : (
-      <button className="header-account-link" type="button" onClick={onSignOut}>
-        Sign out
+      <button className="header-account-link" type="button" onClick={onOpenSettings}>
+        Account
       </button>
     );
   }
@@ -618,8 +507,6 @@ function SignedOutLanding({
 }
 
 function HomePanel({
-  region,
-  accountAddress,
   assetBalances,
   activitySession,
   fetchActivity,
@@ -627,10 +514,8 @@ function HomePanel({
   readOperation,
   activityRefreshTrigger,
   onTransferConfirmed,
-  onNavigate,
+  onOpenSave,
 }: {
-  region: PresentationRegion;
-  accountAddress: string | null;
   assetBalances?: HomeAssetBalancesPresentation;
   activitySession: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
@@ -638,18 +523,19 @@ function HomePanel({
   readOperation: (id: string, signal?: AbortSignal) => Promise<unknown>;
   activityRefreshTrigger?: string | number;
   onTransferConfirmed?: () => void;
-  onNavigate: (navigation: NavigationId) => void;
+  onOpenSave: () => void;
 }) {
-  const balanceStatus = assetBalances?.statusLabel ??
-    (assetBalances?.status === "loading"
-      ? "Updating balances"
-      : assetBalances?.status === "ready"
-        ? "Current balance"
-        : "Balance unavailable");
-  const suppliedAssets = assetBalances?.items ?? [];
-  const cashAssets = suppliedAssets.filter((asset) => asset.group === "cash");
-  const otherAssets = suppliedAssets.filter((asset) => asset.group !== "cash");
+  const isLoading = assetBalances?.status === "loading";
+  const heroLabel = isLoading
+    ? "Updating…"
+    : assetBalances?.status === "unavailable"
+      ? "Balance unavailable"
+      : "Total balance";
+  const balanceItems = (assetBalances?.items ?? []).filter(
+    (item) => item.group !== "asset",
+  );
   const [indexedTransactionHashes, setIndexedTransactionHashes] = useState<string[]>([]);
+  const [localActionCount, setLocalActionCount] = useState(0);
   const updateIndexedTransactionHashes = useCallback((hashes: string[]) => {
     setIndexedTransactionHashes((current) =>
       current.length === hashes.length && current.every((hash, index) => hash === hashes[index])
@@ -660,142 +546,77 @@ function HomePanel({
 
   return (
     <div className="home-panel">
-      <section className="balance-panel" aria-labelledby="balance-heading">
-        <div className="balance-heading-row">
-          <div>
-            <p className="section-kicker">Valuation</p>
-            <h2 id="balance-heading">Wallet &amp; savings value</h2>
-          </div>
-          <span className="connection-status">
-            <span aria-hidden="true" />
-            {accountAddress ? "Verified" : "Account pending"}
-          </span>
-        </div>
-
-        <div className="balance-value" aria-label={balanceStatus}>
-          <strong>{assetBalances?.displayTotal ?? "—"}</strong>
-          <span>{balanceStatus}</span>
-        </div>
-
-        <div className="action-row" aria-label="Money actions">
-          <Link href="/fund">
-            <PlusIcon />
-            <span>Add money</span>
-          </Link>
-          <TransferActions onTransferConfirmed={onTransferConfirmed} />
-        </div>
-
-        <dl className="account-details">
-          <div>
-            <dt>Base account</dt>
-            <dd>
-              {accountAddress ? (
-                <code title={accountAddress}>
-                  {accountAddress.slice(0, 6)}…{accountAddress.slice(-4)}
-                </code>
-              ) : (
-                "Setup in progress"
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt>Country</dt>
-            <dd>{region.countryName}</dd>
-          </div>
-        </dl>
+      <section className="balance-hero" aria-label={heroLabel}>
+        <p className="balance-hero-total">{assetBalances?.displayTotal ?? "—"}</p>
+        {isLoading ? <span className="sr-status">Updating…</span> : null}
       </section>
 
-      <section className="assets-panel" aria-labelledby="assets-heading">
-        <div className="section-heading-row">
-          <div>
-            <p className="section-kicker">Balances</p>
-            <h2 id="assets-heading">Assets</h2>
-          </div>
-          <span>{suppliedAssets.length > 0 ? "Supported inventory" : "Balances not connected"}</span>
-        </div>
+      <div className="action-row" aria-label="Money actions">
+        <Link href="/fund">
+          <PlusIcon />
+          <span>Add money</span>
+        </Link>
+        <TransferActions onTransferConfirmed={onTransferConfirmed} />
+      </div>
 
-        {suppliedAssets.length > 0 ? (
-          <>
-            {cashAssets.length > 0 ? (
-              <div className="asset-section" aria-label="Cash">
-                <h3>Cash</h3>
-                <ul className="supplied-asset-list">
-                  {cashAssets.map((asset) => (
-                    <BalanceRow
-                      key={asset.id}
-                      icon={asset.name.slice(0, 1).toUpperCase()}
-                      label={asset.name}
-                      context={asset.detail}
-                      value={asset.displayBalance}
-                      valueContext={asset.displayContext}
-                      valueTone={asset.tone}
-                    />
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {otherAssets.length > 0 ? (
-              <div className="asset-section" aria-label="Other supported assets">
-                <h3>Other assets</h3>
-                <ul className="supplied-asset-list">
-                  {otherAssets.map((asset) => (
-                    <AssetRow
-                      key={asset.id}
-                      icon={asset.name.slice(0, 1).toUpperCase()}
-                      label={asset.name}
-                      context={asset.detail}
-                      value={asset.displayBalance}
-                      valueContext={asset.displayContext}
-                      valueTone={asset.tone}
-                    />
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <div className="asset-overview-list">
-            <button type="button" onClick={() => onNavigate("save")}>
-              <span className="asset-mark" aria-hidden="true">$</span>
-              <span className="asset-overview-name">
-                <strong>USDC savings</strong>
-                <small>Compare variable rates</small>
-              </span>
-              <span className="asset-overview-value">
-                <strong>—</strong>
-                <small>Position unavailable</small>
-              </span>
-              <ArrowRightIcon />
-            </button>
-            <button type="button" onClick={() => onNavigate("invest")}>
-              <span className="asset-mark asset-mark-blue" aria-hidden="true">↗</span>
-              <span className="asset-overview-name">
-                <strong>Stocks and memes</strong>
-                <small>Browse assets on Base</small>
-              </span>
-              <span className="asset-overview-value">
-                <strong>—</strong>
-                <small>Holdings unavailable</small>
-              </span>
-              <ArrowRightIcon />
-            </button>
-          </div>
+      <section className="balances-panel" aria-labelledby="balances-heading">
+        <h2 id="balances-heading">Balances</h2>
+        {balanceItems.length > 0 ? (
+          <ul className="supplied-asset-list">
+            {balanceItems.map((asset) => (
+              <BalanceRow
+                key={asset.id}
+                icon={
+                  <CurrencyMark
+                    currency={asset.currencyCode}
+                    symbol={asset.name}
+                  />
+                }
+                iconTone="mark"
+                label={asset.name}
+                value={asset.displayBalance}
+                valueTone={asset.tone}
+              />
+            ))}
+          </ul>
+        ) : isLoading ? null : (
+          <p className="balances-empty">No balances yet</p>
         )}
       </section>
 
+      <button
+        className="save-teaser"
+        type="button"
+        onClick={onOpenSave}
+        aria-label="Save"
+      >
+        <span className="save-teaser-icon" aria-hidden="true">
+          <PiggyBank size={20} strokeWidth={1.9} />
+        </span>
+        <span className="save-teaser-label">Save</span>
+        <span className="save-teaser-action">
+          Earn <span aria-hidden="true">›</span>
+        </span>
+      </button>
+
       <div className="activity-panel activity-panel-slot">
-        <RecentMoneyActions
-          session={activitySession}
-          fetchOperations={fetchOperations}
-          readOperation={readOperation}
-          refreshTrigger={activityRefreshTrigger}
-          excludeTransactionHashes={indexedTransactionHashes}
-        />
         <ActivityPanel
           session={activitySession}
           fetchActivity={fetchActivity}
           refreshTrigger={activityRefreshTrigger}
           onTransactionHashesChange={updateIndexedTransactionHashes}
+          suppressEmpty={localActionCount > 0}
+          leading={
+            <RecentMoneyActions
+              session={activitySession}
+              fetchOperations={fetchOperations}
+              readOperation={readOperation}
+              refreshTrigger={activityRefreshTrigger}
+              excludeTransactionHashes={indexedTransactionHashes}
+              embedded
+              onVisibleCountChange={setLocalActionCount}
+            />
+          }
         />
       </div>
     </div>
@@ -826,14 +647,6 @@ function PlusIcon() {
   return (
     <svg {...iconProps}>
       <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-function ArrowRightIcon() {
-  return (
-    <svg {...iconProps}>
-      <path d="M5 12h14" />
-      <path d="m14 7 5 5-5 5" />
     </svg>
   );
 }

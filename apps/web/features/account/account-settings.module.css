@@ -1,0 +1,87 @@
+.page {
+  display: grid;
+  gap: 28px;
+  padding: 8px 0 24px;
+}
+
+.section {
+  display: grid;
+  gap: 10px;
+}
+
+.kicker {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: #ffffff;
+}
+
+.countryRow,
+.row,
+.rowButton {
+  display: grid;
+  width: 100%;
+  min-height: 64px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.row,
+.rowButton {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.row + .rowButton,
+.row + .row {
+  border-top: 1px solid var(--line);
+}
+
+.countryCopy,
+.row > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.countryCopy span,
+.row strong,
+.rowButton span {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.countryCopy p,
+.row small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.row code {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+.rowButton {
+  border: 0;
+  background: #ffffff;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.rowButton svg {
+  color: var(--muted);
+}
