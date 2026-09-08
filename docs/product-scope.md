@@ -1,7 +1,8 @@
 # Home — livestream product and technical scope
 
-Status: design draft; no application implementation started.
-Date: 2026-09-07
+Status: design draft for the livestream product and two-hour build order. An application exists as a local finance spike; this document is **not** current delivery state.
+Current delivery: [build status](build-status.md) (September 8, 2026). Run and customize: [Get started](../README.md#get-started), [fork and extend](fork-and-extend.md).
+Date: 2026-09-07 (status header updated 2026-09-08)
 
 Architecture: [Home technical design](technical-design.md) defines the proposed module boundaries, fork workflow and release requirements. It includes day-one database persistence, CDP SQL history, RPC current-state reads, CDP webhooks and Vercel-only deployment.
 
