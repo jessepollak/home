@@ -23,20 +23,25 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--home-gray-600);
+  color: var(--home-muted);
   cursor: pointer;
   padding: 5px 8px 4px;
+  transition: color var(--motion-tab) ease;
 }
 
 .iconFrame {
   display: inline-flex;
-  width: 34px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--control-radius);
   color: var(--home-ink);
+  transition:
+    background-color var(--motion-tab) ease,
+    border-color var(--motion-tab) ease,
+    color var(--motion-tab) ease;
 }
 
 .label {
@@ -102,6 +107,13 @@
 
   .label {
     font-size: 0.74rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item,
+  .iconFrame {
+    transition: none;
   }
 }
 

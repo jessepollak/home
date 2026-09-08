@@ -1,8 +1,8 @@
 .panel {
-  border: 1px solid rgba(10, 11, 13, 0.12);
-  border-radius: 4px;
-  background: #ffffff;
-  color: #0a0b0d;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--panel-radius);
+  background: var(--home-white);
+  color: var(--home-ink);
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   padding: 22px;
 }
@@ -16,27 +16,29 @@
 
 .kicker {
   margin: 0;
-  color: #0052ff;
-  font-size: 0.7rem;
+  color: var(--home-muted);
+  font-size: 0.72rem;
   font-weight: 750;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .header h2 {
   margin: 0;
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: -0.025em;
+  color: var(--home-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .refreshButton,
 .loadMoreButton,
 .error button {
-  border: 1px solid rgba(10, 11, 13, 0.18);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #0a0b0d;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--control-radius);
+  background: var(--home-white);
+  color: var(--home-ink);
   cursor: pointer;
   font: inherit;
   font-size: 0.78rem;
@@ -50,13 +52,13 @@
 
 .freshness {
   margin: 16px 0 0;
-  color: #626976;
+  color: var(--home-muted);
   font-size: 0.75rem;
 }
 
 .list {
   margin: 18px 0 0;
-  border-top: 1px solid rgba(10, 11, 13, 0.11);
+  border-top: 1px solid var(--home-hairline);
   padding: 0;
   list-style: none;
 }
@@ -82,7 +84,7 @@
 
 .empty {
   margin: 18px 0 0;
-  color: #717886;
+  color: var(--home-muted);
   font-size: 0.84rem;
 }
 

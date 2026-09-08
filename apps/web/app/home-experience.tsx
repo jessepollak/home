@@ -438,7 +438,11 @@ function HeaderAccountAction({
         Dashboard
       </button>
     ) : (
-      <button className="header-account-link" type="button" onClick={onOpenSettings}>
+      <button
+        className="header-account-link header-account-quiet"
+        type="button"
+        onClick={onOpenSettings}
+      >
         Account
       </button>
     );

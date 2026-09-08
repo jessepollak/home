@@ -76,7 +76,7 @@ export function TransferActionsForWallet({
   return (
     <div className={styles.actions} aria-label="Transfer actions">
       <button
-        className={styles.primaryAction}
+        className={styles.secondaryAction}
         type="button"
         disabled={!boundary}
         onClick={() => open("send")}

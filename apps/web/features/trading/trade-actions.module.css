@@ -66,31 +66,46 @@
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-top: 22px;
-  background: #fff;
+  background: var(--home-canvas);
   padding: 12px 0 4px;
 }
 
 .stickyActions button {
   min-height: 48px;
-  border: 1px solid rgba(10, 11, 13, 0.16);
-  border-radius: 8px;
-  background: #fff;
-  color: #0a0b0d;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--control-radius);
+  background: var(--home-white);
+  color: var(--home-ink);
   cursor: pointer;
   font: inherit;
   font-size: 0.92rem;
   font-weight: 720;
+  transition: transform var(--motion-press) ease;
+}
+
+.stickyActions button:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .stickyActions button:first-child {
-  border-color: #0052ff;
-  background: #0052ff;
-  color: #fff;
+  border-color: var(--home-blue);
+  background: var(--home-blue);
+  color: var(--home-white);
 }
 
 @media (max-width: 719px) {
   .stickyActions {
     bottom: calc(70px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stickyActions button {
+    transition: none;
+  }
+
+  .stickyActions button:active:not(:disabled) {
+    transform: none;
   }
 }
 

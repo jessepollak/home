@@ -1,13 +1,17 @@
 .row {
   display: grid;
   min-width: 0;
-  min-height: 54px;
+  min-height: 50px;
   grid-template-columns: 32px minmax(0, 1fr) minmax(0, max-content);
   align-items: center;
   gap: 9px;
-  border-bottom: 1px solid rgba(10, 11, 13, 0.11);
+  border-bottom: 1px solid var(--home-hairline);
   padding: 8px 2px;
   font-variant-numeric: tabular-nums;
+}
+
+.row:last-child {
+  border-bottom: 0;
 }
 
 .row[data-has-explorer="true"] {
@@ -20,10 +24,10 @@
   width: 32px;
   height: 32px;
   place-items: center;
-  border: 1px solid #0a0b0d;
+  border: 1px solid var(--home-ink);
   border-radius: 10px;
-  background: #0a0b0d;
-  color: #ffffff;
+  background: var(--home-ink);
+  color: var(--home-white);
   font-size: 0.72rem;
   font-weight: 800;
   line-height: 1;
@@ -48,8 +52,8 @@
 }
 
 .icon[data-tone="outlined"] {
-  background: #ffffff;
-  color: #0a0b0d;
+  background: var(--home-white);
+  color: var(--home-ink);
 }
 
 .icon[data-tone="mark"] {
@@ -71,15 +75,16 @@
 
 .identity strong,
 .value strong {
-  font-size: 0.78rem;
-  font-weight: 720;
+  color: var(--home-ink);
+  font-size: 0.9rem;
+  font-weight: 700;
   overflow-wrap: anywhere;
 }
 
 .identity small,
 .value small {
-  color: #686f7b;
-  font-size: 0.61rem;
+  color: var(--home-muted);
+  font-size: 0.72rem;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
@@ -91,7 +96,7 @@
 }
 
 .value[data-tone="accent"] strong {
-  color: #0000ff;
+  color: var(--home-ink);
 }
 
 .value[data-tone="error"] strong,
@@ -100,7 +105,7 @@
 }
 
 .value[data-tone="muted"] strong {
-  color: #686f7b;
+  color: var(--home-muted);
 }
 
 .explorer {
@@ -108,17 +113,17 @@
   width: 44px;
   height: 44px;
   place-items: center;
-  border-radius: 8px;
-  color: #0052ff;
+  border-radius: var(--control-radius);
+  color: var(--home-blue);
   text-decoration: none;
 }
 
 .explorer:hover {
-  background: #eef3ff;
+  background: var(--home-canvas);
 }
 
 .explorer:focus-visible {
-  outline: 2px solid #0000ff;
+  outline: 2px solid var(--home-blue);
   outline-offset: 1px;
 }
 
@@ -136,7 +141,7 @@
 
 @media (max-width: 380px) {
   .row {
-    min-height: 50px;
+    min-height: 48px;
     grid-template-columns: 28px minmax(0, 1fr) minmax(0, max-content);
     gap: 6px;
     padding-inline: 0;
@@ -155,12 +160,12 @@
 
   .identity strong,
   .value strong {
-    font-size: 0.71rem;
+    font-size: 0.875rem;
   }
 
   .identity small,
   .value small {
-    font-size: 0.56rem;
+    font-size: 0.68rem;
   }
 
   .value {

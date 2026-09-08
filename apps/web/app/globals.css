@@ -1,23 +1,29 @@
 @import "tailwindcss";
 
 :root {
-  --home-white: #ffffff;
   --home-ink: #0a0b0d;
+  --home-muted: #5b6270;
+  --home-white: #ffffff;
+  --home-canvas: #f7f8fa;
+  --home-hairline: #e6e8ec;
   --home-blue: #0052ff;
-  --home-gray-50: #f7f8fa;
-  --home-gray-100: #e6e8ec;
+  --home-gray-50: var(--home-canvas);
+  --home-gray-100: var(--home-hairline);
   --home-gray-300: #b1b7c3;
   --home-gray-500: #717886;
-  --home-gray-600: #5b6270;
+  --home-gray-600: var(--home-muted);
   --home-gray-800: #32353d;
   --background: var(--home-white);
   --foreground: var(--home-ink);
-  --muted: var(--home-gray-600);
-  --line: var(--home-gray-100);
-  --surface: var(--home-gray-50);
+  --muted: var(--home-muted);
+  --line: var(--home-hairline);
+  --surface: var(--home-canvas);
   --base-blue: var(--home-blue);
   --control-radius: 8px;
   --panel-radius: 12px;
+  --motion-tab: 180ms;
+  --motion-chip: 120ms;
+  --motion-press: 100ms;
 }
 
 @theme inline {
@@ -71,6 +77,12 @@ a:focus-visible,
   min-height: 100svh;
   margin: 0 auto;
   padding: 0 16px 90px;
+}
+
+.app-frame:has(.app-main-authenticated),
+html:has(.app-main-authenticated),
+body:has(.app-main-authenticated) {
+  background: var(--home-canvas);
 }
 
 .app-header {
@@ -146,6 +158,20 @@ a:focus-visible,
   font-weight: 700;
   padding: 0 13px;
   white-space: nowrap;
+  transition:
+    transform var(--motion-press) ease,
+    background-color var(--motion-press) ease,
+    color var(--motion-press) ease;
+}
+
+.header-account-link:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.header-account-quiet {
+  border-color: var(--home-hairline);
+  background: var(--home-white);
+  color: var(--home-blue);
 }
 
 .header-account-link:disabled {
@@ -329,10 +355,10 @@ a:focus-visible,
 .eyebrow,
 .section-kicker {
   margin: 0;
-  color: var(--muted);
-  font-size: 0.64rem;
+  color: var(--home-muted);
+  font-size: 0.72rem;
   font-weight: 750;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -395,10 +421,12 @@ a:focus-visible,
 
 .balance-hero-total {
   margin: 0;
-  font-size: clamp(2.8rem, 14vw, 4.2rem);
+  color: var(--home-ink);
+  font-size: clamp(2.5rem, 10vw, 3rem);
   font-weight: 700;
-  letter-spacing: -0.065em;
+  letter-spacing: -0.06em;
   line-height: 0.95;
+  font-variant-numeric: tabular-nums;
 }
 
 .balances-panel,
@@ -416,8 +444,11 @@ a:focus-visible,
 
 .balances-panel h2 {
   margin: 0;
-  font-size: 0.92rem;
+  color: var(--home-muted);
+  font-size: 0.72rem;
   font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .balances-empty {
@@ -433,13 +464,14 @@ a:focus-visible,
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  border: 1px solid var(--line);
-  background: #ffffff;
-  color: var(--foreground);
+  border: 1px solid var(--home-hairline);
+  background: var(--home-white);
+  color: var(--home-ink);
   cursor: pointer;
   font: inherit;
   padding: 12px 14px;
   text-align: left;
+  transition: transform var(--motion-press) ease;
 }
 
 .save-teaser-icon {
@@ -461,6 +493,10 @@ a:focus-visible,
   color: var(--home-blue);
   font-size: 0.86rem;
   font-weight: 700;
+}
+
+.save-teaser:active {
+  transform: scale(0.99);
 }
 
 .balance-panel,
@@ -552,19 +588,28 @@ a:focus-visible,
 .action-row button,
 .action-row > a {
   display: flex;
-  min-height: 52px;
+  min-height: 48px;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--home-hairline);
   border-radius: var(--control-radius);
-  background: #ffffff;
-  color: var(--foreground);
+  background: var(--home-white);
+  color: var(--home-ink);
   cursor: pointer;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 720;
   padding: 0 10px;
   text-decoration: none;
+  transition:
+    transform var(--motion-press) ease,
+    background-color var(--motion-press) ease,
+    color var(--motion-press) ease;
+}
+
+.action-row button:active:not(:disabled),
+.action-row > a:active {
+  transform: scale(0.98);
 }
 
 .action-row > a {
@@ -752,6 +797,15 @@ a:focus-visible,
 .activity-panel {
   min-height: 126px;
   overflow: hidden;
+}
+
+.activity-panel h2 {
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .activity-panel-slot > section {
@@ -1002,7 +1056,20 @@ a:focus-visible,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-tab: 0ms;
+    --motion-chip: 0ms;
+    --motion-press: 0ms;
+  }
+
   html {
     scroll-behavior: auto;
+  }
+
+  .header-account-link:active:not(:disabled),
+  .action-row button:active:not(:disabled),
+  .action-row > a:active,
+  .save-teaser:active {
+    transform: none;
   }
 }
