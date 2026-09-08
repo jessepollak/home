@@ -12,7 +12,7 @@ Home money actions now use a server-issued prepare → review → atomic claim �
 
 **Local `bun dev` (no `DATABASE_URL`):** Node-only `node:sqlite` at `apps/web/server/money-actions/sqlite-store.node.ts`. It writes ignored runtime data to `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace (or `.local/home-money-actions.sqlite` relative to the active process working directory), with directory mode `0700` and database mode `0600`.
 
-**Hosted / `DATABASE_URL` set:** Neon/Postgres adapter at `apps/web/server/money-actions/postgres-store.ts` using `@neondatabase/serverless`. The Vercel path does not load `node:sqlite`. Schema: `apps/web/server/money-actions/migrations/001_money_action_operations.sql`. Operator migrate: `bun run money-actions:migrate`. Setup: [Vercel deploy](vercel-deploy.md).
+**Hosted / `DATABASE_URL` set:** Neon/Postgres adapter at `apps/web/server/money-actions/postgres-store.ts` using `@neondatabase/serverless`. The Vercel path does not load `node:sqlite`. Schema: `apps/web/server/money-actions/migrations/001_money_action_operations.sql`. Operator migrate: `bun run money-actions:migrate` from local or CI with `DATABASE_URL` set (not the default Vercel build). Setup: [Vercel deploy](vercel-deploy.md).
 
 Both adapters store action plans, immutable review hashes, owner tuples, statuses, attempts, and public chain/provider operation references. They store no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
 

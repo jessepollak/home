@@ -39,9 +39,9 @@ Copy the names from the root [`.env.example`](../.env.example) into the Vercel p
 | `DISABLE_CDP_ERROR_REPORTING` | Privacy default | Unset or `true` keeps CDP SDK error reporting off |
 | `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT` | Optional SIWE path | Leave unset for email-only |
 | `CODEX_API_KEY` | Optional Invest USD snapshots | Server-only |
-| `DATABASE_URL` | Hosted money-action persistence | Neon pooled connection string. Leave unset for local `bun dev` (SQLite). Required on Vercel if money actions should persist. Server-only. |
+| `DATABASE_URL` | Hosted money-action persistence | Neon pooled connection string. Leave unset for local `bun dev` (SQLite). Landing and browse can deploy without it; money-action routes fail closed without it. Server-only. |
 
-Browsing works without credentials. Email sign-in and authenticated money actions need **your** CDP project. Add each deployed origin (preview and production) to that project's allowed origins. Details: [CDP setup](cdp-setup.md).
+Landing and browse can deploy without `DATABASE_URL`. Money-action routes fail closed without it. Browsing works without credentials. Email sign-in and authenticated money actions need **your** CDP project. Add each deployed origin (preview and production) to that project's allowed origins. Details: [CDP setup](cdp-setup.md).
 
 Optional server-only `BASE_RPC_URL` is documented in [portfolio](portfolio.md); it is not in `.env.example`.
 
@@ -59,8 +59,8 @@ Exactly one store is active per process. There is no dual-write.
 
 ### Operator setup (Neon on Vercel)
 
-1. Provision Neon through the Vercel Marketplace on this project (Jesse-owned console step). That injects server-only `DATABASE_URL` (use the **pooled** connection for runtime).
-2. Apply the schema once per database:
+1. Provision Neon in your Vercel project (Marketplace → Neon). That injects server-only `DATABASE_URL` (use the **pooled** connection for runtime).
+2. Apply the schema once per database. Run `bun run money-actions:migrate` from local (or CI) with `DATABASE_URL` set — it is **not** part of the default Vercel build:
    ```sh
    bun run money-actions:migrate
    ```

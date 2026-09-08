@@ -52,14 +52,14 @@ bun build       # Production build
 bun check       # Tests, lint, typecheck and production build
 bun run --cwd apps/web test:browser-auth # Actual-component auth scenarios with mocked boundaries
 bun start       # Serve a production build
-bun run money-actions:migrate  # Apply Neon money-action schema (needs DATABASE_URL)
+bun run money-actions:migrate  # Apply Neon schema from local/CI (needs DATABASE_URL; not the Vercel build)
 ```
 
 GitHub Actions CI on pull requests and pushes to `main` runs `bun install --frozen-lockfile` then `bun check`. Live probes stay opt-in and are not enabled in CI.
 
 ### Local persistence
 
-Money-action records use a private, automatically created SQLite database under `.local/` (typically `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace) when `DATABASE_URL` is unset. No hosted database is needed for local `bun dev`. On Vercel, set server-only `DATABASE_URL` (Neon) and run `bun run money-actions:migrate`. The hosted path does not load `node:sqlite`. Read [wallet runtime notes](docs/wallet-runtime-spike.md), [Vercel deploy](docs/vercel-deploy.md), and [build status](docs/build-status.md) before any deployment. This is not production authorization.
+Money-action records use a private, automatically created SQLite database under `.local/` (typically `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace) when `DATABASE_URL` is unset. No hosted database is needed for local `bun dev`. On Vercel, landing and browse can deploy without `DATABASE_URL`; money-action routes fail closed without it. Set server-only `DATABASE_URL` (Neon) for hosted persistence, then apply the schema from local or CI with `bun run money-actions:migrate` — not as part of the default Vercel build. The hosted path does not load `node:sqlite`. Read [wallet runtime notes](docs/wallet-runtime-spike.md), [Vercel deploy](docs/vercel-deploy.md), and [build status](docs/build-status.md) before any deployment. This is not production authorization.
 
 Edit `apps/web/app/home-experience.tsx` for the Home shell, `apps/web/features/` for account/Invest/Savings UI, `apps/web/app/globals.css` for visual tokens, and `apps/web/config/` for presentation settings and sourced asset identities. Keep one root `bun.lock`. Real configuration belongs only in the gitignored `apps/web/.env.local`.
 
