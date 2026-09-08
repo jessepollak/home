@@ -67,6 +67,7 @@ Exactly one store is active per process. There is no dual-write.
    Equivalent SQL: `apps/web/server/money-actions/migrations/001_money_action_operations.sql` (Neon SQL editor also works). The hosted store applies the same `CREATE IF NOT EXISTS` statements on first use.
 3. Confirm `DATABASE_URL` is set for Production and Preview. Do not set it in `.env.local` unless you intend to use Postgres instead of SQLite locally.
 4. Redeploy. Hosted selection must not import `node:sqlite`.
+5. If PR preview builds fail at Neon’s branch cap, add the GitHub Actions credentials in [Neon preview branch cleanup](#neon-preview-branch-cleanup-github-actions) and prune stale `preview/*` branches.
 
 The table stores action plans, immutable review hashes, owner tuples, statuses, attempts, and public chain/provider refs. It stores no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
 
@@ -79,6 +80,42 @@ MONEY_ACTION_PG_TEST_URL=postgresql://… bun test apps/web/server/money-actions
 ```
 
 CI uses the in-process Postgres test double plus SQLite and Memory. It does not require `DATABASE_URL`.
+
+## Neon preview branch cleanup (GitHub Actions)
+
+Vercel PR previews provision a Neon branch per Git branch. Neon Free caps a project at **10 branches**. Stale `preview/*` branches from the Vercel Neon integration count toward that cap and can fail new preview builds (`BUILD_FAILED`, “Resource provisioning failed”, empty logs). Production is unaffected.
+
+Two GitHub Actions workflows keep preview branches under the cap. They use GitHub-hosted runners only (no AI). They do not change app code and are not part of `bun check`.
+
+### Required GitHub configuration
+
+| Name | Type | Where |
+|---|---|---|
+| `NEON_API_KEY` | Repository **secret** | Settings → Secrets and variables → Actions → Secrets |
+| `NEON_PROJECT_ID` | Repository **variable** | Settings → Secrets and variables → Actions → Variables |
+
+Create an API key in the Neon Console: **Account settings → API keys** (personal) or the organization **Settings → API keys**. A project-scoped key is enough if the project lives in an org. See [Manage API keys](https://neon.com/docs/manage/api-keys).
+
+Find the project ID on the Neon Console **Project Settings** page.
+
+Until both are set, the workflows log a skip message and **exit 0**. Forks and clones without Neon stay green. `NEON_PROJECT_ID` may also be a secret; the variable is what [Neon documents](https://neon.com/docs/guides/vercel-branch-cleanup).
+
+### Workflows
+
+1. **PR-close cleanup** (`.github/workflows/neon-preview-cleanup.yml`) — on `pull_request` `closed`, deletes `preview/<git-branch>` with [`neondatabase/delete-branch-action@v3`](https://github.com/neondatabase/delete-branch-action). That name is what the Vercel integration creates (`preview/${{ github.head_ref }}`). See [Managing preview branch cleanup](https://neon.com/docs/guides/vercel-branch-cleanup). Already-gone branches are a no-op.
+
+2. **Safety-net prune** (`.github/workflows/neon-preview-prune.yml`) — daily cron plus **Actions → Prune Neon preview branches → Run workflow**. Lists branches via the [Neon API](https://api-docs.neon.tech/reference/listprojectbranches). If the `preview/*` count is **≥ 8**, deletes the **oldest** preview branches (by `created_at`) until the count is **< 8**. Leaves headroom under Free’s 10 (which includes `main`). Never deletes `main`, production, default, protected, or any non-`preview/*` branch. No-op under the threshold. Optional `dry_run` lists deletions without calling DELETE.
+
+### Assumptions
+
+- Vercel-Managed and Neon-Managed integrations name preview DBs `preview/<git-branch>` ([Neon docs](https://neon.com/docs/guides/vercel-branch-cleanup)). Only those names are eligible for deletion.
+- Neon Free includes 10 branches per project. Keeping `preview/*` below 8 leaves room for new PR previews.
+- Oldest-first prune may remove a still-open PR’s preview DB if 8+ preview branches exist. Closing PRs is the primary cleanup path.
+- Archived preview branches still count toward the cap; the prune deletes them too when they match `preview/*`.
+
+### One-time cleanup if already at 10/10
+
+If Neon Console already shows 10/10 branches, add the secret and variable, then either delete stale `preview/*` branches in the Console or run **Prune Neon preview branches** from the Actions tab (try `dry_run` first). After there is headroom, redeploy an open PR preview to confirm provisioning succeeds.
 
 ## Out of scope here
 

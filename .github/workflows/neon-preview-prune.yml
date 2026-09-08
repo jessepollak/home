@@ -1,0 +1,157 @@
+# Safety net for Neon Free’s 10-branch project cap.
+# If preview/* count is >= 8, delete the oldest preview branches until
+# count is < 8. Never deletes main / production / default / protected /
+# non-preview branches.
+#
+# Assumptions (see docs/vercel-deploy.md):
+# - Vercel-Managed and Neon-Managed integrations name preview DBs
+#   preview/<git-branch> (https://neon.com/docs/guides/vercel-branch-cleanup).
+# - Only those names are eligible. Other branches are left alone.
+# - Oldest-first may drop a still-open PR’s preview DB if 8+ exist;
+#   PR-close cleanup is the primary path.
+#
+# Uses the Neon HTTP API (same surface as neon/neonctl). No-op when
+# credentials are missing so forks without Neon stay green.
+
+name: Prune Neon preview branches
+
+on:
+  schedule:
+    # Daily safety net. PR-close cleanup is the primary path.
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+    inputs:
+      keep_below:
+        description: "Delete oldest preview/* branches until count is below this"
+        type: string
+        default: "8"
+      dry_run:
+        description: "List deletions without calling DELETE"
+        type: boolean
+        default: false
+
+concurrency:
+  group: neon-preview-prune-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prune:
+    name: Prune oldest preview/* if at least 8
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID || secrets.NEON_PROJECT_ID }}
+      PREVIEW_KEEP_BELOW: ${{ github.event.inputs.keep_below || '8' }}
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+    steps:
+      - name: Require Neon credentials
+        id: creds
+        run: |
+          if [ -z "${NEON_API_KEY}" ] || [ -z "${NEON_PROJECT_ID}" ]; then
+            echo "Skipping Neon preview prune: set repository secret NEON_API_KEY and variable NEON_PROJECT_ID (see docs/vercel-deploy.md)."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: List preview branches and prune oldest
+        if: steps.creds.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+
+          if ! [[ "${PREVIEW_KEEP_BELOW}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "PREVIEW_KEEP_BELOW must be a positive integer, got: ${PREVIEW_KEEP_BELOW}"
+            exit 1
+          fi
+
+          # Paginate GET /projects/{id}/branches (Neon API v2).
+          all='[]'
+          cursor=""
+          while true; do
+            url="https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches?limit=100&sort_by=created_at&sort_order=asc"
+            if [ -n "$cursor" ]; then
+              url="${url}&cursor=$(jq -rn --arg c "$cursor" '$c|@uri')"
+            fi
+            tmp="$(mktemp)"
+            code="$(curl -sS -o "$tmp" -w '%{http_code}' \
+              -H "Accept: application/json" \
+              -H "Authorization: Bearer ${NEON_API_KEY}" \
+              "$url")"
+            if [ "$code" != "200" ]; then
+              echo "Neon list branches failed: HTTP $code"
+              cat "$tmp"
+              exit 1
+            fi
+            all="$(jq -n --argjson acc "$all" --argjson page "$(cat "$tmp")" '$acc + ($page.branches // [])')"
+            cursor="$(jq -r '.pagination.next // empty' "$tmp")"
+            rm -f "$tmp"
+            [ -z "$cursor" ] && break
+          done
+
+          echo "Total branches in project: $(jq 'length' <<<"$all")"
+          echo "All branch names:"
+          jq -r '.[] | "- \(.name) (\(.id), created \(.created_at), default=\(.default), protected=\(.protected))"' <<<"$all"
+
+          # Eligible = preview/* only. Belt-and-suspenders skip for
+          # default/protected and production-like names.
+          preview="$(jq -c '
+            [.[]
+              | select(.name | startswith("preview/"))
+              | select((.name | ascii_downcase) != "main")
+              | select((.name | ascii_downcase) != "production")
+              | select((.name | ascii_downcase) != "prod")
+              | select(.default != true)
+              | select(.protected != true)
+            ] | sort_by(.created_at)
+          ' <<<"$all")"
+
+          count="$(jq 'length' <<<"$preview")"
+          echo "Deletable preview/* count: ${count} (threshold ${PREVIEW_KEEP_BELOW})"
+          jq -r '.[] | "- \(.name) (\(.id), created \(.created_at))"' <<<"$preview"
+
+          if [ "$count" -lt "$PREVIEW_KEEP_BELOW" ]; then
+            echo "Count is below ${PREVIEW_KEEP_BELOW}; no-op."
+            exit 0
+          fi
+
+          to_delete=$((count - PREVIEW_KEEP_BELOW + 1))
+          echo "Deleting ${to_delete} oldest preview/* branch(es) to leave count < ${PREVIEW_KEEP_BELOW}."
+
+          mapfile -t rows < <(jq -c --argjson n "$to_delete" '.[0:$n][]' <<<"$preview")
+          for row in "${rows[@]}"; do
+            id="$(jq -r '.id' <<<"$row")"
+            name="$(jq -r '.name' <<<"$row")"
+            created="$(jq -r '.created_at' <<<"$row")"
+
+            if [[ "$name" != preview/* ]] || [ "$id" = "null" ] || [ -z "$id" ]; then
+              echo "Refusing to delete unexpected row: ${row}"
+              exit 1
+            fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "dry_run: would delete ${name} (${id}, created ${created})"
+              continue
+            fi
+
+            echo "Deleting ${name} (${id}, created ${created})"
+            del="$(mktemp)"
+            dcode="$(curl -sS -o "$del" -w '%{http_code}' -X DELETE \
+              -H "Accept: application/json" \
+              -H "Authorization: Bearer ${NEON_API_KEY}" \
+              "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches/${id}")"
+            # 200 = deleted; 404 = already gone (idempotent).
+            if [ "$dcode" != "200" ] && [ "$dcode" != "404" ]; then
+              echo "Neon delete branch failed: HTTP $dcode"
+              cat "$del"
+              rm -f "$del"
+              exit 1
+            fi
+            echo "Delete ${name}: HTTP $dcode"
+            rm -f "$del"
+          done
+
+          echo "Prune finished."

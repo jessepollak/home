@@ -1,0 +1,88 @@
+# Delete the Vercel/Neon preview DB when a PR closes.
+# https://neon.com/docs/guides/vercel-branch-cleanup
+#
+# No-op (exit 0) when NEON_API_KEY / NEON_PROJECT_ID are unset so forks
+# and clones without Neon stay green. Does not run bun check.
+
+name: Cleanup Neon preview branch
+
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: neon-preview-cleanup-${{ github.repository }}-${{ github.head_ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  delete-branch:
+    name: Delete preview/${{ github.head_ref }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID || secrets.NEON_PROJECT_ID }}
+      PREVIEW_BRANCH: preview/${{ github.head_ref }}
+    steps:
+      - name: Require Neon credentials
+        id: creds
+        run: |
+          if [ -z "${NEON_API_KEY}" ] || [ -z "${NEON_PROJECT_ID}" ]; then
+            echo "Skipping Neon preview cleanup: set repository secret NEON_API_KEY and variable NEON_PROJECT_ID (see docs/vercel-deploy.md)."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Find preview branch
+        if: steps.creds.outputs.configured == 'true'
+        id: find
+        run: |
+          set -euo pipefail
+          if [ -z "${PREVIEW_BRANCH#preview/}" ]; then
+            echo "Skipping: github.head_ref is empty."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # List (don't search): names like preview/cursor/foo contain slashes.
+          tmp="$(mktemp)"
+          code="$(curl -sS -o "$tmp" -w '%{http_code}' \
+            -H "Accept: application/json" \
+            -H "Authorization: Bearer ${NEON_API_KEY}" \
+            "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches?limit=100")"
+          if [ "$code" != "200" ]; then
+            echo "Neon list branches failed: HTTP $code"
+            cat "$tmp"
+            exit 1
+          fi
+
+          # Vercel/Neon integrations name preview DBs preview/<git-branch>.
+          # Never delete default/protected branches even if the name matches.
+          match="$(jq -c --arg name "$PREVIEW_BRANCH" '
+            [(.branches // [])[]
+              | select(.name == $name)
+              | select(.default != true)
+              | select(.protected != true)
+            ] | first // empty
+          ' "$tmp")"
+
+          if [ -z "$match" ]; then
+            echo "No deletable Neon branch named ${PREVIEW_BRANCH}; nothing to do."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Found $(jq -r '"\(.id) (\(.name), created \(.created_at))"' <<<"$match")"
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+
+      - name: Delete preview branch
+        if: steps.creds.outputs.configured == 'true' && steps.find.outputs.exists == 'true'
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ env.NEON_PROJECT_ID }}
+          branch: ${{ env.PREVIEW_BRANCH }}
+          api_key: ${{ env.NEON_API_KEY }}
