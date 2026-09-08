@@ -8,7 +8,7 @@ import styles from "./invest-experience.module.css";
 
 const chartWidth = 320;
 const chartHeight = 190;
-const pad = { top: 12, right: 40, bottom: 28, left: 8 };
+const pad = { top: 12, right: 60, bottom: 28, left: 8 };
 
 export function PriceChart({
   range,
@@ -78,7 +78,7 @@ function ChartBody({
       <path className={styles.line} d={geometry.line} />
       {geometry.yLabels.map((label) => (
         <text
-          key={label.text}
+          key={label.id}
           className={styles.axis}
           x={chartWidth - 4}
           y={label.y}
@@ -89,7 +89,7 @@ function ChartBody({
       ))}
       {geometry.xLabels.map((label) => (
         <text
-          key={label.text}
+          key={label.id}
           className={styles.axis}
           x={label.x}
           y={chartHeight - 8}
@@ -120,14 +120,20 @@ function layoutSeries(
   const max = Math.max(...values);
   const start = times[0] ?? 0;
   const end = times[times.length - 1] ?? start;
-  const valueSpan = max - min || Math.max(Math.abs(max) * 0.01, 1);
-  const timeSpan = end - start || 1;
+  const valueSpan = max - min;
+  const timeSpan = end - start;
   const innerWidth = chartWidth - pad.left - pad.right;
   const innerHeight = chartHeight - pad.top - pad.bottom;
 
   const coords = values.map((value, index) => {
-    const x = pad.left + ((times[index]! - start) / timeSpan) * innerWidth;
-    const y = pad.top + ((max - value) / valueSpan) * innerHeight;
+    const x =
+      timeSpan === 0
+        ? pad.left + innerWidth / 2
+        : pad.left + ((times[index]! - start) / timeSpan) * innerWidth;
+    const y =
+      valueSpan === 0
+        ? pad.top + innerHeight / 2
+        : pad.top + ((max - value) / valueSpan) * innerHeight;
     return { x, y };
   });
 
@@ -139,11 +145,7 @@ function layoutSeries(
   return {
     line,
     area,
-    yLabels: [
-      { text: compactPrice(max), y: pad.top + 10 },
-      { text: compactPrice((max + min) / 2), y: pad.top + innerHeight / 2 + 4 },
-      { text: compactPrice(min), y: pad.top + innerHeight },
-    ],
+    yLabels: yAxisLabels(min, max, pad.top, innerHeight),
     xLabels: xAxisLabels(times, range, pad.left, innerWidth),
   };
 }
@@ -157,22 +159,41 @@ function xAxisLabels(
   if (times.length === 0) return [];
   const first = times[0]!;
   const last = times[times.length - 1]!;
+  const span = last - first;
+  if (span === 0) {
+    return [
+      {
+        id: `time-${first}`,
+        text: formatAxisTime(first, range, span),
+        x: left + width / 2,
+      },
+    ];
+  }
+
   const ticks = range === "1W" ? 7 : 4;
   const labels = [];
   for (let index = 0; index < ticks; index += 1) {
-    const time = first + ((last - first) * index) / Math.max(ticks - 1, 1);
+    const time = first + (span * index) / Math.max(ticks - 1, 1);
     labels.push({
-      text: formatAxisTime(time, range),
+      id: `time-${Math.round(time)}-${index}`,
+      text: formatAxisTime(time, range, span),
       x: left + (width * index) / Math.max(ticks - 1, 1),
     });
   }
   return labels;
 }
 
-function formatAxisTime(time: number, range: MarketPriceRange) {
+function formatAxisTime(
+  time: number,
+  range: MarketPriceRange,
+  visibleSpan: number,
+) {
   const date = new Date(time);
   if (range === "1D") {
-    return date.toLocaleTimeString("en-US", { hour: "numeric" });
+    return date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      ...(visibleSpan < 6 * 60 * 60 * 1000 ? { minute: "2-digit" } : {}),
+    });
   }
   if (range === "1W") {
     return date.toLocaleDateString("en-US", { weekday: "short" });
@@ -180,9 +201,65 @@ function formatAxisTime(time: number, range: MarketPriceRange) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function compactPrice(value: number) {
-  if (!Number.isFinite(value)) return "";
-  if (Math.abs(value) >= 1000) return `${Math.round(value / 1000)}k`;
-  if (Math.abs(value) >= 1) return value.toFixed(2);
-  return value.toFixed(4);
+function yAxisLabels(min: number, max: number, top: number, height: number) {
+  const span = max - min;
+  const format = priceTickFormatter(min, max);
+  if (span === 0) {
+    return [
+      {
+        id: "price-flat",
+        text: format(max),
+        y: top + height / 2 + 4,
+      },
+    ];
+  }
+
+  return [
+    { id: "price-max", text: format(max), y: top + 10 },
+    {
+      id: "price-mid",
+      text: format((max + min) / 2),
+      y: top + height / 2 + 4,
+    },
+    { id: "price-min", text: format(min), y: top + height },
+  ];
+}
+
+function priceTickFormatter(min: number, max: number) {
+  const magnitude = Math.max(Math.abs(min), Math.abs(max));
+  const tickStep = Math.abs(max - min) / 2;
+
+  if (magnitude >= 1000) {
+    const fractionDigits =
+      tickStep === 0
+        ? 2
+        : Math.min(6, Math.max(0, fractionDigitsForStep(tickStep / 1000)));
+    return (value: number) => `${(value / 1000).toFixed(fractionDigits)}k`;
+  }
+
+  if (magnitude >= 1) {
+    const fractionDigits =
+      tickStep === 0
+        ? 2
+        : Math.min(12, Math.max(2, fractionDigitsForStep(tickStep)));
+    return (value: number) => value.toFixed(fractionDigits);
+  }
+
+  const fractionDigits =
+    tickStep === 0
+      ? Math.max(4, fractionDigitsForMagnitude(magnitude))
+      : Math.max(4, fractionDigitsForStep(tickStep));
+  if (fractionDigits > 12) {
+    return (value: number) => value.toExponential(2);
+  }
+  return (value: number) => value.toFixed(fractionDigits);
+}
+
+function fractionDigitsForStep(step: number) {
+  return Math.max(0, Math.ceil(-Math.log10(step)));
+}
+
+function fractionDigitsForMagnitude(value: number) {
+  if (value === 0) return 4;
+  return Math.max(0, Math.ceil(-Math.log10(value)) + 2);
 }
