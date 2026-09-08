@@ -178,20 +178,70 @@ function xAxisLabels(
     ];
   }
 
-  const ticks = range === "1W" ? 7 : 4;
+  const preferredTicks = range === "1W" ? 7 : 4;
+  for (let tickCount = preferredTicks; tickCount >= 2; tickCount -= 1) {
+    const labels = xAxisLabelCandidates(
+      first,
+      span,
+      range,
+      left,
+      width,
+      tickCount,
+    );
+    if (estimatedAxisLabelsFit(labels) || tickCount === 2) return labels;
+  }
+
+  return [];
+}
+
+function xAxisLabelCandidates(
+  first: number,
+  span: number,
+  range: MarketPriceRange,
+  left: number,
+  width: number,
+  tickCount: number,
+) {
   const labels = [];
-  for (let index = 0; index < ticks; index += 1) {
-    const time = first + (span * index) / Math.max(ticks - 1, 1);
+  for (let index = 0; index < tickCount; index += 1) {
+    const time = first + (span * index) / (tickCount - 1);
     const textAnchor: "start" | "middle" | "end" =
-      index === 0 ? "start" : index === ticks - 1 ? "end" : "middle";
+      index === 0 ? "start" : index === tickCount - 1 ? "end" : "middle";
     labels.push({
       id: `time-${Math.round(time)}-${index}`,
       text: formatAxisTime(time, range, span),
-      x: left + (width * index) / Math.max(ticks - 1, 1),
+      x: left + (width * index) / (tickCount - 1),
       textAnchor,
     });
   }
   return labels;
+}
+
+function estimatedAxisLabelsFit(
+  labels: readonly {
+    text: string;
+    x: number;
+    textAnchor: "start" | "middle" | "end";
+  }[],
+) {
+  let previousRight = Number.NEGATIVE_INFINITY;
+  for (const label of labels) {
+    const estimatedWidth = label.text.length * axisCharacterWidth;
+    const left =
+      label.textAnchor === "start"
+        ? label.x
+        : label.textAnchor === "end"
+          ? label.x - estimatedWidth
+          : label.x - estimatedWidth / 2;
+    if (left < previousRight) return false;
+    previousRight =
+      label.textAnchor === "start"
+        ? label.x + estimatedWidth
+        : label.textAnchor === "end"
+          ? label.x
+          : label.x + estimatedWidth / 2;
+  }
+  return true;
 }
 
 function formatAxisTime(

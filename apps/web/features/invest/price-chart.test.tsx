@@ -106,6 +106,78 @@ describe("PriceChart labels", () => {
     ]);
   });
 
+  test("reduces 1D time ticks when long scientific labels narrow the plot", () => {
+    const chart = renderChart([
+      { time: "2026-09-08T00:00:00.000Z", value: "1.200000000000001e-300" },
+      { time: "2026-09-08T01:00:00.000Z", value: "1.200000000000003e-300" },
+    ]);
+    const labels = Array.from(chart.querySelectorAll("text"));
+    const priceLabels = labels.slice(0, 3);
+    const timeLabels = labels.slice(3);
+    const estimatedBounds = timeLabels.map((label) => {
+      const x = Number(label.getAttribute("x"));
+      const width = (label.textContent?.length ?? 0) * 6;
+      const anchor = label.getAttribute("text-anchor");
+      return anchor === "start"
+        ? { left: x, right: x + width }
+        : anchor === "end"
+          ? { left: x - width, right: x }
+          : { left: x - width / 2, right: x + width / 2 };
+    });
+    const line = chart.querySelectorAll("path")[1]?.getAttribute("d") ?? "";
+    const plotXs = Array.from(
+      line.matchAll(/[ML]([\d.e+-]+) /g),
+      (match) => Number(match[1]),
+    );
+    const plotLeft = Math.min(...plotXs);
+    const plotRight = Math.max(...plotXs);
+
+    expect(new Set(priceLabels.map((label) => label.textContent)).size).toBe(3);
+    expect(timeLabels).toHaveLength(3);
+    expect(new Set(timeLabels.map((label) => label.textContent)).size).toBe(3);
+    expect(
+      timeLabels.map((label) => label.textContent?.match(/:(\d{2})/)?.[1]),
+    ).toEqual(["00", "30", "00"]);
+    expect(timeLabels.map((label) => label.getAttribute("text-anchor"))).toEqual([
+      "start",
+      "middle",
+      "end",
+    ]);
+    expect(timeLabels.map((label) => Number(label.getAttribute("x")))).toEqual([
+      plotLeft,
+      (plotLeft + plotRight) / 2,
+      plotRight,
+    ]);
+    expect(
+      estimatedBounds.every(
+        (bounds, index) =>
+          bounds.left >= plotLeft &&
+          bounds.right <= plotRight &&
+          (index === 0 || estimatedBounds[index - 1]!.right <= bounds.left),
+      ),
+    ).toBe(true);
+  });
+
+  test("keeps seven 1W time ticks when the plot has room", () => {
+    const chart = renderChart([
+      { time: "2026-09-01T00:00:00.000Z", value: "100" },
+      { time: "2026-09-07T00:00:00.000Z", value: "101" },
+    ], "1W");
+    const timeLabels = Array.from(chart.querySelectorAll("text")).slice(3);
+
+    expect(timeLabels).toHaveLength(7);
+    expect(new Set(timeLabels.map((label) => label.textContent)).size).toBe(7);
+    expect(timeLabels.map((label) => label.getAttribute("text-anchor"))).toEqual([
+      "start",
+      "middle",
+      "middle",
+      "middle",
+      "middle",
+      "middle",
+      "end",
+    ]);
+  });
+
   test("renders a single point with one price and one centered time label", () => {
     const chart = renderChart([
       { time: "2026-09-08T12:34:00.000Z", value: "64250" },
