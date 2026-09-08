@@ -15,7 +15,7 @@ Build Home as an app anyone can clone, run, contribute to, and extend. Fork-firs
 | Jesse (`jessepollak`) | Human owner. Final +1 and merge. Everything ships through this GitHub account. |
 | j | CEO / ops |
 | Hunter | PM. Drive order. |
-| Hannah | TL / eng. Engineering sequencing and eng review. |
+| Hannah | Head of Engineering. Quality, reliability, maintainability. Eng review and labels. Never merge — Jesse final +1 / merge. |
 | Hank | Backend |
 | Holly | Frontend |
 | Hazel | Design |
@@ -35,7 +35,7 @@ Every crew issue should carry one `owner:*`, one `status:*`, and one `lane:*`. L
 
 | Label | Who |
 |---|---|
-| `owner:hannah` | Hannah (TL / eng) |
+| `owner:hannah` | Hannah (Head of Engineering) |
 | `owner:hank` | Hank (backend) |
 | `owner:holly` | Holly (frontend) |
 | `owner:hazel` | Hazel (design) |
@@ -73,7 +73,7 @@ Stay in your lane. Shared files are listed in the [architecture review](architec
 ## Drive order
 
 - Hunter sets what the crew works on and in what product order.
-- Hannah sequences engineering and unblocks lanes.
+- Hannah (Head of Engineering) sequences engineering and unblocks lanes.
 - Do not start a second board, a parallel coordinator, or a shadow inbox for the same work.
 
 ## 1:1s and learning retros
@@ -113,11 +113,57 @@ Docs-only, CI-only, and pure server PRs can skip screenshots. They still need a 
 
 ## Merge policy
 
-Crew may review. Hannah's eng review can proceed.
+Crew may review. Hannah's eng review can proceed. Hannah never merges.
 
 **Only Jesse (`jessepollak`) gives the final +1 and merges.** Merge waits on Jesse even when Hannah has reviewed. Third-party PRs already required Jesse +1; crew PRs use the same bar.
 
 When a PR is ready for Jesse, mark the issue `status:needs-jesse` (and say so on the PR). Do not merge your own work. Do not treat a crew +1 as merge permission.
+
+## Daily domain quality reviews
+
+Weekdays ~9:00 PT. 15–20 min per lane. Async-first. Quiet if nothing actionable.
+
+| Who | Pass |
+|---|---|
+| Hank | Backend |
+| Holly | Frontend |
+| Hazel | Design / proof on open UI PRs that day |
+| Hannah | Eng review and labels. Never merge. |
+
+### Hank
+
+- `owner:hank` tickets.
+- Opaque / 5xx without typed codes.
+- Fail-closed auth. No double-prepare.
+- File or bump. Do not expand scope.
+
+### Holly
+
+- Frontend tickets and UI proof.
+- No CLS / clip.
+- Direction 1. Ping Hazel for design LGTM.
+
+### Hazel
+
+- Proof artifact present.
+- LGTM or concrete nits.
+
+### Hannah
+
+- Eng-review undrafted PRs.
+- Label `status:ready-for-review` or `status:needs-jesse`. Never merge.
+- Weekly hygiene: max one issue.
+
+### Good looks like
+
+- Repro + proof on user-visible work.
+- Typed money errors.
+- Board labels current.
+- Jesse-only merge.
+
+Daily reviews feed the merge queue. Drafts stay draft until Jesse undrafts. j (ops) owns folding playbook changes into this manual.
+
+First two weeks: run informally. Report after ~5 days.
 
 ## Product tone
 
