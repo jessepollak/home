@@ -1,8 +1,8 @@
 # Morpho USDC savings read integration
 
-Status: read-only candidate comparison. Deposits and withdrawals are intentionally disabled.
+Status: this file is the read-only Morpho V1 candidate comparison (verified 2026-09-07). Local deposit and withdrawal against the three configured USDC vaults is now integrated; live vault execution has not been performed. Current delivery: [build status](build-status.md).
 
-Verified: 2026-09-07 UTC.
+Verified (read path): 2026-09-07 UTC.
 
 ## Supported contract
 
@@ -101,7 +101,7 @@ The parent shell can render:
 
 The component fetches the public candidate route, starts with no selected vault, and only reveals current APY after a successful sourced response. Passing a session changes private-position status copy only; it does not authorize or issue a private request.
 
-Deposit and withdrawal controls remain visibly disabled. This lane contains no transaction calldata, approval flow, signing request, or simulated deposit.
+The original read-only lane did not ship transaction calldata. Local deposit and withdrawal against these three vaults is now integrated; live vault execution has not been performed. See [build status](build-status.md).
 
 ## Verification
 

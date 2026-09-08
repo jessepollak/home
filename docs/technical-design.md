@@ -1,7 +1,8 @@
 # Home — technical design
 
-Status: **target architecture**, not a description of the current repository. A local finance spike now lives in `apps/web/` (Next.js + local SQLite money actions). See [build status](build-status.md), [wallet runtime](wallet-runtime-spike.md), and the [2026-09 architecture review](architecture-review-2026-09.md) for what is actually implemented.
-Updated: 2026-09-08 (status banner). Body below is still the 2026-09-07 production-destination design.
+Status: **target / not current tree.** Body is the 2026-09-07 production-destination design (Vercel + Neon/Postgres + webhooks). A local finance spike is implemented in `apps/web/` with SQLite money actions.
+Current delivery: [build status](build-status.md). Money-action contract: [wallet runtime spike](wallet-runtime-spike.md). Current-tree review: [architecture review](architecture-review-2026-09.md).
+Updated: 2026-09-08 (status header only; body is the 2026-09-07 design)
 Product scope: [Home product scope](product-scope.md)
 Build chunks and review: [Home implementation plan](implementation-plan.md)
 
