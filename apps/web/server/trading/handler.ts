@@ -34,7 +34,8 @@ const privateResponseHeaders = {
 } as const;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const intentHashPattern = /^[0-9a-f]{64}$/;
-const signaturePattern = /^0x[0-9a-fA-F]{130}$/;
+const eoaSignaturePattern = /^0x[0-9a-fA-F]{130}$/;
+const smartAccountSignaturePattern = /^0x(?:[0-9a-fA-F]{2}){65,2048}$/;
 
 export function createTradeHandler(dependencies: {
   authorize: TradeSessionAuthorizer;
@@ -71,9 +72,9 @@ export function createTradeFinalizeHandler(dependencies: {
     const session = await authorizeSession(request, dependencies.authorize);
     if (session instanceof Response) return session;
     const { id } = await context.params;
-    const body = await parseFinalizeRequest(request);
+    const body = await parseFinalizeRequest(request, session.accountProvider);
     if (!uuidPattern.test(id) || !body) {
-      return privateError("INVALID_TRADE_FINALIZATION", "A valid reviewed intent hash and 65-byte signature are required.", 400);
+      return privateError("INVALID_TRADE_FINALIZATION", "A valid reviewed intent hash and signature are required.", 400);
     }
     try {
       return privateJson(await dependencies.finalize({
@@ -101,9 +102,6 @@ async function authorizeSession(
   if (!session.smartAccount) {
     return privateError("SMART_ACCOUNT_UNAVAILABLE", "A verified Base smart account is required.", 503);
   }
-  if (session.accountProvider !== "cdp-embedded") {
-    return unavailableResult("signer-unsupported", "Base passkey accounts are not supported for trades until signer compatibility is verified.");
-  }
   return session;
 }
 
@@ -121,8 +119,12 @@ async function parseTradeRequest(request: Request): Promise<PrepareTradeRequest 
   return body as PrepareTradeRequest;
 }
 
-async function parseFinalizeRequest(request: Request): Promise<{ intentHash: string; signature: Hex } | null> {
-  const body = await readBoundedJson(request);
+async function parseFinalizeRequest(
+  request: Request,
+  provider: AccountProvider,
+): Promise<{ intentHash: string; signature: Hex } | null> {
+  const body = await readBoundedJson(request, provider === "base-account" ? 16_384 : 4096);
+  const signaturePattern = provider === "base-account" ? smartAccountSignaturePattern : eoaSignaturePattern;
   if (
     !isRecord(body) ||
     Object.keys(body).sort().join(",") !== "intentHash,signature" ||
@@ -134,12 +136,12 @@ async function parseFinalizeRequest(request: Request): Promise<{ intentHash: str
   return { intentHash: body.intentHash, signature: body.signature.toLowerCase() as Hex };
 }
 
-async function readBoundedJson(request: Request): Promise<unknown> {
+async function readBoundedJson(request: Request, maxBytes = 4096): Promise<unknown> {
   const contentType = request.headers.get("content-type")?.split(";", 1)[0].trim();
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (
     contentType !== "application/json" ||
-    !Number.isFinite(contentLength) || contentLength < 0 || contentLength > 4096
+    !Number.isFinite(contentLength) || contentLength < 0 || contentLength > maxBytes
   ) return null;
   try { return await request.json(); } catch { return null; }
 }

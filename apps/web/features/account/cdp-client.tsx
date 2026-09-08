@@ -161,6 +161,7 @@ export type AccountWalletClient = {
   checkPendingTransfer: () => Promise<ConfirmedTransfer>;
   startNewTransfer: () => void;
   retrySessionValidation: () => Promise<void>;
+  signTypedData: (typedData: unknown) => Promise<`0x${string}`>;
   signOut: () => Promise<void>;
 };
 
@@ -230,6 +231,9 @@ export function createBlockedAccountWalletClient(
     },
     startNewTransfer: () => {},
     retrySessionValidation: async () => {},
+    signTypedData: async () => {
+      throw new BaseAccountConnectorError("invalid-provider-response");
+    },
     signOut: async () => {},
   };
 }
@@ -2076,6 +2080,27 @@ export function AccountWalletSessionOwner({
     }
   }, [updatePendingTransfer]);
 
+  const signTypedData = useCallback(
+    async (typedData: unknown) => {
+      if (
+        status !== "verified" ||
+        !session?.smartAccount ||
+        session.accountProvider !== "base-account"
+      ) {
+        throw new BaseAccountConnectorError("invalid-provider-response");
+      }
+      const connection = baseConnection.current;
+      if (
+        !connection ||
+        connection.address.toLowerCase() !== session.smartAccount.address.toLowerCase()
+      ) {
+        throw new BaseAccountConnectorError("invalid-provider-response");
+      }
+      return connection.signTypedData(typedData);
+    },
+    [session, status],
+  );
+
   const client = useMemo<AccountWalletClient>(
     () => ({
       projectConfigured: true,
@@ -2104,6 +2129,7 @@ export function AccountWalletSessionOwner({
       checkPendingTransfer,
       startNewTransfer,
       retrySessionValidation: validateSession,
+      signTypedData,
       signOut,
     }),
     [
@@ -2128,6 +2154,7 @@ export function AccountWalletSessionOwner({
       session,
       sendTransfer,
       signInWithBaseAccount,
+      signTypedData,
       startNewTransfer,
       signOut,
       status,

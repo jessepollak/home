@@ -15,6 +15,7 @@ class ProviderFixture {
   accounts = [ADDRESS];
   chainId = "0x2105";
   signature: unknown = "0x1234";
+  typedSignature: unknown = `0x${"cd".repeat(65)}`;
   transactionHash: unknown = `0x${"ab".repeat(32)}`;
   callsId: unknown = { id: "0xfixture-call-bundle" };
   callsStatus: unknown = {
@@ -66,6 +67,8 @@ class ProviderFixture {
         return this.chainId;
       case "personal_sign":
         return this.signature;
+      case "eth_signTypedData_v4":
+        return this.typedSignature;
       case "eth_sendTransaction":
         return this.transactionHash;
       case "wallet_sendCalls":
@@ -116,6 +119,15 @@ describe("Base Account connector boundary", () => {
       params: [utf8MessageToHex(message), ADDRESS],
     });
     expect(invalidations).toEqual([]);
+
+    const permit = { primaryType: "PermitTransferFrom", domain: { name: "Permit2" } };
+    await expect(connection.signTypedData(permit)).resolves.toBe(`0x${"cd".repeat(65)}`);
+    expect(
+      provider.requests.find((request) => request.method === "eth_signTypedData_v4"),
+    ).toEqual({
+      method: "eth_signTypedData_v4",
+      params: [ADDRESS, JSON.stringify(permit)],
+    });
   });
 
   test("sends only from the verified universal account and rechecks account and chain around signing", async () => {

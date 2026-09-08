@@ -168,6 +168,7 @@ function ProductionAuthHarness() {
       events.current.push("base:provider-confirmed");
       return "0x1234";
     },
+    signTypedData: async () => `0x${"cd".repeat(65)}`,
     disconnect: async () => {
       events.current.push("base:disconnect");
     },

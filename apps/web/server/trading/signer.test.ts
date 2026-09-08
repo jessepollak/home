@@ -61,6 +61,56 @@ describe("trade signer resolver", () => {
     await expect(resolver(request(), session)).rejects.toMatchObject({ reason: "provider-unavailable" });
   });
 
+  test("resolves a deployed Base Account from on-chain index-zero ownership", async () => {
+    const ownerBytes = encodeAbiParameters([{ type: "address" }], [OWNER]);
+    const resolver = createTradeSignerResolver({
+      getValidator: async () => validator(),
+      fetchImpl: rpcFetch([
+        "0x2105",
+        "0x01",
+        encodeAbiParameters([{ type: "bytes" }], [ownerBytes]),
+        encodeAbiParameters([{ type: "bool" }], [true]),
+      ]),
+      rpcUrl: "https://rpc.test",
+    });
+    await expect(resolver(request(), { ...session, accountProvider: "base-account" })).resolves.toEqual({
+      smartAccount: SMART,
+      signerAddress: OWNER,
+      ownerIndex: 0,
+      deployed: true,
+    });
+  });
+
+  test("uses the Base Account smart wallet as the quote signer when owner zero is not an address", async () => {
+    const passkeyOwner = encodeAbiParameters([{ type: "bytes" }], [`0x${"ab".repeat(64)}`]);
+    const resolver = createTradeSignerResolver({
+      getValidator: async () => validator(),
+      fetchImpl: rpcFetch([
+        "0x2105",
+        "0x01",
+        passkeyOwner,
+      ]),
+      rpcUrl: "https://rpc.test",
+    });
+    await expect(resolver(request(), { ...session, accountProvider: "base-account" })).resolves.toEqual({
+      smartAccount: SMART,
+      signerAddress: SMART,
+      ownerIndex: 0,
+      deployed: true,
+    });
+  });
+
+  test("rejects an undeployed Base Account before quoting", async () => {
+    const resolver = createTradeSignerResolver({
+      getValidator: async () => validator(),
+      fetchImpl: rpcFetch(["0x2105", "0x"]),
+      rpcUrl: "https://rpc.test",
+    });
+    await expect(resolver(request(), { ...session, accountProvider: "base-account" })).rejects.toMatchObject({
+      reason: "signer-unsupported",
+    });
+  });
+
   test("never substitutes an uncontrolled EOA for the verified smart-account owner", async () => {
     const resolver = createTradeSignerResolver({
       getValidator: async () => ({

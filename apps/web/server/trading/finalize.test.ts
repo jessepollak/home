@@ -161,6 +161,44 @@ describe("Permit2 trade finalization", () => {
     }
   });
 
+  test("appends a Base Account ERC-1271 signature without wrapping an EOA", async () => {
+    const store = new MemoryTradeIntentStore();
+    const stored = {
+      ...intent(),
+      owner: { subject: "trade-user", address: SMART, chainId: 8453, accountProvider: "base-account" as const },
+    };
+    await store.issue(stored);
+    const walletSignature = `0x${"ab".repeat(80)}` as const;
+    let verifiedWrapper: string | undefined;
+    const action = await finalizeTradeAction({
+      readBalance: async () => ({ address: SMART, token: TOKEN, balance: BigInt(2_000_000), blockNumber: BigInt(101) }),
+      readPermit2State: async () => ({ blockNumber: BigInt(101), used: false }),
+      resolveSigner: async () => stored.signer,
+      verifySmartAccountSignature: async ({ wrapper }) => {
+        verifiedWrapper = wrapper;
+        return true;
+      },
+      intentStore: store,
+      issueAction: async (_session, draft, options) => ({
+        ...draft,
+        id: options.actionId,
+        reviewHash: "b".repeat(64),
+        owner: stored.owner,
+        createdAt: options.createdAt,
+      }),
+      now: () => new Date("2026-09-08T04:00:05.000Z"),
+    }, {
+      httpRequest: httpRequest(),
+      session: { ...session, accountProvider: "base-account" },
+      intentId: stored.id,
+      intentHash: stored.intentHash,
+      signature: walletSignature,
+    });
+    expect(verifiedWrapper).toBe(walletSignature);
+    expect(action.calls[1].data.endsWith(walletSignature.slice(2))).toBe(true);
+    expect(action.owner.accountProvider).toBe("base-account");
+  });
+
   test("preclaim validation rechecks quote age without requoting", async () => {
     const store = new MemoryTradeIntentStore();
     const stored = intent();

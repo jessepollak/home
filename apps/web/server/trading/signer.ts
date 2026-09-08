@@ -45,7 +45,11 @@ export function createTradeSignerResolver({
 }): TradeSignerResolver {
   const rpc = createRpc(fetchImpl, rpcUrl, timeoutMs);
   return async (request, session, signal) => {
-    if (session.accountProvider !== "cdp-embedded" || !session.smartAccount) unsupported();
+    if (!session.smartAccount) unsupported();
+    if (session.accountProvider === "base-account") {
+      return resolveBaseAccountSigner(rpc, session.smartAccount.address, signal);
+    }
+    if (session.accountProvider !== "cdp-embedded") unsupported();
     const token = readBearerToken(request);
     if (!token) unsupported();
     const validator = await getValidator();
@@ -109,6 +113,40 @@ export function createSmartAccountSignatureVerifier({
     const [magic] = decodeAbiParameters([{ type: "bytes4" }], result);
     return magic.toLowerCase() === ERC1271_MAGIC;
   };
+}
+
+async function resolveBaseAccountSigner(
+  rpc: ReturnType<typeof createRpc>,
+  smartAccount: Address,
+  signal?: AbortSignal,
+): Promise<{ smartAccount: Address; signerAddress: Address; ownerIndex: 0; deployed: true }> {
+  if (await rpc.quantity("eth_chainId", [], signal) !== BigInt(8453)) unavailable();
+  const code = await rpc.hex("eth_getCode", [smartAccount, "latest"], signal);
+  if (code === "0x") unsupported();
+  const result = await rpc.call(smartAccount, encodeFunctionData({
+    abi: smartWalletAbi,
+    functionName: "ownerAtIndex",
+    args: [BigInt(0)],
+  }), signal);
+  const [ownerBytes] = decodeAbiParameters([{ type: "bytes" }], result);
+  let signerAddress = smartAccount;
+  if (ownerBytes.length === 66) {
+    try {
+      const [decoded] = decodeAbiParameters([{ type: "address" }], ownerBytes);
+      const candidate = decoded.toLowerCase() as Address;
+      const ownership = await rpc.call(smartAccount, encodeFunctionData({
+        abi: smartWalletAbi,
+        functionName: "isOwnerAddress",
+        args: [candidate],
+      }), signal);
+      const [isOwner] = decodeAbiParameters([{ type: "bool" }], ownership);
+      if (!isOwner) unsupported();
+      signerAddress = candidate;
+    } catch (error) {
+      if (error instanceof TradePreparationError) throw error;
+    }
+  }
+  return { smartAccount, signerAddress, ownerIndex: 0, deployed: true };
 }
 
 async function resolveDeployedOwner(

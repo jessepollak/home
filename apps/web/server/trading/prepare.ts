@@ -71,9 +71,6 @@ export async function prepareTradeAction(
   const currentTime = assertNow(now());
   const request = assertTradeRequest(input.request);
   const session = assertTradeSession(input.session);
-  if (session.accountProvider !== "cdp-embedded") {
-    throw new TradePreparationError("signer-unsupported");
-  }
   const status = getTradeAssetStatus(request.assetId);
   if (!status) throw new TradePreparationError("invalid-request");
   if (status.status === "eligibility-required") {
@@ -344,6 +341,7 @@ function toReview(intent: TradeIntent): TradeIntentReview {
     signerAddress: intent.signer.signerAddress,
     signingRequestId: `trade-permit:${intent.id}`,
     signingTypedData: intent.signingTypedData,
+    permit: intent.permit,
     spend: {
       assetId: spend.assetId,
       symbol: spend.symbol,

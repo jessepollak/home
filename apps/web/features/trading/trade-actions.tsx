@@ -8,6 +8,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import { BaseAccountConnectorError } from "@/features/account/base-account-connector";
 import { useAccountWallet } from "@/features/account/cdp-client";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
 import { MoneyActionReview } from "@/features/money-actions/review";
@@ -70,7 +71,11 @@ export function TradeActions({
   }
 
   const tradeAsset = status.asset;
-  const canTrade = account.status === "verified" && account.session?.accountProvider === "cdp-embedded" && Boolean(boundary);
+  const canTrade =
+    account.status === "verified" &&
+    (account.session?.accountProvider === "cdp-embedded" ||
+      account.session?.accountProvider === "base-account") &&
+    Boolean(boundary);
 
   function open(nextSide: TradeSide) {
     if (!canTrade) return;
@@ -139,16 +144,18 @@ export function TradeActions({
     setSigning(true);
     setError(null);
     try {
-      const signed = await signEvmTypedData({
-        evmAccount: visibleIntent.signerAddress,
-        typedData: visibleIntent.signingTypedData,
-        idempotencyKey: visibleIntent.signingRequestId,
-      });
+      const signature = account.session?.accountProvider === "base-account"
+        ? await account.signTypedData(visibleIntent.permit)
+        : (await signEvmTypedData({
+            evmAccount: visibleIntent.signerAddress,
+            typedData: visibleIntent.signingTypedData,
+            idempotencyKey: visibleIntent.signingRequestId,
+          })).signature;
       const payload = await account.fetchAccountResource(
         `/api/trades/${encodeURIComponent(visibleIntent.id)}/finalize`,
         {
           method: "POST",
-          body: { intentHash: visibleIntent.intentHash, signature: signed.signature },
+          body: { intentHash: visibleIntent.intentHash, signature },
         },
       );
       const unavailableReason = parseUnavailableReason(payload);
@@ -158,7 +165,11 @@ export function TradeActions({
       setIntent(null);
       setAction(prepared);
     } catch (caught) {
-      setError(messageForTradeError(caught));
+      if (caught instanceof BaseAccountConnectorError && caught.reason === "cancelled") {
+        setError("The wallet request was rejected.");
+      } else {
+        setError(messageForTradeError(caught));
+      }
     } finally {
       setSigning(false);
     }
@@ -343,12 +354,22 @@ function parseTradeIntent(
     !/^0x[0-9a-f]{64}$/.test(value.signingTypedData.message.hash) ||
     !isTradeReviewAmount(value.spend, false) ||
     !isTradeReviewAmount(value.receive, true) ||
+    !isPermitTypedData(value.permit) ||
     !Array.isArray(value.warnings) || value.warnings.length > 12 ||
     !value.warnings.every((warning) => typeof warning === "string") ||
     typeof value.permitExpiresAt !== "string" || typeof value.expiresAt !== "string" ||
     !Number.isFinite(Date.parse(value.permitExpiresAt)) || Date.parse(value.expiresAt) <= Date.now()
   ) return null;
   return value as unknown as TradeIntentReview;
+}
+
+function isPermitTypedData(value: unknown): boolean {
+  if (!isRecord(value) || !isRecord(value.domain) || !isRecord(value.message) || !isRecord(value.types)) return false;
+  return value.primaryType === "PermitTransferFrom" &&
+    value.domain.name === "Permit2" &&
+    value.domain.chainId === 8453 &&
+    typeof value.domain.verifyingContract === "string" &&
+    /^0x[0-9a-f]{40}$/.test(value.domain.verifyingContract);
 }
 
 function isTradeReviewAmount(value: unknown, receive: boolean): boolean {
@@ -414,7 +435,7 @@ function messageForTradeError(error: unknown): string {
     case "NO_LIQUIDITY": return "CDP has no supported route for this exact pair and amount.";
     case "INSUFFICIENT_BALANCE": return "Your fresh Base balance is lower than this spend amount.";
     case "STALE_QUOTE": return "The quote became stale. Request a fresh review.";
-    case "SIGNER_UNSUPPORTED": return "Trades currently require an email-controlled Coinbase smart wallet with a verified owner at index 0.";
+    case "SIGNER_UNSUPPORTED": return "This verified account cannot sign this trade.";
     case "PERMIT_EXPIRED": return "The permit signing window expired. Request a fresh quote.";
     case "PERMIT_USED": return "This Permit2 nonce was already used. Request a fresh quote.";
     case "STOCK_EXECUTION_UNAVAILABLE": return "Stock execution remains locked until issuer and provider eligibility can be verified.";

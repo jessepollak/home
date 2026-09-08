@@ -325,6 +325,7 @@ function connectedBaseAccount(): ConnectedBaseAccount {
     address: ADDRESS,
     assertUnchanged: async () => {},
     signMessage: async () => "0x1234",
+    signTypedData: async () => `0x${"cd".repeat(65)}`,
     disconnect: async () => {},
   };
 }

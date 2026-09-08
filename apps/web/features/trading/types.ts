@@ -1,6 +1,9 @@
 import type { PreparedMoneyAction } from "@/features/money-actions/types";
 import type { InvestAssetId } from "@/config/invest-assets";
-import type { CoinbaseSmartWalletTypedData } from "@/server/trading/types";
+import type {
+  CoinbaseSmartWalletTypedData,
+  Permit2TypedData,
+} from "@/server/trading/types";
 import type { TradeSide } from "./assets";
 
 export const DEFAULT_TRADE_SLIPPAGE_BPS = 100 as const;
@@ -20,6 +23,7 @@ export type TradeIntentReview = {
   signerAddress: `0x${string}`;
   signingRequestId: string;
   signingTypedData: CoinbaseSmartWalletTypedData;
+  permit: Permit2TypedData;
   spend: {
     assetId: string;
     symbol: string;

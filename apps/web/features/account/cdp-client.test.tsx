@@ -302,6 +302,7 @@ function connectedBaseAccount(
     address: ADDRESS_A,
     assertUnchanged: async () => {},
     signMessage: async () => "0x1234",
+    signTypedData: async () => `0x${"cd".repeat(65)}`,
     sendTransaction: async () => `0x${"ab".repeat(32)}`,
     disconnect: async () => {},
     ...overrides,

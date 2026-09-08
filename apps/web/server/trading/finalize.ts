@@ -34,7 +34,7 @@ export async function finalizeTradeAction(
   const currentTime = now();
   if (Number.isNaN(currentTime.getTime())) unavailable();
   const owner = moneyActionOwner(input.session);
-  if (!owner || input.session.accountProvider !== "cdp-embedded") unsupported();
+  if (!owner) unsupported();
   const intent = await dependencies.intentStore.get(owner, input.intentId);
   if (!intent || intent.intentHash !== input.intentHash) invalid();
   assertLiveIntent(intent, currentTime);
@@ -43,9 +43,9 @@ export async function finalizeTradeAction(
   if (!sameSigner(signer, intent.signer)) unsupported();
   await assertFreshExecutionState(dependencies, intent, input.signal);
 
-  const recovered = await recoverTradeSigner(intent.signingTypedData, input.signature);
-  if (recovered !== intent.signer.signerAddress) invalid();
-  const wrapper = wrapSmartAccountSignature(intent.signer.ownerIndex, input.signature);
+  const wrapper = input.session.accountProvider === "base-account"
+    ? input.signature
+    : await recoverAndWrapEoaSignature(intent, input.signature);
   if (
     intent.signer.deployed &&
     !(await dependencies.verifySmartAccountSignature({
@@ -164,6 +164,15 @@ function assertLiveIntent(intent: TradeIntent, now: Date): void {
     Date.parse(intent.createdAt) > nowMs ||
     Date.parse(intent.reservedActionCreatedAt) > nowMs
   ) throw new TradePreparationError("permit-expired");
+}
+
+async function recoverAndWrapEoaSignature(
+  intent: TradeIntent,
+  signature: FinalizeTradeInput["signature"],
+) {
+  const recovered = await recoverTradeSigner(intent.signingTypedData, signature);
+  if (recovered !== intent.signer.signerAddress) invalid();
+  return wrapSmartAccountSignature(intent.signer.ownerIndex, signature);
 }
 
 function sameSigner(

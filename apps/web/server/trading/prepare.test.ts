@@ -121,6 +121,8 @@ describe("Permit2 trade intent preparation", () => {
     expect(fixture.quoteRequests[0]).toMatchObject({ taker: SMART, signerAddress: SIGNER });
     expect(review.status).toBe("signature-required");
     expect(review.signerAddress).toBe(SIGNER);
+    expect(review.permit.primaryType).toBe("PermitTransferFrom");
+    expect(review.permit.message.spender).toBe(ROUTER_SPENDER);
     expect(review.receive.minimumAmountBaseUnits).toBe("99000");
     expect(review.expiresAt).toBe("2026-09-08T04:03:00.000Z");
     const stored = await fixture.store.get({
@@ -163,5 +165,21 @@ describe("Permit2 trade intent preparation", () => {
       request: { assetId: "nvdac", side: "buy", amountBaseUnits: "1000000", slippageBps: 100 },
     })).rejects.toMatchObject({ reason: "stock-eligibility" });
     expect(signerCalls).toBe(0);
+  });
+
+  test("prepares a Base Account session the same way as an email CDP session", async () => {
+    const fixture = dependencies(quote());
+    const review = await prepareTradeAction(fixture.value, {
+      httpRequest: request(),
+      session: { ...session, accountProvider: "base-account" },
+      request: { assetId: "cbbtc", side: "buy", amountBaseUnits: "1000000", slippageBps: 100 },
+    });
+    expect(review.status).toBe("signature-required");
+    expect(review.permit.primaryType).toBe("PermitTransferFrom");
+    const stored = await fixture.store.get({
+      subject: "trade-user", address: SMART, chainId: 8453, accountProvider: "base-account",
+    }, review.id);
+    expect(stored?.owner.accountProvider).toBe("base-account");
+    expect(stored?.intentHash).toBe(review.intentHash);
   });
 });

@@ -44,6 +44,7 @@ export type ConnectedBaseAccount = {
   address: `0x${string}`;
   assertUnchanged: () => Promise<void>;
   signMessage: (message: string) => Promise<`0x${string}`>;
+  signTypedData: (typedData: unknown) => Promise<`0x${string}`>;
   sendTransaction?: (
     transaction: BaseAccountTransaction,
   ) => Promise<`0x${string}`>;
@@ -221,6 +222,26 @@ async function openBaseProvider(
         throw new BaseAccountConnectorError("invalid-provider-response");
       }
       return signature as `0x${string}`;
+    },
+    async signTypedData(typedData) {
+      await assertUnchanged();
+      let signature: unknown;
+      try {
+        signature = await provider.request({
+          method: "eth_signTypedData_v4",
+          params: [connectedAddress, JSON.stringify(typedData)],
+        });
+      } catch (error) {
+        if (providerErrorCode(error) === 4001) {
+          throw new BaseAccountConnectorError("cancelled", error);
+        }
+        throw new BaseAccountConnectorError("invalid-provider-response", error);
+      }
+      await assertUnchanged();
+      if (typeof signature !== "string" || !hexPattern.test(signature) || signature.length < 132) {
+        throw new BaseAccountConnectorError("invalid-provider-response");
+      }
+      return signature.toLowerCase() as `0x${string}`;
     },
     async sendTransaction(transaction) {
       await assertUnchanged();
