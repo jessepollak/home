@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { InvestAsset, InvestAssetId } from "@/config/invest-assets";
+import type { InvestAsset } from "@/config/invest-assets";
 import { TradeActions } from "@/features/trading/trade-actions";
 import { getMarketDisplay, type MarketDataState } from "./invest-market";
 import { AssetIcon } from "./asset-icon";
@@ -21,7 +21,7 @@ export function AssetDetailScreen({
   onBack: () => void;
 }) {
   const [range, setRange] = useState<MarketPriceRange>("1W");
-  const history = usePriceHistory(asset.id as InvestAssetId, range);
+  const history = usePriceHistory(asset.id, range);
   const price = getMarketDisplay(asset.id, market);
   return (
     <section
@@ -33,7 +33,13 @@ export function AssetDetailScreen({
           <BackIcon />
         </button>
         <span className={styles.detailIdentity}>
-          <AssetIcon assetId={asset.id} label={asset.displayName} size="md" />
+          <AssetIcon
+            assetId={asset.id}
+            label={asset.displayName}
+            initials={asset.initials}
+            imageUrl={asset.imageUrl}
+            size="md"
+          />
           <h2 id="invest-asset-title">{asset.displayName}</h2>
         </span>
       </header>

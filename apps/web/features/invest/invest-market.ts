@@ -1,12 +1,12 @@
-import type { InvestAssetId } from "@/config/invest-assets";
 import { formatUsdPrice } from "@/features/formatting";
 
 export type MarketSnapshot = {
-  assetId: InvestAssetId;
+  assetId: string;
   displayPrice: string;
   asOf: string;
   sourceLabel: string;
   sourceUrl?: string;
+  changeLabel?: string;
 };
 
 export type MarketDataState =
@@ -65,6 +65,7 @@ export function getMarketDisplay(
       value: formattedPrice ?? snapshot.displayPrice,
       detail: `${snapshot.sourceLabel} · ${snapshot.asOf}`,
       sourceUrl: snapshot.sourceUrl,
+      changeLabel: snapshot.changeLabel,
       tone: "ready",
     };
   }

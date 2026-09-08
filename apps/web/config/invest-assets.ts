@@ -23,6 +23,8 @@ export type InvestAsset = {
   representation: AssetRepresentation;
   projectUrl?: string;
   contractUrl: string;
+  /** Resolved metadata image. Never a shipped SVG mark. */
+  imageUrl?: string;
 };
 
 export const stockAssets = [
@@ -212,6 +214,10 @@ export const cryptoAssets = [
   },
 ] as const satisfies readonly InvestAsset[];
 
+/**
+ * Known meme holdings for portfolio/trading identity.
+ * Invest discover does not use this list — Memes is Codex trending.
+ */
 export const memeAssets = [
   {
     id: "degen",
@@ -278,4 +284,22 @@ export const investSources = {
 
 export function shortenContractAddress(address: `0x${string}`): string {
   return `${address.slice(0, 8)}…${address.slice(-4)}`;
+}
+
+export function findInvestAssetByAddress(
+  address: string,
+): (typeof investAssets)[number] | undefined {
+  const key = address.toLowerCase();
+  return investAssets.find(
+    (asset) => asset.contractAddress.toLowerCase() === key,
+  );
+}
+
+export function initialsFromSymbol(symbol: string): string {
+  const letters = symbol.replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase();
+  return letters || "?";
+}
+
+export function trendingTokenId(address: `0x${string}`): string {
+  return `base:${address.toLowerCase()}`;
 }

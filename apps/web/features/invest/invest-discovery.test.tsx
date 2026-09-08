@@ -183,11 +183,64 @@ describe("invest discovery flow", () => {
     expect(page().queryByText("No price history for this range.")).toBeNull();
   });
 
-  test("uses a real AssetIcon instead of letter initials as the primary mark", () => {
+  test("uses initials as the safe mark when metadata has no image", () => {
     render(<InvestExperience />);
-    expect(page().getByRole("img", { name: "NVIDIA icon" }).querySelector("svg")).toBeTruthy();
-    expect(page().getByRole("img", { name: "Bitcoin icon" }).querySelector("svg")).toBeTruthy();
-    const nvidia = page().getByRole("img", { name: "NVIDIA icon" }).textContent ?? "";
-    expect(nvidia).not.toBe("NV");
+    expect(page().getByRole("img", { name: "NVIDIA icon" }).textContent).toBe("NV");
+    expect(page().getByRole("img", { name: "Bitcoin icon" }).textContent).toBe("BT");
+    expect(page().getByRole("img", { name: "NVIDIA icon" }).querySelector("svg")).toBeNull();
+    expect(page().queryByText("Degen")).toBeNull();
+  });
+
+  test("renders a resolved metadata image instead of a shipped SVG mark", () => {
+    render(
+      <InvestExperience
+        assetIcons={{ cbbtc: "https://icons.example.test/cbbtc.png" }}
+      />,
+    );
+    const bitcoin = page().getByRole("img", { name: "Bitcoin icon" });
+    expect(bitcoin.querySelector("img")?.getAttribute("src")).toBe(
+      "https://icons.example.test/cbbtc.png",
+    );
+    expect(bitcoin.querySelector("svg")).toBeNull();
+    expect(bitcoin.textContent).toBe("");
+  });
+
+  test("shows Codex trending memes on the Memes shelf", () => {
+    render(
+      <InvestExperience
+        memeStatus="ready"
+        memeAssets={[
+          {
+            id: "base:0x1111111111111111111111111111111111111111",
+            category: "meme",
+            displayName: "Higher",
+            displaySymbol: "HIGHER",
+            initials: "HI",
+            chainId: 8453,
+            contractAddress: "0x1111111111111111111111111111111111111111",
+            availability: "informational",
+            descriptor: "Trending on Base",
+            representation: {
+              tokenSymbol: "HIGHER",
+              decimals: 18,
+              relationship: "Base ERC-20 token.",
+            },
+            contractUrl:
+              "https://basescan.org/token/0x1111111111111111111111111111111111111111",
+            imageUrl: "https://icons.example.test/higher.png",
+          },
+        ]}
+      />,
+    );
+    expect(page().getByText("Higher")).toBeTruthy();
+    expect(page().getByRole("img", { name: "Higher icon" }).querySelector("img")?.getAttribute("src")).toBe(
+      "https://icons.example.test/higher.png",
+    );
+  });
+
+  test("fail-closes the Memes shelf when trending is unavailable", () => {
+    render(<InvestExperience memeStatus="error" />);
+    expect(page().getAllByText("Unavailable").length).toBeGreaterThan(0);
+    expect(page().queryByText("Degen")).toBeNull();
   });
 });

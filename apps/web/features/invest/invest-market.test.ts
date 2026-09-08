@@ -45,8 +45,12 @@ describe("invest market display", () => {
         displayPrice: "$231.708792875",
         asOf: "2026-09-07T12:00:00Z",
         sourceLabel: "Fixture source",
+        changeLabel: "+1.25%",
       }],
-    }).value).toBe("$231.71");
+    })).toMatchObject({
+      value: "$231.71",
+      changeLabel: "+1.25%",
+    });
   });
 
   test("uses a stable error fallback when no provider message is present", () => {

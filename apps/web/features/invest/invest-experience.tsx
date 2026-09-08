@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import type { InvestAsset } from "@/config/invest-assets";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
 import {
+  applyAssetIcon,
   getDiscoverAsset,
   getDiscoverShelf,
+  getShelfAssets,
   marketForAsset,
+  type MemeShelfStatus,
 } from "./discover";
 import { AssetDetailScreen } from "./asset-detail-screen";
 import { CategoryScreen } from "./category-screen";
@@ -25,6 +28,9 @@ export type InvestExperienceProps = {
   memeMarket?: MarketDataState;
   cryptoMarket?: MarketDataState;
   initialView?: InvestView;
+  memeAssets?: readonly InvestAsset[];
+  memeStatus?: MemeShelfStatus;
+  assetIcons?: Readonly<Record<string, string | null>>;
 };
 
 export function InvestExperience({
@@ -32,6 +38,9 @@ export function InvestExperience({
   memeMarket = unavailableMarketData,
   cryptoMarket = unavailableMarketData,
   initialView,
+  memeAssets = [],
+  memeStatus = "empty",
+  assetIcons = {},
 }: InvestExperienceProps = {}) {
   const router = useRouter();
   const [view, setView] = useState<InvestView>(() => {
@@ -45,6 +54,7 @@ export function InvestExperience({
   });
   const [inAppChildDepth, setInAppChildDepth] = useState(0);
   const markets = { stockMarket, memeMarket, cryptoMarket };
+  const catalog = memeAssets.map((asset) => applyAssetIcon(asset, assetIcons));
 
   useEffect(() => {
     const onPopState = () => {
@@ -73,12 +83,22 @@ export function InvestExperience({
   if (view.screen === "category") {
     const shelf = getDiscoverShelf(view.shelfId);
     if (!shelf) return null;
+    const assets = getShelfAssets(shelf, catalog).map((asset) =>
+      applyAssetIcon(asset, assetIcons),
+    );
     return (
       <CategoryScreen
         title={shelf.title}
         shelfId={shelf.id}
-        assets={shelf.assets}
-        market={marketForAsset(shelf.assets[0], markets)}
+        assets={assets}
+        market={
+          shelf.category === "meme"
+            ? memeMarket
+            : assets[0]
+              ? marketForAsset(assets[0], markets)
+              : unavailableMarketData
+        }
+        status={shelf.id === "memes" ? memeStatus : "ready"}
         onBack={() => leaveChild({ screen: "hub" })}
         onOpenAsset={(asset, from) =>
           go({ screen: "detail", assetId: asset.id, from })
@@ -88,12 +108,13 @@ export function InvestExperience({
   }
 
   if (view.screen === "detail") {
-    const asset = getDiscoverAsset(view.assetId);
+    const asset = getDiscoverAsset(view.assetId, catalog);
     if (!asset) return null;
+    const marked = applyAssetIcon(asset, assetIcons);
     return (
       <AssetDetailScreen
-        asset={asset}
-        market={marketForAsset(asset, markets)}
+        asset={marked}
+        market={marketForAsset(marked, markets)}
         onBack={() =>
           leaveChild(
             view.from === "hub"
@@ -110,6 +131,9 @@ export function InvestExperience({
       stockMarket={stockMarket}
       memeMarket={memeMarket}
       cryptoMarket={cryptoMarket}
+      memeAssets={catalog}
+      memeStatus={memeStatus}
+      assetIcons={assetIcons}
       onSeeAll={(shelfId) => go({ screen: "category", shelfId })}
       onOpenAsset={(asset: InvestAsset) =>
         go({ screen: "detail", assetId: asset.id, from: "hub" })

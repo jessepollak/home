@@ -25,7 +25,12 @@ export function DiscoverAssetRow({
         onClick={onOpen}
         aria-label={`${asset.displayName} details`}
       >
-        <AssetIcon assetId={asset.id} label={asset.displayName} />
+        <AssetIcon
+          assetId={asset.id}
+          label={asset.displayName}
+          initials={asset.initials}
+          imageUrl={asset.imageUrl}
+        />
         <span className={styles.identity}>
           <strong>{asset.displayName}</strong>
           <small>{asset.displaySymbol}</small>

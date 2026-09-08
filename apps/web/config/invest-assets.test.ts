@@ -3,11 +3,14 @@ import { getAssetPresentation } from "./asset-presentation";
 import {
   BASE_CHAIN_ID,
   cryptoAssets,
+  findInvestAssetByAddress,
+  initialsFromSymbol,
   investAssets,
   investSources,
   memeAssets,
   shortenContractAddress,
   stockAssets,
+  trendingTokenId,
 } from "./invest-assets";
 
 const evmAddressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -118,7 +121,7 @@ describe("invest asset registry", () => {
     expect(assetIds).not.toContain("cbsol");
   });
 
-  test("keeps memes informational and linked to primary project sources", () => {
+  test("treats the meme roster as holdings identity, not the discover source", () => {
     expect(memeAssets.map((asset) => asset.displaySymbol)).toEqual(["DEGEN", "TOSHI"]);
     expect(memeAssets.map((asset) => asset.representation.tokenSymbol)).toEqual([
       "DEGEN",
@@ -168,6 +171,17 @@ describe("invest asset registry", () => {
       priceUnitLabel: "Per cbBTC token",
     });
     expect(getAssetPresentation(memeAssets[0]).tokenLabel).toBe("DEGEN token");
+  });
+
+  test("builds trending ids and initials from the onchain symbol", () => {
+    expect(initialsFromSymbol("DEGEN")).toBe("DE");
+    expect(initialsFromSymbol("$HIGHER")).toBe("HI");
+    expect(trendingTokenId("0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed")).toBe(
+      "base:0x4ed4e862860bed51a9570b96d89af5e1b0efefed",
+    );
+    expect(findInvestAssetByAddress("0x4ed4e862860bed51a9570b96d89af5e1b0efefed")?.id).toBe(
+      "degen",
+    );
   });
 
   test("truncates only presentation text without changing the registry value", () => {

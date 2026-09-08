@@ -1,9 +1,11 @@
 import type { InvestAsset } from "@/config/invest-assets";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
 import {
+  applyAssetIcon,
   discoverShelves,
   getShelfPreviewAssets,
   type DiscoverShelfId,
+  type MemeShelfStatus,
 } from "./discover";
 import { DiscoverShelf } from "./discover-shelf";
 import styles from "./invest-experience.module.css";
@@ -12,6 +14,9 @@ export type InvestHubProps = {
   stockMarket: MarketDataState;
   memeMarket: MarketDataState;
   cryptoMarket?: MarketDataState;
+  memeAssets?: readonly InvestAsset[];
+  memeStatus?: MemeShelfStatus;
+  assetIcons?: Readonly<Record<string, string | null>>;
   onSeeAll: (shelfId: DiscoverShelfId) => void;
   onOpenAsset: (asset: InvestAsset, from: "hub") => void;
 };
@@ -20,6 +25,9 @@ export function InvestHub({
   stockMarket,
   memeMarket,
   cryptoMarket,
+  memeAssets = [],
+  memeStatus = "empty",
+  assetIcons = {},
   onSeeAll,
   onOpenAsset,
 }: InvestHubProps) {
@@ -40,8 +48,11 @@ export function InvestHub({
           <DiscoverShelf
             key={shelf.id}
             title={shelf.title}
-            assets={getShelfPreviewAssets(shelf)}
-            market={markets[shelf.assets[0].category]}
+            assets={getShelfPreviewAssets(shelf, memeAssets).map((asset) =>
+              applyAssetIcon(asset, assetIcons),
+            )}
+            market={markets[shelf.category]}
+            status={shelf.id === "memes" ? memeStatus : "ready"}
             onSeeAll={() => onSeeAll(shelf.id)}
             onOpenAsset={(asset) => onOpenAsset(asset, "hub")}
           />

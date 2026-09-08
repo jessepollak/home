@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { InvestAssetId } from "@/config/invest-assets";
 import {
   MARKET_PRICE_HISTORY_VERSION,
   MARKET_PRICE_RANGES,
@@ -19,7 +18,7 @@ export type PriceHistoryState =
   | { status: "error"; points: readonly MarketPriceHistoryPoint[] };
 
 export function usePriceHistory(
-  assetId: InvestAssetId,
+  assetId: string,
   range: MarketPriceRange,
 ): PriceHistoryState {
   const requestKey = `${assetId}:${range}`;

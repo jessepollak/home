@@ -116,6 +116,14 @@
   transition: color var(--motion-chip) ease;
 }
 
+.shelfStatus {
+  margin: 0;
+  padding: 10px 4px 8px;
+  color: var(--home-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
 .rows {
   display: grid;
   margin: 0;

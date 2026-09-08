@@ -1,7 +1,7 @@
 import type { InvestAsset } from "@/config/invest-assets";
 import type { MarketDataState } from "./invest-market";
 import { DiscoverAssetRow } from "./discover-asset-row";
-import type { DiscoverShelfId } from "./discover";
+import type { DiscoverShelfId, MemeShelfStatus } from "./discover";
 import styles from "./invest-experience.module.css";
 
 export function CategoryScreen({
@@ -9,6 +9,7 @@ export function CategoryScreen({
   shelfId,
   assets,
   market,
+  status = "ready",
   onBack,
   onOpenAsset,
 }: {
@@ -16,6 +17,7 @@ export function CategoryScreen({
   shelfId: DiscoverShelfId;
   assets: readonly InvestAsset[];
   market: MarketDataState;
+  status?: MemeShelfStatus;
   onBack: () => void;
   onOpenAsset: (asset: InvestAsset, from: DiscoverShelfId) => void;
 }) {
@@ -27,16 +29,26 @@ export function CategoryScreen({
         </button>
         <h2 id="invest-category-title">{title}</h2>
       </header>
-      <ul className={styles.rows}>
-        {assets.map((asset) => (
-          <DiscoverAssetRow
-            key={asset.id}
-            asset={asset}
-            market={market}
-            onOpen={() => onOpenAsset(asset, shelfId)}
-          />
-        ))}
-      </ul>
+      {assets.length > 0 ? (
+        <ul className={styles.rows}>
+          {assets.map((asset) => (
+            <DiscoverAssetRow
+              key={asset.id}
+              asset={asset}
+              market={market}
+              onOpen={() => onOpenAsset(asset, shelfId)}
+            />
+          ))}
+        </ul>
+      ) : (
+        <p className={styles.shelfStatus}>
+          {status === "error" || status === "unavailable"
+            ? "Unavailable"
+            : status === "loading"
+              ? "Loading"
+              : "None trending"}
+        </p>
+      )}
     </section>
   );
 }

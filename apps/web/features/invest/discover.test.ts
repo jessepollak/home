@@ -1,11 +1,30 @@
 import { describe, expect, test } from "bun:test";
-import { cryptoAssets } from "@/config/invest-assets";
+import { cryptoAssets, type InvestAsset } from "@/config/invest-assets";
 import {
   discoverShelves,
   getDiscoverAsset,
   getDiscoverShelf,
+  getShelfAssets,
   getShelfPreviewAssets,
 } from "./discover";
+
+const trendingMeme = {
+  id: "base:0x1111111111111111111111111111111111111111",
+  category: "meme",
+  displayName: "Higher",
+  displaySymbol: "HIGHER",
+  initials: "HI",
+  chainId: 8453,
+  contractAddress: "0x1111111111111111111111111111111111111111",
+  availability: "informational",
+  descriptor: "Trending on Base",
+  representation: {
+    tokenSymbol: "HIGHER",
+    decimals: 18,
+    relationship: "Base ERC-20 token; the display and token symbols are the same.",
+  },
+  contractUrl: "https://basescan.org/token/0x1111111111111111111111111111111111111111",
+} as const satisfies InvestAsset;
 
 describe("invest discovery catalog", () => {
   test("keeps Stocks, Crypto, then Memes shelves with the signed-off preview roster", () => {
@@ -26,10 +45,8 @@ describe("invest discovery catalog", () => {
       "DOGE",
       "LTC",
     ]);
-    expect(getShelfPreviewAssets(discoverShelves[2]).map((asset) => asset.displaySymbol)).toEqual([
-      "DEGEN",
-      "TOSHI",
-    ]);
+    expect(getShelfPreviewAssets(discoverShelves[2])).toEqual([]);
+    expect(getShelfAssets(discoverShelves[2])).toEqual([]);
   });
 
   test("keeps Cardano on the Crypto category list and off the hub preview", () => {
@@ -42,5 +59,15 @@ describe("invest discovery catalog", () => {
       getShelfPreviewAssets(crypto!).map((asset) => asset.displaySymbol),
     ).not.toContain("ADA");
     expect(getDiscoverAsset("cbbtc")?.displayName).toBe("Bitcoin");
+  });
+
+  test("populates Memes only from the supplied trending catalog", () => {
+    const memes = getDiscoverShelf("memes");
+    expect(getShelfAssets(memes!, [trendingMeme]).map((asset) => asset.displaySymbol)).toEqual([
+      "HIGHER",
+    ]);
+    expect(getDiscoverAsset(trendingMeme.id, [trendingMeme])?.displayName).toBe("Higher");
+    expect(getDiscoverAsset("degen")).toBeTruthy();
+    expect(getShelfPreviewAssets(memes!).map((asset) => asset.id)).not.toContain("degen");
   });
 });
