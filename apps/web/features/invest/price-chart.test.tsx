@@ -13,9 +13,14 @@ mock.module("liveline", () => ({
   },
 }));
 
-const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
-const { LIVELINE_PLOT_PADDING, PriceChart, toLivelinePoints, visibleWindowSeconds } =
-  await import("./price-chart");
+const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
+const {
+  LIVELINE_PLOT_PADDING,
+  LIVELINE_SWAP_SETTLE_MS,
+  PriceChart,
+  toLivelinePoints,
+  visibleWindowSeconds,
+} = await import("./price-chart");
 
 function stubMatchMedia(reducedMotion: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -147,7 +152,7 @@ describe("PriceChart states", () => {
     expect(within(document.body).getByTestId("liveline")).toBeTruthy();
   });
 
-  test("keeps the last good series in place while a new range loads", () => {
+  test("freezes last-good Liveline geometry until the next series is ready", async () => {
     stubMatchMedia(false);
     const week = [
       { time: "2026-09-01T00:00:00.000Z", value: "62000" },
@@ -160,7 +165,13 @@ describe("PriceChart states", () => {
         onRangeChange={() => {}}
       />,
     );
-    expect(livelineCalls.at(-1)?.data).toEqual(toLivelinePoints(week));
+    const settled = livelineCalls.at(-1)!;
+    const weekPoints = toLivelinePoints(week);
+    expect(settled.data).toEqual(weekPoints);
+    expect(settled.value).toBe(64210);
+    expect(settled.loading).toBe(false);
+    const frozenWindow = settled.window;
+    const frozenValue = settled.value;
     livelineCalls.length = 0;
 
     rerender(
@@ -170,9 +181,16 @@ describe("PriceChart states", () => {
         onRangeChange={() => {}}
       />,
     );
-    expect(within(document.body).getByRole("img", { name: "1D price history" })).toBeTruthy();
-    expect(livelineCalls[0]?.loading).toBe(false);
-    expect(livelineCalls[0]?.data).toEqual(toLivelinePoints(week));
+    expect(within(document.body).getByRole("img", { name: "1W price history" })).toBeTruthy();
+    expect(within(document.body).getByRole("button", { name: "1D" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    const held = livelineCalls[0]!;
+    expect(held.loading).toBe(false);
+    expect(held.data).toEqual(weekPoints);
+    expect(held.data).toBe(settled.data);
+    expect(held.value).toBe(frozenValue);
+    expect(held.window).toBe(frozenWindow);
 
     const day = [
       { time: "2026-09-08T00:00:00.000Z", value: "64100" },
@@ -185,8 +203,24 @@ describe("PriceChart states", () => {
         onRangeChange={() => {}}
       />,
     );
-    expect(within(document.body).getByRole("img", { name: "1D price history" })).toBeTruthy();
-    expect(livelineCalls.at(-1)?.data).toEqual(toLivelinePoints(day));
+    expect(within(document.body).getByRole("img", { name: "1W price history" })).toBeTruthy();
+    const mid = livelineCalls.filter((call) => !call.loading);
+    expect(mid.some((call) => call.data === settled.data && call.window === frozenWindow)).toBe(
+      true,
+    );
+    expect(mid.some((call) => call.value === 64300)).toBe(true);
+
+    await waitFor(
+      () => {
+        expect(within(document.body).getByRole("img", { name: "1D price history" })).toBeTruthy();
+        const ready = livelineCalls.at(-1)!;
+        expect(ready.data).toEqual(toLivelinePoints(day));
+        expect(ready.value).toBe(64300);
+        expect(ready.window).not.toBe(frozenWindow);
+        expect(ready.loading).toBe(false);
+      },
+      { timeout: LIVELINE_SWAP_SETTLE_MS + 200 },
+    );
   });
 });
 

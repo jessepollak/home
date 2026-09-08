@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Liveline, type LivelinePoint } from "liveline";
 import {
   MARKET_PRICE_RANGES,
@@ -26,6 +26,9 @@ export const LIVELINE_PLOT_PADDING = {
   bottom: 36,
   left: 16,
 } as const;
+
+/** Liveline's loading→data reveal (~0.09/frame) must finish before we swap the live plot. */
+export const LIVELINE_SWAP_SETTLE_MS = 850;
 
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
 
@@ -57,6 +60,14 @@ export function PriceChart({
   );
 }
 
+type HeldLivelinePlot = {
+  key: string;
+  points: LivelinePoint[];
+  range: MarketPriceRange;
+  value: number;
+  windowSecs: number;
+};
+
 function ChartBody({
   history,
   range,
@@ -69,30 +80,35 @@ function ChartBody({
     () => toLivelinePoints(history.points),
     [history.points],
   );
-  const series =
-    incoming.length > 0 && (history.status === "ready" || history.status === "loading")
-      ? { points: incoming, range }
-      : { points: [] as LivelinePoint[], range };
-
-  const waitingFirstPaint = history.status === "loading" && series.points.length === 0;
+  const plot = useHeldLivelinePlot(history.status, incoming, range);
+  const { foreground, warming } = usePresentedLivelinePlot(plot, reduceMotion);
   const unavailable =
     history.status !== "loading" &&
-    (history.status === "error" || series.points.length === 0);
+    (history.status === "error" || !plot) &&
+    !foreground;
+  const waitingFirstPaint = !foreground && !unavailable;
   const stageRole = waitingFirstPaint || unavailable ? "status" : "img";
   const stageLabel = waitingFirstPaint
     ? "Loading price history"
-    : unavailable
+    : unavailable || !foreground
       ? undefined
-      : `${series.range} price history`;
+      : `${foreground.range} price history`;
 
   return (
     <div className={styles.chartStage} role={stageRole} aria-label={stageLabel}>
-      <AssetLiveline
-        points={series.points}
-        range={series.range}
-        loading={waitingFirstPaint}
-        reduceMotion={reduceMotion}
-      />
+      {!foreground ? (
+        <AssetLiveline plot={null} loading={waitingFirstPaint} reduceMotion={reduceMotion} />
+      ) : null}
+      {foreground ? (
+        <div className={styles.plotLive}>
+          <AssetLiveline plot={foreground} reduceMotion={reduceMotion} />
+        </div>
+      ) : null}
+      {warming ? (
+        <div className={styles.plotWarm} aria-hidden>
+          <AssetLiveline plot={warming} reduceMotion={reduceMotion} />
+        </div>
+      ) : null}
       {unavailable ? (
         <p className={styles.chartMessage} role="status">
           {history.status === "error"
@@ -104,19 +120,95 @@ function ChartBody({
   );
 }
 
+/** Commit a complete series only. Mid-load points/window/value stay on last-good. */
+function useHeldLivelinePlot(
+  status: PriceHistoryState["status"],
+  incoming: LivelinePoint[],
+  range: MarketPriceRange,
+): HeldLivelinePlot | null {
+  const [held, setHeld] = useState<HeldLivelinePlot | null>(null);
+
+  if (status === "ready" && incoming.length > 0) {
+    const next = commitLivelinePlot(incoming, range);
+    if (held?.key !== next.key) {
+      setHeld(next);
+      return next;
+    }
+    return held;
+  }
+
+  if (status === "empty" || status === "error") {
+    if (held) {
+      setHeld(null);
+      return null;
+    }
+    return null;
+  }
+
+  return held;
+}
+
+function usePresentedLivelinePlot(
+  plot: HeldLivelinePlot | null,
+  reduceMotion: boolean,
+) {
+  const [foreground, setForeground] = useState<HeldLivelinePlot | null>(null);
+  const [warming, setWarming] = useState<HeldLivelinePlot | null>(null);
+
+  let nextForeground = foreground;
+  let nextWarming = warming;
+
+  if (!plot) {
+    nextForeground = null;
+    nextWarming = null;
+  } else if (reduceMotion || !foreground || foreground.key === plot.key) {
+    nextForeground = plot;
+    nextWarming = null;
+  } else if (warming?.key !== plot.key) {
+    nextWarming = plot;
+  }
+
+  if (nextForeground !== foreground) setForeground(nextForeground);
+  if (nextWarming !== warming) setWarming(nextWarming);
+
+  const warmingKey = nextWarming?.key ?? null;
+  useEffect(() => {
+    if (!plot || !warmingKey || plot.key !== warmingKey) return;
+    const timer = window.setTimeout(() => {
+      setForeground(plot);
+      setWarming(null);
+    }, LIVELINE_SWAP_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [plot, warmingKey]);
+
+  return { foreground: nextForeground, warming: nextWarming };
+}
+
+function commitLivelinePlot(
+  points: LivelinePoint[],
+  range: MarketPriceRange,
+): HeldLivelinePlot {
+  const first = points[0]!;
+  const last = points[points.length - 1]!;
+  return {
+    key: `${range}:${first.time}:${last.time}:${points.length}:${last.value}`,
+    points,
+    range,
+    value: last.value,
+    windowSecs: visibleWindowSeconds(range, points),
+  };
+}
+
 function AssetLiveline({
-  points,
-  range,
+  plot,
   loading = false,
   reduceMotion,
 }: {
-  points: readonly LivelinePoint[];
-  range: MarketPriceRange;
+  plot: HeldLivelinePlot | null;
   loading?: boolean;
   reduceMotion: boolean;
 }) {
-  const value = points[points.length - 1]?.value ?? 0;
-  const windowSecs = visibleWindowSeconds(range, points);
+  const range = plot?.range ?? "1W";
   const formatTime = useMemo(
     () => (time: number) => formatChartTime(time, range),
     [range],
@@ -124,9 +216,9 @@ function AssetLiveline({
 
   return (
     <Liveline
-      data={[...points]}
-      value={value}
-      window={windowSecs}
+      data={plot?.points ?? []}
+      value={plot?.value ?? 0}
+      window={plot?.windowSecs ?? RANGE_SECONDS[range]}
       theme="light"
       color={LINE_COLOR}
       fill

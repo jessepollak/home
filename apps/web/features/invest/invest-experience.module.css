@@ -286,10 +286,25 @@
   background: var(--home-canvas);
 }
 
-.chartStage > div {
+.chartStage > div,
+.plotLive > div,
+.plotWarm > div {
   flex: 1;
   min-width: 0;
   min-height: 260px;
+}
+
+.plotLive,
+.plotWarm {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-height: 260px;
+}
+
+.plotWarm {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .chartMessage {
