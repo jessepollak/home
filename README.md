@@ -10,7 +10,7 @@ Real wallet signatures and funded end-to-end flows have not been exercised. Stoc
 
 ## Get started
 
-This repository is meant to be **cloned and run**, then customized. Brand, regions, asset selection, and providers are replaceable; each operator uses their own projects and credentials. See [Fork and extend](docs/fork-and-extend.md) when you are ready to change those. The [docs index](docs/README.md) lists setup, design, and registry notes.
+This repository is meant to be **cloned and run**, then customized. Brand, regions, asset selection, and providers are replaceable; each operator uses their own projects and credentials. See [Fork and extend](docs/fork-and-extend.md) when you are ready to change those. Current-state docs: [build status](docs/build-status.md), [wallet runtime](docs/wallet-runtime-spike.md), [architecture review](docs/architecture-review-2026-09.md). The [docs index](docs/README.md) lists setup, product-intent, and **target/archive** notes (the 2026-09-07 design is not the live tree).
 
 ### Prerequisites
 
@@ -58,26 +58,26 @@ GitHub Actions CI on pull requests and pushes to `main` runs `bun install --froz
 
 ### Local persistence
 
-Money-action records use a private, automatically created SQLite database under `.local/` (typically `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace). No hosted database is needed for the local spike. **This is not shared production persistence.** Read [wallet runtime notes](docs/wallet-runtime-spike.md) and [build status](docs/build-status.md) before any deployment. The production store described in [technical design](docs/technical-design.md) is Neon/Postgres; it is not what `bun dev` uses.
+Money-action records use a private, automatically created SQLite database under `.local/` (typically `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace). No hosted database is needed for the local spike. **This is not shared production persistence.** Read [wallet runtime notes](docs/wallet-runtime-spike.md) and [build status](docs/build-status.md) before any deployment. The Neon/Postgres store in [target architecture](docs/target-architecture.md) is a production destination, not what `bun dev` uses.
 
 Edit `apps/web/app/home-experience.tsx` for the Home shell, `apps/web/features/` for account/Invest/Savings UI, `apps/web/app/globals.css` for visual tokens, and `apps/web/config/` for presentation settings and sourced asset identities. Keep one root `bun.lock`. Real configuration belongs only in the gitignored `apps/web/.env.local`.
 
 ## Start here
 
-- [Get started](#get-started) — clone, install, env, `bun dev`.
-- [Fork and extend](docs/fork-and-extend.md) — brand, regions, assets, providers, local-spike vs production.
-- [Docs index](docs/README.md) — run/operate, design, and registry docs.
-- [CDP setup](docs/cdp-setup.md) — project/origins, email login, server validation and privacy defaults.
-- [SQL setup](docs/cdp-sql.md) — explicit authentication mode, bounded smoke tests and history limitations.
-- [Morpho setup](docs/morpho-setup.md) — USDC vault candidates and read-only verification.
-- [Invest data](docs/invest-data.md) — stock/meme identities and price/eligibility boundaries.
-- [Architecture review](docs/architecture-review-2026-09.md) — current-tree patterns, risks, and the contribution contract for a second engineer. Read this before the target design docs.
-- [Technical design](docs/technical-design.md) — **target** architecture (Vercel, Neon, webhooks, later packages). Not a map of the current tree.
-- [Implementation plan](docs/implementation-plan.md) — historical build chunks and acceptance checks; [build status](docs/build-status.md) is the scoreboard.
-- [Product scope](docs/product-scope.md) — user experience and roadmap.
-- [Regional money](docs/regional-money.md) — geo defaults and native-currency presentation.
-- [Currency defaults](docs/currency-defaults.md) — confirmed selections, including **CADD for Canada** and **wARS for Argentina**.
-- [Stablecoin candidates](docs/stablecoin-candidates.json) — sourced Base contract metadata; verification remains pending and every asset is disabled.
+Current tree first. Target and archive docs are last so they cannot be mistaken for the live app.
+
+1. [Get started](#get-started) — clone, install, env, `bun dev`.
+2. [Build status](docs/build-status.md) — what is delivered and which gates remain.
+3. [Wallet runtime](docs/wallet-runtime-spike.md) — prepare → claim → submit → receipt; SQLite is local-spike only.
+4. [Architecture review](docs/architecture-review-2026-09.md) — current-tree patterns, risks, contribution contract.
+5. [CONTRIBUTING](CONTRIBUTING.md) — how to pick a slice.
+6. [Docs index](docs/README.md) — full map (operate / product intent / target / archive).
+7. [Fork and extend](docs/fork-and-extend.md) — brand, regions, assets, providers.
+8. [CDP setup](docs/cdp-setup.md) · [SQL setup](docs/cdp-sql.md) · [Morpho setup](docs/morpho-setup.md) · [Invest data](docs/invest-data.md)
+
+Product intent (not delivery state): [product scope](docs/product-scope.md), [regional money](docs/regional-money.md), [currency defaults](docs/currency-defaults.md), [stablecoin candidates](docs/stablecoin-candidates.json).
+
+Target / archive (not the current tree): [target architecture](docs/target-architecture.md) (formerly technical design), [archived implementation plan](docs/archive/implementation-plan-2026-09-07.md).
 
 ## Stack and boundaries
 

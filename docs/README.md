@@ -1,8 +1,16 @@
 # Docs
 
-Home documentation is split by job: run a clone, customize it, or read design intent. **Current delivery state is [build status](build-status.md)** (snapshot September 8, 2026). Design docs describe the intended product and production architecture; they are not a feature inventory.
+**Current delivery state is [build status](build-status.md)** (snapshot September 8, 2026). Start there, then the money-action contract and the current-tree review. Target/production-destination docs are demoted below so they cannot be mistaken for the live app.
 
-If you want to run or fork Home, start with the root [Get started](../README.md#get-started) path and [Fork and extend](fork-and-extend.md).
+If you want to run or fork Home, use the root [Get started](../README.md#get-started) path and [Fork and extend](fork-and-extend.md). Contributors: [CONTRIBUTING](../CONTRIBUTING.md).
+
+## Current tree (read first)
+
+| Doc | Use it for |
+|---|---|
+| [Build status](build-status.md) | What is integrated, validation evidence, remaining gates |
+| [Wallet runtime spike](wallet-runtime-spike.md) | Prepare → claim → sign → reconcile; **SQLite under `.local/` is local-spike only** |
+| [Architecture review](architecture-review-2026-09.md) | Current-tree patterns, risks, contribution contract, first-week slices |
 
 ## Run & operate
 
@@ -13,25 +21,33 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | [CDP SQL](cdp-sql.md) | Indexed Base history adapter, auth modes, bounded smoke tests |
 | [Base Account](base-account.md) | Optional SIWE path (`NEXT_PUBLIC_ENABLE_BASE_ACCOUNT`); not enabled by default |
 | [Morpho setup](morpho-setup.md) | USDC vault candidates and read verification; deposit/withdraw status is in [build status](build-status.md) |
-| [Wallet runtime spike](wallet-runtime-spike.md) | Prepare → claim → sign → reconcile; **SQLite under `.local/` is local-spike only** |
-| [Build status](build-status.md) | What is integrated, validation evidence, remaining gates |
 | [Codex prices](codex-prices.md) | Optional server-only Invest USD snapshots |
 | [Portfolio](portfolio.md) | USDC/ETH reads, regional valuation, `BASE_RPC_URL` |
 
 `apps/web/server/borrowing/README.md` documents the single cbBTC/USDC Morpho market used by the local Borrow spike.
 
-## Design & product
+## Product intent
 
-These documents are intent and review material. Status headers point here only for architecture; check [build status](build-status.md) before assuming a paragraph is implemented.
+These describe UX and presentation rules. They are not a feature inventory.
 
 | Doc | Use it for |
 |---|---|
-| [Product scope](product-scope.md) | Livestream UX, roadmap, two-hour build order |
-| [Technical design](technical-design.md) | Production architecture, provider boundaries, **Neon/Postgres** target, Vercel deployment |
-| [Implementation plan](implementation-plan.md) | Intended chunks and acceptance checks |
+| [Product scope](product-scope.md) | Livestream UX and roadmap intent. An app exists; this is not delivery state. |
 | [UI direction](ui-direction.md) | Color, type, feature-module surface rules |
 | [Regional money](regional-money.md) | Native-currency presentation and candidate mapping |
 | [Public transfer feed spec](public-transfer-feed-spec.md) | Specified public ERC-20 transfer feed; not a delivery claim |
+
+## Target / archive (not the current tree)
+
+Do not start a clone or a PR from these. Neon, webhooks, and `packages/*` are production-destination ideas.
+
+| Doc | Use it for |
+|---|---|
+| [Target architecture](target-architecture.md) | Proposed Vercel + Neon/Postgres + webhook design. Formerly `docs/technical-design.md`. |
+| [Archived implementation plan](archive/implementation-plan-2026-09-07.md) | 2026-09-07 two-hour chunk plan. [build status](build-status.md) is the scoreboard. |
+| [Archive index](archive/README.md) | What was moved and why |
+
+Old URLs still resolve: [technical-design.md](technical-design.md) and [implementation-plan.md](implementation-plan.md) are short stubs.
 
 ## Data / registries
 

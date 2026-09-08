@@ -4,22 +4,22 @@
 **Scope:** Current `main` (`0d9db14` and parents). Read of `apps/web/`, `docs/`, `.github/workflows/ci.yml`, and root workspace scripts. No production refactor in this review.  
 **Audience:** Founder + engineer #2. This is a hiring/onboarding contract, not a redesign.
 
-**Current-state docs:** [build status](build-status.md), [wallet runtime spike](wallet-runtime-spike.md), [README](../README.md).  
-**Target-state docs (not the live tree):** [technical design](technical-design.md), [implementation plan](implementation-plan.md), [product scope](product-scope.md).
+**Current-state docs:** [build status](build-status.md), [wallet runtime spike](wallet-runtime-spike.md), [docs index](README.md), [README](../README.md).  
+**Target / archive (not the live tree):** [target architecture](target-architecture.md) (formerly `technical-design.md`), [archived implementation plan](archive/implementation-plan-2026-09-07.md). Product intent: [product scope](product-scope.md).
 
 ---
 
 ## A. Executive summary
 
 - **Conditional go for engineer #2.** The money-action kernel is already a real contract (server-issued plans, owner tuple, atomic claim, immutable submission refs). A second engineer can ship in parallel *if* they stay in a feature lane and treat `apps/web/server/money-actions/` as a single-writer zone.
-- **Do not hire #2 into “make this production-ready this week.”** Local `node:sqlite` plus an in-process sensitive-payload overlay is explicitly not multi-instance persistence. Neon/Drizzle/webhooks from the technical design are **not implemented**. Shipping a second store without store-contract parity is the fastest way to double-dispatch.
-- **The live app is a Bun monorepo with one Next.js app** (`apps/web`). There is no `packages/core`, `packages/db`, `lib/api`, TanStack Query, Zod, or `POST /api/webhooks/cdp`. Technical design still opens with “no Home application has been implemented.” That sentence will send a new hire into the wrong tree.
+- **Do not hire #2 into “make this production-ready this week.”** Local `node:sqlite` plus an in-process sensitive-payload overlay is explicitly not multi-instance persistence. Neon/Drizzle/webhooks from [target architecture](target-architecture.md) are **not implemented**. Shipping a second store without store-contract parity is the fastest way to double-dispatch.
+- **The live app is a Bun monorepo with one Next.js app** (`apps/web`). There is no `packages/core`, `packages/db`, `lib/api`, TanStack Query, Zod, or `POST /api/webhooks/cdp`. The 2026-09-07 design that described that missing tree now lives at [target architecture](target-architecture.md); old `technical-design.md` / `implementation-plan.md` URLs are stubs.
 - **Strongest existing pattern:** thin `app/api/*/route.ts` factories + injectable `MoneyActionStore` + session-derived owner. Browsers submit intents or `{ reviewHash }`, never call plans. Keep this.
 - **Strongest safety tests already exist:** owner isolation, atomic claim (`dispatch` vs `recover`), immutable submission handles, and a Node SQLite race probe. CI runs `bun check` (372 passing unit/contract tests + lint + typecheck + build). Playwright auth and the SQLite probe are **not** in CI.
 - **Fragile seams for two people:** `features/account/cdp-client.tsx` (~2,200 lines), `app/home-experience.tsx` (~840 lines), copied `parseAuthorizedSession` in six handlers, vault addresses duplicated in config vs Morpho, and no ESLint import-boundary rule. Features already import server modules (mostly types/config; a few runtime constants).
 - **Money UI is deliberately not a protocol ledger.** Activity rows are Received/Sent/Self transfer. Valuation is wallet + three USDC vaults, explicitly “Borrow separate,” not net worth. Country selection is presentation, not eligibility.
 - **Gates that remain real:** verified CDP session, provider credentials, stock eligibility, `cdp-embedded`-only trades, Borrow preview-only for undeployed accounts, hosted funding credentials, and “local SQLite ≠ production.” Local acceptance is not production authorization (`docs/build-status.md`).
-- **Go conditions:** (1) assign non-overlapping lanes, (2) require the contribution contract below on every finance PR, (3) retitle target docs so #2 does not scaffold unused packages, (4) do not start a parallel coordinator or a second persistence implementation without a written cutover, (5) keep live funded probes opt-in and out of CI.
+- **Go conditions:** (1) assign non-overlapping lanes, (2) require the contribution contract below on every finance PR, (3) start from current-tree docs only (target architecture is demoted), (4) do not start a parallel coordinator or a second persistence implementation without a written cutover, (5) keep live funded probes opt-in and out of CI.
 
 ---
 
@@ -159,7 +159,7 @@ Priority: **P0** = money-safety or “#2 will do the wrong thing in week 1.” *
 
 | ID | Priority | Problem | Why it hurts a 2-person team | Fix size | Owner lane |
 |---|---|---|---|---|---|
-| R1 | P0 | Technical design / product scope still say the app is unimplemented and prescribe `packages/*`, Neon, Drizzle, webhooks, `bun dev:demo`. | Engineer #2 scaffolds the wrong tree or treats SQLite as a temporary mistake to rip out mid-feature. | S | eng |
+| R1 | P0 | ~~Technical design / product scope presented as live architecture.~~ **Addressed in docs:** target design is [target-architecture.md](target-architecture.md); the 2026-09-07 plan is [archived](archive/implementation-plan-2026-09-07.md); old paths are stubs. Residual risk is someone ignoring the current-tree path. | Engineer #2 scaffolds `packages/*` or Neon mid-feature if they skip [docs/README.md](README.md). | S (done) | eng |
 | R2 | P0 | Default persistence is a single-node SQLite file + **in-process** sensitive swap calldata (`SqliteMoneyActionStore` / `MemoryMoneyActionStore` `sensitiveActions` map). Unique indexes on raw submission columns were **dropped**; only `verified_execution_key` is unique. | Two instances (or a premature Vercel deploy) split-brain claims. A second engineer adding “just Postgres” beside SQLite can double-dispatch. | L (Postgres adapter + cutover) / S (write the “do not deploy money actions multi-instance” rule) | eng |
 | R3 | P0 | Shared money-action kernel is small and load-bearing: `store.ts`, `sqlite-store.node.ts`, `issue.ts`, `handlers.ts`, `status-transitions.js`, `app/api/actions/[id]/claim/route.ts`. Claim route always injects `validateTradeBeforeClaim`. | Two people editing claim/disposition/status in the same week can ship a second dispatch or block every feature. | S (ownership rule) | eng / TPM |
 | R4 | P1 | `parseAuthorizedSession` (or equivalent) is copied in portfolio, valuation, activity, funding, trading, morpho positions, plus a stricter `readAuthorizedMoneyActionSession`. | One loosened copy becomes an auth bypass; easy to miss in review. | M | eng |
@@ -186,7 +186,7 @@ Print this. Use it as the PR checklist.
 
 ### How to pick a slice
 
-1. Read [build-status.md](build-status.md) and [wallet-runtime-spike.md](wallet-runtime-spike.md) before [technical-design.md](technical-design.md). Design docs are the **target**, not the tree.
+1. Read [build-status.md](build-status.md) and [wallet-runtime-spike.md](wallet-runtime-spike.md) before [target-architecture.md](target-architecture.md). Target docs are the **destination**, not the tree.
 2. Pick **one** vertical: one feature directory + its `server/<same>` + its `app/api/<same>` routes. Do not “clean up” the kernel in the same PR.
 3. If the change needs a new `MoneyActionStore` method, a new status, or a change to claim/submission semantics — **stop** and treat it as a kernel PR owned by one person.
 4. Prefer slices that can be proven with `MemoryMoneyActionStore` + fixtures. Live funded transactions are not a PR requirement and must not be added to CI.
@@ -252,11 +252,11 @@ Do **not** add `POST /api/actions/prepare` as a generic dump. Feature-specific p
 |---|---|
 | A delivered feature or gate | [build-status.md](build-status.md) row + remaining gate |
 | Money-action endpoints or store semantics | [wallet-runtime-spike.md](wallet-runtime-spike.md) |
-| A production-destination decision (Postgres, webhooks, packages) | [technical-design.md](technical-design.md), marked as **target** |
+| A production-destination decision (Postgres, webhooks, packages) | [target-architecture.md](target-architecture.md) |
 | Navigation, valuation labels, eligibility copy | [ui-direction.md](ui-direction.md) and this review if the contract changed |
 | A new country/asset | Registry + tests; do not enable funding because a candidate exists in `docs/stablecoin-candidates.json` |
 
-Do not silently “complete” a chunk in [implementation-plan.md](implementation-plan.md). That file is a historical slice plan; build-status is the scoreboard.
+Do not silently “complete” a chunk in the [archived implementation plan](archive/implementation-plan-2026-09-07.md). That file is a historical slice plan; build-status is the scoreboard.
 
 ### Gates and fixtures
 
@@ -306,12 +306,12 @@ Small, reviewable PRs that exercise good seams. None require a live funded trans
                               # savings-actions, trading, transfers, valuation
     config/                   # regions, assets, navigation, brand
     tests/browser/            # Playwright auth (not in CI)
-  docs/                       # mix of target design and current status
+  docs/                       # current-state first; target + archive demoted
   scripts/                    # opt-in probes (cdp-sql, sqlite)
   .github/workflows/ci.yml    # bun install --frozen-lockfile && bun check
 ```
 
-**Missing vs technical design (intentional so far, not forgotten checkboxes):** `packages/core`, `packages/db`, `packages/config`, `packages/integrations`, `apps/web/lib/api`, `infra/`, `content/locales/`, `examples/`, `POST /api/webhooks/cdp`, `GET /api/capabilities`, generic `POST /api/actions/prepare`, `bun dev:demo`, `bun doctor`.
+**Missing vs [target architecture](target-architecture.md) (intentional so far, not forgotten checkboxes):** `packages/core`, `packages/db`, `packages/config`, `packages/integrations`, `apps/web/lib/api`, `infra/`, `content/locales/`, `examples/`, `POST /api/webhooks/cdp`, `GET /api/capabilities`, generic `POST /api/actions/prepare`, `bun dev:demo`, `bun doctor`.
 
 **Implemented beyond the 2026-09-07 chunk plan:** durable send + savings deposit/withdraw + email-controlled swaps + one Borrow market + valuation + Activity + funding handoff — all behind gates, all on local SQLite.
 

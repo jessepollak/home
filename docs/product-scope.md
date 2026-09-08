@@ -4,9 +4,7 @@ Status: product intent and livestream UX draft. A local finance spike exists in 
 Current delivery: [build status](build-status.md). Current tree: [architecture review](architecture-review-2026-09.md). Run: [Get started](../README.md#get-started), [fork and extend](fork-and-extend.md).
 Date: 2026-09-07 (header updated 2026-09-08)
 
-Architecture: [Home technical design](technical-design.md) defines the proposed module boundaries, fork workflow and release requirements. It includes day-one database persistence, CDP SQL history, RPC current-state reads, CDP webhooks and Vercel-only deployment.
-
-Build sequence: [Home implementation plan](implementation-plan.md) separates today’s vertical slices from follow-on work.
+Proposed production architecture (not the current tree): [target architecture](target-architecture.md) (Vercel, Neon/Postgres, CDP webhooks). Historical livestream chunks: [archived implementation plan](archive/implementation-plan-2026-09-07.md).
 
 ## Recommendation
 
@@ -59,7 +57,7 @@ The timebox includes publishing and checks. Success is a live app with real auth
 
 ## Technical scope
 
-Proposed stack: Next.js + TypeScript + Tailwind, CDP React user-wallet SDK, viem for onchain reads/encoding, a Next.js server API for provider credentials, onramp sessions and quotes, and PostgreSQL + Drizzle from day one. Use CDP SQL API for history and CDP/RPC for current balances/receipts. Deployment: Vercel for web/API, CDP webhook handling and request-driven status checks, Neon Postgres provisioned through Vercel Marketplace. No separately hosted Ponder service. Pin the compatible dependency set during scaffold; use bun where supported.
+Proposed stack (livestream / production destination — **not** what `bun dev` uses today; current spike is Next.js + local SQLite, see [build status](build-status.md)): Next.js + TypeScript + Tailwind, CDP React user-wallet SDK, viem for onchain reads/encoding, a Next.js server API for provider credentials, onramp sessions and quotes, and PostgreSQL + Drizzle from day one. Use CDP SQL API for history and CDP/RPC for current balances/receipts. Deployment: Vercel for web/API, CDP webhook handling and request-driven status checks, Neon Postgres provisioned through Vercel Marketplace. No separately hosted Ponder service. Pin the compatible dependency set during scaffold; use bun where supported.
 
 - Wallet: CDP email OTP with smart-account creation. The end-user wallet signs actions; do not substitute a server-controlled wallet. Use the smart account as the destination and balance owner consistently.
 - Network: Base mainnet for verified assets; isolated testnet/demo configuration for rehearsals. Never mingle fixture balances and actual assets.

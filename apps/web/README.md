@@ -1,6 +1,6 @@
 # Home web
 
-Next.js App Router, strict TypeScript, and Tailwind CSS. This file is a workspace command note, not a feature inventory — see the [root Get started](../../README.md#get-started) path, [fork and extend](../../docs/fork-and-extend.md), and [build status](../../docs/build-status.md).
+Next.js App Router, strict TypeScript, and Tailwind CSS. This file is a workspace command note, not a feature inventory — see the [root Get started](../../README.md#get-started) path, [build status](../../docs/build-status.md), [wallet runtime](../../docs/wallet-runtime-spike.md), [architecture review](../../docs/architecture-review-2026-09.md), and [fork and extend](../../docs/fork-and-extend.md).
 
 Run commands from the repository root:
 

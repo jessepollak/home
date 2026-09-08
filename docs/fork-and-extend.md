@@ -72,7 +72,7 @@ Changing a vault or market address is not enough: adapters check chain, exact co
 
 The running app is a **local finance spike**, not a production-approved deployment. See [build status](build-status.md) and [wallet runtime](wallet-runtime-spike.md).
 
-| Local spike (what `bun dev` uses) | Proposed production ([technical design](technical-design.md)) |
+| Local spike (what `bun dev` uses) | Proposed production ([target architecture](target-architecture.md), not the current tree) |
 |---|---|
 | Node `node:sqlite` money-action store under `.local/` (`apps/web/.local/home-money-actions.sqlite` when Next runs from `apps/web`) | Neon Postgres via Vercel Marketplace + Drizzle |
 | No hosted database, webhooks, or shared persistence | CDP webhooks, request-driven status, isolated preview/production databases |

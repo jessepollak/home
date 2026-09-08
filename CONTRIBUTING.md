@@ -4,12 +4,13 @@ Home is a local finance spike, not a production-approved money app. Read this be
 
 ## Start here
 
-1. [README](README.md) — how to run `bun dev` / `bun check`.
+1. [README — Get started](README.md#get-started) — how to run `bun dev` / `bun check`.
 2. [Build status](docs/build-status.md) — what is delivered and which gates remain.
 3. [Wallet runtime](docs/wallet-runtime-spike.md) — prepare → claim → submit → receipt.
 4. [Architecture review (2026-09)](docs/architecture-review-2026-09.md) — patterns to keep, risks, **contribution contract**, and first-week slices.
+5. [Docs index](docs/README.md) — operate, product intent, and demoted target/archive docs.
 
-[Technical design](docs/technical-design.md) and [implementation plan](docs/implementation-plan.md) describe the **target** production architecture (Vercel + Neon + webhooks, later `packages/*`). They are not a map of the current tree.
+Later, if you are working on production persistence or hosting: [target architecture](docs/target-architecture.md) (Vercel + Neon + webhooks, later `packages/*`). That file is **not** a map of the current tree. The 2026-09-07 two-hour chunk plan is [archived](docs/archive/implementation-plan-2026-09-07.md).
 
 ## Local checks
 
