@@ -55,7 +55,7 @@ Exactly one store is active per process. There is no dual-write.
 | `DATABASE_URL` set | Postgres/Neon only | `PostgresMoneyActionStore` (`@neondatabase/serverless`) |
 | Vercel without `DATABASE_URL` | Fail closed | Does **not** load `node:sqlite` |
 
-`apps/web/server/money-actions/runtime-store.ts` selects the adapter. Tests keep using `setMoneyActionStoreForTests`. Feature plan contracts and browser execution are unchanged.
+`apps/web/server/money-actions/runtime-store.ts` selects the adapter. Hosted Turbopack builds alias the SQLite module to a stub so the serverless graph never loads `node:sqlite`. Tests keep using `setMoneyActionStoreForTests`. Feature plan contracts and browser execution are unchanged.
 
 ### Operator setup (Neon on Vercel)
 

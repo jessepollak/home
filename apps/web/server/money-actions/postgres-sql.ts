@@ -358,8 +358,8 @@ export function createFakePostgresExecutor(): SqlExecutor {
   };
 
   const executor: SqlExecutor = {
-    async query(text, values = []) {
-      return run(text, values);
+    async query<T = Record<string, unknown>>(text: string, values: unknown[] = []) {
+      return run(text, values) as SqlQueryResult<T>;
     },
     async transaction(fn) {
       let release!: () => void;

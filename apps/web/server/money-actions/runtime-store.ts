@@ -8,8 +8,10 @@ export function setMoneyActionStoreForTests(store: MoneyActionStore | null): voi
   runtimeStore = null;
 }
 
+type StoreSelectionEnv = { [key: string]: string | undefined };
+
 export function resolveMoneyActionStoreBackend(
-  env: NodeJS.ProcessEnv = process.env,
+  env: StoreSelectionEnv = process.env as StoreSelectionEnv,
 ): "postgres" | "sqlite" | "hosted-unconfigured" {
   if (env.DATABASE_URL?.trim()) return "postgres";
   if (env.VERCEL) return "hosted-unconfigured";
