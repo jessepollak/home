@@ -1,7 +1,7 @@
 # Home — technical design
 
-Status: proposed for review. No Home application, packages, commands or integrations described here have been implemented.
-Updated: 2026-09-07
+Status: **target architecture**, not a description of the current repository. A local finance spike now lives in `apps/web/` (Next.js + local SQLite money actions). See [build status](build-status.md), [wallet runtime](wallet-runtime-spike.md), and the [2026-09 architecture review](architecture-review-2026-09.md) for what is actually implemented.
+Updated: 2026-09-08 (status banner). Body below is still the 2026-09-07 production-destination design.
 Product scope: [Home product scope](product-scope.md)
 Build chunks and review: [Home implementation plan](implementation-plan.md)
 

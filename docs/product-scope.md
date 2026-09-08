@@ -1,7 +1,7 @@
 # Home — livestream product and technical scope
 
-Status: design draft; no application implementation started.
-Date: 2026-09-07
+Status: product-scope draft. A local application spike exists in `apps/web/`; this file is not an implementation checklist. See [build status](build-status.md) and the [2026-09 architecture review](architecture-review-2026-09.md).
+Date: 2026-09-07 (status banner 2026-09-08)
 
 Architecture: [Home technical design](technical-design.md) defines the proposed module boundaries, fork workflow and release requirements. It includes day-one database persistence, CDP SQL history, RPC current-state reads, CDP webhooks and Vercel-only deployment.
 

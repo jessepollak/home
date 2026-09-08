@@ -1,7 +1,7 @@
 # Home — implementation chunks
 
-Status: implementation underway. This document describes the intended build sequence; see [build status](build-status.md) for current delivered features, validation evidence, active repairs, and remaining gates.
-Updated: 2026-09-07
+Status: historical slice plan. Use [build status](build-status.md) as the scoreboard and the [2026-09 architecture review](architecture-review-2026-09.md) for how to extend the current tree. Several follow-on chunks (save, trade, borrow) were integrated locally on SQLite; Neon, webhooks, and the `packages/*` layout in the technical design are still target work.
+Updated: 2026-09-08 (status banner). Body below is still the 2026-09-07 chunk plan.
 References: [technical design](technical-design.md), [product scope](product-scope.md).
 
 ## Review conclusion

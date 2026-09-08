@@ -39,8 +39,9 @@ Edit `apps/web/app/home-experience.tsx` for the Home shell, `apps/web/features/`
 - [SQL setup](docs/cdp-sql.md) — explicit authentication mode, bounded smoke tests and history limitations.
 - [Morpho setup](docs/morpho-setup.md) — USDC vault candidates and read-only verification.
 - [Invest data](docs/invest-data.md) — stock/meme identities and price/eligibility boundaries.
-- [Technical design](docs/technical-design.md) — architecture, provider boundaries, persistence, signing and status recovery.
-- [Implementation plan](docs/implementation-plan.md) — buildable chunks, dependencies and acceptance checks.
+- [Architecture review](docs/architecture-review-2026-09.md) — current-tree patterns, risks, and the contribution contract for a second engineer. Read this before the target design docs.
+- [Technical design](docs/technical-design.md) — **target** architecture (Vercel, Neon, webhooks, later packages). Not a map of the current tree.
+- [Implementation plan](docs/implementation-plan.md) — historical build chunks and acceptance checks; [build status](docs/build-status.md) is the scoreboard.
 - [Product scope](docs/product-scope.md) — user experience and roadmap.
 - [Regional money](docs/regional-money.md) — geo defaults and native-currency presentation.
 - [Currency defaults](docs/currency-defaults.md) — confirmed selections, including **CADD for Canada** and **wARS for Argentina**.
@@ -56,7 +57,7 @@ Venice/agent inference, Rain cards, additional funding providers, unrestricted a
 
 ## Forking and contributing
 
-Fork this repository to follow along or build your own version. Brand, regions, asset selection and providers are designed to be replaceable. Each operator will configure their own provider projects, credentials and deployment. See the implementation plan for the next build slice; design feedback and focused pull requests are welcome. Pull requests and pushes to `main` run GitHub Actions CI: `bun install --frozen-lockfile` then `bun check`. Live probes stay opt-in and are not enabled in CI.
+Fork this repository to follow along or build your own version. Brand, regions, asset selection and providers are designed to be replaceable. Each operator will configure their own provider projects, credentials and deployment. See [CONTRIBUTING](CONTRIBUTING.md) and the [architecture review](docs/architecture-review-2026-09.md) for how to pick a slice; [build status](docs/build-status.md) is the scoreboard. Pull requests and pushes to `main` run GitHub Actions CI: `bun install --frozen-lockfile` then `bun check`. Live probes stay opt-in and are not enabled in CI.
 
 Never commit credentials or funded-wallet secrets. Documented token/provider support is separate from a tested integration.
 

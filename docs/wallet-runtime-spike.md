@@ -2,6 +2,8 @@
 
 Status: local implementation spike, September 8, 2026.
 
+Team/onboarding context: [architecture review](architecture-review-2026-09.md). This file remains the money-action contract.
+
 Home money actions now use a server-issued prepare → review → atomic claim → user-wallet submission → receipt reconciliation lifecycle. The shared contract is `apps/web/features/money-actions/types.ts`; reviewed feature adapters issue plans through `issueMoneyAction`. Browsers submit only a prepared action id and immutable review hash. The server returns the canonical calls bound to the verified CDP subject, Base address, chain 8453, and selected account provider.
 
 ## Local-only persistence
