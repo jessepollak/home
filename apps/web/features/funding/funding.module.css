@@ -165,11 +165,43 @@
   user-select: all;
 }
 
-.buttonRow {
+.buttonRow,
+.actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+.actions {
+  margin-top: 16px;
+}
+
+.signIn,
+.home {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--control-radius);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 720;
+  padding: 0 18px;
+  text-decoration: none;
+}
+
+.signIn {
+  border: 1px solid var(--home-blue);
+  background: var(--home-blue);
+  color: var(--home-white);
+}
+
+.home {
+  border: 1px solid var(--home-gray-100);
+  background: var(--home-white);
+  color: var(--home-ink);
 }
 
 .primary,
@@ -203,9 +235,11 @@
 
 .primary:focus-visible,
 .secondary:focus-visible,
+.signIn:focus-visible,
+.home:focus-visible,
 .back:focus-visible,
 .explorer:focus-visible {
-  outline: 2px solid #0052ff;
+  outline: 2px solid var(--home-blue);
   outline-offset: 2px;
 }
 
