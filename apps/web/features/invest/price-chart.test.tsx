@@ -79,7 +79,7 @@ describe("PriceChart Liveline", () => {
     expect(chart.value).toBe(64210);
     expect(chart.window).toBeGreaterThanOrEqual(7 * 86_400);
     expect(chart.padding).toEqual(LIVELINE_PLOT_PADDING);
-    expect(LIVELINE_PLOT_PADDING.right).toBeGreaterThanOrEqual(32);
+    expect(LIVELINE_PLOT_PADDING.right).toBeGreaterThanOrEqual(48);
     expect(LIVELINE_PLOT_PADDING.left).toBeGreaterThanOrEqual(16);
   });
 

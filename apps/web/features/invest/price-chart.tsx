@@ -19,10 +19,10 @@ const RANGE_SECONDS: Record<MarketPriceRange, number> = {
   "1Y": 365 * 86_400,
 };
 
-/** Liveline pulse ring max is 21px + 1.5 stroke; keep the live tip inside the plot. */
+/** Pulse ring max is 21px; momentum chevrons sit ~25px to the right of the live tip. */
 export const LIVELINE_PLOT_PADDING = {
   top: 24,
-  right: 36,
+  right: 48,
   bottom: 28,
   left: 16,
 } as const;
