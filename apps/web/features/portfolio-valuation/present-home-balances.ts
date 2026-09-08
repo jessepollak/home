@@ -1,4 +1,4 @@
-import { formatBaseUnitAmount } from "@/features/portfolio";
+import { formatTokenAmount } from "@/features/formatting";
 import type {
   CashBucket,
   PortfolioValuationSnapshot,
@@ -134,7 +134,7 @@ function presentAssetRows(
       group: "asset",
       name: holding.name,
       detail: holding.symbol,
-      displayBalance: `${formatBaseUnitAmount(
+      displayBalance: `${formatTokenAmount(
         holding.balanceBaseUnits,
         holding.decimals,
       )} ${holding.symbol}`,

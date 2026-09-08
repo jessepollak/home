@@ -249,6 +249,35 @@ describe("presentPortfolioValuation", () => {
     expect(JSON.stringify(presented.items)).not.toContain("USDC");
   });
 
+  test("bounds dust ETH for display instead of rendering eighteen fractional digits", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: nativeEthAsset.id,
+              assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+              name: nativeEthAsset.name,
+              symbol: nativeEthAsset.symbol,
+              balanceBaseUnits: "1",
+            }),
+          ],
+          omissions: [],
+        },
+      }),
+      error: null,
+    });
+
+    expect(presented.items.find((item) => item.group === "asset")).toMatchObject({
+      name: "Ethereum",
+      displayBalance: "<0.000001 ETH",
+    });
+    expect(JSON.stringify(presented.items)).not.toContain("0.000000000000000001");
+  });
+
   test("omits zero ETH and keeps selected local cash out of the asset list", () => {
     const presented = presentPortfolioValuation({
       status: "ready",
