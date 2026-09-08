@@ -50,12 +50,43 @@ Keep one owner. Re-label when ownership moves. Do not assign the GitHub user —
 | Label | Meaning |
 |---|---|
 | `status:todo` | Not started |
-| `status:working` | In progress |
+| `status:working` | In progress. Prefer this. |
 | `status:ready-for-review` | Ready for eng review (Hannah) |
 | `status:blocked` | Blocked; name the dependency on the issue |
 | `status:needs-jesse` | Needs a Jesse decision or merge |
 
+One `status:*` at a time. Swap; do not stack. When you advance, remove the previous status label.
+
+Prefer `status:working`. Do not use `status:in-progress` — deprecated; ignore it if present.
+
+#### Status label hygiene
+
+**Add `status:ready-for-review`** only when all of:
+
+- eng review is actually needed
+- required design LGTM is done (if UI)
+- the item is not on HOLD
+
+Never on draft PRs.
+
+**Add `status:needs-jesse`** only when:
+
+- the item is truly ready for Jesse merge (Hannah eng LGTM done; Hazel if UI), or
+- a Jesse decision is needed
+
+Never before eng LGTM. Never on draft PRs. Never leave `needs-jesse` on an issue whose linked PR is still draft.
+
 `status:needs-jesse` is not a substitute for Hannah's review. Eng review first; Jesse last.
+
+**Remove** both `status:ready-for-review` and `status:needs-jesse` when any of:
+
+- design or eng HOLD
+- `REQUEST_CHANGES`
+- PR goes draft
+- PR closed without merge
+- issue returns to `todo` or `working`
+
+Then leave only the single current `status:*`.
 
 ### `lane:*`
 
@@ -117,7 +148,7 @@ Crew may review. Hannah's eng review can proceed. Hannah never merges.
 
 **Only Jesse (`jessepollak`) gives the final +1 and merges.** Merge waits on Jesse even when Hannah has reviewed. Third-party PRs already required Jesse +1; crew PRs use the same bar.
 
-When a PR is ready for Jesse, mark the issue `status:needs-jesse` (and say so on the PR). Do not merge your own work. Do not treat a crew +1 as merge permission.
+When a PR is ready for Jesse, swap the issue to `status:needs-jesse` (and say so on the PR). See [status label hygiene](#status-label-hygiene). Do not merge your own work. Do not treat a crew +1 as merge permission.
 
 ## Daily domain quality reviews
 
@@ -153,7 +184,7 @@ Weekdays ~9:00 PT. 15–20 min per lane. Async-first. Quiet if nothing actionabl
 ### Hannah
 
 - Eng-review undrafted PRs.
-- Label `status:ready-for-review` or `status:needs-jesse`. Never merge.
+- Label one of `status:ready-for-review` or `status:needs-jesse` (see [hygiene](#status-label-hygiene)). Never merge.
 - Weekly hygiene: max one issue.
 
 ### Good looks like
