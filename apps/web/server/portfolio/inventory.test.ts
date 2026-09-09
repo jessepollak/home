@@ -92,11 +92,42 @@ function rpcRespond(
   throw new Error(`unexpected vault calldata ${call.data}`);
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function omittedZeros(requests: ReadonlyArray<{ id: string }>) {
+  return new Map(requests.map(({ id }) => [id, "0"]));
+}
+
+function omittedNulls(requests: ReadonlyArray<{ id: string }>) {
+  return new Map(requests.map(({ id }) => [id, null]));
+}
+
+function ethOnlyComplete() {
+  return {
+    complete: true,
+    balances: [
+      {
+        contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
+        amountBaseUnits: "1101012331497033445",
+        native: true,
+      },
+    ],
+  } as const;
+}
+
+function pinnedBlock() {
+  return { number: "16" as const, hash: BLOCK_HASH, timestamp: "100" as const };
+}
+
 function createFetch(options: {
   tokenBalances: (url: URL) => Response | Promise<Response>;
   cashAmounts?: ReadonlyMap<string, bigint>;
+  failFirstCashBatch?: boolean;
 }) {
   const rpcBodies: unknown[] = [];
+  let failFirstCashBatch = options.failFirstCashBatch === true;
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.pathname.includes("/v2/data/evm/token-balances/")) {
@@ -107,6 +138,21 @@ function createFetch(options: {
       | { id: number; method: string; params: unknown[] }
       | Array<{ id: number; method: string; params: unknown[] }>;
     rpcBodies.push(body);
+    const items = Array.isArray(body) ? body : [body];
+    const cashContracts = new Set(
+      getDirectPortfolioAssets()
+        .filter((asset) => asset.cashCurrency && asset.contractAddress)
+        .map((asset) => asset.contractAddress!.toLowerCase()),
+    );
+    const isCashBatch = items.some((item) => {
+      if (item.method !== "eth_call") return false;
+      const to = (item.params[0] as { to?: string } | undefined)?.to?.toLowerCase();
+      return to !== undefined && cashContracts.has(to);
+    });
+    if (isCashBatch && failFirstCashBatch) {
+      failFirstCashBatch = false;
+      return new Response("rate limited", { status: 429 });
+    }
     if (!Array.isArray(body)) {
       return Response.json(rpcRespond(body, options.cashAmounts));
     }
@@ -481,6 +527,139 @@ describe("Phase A portfolio inventory", () => {
       kind: "vault-position",
       underlyingBaseUnits: "999000",
       readStatus: "ready",
+    });
+  });
+
+  test("keeps omitted cash ready 0 when the inventory AbortSignal is already spent", async () => {
+    const seenAborted: boolean[] = [];
+    const snapshot = await createPortfolioInventoryReader({
+      timeoutMs: 25,
+      cashVerifyTimeoutMs: 200,
+      cashVerifyAttempts: 1,
+      listTokenBalances: async () => {
+        await wait(15);
+        return ethOnlyComplete();
+      },
+      readVaultInventory: async () => ({
+        block: pinnedBlock(),
+        holdings: [],
+      }),
+      readOmittedCashBalances: async (requests, _owner, _block, signal) => {
+        await wait(40);
+        seenAborted.push(signal.aborted);
+        return omittedZeros(requests);
+      },
+      now: () => new Date("2026-09-09T01:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(seenAborted).toEqual([false]);
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "1101012331497033445",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+  });
+
+  test("retries omitted-cash verify after a transport miss and keeps RPC 0 ready", async () => {
+    let attempts = 0;
+    const snapshot = await createPortfolioInventoryReader({
+      cashVerifyTimeoutMs: 200,
+      cashVerifyAttempts: 2,
+      listTokenBalances: async () => ethOnlyComplete(),
+      readVaultInventory: async () => ({
+        block: pinnedBlock(),
+        holdings: [],
+      }),
+      readOmittedCashBalances: async (requests) => {
+        attempts += 1;
+        if (attempts === 1) return omittedNulls(requests);
+        return omittedZeros(requests);
+      },
+      now: () => new Date("2026-09-09T01:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(attempts).toBe(2);
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+  });
+
+  test("does not invent ready zeros when dedicated cash-verify time runs out", async () => {
+    const snapshot = await createPortfolioInventoryReader({
+      cashVerifyTimeoutMs: 20,
+      cashVerifyAttempts: 1,
+      listTokenBalances: async () => ethOnlyComplete(),
+      readVaultInventory: async () => ({
+        block: pinnedBlock(),
+        holdings: [],
+      }),
+      readOmittedCashBalances: async (requests, _owner, _block, signal) => {
+        await wait(60);
+        if (signal.aborted) return omittedNulls(requests);
+        return omittedZeros(requests);
+      },
+      now: () => new Date("2026-09-09T01:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "1101012331497033445",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "unavailable",
+      balanceBaseUnits: null,
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
+      readStatus: "unavailable",
+      balanceBaseUnits: null,
+    });
+  });
+
+  test("default cash RPC reader recovers a 429 on omitted cash and keeps RPC 0 ready", async () => {
+    const { fetchImpl } = createFetch({
+      tokenBalances: () =>
+        Response.json({
+          balances: [tokenBalance("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", "7")],
+        }),
+      cashAmounts: new Map([
+        ["usdc", BigInt(0)],
+        ["idrx", BigInt(0)],
+        ["eurc", BigInt(0)],
+      ]),
+      failFirstCashBatch: true,
+    });
+
+    const snapshot = await createPortfolioInventoryReader({
+      fetchImpl,
+      rpcUrl: "https://rpc.example.test",
+      env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
+      generateJwtImpl: async () => "signed-jwt",
+      now: () => new Date("2026-09-09T01:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "7",
     });
   });
 

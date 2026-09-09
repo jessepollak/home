@@ -75,7 +75,8 @@ export function createOmittedCashBalanceReader(options: {
           batch.map(({ request }) => request),
           signal,
         );
-      } catch {
+      } catch (error) {
+        if (isAbortError(error, signal)) throw error;
         continue;
       }
       if (!Array.isArray(parsed)) continue;
@@ -143,6 +144,13 @@ function encodeBalanceOf(address: PortfolioAddress): `0x${string}` {
 
 function toQuantityHex(decimal: string): string {
   return `0x${BigInt(decimal).toString(16)}`;
+}
+
+function isAbortError(error: unknown, signal: AbortSignal): boolean {
+  return (
+    signal.aborted ||
+    (error instanceof Error && error.name === "AbortError")
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

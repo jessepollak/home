@@ -30,6 +30,9 @@ import {
 import type { VerifiedPortfolioAccount } from "./types";
 
 export const PORTFOLIO_INVENTORY_TIMEOUT_MS = 10_000;
+/** Fresh budget for omitted-cash `balanceOf` — not leftover from CDP + vaults. */
+export const PORTFOLIO_CASH_VERIFY_TIMEOUT_MS = 4_000;
+export const PORTFOLIO_CASH_VERIFY_ATTEMPTS = 2;
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 
@@ -67,6 +70,8 @@ export function createPortfolioInventoryReader(options: {
   ) => Promise<OmittedCashBalanceMap>;
   now?: () => Date;
   timeoutMs?: number;
+  cashVerifyTimeoutMs?: number;
+  cashVerifyAttempts?: number;
 } = {}): PortfolioInventoryReader {
   const listTokenBalances =
     options.listTokenBalances ??
@@ -89,6 +94,10 @@ export function createPortfolioInventoryReader(options: {
     });
   const now = options.now ?? (() => new Date());
   const timeoutMs = options.timeoutMs ?? PORTFOLIO_INVENTORY_TIMEOUT_MS;
+  const cashVerifyTimeoutMs =
+    options.cashVerifyTimeoutMs ?? PORTFOLIO_CASH_VERIFY_TIMEOUT_MS;
+  const cashVerifyAttempts =
+    options.cashVerifyAttempts ?? PORTFOLIO_CASH_VERIFY_ATTEMPTS;
 
   return async function readInventory(
     account: VerifiedPortfolioAccount,
@@ -121,8 +130,12 @@ export function createPortfolioInventoryReader(options: {
         directs.omittedCashIds,
         address,
         vaults.block,
-        controller.signal,
         readOmittedCashBalances,
+        {
+          externalSignal,
+          timeoutMs: cashVerifyTimeoutMs,
+          attempts: cashVerifyAttempts,
+        },
       );
       const fetchedAt = now();
       if (Number.isNaN(fetchedAt.getTime())) {
@@ -234,13 +247,17 @@ async function verifyOmittedCashHoldings(
   omittedCashIds: ReadonlySet<string>,
   address: PortfolioAddress,
   block: InventoryBlock,
-  signal: AbortSignal,
   readOmittedCashBalances: (
     requests: readonly OmittedCashBalanceRequest[],
     owner: PortfolioAddress,
     block: InventoryBlock,
     signal: AbortSignal,
   ) => Promise<OmittedCashBalanceMap>,
+  options: {
+    externalSignal?: AbortSignal;
+    timeoutMs: number;
+    attempts: number;
+  },
 ): Promise<DirectPortfolioHolding[]> {
   const omitted = holdings.filter(
     (holding): holding is DirectPortfolioHolding & {
@@ -250,17 +267,46 @@ async function verifyOmittedCashHoldings(
   );
   if (omitted.length === 0) return holdings;
 
-  let verified: OmittedCashBalanceMap;
-  try {
-    verified = await readOmittedCashBalances(
-      omitted.map(({ id, contractAddress }) => ({ id, contractAddress })),
-      address,
-      block,
-      signal,
-    );
-  } catch (error) {
-    if (signal.aborted) throw error;
-    verified = new Map(omitted.map(({ id }) => [id, null]));
+  const verified = new Map<string, string | null>(
+    omitted.map(({ id }) => [id, null]),
+  );
+  const deadline = Date.now() + options.timeoutMs;
+  const maxAttempts = Math.max(1, options.attempts);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (options.externalSignal?.aborted) {
+      throw new PortfolioInventoryError(
+        "The portfolio inventory request timed out or was aborted.",
+      );
+    }
+    const pending = omitted.filter(({ id }) => verified.get(id) == null);
+    if (pending.length === 0) break;
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), remainingMs);
+    const abort = () => controller.abort();
+    options.externalSignal?.addEventListener("abort", abort, { once: true });
+    try {
+      const batch = await readOmittedCashBalances(
+        pending.map(({ id, contractAddress }) => ({ id, contractAddress })),
+        address,
+        block,
+        controller.signal,
+      );
+      for (const { id } of pending) {
+        const amount = batch.get(id);
+        if (amount !== undefined && amount !== null) {
+          verified.set(id, amount);
+        }
+      }
+    } catch (error) {
+      if (options.externalSignal?.aborted) throw error;
+    } finally {
+      clearTimeout(timeout);
+      options.externalSignal?.removeEventListener("abort", abort);
+    }
   }
 
   return holdings.map((holding) => {
