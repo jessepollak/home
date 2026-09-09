@@ -16,6 +16,7 @@ export {
   homeBalancesPresentationCachePrefix,
   readHomeBalancesPresentation,
   resolvePaintedHomeBalances,
+  usePaintedHomeBalances,
   writeHomeBalancesPresentation,
 } from "./presentation-cache";
 export {

@@ -1,3 +1,6 @@
+"use client";
+
+import { useSyncExternalStore } from "react";
 import { isRegionId, type RegionId } from "@/config/regions";
 import { isAddress } from "@/features/formatting";
 import type {
@@ -27,6 +30,7 @@ const maxIdentityLength = 200;
 const maxLabelLength = 200;
 const maxItemCount = 32;
 const forbiddenIdentityPattern = /authorization|bearer\s|eyj[a-z0-9_-]{10,}\./i;
+const cacheEventName = "home:balances-presentation-cache";
 
 export function homeBalancesPresentationCacheKey(
   identity: Pick<HomeBalancesPresentationCacheIdentity, "subject" | "smartAccount" | "region">,
@@ -47,6 +51,7 @@ export function writeHomeBalancesPresentation(
       homeBalancesPresentationCacheKey(identity),
       stored,
     );
+    emitHomeBalancesPresentationCacheChange();
     return true;
   } catch {
     return false;
@@ -97,6 +102,7 @@ export function deleteHomeBalancesPresentation(
 ): boolean {
   try {
     getStorage().removeItem(homeBalancesPresentationCacheKey(identity));
+    emitHomeBalancesPresentationCacheChange();
     return true;
   } catch {
     return false;
@@ -113,10 +119,77 @@ export function clearHomeBalancesPresentationCache(
         storage.removeItem(key);
       }
     }
+    emitHomeBalancesPresentationCacheChange();
     return true;
   } catch {
     return false;
   }
+}
+
+export function subscribeHomeBalancesPresentationCache(
+  onStoreChange: () => void,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener(cacheEventName, onStoreChange);
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener(cacheEventName, onStoreChange);
+  };
+}
+
+export function usePaintedHomeBalances(input: {
+  ownerKey: string | null;
+  subject?: string | null;
+  smartAccount?: string | null;
+  region: RegionId;
+  live: HomeAssetBalancesPresentation;
+}): HomeAssetBalancesPresentation {
+  const cachedJson = useSyncExternalStore(
+    subscribeHomeBalancesPresentationCache,
+    () => snapshotCachedPresentation(input),
+    () => "",
+  );
+  if (input.live.status === "ready" || !cachedJson) return input.live;
+  try {
+    const cached = JSON.parse(cachedJson) as HomeAssetBalancesPresentation;
+    return {
+      ...cached,
+      statusLabel: cached.statusLabel ?? "Updating…",
+      revalidating: true,
+    };
+  } catch {
+    return input.live;
+  }
+}
+
+function snapshotCachedPresentation(input: {
+  ownerKey: string | null;
+  subject?: string | null;
+  smartAccount?: string | null;
+  region: RegionId;
+  live: HomeAssetBalancesPresentation;
+}): string {
+  if (!input.ownerKey || input.live.status !== "loading") return "";
+  try {
+    const cached = readHomeBalancesPresentation(
+      () => window.localStorage,
+      {
+        ownerKey: input.ownerKey,
+        region: input.region,
+        subject: input.subject,
+        smartAccount: input.smartAccount,
+      },
+    );
+    return cached ? JSON.stringify(cached) : "";
+  } catch {
+    return "";
+  }
+}
+
+function emitHomeBalancesPresentationCacheChange() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(cacheEventName));
 }
 
 export function resolvePaintedHomeBalances(input: {
@@ -269,7 +342,10 @@ function parseStoredRecord(
   if (typeof record.smartAccount !== "string" || !isAddress(record.smartAccount)) {
     return null;
   }
-  if (!isRegionId(record.region) || typeof record.savedAt !== "string") {
+  if (typeof record.region !== "string" || !isRegionId(record.region)) {
+    return null;
+  }
+  if (typeof record.savedAt !== "string") {
     return null;
   }
   const savedAt = Date.parse(record.savedAt);

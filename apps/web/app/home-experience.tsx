@@ -43,7 +43,7 @@ import {
 import {
   deleteHomeBalancesPresentation,
   presentPortfolioValuation,
-  resolvePaintedHomeBalances,
+  usePaintedHomeBalances,
   usePortfolioValuation,
   writeHomeBalancesPresentation,
   type HomeAssetBalanceItem,
@@ -97,6 +97,8 @@ export function PortfolioHomeExperience(
           chainId: account.session.smartAccount.chainId,
         }
       : null;
+  const sessionSubject = session?.subject ?? null;
+  const sessionSmartAccount = session?.smartAccountAddress ?? null;
   usePortfolio(session, account.fetchPortfolio, refreshTrigger);
   const valuation = usePortfolioValuation(
     session,
@@ -105,18 +107,18 @@ export function PortfolioHomeExperience(
     refreshTrigger,
   );
   const refreshWalletData = useCallback(() => {
-    if (session) {
+    if (sessionSubject && sessionSmartAccount) {
       deleteHomeBalancesPresentation(
         () => window.localStorage,
         {
-          subject: session.subject,
-          smartAccount: session.smartAccountAddress,
+          subject: sessionSubject,
+          smartAccount: sessionSmartAccount,
           region: selectedRegion,
         },
       );
     }
     setRefreshTrigger((trigger) => trigger + 1);
-  }, [selectedRegion, session]);
+  }, [selectedRegion, sessionSmartAccount, sessionSubject]);
 
   return (
     <MoneyDataRefreshProvider onConfirmed={refreshWalletData}>
@@ -174,8 +176,6 @@ export function HomeExperience({
     initialAccountSettingsOpen,
   );
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
-  const [cachedAssetBalances, setCachedAssetBalances] =
-    useState<HomeAssetBalancesPresentation | null>(null);
   const shellPath = routeMode === "landing" ? "/" : "/dashboard";
 
   const closeAccount = useCallback(() => {
@@ -249,11 +249,13 @@ export function HomeExperience({
   const liveAssetBalances = isVerified
     ? (assetBalances ?? loadingAssetBalances)
     : loadingAssetBalances;
-  const liveAssetBalancesStatus = liveAssetBalances.status;
-  const paintedAssetBalances =
-    liveAssetBalancesStatus === "ready"
-      ? liveAssetBalances
-      : (cachedAssetBalances ?? liveAssetBalances);
+  const paintedAssetBalances = usePaintedHomeBalances({
+    ownerKey: isSignedOut ? null : account.ownerKey,
+    subject: account.session?.user.subject ?? null,
+    smartAccount: account.session?.smartAccount?.address ?? null,
+    region: regionId,
+    live: liveAssetBalances,
+  });
   const activitySession: VerifiedAccountSession | null =
     isVerified && account.session?.smartAccount ? account.session : null;
   const fetchAccountResource = account.fetchAccountResource;
@@ -274,30 +276,6 @@ export function HomeExperience({
       router.replace("/?account=signin", { scroll: false });
     }
   }, [isSignedOut, routeMode, router]);
-
-  useEffect(() => {
-    if (isSignedOut || !account.ownerKey || liveAssetBalancesStatus !== "loading") {
-      setCachedAssetBalances(null);
-      return;
-    }
-
-    const painted = resolvePaintedHomeBalances({
-      ownerKey: account.ownerKey,
-      subject: account.session?.user.subject ?? null,
-      smartAccount: account.session?.smartAccount?.address ?? null,
-      region: regionId,
-      live: loadingAssetBalances,
-      getStorage: () => window.localStorage,
-    });
-    setCachedAssetBalances(painted.revalidating ? painted : null);
-  }, [
-    account.ownerKey,
-    account.session?.smartAccount?.address,
-    account.session?.user.subject,
-    isSignedOut,
-    liveAssetBalancesStatus,
-    regionId,
-  ]);
 
   useEffect(() => {
     if (
