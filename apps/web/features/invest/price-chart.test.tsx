@@ -15,6 +15,7 @@ mock.module("liveline", () => ({
 
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const {
+  LIVELINE_FIRST_REVEAL_MS,
   LIVELINE_PLOT_PADDING,
   LIVELINE_SWAP_SETTLE_MS,
   PriceChart,
@@ -43,16 +44,32 @@ function renderChart(
   range: MarketPriceRange = "1W",
   onRangeChange: (range: MarketPriceRange) => void = () => {},
 ) {
-  render(
+  return render(
     <PriceChart
       range={range}
       history={{ status: "ready", points }}
       onRangeChange={onRangeChange}
     />,
   );
-  return within(document.body).getByRole("img", {
-    name: `${range} price history`,
-  });
+}
+
+async function waitForRevealed(range: MarketPriceRange = "1W") {
+  return waitFor(
+    () =>
+      within(document.body).getByRole("img", {
+        name: `${range} price history`,
+      }),
+    { timeout: LIVELINE_FIRST_REVEAL_MS + 200 },
+  );
+}
+
+function livelineHadDegenerateFrame() {
+  return livelineCalls.some(
+    (call) =>
+      call.loading === true ||
+      call.value === 0 ||
+      (Array.isArray(call.data) && call.data.length === 0),
+  );
 }
 
 afterEach(() => {
@@ -115,7 +132,7 @@ describe("PriceChart Liveline", () => {
 });
 
 describe("PriceChart states", () => {
-  test("reserves the chart stage and keeps Liveline mounted through loading, empty, and error", () => {
+  test("reserves the chart stage without mounting a degenerate Liveline on cold open", () => {
     const { rerender } = render(
       <PriceChart
         range="1D"
@@ -127,9 +144,9 @@ describe("PriceChart states", () => {
       name: "Loading price history",
     });
     expect(loadingStage).toBeTruthy();
-    expect(within(loadingStage).getByTestId("liveline")).toBeTruthy();
-    expect(livelineCalls[0]?.loading).toBe(true);
-    expect(livelineCalls[0]?.data).toEqual([]);
+    expect(within(document.body).queryByTestId("liveline")).toBeNull();
+    expect(livelineCalls).toEqual([]);
+    expect(livelineHadDegenerateFrame()).toBe(false);
 
     rerender(
       <PriceChart
@@ -139,7 +156,7 @@ describe("PriceChart states", () => {
       />,
     );
     expect(within(document.body).getByText("No price history for this range.")).toBeTruthy();
-    expect(within(document.body).getByTestId("liveline")).toBeTruthy();
+    expect(within(document.body).queryByTestId("liveline")).toBeNull();
 
     rerender(
       <PriceChart
@@ -149,7 +166,46 @@ describe("PriceChart states", () => {
       />,
     );
     expect(within(document.body).getByText("Price history unavailable.")).toBeTruthy();
-    expect(within(document.body).getByTestId("liveline")).toBeTruthy();
+    expect(within(document.body).queryByTestId("liveline")).toBeNull();
+    expect(livelineHadDegenerateFrame()).toBe(false);
+  });
+
+  test("warms the first ready series offscreen and never paints empty or value=0", async () => {
+    stubMatchMedia(false);
+    const week = [
+      { time: "2026-09-01T00:00:00.000Z", value: "62000" },
+      { time: "2026-09-07T00:00:00.000Z", value: "64210" },
+    ];
+    const { rerender } = render(
+      <PriceChart
+        range="1W"
+        history={{ status: "loading", points: [] }}
+        onRangeChange={() => {}}
+      />,
+    );
+    expect(within(document.body).queryByTestId("liveline")).toBeNull();
+
+    rerender(
+      <PriceChart
+        range="1W"
+        history={{ status: "ready", points: week }}
+        onRangeChange={() => {}}
+      />,
+    );
+    expect(within(document.body).getByRole("status", { name: "Loading price history" })).toBeTruthy();
+    expect(document.querySelector('[data-plot-slot="warm"]')).toBeTruthy();
+    expect(document.querySelector('[data-plot-slot="live"]')).toBeNull();
+    const warming = livelineCalls.at(-1)!;
+    expect(warming.data).toEqual(toLivelinePoints(week));
+    expect(warming.value).toBe(64210);
+    expect(warming.loading).toBe(false);
+    expect(warming.lerpSpeed).toBe(1);
+    expect(livelineHadDegenerateFrame()).toBe(false);
+
+    await waitForRevealed("1W");
+    expect(document.querySelector('[data-plot-slot="live"]')).toBeTruthy();
+    expect(livelineCalls.at(-1)?.value).toBe(64210);
+    expect(livelineHadDegenerateFrame()).toBe(false);
   });
 
   test("freezes last-good Liveline geometry until the next series is ready", async () => {
@@ -165,6 +221,7 @@ describe("PriceChart states", () => {
         onRangeChange={() => {}}
       />,
     );
+    await waitForRevealed("1W");
     const settled = livelineCalls.at(-1)!;
     const weekPoints = toLivelinePoints(week);
     expect(settled.data).toEqual(weekPoints);

@@ -30,6 +30,9 @@ export const LIVELINE_PLOT_PADDING = {
 /** Liveline's loading→data reveal (~0.09/frame) must finish before we swap the live plot. */
 export const LIVELINE_SWAP_SETTLE_MS = 850;
 
+/** First series snaps to geometry offscreen (`lerpSpeed=1`) then reveals. */
+export const LIVELINE_FIRST_REVEAL_MS = 200;
+
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
 
 export function PriceChart({
@@ -82,6 +85,8 @@ function ChartBody({
   );
   const plot = useHeldLivelinePlot(history.status, incoming, range);
   const { foreground, warming } = usePresentedLivelinePlot(plot, reduceMotion);
+  const primary = foreground ?? warming;
+  const primaryHidden = !foreground && !!warming;
   const unavailable =
     history.status !== "loading" &&
     (history.status === "error" || !plot) &&
@@ -96,16 +101,20 @@ function ChartBody({
 
   return (
     <div className={styles.chartStage} role={stageRole} aria-label={stageLabel}>
-      {!foreground ? (
-        <AssetLiveline plot={null} loading={waitingFirstPaint} reduceMotion={reduceMotion} />
-      ) : null}
-      {foreground ? (
-        <div className={styles.plotLive}>
-          <AssetLiveline plot={foreground} reduceMotion={reduceMotion} />
+      {primary ? (
+        <div
+          className={primaryHidden ? styles.plotWarm : styles.plotLive}
+          data-plot-slot={primaryHidden ? "warm" : "live"}
+        >
+          <AssetLiveline
+            plot={primary}
+            reduceMotion={reduceMotion}
+            instant={primaryHidden}
+          />
         </div>
       ) : null}
-      {warming ? (
-        <div className={styles.plotWarm} aria-hidden>
+      {foreground && warming ? (
+        <div className={styles.plotWarm} data-plot-slot="warm" aria-hidden>
           <AssetLiveline plot={warming} reduceMotion={reduceMotion} />
         </div>
       ) : null}
@@ -161,9 +170,11 @@ function usePresentedLivelinePlot(
   if (!plot) {
     nextForeground = null;
     nextWarming = null;
-  } else if (reduceMotion || !foreground || foreground.key === plot.key) {
+  } else if (reduceMotion || foreground?.key === plot.key) {
     nextForeground = plot;
     nextWarming = null;
+  } else if (!foreground) {
+    nextWarming = plot;
   } else if (warming?.key !== plot.key) {
     nextWarming = plot;
   }
@@ -172,14 +183,17 @@ function usePresentedLivelinePlot(
   if (nextWarming !== warming) setWarming(nextWarming);
 
   const warmingKey = nextWarming?.key ?? null;
+  const revealDelay = nextForeground
+    ? LIVELINE_SWAP_SETTLE_MS
+    : LIVELINE_FIRST_REVEAL_MS;
   useEffect(() => {
     if (!plot || !warmingKey || plot.key !== warmingKey) return;
     const timer = window.setTimeout(() => {
       setForeground(plot);
       setWarming(null);
-    }, LIVELINE_SWAP_SETTLE_MS);
+    }, revealDelay);
     return () => window.clearTimeout(timer);
-  }, [plot, warmingKey]);
+  }, [plot, warmingKey, revealDelay]);
 
   return { foreground: nextForeground, warming: nextWarming };
 }
@@ -201,14 +215,14 @@ function commitLivelinePlot(
 
 function AssetLiveline({
   plot,
-  loading = false,
   reduceMotion,
+  instant = false,
 }: {
-  plot: HeldLivelinePlot | null;
-  loading?: boolean;
+  plot: HeldLivelinePlot;
   reduceMotion: boolean;
+  instant?: boolean;
 }) {
-  const range = plot?.range ?? "1W";
+  const range = plot.range;
   const formatTime = useMemo(
     () => (time: number) => formatChartTime(time, range),
     [range],
@@ -216,9 +230,9 @@ function AssetLiveline({
 
   return (
     <Liveline
-      data={plot?.points ?? []}
-      value={plot?.value ?? 0}
-      window={plot?.windowSecs ?? RANGE_SECONDS[range]}
+      data={plot.points}
+      value={plot.value}
+      window={plot.windowSecs}
       theme="light"
       color={LINE_COLOR}
       fill
@@ -229,8 +243,8 @@ function AssetLiveline({
       badge={false}
       showValue={false}
       grid={false}
-      loading={loading}
-      lerpSpeed={reduceMotion ? 1 : 0.08}
+      loading={false}
+      lerpSpeed={reduceMotion || instant ? 1 : 0.08}
       lineWidth={2.5}
       formatTime={formatTime}
       formatValue={formatChartValue}
