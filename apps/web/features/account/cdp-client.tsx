@@ -87,6 +87,7 @@ import {
   type PendingTransfer,
   type TransferRequest,
 } from "@/features/transfers/types";
+import { clearHomeBalancesPresentationCache } from "@/features/portfolio-valuation/presentation-cache";
 import {
   isSessionSuppressedForOwner,
   signOutWithSessionSuppressed,
@@ -785,6 +786,7 @@ export function AccountWalletSessionOwner({
     transferInProgress.current = false;
     updatePendingTransfer(null);
     setVerifiedOwner(null);
+    clearHomeBalancesPresentationCache(() => window.localStorage);
   }, [updatePendingTransfer]);
 
   const clearBaseConnection = useCallback(() => {

@@ -100,6 +100,15 @@ usePortfolio(
 
 Home presents the formatted USDC token amount as the dominant **USD/USDC balance** and explicitly says ETH is shown separately. The USDC amount is not labeled as total net worth, is not relabeled to the selected country's currency, and does not include an invented ETH valuation. ETH remains a separate native token amount. Missing, malformed, or failed data stays unknown; a successful RPC zero remains visibly `0`.
 
+## Device presentation cache
+
+Home may persist the last **ready** `HomeAssetBalancesPresentation` (formatted total + cash/asset rows only) in `localStorage` under `home.balances.v1:{subject}:{smartAccount}:{region}`. This is a device hint so Checking / restoring can paint last-known hero and Balances while valuation reloads. It is not a source of truth.
+
+- Persist presentation DTOs only — never OTPs, tokens, Authorization headers, raw CDP / valuation snapshots, or harness payloads.
+- Read is allowlisted and fail-open: corrupt, expired (24h), version-mismatched, or owner/region mismatch is a miss; the network path is unchanged.
+- Paint only when the SDK `ownerKey` matches the stored record. No global last-user flash before the SDK owner is known. Activity stays live/shimmer; the address stays hidden until verified.
+- Wipe every `home.balances.v1:*` key on sign-out. Delete the current key after a confirmed money action (`MoneyDataRefreshProvider` / transfer confirm) so pre-send totals cannot linger.
+
 States are `loading`, `ready`, `error`, and `unavailable`. Logout and account changes hide the previous snapshot immediately. Each request receives an abort signal, and sequence guards prevent late A-account or logged-out responses from becoming visible. A real successful zero is `ready`; malformed, failed, and unavailable responses retain unknown state and are never converted to zero.
 
 `formatBaseUnitAmount(baseUnits, decimals)` performs exact decimal placement and strips only insignificant trailing fractional zeroes. It does not round. For example, one wei displays as `0.000000000000000001`, not zero.

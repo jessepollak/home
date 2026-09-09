@@ -41,8 +41,11 @@ import {
   type VerifiedPortfolioSession,
 } from "@/features/portfolio";
 import {
+  deleteHomeBalancesPresentation,
   presentPortfolioValuation,
+  resolvePaintedHomeBalances,
   usePortfolioValuation,
+  writeHomeBalancesPresentation,
   type HomeAssetBalanceItem,
   type HomeAssetBalancesPresentation,
 } from "@/features/portfolio-valuation";
@@ -51,6 +54,13 @@ import { PresentationRegionProvider } from "@/features/invest/presentation-quote
 import { PiggyBank } from "lucide-react";
 
 export type { HomeAssetBalanceItem, HomeAssetBalancesPresentation };
+
+const loadingAssetBalances: HomeAssetBalancesPresentation = {
+  status: "loading",
+  displayTotal: null,
+  statusLabel: "Updating…",
+  items: [],
+};
 
 export type HomeExperienceProps = {
   detectedCountry?: string | null;
@@ -95,8 +105,18 @@ export function PortfolioHomeExperience(
     refreshTrigger,
   );
   const refreshWalletData = useCallback(() => {
+    if (session) {
+      deleteHomeBalancesPresentation(
+        () => window.localStorage,
+        {
+          subject: session.subject,
+          smartAccount: session.smartAccountAddress,
+          region: selectedRegion,
+        },
+      );
+    }
     setRefreshTrigger((trigger) => trigger + 1);
-  }, []);
+  }, [selectedRegion, session]);
 
   return (
     <MoneyDataRefreshProvider onConfirmed={refreshWalletData}>
@@ -154,6 +174,8 @@ export function HomeExperience({
     initialAccountSettingsOpen,
   );
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
+  const [cachedAssetBalances, setCachedAssetBalances] =
+    useState<HomeAssetBalancesPresentation | null>(null);
   const shellPath = routeMode === "landing" ? "/" : "/dashboard";
 
   const closeAccount = useCallback(() => {
@@ -224,6 +246,14 @@ export function HomeExperience({
   const isUnavailable = account.status === "unavailable";
   const isSignedOut =
     account.status === "signed-out" || account.status === "signout-error";
+  const liveAssetBalances = isVerified
+    ? (assetBalances ?? loadingAssetBalances)
+    : loadingAssetBalances;
+  const liveAssetBalancesStatus = liveAssetBalances.status;
+  const paintedAssetBalances =
+    liveAssetBalancesStatus === "ready"
+      ? liveAssetBalances
+      : (cachedAssetBalances ?? liveAssetBalances);
   const activitySession: VerifiedAccountSession | null =
     isVerified && account.session?.smartAccount ? account.session : null;
   const fetchAccountResource = account.fetchAccountResource;
@@ -244,6 +274,60 @@ export function HomeExperience({
       router.replace("/?account=signin", { scroll: false });
     }
   }, [isSignedOut, routeMode, router]);
+
+  useEffect(() => {
+    if (isSignedOut || !account.ownerKey || liveAssetBalancesStatus !== "loading") {
+      setCachedAssetBalances(null);
+      return;
+    }
+
+    const painted = resolvePaintedHomeBalances({
+      ownerKey: account.ownerKey,
+      subject: account.session?.user.subject ?? null,
+      smartAccount: account.session?.smartAccount?.address ?? null,
+      region: regionId,
+      live: loadingAssetBalances,
+      getStorage: () => window.localStorage,
+    });
+    setCachedAssetBalances(painted.revalidating ? painted : null);
+  }, [
+    account.ownerKey,
+    account.session?.smartAccount?.address,
+    account.session?.user.subject,
+    isSignedOut,
+    liveAssetBalancesStatus,
+    regionId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isVerified ||
+      !account.ownerKey ||
+      !account.session?.user.subject ||
+      !account.session.smartAccount?.address ||
+      assetBalances?.status !== "ready"
+    ) {
+      return;
+    }
+
+    writeHomeBalancesPresentation(
+      () => window.localStorage,
+      {
+        ownerKey: account.ownerKey,
+        subject: account.session.user.subject,
+        smartAccount: account.session.smartAccount.address,
+        region: regionId,
+      },
+      assetBalances,
+    );
+  }, [
+    account.ownerKey,
+    account.session?.smartAccount?.address,
+    account.session?.user.subject,
+    assetBalances,
+    isVerified,
+    regionId,
+  ]);
 
   function selectRegion(nextRegionId: RegionId) {
     setInternalRegionId(nextRegionId);
@@ -432,16 +516,7 @@ export function HomeExperience({
               >
                 {activeNavigation === "home" ? (
                   <HomePanel
-                    assetBalances={
-                      isVerified
-                        ? assetBalances
-                        : {
-                            status: "loading",
-                            displayTotal: null,
-                            statusLabel: "Updating…",
-                            items: [],
-                          }
-                    }
+                    assetBalances={paintedAssetBalances}
                     activitySession={activitySession}
                     fetchActivity={account.fetchActivity}
                     fetchOperations={account.fetchOperations}
@@ -635,7 +710,8 @@ function HomePanel({
   onOpenSave: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading";
-  const showSessionShimmer = isLoading && !activitySession;
+  const isRevalidating = assetBalances?.revalidating === true;
+  const showSessionShimmer = !activitySession && (isLoading || isRevalidating);
   const heroLabel = isLoading
     ? "Updating…"
     : assetBalances?.status === "unavailable"
@@ -657,7 +733,7 @@ function HomePanel({
       <section
         className="balance-hero"
         aria-label={heroLabel}
-        aria-busy={isLoading || undefined}
+        aria-busy={isLoading || isRevalidating || undefined}
       >
         {isLoading ? (
           <span
@@ -670,7 +746,9 @@ function HomePanel({
             {assetBalances?.displayTotal ?? "—"}
           </p>
         )}
-        {isLoading ? <span className="sr-status">Updating…</span> : null}
+        {isLoading || isRevalidating ? (
+          <span className="sr-status">Updating…</span>
+        ) : null}
       </section>
 
       <div className="action-row" aria-label="Money actions">

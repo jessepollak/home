@@ -11,6 +11,14 @@ export {
   type HomeAssetBalancesPresentation,
 } from "./present-home-balances";
 export {
+  clearHomeBalancesPresentationCache,
+  deleteHomeBalancesPresentation,
+  homeBalancesPresentationCachePrefix,
+  readHomeBalancesPresentation,
+  resolvePaintedHomeBalances,
+  writeHomeBalancesPresentation,
+} from "./presentation-cache";
+export {
   PortfolioValuationResponseError,
   parsePortfolioValuationSnapshot,
 } from "./parse";

@@ -331,6 +331,7 @@ function baseSdk(
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
   window.sessionStorage.clear();
 });
 
@@ -1582,6 +1583,33 @@ describe("production account session owner", () => {
     );
     fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
     expect(page().getByTestId("status").textContent).toBe("signed-out");
+  });
+
+  test("wipes every home.balances.v1 key on sign-out", async () => {
+    window.localStorage.setItem("home.balances.v1:subject-a:0x1111:US", "{}");
+    window.localStorage.setItem("home.balances.v1:other", "{}");
+    window.localStorage.setItem("home.country.v1", "US");
+
+    render(
+      <SessionHarness
+        sdk={baseSdk()}
+        sessionFetch={async () => sessionResponse(sessionFor("subject-a", ADDRESS_A))}
+      />,
+    );
+    await waitFor(() =>
+      expect(page().getByTestId("address").textContent).toBe(ADDRESS_A),
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signed-out"),
+    );
+    expect(
+      Object.keys(window.localStorage).filter((key) =>
+        key.startsWith("home.balances.v1:"),
+      ),
+    ).toEqual([]);
+    expect(window.localStorage.getItem("home.country.v1")).toBe("US");
   });
 
   test("keeps a configured-but-down provider distinct from missing project ID", () => {

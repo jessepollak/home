@@ -40,6 +40,10 @@ const { BASE_CHAIN_ID } = await import("@/features/account/session-client");
 const { HomeExperience, PortfolioHomeExperience } = await import(
   "./home-experience"
 );
+const {
+  homeBalancesPresentationCachePrefix,
+  writeHomeBalancesPresentation,
+} = await import("@/features/portfolio-valuation/presentation-cache");
 
 const OWNER = "home-user";
 const OWNER_B = "home-user-b";
@@ -381,6 +385,38 @@ function connectedBaseAccount(): ConnectedBaseAccount {
   };
 }
 
+function seedBalancesCache({
+  ownerKey = OWNER,
+  subject = "subject-home",
+  smartAccount = ADDRESS,
+  region = "GLOBAL",
+  displayTotal = "$12.34",
+}: {
+  ownerKey?: string;
+  subject?: string;
+  smartAccount?: `0x${string}`;
+  region?: RegionId;
+  displayTotal?: string;
+} = {}) {
+  writeHomeBalancesPresentation(
+    () => window.localStorage,
+    { ownerKey, subject, smartAccount, region },
+    {
+      status: "ready",
+      displayTotal,
+      items: [
+        {
+          id: "usdc",
+          group: "cash",
+          name: "US dollar",
+          displayBalance: displayTotal,
+          currencyCode: "USD",
+        },
+      ],
+    },
+  );
+}
+
 function HomeHarness({
   accountSdk,
   sessionFetch = async () => Response.json(session()),
@@ -641,6 +677,61 @@ describe("login-state home experience", () => {
     expect(page().queryByText("One home for your money.")).toBeNull();
   });
 
+  test("paints last-known balances while Checking when the owner cache matches", async () => {
+    seedBalancesCache();
+    const pendingSession = deferred<Response>();
+    render(
+      <HomeHarness
+        accountSdk={sdk({
+          isSignedIn: true,
+          ownerKey: OWNER,
+        })}
+        sessionFetch={() => pendingSession.promise}
+      />,
+    );
+
+    expect((await page().findAllByText("$12.34")).length).toBeGreaterThanOrEqual(1);
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(page().getByText("US dollar")).toBeTruthy();
+    expect(page().getByText("Updating…")).toBeTruthy();
+    expect(document.querySelector("[data-shimmer='hero']")).toBeNull();
+    expect(document.querySelectorAll("[data-shimmer='row']").length).toBe(2);
+    expect(page().queryByText("No activity yet")).toBeNull();
+    expect(document.body.textContent).not.toContain(ADDRESS);
+    expect(page().queryByRole("button", { name: "Checking…" })).toBeNull();
+
+    await act(async () => {
+      pendingSession.resolve(Response.json(session()));
+      await pendingSession.promise;
+    });
+    await enabledAccountButton();
+    expect(page().getAllByText("$12.34").length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("does not paint another owner's or signed-out cache during Checking", async () => {
+    seedBalancesCache({ ownerKey: OWNER_B, displayTotal: "$99.00" });
+    const pendingSession = deferred<Response>();
+    render(
+      <HomeHarness
+        accountSdk={sdk({
+          isSignedIn: true,
+          ownerKey: OWNER,
+        })}
+        sessionFetch={() => pendingSession.promise}
+      />,
+    );
+
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(document.querySelector("[data-shimmer='hero']")).toBeTruthy();
+    expect(page().queryByText("$99.00")).toBeNull();
+    expect(page().queryByText("$12.34")).toBeNull();
+
+    await act(async () => {
+      pendingSession.resolve(Response.json(session()));
+      await pendingSession.promise;
+    });
+  });
+
   test("holds signed-out dashboard on a placeholder and redirects without portfolio chrome", async () => {
     render(<HomeHarness accountSdk={sdk()} routeMode="dashboard" />);
 
@@ -660,6 +751,60 @@ describe("login-state home experience", () => {
     expect(page().queryByText("Setup in progress")).toBeNull();
     expect(page().queryByText("$12.34")).toBeNull();
     expect(document.body.textContent).not.toContain(ADDRESS);
+  });
+
+  test("does not paint a leftover cache on the signed-out dashboard", async () => {
+    seedBalancesCache();
+    render(<HomeHarness accountSdk={sdk()} routeMode="dashboard" />);
+
+    await waitFor(() => expect(replaceCalls).toEqual(["/?account=signin"]));
+    expect(page().queryByText("$12.34")).toBeNull();
+    expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
+    expect(page().getByText("Signed out")).toBeTruthy();
+  });
+
+  test("writes a ready presentation through and wipes every balances cache key on sign-out", async () => {
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return Response.json(session());
+      if (String(input).startsWith("/api/activity?")) {
+        return Response.json(activityPage(input));
+      }
+      if (String(input).startsWith("/api/portfolio/valuation?")) {
+        return valuationResponse(input, { usdc: "12340000" });
+      }
+      return Response.json(portfolioSnapshot({ usdc: "12340000" }));
+    };
+    window.localStorage.setItem("home.country.v1", "US");
+    window.localStorage.setItem(`${homeBalancesPresentationCachePrefix}stale`, "{}");
+
+    render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch}
+      />,
+    );
+
+    expect((await page().findAllByText("$12.34")).length).toBeGreaterThanOrEqual(1);
+    await waitFor(() => {
+      expect(
+        Object.keys(window.localStorage).some(
+          (key) =>
+            key.startsWith(homeBalancesPresentationCachePrefix) &&
+            key !== `${homeBalancesPresentationCachePrefix}stale`,
+        ),
+      ).toBe(true);
+    });
+
+    fireEvent.click(await enabledAccountButton());
+    fireEvent.click(page().getByRole("button", { name: "Sign out" }));
+    await waitFor(() =>
+      expect(
+        Object.keys(window.localStorage).filter((key) =>
+          key.startsWith(homeBalancesPresentationCachePrefix),
+        ),
+      ).toEqual([]),
+    );
+    expect(window.localStorage.getItem("home.country.v1")).toBe("US");
   });
 
   test("treats a verified session without a smart account as authenticated but not ready", async () => {

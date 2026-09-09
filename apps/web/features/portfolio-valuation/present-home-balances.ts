@@ -27,6 +27,7 @@ export type HomeAssetBalancesPresentation = {
   displayTotal: string | null;
   statusLabel?: string;
   items: readonly HomeAssetBalanceItem[];
+  revalidating?: true;
 };
 
 export function presentPortfolioValuation(
