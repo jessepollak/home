@@ -343,6 +343,17 @@ const LIVE_CDP_SQL_EMPTY_ENVELOPE = {
   metadata: { rowCount: 0 },
 };
 
+/** Live CoinbaSeQL 200 empty page after #98: result is null, not []. */
+const LIVE_CDP_SQL_NULL_RESULT_EMPTY = {
+  result: null,
+  metadata: {
+    cached: false,
+    executionTimeMs: 362,
+    executionTimestamp: "2026-09-09T14:00:00.000Z",
+    rowCount: 0,
+  },
+};
+
 const LIVE_CDP_SQL_X402_PAGE = {
   metadata: { rowCount: 1 },
   result: [
@@ -408,6 +419,41 @@ describe("parseCdpSqlResponseEnvelope", () => {
       }),
     ).toBeNull();
     expect(parseCdpSqlResponseEnvelope(null)).toBeNull();
+    expect(parseCdpSqlResponseEnvelope({ result: null })).toBeNull();
+    expect(
+      parseCdpSqlResponseEnvelope({
+        result: null,
+        metadata: { rowCount: 5 },
+      }),
+    ).toBeNull();
+  });
+
+  test("live CoinbaSeQL empty page result:null + rowCount 0 is []", () => {
+    expect(
+      parseCdpSqlResponseEnvelope(LIVE_CDP_SQL_NULL_RESULT_EMPTY, receivedAt),
+    ).toEqual({
+      result: [],
+      metadata: {
+        cached: false,
+        executionTimestamp: "2026-09-09T14:00:00.000Z",
+        executionTimeMs: 362,
+        rowCount: 0,
+      },
+    });
+    expect(
+      parseCdpSqlResponseEnvelope(
+        { result: null, metadata: { rowCount: 0 } },
+        receivedAt,
+      ),
+    ).toEqual({
+      result: [],
+      metadata: {
+        cached: false,
+        executionTimestamp: receivedAt.toISOString(),
+        executionTimeMs: 0,
+        rowCount: 0,
+      },
+    });
   });
 });
 

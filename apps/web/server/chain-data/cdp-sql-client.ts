@@ -257,15 +257,16 @@ function parseRetryAfter(value: string | null): number | null {
 
 /**
  * Official CDP `OnchainDataResult` marks `result`, `schema`, `metadata`, and
- * every metadata field optional. Home still requires a `result` array — a 200
- * without rows is `[]`, not a missing field — and normalizes present metadata.
+ * every metadata field optional. A 200 empty page is `result: []`, or live
+ * CoinbaSeQL `result: null` with `metadata.rowCount === 0`. A missing `result`
+ * field still fails — do not invent an empty list from an error-shaped body.
  * Partial/derived `schema` is ignored rather than failing a healthy page.
  */
 export function parseCdpSqlResponseEnvelope(
   value: unknown,
   receivedAt = new Date(),
 ): CdpSqlResponse | null {
-  if (!isRecord(value) || !Array.isArray(value.result)) {
+  if (!isRecord(value)) {
     return null;
   }
 
@@ -288,27 +289,40 @@ export function parseCdpSqlResponseEnvelope(
 
   const declaredRowCount = readOptionalRowCount(metadataSource);
   if (declaredRowCount === INVALID) return null;
+
+  const result = normalizeResultRows(value.result, declaredRowCount);
+  if (result === INVALID) return null;
   if (
     declaredRowCount !== null &&
-    !rowCountAgreesWithPage(declaredRowCount, value.result.length)
+    !rowCountAgreesWithPage(declaredRowCount, result.length)
   ) {
     return null;
   }
 
   const schema = readOptionalSchema(value.schema);
   return {
-    result: value.result,
+    result,
     ...(schema ? { schema } : {}),
     metadata: {
       cached: cached ?? false,
       executionTimestamp,
       executionTimeMs: executionTimeMs ?? 0,
-      rowCount: value.result.length,
+      rowCount: result.length,
     },
   };
 }
 
 const INVALID = Symbol("invalid-cdp-sql-field");
+
+/** Live empty page: `result: null` + `rowCount: 0`. Missing `result` stays invalid. */
+function normalizeResultRows(
+  result: unknown,
+  declaredRowCount: number | null,
+): unknown[] | typeof INVALID {
+  if (Array.isArray(result)) return result;
+  if (result === null && declaredRowCount === 0) return [];
+  return INVALID;
+}
 
 function readOptionalCached(
   metadata: Record<string, unknown> | undefined,

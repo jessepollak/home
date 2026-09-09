@@ -248,6 +248,46 @@ describe("activity route handler", () => {
     });
   });
 
+  test("live CoinbaSeQL result:null + rowCount 0 is 200 [] not ACTIVITY_INVALID_RESPONSE", async () => {
+    const history = createBaseErc20TransferHistory({
+      assets: activityAssets.map((asset) => ({
+        id: asset.id,
+        chainId: 8453,
+        address: asset.tokenAddress,
+      })),
+      transport: createCdpSqlHttpTransport({
+        auth: { mode: "client-api-key", clientApiKey: "client-key-value" },
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              result: null,
+              metadata: {
+                cached: false,
+                executionTimeMs: 362,
+                executionTimestamp: TO,
+                rowCount: 0,
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      }),
+      now: () => new Date(TO),
+    });
+    const handler = createActivityHandler({
+      authorize: async () => sessionResponse(),
+      readActivity: createActivityReader((input) => history.listTransfers(input)),
+      now: () => new Date(TO),
+    });
+    const response = await handler(
+      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
+    );
+    expect(response.status).toBe(200);
+    expectPrivate(response);
+    const body = (await response.json()) as { transfers: unknown[]; error?: unknown };
+    expect(body.error).toBeUndefined();
+    expect(body.transfers).toEqual([]);
+  });
+
   test("live slim CDP empty envelope is 200 [] not ACTIVITY_INVALID_RESPONSE", async () => {
     const history = createBaseErc20TransferHistory({
       assets: activityAssets.map((asset) => ({
