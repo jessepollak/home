@@ -1,165 +1,41 @@
-.actions {
-  display: grid;
-  gap: 14px;
-  border-top: 8px solid #f5f6f7;
-  padding: 20px;
-}
-
-.heading {
+.toast {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 88px;
+  z-index: 20;
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
+  width: min(calc(100% - 32px), 390px);
+  margin: 0 auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--panel-radius);
+  background: var(--home-white);
+  color: var(--home-ink);
+  padding: 12px 14px;
 }
 
-.heading p {
-  margin: 0;
-  color: #565c68;
-  font-size: 0.64rem;
-  font-weight: 750;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.heading h3 {
-  margin: 5px 0 0;
-  font-size: 1.12rem;
-  font-weight: 680;
-  letter-spacing: -0.03em;
-}
-
-.heading > span {
-  color: #565c68;
-  font-size: 0.64rem;
-  text-align: right;
-}
-
-.form {
+.toastMark {
   display: grid;
-  gap: 8px;
-  border-top: 1px solid #0a0b0d;
-  padding-top: 14px;
-}
-
-.form label {
-  font-size: 0.65rem;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--home-blue);
+  color: #fff;
+  font-size: 0.95rem;
   font-weight: 700;
 }
 
-.form select,
-.form input {
-  width: 100%;
-  min-height: 42px;
-  border: 1px solid #c8cbd1;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #0a0b0d;
-  padding: 0 11px;
-  font: inherit;
-  font-size: 0.74rem;
+.toast strong {
+  display: block;
+  font-size: 0.9rem;
 }
 
-.form select:focus-visible,
-.form input:focus-visible,
-.buttons button:focus-visible {
-  outline: 2px solid #0000ff;
-  outline-offset: 2px;
-}
-
-.vaultFacts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  margin: 2px 0 8px;
-  background: #e2e4e8;
-  border: 1px solid #e2e4e8;
-}
-
-.vaultFacts > div {
-  min-width: 0;
-  background: #ffffff;
-  padding: 9px;
-}
-
-.vaultFacts dt {
-  color: #565c68;
-  font-size: 0.58rem;
-}
-
-.vaultFacts dd {
-  overflow-wrap: anywhere;
-  margin: 4px 0 0;
-  font-size: 0.68rem;
-  font-weight: 700;
-}
-
-.help,
-.error,
-.status {
-  margin: 0;
-  font-size: 0.66rem;
-  line-height: 1.45;
-}
-
-.help,
-.status {
-  color: #565c68;
-}
-
-.error {
-  color: #a31b1b;
-}
-
-.buttons {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.buttons button {
-  min-height: 42px;
-  border: 1px solid #0a0b0d;
-  border-radius: 8px;
-  background: #0a0b0d;
-  color: #ffffff;
-  cursor: pointer;
-  font-size: 0.68rem;
-  font-weight: 720;
-}
-
-.buttons button:last-child {
-  background: #ffffff;
-  color: #0a0b0d;
-}
-
-.buttons button:disabled {
-  border-color: #c8cbd1;
-  background: #f5f6f7;
-  color: #707681;
-  cursor: not-allowed;
-}
-
-@media (max-width: 520px) {
-  .actions {
-    padding-right: 16px;
-    padding-left: 16px;
-  }
-
-  .heading,
-  .buttons {
-    display: grid;
-  }
-
-  .heading {
-    gap: 5px;
-  }
-
-  .heading > span {
-    text-align: left;
-  }
-
-  .vaultFacts {
-    grid-template-columns: 1fr;
-  }
+.toast p {
+  margin: 2px 0 0;
+  color: var(--home-muted);
+  font-size: 0.75rem;
 }
