@@ -4,6 +4,7 @@ import {
   CDP_TOKEN_BALANCES_MAX_PAGES,
   CdpTokenBalancesError,
   createCdpTokenBalancesClient,
+  parseNextPageToken,
   tokenBalancesRequestPath,
 } from "./cdp-token-balances";
 
@@ -82,6 +83,54 @@ describe("CDP Onchain Data Token Balances client", () => {
         },
       ],
     });
+  });
+
+  test("accepts the official CDP base64 nextPageToken including padding", async () => {
+    const official =
+      "eyJsYXN0X2lkIjogImFiYzEyMyIsICJ0aW1lc3RhbXAiOiAxNzA3ODIzNzAxfQ==";
+    expect(parseNextPageToken(official)).toBe(official);
+    expect(parseNextPageToken("page-two")).toBe("page-two");
+    expect(parseNextPageToken("abc+def/ghi=")).toBe("abc+def/ghi=");
+    expect(parseNextPageToken("has space")).toBeUndefined();
+
+    const urls: string[] = [];
+    const client = createCdpTokenBalancesClient({
+      env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: (async (input) => {
+        urls.push(String(input));
+        if (urls.length === 1) {
+          return Response.json({
+            balances: [token("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", "1")],
+            nextPageToken: official,
+          });
+        }
+        return Response.json({
+          balances: [token(USDC, "1000000"), token(IDRX, "2500")],
+        });
+      }) as typeof fetch,
+    });
+
+    const listed = await client.listBalances({
+      address: ADDRESS,
+      neededContractAddresses: new Set([USDC.toLowerCase(), IDRX]),
+    });
+    expect(urls[1]).toBe(
+      `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=20&pageToken=${encodeURIComponent(official)}`,
+    );
+    expect(listed.complete).toBeTrue();
+    expect(
+      listed.balances.some(
+        ({ contractAddress, amountBaseUnits }) =>
+          contractAddress === USDC.toLowerCase() && amountBaseUnits === "1000000",
+      ),
+    ).toBeTrue();
+    expect(
+      listed.balances.some(
+        ({ contractAddress, amountBaseUnits }) =>
+          contractAddress === IDRX && amountBaseUnits === "2500",
+      ),
+    ).toBeTrue();
   });
 
   test("paginates until the allowlist is satisfied and then stops", async () => {

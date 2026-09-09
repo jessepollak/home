@@ -17,8 +17,14 @@ import {
   type CdpTokenBalancesClient,
 } from "./cdp-token-balances";
 import {
+  createOmittedCashBalanceReader,
+  type OmittedCashBalanceMap,
+  type OmittedCashBalanceRequest,
+} from "./inventory-cash-rpc";
+import {
   InventoryVaultRpcError,
   createVaultInventoryReader,
+  type InventoryBlock,
   type VaultInventorySnapshot,
 } from "./inventory-vault-rpc";
 import type { VerifiedPortfolioAccount } from "./types";
@@ -53,6 +59,12 @@ export function createPortfolioInventoryReader(options: {
     account: VerifiedPortfolioAccount,
     signal: AbortSignal,
   ) => Promise<VaultInventorySnapshot>;
+  readOmittedCashBalances?: (
+    requests: readonly OmittedCashBalanceRequest[],
+    owner: PortfolioAddress,
+    block: InventoryBlock,
+    signal: AbortSignal,
+  ) => Promise<OmittedCashBalanceMap>;
   now?: () => Date;
   timeoutMs?: number;
 } = {}): PortfolioInventoryReader {
@@ -66,6 +78,12 @@ export function createPortfolioInventoryReader(options: {
   const readVaultInventory =
     options.readVaultInventory ??
     createVaultInventoryReader({
+      fetchImpl: options.fetchImpl,
+      rpcUrl: options.rpcUrl,
+    });
+  const readOmittedCashBalances =
+    options.readOmittedCashBalances ??
+    createOmittedCashBalanceReader({
       fetchImpl: options.fetchImpl,
       rpcUrl: options.rpcUrl,
     });
@@ -98,6 +116,14 @@ export function createPortfolioInventoryReader(options: {
         readDirectHoldings(listTokenBalances, address, controller.signal),
         readVaultInventory(account, controller.signal),
       ]);
+      const verifiedDirects = await verifyOmittedCashHoldings(
+        directs.holdings,
+        directs.omittedCashIds,
+        address,
+        vaults.block,
+        controller.signal,
+        readOmittedCashBalances,
+      );
       const fetchedAt = now();
       if (Number.isNaN(fetchedAt.getTime())) {
         throw new PortfolioInventoryError("The portfolio fetch time is invalid.");
@@ -107,7 +133,7 @@ export function createPortfolioInventoryReader(options: {
         chainId: PORTFOLIO_BASE_CHAIN_ID,
         block: vaults.block,
         fetchedAt: fetchedAt.toISOString(),
-        holdings: [...directs, ...vaults.holdings],
+        holdings: [...verifiedDirects, ...vaults.holdings],
       };
     } catch (error) {
       if (
@@ -135,7 +161,10 @@ async function readDirectHoldings(
   listTokenBalances: CdpTokenBalancesClient["listBalances"],
   address: PortfolioAddress,
   signal: AbortSignal,
-): Promise<DirectPortfolioHolding[]> {
+): Promise<{
+  holdings: DirectPortfolioHolding[];
+  omittedCashIds: ReadonlySet<string>;
+}> {
   const assets = getDirectPortfolioAssets();
   const needed = new Set(
     assets.map((asset) =>
@@ -163,8 +192,9 @@ async function readDirectHoldings(
   const byContract = new Map(
     (listed?.balances ?? []).map((balance) => [balance.contractAddress, balance] as const),
   );
+  const omittedCashIds = new Set<string>();
 
-  return assets.map((asset) => {
+  const holdings = assets.map((asset) => {
     const key =
       asset.kind === "native"
         ? CDP_NATIVE_TOKEN_ADDRESS
@@ -172,8 +202,16 @@ async function readDirectHoldings(
     const match = listed ? byContract.get(key) : undefined;
     const ready =
       listed !== null && (match !== undefined || listed.complete);
+    if (
+      listed !== null &&
+      match === undefined &&
+      asset.cashCurrency &&
+      asset.contractAddress
+    ) {
+      omittedCashIds.add(asset.id);
+    }
     return {
-      kind: "direct",
+      kind: "direct" as const,
       id: asset.id,
       assetKey: asset.assetKey,
       name: asset.name,
@@ -183,7 +221,60 @@ async function readDirectHoldings(
       contractAddress: asset.contractAddress,
       cashCurrency: asset.cashCurrency,
       balanceBaseUnits: ready ? (match?.amountBaseUnits ?? "0") : null,
-      readStatus: ready ? "ready" : "unavailable",
+      readStatus: (ready ? "ready" : "unavailable") as DirectPortfolioHolding["readStatus"],
+    };
+  });
+  return { holdings, omittedCashIds };
+}
+
+async function verifyOmittedCashHoldings(
+  holdings: DirectPortfolioHolding[],
+  omittedCashIds: ReadonlySet<string>,
+  address: PortfolioAddress,
+  block: InventoryBlock,
+  signal: AbortSignal,
+  readOmittedCashBalances: (
+    requests: readonly OmittedCashBalanceRequest[],
+    owner: PortfolioAddress,
+    block: InventoryBlock,
+    signal: AbortSignal,
+  ) => Promise<OmittedCashBalanceMap>,
+): Promise<DirectPortfolioHolding[]> {
+  const omitted = holdings.filter(
+    (holding): holding is DirectPortfolioHolding & {
+      contractAddress: PortfolioAddress;
+    } =>
+      omittedCashIds.has(holding.id) && holding.contractAddress !== null,
+  );
+  if (omitted.length === 0) return holdings;
+
+  let verified: OmittedCashBalanceMap;
+  try {
+    verified = await readOmittedCashBalances(
+      omitted.map(({ id, contractAddress }) => ({ id, contractAddress })),
+      address,
+      block,
+      signal,
+    );
+  } catch (error) {
+    if (signal.aborted) throw error;
+    verified = new Map(omitted.map(({ id }) => [id, null]));
+  }
+
+  return holdings.map((holding) => {
+    if (!omittedCashIds.has(holding.id)) return holding;
+    const amount = verified.get(holding.id);
+    if (amount === undefined || amount === null) {
+      return {
+        ...holding,
+        balanceBaseUnits: null,
+        readStatus: "unavailable",
+      };
+    }
+    return {
+      ...holding,
+      balanceBaseUnits: amount,
+      readStatus: "ready",
     };
   });
 }

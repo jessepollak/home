@@ -14,7 +14,8 @@ export const CDP_TOKEN_BALANCES_TIMEOUT_MS = 10_000;
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const amountPattern = /^[0-9]+$/;
-const pageTokenPattern = /^[A-Za-z0-9._~-]{1,512}$/;
+/** CDP ListResponse example is standard base64, including `=` padding. */
+const pageTokenPattern = /^[A-Za-z0-9._~+/=-]{1,2048}$/;
 
 export type CdpTokenBalancesErrorCode =
   | "not-configured"
@@ -285,11 +286,12 @@ function parsePage(value: unknown): {
     seen.add(parsed.contractAddress);
     items.push(parsed);
   }
-  const nextPageToken =
-    typeof value.nextPageToken === "string" && pageTokenPattern.test(value.nextPageToken)
-      ? value.nextPageToken
-      : undefined;
+  const nextPageToken = parseNextPageToken(value.nextPageToken);
   return { items, nextPageToken };
+}
+
+export function parseNextPageToken(value: unknown): string | undefined {
+  return typeof value === "string" && pageTokenPattern.test(value) ? value : undefined;
 }
 
 function parseBalance(value: unknown): ListedTokenBalance | null {
