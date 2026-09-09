@@ -310,6 +310,7 @@
 
 .plotFront {
   z-index: 2;
+  background: var(--home-canvas);
 }
 
 .plotCover {
@@ -321,7 +322,7 @@
 }
 
 .plotCover[data-plot-hold-shot="true"] {
-  background: none;
+  background: var(--home-canvas);
   width: 100%;
   height: 100%;
 }
