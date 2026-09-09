@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { ActivityPage } from "@/features/activity/types";
+import { activityAssets, type ActivityPage } from "@/features/activity/types";
+import { createBaseErc20TransferHistory } from "@/server/chain-data/base-erc20-transfers";
 import { ChainDataError } from "@/server/chain-data/errors";
 import { createActivityHandler } from "./handler";
+import { createActivityReader } from "./reader";
 
 const VERIFIED = "0x1111111111111111111111111111111111111111" as const;
 const ATTACKER = "0x9999999999999999999999999999999999999999";
@@ -243,6 +245,47 @@ describe("activity route handler", () => {
         message: "Activity is rate limited. Try again shortly.",
       },
     });
+  });
+
+  test("healthy session with empty CDP history is an empty page, not ACTIVITY_UNAVAILABLE", async () => {
+    let sql = "";
+    const history = createBaseErc20TransferHistory({
+      assets: activityAssets.map((asset) => ({
+        id: asset.id,
+        chainId: 8453,
+        address: asset.tokenAddress,
+      })),
+      transport: {
+        async run(request) {
+          sql = request.sql;
+          return {
+            result: [],
+            metadata: {
+              cached: false,
+              executionTimestamp: TO,
+              executionTimeMs: 4,
+              rowCount: 0,
+            },
+          };
+        },
+      },
+      now: () => new Date(TO),
+    });
+    const handler = createActivityHandler({
+      authorize: async () => sessionResponse(),
+      readActivity: createActivityReader((input) => history.listTransfers(input)),
+      now: () => new Date(TO),
+    });
+    const response = await handler(
+      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
+    );
+    expect(response.status).toBe(200);
+    expectPrivate(response);
+    const body = (await response.json()) as { transfers: unknown[]; error?: unknown };
+    expect(body.error).toBeUndefined();
+    expect(body.transfers).toEqual([]);
+    expect(sql).toContain("HAVING sum(toInt8(action)) > 0\n)");
+    expect(sql).not.toMatch(/HAVING[\s\S]*LIMIT 10000/);
   });
 
   test("never turns provider failure into empty history", async () => {

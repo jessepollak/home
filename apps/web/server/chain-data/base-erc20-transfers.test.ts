@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { activityAssets } from "@/features/activity/types";
 import {
   buildBaseErc20TransferQuery,
   createBaseErc20TransferHistory,
@@ -72,7 +73,8 @@ describe("Base ERC20 transfer query", () => {
     expect(sql).toContain(`lower(toString(parameters['to'])) = '${WALLET}'`);
     expect(sql).toContain(`address IN ('${TOKEN}')`);
     expect(sql).not.toContain("lower(toString(address))");
-    expect(sql).toContain("LIMIT 10000");
+    expect(sql).not.toMatch(/HAVING[\s\S]*LIMIT 10000/);
+    expect(sql).toMatch(/LIMIT 51$/);
     expect(sql).toContain("any(toString(parameters['value'])) AS amount_base_units");
     expect(sql).toContain("any(block_number) AS block_number_numeric");
     expect(sql).toContain("any(log_index) AS log_index_numeric");
@@ -125,6 +127,50 @@ describe("Base ERC20 transfer query", () => {
     expect(() =>
       buildBaseErc20TransferQuery(input({ cacheMaxAgeMs: 499 }), assets, NOW),
     ).toThrow("cache age");
+  });
+
+  test("Home activity allowlist stays CoinbaSeQL-safe and returns an empty page", async () => {
+    const productionAssets = activityAssets.map((asset) => ({
+      id: asset.id,
+      chainId: 8453 as const,
+      address: asset.tokenAddress,
+    }));
+    const from = "2026-08-07T12:00:00.000Z";
+    const { sql } = buildBaseErc20TransferQuery(
+      {
+        verifiedWalletAddress: WALLET,
+        assetIds: activityAssets.map((asset) => asset.id),
+        from,
+        to: "2026-09-07T12:00:00.000Z",
+        limit: 25,
+      },
+      productionAssets,
+      NOW,
+    );
+
+    expect(productionAssets.length).toBeGreaterThan(0);
+    expect(productionAssets.length).toBeLessThanOrEqual(20);
+    expect(sql.length).toBeLessThanOrEqual(10_000);
+    expect(sql).toContain("address IN (");
+    expect(sql).not.toContain("lower(toString(address))");
+    expect(sql).toContain("HAVING sum(toInt8(action)) > 0\n)");
+    expect(sql).not.toMatch(/HAVING[\s\S]*LIMIT 10000/);
+    expect(sql.match(/LIMIT (\d+)\s*$/)?.[1]).toBe("26");
+
+    const history = createBaseErc20TransferHistory({
+      assets: productionAssets,
+      transport: transportFor([]),
+      now: () => NOW,
+    });
+    const page = await history.listTransfers({
+      verifiedWalletAddress: WALLET,
+      assetIds: activityAssets.map((asset) => asset.id),
+      from,
+      to: "2026-09-07T12:00:00.000Z",
+      limit: 25,
+    });
+    expect(page.transfers).toEqual([]);
+    expect(page.nextCursor).toBeNull();
   });
 });
 

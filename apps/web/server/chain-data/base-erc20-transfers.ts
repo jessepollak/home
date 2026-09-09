@@ -26,9 +26,6 @@ const TRANSFER_SIGNATURE = "Transfer(address,address,uint256)";
 const MAX_LOG_ID_LENGTH = 256;
 // Includes UTF-8, JSON escaping, and base64 expansion of bounded log IDs.
 const MAX_ENCODED_CURSOR_LENGTH = 4096;
-// CDP SQL rejects result sets above 10,000 rows. Cap grouped history before
-// pagination so a busy wallet cannot fail the whole page.
-const MAX_GROUPED_TRANSFER_ROWS = 10_000;
 
 export type BaseErc20TransferHistoryOptions = {
   assets: readonly BaseErc20Asset[];
@@ -85,6 +82,12 @@ export function buildBaseErc20TransferQuery(
   // Re-org safety is intentional: action is aggregated for every stable log_id,
   // and only net-active logs are paginated. Filtering action = 'added' would
   // leave removed logs in history.
+  //
+  // CoinbaSeQL's published selectStatement is GROUP BY then optional ORDER BY /
+  // LIMIT — not HAVING plus a nested limit. #46 appended ORDER BY … LIMIT 10000
+  // after HAVING and production /api/activity started fail-closing as
+  // ACTIVITY_UNAVAILABLE for healthy sessions (#70). Keep the grouped subquery
+  // terminated at HAVING; page with the outer LIMIT only.
   const sql = `SELECT
   log_id,
   toString(block_number_numeric) AS block_number,
@@ -119,8 +122,6 @@ FROM (
     )
   GROUP BY log_id
   HAVING sum(toInt8(action)) > 0
-  ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, log_id DESC
-  LIMIT ${MAX_GROUPED_TRANSFER_ROWS}
 )
 WHERE 1 = 1${cursorClause}
 ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, log_id DESC
