@@ -177,7 +177,7 @@ Jesse-locked, September 8, 2026 (~9:14pm PT). Standing yes on all CloudAgents fo
 
 - Hannah (Head of Engineering) launches and greenlights Auto-review / CloudAgent runs. No per-run Jesse approval card. Do not ping Jesse for CloudAgent greenlights.
 - Hannah still owns eng review (COMMENT LGTM on jessepollak-authored PRs).
-- Jesse remains final +1 and merge on product PRs.
+- Jesse remains final +1 and merge.
 
 ## Daily domain quality reviews
 
