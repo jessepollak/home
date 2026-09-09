@@ -341,6 +341,9 @@ function messageForPrepareError(error: unknown): string {
   if (code === "SAVINGS_ACTION_ISSUE") {
     return "The savings review could not be stored for this account. No transaction was submitted.";
   }
+  if (code === "SAVINGS_ACTION_RATE_LIMITED" || status === 429) {
+    return "Base RPC is rate limited. Try again shortly. No transaction was submitted.";
+  }
   if (code && serverMessage && isSafePrepareMessage(serverMessage)) {
     return `${serverMessage} (${code}) No transaction was submitted.`;
   }

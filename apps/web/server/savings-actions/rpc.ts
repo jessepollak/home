@@ -18,11 +18,17 @@ import type {
 } from "./types";
 
 export const SAVINGS_ACTION_RPC_TIMEOUT_MS = 6_000;
-export const SAVINGS_ACTION_RPC_BATCH_SIZE = 2;
+/** Public Base `-32016`s later JSON-RPC batch items; savings reads stay singles. */
+export const SAVINGS_ACTION_RPC_BATCH_SIZE = 1;
+export const SAVINGS_ACTION_RPC_RETRY_ATTEMPTS = 2;
+/** Pause before the second attempt so public Base `-32016` / 429 can clear. */
+export const SAVINGS_ACTION_RPC_RETRY_DELAY_MS = 400;
+const RATE_LIMITED_RPC_CODE = -32016;
 
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const blockHashPattern = /^0x[0-9a-fA-F]{64}$/;
 const quantityPattern = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
+const rateLimitMessagePattern = /rate\s*limit/i;
 
 type FetchLike = typeof fetch;
 type RpcRequest = {
@@ -40,10 +46,18 @@ type BlockMetadata = {
   timestamp: string;
 };
 
+export type SavingsActionRpcErrorCode = "rate-limited" | "rpc";
+
 export class SavingsActionRpcError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  readonly code: SavingsActionRpcErrorCode;
+
+  constructor(
+    message: string,
+    options?: ErrorOptions & { code?: SavingsActionRpcErrorCode },
+  ) {
     super(message, options);
     this.name = "SavingsActionRpcError";
+    this.code = options?.code ?? "rpc";
   }
 }
 
@@ -51,12 +65,25 @@ export function createSavingsActionStateReader(options: {
   fetchImpl?: FetchLike;
   rpcUrl?: string;
   timeoutMs?: number;
+  retryAttempts?: number;
+  retryDelayMs?: number;
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 } = {}): SavingsActionStateReader {
   const fetchImpl = options.fetchImpl ?? fetch;
+  // Dedicated `BASE_RPC_URL` when set; otherwise public mainnet.base.org.
   const rpcUrl = resolveBaseRpcUrl(options.rpcUrl);
   const timeoutMs = options.timeoutMs ?? SAVINGS_ACTION_RPC_TIMEOUT_MS;
+  const retryAttempts = options.retryAttempts ?? SAVINGS_ACTION_RPC_RETRY_ATTEMPTS;
+  const retryDelayMs = options.retryDelayMs ?? SAVINGS_ACTION_RPC_RETRY_DELAY_MS;
+  const sleep = options.sleep ?? wait;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
     throw new SavingsActionRpcError("The savings RPC timeout must be 1-30000ms.");
+  }
+  if (!Number.isSafeInteger(retryAttempts) || retryAttempts < 1 || retryAttempts > 4) {
+    throw new SavingsActionRpcError("The savings RPC retry attempts must be 1-4.");
+  }
+  if (!Number.isSafeInteger(retryDelayMs) || retryDelayMs < 0 || retryDelayMs > 5_000) {
+    throw new SavingsActionRpcError("The savings RPC retry delay must be 0-5000ms.");
   }
 
   return async function readSavingsActionState(input, externalSignal) {
@@ -66,11 +93,13 @@ export function createSavingsActionStateReader(options: {
     externalSignal?.addEventListener("abort", abort, { once: true });
 
     try {
+      const rpcRetry = { attempts: retryAttempts, retryDelayMs, sleep };
       const chain = await executeRequired(
         fetchImpl,
         rpcUrl,
         request(1, "eth_chainId", []),
         controller.signal,
+        rpcRetry,
       );
       if (parseQuantity(chain.result, "chain ID") !== BigInt(BASE_CHAIN_ID)) {
         throw new SavingsActionRpcError("The configured RPC is not Base mainnet.");
@@ -81,21 +110,24 @@ export function createSavingsActionStateReader(options: {
         rpcUrl,
         request(2, "eth_getBlockByNumber", ["latest", false]),
         controller.signal,
+        rpcRetry,
       );
       const block = parseBlock(latest.result);
       const reads = createPinnedReads(input.kind, input.accountAddress, input.vaultAddress, input.amount, block.numberHex);
-      const responses = (
-        await Promise.all(
-          chunkReads(reads, SAVINGS_ACTION_RPC_BATCH_SIZE).map((chunk) =>
-            executeBatch(
-              fetchImpl,
-              rpcUrl,
-              chunk.map(({ rpcRequest }) => rpcRequest),
-              controller.signal,
-            ),
+      // Sequential singles: public Base `-32016`s later items in a JSON-RPC batch
+      // and parallel batch POSTs (#121 cash-before-vaults). Do not Promise.all.
+      const responses: RpcSuccess[] = [];
+      for (const { rpcRequest } of reads) {
+        responses.push(
+          await executeRequired(
+            fetchImpl,
+            rpcUrl,
+            rpcRequest,
+            controller.signal,
+            rpcRetry,
           ),
-        )
-      ).flat();
+        );
+      }
       const resultById = new Map(responses.map((response) => [response.id, response.result]));
       const read = (label: string) => {
         const entry = reads.find((candidate) => candidate.label === label);
@@ -131,6 +163,7 @@ export function createSavingsActionStateReader(options: {
         rpcUrl,
         request(99, "eth_getBlockByNumber", [block.numberHex, false]),
         controller.signal,
+        rpcRetry,
       );
       const confirmedBlock = parseBlock(confirmation.result);
       if (
@@ -216,13 +249,20 @@ function createPinnedReads(
   ];
 }
 
+type RpcRetry = {
+  attempts: number;
+  retryDelayMs: number;
+  sleep: (ms: number, signal: AbortSignal) => Promise<void>;
+};
+
 async function executeRequired(
   fetchImpl: FetchLike,
   rpcUrl: string,
   rpcRequest: RpcRequest,
   signal: AbortSignal,
+  retry: RpcRetry,
 ): Promise<RpcSuccess> {
-  const value = await transport(fetchImpl, rpcUrl, rpcRequest, signal);
+  const value = await transport(fetchImpl, rpcUrl, rpcRequest, signal, retry);
   const response = parseSuccess(value);
   if (!response || response.id !== rpcRequest.id) {
     throw new SavingsActionRpcError("Base RPC returned an invalid response.");
@@ -230,37 +270,40 @@ async function executeRequired(
   return response;
 }
 
-async function executeBatch(
-  fetchImpl: FetchLike,
-  rpcUrl: string,
-  requests: RpcRequest[],
-  signal: AbortSignal,
-): Promise<RpcSuccess[]> {
-  if (requests.length < 1 || requests.length > SAVINGS_ACTION_RPC_BATCH_SIZE) {
-    throw new SavingsActionRpcError("The savings RPC batch size is invalid.");
-  }
-  const value = await transport(fetchImpl, rpcUrl, requests, signal);
-  if (!Array.isArray(value) || value.length !== requests.length) {
-    throw new SavingsActionRpcError("Base RPC returned an invalid batch response.");
-  }
-  const expectedIds = new Set(requests.map(({ id }) => id));
-  const seenIds = new Set<number>();
-  const responses: RpcSuccess[] = [];
-  for (const entry of value) {
-    const response = parseSuccess(entry);
-    if (!response || !expectedIds.has(response.id) || seenIds.has(response.id)) {
-      throw new SavingsActionRpcError("Base RPC returned mismatched batch responses.");
-    }
-    seenIds.add(response.id);
-    responses.push(response);
-  }
-  return responses;
-}
-
 async function transport(
   fetchImpl: FetchLike,
   rpcUrl: string,
-  body: RpcRequest | RpcRequest[],
+  body: RpcRequest,
+  signal: AbortSignal,
+  retry: RpcRetry,
+): Promise<unknown> {
+  let lastError: SavingsActionRpcError | undefined;
+  for (let attempt = 0; attempt < retry.attempts; attempt += 1) {
+    if (attempt > 0) {
+      await retry.sleep(retry.retryDelayMs, signal);
+      if (signal.aborted) {
+        throw new SavingsActionRpcError("The Base savings RPC request was aborted.");
+      }
+    }
+    try {
+      return await transportOnce(fetchImpl, rpcUrl, body, signal);
+    } catch (error) {
+      if (!(error instanceof SavingsActionRpcError) || error.code !== "rate-limited") {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+  throw lastError ?? new SavingsActionRpcError(
+    "Base RPC rejected a savings state read: over rate limit",
+    { code: "rate-limited" },
+  );
+}
+
+async function transportOnce(
+  fetchImpl: FetchLike,
+  rpcUrl: string,
+  body: RpcRequest,
   signal: AbortSignal,
 ): Promise<unknown> {
   let response: Response;
@@ -278,14 +321,25 @@ async function transport(
       { cause: error },
     );
   }
+  if (response.status === 429) {
+    throw new SavingsActionRpcError(
+      "Base RPC rejected a savings state read: over rate limit",
+      { code: "rate-limited" },
+    );
+  }
   if (!response.ok) {
     throw new SavingsActionRpcError(`Base RPC returned HTTP ${response.status}.`);
   }
+  let parsed: unknown;
   try {
-    return JSON.parse(await response.text()) as unknown;
+    parsed = JSON.parse(await response.text()) as unknown;
   } catch (error) {
     throw new SavingsActionRpcError("Base RPC returned malformed JSON.", { cause: error });
   }
+  if (isRecord(parsed) && "error" in parsed && isRateLimitedRpcError(parsed.error)) {
+    throw new SavingsActionRpcError(rpcErrorMessage(parsed.error), { code: "rate-limited" });
+  }
+  return parsed;
 }
 
 function request(id: number, method: string, params: unknown[]): RpcRequest {
@@ -295,7 +349,9 @@ function request(id: number, method: string, params: unknown[]): RpcRequest {
 function parseSuccess(value: unknown): RpcSuccess | null {
   if (!isRecord(value) || value.jsonrpc !== "2.0") return null;
   if ("error" in value) {
-    throw new SavingsActionRpcError(rpcErrorMessage(value.error));
+    throw new SavingsActionRpcError(rpcErrorMessage(value.error), {
+      code: isRateLimitedRpcError(value.error) ? "rate-limited" : "rpc",
+    });
   }
   if (
     typeof value.id !== "number" ||
@@ -315,12 +371,32 @@ function rpcErrorMessage(value: unknown): string {
   return `Base RPC rejected a savings state read: ${clipped}`;
 }
 
-function chunkReads<T>(values: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push(values.slice(index, index + size));
-  }
-  return chunks;
+function isRateLimitedRpcError(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.code === RATE_LIMITED_RPC_CODE) return true;
+  return typeof value.message === "string" && rateLimitMessagePattern.test(value.message);
+}
+
+function wait(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!Number.isFinite(ms) || ms <= 0 || signal.aborted) {
+      if (signal.aborted) {
+        reject(new SavingsActionRpcError("The Base savings RPC request was aborted."));
+        return;
+      }
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(new SavingsActionRpcError("The Base savings RPC request was aborted."));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function parseBlock(value: unknown): BlockMetadata {

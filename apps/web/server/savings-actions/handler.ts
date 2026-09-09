@@ -64,6 +64,11 @@ export function createSavingsActionsHandler(dependencies: {
             return privateJson(errorBody("SAVINGS_ACTION_UNSUPPORTED", error.message), 422);
           case "limit-exceeded":
             return privateJson(errorBody("SAVINGS_ACTION_LIMIT_EXCEEDED", error.message), 409);
+          case "rate-limited":
+            return privateJson(
+              errorBody("SAVINGS_ACTION_RATE_LIMITED", error.message),
+              429,
+            );
           case "rpc":
             return privateJson(errorBody("SAVINGS_ACTION_RPC", error.message), 502);
           default:

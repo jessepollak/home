@@ -205,6 +205,66 @@ describe("Morpho savings action preparation", () => {
     expect(action.warnings.join(" ")).toContain("Current vault fee: 0%");
   });
 
+  test("maps a rate-limited state read to a typed reason and retries after a pause", async () => {
+    let attempts = 0;
+    const delays: number[] = [];
+    const prepare = createPrepareSavingsAction({
+      now: () => new Date("2026-09-09T00:00:00.000Z"),
+      retryDelayMs: 400,
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+      readState: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new SavingsActionRpcError(
+            "Base RPC rejected a savings state read: over rate limit",
+            { code: "rate-limited" },
+          );
+        }
+        return baseState;
+      },
+    });
+
+    const action = await prepare({
+      session,
+      action: {
+        kind: "deposit",
+        vaultAddress: VAULT,
+        amountBaseUnits: "1500000",
+      },
+    });
+
+    expect(attempts).toBe(2);
+    expect(delays).toEqual([400]);
+    expect(action.kind).toBe("save-deposit");
+  });
+
+  test("keeps a persistent rate limit typed instead of wrapping it as unavailable", async () => {
+    const prepare = createPrepareSavingsAction({
+      retryDelayMs: 0,
+      readState: async () => {
+        throw new SavingsActionRpcError(
+          "Base RPC rejected a savings state read: over rate limit",
+          { code: "rate-limited" },
+        );
+      },
+    });
+
+    await expect(prepare({
+      session,
+      action: {
+        kind: "deposit",
+        vaultAddress: VAULT,
+        amountBaseUnits: "5000000",
+      },
+    })).rejects.toMatchObject({
+      name: "SavingsActionError",
+      reason: "rate-limited",
+      message: "Base RPC is rate limited. Try again shortly.",
+    } satisfies Partial<SavingsActionError>);
+  });
+
   test("preserves the RPC failure instead of wrapping it as a generic unavailable error", async () => {
     const prepare = createPrepareSavingsAction({
       readState: async () => {

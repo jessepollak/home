@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morpho/config";
-import { SAVINGS_ACTION_RPC_BATCH_SIZE, createSavingsActionStateReader } from "./rpc";
+import { createSavingsActionStateReader } from "./rpc";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const VAULT = MORPHO_V1_CANDIDATE_ADDRESSES[0];
@@ -80,11 +80,141 @@ describe("savings action RPC state", () => {
       fee: BigInt("250000000000000000"),
       block: { number: "16", numberHex: "0x10", hash: BLOCK_HASH },
     });
-    const batches = requests.filter(Array.isArray) as Array<Array<{ method: string; params: unknown[] }>>;
-    expect(batches.every((batch) => batch.length <= SAVINGS_ACTION_RPC_BATCH_SIZE)).toBeTrue();
-    expect(batches.flat()).toHaveLength(8);
-    expect(batches.flat().every((entry) => entry.method === "eth_call" && entry.params[1] === "0x10")).toBeTrue();
+    const singles = requests.filter(
+      (body): body is { method: string; params: unknown[] } => !Array.isArray(body),
+    );
+    expect(requests.every((body) => !Array.isArray(body))).toBeTrue();
+    const calls = singles.filter((entry) => entry.method === "eth_call");
+    expect(calls).toHaveLength(8);
+    expect(calls.every((entry) => entry.params[1] === "0x10")).toBeTrue();
     expect((requests.at(-1) as { params: unknown[] }).params[0]).toBe("0x10");
+  });
+
+  test("retries a public-Base -32016 once, then completes the pinned read", async () => {
+    let calls = 0;
+    const delays: number[] = [];
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        id: number;
+        method: string;
+        params: unknown[];
+      };
+      expect(Array.isArray(body)).toBeFalse();
+      if (body.method === "eth_chainId") {
+        return Response.json({ jsonrpc: "2.0", id: body.id, result: "0x2105" });
+      }
+      if (body.method === "eth_getBlockByNumber") {
+        return Response.json({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: { number: "0x10", hash: BLOCK_HASH, timestamp: "0x64" },
+        });
+      }
+      calls += 1;
+      if (calls === 1) {
+        return Response.json({
+          jsonrpc: "2.0",
+          id: body.id,
+          error: { code: -32016, message: "over rate limit" },
+        });
+      }
+      return Response.json({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: body.params[0] && (body.params[0] as { data?: string }).data?.startsWith("0x38d52e0f")
+          ? addressWord(BASE_USDC_ADDRESS)
+          : word(BigInt(1)),
+      });
+    }) as typeof fetch;
+
+    const result = await createSavingsActionStateReader({
+      fetchImpl,
+      rpcUrl: "https://rpc.example.test",
+      retryDelayMs: 400,
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+    })({
+      kind: "deposit",
+      accountAddress: ACCOUNT,
+      vaultAddress: VAULT,
+      amount: BigInt("2000000"),
+    });
+
+    expect(calls).toBe(9);
+    expect(delays).toEqual([400]);
+    expect(result.assetAddress).toBe(BASE_USDC_ADDRESS.toLowerCase());
+    expect(result.block.hash).toBe(BLOCK_HASH);
+  });
+
+  test("retries HTTP 429 once before succeeding", async () => {
+    let posts = 0;
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      posts += 1;
+      if (posts === 1) {
+        return new Response("slow down", { status: 429 });
+      }
+      const body = JSON.parse(String(init?.body)) as {
+        id: number;
+        method: string;
+        params: unknown[];
+      };
+      if (body.method === "eth_chainId") {
+        return Response.json({ jsonrpc: "2.0", id: body.id, result: "0x2105" });
+      }
+      if (body.method === "eth_getBlockByNumber") {
+        return Response.json({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: { number: "0x10", hash: BLOCK_HASH, timestamp: "0x64" },
+        });
+      }
+      return Response.json({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: (body.params[0] as { data?: string }).data?.startsWith("0x38d52e0f")
+          ? addressWord(BASE_USDC_ADDRESS)
+          : word(BigInt(1)),
+      });
+    }) as typeof fetch;
+
+    const result = await createSavingsActionStateReader({
+      fetchImpl,
+      rpcUrl: "https://rpc.example.test",
+      retryDelayMs: 0,
+    })({
+      kind: "deposit",
+      accountAddress: ACCOUNT,
+      vaultAddress: VAULT,
+      amount: BigInt("2000000"),
+    });
+
+    expect(posts).toBeGreaterThan(8);
+    expect(result.block.numberHex).toBe("0x10");
+  });
+
+  test("surfaces a typed rate-limited error after retries are exhausted", async () => {
+    const fetchImpl = (async () =>
+      Response.json({
+        jsonrpc: "2.0",
+        id: 1,
+        error: { code: -32016, message: "over rate limit" },
+      })) as typeof fetch;
+
+    await expect(createSavingsActionStateReader({
+      fetchImpl,
+      rpcUrl: "https://rpc.example.test",
+      retryDelayMs: 0,
+    })({
+      kind: "deposit",
+      accountAddress: ACCOUNT,
+      vaultAddress: VAULT,
+      amount: BigInt("2000000"),
+    })).rejects.toMatchObject({
+      name: "SavingsActionRpcError",
+      code: "rate-limited",
+      message: "Base RPC rejected a savings state read: over rate limit",
+    });
   });
 
   test("surfaces the rejected savings read instead of a mismatched batch", async () => {

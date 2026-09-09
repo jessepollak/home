@@ -97,6 +97,28 @@ describe("savings action handler", () => {
     }
   });
 
+  test("returns a typed 429 when savings state reads stay rate-limited", async () => {
+    const handler = createSavingsActionsHandler({
+      authorize: authorize("cdp-embedded"),
+      prepare: async () => {
+        throw new SavingsActionError(
+          "rate-limited",
+          "Base RPC is rate limited. Try again shortly.",
+        );
+      },
+      issue: async () => issuedAction("cdp-embedded"),
+    });
+
+    const response = await handler(savingsRequest("cdp-embedded"));
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "SAVINGS_ACTION_RATE_LIMITED",
+        message: "Base RPC is rate limited. Try again shortly.",
+      },
+    });
+  });
+
   test("returns the RPC error code instead of the opaque unavailable copy", async () => {
     const handler = createSavingsActionsHandler({
       authorize: authorize("cdp-embedded"),

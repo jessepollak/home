@@ -142,6 +142,33 @@ describe("SavingsMoneyDialog", () => {
     );
   });
 
+  test("surfaces a typed rate-limit error instead of stranded wallet-wait copy", async () => {
+    render(
+      <SavingsMoneyDialog
+        open
+        mode="deposit"
+        session={session}
+        candidate={candidate}
+        prepareMoneyAction={async () => {
+          throw Object.assign(new Error("limited"), {
+            status: 429,
+            code: "SAVINGS_ACTION_RATE_LIMITED",
+            serverMessage: "Base RPC is rate limited. Try again shortly.",
+          });
+        }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
+        onClose={() => {}}
+      />,
+    );
+
+    typeAmount("5");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect((await page().findByRole("alert")).textContent).toBe(
+      "Base RPC is rate limited. Try again shortly. No transaction was submitted.",
+    );
+    expect(page().queryByText("Waiting for your wallet…")).toBeNull();
+  });
+
   test("surfaces a safe RPC error code instead of the opaque unavailable copy", async () => {
     render(
       <SavingsMoneyDialog

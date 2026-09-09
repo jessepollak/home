@@ -13,7 +13,11 @@ import {
   encodeDepositCall,
   encodeWithdrawCall,
 } from "./abi";
-import { SavingsActionRpcError, getSavingsActionState } from "./rpc";
+import {
+  SAVINGS_ACTION_RPC_RETRY_DELAY_MS,
+  SavingsActionRpcError,
+  getSavingsActionState,
+} from "./rpc";
 import type {
   PrepareSavingsAction,
   SavingsActionInput,
@@ -32,6 +36,7 @@ export type SavingsActionErrorReason =
   | "unsupported-asset"
   | "limit-exceeded"
   | "rpc"
+  | "rate-limited"
   | "unavailable";
 
 export class SavingsActionError extends Error {
@@ -47,9 +52,13 @@ export class SavingsActionError extends Error {
 export function createPrepareSavingsAction(options: {
   readState?: SavingsActionStateReader;
   now?: () => Date;
+  retryDelayMs?: number;
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 } = {}): PrepareSavingsAction {
   const readState = options.readState ?? getSavingsActionState;
   const now = options.now ?? (() => new Date());
+  const retryDelayMs = options.retryDelayMs ?? SAVINGS_ACTION_RPC_RETRY_DELAY_MS;
+  const sleep = options.sleep ?? wait;
 
   return async function prepareSavingsAction({ session, action, signal }) {
     const accountAddress = verifiedAccountAddress(session);
@@ -67,7 +76,10 @@ export function createPrepareSavingsAction(options: {
       state = await readState(readInput, signal);
     } catch (error) {
       const mapped = mapReadStateError(error);
-      if (mapped.reason !== "rpc") throw mapped;
+      if (mapped.reason !== "rpc" && mapped.reason !== "rate-limited") throw mapped;
+      if (mapped.reason === "rate-limited" && retryDelayMs > 0) {
+        await sleep(retryDelayMs, signal);
+      }
       try {
         state = await readState(readInput, signal);
       } catch (retryError) {
@@ -263,7 +275,17 @@ function normalizeAction(action: SavingsActionInput): SavingsActionInput {
 
 function mapReadStateError(error: unknown): SavingsActionError {
   if (error instanceof SavingsActionError) return error;
-  if (error instanceof SavingsActionRpcError || error instanceof SavingsActionAbiError) {
+  if (error instanceof SavingsActionRpcError) {
+    if (error.code === "rate-limited") {
+      return new SavingsActionError(
+        "rate-limited",
+        "Base RPC is rate limited. Try again shortly.",
+        { cause: error },
+      );
+    }
+    return new SavingsActionError("rpc", error.message, { cause: error });
+  }
+  if (error instanceof SavingsActionAbiError) {
     return new SavingsActionError("rpc", error.message, { cause: error });
   }
   return new SavingsActionError(
@@ -310,4 +332,26 @@ function usdcAssetId() {
 
 function vaultShareAssetId(vaultAddress: Address) {
   return `eip155:${BASE_CHAIN_ID}/erc20:${vaultAddress.toLowerCase()}`;
+}
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!Number.isFinite(ms) || ms <= 0 || signal?.aborted) {
+      if (signal?.aborted) {
+        reject(new SavingsActionError("rpc", "The Base savings RPC request was aborted."));
+        return;
+      }
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(new SavingsActionError("rpc", "The Base savings RPC request was aborted."));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
