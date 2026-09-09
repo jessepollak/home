@@ -1,5 +1,6 @@
 "use client";
 
+import { AddressText } from "@/components/address";
 import { CountrySelect } from "@/components/country-select";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
@@ -77,9 +78,7 @@ export function AccountSettings({
               <strong>Base account</strong>
               <small>
                 {accountAddress ? (
-                  <code title={accountAddress}>
-                    {accountAddress.slice(0, 6)}…{accountAddress.slice(-4)}
-                  </code>
+                  <AddressText address={accountAddress} />
                 ) : (
                   "Setup in progress"
                 )}

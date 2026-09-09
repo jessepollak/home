@@ -1,3 +1,4 @@
+export { formatAddress, isAddress } from "./address";
 export {
   formatPercentage,
   formatPresentationPrice,

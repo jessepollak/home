@@ -21,6 +21,15 @@ export const TRANSFER_ASSETS = {
   { symbol: string; decimals: number }
 >;
 
+export function isTransferRecipient(value: string): boolean {
+  try {
+    normalizeTransferRecipient(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeTransferRecipient(value: string): `0x${string}` {
   const normalized = value.trim();
   if (
@@ -56,6 +65,20 @@ export function parseTransferAmount(
     throw new TransferExecutionError("invalid-request");
   }
   return baseUnits.toString(10);
+}
+
+export function formatSendConfirmAmount(
+  amountBaseUnits: string,
+  assetId: TransferAssetId,
+): string {
+  if (assetId === "usdc") {
+    const exact = formatTransferAmount(amountBaseUnits, TRANSFER_ASSETS.usdc.decimals);
+    const [whole, fraction = ""] = exact.split(".");
+    return fraction.length <= 2
+      ? `$${whole}.${fraction.padEnd(2, "0")}`
+      : `$${exact}`;
+  }
+  return `${formatTransferAmount(amountBaseUnits, TRANSFER_ASSETS.eth.decimals)} ETH`;
 }
 
 export function formatTransferAmount(

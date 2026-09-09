@@ -652,7 +652,10 @@ function HomePanel({
           <PlusIcon />
           <span>Add money</span>
         </Link>
-        <TransferActions onTransferConfirmed={onTransferConfirmed} />
+        <TransferActions
+          onTransferConfirmed={onTransferConfirmed}
+          availableByAsset={availableSendBalances(balanceItems)}
+        />
       </div>
 
       <section className="balances-panel" aria-labelledby="balances-heading">
@@ -719,6 +722,18 @@ function HomePanel({
       </div>
     </div>
   );
+}
+
+function availableSendBalances(
+  items: readonly HomeAssetBalanceItem[],
+): Partial<Record<"usdc" | "eth", string>> {
+  const cashUsd = items.find((item) => item.group === "cash" && item.currencyCode === "USD");
+  const cash = cashUsd ?? items.find((item) => item.group === "cash");
+  const eth = items.find((item) => item.detail === "ETH");
+  return {
+    ...(cash?.displayBalance ? { usdc: cash.displayBalance } : {}),
+    ...(eth ? { eth: eth.displayContext ?? eth.displayBalance } : {}),
+  };
 }
 
 function EmptyPanel({ label }: { label: string }) {

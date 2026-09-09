@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { AddressText } from "@/components/address";
 import { useAccountWallet } from "@/features/account/cdp-client";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
 import { MoneyActionReview } from "@/features/money-actions/review";
@@ -191,10 +192,16 @@ function BorrowExperienceInner({ session, fetchAccountResource, onActionConfirme
           </div>
           <dl className={styles.addresses}>
             <Fact label="Market ID" value={shortHash(BORROW_MARKET_ID)} title={BORROW_MARKET_ID} />
-            <Fact label="Morpho" value={shortAddress(MORPHO_BLUE_ADDRESS)} title={MORPHO_BLUE_ADDRESS} />
-            <Fact label="Collateral" value={`cbBTC · ${shortAddress(BORROW_COLLATERAL_TOKEN.address)}`} title={BORROW_COLLATERAL_TOKEN.address} />
-            <Fact label="Loan" value={`USDC · ${shortAddress(BORROW_LOAN_TOKEN.address)}`} title={BORROW_LOAN_TOKEN.address} />
-            <Fact label="Oracle" value={shortAddress(BORROW_ORACLE_ADDRESS)} title={BORROW_ORACLE_ADDRESS} />
+            <Fact label="Morpho" value={<AddressText address={MORPHO_BLUE_ADDRESS} />} />
+            <Fact
+              label="Collateral"
+              value={<>cbBTC · <AddressText address={BORROW_COLLATERAL_TOKEN.address} /></>}
+            />
+            <Fact
+              label="Loan"
+              value={<>USDC · <AddressText address={BORROW_LOAN_TOKEN.address} /></>}
+            />
+            <Fact label="Oracle" value={<AddressText address={BORROW_ORACLE_ADDRESS} />} />
             <Fact label="LLTV" value={`${formatWadPercent(BORROW_LLTV_WAD.toString())}%`} />
           </dl>
         </section>
@@ -304,8 +311,8 @@ function BorrowExperienceInner({ session, fetchAccountResource, onActionConfirme
   );
 }
 
-function Fact({ label, value, title }: { label: string; value: string; title?: string }) {
-  return <div><dt>{label}</dt><dd><code title={title}>{value}</code></dd></div>;
+function Fact({ label, value, title }: { label: string; value: ReactNode; title?: string }) {
+  return <div><dt>{label}</dt><dd>{title ? <code title={title}>{value}</code> : value}</dd></div>;
 }
 
 function Metric({ label, value, note }: { label: string; value: string; note?: string }) {
@@ -393,7 +400,6 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(value));
 }
 
-function shortAddress(value: string) { return `${value.slice(0, 6)}…${value.slice(-4)}`; }
 function shortHash(value: string) { return `${value.slice(0, 10)}…${value.slice(-8)}`; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function isAbortError(error: unknown) { return error instanceof DOMException && error.name === "AbortError"; }

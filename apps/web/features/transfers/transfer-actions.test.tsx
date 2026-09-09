@@ -2,6 +2,7 @@ import "../account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AccountWalletClient } from "@/features/account/cdp-client";
+import { formatAddress } from "@/features/formatting";
 import { TransferExecutionError, type ConfirmedTransfer, type PendingTransfer } from "./types";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
@@ -59,6 +60,30 @@ function page() {
   return within(document.body);
 }
 
+function typeAmount(digits: string) {
+  for (const digit of digits) {
+    fireEvent.click(page().getByRole("button", {
+      name: digit === "." ? "Decimal point" : digit,
+    }));
+  }
+}
+
+function composeSend(options: { asset?: "usdc" | "eth"; amount: string; recipient?: string }) {
+  fireEvent.click(page().getByRole("button", { name: "Send" }));
+  expect(page().queryByRole("button", { name: "Back" })).toBeNull();
+  if (options.asset === "eth") {
+    fireEvent.change(page().getByLabelText("Asset"), { target: { value: "eth" } });
+  }
+  expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  typeAmount(options.amount);
+  fireEvent.click(page().getByRole("button", { name: "Continue" }));
+  expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
+  fireEvent.change(page().getByLabelText("To"), {
+    target: { value: options.recipient ?? RECIPIENT },
+  });
+  fireEvent.click(page().getByRole("button", { name: "Continue" }));
+}
+
 afterEach(() => {
   cleanup();
   Object.defineProperty(navigator, "clipboard", {
@@ -68,7 +93,7 @@ afterEach(() => {
 });
 
 describe("TransferActions modals", () => {
-  test("shows only the verified Base address and reports clipboard failures", async () => {
+  test("shows a condensed Base address and reports clipboard failures", async () => {
     let copied = "";
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -78,8 +103,9 @@ describe("TransferActions modals", () => {
 
     fireEvent.click(page().getByRole("button", { name: "Receive" }));
     expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
-    expect(page().getByText(ADDRESS)).toBeTruthy();
-    expect(page().getByText(/Base \(chain 8453\)/)).toBeTruthy();
+    expect(page().getByTitle(ADDRESS).textContent).toBe(formatAddress(ADDRESS));
+    expect(page().getByText("Base address")).toBeTruthy();
+    expect(page().queryByText(/8453/)).toBeNull();
 
     fireEvent.click(page().getByRole("button", { name: "Copy address" }));
     await waitFor(() => expect(copied).toBe(ADDRESS));
@@ -95,7 +121,7 @@ describe("TransferActions modals", () => {
     );
   });
 
-  test("requires explicit review, prevents duplicate confirmation, and waits for confirmed result", async () => {
+  test("walks amount → address → confirm, prevents duplicate send, and returns a compact success", async () => {
     const pending = deferred<ConfirmedTransfer>();
     let calls = 0;
     const onConfirmed: ConfirmedTransfer[] = [];
@@ -109,26 +135,20 @@ describe("TransferActions modals", () => {
       />,
     );
 
-    fireEvent.click(page().getByRole("button", { name: "Send" }));
-    fireEvent.change(page().getByLabelText("Recipient address"), {
-      target: { value: RECIPIENT },
-    });
-    fireEvent.change(page().getByLabelText("Asset"), {
-      target: { value: "eth" },
-    });
-    fireEvent.change(page().getByLabelText("Amount"), {
-      target: { value: "0.000000000000000001" },
-    });
-    fireEvent.click(page().getByRole("button", { name: "Review transfer" }));
+    composeSend({ asset: "eth", amount: "0.000000000000000001" });
 
-    expect(page().getByRole("heading", { name: "Review transfer" })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Confirm" })).toBeTruthy();
     expect(page().getByText("0.000000000000000001 ETH")).toBeTruthy();
-    const confirm = page().getByRole("button", { name: "Confirm and send" });
+    expect(page().getByText("You're sending ETH")).toBeTruthy();
+    expect(page().getByText("Base")).toBeTruthy();
+    expect(page().queryByText(/8453/)).toBeNull();
+    expect(page().queryByText(/expiresAt|base units|approval/i)).toBeNull();
+    const confirm = page().getByRole("button", { name: "Send 0.000000000000000001 ETH" });
     fireEvent.click(confirm);
     fireEvent.click(confirm);
     expect(calls).toBe(1);
     expect(page().getByText(/Waiting for your wallet/)).toBeTruthy();
-    expect(page().queryByText("Transfer confirmed")).toBeNull();
+    expect(page().queryByText(/^Sent /)).toBeNull();
 
     await act(async () => {
       pending.resolve({
@@ -140,9 +160,9 @@ describe("TransferActions modals", () => {
       await pending.promise;
     });
 
-    expect(page().getByRole("heading", { name: "Transfer confirmed" })).toBeTruthy();
+    expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
+    expect(page().getByText("Sent 0.000000000000000001 ETH")).toBeTruthy();
     expect(onConfirmed).toHaveLength(1);
-    expect(page().getByText("<0.000001 ETH sent on Base.")).toBeTruthy();
     expect(onConfirmed[0]?.transactionHash).toBe(HASH);
     expect(onConfirmed[0]?.amountBaseUnits).toBe("1");
   });
@@ -165,15 +185,8 @@ describe("TransferActions modals", () => {
     });
     const view = render(<TransferActionsForWallet wallet={wallet} />);
 
-    fireEvent.click(page().getByRole("button", { name: "Send" }));
-    fireEvent.change(page().getByLabelText("Recipient address"), {
-      target: { value: RECIPIENT },
-    });
-    fireEvent.change(page().getByLabelText("Amount"), {
-      target: { value: "1.000001" },
-    });
-    fireEvent.click(page().getByRole("button", { name: "Review transfer" }));
-    fireEvent.click(page().getByRole("button", { name: "Confirm and send" }));
+    composeSend({ amount: "1.000001" });
+    fireEvent.click(page().getByRole("button", { name: "Send $1.000001" }));
     await page().findByRole("button", { name: "Check existing submission" });
 
     view.rerender(
@@ -192,7 +205,7 @@ describe("TransferActions modals", () => {
     fireEvent.click(page().getByRole("button", { name: "Send" }));
     expect(page().getByText(/already submitted/)).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Check existing submission" }));
-    await page().findByRole("heading", { name: "Transfer confirmed" });
+    await page().findByText("Sent $1.000001");
     expect(sends).toBe(1);
     expect(checks).toBe(1);
   });
@@ -256,7 +269,7 @@ describe("TransferActions modals", () => {
     fireEvent.click(page().getByRole("button", { name: "Send" }));
     expect(await page().findByRole("button", { name: "Check status" })).toBeTruthy();
     expect(page().getByRole("alert").textContent).toMatch(/do not submit it again/);
-    expect(page().queryByRole("button", { name: "Confirm action" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Send $0.10" })).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Check status" }));
     await waitFor(() => expect(executes).toBe(1));
     expect(prepares).toBe(0);
@@ -265,7 +278,7 @@ describe("TransferActions modals", () => {
   test("hides an open private modal immediately when the verified owner changes", () => {
     const view = render(<TransferActionsForWallet wallet={verifiedWallet()} />);
     fireEvent.click(page().getByRole("button", { name: "Receive" }));
-    expect(page().getByText(ADDRESS)).toBeTruthy();
+    expect(page().getByTitle(ADDRESS)).toBeTruthy();
 
     view.rerender(
       <TransferActionsForWallet
@@ -278,7 +291,7 @@ describe("TransferActions modals", () => {
       />,
     );
 
-    expect(page().queryByText(ADDRESS)).toBeNull();
+    expect(page().queryByTitle(ADDRESS)).toBeNull();
     expect(page().getByRole("button", { name: "Receive" }).hasAttribute("disabled")).toBe(true);
   });
 });

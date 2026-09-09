@@ -607,14 +607,14 @@ describe("login-state home experience", () => {
     expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();
     expect(page().getAllByText("$12.34").length).toBeGreaterThanOrEqual(1);
     fireEvent.click(page().getByRole("button", { name: "Account" }));
-    expect(page().getByTitle(ADDRESS).textContent).toBe("0x1111…1111");
+    expect(page().getByTitle(ADDRESS).textContent).toBe("0x1111…111111");
     fireEvent.click(page().getByRole("button", { name: "Done" }));
     expect(page().getByRole("link", { name: "Add money" }).getAttribute("href")).toBe("/fund");
     expect(page().getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
     expect(page().getByRole("button", { name: "Receive" }).hasAttribute("disabled")).toBe(false);
     fireEvent.click(page().getByRole("button", { name: "Receive" }));
     expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
-    expect(page().getByText(ADDRESS)).toBeTruthy();
+    expect(page().getByTitle(ADDRESS).textContent).toBe("0x1111…111111");
     fireEvent.click(page().getByRole("button", { name: "Close receive dialog" }));
     expect(page().queryByRole("dialog", { name: "Receive" })).toBeNull();
     expect(page().queryByText("One home for your money.")).toBeNull();
@@ -673,7 +673,7 @@ describe("login-state home experience", () => {
     fireEvent.click(page().getByRole("button", { name: "Sign out" }));
 
     await waitFor(() => expect(replaceCalls).toEqual(["/"]));
-    expect(document.body.textContent).not.toContain("0x1111…1111");
+    expect(document.body.textContent).not.toContain("0x1111…111111");
     expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
     expect(page().queryByRole("link", { name: "Add money" })).toBeNull();
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
@@ -1069,17 +1069,20 @@ describe("login-state home experience", () => {
     await page().findByText("$5.00");
     await page().findByText("No activity yet");
     fireEvent.click(page().getByRole("button", { name: "Send" }));
-    fireEvent.change(page().getByLabelText("Recipient address"), {
+    for (const digit of "1.000001") {
+      fireEvent.click(page().getByRole("button", {
+        name: digit === "." ? "Decimal point" : digit,
+      }));
+    }
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.change(page().getByLabelText("To"), {
       target: { value: ADDRESS_B },
     });
-    fireEvent.change(page().getByLabelText("Amount"), {
-      target: { value: "1.000001" },
-    });
-    fireEvent.click(page().getByRole("button", { name: "Review transfer" }));
-    expect(await page().findByText("1.000001 USDC")).toBeTruthy();
-    fireEvent.click(page().getByRole("button", { name: "Confirm action" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByText("$1.000001")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Send $1.000001" }));
 
-    await page().findByRole("heading", { name: "Transfer confirmed" });
+    await page().findByText("Sent $1.000001");
     await waitFor(() => {
       expect(
         requests.filter((request) => request.input === "/api/portfolio"),
@@ -1096,8 +1099,8 @@ describe("login-state home experience", () => {
       ).toHaveLength(2);
     });
 
-    expect(page().getByRole("heading", { name: "Transfer confirmed" })).toBeTruthy();
-    expect(page().getByText("1.000001 USDC sent on Base.")).toBeTruthy();
+    expect(page().getByText("Sent $1.000001")).toBeTruthy();
+    expect(page().getByText(/USDC · Base/)).toBeTruthy();
     for (const request of requests.filter((candidate) =>
       String(candidate.input).startsWith("/api/activity"),
     )) {

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildTransferCall,
   encodeUsdcTransfer,
+  formatSendConfirmAmount,
   formatTransferAmount,
   normalizeTransferRecipient,
   parseTransferAmount,
@@ -15,6 +16,9 @@ describe("transfer amount and call helpers", () => {
     expect(parseTransferAmount("1.000001", 6)).toBe("1000001");
     expect(parseTransferAmount("0.000000000000000001", 18)).toBe("1");
     expect(formatTransferAmount("1000001", 6)).toBe("1.000001");
+    expect(formatSendConfirmAmount("25000000", "usdc")).toBe("$25.00");
+    expect(formatSendConfirmAmount("1000001", "usdc")).toBe("$1.000001");
+    expect(formatSendConfirmAmount("1", "eth")).toBe("0.000000000000000001 ETH");
   });
 
   test("rejects exponent notation, excess precision, zero, and malformed addresses", () => {

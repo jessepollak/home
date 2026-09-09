@@ -29,7 +29,7 @@ describe("account settings", () => {
       "Brazil",
     );
     expect(view.getByTitle("0x1111111111111111111111111111111111111111").textContent).toBe(
-      "0x1111…1111",
+      "0x1111…111111",
     );
     fireEvent.click(view.getByRole("combobox", { name: "Country" }));
     fireEvent.click(within(document.body).getByRole("option", { name: /United States/ }));

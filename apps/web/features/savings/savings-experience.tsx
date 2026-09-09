@@ -10,6 +10,7 @@ import {
   SavingsActions,
   type SavingsActionTransport,
 } from "@/features/savings-actions/savings-actions";
+import { AddressText } from "@/components/address";
 import {
   formatPercentage,
   formatTokenAmount as formatBoundedTokenAmount,
@@ -246,7 +247,7 @@ function PositionStatus({
             </div>
             <dl className={styles.positionFacts}>
               <div><dt>Share base units</dt><dd>{formatShares(position.sharesRaw)}</dd></div>
-              <div><dt>Vault</dt><dd><code title={position.vaultAddress}>{shortenAddress(position.vaultAddress)}</code></dd></div>
+              <div><dt>Vault</dt><dd><AddressText address={position.vaultAddress} /></dd></div>
               <div><dt>Indexed</dt><dd><time dateTime={position.indexedAt}>{formatTimestamp(position.indexedAt)}</time></dd></div>
             </dl>
           </article>
@@ -315,13 +316,15 @@ function VaultCandidateRow({ candidate }: { candidate: MorphoVaultCandidate }) {
           <div className={styles.provenance}>
             <div>
               <span>Curator address</span>
-              <code title={candidate.curatorAddress ?? undefined}>
-                {candidate.curatorAddress ? shortenAddress(candidate.curatorAddress) : "Unavailable"}
-              </code>
+              {candidate.curatorAddress ? (
+                <AddressText address={candidate.curatorAddress} />
+              ) : (
+                "Unavailable"
+              )}
             </div>
             <div>
               <span>Vault address</span>
-              <code title={candidate.vaultAddress}>{shortenAddress(candidate.vaultAddress)}</code>
+              <AddressText address={candidate.vaultAddress} />
             </div>
           </div>
         </div>
@@ -405,10 +408,6 @@ function formatTimestamp(value: string) {
     minute: "2-digit",
     timeZoneName: "short",
   }).format(date);
-}
-
-function shortenAddress(address: Address) {
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
 function isAbortError(error: unknown) {

@@ -4,12 +4,12 @@
   gap: 10px;
 }
 
-.primaryAction,
-.secondaryAction,
-.primaryButton,
-.secondaryButton {
+.secondaryAction {
   min-height: 46px;
+  border: 1px solid rgba(10, 11, 13, 0.18);
   border-radius: 8px;
+  background: #fff;
+  color: #0a0b0d;
   cursor: pointer;
   font: inherit;
   font-size: 0.84rem;
@@ -17,277 +17,59 @@
   padding: 0 18px;
 }
 
-.primaryAction,
-.primaryButton {
-  border: 1px solid #0052ff;
-  background: #0052ff;
-  color: #fff;
-}
-
-.secondaryAction,
-.secondaryButton {
-  border: 1px solid rgba(10, 11, 13, 0.18);
-  background: #fff;
-  color: #0a0b0d;
-}
-
-.primaryAction:disabled,
-.secondaryAction:disabled,
-.primaryButton:disabled,
-.secondaryButton:disabled,
-.closeButton:disabled,
-.input:disabled {
+.secondaryAction:disabled {
   cursor: not-allowed;
   opacity: 0.52;
 }
 
-.dialog {
-  position: fixed;
-  inset: auto 16px 16px;
-  width: min(calc(100% - 32px), 560px);
-  max-width: none;
-  max-height: calc(100svh - 32px);
-  overflow: auto;
-  margin: 0 auto;
-  border: 1px solid rgba(10, 11, 13, 0.16);
-  border-radius: 14px 14px 8px 8px;
-  background: #fff;
-  box-shadow: 0 24px 80px rgba(10, 11, 13, 0.24);
-  color: #0a0b0d;
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  padding: 24px;
-}
-
-.dialog::backdrop {
-  background: rgba(10, 11, 13, 0.52);
-}
-
-.dialogHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-}
-
-.kicker {
-  margin: 0;
-  color: #0052ff;
-  font-size: 0.7rem;
-  font-weight: 750;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-}
-
-.dialog h2 {
-  margin: 8px 0 0;
-  font-size: clamp(1.75rem, 8vw, 2.5rem);
-  font-weight: 600;
-  letter-spacing: -0.05em;
-  line-height: 1;
-}
-
-.dialog h3 {
-  margin: 0;
-  font-size: 1.15rem;
-}
-
-.closeButton {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid rgba(10, 11, 13, 0.14);
-  border-radius: 8px;
-  background: #fff;
-  color: #0a0b0d;
-  cursor: pointer;
-  font-size: 1.5rem;
-  line-height: 1;
-}
-
-.warning {
-  margin-top: 24px;
-  border-left: 3px solid #0052ff;
-  background: #eef3ff;
-  color: #17356f;
-  font-size: 0.84rem;
-  line-height: 1.5;
-  padding: 13px 15px;
-}
-
-.addressLabel,
-.hashLabel {
-  margin: 22px 0 8px;
-  color: #5b616e;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.address {
-  display: block;
-  margin-bottom: 14px;
-  border: 1px solid rgba(10, 11, 13, 0.14);
-  background: #f5f6f8;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  overflow-wrap: anywhere;
-  padding: 14px;
-  user-select: all;
-}
-
-.form,
-.review,
-.success {
-  display: grid;
-  gap: 12px;
-  margin-top: 26px;
-}
-
-.form label {
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.input {
-  width: 100%;
-  min-height: 52px;
-  border: 1px solid rgba(10, 11, 13, 0.22);
-  border-radius: 8px;
-  background: #fff;
-  color: #0a0b0d;
-  font: inherit;
-  font-size: 1rem;
-  padding: 0 14px;
-}
-
-.input:focus,
-.primaryButton:focus-visible,
-.secondaryButton:focus-visible,
-.primaryAction:focus-visible,
-.secondaryAction:focus-visible,
-.closeButton:focus-visible {
+.secondaryAction:focus-visible {
   outline: 3px solid rgba(0, 82, 255, 0.18);
   outline-offset: 2px;
 }
 
-.helpText,
-.statusText,
-.errorText {
-  margin: 0;
-  font-size: 0.78rem;
-  line-height: 1.5;
-}
-
-.helpText,
-.statusText {
-  color: #666d79;
-}
-
-.errorText {
-  border-radius: 8px;
-  background: #fff1f0;
-  color: #8d211a;
-  padding: 11px 13px;
-}
-
-.review dl {
-  display: grid;
-  gap: 0;
-  margin: 4px 0;
-  border: 1px solid rgba(10, 11, 13, 0.14);
-}
-
-.review dl > div {
-  display: grid;
-  grid-template-columns: minmax(80px, 0.4fr) minmax(0, 1fr);
-  gap: 14px;
-  border-bottom: 1px solid rgba(10, 11, 13, 0.1);
+.successToast {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 88px;
+  z-index: 20;
+  display: flex;
+  width: min(calc(100% - 32px), 390px);
+  margin: 0 auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--panel-radius);
+  background: var(--home-white);
+  color: var(--home-ink);
   padding: 12px 14px;
 }
 
-.review dl > div:last-child {
-  border-bottom: 0;
+.successMark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--home-blue);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
 }
 
-.review dt {
-  color: #666d79;
+.successToast strong {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.successToast p {
+  margin: 2px 0 0;
+  color: var(--home-muted);
   font-size: 0.75rem;
 }
 
-.review dd {
+.receiveAddress {
   margin: 0;
-  font-size: 0.82rem;
-  font-weight: 650;
-  text-align: right;
-}
-
-.breakAddress {
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  overflow-wrap: anywhere;
-}
-
-.buttonRow {
-  display: grid;
-  grid-template-columns: 1fr 1.4fr;
-  gap: 10px;
-}
-
-.pending {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border-radius: 8px;
-  background: #eef0f3;
-  color: #454950;
-  font-size: 0.82rem;
-  padding: 13px;
-}
-
-.spinner {
-  width: 17px;
-  height: 17px;
-  flex: 0 0 auto;
-  border: 2px solid rgba(0, 82, 255, 0.2);
-  border-top-color: #0052ff;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-.success {
-  border: 1px solid rgba(10, 11, 13, 0.14);
-  background: #f3f7f2;
-  padding: 18px;
-}
-
-.success p {
-  margin: 0;
-  color: #4c5b4a;
-  font-size: 0.84rem;
-}
-
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@media (min-width: 640px) {
-  .dialog {
-    inset: 50% auto auto 50%;
-    border-radius: 10px;
-    padding: 30px;
-    transform: translate(-50%, -50%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .spinner { animation: none; }
+  font-size: 1.05rem;
 }
