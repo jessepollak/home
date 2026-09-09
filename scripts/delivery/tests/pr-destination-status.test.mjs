@@ -130,6 +130,64 @@ test("a base retarget observed before publication is re-evaluated on the same he
   });
 });
 
+test("retry exhaustion after success replaces a same-head stale success with failure", async () => {
+  const payload = await fixture("direct-main");
+  const directMain = livePullRequest(payload, "9".repeat(40));
+  const retargeted = structuredClone(directMain);
+  retargeted.base.ref = "feature/dependency";
+  const github = mockGitHub([directMain, directMain, retargeted]);
+
+  await assert.rejects(
+    publishCurrentHeadDestinationStatus(payload, {
+      ...options,
+      fetchImpl: github.fetchImpl,
+      maxAttempts: 1,
+    }),
+    /changed repeatedly/,
+  );
+
+  const posts = github.calls.filter((call) => call.method === "POST");
+  assert.equal(posts.length, 2);
+  assert.ok(posts.every((post) => post.url.endsWith(`/statuses/${"9".repeat(40)}`)));
+  assert.deepEqual(posts.map((post) => JSON.parse(post.body)), [
+    {
+      context: DESTINATION_STATUS_CONTEXT,
+      description: "Direct-to-main destination verified on the current PR head.",
+      state: "success",
+    },
+    {
+      context: DESTINATION_STATUS_CONTEXT,
+      description: "PR changed during destination verification; retry required.",
+      state: "failure",
+    },
+  ]);
+});
+
+test("retry exhaustion before publication fails the last verified open head", async () => {
+  const payload = await fixture("direct-main");
+  const oldHead = livePullRequest(payload, "7".repeat(40));
+  const currentHead = livePullRequest(payload, "8".repeat(40));
+  const github = mockGitHub([oldHead, currentHead]);
+
+  await assert.rejects(
+    publishCurrentHeadDestinationStatus(payload, {
+      ...options,
+      fetchImpl: github.fetchImpl,
+      maxAttempts: 1,
+    }),
+    /changed repeatedly/,
+  );
+
+  const posts = github.calls.filter((call) => call.method === "POST");
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].url, new RegExp(`/statuses/${"8".repeat(40)}$`));
+  assert.deepEqual(JSON.parse(posts[0].body), {
+    context: DESTINATION_STATUS_CONTEXT,
+    description: "PR changed during destination verification; retry required.",
+    state: "failure",
+  });
+});
+
 test("rejects mismatched repository data and non-40-hex live heads without publication", async () => {
   const payload = await fixture("direct-main");
   const wrongRepository = livePullRequest(payload, "d".repeat(40));

@@ -149,6 +149,12 @@ export async function publishCurrentHeadDestinationStatus(payload, options) {
     current = afterPublication;
   }
 
+  if (current.state === "open") {
+    await publishStatus(current, {
+      allowed: false,
+      message: "PR changed during destination verification; retry required.",
+    }, api);
+  }
   throw new Error("pull request changed repeatedly while publishing destination status");
 }
 
