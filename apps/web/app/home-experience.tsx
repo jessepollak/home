@@ -391,15 +391,13 @@ export function HomeExperience({
               }
               onSignOut={signOut}
             />
-          ) : isChecking || isSignedOut ? (
+          ) : isSignedOut ? (
             <section
               className="panel-stage"
               aria-busy="true"
-              aria-label={isSignedOut ? "Signed out" : "Restoring"}
+              aria-label="Signed out"
             >
-              <span className="sr-status">
-                {isSignedOut ? "Signed out" : "Updating…"}
-              </span>
+              <span className="sr-status">Signed out</span>
             </section>
           ) : (
             <>

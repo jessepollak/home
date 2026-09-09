@@ -577,7 +577,7 @@ describe("login-state home experience", () => {
     await waitFor(() => expect(replaceCalls).toContain("/dashboard"));
   });
 
-  test("keeps restoration private, then renders the dense verified dashboard", async () => {
+  test("shows the Home shell while session is checking, then the dense verified dashboard", async () => {
     const pendingSession = deferred<Response>();
     render(
       <HomeHarness
@@ -589,10 +589,13 @@ describe("login-state home experience", () => {
       />,
     );
 
-    expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
-    expect(page().queryByRole("link", { name: "Add money" })).toBeNull();
-    expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
+    expect(page().getByRole("button", { name: "Checking…" })).toBeTruthy();
+    expect(page().getByRole("navigation", { name: "Main navigation" })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(page().getByRole("link", { name: "Add money" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Save" })).toBeTruthy();
     expect(page().getByText("Updating…")).toBeTruthy();
+    expect(page().queryByText("$12.34")).toBeNull();
     expect(document.body.textContent).not.toContain(ADDRESS);
     expect(page().queryByText("Checking your account…")).toBeNull();
 
@@ -623,12 +626,8 @@ describe("login-state home experience", () => {
   test("holds signed-out dashboard on a placeholder and redirects without portfolio chrome", async () => {
     render(<HomeHarness accountSdk={sdk()} routeMode="dashboard" />);
 
-    expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
-    expect(page().queryByRole("link", { name: "Add money" })).toBeNull();
-    expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
-    expect(page().queryByRole("heading", { name: "Activity" })).toBeNull();
-    expect(page().queryByRole("button", { name: "Save" })).toBeNull();
-    expect(page().queryByText("Setup in progress")).toBeNull();
+    expect(page().queryByText("$12.34")).toBeNull();
+    expect(document.body.textContent).not.toContain(ADDRESS);
     expect(page().queryByText("One home for your money.")).toBeNull();
 
     await waitFor(() => expect(replaceCalls).toEqual(["/?account=signin"]));
@@ -638,6 +637,11 @@ describe("login-state home experience", () => {
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
     expect(page().queryByRole("heading", { name: "Activity" })).toBeNull();
     expect(page().queryByRole("button", { name: "Save" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Checking…" })).toBeNull();
+    expect(page().getByText("Signed out")).toBeTruthy();
+    expect(page().queryByText("Setup in progress")).toBeNull();
+    expect(page().queryByText("$12.34")).toBeNull();
+    expect(document.body.textContent).not.toContain(ADDRESS);
   });
 
   test("treats a verified session without a smart account as authenticated but not ready", async () => {
@@ -790,7 +794,7 @@ describe("login-state home experience", () => {
       </AccountWalletSessionOwner>,
     );
 
-    await page().findByRole("heading", { name: "Balances" });
+    expect(await page().findByText("1.1010 ETH")).toBeTruthy();
     expect(page().getAllByText("$4,812.40").length).toBeGreaterThanOrEqual(1);
     expect(page().getByText("1.1010 ETH")).toBeTruthy();
     expect(page().getByText("<$0.01")).toBeTruthy();
