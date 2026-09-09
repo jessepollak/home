@@ -158,8 +158,9 @@ describe("invest discovery flow", () => {
   test("keeps a pending price muted instead of a hero-ink dash", () => {
     renderInvest(<InvestExperience />);
     fireEvent.click(page().getByRole("button", { name: "Bitcoin details" }));
-    const pending = page().getByText("—");
+    const pending = page().getByText("Price unavailable");
     expect(pending.getAttribute("data-tone")).toBe("muted");
+    expect(page().queryByText("—", { selector: "strong" })).toBeNull();
   });
 
   test("opens Bitcoin detail with compact header, chart ranges, and trade CTA only there", async () => {
