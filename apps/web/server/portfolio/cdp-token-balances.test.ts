@@ -195,6 +195,50 @@ describe("CDP Onchain Data Token Balances client", () => {
     expect(listed.balances.some(({ contractAddress }) => contractAddress === IDRX)).toBeFalse();
   });
 
+  test("keeps already-listed balances when a later page is rate-limited", async () => {
+    let pages = 0;
+    const client = createCdpTokenBalancesClient({
+      env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: async () => {
+        pages += 1;
+        if (pages === 1) {
+          return Response.json({
+            balances: [token("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", "42")],
+            nextPageToken: "page-two",
+          });
+        }
+        return new Response("slow down", { status: 429 });
+      },
+    });
+
+    const listed = await client.listBalances({
+      address: ADDRESS,
+      neededContractAddresses: new Set([IDRX]),
+    });
+    expect(pages).toBe(2);
+    expect(listed.complete).toBeFalse();
+    expect(listed.balances).toEqual([
+      {
+        contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
+        amountBaseUnits: "42",
+        native: true,
+      },
+    ]);
+  });
+
+  test("still fails closed when the first Token Balances page is rate-limited", async () => {
+    const client = createCdpTokenBalancesClient({
+      env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: async () => new Response("slow down", { status: 429 }),
+    });
+    await expect(client.listBalances({ address: ADDRESS })).rejects.toMatchObject({
+      name: "CdpTokenBalancesError",
+      code: "rate-limited",
+    });
+  });
+
   test("treats 404 as an empty page set and fails closed on auth or upstream errors", async () => {
     const empty = createCdpTokenBalancesClient({
       env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },

@@ -272,9 +272,9 @@ describe("Phase A portfolio inventory", () => {
     expect(CDP_NATIVE_TOKEN_ADDRESS).toBe("0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
   });
 
-  test("marks IDR cash unavailable only on a true Token Balances provider failure", async () => {
+  test("RPC-verifies cash when Token Balances fails so empty USDC/IDRX stay ready-0", async () => {
     const { fetchImpl } = createFetch({
-      tokenBalances: () => new Response("no", { status: 401 }),
+      tokenBalances: () => new Response("no", { status: 429 }),
     });
 
     const snapshot = await createPortfolioInventoryReader({
@@ -285,17 +285,19 @@ describe("Phase A portfolio inventory", () => {
       now: () => new Date("2026-09-09T01:00:00.000Z"),
     })(account, "IDR");
 
-    const directs = snapshot.holdings.filter((holding) => holding.kind === "direct");
-    expect(
-      directs.every(
-        (holding) =>
-          holding.readStatus === "unavailable" && holding.balanceBaseUnits === null,
-      ),
-    ).toBeTrue();
-    expect(directs.find(({ id }) => id === "idrx")).toMatchObject({
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "unavailable",
+      balanceBaseUnits: null,
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
       id: "idrx",
       decimals: verifiedLocalCashAssets.IDR.decimals,
-      readStatus: "unavailable",
+      readStatus: "ready",
+      balanceBaseUnits: "0",
     });
     expect(
       snapshot.holdings.filter((holding) => holding.kind === "vault-position").every(
@@ -303,6 +305,114 @@ describe("Phase A portfolio inventory", () => {
       ),
     ).toBeTrue();
     expect(CdpTokenBalancesError).toBeDefined();
+  });
+
+  test("CDP rate-limit throw plus RPC 0 keeps omitted cash ready-0", async () => {
+    const requested: string[] = [];
+    const snapshot = await createPortfolioInventoryReader({
+      cashVerifyRetryDelayMs: 0,
+      listTokenBalances: async () => {
+        throw new CdpTokenBalancesError(
+          "rate-limited",
+          "CDP Token Balances rate limit was reached.",
+          { status: 429 },
+        );
+      },
+      readVaultInventory: async () => ({
+        block: pinnedBlock(),
+        holdings: [],
+      }),
+      readOmittedCashBalances: async (requests) => {
+        requested.push(...requests.map(({ id }) => id));
+        return omittedZeros(requests);
+      },
+      now: () => new Date("2026-09-09T01:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(requested.sort()).toEqual(["eurc", "idrx", "usdc"]);
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "unavailable",
+      balanceBaseUnits: null,
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+  });
+
+  test("keeps cash Unavailable when CDP fails and omitted-cash RPC also misses", async () => {
+    const snapshot = await createPortfolioInventoryReader({
+      cashVerifyRetryDelayMs: 0,
+      listTokenBalances: async () => {
+        throw new CdpTokenBalancesError(
+          "rate-limited",
+          "CDP Token Balances rate limit was reached.",
+          { status: 429 },
+        );
+      },
+      readVaultInventory: async () => ({
+        block: pinnedBlock(),
+        holdings: [],
+      }),
+      readOmittedCashBalances: async (requests) => omittedNulls(requests),
+      now: () => new Date("2026-09-09T01:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "unavailable",
+      balanceBaseUnits: null,
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "unavailable",
+      balanceBaseUnits: null,
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
+      readStatus: "unavailable",
+      balanceBaseUnits: null,
+    });
+  });
+
+  test("incomplete CDP omit plus RPC 0 keeps cash ready-0 without inventing from the page budget", async () => {
+    const requested: string[] = [];
+    const snapshot = await createPortfolioInventoryReader({
+      listTokenBalances: async () => ({
+        complete: false,
+        balances: [
+          {
+            contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
+            amountBaseUnits: "1101012331497033445",
+            native: true,
+          },
+        ],
+      }),
+      readVaultInventory: async () => ({
+        block: pinnedBlock(),
+        holdings: [],
+      }),
+      readOmittedCashBalances: async (requests) => {
+        requested.push(...requests.map(({ id }) => id));
+        return omittedZeros(requests);
+      },
+      now: () => new Date("2026-09-09T01:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(requested.sort()).toEqual(["eurc", "idrx", "usdc"]);
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "1101012331497033445",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
   });
 
   test("does not invent ready zeros when Token Balances pagination is truncated and cash RPC also fails", async () => {

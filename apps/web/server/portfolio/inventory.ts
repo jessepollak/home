@@ -228,9 +228,9 @@ async function readDirectHoldings(
       listed !== null && (match !== undefined || listed.complete);
     // Cash omit is not a ready 0 by itself — RPC must agree (or return the
     // on-chain amount). Vault underlying is never copied into cash.
+    // CDP 429/timeout (listed=null) must still verify cash; do not skip RPC.
     if (
-      listed !== null &&
-      match === undefined &&
+      (listed === null || match === undefined) &&
       asset.cashCurrency &&
       asset.contractAddress
     ) {

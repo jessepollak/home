@@ -117,15 +117,31 @@ export function createCdpTokenBalancesClient(options: {
       let complete = true;
 
       for (let page = 0; page < CDP_TOKEN_BALANCES_MAX_PAGES; page += 1) {
-        const balances = await fetchPage({
-          address,
-          pageToken,
-          env,
-          fetchImpl,
-          generateJwtImpl,
-          timeoutMs,
-          signal: request.signal,
-        });
+        let balances: Awaited<ReturnType<typeof fetchPage>>;
+        try {
+          balances = await fetchPage({
+            address,
+            pageToken,
+            env,
+            fetchImpl,
+            generateJwtImpl,
+            timeoutMs,
+            signal: request.signal,
+          });
+        } catch (error) {
+          // Empty-cash dusty wallets always burn the page budget looking for
+          // zeros that CDP never lists. A mid-list 429 must not discard ETH
+          // already collected — inventory then RPC-verifies omitted cash.
+          if (
+            collected.size > 0 &&
+            error instanceof CdpTokenBalancesError &&
+            (error.code === "rate-limited" || error.code === "timed-out")
+          ) {
+            complete = false;
+            break;
+          }
+          throw error;
+        }
         for (const balance of balances.items) {
           if (collected.has(balance.contractAddress)) continue;
           collected.set(balance.contractAddress, balance);
