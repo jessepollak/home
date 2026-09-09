@@ -16,6 +16,14 @@ Home money actions now use a server-issued prepare → review → atomic claim �
 
 Both adapters store action plans, immutable review hashes, owner tuples, statuses, attempts, and public chain/provider operation references. They store no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
 
+### Swap runtime capability
+
+Local development without `DATABASE_URL` keeps the existing SQLite trade-intent store. Swap intent preparation, signature finalization, and the sensitive executable calldata overlay must remain in the same local runtime through claim.
+
+Hosted or Postgres-configured runtimes fail closed with the typed `HOSTED_SWAP_UNAVAILABLE` capability before creating a swap intent. They do not fall back to the local SQLite trade store. This guard is swap-only: send, save, and borrow claims short-circuit before trade storage, signer resolution, balance reads, Permit2 state reads, or quote-provider work.
+
+The exact release gate for hosted swaps is a reviewed durable handoff for both the owner-bound trade intent and its executable sensitive payload across prepare, finalize, and claim instances. It must preserve intent/review hashes, expiry, signer and owner binding, quote/Permit2 checks, atomic single-dispatch behavior, and fail-closed recovery. The current Postgres action record intentionally persists only calldata digests; its executable calldata overlay is process-local, so another instance cannot claim it. No plaintext signing payload persistence, ad-hoc encryption scheme, or new key-management policy is introduced by this guard.
+
 This is **not** production authorization. Feature plan contracts and browser execution are unchanged. CDP webhooks, Drizzle, and the rest of [target architecture](target-architecture.md) remain later work.
 
 ## Endpoints

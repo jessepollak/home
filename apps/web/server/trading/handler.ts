@@ -9,6 +9,7 @@ import {
   TradePreparationError,
   type TradePreparationFailure,
 } from "./prepare";
+import { TradeRuntimeCapabilityError } from "./runtime-intent-store";
 import type { Hex } from "./types";
 
 export type TradeSessionAuthorizer = (request: Request) => Promise<Response>;
@@ -171,6 +172,9 @@ async function parseAuthorizedSession(
 }
 
 function responseForError(error: unknown): Response {
+  if (error instanceof TradeRuntimeCapabilityError) {
+    return privateError(error.code, error.message, 503);
+  }
   if (!(error instanceof TradePreparationError)) {
     return privateError("TRADE_UNAVAILABLE", "A trade action could not be prepared safely.", 502);
   }

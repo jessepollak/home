@@ -72,6 +72,7 @@ export type TradeApiErrorCode =
   | "SIGNER_UNSUPPORTED"
   | "PERMIT_EXPIRED"
   | "PERMIT_USED"
+  | "HOSTED_SWAP_UNAVAILABLE"
   | "TRADE_UNAVAILABLE";
 
 export class TradeClientError extends Error {
