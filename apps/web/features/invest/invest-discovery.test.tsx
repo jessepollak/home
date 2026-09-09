@@ -1,6 +1,7 @@
 import "@/features/account/dom-test-harness";
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import type { ReactElement } from "react";
 import type { MarketDataState } from "./invest-market";
 
 const pushCalls: string[] = [];
@@ -17,19 +18,24 @@ mock.module("next/navigation", () => ({
   }),
 }));
 
-mock.module("@/features/trading/trade-actions", () => ({
-  TradeActions: ({ asset }: { asset: { displayName: string } }) => (
-    <div aria-label={`Trade ${asset.displayName}`}>
-      <button type="button">Buy</button>
-      <button type="button">Sell</button>
-    </div>
-  ),
-}));
-
 const { cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
 );
+const {
+  AccountWalletClientProvider,
+  createBlockedAccountWalletClient,
+} = await import("@/features/account/cdp-client");
 const { InvestExperience } = await import("./invest-experience");
+
+function renderInvest(ui: ReactElement) {
+  return render(
+    <AccountWalletClientProvider
+      client={createBlockedAccountWalletClient("unconfigured")}
+    >
+      {ui}
+    </AccountWalletClientProvider>,
+  );
+}
 
 function page() {
   return within(document.body);
@@ -60,7 +66,7 @@ const originalFetch = window.fetch;
 
 describe("invest discovery flow", () => {
   test("opens Crypto category from See all and includes Cardano", async () => {
-    render(<InvestExperience cryptoMarket={readyCrypto} />);
+    renderInvest(<InvestExperience cryptoMarket={readyCrypto} />);
 
     fireEvent.click(page().getAllByRole("button", { name: "See all ›" })[1]!);
     await waitFor(() =>
@@ -90,7 +96,7 @@ describe("invest discovery flow", () => {
         points: [],
       })) as unknown as typeof fetch;
 
-    render(<InvestExperience cryptoMarket={readyCrypto} />);
+    renderInvest(<InvestExperience cryptoMarket={readyCrypto} />);
     fireEvent.click(page().getAllByRole("button", { name: "See all ›" })[1]!);
     await waitFor(() =>
       expect(page().getByRole("heading", { name: "Crypto" })).toBeTruthy(),
@@ -112,7 +118,7 @@ describe("invest discovery flow", () => {
   });
 
   test("replaces a deep-linked category back to the hub", async () => {
-    render(
+    renderInvest(
       <InvestExperience
         cryptoMarket={readyCrypto}
         initialView={{ screen: "category", shelfId: "crypto" }}
@@ -138,7 +144,7 @@ describe("invest discovery flow", () => {
         points: [],
       })) as unknown as typeof fetch;
 
-    render(<InvestExperience cryptoMarket={readyCrypto} />);
+    renderInvest(<InvestExperience cryptoMarket={readyCrypto} />);
     fireEvent.click(page().getByRole("button", { name: "Bitcoin details" }));
 
     await waitFor(() =>
@@ -176,7 +182,7 @@ describe("invest discovery flow", () => {
         ],
       })) as unknown as typeof fetch;
 
-    render(<InvestExperience cryptoMarket={readyCrypto} />);
+    renderInvest(<InvestExperience cryptoMarket={readyCrypto} />);
     fireEvent.click(page().getByRole("button", { name: "Bitcoin details" }));
 
     await waitFor(() =>
@@ -186,7 +192,7 @@ describe("invest discovery flow", () => {
   });
 
   test("uses initials as the safe mark when metadata has no image", () => {
-    render(<InvestExperience />);
+    renderInvest(<InvestExperience />);
     expect(page().getByRole("img", { name: "NVIDIA icon" }).textContent).toBe("NV");
     expect(page().getByRole("img", { name: "Bitcoin icon" }).textContent).toBe("BT");
     expect(page().getByRole("img", { name: "NVIDIA icon" }).querySelector("svg")).toBeNull();
@@ -194,7 +200,7 @@ describe("invest discovery flow", () => {
   });
 
   test("renders a resolved metadata image instead of a shipped SVG mark", () => {
-    render(
+    renderInvest(
       <InvestExperience
         assetIcons={{ cbbtc: "https://icons.example.test/cbbtc.png" }}
       />,
@@ -208,7 +214,7 @@ describe("invest discovery flow", () => {
   });
 
   test("shows Codex trending memes on the Memes shelf", () => {
-    render(
+    renderInvest(
       <InvestExperience
         memeStatus="ready"
         memeAssets={[
@@ -241,7 +247,7 @@ describe("invest discovery flow", () => {
   });
 
   test("fail-closes the Memes shelf when trending is unavailable", () => {
-    render(<InvestExperience memeStatus="error" />);
+    renderInvest(<InvestExperience memeStatus="error" />);
     expect(page().getAllByText("Unavailable").length).toBeGreaterThan(0);
     expect(page().queryByText("Degen")).toBeNull();
   });
