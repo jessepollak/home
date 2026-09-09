@@ -1,0 +1,17 @@
+{
+  "action": "closed",
+  "repository": { "full_name": "jessepollak/home" },
+  "pull_request": {
+    "number": 112,
+    "state": "closed",
+    "draft": false,
+    "merged": true,
+    "body": "Refs #69 and #70 without closing either verification issue.",
+    "base": { "ref": "main" },
+    "labels": [
+      { "name": "owner:hugo" },
+      { "name": "lane:ops" },
+      { "name": "status:needs-jesse" }
+    ]
+  }
+}
