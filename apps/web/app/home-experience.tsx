@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -36,12 +37,10 @@ import {
   RecentMoneyActions,
   type PreparedMoneyAction,
 } from "@/features/money-actions";
-import {
-  usePortfolio,
-  type VerifiedPortfolioSession,
-} from "@/features/portfolio";
+import type { VerifiedPortfolioSession } from "@/features/portfolio";
 import {
   deleteHomeBalancesPresentation,
+  presentHomeBalanceRow,
   presentPortfolioValuation,
   usePaintedHomeBalances,
   usePortfolioValuation,
@@ -99,12 +98,15 @@ export function PortfolioHomeExperience(
       : null;
   const sessionSubject = session?.subject ?? null;
   const sessionSmartAccount = session?.smartAccountAddress ?? null;
-  usePortfolio(session, account.fetchPortfolio, refreshTrigger);
   const valuation = usePortfolioValuation(
     session,
     selectedRegion,
     account.fetchPortfolioValuation,
     refreshTrigger,
+  );
+  const presentedValuation = useMemo(
+    () => presentPortfolioValuation(valuation),
+    [valuation],
   );
   const refreshWalletData = useCallback(() => {
     if (sessionSubject && sessionSmartAccount) {
@@ -125,7 +127,7 @@ export function PortfolioHomeExperience(
       <HomeExperience
         {...props}
         activityRefreshTrigger={refreshTrigger}
-        assetBalances={presentPortfolioValuation(valuation)}
+        assetBalances={presentedValuation}
         selectedRegionId={selectedRegion}
         onRegionChange={setSelectedRegion}
         onTransferConfirmed={refreshWalletData}
@@ -169,6 +171,10 @@ export function HomeExperience({
   const [navigationRequest, setNavigationRequest] = useState(0);
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
+  const lastBalanceCacheWriteRef = useRef<{
+    identity: string;
+    live: HomeAssetBalancesPresentation;
+  } | null>(null);
   const [isPreferenceReady, setIsPreferenceReady] = useState(false);
   const [preferenceMessage, setPreferenceMessage] = useState("");
   const [isAccountOpen, setIsAccountOpen] = useState(initialAccountOpen);
@@ -283,12 +289,22 @@ export function HomeExperience({
       !account.ownerKey ||
       !account.session?.user.subject ||
       !account.session.smartAccount?.address ||
-      assetBalances?.status !== "ready"
+      assetBalances?.status !== "ready" ||
+      paintedAssetBalances.status !== "ready"
+    ) {
+      lastBalanceCacheWriteRef.current = null;
+      return;
+    }
+
+    const identity = `${account.ownerKey}\u0000${account.session.user.subject}\u0000${account.session.smartAccount.address.toLowerCase()}\u0000${regionId}`;
+    if (
+      lastBalanceCacheWriteRef.current?.identity === identity &&
+      lastBalanceCacheWriteRef.current.live === assetBalances
     ) {
       return;
     }
 
-    writeHomeBalancesPresentation(
+    const didWrite = writeHomeBalancesPresentation(
       () => window.localStorage,
       {
         ownerKey: account.ownerKey,
@@ -296,14 +312,18 @@ export function HomeExperience({
         smartAccount: account.session.smartAccount.address,
         region: regionId,
       },
-      assetBalances,
+      paintedAssetBalances,
     );
+    if (didWrite) {
+      lastBalanceCacheWriteRef.current = { identity, live: assetBalances };
+    }
   }, [
     account.ownerKey,
     account.session?.smartAccount?.address,
     account.session?.user.subject,
     assetBalances,
     isVerified,
+    paintedAssetBalances,
     regionId,
   ]);
 
@@ -744,22 +764,36 @@ function HomePanel({
         <h2 id="balances-heading">Balances</h2>
         {balanceItems.length > 0 ? (
           <ul className="supplied-asset-list">
-            {balanceItems.map((asset) => (
-              <BalanceRow
-                key={asset.id}
-                icon={
-                  <CurrencyMark
-                    currency={asset.currencyCode}
-                    symbol={asset.detail ?? asset.name}
-                  />
-                }
-                iconTone="mark"
-                label={asset.name}
-                context={asset.displayContext}
-                value={asset.displayBalance}
-                valueTone={asset.tone}
-              />
-            ))}
+            {balanceItems.map((asset) => {
+              const row = presentHomeBalanceRow(asset);
+              return (
+                <BalanceRow
+                  key={asset.id}
+                  icon={
+                    <CurrencyMark
+                      currency={asset.currencyCode}
+                      symbol={asset.detail ?? asset.name}
+                    />
+                  }
+                  iconTone="mark"
+                  label={asset.name}
+                  context={asset.displayContext}
+                  value={
+                    row.accessibleBalance ? (
+                      <span
+                        aria-label={row.accessibleBalance}
+                        title={row.accessibleBalance}
+                      >
+                        {row.visualBalance}
+                      </span>
+                    ) : (
+                      row.visualBalance
+                    )
+                  }
+                  valueTone={row.tone}
+                />
+              );
+            })}
           </ul>
         ) : isLoading ? (
           <ShimmerRows count={2} />

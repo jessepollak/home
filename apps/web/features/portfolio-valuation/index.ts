@@ -11,6 +11,10 @@ export {
   type HomeAssetBalancesPresentation,
 } from "./present-home-balances";
 export {
+  presentHomeBalanceRow,
+  type HomeBalanceRowPresentation,
+} from "./home-balance-row";
+export {
   clearHomeBalancesPresentationCache,
   deleteHomeBalancesPresentation,
   homeBalancesPresentationCachePrefix,

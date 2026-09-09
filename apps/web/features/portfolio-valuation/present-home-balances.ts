@@ -28,6 +28,8 @@ export type HomeAssetBalancesPresentation = {
   statusLabel?: string;
   items: readonly HomeAssetBalanceItem[];
   revalidating?: true;
+  /** Current-snapshot membership hints; never written to the presentation cache. */
+  unavailableItemIds?: readonly string[];
 };
 
 export function presentPortfolioValuation(
@@ -69,6 +71,7 @@ export function presentPortfolioValuation(
       ...snapshot.cashBuckets.map(presentCashBucket),
       ...presentAssetRows(snapshot),
     ],
+    ...presentUnavailableAssetRowIds(snapshot),
   };
 }
 
@@ -118,7 +121,7 @@ function presentCashBucket(bucket: CashBucket): HomeAssetBalanceItem {
     name,
     displayBalance: tokenAmount ?? "—",
     currencyCode: bucket.denominationCurrency,
-    tone: "muted",
+    ...(tokenAmount ? {} : { tone: "muted" as const }),
   };
 }
 
@@ -146,12 +149,7 @@ function unpricedCashTokenAmount(bucket: CashBucket): string | null {
 function presentAssetRows(
   snapshot: PortfolioValuationSnapshot,
 ): HomeAssetBalanceItem[] {
-  const cashAssetKeys = new Set<string>(
-    snapshot.cashBuckets.flatMap((bucket) =>
-      bucket.assetKey ? [bucket.assetKey] : [],
-    ),
-  );
-
+  const cashAssetKeys = selectedCashAssetKeys(snapshot);
   const items: HomeAssetBalanceItem[] = [];
   for (const holding of snapshot.inventory.holdings) {
     if (holding.kind !== "direct") continue;
@@ -191,6 +189,32 @@ function presentAssetRows(
     });
   }
   return items;
+}
+
+function presentUnavailableAssetRowIds(
+  snapshot: PortfolioValuationSnapshot,
+): Pick<HomeAssetBalancesPresentation, "unavailableItemIds"> {
+  const cashAssetKeys = selectedCashAssetKeys(snapshot);
+  const unavailableItemIds = snapshot.inventory.holdings.flatMap((holding) => {
+    if (holding.kind !== "direct") return [];
+    const isNative = holding.assetKind === "native";
+    const isNonselectedLocalCash =
+      holding.cashCurrency !== null && !cashAssetKeys.has(holding.assetKey);
+    if (!isNative && !isNonselectedLocalCash) return [];
+    if (holding.readStatus === "ready" && holding.balanceBaseUnits !== null) {
+      return [];
+    }
+    return [`asset:${holding.assetKey}`];
+  });
+  return unavailableItemIds.length > 0 ? { unavailableItemIds } : {};
+}
+
+function selectedCashAssetKeys(snapshot: PortfolioValuationSnapshot): Set<string> {
+  return new Set(
+    snapshot.cashBuckets.flatMap((bucket) =>
+      bucket.assetKey ? [bucket.assetKey] : [],
+    ),
+  );
 }
 
 function pricedDisplayFiat(

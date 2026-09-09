@@ -126,6 +126,177 @@ describe("home balances presentation cache", () => {
     ).toEqual(presentation);
   });
 
+  test("keeps cached EURC through an unknown read, removes confirmed zero, and adds new ready holdings", () => {
+    const storage = memoryStorage();
+    const cached: HomeAssetBalancesPresentation = {
+      status: "ready",
+      displayTotal: "$25.00",
+      items: [
+        ...readyPresentation.items,
+        {
+          id: "asset:fixture-eurc",
+          group: "asset",
+          name: "Euro",
+          detail: "EURC",
+          displayBalance: "25.00 EURC",
+          currencyCode: "EUR",
+        },
+      ],
+    };
+    writeHomeBalancesPresentation(
+      () => storage,
+      { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US" },
+      cached,
+      NOW,
+    );
+
+    const liveUnknown: HomeAssetBalancesPresentation = {
+      status: "ready",
+      displayTotal: "$12.34",
+      items: [
+        ...readyPresentation.items,
+        {
+          id: "asset:new",
+          group: "asset",
+          name: "New holding",
+          detail: "NEW",
+          displayBalance: "1.0000 NEW",
+        },
+      ],
+      unavailableItemIds: ["asset:fixture-eurc", "asset:never-seen"],
+    };
+    const reconciled = resolvePaintedHomeBalances({
+      ownerKey: OWNER,
+      subject: SUBJECT,
+      smartAccount: ACCOUNT,
+      region: "US",
+      live: liveUnknown,
+      getStorage: () => storage,
+      now: NOW,
+    });
+    const reconciledItems = [
+      readyPresentation.items[0],
+      {
+        id: "asset:fixture-eurc",
+        group: "asset" as const,
+        name: "Euro",
+        detail: "EURC",
+        displayBalance: "Unavailable",
+        currencyCode: "EUR",
+        tone: "error" as const,
+      },
+      liveUnknown.items[1],
+    ];
+    expect(reconciled.items).toEqual(reconciledItems);
+    expect(
+      writeHomeBalancesPresentation(
+        () => storage,
+        { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US" },
+        reconciled,
+        NOW + 1,
+      ),
+    ).toBe(true);
+    expect(
+      readHomeBalancesPresentation(
+        () => storage,
+        { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US" },
+        NOW + 1,
+      ),
+    ).toEqual({
+      status: "ready",
+      displayTotal: "$12.34",
+      items: reconciledItems,
+    });
+
+    const liveReady: HomeAssetBalancesPresentation = {
+      status: "ready",
+      displayTotal: "$13.34",
+      items: [
+        ...readyPresentation.items,
+        {
+          id: "asset:fixture-eurc",
+          group: "asset",
+          name: "Euro",
+          detail: "EURC",
+          displayBalance: "1.00 EURC",
+          currencyCode: "EUR",
+        },
+        liveUnknown.items[1],
+      ],
+    };
+    expect(
+      resolvePaintedHomeBalances({
+        ownerKey: OWNER,
+        subject: SUBJECT,
+        smartAccount: ACCOUNT,
+        region: "US",
+        live: liveReady,
+        getStorage: () => storage,
+        now: NOW,
+      }),
+    ).toBe(liveReady);
+
+    const confirmedZero: HomeAssetBalancesPresentation = {
+      status: "ready",
+      displayTotal: "$12.34",
+      items: readyPresentation.items,
+    };
+    expect(
+      resolvePaintedHomeBalances({
+        ownerKey: OWNER,
+        subject: SUBJECT,
+        smartAccount: ACCOUNT,
+        region: "US",
+        live: confirmedZero,
+        getStorage: () => storage,
+        now: NOW,
+      }),
+    ).toBe(confirmedZero);
+  });
+
+  test("never reconciles live-ready membership across owner, subject, account, or region", () => {
+    const storage = memoryStorage();
+    const cached: HomeAssetBalancesPresentation = {
+      status: "ready",
+      displayTotal: "$25.00",
+      items: [
+        ...readyPresentation.items,
+        {
+          id: "asset:cached-local",
+          group: "asset",
+          name: "Cached local currency",
+          displayBalance: "25.00 LCLX",
+        },
+      ],
+    };
+    writeHomeBalancesPresentation(
+      () => storage,
+      { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US" },
+      cached,
+      NOW,
+    );
+    const live: HomeAssetBalancesPresentation = {
+      ...readyPresentation,
+      unavailableItemIds: ["asset:cached-local"],
+    };
+
+    for (const lookup of [
+      { ownerKey: "other-owner", subject: SUBJECT, smartAccount: ACCOUNT, region: "US" as const },
+      { ownerKey: OWNER, subject: "other-subject", smartAccount: ACCOUNT, region: "US" as const },
+      { ownerKey: OWNER, subject: SUBJECT, smartAccount: OTHER_ACCOUNT, region: "US" as const },
+      { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "GLOBAL" as const },
+    ]) {
+      expect(
+        resolvePaintedHomeBalances({
+          ...lookup,
+          live,
+          getStorage: () => storage,
+          now: NOW,
+        }),
+      ).toBe(live);
+    }
+  });
+
   test("finds a same-owner record during Checking without subject or account", () => {
     const storage = memoryStorage();
     writeHomeBalancesPresentation(

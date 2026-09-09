@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { isRegionId, type RegionId } from "@/config/regions";
 import { isAddress } from "@/features/formatting";
 import type {
@@ -150,17 +150,22 @@ export function usePaintedHomeBalances(input: {
     () => snapshotCachedPresentation(input),
     () => "",
   );
-  if (input.live.status === "ready" || !cachedJson) return input.live;
-  try {
-    const cached = JSON.parse(cachedJson) as HomeAssetBalancesPresentation;
-    return {
-      ...cached,
-      statusLabel: cached.statusLabel ?? "Updating…",
-      revalidating: true,
-    };
-  } catch {
-    return input.live;
-  }
+  return useMemo(() => {
+    if (!cachedJson) return input.live;
+    try {
+      const cached = JSON.parse(cachedJson) as HomeAssetBalancesPresentation;
+      if (input.live.status === "ready") {
+        return reconcileReadyHomeBalances(cached, input.live);
+      }
+      return {
+        ...cached,
+        statusLabel: cached.statusLabel ?? "Updating…",
+        revalidating: true,
+      };
+    } catch {
+      return input.live;
+    }
+  }, [cachedJson, input.live]);
 }
 
 function snapshotCachedPresentation(input: {
@@ -170,7 +175,14 @@ function snapshotCachedPresentation(input: {
   region: RegionId;
   live: HomeAssetBalancesPresentation;
 }): string {
-  if (!input.ownerKey || input.live.status !== "loading") return "";
+  if (!input.ownerKey) return "";
+  if (
+    input.live.status === "ready" &&
+    (!input.subject || !input.smartAccount || !isAddress(input.smartAccount))
+  ) {
+    return "";
+  }
+  if (input.live.status !== "loading" && input.live.status !== "ready") return "";
   try {
     const cached = readHomeBalancesPresentation(
       () => window.localStorage,
@@ -201,8 +213,16 @@ export function resolvePaintedHomeBalances(input: {
   getStorage: CacheStorageGetter;
   now?: number;
 }): HomeAssetBalancesPresentation {
-  if (input.live.status === "ready") return input.live;
-  if (input.live.status !== "loading" || !input.ownerKey) return input.live;
+  if (!input.ownerKey) return input.live;
+  if (
+    input.live.status === "ready" &&
+    (!input.subject || !input.smartAccount || !isAddress(input.smartAccount))
+  ) {
+    return input.live;
+  }
+  if (input.live.status !== "loading" && input.live.status !== "ready") {
+    return input.live;
+  }
 
   const cached = readHomeBalancesPresentation(
     input.getStorage,
@@ -215,11 +235,58 @@ export function resolvePaintedHomeBalances(input: {
     input.now,
   );
   if (!cached) return input.live;
+  if (input.live.status === "ready") {
+    return reconcileReadyHomeBalances(cached, input.live);
+  }
 
   return {
     ...cached,
     statusLabel: cached.statusLabel ?? "Updating…",
     revalidating: true,
+  };
+}
+
+function reconcileReadyHomeBalances(
+  cached: HomeAssetBalancesPresentation,
+  live: HomeAssetBalancesPresentation,
+): HomeAssetBalancesPresentation {
+  const unavailableIds = new Set(live.unavailableItemIds ?? []);
+  if (unavailableIds.size === 0) return live;
+
+  const liveById = new Map(live.items.map((item) => [item.id, item]));
+  const mergedItems: HomeAssetBalanceItem[] = [];
+  const includedIds = new Set<string>();
+  let retainedUnavailableItem = false;
+
+  for (const cachedItem of cached.items) {
+    const liveItem = liveById.get(cachedItem.id);
+    if (liveItem) {
+      mergedItems.push(liveItem);
+      includedIds.add(liveItem.id);
+      continue;
+    }
+    if (!unavailableIds.has(cachedItem.id)) continue;
+
+    const knownItem = { ...cachedItem };
+    delete knownItem.displayContext;
+    mergedItems.push({
+      ...knownItem,
+      displayBalance: "Unavailable",
+      tone: "error",
+    });
+    includedIds.add(cachedItem.id);
+    retainedUnavailableItem = true;
+  }
+
+  if (!retainedUnavailableItem) return live;
+  for (const liveItem of live.items) {
+    if (includedIds.has(liveItem.id)) continue;
+    mergedItems.push(liveItem);
+  }
+
+  return {
+    ...live,
+    items: mergedItems,
   };
 }
 

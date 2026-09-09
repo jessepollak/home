@@ -42,6 +42,7 @@ const { HomeExperience, PortfolioHomeExperience } = await import(
 );
 const {
   homeBalancesPresentationCachePrefix,
+  readHomeBalancesPresentation,
   writeHomeBalancesPresentation,
 } = await import("@/features/portfolio-valuation/presentation-cache");
 
@@ -896,10 +897,9 @@ describe("login-state home experience", () => {
     expect(page().queryByRole("button", { name: "Save", hidden: false })).toBeTruthy();
     expect(page().queryByRole("button", { name: "Save", current: "page" })).toBeNull();
 
-    const portfolioRequest = requests.find(
-      (request) => request.input === "/api/portfolio",
+    expect(requests.some((request) => request.input === "/api/portfolio")).toBe(
+      false,
     );
-    expect(portfolioRequest).toBeDefined();
     const valuationRequest = requests.find((request) =>
       String(request.input).startsWith("/api/portfolio/valuation?"),
     );
@@ -916,8 +916,145 @@ describe("login-state home experience", () => {
     expect(String(activityRequest?.input).match(/\?/g)).toHaveLength(1);
     expect(new URL(String(activityRequest?.input), "http://localhost").searchParams.has("to")).toBe(true);
     expect(
-      new Headers(portfolioRequest?.init?.headers).get(ACCOUNT_PROVIDER_HEADER),
+      new Headers(valuationRequest?.init?.headers).get(ACCOUNT_PROVIDER_HEADER),
     ).toBe("cdp-embedded");
+  });
+
+  test("repairs a legacy cached unpriced cash row at the Home display boundary", async () => {
+    render(
+      <AccountWalletSessionOwner
+        sdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={async () => Response.json(session())}
+      >
+        <HomeExperience
+          detectedCountry="US"
+          routeMode="dashboard"
+          savingsContent={<section aria-label="Savings module">Savings fixture</section>}
+          investContent={<section aria-label="Invest module">Invest fixture</section>}
+          assetBalances={{
+            status: "ready",
+            displayTotal: "—",
+            items: [
+              {
+                id: "cash:cached-local",
+                group: "cash",
+                name: "Local currency",
+                displayBalance: "2,500.00 LCLX",
+                currencyCode: "LCL",
+                tone: "muted",
+              },
+            ],
+          }}
+        />
+      </AccountWalletSessionOwner>,
+    );
+
+    const quantity = await page().findByLabelText("2,500.00 LCLX");
+    expect(quantity.textContent).toBe("2,500.00");
+    expect(quantity.getAttribute("title")).toBe("2,500.00 LCLX");
+    expect(quantity.closest("[data-tone]")?.getAttribute("data-tone")).toBe(
+      "default",
+    );
+    expect(page().queryByText("2,500.00 LCLX")).toBeNull();
+  });
+
+  test("persists one reconciled unavailable row without a cache-write loop", async () => {
+    writeHomeBalancesPresentation(
+      () => window.localStorage,
+      {
+        ownerKey: OWNER,
+        subject: "subject-home",
+        smartAccount: ADDRESS,
+        region: "GLOBAL",
+      },
+      {
+        status: "ready",
+        displayTotal: "$12.34",
+        items: [
+          {
+            id: "usdc",
+            group: "cash",
+            name: "US dollar",
+            displayBalance: "$12.34",
+            currencyCode: "USD",
+          },
+          {
+            id: "asset:fixture-eurc",
+            group: "asset",
+            name: "Euro",
+            detail: "EURC",
+            displayBalance: "25.00 EURC",
+            currencyCode: "EUR",
+          },
+        ],
+      },
+    );
+
+    let presentationWrites = 0;
+    const onPresentationWrite = () => {
+      presentationWrites += 1;
+    };
+    window.addEventListener("home:balances-presentation-cache", onPresentationWrite);
+
+    try {
+      render(
+        <AccountWalletSessionOwner
+          sdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+          sessionFetch={async () => Response.json(session())}
+        >
+          <HomeExperience
+            routeMode="dashboard"
+            savingsContent={<section aria-label="Savings module">Savings fixture</section>}
+            investContent={<section aria-label="Invest module">Invest fixture</section>}
+            assetBalances={{
+              status: "ready",
+              displayTotal: "$12.34",
+              items: [
+                {
+                  id: "usdc",
+                  group: "cash",
+                  name: "US dollar",
+                  displayBalance: "$12.34",
+                  currencyCode: "USD",
+                },
+              ],
+              unavailableItemIds: ["asset:fixture-eurc"],
+            }}
+          />
+        </AccountWalletSessionOwner>,
+      );
+
+      expect(await page().findByText("Unavailable")).toBeTruthy();
+      expect(page().getByText("Euro")).toBeTruthy();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(presentationWrites).toBe(1);
+      expect(
+        readHomeBalancesPresentation(
+          () => window.localStorage,
+          {
+            ownerKey: OWNER,
+            subject: "subject-home",
+            smartAccount: ADDRESS,
+            region: "GLOBAL",
+          },
+        )?.items[1],
+      ).toEqual({
+        id: "asset:fixture-eurc",
+        group: "asset",
+        name: "Euro",
+        detail: "EURC",
+        displayBalance: "Unavailable",
+        currencyCode: "EUR",
+        tone: "error",
+      });
+    } finally {
+      window.removeEventListener(
+        "home:balances-presentation-cache",
+        onPresentationWrite,
+      );
+    }
   });
 
   test("renders priced ETH with fiat primary and bounded native under the name", async () => {
@@ -1122,10 +1259,9 @@ describe("login-state home experience", () => {
     const authenticatedRequests = requests.filter(
       (request) =>
         request.input === "/api/session" ||
-        request.input === "/api/portfolio" ||
         String(request.input).startsWith("/api/portfolio/valuation?"),
     );
-    expect(authenticatedRequests).toHaveLength(3);
+    expect(authenticatedRequests).toHaveLength(2);
     for (const request of authenticatedRequests) {
       expect(
         new Headers(request.init?.headers).get(ACCOUNT_PROVIDER_HEADER),
@@ -1259,7 +1395,7 @@ describe("login-state home experience", () => {
     await waitFor(() => {
       expect(
         requests.filter((request) => request.input === "/api/portfolio"),
-      ).toHaveLength(3);
+      ).toHaveLength(1);
       expect(
         requests.filter((request) =>
           String(request.input).startsWith("/api/portfolio/valuation?"),
