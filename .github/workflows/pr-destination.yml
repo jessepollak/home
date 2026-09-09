@@ -16,14 +16,16 @@ concurrency:
   group: pr-destination-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-# This privileged event is read-only. It checks out main explicitly and never
-# checks out, imports, or executes files from the pull request head.
+# This privileged event checks out trusted main only. Its sole write permission
+# publishes a commit status on the refetched live PR head; it never executes PR code.
 permissions:
   contents: read
+  pull-requests: read
+  statuses: write
 
 jobs:
   destination:
-    name: Validate pull request destination
+    name: Publish current-head PR destination status
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -40,5 +42,7 @@ jobs:
           node-version: 22.13.1
           package-manager-cache: false
 
-      - name: Validate base branch and stack semantics
-        run: node scripts/delivery/check-pr-destination.mjs "$GITHUB_EVENT_PATH"
+      - name: Validate live destination and publish exact-head status
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/delivery/publish-pr-destination-status.mjs

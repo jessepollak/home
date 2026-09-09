@@ -1,4 +1,4 @@
-import type { SqlExecutor, SqlResult } from "../../apps/web/server/money-actions/postgres-sql";
+import type { SqlExecutor, SqlQueryResult } from "../../apps/web/server/money-actions/postgres-sql";
 
 type BunSqlClient = {
   unsafe: (text: string, values?: unknown[]) => Promise<ArrayLike<unknown> & { count?: number }>;
@@ -10,7 +10,7 @@ function schemaIdentifier(value: string): string {
   return `"${value}"`;
 }
 
-function resultFromRows<Row>(rows: ArrayLike<unknown> & { count?: number }): SqlResult<Row> {
+function resultFromRows<Row>(rows: ArrayLike<unknown> & { count?: number }): SqlQueryResult<Row> {
   const normalized = Array.from(rows) as Row[];
   return { rows: normalized, rowCount: rows.count ?? normalized.length };
 }
@@ -23,7 +23,7 @@ export function createBunPostgresExecutor(
   const quotedSchema = schemaIdentifier(schema);
 
   return {
-    async query<Row>(text: string, values: unknown[] = []): Promise<SqlResult<Row>> {
+    async query<Row>(text: string, values: unknown[] = []): Promise<SqlQueryResult<Row>> {
       if (inTransaction) {
         return resultFromRows<Row>(await client.unsafe(text, values));
       }

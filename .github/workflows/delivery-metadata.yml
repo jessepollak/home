@@ -18,11 +18,13 @@ concurrency:
   group: delivery-metadata-${{ github.event.issue.number || github.event.pull_request.number }}
   cancel-in-progress: false
 
-# issues:write is required to delete labels; the trusted script limits its use
-# to status:* on the event record. It never executes pull request code.
+# issues:write is required to delete labels; pull-requests:read is required
+# to refetch current base/state/labels before cleanup. The trusted script limits
+# writes to deleting status:* on the event record and never executes PR code.
 permissions:
   contents: read
   issues: write
+  pull-requests: read
 
 jobs:
   clean-status-labels:

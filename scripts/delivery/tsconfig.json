@@ -1,0 +1,12 @@
+{
+  "extends": "../../apps/web/tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "typeRoots": ["../../apps/web/node_modules/@types"],
+    "types": ["bun"]
+  },
+  "include": [
+    "bun-postgres-executor.ts",
+    "tests/postgres-money-action.test.ts"
+  ]
+}

@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { removeStatusLabels } from "../cleanup-status-labels.mjs";
+import {
+  cleanupStatusLabelsForEvent,
+  removeStatusLabels,
+} from "../cleanup-status-labels.mjs";
 import { planStatusLabelChanges } from "../status-label-policy.mjs";
 
 async function fixture(name) {
   return JSON.parse(await readFile(new URL(`./fixtures/${name}.json`, import.meta.url), "utf8"));
+}
+
+function jsonResponse(value, status = 200) {
+  return { status, async json() { return structuredClone(value); } };
 }
 
 test("closed issue cleanup strips every status label and preserves owner/lane", async () => {
@@ -49,25 +56,104 @@ test("direct-main PR labels are left unchanged while the PR is open", async () =
   });
 });
 
-test("GitHub mutation uses only DELETE label calls for the current record", async () => {
+test("cleanup GETs the current record before issuing only same-record DELETE calls", async () => {
   const payload = await fixture("closed-verification-record");
-  const plan = planStatusLabelChanges("issues", payload);
   const calls = [];
-  const removed = await removeStatusLabels(plan, {
+  const result = await cleanupStatusLabelsForEvent("issues", payload, {
     repository: "jessepollak/home",
     apiUrl: "https://api.github.test",
     token: "fixture-token",
     fetchImpl: async (url, init) => {
       calls.push({ url: String(url), method: init.method, headers: init.headers });
+      if (init.method === "GET") return jsonResponse(payload.issue);
       return { status: 200 };
     },
   });
 
-  assert.deepEqual(removed, ["status:needs-jesse", "status:legacy-value"]);
-  assert.equal(calls.length, 2);
-  assert.ok(calls.every((call) => call.method === "DELETE"));
-  assert.ok(calls.every((call) => call.url.includes("/issues/69/labels/status%3A")));
+  assert.deepEqual(result.removed, ["status:needs-jesse", "status:legacy-value"]);
+  assert.deepEqual(calls.map((call) => call.method), ["GET", "DELETE", "DELETE"]);
+  assert.match(calls[0].url, /\/repos\/jessepollak\/home\/issues\/69$/);
+  assert.ok(calls.slice(1).every((call) => call.url.includes("/issues/69/labels/status%3A")));
   assert.ok(calls.every((call) => !call.url.includes("/issues/70")));
+});
+
+test("a stale close event skips deletion after the issue is reopened", async () => {
+  const payload = await fixture("closed-verification-record");
+  const currentIssue = structuredClone(payload.issue);
+  currentIssue.state = "open";
+  const calls = [];
+
+  const result = await cleanupStatusLabelsForEvent("issues", payload, {
+    repository: "jessepollak/home",
+    apiUrl: "https://api.github.test",
+    token: "fixture-token",
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), method: init.method });
+      return jsonResponse(currentIssue);
+    },
+  });
+
+  assert.deepEqual(result, {
+    issueNumber: 69,
+    labelsToRemove: [],
+    reason: "current-record-open",
+    removed: [],
+  });
+  assert.deepEqual(calls.map((call) => call.method), ["GET"]);
+});
+
+test("a stale PR close event skips deletion after the pull request is reopened", async () => {
+  const payload = await fixture("merged-pr");
+  const currentPullRequest = structuredClone(payload.pull_request);
+  currentPullRequest.state = "open";
+  currentPullRequest.merged = false;
+  const calls = [];
+
+  const result = await cleanupStatusLabelsForEvent("pull_request_target", payload, {
+    repository: "jessepollak/home",
+    apiUrl: "https://api.github.test",
+    token: "fixture-token",
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), method: init.method });
+      return jsonResponse(currentPullRequest);
+    },
+  });
+
+  assert.deepEqual(result, {
+    issueNumber: 112,
+    labelsToRemove: [],
+    reason: "current-record-open",
+    removed: [],
+  });
+  assert.deepEqual(calls.map((call) => call.method), ["GET"]);
+  assert.match(calls[0].url, /\/repos\/jessepollak\/home\/pulls\/112$/);
+});
+
+test("a stale stacked event skips promotion deletion after retarget to main", async () => {
+  const payload = await fixture("promoted-stacked");
+  const currentPullRequest = structuredClone(payload.pull_request);
+  currentPullRequest.base.ref = "main";
+  currentPullRequest.labels = currentPullRequest.labels.filter((label) => label.name !== "delivery:stacked");
+  const calls = [];
+
+  const result = await cleanupStatusLabelsForEvent("pull_request_target", payload, {
+    repository: "jessepollak/home",
+    apiUrl: "https://api.github.test",
+    token: "fixture-token",
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), method: init.method });
+      return jsonResponse(currentPullRequest);
+    },
+  });
+
+  assert.deepEqual(result, {
+    issueNumber: 114,
+    labelsToRemove: [],
+    reason: "direct-main",
+    removed: [],
+  });
+  assert.deepEqual(calls.map((call) => call.method), ["GET"]);
+  assert.match(calls[0].url, /\/repos\/jessepollak\/home\/pulls\/114$/);
 });
 
 test("cleanup refuses non-status mutations and unsafe repositories", async () => {

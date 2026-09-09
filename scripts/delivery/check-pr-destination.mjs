@@ -16,7 +16,7 @@ const ALLOWED_ACTIONS = new Set([
   "ready_for_review",
 ]);
 
-export function validateDestinationEvent(payload, options = {}) {
+export function validateDestinationEventIdentity(payload, options = {}) {
   if (!payload || typeof payload !== "object") throw new Error("event payload is required");
   if (!ALLOWED_ACTIONS.has(payload.action)) throw new Error("unsupported pull request action");
   if (!payload.pull_request) throw new Error("pull request payload is required");
@@ -26,7 +26,15 @@ export function validateDestinationEvent(payload, options = {}) {
   if (expectedRepository && repository !== expectedRepository) {
     throw new Error("event repository does not match GITHUB_REPOSITORY");
   }
+  if (!Number.isSafeInteger(payload.pull_request.number) || payload.pull_request.number < 1) {
+    throw new Error("unsafe pull request number");
+  }
 
+  return { repository, pullRequestNumber: payload.pull_request.number };
+}
+
+export function validateDestinationEvent(payload, options = {}) {
+  validateDestinationEventIdentity(payload, options);
   return evaluatePullRequestDestination(payload.pull_request);
 }
 
