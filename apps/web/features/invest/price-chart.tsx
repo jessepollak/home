@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Liveline, type LivelinePoint } from "liveline";
 import {
   MARKET_PRICE_RANGES,
@@ -86,7 +79,6 @@ function ChartBody({
   history: PriceHistoryState;
   range: MarketPriceRange;
 }) {
-  const stageRef = useRef<HTMLDivElement>(null);
   const reduceMotion = usePrefersReducedMotion();
   const incoming = useMemo(
     () => toLivelinePoints(history.points),
@@ -117,7 +109,6 @@ function ChartBody({
 
   return (
     <div
-      ref={stageRef}
       className={styles.chartStage}
       role={stageRole}
       aria-label={stageLabel}
@@ -142,7 +133,7 @@ function ChartBody({
       {blankCover ? (
         <div className={styles.plotCover} data-plot-cover="true" aria-hidden />
       ) : null}
-      <PlotHoldShot stageRef={stageRef} active={chipHold} />
+      {/* Incoming paints offstage; last-good stays the only onstage series. */}
       {unavailable ? (
         <p className={styles.chartMessage} role="status">
           {history.status === "error"
@@ -244,62 +235,6 @@ function usePresentedLivelinePlot(
   }, [plot, pendingKey, reduceMotion, hasRevealed]);
 
   return { revealed: nextRevealed, pending: nextPending, liveSlot: nextLiveSlot };
-}
-
-function PlotHoldShot({
-  stageRef,
-  active,
-}: {
-  stageRef: { current: HTMLElement | null };
-  active: boolean;
-}) {
-  const destRef = useRef<HTMLCanvasElement>(null);
-  const pixels = useRef<HTMLCanvasElement | null>(null);
-
-  useLayoutEffect(() => {
-    if (active) return;
-    const canvas = stageRef.current?.querySelector(
-      '[data-plot-slot="live"] canvas',
-    ) as HTMLCanvasElement | null;
-    const copy = copyPlotCanvas(canvas, pixels.current);
-    if (copy) pixels.current = copy;
-  });
-
-  useLayoutEffect(() => {
-    if (!active) return;
-    const dest = destRef.current;
-    const src = pixels.current;
-    if (!dest || !src) return;
-    dest.width = src.width;
-    dest.height = src.height;
-    dest.getContext("2d")?.drawImage(src, 0, 0);
-  }, [active]);
-
-  if (!active) return null;
-  return (
-    <canvas
-      ref={destRef}
-      className={styles.plotCover}
-      data-plot-hold-shot="true"
-      aria-hidden
-    />
-  );
-}
-
-function copyPlotCanvas(
-  source: HTMLCanvasElement | null,
-  dest: HTMLCanvasElement | null,
-) {
-  if (!source || source.width < 8 || source.height < 8) return dest;
-  const next = dest ?? document.createElement("canvas");
-  if (next.width !== source.width || next.height !== source.height) {
-    next.width = source.width;
-    next.height = source.height;
-  }
-  const ctx = next.getContext("2d");
-  if (!ctx) return dest;
-  ctx.drawImage(source, 0, 0);
-  return next;
 }
 
 function StablePlotSlot({
