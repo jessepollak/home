@@ -1010,6 +1010,9 @@ describe("login-state home experience", () => {
           success: true,
         });
       }
+      if (input === "/api/actions/operations") {
+        return Response.json({ operations: [] });
+      }
       if (input === "/api/actions/send/prepare") {
         const request = JSON.parse(String(init?.body)) as {
           recipient: `0x${string}`;
@@ -1096,7 +1099,7 @@ describe("login-state home experience", () => {
         name: digit === "." ? "Decimal point" : digit,
       }));
     }
-    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Continue" }));
     fireEvent.change(page().getByLabelText("To"), {
       target: { value: ADDRESS_B },
     });

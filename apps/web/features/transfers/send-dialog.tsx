@@ -12,7 +12,8 @@ import {
   MoneyNumpad,
   isPositiveDecimalAmount,
 } from "@/features/money-modal";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import { useReactiveExpiry } from "@/features/money-actions/expiry";
+import type { MoneyActionKind, PreparedMoneyAction } from "@/features/money-actions/types";
 import {
   TRANSFER_ASSETS,
   assertTransferRequest,
@@ -39,6 +40,11 @@ type TransferWallet = Pick<
 
 type ComposeStep = "amount" | "address";
 type SendStep = ComposeStep | "confirm" | "pending" | "recovery" | "failed" | "error";
+type HistoryAdmission =
+  | { status: "checking" }
+  | { status: "ready" }
+  | { status: "fallback" }
+  | { status: "unavailable"; reason: "failed" | "malformed" };
 
 const ASSET_OPTIONS = [
   { id: "usdc", label: "USDC" },
@@ -81,7 +87,12 @@ export function SendDialog({
   const [recoveringAction, setRecoveringAction] = useState(false);
   const [step, setStep] = useState<SendStep>("amount");
   const [error, setError] = useState<string | null>(null);
-  const [openedAt] = useState(() => Date.now());
+  const [historyAttempt, setHistoryAttempt] = useState(0);
+  const [historyAdmission, setHistoryAdmission] = useState<HistoryAdmission>(() =>
+    fetchOperations ? { status: "checking" } : prepareMoneyAction
+      ? { status: "unavailable", reason: "failed" }
+      : { status: "fallback" },
+  );
   const displayStep = open && pendingTransfer && (step === "amount" || step === "address")
     ? "recovery"
     : step;
@@ -91,37 +102,58 @@ export function SendDialog({
     error ?? (displayStep === "recovery" && pendingTransfer
       ? messageForPendingTransfer(pendingTransfer)
       : null);
-  const expiredPrepared = preparedAction
-    ? Date.parse(preparedAction.expiresAt) <= openedAt
-    : false;
+  const { expired: expiredPrepared, recheckExpired } = useReactiveExpiry(
+    preparedAction?.expiresAt ?? null,
+  );
   const checkOnly = recoveringAction || expiredPrepared || displayStep === "recovery";
+  const historyReady = historyAdmission.status === "ready" || historyAdmission.status === "fallback";
 
   useEffect(() => {
-    if (!open || !fetchOperations || preparedAction || step !== "amount") return;
-    let active = true;
-    void fetchOperations().then((value) => {
-      if (!active || !value || typeof value !== "object" || !("operations" in value) || !Array.isArray(value.operations)) return;
-      const operation = value.operations.find((candidate) =>
-        candidate && typeof candidate === "object" && "status" in candidate &&
-        ["submitting", "submitted", "included", "unknown"].includes(String(candidate.status)) &&
-        "action" in candidate && candidate.action && typeof candidate.action === "object" &&
-        "kind" in candidate.action && candidate.action.kind === "send",
-      ) as { action?: PreparedMoneyAction } | undefined;
-      const recoveredRequest = operation?.action ? requestFromSendAction(operation.action) : null;
-      if (operation?.action && recoveredRequest) {
-        setPreparedAction(operation.action);
-        setRequest(recoveredRequest);
-        setAssetId(recoveredRequest.assetId);
-        setRecipient(recoveredRequest.recipient);
+    if (open) return;
+    // Resetting a closed modal prevents the previous wallet's compose or recovery state from crossing owners.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAssetId("usdc");
+    setRecipient("");
+    setAmount("");
+    setRequest(null);
+    setIntentId(null);
+    setPreparedAction(null);
+    setRecoveringAction(false);
+    setStep("amount");
+    setError(null);
+    setHistoryAdmission(fetchOperations ? { status: "checking" } : prepareMoneyAction
+      ? { status: "unavailable", reason: "failed" }
+      : { status: "fallback" });
+  }, [fetchOperations, open, prepareMoneyAction]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!fetchOperations) return;
+    const controller = new AbortController();
+    void fetchOperations(controller.signal).then((value) => {
+      if (controller.signal.aborted) return;
+      const parsed = parseSendHistory(value, address);
+      if (parsed.status === "malformed") {
+        setHistoryAdmission({ status: "unavailable", reason: "malformed" });
+        return;
+      }
+      setHistoryAdmission({ status: "ready" });
+      if (parsed.action && parsed.request) {
+        setPreparedAction(parsed.action);
+        setRequest(parsed.request);
+        setAssetId(parsed.request.assetId);
+        setRecipient(parsed.request.recipient);
         setRecoveringAction(true);
         setError("This send is still open. Check its status; do not submit it again.");
         setStep("confirm");
       }
     }).catch(() => {
-      // Recent-operation recovery is best effort; composing remains available.
+      if (!controller.signal.aborted) {
+        setHistoryAdmission({ status: "unavailable", reason: "failed" });
+      }
     });
-    return () => { active = false; };
-  }, [fetchOperations, open, preparedAction, step]);
+    return () => controller.abort();
+  }, [address, fetchOperations, historyAttempt, open, prepareMoneyAction]);
 
   function reset() {
     setAssetId("usdc");
@@ -133,6 +165,10 @@ export function SendDialog({
     setRecoveringAction(false);
     setStep("amount");
     setError(null);
+    setHistoryAdmission(fetchOperations ? { status: "checking" } : prepareMoneyAction
+      ? { status: "unavailable", reason: "failed" }
+      : { status: "fallback" });
+    setHistoryAttempt((attempt) => attempt + 1);
   }
 
   function closeIfAllowed() {
@@ -162,6 +198,12 @@ export function SendDialog({
   }
 
   async function continueFromAddress() {
+    if (!historyReady) {
+      setError(messageForHistoryAdmission(historyAdmission));
+      setStep("amount");
+      return;
+    }
+    let nextRequest: TransferRequest;
     try {
       if (!address) throw new TransferExecutionError("unavailable");
       const normalizedRecipient = normalizeTransferRecipient(recipient);
@@ -169,33 +211,51 @@ export function SendDialog({
         amount.replace(/\.$/, ""),
         TRANSFER_ASSETS[assetId].decimals,
       );
-      const nextRequest = {
+      nextRequest = {
         assetId,
         recipient: normalizedRecipient,
         amountBaseUnits,
       } satisfies TransferRequest;
       assertTransferRequest(nextRequest);
-      setRequest(nextRequest);
-      setIntentId(crypto.randomUUID());
-      setError(null);
-      if (prepareMoneyAction) {
-        setStep("pending");
-        setPreparedAction(await prepareMoneyAction("/api/actions/send/prepare", nextRequest));
-      }
-      setStep("confirm");
     } catch {
       setError(
         `Enter a valid Base address and a positive ${TRANSFER_ASSETS[assetId].symbol} amount.`,
       );
       setStep("address");
+      return;
     }
+
+    setRequest(nextRequest);
+    setIntentId(crypto.randomUUID());
+    setError(null);
+    if (prepareMoneyAction) {
+      setStep("pending");
+      try {
+        setPreparedAction(await prepareMoneyAction("/api/actions/send/prepare", nextRequest));
+      } catch {
+        setPreparedAction(null);
+        setError("Home couldn’t prepare this send. Your wallet was not asked to submit it. Try again.");
+        setStep("address");
+        return;
+      }
+    }
+    setStep("confirm");
   }
 
   async function confirm() {
     if (!request || !intentId || step === "pending") return;
+    if (preparedAction && !recoveringAction && recheckExpired()) {
+      setError("This send expired. Go back and continue again.");
+      return;
+    }
     setError(null);
     setStep("pending");
     try {
+      if (preparedAction && !executeMoneyAction) {
+        setError("Home can’t submit this prepared send right now. Your wallet was not asked to submit it.");
+        setStep("error");
+        return;
+      }
       if (preparedAction && executeMoneyAction) {
         const result = await executeMoneyAction(preparedAction);
         if (result.status === "confirmed") {
@@ -235,6 +295,11 @@ export function SendDialog({
     setError(null);
     setStep("pending");
     try {
+      if (preparedAction && !executeMoneyAction) {
+        setError("Home can’t check this saved send right now. Try again later.");
+        setStep("confirm");
+        return;
+      }
       if (preparedAction && executeMoneyAction) {
         const result = await executeMoneyAction(preparedAction);
         if (result.status === "confirmed" && result.transactionHash && request) {
@@ -318,6 +383,11 @@ export function SendDialog({
               maxDecimals={TRANSFER_ASSETS[assetId].decimals}
               onChange={setAmount}
             />
+            {historyAdmission.status === "checking" ? (
+              <p className={modal.fieldHint} role="status">Checking recent sends…</p>
+            ) : historyAdmission.status === "unavailable" ? (
+              <p className={modal.error} role="alert">{messageForHistoryAdmission(historyAdmission)}</p>
+            ) : null}
           </>
         ) : null}
 
@@ -348,9 +418,11 @@ export function SendDialog({
             {displayStep === "pending" ? (
               <div id="send-pending" className={modal.pending} role="status">
                 <span className={modal.spinner} aria-hidden="true" />
-                {pendingTransfer
+                {pendingTransfer || recoveringAction
                   ? "Checking the existing send…"
-                  : "Waiting for your wallet…"}
+                  : prepareMoneyAction && !preparedAction
+                    ? "Preparing your send…"
+                    : "Waiting for your wallet…"}
               </div>
             ) : null}
             {displayError ? <p className={modal.error} role="alert">{displayError}</p> : null}
@@ -369,9 +441,22 @@ export function SendDialog({
 
       {displayStep === "amount" ? (
         <MoneyModalFooter
-          primaryLabel="Continue"
-          primaryDisabled={!isPositiveDecimalAmount(amount)}
+          primaryLabel={historyAdmission.status === "unavailable"
+            ? "Retry recent sends"
+            : historyAdmission.status === "checking"
+              ? "Checking recent sends…"
+              : "Continue"}
+          primaryDisabled={historyAdmission.status === "checking" || (
+            historyReady && !isPositiveDecimalAmount(amount)
+          )}
           onPrimary={() => {
+            if (historyAdmission.status === "unavailable") {
+              setError(null);
+              setHistoryAdmission({ status: "checking" });
+              setHistoryAttempt((attempt) => attempt + 1);
+              return;
+            }
+            if (!historyReady) return;
             setError(null);
             setStep("address");
           }}
@@ -439,6 +524,90 @@ export function SendDialog({
       ) : null}
     </MoneyModal>
   );
+}
+
+const OPERATION_STATUSES = new Set([
+  "prepared",
+  "submitting",
+  "submitted",
+  "included",
+  "confirmed",
+  "rejected",
+  "expired",
+  "failed",
+  "unknown",
+]);
+const UNRESOLVED_OPERATION_STATUSES = new Set(["submitting", "submitted", "included", "unknown"]);
+const MONEY_ACTION_KINDS = new Set<MoneyActionKind>([
+  "send",
+  "save-deposit",
+  "save-withdraw",
+  "swap",
+  "supply-collateral",
+  "borrow",
+  "repay",
+  "withdraw-collateral",
+]);
+
+function parseSendHistory(
+  value: unknown,
+  address: `0x${string}` | null,
+): { status: "ready"; action: PreparedMoneyAction | null; request: TransferRequest | null } | { status: "malformed" } {
+  if (!isRecord(value) || !Array.isArray(value.operations)) return { status: "malformed" };
+  let recovered: { action: PreparedMoneyAction; request: TransferRequest } | null = null;
+  for (const candidate of value.operations) {
+    if (!isRecord(candidate) || typeof candidate.status !== "string" || !OPERATION_STATUSES.has(candidate.status) ||
+      typeof candidate.attemptCount !== "number" || !Number.isSafeInteger(candidate.attemptCount) ||
+      candidate.attemptCount < 0 || typeof candidate.createdAt !== "string" ||
+      !Number.isFinite(Date.parse(candidate.createdAt)) || typeof candidate.updatedAt !== "string" ||
+      !Number.isFinite(Date.parse(candidate.updatedAt)) || !isRecord(candidate.action) ||
+      typeof candidate.action.kind !== "string" || !MONEY_ACTION_KINDS.has(candidate.action.kind as MoneyActionKind)) {
+      return { status: "malformed" };
+    }
+    if (!UNRESOLVED_OPERATION_STATUSES.has(candidate.status) || candidate.action.kind !== "send") continue;
+    if (!address || !isPreparedSendAction(candidate.action, address)) return { status: "malformed" };
+    const action = candidate.action as unknown as PreparedMoneyAction;
+    const request = requestFromSendAction(action);
+    if (!request) return { status: "malformed" };
+    recovered ??= { action, request };
+  }
+  return recovered
+    ? { status: "ready", ...recovered }
+    : { status: "ready", action: null, request: null };
+}
+
+function isPreparedSendAction(value: Record<string, unknown>, address: `0x${string}`): boolean {
+  if (
+    value.kind !== "send" || typeof value.id !== "string" || typeof value.reviewHash !== "string" ||
+    typeof value.title !== "string" || typeof value.createdAt !== "string" ||
+    typeof value.expiresAt !== "string" || !Number.isFinite(Date.parse(value.createdAt)) ||
+    !Number.isFinite(Date.parse(value.expiresAt)) || !isRecord(value.owner) ||
+    typeof value.owner.subject !== "string" || typeof value.owner.address !== "string" ||
+    value.owner.address.toLowerCase() !== address.toLowerCase() || value.owner.chainId !== 8453 ||
+    typeof value.owner.accountProvider !== "string" || !Array.isArray(value.calls) ||
+    !Array.isArray(value.amounts) || !Array.isArray(value.warnings) ||
+    !value.warnings.every((warning) => typeof warning === "string")
+  ) return false;
+  if (!value.calls.every((call) => isRecord(call) && typeof call.to === "string" && /^0x[0-9a-fA-F]{40}$/.test(call.to) &&
+    typeof call.data === "string" && /^0x[0-9a-fA-F]*$/.test(call.data) && typeof call.value === "string")) return false;
+  return value.amounts.every((amount) => isRecord(amount) && typeof amount.assetId === "string" &&
+    typeof amount.symbol === "string" && typeof amount.decimals === "number" &&
+    typeof amount.amountBaseUnits === "string" && (amount.direction === "spend" || amount.direction === "receive"));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function messageForHistoryAdmission(admission: HistoryAdmission): string {
+  if (admission.status === "checking") return "Recent sends are still being checked. Wait before continuing.";
+  if (admission.status === "unavailable" && admission.reason === "malformed") {
+    return "Recent sends returned an invalid response. Retry before starting a new send.";
+  }
+  if (admission.status === "unavailable") {
+    return "Recent sends couldn’t be checked. Retry before starting a new send.";
+  }
+  return "";
 }
 
 function requestFromSendAction(action: PreparedMoneyAction): TransferRequest | null {

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAccountWallet } from "@/features/account/cdp-client";
 import { formatBaseUnitAmount } from "@/features/portfolio";
 import { decodeMoneyActionApproval } from "./approval";
+import { useReactiveExpiry } from "./expiry";
 import type { OperationResult, PreparedMoneyAction } from "./types";
 import styles from "./review.module.css";
 
@@ -36,21 +37,27 @@ function MoneyActionReviewContent({
   execute: (action: PreparedMoneyAction) => Promise<OperationResult>;
 }) {
   const [pending, setPending] = useState(false);
+  const [attempted, setAttempted] = useState(recovering);
   const [unresolved, setUnresolved] = useState(recovering);
   const [error, setError] = useState<string | null>(() =>
     recovering
       ? "The existing submission is unresolved. Check its status; do not submit it again."
       : null,
   );
-  const [expired] = useState(() => Date.parse(action.expiresAt) <= Date.now());
-  const checkOnly = expired || unresolved;
+  const { expired, recheckExpired } = useReactiveExpiry(action.expiresAt);
+  const checkOnly = expired || unresolved || attempted;
 
   async function confirm() {
     if (pending) return;
+    if (!checkOnly && recheckExpired()) {
+      setError("This prepared action expired. Prepare and review a fresh action.");
+      return;
+    }
     setPending(true);
     if (!checkOnly) setError(null);
     try {
       const result = await execute(action);
+      setAttempted(true);
       if (result.status === "confirmed") {
         setUnresolved(false);
         onConfirmed(result);
@@ -64,6 +71,7 @@ function MoneyActionReviewContent({
       setUnresolved(true);
       setError(messageForStatus(result.status));
     } catch {
+      setAttempted(true);
       setUnresolved(true);
       setError("The existing submission is unresolved. Check its status; do not submit it again.");
     } finally {

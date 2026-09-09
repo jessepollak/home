@@ -71,6 +71,52 @@ describe("MoneyActionReview", () => {
     expect(screen.queryByRole("button", { name: "Confirm action" })).toBeNull();
   });
 
+  test("reactively changes a mounted review to check-only when its deadline passes", async () => {
+    const expiringAction = {
+      ...action,
+      expiresAt: new Date(Date.now() + 30).toISOString(),
+    };
+    let executions = 0;
+    render(
+      <MoneyActionReview
+        action={expiringAction}
+        onClose={() => {}}
+        execute={async () => {
+          executions += 1;
+          return { id: expiringAction.id, status: "unknown" };
+        }}
+        onConfirmed={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Confirm action" })).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Check action status" })).toBeTruthy());
+    expect(screen.getByRole("alert").textContent).toMatch(/expired/);
+    expect(executions).toBe(0);
+  });
+
+  test("does not present a terminally rejected action as a fresh confirm again", async () => {
+    const liveAction = { ...action, expiresAt: "2026-12-08T01:10:00.000Z" };
+    let executions = 0;
+    render(
+      <MoneyActionReview
+        action={liveAction}
+        onClose={() => {}}
+        execute={async () => {
+          executions += 1;
+          return { id: liveAction.id, status: "rejected" };
+        }}
+        onConfirmed={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm action" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/rejected/));
+    expect(screen.queryByRole("button", { name: "Confirm action" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Check status" })).toBeTruthy();
+    expect(executions).toBe(1);
+  });
+
   test("opens a recovering review on Check status instead of a second confirm", () => {
     const liveAction = { ...action, expiresAt: "2026-12-08T01:10:00.000Z" };
     render(
