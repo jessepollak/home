@@ -22,6 +22,8 @@ Vercel detects bun from the root `bun.lock` and `packageManager: "bun@1.3.12"`. 
 
 If the import wizard suggests Root Directory `apps/web`, set it back to the repository root. There is no committed `vercel.json`; these dashboard overrides are enough. Framework preset: **Next.js**.
 
+Empty commits can skip preview rebuilds in this monorepo (Vercel reports "Not affected"). After Neon prune frees preview DB slots, retrigger with a no-op docs touch or Vercel Redeploy — not an empty commit.
+
 Start command for a local production server (not used by Vercel) is `bun start` → `bun run --cwd apps/web start`.
 
 ## Environment
