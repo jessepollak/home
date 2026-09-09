@@ -103,6 +103,17 @@ Then leave only the single current `status:*`.
 
 Stay in your lane. Shared files are listed in the [architecture review](architecture-review-2026-09.md#appendix--merge-hotspots-coordinate-dont-both-edit); do not both edit a hotspot.
 
+### Board is source of truth
+
+Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / one `status:*` / `lane:*`) are the board.
+
+- Soft merge order, Design HOLD, smoke fails, and blockers land on the issue or PR (comment + label flip) before or instead of crew DMs. DMs, 1:1s, and babysitter are coordination, not source of truth.
+- Every PR that maps to an issue — including drafts — carries the triad the same day, matching the related issue. Drafts #78 and #60 were unlabeled; that is now the rule.
+- On close or merge, scrub all `status:*` labels. Leave `owner:*` and `lane:*`. Prefer the REST issues labels API if `gh pr edit` no-ops.
+- Use `status:working` only. `status:in-progress` is deleted / deprecated.
+- Dual `owner:*` labels are OK for FE+BE slices only when the issue comment names who owns which slice. Otherwise split issues.
+- Land path is unchanged: `working` → `ready-for-review` → `needs-jesse`. Jesse-only merge. Hannah may merge docs-only when Jesse hands it.
+
 ## Drive order
 
 - Hunter sets what the crew works on and in what product order.
