@@ -1574,6 +1574,88 @@ describe("login-state home experience", () => {
     await waitFor(() => expect(replaceCalls).toEqual(["/"]));
   });
 
+  test("shows a Save loading shell while session is checking, then savings content", async () => {
+    const pendingSession = deferred<Response>();
+    render(
+      <HomeHarness
+        accountSdk={sdk({
+          isSignedIn: true,
+          ownerKey: OWNER,
+        })}
+        sessionFetch={() => pendingSession.promise}
+        initialPanel="save"
+      />,
+    );
+
+    expect(page().getByRole("navigation", { name: "Main navigation" })).toBeTruthy();
+    expect(page().getByLabelText("Savings")).toBeTruthy();
+    expect(document.querySelector(".save-panel-shell")).toBeTruthy();
+    expect(page().getByText("Updating…")).toBeTruthy();
+    expect(document.querySelector("[data-shimmer='hero']")).toBeTruthy();
+    expect(document.querySelectorAll("[data-shimmer='row']").length).toBe(2);
+    expect(page().queryByText("Savings verifying unavailable")).toBeNull();
+    expect(page().queryByText("Savings unavailable")).toBeNull();
+    expect(page().queryByText("Savings fixture")).toBeNull();
+    expect(page().queryByText("Checking…")).toBeNull();
+
+    await act(async () => {
+      pendingSession.resolve(Response.json(session()));
+      await pendingSession.promise;
+    });
+
+    expect(await page().findByRole("region", { name: "Savings module" })).toBeTruthy();
+    expect(page().getByText("Savings fixture")).toBeTruthy();
+    expect(page().queryByText("Updating…")).toBeNull();
+    expect(document.querySelector("[data-shimmer='hero']")).toBeNull();
+    expect(page().queryByText("Savings verifying unavailable")).toBeNull();
+    expect(page().queryByText("Savings unavailable")).toBeNull();
+  });
+
+  test("reserves Savings unavailable for a missing module after verification", async () => {
+    render(
+      <AccountWalletSessionOwner
+        sdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={async () => Response.json(session())}
+      >
+        <HomeExperience
+          routeMode="dashboard"
+          initialPanel="save"
+          investContent={<section aria-label="Invest module">Invest fixture</section>}
+          assetBalances={{
+            status: "ready",
+            displayTotal: "$12.34",
+            items: [],
+          }}
+        />
+      </AccountWalletSessionOwner>,
+    );
+
+    expect(await page().findByText("Savings unavailable")).toBeTruthy();
+    expect(page().queryByText("Savings verifying unavailable")).toBeNull();
+    expect(page().queryByText("Updating…")).toBeNull();
+    expect(document.querySelector("[data-shimmer='hero']")).toBeNull();
+  });
+
+  test("shows Savings unavailable after a failed session check, not a verifying empty panel", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({
+          isSignedIn: true,
+          ownerKey: OWNER,
+        })}
+        sessionFetch={async () =>
+          Response.json({ error: { code: "SESSION_UNAVAILABLE" } }, { status: 503 })
+        }
+        initialPanel="save"
+      />,
+    );
+
+    expect(await page().findByText("Savings unavailable")).toBeTruthy();
+    expect(page().queryByText("Savings verifying unavailable")).toBeNull();
+    expect(page().queryByText("Savings fixture")).toBeNull();
+    expect(document.querySelector("[data-shimmer='hero']")).toBeNull();
+  });
+
   test("honors a dashboard panel deep link on first paint", async () => {
     render(
       <HomeHarness

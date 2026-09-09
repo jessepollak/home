@@ -530,7 +530,9 @@ export function HomeExperience({
                     <div id="save-panel">
                       {isVerified
                         ? (savingsContent ?? <EmptyPanel label="Savings" />)
-                        : <EmptyPanel label="Savings verifying" />}
+                        : isChecking
+                          ? <SavePanelShell />
+                          : <EmptyPanel label="Savings" />}
                     </div>
                   )
                   : null}
@@ -892,6 +894,22 @@ function ShimmerRows({ count }: { count: number }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function SavePanelShell() {
+  return (
+    <section className="save-panel-shell" aria-busy="true">
+      <div className="save-panel-shell-hero">
+        <span
+          className="shimmer balance-hero-shimmer"
+          data-shimmer="hero"
+          aria-hidden="true"
+        />
+        <span className="sr-status">Updating…</span>
+      </div>
+      <ShimmerRows count={2} />
+    </section>
   );
 }
 

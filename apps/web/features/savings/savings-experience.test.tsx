@@ -215,6 +215,30 @@ describe("Save simplify", () => {
     expect(page().getByText("$820.00 available")).toBeTruthy();
   });
 
+  test("positions loading stays Updating and does not claim unavailable", async () => {
+    const pending = deferred<unknown>();
+    render(
+      <SavingsExperience
+        initialData={initialData}
+        session={session(ADDRESS_A)}
+        fetchPositions={() => pending.promise}
+      />,
+    );
+
+    expect(await page().findByText("Updating…")).toBeTruthy();
+    expect(page().queryByText("Balances unavailable")).toBeNull();
+    expect(page().queryByText("Nothing saved yet")).toBeNull();
+  });
+
+  test("unsigned Save hero stays empty NUX not unavailable", () => {
+    render(<SavingsExperience initialData={initialData} session={null} />);
+
+    expect(page().getByText("Nothing saved yet")).toBeTruthy();
+    expect(page().getByText("$0.00")).toBeTruthy();
+    expect(page().queryByText("Balances unavailable")).toBeNull();
+    expect(page().queryByText("Updating…")).toBeNull();
+  });
+
   test("rejects empty, subset, and duplicate vault coverage instead of claiming nothing is saved", async () => {
     const complete = positions(ADDRESS_A);
     const malformed = [

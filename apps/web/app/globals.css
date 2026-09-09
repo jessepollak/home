@@ -437,6 +437,23 @@ body:has(.app-main-authenticated) {
   max-width: 560px;
 }
 
+.save-panel-shell {
+  display: grid;
+  gap: 28px;
+  max-width: 560px;
+  padding: 12px 2px 28px;
+}
+
+.save-panel-shell-hero {
+  display: grid;
+  justify-items: center;
+  padding: 12px 8px 4px;
+}
+
+.save-panel-shell .shimmer-list {
+  margin: 0;
+}
+
 .balance-hero {
   padding: 10px 2px 2px;
 }
