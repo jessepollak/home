@@ -9,6 +9,7 @@ export const CODEX_TOKEN_PRICES_QUERY = `query GetTokenPrices($inputs: [GetPrice
     networkId
     priceUsd
     timestamp
+    priceChange24
   }
 }`;
 

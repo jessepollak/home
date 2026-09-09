@@ -14,7 +14,10 @@ function page() {
   return within(document.body);
 }
 
-function responseWithSnapshot(asOf: string): MarketPricesResponse {
+function responseWithSnapshot(
+  asOf: string,
+  extras: { changeLabel?: string } = {},
+): MarketPricesResponse {
   return {
     version: 1,
     provider: "codex",
@@ -30,8 +33,23 @@ function responseWithSnapshot(asOf: string): MarketPricesResponse {
             sourceLabel: "Codex",
             sourceUrl:
               "https://docs.codex.io/api-reference/queries/gettokenprices",
+            ...extras,
           },
         ],
+      },
+      crypto: {
+        status: "ready",
+        snapshots: extras.changeLabel
+          ? [
+              {
+                assetId: "cbbtc",
+                displayPrice: "$64210",
+                asOf,
+                sourceLabel: "Codex",
+                changeLabel: extras.changeLabel,
+              },
+            ]
+          : [],
       },
       meme: { status: "ready", snapshots: [] },
     },
@@ -56,6 +74,16 @@ function HookProbe({
           : props.stockMarket.status === "ready"
             ? props.stockMarket.snapshots[0]?.displayPrice ?? "empty"
             : props.stockMarket.status}
+      </output>
+      <output data-testid="stock-change">
+        {props.stockMarket.status === "ready"
+          ? props.stockMarket.snapshots[0]?.changeLabel ?? "none"
+          : "n/a"}
+      </output>
+      <output data-testid="crypto-change">
+        {props.cryptoMarket?.status === "ready"
+          ? props.cryptoMarket.snapshots[0]?.changeLabel ?? "none"
+          : "n/a"}
       </output>
     </div>
   );
@@ -146,6 +174,26 @@ describe("useMarketPrices", () => {
         "Price snapshot is stale.",
       ),
     );
+  });
+
+  test("preserves stock and crypto changeLabel from the public snapshot", async () => {
+    render(
+      <HookProbe
+        options={{
+          fetchImpl: (async () =>
+            Response.json(
+              responseWithSnapshot(new Date().toISOString(), {
+                changeLabel: "+1.25%",
+              }),
+            )),
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("stock-change").textContent).toBe("+1.25%"),
+    );
+    expect(page().getByTestId("crypto-change").textContent).toBe("+1.25%");
   });
 
   test("rejects malformed public payloads into a generic error state", async () => {

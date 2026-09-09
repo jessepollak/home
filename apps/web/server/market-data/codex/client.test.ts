@@ -29,13 +29,17 @@ function row({
   price = "1.25",
   timestamp = String(NOW_SECONDS),
   networkId = "8453",
+  priceChange24,
 }: {
   address: string;
   price?: string;
   timestamp?: string;
   networkId?: string;
+  priceChange24?: string;
 }) {
-  return `{"address":${JSON.stringify(address)},"networkId":${networkId},"priceUsd":${price},"timestamp":${timestamp}}`;
+  const change =
+    priceChange24 === undefined ? "" : `,"priceChange24":${priceChange24}`;
+  return `{"address":${JSON.stringify(address)},"networkId":${networkId},"priceUsd":${price},"timestamp":${timestamp}${change}}`;
 }
 
 function deferred<T>() {
@@ -50,6 +54,7 @@ describe("Codex market price reader", () => {
   test("uses the live GetPriceInput schema contract", () => {
     expect(CODEX_TOKEN_PRICES_QUERY).toContain("$inputs: [GetPriceInput!]!");
     expect(CODEX_TOKEN_PRICES_QUERY).not.toContain("GetTokenPricesInput");
+    expect(CODEX_TOKEN_PRICES_QUERY).toContain("priceChange24");
   });
 
   test("sends one exact allowlisted Base batch and maps reversed scoped records by contract", async () => {
@@ -101,6 +106,95 @@ describe("Codex market price reader", () => {
       CODEX_PRICE_SOURCE_URL,
     );
     expect(result.markets.stock.snapshots[0]?.asOf).toBe(NOW_ISO);
+  });
+
+  test("attaches signed changeLabel from Codex priceChange24 on stock and crypto snapshots", async () => {
+    const nvidia = investAssets.find(({ id }) => id === "nvdac");
+    const bitcoin = investAssets.find(({ id }) => id === "cbbtc");
+    const apple = investAssets.find(({ id }) => id === "aaplc");
+    if (!nvidia || !bitcoin || !apple) throw new Error("expected invest roster ids");
+
+    const rows = [
+      row({
+        address: nvidia.contractAddress,
+        price: "177.25",
+        priceChange24: "0.0125",
+      }),
+      row({
+        address: bitcoin.contractAddress,
+        price: "64210",
+        priceChange24: "-0.0667",
+      }),
+      row({
+        address: apple.contractAddress,
+        price: "228.5",
+        priceChange24: "0",
+      }),
+    ].join(",");
+    const result = await createCodexMarketPricesReader({
+      apiKey: "fixture-key",
+      fetchImpl: (async () => responseFromRows(rows)),
+      now,
+    })();
+
+    const stock = result.markets.stock;
+    const crypto = result.markets.crypto;
+    expect(stock?.status).toBe("ready");
+    expect(crypto?.status).toBe("ready");
+    if (stock?.status !== "ready" || crypto?.status !== "ready") {
+      throw new Error("unreachable");
+    }
+    expect(stock.snapshots).toContainEqual({
+      assetId: "nvdac",
+      displayPrice: "$177.25",
+      asOf: NOW_ISO,
+      sourceLabel: "Codex",
+      sourceUrl: CODEX_PRICE_SOURCE_URL,
+      changeLabel: "+1.25%",
+    });
+    expect(crypto.snapshots).toContainEqual({
+      assetId: "cbbtc",
+      displayPrice: "$64210",
+      asOf: NOW_ISO,
+      sourceLabel: "Codex",
+      sourceUrl: CODEX_PRICE_SOURCE_URL,
+      changeLabel: "-6.67%",
+    });
+    expect(stock.snapshots.find(({ assetId }) => assetId === "aaplc")).toEqual({
+      assetId: "aaplc",
+      displayPrice: "$228.5",
+      asOf: NOW_ISO,
+      sourceLabel: "Codex",
+      sourceUrl: CODEX_PRICE_SOURCE_URL,
+    });
+  });
+
+  test("omits changeLabel when priceChange24 is missing, malformed, or non-finite", async () => {
+    const nvidia = investAssets.find(({ id }) => id === "nvdac");
+    const meta = investAssets.find(({ id }) => id === "metac");
+    if (!nvidia || !meta) throw new Error("expected invest roster ids");
+
+    const rows = [
+      row({ address: nvidia.contractAddress, price: "177.25" }),
+      row({
+        address: meta.contractAddress,
+        price: "512",
+        priceChange24: "\"nope\"",
+      }),
+    ].join(",");
+    const result = await createCodexMarketPricesReader({
+      apiKey: "fixture-key",
+      fetchImpl: (async () => responseFromRows(rows)),
+      now,
+    })();
+
+    const stock = result.markets.stock;
+    expect(stock?.status).toBe("ready");
+    if (stock?.status !== "ready") throw new Error("unreachable");
+    expect(stock.snapshots.map(({ assetId, changeLabel }) => [assetId, changeLabel])).toEqual([
+      ["nvdac", undefined],
+      ["metac", undefined],
+    ]);
   });
 
   test("preserves raw decimal lexemes, including tiny prices, without Number coercion", async () => {

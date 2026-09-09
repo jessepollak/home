@@ -8,6 +8,8 @@ import {
   type InvestAsset,
 } from "@/config/invest-assets";
 import type { MarketSnapshot } from "@/features/invest/invest-market";
+import { sanitizeImageUrl } from "../asset-icons/image-url";
+import { formatChangeLabel } from "./change-label";
 import { CodexMarketDataError } from "./client";
 import {
   CODEX_CACHE_TTL_MS,
@@ -22,7 +24,6 @@ import {
   readRecord,
   type FetchLike,
 } from "./execute";
-import { sanitizeImageUrl } from "../asset-icons/image-url";
 
 export const CODEX_TRENDING_SOURCE_URL =
   "https://docs.codex.io/api-reference/queries/filtertokens";
@@ -296,36 +297,15 @@ function readTrendingSnapshot(
       : fetchedAt;
   if (Number.isNaN(asOf.getTime())) return null;
 
+  const changeLabel = formatChangeLabel(result.change24);
   return {
     assetId,
     displayPrice: `$${priceUsd}`,
     asOf: asOf.toISOString(),
     sourceLabel: CODEX_PRICE_SOURCE_LABEL,
     sourceUrl: CODEX_TRENDING_SOURCE_URL,
-    ...(formatChangeLabel(result.change24)
-      ? { changeLabel: formatChangeLabel(result.change24) }
-      : {}),
+    ...(changeLabel ? { changeLabel } : {}),
   };
-}
-
-function formatChangeLabel(value: unknown): string | undefined {
-  const decimal = readSignedDecimal(value);
-  if (decimal === null || decimal === 0) return undefined;
-  const percent = decimal * 100;
-  const sign = percent > 0 ? "+" : "";
-  return `${sign}${percent.toFixed(2)}%`;
-}
-
-function readSignedDecimal(value: unknown): number | null {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-  if (typeof value !== "string" || value !== value.trim()) return null;
-  if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(value)) {
-    return null;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function readNonEmptyString(value: unknown): string | undefined {

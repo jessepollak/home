@@ -326,7 +326,18 @@ function parseMarketState(value: unknown): MarketDataState | null {
     ) {
       return null;
     }
-    snapshots.push(snapshot as MarketSnapshot);
+    snapshots.push({
+      assetId: snapshot.assetId,
+      displayPrice: snapshot.displayPrice,
+      asOf: snapshot.asOf,
+      sourceLabel: snapshot.sourceLabel,
+      ...(typeof snapshot.sourceUrl === "string"
+        ? { sourceUrl: snapshot.sourceUrl }
+        : {}),
+      ...(typeof snapshot.changeLabel === "string"
+        ? { changeLabel: snapshot.changeLabel }
+        : {}),
+    });
   }
 
   return { status: "ready", snapshots };

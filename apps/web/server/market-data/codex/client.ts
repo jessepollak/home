@@ -19,6 +19,7 @@ import {
   CODEX_TOKEN_PRICES_QUERY,
 } from "./config";
 import { parseJsonWithNumberLexemes } from "./lossless-json";
+import { formatChangeLabel } from "./change-label";
 import {
   MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   MARKET_PRICES_VERSION,
@@ -316,12 +317,14 @@ function normalizeSnapshots(
     }
     if (duplicates.has(key)) continue;
 
+    const changeLabel = formatChangeLabel(record.priceChange24);
     normalized.set(key, {
       assetId: asset.id,
       displayPrice: `$${priceUsd}`,
       asOf: asOf.toISOString(),
       sourceLabel: CODEX_PRICE_SOURCE_LABEL,
       sourceUrl: CODEX_PRICE_SOURCE_URL,
+      ...(changeLabel ? { changeLabel } : {}),
     });
   }
 
