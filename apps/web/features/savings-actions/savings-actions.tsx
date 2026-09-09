@@ -1,250 +1,319 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
-import {
-  useAccountWallet,
-  type AccountResourceOptions,
-} from "@/features/account/cdp-client";
+import { useEffect, useState } from "react";
+import type { AccountWalletClient } from "@/features/account/cdp-client";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
-import { formatPercentage } from "@/features/formatting";
-import { MoneyActionReview } from "@/features/money-actions/review";
+import {
+  MoneyAmountDisplay,
+  MoneyConfirmSummary,
+  MoneyModal,
+  MoneyModalFooter,
+  MoneyModalHeader,
+  MoneyNumpad,
+  isPositiveDecimalAmount,
+} from "@/features/money-modal";
 import type {
   OperationResult,
   PreparedMoneyAction,
 } from "@/features/money-actions/types";
-import { BASE_USDC_DECIMALS } from "@/server/morpho/config";
+import { formatApy, formatUsdcUsd, parseUsdcAmount } from "@/features/savings/format";
 import type { MorphoVaultCandidate } from "@/server/morpho/types";
+import modal from "@/features/money-modal/money-modal.module.css";
 import styles from "./savings-actions.module.css";
 
-type SavingsActionsProps = {
+export type SavingsActionMode = "deposit" | "withdraw";
+
+export type SavingsMoneyDialogProps = {
+  open: boolean;
+  mode: SavingsActionMode;
   session: VerifiedAccountSession;
-  candidates: MorphoVaultCandidate[];
-  fetchAccountResource: SavingsActionTransport;
+  candidate: MorphoVaultCandidate;
+  availableLabel?: string;
+  availableBaseUnits?: string | null;
+  prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
+  executeMoneyAction: AccountWalletClient["executeMoneyAction"];
+  onClose: () => void;
   onConfirmed?: (result: OperationResult) => void | Promise<void>;
 };
 
-type AuthenticatedSavingsActionsProps = Omit<
-  SavingsActionsProps,
-  "fetchAccountResource"
->;
+type DialogStep = "amount" | "confirm" | "pending" | "error" | "failed";
 
-type SavingsActionMode = "deposit" | "withdraw";
-
-export type SavingsActionTransport = (
-  path: string,
-  options?: AccountResourceOptions,
-) => Promise<unknown>;
-
-export function AuthenticatedSavingsActions(
-  props: AuthenticatedSavingsActionsProps,
-) {
-  const account = useAccountWallet();
-  return <SavingsActions {...props} fetchAccountResource={account.fetchAccountResource} />;
-}
-
-export function SavingsActions({
+export function SavingsMoneyDialog({
+  open,
+  mode,
   session,
-  candidates,
+  candidate,
+  availableLabel,
+  availableBaseUnits,
+  prepareMoneyAction,
+  executeMoneyAction,
+  onClose,
   onConfirmed,
-  fetchAccountResource,
-}: SavingsActionsProps) {
-  const [vaultAddress, setVaultAddress] = useState("");
+}: SavingsMoneyDialogProps) {
   const [amount, setAmount] = useState("");
-  const [mode, setMode] = useState<SavingsActionMode>("deposit");
-  const [preparing, setPreparing] = useState(false);
-  const [prepared, setPrepared] = useState<PreparedMoneyAction | null>(null);
+  const [amountBaseUnits, setAmountBaseUnits] = useState<string | null>(null);
+  const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
+  const [step, setStep] = useState<DialogStep>("amount");
   const [error, setError] = useState<string | null>(null);
-  const [receiptStatus, setReceiptStatus] = useState<string | null>(null);
-  const selected = useMemo(
-    () => candidates.find((candidate) => candidate.vaultAddress.toLowerCase() === vaultAddress.toLowerCase()) ?? null,
-    [candidates, vaultAddress],
-  );
-  const available = Boolean(session.smartAccount && selected);
+  const [success, setSuccess] = useState<{ mode: SavingsActionMode; amount: string } | null>(null);
+  const [openedAt] = useState(() => Date.now());
+  const expiredPrepared = preparedAction
+    ? Date.parse(preparedAction.expiresAt) <= openedAt
+    : false;
+  const confirmAmount = amountBaseUnits ? formatUsdcUsd(amountBaseUnits) : "";
+  const title = step === "confirm" || step === "pending" || step === "error" || step === "failed"
+    ? "Confirm"
+    : mode === "deposit"
+      ? "Deposit"
+      : "Withdraw";
 
-  async function prepare(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (preparing) return;
-    const submitter = (event.nativeEvent as SubmitEvent).submitter;
-    const requestedMode = submitter instanceof HTMLButtonElement && submitter.value === "withdraw"
-      ? "withdraw"
-      : "deposit";
-    setMode(requestedMode);
+  useEffect(() => {
+    if (!success) return;
+    const timer = window.setTimeout(() => setSuccess(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [success]);
+
+  function reset() {
+    setAmount("");
+    setAmountBaseUnits(null);
+    setPreparedAction(null);
+    setStep("amount");
     setError(null);
-    setReceiptStatus(null);
-    setPreparing(true);
-    try {
-      if (!session.smartAccount || !selected) {
-        throw new SavingsActionClientError("Select a supported vault first.");
-      }
-      const amountBaseUnits = parseUsdcAmount(amount);
-      const value = await fetchAccountResource("/api/savings/actions", {
-        method: "POST",
-        body: {
-          kind: requestedMode,
-          vaultAddress: selected.vaultAddress,
-          amountBaseUnits,
-        },
-      });
-      const action = parsePreparedAction(value, session, requestedMode);
-      setPrepared(action);
-    } catch (caught) {
-      setError(messageForPrepareError(caught));
-    } finally {
-      setPreparing(false);
+  }
+
+  function closeIfAllowed() {
+    if (step !== "pending") {
+      reset();
+      onClose();
     }
   }
 
-  async function confirmed(result: OperationResult) {
-    setReceiptStatus("Receipt confirmed. Refreshing savings, portfolio, and activity data…");
-    try {
-      await onConfirmed?.(result);
-      setReceiptStatus("Receipt confirmed. Current account data was refreshed.");
-    } catch {
-      setReceiptStatus("Receipt confirmed. Some account data could not be refreshed yet.");
+  function goBack() {
+    if (step === "confirm" || step === "error" || step === "failed") {
+      setPreparedAction(null);
+      setError(null);
+      setStep("amount");
     }
   }
+
+  async function continueFromAmount() {
+    try {
+      if (!session.smartAccount) {
+        throw new SavingsActionClientError("Verify a Base smart account to continue.");
+      }
+      const nextAmount = parseUsdcAmount(amount);
+      if (availableBaseUnits) {
+        const available = BigInt(availableBaseUnits);
+        if (BigInt(nextAmount) > available) {
+          throw Object.assign(new Error("limit"), { status: 409, code: "SAVINGS_ACTION_LIMIT_EXCEEDED" });
+        }
+      }
+      setAmountBaseUnits(nextAmount);
+      setError(null);
+      setStep("pending");
+      const action = await prepareMoneyAction("/api/savings/actions", {
+        kind: mode,
+        vaultAddress: candidate.vaultAddress,
+        amountBaseUnits: nextAmount,
+      });
+      if (
+        action.kind !== (mode === "deposit" ? "save-deposit" : "save-withdraw") ||
+        action.owner.subject !== session.user.subject ||
+        action.owner.accountProvider !== session.accountProvider ||
+        action.owner.address.toLowerCase() !== session.smartAccount.address.toLowerCase()
+      ) {
+        throw new SavingsActionClientError(
+          "The prepared action did not match the verified account or requested savings action.",
+        );
+      }
+      setPreparedAction(action);
+      setStep("confirm");
+    } catch (caught) {
+      setPreparedAction(null);
+      setError(messageForPrepareError(caught));
+      setStep("amount");
+    }
+  }
+
+  async function confirm() {
+    if (!preparedAction || step === "pending") return;
+    setError(null);
+    setStep("pending");
+    try {
+      const result = await executeMoneyAction(preparedAction);
+      if (result.status === "confirmed") {
+        const confirmedAmount = confirmAmount;
+        try {
+          await onConfirmed?.(result);
+        } catch {
+          // A parent refresh failure must not relabel a receipt-confirmed action.
+        }
+        setSuccess({ mode, amount: confirmedAmount });
+        reset();
+        onClose();
+        return;
+      }
+      if (result.status === "rejected" || result.status === "expired" || result.status === "failed") {
+        setError(messageForActionStatus(result.status, mode));
+        setStep(result.status === "failed" ? "failed" : "error");
+        return;
+      }
+      setError("This action is still open. Checking again will not submit it again.");
+      setStep("confirm");
+    } catch {
+      setError("The outcome is unknown. Check your wallet before starting another action.");
+      setStep("error");
+    }
+  }
+
+  async function checkStatus() {
+    if (!preparedAction || step === "pending") return;
+    setError(null);
+    setStep("pending");
+    try {
+      const result = await executeMoneyAction(preparedAction);
+      if (result.status === "confirmed") {
+        try {
+          await onConfirmed?.(result);
+        } catch {
+          // Keep the confirmed receipt even if refresh fails.
+        }
+        setSuccess({ mode, amount: confirmAmount });
+        reset();
+        onClose();
+        return;
+      }
+      setError(messageForActionStatus(result.status, mode));
+      setStep("confirm");
+    } catch {
+      setError("The existing submission is unresolved. Check its status; do not submit it again.");
+      setStep("confirm");
+    }
+  }
+
+  const checkOnly = expiredPrepared && step === "confirm";
 
   return (
-    <section className={styles.actions} aria-labelledby="savings-actions-title">
-      <div className={styles.heading}>
-        <div>
-          <p>Prepare an action</p>
-          <h3 id="savings-actions-title">Deposit or withdraw USDC</h3>
+    <>
+      <MoneyModal
+        open={open}
+        labelledBy="savings-action-title"
+        describedBy={step === "pending" ? "savings-action-pending" : undefined}
+        onCancel={closeIfAllowed}
+        onClose={() => {
+          reset();
+          onClose();
+        }}
+      >
+        <MoneyModalHeader
+          title={title}
+          titleId="savings-action-title"
+          onBack={step === "amount" || step === "pending" ? undefined : goBack}
+          onClose={closeIfAllowed}
+          closeDisabled={step === "pending"}
+          closeLabel={`Close ${mode} dialog`}
+        />
+
+        <div className={modal.body}>
+          {step === "amount" ? (
+            <>
+              <MoneyAmountDisplay
+                amount={amount}
+                prefix="$"
+                availableLabel={availableLabel}
+              />
+              <MoneyNumpad value={amount} maxDecimals={6} onChange={setAmount} />
+            </>
+          ) : null}
+
+          {amountBaseUnits && step !== "amount" ? (
+            <>
+              <MoneyConfirmSummary
+                amount={confirmAmount}
+                lead={mode === "deposit" ? "Deposit to Save" : "Withdraw from Save"}
+                rows={[
+                  { label: "Vault", value: candidate.name },
+                  { label: "APY", value: formatApy(candidate.netApy) },
+                  { label: "Amount", value: confirmAmount },
+                ]}
+              />
+              {step === "pending" ? (
+                <div id="savings-action-pending" className={modal.pending} role="status">
+                  <span className={modal.spinner} aria-hidden="true" />
+                  Waiting for your wallet…
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {error ? <p className={modal.error} role="alert">{error}</p> : null}
+          {expiredPrepared && step === "confirm" ? (
+            <p className={modal.error} role="alert">
+              This {mode} expired. Go back and continue again.
+            </p>
+          ) : null}
         </div>
-        <span>User-executed on Base</span>
-      </div>
 
-      <form className={styles.form} onSubmit={prepare}>
-        <label htmlFor="savings-vault">Vault</label>
-        <select
-          id="savings-vault"
-          value={vaultAddress}
-          onChange={(event) => {
-            setVaultAddress(event.target.value);
-            setPrepared(null);
-            setError(null);
-          }}
-        >
-          <option value="">Select a configured vault</option>
-          {candidates.map((candidate) => (
-            <option key={candidate.vaultAddress} value={candidate.vaultAddress}>
-              {candidate.name}
-            </option>
-          ))}
-        </select>
-
-        {selected ? (
-          <dl className={styles.vaultFacts}>
-            <div>
-              <dt>Variable net APY</dt>
-              <dd>{formatPercentage(selected.netApy)}</dd>
-            </div>
-            <div>
-              <dt>Vault fee</dt>
-              <dd>{formatPercentage(selected.feeRate)}</dd>
-            </div>
-            <div>
-              <dt>Underlying</dt>
-              <dd>Canonical USDC on Base</dd>
-            </div>
-          </dl>
+        {step === "amount" ? (
+          <MoneyModalFooter
+            primaryLabel="Continue"
+            primaryDisabled={!isPositiveDecimalAmount(amount)}
+            onPrimary={() => void continueFromAmount()}
+          />
         ) : null}
 
-        <label htmlFor="savings-amount">USDC amount</label>
-        <input
-          id="savings-amount"
-          value={amount}
-          onChange={(event) => {
-            setAmount(event.target.value);
-            setPrepared(null);
-            setError(null);
-          }}
-          inputMode="decimal"
-          autoComplete="off"
-          placeholder="0.00"
-          required
-        />
-        <p className={styles.help}>
-          Exact balances, allowance, current limits, and ERC-4626 preview are read from one confirmed Base block before review.
-        </p>
+        {step === "confirm" ? (
+          <MoneyModalFooter
+            primaryLabel={checkOnly ? "Check status" : `${mode === "deposit" ? "Deposit" : "Withdraw"} ${confirmAmount}`}
+            onPrimary={() => void (checkOnly ? checkStatus() : confirm())}
+            secondaryLabel="Back"
+            onSecondary={goBack}
+          />
+        ) : null}
 
-        <div className={styles.buttons}>
-          <button
-            type="submit"
-            name="savings-action"
-            value="deposit"
-            disabled={!available || preparing}
-          >
-            {preparing && mode === "deposit" ? "Preparing…" : "Review deposit"}
-          </button>
-          <button
-            type="submit"
-            name="savings-action"
-            value="withdraw"
-            disabled={!available || preparing}
-          >
-            {preparing && mode === "withdraw" ? "Preparing…" : "Review withdrawal"}
-          </button>
+        {step === "failed" ? (
+          <MoneyModalFooter
+            primaryLabel="Back"
+            onPrimary={goBack}
+            secondaryLabel="Close"
+            onSecondary={closeIfAllowed}
+          />
+        ) : null}
+
+        {step === "error" ? (
+          <MoneyModalFooter
+            primaryLabel="Back"
+            onPrimary={goBack}
+          />
+        ) : null}
+      </MoneyModal>
+
+      {success ? (
+        <div className={styles.toast} role="status">
+          <span className={styles.toastMark} aria-hidden="true">✓</span>
+          <div>
+            <strong>
+              {success.mode === "deposit" ? "Deposited" : "Withdrew"} {success.amount}
+            </strong>
+            <p>Save · {candidate.name}</p>
+          </div>
         </div>
-      </form>
-
-      {error ? <p className={styles.error} role="alert">{error}</p> : null}
-      {receiptStatus ? <p className={styles.status} role="status">{receiptStatus}</p> : null}
-
-      {prepared ? (
-        <MoneyActionReview
-          action={prepared}
-          onClose={() => setPrepared(null)}
-          onConfirmed={confirmed}
-        />
       ) : null}
-    </section>
+    </>
   );
 }
 
-function parseUsdcAmount(value: string): string {
-  const match = /^([0-9]+)(?:\.([0-9]+))?$/.exec(value.trim());
-  if (!match) {
-    throw new SavingsActionClientError("Enter a positive USDC amount using decimal digits only.");
+function messageForActionStatus(status: string, mode: SavingsActionMode): string {
+  switch (status) {
+    case "rejected":
+      return "The wallet request was rejected.";
+    case "expired":
+      return `This ${mode} expired. Go back and continue again.`;
+    case "failed":
+      return `The ${mode} did not succeed onchain.`;
+    default:
+      return "This action is still open. Checking again will not submit it again.";
   }
-  const fraction = match[2] ?? "";
-  if (fraction.length > BASE_USDC_DECIMALS) {
-    throw new SavingsActionClientError("USDC supports at most 6 decimal places.");
-  }
-  const whole = match[1].replace(/^0+(?=\d)/, "");
-  const raw = BigInt(`${whole}${fraction.padEnd(BASE_USDC_DECIMALS, "0")}`);
-  if (raw <= BigInt(0)) {
-    throw new SavingsActionClientError("Enter a positive USDC amount.");
-  }
-  return raw.toString(10);
-}
-
-function parsePreparedAction(
-  value: unknown,
-  session: VerifiedAccountSession,
-  mode: SavingsActionMode,
-): PreparedMoneyAction {
-  if (
-    !isRecord(value) ||
-    typeof value.id !== "string" ||
-    typeof value.reviewHash !== "string" ||
-    typeof value.title !== "string" ||
-    typeof value.createdAt !== "string" ||
-    typeof value.expiresAt !== "string" ||
-    !Array.isArray(value.calls) ||
-    !Array.isArray(value.amounts) ||
-    !Array.isArray(value.warnings) ||
-    !isRecord(value.owner) ||
-    value.kind !== (mode === "deposit" ? "save-deposit" : "save-withdraw") ||
-    value.owner.subject !== session.user.subject ||
-    value.owner.accountProvider !== session.accountProvider ||
-    value.owner.chainId !== 8453 ||
-    typeof value.owner.address !== "string" ||
-    value.owner.address.toLowerCase() !== session.smartAccount?.address.toLowerCase()
-  ) {
-    throw new SavingsActionClientError("The prepared action did not match the verified account or requested savings action.");
-  }
-  return value as PreparedMoneyAction;
 }
 
 function messageForPrepareError(error: unknown): string {
