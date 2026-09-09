@@ -81,6 +81,7 @@ export function SendDialog({
   const [recoveringAction, setRecoveringAction] = useState(false);
   const [step, setStep] = useState<SendStep>("amount");
   const [error, setError] = useState<string | null>(null);
+  const [openedAt] = useState(() => Date.now());
   const displayStep = open && pendingTransfer && (step === "amount" || step === "address")
     ? "recovery"
     : step;
@@ -91,7 +92,7 @@ export function SendDialog({
       ? messageForPendingTransfer(pendingTransfer)
       : null);
   const expiredPrepared = preparedAction
-    ? Date.parse(preparedAction.expiresAt) <= Date.now()
+    ? Date.parse(preparedAction.expiresAt) <= openedAt
     : false;
   const checkOnly = recoveringAction || expiredPrepared || displayStep === "recovery";
 
