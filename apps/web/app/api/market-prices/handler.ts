@@ -2,20 +2,34 @@ import {
   createErrorMarketPricesResponse,
   getCodexMarketPrices,
 } from "@/server/market-data/codex/client";
-import type { MarketPricesResponse } from "@/server/market-data/codex/public-contract";
+import type {
+  MarketPricesFxQuote,
+  MarketPricesResponse,
+} from "@/server/market-data/codex/public-contract";
+import { getCoinbaseExchangeRates } from "@/server/valuation/fx-coinbase";
+import type { FxQuote } from "@/server/valuation/types";
 
 type MarketPricesReader = () => Promise<MarketPricesResponse>;
+type ExchangeRatesReader = () => Promise<{ quotes: readonly FxQuote[] }>;
 
 export function createMarketPricesHandler(
   readMarketPrices: MarketPricesReader = getCodexMarketPrices,
+  readExchangeRates: ExchangeRatesReader | null = null,
 ) {
   return async function GET() {
     try {
-      const payload = await readMarketPrices();
+      const [payload, rates] = await Promise.all([
+        readMarketPrices(),
+        readExchangeRates
+          ? readExchangeRates().catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      const fx = rates ? presentationFxQuotes(rates.quotes) : undefined;
+      const body: MarketPricesResponse = fx ? { ...payload, fx } : payload;
       const cacheControl = payload.unavailableReason
         ? "public, max-age=30"
         : "public, max-age=30, stale-while-revalidate=30";
-      return Response.json(payload, {
+      return Response.json(body, {
         headers: { "Cache-Control": cacheControl },
       });
     } catch {
@@ -25,4 +39,18 @@ export function createMarketPricesHandler(
       });
     }
   };
+}
+
+function presentationFxQuotes(
+  quotes: readonly FxQuote[],
+): MarketPricesFxQuote[] {
+  return quotes.map((quote) => ({
+    quoteCurrency: quote.quoteCurrency,
+    quoteUnitsPerUsd:
+      quote.status === "fresh" ? quote.quoteUnitsPerUsd : null,
+    status:
+      quote.status === "fresh" && quote.quoteUnitsPerUsd
+        ? "fresh"
+        : "unavailable",
+  }));
 }

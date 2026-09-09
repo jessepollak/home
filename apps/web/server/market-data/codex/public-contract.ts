@@ -1,6 +1,14 @@
-import type { MarketDataState } from "@/features/invest/invest-market";
+import type { FiatCurrencyCode } from "@/config/regions";
+import type {
+  MarketDataState,
+  PresentationFxQuote,
+} from "@/features/invest/invest-market";
 
 export const MARKET_PRICES_VERSION = 1 as const;
+
+export type MarketPricesFxQuote = Omit<PresentationFxQuote, "quoteCurrency"> & {
+  quoteCurrency: FiatCurrencyCode;
+};
 /** Valuation / executable-adjacent Codex quotes. */
 export const MARKET_PRICE_FRESHNESS_MS = 5 * 60_000;
 /**
@@ -16,4 +24,6 @@ export type MarketPricesResponse = {
   fetchedAt: string | null;
   unavailableReason?: "not-configured";
   markets: Readonly<Record<string, MarketDataState>>;
+  /** Coinbase USD FX for local presentation. Omitted when the FX read fails. */
+  fx?: readonly MarketPricesFxQuote[];
 };

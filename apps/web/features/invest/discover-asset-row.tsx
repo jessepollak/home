@@ -1,5 +1,8 @@
+"use client";
+
 import type { InvestAsset } from "@/config/invest-assets";
-import { getMarketDisplay, type MarketDataState } from "./invest-market";
+import type { MarketDataState } from "./invest-market";
+import { useMarketDisplay } from "./use-market-display";
 import { AssetIcon } from "./asset-icon";
 import styles from "./invest-experience.module.css";
 
@@ -12,7 +15,7 @@ export function DiscoverAssetRow({
   market: MarketDataState;
   onOpen: () => void;
 }) {
-  const price = getMarketDisplay(asset.id, market);
+  const price = useMarketDisplay(asset.id, market);
   const change = price.changeLabel ?? "—";
   const changeTone =
     change.startsWith("+") ? styles.changeUp : change.startsWith("-") ? styles.changeDown : "";

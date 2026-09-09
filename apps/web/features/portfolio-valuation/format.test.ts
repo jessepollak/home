@@ -28,5 +28,8 @@ describe("portfolio fiat formatting", () => {
     expect(formatPresentationFiat({ atoms: "4", scale: 3 }, "USD")).toBe(
       "<$0.01",
     );
+    expect(formatPresentationFiat({ atoms: "481240", scale: 2 }, "IDR")).toBe(
+      "Rp 4,812.40",
+    );
   });
 });

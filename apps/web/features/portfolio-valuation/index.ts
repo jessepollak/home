@@ -1,5 +1,6 @@
 export {
   formatFiatValue,
+  formatMoneyLabel,
   formatPresentationFiat,
   presentationCurrencyName,
   presentationCurrencySymbol,

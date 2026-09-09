@@ -1,4 +1,8 @@
-import { formatSignedPercentChange, formatUsdPrice } from "@/features/formatting";
+import {
+  formatPresentationPrice,
+  formatSignedPercentChange,
+  scaleDecimalByExact,
+} from "@/features/formatting";
 
 export type MarketSnapshot = {
   assetId: string;
@@ -23,6 +27,17 @@ export type MarketDisplay = {
   tone: "muted" | "error" | "ready";
 };
 
+export type MarketPresentationQuote = {
+  valueCurrency?: string | null;
+  quoteUnitsPerUsd?: { atoms: string; scale: number } | null;
+};
+
+export type PresentationFxQuote = {
+  quoteCurrency: string;
+  quoteUnitsPerUsd: { atoms: string; scale: number } | null;
+  status: "fresh" | "unavailable";
+};
+
 export const unavailableMarketData = {
   status: "unavailable",
 } as const satisfies MarketDataState;
@@ -30,6 +45,7 @@ export const unavailableMarketData = {
 export function getMarketDisplay(
   assetId: string,
   market: MarketDataState,
+  quote: MarketPresentationQuote = {},
 ): MarketDisplay {
   if (market.status === "loading") {
     return {
@@ -57,9 +73,7 @@ export function getMarketDisplay(
       };
     }
 
-    const formattedPrice = snapshot.displayPrice.startsWith("$")
-      ? formatUsdPrice(snapshot.displayPrice.slice(1))
-      : null;
+    const formattedPrice = formatSnapshotDisplayPrice(snapshot.displayPrice, quote);
 
     return {
       value: formattedPrice ?? snapshot.displayPrice,
@@ -77,4 +91,25 @@ export function getMarketDisplay(
     detail: "Price unavailable",
     tone: "muted",
   };
+}
+
+function formatSnapshotDisplayPrice(
+  displayPrice: string,
+  quote: MarketPresentationQuote,
+): string | null {
+  if (!displayPrice.startsWith("$")) return null;
+
+  const usdAmount = displayPrice.slice(1);
+  const currency = quote.valueCurrency && quote.valueCurrency !== "USD"
+    ? quote.valueCurrency
+    : "USD";
+
+  if (currency === "USD") {
+    return formatPresentationPrice(usdAmount, "USD");
+  }
+
+  if (!quote.quoteUnitsPerUsd) return "—";
+  const localAmount = scaleDecimalByExact(usdAmount, quote.quoteUnitsPerUsd);
+  if (!localAmount) return "—";
+  return formatPresentationPrice(localAmount, currency) ?? "—";
 }

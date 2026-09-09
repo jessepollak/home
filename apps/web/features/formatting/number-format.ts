@@ -1,9 +1,15 @@
+import { formatMoneyLabel } from "@/features/portfolio-valuation/format";
+
 const canonicalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const decimalPattern = /^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i;
 const minimumUsdFractionDigits = 2;
 const maximumTinyUsdFractionDigits = 8;
 
 export type DecimalInput = number | string;
+export type ExactScaleFactor = {
+  atoms: string;
+  scale: number;
+};
 
 type Decimal = {
   negative: boolean;
@@ -17,15 +23,27 @@ type Decimal = {
  * useful significant digits within a fixed display bound.
  */
 export function formatUsdPrice(value: DecimalInput): string | null {
+  return formatPresentationPrice(value, "USD");
+}
+
+/**
+ * Same rounding as `formatUsdPrice`, in the selected presentation currency.
+ * Jesse lock (#83): Invest and other priced surfaces use local fiat, not USD-only.
+ */
+export function formatPresentationPrice(
+  value: DecimalInput,
+  currency = "USD",
+): string | null {
   const decimal = parseDecimal(value);
   if (!decimal) return null;
 
-  if (decimal.digits === "0") return "$0.00";
+  if (decimal.digits === "0") return formatMoneyLabel("0.00", currency);
 
   const absoluteDecimal = { ...decimal, negative: false };
   if (isLessThan(absoluteDecimal, "0.01")) {
     if (isLessThan(absoluteDecimal, "0.00000001")) {
-      return `${decimal.negative ? "-" : ""}<$0.00000001`;
+      const label = formatMoneyLabel("<0.00000001", currency);
+      return decimal.negative ? `-${label}` : label;
     }
 
     const fraction = decimalFraction(absoluteDecimal);
@@ -34,10 +52,52 @@ export function formatUsdPrice(value: DecimalInput): string | null {
       firstSignificant + 4,
       maximumTinyUsdFractionDigits,
     );
-    return `${decimal.negative ? "-$" : "$"}${formatDecimal(decimal, fractionDigits, 0)}`;
+    const label = formatMoneyLabel(
+      formatDecimal(decimal, fractionDigits, 0),
+      currency,
+    );
+    return decimal.negative ? `-${label}` : label;
   }
 
-  return `${decimal.negative ? "-$" : "$"}${formatDecimal(decimal, minimumUsdFractionDigits, minimumUsdFractionDigits)}`;
+  const label = formatMoneyLabel(
+    formatDecimal(
+      decimal,
+      minimumUsdFractionDigits,
+      minimumUsdFractionDigits,
+    ),
+    currency,
+  );
+  return decimal.negative ? `-${label}` : label;
+}
+
+/**
+ * Multiplies a decimal by an exact `{ atoms, scale }` factor without JS floats.
+ * Used to convert Codex USD snapshots into the selected presentation currency.
+ */
+export function scaleDecimalByExact(
+  value: DecimalInput,
+  factor: ExactScaleFactor,
+): string | null {
+  const decimal = parseDecimal(value);
+  if (!decimal) return null;
+  if (!canonicalIntegerPattern.test(factor.atoms)) return null;
+  if (
+    !Number.isSafeInteger(factor.scale) ||
+    factor.scale < 0 ||
+    factor.scale > 10_000
+  ) {
+    return null;
+  }
+
+  if (decimal.digits === "0" || factor.atoms === "0") return "0";
+
+  const digits = (BigInt(decimal.digits) * BigInt(factor.atoms)).toString();
+  const scale = decimal.scale + factor.scale;
+  const padded = digits.padStart(scale + 1, "0");
+  const whole = scale === 0 ? digits : padded.slice(0, -scale);
+  const fraction = scale === 0 ? "" : padded.slice(-scale).replace(/0+$/, "");
+  const amount = fraction ? `${whole}.${fraction}` : whole;
+  return decimal.negative ? `-${amount}` : amount;
 }
 
 /** Formats a finite decimal rate as a consistently rounded percentage. */

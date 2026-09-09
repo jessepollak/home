@@ -133,6 +133,34 @@ describe("finance-first presentation", () => {
     expect(markup).not.toContain('href="https://prices.example.test/nvdac"');
   });
 
+  test("presents Invest hub prices in the selected local currency", async () => {
+    const { PresentationQuoteProvider } = await import(
+      "./invest/presentation-quote"
+    );
+    const markup = renderToStaticMarkup(
+      <PresentationQuoteProvider
+        value={{
+          valueCurrency: "IDR",
+          quoteUnitsPerUsd: { atoms: "16425", scale: 0 },
+        }}
+      >
+        <InvestExperience
+          stockMarket={{
+            status: "ready",
+            snapshots: [{
+              assetId: "nvdac",
+              displayPrice: "$231.708792875",
+              asOf: "2026-09-07T20:00:00.000Z",
+              sourceLabel: "Price fixture",
+            }],
+          }}
+        />
+      </PresentationQuoteProvider>,
+    );
+    expect(markup).toContain("Rp 3,805,816.92");
+    expect(markup).not.toContain("$231.71");
+  });
+
   test("leads savings with an unavailable USDC position and leaves every vault unselected", () => {
     const markup = renderToStaticMarkup(
       <SavingsExperience initialData={vaultsFixture} />,

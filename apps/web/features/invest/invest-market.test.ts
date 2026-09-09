@@ -66,6 +66,37 @@ describe("invest market display", () => {
     });
   });
 
+  test("converts USD snapshots into the selected local presentation currency", () => {
+    const state: MarketDataState = {
+      status: "ready",
+      snapshots: [
+        {
+          assetId: "nvdac",
+          displayPrice: "$231.708792875",
+          asOf: "2026-09-07T12:00:00Z",
+          sourceLabel: "Fixture source",
+          changeLabel: "+1.25%",
+        },
+      ],
+    };
+
+    expect(
+      getMarketDisplay("nvdac", state, {
+        valueCurrency: "IDR",
+        quoteUnitsPerUsd: { atoms: "16425", scale: 0 },
+      }),
+    ).toMatchObject({
+      value: "Rp 3,805,816.92",
+      changeLabel: "+1.25%",
+    });
+    expect(
+      getMarketDisplay("nvdac", state, {
+        valueCurrency: "IDR",
+        quoteUnitsPerUsd: null,
+      }).value,
+    ).toBe("—");
+  });
+
   test("uses a stable error fallback when no provider message is present", () => {
     expect(getMarketDisplay("aaplc", { status: "error" })).toEqual({
       value: "—",

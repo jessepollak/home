@@ -2,14 +2,14 @@
 
 Live verification date: September 7, 2026
 
-Home Invest uses a server-only Codex GraphQL adapter for read-only USD market indications. These snapshots are not executable trade quotes, guarantees, underlying off-chain stock prices, or claims that one token equals one share or one native coin.
+Home Invest uses a server-only Codex GraphQL adapter for read-only USD market indications. These snapshots are not executable trade quotes, guarantees, underlying off-chain stock prices, or claims that one token equals one share or one native coin. Invest formats those USD snapshots in the selected local presentation currency (Coinbase FX, display-only). Cash / currency-balance rows stay native and are not re-denominated.
 
 ## Public contracts
 
 - `GET /api/market-prices` is a public, signed-out-safe, same-origin read. It accepts no addresses, GraphQL, SQL, asset IDs, or other browser input.
 - The server derives every Codex input from the authoritative `investAssets` export and its exact Base contract identity (`networkId: 8453`).
 - The JSON envelope contains `version`, `provider`, a separate server `fetchedAt`, and category-keyed values using the existing `MarketDataState` contract.
-- Each ready snapshot retains the exact configured `assetId`, a string-preserved USD display price, Codex source label/link, and Codex source `timestamp` converted to ISO UTC in `asOf`.
+- Each ready snapshot retains the exact configured `assetId`, a string-preserved USD display price, Codex source label/link, and Codex source `timestamp` converted to ISO UTC in `asOf`. The public envelope may also include Coinbase USD FX quotes so the client can present those prices in the selected local fiat without changing the Codex snapshot.
 - `useMarketPrices()` loads that endpoint once, returns a stable `{ stockMarket, memeMarket, cryptoMarket? }` props object, and ages source snapshots out while mounted. It does not poll, open a WebSocket, or start background work.
 - `PricedInvestExperience` passes that stable object to `InvestExperience`. App Integration only needs to render `PricedInvestExperience` where the unpriced component is currently composed. The optional `cryptoMarket` property automatically becomes meaningful when the Crypto Majors registry/UI change is merged.
 - `GET /api/invest/discover` is a separate public read. Memes come from Codex `filterTokens` ranked by `trendingScore24` on Base (fail-closed empty/error). Stock/crypto marks resolve from onchain `contractURI` metadata first, then Codex token images, then initials. It does not change `getTokenPrices` allowlisting.

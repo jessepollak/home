@@ -334,6 +334,53 @@ describe("presentPortfolioValuation", () => {
     expect(JSON.stringify(presented.items)).not.toContain("1.101012331497033445");
   });
 
+  test("uses local fiat primary when priced ETH is quoted in IDR", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "ID",
+        quoteCurrency: "IDR",
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: nativeEthAsset.id,
+              assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+              name: nativeEthAsset.name,
+              symbol: nativeEthAsset.symbol,
+              balanceBaseUnits: "1101012331497033445",
+            }),
+          ],
+          omissions: [],
+        },
+        lines: [
+          {
+            holdingAssetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+            valueCurrency: "IDR",
+            value: { atoms: "78123456", scale: 0 },
+            status: "priced",
+            reason: null,
+          },
+        ],
+      }),
+      error: null,
+    });
+
+    expect(presented.items.find((item) => item.group === "asset")).toEqual({
+      id: `asset:${PORTFOLIO_NATIVE_ASSET_KEY}`,
+      group: "asset",
+      name: "Ethereum",
+      detail: "ETH",
+      displayBalance: "Rp 78,123,456.00",
+      displayContext: "1.1010 ETH",
+      currencyCode: null,
+    });
+    expect(JSON.stringify(presented.items.find((item) => item.group === "asset"))).not.toContain(
+      "$",
+    );
+  });
+
   test("bounds unpriced ETH and dust instead of rendering eighteen fractional digits", () => {
     const wrap = presentPortfolioValuation({
       status: "ready",
@@ -523,5 +570,77 @@ describe("presentPortfolioValuation", () => {
       ["cash", "US dollar", "$10.00"],
       ["asset", "Indonesian rupiah", "100.00 IDRX"],
     ]);
+  });
+
+  test("keeps cash rows in native denomination when the quote currency is IDR", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "ID",
+        quoteCurrency: "IDR",
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: nativeEthAsset.id,
+              assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+              name: nativeEthAsset.name,
+              symbol: nativeEthAsset.symbol,
+              balanceBaseUnits: "1101012331497033445",
+            }),
+          ],
+          omissions: [],
+        },
+        lines: [
+          {
+            holdingAssetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+            valueCurrency: "IDR",
+            value: { atoms: "78123456", scale: 0 },
+            status: "priced",
+            reason: null,
+          },
+        ],
+        cashBuckets: [
+          {
+            id: "cash:usd",
+            roles: ["canonical-usd"],
+            assetKey: PORTFOLIO_USDC_ASSET_KEY,
+            symbol: "USDC",
+            denominationCurrency: "USD",
+            tokenAmountBaseUnits: "10000000",
+            tokenDecimals: 6,
+            indicativeValue: { atoms: "10000000", scale: 6 },
+            valuationStatus: "priced",
+          },
+          {
+            id: `cash:${verifiedLocalCashAssets.IDR.assetKey}`,
+            roles: ["selected-local"],
+            assetKey: verifiedLocalCashAssets.IDR.assetKey,
+            symbol: "IDRX",
+            denominationCurrency: "IDR",
+            tokenAmountBaseUnits: "250000",
+            tokenDecimals: 2,
+            indicativeValue: { atoms: "250000", scale: 2 },
+            valuationStatus: "priced",
+          },
+        ],
+      }),
+      error: null,
+    });
+
+    expect(
+      presented.items.map((item) => [item.group, item.name, item.displayBalance]),
+    ).toEqual([
+      ["cash", "US dollar", "$10.00"],
+      ["cash", "Indonesian rupiah", "Rp 2,500.00"],
+      ["asset", "Ethereum", "Rp 78,123,456.00"],
+    ]);
+    expect(presented.items.find((item) => item.name === "US dollar")?.displayBalance).not.toContain(
+      "Rp",
+    );
+    expect(presented.items.find((item) => item.group === "asset")?.displayContext).toBe(
+      "1.1010 ETH",
+    );
   });
 });

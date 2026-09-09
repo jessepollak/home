@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   formatPercentage,
+  formatPresentationPrice,
   formatPresentationTokenAmount,
   formatSignedPercentChange,
   formatTokenAmount,
   formatUsdPrice,
   presentationAssetClass,
+  scaleDecimalByExact,
 } from "./number-format";
 
 describe("financial number formatting", () => {
@@ -111,6 +113,23 @@ describe("financial number formatting", () => {
         category: "meme",
       }),
     ).toBe("0.5 DEGEN");
+  });
+
+  test("formats local presentation prices with the same rounding as USD", () => {
+    expect(formatPresentationPrice("231.708792875", "IDR")).toBe("Rp 231.71");
+    expect(formatPresentationPrice("0.000123456789", "IDR")).toBe(
+      "Rp 0.0001235",
+    );
+    expect(formatPresentationPrice("0", "IDR")).toBe("Rp 0.00");
+    expect(formatPresentationPrice("231.708792875", "BRL")).toBe("R$ 231,71");
+  });
+
+  test("scales a USD price by an exact FX factor without JS floats", () => {
+    expect(
+      scaleDecimalByExact("231.708792875", { atoms: "16425", scale: 0 }),
+    ).toBe("3805816.922971875");
+    expect(scaleDecimalByExact("1", { atoms: "0", scale: 0 })).toBe("0");
+    expect(scaleDecimalByExact("not-a-price", { atoms: "1", scale: 0 })).toBeNull();
   });
 
   test("formats Invest Δ% to two signed decimal places", () => {

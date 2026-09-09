@@ -47,6 +47,7 @@ import {
   type HomeAssetBalancesPresentation,
 } from "@/features/portfolio-valuation";
 import { TransferActions } from "@/features/transfers";
+import { PresentationRegionProvider } from "@/features/invest/presentation-quote";
 import { PiggyBank } from "lucide-react";
 
 export type { HomeAssetBalanceItem, HomeAssetBalancesPresentation };
@@ -453,9 +454,11 @@ export function HomeExperience({
                     </div>
                   )
                   : null}
-                {activeNavigation === "invest"
-                  ? (investContent ?? <EmptyPanel label="Investments" />)
-                  : null}
+                {activeNavigation === "invest" ? (
+                  <PresentationRegionProvider regionId={regionId}>
+                    {investContent ?? <EmptyPanel label="Investments" />}
+                  </PresentationRegionProvider>
+                ) : null}
               </section>
             </>
           )}

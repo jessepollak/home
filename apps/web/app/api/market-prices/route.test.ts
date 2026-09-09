@@ -46,6 +46,38 @@ describe("GET /api/market-prices", () => {
     expect(await response.json()).toEqual(unavailable);
   });
 
+  test("attaches presentation FX quotes without changing USD snapshots", async () => {
+    const GET = createMarketPricesHandler(async () => publicPayload, async () => ({
+      quotes: [
+        {
+          baseCurrency: "USD",
+          quoteCurrency: "IDR",
+          quoteUnitsPerUsd: { atoms: "16425", scale: 0 },
+          sourceValue: "16425",
+          status: "fresh",
+          source: {
+            provider: "Coinbase Exchange Rates",
+            method: "USD exchange rates",
+            fetchedAt: "2026-09-07T20:30:00.000Z",
+            asOf: null,
+            timeBasis: "retrieved-at",
+          },
+        },
+      ],
+    }));
+    const response = await GET();
+    expect(await response.json()).toEqual({
+      ...publicPayload,
+      fx: [
+        {
+          quoteCurrency: "IDR",
+          quoteUnitsPerUsd: { atoms: "16425", scale: 0 },
+          status: "fresh",
+        },
+      ],
+    });
+  });
+
   test("does not leak upstream errors or credentials", async () => {
     const GET = createMarketPricesHandler(async () => {
       throw new Error("upstream body and fixture-secret");

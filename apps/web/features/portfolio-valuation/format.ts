@@ -71,7 +71,14 @@ export function formatPresentationFiat(
   fractionDigits = 2,
 ): string {
   const labeled = formatFiatValue(value, currency, fractionDigits);
-  const amount = labeled.slice(currency.length).trim();
+  return formatMoneyLabel(labeled.slice(currency.length).trim(), currency);
+}
+
+/**
+ * Attaches the everyday currency symbol to an already-rounded amount string
+ * (`4,812.40`, `<0.01`). Used by both portfolio fiat and Invest prices.
+ */
+export function formatMoneyLabel(amount: string, currency: string): string {
   const localized = decimalCommaCurrencies.has(currency)
     ? localizeDecimalComma(amount)
     : amount;

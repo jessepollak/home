@@ -3,7 +3,8 @@
 import { useState } from "react";
 import type { InvestAsset } from "@/config/invest-assets";
 import { TradeActions } from "@/features/trading/trade-actions";
-import { getMarketDisplay, type MarketDataState } from "./invest-market";
+import type { MarketDataState } from "./invest-market";
+import { useMarketDisplay } from "./use-market-display";
 import { AssetIcon } from "./asset-icon";
 import { BackIcon } from "./category-screen";
 import { PriceChart } from "./price-chart";
@@ -22,7 +23,7 @@ export function AssetDetailScreen({
 }) {
   const [range, setRange] = useState<MarketPriceRange>("1W");
   const history = usePriceHistory(asset.id, range);
-  const price = getMarketDisplay(asset.id, market);
+  const price = useMarketDisplay(asset.id, market);
   const change = price.changeLabel ?? "—";
   const changeTone =
     change.startsWith("+") ? styles.changeUp : change.startsWith("-") ? styles.changeDown : "";
