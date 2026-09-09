@@ -28,6 +28,8 @@ export type MoneyActionIssueStoreOptions = {
   sensitivePayloadExpiresAt: string;
 };
 
+export type MoneyActionListScope = "unresolved-send";
+
 export interface MoneyActionStore {
   issue(action: PreparedMoneyAction, options?: MoneyActionIssueStoreOptions): Promise<"issued" | "existing">;
   claim(
@@ -37,7 +39,11 @@ export interface MoneyActionStore {
     now: string,
   ): Promise<MoneyActionClaim | null>;
   get(owner: MoneyActionOwner, id: string): Promise<StoredMoneyActionOperation | null>;
-  list(owner: MoneyActionOwner, limit: number): Promise<StoredMoneyActionOperation[]>;
+  list(
+    owner: MoneyActionOwner,
+    limit: number,
+    scope?: MoneyActionListScope,
+  ): Promise<StoredMoneyActionOperation[]>;
   recordSubmission(
     owner: MoneyActionOwner,
     id: string,
@@ -134,9 +140,14 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
     return record ? structuredClone(record) : null;
   }
 
-  async list(owner: MoneyActionOwner, limit: number): Promise<StoredMoneyActionOperation[]> {
+  async list(
+    owner: MoneyActionOwner,
+    limit: number,
+    scope?: MoneyActionListScope,
+  ): Promise<StoredMoneyActionOperation[]> {
     return [...this.records.values()]
       .filter((record) => sameMoneyActionOwner(owner, record.action.owner))
+      .filter((record) => scope !== "unresolved-send" || isUnresolvedSend(record))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, limit)
       .map((record) => structuredClone(record));
@@ -247,6 +258,17 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
     const record = this.records.get(id);
     return record && sameMoneyActionOwner(owner, record.action.owner) ? record : null;
   }
+}
+
+const unresolvedSendStatuses = new Set<MoneyActionOperationStatus>([
+  "submitting",
+  "submitted",
+  "included",
+  "unknown",
+]);
+
+function isUnresolvedSend(record: StoredMoneyActionOperation): boolean {
+  return record.action.kind === "send" && unresolvedSendStatuses.has(record.status);
 }
 
 function verifiedExecutionKey(execution: VerifiedMoneyActionExecution): string {

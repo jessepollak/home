@@ -144,6 +144,53 @@ export function describeMoneyActionStore(
     })).resolves.toBeNull();
   });
 
+  test(`${name} filters unresolved sends before applying the bounded history limit`, async () => {
+    const store = await createStore();
+    const unresolvedSend = {
+      ...action(),
+      kind: "send" as const,
+      title: "Send USDC",
+      id: "70000000-0000-4000-8000-000000000000",
+    };
+    await store.issue(unresolvedSend);
+    await store.claim(OWNER, unresolvedSend.id, unresolvedSend.reviewHash, "2026-09-08T05:01:00.000Z");
+
+    const unresolvedNonSend = {
+      ...action(),
+      id: "70000000-0000-4000-8000-000000000001",
+    };
+    await store.issue(unresolvedNonSend);
+    await store.claim(OWNER, unresolvedNonSend.id, unresolvedNonSend.reviewHash, "2026-09-08T05:02:00.000Z");
+
+    const newerTerminalIds: string[] = [];
+    for (let index = 0; index < 51; index += 1) {
+      const id = `80000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+      const terminal = { ...action(), id, kind: "send" as const, title: "Send USDC" };
+      newerTerminalIds.push(id);
+      await store.issue(terminal);
+      await store.claim(
+        OWNER,
+        id,
+        terminal.reviewHash,
+        `2026-09-08T06:00:${String(index).padStart(2, "0")}.000Z`,
+      );
+    }
+
+    const ordinaryRecent = await store.list(OWNER, 3);
+    expect(ordinaryRecent.map((operation) => operation.action.id)).toEqual(
+      newerTerminalIds.slice(-3).reverse(),
+    );
+    expect(ordinaryRecent.every((operation) => operation.status === "expired")).toBe(true);
+
+    const unresolvedSends = await store.list(OWNER, 10, "unresolved-send");
+    expect(unresolvedSends).toHaveLength(1);
+    expect(unresolvedSends[0]).toMatchObject({
+      action: { id: unresolvedSend.id, kind: "send", owner: OWNER },
+      status: "submitting",
+    });
+    expect(await store.list(OTHER_OWNER, 10, "unresolved-send")).toEqual([]);
+  });
+
   test(`${name} keeps terminal status and submission references atomic and unique`, async () => {
     const store = await createStore();
     await store.issue(action());

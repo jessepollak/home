@@ -11,6 +11,7 @@ import {
 import type {
   MoneyActionClaim,
   MoneyActionIssueStoreOptions,
+  MoneyActionListScope,
   MoneyActionStatusConstraints,
   MoneyActionStore,
   StoredMoneyActionOperation,
@@ -114,9 +115,16 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
     return row ? fromRow(row) : null;
   }
 
-  async list(owner: MoneyActionOwner, limit: number): Promise<StoredMoneyActionOperation[]> {
+  async list(
+    owner: MoneyActionOwner,
+    limit: number,
+    scope?: MoneyActionListScope,
+  ): Promise<StoredMoneyActionOperation[]> {
     await this.ensureSchema();
-    const result = await this.executor.query<OperationRow>(moneyActionQueries.listOwned, [
+    const query = scope === "unresolved-send"
+      ? moneyActionQueries.listOwnedUnresolvedSends
+      : moneyActionQueries.listOwned;
+    const result = await this.executor.query<OperationRow>(query, [
       ...ownerParameters(owner),
       limit,
     ]);

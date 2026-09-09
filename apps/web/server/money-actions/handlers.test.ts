@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "@/features/money-actions/types";
 import {
   createClaimMoneyActionHandler,
+  createMoneyActionListHandler,
   createMoneyActionStatusHandler,
   createMoneyActionSubmissionHandler,
 } from "./handlers";
@@ -150,6 +151,67 @@ describe("money action HTTP lifecycle", () => {
     const response = await handler(request(`/api/actions/${ID}/status`, { status: "failed" }), context);
     expect(response.status).toBe(404);
     expect((await store.get(OWNER, ID))?.status).toBe("unknown");
+  });
+
+  test("exposes a validated owner-scoped unresolved-send view without changing ordinary history", async () => {
+    const store = new MemoryMoneyActionStore();
+    await store.issue(action());
+    await store.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    const nonSend = {
+      ...action(),
+      id: "22222222-2222-4222-8222-222222222222",
+      kind: "save-deposit" as const,
+      title: "Deposit USDC",
+    };
+    await store.issue(nonSend);
+    await store.claim(OWNER, nonSend.id, nonSend.reviewHash, "2026-09-08T05:02:00.000Z");
+    const handler = createMoneyActionListHandler({ authorize, store });
+
+    const scoped = await handler(new Request(
+      "https://home.example/api/actions/operations?scope=unresolved-send&limit=50",
+      { headers: { "X-Home-Account-Provider": OWNER.accountProvider } },
+    ));
+    expect(scoped.status).toBe(200);
+    expect(await scoped.json()).toMatchObject({
+      scope: "unresolved-send",
+      operations: [{ action: { id: ID, kind: "send", owner: OWNER }, status: "submitting" }],
+    });
+
+    const ordinary = await handler(new Request(
+      "https://home.example/api/actions/operations?limit=1",
+      { headers: { "X-Home-Account-Provider": OWNER.accountProvider } },
+    ));
+    expect(ordinary.status).toBe(200);
+    const ordinaryBody = await ordinary.json();
+    expect(ordinaryBody.scope).toBeUndefined();
+    expect(ordinaryBody.operations).toHaveLength(1);
+    expect(ordinaryBody.operations[0].action.id).toBe(nonSend.id);
+  });
+
+  test("rejects unknown, duplicate, or out-of-bounds operation selectors after authorization", async () => {
+    const handler = createMoneyActionListHandler({ authorize, store: new MemoryMoneyActionStore() });
+    for (const query of [
+      "scope=all",
+      "scope=unresolved-send&scope=unresolved-send",
+      "scope=unresolved-send&limit=51",
+      "scope=unresolved-send&owner=subject-b",
+    ]) {
+      const response = await handler(new Request(
+        `https://home.example/api/actions/operations?${query}`,
+        { headers: { "X-Home-Account-Provider": OWNER.accountProvider } },
+      ));
+      expect(response.status).toBe(400);
+      expect((await response.json()).error.code).toBe("INVALID_OPERATIONS_REQUEST");
+    }
+
+    const unauthorized = createMoneyActionListHandler({
+      authorize: async () => Response.json({ error: "unauthorized" }, { status: 401 }),
+      store: new MemoryMoneyActionStore(),
+    });
+    const response = await unauthorized(new Request(
+      "https://home.example/api/actions/operations?scope=all&owner=subject-b",
+    ));
+    expect(response.status).toBe(401);
   });
 
   test("binds embedded receipt proof to the verified owner address before confirming", async () => {

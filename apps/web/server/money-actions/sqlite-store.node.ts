@@ -6,6 +6,7 @@ import { canTransitionMoneyActionStatus } from "./status-transitions.js";
 import type {
   MoneyActionClaim,
   MoneyActionIssueStoreOptions,
+  MoneyActionListScope,
   MoneyActionStatusConstraints,
   MoneyActionStore,
   StoredMoneyActionOperation,
@@ -167,12 +168,20 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
     return row ? fromRow(row) : null;
   }
 
-  async list(owner: MoneyActionOwner, limit: number): Promise<StoredMoneyActionOperation[]> {
+  async list(
+    owner: MoneyActionOwner,
+    limit: number,
+    scope?: MoneyActionListScope,
+  ): Promise<StoredMoneyActionOperation[]> {
+    const scopeClause = scope === "unresolved-send"
+      ? ` AND status IN ('submitting', 'submitted', 'included', 'unknown')
+          AND json_extract(action_json, '$.kind') = 'send'`
+      : "";
     const rows = this.database.prepare(`
       SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
              user_operation_hash, verified_execution_key, created_at, updated_at
       FROM money_action_operations
-      WHERE subject = ? AND address = ? AND chain_id = ? AND account_provider = ?
+      WHERE subject = ? AND address = ? AND chain_id = ? AND account_provider = ?${scopeClause}
       ORDER BY updated_at DESC
       LIMIT ?
     `).all(...ownerParameters(owner), limit) as unknown as OperationRow[];

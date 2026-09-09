@@ -79,6 +79,16 @@ export const moneyActionQueries = {
     ORDER BY updated_at DESC
     LIMIT $5
   `.trim(),
+  listOwnedUnresolvedSends: `
+    SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
+           user_operation_hash, verified_execution_key, created_at, updated_at
+    FROM money_action_operations
+    WHERE subject = $1 AND address = $2 AND chain_id = $3 AND account_provider = $4
+      AND status IN ('submitting', 'submitted', 'included', 'unknown')
+      AND action_json::jsonb ->> 'kind' = 'send'
+    ORDER BY updated_at DESC
+    LIMIT $5
+  `.trim(),
   recordSubmission: `
     UPDATE money_action_operations
     SET status = 'submitted',
@@ -278,7 +288,9 @@ export function createFakePostgresExecutor(): SqlExecutor {
         row.updated_at = String(values[1]);
         return { rows: [], rowCount: 1 };
       }
-      case moneyActionQueries.listOwned: {
+      case moneyActionQueries.listOwned:
+      case moneyActionQueries.listOwnedUnresolvedSends: {
+        const unresolvedSendsOnly = text === moneyActionQueries.listOwnedUnresolvedSends;
         const matched = [...rows.values()]
           .filter((row) =>
             row.subject === values[0] &&
@@ -286,6 +298,10 @@ export function createFakePostgresExecutor(): SqlExecutor {
             row.chain_id === Number(values[2]) &&
             row.account_provider === values[3]
           )
+          .filter((row) => !unresolvedSendsOnly || (
+            ["submitting", "submitted", "included", "unknown"].includes(row.status) &&
+            (JSON.parse(row.action_json) as { kind?: unknown }).kind === "send"
+          ))
           .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
           .slice(0, Number(values[4]))
           .map(publicRow);

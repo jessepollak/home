@@ -36,7 +36,9 @@ type TransferWallet = Pick<
   | "sendTransfer"
   | "checkPendingTransfer"
   | "startNewTransfer"
-> & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "executeMoneyAction" | "fetchOperations">>;
+> & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "executeMoneyAction">>;
+
+type FetchUnresolvedSends = (signal?: AbortSignal) => Promise<unknown>;
 
 type ComposeStep = "amount" | "address";
 type SendStep = ComposeStep | "confirm" | "pending" | "recovery" | "failed" | "error";
@@ -61,7 +63,7 @@ export function SendDialog({
   startNewTransfer,
   prepareMoneyAction,
   executeMoneyAction,
-  fetchOperations,
+  fetchUnresolvedSends,
   onTransferConfirmed,
   onClose,
 }: {
@@ -74,7 +76,7 @@ export function SendDialog({
   startNewTransfer: TransferWallet["startNewTransfer"];
   prepareMoneyAction?: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction?: AccountWalletClient["executeMoneyAction"];
-  fetchOperations?: AccountWalletClient["fetchOperations"];
+  fetchUnresolvedSends?: FetchUnresolvedSends;
   onTransferConfirmed?: (transfer: ConfirmedTransfer) => void;
   onClose: () => void;
 }) {
@@ -89,7 +91,7 @@ export function SendDialog({
   const [error, setError] = useState<string | null>(null);
   const [historyAttempt, setHistoryAttempt] = useState(0);
   const [historyAdmission, setHistoryAdmission] = useState<HistoryAdmission>(() =>
-    fetchOperations ? { status: "checking" } : prepareMoneyAction
+    fetchUnresolvedSends ? { status: "checking" } : prepareMoneyAction
       ? { status: "unavailable", reason: "failed" }
       : { status: "fallback" },
   );
@@ -121,16 +123,16 @@ export function SendDialog({
     setRecoveringAction(false);
     setStep("amount");
     setError(null);
-    setHistoryAdmission(fetchOperations ? { status: "checking" } : prepareMoneyAction
+    setHistoryAdmission(fetchUnresolvedSends ? { status: "checking" } : prepareMoneyAction
       ? { status: "unavailable", reason: "failed" }
       : { status: "fallback" });
-  }, [fetchOperations, open, prepareMoneyAction]);
+  }, [fetchUnresolvedSends, open, prepareMoneyAction]);
 
   useEffect(() => {
     if (!open) return;
-    if (!fetchOperations) return;
+    if (!fetchUnresolvedSends) return;
     const controller = new AbortController();
-    void fetchOperations(controller.signal).then((value) => {
+    void fetchUnresolvedSends(controller.signal).then((value) => {
       if (controller.signal.aborted) return;
       const parsed = parseSendHistory(value, address);
       if (parsed.status === "malformed") {
@@ -153,7 +155,7 @@ export function SendDialog({
       }
     });
     return () => controller.abort();
-  }, [address, fetchOperations, historyAttempt, open, prepareMoneyAction]);
+  }, [address, fetchUnresolvedSends, historyAttempt, open, prepareMoneyAction]);
 
   function reset() {
     setAssetId("usdc");
@@ -165,7 +167,7 @@ export function SendDialog({
     setRecoveringAction(false);
     setStep("amount");
     setError(null);
-    setHistoryAdmission(fetchOperations ? { status: "checking" } : prepareMoneyAction
+    setHistoryAdmission(fetchUnresolvedSends ? { status: "checking" } : prepareMoneyAction
       ? { status: "unavailable", reason: "failed" }
       : { status: "fallback" });
     setHistoryAttempt((attempt) => attempt + 1);
@@ -553,7 +555,10 @@ function parseSendHistory(
   value: unknown,
   address: `0x${string}` | null,
 ): { status: "ready"; action: PreparedMoneyAction | null; request: TransferRequest | null } | { status: "malformed" } {
-  if (!isRecord(value) || !Array.isArray(value.operations)) return { status: "malformed" };
+  if (
+    !isRecord(value) || value.scope !== "unresolved-send" ||
+    !Array.isArray(value.operations)
+  ) return { status: "malformed" };
   let recovered: { action: PreparedMoneyAction; request: TransferRequest } | null = null;
   for (const candidate of value.operations) {
     if (!isRecord(candidate) || typeof candidate.status !== "string" || !OPERATION_STATUSES.has(candidate.status) ||
@@ -564,7 +569,9 @@ function parseSendHistory(
       typeof candidate.action.kind !== "string" || !MONEY_ACTION_KINDS.has(candidate.action.kind as MoneyActionKind)) {
       return { status: "malformed" };
     }
-    if (!UNRESOLVED_OPERATION_STATUSES.has(candidate.status) || candidate.action.kind !== "send") continue;
+    if (!UNRESOLVED_OPERATION_STATUSES.has(candidate.status) || candidate.action.kind !== "send") {
+      return { status: "malformed" };
+    }
     if (!address || !isPreparedSendAction(candidate.action, address)) return { status: "malformed" };
     const action = candidate.action as unknown as PreparedMoneyAction;
     const request = requestFromSendAction(action);

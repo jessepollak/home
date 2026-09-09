@@ -23,7 +23,7 @@ type TransferWallet = Pick<
   | "sendTransfer"
   | "checkPendingTransfer"
   | "startNewTransfer"
->;
+> & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "executeMoneyAction" | "fetchAccountResource">>;
 
 function verifiedWallet(
   sendTransfer: TransferWallet["sendTransfer"] = async (request) => ({
@@ -87,6 +87,10 @@ function preparedSendAction(options: { expiresAt?: string; ownerAddress?: `0x${s
     createdAt: "2026-09-08T05:00:00.000Z",
     expiresAt: options.expiresAt ?? "2026-12-08T05:10:00.000Z",
   };
+}
+
+function unresolvedSendResponse(operations: unknown[] = []) {
+  return { scope: "unresolved-send", operations };
 }
 
 function page() {
@@ -265,6 +269,7 @@ describe("TransferActions modals", () => {
     const action = preparedSendAction();
     let prepares = 0;
     let executes = 0;
+    let historyPath = "";
     render(
       <TransferActionsForWallet
         wallet={{
@@ -277,15 +282,16 @@ describe("TransferActions modals", () => {
             executes += 1;
             return { id: action.id, status: "unknown" };
           },
-          fetchOperations: async () => ({
-            operations: [{
+          fetchAccountResource: async (path) => {
+            historyPath = path;
+            return unresolvedSendResponse([{
               action,
               status: "submitting",
               attemptCount: 1,
               createdAt: action.createdAt,
               updatedAt: action.createdAt,
-            }],
-          }),
+            }]);
+          },
         }}
       />,
     );
@@ -294,6 +300,7 @@ describe("TransferActions modals", () => {
     expect(await page().findByRole("button", { name: "Check status" })).toBeTruthy();
     expect(page().getByRole("alert").textContent).toMatch(/do not submit it again/);
     expect(page().queryByRole("button", { name: "Send $0.10" })).toBeNull();
+    expect(historyPath).toBe("/api/actions/operations?scope=unresolved-send&limit=50");
     fireEvent.click(page().getByRole("button", { name: "Check status" }));
     await waitFor(() => expect(executes).toBe(1));
     expect(prepares).toBe(0);
@@ -307,7 +314,7 @@ describe("TransferActions modals", () => {
       <TransferActionsForWallet
         wallet={{
           ...verifiedWallet(),
-          fetchOperations: async () => history.promise,
+          fetchAccountResource: async () => history.promise,
           prepareMoneyAction: async () => {
             prepares += 1;
             return action;
@@ -325,7 +332,7 @@ describe("TransferActions modals", () => {
     expect(prepares).toBe(0);
 
     await act(async () => {
-      history.resolve({ operations: [] });
+      history.resolve(unresolvedSendResponse());
       await history.promise;
     });
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
@@ -342,10 +349,10 @@ describe("TransferActions modals", () => {
       <TransferActionsForWallet
         wallet={{
           ...verifiedWallet(),
-          fetchOperations: async () => {
+          fetchAccountResource: async () => {
             historyCalls += 1;
             if (historyCalls === 1) return firstHistory.promise;
-            return { operations: [] };
+            return unresolvedSendResponse();
           },
           prepareMoneyAction: async () => action,
           executeMoneyAction: async () => ({ id: action.id, status: "unknown" }),
@@ -398,7 +405,7 @@ describe("TransferActions modals", () => {
       <TransferActionsForWallet
         wallet={{
           ...verifiedWallet(),
-          fetchOperations: async () => ({ operations: [{ status: "submitting", action: null }] }),
+          fetchAccountResource: async () => unresolvedSendResponse([{ status: "submitting", action: null }]),
           prepareMoneyAction: async () => action,
           executeMoneyAction: async () => ({ id: action.id, status: "unknown" }),
         }}
@@ -411,6 +418,29 @@ describe("TransferActions modals", () => {
     expect(page().queryByRole("button", { name: "Continue" })).toBeNull();
   });
 
+  test("does not accept generic recent history as complete send-recovery evidence", async () => {
+    const action = preparedSendAction();
+    let prepares = 0;
+    render(
+      <TransferActionsForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async () => ({ operations: [] }),
+          prepareMoneyAction: async () => {
+            prepares += 1;
+            return action;
+          },
+          executeMoneyAction: async () => ({ id: action.id, status: "unknown" }),
+        }}
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    expect((await page().findByRole("alert")).textContent).toMatch(/invalid response/);
+    expect(page().getByRole("button", { name: "Retry recent sends" })).toBeTruthy();
+    expect(prepares).toBe(0);
+  });
+
   test("does not let an old owner's deferred history reopen recovery after the owner changes", async () => {
     const oldHistory = deferred<unknown>();
     const oldAction = preparedSendAction();
@@ -419,7 +449,7 @@ describe("TransferActions modals", () => {
       <TransferActionsForWallet
         wallet={{
           ...verifiedWallet(),
-          fetchOperations: async () => oldHistory.promise,
+          fetchAccountResource: async () => oldHistory.promise,
           prepareMoneyAction: async () => oldAction,
           executeMoneyAction: async () => ({ id: oldAction.id, status: "unknown" }),
         }}
@@ -439,7 +469,7 @@ describe("TransferActions modals", () => {
             smartAccount: { address: nextAddress, chainId: 8453 },
             accountProvider: "cdp-embedded",
           },
-          fetchOperations: async () => ({ operations: [] }),
+          fetchAccountResource: async () => unresolvedSendResponse(),
           prepareMoneyAction: async () => nextAction,
           executeMoneyAction: async () => ({ id: nextAction.id, status: "unknown" }),
         }}
@@ -450,7 +480,7 @@ describe("TransferActions modals", () => {
     await page().findByRole("button", { name: "Continue" });
 
     await act(async () => {
-      oldHistory.resolve({ operations: [{ action: oldAction, status: "submitting" }] });
+      oldHistory.resolve(unresolvedSendResponse([{ action: oldAction, status: "submitting" }]));
       await oldHistory.promise;
     });
     expect(page().queryByRole("button", { name: "Check status" })).toBeNull();
@@ -464,7 +494,7 @@ describe("TransferActions modals", () => {
       <TransferActionsForWallet
         wallet={{
           ...verifiedWallet(),
-          fetchOperations: async () => ({ operations: [] }),
+          fetchAccountResource: async () => unresolvedSendResponse(),
           prepareMoneyAction: async () => { throw new Error("server unavailable"); },
           executeMoneyAction: async () => {
             walletExecutions += 1;
@@ -491,7 +521,7 @@ describe("TransferActions modals", () => {
         <TransferActionsForWallet
           wallet={{
             ...verifiedWallet(),
-            fetchOperations: async () => ({ operations: [] }),
+            fetchAccountResource: async () => unresolvedSendResponse(),
             prepareMoneyAction: async () => action,
             executeMoneyAction: async () => {
               executions += 1;

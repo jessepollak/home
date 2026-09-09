@@ -191,12 +191,27 @@ export function createMoneyActionListHandler(dependencies: {
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
     const url = new URL(request.url);
-    for (const key of url.searchParams.keys()) if (key !== "limit") return error("INVALID_OPERATIONS_REQUEST", "Use a valid operations limit.", 400);
+    for (const key of url.searchParams.keys()) {
+      if (key !== "limit" && key !== "scope") {
+        return error("INVALID_OPERATIONS_REQUEST", "Use a valid operations selector and limit.", 400);
+      }
+    }
+    if (url.searchParams.getAll("limit").length > 1 || url.searchParams.getAll("scope").length > 1) {
+      return error("INVALID_OPERATIONS_REQUEST", "Use one operations selector and limit.", 400);
+    }
     const rawLimit = url.searchParams.get("limit") ?? "20";
     const limit = Number(rawLimit);
-    if (!/^[0-9]+$/.test(rawLimit) || !Number.isSafeInteger(limit) || limit < 1 || limit > 50) return error("INVALID_OPERATIONS_REQUEST", "Use a valid operations limit.", 400);
+    const rawScope = url.searchParams.get("scope");
+    if (
+      !/^[0-9]+$/.test(rawLimit) || !Number.isSafeInteger(limit) || limit < 1 || limit > 50 ||
+      (rawScope !== null && rawScope !== "unresolved-send")
+    ) {
+      return error("INVALID_OPERATIONS_REQUEST", "Use a valid operations selector and limit.", 400);
+    }
+    const scope = rawScope ?? undefined;
     const store = dependencies.store ?? await getMoneyActionStore();
-    return json({ operations: await store.list(owner, limit) }, 200);
+    const operations = await store.list(owner, limit, scope);
+    return json(scope ? { scope, operations } : { operations }, 200);
   };
 }
 

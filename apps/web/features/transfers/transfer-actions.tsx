@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AddressText } from "@/components/address";
 import {
   useAccountWallet,
@@ -27,7 +27,7 @@ type TransferWallet = Pick<
   | "sendTransfer"
   | "checkPendingTransfer"
   | "startNewTransfer"
-> & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "executeMoneyAction" | "fetchOperations">>;
+> & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "executeMoneyAction" | "fetchAccountResource">>;
 
 export function TransferActions(props: TransferActionsProps) {
   const wallet = useAccountWallet();
@@ -46,6 +46,15 @@ export function TransferActionsForWallet({
   const verifiedAddress =
     wallet.status === "verified" ? wallet.session?.smartAccount?.address ?? null : null;
   const visibleModal = modalOwner === boundary ? openModal : null;
+  const fetchUnresolvedSends = useMemo(() => {
+    const fetchAccountResource = wallet.fetchAccountResource;
+    return fetchAccountResource
+      ? (signal?: AbortSignal) => fetchAccountResource(
+          "/api/actions/operations?scope=unresolved-send&limit=50",
+          { signal },
+        )
+      : undefined;
+  }, [wallet.fetchAccountResource]);
 
   const open = (modalName: "send" | "receive") => {
     if (!boundary) return;
@@ -98,7 +107,7 @@ export function TransferActionsForWallet({
         startNewTransfer={wallet.startNewTransfer}
         prepareMoneyAction={wallet.prepareMoneyAction}
         executeMoneyAction={wallet.executeMoneyAction}
-        fetchOperations={wallet.fetchOperations}
+        fetchUnresolvedSends={fetchUnresolvedSends}
         onTransferConfirmed={(transfer) => {
           setSuccess(transfer);
           onTransferConfirmed?.(transfer);
