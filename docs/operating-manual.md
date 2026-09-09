@@ -1,6 +1,6 @@
 # Operating manual
 
-Status: agent-team operating contract, September 8, 2026. How Jesse's in-repo crew works. Not a product inventory and not production authorization.
+Status: agent-team operating contract, September 9, 2026. How Jesse's in-repo crew works. Not a product inventory and not production authorization.
 
 **Current-state docs:** [build status](build-status.md), [contribution contract](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers), [UI direction](ui-direction.md), [UI PR previews](ui-pr-previews.md), [docs index](README.md). Human onboarding: [CONTRIBUTING](../CONTRIBUTING.md).
 
@@ -138,11 +138,30 @@ Money-loop gates (do not weaken). Full list in the contribution contract:
 
 `bun check` must be green. Do not enable live Morpho/CDP SQL smokes or funded-wallet secrets in pull-request CI.
 
+## Docs
+
+Jesse-locked, September 9, 2026. Where writing lives. Not a wiki migration.
+
+**Ship-with-product docs stay in `docs/`.** Setup, CDP SQL boundary, portfolio/inventory how-it-works, this manual. Do not wholesale-move the tree to the GitHub wiki.
+
+**Pre-lock research stays off `main`.** Design and architecture spikes live on the issue thread (or Discussions) until Jesse locks direction. Do not commit long exploratory writeups. After lock, land a **short** summary in `docs/` — locked answers, the chosen path, and a pointer to the issue. Not the debate.
+
+**Product docs ship with the feature.** Same PR as the code. Not a standalone docs-only PR. When a feature changes a delivered contract, update the matching current-tree doc in that PR ([architecture review — doc update expectations](architecture-review-2026-09.md#doc-update-expectations)). Process and ops docs (this manual, label hygiene) may still be docs-only.
+
+**Existing committed spikes:** move the full writeup onto the issue; shrink the PR to the short locked summary. Hannah is driving that on [#79](https://github.com/jessepollak/home/pull/79). Do not open a second cleanup for the same spike.
+
+| Kind | Where |
+|---|---|
+| Setup, boundaries, how-it-works, this manual | `docs/` |
+| Pre-lock research / design spike | Issue thread (or Discussions) |
+| Locked direction | Short `docs/` summary; long form stays on the issue |
+| Product how-it-works | Same PR as the feature |
+
 ## Proof bar
 
 User-visible work needs proof in the PR description: screenshots, a before/after, or a short repro. [UI PR previews](ui-pr-previews.md) is the screenshot convention. A reviewer should understand the change without opening the branch.
 
-Docs-only, CI-only, and pure server PRs can skip screenshots. They still need a clear claim of what changed and how it was checked (`bun check` at minimum).
+Process docs-only, CI-only, and pure server PRs can skip screenshots. They still need a clear claim of what changed and how it was checked (`bun check` at minimum). Product docs are not a standalone PR — see [Docs](#docs).
 
 ## Merge policy
 

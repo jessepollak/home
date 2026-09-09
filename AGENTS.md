@@ -4,7 +4,7 @@
 
 Home has two intake paths. Do not mix them on the same workstream.
 
-Crew roles, labels, sequencing, daily domain quality reviews, proof bar, and merge policy: [docs/operating-manual.md](docs/operating-manual.md).
+Crew roles, labels, sequencing, daily domain quality reviews, proof bar, merge policy, and docs policy: [docs/operating-manual.md](docs/operating-manual.md).
 
 ### Agent team (GitHub Issues)
 
