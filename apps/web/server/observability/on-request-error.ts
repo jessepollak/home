@@ -4,7 +4,7 @@ import { writeStructuredLog } from "./log";
 export type RequestErrorInfo = {
   path: string;
   method: string;
-  headers: { [key: string]: string | string[] };
+  headers: { [key: string]: string | string[] | undefined };
 };
 
 export type RequestErrorContext = {

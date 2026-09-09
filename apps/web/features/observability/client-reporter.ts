@@ -18,9 +18,14 @@ export function buildClientErrorReport(input: {
   };
 }
 
+export type ClientErrorTransport = (
+  input: string,
+  init: RequestInit,
+) => Promise<Pick<Response, "ok" | "status">>;
+
 export async function reportClientError(
   input: { name: string; message: string; route: string },
-  send: typeof fetch = fetch,
+  send: ClientErrorTransport = fetch,
 ): Promise<void> {
   try {
     await send("/api/client-errors", {
@@ -42,7 +47,7 @@ declare global {
 }
 
 export function installClientErrorReporting(
-  send: typeof fetch = fetch,
+  send: ClientErrorTransport = fetch,
 ): void {
   if (typeof window === "undefined" || window.__homeClientErrorReportingInstalled) {
     return;

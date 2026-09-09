@@ -17,7 +17,7 @@ describe("client error reporter", () => {
   });
 
   test("posts a same-origin report without credentials", async () => {
-    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
     await reportClientError(
       {
         name: "Error",

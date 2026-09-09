@@ -1,5 +1,4 @@
 import type { Instrumentation } from "next";
-import { handleRequestError } from "@/server/observability/on-request-error";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") {
@@ -10,4 +9,17 @@ export async function register() {
   registerOTel({ serviceName: "home-web" });
 }
 
-export const onRequestError: Instrumentation.onRequestError = handleRequestError;
+export const onRequestError: Instrumentation.onRequestError = async (
+  error,
+  request,
+  context,
+) => {
+  if (process.env.NEXT_RUNTIME !== "nodejs") {
+    return;
+  }
+
+  const { handleRequestError } = await import(
+    "@/server/observability/on-request-error"
+  );
+  await handleRequestError(error, request, context);
+};

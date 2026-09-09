@@ -40,10 +40,7 @@ export type ObservabilityLogWriter = (
 ) => void;
 
 function defaultWriter(line: string, level: ObservabilityLogLine["level"]): void {
-  if (
-    process.env.npm_lifecycle_event === "test" ||
-    process.argv.some((arg) => arg.includes(".test."))
-  ) {
+  if (process.env.npm_lifecycle_event === "test") {
     return;
   }
   if (level === "error") {
