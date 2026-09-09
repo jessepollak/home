@@ -12,7 +12,10 @@ import {
   marketForAsset,
   type MemeShelfStatus,
 } from "./discover";
-import { AssetDetailScreen } from "./asset-detail-screen";
+import {
+  AssetDetailScreen,
+  AssetDetailStatusScreen,
+} from "./asset-detail-screen";
 import { CategoryScreen } from "./category-screen";
 import { InvestHub } from "./invest-hub";
 import {
@@ -108,20 +111,25 @@ export function InvestExperience({
   }
 
   if (view.screen === "detail") {
+    const parent =
+      view.from === "hub"
+        ? ({ screen: "hub" } as const)
+        : ({ screen: "category", shelfId: view.from } as const);
     const asset = getDiscoverAsset(view.assetId, catalog);
-    if (!asset) return null;
+    if (!asset) {
+      return (
+        <AssetDetailStatusScreen
+          status={memeStatus === "loading" ? "loading" : "unavailable"}
+          onBack={() => leaveChild(parent)}
+        />
+      );
+    }
     const marked = applyAssetIcon(asset, assetIcons);
     return (
       <AssetDetailScreen
         asset={marked}
         market={marketForAsset(marked, markets)}
-        onBack={() =>
-          leaveChild(
-            view.from === "hub"
-              ? { screen: "hub" }
-              : { screen: "category", shelfId: view.from },
-          )
-        }
+        onBack={() => leaveChild(parent)}
       />
     );
   }

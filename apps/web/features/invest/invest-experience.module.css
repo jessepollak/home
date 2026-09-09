@@ -256,6 +256,22 @@
   min-height: 304px;
 }
 
+.chartCaption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 4px;
+  color: var(--home-muted);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.chartCaption strong {
+  color: var(--home-ink);
+  font-size: inherit;
+  letter-spacing: 0.04em;
+}
+
 .ranges {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

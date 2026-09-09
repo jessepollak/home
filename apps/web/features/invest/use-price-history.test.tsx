@@ -1,7 +1,6 @@
 import "@/features/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import type { InvestAssetId } from "@/config/invest-assets";
 import type { MarketPriceRange } from "@/server/market-data/codex/history-contract";
 
 const { cleanup, render, waitFor, within } = await import("@testing-library/react");
@@ -23,6 +22,7 @@ function historyPayload(
     provider: "codex",
     assetId,
     range,
+    currency: "USD",
     fetchedAt: "2026-09-07T20:00:00.000Z",
     status: "ready" as const,
     points,
@@ -33,7 +33,7 @@ function HookProbe({
   assetId,
   range,
 }: {
-  assetId: InvestAssetId;
+  assetId: string;
   range: MarketPriceRange;
 }) {
   const history = usePriceHistory(assetId, range);
@@ -80,6 +80,30 @@ describe("usePriceHistory", () => {
 
     await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
     expect(page().getByTestId("first").textContent).toBe("64100");
+  });
+
+  test("accepts a matching canonical dynamic Base response and rejects mismatched identity", async () => {
+    const dynamicId = "base:0x1111111111111111111111111111111111111111";
+    let mismatch = false;
+    window.fetch = (async () =>
+      Response.json(
+        historyPayload(
+          mismatch
+            ? "base:0x2222222222222222222222222222222222222222"
+            : dynamicId,
+          mismatch ? "1D" : "1W",
+          [{ time: "2026-09-09T00:00:00.000Z", value: "0.0123" }],
+        ),
+      )) as unknown as typeof fetch;
+
+    const { rerender } = render(<HookProbe assetId={dynamicId} range="1W" />);
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
+    expect(page().getByTestId("first").textContent).toBe("0.0123");
+
+    mismatch = true;
+    rerender(<HookProbe assetId={dynamicId} range="1D" />);
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("error"));
+    expect(page().getByTestId("count").textContent).toBe("0");
   });
 
   test("does not keep another asset’s series while the next history loads", async () => {

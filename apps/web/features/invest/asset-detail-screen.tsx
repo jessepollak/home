@@ -12,6 +12,30 @@ import { usePriceHistory } from "./use-price-history";
 import type { MarketPriceRange } from "@/server/market-data/codex/history-contract";
 import styles from "./invest-experience.module.css";
 
+export function AssetDetailStatusScreen({
+  status,
+  onBack,
+}: {
+  status: "loading" | "unavailable";
+  onBack: () => void;
+}) {
+  return (
+    <section className={styles.experience} aria-labelledby="invest-asset-status-title">
+      <header className={styles.screenHeader}>
+        <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
+          <BackIcon />
+        </button>
+        <h2 id="invest-asset-status-title">Asset details</h2>
+      </header>
+      <p className={styles.shelfStatus} role="status">
+        {status === "loading"
+          ? "Loading asset details."
+          : "This Base asset is currently unavailable."}
+      </p>
+    </section>
+  );
+}
+
 export function AssetDetailScreen({
   asset,
   market,

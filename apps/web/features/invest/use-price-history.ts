@@ -100,6 +100,7 @@ function parseHistoryResponse(value: unknown): MarketPriceHistoryResponse | null
     typeof record.assetId !== "string" ||
     typeof record.range !== "string" ||
     !(MARKET_PRICE_RANGES as readonly string[]).includes(record.range) ||
+    (record.currency !== undefined && record.currency !== "USD") ||
     !(
       record.status === "ready" ||
       record.status === "empty" ||
@@ -132,6 +133,7 @@ function parseHistoryResponse(value: unknown): MarketPriceHistoryResponse | null
     provider: "codex",
     assetId: record.assetId as MarketPriceHistoryResponse["assetId"],
     range: record.range as MarketPriceRange,
+    currency: "USD",
     fetchedAt: typeof record.fetchedAt === "string" ? record.fetchedAt : null,
     status: record.status,
     points,

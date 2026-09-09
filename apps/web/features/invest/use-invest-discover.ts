@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InvestAsset } from "@/config/invest-assets";
 import { INVEST_DISCOVER_VERSION } from "@/server/market-data/invest-discover-contract";
+import { resolveMarketPriceAssetIdentity } from "@/server/market-data/codex/history-contract";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
 import type { MemeShelfStatus } from "./discover";
 
@@ -142,12 +143,14 @@ function parseDiscoverResponse(value: unknown): InvestDiscoverState | null {
     assets.push(asset);
   }
 
+  const assetIds = new Set(assets.map((asset) => asset.id));
   const snapshots = [];
   for (const item of memes.snapshots) {
     const snapshot = readRecord(item);
     if (
       !snapshot ||
       typeof snapshot.assetId !== "string" ||
+      !assetIds.has(snapshot.assetId) ||
       typeof snapshot.displayPrice !== "string" ||
       snapshot.displayPrice.length === 0 ||
       typeof snapshot.asOf !== "string" ||
@@ -197,7 +200,14 @@ function parseInvestAsset(value: unknown): InvestAsset | null {
   }
 
   const representation = readRecord(record.representation);
-  if (!representation || typeof representation.tokenSymbol !== "string") {
+  const identity = resolveMarketPriceAssetIdentity(record.id);
+  if (
+    !representation ||
+    typeof representation.tokenSymbol !== "string" ||
+    !identity ||
+    identity.chainId !== record.chainId ||
+    identity.contractAddress.toLowerCase() !== record.contractAddress.toLowerCase()
+  ) {
     return null;
   }
 

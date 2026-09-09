@@ -71,12 +71,37 @@ describe("Codex market history reader", () => {
       provider: "codex",
       assetId: "cbbtc",
       range: "1W",
+      currency: "USD",
       fetchedAt: NOW_ISO,
       status: "ready",
       points: [
         { time: new Date(1757200000 * 1000).toISOString(), value: "62000.125" },
         { time: new Date(1757286400 * 1000).toISOString(), value: "64210.5" },
       ],
+    });
+  });
+
+  test("requests canonical dynamic Base token history without widening to other networks", async () => {
+    const dynamicId = "base:0x1111111111111111111111111111111111111111";
+    let variables: Record<string, unknown> | undefined;
+    const result = await createCodexMarketHistoryReader({
+      apiKey: "fixture-key",
+      now,
+      fetchImpl: async (_url, init) => {
+        variables = (JSON.parse(String(init?.body)) as { variables: Record<string, unknown> }).variables;
+        return barsResponse([{ t: 1757286400, c: "0.0123" }]);
+      },
+    })(dynamicId, "1D");
+
+    expect(variables?.symbol).toBe(
+      "0x1111111111111111111111111111111111111111:8453",
+    );
+    expect(result).toMatchObject({
+      assetId: dynamicId,
+      range: "1D",
+      currency: "USD",
+      status: "ready",
+      points: [{ value: "0.0123" }],
     });
   });
 

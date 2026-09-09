@@ -45,6 +45,10 @@ export function PriceChart({
 }) {
   return (
     <div className={styles.chartBlock}>
+      <div className={styles.chartCaption}>
+        <span>Price history</span>
+        <strong>USD</strong>
+      </div>
       <div className={styles.ranges} role="group" aria-label="Price range">
         {MARKET_PRICE_RANGES.map((option) => (
           <button
@@ -363,15 +367,15 @@ function formatChartTime(time: number, range: MarketPriceRange) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function formatChartValue(value: number) {
+export function formatChartValue(value: number) {
   const magnitude = Math.abs(value);
-  if (magnitude >= 1000) {
-    return `${(value / 1000).toFixed(2)}k`;
-  }
-  if (magnitude >= 1) {
-    return value.toFixed(2);
-  }
-  return value.toPrecision(4);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: magnitude >= 1000 ? "compact" : "standard",
+    minimumFractionDigits: magnitude >= 1 ? 2 : 0,
+    maximumFractionDigits: magnitude >= 1 ? 2 : 6,
+  }).format(value);
 }
 
 function subscribeReducedMotion(onStoreChange: () => void) {

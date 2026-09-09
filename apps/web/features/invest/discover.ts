@@ -5,6 +5,7 @@ import {
   type InvestAsset,
   type InvestAssetId,
 } from "@/config/invest-assets";
+import { matchesMarketPriceAssetIdentity } from "@/server/market-data/codex/history-contract";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
 
 export const STOCK_PREVIEW_COUNT = 6;
@@ -50,7 +51,13 @@ export function getDiscoverAsset(
   id: string,
   extraAssets: readonly InvestAsset[] = [],
 ) {
-  return extraAssets.find((asset) => asset.id === id) ?? assetById.get(id) ?? null;
+  return (
+    extraAssets.find(
+      (asset) => asset.id === id && matchesMarketPriceAssetIdentity(asset),
+    ) ??
+    assetById.get(id) ??
+    null
+  );
 }
 
 export function getShelfAssets(

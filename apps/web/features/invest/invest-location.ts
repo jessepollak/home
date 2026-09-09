@@ -4,11 +4,8 @@ import {
   type ShellLocation,
   type ShellSearchInput,
 } from "@/config/shell-location";
-import {
-  getDiscoverAsset,
-  getDiscoverShelf,
-  type DiscoverShelfId,
-} from "./discover";
+import { resolveMarketPriceAssetIdentity } from "@/server/market-data/codex/history-contract";
+import { getDiscoverShelf, type DiscoverShelfId } from "./discover";
 
 export type InvestView =
   | { screen: "hub" }
@@ -17,11 +14,13 @@ export type InvestView =
 
 export function investViewFromLocation(location: Pick<ShellLocation, "shelf" | "asset">): InvestView {
   const shelf = location.shelf ? getDiscoverShelf(location.shelf) : null;
-  const asset = location.asset ? getDiscoverAsset(location.asset) : null;
-  if (asset) {
+  const identity = location.asset
+    ? resolveMarketPriceAssetIdentity(location.asset)
+    : null;
+  if (identity) {
     return {
       screen: "detail",
-      assetId: asset.id,
+      assetId: identity.assetId,
       from: shelf ? shelf.id : "hub",
     };
   }
