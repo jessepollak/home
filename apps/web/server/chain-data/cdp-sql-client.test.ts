@@ -3,6 +3,7 @@ import {
   CDP_SQL_ENDPOINT,
   createCdpSqlAuthFromEnv,
   createCdpSqlHttpTransport,
+  parseCdpSqlResponseEnvelope,
 } from "./cdp-sql-client";
 import { ChainDataError } from "./errors";
 
@@ -245,21 +246,16 @@ describe("CDP SQL HTTP transport", () => {
 
   test("rejects malformed envelopes and oversized SQL", async () => {
     const malformedPayloads = [
-      { result: [] },
+      {},
+      { metadata: { rowCount: 0 } },
+      {
+        errorType: "invalid_sql",
+        errorMessage: "syntax error",
+      },
       {
         result: [],
         metadata: {
           cached: "false",
-          executionTimestamp: "2026-09-07T12:00:00.000Z",
-          executionTimeMs: 1,
-          rowCount: 0,
-        },
-      },
-      {
-        result: [],
-        schema: { columns: [{ name: "amount", type: 123 }] },
-        metadata: {
-          cached: false,
           executionTimestamp: "2026-09-07T12:00:00.000Z",
           executionTimeMs: 1,
           rowCount: 0,
@@ -305,6 +301,113 @@ describe("CDP SQL HTTP transport", () => {
     await expect(
       unusedFetch.run({ sql: "SELECT 1", cache: { maxAgeMs: 1 } }),
     ).rejects.toMatchObject({ code: "invalid-input" });
+  });
+
+  test("accepts the official optional OnchainDataResult / x402 empty page", async () => {
+    const receivedAt = new Date("2026-09-09T05:07:00.000Z");
+    const transport = createCdpSqlHttpTransport({
+      auth: { mode: "client-api-key", clientApiKey: "client-key-value" },
+      fetch: async () =>
+        new Response(JSON.stringify(LIVE_CDP_SQL_EMPTY_ENVELOPE), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+
+    await expect(transport.run({ sql: "SELECT 1" })).resolves.toEqual({
+      result: [],
+      metadata: {
+        cached: false,
+        executionTimestamp: expect.any(String),
+        executionTimeMs: 0,
+        rowCount: 0,
+      },
+    });
+    expect(
+      parseCdpSqlResponseEnvelope(LIVE_CDP_SQL_EMPTY_ENVELOPE, receivedAt),
+    ).toEqual({
+      result: [],
+      metadata: {
+        cached: false,
+        executionTimestamp: receivedAt.toISOString(),
+        executionTimeMs: 0,
+        rowCount: 0,
+      },
+    });
+  });
+});
+
+/** Live CDP SQL / x402 200: result[] plus optional metadata (SDK OnchainDataResult). */
+const LIVE_CDP_SQL_EMPTY_ENVELOPE = {
+  result: [] as unknown[],
+  metadata: { rowCount: 0 },
+};
+
+const LIVE_CDP_SQL_X402_PAGE = {
+  metadata: { rowCount: 1 },
+  result: [
+    {
+      event_signature: "Transfer(address,address,uint256)",
+      from: "0x1234567890abcdef",
+      to: "0x1234567890abcdef",
+      amount: 1000000000000000000,
+    },
+  ],
+};
+
+describe("parseCdpSqlResponseEnvelope", () => {
+  const receivedAt = new Date("2026-09-09T05:07:00.000Z");
+
+  test("normalizes optional metadata, float duration, partial schema, and truncated rowCount", () => {
+    expect(
+      parseCdpSqlResponseEnvelope(
+        {
+          result: [{ log_id: "synthetic-1" }],
+          schema: {
+            columns: [
+              { name: "log_id", type: "String", nullable: false },
+              { name: "amount" },
+            ],
+          },
+          metadata: {
+            rowCount: 10,
+            executionTimeMs: 17.4,
+            extra: "ignored",
+          },
+        },
+        receivedAt,
+      ),
+    ).toEqual({
+      result: [{ log_id: "synthetic-1" }],
+      schema: { columns: [{ name: "log_id", type: "String" }] },
+      metadata: {
+        cached: false,
+        executionTimestamp: receivedAt.toISOString(),
+        executionTimeMs: 17,
+        rowCount: 1,
+      },
+    });
+
+    expect(parseCdpSqlResponseEnvelope(LIVE_CDP_SQL_X402_PAGE, receivedAt)).toEqual({
+      result: LIVE_CDP_SQL_X402_PAGE.result,
+      metadata: {
+        cached: false,
+        executionTimestamp: receivedAt.toISOString(),
+        executionTimeMs: 0,
+        rowCount: 1,
+      },
+    });
+  });
+
+  test("does not invent an empty page when result is missing", () => {
+    expect(parseCdpSqlResponseEnvelope({ metadata: { rowCount: 0 } })).toBeNull();
+    expect(
+      parseCdpSqlResponseEnvelope({
+        errorType: "invalid_sql",
+        errorMessage: "syntax error",
+      }),
+    ).toBeNull();
+    expect(parseCdpSqlResponseEnvelope(null)).toBeNull();
   });
 });
 

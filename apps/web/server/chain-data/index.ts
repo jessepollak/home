@@ -11,6 +11,7 @@ export {
   CDP_SQL_ENDPOINT,
   createCdpSqlAuthFromEnv,
   createCdpSqlHttpTransport,
+  parseCdpSqlResponseEnvelope,
   type CdpSqlAuth,
 } from "./cdp-sql-client";
 export { ChainDataError, type ChainDataErrorCode } from "./errors";

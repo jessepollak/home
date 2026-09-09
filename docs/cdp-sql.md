@@ -14,7 +14,7 @@ Home uses CDP SQL only as a read-only indexed history source. It is **not** a sp
 - Deterministic descending keyset pagination by block number, transaction hash, log index, and CDP log ID.
 - Re-org-aware event selection using `sum(toInt8(action)) AS net_action` in the grouped subquery and `WHERE net_action > 0` outside it. CoinbaSeQL's published `selectStatement` has no `HAVING`. The adapter does not filter naively to added rows.
 - Numeric ordering and cursor comparisons use distinct internal aliases before block numbers and log indexes are cast to lossless public strings. Runtime parsing rejects numeric values for those public fields and token amounts, preventing already-rounded JavaScript numbers from being accepted.
-- Strict response validation: the live envelope without `schema` is supported; when `schema` is present its known fields are validated. Returned assets and participants must still match the requested allowlist and verified wallet.
+- Response validation matches official CDP `OnchainDataResult`: `result` must be an array (empty page is `[]`); `schema` and `metadata` plus every metadata field are optional. Present metadata is type-checked; missing `cached` / timestamp / duration default to uncached, fetch time, and `0`. `rowCount` may equal the page or exceed it on a truncated page. Partial derived `schema` is ignored, not a 502. A 200 without `result` stays `invalid-response` — do not invent an empty list. Returned assets and participants must still match the requested allowlist and verified wallet.
 - Separate `cached` and `stale` source flags plus CDP's execution timestamp, execution duration, and the local fetch timestamp.
 - A fixed-host HTTP transport with a finite local timeout, typed 401/402/408/429/504 failures, no automatic retries, and no upstream body or credential text in errors.
 
@@ -110,7 +110,7 @@ Verified live by the parent on 2026-09-07:
 
 - the existing Home project credentials can generate a signed JWT accepted by the exact SQL endpoint;
 - one bounded `SELECT * FROM base.events LIMIT 1` request returned HTTP 200;
-- the response envelope contained `metadata` and `result` but no `schema`; only safe metadata/shape evidence was retained here, with no credential, bearer token, address, hash, or customer row value recorded.
+- the response envelope contained `metadata` and `result` but no `schema`; CDP's published SDK types mark those fields optional (x402 example: `{ metadata: { rowCount }, result }`). Only safe metadata/shape evidence was retained here, with no credential, bearer token, address, hash, or customer row value recorded.
 - the complete bounded USDC transfer template compiled and returned a page with a follow-up cursor;
 - two one-row pages from a fixed one-hour public zero-address issuance window returned distinct log IDs and string-valued amounts; no row contents were logged;
 - `action` serializes as `"added"`; the documented database type is `Enum8('removed' = -1, 'added' = 1)`, and the template's numeric conversion succeeded live.

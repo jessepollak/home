@@ -73,6 +73,7 @@ export type CdpSqlMetadata = {
   rowCount: number;
 };
 
+/** Normalized after `parseCdpSqlResponseEnvelope`. Live CDP fields are optional. */
 export type CdpSqlResponse = {
   result: unknown[];
   schema?: { columns: CdpSqlColumn[] };

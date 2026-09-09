@@ -400,6 +400,27 @@ describe("Base ERC20 transfer adapter", () => {
     });
   });
 
+  test("empty official CDP envelope is an empty page, not invalid-response", async () => {
+    const history = createBaseErc20TransferHistory({
+      assets,
+      transport: {
+        async run() {
+          return {
+            result: [],
+            metadata: { rowCount: 0 },
+          } as never;
+        },
+      },
+      now: () => NOW,
+    });
+
+    const page = await history.listTransfers(input());
+    expect(page.transfers).toEqual([]);
+    expect(page.nextCursor).toBeNull();
+    expect(page.source.cached).toBe(false);
+    expect(page.source.executionTimeMs).toBe(0);
+  });
+
   test("rejects invalid metadata and mismatched row counts", async () => {
     const history = createBaseErc20TransferHistory({
       assets,

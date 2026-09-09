@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { activityAssets, type ActivityPage } from "@/features/activity/types";
 import { createBaseErc20TransferHistory } from "@/server/chain-data/base-erc20-transfers";
+import { createCdpSqlHttpTransport } from "@/server/chain-data/cdp-sql-client";
 import { ChainDataError } from "@/server/chain-data/errors";
 import { createActivityHandler } from "./handler";
 import { createActivityReader } from "./reader";
@@ -245,6 +246,38 @@ describe("activity route handler", () => {
         message: "Activity is rate limited. Try again shortly.",
       },
     });
+  });
+
+  test("live slim CDP empty envelope is 200 [] not ACTIVITY_INVALID_RESPONSE", async () => {
+    const history = createBaseErc20TransferHistory({
+      assets: activityAssets.map((asset) => ({
+        id: asset.id,
+        chainId: 8453,
+        address: asset.tokenAddress,
+      })),
+      transport: createCdpSqlHttpTransport({
+        auth: { mode: "client-api-key", clientApiKey: "client-key-value" },
+        fetch: async () =>
+          new Response(
+            JSON.stringify({ result: [], metadata: { rowCount: 0 } }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      }),
+      now: () => new Date(TO),
+    });
+    const handler = createActivityHandler({
+      authorize: async () => sessionResponse(),
+      readActivity: createActivityReader((input) => history.listTransfers(input)),
+      now: () => new Date(TO),
+    });
+    const response = await handler(
+      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
+    );
+    expect(response.status).toBe(200);
+    expectPrivate(response);
+    const body = (await response.json()) as { transfers: unknown[]; error?: unknown };
+    expect(body.error).toBeUndefined();
+    expect(body.transfers).toEqual([]);
   });
 
   test("healthy session with empty CDP history is an empty page, not ACTIVITY_UNAVAILABLE", async () => {

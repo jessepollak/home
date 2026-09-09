@@ -1,3 +1,4 @@
+import { parseCdpSqlResponseEnvelope } from "./cdp-sql-client";
 import { ChainDataError } from "./errors";
 import {
   BASE_MAINNET_CHAIN_ID,
@@ -403,24 +404,11 @@ function normalizeTransfer(
 }
 
 function parseMetadata(response: CdpSqlResponse): CdpSqlMetadata {
-  if (!Array.isArray(response.result) || !isRecord(response.metadata)) {
+  const envelope = parseCdpSqlResponseEnvelope(response);
+  if (!envelope) {
     throw invalidResponse("CDP SQL returned an invalid result envelope.");
   }
-  const { metadata } = response;
-  if (
-    typeof metadata.cached !== "boolean" ||
-    typeof metadata.executionTimestamp !== "string" ||
-    !Number.isSafeInteger(metadata.executionTimeMs) ||
-    metadata.executionTimeMs < 0 ||
-    !Number.isSafeInteger(metadata.rowCount) ||
-    metadata.rowCount < 0
-  ) {
-    throw invalidResponse("CDP SQL returned invalid execution metadata.");
-  }
-  if (metadata.rowCount !== response.result.length) {
-    throw invalidResponse("CDP SQL row count did not match the result.");
-  }
-  return metadata as CdpSqlMetadata;
+  return envelope.metadata;
 }
 
 function buildCursorPredicate(cursor: TransferHistoryCursor): string {

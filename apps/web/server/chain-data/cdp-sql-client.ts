@@ -1,7 +1,6 @@
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import { ChainDataError } from "./errors";
 import type {
-  CdpSqlMetadata,
   CdpSqlResponse,
   CdpSqlRunRequest,
   CdpSqlTransport,
@@ -162,13 +161,14 @@ export function createCdpSqlHttpTransport({
           throw responseError(response);
         }
         const payload: unknown = await response.json();
-        if (!isCdpSqlResponseEnvelope(payload)) {
+        const envelope = parseCdpSqlResponseEnvelope(payload);
+        if (!envelope) {
           throw new ChainDataError(
             "invalid-response",
             "CDP SQL returned an invalid response envelope.",
           );
         }
-        return payload;
+        return envelope;
       } catch (error) {
         if (error instanceof ChainDataError) throw error;
         if (controller.signal.aborted) {
@@ -255,39 +255,135 @@ function parseRetryAfter(value: string | null): number | null {
     : null;
 }
 
-function isCdpSqlResponseEnvelope(value: unknown): value is CdpSqlResponse {
-  if (
-    !isRecord(value) ||
-    !Array.isArray(value.result) ||
-    !isCdpSqlMetadata(value.metadata) ||
-    value.metadata.rowCount !== value.result.length
-  ) {
-    return false;
+/**
+ * Official CDP `OnchainDataResult` marks `result`, `schema`, `metadata`, and
+ * every metadata field optional. Home still requires a `result` array — a 200
+ * without rows is `[]`, not a missing field — and normalizes present metadata.
+ * Partial/derived `schema` is ignored rather than failing a healthy page.
+ */
+export function parseCdpSqlResponseEnvelope(
+  value: unknown,
+  receivedAt = new Date(),
+): CdpSqlResponse | null {
+  if (!isRecord(value) || !Array.isArray(value.result)) {
+    return null;
   }
-  if (value.schema === undefined) return true;
-  return (
-    isRecord(value.schema) &&
-    Array.isArray(value.schema.columns) &&
-    value.schema.columns.every(
-      (column) =>
-        isRecord(column) &&
-        typeof column.name === "string" &&
-        typeof column.type === "string",
-    )
+
+  const metadataSource = value.metadata;
+  if (metadataSource !== undefined && !isRecord(metadataSource)) {
+    return null;
+  }
+
+  const cached = readOptionalCached(metadataSource);
+  if (cached === INVALID) return null;
+
+  const executionTimestamp = readOptionalExecutionTimestamp(
+    metadataSource,
+    receivedAt,
   );
+  if (executionTimestamp === INVALID) return null;
+
+  const executionTimeMs = readOptionalExecutionTimeMs(metadataSource);
+  if (executionTimeMs === INVALID) return null;
+
+  const declaredRowCount = readOptionalRowCount(metadataSource);
+  if (declaredRowCount === INVALID) return null;
+  if (
+    declaredRowCount !== null &&
+    !rowCountAgreesWithPage(declaredRowCount, value.result.length)
+  ) {
+    return null;
+  }
+
+  const schema = readOptionalSchema(value.schema);
+  return {
+    result: value.result,
+    ...(schema ? { schema } : {}),
+    metadata: {
+      cached: cached ?? false,
+      executionTimestamp,
+      executionTimeMs: executionTimeMs ?? 0,
+      rowCount: value.result.length,
+    },
+  };
 }
 
-function isCdpSqlMetadata(value: unknown): value is CdpSqlMetadata {
-  return (
-    isRecord(value) &&
-    typeof value.cached === "boolean" &&
-    typeof value.executionTimestamp === "string" &&
-    Number.isFinite(new Date(value.executionTimestamp).getTime()) &&
-    Number.isSafeInteger(value.executionTimeMs) &&
-    (value.executionTimeMs as number) >= 0 &&
-    Number.isSafeInteger(value.rowCount) &&
-    (value.rowCount as number) >= 0
-  );
+const INVALID = Symbol("invalid-cdp-sql-field");
+
+function readOptionalCached(
+  metadata: Record<string, unknown> | undefined,
+): boolean | null | typeof INVALID {
+  if (!metadata || metadata.cached === undefined) return null;
+  return typeof metadata.cached === "boolean" ? metadata.cached : INVALID;
+}
+
+function readOptionalExecutionTimestamp(
+  metadata: Record<string, unknown> | undefined,
+  receivedAt: Date,
+): string | typeof INVALID {
+  if (!metadata || metadata.executionTimestamp === undefined) {
+    return receivedAt.toISOString();
+  }
+  if (typeof metadata.executionTimestamp !== "string") return INVALID;
+  const normalized = normalizeMetadataTimestamp(metadata.executionTimestamp);
+  return normalized ?? INVALID;
+}
+
+function readOptionalExecutionTimeMs(
+  metadata: Record<string, unknown> | undefined,
+): number | null | typeof INVALID {
+  if (!metadata || metadata.executionTimeMs === undefined) return null;
+  if (
+    typeof metadata.executionTimeMs !== "number" ||
+    !Number.isFinite(metadata.executionTimeMs) ||
+    metadata.executionTimeMs < 0
+  ) {
+    return INVALID;
+  }
+  const rounded = Math.round(metadata.executionTimeMs);
+  return Number.isSafeInteger(rounded) ? rounded : INVALID;
+}
+
+function readOptionalRowCount(
+  metadata: Record<string, unknown> | undefined,
+): number | null | typeof INVALID {
+  if (!metadata || metadata.rowCount === undefined) return null;
+  if (!Number.isSafeInteger(metadata.rowCount) || (metadata.rowCount as number) < 0) {
+    return INVALID;
+  }
+  return metadata.rowCount as number;
+}
+
+function rowCountAgreesWithPage(declared: number, pageLength: number): boolean {
+  if (declared === pageLength) return true;
+  // Truncated / max-row pages: CDP may report the full match count.
+  return pageLength > 0 && declared > pageLength;
+}
+
+function readOptionalSchema(
+  value: unknown,
+): CdpSqlResponse["schema"] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value) || !Array.isArray(value.columns)) return undefined;
+  const columns = value.columns.flatMap((column) => {
+    if (
+      !isRecord(column) ||
+      typeof column.name !== "string" ||
+      typeof column.type !== "string"
+    ) {
+      return [];
+    }
+    return [{ name: column.name, type: column.type }];
+  });
+  return columns.length > 0 ? { columns } : undefined;
+}
+
+function normalizeMetadataTimestamp(value: string): string | null {
+  const withZone = /(?:Z|[+-][0-9]{2}:[0-9]{2})$/i.test(value)
+    ? value
+    : `${value.replace(" ", "T")}Z`;
+  const parsed = new Date(withZone);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
