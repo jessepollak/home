@@ -305,7 +305,9 @@
 }
 
 .chartStage:has(.plotFront) .plotBack {
+  /* Incoming keeps painting (chartReveal) offstage. Last-good stays the only visible series. */
   pointer-events: none;
+  transform: translateX(-120%);
 }
 
 .plotFront {
