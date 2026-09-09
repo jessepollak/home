@@ -2,6 +2,7 @@ import { isBaseAccountEnabled } from "@/features/account/session-types";
 import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
 import { createSessionHandler } from "@/server/cdp/session";
 import { issueMoneyAction } from "@/server/money-actions/issue";
+import { withRequestLog } from "@/server/observability/with-request-log";
 import { createSavingsActionsHandler } from "@/server/savings-actions/handler";
 import { prepareSavingsAction } from "@/server/savings-actions/prepare";
 
@@ -15,8 +16,11 @@ const authorizeSession = createSessionHandler({
   ),
 });
 
-export const POST = createSavingsActionsHandler({
-  authorize: authorizeSession,
-  prepare: prepareSavingsAction,
-  issue: issueMoneyAction,
-});
+export const POST = withRequestLog(
+  "POST /api/savings/actions",
+  createSavingsActionsHandler({
+    authorize: authorizeSession,
+    prepare: prepareSavingsAction,
+    issue: issueMoneyAction,
+  }),
+);

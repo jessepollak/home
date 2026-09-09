@@ -6,6 +6,7 @@ import { getCdpTradeQuoteClient } from "@/server/trading/cdp";
 import { createTradeHandler } from "@/server/trading/handler";
 import { prepareTradeAction } from "@/server/trading/prepare";
 import { getTradeIntentStore } from "@/server/trading/runtime-intent-store";
+import { withRequestLog } from "@/server/observability/with-request-log";
 import {
   createPermit2StateReader,
   createTradeSignerResolver,
@@ -23,22 +24,25 @@ const resolveSigner = createTradeSignerResolver({
 });
 const readPermit2State = createPermit2StateReader();
 
-export const POST = createTradeHandler({
-  authorize: authorizeSession,
-  prepare: async (input) =>
-    prepareTradeAction(
-      {
-        quoteClient: {
-          async createSwapQuote(request) {
-            const client = await getCdpTradeQuoteClient();
-            return client.createSwapQuote(request);
+export const POST = withRequestLog(
+  "POST /api/trades",
+  createTradeHandler({
+    authorize: authorizeSession,
+    prepare: async (input) =>
+      prepareTradeAction(
+        {
+          quoteClient: {
+            async createSwapQuote(request) {
+              const client = await getCdpTradeQuoteClient();
+              return client.createSwapQuote(request);
+            },
           },
+          readBalance: getTradeBalance,
+          readPermit2State,
+          resolveSigner,
+          intentStore: await getTradeIntentStore(),
         },
-        readBalance: getTradeBalance,
-        readPermit2State,
-        resolveSigner,
-        intentStore: await getTradeIntentStore(),
-      },
-      input,
-    ),
-});
+        input,
+      ),
+  }),
+);
