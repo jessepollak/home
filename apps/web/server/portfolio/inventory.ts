@@ -24,7 +24,6 @@ import {
 import {
   InventoryVaultRpcError,
   createVaultInventoryReader,
-  type InventoryBlock,
   type VaultInventorySnapshot,
 } from "./inventory-vault-rpc";
 import type { VerifiedPortfolioAccount } from "./types";
@@ -33,6 +32,8 @@ export const PORTFOLIO_INVENTORY_TIMEOUT_MS = 10_000;
 /** Fresh budget for omitted-cash `balanceOf` — not leftover from CDP + vaults. */
 export const PORTFOLIO_CASH_VERIFY_TIMEOUT_MS = 4_000;
 export const PORTFOLIO_CASH_VERIFY_ATTEMPTS = 2;
+/** Pause before the second cash attempt so public Base `-32016` can clear. */
+export const PORTFOLIO_CASH_VERIFY_RETRY_DELAY_MS = 400;
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 
@@ -65,13 +66,13 @@ export function createPortfolioInventoryReader(options: {
   readOmittedCashBalances?: (
     requests: readonly OmittedCashBalanceRequest[],
     owner: PortfolioAddress,
-    block: InventoryBlock,
     signal: AbortSignal,
   ) => Promise<OmittedCashBalanceMap>;
   now?: () => Date;
   timeoutMs?: number;
   cashVerifyTimeoutMs?: number;
   cashVerifyAttempts?: number;
+  cashVerifyRetryDelayMs?: number;
 } = {}): PortfolioInventoryReader {
   const listTokenBalances =
     options.listTokenBalances ??
@@ -98,6 +99,8 @@ export function createPortfolioInventoryReader(options: {
     options.cashVerifyTimeoutMs ?? PORTFOLIO_CASH_VERIFY_TIMEOUT_MS;
   const cashVerifyAttempts =
     options.cashVerifyAttempts ?? PORTFOLIO_CASH_VERIFY_ATTEMPTS;
+  const cashVerifyRetryDelayMs =
+    options.cashVerifyRetryDelayMs ?? PORTFOLIO_CASH_VERIFY_RETRY_DELAY_MS;
 
   return async function readInventory(
     account: VerifiedPortfolioAccount,
@@ -121,22 +124,30 @@ export function createPortfolioInventoryReader(options: {
     externalSignal?.addEventListener("abort", abort, { once: true });
 
     try {
-      const [directs, vaults] = await Promise.all([
-        readDirectHoldings(listTokenBalances, address, controller.signal),
-        readVaultInventory(account, controller.signal),
-      ]);
-      const verifiedDirects = await verifyOmittedCashHoldings(
+      // Cash verify uses `latest` singles and must not wait for the vault pin —
+      // after vault batches, public Base `-32016`s the pinned cash retry.
+      const vaultsPromise = readVaultInventory(account, controller.signal);
+      const directs = await readDirectHoldings(
+        listTokenBalances,
+        address,
+        controller.signal,
+      );
+      const verifiedPromise = verifyOmittedCashHoldings(
         directs.holdings,
         directs.omittedCashIds,
         address,
-        vaults.block,
         readOmittedCashBalances,
         {
           externalSignal,
           timeoutMs: cashVerifyTimeoutMs,
           attempts: cashVerifyAttempts,
+          retryDelayMs: cashVerifyRetryDelayMs,
         },
       );
+      const [vaults, verifiedDirects] = await Promise.all([
+        vaultsPromise,
+        verifiedPromise,
+      ]);
       const fetchedAt = now();
       if (Number.isNaN(fetchedAt.getTime())) {
         throw new PortfolioInventoryError("The portfolio fetch time is invalid.");
@@ -246,17 +257,16 @@ async function verifyOmittedCashHoldings(
   holdings: DirectPortfolioHolding[],
   omittedCashIds: ReadonlySet<string>,
   address: PortfolioAddress,
-  block: InventoryBlock,
   readOmittedCashBalances: (
     requests: readonly OmittedCashBalanceRequest[],
     owner: PortfolioAddress,
-    block: InventoryBlock,
     signal: AbortSignal,
   ) => Promise<OmittedCashBalanceMap>,
   options: {
     externalSignal?: AbortSignal;
     timeoutMs: number;
     attempts: number;
+    retryDelayMs: number;
   },
 ): Promise<DirectPortfolioHolding[]> {
   const omitted = holdings.filter(
@@ -281,6 +291,16 @@ async function verifyOmittedCashHoldings(
     }
     const pending = omitted.filter(({ id }) => verified.get(id) == null);
     if (pending.length === 0) break;
+    if (attempt > 0 && options.retryDelayMs > 0) {
+      const delayMs = Math.min(options.retryDelayMs, deadline - Date.now());
+      if (delayMs <= 0) break;
+      await wait(delayMs, options.externalSignal);
+      if (options.externalSignal?.aborted) {
+        throw new PortfolioInventoryError(
+          "The portfolio inventory request timed out or was aborted.",
+        );
+      }
+    }
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) break;
 
@@ -292,7 +312,6 @@ async function verifyOmittedCashHoldings(
       const batch = await readOmittedCashBalances(
         pending.map(({ id, contractAddress }) => ({ id, contractAddress })),
         address,
-        block,
         controller.signal,
       );
       for (const { id } of pending) {
@@ -324,5 +343,23 @@ async function verifyOmittedCashHoldings(
       balanceBaseUnits: amount,
       readStatus: "ready",
     };
+  });
+}
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (!Number.isFinite(ms) || ms <= 0 || signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }

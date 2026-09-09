@@ -428,8 +428,8 @@ describe("Phase A portfolio inventory", () => {
     });
   });
 
-  test("default cash RPC reader restores omitted USDC and IDRX from pinned balanceOf", async () => {
-    const { fetchImpl } = createFetch({
+  test("default cash RPC reader restores omitted USDC and IDRX from latest balanceOf", async () => {
+    const { fetchImpl, rpcBodies } = createFetch({
       tokenBalances: () =>
         Response.json({
           balances: [tokenBalance("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", "7")],
@@ -467,6 +467,30 @@ describe("Phase A portfolio inventory", () => {
       readStatus: "ready",
       balanceBaseUnits: "7",
     });
+    const cashContracts = new Set(
+      getDirectPortfolioAssets()
+        .filter((asset) => asset.cashCurrency && asset.contractAddress)
+        .map((asset) => asset.contractAddress!.toLowerCase()),
+    );
+    const cashBodies = rpcBodies.filter((body) => {
+      const items = (
+        Array.isArray(body) ? body : [body]
+      ) as Array<{ method: string; params: unknown[] }>;
+      return items.some((item) => {
+        if (item.method !== "eth_call") return false;
+        const to = (item.params[0] as { to?: string } | undefined)?.to?.toLowerCase();
+        return to !== undefined && cashContracts.has(to);
+      });
+    });
+    expect(cashBodies.length).toBeGreaterThan(0);
+    expect(cashBodies.every((body) => !Array.isArray(body))).toBeTrue();
+    expect(
+      cashBodies.every(
+        (body) =>
+          !Array.isArray(body) &&
+          (body as { params: unknown[] }).params[1] === "latest",
+      ),
+    ).toBeTrue();
   });
 
   test("vault-only Morpho USDC does not fill omitted cash rows", async () => {
@@ -544,7 +568,7 @@ describe("Phase A portfolio inventory", () => {
         block: pinnedBlock(),
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests, _owner, _block, signal) => {
+      readOmittedCashBalances: async (requests, _owner, signal) => {
         await wait(40);
         seenAborted.push(signal.aborted);
         return omittedZeros(requests);
@@ -571,6 +595,7 @@ describe("Phase A portfolio inventory", () => {
     let attempts = 0;
     const snapshot = await createPortfolioInventoryReader({
       cashVerifyTimeoutMs: 200,
+      cashVerifyRetryDelayMs: 0,
       cashVerifyAttempts: 2,
       listTokenBalances: async () => ethOnlyComplete(),
       readVaultInventory: async () => ({
@@ -605,7 +630,7 @@ describe("Phase A portfolio inventory", () => {
         block: pinnedBlock(),
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests, _owner, _block, signal) => {
+      readOmittedCashBalances: async (requests, _owner, signal) => {
         await wait(60);
         if (signal.aborted) return omittedNulls(requests);
         return omittedZeros(requests);
@@ -640,6 +665,100 @@ describe("Phase A portfolio inventory", () => {
       ]),
       failFirstCashBatch: true,
     });
+
+    const snapshot = await createPortfolioInventoryReader({
+      fetchImpl,
+      rpcUrl: "https://rpc.example.test",
+      env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
+      generateJwtImpl: async () => "signed-jwt",
+      now: () => new Date("2026-09-09T01:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "7",
+    });
+  });
+
+  test("starts omitted-cash latest verify without waiting for the vault pin", async () => {
+    let releaseVault!: () => void;
+    const vaultGate = new Promise<void>((resolve) => {
+      releaseVault = resolve;
+    });
+    const snapshot = await createPortfolioInventoryReader({
+      listTokenBalances: async () => ethOnlyComplete(),
+      readVaultInventory: async () => {
+        await vaultGate;
+        return { block: pinnedBlock(), holdings: [] };
+      },
+      readOmittedCashBalances: async (requests) => {
+        releaseVault();
+        return omittedZeros(requests);
+      },
+      now: () => new Date("2026-09-09T01:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+  });
+
+  test("keeps RPC 0 when a pinned cash batch is rate-limited and latest singles succeed", async () => {
+    const cashContracts = new Set(
+      getDirectPortfolioAssets()
+        .filter((asset) => asset.cashCurrency && asset.contractAddress)
+        .map((asset) => asset.contractAddress!.toLowerCase()),
+    );
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("/v2/data/evm/token-balances/")) {
+        return Response.json({
+          balances: [tokenBalance("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", "7")],
+        });
+      }
+      const body = JSON.parse(String(init?.body)) as
+        | { id: number; method: string; params: unknown[] }
+        | Array<{ id: number; method: string; params: unknown[] }>;
+      const items = Array.isArray(body) ? body : [body];
+      const isCash = items.some((item) => {
+        if (item.method !== "eth_call") return false;
+        const to = (item.params[0] as { to?: string } | undefined)?.to?.toLowerCase();
+        return to !== undefined && cashContracts.has(to);
+      });
+      if (isCash && Array.isArray(body)) {
+        return Response.json(
+          body.map((item) => ({
+            jsonrpc: "2.0",
+            id: item.id,
+            error: { code: -32016, message: "over rate limit" },
+          })),
+        );
+      }
+      if (isCash && !Array.isArray(body) && body.params[1] !== "latest") {
+        return Response.json({
+          jsonrpc: "2.0",
+          id: body.id,
+          error: { code: -32001, message: "block not found" },
+        });
+      }
+      if (!Array.isArray(body)) {
+        return Response.json(rpcRespond(body));
+      }
+      return Response.json(body.map((item) => rpcRespond(item)));
+    }) as typeof fetch;
 
     const snapshot = await createPortfolioInventoryReader({
       fetchImpl,

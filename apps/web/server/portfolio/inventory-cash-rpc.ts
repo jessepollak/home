@@ -1,11 +1,10 @@
 import type { PortfolioAddress } from "@/config/portfolio-assets";
 import { resolveBaseRpcUrl } from "./rpc";
-import type { InventoryBlock } from "./inventory-vault-rpc";
 
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const dataWordPattern = /^0x[0-9a-fA-F]{64}$/;
-const CASH_RPC_BATCH_MAX = 10;
+const quantityPattern = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
 
 type RpcRequest = {
   jsonrpc: "2.0";
@@ -24,7 +23,7 @@ export type OmittedCashBalanceRequest = {
   contractAddress: PortfolioAddress;
 };
 
-/** `null` means the pinned-block `balanceOf` was unavailable — never invent 0. */
+/** `null` means the `balanceOf` was unavailable — never invent 0. */
 export type OmittedCashBalanceMap = ReadonlyMap<string, string | null>;
 
 export function createOmittedCashBalanceReader(options: {
@@ -37,7 +36,6 @@ export function createOmittedCashBalanceReader(options: {
   return async function readOmittedCashBalances(
     requests: readonly OmittedCashBalanceRequest[],
     owner: PortfolioAddress,
-    block: InventoryBlock,
     signal: AbortSignal,
   ): Promise<OmittedCashBalanceMap> {
     const results = new Map<string, string | null>();
@@ -47,64 +45,58 @@ export function createOmittedCashBalanceReader(options: {
       return results;
     }
 
-    const numberHex = toQuantityHex(block.number);
-    const rpcRequests = requests.map((item, index) => ({
-      item,
-      request: {
-        jsonrpc: "2.0" as const,
-        id: index + 1,
-        method: "eth_call",
-        params: [
-          {
-            to: item.contractAddress,
-            data: encodeBalanceOf(owner.toLowerCase() as PortfolioAddress),
-          },
-          numberHex,
-        ],
-      } satisfies RpcRequest,
-    }));
-
-    const responses = new Map<number, RpcSuccess>();
-    for (let index = 0; index < rpcRequests.length; index += CASH_RPC_BATCH_MAX) {
-      const batch = rpcRequests.slice(index, index + CASH_RPC_BATCH_MAX);
-      let parsed: unknown;
-      try {
-        parsed = await transport(
+    const ownerAddress = owner.toLowerCase() as PortfolioAddress;
+    // Singles at `latest`: public Base `-32016`s later JSON-RPC batch items
+    // after vault pin/confirm, and a pinned height can `-32001` on a lagging
+    // replica. Do not invent 0 when the read still misses.
+    for (const item of requests) {
+      results.set(
+        item.id,
+        await readLatestBalanceOf(
           fetchImpl,
           rpcUrl,
-          batch.map(({ request }) => request),
+          item.contractAddress,
+          ownerAddress,
           signal,
-        );
-      } catch (error) {
-        if (isAbortError(error, signal)) throw error;
-        continue;
-      }
-      if (!Array.isArray(parsed)) continue;
-      const requestedIds = new Set(batch.map(({ request }) => request.id));
-      const seen = new Set<number>();
-      for (const value of parsed) {
-        const response = parseSuccess(value);
-        if (!response || !requestedIds.has(response.id) || seen.has(response.id)) {
-          if (response) responses.delete(response.id);
-          continue;
-        }
-        seen.add(response.id);
-        responses.set(response.id, response);
-      }
-    }
-
-    for (const { item, request } of rpcRequests) {
-      const amount = tryParseDataWord(responses.get(request.id)?.result);
-      results.set(item.id, amount === null ? null : amount.toString(10));
+        ),
+      );
     }
     return results;
   };
 }
 
+async function readLatestBalanceOf(
+  fetchImpl: FetchLike,
+  rpcUrl: string,
+  token: PortfolioAddress,
+  owner: PortfolioAddress,
+  signal: AbortSignal,
+): Promise<string | null> {
+  const request: RpcRequest = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "eth_call",
+    params: [
+      { to: token, data: encodeBalanceOf(owner) },
+      "latest",
+    ],
+  };
+  try {
+    const parsed = await transport(fetchImpl, rpcUrl, request, signal);
+    const response = unwrapSuccess(parsed, request.id);
+    if (!response) return null;
+    const amount = tryParseDataWord(response.result);
+    return amount === null ? null : amount.toString(10);
+  } catch (error) {
+    if (isAbortError(error, signal)) throw error;
+    return null;
+  }
+}
+
 async function transport(
   fetchImpl: FetchLike,
   rpcUrl: string,
-  body: readonly RpcRequest[],
+  body: RpcRequest,
   signal: AbortSignal,
 ): Promise<unknown> {
   const response = await fetchImpl(rpcUrl, {
@@ -118,32 +110,54 @@ async function transport(
   return JSON.parse(await response.text()) as unknown;
 }
 
+function unwrapSuccess(value: unknown, expectedId: number): RpcSuccess | null {
+  const candidates = Array.isArray(value) ? value : [value];
+  let found: RpcSuccess | null = null;
+  for (const candidate of candidates) {
+    const response = parseSuccess(candidate);
+    if (!response || response.id !== expectedId) continue;
+    if (found) return null;
+    found = response;
+  }
+  return found;
+}
+
 function parseSuccess(value: unknown): RpcSuccess | null {
-  if (
-    !isRecord(value) ||
-    value.jsonrpc !== "2.0" ||
-    !Number.isSafeInteger(value.id) ||
-    typeof value.id !== "number" ||
-    !("result" in value) ||
-    "error" in value
-  ) {
+  if (!isRecord(value) || value.jsonrpc !== "2.0" || "error" in value) {
     return null;
   }
-  return value as RpcSuccess;
+  const id = parseRpcId(value.id);
+  if (id === null || !("result" in value)) return null;
+  return { jsonrpc: "2.0", id, result: value.result };
+}
+
+function parseRpcId(value: unknown): number | null {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string" && /^(?:[1-9]\d*)$/.test(value)) {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function tryParseDataWord(value: unknown): bigint | null {
-  if (typeof value !== "string" || !dataWordPattern.test(value)) return null;
-  const parsed = BigInt(value);
-  return parsed > UINT256_MAX ? null : parsed;
+  if (typeof value !== "string") return null;
+  if (dataWordPattern.test(value)) {
+    const parsed = BigInt(value);
+    return parsed > UINT256_MAX ? null : parsed;
+  }
+  // Quantity hex such as `0x0` is a confirmed numeric result. Empty `0x` is not.
+  if (quantityPattern.test(value)) {
+    const parsed = BigInt(value);
+    return parsed > UINT256_MAX ? null : parsed;
+  }
+  return null;
 }
 
 function encodeBalanceOf(address: PortfolioAddress): `0x${string}` {
   return `0x70a08231${address.slice(2).padStart(64, "0")}`;
-}
-
-function toQuantityHex(decimal: string): string {
-  return `0x${BigInt(decimal).toString(16)}`;
 }
 
 function isAbortError(error: unknown, signal: AbortSignal): boolean {
