@@ -48,7 +48,10 @@ describe("AddressText and AddressField", () => {
         }}
       />,
     );
-    fireEvent.click(view.getByRole("button", { name: "Paste address" }));
+    const paste = view.getByRole("button", { name: "Paste address" });
+    expect(paste.querySelector(".lucide-clipboard-paste")).toBeTruthy();
+    expect(paste.querySelector(".lucide-copy")).toBeNull();
+    fireEvent.click(paste);
     await waitFor(() => expect(value).toBe(ADDRESS));
     view.rerender(
       <AddressField id="to" value={ADDRESS} onChange={() => {}} />,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Copy } from "lucide-react";
+import { ClipboardPaste } from "lucide-react";
 import { formatAddress, isAddress } from "@/features/formatting";
 import styles from "./address-field.module.css";
 
@@ -55,7 +55,7 @@ export function AddressField({
         aria-label="Paste address"
         onClick={() => void paste()}
       >
-        <Copy size={18} strokeWidth={1.9} />
+        <ClipboardPaste size={18} strokeWidth={1.9} />
       </button>
     </div>
   );

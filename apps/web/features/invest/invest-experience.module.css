@@ -228,6 +228,15 @@
   white-space: nowrap;
 }
 
+.priceHeader strong[data-tone="muted"],
+.priceHeader strong[data-tone="error"] {
+  color: var(--home-muted);
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
 .priceHeader span {
   color: var(--home-muted);
   font-size: 0.86rem;

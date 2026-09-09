@@ -1226,8 +1226,17 @@ describe("login-state home experience", () => {
 
     fireEvent.click(page().getByRole("button", { name: "Save" }));
     expect(page().getByRole("region", { name: "Savings module" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Home" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Back" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Save" }));
+    expect(page().getByRole("region", { name: "Savings module" })).toBeTruthy();
     expect(pushCalls).toEqual([
       "/dashboard?account=settings",
+      "/dashboard?panel=save",
+      "/dashboard",
       "/dashboard?panel=save",
     ]);
 
@@ -1236,6 +1245,8 @@ describe("login-state home experience", () => {
     expect(invest).toBeTruthy();
     expect(pushCalls).toEqual([
       "/dashboard?account=settings",
+      "/dashboard?panel=save",
+      "/dashboard",
       "/dashboard?panel=save",
       "/dashboard?panel=invest",
     ]);

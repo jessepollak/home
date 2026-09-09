@@ -115,6 +115,22 @@ body:has(.app-main-authenticated) {
   padding: 0 13px;
 }
 
+.header-back-link {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--home-ink);
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0;
+}
+
 .wordmark {
   border: 0;
   background: transparent;

@@ -339,6 +339,15 @@ export function HomeExperience({
       <header className="app-header">
         {isAccountSettingsOpen ? (
           <h1 className="account-settings-title">Account</h1>
+        ) : activeNavigation === savePanelId ? (
+          <button
+            className="header-back-link"
+            type="button"
+            onClick={() => navigateTo("home")}
+          >
+            <span aria-hidden="true">←</span>
+            <span className="sr-only">Back</span>
+          </button>
         ) : (
           <HomeMark
             onClick={() => {

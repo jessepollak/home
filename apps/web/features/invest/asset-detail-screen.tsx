@@ -49,7 +49,7 @@ export function AssetDetailScreen({
       </header>
 
       <div className={styles.priceHeader}>
-        <strong>{price.value}</strong>
+        <strong data-tone={price.tone}>{price.value}</strong>
         {change !== "—" ? (
           <small className={`${styles.change} ${changeTone}`}>{change}</small>
         ) : null}

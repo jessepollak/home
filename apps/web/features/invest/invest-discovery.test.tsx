@@ -155,6 +155,13 @@ describe("invest discovery flow", () => {
     expect(page().getByRole("heading", { name: "Invest" })).toBeTruthy();
   });
 
+  test("keeps a pending price muted instead of a hero-ink dash", () => {
+    renderInvest(<InvestExperience />);
+    fireEvent.click(page().getByRole("button", { name: "Bitcoin details" }));
+    const pending = page().getByText("—");
+    expect(pending.getAttribute("data-tone")).toBe("muted");
+  });
+
   test("opens Bitcoin detail with compact header, chart ranges, and trade CTA only there", async () => {
     window.fetch = (async () =>
       Response.json({
@@ -174,7 +181,9 @@ describe("invest discovery flow", () => {
       expect(page().getByRole("heading", { name: "Bitcoin" })).toBeTruthy(),
     );
     expect(pushCalls).toEqual(["/dashboard?panel=invest&asset=cbbtc"]);
-    expect(page().getByText("$64,210.00")).toBeTruthy();
+    const readyPrice = page().getByText("$64,210.00");
+    expect(readyPrice).toBeTruthy();
+    expect(readyPrice.getAttribute("data-tone")).toBe("ready");
     expect(page().getByText("-0.67%")).toBeTruthy();
     expect(page().getByText("cbBTC · Base")).toBeTruthy();
     expect(page().getByRole("group", { name: "Price range" }).textContent).toContain(
