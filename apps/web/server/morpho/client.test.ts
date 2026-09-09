@@ -287,4 +287,53 @@ describe("getMorphoVaultPosition", () => {
 
     expect(result).toBeNull();
   });
+
+  test("treats Morpho NOT_FOUND as no indexed position instead of failing the Save read", async () => {
+    const result = await getMorphoVaultPosition({
+      account,
+      vaultAddress: MORPHO_V1_CANDIDATE_ADDRESSES[0],
+      fetchImpl: responseFetch({
+        data: null,
+        errors: [{
+          message: "No results matching given parameters",
+          status: "NOT_FOUND",
+          extensions: {},
+        }],
+      }),
+      now,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  test("still fails closed on a non-NOT_FOUND GraphQL error", async () => {
+    await expect(
+      getMorphoVaultPosition({
+        account,
+        vaultAddress: MORPHO_V1_CANDIDATE_ADDRESSES[0],
+        fetchImpl: responseFetch({
+          data: null,
+          errors: [{ message: "schema changed", status: "BAD_REQUEST" }],
+        }),
+        now,
+      }),
+    ).rejects.toBeInstanceOf(MorphoUpstreamError);
+  });
+
+  test("does not treat a mixed NOT_FOUND envelope as an empty position", async () => {
+    await expect(
+      getMorphoVaultPosition({
+        account,
+        vaultAddress: MORPHO_V1_CANDIDATE_ADDRESSES[0],
+        fetchImpl: responseFetch({
+          data: null,
+          errors: [
+            { message: "No results matching given parameters", status: "NOT_FOUND" },
+            { message: "rate limited", status: "TOO_MANY_REQUESTS" },
+          ],
+        }),
+        now,
+      }),
+    ).rejects.toBeInstanceOf(MorphoUpstreamError);
+  });
 });

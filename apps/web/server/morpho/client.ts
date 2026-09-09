@@ -185,7 +185,9 @@ export async function getMorphoVaultPosition(input: {
     },
     input.fetchImpl ?? fetch,
     input.signal,
+    { missingAsNull: true },
   );
+  if (payload === null) return null;
   const data = readRecord(payload, "response.data");
 
   return normalizeVaultPosition(
@@ -243,6 +245,7 @@ async function executeGraphql(
   variables: Record<string, string> | undefined,
   fetchImpl: FetchLike,
   externalSignal: AbortSignal | undefined,
+  options?: { missingAsNull?: boolean },
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -269,6 +272,9 @@ async function executeGraphql(
 
     const parsed = parseLosslessJson(await response.text());
     const envelope = readRecord(parsed, "response");
+    if (options?.missingAsNull && isMorphoNotFoundEnvelope(envelope)) {
+      return null;
+    }
     if (Array.isArray(envelope.errors) && envelope.errors.length > 0) {
       throw new MorphoUpstreamError("Morpho GraphQL returned an error response.");
     }
@@ -307,6 +313,22 @@ function readRecord(value: unknown, label: string): Record<string, unknown> {
     throw new MorphoSchemaError(`${label} must be an object.`);
   }
   return value as Record<string, unknown>;
+}
+
+function isMorphoNotFoundEnvelope(envelope: Record<string, unknown>): boolean {
+  if (envelope.data !== null && envelope.data !== undefined) return false;
+  const errors = envelope.errors;
+  return Array.isArray(errors) &&
+    errors.length > 0 &&
+    errors.every(isMorphoNotFoundError);
+}
+
+function isMorphoNotFoundError(value: unknown): boolean {
+  return isRecord(value) && value.status === "NOT_FOUND";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function assertAddress(value: string, label: string): asserts value is Address {
