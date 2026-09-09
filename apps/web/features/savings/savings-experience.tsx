@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { AddressText } from "@/components/address";
 import { useAccountWallet } from "@/features/account/cdp-client";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
@@ -19,7 +18,6 @@ import type {
   MorphoVaultPosition,
   MorphoVaultsResult,
 } from "@/server/morpho/types";
-import { shellHref } from "@/config/shell-location";
 import {
   formatApy,
   formatUsdcUsd,
@@ -63,7 +61,6 @@ export function AuthenticatedSavingsExperience({
   onActionConfirmed,
 }: Pick<SavingsExperienceProps, "onActionConfirmed"> = {}) {
   const account = useAccountWallet();
-  const router = useRouter();
   const refreshMoneyData = useMoneyDataRefresh();
   const session = account.status === "verified" ? account.session : null;
   const portfolioSession = session?.smartAccount
@@ -84,9 +81,6 @@ export function AuthenticatedSavingsExperience({
       availableUsdcBaseUnits={usdc?.balanceBaseUnits ?? null}
       prepareMoneyAction={account.prepareMoneyAction}
       executeMoneyAction={account.executeMoneyAction}
-      onBack={() => {
-        router.push(shellHref("/dashboard", { panel: "home" }), { scroll: false });
-      }}
       onActionConfirmed={async (result) => {
         setPortfolioTick((tick) => tick + 1);
         refreshMoneyData();
