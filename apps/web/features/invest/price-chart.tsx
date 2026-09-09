@@ -83,12 +83,13 @@ function ChartBody({
   const plot = useHeldLivelinePlot(history.status, incoming, range);
   const { foreground, warming } = usePresentedLivelinePlot(plot, reduceMotion);
   const primary = foreground ?? warming;
-  const primaryHidden = !foreground && !!warming;
+  const firstRevealed = useFirstLivelineReveal(!!foreground, reduceMotion);
+  const firstPaintHidden = !!foreground && !firstRevealed;
   const unavailable =
     history.status !== "loading" &&
     (history.status === "error" || !plot) &&
     !foreground;
-  const waitingFirstPaint = !foreground && !unavailable;
+  const waitingFirstPaint = (!foreground && !unavailable) || firstPaintHidden;
   const stageRole = waitingFirstPaint || unavailable ? "status" : "img";
   const stageLabel = waitingFirstPaint
     ? "Loading price history"
@@ -101,15 +102,18 @@ function ChartBody({
       {primary ? (
         <div
           className={styles.plotLive}
-          data-plot-slot={primaryHidden ? "warm" : "live"}
-          data-plot-pending={primaryHidden ? "true" : "false"}
+          data-plot-slot="live"
+          data-plot-pending={firstPaintHidden ? "true" : "false"}
         >
           <AssetLiveline
             plot={primary}
             reduceMotion={reduceMotion}
-            instant={primaryHidden}
+            instant={false}
           />
         </div>
+      ) : null}
+      {firstPaintHidden ? (
+        <div className={styles.plotCover} data-plot-cover="true" aria-hidden />
       ) : null}
       {foreground && warming ? (
         <div className={styles.plotWarm} data-plot-slot="warm" aria-hidden>
@@ -168,11 +172,9 @@ function usePresentedLivelinePlot(
   if (!plot) {
     nextForeground = null;
     nextWarming = null;
-  } else if (reduceMotion || foreground?.key === plot.key) {
+  } else if (reduceMotion || !foreground || foreground.key === plot.key) {
     nextForeground = plot;
     nextWarming = null;
-  } else if (!foreground) {
-    nextWarming = plot;
   } else if (warming?.key !== plot.key) {
     nextWarming = plot;
   }
@@ -191,6 +193,19 @@ function usePresentedLivelinePlot(
   }, [plot, warmingKey]);
 
   return { foreground: nextForeground, warming: nextWarming };
+}
+
+/** Cover the first live plot until Liveline's chartReveal can finish underneath. */
+function useFirstLivelineReveal(hasForeground: boolean, reduceMotion: boolean) {
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    if (!hasForeground || revealed || reduceMotion) return;
+    const timer = window.setTimeout(() => setRevealed(true), LIVELINE_SWAP_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [hasForeground, reduceMotion, revealed]);
+
+  return reduceMotion || revealed;
 }
 
 function commitLivelinePlot(

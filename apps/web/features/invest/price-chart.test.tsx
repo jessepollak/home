@@ -169,7 +169,7 @@ describe("PriceChart states", () => {
     expect(livelineHadDegenerateFrame()).toBe(false);
   });
 
-  test("warms the first ready series offscreen and never paints empty or value=0", async () => {
+  test("covers the first ready series until chartReveal finishes and never paints empty or value=0", async () => {
     stubMatchMedia(false);
     const week = [
       { time: "2026-09-01T00:00:00.000Z", value: "62000" },
@@ -192,17 +192,17 @@ describe("PriceChart states", () => {
       />,
     );
     expect(within(document.body).getByRole("status", { name: "Loading price history" })).toBeTruthy();
-    expect(document.querySelector('[data-plot-slot="warm"][data-plot-pending="true"]')).toBeTruthy();
-    expect(document.querySelector('[data-plot-slot="live"]')).toBeNull();
-    const warming = livelineCalls.at(-1)!;
-    expect(warming.data).toEqual(toLivelinePoints(week));
-    expect(warming.value).toBe(64210);
-    expect(warming.loading).toBe(false);
-    expect(warming.lerpSpeed).toBe(1);
+    expect(document.querySelector('[data-plot-slot="live"][data-plot-pending="true"]')).toBeTruthy();
+    expect(document.querySelector("[data-plot-cover='true']")).toBeTruthy();
+    const first = livelineCalls.at(-1)!;
+    expect(first.data).toEqual(toLivelinePoints(week));
+    expect(first.value).toBe(64210);
+    expect(first.loading).toBe(false);
     expect(livelineHadDegenerateFrame()).toBe(false);
 
     await waitForRevealed("1W");
-    expect(document.querySelector('[data-plot-slot="live"]')).toBeTruthy();
+    expect(document.querySelector('[data-plot-slot="live"][data-plot-pending="false"]')).toBeTruthy();
+    expect(document.querySelector("[data-plot-cover='true']")).toBeNull();
     expect(livelineCalls.at(-1)?.value).toBe(64210);
     expect(livelineHadDegenerateFrame()).toBe(false);
   });

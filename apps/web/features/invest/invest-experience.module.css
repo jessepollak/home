@@ -303,12 +303,15 @@
 }
 
 .plotWarm {
-  visibility: hidden;
+  opacity: 0;
   pointer-events: none;
 }
 
-.plotLive[data-plot-pending="true"] {
-  visibility: hidden;
+.plotCover {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--home-canvas);
   pointer-events: none;
 }
 
