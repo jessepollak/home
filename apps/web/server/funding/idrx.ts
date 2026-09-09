@@ -8,8 +8,8 @@ export const IDRX_DECIMALS = 2 as const;
 export const IDRX_BASE_ADDRESS =
   "0x18Bc5bcC660cf2B9cE3cd51a404aFe1a0cBD3C22" as const;
 export const IDRX_VA_CHANNELS = ["MANDIRI", "BRI"] as const;
-export const IDRX_MIN_TO_BE_MINTED_MINOR = 2_000_000n;
-export const IDRX_MAX_TO_BE_MINTED_MINOR = 100_000_000_000n;
+export const IDRX_MIN_TO_BE_MINTED_MINOR = BigInt(2_000_000);
+export const IDRX_MAX_TO_BE_MINTED_MINOR = BigInt("100000000000");
 
 export type IdrxVaChannel = (typeof IDRX_VA_CHANNELS)[number];
 
@@ -101,7 +101,7 @@ export function parseIdrxMintAmount(value: string): string {
     throw new IdrxMintError("invalid-response");
   }
   const [whole, fraction = ""] = value.split(".");
-  const minor = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
+  const minor = BigInt(whole) * BigInt(100) + BigInt(fraction.padEnd(2, "0"));
   if (minor < IDRX_MIN_TO_BE_MINTED_MINOR || minor > IDRX_MAX_TO_BE_MINTED_MINOR) {
     throw new IdrxMintError("invalid-response");
   }
