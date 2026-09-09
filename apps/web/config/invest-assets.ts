@@ -147,7 +147,7 @@ export const stockAssets = [
     category: "stock",
     displayName: "Strategy",
     displaySymbol: "MSTR",
-    initials: "MS",
+    initials: "ST",
     chainId: BASE_CHAIN_ID,
     contractAddress: "0xb2000000000000000000004884b426556b92883d",
     availability: "restricted",

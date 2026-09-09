@@ -70,7 +70,7 @@ describe("valuation inventory RPC", () => {
     })(account, "EUR");
 
     const batches = requests.filter(Array.isArray) as unknown[][];
-    expect(batches.map((batch) => batch.length)).toEqual([10, 10, 1]);
+    expect(batches.map((batch) => batch.length)).toEqual([10, 10, 7]);
     for (const batch of batches) {
       for (const entry of batch as Array<{ params: unknown[] }>) {
         expect(entry.params.at(-1)).toBe("0x10");

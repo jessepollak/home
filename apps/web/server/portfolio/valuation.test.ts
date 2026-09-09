@@ -172,7 +172,7 @@ describe("supported portfolio valuation assembly", () => {
 
     const result = await read(account, "US");
 
-    expect(priceInputs).toHaveLength(14);
+    expect(priceInputs).toHaveLength(20);
     expect(priceInputs.map(({ assetKey }) => assetKey)).toContain(
       verifiedLocalCashAssets.EUR.assetKey,
     );

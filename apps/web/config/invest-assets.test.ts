@@ -65,6 +65,18 @@ describe("invest asset registry", () => {
       "SpaceX",
       "Tesla",
     ]);
+    expect(stockAssets.map((asset) => asset.initials)).toEqual([
+      "NV",
+      "ME",
+      "AP",
+      "GO",
+      "AM",
+      "MS",
+      "ST",
+      "SN",
+      "SP",
+      "TS",
+    ]);
     expect(stockAssets.map((asset) => asset.contractAddress)).toEqual([
       "0xb20000000000000000000078ee7ce2fE4908108C",
       "0xb2000000000000000000008bC8786B856E61707C",
