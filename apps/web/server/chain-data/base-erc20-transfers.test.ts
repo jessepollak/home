@@ -68,12 +68,14 @@ describe("Base ERC20 transfer query", () => {
 
     expect(sql).toContain("FROM base.events");
     expect(sql).toContain("GROUP BY log_id");
-    expect(sql).toContain("HAVING sum(toInt8(action)) > 0");
+    expect(sql).toContain("sum(toInt8(action)) AS net_action");
+    expect(sql).toContain("WHERE net_action > 0");
+    expect(sql).not.toMatch(/\bHAVING\b/);
     expect(sql).toContain(`lower(toString(parameters['from'])) = '${WALLET}'`);
     expect(sql).toContain(`lower(toString(parameters['to'])) = '${WALLET}'`);
     expect(sql).toContain(`address IN ('${TOKEN}')`);
     expect(sql).not.toContain("lower(toString(address))");
-    expect(sql).not.toMatch(/HAVING[\s\S]*LIMIT 10000/);
+    expect(sql).not.toMatch(/GROUP BY log_id[\s\S]*LIMIT 10000/);
     expect(sql).toMatch(/LIMIT 51$/);
     expect(sql).toContain("any(toString(parameters['value'])) AS amount_base_units");
     expect(sql).toContain("any(block_number) AS block_number_numeric");
@@ -153,8 +155,10 @@ describe("Base ERC20 transfer query", () => {
     expect(sql.length).toBeLessThanOrEqual(10_000);
     expect(sql).toContain("address IN (");
     expect(sql).not.toContain("lower(toString(address))");
-    expect(sql).toContain("HAVING sum(toInt8(action)) > 0\n)");
-    expect(sql).not.toMatch(/HAVING[\s\S]*LIMIT 10000/);
+    expect(sql).toContain("sum(toInt8(action)) AS net_action");
+    expect(sql).toContain("WHERE net_action > 0");
+    expect(sql).not.toMatch(/\bHAVING\b/);
+    expect(sql).not.toMatch(/GROUP BY log_id[\s\S]*LIMIT 10000/);
     expect(sql.match(/LIMIT (\d+)\s*$/)?.[1]).toBe("26");
 
     const history = createBaseErc20TransferHistory({

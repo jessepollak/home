@@ -284,8 +284,78 @@ describe("activity route handler", () => {
     const body = (await response.json()) as { transfers: unknown[]; error?: unknown };
     expect(body.error).toBeUndefined();
     expect(body.transfers).toEqual([]);
-    expect(sql).toContain("HAVING sum(toInt8(action)) > 0\n)");
-    expect(sql).not.toMatch(/HAVING[\s\S]*LIMIT 10000/);
+    expect(sql).toContain("sum(toInt8(action)) AS net_action");
+    expect(sql).toContain("WHERE net_action > 0");
+    expect(sql).not.toMatch(/\bHAVING\b/);
+    expect(sql).not.toMatch(/GROUP BY log_id[\s\S]*LIMIT 10000/);
+  });
+
+  test("maps CDP SQL provider codes instead of one ACTIVITY_UNAVAILABLE catch-all", async () => {
+    const cases = [
+      {
+        code: "upstream-error" as const,
+        status: 502,
+        body: {
+          code: "ACTIVITY_UPSTREAM",
+          message: "Recent Base activity could not be loaded from the data provider.",
+        },
+      },
+      {
+        code: "invalid-response" as const,
+        status: 502,
+        body: {
+          code: "ACTIVITY_INVALID_RESPONSE",
+          message: "Recent Base activity returned an unexpected response.",
+        },
+      },
+      {
+        code: "payment-required" as const,
+        status: 402,
+        body: {
+          code: "ACTIVITY_PAYMENT_REQUIRED",
+          message: "Activity history is not entitled on this project.",
+        },
+      },
+    ];
+
+    for (const { code, status, body } of cases) {
+      const handler = createActivityHandler({
+        authorize: async () => sessionResponse(),
+        readActivity: async () => {
+          throw new ChainDataError(code, "fixture");
+        },
+        now: () => new Date(TO),
+      });
+      const response = await handler(
+        new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
+      );
+      expect(response.status).toBe(status);
+      expectPrivate(response);
+      expect(await response.json()).toEqual({ error: body });
+    }
+  });
+
+  test("unknown ChainDataError codes stay on the catch-all, not a typed lie", async () => {
+    const error = new ChainDataError("upstream-error", "fixture");
+    Object.assign(error, { code: "schema-changed" });
+    const handler = createActivityHandler({
+      authorize: async () => sessionResponse(),
+      readActivity: async () => {
+        throw error;
+      },
+      now: () => new Date(TO),
+    });
+    const response = await handler(
+      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
+    );
+    expect(response.status).toBe(502);
+    expectPrivate(response);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "ACTIVITY_UNAVAILABLE",
+        message: "Recent Base activity is temporarily unavailable.",
+      },
+    });
   });
 
   test("never turns provider failure into empty history", async () => {

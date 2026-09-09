@@ -84,10 +84,11 @@ export function buildBaseErc20TransferQuery(
   // leave removed logs in history.
   //
   // CoinbaSeQL's published selectStatement is GROUP BY then optional ORDER BY /
-  // LIMIT — not HAVING plus a nested limit. #46 appended ORDER BY … LIMIT 10000
-  // after HAVING and production /api/activity started fail-closing as
-  // ACTIVITY_UNAVAILABLE for healthy sessions (#70). Keep the grouped subquery
-  // terminated at HAVING; page with the outer LIMIT only.
+  // LIMIT — no HAVING. #46 nested ORDER BY … LIMIT after HAVING; #73 removed
+  // that inner limit but left HAVING, and prod /api/activity stayed 502
+  // ACTIVITY_UNAVAILABLE for healthy empty sessions (#70). Filter net action
+  // in the outer WHERE (the documented subquery pattern) and page with the
+  // outer LIMIT only.
   const sql = `SELECT
   log_id,
   toString(block_number_numeric) AS block_number,
@@ -110,7 +111,8 @@ FROM (
     any(toString(address)) AS token_address,
     any(toString(parameters['from'])) AS from_address,
     any(toString(parameters['to'])) AS to_address,
-    any(toString(parameters['value'])) AS amount_base_units
+    any(toString(parameters['value'])) AS amount_base_units,
+    sum(toInt8(action)) AS net_action
   FROM base.events
   WHERE event_signature = '${TRANSFER_SIGNATURE}'
     AND address IN (${assetAddresses})
@@ -121,9 +123,8 @@ FROM (
       OR lower(toString(parameters['to'])) = ${wallet}
     )
   GROUP BY log_id
-  HAVING sum(toInt8(action)) > 0
 )
-WHERE 1 = 1${cursorClause}
+WHERE net_action > 0${cursorClause}
 ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, log_id DESC
 LIMIT ${request.limit + 1}`;
 

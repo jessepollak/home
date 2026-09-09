@@ -1,7 +1,7 @@
 # CDP SQL chain-history adapter
 
 Status: signed-JWT authentication and one basic bounded `base.events` query verified live by the parent; the transfer template and pagination remain pending live verification.
-Last reviewed: 2026-09-07.
+Last reviewed: 2026-09-09.
 
 Home uses CDP SQL only as a read-only indexed history source. It is **not** a spendable-balance, transaction-confirmation, vault-position, debt, or authorization source. Current spendable inventory uses CDP Onchain Data Token Balances for allowlisted directs and pinned-block RPC for Morpho vault conversion; receipts and protocol adapters remain the confirmation path. Do not query CoinbaSeQL for balances. Locked inventory direction: [balances inventory](balances-inventory-architecture.md); research detail on [#76](https://github.com/jessepollak/home/issues/76#issuecomment-5594452047).
 
@@ -12,7 +12,7 @@ Home uses CDP SQL only as a read-only indexed history source. It is **not** a sp
 - A fixed Base mainnet ERC-20 `Transfer(address,address,uint256)` history template over `base.events`.
 - Runtime validation for a session-verified wallet address, operator-supplied asset allowlist, selected asset IDs, a maximum 31-day time window, page sizes of 1–200, and cache ages of 500–900,000 ms.
 - Deterministic descending keyset pagination by block number, transaction hash, log index, and CDP log ID.
-- Re-org-aware event selection using `GROUP BY log_id HAVING sum(toInt8(action)) > 0`. The adapter does not filter naively to added rows.
+- Re-org-aware event selection using `sum(toInt8(action)) AS net_action` in the grouped subquery and `WHERE net_action > 0` outside it. CoinbaSeQL's published `selectStatement` has no `HAVING`. The adapter does not filter naively to added rows.
 - Numeric ordering and cursor comparisons use distinct internal aliases before block numbers and log indexes are cast to lossless public strings. Runtime parsing rejects numeric values for those public fields and token amounts, preventing already-rounded JavaScript numbers from being accepted.
 - Strict response validation: the live envelope without `schema` is supported; when `schema` is present its known fields are validated. Returned assets and participants must still match the requested allowlist and verified wallet.
 - Separate `cached` and `stale` source flags plus CDP's execution timestamp, execution duration, and the local fetch timestamp.

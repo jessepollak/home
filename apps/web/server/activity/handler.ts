@@ -180,6 +180,24 @@ function activityReadError(error: unknown): Response {
           "Activity history authentication was rejected.",
           502,
         );
+      case "upstream-error":
+        return privateError(
+          "ACTIVITY_UPSTREAM",
+          "Recent Base activity could not be loaded from the data provider.",
+          502,
+        );
+      case "invalid-response":
+        return privateError(
+          "ACTIVITY_INVALID_RESPONSE",
+          "Recent Base activity returned an unexpected response.",
+          502,
+        );
+      case "payment-required":
+        return privateError(
+          "ACTIVITY_PAYMENT_REQUIRED",
+          "Activity history is not entitled on this project.",
+          402,
+        );
       default:
         break;
     }
