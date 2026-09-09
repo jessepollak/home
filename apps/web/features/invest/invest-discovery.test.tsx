@@ -246,6 +246,73 @@ describe("invest discovery flow", () => {
     );
   });
 
+  test("keeps signed meme Δ% labels on the Memes shelf", () => {
+    renderInvest(
+      <InvestExperience
+        memeStatus="ready"
+        memeAssets={[
+          {
+            id: "base:0x1111111111111111111111111111111111111111",
+            category: "meme",
+            displayName: "Higher",
+            displaySymbol: "HIGHER",
+            initials: "HI",
+            chainId: 8453,
+            contractAddress: "0x1111111111111111111111111111111111111111",
+            availability: "informational",
+            descriptor: "Trending on Base",
+            representation: {
+              tokenSymbol: "HIGHER",
+              decimals: 18,
+              relationship: "Base ERC-20 token.",
+            },
+            contractUrl:
+              "https://basescan.org/token/0x1111111111111111111111111111111111111111",
+          },
+          {
+            id: "base:0x2222222222222222222222222222222222222222",
+            category: "meme",
+            displayName: "Lower",
+            displaySymbol: "LOWER",
+            initials: "LO",
+            chainId: 8453,
+            contractAddress: "0x2222222222222222222222222222222222222222",
+            availability: "informational",
+            descriptor: "Trending on Base",
+            representation: {
+              tokenSymbol: "LOWER",
+              decimals: 18,
+              relationship: "Base ERC-20 token.",
+            },
+            contractUrl:
+              "https://basescan.org/token/0x2222222222222222222222222222222222222222",
+          },
+        ]}
+        memeMarket={{
+          status: "ready",
+          snapshots: [
+            {
+              assetId: "base:0x1111111111111111111111111111111111111111",
+              displayPrice: "$0.0123",
+              asOf: "2026-09-07T20:00:00.000Z",
+              sourceLabel: "Codex",
+              changeLabel: "+5.00%",
+            },
+            {
+              assetId: "base:0x2222222222222222222222222222222222222222",
+              displayPrice: "$0.0045",
+              asOf: "2026-09-07T20:00:00.000Z",
+              sourceLabel: "Codex",
+              changeLabel: "-1.25%",
+            },
+          ],
+        }}
+      />,
+    );
+    expect(page().getByText("+5.00%")).toBeTruthy();
+    expect(page().getByText("-1.25%")).toBeTruthy();
+  });
+
   test("fail-closes the Memes shelf when trending is unavailable", () => {
     renderInvest(<InvestExperience memeStatus="error" />);
     expect(page().getAllByText("Unavailable").length).toBeGreaterThan(0);

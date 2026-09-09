@@ -33,6 +33,16 @@ describe("Direction 1 — Vercel Editorial tokens", () => {
     expect(globals).toContain("--motion-press: 0ms");
   });
 
+  test("lets meme Δ% green/red beat muted .quote small", () => {
+    expect(invest).toContain(".quote small.changeUp");
+    expect(invest).toContain(".quote small.changeDown");
+    expect(invest).toContain("color: #0f8a4b");
+    expect(invest).toContain("color: #c3372a");
+    expect(invest.indexOf(".quote small")).toBeLessThan(
+      invest.indexOf(".quote small.changeUp"),
+    );
+  });
+
   test("keeps the Invest Liveline wash on Direction 1 blue", () => {
     expect(chart).toContain('const LINE_COLOR = "#0052ff"');
     expect(chart).toContain('theme="light"');

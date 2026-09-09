@@ -190,10 +190,12 @@
   white-space: nowrap;
 }
 
+.quote small.changeUp,
 .changeUp {
   color: #0f8a4b;
 }
 
+.quote small.changeDown,
 .changeDown {
   color: #c3372a;
 }
