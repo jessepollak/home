@@ -114,7 +114,7 @@ function ethOnlyComplete() {
         native: true,
       },
     ],
-  } as const;
+  };
 }
 
 function pinnedBlock() {
