@@ -112,9 +112,9 @@ describe("CDP Onchain Data Token Balances client", () => {
       `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=20&pageToken=page-two`,
     ]);
     expect(listed.map(({ contractAddress }) => contractAddress)).toEqual([
-      USDC.toLowerCase(),
+      USDC.toLowerCase() as `0x${string}`,
       IDRX,
-      "0x9999999999999999999999999999999999999999",
+      "0x9999999999999999999999999999999999999999" as `0x${string}`,
     ]);
   });
 
@@ -122,14 +122,14 @@ describe("CDP Onchain Data Token Balances client", () => {
     const empty = createCdpTokenBalancesClient({
       env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
       generateJwtImpl: async () => "signed-jwt",
-      fetchImpl: (async () => new Response("not found", { status: 404 })) as typeof fetch,
+      fetchImpl: async () => new Response("not found", { status: 404 }),
     });
     await expect(empty.listBalances({ address: ADDRESS })).resolves.toEqual([]);
 
     const unauthorized = createCdpTokenBalancesClient({
       env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
       generateJwtImpl: async () => "signed-jwt",
-      fetchImpl: (async () => new Response("no", { status: 401 })) as typeof fetch,
+      fetchImpl: async () => new Response("no", { status: 401 }),
     });
     await expect(unauthorized.listBalances({ address: ADDRESS })).rejects.toMatchObject({
       name: "CdpTokenBalancesError",

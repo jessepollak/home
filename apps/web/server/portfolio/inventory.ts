@@ -41,7 +41,10 @@ export type PortfolioInventoryReader = (
 ) => Promise<PortfolioInventorySnapshot>;
 
 export function createPortfolioInventoryReader(options: {
-  fetchImpl?: typeof fetch;
+  fetchImpl?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>;
   rpcUrl?: string;
   env?: Readonly<Record<string, string | undefined>>;
   generateJwtImpl?: typeof generateJwt;
@@ -165,7 +168,7 @@ async function readDirectHoldings(
     const key =
       asset.kind === "native"
         ? CDP_NATIVE_TOKEN_ADDRESS
-        : asset.contractAddress!.toLowerCase();
+        : (asset.contractAddress!.toLowerCase() as `0x${string}`);
     const match = listed ? byContract.get(key) : null;
     const ready = listed !== null;
     return {

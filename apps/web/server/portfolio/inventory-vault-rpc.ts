@@ -24,7 +24,10 @@ type RpcRequest = {
   params: unknown[];
 };
 type RpcSuccess = { jsonrpc: "2.0"; id: number; result: unknown };
-type FetchLike = typeof fetch;
+type FetchLike = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
 
 export type InventoryBlock = {
   number: string;

@@ -53,7 +53,10 @@ export type ListTokenBalancesRequest = {
   signal?: AbortSignal;
 };
 
-type FetchLike = typeof fetch;
+type FetchLike = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
 type JwtGenerator = typeof generateJwt;
 type Environment = Readonly<Record<string, string | undefined>>;
 
