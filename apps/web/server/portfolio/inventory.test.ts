@@ -800,24 +800,29 @@ describe("Phase A portfolio inventory", () => {
     });
   });
 
-  test("starts omitted-cash latest verify without waiting for the vault pin", async () => {
-    let releaseVault!: () => void;
-    const vaultGate = new Promise<void>((resolve) => {
-      releaseVault = resolve;
-    });
+  test("finishes omitted-cash latest verify before Morpho vault RPC", async () => {
+    const order: string[] = [];
+    let cashDone = false;
     const snapshot = await createPortfolioInventoryReader({
-      listTokenBalances: async () => ethOnlyComplete(),
+      listTokenBalances: async () => {
+        order.push("cdp");
+        return ethOnlyComplete();
+      },
       readVaultInventory: async () => {
-        await vaultGate;
+        expect(cashDone).toBeTrue();
+        order.push("vaults");
         return { block: pinnedBlock(), holdings: [] };
       },
       readOmittedCashBalances: async (requests) => {
-        releaseVault();
+        order.push("cash");
+        await wait(20);
+        cashDone = true;
         return omittedZeros(requests);
       },
       now: () => new Date("2026-09-09T01:00:00.000Z"),
     })(account, "IDR");
 
+    expect(order).toEqual(["cdp", "cash", "vaults"]);
     expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
       readStatus: "ready",
       balanceBaseUnits: "0",
