@@ -222,6 +222,47 @@ describe("supported portfolio valuation assembly", () => {
     ]);
   });
 
+  test("vault-only Morpho USDC stays off cash buckets (direct USDC/IDRX remain 0)", async () => {
+    const read = createPortfolioValuationReader({
+      readInventory: async () =>
+        inventory({ usdc: "0", idrx: "0", vaultUnderlying: "2000000" }),
+      readPrices: async (inputs) => prices(inputs),
+      readExchangeRates: async () => exchangeRates(),
+    });
+
+    const result = await read(account, "ID");
+    const usdcCash = result.cashBuckets.find(({ symbol }) => symbol === "USDC");
+    const idrxCash = result.cashBuckets.find(({ symbol }) => symbol === "IDRX");
+    const steakhouse = result.inventory.holdings.find(
+      (holding) => holding.kind === "vault-position" && holding.id === "morpho-steakhouse-usdc",
+    );
+
+    expect(result.cashBuckets.map(({ symbol }) => symbol)).toEqual(["USDC", "IDRX"]);
+    expect(usdcCash).toMatchObject({
+      tokenAmountBaseUnits: "0",
+      valuationStatus: "priced",
+    });
+    expect(idrxCash).toMatchObject({
+      tokenAmountBaseUnits: "0",
+      valuationStatus: "priced",
+    });
+    expect(steakhouse).toMatchObject({
+      kind: "vault-position",
+      underlyingBaseUnits: "2000000",
+      readStatus: "ready",
+    });
+    expect(result.inventory.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      kind: "direct",
+      balanceBaseUnits: "0",
+      readStatus: "ready",
+    });
+    expect(usdcCash?.tokenAmountBaseUnits).not.toBe(
+      steakhouse && steakhouse.kind === "vault-position"
+        ? steakhouse.underlyingBaseUnits
+        : undefined,
+    );
+  });
+
   test("makes an incomplete zero subtotal unavailable but preserves a complete zero", async () => {
     const incomplete = createPortfolioValuationReader({
       readInventory: async () =>

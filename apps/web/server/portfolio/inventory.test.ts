@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   PORTFOLIO_USDC_ADDRESS,
+  PORTFOLIO_USDC_ASSET_KEY,
+  assetKeyForErc20,
   getDirectPortfolioAssets,
   portfolioVaults,
   verifiedLocalCashAssets,
@@ -418,6 +420,67 @@ describe("Phase A portfolio inventory", () => {
     expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
       readStatus: "ready",
       balanceBaseUnits: "7",
+    });
+  });
+
+  test("vault-only Morpho USDC does not fill omitted cash rows", async () => {
+    const snapshot = await createPortfolioInventoryReader({
+      listTokenBalances: async () => ({
+        complete: true,
+        balances: [
+          {
+            contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
+            amountBaseUnits: "1101012331497033445",
+            native: true,
+          },
+        ],
+      }),
+      readVaultInventory: async () => ({
+        block: { number: "16", hash: BLOCK_HASH, timestamp: "100" },
+        holdings: [
+          {
+            kind: "vault-position",
+            id: "morpho-steakhouse-usdc",
+            assetKey: assetKeyForErc20(portfolioVaults[0].address),
+            name: portfolioVaults[0].name,
+            symbol: portfolioVaults[0].symbol,
+            vaultAddress: portfolioVaults[0].address,
+            decimals: 18,
+            underlyingAssetKey: PORTFOLIO_USDC_ASSET_KEY,
+            underlyingSymbol: "USDC",
+            underlyingDecimals: 6,
+            sharesBaseUnits: "1000",
+            underlyingBaseUnits: "999000",
+            readStatus: "ready",
+            conversionMethod: "erc4626-convertToAssets",
+          },
+        ],
+      }),
+      readOmittedCashBalances: async (requests) =>
+        new Map(requests.map(({ id }) => [id, "0"])),
+      now: () => new Date("2026-09-09T01:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      kind: "direct",
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
+      kind: "direct",
+      readStatus: "ready",
+      balanceBaseUnits: "0",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "1101012331497033445",
+    });
+    expect(
+      snapshot.holdings.find(({ id }) => id === "morpho-steakhouse-usdc"),
+    ).toMatchObject({
+      kind: "vault-position",
+      underlyingBaseUnits: "999000",
+      readStatus: "ready",
     });
   });
 

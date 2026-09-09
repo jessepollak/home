@@ -202,6 +202,8 @@ async function readDirectHoldings(
     const match = listed ? byContract.get(key) : undefined;
     const ready =
       listed !== null && (match !== undefined || listed.complete);
+    // Cash omit is not a ready 0 by itself — RPC must agree (or return the
+    // on-chain amount). Vault underlying is never copied into cash.
     if (
       listed !== null &&
       match === undefined &&
