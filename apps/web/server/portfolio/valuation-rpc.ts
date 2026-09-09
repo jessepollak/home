@@ -332,17 +332,12 @@ async function executeOptionalChunk(
   const responses = new Map<number, RpcSuccess>();
   let parsed: unknown;
   try {
-    parsed = await transport(
-      fetchImpl,
-      rpcUrl,
-      batch.length === 1 ? batch[0]! : batch,
-      signal,
-    );
+    parsed = await transport(fetchImpl, rpcUrl, batch, signal);
   } catch {
     if (signal.aborted) throw new PortfolioValuationRpcError("Base RPC aborted.");
     return responses;
   }
-  const values = batch.length === 1 && !Array.isArray(parsed) ? [parsed] : parsed;
+  const values = parsed;
   if (!Array.isArray(values)) return responses;
   const requestedIds = new Set(batch.map(({ id }) => id));
   const seen = new Set<number>();

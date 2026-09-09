@@ -91,7 +91,10 @@ describe("valuation inventory RPC", () => {
     })(account, "EUR");
 
     const batches = requests.filter(Array.isArray) as unknown[][];
-    expect(batches.map((batch) => batch.length)).toEqual([10, 10, 1]);
+    expect(batches.map((batch) => batch.length)).toEqual([10, 10, 1, 1]);
+    expect(
+      (batches[3] as Array<{ id: number }>).map(({ id }) => id),
+    ).toEqual([11]);
     const firstBatch = batches[0] as Array<{ params: [{ to?: string }] }>;
     expect(
       firstBatch.some(
@@ -159,7 +162,7 @@ describe("valuation inventory RPC", () => {
         body.map((request) => {
           if (isIdrx(request)) {
             idrxAttempts += 1;
-            return rateLimited(request.id);
+            if (body.length > 1) return rateLimited(request.id);
           }
           return respondOk(request);
         }),
