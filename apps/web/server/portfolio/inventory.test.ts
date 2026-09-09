@@ -307,6 +307,7 @@ describe("Phase A portfolio inventory", () => {
 
   test("does not invent ready zeros when Token Balances pagination is truncated and cash RPC also fails", async () => {
     const snapshot = await createPortfolioInventoryReader({
+      cashVerifyRetryDelayMs: 0,
       listTokenBalances: async () => ({
         complete: false,
         balances: [
@@ -669,6 +670,7 @@ describe("Phase A portfolio inventory", () => {
     const snapshot = await createPortfolioInventoryReader({
       fetchImpl,
       rpcUrl: "https://rpc.example.test",
+      cashVerifyRetryDelayMs: 0,
       env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
       generateJwtImpl: async () => "signed-jwt",
       now: () => new Date("2026-09-09T01:00:00.000Z"),
