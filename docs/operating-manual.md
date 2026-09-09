@@ -171,6 +171,14 @@ Crew may review. Hannah's eng review can proceed. Hannah never merges.
 
 When a PR is ready for Jesse, swap the issue to `status:needs-jesse` (and say so on the PR). See [status label hygiene](#status-label-hygiene). Do not merge your own work. Do not treat a crew +1 as merge permission.
 
+### CloudAgent / Auto-review
+
+Jesse-locked, September 8, 2026 (~9:14pm PT). Standing yes on all CloudAgents for everyone on the `jessepollak/home` crew.
+
+- Hannah (Head of Engineering) launches and greenlights Auto-review / CloudAgent runs. No per-run Jesse approval card. Do not ping Jesse for CloudAgent greenlights.
+- Hannah still owns eng review (COMMENT LGTM on jessepollak-authored PRs).
+- Jesse remains final +1 and merge on product PRs.
+
 ## Daily domain quality reviews
 
 Weekdays ~9:00 PT. 15–20 min per lane. Async-first. Quiet if nothing actionable.
