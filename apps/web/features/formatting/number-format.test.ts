@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   formatPercentage,
+  formatPresentationTokenAmount,
+  formatSignedPercentChange,
   formatTokenAmount,
   formatUsdPrice,
+  presentationAssetClass,
 } from "./number-format";
 
 describe("financial number formatting", () => {
@@ -53,5 +56,71 @@ describe("financial number formatting", () => {
     expect(formatPercentage(null)).toBe("Unavailable");
     expect(formatPercentage(Number.NaN)).toBe("Unavailable");
     expect(formatPercentage(Number.NEGATIVE_INFINITY)).toBe("Unavailable");
+  });
+
+  test("classifies majors, stables, and memes without inventing a cash peg", () => {
+    expect(presentationAssetClass({ symbol: "ETH" })).toBe("major");
+    expect(presentationAssetClass({ symbol: "cbBTC" })).toBe("major");
+    expect(presentationAssetClass({ symbol: "NVDAc" })).toBe("major");
+    expect(presentationAssetClass({ symbol: "USDC" })).toBe("stable");
+    expect(presentationAssetClass({ cashCurrency: "IDR", symbol: "IDRX" })).toBe(
+      "stable",
+    );
+    expect(presentationAssetClass({ symbol: "DEGEN" })).toBe("meme");
+    expect(presentationAssetClass({ category: "meme", symbol: "HIGHER" })).toBe(
+      "meme",
+    );
+    expect(presentationAssetClass({ category: "crypto", symbol: "HIGHER" })).toBe(
+      "major",
+    );
+  });
+
+  test("bounds ETH majors to 4–6 dp and marks wei dust", () => {
+    expect(
+      formatPresentationTokenAmount("1101012331497033445", 18, "ETH"),
+    ).toBe("1.1010 ETH");
+    expect(
+      formatPresentationTokenAmount("50000000000000000", 18, "ETH"),
+    ).toBe("0.0500 ETH");
+    expect(
+      formatPresentationTokenAmount("1000000000000000", 18, "ETH"),
+    ).toBe("0.001 ETH");
+    expect(formatPresentationTokenAmount("1", 18, "ETH")).toBe("<0.000001 ETH");
+    expect(formatPresentationTokenAmount("0", 18, "ETH")).toBe("0 ETH");
+    expect(
+      formatPresentationTokenAmount("1101012331497033445", 18, "ETH"),
+    ).not.toContain("1.101012331497033445");
+  });
+
+  test("keeps stables at 2 dp and meme wholes at 0 dp", () => {
+    expect(
+      formatPresentationTokenAmount("10000000", 6, "USDC", {
+        cashCurrency: "USD",
+      }),
+    ).toBe("10.00 USDC");
+    expect(
+      formatPresentationTokenAmount("10000", 2, "IDRX", { cashCurrency: "IDR" }),
+    ).toBe("100.00 IDRX");
+    expect(
+      formatPresentationTokenAmount("45690152000000000000000000", 18, "JESSE", {
+        category: "meme",
+      }),
+    ).toBe("45,690,152 JESSE");
+    expect(
+      formatPresentationTokenAmount("500000000000000000", 18, "DEGEN", {
+        category: "meme",
+      }),
+    ).toBe("0.5 DEGEN");
+  });
+
+  test("formats Invest Δ% to two signed decimal places", () => {
+    expect(formatSignedPercentChange("+9.8%")).toBe("+9.80%");
+    expect(formatSignedPercentChange("1.25%")).toBe("+1.25%");
+    expect(formatSignedPercentChange("-0.667%")).toBe("-0.67%");
+    expect(formatSignedPercentChange("\u22120.67%")).toBe("-0.67%");
+    expect(formatSignedPercentChange(9.87)).toBe("+9.87%");
+    expect(formatSignedPercentChange(0)).toBe("+0.00%");
+    expect(formatSignedPercentChange("down")).toBeNull();
+    expect(formatSignedPercentChange(Number.NaN)).toBeNull();
   });
 });

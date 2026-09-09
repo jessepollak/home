@@ -53,6 +53,107 @@ export function formatPercentage(value: number | null | undefined): string {
   }).format(value);
 }
 
+export type PresentationAssetClass = "major" | "stable" | "meme";
+
+export type PresentationTokenAmountOptions = {
+  assetClass?: PresentationAssetClass;
+  cashCurrency?: string | null;
+  category?: "stock" | "crypto" | "meme";
+};
+
+const majorSymbols = new Set([
+  "ADA",
+  "BTC",
+  "CBADA",
+  "CBBTC",
+  "CBDOGE",
+  "CBETH",
+  "CBLTC",
+  "CBSOL",
+  "CBXRP",
+  "DOGE",
+  "ETH",
+  "LTC",
+  "SOL",
+  "WETH",
+  "XRP",
+  "AAPLC",
+  "GOOGLC",
+  "METAC",
+  "NVDAC",
+]);
+
+const stableSymbols = new Set([
+  "DAI",
+  "EURC",
+  "IDRX",
+  "USDBC",
+  "USDC",
+  "USDT",
+]);
+
+const signedPercentPattern = /^([+\u2212-])?(\d+(?:\.\d+)?)\s*%$/;
+
+/**
+ * Classifies an asset for presentation caps. Cash-denominated tokens are
+ * stables; Invest stock/crypto (and ETH/majors) use 4–6 dp; everything else
+ * follows the meme table.
+ */
+export function presentationAssetClass(
+  input: PresentationTokenAmountOptions & { symbol?: string } = {},
+): PresentationAssetClass {
+  if (input.assetClass) return input.assetClass;
+  if (input.cashCurrency) return "stable";
+  if (input.category === "meme") return "meme";
+  if (input.category === "stock" || input.category === "crypto") return "major";
+  const symbol = input.symbol?.trim().toUpperCase() ?? "";
+  if (stableSymbols.has(symbol)) return "stable";
+  if (majorSymbols.has(symbol)) return "major";
+  return "meme";
+}
+
+/**
+ * Presentation-only token amount with asset-class caps. Never emits full
+ * 18-decimal base precision. Signing and review stay on `formatBaseUnitAmount`.
+ */
+export function formatPresentationTokenAmount(
+  balanceBaseUnits: string,
+  decimals: number,
+  symbol: string,
+  options: PresentationTokenAmountOptions = {},
+): string {
+  const assetClass = presentationAssetClass({ ...options, symbol });
+  const { maximumFractionDigits, minimumFractionDigits } =
+    presentationFractionDigits(balanceBaseUnits, decimals, assetClass);
+  const amount = padFractionDigits(
+    formatTokenAmount(balanceBaseUnits, decimals, maximumFractionDigits),
+    minimumFractionDigits,
+  );
+  return `${amount} ${symbol}`;
+}
+
+/**
+ * Formats a signed price-change percentage for Invest rows. Always two
+ * fraction digits with an explicit +/−. Returns null when the input is not a
+ * percentage so callers do not invent a delta.
+ */
+export function formatSignedPercentChange(
+  value: string | number | null | undefined,
+): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    return signedPercent(value);
+  }
+
+  const match = signedPercentPattern.exec(value.trim());
+  if (!match) return null;
+  const absolute = Number(match[2]);
+  if (!Number.isFinite(absolute)) return null;
+  const negative = match[1] === "-" || match[1] === "\u2212";
+  return signedPercent(negative ? -absolute : absolute);
+}
+
 /**
  * Formats canonical integer token base units for compact display. The exact
  * `formatBaseUnitAmount` result remains available for signing and calculations.
@@ -168,4 +269,56 @@ function roundDigits(digits: string, scale: number, fractionDigits: number): str
 
 function groupDigits(value: string): string {
   return value.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function presentationFractionDigits(
+  balanceBaseUnits: string,
+  decimals: number,
+  assetClass: PresentationAssetClass,
+): { maximumFractionDigits: number; minimumFractionDigits: number } {
+  if (assetClass === "stable") {
+    const digits = Math.min(2, decimals);
+    return { maximumFractionDigits: digits, minimumFractionDigits: digits };
+  }
+  if (assetClass === "meme") {
+    if (amountMeetsThreshold(balanceBaseUnits, decimals, "1")) {
+      return { maximumFractionDigits: 0, minimumFractionDigits: 0 };
+    }
+    const digits = Math.min(6, decimals);
+    return { maximumFractionDigits: digits, minimumFractionDigits: 0 };
+  }
+  if (amountMeetsThreshold(balanceBaseUnits, decimals, "0.01")) {
+    const digits = Math.min(4, decimals);
+    return { maximumFractionDigits: digits, minimumFractionDigits: digits };
+  }
+  const digits = Math.min(6, decimals);
+  return { maximumFractionDigits: digits, minimumFractionDigits: 0 };
+}
+
+function amountMeetsThreshold(
+  balanceBaseUnits: string,
+  decimals: number,
+  threshold: string,
+): boolean {
+  return !isLessThan(
+    {
+      negative: false,
+      digits: balanceBaseUnits.replace(/^0+/, "") || "0",
+      scale: decimals,
+    },
+    threshold,
+  );
+}
+
+function padFractionDigits(value: string, minimumFractionDigits: number): string {
+  if (minimumFractionDigits === 0 || value.startsWith("<")) return value;
+  const [whole, fraction = ""] = value.split(".");
+  if (fraction.length >= minimumFractionDigits) return value;
+  return `${whole}.${fraction.padEnd(minimumFractionDigits, "0")}`;
+}
+
+function signedPercent(value: number): string {
+  if (value === 0) return "+0.00%";
+  const sign = value > 0 ? "+" : "-";
+  return `${sign}${Math.abs(value).toFixed(2)}%`;
 }

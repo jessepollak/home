@@ -717,9 +717,9 @@ describe("login-state home experience", () => {
     expect(page().getByText("US dollar")).toBeTruthy();
     expect(page().getByText("Brazilian real")).toBeTruthy();
     expect(page().getByText("Ethereum")).toBeTruthy();
-    expect(page().getByText("0.05 ETH")).toBeTruthy();
+    expect(page().getByText("0.0500 ETH")).toBeTruthy();
     expect(page().getByText("Indonesian rupiah")).toBeTruthy();
-    expect(page().getByText("100 IDRX")).toBeTruthy();
+    expect(page().getByText("100.00 IDRX")).toBeTruthy();
     expect(page().queryByText("Euro")).toBeNull();
     expect(page().getAllByText("$0.00").length).toBeGreaterThanOrEqual(1);
     expect(page().getAllByText("R$ 0,00").length).toBeGreaterThanOrEqual(1);
@@ -751,6 +751,51 @@ describe("login-state home experience", () => {
     expect(
       new Headers(portfolioRequest?.init?.headers).get(ACCOUNT_PROVIDER_HEADER),
     ).toBe("cdp-embedded");
+  });
+
+  test("renders priced ETH with fiat primary and bounded native under the name", async () => {
+    render(
+      <AccountWalletSessionOwner
+        sdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={async () => Response.json(session())}
+      >
+        <HomeExperience
+          detectedCountry="US"
+          routeMode="dashboard"
+          savingsContent={<section aria-label="Savings module">Savings fixture</section>}
+          investContent={<section aria-label="Invest module">Invest fixture</section>}
+          assetBalances={{
+            status: "ready",
+            displayTotal: "$4,812.40",
+            items: [
+              {
+                id: "asset:eth",
+                group: "asset",
+                name: "Ethereum",
+                detail: "ETH",
+                displayBalance: "$4,812.40",
+                displayContext: "1.1010 ETH",
+              },
+              {
+                id: "asset:eth-dust",
+                group: "asset",
+                name: "Ethereum",
+                detail: "ETH",
+                displayBalance: "<$0.01",
+                displayContext: "<0.000001 ETH",
+              },
+            ],
+          }}
+        />
+      </AccountWalletSessionOwner>,
+    );
+
+    await page().findByRole("heading", { name: "Balances" });
+    expect(page().getAllByText("$4,812.40").length).toBeGreaterThanOrEqual(1);
+    expect(page().getByText("1.1010 ETH")).toBeTruthy();
+    expect(page().getByText("<$0.01")).toBeTruthy();
+    expect(page().getByText("<0.000001 ETH")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("1.101012331497033445");
   });
 
   test("renders an incomplete valuation with no useful subtotal as unavailable", async () => {

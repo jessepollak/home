@@ -185,11 +185,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-.quoteLine {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 6px;
+.quote strong,
+.change {
+  white-space: nowrap;
 }
 
 .changeUp {
@@ -225,11 +223,18 @@
   letter-spacing: -0.06em;
   line-height: 0.92;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .priceHeader span {
   color: var(--home-muted);
   font-size: 0.86rem;
+}
+
+.priceHeader .change {
+  font-size: 0.86rem;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .chartBlock {

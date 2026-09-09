@@ -36,12 +36,10 @@ export function DiscoverAssetRow({
           <small>{asset.displaySymbol}</small>
         </span>
         <span className={styles.quote}>
-          <span className={styles.quoteLine}>
-            <strong>{price.value}</strong>
-            {change !== "—" ? (
-              <small className={`${styles.change} ${changeTone}`}>{change}</small>
-            ) : null}
-          </span>
+          <strong>{price.value}</strong>
+          {change !== "—" ? (
+            <small className={`${styles.change} ${changeTone}`}>{change}</small>
+          ) : null}
         </span>
       </button>
     </li>

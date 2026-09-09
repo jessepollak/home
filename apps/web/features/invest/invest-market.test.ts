@@ -51,6 +51,19 @@ describe("invest market display", () => {
       value: "$231.71",
       changeLabel: "+1.25%",
     });
+    expect(getMarketDisplay("cate", {
+      status: "ready",
+      snapshots: [{
+        assetId: "cate",
+        displayPrice: "$0.003977",
+        asOf: "2026-09-07T12:00:00Z",
+        sourceLabel: "Fixture source",
+        changeLabel: "+9.8%",
+      }],
+    })).toMatchObject({
+      value: "$0.003977",
+      changeLabel: "+9.80%",
+    });
   });
 
   test("uses a stable error fallback when no provider message is present", () => {

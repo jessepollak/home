@@ -122,7 +122,7 @@ describe("ActivityPanel", () => {
     );
 
     await waitFor(() => expect(view.getByText("Received")).toBeTruthy());
-    expect(view.getByText("+10 USDC")).toBeTruthy();
+    expect(view.getByText("+10.00 USDC")).toBeTruthy();
   });
 
   test("keeps the pagination window and first-page freshness stable while deduplicating overlap", async () => {

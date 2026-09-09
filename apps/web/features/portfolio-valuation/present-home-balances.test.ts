@@ -242,11 +242,164 @@ describe("presentPortfolioValuation", () => {
         group: "asset",
         name: "Ethereum",
         detail: "ETH",
-        displayBalance: "0.05 ETH",
+        displayBalance: "0.0500 ETH",
         currencyCode: null,
       },
     ]);
     expect(JSON.stringify(presented.items)).not.toContain("USDC");
+    expect(
+      JSON.stringify(presented.items.filter((item) => item.group === "asset")),
+    ).not.toContain("$");
+  });
+
+  test("keeps native primary when a priced line is a placeholder zero", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: nativeEthAsset.id,
+              assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+              name: nativeEthAsset.name,
+              symbol: nativeEthAsset.symbol,
+              balanceBaseUnits: "50000000000000000",
+            }),
+          ],
+          omissions: [],
+        },
+        lines: [
+          {
+            holdingAssetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+            valueCurrency: "BRL",
+            value: { atoms: "0", scale: 18 },
+            status: "priced",
+            reason: null,
+          },
+        ],
+      }),
+      error: null,
+    });
+
+    expect(presented.items.find((item) => item.group === "asset")).toMatchObject({
+      displayBalance: "0.0500 ETH",
+    });
+    expect(presented.items.find((item) => item.group === "asset")?.displayContext).toBeUndefined();
+  });
+
+  test("uses fiat primary and bounded native secondary when ETH is priced", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "US",
+        quoteCurrency: "USD",
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: nativeEthAsset.id,
+              assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+              name: nativeEthAsset.name,
+              symbol: nativeEthAsset.symbol,
+              balanceBaseUnits: "1101012331497033445",
+            }),
+          ],
+          omissions: [],
+        },
+        lines: [
+          {
+            holdingAssetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+            valueCurrency: "USD",
+            value: { atoms: "481240", scale: 2 },
+            status: "priced",
+            reason: null,
+          },
+        ],
+      }),
+      error: null,
+    });
+
+    expect(presented.items.find((item) => item.group === "asset")).toEqual({
+      id: `asset:${PORTFOLIO_NATIVE_ASSET_KEY}`,
+      group: "asset",
+      name: "Ethereum",
+      detail: "ETH",
+      displayBalance: "$4,812.40",
+      displayContext: "1.1010 ETH",
+      currencyCode: null,
+    });
+    expect(JSON.stringify(presented.items)).not.toContain("1.101012331497033445");
+  });
+
+  test("bounds unpriced ETH and dust instead of rendering eighteen fractional digits", () => {
+    const wrap = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: nativeEthAsset.id,
+              assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+              name: nativeEthAsset.name,
+              symbol: nativeEthAsset.symbol,
+              balanceBaseUnits: "1101012331497033445",
+            }),
+          ],
+          omissions: [],
+        },
+      }),
+      error: null,
+    });
+    const dust = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "US",
+        quoteCurrency: "USD",
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: nativeEthAsset.id,
+              assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+              name: nativeEthAsset.name,
+              symbol: nativeEthAsset.symbol,
+              balanceBaseUnits: "1",
+            }),
+          ],
+          omissions: [],
+        },
+        lines: [
+          {
+            holdingAssetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+            valueCurrency: "USD",
+            value: { atoms: "4", scale: 3 },
+            status: "priced",
+            reason: null,
+          },
+        ],
+      }),
+      error: null,
+    });
+
+    expect(wrap.items.find((item) => item.group === "asset")).toMatchObject({
+      displayBalance: "1.1010 ETH",
+    });
+    expect(JSON.stringify(wrap.items)).not.toContain("1.101012331497033445");
+    expect(dust.items.find((item) => item.group === "asset")).toEqual({
+      id: `asset:${PORTFOLIO_NATIVE_ASSET_KEY}`,
+      group: "asset",
+      name: "Ethereum",
+      detail: "ETH",
+      displayBalance: "<$0.01",
+      displayContext: "<0.000001 ETH",
+      currencyCode: null,
+    });
   });
 
   test("omits zero ETH and keeps selected local cash out of the asset list", () => {
@@ -368,7 +521,7 @@ describe("presentPortfolioValuation", () => {
 
     expect(presented.items.map((item) => [item.group, item.name, item.displayBalance])).toEqual([
       ["cash", "US dollar", "$10.00"],
-      ["asset", "Indonesian rupiah", "100 IDRX"],
+      ["asset", "Indonesian rupiah", "100.00 IDRX"],
     ]);
   });
 });

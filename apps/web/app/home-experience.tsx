@@ -667,6 +667,7 @@ function HomePanel({
                 }
                 iconTone="mark"
                 label={asset.name}
+                context={asset.displayContext}
                 value={asset.displayBalance}
                 valueTone={asset.tone}
               />

@@ -1,7 +1,9 @@
-import { formatBaseUnitAmount } from "@/features/portfolio";
+import { formatPresentationTokenAmount } from "@/features/formatting";
 import type {
   CashBucket,
+  DirectPortfolioHolding,
   PortfolioValuationSnapshot,
+  ValuationLine,
 } from "@/server/valuation/types";
 import {
   formatPresentationFiat,
@@ -129,17 +131,42 @@ function presentAssetRows(
     }
     if (holding.balanceBaseUnits === "0") continue;
 
+    const nativeLabel = formatPresentationTokenAmount(
+      holding.balanceBaseUnits,
+      holding.decimals,
+      holding.symbol,
+      {
+        cashCurrency: holding.cashCurrency,
+        category: holding.assetKind === "native" ? "crypto" : undefined,
+      },
+    );
+    const pricedFiat = pricedDisplayFiat(
+      snapshot.lines.find(
+        (line) => line.holdingAssetKey === holding.assetKey,
+      ),
+      holding,
+    );
+
     items.push({
       id: `asset:${holding.assetKey}`,
       group: "asset",
       name: holding.name,
       detail: holding.symbol,
-      displayBalance: `${formatBaseUnitAmount(
-        holding.balanceBaseUnits,
-        holding.decimals,
-      )} ${holding.symbol}`,
+      displayBalance: pricedFiat ?? nativeLabel,
+      ...(pricedFiat ? { displayContext: nativeLabel } : {}),
       currencyCode: holding.cashCurrency,
     });
   }
   return items;
+}
+
+function pricedDisplayFiat(
+  line: ValuationLine | undefined,
+  holding: DirectPortfolioHolding,
+): string | null {
+  if (line?.status !== "priced" || !line.value) return null;
+  if (line.value.atoms === "0" && holding.balanceBaseUnits !== "0") {
+    return null;
+  }
+  return formatPresentationFiat(line.value, line.valueCurrency);
 }

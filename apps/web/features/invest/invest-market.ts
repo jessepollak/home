@@ -1,4 +1,4 @@
-import { formatUsdPrice } from "@/features/formatting";
+import { formatSignedPercentChange, formatUsdPrice } from "@/features/formatting";
 
 export type MarketSnapshot = {
   assetId: string;
@@ -65,7 +65,9 @@ export function getMarketDisplay(
       value: formattedPrice ?? snapshot.displayPrice,
       detail: `${snapshot.sourceLabel} · ${snapshot.asOf}`,
       sourceUrl: snapshot.sourceUrl,
-      changeLabel: snapshot.changeLabel,
+      changeLabel: snapshot.changeLabel
+        ? formatSignedPercentChange(snapshot.changeLabel) ?? snapshot.changeLabel
+        : undefined,
       tone: "ready",
     };
   }

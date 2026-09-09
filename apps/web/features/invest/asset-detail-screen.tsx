@@ -23,6 +23,9 @@ export function AssetDetailScreen({
   const [range, setRange] = useState<MarketPriceRange>("1W");
   const history = usePriceHistory(asset.id, range);
   const price = getMarketDisplay(asset.id, market);
+  const change = price.changeLabel ?? "—";
+  const changeTone =
+    change.startsWith("+") ? styles.changeUp : change.startsWith("-") ? styles.changeDown : "";
   return (
     <section
       className={`${styles.experience} ${styles.detailExperience}`}
@@ -46,6 +49,9 @@ export function AssetDetailScreen({
 
       <div className={styles.priceHeader}>
         <strong>{price.value}</strong>
+        {change !== "—" ? (
+          <small className={`${styles.change} ${changeTone}`}>{change}</small>
+        ) : null}
         <span>
           {asset.representation.tokenSymbol} · Base
         </span>

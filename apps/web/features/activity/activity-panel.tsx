@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { ActivityRow } from "@/components/finance-rows";
-import { formatTokenAmount } from "@/features/formatting";
+import { formatPresentationTokenAmount } from "@/features/formatting";
 import styles from "./activity.module.css";
 import { useActivity } from "./use-activity";
 import {
@@ -164,7 +164,12 @@ function TransferActivityRow({ transfer }: { transfer: ActivityTransfer }) {
         </time>
       }
       contextTitle={fullDate}
-      value={`${sign}${formatTokenAmount(transfer.amountBaseUnits, asset.decimals)} ${asset.symbol}`}
+      value={`${sign}${formatPresentationTokenAmount(
+        transfer.amountBaseUnits,
+        asset.decimals,
+        asset.symbol,
+        { cashCurrency: asset.symbol === "USDC" ? "USD" : null },
+      )}`}
       explorer={{
         href: `https://basescan.org/tx/${transfer.transactionHash}`,
         label: `View ${directionLabel.toLowerCase()} ${asset.symbol} transfer on BaseScan`,

@@ -78,6 +78,9 @@
   color: var(--home-ink);
   font-size: 0.9rem;
   font-weight: 700;
+}
+
+.identity strong {
   overflow-wrap: anywhere;
 }
 
@@ -86,13 +89,17 @@
   color: var(--home-muted);
   font-size: 0.72rem;
   line-height: 1.25;
-  overflow-wrap: anywhere;
 }
 
 .value {
-  max-width: min(11rem, 38vw);
   justify-items: end;
   text-align: right;
+}
+
+.value strong,
+.value small,
+.identity small {
+  white-space: nowrap;
 }
 
 .value[data-tone="accent"] strong {
@@ -166,10 +173,6 @@
   .identity small,
   .value small {
     font-size: 0.68rem;
-  }
-
-  .value {
-    max-width: 7.4rem;
   }
 
   .explorer {

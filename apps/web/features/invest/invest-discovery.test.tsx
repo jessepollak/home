@@ -43,6 +43,7 @@ const readyCrypto: MarketDataState = {
       displayPrice: "$64210",
       asOf: "2026-09-07T20:00:00.000Z",
       sourceLabel: "Codex",
+      changeLabel: "-0.667%",
     },
   ],
 };
@@ -145,6 +146,7 @@ describe("invest discovery flow", () => {
     );
     expect(pushCalls).toEqual(["/dashboard?panel=invest&asset=cbbtc"]);
     expect(page().getByText("$64,210.00")).toBeTruthy();
+    expect(page().getByText("-0.67%")).toBeTruthy();
     expect(page().getByText("cbBTC · Base")).toBeTruthy();
     expect(page().getByRole("group", { name: "Price range" }).textContent).toContain(
       "1D",

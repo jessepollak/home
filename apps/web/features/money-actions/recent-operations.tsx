@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ActivityRow } from "@/components/finance-rows";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
-import { formatTokenAmount } from "@/features/formatting";
+import { formatPresentationTokenAmount } from "@/features/formatting";
 import type {
   MoneyActionOperationStatus,
   PreparedMoneyAction,
@@ -214,7 +214,12 @@ function OperationRow({
     minute: "2-digit",
   }).format(new Date(operation.updatedAt));
   const value = amount
-    ? `${amount.direction === "spend" ? "−" : "+"}${amount.estimated ? "~" : ""}${formatTokenAmount(amount.amountBaseUnits, amount.decimals)} ${amount.symbol}`
+    ? `${amount.direction === "spend" ? "−" : "+"}${amount.estimated ? "~" : ""}${formatPresentationTokenAmount(
+        amount.amountBaseUnits,
+        amount.decimals,
+        amount.symbol,
+        { cashCurrency: amount.symbol === "USDC" ? "USD" : null },
+      )}`
     : status;
   return (
     <ActivityRow
