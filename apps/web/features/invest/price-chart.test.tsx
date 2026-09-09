@@ -273,6 +273,7 @@ describe("PriceChart states", () => {
     expect(document.querySelector('[data-plot-slot="warm"]')?.getAttribute("data-plot-key")).toContain(
       "1D",
     );
+    expect(document.querySelectorAll("[data-testid='liveline']").length).toBe(2);
     expect(livelineHadDegenerateFrame()).toBe(false);
 
     await waitFor(

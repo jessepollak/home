@@ -81,41 +81,45 @@ function ChartBody({
     [history.points],
   );
   const plot = useHeldLivelinePlot(history.status, incoming, range);
-  const { foreground, warming } = usePresentedLivelinePlot(plot, reduceMotion);
-  const firstRevealed = useFirstLivelineReveal(!!foreground, reduceMotion);
-  const firstPaintHidden = !!foreground && !firstRevealed;
+  const { revealed, pending } = usePresentedLivelinePlot(plot, reduceMotion);
+  const blankCover = !!pending && !revealed;
+  const held =
+    pending && revealed && pending.key !== revealed.key ? revealed : null;
+  const base = pending ?? revealed;
   const unavailable =
     history.status !== "loading" &&
     (history.status === "error" || !plot) &&
-    !foreground;
-  const waitingFirstPaint = (!foreground && !unavailable) || firstPaintHidden;
+    !revealed &&
+    !pending;
+  const waitingFirstPaint = blankCover || (!base && !unavailable);
   const stageRole = waitingFirstPaint || unavailable ? "status" : "img";
+  const visible = held ?? revealed ?? base;
   const stageLabel = waitingFirstPaint
     ? "Loading price history"
-    : unavailable || !foreground
+    : unavailable || !visible
       ? undefined
-      : `${foreground.range} price history`;
+      : `${visible.range} price history`;
 
   return (
     <div className={styles.chartStage} role={stageRole} aria-label={stageLabel}>
-      {foreground ? (
+      {base ? (
         <PlotSlot
-          key={foreground.key}
-          plot={foreground}
+          key={base.key}
+          plot={base}
+          slot={held ? "warm" : "live"}
+          pending={blankCover}
+          reduceMotion={reduceMotion}
+        />
+      ) : null}
+      {held ? (
+        <PlotSlot
+          key={held.key}
+          plot={held}
           slot="live"
-          pending={firstPaintHidden}
           reduceMotion={reduceMotion}
         />
       ) : null}
-      {warming && warming.key !== foreground?.key ? (
-        <PlotSlot
-          key={warming.key}
-          plot={warming}
-          slot="warm"
-          reduceMotion={reduceMotion}
-        />
-      ) : null}
-      {firstPaintHidden ? (
+      {blankCover ? (
         <div className={styles.plotCover} data-plot-cover="true" aria-hidden />
       ) : null}
       {unavailable ? (
@@ -157,53 +161,47 @@ function useHeldLivelinePlot(
   return held;
 }
 
+/**
+ * Last-good stays painted on top. The next series reveals underneath at full
+ * opacity. After chartReveal, only the overlay unmounts — incoming never
+ * appears via opacity 0→1 (that retriggers Liveline's top-flat reveal).
+ */
 function usePresentedLivelinePlot(
   plot: HeldLivelinePlot | null,
   reduceMotion: boolean,
 ) {
-  const [foreground, setForeground] = useState<HeldLivelinePlot | null>(null);
-  const [warming, setWarming] = useState<HeldLivelinePlot | null>(null);
+  const [revealed, setRevealed] = useState<HeldLivelinePlot | null>(null);
+  const [pending, setPending] = useState<HeldLivelinePlot | null>(null);
 
-  let nextForeground = foreground;
-  let nextWarming = warming;
+  let nextRevealed = revealed;
+  let nextPending = pending;
 
   if (!plot) {
-    nextForeground = null;
-    nextWarming = null;
-  } else if (reduceMotion || !foreground || foreground.key === plot.key) {
-    nextForeground = plot;
-    nextWarming = null;
-  } else if (warming?.key !== plot.key) {
-    nextWarming = plot;
+    nextRevealed = null;
+    nextPending = null;
+  } else if (reduceMotion || revealed?.key === plot.key) {
+    nextRevealed = plot;
+    nextPending = null;
+  } else if (!revealed) {
+    nextPending = plot;
+  } else if (pending?.key !== plot.key) {
+    nextPending = plot;
   }
 
-  if (nextForeground !== foreground) setForeground(nextForeground);
-  if (nextWarming !== warming) setWarming(nextWarming);
+  if (nextRevealed !== revealed) setRevealed(nextRevealed);
+  if (nextPending !== pending) setPending(nextPending);
 
-  const warmingKey = nextWarming?.key ?? null;
+  const pendingKey = nextPending?.key ?? null;
   useEffect(() => {
-    if (!plot || !warmingKey || plot.key !== warmingKey) return;
+    if (reduceMotion || !plot || !pendingKey || plot.key !== pendingKey) return;
     const timer = window.setTimeout(() => {
-      setForeground(plot);
-      setWarming(null);
+      setRevealed(plot);
+      setPending(null);
     }, LIVELINE_SWAP_SETTLE_MS);
     return () => window.clearTimeout(timer);
-  }, [plot, warmingKey]);
+  }, [plot, pendingKey, reduceMotion]);
 
-  return { foreground: nextForeground, warming: nextWarming };
-}
-
-/** Cover the first live plot until Liveline's chartReveal can finish underneath. */
-function useFirstLivelineReveal(hasForeground: boolean, reduceMotion: boolean) {
-  const [revealed, setRevealed] = useState(false);
-
-  useEffect(() => {
-    if (!hasForeground || revealed || reduceMotion) return;
-    const timer = window.setTimeout(() => setRevealed(true), LIVELINE_SWAP_SETTLE_MS);
-    return () => window.clearTimeout(timer);
-  }, [hasForeground, reduceMotion, revealed]);
-
-  return reduceMotion || revealed;
+  return { revealed: nextRevealed, pending: nextPending };
 }
 
 function PlotSlot({
