@@ -91,6 +91,15 @@ export function planCurrentStatusLabelChanges(eventName, action, record) {
   if (action === "closed") {
     return { issueNumber, labelsToRemove: [], reason: "current-record-open" };
   }
+  if (record.draft === true) {
+    return {
+      issueNumber,
+      labelsToRemove: labels.filter((label) =>
+        deliveryDestinationConstants.promotionLabels.includes(label)
+      ),
+      reason: "draft-promotion-guard",
+    };
+  }
   if (isDirectMainDestination(record)) {
     return { issueNumber, labelsToRemove: [], reason: "direct-main" };
   }

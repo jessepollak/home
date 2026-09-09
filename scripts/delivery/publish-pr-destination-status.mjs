@@ -13,12 +13,28 @@ import {
 
 export const DESTINATION_STATUS_CONTEXT = "delivery/pr-destination";
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
+const PENDING_DESCRIPTION = "PR destination verification is pending refresh.";
 
 function parseRepository(value) {
   if (typeof value !== "string" || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value)) {
     throw new Error("unsafe repository name");
   }
   return value;
+}
+
+function parseHeadSha(value, source) {
+  if (typeof value !== "string" || !SHA_PATTERN.test(value)) {
+    throw new Error(`unsafe ${source} head SHA`);
+  }
+  return value;
+}
+
+function parseMaxAttempts(value) {
+  const maxAttempts = value ?? 4;
+  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) {
+    throw new Error("unsafe reconciliation attempt count");
+  }
+  return maxAttempts;
 }
 
 function githubHeaders(token, hasBody = false) {
@@ -49,11 +65,7 @@ function normalizeLivePullRequest(value, expected) {
   if (value.number !== expected.pullRequestNumber) throw new Error("GitHub pull request number mismatch");
   if (value.base?.repo?.full_name !== expected.repository) throw new Error("GitHub pull request repository mismatch");
   if (value.state !== "open" && value.state !== "closed") throw new Error("unsafe pull request state");
-  if (typeof value.head?.sha !== "string" || !SHA_PATTERN.test(value.head.sha)) {
-    throw new Error("unsafe pull request head SHA");
-  }
-  pullRequestLabels(value);
-  evaluatePullRequestDestination(value);
+  parseHeadSha(value.head?.sha, "pull request");
   return value;
 }
 
@@ -92,9 +104,9 @@ function statusDescription(result) {
   return result.message.slice(0, 140);
 }
 
-async function publishStatus(pullRequest, result, api) {
+async function publishCommitStatus(headSha, state, description, api) {
   const endpoint = new URL(
-    `/repos/${api.repository}/statuses/${pullRequest.head.sha}`,
+    `/repos/${api.repository}/statuses/${headSha}`,
     api.apiUrl,
   );
   const response = await api.fetchImpl(endpoint, {
@@ -102,13 +114,26 @@ async function publishStatus(pullRequest, result, api) {
     headers: githubHeaders(api.token, true),
     body: JSON.stringify({
       context: DESTINATION_STATUS_CONTEXT,
-      description: statusDescription(result),
-      state: result.allowed ? "success" : "failure",
+      description,
+      state,
     }),
   });
   if (response.status !== 201) {
     throw new Error(`GitHub commit-status publication failed with HTTP ${response.status}`);
   }
+}
+
+async function publishPending(headSha, api) {
+  await publishCommitStatus(headSha, "pending", PENDING_DESCRIPTION, api);
+}
+
+async function publishFinalStatus(pullRequest, result, api) {
+  await publishCommitStatus(
+    pullRequest.head.sha,
+    result.allowed ? "success" : "failure",
+    statusDescription(result),
+    api,
+  );
 }
 
 export async function publishCurrentHeadDestinationStatus(payload, options) {
@@ -117,45 +142,77 @@ export async function publishCurrentHeadDestinationStatus(payload, options) {
     expectedRepository: api.repository,
   });
   if (identity.repository !== api.repository) throw new Error("event repository is required");
+  const eventHeadSha = parseHeadSha(payload.pull_request?.head?.sha, "event pull request");
+  const maxAttempts = parseMaxAttempts(options.maxAttempts);
 
-  let current = await fetchLivePullRequest(identity, api);
-  const maxAttempts = options.maxAttempts ?? 4;
-  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) {
-    throw new Error("unsafe reconciliation attempt count");
-  }
+  let successfulHeadSha;
+  try {
+    await publishPending(eventHeadSha, api);
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    if (current.state !== "open") {
-      return { allowed: false, headSha: current.head.sha, published: false, reason: "pull-request-closed" };
+    let current = await fetchLivePullRequest(identity, api);
+    if (current.head.sha !== eventHeadSha) await publishPending(current.head.sha, api);
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      if (current.state !== "open") {
+        return { allowed: false, headSha: current.head.sha, published: false, reason: "pull-request-closed" };
+      }
+
+      const result = evaluatePullRequestDestination(current);
+      const confirmed = await fetchLivePullRequest(identity, api);
+      if (confirmed.head.sha !== current.head.sha) await publishPending(confirmed.head.sha, api);
+      if (snapshotFingerprint(confirmed) !== snapshotFingerprint(current)) {
+        current = confirmed;
+        continue;
+      }
+
+      await publishFinalStatus(current, result, api);
+      successfulHeadSha = result.allowed ? current.head.sha : undefined;
+
+      const afterPublication = await fetchLivePullRequest(identity, api);
+      if (afterPublication.state === "closed") {
+        return {
+          ...result,
+          context: DESTINATION_STATUS_CONTEXT,
+          headSha: current.head.sha,
+          published: true,
+        };
+      }
+      if (afterPublication.head.sha !== current.head.sha) {
+        await publishPending(afterPublication.head.sha, api);
+      }
+      if (snapshotFingerprint(afterPublication) === snapshotFingerprint(current)) {
+        return {
+          ...result,
+          context: DESTINATION_STATUS_CONTEXT,
+          headSha: current.head.sha,
+          published: true,
+        };
+      }
+
+      if (successfulHeadSha) {
+        await publishPending(successfulHeadSha, api);
+        successfulHeadSha = undefined;
+      }
+      current = afterPublication;
     }
 
-    const result = evaluatePullRequestDestination(current);
-    const confirmed = await fetchLivePullRequest(identity, api);
-    if (snapshotFingerprint(confirmed) !== snapshotFingerprint(current)) {
-      current = confirmed;
-      continue;
+    if (current.state === "open") {
+      await publishFinalStatus(current, {
+        allowed: false,
+        message: "PR changed during destination verification; retry required.",
+      }, api);
     }
-
-    await publishStatus(current, result, api);
-    const afterPublication = await fetchLivePullRequest(identity, api);
-    if (afterPublication.state === "closed" || snapshotFingerprint(afterPublication) === snapshotFingerprint(current)) {
-      return {
-        ...result,
-        context: DESTINATION_STATUS_CONTEXT,
-        headSha: current.head.sha,
-        published: true,
-      };
+    throw new Error("pull request changed repeatedly while publishing destination status");
+  } catch (error) {
+    if (successfulHeadSha) {
+      try {
+        await publishPending(successfulHeadSha, api);
+      } catch {
+        // The original error remains authoritative; this retry is deliberately bounded.
+      }
     }
-    current = afterPublication;
+    throw error;
   }
-
-  if (current.state === "open") {
-    await publishStatus(current, {
-      allowed: false,
-      message: "PR changed during destination verification; retry required.",
-    }, api);
-  }
-  throw new Error("pull request changed repeatedly while publishing destination status");
 }
 
 async function main() {

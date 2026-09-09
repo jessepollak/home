@@ -37,6 +37,18 @@ test("merged PR cleanup only plans status-label removals for that PR", async () 
   assert.equal(JSON.stringify(plan).includes("70"), false);
 });
 
+test("a closed draft still removes every status label rather than only promotion labels", async () => {
+  const payload = await fixture("merged-pr");
+  payload.pull_request.draft = true;
+  payload.pull_request.labels.push({ name: "status:working" });
+
+  assert.deepEqual(planStatusLabelChanges("pull_request_target", payload), {
+    issueNumber: 112,
+    labelsToRemove: ["status:needs-jesse", "status:working"],
+    reason: "merged-record-cleanup",
+  });
+});
+
 test("stack guard removes promotion labels but does not add or replace labels", async () => {
   const payload = await fixture("promoted-stacked");
   const plan = planStatusLabelChanges("pull_request_target", payload);
@@ -53,6 +65,34 @@ test("direct-main PR labels are left unchanged while the PR is open", async () =
     issueNumber: 112,
     labelsToRemove: [],
     reason: "direct-main",
+  });
+});
+
+test("converted-to-draft removes only promotion labels from a live direct-main draft", async () => {
+  const payload = await fixture("direct-main");
+  payload.action = "converted_to_draft";
+  payload.pull_request.draft = true;
+  payload.pull_request.labels.push(
+    { name: "status:working" },
+    { name: "status:needs-jesse" },
+  );
+
+  assert.deepEqual(planStatusLabelChanges("pull_request_target", payload), {
+    issueNumber: 112,
+    labelsToRemove: ["status:ready-for-review", "status:needs-jesse"],
+    reason: "draft-promotion-guard",
+  });
+});
+
+test("a current draft removes promotion labels even when another metadata event triggered cleanup", async () => {
+  const payload = await fixture("direct-main");
+  payload.action = "edited";
+  payload.pull_request.draft = true;
+
+  assert.deepEqual(planStatusLabelChanges("pull_request_target", payload), {
+    issueNumber: 112,
+    labelsToRemove: ["status:ready-for-review"],
+    reason: "draft-promotion-guard",
   });
 });
 
@@ -127,6 +167,33 @@ test("a stale PR close event skips deletion after the pull request is reopened",
   });
   assert.deepEqual(calls.map((call) => call.method), ["GET"]);
   assert.match(calls[0].url, /\/repos\/jessepollak\/home\/pulls\/112$/);
+});
+
+test("a stale converted-to-draft event skips promotion deletion after the PR is live-undrafted", async () => {
+  const payload = await fixture("direct-main");
+  payload.action = "converted_to_draft";
+  payload.pull_request.draft = true;
+  const currentPullRequest = structuredClone(payload.pull_request);
+  currentPullRequest.draft = false;
+  const calls = [];
+
+  const result = await cleanupStatusLabelsForEvent("pull_request_target", payload, {
+    repository: "jessepollak/home",
+    apiUrl: "https://api.github.test",
+    token: "fixture-token",
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), method: init.method });
+      return jsonResponse(currentPullRequest);
+    },
+  });
+
+  assert.deepEqual(result, {
+    issueNumber: 112,
+    labelsToRemove: [],
+    reason: "direct-main",
+    removed: [],
+  });
+  assert.deepEqual(calls.map((call) => call.method), ["GET"]);
 });
 
 test("a stale stacked event skips promotion deletion after retarget to main", async () => {
