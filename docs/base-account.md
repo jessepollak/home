@@ -30,7 +30,7 @@ An initial Base sign-in may create a separate CDP user from an existing email lo
 ## Operator setup
 
 1. Complete an independent security review of the connector, SIWE verification, and server account-selection diff before enabling the flag for a real wallet test or deployment.
-2. In the same CDP project used by Home, configure the exact local or deployed web origin as an allowed origin and enable SIWE authentication if the project's authentication settings require explicit method enablement.
+2. In the same CDP project used by Home, configure the exact local or deployed web origin as an allowed origin and enable SIWE authentication if the project's authentication settings require explicit method enablement. Hosted smoke uses the forever-allowlisted staging/prod host by default; add a Vercel preview origin only when that PR must demo Base Account there. Same origin must appear on Embedded Wallet CORS **and** SIWE / Clients — Onramp wildcards do not count. See [CDP preview auth](cdp-setup.md#preview-auth) and [#67](https://github.com/jessepollak/home/issues/67).
 3. Keep the existing `NEXT_PUBLIC_CDP_PROJECT_ID`, `CDP_API_KEY_ID`, and `CDP_API_KEY_SECRET` configuration from `docs/cdp-setup.md`.
 4. Set `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT=1` in the deployment environment. For a local test, add it to the existing gitignored `apps/web/.env.local`; do not overwrite that file or record its values.
 5. Leave the flag unset to deploy email-only sign-in. The server rejects requests that select Base Account mode when the matching flag is off.
@@ -49,7 +49,7 @@ No automated agent should perform this smoke because it opens a real wallet and 
 8. Inspect the subsequent same-origin `/api/portfolio` request. It must carry `X-Home-Account-Provider: base-account`, and its response wallet must be the same server-verified SIWE address. Confirm Home labels the dominant amount as USD/USDC, shows ETH separately as a token amount, and does not claim a combined net worth or local-currency conversion.
 9. During a second run, change the wallet account or chain while signing/verifying. Home must block the flow, clear the connector, and keep private details hidden.
 10. Sign out and confirm the address and balances disappear immediately. Repeat after a reload and after switching CDP users to ensure no stale Base address or prior wallet amount is displayed.
-11. Repeat the smoke on every deployed origin before enabling the flag for users. A successful authentication or balance-read smoke does not authorize transactions or spending delegation.
+11. Repeat the smoke on the forever-allowlisted staging/prod host before enabling the flag for users. Repeat on a preview only after that origin is on CORS and SIWE / Clients. A successful authentication or balance-read smoke does not authorize transactions or spending delegation.
 
 ## References
 

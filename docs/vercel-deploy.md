@@ -43,9 +43,64 @@ Copy the names from the root [`.env.example`](../.env.example) into the Vercel p
 | `CODEX_API_KEY` | Optional Invest USD snapshots | Server-only |
 | `DATABASE_URL` | Hosted money-action persistence | Neon pooled connection string. Leave unset for local `bun dev` (SQLite). Landing and browse can deploy without it; money-action routes fail closed without it. Server-only. |
 
-Landing and browse can deploy without `DATABASE_URL`. Money-action routes fail closed without it. Browsing works without credentials. Email sign-in and authenticated money actions need **your** CDP project. Add each deployed origin (preview and production) to that project's allowed origins. Details: [CDP setup](cdp-setup.md).
+Landing and browse can deploy without `DATABASE_URL`. Money-action routes fail closed without it. Browsing works without credentials. Email sign-in and authenticated money actions need **your** CDP project and an **exact** Embedded Wallet CORS origin — see [Preview auth](#preview-auth). Details: [CDP setup](cdp-setup.md#preview-auth).
 
 Optional server-only `BASE_RPC_URL` is documented in [portfolio](portfolio.md); it is not in `.env.example`.
+
+## Preview auth
+
+Crew policy for CDP sign-in on hosted origins. Background: [#67](https://github.com/jessepollak/home/issues/67). This is not a production authorization.
+
+Email OTP and Base Account are only testable on `http://localhost:3000` and `https://home-web-jessepollaks-projects.vercel.app` right now.
+
+**Default (A).** Smoke auth on those forever-allowlisted hosts. PR previews stay UI/layout.
+
+**Escape hatch (B).** Add a preview origin only when a PR must demo auth on its own Vercel URL. Do not allowlist every preview. No bot — paste the branch-stable origin into Portal yourself.
+
+### Why a preview fails sign-in
+
+Embedded Wallet **CORS / Allowed domains** needs the exact origin (scheme + host + port). No wildcards. Maximum **50** domains. Portal-only — [no public manage API](https://docs.cdp.coinbase.com/wallets/security-and-policies/domain-allowlisting). Until that origin is listed, email OTP and Base Account fail in the page (`We could not send a code…` / `We could not connect to Base Account…`).
+
+Onramp allowlist wildcards (`https://*.domain.com`) are a **separate** Portal list. They do **not** fix Embedded Wallet email OTP or SIWE.
+
+Vercel Deployment Protection is also separate: it can block the page; these banners are CDP client failures after the app loaded.
+
+### Branch-stable origin
+
+Prefer the [Git branch URL](https://vercel.com/docs/deployments/generated-urls) over a deployment-hash host. The branch alias survives redeploys.
+
+```
+https://<project>-git-<sanitized-branch>-<scope>.vercel.app
+```
+
+This repository’s current Vercel project:
+
+| Piece | Value |
+|---|---|
+| Project | `home-web` |
+| Scope | `jessepollaks-projects` |
+| Production | `https://home-web-jessepollaks-projects.vercel.app` |
+| Branch alias | `https://home-web-git-<sanitized-branch>-jessepollaks-projects.vercel.app` |
+
+Sanitize the branch: lowercase; each run of characters outside `[a-z0-9]` becomes one `-`. If the label before `.vercel.app` would exceed 63 characters, Vercel truncates — copy the branch origin from the address bar or Vercel’s “Visit Preview” link.
+
+### Portal click-path
+
+1. [CDP Portal](https://portal.cdp.coinbase.com) → project used by `NEXT_PUBLIC_CDP_PROJECT_ID`.
+2. Embedded Wallets → **CORS / Allowed domains** → Add domain.
+3. If `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT=1`, also add the same origin to **SIWE / Clients**. See [Base Account](base-account.md).
+4. Onramp allowlist only when testing Fund / buy on that preview (Payments → Onramp).
+5. Hard-refresh the preview.
+
+### 50-domain cap
+
+Prune closed-PR origins. Keep production and localhost.
+
+### Smoke checklist
+
+- [ ] Auth smoke on localhost or production. Auth is not testable on an unlisted preview.
+- [ ] Preview auth only when the PR requires it: paste the branch-stable origin, confirm the address bar, retry email / Base Account.
+- [ ] After the PR closes: remove that preview origin from CORS (and SIWE / Onramp if you added them).
 
 ## Money-action store: SQLite XOR Postgres
 

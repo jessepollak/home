@@ -216,6 +216,7 @@ Print this. Use it as the PR checklist.
 - [ ] If you touched a route: `app/api/<route>/route.test.ts` still asserts Node runtime, `force-dynamic`, and unauthenticated rejection before provider calls.
 - [ ] If you touched valuation math or amounts: exact bigint/decimal fixtures; no `Number` for token amounts.
 - [ ] `bun check` green. Do not enable `MORPHO_LIVE_SMOKE`, `CDP_SQL_SMOKE`, or funded-wallet secrets in CI.
+- [ ] Auth smoke on an allowlisted host (default: localhost or staging/prod). Add a Vercel preview origin only when the PR must demo sign-in there. [Preview auth](cdp-setup.md#preview-auth) / [#67](https://github.com/jessepollak/home/issues/67).
 
 Browser-auth (`test:browser-auth`) is required when you change sign-in, sign-out, or session restore — even if CI does not run it yet.
 

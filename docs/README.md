@@ -19,13 +19,13 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | [Operating manual](operating-manual.md) | Agent-team roles, GitHub issue labels, proof bar, Jesse-only merge |
 | [Fork and extend](fork-and-extend.md) | Brand, regions, assets, provider seams, local-spike vs production persistence |
 | [UI PR previews](ui-pr-previews.md) | Before/After **table** of inline embeds preferred when both exist; after-only OK when before isn’t useful |
-| [CDP setup](cdp-setup.md) | Your CDP project, `localhost` origin, email login, server validation, privacy defaults |
+| [CDP setup](cdp-setup.md) | Your CDP project, `localhost` origin, email login, server validation, privacy defaults; [preview vs production auth](cdp-setup.md#preview-auth) |
 | [CDP SQL](cdp-sql.md) | Indexed Base history adapter, auth modes, bounded smoke tests |
 | [Base Account](base-account.md) | Optional SIWE path (`NEXT_PUBLIC_ENABLE_BASE_ACCOUNT`); not enabled by default |
 | [Morpho setup](morpho-setup.md) | USDC vault candidates and read verification; deposit/withdraw status is in [build status](build-status.md) |
 | [Codex prices](codex-prices.md) | Optional server-only Invest USD snapshots |
 | [Portfolio](portfolio.md) | USDC/ETH reads, Token Balances inventory, regional valuation, `BASE_RPC_URL` |
-| [Vercel deploy](vercel-deploy.md) | Bun monorepo install/build on Vercel; hosted money actions need Neon `DATABASE_URL`; preview branch cleanup Actions |
+| [Vercel deploy](vercel-deploy.md) | Bun monorepo install/build on Vercel; hosted money actions need Neon `DATABASE_URL`; [preview auth / CDP CORS](vercel-deploy.md#preview-auth); preview branch cleanup Actions |
 
 `apps/web/server/borrowing/README.md` documents the single cbBTC/USDC Morpho market used by the local Borrow spike.
 

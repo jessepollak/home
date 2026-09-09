@@ -64,7 +64,7 @@ Operators bring their own projects. Nothing in this repo is a shared CDP, Morpho
 | Invest USD indications | `CODEX_API_KEY` | [Codex prices](codex-prices.md) |
 | Base RPC | optional server-only `BASE_RPC_URL` | [Portfolio](portfolio.md) |
 
-Copy the root `.env.example` into gitignored `apps/web/.env.local`. Never commit secrets or use a `NEXT_PUBLIC_` prefix on server keys. Add `http://localhost:3000` (and each deployed origin) to **your** CDP project. Live probes stay opt-in; do not enable them as defaults.
+Copy the root `.env.example` into gitignored `apps/web/.env.local`. Never commit secrets or use a `NEXT_PUBLIC_` prefix on server keys. Add `http://localhost:3000` and one forever-allowlisted staging/prod origin to **your** CDP Embedded Wallet CORS; add a Vercel preview origin only when that PR must demo sign-in ([preview auth](cdp-setup.md#preview-auth)). Live probes stay opt-in; do not enable them as defaults.
 
 Changing a vault or market address is not enough: adapters check chain, exact contracts, decimals, and (for borrow) oracle/IRM/LLTV. Verify against issuer and protocol docs before enabling a product.
 
