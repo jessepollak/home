@@ -50,6 +50,14 @@ function page() {
   return within(document.body);
 }
 
+async function enabledAccountButton() {
+  return waitFor(() => {
+    const button = page().getByRole("button", { name: "Account" });
+    expect(button.hasAttribute("disabled")).toBe(false);
+    return button;
+  });
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => {
@@ -614,11 +622,7 @@ describe("login-state home experience", () => {
       await pendingSession.promise;
     });
 
-    await waitFor(() => {
-      expect(page().getByRole("button", { name: "Account" }).hasAttribute("disabled")).toBe(
-        false,
-      );
-    });
+    await enabledAccountButton();
     expect(page().queryByText("Wallet & savings value")).toBeNull();
     expect(page().queryByText("Wallet & savings")).toBeNull();
     expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();
@@ -666,7 +670,7 @@ describe("login-state home experience", () => {
       />,
     );
 
-    fireEvent.click(await page().findByRole("button", { name: "Account" }));
+    fireEvent.click(await enabledAccountButton());
     expect(page().getByText("Setup in progress")).toBeTruthy();
     expect(page().queryByText("One home for your money.")).toBeNull();
   });
@@ -686,7 +690,7 @@ describe("login-state home experience", () => {
       />,
     );
 
-    fireEvent.click(await page().findByRole("button", { name: "Account" }));
+    fireEvent.click(await enabledAccountButton());
     expect(page().getByTitle(ADDRESS)).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Sign out" }));
 
@@ -1222,7 +1226,7 @@ describe("login-state home experience", () => {
       />,
     );
 
-    await page().findByRole("button", { name: "Account" });
+    await enabledAccountButton();
     expect(page().queryByRole("combobox", { name: "Country" })).toBeNull();
     expect(page().queryByRole("button", { name: "Invest", current: "page" })).toBeNull();
     expect(
