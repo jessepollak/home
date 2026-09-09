@@ -184,9 +184,9 @@ When a PR is ready for Jesse, swap the issue to `status:needs-jesse` (and say so
 
 ### CloudAgent / Auto-review
 
-Jesse-locked, September 8, 2026 (~9:14pm PT). Standing yes on all CloudAgents for everyone on the `jessepollak/home` crew.
+Jesse-locked, September 8, 2026 (~9:14pm PT). Standing yes on all CloudAgents for everyone on the `jessepollak/home` crew. Crew self-launches under that approval.
 
-- Hannah (Head of Engineering) launches and greenlights Auto-review / CloudAgent runs. No per-run Jesse approval card. Do not ping Jesse for CloudAgent greenlights.
+- Hannah greenlights only if Auto-review still blocks. No per-run Jesse approval card. Do not ping Jesse for CloudAgent greenlights.
 - Hannah still owns eng review (COMMENT LGTM on jessepollak-authored PRs).
 - Jesse remains final +1 and merge.
 
