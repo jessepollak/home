@@ -1,47 +1,62 @@
-import styles from "./currency-mark.module.css";
+"use client";
 
-const MARKS: Record<string, { className: string; label: string }> = {
-  USD: { className: styles.usd, label: "US dollar" },
-  BRL: { className: styles.brl, label: "Brazilian real" },
-};
+import { useEffect, useState } from "react";
+import {
+  currencyFlagSrc,
+  presentationCurrencyFlag,
+} from "./currency-flag";
+import styles from "./currency-mark.module.css";
 
 type CurrencyMarkProps = {
   currency?: string | null;
   symbol?: string | null;
+  pending?: boolean;
 };
 
-export function CurrencyMark({ currency, symbol }: CurrencyMarkProps) {
-  const code = currency?.toUpperCase() ?? "";
-  const mark = MARKS[code];
-  if (code === "BRL") {
-    return (
-      <span className={`${styles.mark} ${styles.brl}`} aria-hidden="true">
-        <BrazilMark />
-      </span>
-    );
-  }
-  if (mark) {
-    return (
-      <span className={`${styles.mark} ${mark.className}`} aria-hidden="true">
-        $
-      </span>
-    );
-  }
-
-  const glyph = (symbol ?? currency ?? "?").slice(0, 2);
-  return (
-    <span className={`${styles.mark} ${styles.fallback}`} aria-hidden="true">
-      {glyph}
-    </span>
+export function CurrencyMark({
+  currency,
+  symbol,
+  pending = false,
+}: CurrencyMarkProps) {
+  const flag = pending ? null : presentationCurrencyFlag(currency);
+  const src = flag ? currencyFlagSrc(flag) : null;
+  const [flagStatus, setFlagStatus] = useState<"loading" | "ready" | "failed">(
+    src ? "loading" : "ready",
   );
-}
 
-function BrazilMark() {
+  useEffect(() => {
+    setFlagStatus(src ? "loading" : "ready");
+  }, [src]);
+
+  const showShimmer = pending || Boolean(src && flagStatus === "loading");
+  const showFlag = Boolean(src && flagStatus !== "failed");
+  const glyph = (symbol?.trim() || currency?.trim() || "");
+
   return (
-    <svg viewBox="0 0 32 32" width="32" height="32">
-      <circle cx="16" cy="16" r="16" fill="#009B3A" />
-      <path d="M16 6.2 26.4 16 16 25.8 5.6 16Z" fill="#FEDD00" />
-      <circle cx="16" cy="16" r="5.4" fill="#002776" />
-    </svg>
+    <span
+      className={`${styles.mark} ${showShimmer ? "shimmer" : ""}`}
+      data-mark={
+        showShimmer ? "shimmer" : showFlag && flagStatus === "ready" ? "flag" : "symbol"
+      }
+      data-shimmer={showShimmer ? "mark" : undefined}
+      aria-hidden="true"
+    >
+      {showFlag && src ? (
+        // Local static SVGs; not in the remote Next image allowlist.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          className={styles.flag}
+          src={src}
+          alt=""
+          draggable={false}
+          hidden={flagStatus !== "ready"}
+          onLoad={() => setFlagStatus("ready")}
+          onError={() => setFlagStatus("failed")}
+        />
+      ) : null}
+      {!showShimmer && !(showFlag && flagStatus === "ready") ? (
+        <span className={styles.fallback}>{glyph}</span>
+      ) : null}
+    </span>
   );
 }

@@ -648,6 +648,7 @@ describe("login-state home experience", () => {
     expect(page().getByText("Updating…")).toBeTruthy();
     expect(document.querySelector("[data-shimmer='hero']")).toBeTruthy();
     expect(document.querySelectorAll("[data-shimmer='row']").length).toBe(4);
+    expect(document.querySelectorAll("[data-shimmer='mark']").length).toBe(4);
     expect(page().queryByText("$12.34")).toBeNull();
     expect(page().queryByText("—")).toBeNull();
     expect(page().queryByText("No balances yet")).toBeNull();
@@ -888,6 +889,17 @@ describe("login-state home experience", () => {
     expect(page().getByText("0.0500 ETH")).toBeTruthy();
     expect(page().getByText("Indonesian rupiah")).toBeTruthy();
     expect(page().getByText("100.00 IDRX")).toBeTruthy();
+    const flagSources = [...document.querySelectorAll("img")]
+      .map((image) => image.getAttribute("src"))
+      .filter((src) => src?.startsWith("/currency-flags/"));
+    expect(flagSources).toEqual(
+      expect.arrayContaining([
+        "/currency-flags/us.svg",
+        "/currency-flags/br.svg",
+        "/currency-flags/id.svg",
+      ]),
+    );
+    expect(flagSources).not.toContain("/currency-flags/eth.svg");
     expect(page().queryByText("Euro")).toBeNull();
     expect(page().getAllByText("$0.00").length).toBeGreaterThanOrEqual(1);
     expect(page().getAllByText("R$ 0,00").length).toBeGreaterThanOrEqual(1);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { presentHomeBalanceRow } from "./home-balance-row";
+import { presentHomeBalanceMark, presentHomeBalanceRow } from "./home-balance-row";
 
 describe("presentHomeBalanceRow", () => {
   test("shows an unpriced cash quantity without appending its token ticker", () => {
@@ -76,5 +76,73 @@ describe("presentHomeBalanceRow", () => {
         tone: "error",
       }),
     ).toEqual({ visualBalance: "Unavailable", tone: "error" });
+  });
+});
+
+describe("presentHomeBalanceMark", () => {
+  test("passes presentation cash currencies and their symbols for flags", () => {
+    expect(
+      presentHomeBalanceMark({
+        id: "cash:usd",
+        group: "cash",
+        name: "US dollar",
+        displayBalance: "$25.00",
+        currencyCode: "USD",
+      }),
+    ).toEqual({ currency: "USD", symbol: "$" });
+
+    expect(
+      presentHomeBalanceMark({
+        id: "cash:idr",
+        group: "cash",
+        name: "Indonesian rupiah",
+        displayBalance: "Rp 2,500.00",
+        currencyCode: "IDR",
+      }),
+    ).toEqual({ currency: "IDR", symbol: "Rp" });
+
+    expect(
+      presentHomeBalanceMark({
+        id: "cash:unknown",
+        group: "cash",
+        name: "Local currency",
+        displayBalance: "—",
+        currencyCode: "LCL",
+      }),
+    ).toEqual({ currency: "LCL", symbol: "LCL" });
+  });
+
+  test("keeps leftover fiat asset rows eligible for flags and never flags crypto", () => {
+    expect(
+      presentHomeBalanceMark({
+        id: "asset:eurc",
+        group: "asset",
+        name: "Euro",
+        detail: "EURC",
+        displayBalance: "€10.00",
+        currencyCode: "EUR",
+      }),
+    ).toEqual({ currency: "EUR", symbol: "€" });
+
+    expect(
+      presentHomeBalanceMark({
+        id: "asset:eth",
+        group: "asset",
+        name: "Ethereum",
+        detail: "ETH",
+        displayBalance: "0.5 ETH",
+      }),
+    ).toEqual({ currency: null, symbol: "ETH" });
+
+    expect(
+      presentHomeBalanceMark({
+        id: "asset:mislabelled",
+        group: "asset",
+        name: "Ethereum",
+        detail: "ETH",
+        displayBalance: "0.5 ETH",
+        currencyCode: "ETH",
+      }),
+    ).toEqual({ currency: null, symbol: "ETH" });
   });
 });

@@ -1,9 +1,16 @@
+import { presentationRegions } from "@/config/regions";
+import { presentationCurrencySymbol } from "./format";
 import type { HomeAssetBalanceItem } from "./present-home-balances";
 
 export type HomeBalanceRowPresentation = {
   visualBalance: string;
   accessibleBalance?: string;
   tone?: "default" | "muted" | "error";
+};
+
+export type HomeBalanceMarkPresentation = {
+  currency: string | null;
+  symbol: string | null;
 };
 
 const cashTokenAmountPattern =
@@ -37,5 +44,30 @@ export function presentHomeBalanceRow(
     visualBalance: tokenAmount[1],
     accessibleBalance: item.displayBalance,
     tone: "default",
+  };
+}
+
+function isPresentationCashCurrency(code: string | null): boolean {
+  if (!code) return false;
+  return Object.values(presentationRegions).some(
+    (region) => region.currency.code === code,
+  );
+}
+
+/**
+ * Cash / fiat rows may carry a presentation currency for the flag map.
+ * Crypto, stock, and meme asset rows never get a country flag — only a
+ * token symbol (or an empty gray disc) in the shared 32px slot.
+ */
+export function presentHomeBalanceMark(
+  item: HomeAssetBalanceItem,
+): HomeBalanceMarkPresentation {
+  const currency = item.currencyCode ?? null;
+  if (item.group === "asset" && !isPresentationCashCurrency(currency)) {
+    return { currency: null, symbol: item.detail ?? null };
+  }
+  return {
+    currency,
+    symbol: currency ? presentationCurrencySymbol(currency) : item.detail ?? null,
   };
 }

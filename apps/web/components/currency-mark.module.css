@@ -3,31 +3,38 @@
   width: 32px;
   height: 32px;
   place-items: center;
+  position: relative;
   overflow: hidden;
+  isolation: isolate;
   border-radius: 50%;
-  font-size: 0.92rem;
+  background: var(--home-gray-100);
+  box-shadow: inset 0 0 0 1px var(--home-canvas);
+  color: var(--home-ink);
+  font-size: 0.72rem;
   font-weight: 750;
   line-height: 1;
 }
 
-.mark svg {
+.mark > * {
+  grid-area: 1 / 1;
+}
+
+.flag {
   display: block;
   width: 100%;
   height: 100%;
-}
-
-.usd {
-  background: #2775ca;
-  color: #ffffff;
-}
-
-.brl {
-  background: transparent;
+  object-fit: cover;
 }
 
 .fallback {
-  background: #d8dce3;
-  color: #32353d;
-  font-size: 0.62rem;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  padding-inline: 2px;
+  background: var(--home-gray-100);
+  color: var(--home-ink);
+  font-size: 0.68rem;
   letter-spacing: -0.02em;
+  text-align: center;
 }

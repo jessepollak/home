@@ -11,7 +11,9 @@ export {
   type HomeAssetBalancesPresentation,
 } from "./present-home-balances";
 export {
+  presentHomeBalanceMark,
   presentHomeBalanceRow,
+  type HomeBalanceMarkPresentation,
   type HomeBalanceRowPresentation,
 } from "./home-balance-row";
 export {

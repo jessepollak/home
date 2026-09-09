@@ -40,6 +40,7 @@ import {
 import type { VerifiedPortfolioSession } from "@/features/portfolio";
 import {
   deleteHomeBalancesPresentation,
+  presentHomeBalanceMark,
   presentHomeBalanceRow,
   presentPortfolioValuation,
   usePaintedHomeBalances,
@@ -768,13 +769,14 @@ function HomePanel({
           <ul className="supplied-asset-list">
             {balanceItems.map((asset) => {
               const row = presentHomeBalanceRow(asset);
+              const mark = presentHomeBalanceMark(asset);
               return (
                 <BalanceRow
                   key={asset.id}
                   icon={
                     <CurrencyMark
-                      currency={asset.currencyCode}
-                      symbol={asset.detail ?? asset.name}
+                      currency={mark.currency}
+                      symbol={mark.symbol}
                     />
                   }
                   iconTone="mark"
@@ -885,7 +887,7 @@ function ShimmerRows({ count }: { count: number }) {
     <ul className="shimmer-list">
       {Array.from({ length: count }, (_, index) => (
         <li key={index} className="shimmer-row" data-shimmer="row">
-          <span className="shimmer shimmer-mark" aria-hidden="true" />
+          <CurrencyMark pending />
           <span className="shimmer-identity">
             <span className="shimmer shimmer-line shimmer-line-wide" aria-hidden="true" />
             <span className="shimmer shimmer-line shimmer-line-narrow" aria-hidden="true" />
