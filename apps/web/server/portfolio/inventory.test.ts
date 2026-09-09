@@ -227,6 +227,39 @@ describe("Phase A portfolio inventory", () => {
     expect(CdpTokenBalancesError).toBeDefined();
   });
 
+  test("does not invent ready zeros when Token Balances pagination is truncated", async () => {
+    const snapshot = await createPortfolioInventoryReader({
+      listTokenBalances: async () => ({
+        complete: false,
+        balances: [
+          {
+            contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
+            amountBaseUnits: "42",
+            native: true,
+          },
+        ],
+      }),
+      readVaultInventory: async () => ({
+        block: { number: "16", hash: BLOCK_HASH, timestamp: "100" },
+        holdings: [],
+      }),
+      now: () => new Date("2026-09-09T01:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "42",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
+      readStatus: "unavailable",
+      balanceBaseUnits: null,
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "unavailable",
+      balanceBaseUnits: null,
+    });
+  });
+
   test("rejects unverified accounts and does not invent a wallet", async () => {
     const reader = createPortfolioInventoryReader({
       listTokenBalances: async () => {

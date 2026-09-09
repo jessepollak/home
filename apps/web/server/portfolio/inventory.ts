@@ -161,7 +161,7 @@ async function readDirectHoldings(
   }
 
   const byContract = new Map(
-    (listed ?? []).map((balance) => [balance.contractAddress, balance] as const),
+    (listed?.balances ?? []).map((balance) => [balance.contractAddress, balance] as const),
   );
 
   return assets.map((asset) => {
@@ -169,8 +169,9 @@ async function readDirectHoldings(
       asset.kind === "native"
         ? CDP_NATIVE_TOKEN_ADDRESS
         : (asset.contractAddress!.toLowerCase() as `0x${string}`);
-    const match = listed ? byContract.get(key) : null;
-    const ready = listed !== null;
+    const match = listed ? byContract.get(key) : undefined;
+    const ready =
+      listed !== null && (match !== undefined || listed.complete);
     return {
       kind: "direct",
       id: asset.id,

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   CDP_NATIVE_TOKEN_ADDRESS,
+  CDP_TOKEN_BALANCES_MAX_PAGES,
   CdpTokenBalancesError,
   createCdpTokenBalancesClient,
   tokenBalancesRequestPath,
@@ -66,18 +67,21 @@ describe("CDP Onchain Data Token Balances client", () => {
     expect(tokenBalancesRequestPath(ADDRESS)).toBe(
       `/platform/v2/data/evm/token-balances/base/${ADDRESS}`,
     );
-    expect(listed).toEqual([
-      {
-        contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
-        amountBaseUnits: "3",
-        native: true,
-      },
-      {
-        contractAddress: USDC.toLowerCase() as `0x${string}`,
-        amountBaseUnits: "1000000",
-        native: false,
-      },
-    ]);
+    expect(listed).toEqual({
+      complete: true,
+      balances: [
+        {
+          contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
+          amountBaseUnits: "3",
+          native: true,
+        },
+        {
+          contractAddress: USDC.toLowerCase() as `0x${string}`,
+          amountBaseUnits: "1000000",
+          native: false,
+        },
+      ],
+    });
   });
 
   test("paginates until the allowlist is satisfied and then stops", async () => {
@@ -111,11 +115,35 @@ describe("CDP Onchain Data Token Balances client", () => {
       `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=20`,
       `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=20&pageToken=page-two`,
     ]);
-    expect(listed.map(({ contractAddress }) => contractAddress)).toEqual([
+    expect(listed.complete).toBeTrue();
+    expect(listed.balances.map(({ contractAddress }) => contractAddress)).toEqual([
       USDC.toLowerCase() as `0x${string}`,
       IDRX,
       "0x9999999999999999999999999999999999999999" as `0x${string}`,
     ]);
+  });
+
+  test("marks the page set incomplete when the page budget ends with a remaining cursor", async () => {
+    let pages = 0;
+    const client = createCdpTokenBalancesClient({
+      env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: async () => {
+        pages += 1;
+        return Response.json({
+          balances: [token(`0x${pages.toString(16).padStart(40, "0")}`, "1")],
+          nextPageToken: `page-${pages + 1}`,
+        });
+      },
+    });
+
+    const listed = await client.listBalances({
+      address: ADDRESS,
+      neededContractAddresses: new Set([IDRX]),
+    });
+    expect(pages).toBe(CDP_TOKEN_BALANCES_MAX_PAGES);
+    expect(listed.complete).toBeFalse();
+    expect(listed.balances.some(({ contractAddress }) => contractAddress === IDRX)).toBeFalse();
   });
 
   test("treats 404 as an empty page set and fails closed on auth or upstream errors", async () => {
@@ -124,7 +152,10 @@ describe("CDP Onchain Data Token Balances client", () => {
       generateJwtImpl: async () => "signed-jwt",
       fetchImpl: async () => new Response("not found", { status: 404 }),
     });
-    await expect(empty.listBalances({ address: ADDRESS })).resolves.toEqual([]);
+    await expect(empty.listBalances({ address: ADDRESS })).resolves.toEqual({
+      balances: [],
+      complete: true,
+    });
 
     const unauthorized = createCdpTokenBalancesClient({
       env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },

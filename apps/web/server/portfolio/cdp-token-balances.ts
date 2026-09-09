@@ -46,6 +46,12 @@ export type ListedTokenBalance = {
   native: boolean;
 };
 
+export type TokenBalancesPageSet = {
+  balances: ListedTokenBalance[];
+  /** False when the page budget ran out while a cursor remained. */
+  complete: boolean;
+};
+
 export type ListTokenBalancesRequest = {
   address: `0x${string}`;
   /** Stop paging once every lowercase contract (or native sentinel) is seen. */
@@ -97,7 +103,7 @@ export function createCdpTokenBalancesClient(options: {
   return {
     async listBalances(
       request: ListTokenBalancesRequest,
-    ): Promise<ListedTokenBalance[]> {
+    ): Promise<TokenBalancesPageSet> {
       if (!addressPattern.test(request.address)) {
         throw new CdpTokenBalancesError(
           "invalid-response",
@@ -107,6 +113,7 @@ export function createCdpTokenBalancesClient(options: {
       const address = request.address.toLowerCase() as `0x${string}`;
       const collected = new Map<string, ListedTokenBalance>();
       let pageToken: string | undefined;
+      let complete = true;
 
       for (let page = 0; page < CDP_TOKEN_BALANCES_MAX_PAGES; page += 1) {
         const balances = await fetchPage({
@@ -126,13 +133,21 @@ export function createCdpTokenBalancesClient(options: {
           request.neededContractAddresses &&
           allowlistSatisfied(request.neededContractAddresses, collected)
         ) {
+          complete = true;
           break;
         }
-        if (!balances.nextPageToken) break;
+        if (!balances.nextPageToken) {
+          complete = true;
+          break;
+        }
+        if (page === CDP_TOKEN_BALANCES_MAX_PAGES - 1) {
+          complete = false;
+          break;
+        }
         pageToken = balances.nextPageToken;
       }
 
-      return [...collected.values()];
+      return { balances: [...collected.values()], complete };
     },
   };
 }
