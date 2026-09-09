@@ -20,11 +20,11 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | [Fork and extend](fork-and-extend.md) | Brand, regions, assets, provider seams, local-spike vs production persistence |
 | [UI PR previews](ui-pr-previews.md) | Before/After **table** of inline embeds preferred when both exist; after-only OK when before isn’t useful |
 | [CDP setup](cdp-setup.md) | Your CDP project, `localhost` origin, email login, server validation, privacy defaults; [preview vs production auth](cdp-setup.md#preview-auth) |
-| [CDP SQL](cdp-sql.md) | Indexed Base history adapter, auth modes, bounded smoke tests |
+| [CDP SQL](cdp-sql.md) | Indexed Base history adapter, auth modes, bounded smoke tests. Not balances. |
 | [Base Account](base-account.md) | Optional SIWE path (`NEXT_PUBLIC_ENABLE_BASE_ACCOUNT`); not enabled by default |
 | [Morpho setup](morpho-setup.md) | USDC vault candidates and read verification; deposit/withdraw status is in [build status](build-status.md) |
 | [Codex prices](codex-prices.md) | Optional server-only Invest USD snapshots |
-| [Portfolio](portfolio.md) | USDC/ETH reads, Token Balances inventory, regional valuation, `BASE_RPC_URL` |
+| [Portfolio](portfolio.md) | USDC/ETH reads, Token Balances inventory, regional valuation, `BASE_RPC_URL`. Phase B/C: [inventory summary](balances-inventory-architecture.md) |
 | [Vercel deploy](vercel-deploy.md) | Bun monorepo install/build on Vercel; hosted money actions need Neon `DATABASE_URL`; [preview auth / CDP CORS](vercel-deploy.md#preview-auth); preview branch cleanup Actions |
 
 `apps/web/server/borrowing/README.md` documents the single cbBTC/USDC Morpho market used by the local Borrow spike.
@@ -47,6 +47,7 @@ Do not start a clone or a PR from these. Webhooks, Drizzle, and `packages/*` rem
 | Doc | Use it for |
 |---|---|
 | [Target architecture](target-architecture.md) | Proposed Vercel + Neon/Postgres + webhook design. Formerly `docs/technical-design.md`. |
+| [Balances inventory](balances-inventory-architecture.md) | Locked inventory direction (Phase A shipped in #80; B/C not in tree). Full research on [#76](https://github.com/jessepollak/home/issues/76). |
 | [Archived implementation plan](archive/implementation-plan-2026-09-07.md) | 2026-09-07 two-hour chunk plan. [build status](build-status.md) is the scoreboard. |
 | [Archive index](archive/README.md) | What was moved and why |
 

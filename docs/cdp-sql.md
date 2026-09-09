@@ -3,7 +3,7 @@
 Status: signed-JWT authentication and one basic bounded `base.events` query verified live by the parent; the transfer template and pagination remain pending live verification.
 Last reviewed: 2026-09-07.
 
-Home uses CDP SQL only as a read-only indexed history source. It is **not** a spendable-balance, transaction-confirmation, vault-position, debt, or authorization source. Current spendable inventory uses CDP Onchain Data Token Balances for allowlisted directs and pinned-block RPC for Morpho vault conversion; receipts and protocol adapters remain the confirmation path. Do not query CoinbaSeQL for balances.
+Home uses CDP SQL only as a read-only indexed history source. It is **not** a spendable-balance, transaction-confirmation, vault-position, debt, or authorization source. Current spendable inventory uses CDP Onchain Data Token Balances for allowlisted directs and pinned-block RPC for Morpho vault conversion; receipts and protocol adapters remain the confirmation path. Do not query CoinbaSeQL for balances. Locked inventory direction: [balances inventory](balances-inventory-architecture.md); research detail on [#76](https://github.com/jessepollak/home/issues/76#issuecomment-5594452047).
 
 ## Implemented contract
 

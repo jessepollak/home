@@ -1,8 +1,8 @@
-# Wallet runtime local spike
+# Wallet runtime
 
-Status: local implementation spike, September 8, 2026.
+Status: **locked money-action contract** (how it works), September 8, 2026. Not a pre-lock research spike. Filename kept for existing links.
 
-Team/onboarding context: [architecture review](architecture-review-2026-09.md). This file remains the money-action contract.
+Team/onboarding context: [architecture review](architecture-review-2026-09.md). This file is the prepare → claim → submit → receipt contract.
 
 Home money actions now use a server-issued prepare → review → atomic claim → user-wallet submission → receipt reconciliation lifecycle. The shared contract is `apps/web/features/money-actions/types.ts`; reviewed feature adapters issue plans through `issueMoneyAction`. Browsers submit only a prepared action id and immutable review hash. The server returns the canonical calls bound to the verified CDP subject, Base address, chain 8453, and selected account provider.
 

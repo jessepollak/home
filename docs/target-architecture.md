@@ -248,7 +248,7 @@ The deployment target is Vercel for the whole application infrastructure. Use Ne
 
 Recommend CDP SQL API as Home’s hosted indexed-data source. It accepts read-only SQL over HTTP, so it fits a normal Vercel API route. Keep the provider behind `ChainDataGateway`; no Ponder process or extra hosting account is necessary for the initial history features. CDP SQL is an indexed-data service, not Home’s writable database. Users, preferences, pending actions and provider records stay in Neon. [SQL API overview](https://docs.cdp.coinbase.com/data/sql-api/welcome), [query endpoint](https://docs.cdp.coinbase.com/api-reference/v2/rest-api/sql-api/run-sql-query)
 
-The current schema documents Base events/transactions/blocks, encoded logs, decoded ERC-4337 user operations and B20 event decoding. Use token event participants for transfer history and user-operation `sender` for smart-account activity; filtering only an outer transaction’s EOA sender would miss bundled smart-account actions. SQL history is evidence of past activity, not a current borrow-limit, vault-withdrawal or spendable-balance authority. [Current schema](https://docs.cdp.coinbase.com/data/sql-api/schema)
+The current schema documents Base events/transactions/blocks, encoded logs, decoded ERC-4337 user operations and B20 event decoding. Use token event participants for transfer history and user-operation `sender` for smart-account activity; filtering only an outer transaction’s EOA sender would miss bundled smart-account actions. SQL history is evidence of past activity, not a current borrow-limit, vault-withdrawal or spendable-balance authority. CoinbaSeQL has no balances table; current holdings stay on CDP balance APIs / RPC. [Current schema](https://docs.cdp.coinbase.com/data/sql-api/schema). Locked inventory summary: [balances inventory](balances-inventory-architecture.md); research on [#76](https://github.com/jessepollak/home/issues/76#issuecomment-5594452047).
 
 ### Data responsibilities
 
@@ -256,7 +256,7 @@ The current schema documents Base events/transactions/blocks, encoded logs, deco
 |---|---|
 | Local stablecoin, stock and meme transfer history | CDP SQL event queries scoped to the verified account and configured assets |
 | Smart-account transaction history | CDP SQL decoded user operations, correlated with event/transaction IDs |
-| Current wallet balances and transaction confirmation | CDP balance APIs / Base RPC and user-operation receipts |
+| Current wallet balances and transaction confirmation | CDP Token Balances (Phase A, shipped) + Base RPC receipts. Phase B/C: [balances inventory](balances-inventory-architecture.md) ([#76](https://github.com/jessepollak/home/issues/76)). |
 | Vault value, debt, interest and borrowing capacity | Morpho adapter and current protocol/oracle reads |
 | Pending/rejected Home actions, user settings and checkout state | Neon app records plus provider status |
 | Updates while the user is away | CDP wallet, onramp/offramp and Base activity webhooks to Vercel |

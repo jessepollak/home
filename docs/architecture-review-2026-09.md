@@ -5,7 +5,7 @@
 **Audience:** Founder + engineer #2. This is a hiring/onboarding contract, not a redesign.
 
 **Current-state docs:** [build status](build-status.md), [wallet runtime spike](wallet-runtime-spike.md), [Vercel deploy](vercel-deploy.md), [docs index](README.md), [README](../README.md).  
-**Target / archive (not the live tree):** [target architecture](target-architecture.md) (formerly `technical-design.md`), [archived implementation plan](archive/implementation-plan-2026-09-07.md). Product intent: [product scope](product-scope.md).
+**Target / archive (not the live tree):** [target architecture](target-architecture.md) (formerly `technical-design.md`), [balances inventory](balances-inventory-architecture.md) (Phase A shipped; B/C locked — research on [#76](https://github.com/jessepollak/home/issues/76)), [archived implementation plan](archive/implementation-plan-2026-09-07.md). Product intent: [product scope](product-scope.md).
 
 ---
 
@@ -126,8 +126,8 @@ Ticker is never identity. Asset keys are `eip155:8453/erc20:<lowercase>` or nati
 ### 9. Valuation and Activity composition (labels, not protocol)
 
 - **Balances:** `GET /api/portfolio` → `features/portfolio`.
-- **Valuation:** `GET /api/portfolio/valuation?region=` → `server/portfolio/valuation.ts`. Exact fraction math (`server/valuation/math.ts`). Omissions include `bounded-inventory`. Home copy: “Wallet and savings only · Borrow separate” (`app/home-experience.tsx`).
-- **Activity:** CDP SQL transfers labeled Received / Sent / Self transfer (`features/activity/activity-panel.tsx`). Coverage note excludes native ETH and complete ERC-4337 history. Indexed activity is **not** receipt confirmation.
+- **Valuation:** `GET /api/portfolio/valuation?region=` → `server/portfolio/valuation.ts`. Exact fraction math (`server/valuation/math.ts`). Omissions include `bounded-inventory`. Home copy: “Wallet and savings only · Borrow separate” (`app/home-experience.tsx`). Phase A inventory is Token Balances + Morpho convert RPC ([portfolio](portfolio.md)); locked B/C: [balances inventory](balances-inventory-architecture.md) / [#76](https://github.com/jessepollak/home/issues/76).
+- **Activity:** CDP SQL transfers labeled Received / Sent / Self transfer (`features/activity/activity-panel.tsx`). Coverage note excludes native ETH and complete ERC-4337 history. Indexed activity is **not** receipt confirmation. CoinbaSeQL is history only; it is not the balances path.
 - **Home operations:** `RecentMoneyActions` (`features/money-actions/recent-operations.tsx`) lists durable operations and dedupes by transaction hash already shown in Activity.
 
 Do not add Morpho/Borrow protocol names onto Activity rows to “make it richer.” That mixes ledgers.
