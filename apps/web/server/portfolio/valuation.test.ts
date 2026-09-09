@@ -243,6 +243,68 @@ describe("supported portfolio valuation assembly", () => {
     expect(zero.total.value).toEqual({ atoms: "0", scale: 18 });
   });
 
+  test("prices a ready IDR cash bucket and reserves read-unavailable for a failed IDRX holding", async () => {
+    const ready = createPortfolioValuationReader({
+      readInventory: async () => inventory({ idrx: "0" }),
+      readPrices: async (inputs) => prices(inputs),
+      readExchangeRates: async () => exchangeRates(),
+    });
+    const priced = await ready(account, "ID");
+    const idrxBucket = priced.cashBuckets.find(
+      (bucket) => bucket.assetKey === verifiedLocalCashAssets.IDR.assetKey,
+    );
+    expect(priced.cashBuckets.map(({ symbol }) => symbol)).toEqual(["USDC", "IDRX"]);
+    expect(idrxBucket).toMatchObject({
+      roles: ["selected-local"],
+      denominationCurrency: "IDR",
+      tokenAmountBaseUnits: "0",
+      tokenDecimals: 2,
+      valuationStatus: "priced",
+      indicativeValue: { atoms: "0", scale: 18 },
+    });
+    expect(
+      priced.lines.find(
+        ({ holdingAssetKey }) =>
+          holdingAssetKey === verifiedLocalCashAssets.IDR.assetKey,
+      ),
+    ).toMatchObject({ status: "priced", reason: null });
+
+    const snapshot = inventory({ idrx: "250000" });
+    const idrxHolding = snapshot.holdings.find(({ id }) => id === "idrx");
+    if (!idrxHolding || idrxHolding.kind !== "direct") {
+      throw new Error("Expected the IDRX holding.");
+    }
+    idrxHolding.balanceBaseUnits = null;
+    idrxHolding.readStatus = "unavailable";
+    const failed = createPortfolioValuationReader({
+      readInventory: async () => snapshot,
+      readPrices: async (inputs) => prices(inputs),
+      readExchangeRates: async () => exchangeRates(),
+    });
+    const unavailable = await failed(account, "ID");
+    expect(
+      unavailable.cashBuckets.find(
+        (bucket) => bucket.assetKey === verifiedLocalCashAssets.IDR.assetKey,
+      ),
+    ).toMatchObject({
+      valuationStatus: "read-unavailable",
+      tokenAmountBaseUnits: null,
+      indicativeValue: null,
+    });
+    expect(
+      unavailable.lines.find(
+        ({ holdingAssetKey }) =>
+          holdingAssetKey === verifiedLocalCashAssets.IDR.assetKey,
+      ),
+    ).toMatchObject({
+      status: "read-unavailable",
+      reason: "holding-read-unavailable",
+    });
+    expect(unavailable.total.unavailableAssetKeys).toContain(
+      verifiedLocalCashAssets.IDR.assetKey,
+    );
+  });
+
   test("keeps GLOBAL currencyless and exposes unsupported regional cash safely", async () => {
     const read = createPortfolioValuationReader({
       readInventory: async () => inventory(),

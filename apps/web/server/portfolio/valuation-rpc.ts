@@ -297,27 +297,63 @@ async function executeOptionalBatches(
   signal: AbortSignal,
 ): Promise<Map<number, RpcSuccess>> {
   const responses = new Map<number, RpcSuccess>();
+  const unfinished: RpcRequest[] = [];
   for (let index = 0; index < requests.length; index += VALUATION_RPC_BATCH_MAX) {
     const batch = requests.slice(index, index + VALUATION_RPC_BATCH_MAX);
-    let parsed: unknown;
-    try {
-      parsed = await transport(fetchImpl, rpcUrl, batch, signal);
-    } catch {
-      if (signal.aborted) throw new PortfolioValuationRpcError("Base RPC aborted.");
+    const accepted = await executeOptionalChunk(fetchImpl, rpcUrl, batch, signal);
+    for (const rpcRequest of batch) {
+      const response = accepted.get(rpcRequest.id);
+      if (response) responses.set(rpcRequest.id, response);
+      else unfinished.push(rpcRequest);
+    }
+  }
+  // Public Base RPC often returns -32016 "over rate limit" for later
+  // items in a 10-call batch. One individual retry recovers a successful
+  // chain read (including a real zero) instead of marking cash unavailable.
+  for (const rpcRequest of unfinished) {
+    const accepted = await executeOptionalChunk(
+      fetchImpl,
+      rpcUrl,
+      [rpcRequest],
+      signal,
+    );
+    const response = accepted.get(rpcRequest.id);
+    if (response) responses.set(rpcRequest.id, response);
+  }
+  return responses;
+}
+
+async function executeOptionalChunk(
+  fetchImpl: FetchLike,
+  rpcUrl: string,
+  batch: readonly RpcRequest[],
+  signal: AbortSignal,
+): Promise<Map<number, RpcSuccess>> {
+  const responses = new Map<number, RpcSuccess>();
+  let parsed: unknown;
+  try {
+    parsed = await transport(
+      fetchImpl,
+      rpcUrl,
+      batch.length === 1 ? batch[0]! : batch,
+      signal,
+    );
+  } catch {
+    if (signal.aborted) throw new PortfolioValuationRpcError("Base RPC aborted.");
+    return responses;
+  }
+  const values = batch.length === 1 && !Array.isArray(parsed) ? [parsed] : parsed;
+  if (!Array.isArray(values)) return responses;
+  const requestedIds = new Set(batch.map(({ id }) => id));
+  const seen = new Set<number>();
+  for (const value of values) {
+    const response = parseSuccess(value);
+    if (!response || !requestedIds.has(response.id) || seen.has(response.id)) {
+      if (response) responses.delete(response.id);
       continue;
     }
-    if (!Array.isArray(parsed)) continue;
-    const requestedIds = new Set(batch.map(({ id }) => id));
-    const seen = new Set<number>();
-    for (const value of parsed) {
-      const response = parseSuccess(value);
-      if (!response || !requestedIds.has(response.id) || seen.has(response.id)) {
-        if (response) responses.delete(response.id);
-        continue;
-      }
-      seen.add(response.id);
-      responses.set(response.id, response);
-    }
+    seen.add(response.id);
+    responses.set(response.id, response);
   }
   return responses;
 }

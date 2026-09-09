@@ -134,8 +134,11 @@ export function getDirectPortfolioAssets(): DirectPortfolioAsset[] {
   const assets: DirectPortfolioAsset[] = [
     nativeEthAsset,
     canonicalUsdcAsset,
-    ...investPortfolioAssets,
+    // Local cash is requested immediately after ETH/USDC so a later
+    // invest/vault chunk that the public Base RPC rate-limits cannot
+    // mark EURC/IDRX read-unavailable while USD still renders.
     ...Object.values(verifiedLocalCashAssets),
+    ...investPortfolioAssets,
   ];
   assertUniqueAssetKeys(assets.map(({ assetKey }) => assetKey));
   return assets;

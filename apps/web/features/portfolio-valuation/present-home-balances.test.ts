@@ -180,6 +180,90 @@ describe("presentPortfolioValuation", () => {
     expect(serialized).not.toContain("25.00");
   });
 
+  test("shows a ready IDR cash zero as rupiah and a failed IDRX read as unavailable", () => {
+    const ready = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "ID",
+        quoteCurrency: "IDR",
+        cashBuckets: [
+          {
+            id: "cash:usd",
+            roles: ["canonical-usd"],
+            assetKey: PORTFOLIO_USDC_ASSET_KEY,
+            symbol: "USDC",
+            denominationCurrency: "USD",
+            tokenAmountBaseUnits: "0",
+            tokenDecimals: 6,
+            indicativeValue: { atoms: "0", scale: 6 },
+            valuationStatus: "priced",
+          },
+          {
+            id: `cash:${verifiedLocalCashAssets.IDR.assetKey}`,
+            roles: ["selected-local"],
+            assetKey: verifiedLocalCashAssets.IDR.assetKey,
+            symbol: "IDRX",
+            denominationCurrency: "IDR",
+            tokenAmountBaseUnits: "0",
+            tokenDecimals: 2,
+            indicativeValue: { atoms: "0", scale: 2 },
+            valuationStatus: "priced",
+          },
+        ],
+        total: {
+          label: "supported-portfolio-value",
+          status: "all-supported-read-holdings-priced",
+          value: { atoms: "0", scale: 2 },
+          currency: "IDR",
+          unpricedAssetKeys: [],
+          unavailableAssetKeys: [],
+        },
+      }),
+      error: null,
+    });
+    expect(ready.items.map((item) => [item.name, item.displayBalance, item.tone])).toEqual([
+      ["US dollar", "$0.00", undefined],
+      ["Indonesian rupiah", "Rp 0.00", undefined],
+    ]);
+
+    const failed = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "ID",
+        quoteCurrency: "IDR",
+        cashBuckets: [
+          {
+            id: "cash:usd",
+            roles: ["canonical-usd"],
+            assetKey: PORTFOLIO_USDC_ASSET_KEY,
+            symbol: "USDC",
+            denominationCurrency: "USD",
+            tokenAmountBaseUnits: "0",
+            tokenDecimals: 6,
+            indicativeValue: { atoms: "0", scale: 6 },
+            valuationStatus: "priced",
+          },
+          {
+            id: `cash:${verifiedLocalCashAssets.IDR.assetKey}`,
+            roles: ["selected-local"],
+            assetKey: verifiedLocalCashAssets.IDR.assetKey,
+            symbol: "IDRX",
+            denominationCurrency: "IDR",
+            tokenAmountBaseUnits: null,
+            tokenDecimals: 2,
+            indicativeValue: null,
+            valuationStatus: "read-unavailable",
+          },
+        ],
+      }),
+      error: null,
+    });
+    expect(failed.items.map((item) => [item.name, item.displayBalance, item.tone])).toEqual([
+      ["US dollar", "$0.00", undefined],
+      ["Indonesian rupiah", "Unavailable", "error"],
+    ]);
+  });
+
   test("marks a failed cash read as unavailable without inventing a fiat amount", () => {
     const presented = presentPortfolioValuation({
       status: "ready",
