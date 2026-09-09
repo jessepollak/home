@@ -116,7 +116,7 @@ Do not add a second SDK/auth context inside a feature.
 |---|---|---|
 | Regions / 19 currencies / 39 countries | `apps/web/config/regions.ts` | Country changes presentation; `fundingStatus: "disabled"` on candidates |
 | Invest assets | `apps/web/config/invest-assets.ts` | Stocks `availability: "restricted"` |
-| Portfolio inventory | `apps/web/config/portfolio-assets.ts` | Native ETH + USDC + 11 invest + EURC/IDRX + 3 vaults; `assertPortfolioRegistry()` |
+| Portfolio inventory | `apps/web/config/portfolio-assets.ts` | Native ETH + USDC + 17 invest + EURC/IDRX + 3 vaults; `assertPortfolioRegistry()` |
 | Navigation | `apps/web/config/navigation.ts` | Home / Save / Invest only (Borrow is a linked page, not primary nav) |
 | Morpho vault allowlist | `apps/web/server/morpho/config.ts` | `isConfiguredMorphoVault()` |
 | Borrow market | `apps/web/server/borrowing/config.ts` | One cbBTC/USDC market |
@@ -276,7 +276,7 @@ Small, reviewable PRs that exercise good seams. None require a live funded trans
 
 2. **Import-boundary guard** (`S`). ESLint restriction or a `bun test` that fails if `features/**` runtime-imports `@/server/**` outside an allowlist (`import type` + `server/market-data/codex/public-contract` + documented config constants). Prevents secret leakage before it happens.
 
-3. **Registry sync contract** (`S`). Assert `portfolioVaults[].address` equals `MORPHO_V1_CANDIDATE_ADDRESSES` (order-independent, lowercased) and that `assertPortfolioRegistry()` still bounds 3 vaults / 11 invest assets. Stops silent inventory drift.
+3. **Registry sync contract** (`S`). Assert `portfolioVaults[].address` equals `MORPHO_V1_CANDIDATE_ADDRESSES` (order-independent, lowercased) and that `assertPortfolioRegistry()` still bounds 3 vaults / 17 invest assets. Stops silent inventory drift.
 
 4. **SQLite probe in CI** (`S`). Add a workspace script that runs `scripts/probe-money-actions-sqlite.mjs` and call it from `.github/workflows/ci.yml` (or `bun check`). Memory-store green will no longer be the only claim proof.
 

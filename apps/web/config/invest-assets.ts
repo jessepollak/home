@@ -104,6 +104,120 @@ export const stockAssets = [
     contractUrl:
       "https://basescan.org/token/0xb2000000000000000000002D0BA3164cc74f58B7",
   },
+  {
+    id: "amznc",
+    category: "stock",
+    displayName: "Amazon",
+    displaySymbol: "AMZN",
+    initials: "AM",
+    chainId: BASE_CHAIN_ID,
+    contractAddress: "0xb200000000000000000000d9192b6B456483C2E8",
+    availability: "restricted",
+    descriptor: "Coinbase Tokenized Stock · Regulation S",
+    representation: {
+      tokenSymbol: "AMZNc",
+      issuer: "Coinbase",
+      relationship:
+        "Tokenized stock representation; corporate actions can change its relationship to a share.",
+    },
+    contractUrl:
+      "https://basescan.org/token/0xb200000000000000000000d9192b6B456483C2E8",
+  },
+  {
+    id: "msftc",
+    category: "stock",
+    displayName: "Microsoft",
+    displaySymbol: "MSFT",
+    initials: "MS",
+    chainId: BASE_CHAIN_ID,
+    contractAddress: "0xB200000000000000000000Ab99cFa739E253872B",
+    availability: "restricted",
+    descriptor: "Coinbase Tokenized Stock · Regulation S",
+    representation: {
+      tokenSymbol: "MSFTc",
+      issuer: "Coinbase",
+      relationship:
+        "Tokenized stock representation; corporate actions can change its relationship to a share.",
+    },
+    contractUrl:
+      "https://basescan.org/token/0xB200000000000000000000Ab99cFa739E253872B",
+  },
+  {
+    id: "mstrc",
+    category: "stock",
+    displayName: "Strategy",
+    displaySymbol: "MSTR",
+    initials: "MS",
+    chainId: BASE_CHAIN_ID,
+    contractAddress: "0xb2000000000000000000004884b426556b92883d",
+    availability: "restricted",
+    descriptor: "Coinbase Tokenized Stock · Regulation S",
+    representation: {
+      tokenSymbol: "MSTRc",
+      issuer: "Coinbase",
+      relationship:
+        "Tokenized stock representation; corporate actions can change its relationship to a share.",
+    },
+    contractUrl:
+      "https://basescan.org/token/0xb2000000000000000000004884b426556b92883d",
+  },
+  {
+    id: "sndkc",
+    category: "stock",
+    displayName: "SanDisk",
+    displaySymbol: "SNDK",
+    initials: "SN",
+    chainId: BASE_CHAIN_ID,
+    contractAddress: "0xb200000000000000000000397293Cb8cda9a10c5",
+    availability: "restricted",
+    descriptor: "Coinbase Tokenized Stock · Regulation S",
+    representation: {
+      tokenSymbol: "SNDKc",
+      issuer: "Coinbase",
+      relationship:
+        "Tokenized stock representation; corporate actions can change its relationship to a share.",
+    },
+    contractUrl:
+      "https://basescan.org/token/0xb200000000000000000000397293Cb8cda9a10c5",
+  },
+  {
+    id: "spcxc",
+    category: "stock",
+    displayName: "SpaceX",
+    displaySymbol: "SPCX",
+    initials: "SP",
+    chainId: BASE_CHAIN_ID,
+    contractAddress: "0xb2000000000000000000007b9fcbd005511aCBd5",
+    availability: "restricted",
+    descriptor: "Coinbase Tokenized Stock · Regulation S",
+    representation: {
+      tokenSymbol: "SPCXc",
+      issuer: "Coinbase",
+      relationship:
+        "Tokenized stock representation; corporate actions can change its relationship to a share.",
+    },
+    contractUrl:
+      "https://basescan.org/token/0xb2000000000000000000007b9fcbd005511aCBd5",
+  },
+  {
+    id: "tslac",
+    category: "stock",
+    displayName: "Tesla",
+    displaySymbol: "TSLA",
+    initials: "TS",
+    chainId: BASE_CHAIN_ID,
+    contractAddress: "0xb2000000000000000000001e800a7f5189430cD0",
+    availability: "restricted",
+    descriptor: "Coinbase Tokenized Stock · Regulation S",
+    representation: {
+      tokenSymbol: "TSLAc",
+      issuer: "Coinbase",
+      relationship:
+        "Tokenized stock representation; corporate actions can change its relationship to a share.",
+    },
+    contractUrl:
+      "https://basescan.org/token/0xb2000000000000000000001e800a7f5189430cD0",
+  },
 ] as const satisfies readonly InvestAsset[];
 
 export const cryptoAssets = [

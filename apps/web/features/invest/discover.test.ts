@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { cryptoAssets, type InvestAsset } from "@/config/invest-assets";
+import { cryptoAssets, stockAssets, type InvestAsset } from "@/config/invest-assets";
 import {
+  STOCK_PREVIEW_COUNT,
   discoverShelves,
   getDiscoverAsset,
   getDiscoverShelf,
@@ -33,12 +34,24 @@ describe("invest discovery catalog", () => {
       "Crypto",
       "Memes",
     ]);
+    expect(STOCK_PREVIEW_COUNT).toBe(6);
+    expect(discoverShelves[0].previewCount).toBe(STOCK_PREVIEW_COUNT);
     expect(getShelfPreviewAssets(discoverShelves[0]).map((asset) => asset.displaySymbol)).toEqual([
       "NVDA",
       "META",
       "AAPL",
       "GOOGL",
+      "AMZN",
+      "MSFT",
     ]);
+    expect(getShelfAssets(discoverShelves[0]).map((asset) => asset.id)).toEqual(
+      stockAssets.map((asset) => asset.id),
+    );
+    expect(getShelfAssets(discoverShelves[0])).toHaveLength(10);
+    expect(getShelfPreviewAssets(discoverShelves[0])).toHaveLength(STOCK_PREVIEW_COUNT);
+    expect(getShelfPreviewAssets(discoverShelves[0]).map((asset) => asset.displaySymbol)).not.toContain(
+      "TSLA",
+    );
     expect(getShelfPreviewAssets(discoverShelves[1]).map((asset) => asset.displaySymbol)).toEqual([
       "BTC",
       "XRP",

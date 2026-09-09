@@ -22,19 +22,64 @@ describe("invest asset registry", () => {
       "metac",
       "aaplc",
       "googlc",
+      "amznc",
+      "msftc",
+      "mstrc",
+      "sndkc",
+      "spcxc",
+      "tslac",
     ]);
     expect(stockAssets.map((asset) => asset.displaySymbol)).toEqual([
       "NVDA",
       "META",
       "AAPL",
       "GOOGL",
+      "AMZN",
+      "MSFT",
+      "MSTR",
+      "SNDK",
+      "SPCX",
+      "TSLA",
     ]);
     expect(stockAssets.map((asset) => asset.representation.tokenSymbol)).toEqual([
       "NVDAc",
       "METAc",
       "AAPLc",
       "GOOGLc",
+      "AMZNc",
+      "MSFTc",
+      "MSTRc",
+      "SNDKc",
+      "SPCXc",
+      "TSLAc",
     ]);
+    expect(stockAssets.map((asset) => asset.displayName)).toEqual([
+      "NVIDIA",
+      "Meta",
+      "Apple",
+      "Alphabet",
+      "Amazon",
+      "Microsoft",
+      "Strategy",
+      "SanDisk",
+      "SpaceX",
+      "Tesla",
+    ]);
+    expect(stockAssets.map((asset) => asset.contractAddress)).toEqual([
+      "0xb20000000000000000000078ee7ce2fE4908108C",
+      "0xb2000000000000000000008bC8786B856E61707C",
+      "0xb200000000000000000000C2e324d24d7eEcd1fb",
+      "0xb2000000000000000000002D0BA3164cc74f58B7",
+      "0xb200000000000000000000d9192b6B456483C2E8",
+      "0xB200000000000000000000Ab99cFa739E253872B",
+      "0xb2000000000000000000004884b426556b92883d",
+      "0xb200000000000000000000397293Cb8cda9a10c5",
+      "0xb2000000000000000000007b9fcbd005511aCBd5",
+      "0xb2000000000000000000001e800a7f5189430cD0",
+    ]);
+    expect(stockAssets.some((asset) => ["coinc", "crclc", "intcc"].includes(asset.id))).toBe(
+      false,
+    );
 
     for (const asset of stockAssets) {
       expect(asset.chainId).toBe(BASE_CHAIN_ID);
@@ -152,6 +197,12 @@ describe("invest asset registry", () => {
       "metac",
       "aaplc",
       "googlc",
+      "amznc",
+      "msftc",
+      "mstrc",
+      "sndkc",
+      "spcxc",
+      "tslac",
       "cbbtc",
       "cbxrp",
       "cbdoge",

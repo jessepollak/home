@@ -17,7 +17,7 @@ This is enough for the current seam and can also describe a local stablecoin or 
 
 ## Tokenized stocks
 
-The bounded launch roster follows the official Base stock page and its linked Base explorer contracts. These are Coinbase-issued Regulation S instruments and remain unavailable in the United States. A country preference is presentation only and cannot unlock them.
+The bounded launch roster follows the official Base stock page and its linked Base explorer contracts. These are Coinbase-issued Regulation S instruments and remain unavailable in the United States. A country preference is presentation only and cannot unlock them. Invest hub Stocks preview is the first `STOCK_PREVIEW_COUNT` (6) catalog entries; the Stocks category lists the full curated roster. COINc, CRCLc, and INTCc stay out until they appear on the product roster page.
 
 | Company display | Display symbol | Base token | Base contract |
 | --- | --- | --- | --- |
@@ -25,6 +25,12 @@ The bounded launch roster follows the official Base stock page and its linked Ba
 | Meta | META | METAc | `0xb2000000000000000000008bC8786B856E61707C` |
 | Apple | AAPL | AAPLc | `0xb200000000000000000000C2e324d24d7eEcd1fb` |
 | Alphabet | GOOGL | GOOGLc | `0xb2000000000000000000002D0BA3164cc74f58B7` |
+| Amazon | AMZN | AMZNc | `0xb200000000000000000000d9192b6B456483C2E8` |
+| Microsoft | MSFT | MSFTc | `0xB200000000000000000000Ab99cFa739E253872B` |
+| Strategy | MSTR | MSTRc | `0xb2000000000000000000004884b426556b92883d` |
+| SanDisk | SNDK | SNDKc | `0xb200000000000000000000397293Cb8cda9a10c5` |
+| SpaceX | SPCX | SPCXc | `0xb2000000000000000000007b9fcbd005511aCBd5` |
+| Tesla | TSLA | TSLAc | `0xb2000000000000000000001e800a7f5189430cD0` |
 
 Primary sources:
 

@@ -70,12 +70,18 @@ describe("finance-first presentation", () => {
     expect(markup).toContain("Crypto");
     expect(markup).toContain("Memes");
     expect(markup).toContain("NVIDIA");
+    expect(markup).toContain("Amazon");
+    expect(markup).toContain("Microsoft");
     expect(markup).toContain("Bitcoin");
     expect(markup).toContain("Memes");
     expect(markup).not.toContain("Degen");
     expect(markup).not.toContain("Toshi");
     expect(markup).toContain("See all");
     expect(markup).not.toContain("Cardano");
+    expect(markup).not.toContain("Tesla");
+    expect(markup).not.toContain("Strategy");
+    expect(markup).not.toContain("SanDisk");
+    expect(markup).not.toContain("SpaceX");
     expect(markup).not.toContain("Price unavailable");
     expect(markup).not.toContain(">0.00<");
     expect(markup).not.toContain("Stock contracts");

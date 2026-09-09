@@ -29,6 +29,12 @@ const verifiedInvestDecimals: Readonly<Record<string, number>> = {
   metac: 8,
   aaplc: 8,
   googlc: 8,
+  amznc: 8,
+  msftc: 8,
+  mstrc: 8,
+  sndkc: 8,
+  spcxc: 8,
+  tslac: 8,
   cbbtc: 8,
   cbxrp: 6,
   cbdoge: 8,
@@ -147,7 +153,7 @@ export function assertPortfolioRegistry(): void {
     ...direct.map(({ assetKey }) => assetKey),
     ...portfolioVaults.map(({ address }) => assetKeyForErc20(address)),
   ]);
-  if (portfolioVaults.length !== 3 || investPortfolioAssets.length !== 11) {
+  if (portfolioVaults.length !== 3 || investPortfolioAssets.length !== 17) {
     throw new Error("The supported portfolio inventory is outside its fixed bound.");
   }
 }

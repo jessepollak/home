@@ -65,6 +65,29 @@ afterEach(() => {
 const originalFetch = window.fetch;
 
 describe("invest discovery flow", () => {
+  test("opens Stocks category from See all and lists the full curated catalog", async () => {
+    renderInvest(<InvestExperience />);
+
+    expect(page().getByText("Amazon")).toBeTruthy();
+    expect(page().getByText("Microsoft")).toBeTruthy();
+    expect(page().queryByText("Tesla")).toBeNull();
+
+    fireEvent.click(page().getAllByRole("button", { name: "See all ›" })[0]!);
+    await waitFor(() =>
+      expect(page().getByRole("heading", { name: "Stocks" })).toBeTruthy(),
+    );
+    expect(pushCalls).toEqual(["/dashboard?panel=invest&shelf=stocks"]);
+    expect(page().getByText("Tesla")).toBeTruthy();
+    expect(page().getByText("Strategy")).toBeTruthy();
+    expect(page().getByText("SanDisk")).toBeTruthy();
+    expect(page().getByText("SpaceX")).toBeTruthy();
+    expect(page().queryByText("Buy")).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Back to Invest" }));
+    expect(backCalls).toBe(1);
+    expect(page().getByRole("heading", { name: "Invest" })).toBeTruthy();
+    expect(page().queryByText("Tesla")).toBeNull();
+  });
+
   test("opens Crypto category from See all and includes Cardano", async () => {
     renderInvest(<InvestExperience cryptoMarket={readyCrypto} />);
 

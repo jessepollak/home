@@ -7,6 +7,7 @@ import {
 } from "@/config/invest-assets";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
 
+export const STOCK_PREVIEW_COUNT = 6;
 export const MEME_PREVIEW_COUNT = 4;
 
 export const discoverShelves = [
@@ -15,7 +16,7 @@ export const discoverShelves = [
     title: "Stocks",
     category: "stock" as const,
     assets: stockAssets,
-    previewAssetIds: ["nvdac", "metac", "aaplc", "googlc"],
+    previewCount: STOCK_PREVIEW_COUNT,
   },
   {
     id: "crypto",
@@ -63,8 +64,12 @@ export function getShelfPreviewAssets(
   shelf: (typeof discoverShelves)[number],
   memeAssets: readonly InvestAsset[] = [],
 ): readonly InvestAsset[] {
+  const assets = getShelfAssets(shelf, memeAssets);
   if (shelf.id === "memes") {
-    return memeAssets.slice(0, MEME_PREVIEW_COUNT);
+    return assets.slice(0, MEME_PREVIEW_COUNT);
+  }
+  if ("previewCount" in shelf) {
+    return assets.slice(0, shelf.previewCount);
   }
   return shelf.previewAssetIds.flatMap((assetId) => {
     const asset = assetById.get(assetId);
