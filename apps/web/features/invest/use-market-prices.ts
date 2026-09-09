@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { investAssets } from "@/config/invest-assets";
-import { presentationRegions } from "@/config/regions";
+import {
+  presentationRegions,
+  type FiatCurrencyCode,
+} from "@/config/regions";
 import {
   MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   MARKET_PRICES_VERSION,
@@ -15,11 +18,15 @@ import {
   type PresentationFxQuote,
 } from "./invest-market";
 
-const presentationFiatCodes = new Set(
+const presentationFiatCodes = new Set<FiatCurrencyCode>(
   Object.values(presentationRegions).flatMap((region) =>
     region.currency.code ? [region.currency.code] : [],
   ),
 );
+
+function isFiatCurrencyCode(value: string): value is FiatCurrencyCode {
+  return presentationFiatCodes.has(value as FiatCurrencyCode);
+}
 
 const MARKET_PRICES_ENDPOINT = "/api/market-prices";
 const VISIBILITY_REFRESH_COOLDOWN_MS = 60_000;
@@ -235,14 +242,13 @@ function parseMarketPricesResponse(value: unknown): MarketPricesResponse | null 
 function parseFxQuotes(value: unknown): PresentationFxQuote[] | null {
   if (value === undefined) return null;
   if (!Array.isArray(value)) return null;
-  const allowed = presentationFiatCodes;
   const quotes: PresentationFxQuote[] = [];
   for (const item of value) {
     const record = readRecord(item);
     if (
       !record ||
       typeof record.quoteCurrency !== "string" ||
-      !allowed.has(record.quoteCurrency) ||
+      !isFiatCurrencyCode(record.quoteCurrency) ||
       (record.status !== "fresh" && record.status !== "unavailable")
     ) {
       return null;

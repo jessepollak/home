@@ -6,7 +6,6 @@ import type {
   MarketPricesFxQuote,
   MarketPricesResponse,
 } from "@/server/market-data/codex/public-contract";
-import { getCoinbaseExchangeRates } from "@/server/valuation/fx-coinbase";
 import type { FxQuote } from "@/server/valuation/types";
 
 type MarketPricesReader = () => Promise<MarketPricesResponse>;

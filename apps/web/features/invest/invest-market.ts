@@ -1,3 +1,4 @@
+import type { FiatCurrencyCode } from "@/config/regions";
 import {
   formatPresentationPrice,
   formatSignedPercentChange,
@@ -33,7 +34,7 @@ export type MarketPresentationQuote = {
 };
 
 export type PresentationFxQuote = {
-  quoteCurrency: string;
+  quoteCurrency: FiatCurrencyCode;
   quoteUnitsPerUsd: { atoms: string; scale: number } | null;
   status: "fresh" | "unavailable";
 };
