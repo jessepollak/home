@@ -1,20 +1,29 @@
 import "@/features/account/dom-test-harness";
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { useEffect } from "react";
 import type { LivelinePoint, LivelineProps } from "liveline";
 import type { MarketPriceHistoryPoint, MarketPriceRange } from "@/server/market-data/codex/history-contract";
 
 const livelineCalls: LivelineProps[] = [];
+const livelineMounts: string[] = [];
 
 mock.module("liveline", () => ({
   Liveline: (props: LivelineProps) => {
     livelineCalls.push(props);
+    useEffect(() => {
+      livelineMounts.push("mount");
+      return () => {
+        livelineMounts.push("unmount");
+      };
+    }, []);
     return <canvas data-testid="liveline" />;
   },
 }));
 
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const {
+  LIVELINE_CHIP_SETTLE_MS,
   LIVELINE_PLOT_PADDING,
   LIVELINE_SWAP_SETTLE_MS,
   PriceChart,
@@ -74,6 +83,7 @@ function livelineHadDegenerateFrame() {
 afterEach(() => {
   cleanup();
   livelineCalls.length = 0;
+  livelineMounts.length = 0;
 });
 
 describe("PriceChart Liveline", () => {
@@ -261,7 +271,12 @@ describe("PriceChart states", () => {
     );
     expect(within(document.body).getByRole("img", { name: "1W price history" })).toBeTruthy();
     const liveKey = document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-key");
+    const liveId = document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-id");
     expect(liveKey).toContain("1W");
+    expect(document.querySelector("[data-liveline-hold='chip']")).toBeTruthy();
+    expect(document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-layer")).toBe(
+      "front",
+    );
     const mid = livelineCalls.filter((call) => !call.loading);
     expect(mid.some((call) => call.data === settled.data && call.window === frozenWindow)).toBe(
       true,
@@ -270,10 +285,14 @@ describe("PriceChart states", () => {
     expect(document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-key")).toBe(
       liveKey,
     );
+    expect(document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-id")).toBe(
+      liveId,
+    );
     expect(document.querySelector('[data-plot-slot="warm"]')?.getAttribute("data-plot-key")).toContain(
       "1D",
     );
     expect(document.querySelectorAll("[data-testid='liveline']").length).toBe(2);
+    expect(livelineMounts).toEqual(["mount", "mount"]);
     expect(livelineHadDegenerateFrame()).toBe(false);
 
     await waitFor(
@@ -283,6 +302,11 @@ describe("PriceChart states", () => {
           "1D",
         );
         expect(document.querySelector('[data-plot-slot="warm"]')).toBeNull();
+        expect(document.querySelector("[data-liveline-hold='chip']")).toBeNull();
+        expect(document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-id")).not.toBe(
+          liveId,
+        );
+        expect(livelineMounts).toEqual(["mount", "mount", "unmount"]);
         const ready = livelineCalls.at(-1)!;
         expect(ready.data).toEqual(toLivelinePoints(day));
         expect(ready.value).toBe(64300);
@@ -290,7 +314,7 @@ describe("PriceChart states", () => {
         expect(ready.loading).toBe(false);
         expect(livelineHadDegenerateFrame()).toBe(false);
       },
-      { timeout: LIVELINE_SWAP_SETTLE_MS + 200 },
+      { timeout: LIVELINE_CHIP_SETTLE_MS + 200 },
     );
   });
 });

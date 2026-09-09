@@ -287,29 +287,28 @@
 }
 
 .chartStage > div,
-.plotLive > div,
-.plotWarm > div {
+.plotSlot > div {
   flex: 1;
   min-width: 0;
   min-height: 260px;
 }
 
-.plotLive,
-.plotWarm {
+.plotSlot {
   position: absolute;
   inset: 0;
   display: flex;
   min-height: 260px;
 }
 
-/* Incoming series paints at full opacity under last-good. Never use
-   opacity:0 here — becoming visible retriggers Liveline chartReveal. */
-.plotWarm {
+.plotBack {
   z-index: 0;
+}
+
+.chartStage:has(.plotFront) .plotBack {
   pointer-events: none;
 }
 
-.plotLive {
+.plotFront {
   z-index: 2;
 }
 
@@ -319,6 +318,12 @@
   z-index: 3;
   background: var(--home-canvas);
   pointer-events: none;
+}
+
+.plotCover[data-plot-hold-shot="true"] {
+  background: none;
+  width: 100%;
+  height: 100%;
 }
 
 .chartMessage {
