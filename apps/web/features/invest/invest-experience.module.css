@@ -303,7 +303,12 @@
 }
 
 .plotWarm {
-  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.plotLive[data-plot-pending="true"] {
+  visibility: hidden;
   pointer-events: none;
 }
 

@@ -27,11 +27,8 @@ export const LIVELINE_PLOT_PADDING = {
   left: 16,
 } as const;
 
-/** Liveline's loading→data reveal (~0.09/frame) must finish before we swap the live plot. */
+/** Liveline's chartReveal (~0.09/frame) must finish before the first series is visible. */
 export const LIVELINE_SWAP_SETTLE_MS = 850;
-
-/** First series snaps to geometry offscreen (`lerpSpeed=1`) then reveals. */
-export const LIVELINE_FIRST_REVEAL_MS = 200;
 
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
 
@@ -103,8 +100,9 @@ function ChartBody({
     <div className={styles.chartStage} role={stageRole} aria-label={stageLabel}>
       {primary ? (
         <div
-          className={primaryHidden ? styles.plotWarm : styles.plotLive}
+          className={styles.plotLive}
           data-plot-slot={primaryHidden ? "warm" : "live"}
+          data-plot-pending={primaryHidden ? "true" : "false"}
         >
           <AssetLiveline
             plot={primary}
@@ -183,17 +181,14 @@ function usePresentedLivelinePlot(
   if (nextWarming !== warming) setWarming(nextWarming);
 
   const warmingKey = nextWarming?.key ?? null;
-  const revealDelay = nextForeground
-    ? LIVELINE_SWAP_SETTLE_MS
-    : LIVELINE_FIRST_REVEAL_MS;
   useEffect(() => {
     if (!plot || !warmingKey || plot.key !== warmingKey) return;
     const timer = window.setTimeout(() => {
       setForeground(plot);
       setWarming(null);
-    }, revealDelay);
+    }, LIVELINE_SWAP_SETTLE_MS);
     return () => window.clearTimeout(timer);
-  }, [plot, warmingKey, revealDelay]);
+  }, [plot, warmingKey]);
 
   return { foreground: nextForeground, warming: nextWarming };
 }

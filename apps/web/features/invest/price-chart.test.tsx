@@ -15,7 +15,6 @@ mock.module("liveline", () => ({
 
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const {
-  LIVELINE_FIRST_REVEAL_MS,
   LIVELINE_PLOT_PADDING,
   LIVELINE_SWAP_SETTLE_MS,
   PriceChart,
@@ -59,7 +58,7 @@ async function waitForRevealed(range: MarketPriceRange = "1W") {
       within(document.body).getByRole("img", {
         name: `${range} price history`,
       }),
-    { timeout: LIVELINE_FIRST_REVEAL_MS + 200 },
+    { timeout: LIVELINE_SWAP_SETTLE_MS + 200 },
   );
 }
 
@@ -193,7 +192,7 @@ describe("PriceChart states", () => {
       />,
     );
     expect(within(document.body).getByRole("status", { name: "Loading price history" })).toBeTruthy();
-    expect(document.querySelector('[data-plot-slot="warm"]')).toBeTruthy();
+    expect(document.querySelector('[data-plot-slot="warm"][data-plot-pending="true"]')).toBeTruthy();
     expect(document.querySelector('[data-plot-slot="live"]')).toBeNull();
     const warming = livelineCalls.at(-1)!;
     expect(warming.data).toEqual(toLivelinePoints(week));
