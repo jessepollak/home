@@ -42,7 +42,7 @@ The full checklist is in the [contribution contract](docs/architecture-review-20
 
 ## Agent team & merge policy
 
-The in-repo agent crew (Hannah, Hank, Holly, Hazel, Hope, Hunter, j) follows the [operating manual](docs/operating-manual.md). GitHub Issues and labels are their board — not the private local inbox.
+The in-repo agent crew (Hannah, Hank, Holly, Hazel, Hope, Hugo, Hunter, j) follows the [operating manual](docs/operating-manual.md). GitHub Issues and labels are their board — not the private local inbox.
 
 **Only Jesse (`jessepollak`) gives the final +1 and merges.** Crew review, including Hannah's eng review, can proceed; merge waits on Jesse. Third-party PRs already required Jesse +1; crew PRs use the same bar.
 

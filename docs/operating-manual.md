@@ -16,6 +16,7 @@ Build Home as an app anyone can clone, run, contribute to, and extend. Fork-firs
 | j | CEO / ops |
 | Hunter | PM. Drive order. |
 | Hannah | Head of Engineering. Quality, reliability, maintainability. Eng review and labels. Never merge — Jesse final +1 / merge. |
+| Hugo | Architect. Architecture, cross-cutting technical integrity, independent review, and scoped fix PRs. Hannah retains engineering sequencing and review; Hunter retains drive order; Jesse retains final decisions, +1, and merge. Hugo is not a second execution coordinator and does not duplicate active lane ownership. |
 | Hank | Backend |
 | Holly | Frontend |
 | Hazel | Design |
@@ -40,6 +41,7 @@ Every crew issue should carry one `owner:*`, one `status:*`, and one `lane:*`. L
 | `owner:holly` | Holly (frontend) |
 | `owner:hazel` | Hazel (design) |
 | `owner:hope` | Hope (DevRel / DX) |
+| `owner:hugo` | Hugo (Architect) |
 | `owner:hunter` | Hunter (PM) |
 | `owner:j` | j (CEO / ops) |
 
