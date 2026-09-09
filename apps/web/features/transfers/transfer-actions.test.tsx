@@ -69,8 +69,9 @@ function typeAmount(digits: string) {
 }
 
 function composeSend(options: { asset?: "usdc" | "eth"; amount: string; recipient?: string }) {
-  fireEvent.click(page().getByRole("button", { name: "Send" }));
-  expect(page().queryByRole("button", { name: "Back" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Back" })).toBeNull();
   if (options.asset === "eth") {
     fireEvent.change(page().getByLabelText("Asset"), { target: { value: "eth" } });
   }
@@ -273,6 +274,14 @@ describe("TransferActions modals", () => {
     fireEvent.click(page().getByRole("button", { name: "Check status" }));
     await waitFor(() => expect(executes).toBe(1));
     expect(prepares).toBe(0);
+  });
+
+  test("closes Send from step 1 with × and keeps Back off that step", () => {
+    render(<TransferActionsForWallet wallet={verifiedWallet()} />);
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    expect(page().queryByRole("button", { name: "Back" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Close send dialog" }));
+    expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
   });
 
   test("hides an open private modal immediately when the verified owner changes", () => {
