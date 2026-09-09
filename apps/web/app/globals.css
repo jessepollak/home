@@ -180,6 +180,12 @@ body:has(.app-main-authenticated) {
   color: var(--muted);
 }
 
+.header-account-quiet:disabled {
+  border-color: var(--home-hairline);
+  background: var(--home-white);
+  color: var(--home-muted);
+}
+
 .app-main {
   padding-top: 20px;
 }
@@ -427,6 +433,105 @@ body:has(.app-main-authenticated) {
   letter-spacing: -0.06em;
   line-height: 0.95;
   font-variant-numeric: tabular-nums;
+}
+
+.shimmer {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  background: var(--home-gray-100);
+}
+
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(255 255 255 / 0.65) 50%,
+    transparent 100%
+  );
+  animation: home-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes home-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.balance-hero-shimmer {
+  width: 48%;
+  max-width: 11.5rem;
+  height: 2.4rem;
+  border-radius: var(--control-radius);
+}
+
+.shimmer-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shimmer-row {
+  display: grid;
+  min-height: 50px;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid var(--home-hairline);
+  padding: 8px 2px;
+}
+
+.shimmer-row:last-child {
+  border-bottom: 0;
+}
+
+.shimmer-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.shimmer-identity {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.shimmer-line {
+  height: 10px;
+  border-radius: 4px;
+}
+
+.shimmer-line-wide {
+  width: 42%;
+  min-width: 4.5rem;
+}
+
+.shimmer-line-narrow {
+  width: 28%;
+  min-width: 3rem;
+  height: 8px;
+}
+
+.shimmer-pill {
+  width: 3.25rem;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.shimmer-save-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.shimmer-line-save {
+  width: 36%;
+  min-width: 4rem;
 }
 
 .balances-panel,
@@ -1071,5 +1176,10 @@ body:has(.app-main-authenticated) {
   .action-row > a:active,
   .save-teaser:active {
     transform: none;
+  }
+
+  .shimmer::after {
+    display: none;
+    animation: none;
   }
 }

@@ -589,22 +589,36 @@ describe("login-state home experience", () => {
       />,
     );
 
-    expect(page().getByRole("button", { name: "Checking…" })).toBeTruthy();
+    const checkingAccount = page().getByRole("button", { name: "Account" });
+    expect(checkingAccount).toBeTruthy();
+    expect(checkingAccount.hasAttribute("disabled")).toBe(true);
+    expect(page().queryByRole("button", { name: "Checking…" })).toBeNull();
+    expect(page().queryByText("Checking…")).toBeNull();
+    expect(page().queryByText("Checking your account…")).toBeNull();
     expect(page().getByRole("navigation", { name: "Main navigation" })).toBeTruthy();
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();
     expect(page().getByRole("link", { name: "Add money" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Save" })).toBeTruthy();
     expect(page().getByText("Updating…")).toBeTruthy();
+    expect(document.querySelector("[data-shimmer='hero']")).toBeTruthy();
+    expect(document.querySelectorAll("[data-shimmer='row']").length).toBe(4);
     expect(page().queryByText("$12.34")).toBeNull();
+    expect(page().queryByText("—")).toBeNull();
+    expect(page().queryByText("No balances yet")).toBeNull();
+    expect(page().queryByText("No activity yet")).toBeNull();
     expect(document.body.textContent).not.toContain(ADDRESS);
-    expect(page().queryByText("Checking your account…")).toBeNull();
 
     await act(async () => {
       pendingSession.resolve(Response.json(session()));
       await pendingSession.promise;
     });
 
-    await page().findByRole("button", { name: "Account" });
+    await waitFor(() => {
+      expect(page().getByRole("button", { name: "Account" }).hasAttribute("disabled")).toBe(
+        false,
+      );
+    });
     expect(page().queryByText("Wallet & savings value")).toBeNull();
     expect(page().queryByText("Wallet & savings")).toBeNull();
     expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();

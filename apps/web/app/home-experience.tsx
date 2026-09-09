@@ -511,8 +511,12 @@ function HeaderAccountAction({
 
   if (status === "restoring" || status === "validating") {
     return (
-      <button className="header-account-link" type="button" disabled>
-        Checking…
+      <button
+        className="header-account-link header-account-quiet"
+        type="button"
+        disabled
+      >
+        Account
       </button>
     );
   }
@@ -622,6 +626,7 @@ function HomePanel({
   onOpenSave: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading";
+  const showSessionShimmer = isLoading && !activitySession;
   const heroLabel = isLoading
     ? "Updating…"
     : assetBalances?.status === "unavailable"
@@ -640,8 +645,22 @@ function HomePanel({
 
   return (
     <div className="home-panel">
-      <section className="balance-hero" aria-label={heroLabel}>
-        <p className="balance-hero-total">{assetBalances?.displayTotal ?? "—"}</p>
+      <section
+        className="balance-hero"
+        aria-label={heroLabel}
+        aria-busy={isLoading || undefined}
+      >
+        {isLoading ? (
+          <span
+            className="shimmer balance-hero-shimmer"
+            data-shimmer="hero"
+            aria-hidden="true"
+          />
+        ) : (
+          <p className="balance-hero-total">
+            {assetBalances?.displayTotal ?? "—"}
+          </p>
+        )}
         {isLoading ? <span className="sr-status">Updating…</span> : null}
       </section>
 
@@ -677,47 +696,73 @@ function HomePanel({
               />
             ))}
           </ul>
-        ) : isLoading ? null : (
+        ) : isLoading ? (
+          <ShimmerRows count={2} />
+        ) : (
           <p className="balances-empty">No balances yet</p>
         )}
       </section>
 
-      <button
-        className="save-teaser"
-        type="button"
-        onClick={onOpenSave}
-        aria-label="Save"
-      >
-        <span className="save-teaser-icon" aria-hidden="true">
-          <PiggyBank size={20} strokeWidth={1.9} />
-        </span>
-        <span className="save-teaser-label">Save</span>
-        <span className="save-teaser-action">
-          Earn <span aria-hidden="true">›</span>
-        </span>
-      </button>
+      {showSessionShimmer ? (
+        <button
+          className="save-teaser"
+          type="button"
+          onClick={onOpenSave}
+          aria-label="Save"
+        >
+          <span className="shimmer shimmer-save-icon" aria-hidden="true" />
+          <span className="shimmer shimmer-line shimmer-line-save" aria-hidden="true" />
+          <span className="shimmer shimmer-pill" aria-hidden="true" />
+        </button>
+      ) : (
+        <button
+          className="save-teaser"
+          type="button"
+          onClick={onOpenSave}
+          aria-label="Save"
+        >
+          <span className="save-teaser-icon" aria-hidden="true">
+            <PiggyBank size={20} strokeWidth={1.9} />
+          </span>
+          <span className="save-teaser-label">Save</span>
+          <span className="save-teaser-action">
+            Earn <span aria-hidden="true">›</span>
+          </span>
+        </button>
+      )}
 
-      <div className="activity-panel activity-panel-slot">
-        <ActivityPanel
-          session={activitySession}
-          fetchActivity={fetchActivity}
-          refreshTrigger={activityRefreshTrigger}
-          onTransactionHashesChange={updateIndexedTransactionHashes}
-          suppressEmpty={localActionCount > 0}
-          leading={
-            <RecentMoneyActions
-              session={activitySession}
-              fetchOperations={fetchOperations}
-              readOperation={readOperation}
-              recoverOperation={recoverOperation}
-              refreshTrigger={activityRefreshTrigger}
-              excludeTransactionHashes={indexedTransactionHashes}
-              embedded
-              onVisibleCountChange={setLocalActionCount}
-            />
-          }
-        />
-      </div>
+      {showSessionShimmer ? (
+        <section
+          className="activity-panel"
+          aria-labelledby="activity-title"
+          aria-busy="true"
+        >
+          <h2 id="activity-title">Activity</h2>
+          <ShimmerRows count={2} />
+        </section>
+      ) : (
+        <div className="activity-panel activity-panel-slot">
+          <ActivityPanel
+            session={activitySession}
+            fetchActivity={fetchActivity}
+            refreshTrigger={activityRefreshTrigger}
+            onTransactionHashesChange={updateIndexedTransactionHashes}
+            suppressEmpty={localActionCount > 0}
+            leading={
+              <RecentMoneyActions
+                session={activitySession}
+                fetchOperations={fetchOperations}
+                readOperation={readOperation}
+                recoverOperation={recoverOperation}
+                refreshTrigger={activityRefreshTrigger}
+                excludeTransactionHashes={indexedTransactionHashes}
+                embedded
+                onVisibleCountChange={setLocalActionCount}
+              />
+            }
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -732,6 +777,23 @@ function availableSendBalances(
     ...(cash?.displayBalance ? { usdc: cash.displayBalance } : {}),
     ...(eth ? { eth: eth.displayContext ?? eth.displayBalance } : {}),
   };
+}
+
+function ShimmerRows({ count }: { count: number }) {
+  return (
+    <ul className="shimmer-list">
+      {Array.from({ length: count }, (_, index) => (
+        <li key={index} className="shimmer-row" data-shimmer="row">
+          <span className="shimmer shimmer-mark" aria-hidden="true" />
+          <span className="shimmer-identity">
+            <span className="shimmer shimmer-line shimmer-line-wide" aria-hidden="true" />
+            <span className="shimmer shimmer-line shimmer-line-narrow" aria-hidden="true" />
+          </span>
+          <span className="shimmer shimmer-pill" aria-hidden="true" />
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function EmptyPanel({ label }: { label: string }) {
