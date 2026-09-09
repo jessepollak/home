@@ -82,7 +82,6 @@ function ChartBody({
   );
   const plot = useHeldLivelinePlot(history.status, incoming, range);
   const { foreground, warming } = usePresentedLivelinePlot(plot, reduceMotion);
-  const primary = foreground ?? warming;
   const firstRevealed = useFirstLivelineReveal(!!foreground, reduceMotion);
   const firstPaintHidden = !!foreground && !firstRevealed;
   const unavailable =
@@ -99,26 +98,25 @@ function ChartBody({
 
   return (
     <div className={styles.chartStage} role={stageRole} aria-label={stageLabel}>
-      {primary ? (
-        <div
-          className={styles.plotLive}
-          data-plot-slot="live"
-          data-plot-pending={firstPaintHidden ? "true" : "false"}
-        >
-          <AssetLiveline
-            plot={primary}
-            reduceMotion={reduceMotion}
-            instant={false}
-          />
-        </div>
+      {foreground ? (
+        <PlotSlot
+          key={foreground.key}
+          plot={foreground}
+          slot="live"
+          pending={firstPaintHidden}
+          reduceMotion={reduceMotion}
+        />
+      ) : null}
+      {warming && warming.key !== foreground?.key ? (
+        <PlotSlot
+          key={warming.key}
+          plot={warming}
+          slot="warm"
+          reduceMotion={reduceMotion}
+        />
       ) : null}
       {firstPaintHidden ? (
         <div className={styles.plotCover} data-plot-cover="true" aria-hidden />
-      ) : null}
-      {foreground && warming ? (
-        <div className={styles.plotWarm} data-plot-slot="warm" aria-hidden>
-          <AssetLiveline plot={warming} reduceMotion={reduceMotion} />
-        </div>
       ) : null}
       {unavailable ? (
         <p className={styles.chartMessage} role="status">
@@ -208,6 +206,30 @@ function useFirstLivelineReveal(hasForeground: boolean, reduceMotion: boolean) {
   return reduceMotion || revealed;
 }
 
+function PlotSlot({
+  plot,
+  slot,
+  pending = false,
+  reduceMotion,
+}: {
+  plot: HeldLivelinePlot;
+  slot: "live" | "warm";
+  pending?: boolean;
+  reduceMotion: boolean;
+}) {
+  return (
+    <div
+      className={slot === "live" ? styles.plotLive : styles.plotWarm}
+      data-plot-slot={slot}
+      data-plot-key={plot.key}
+      data-plot-pending={slot === "live" ? (pending ? "true" : "false") : undefined}
+      aria-hidden={slot === "warm" ? true : undefined}
+    >
+      <AssetLiveline plot={plot} reduceMotion={reduceMotion} />
+    </div>
+  );
+}
+
 function commitLivelinePlot(
   points: LivelinePoint[],
   range: MarketPriceRange,
@@ -226,11 +248,9 @@ function commitLivelinePlot(
 function AssetLiveline({
   plot,
   reduceMotion,
-  instant = false,
 }: {
   plot: HeldLivelinePlot;
   reduceMotion: boolean;
-  instant?: boolean;
 }) {
   const range = plot.range;
   const formatTime = useMemo(
@@ -254,7 +274,7 @@ function AssetLiveline({
       showValue={false}
       grid={false}
       loading={false}
-      lerpSpeed={reduceMotion || instant ? 1 : 0.08}
+      lerpSpeed={reduceMotion ? 1 : 0.08}
       lineWidth={2.5}
       formatTime={formatTime}
       formatValue={formatChartValue}

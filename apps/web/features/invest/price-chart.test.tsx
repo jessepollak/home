@@ -260,20 +260,34 @@ describe("PriceChart states", () => {
       />,
     );
     expect(within(document.body).getByRole("img", { name: "1W price history" })).toBeTruthy();
+    const liveKey = document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-key");
+    expect(liveKey).toContain("1W");
     const mid = livelineCalls.filter((call) => !call.loading);
     expect(mid.some((call) => call.data === settled.data && call.window === frozenWindow)).toBe(
       true,
     );
     expect(mid.some((call) => call.value === 64300)).toBe(true);
+    expect(document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-key")).toBe(
+      liveKey,
+    );
+    expect(document.querySelector('[data-plot-slot="warm"]')?.getAttribute("data-plot-key")).toContain(
+      "1D",
+    );
+    expect(livelineHadDegenerateFrame()).toBe(false);
 
     await waitFor(
       () => {
         expect(within(document.body).getByRole("img", { name: "1D price history" })).toBeTruthy();
+        expect(document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-key")).toContain(
+          "1D",
+        );
+        expect(document.querySelector('[data-plot-slot="warm"]')).toBeNull();
         const ready = livelineCalls.at(-1)!;
         expect(ready.data).toEqual(toLivelinePoints(day));
         expect(ready.value).toBe(64300);
         expect(ready.window).not.toBe(frozenWindow);
         expect(ready.loading).toBe(false);
+        expect(livelineHadDegenerateFrame()).toBe(false);
       },
       { timeout: LIVELINE_SWAP_SETTLE_MS + 200 },
     );
