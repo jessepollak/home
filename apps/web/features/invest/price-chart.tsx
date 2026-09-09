@@ -369,6 +369,13 @@ function formatChartTime(time: number, range: MarketPriceRange) {
 
 export function formatChartValue(value: number) {
   const magnitude = Math.abs(value);
+  if (magnitude > 0 && magnitude < 0.001) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumSignificantDigits: 4,
+    }).format(value);
+  }
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",

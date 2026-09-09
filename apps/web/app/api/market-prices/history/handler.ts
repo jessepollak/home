@@ -3,19 +3,27 @@ import {
   getCodexMarketHistory,
 } from "@/server/market-data/codex/history";
 import {
+  isDynamicMarketPriceAssetId,
   isMarketPriceRange,
+  matchesMarketPriceAssetIdentity,
   resolveMarketPriceAssetIdentity,
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
 } from "@/server/market-data/codex/history-contract";
+import {
+  getCodexTrendingMemes,
+  type TrendingMemesResult,
+} from "@/server/market-data/codex/trending";
 
 type HistoryReader = (
   assetId: string,
   range: string,
 ) => Promise<MarketPriceHistoryResponse>;
+type DynamicCatalogReader = () => Promise<TrendingMemesResult>;
 
 export function createMarketPriceHistoryHandler(
   readHistory: HistoryReader = getCodexMarketHistory,
+  readDynamicCatalog: DynamicCatalogReader = getCodexTrendingMemes,
 ) {
   return async function GET(request: Request) {
     const url = new URL(request.url);
@@ -38,6 +46,47 @@ export function createMarketPriceHistoryHandler(
       );
     }
 
+    if (isDynamicMarketPriceAssetId(identity.assetId)) {
+      try {
+        const catalog = await readDynamicCatalog();
+        const admitted =
+          catalog.status === "ready" &&
+          (catalog.assets.some(
+            (asset) =>
+              asset.id === identity.assetId &&
+              matchesMarketPriceAssetIdentity(asset),
+          ) ||
+            catalog.snapshots.some(
+              (snapshot) => snapshot.assetId === identity.assetId,
+            ));
+        if (!admitted) {
+          return Response.json(
+            createUnavailableQueryResponse(
+              identity.assetId,
+              range,
+              "unknown-asset",
+            ),
+            {
+              status: 404,
+              headers: { "Cache-Control": "no-store" },
+            },
+          );
+        }
+      } catch {
+        return Response.json(
+          createUnavailableQueryResponse(
+            identity.assetId,
+            range,
+            "unknown-asset",
+          ),
+          {
+            status: 404,
+            headers: { "Cache-Control": "no-store" },
+          },
+        );
+      }
+    }
+
     try {
       const payload = await readHistory(identity.assetId, range);
       if (
@@ -46,6 +95,12 @@ export function createMarketPriceHistoryHandler(
         payload.currency !== "USD"
       ) {
         throw new Error("History reader returned mismatched identity");
+      }
+      if (payload.unavailableReason === "overloaded") {
+        return Response.json(payload, {
+          status: 503,
+          headers: { "Cache-Control": "no-store" },
+        });
       }
       const cacheControl = payload.unavailableReason
         ? "public, max-age=30"

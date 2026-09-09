@@ -322,9 +322,13 @@ describe("PriceChart states", () => {
 });
 
 describe("Liveline adapters", () => {
-  test("formats chart values as explicit USD", () => {
+  test("formats chart values as explicit USD without collapsing tiny prices", () => {
     expect(formatChartValue(64210)).toBe("$64.21K");
     expect(formatChartValue(0.0123456)).toBe("$0.012346");
+    expect(formatChartValue(0.00001234)).toBe("$0.00001234");
+    expect(formatChartValue(1.234e-7)).toBe("$0.0000001234");
+    expect(formatChartValue(2e-7)).toBe("$0.0000002");
+    expect(formatChartValue(3e-7)).toBe("$0.0000003");
   });
 
   test("converts ISO points to unix-second Liveline points", () => {

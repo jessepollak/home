@@ -55,6 +55,9 @@ type HistoryReaderOptions = {
   fetchImpl?: FetchLike;
   now?: Clock;
   timeoutMs?: number;
+  cacheTtlMs?: number;
+  cacheMaxEntries?: number;
+  maxInFlight?: number;
 };
 
 type CacheEntry = {
@@ -62,11 +65,17 @@ type CacheEntry = {
   response: MarketPriceHistoryResponse;
 };
 
+export const CODEX_HISTORY_CACHE_MAX_ENTRIES = 64;
+export const CODEX_HISTORY_MAX_IN_FLIGHT = 8;
+
 export function createCodexMarketHistoryReader({
   apiKey,
   fetchImpl = fetch,
   now = () => new Date(),
   timeoutMs = CODEX_REQUEST_TIMEOUT_MS,
+  cacheTtlMs = CODEX_CACHE_TTL_MS,
+  cacheMaxEntries = CODEX_HISTORY_CACHE_MAX_ENTRIES,
+  maxInFlight = CODEX_HISTORY_MAX_IN_FLIGHT,
 }: HistoryReaderOptions) {
   const cache = new Map<string, CacheEntry>();
   const inFlight = new Map<string, Promise<MarketPriceHistoryResponse>>();
@@ -103,12 +112,23 @@ export function createCodexMarketHistoryReader({
 
     const cacheKey = `${identity.assetId}:${range}`;
     const currentTime = now().getTime();
+    pruneExpiredCache(cache, currentTime, cacheTtlMs);
     const cached = cache.get(cacheKey);
-    if (cached && currentTime - cached.storedAt <= CODEX_CACHE_TTL_MS) {
+    if (cached) {
+      cache.delete(cacheKey);
+      cache.set(cacheKey, cached);
       return cached.response;
     }
     const pending = inFlight.get(cacheKey);
     if (pending) return pending;
+    if (inFlight.size >= maxInFlight) {
+      return createHistoryResponse({
+        assetId: identity.assetId,
+        range,
+        status: "unavailable",
+        unavailableReason: "overloaded",
+      });
+    }
 
     const request = fetchHistory({
       apiKey: apiKey.trim(),
@@ -122,12 +142,43 @@ export function createCodexMarketHistoryReader({
 
     try {
       const response = await request;
-      cache.set(cacheKey, { storedAt: now().getTime(), response });
+      setBoundedCacheEntry(
+        cache,
+        cacheKey,
+        { storedAt: now().getTime(), response },
+        cacheMaxEntries,
+      );
       return response;
     } finally {
       inFlight.delete(cacheKey);
     }
   };
+}
+
+function pruneExpiredCache(
+  cache: Map<string, CacheEntry>,
+  currentTime: number,
+  cacheTtlMs: number,
+) {
+  for (const [key, entry] of cache) {
+    if (currentTime - entry.storedAt > cacheTtlMs) cache.delete(key);
+  }
+}
+
+function setBoundedCacheEntry(
+  cache: Map<string, CacheEntry>,
+  key: string,
+  entry: CacheEntry,
+  cacheMaxEntries: number,
+) {
+  if (cacheMaxEntries <= 0) return;
+  cache.delete(key);
+  while (cache.size >= cacheMaxEntries) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
+  cache.set(key, entry);
 }
 
 export function createErrorMarketHistoryResponse(

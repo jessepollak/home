@@ -32,7 +32,11 @@ export type MarketPriceHistoryResponse = {
   fetchedAt: string | null;
   status: "ready" | "empty" | "unavailable" | "error";
   points: readonly MarketPriceHistoryPoint[];
-  unavailableReason?: "not-configured" | "unknown-asset" | "invalid-range";
+  unavailableReason?:
+    | "not-configured"
+    | "unknown-asset"
+    | "invalid-range"
+    | "overloaded";
 };
 
 const configuredAssetById = new Map<string, MarketPriceAssetIdentity>(
@@ -71,6 +75,12 @@ export function resolveMarketPriceAssetIdentity(
     chainId: BASE_CHAIN_ID,
     contractAddress: contractAddress as `0x${string}`,
   };
+}
+
+export function isDynamicMarketPriceAssetId(
+  value: MarketPriceAssetId,
+): value is DynamicMarketPriceAssetId {
+  return dynamicBaseAssetPattern.test(value);
 }
 
 export function matchesMarketPriceAssetIdentity(asset: {

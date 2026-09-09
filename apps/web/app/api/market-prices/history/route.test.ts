@@ -4,8 +4,30 @@ import {
   createErrorMarketHistoryResponse,
 } from "@/server/market-data/codex/history";
 import type { MarketPriceHistoryResponse } from "@/server/market-data/codex/history-contract";
+import { normalizeTrendingMemes } from "@/server/market-data/codex/trending";
 import { createMarketPriceHistoryHandler } from "./handler";
 import { dynamic, runtime } from "./route";
+
+const dynamicId = "base:0x1111111111111111111111111111111111111111";
+const admittedDynamicCatalog = normalizeTrendingMemes(
+  {
+    filterTokens: {
+      results: [
+        {
+          priceUSD: "0.0123",
+          token: {
+            address: "0x1111111111111111111111111111111111111111",
+            name: "Higher",
+            symbol: "HIGHER",
+            decimals: "18",
+            networkId: "8453",
+          },
+        },
+      ],
+    },
+  },
+  new Date("2026-09-09T12:00:00.000Z"),
+);
 
 const ready: MarketPriceHistoryResponse = {
   version: 1,
@@ -23,7 +45,14 @@ describe("GET /api/market-prices/history", () => {
     expect(runtime).toBe("nodejs");
     expect(dynamic).toBe("force-dynamic");
 
-    const GET = createMarketPriceHistoryHandler(async () => ready);
+    let catalogCalls = 0;
+    const GET = createMarketPriceHistoryHandler(
+      async () => ready,
+      async () => {
+        catalogCalls += 1;
+        throw new Error("static history must not load dynamic discovery");
+      },
+    );
     const response = await GET(
       new Request("http://home.test/api/market-prices/history?assetId=cbbtc&range=1W"),
     );
@@ -33,10 +62,10 @@ describe("GET /api/market-prices/history", () => {
       "public, max-age=30, stale-while-revalidate=30",
     );
     expect(await response.json()).toEqual(ready);
+    expect(catalogCalls).toBe(0);
   });
 
-  test("serves a canonical dynamic Base asset through the bounded Codex reader contract", async () => {
-    const dynamicId = "base:0x1111111111111111111111111111111111111111";
+  test("serves only server-discovered dynamic Base assets through the bounded reader", async () => {
     let requestedSymbol = "";
     const reader = createCodexMarketHistoryReader({
       apiKey: "fixture-key",
@@ -54,7 +83,10 @@ describe("GET /api/market-prices/history", () => {
         );
       },
     });
-    const GET = createMarketPriceHistoryHandler(reader);
+    const GET = createMarketPriceHistoryHandler(
+      reader,
+      async () => admittedDynamicCatalog,
+    );
     const response = await GET(
       new Request(
         `http://home.test/api/market-prices/history?assetId=${encodeURIComponent(dynamicId)}&range=1D`,
@@ -74,6 +106,78 @@ describe("GET /api/market-prices/history", () => {
       currency: "USD",
       status: "ready",
       points: [{ value: "0.0123" }],
+    });
+  });
+
+  test("rejects valid but unlisted dynamic IDs without touching history", async () => {
+    let historyCalls = 0;
+    let catalogCalls = 0;
+    const GET = createMarketPriceHistoryHandler(
+      async () => {
+        historyCalls += 1;
+        return ready;
+      },
+      async () => {
+        catalogCalls += 1;
+        return { status: "ready", assets: [], snapshots: [] };
+      },
+    );
+    const response = await GET(
+      new Request(
+        `http://home.test/api/market-prices/history?assetId=${encodeURIComponent(dynamicId)}&range=1D&catalog=${encodeURIComponent(dynamicId)}`,
+      ),
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({
+      assetId: dynamicId,
+      range: "1D",
+      status: "unavailable",
+      unavailableReason: "unknown-asset",
+      points: [],
+    });
+    expect(catalogCalls).toBe(1);
+    expect(historyCalls).toBe(0);
+  });
+
+  test("fails dynamic admission closed when server discovery is unavailable", async () => {
+    let historyCalls = 0;
+    const GET = createMarketPriceHistoryHandler(
+      async () => {
+        historyCalls += 1;
+        return ready;
+      },
+      async () => {
+        throw new Error("discovery unavailable");
+      },
+    );
+    const response = await GET(
+      new Request(
+        `http://home.test/api/market-prices/history?assetId=${encodeURIComponent(dynamicId)}&range=1D`,
+      ),
+    );
+
+    expect(response.status).toBe(404);
+    expect(historyCalls).toBe(0);
+  });
+
+  test("returns deterministic no-store overload responses", async () => {
+    const GET = createMarketPriceHistoryHandler(async () => ({
+      ...ready,
+      status: "unavailable",
+      points: [],
+      unavailableReason: "overloaded",
+    }));
+    const response = await GET(
+      new Request("http://home.test/api/market-prices/history?assetId=cbbtc&range=1W"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({
+      status: "unavailable",
+      unavailableReason: "overloaded",
     });
   });
 
