@@ -87,6 +87,17 @@ function presentCashBucket(bucket: CashBucket): HomeAssetBalanceItem {
     };
   }
 
+  if (bucket.valuationStatus === "read-unavailable") {
+    return {
+      id: bucket.id,
+      group: "cash",
+      name,
+      displayBalance: "Unavailable",
+      currencyCode: bucket.denominationCurrency,
+      tone: "error",
+    };
+  }
+
   if (bucket.indicativeValue) {
     return {
       id: bucket.id,
@@ -100,15 +111,36 @@ function presentCashBucket(bucket: CashBucket): HomeAssetBalanceItem {
     };
   }
 
-  const readFailed = bucket.valuationStatus === "read-unavailable";
+  const tokenAmount = unpricedCashTokenAmount(bucket);
   return {
     id: bucket.id,
     group: "cash",
     name,
-    displayBalance: readFailed ? "Unavailable" : "—",
+    displayBalance: tokenAmount ?? "—",
     currencyCode: bucket.denominationCurrency,
-    tone: readFailed ? "error" : "muted",
+    tone: "muted",
   };
+}
+
+function unpricedCashTokenAmount(bucket: CashBucket): string | null {
+  if (
+    bucket.valuationStatus !== "unpriced" ||
+    bucket.tokenAmountBaseUnits === null ||
+    bucket.tokenDecimals === null ||
+    !/^(?:0|[1-9]\d*)$/.test(bucket.tokenAmountBaseUnits) ||
+    !Number.isSafeInteger(bucket.tokenDecimals) ||
+    bucket.tokenDecimals < 0 ||
+    bucket.tokenDecimals > 255
+  ) {
+    return null;
+  }
+
+  return formatPresentationTokenAmount(
+    bucket.tokenAmountBaseUnits,
+    bucket.tokenDecimals,
+    bucket.symbol,
+    { cashCurrency: bucket.denominationCurrency },
+  );
 }
 
 function presentAssetRows(

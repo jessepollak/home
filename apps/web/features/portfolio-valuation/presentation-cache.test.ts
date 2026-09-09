@@ -92,6 +92,40 @@ describe("home balances presentation cache", () => {
     });
   });
 
+  test("round-trips an unpriced cash token quantity", () => {
+    const storage = memoryStorage();
+    const presentation: HomeAssetBalancesPresentation = {
+      status: "ready",
+      displayTotal: "—",
+      items: [
+        {
+          id: "cash:idrx",
+          group: "cash",
+          name: "Indonesian rupiah",
+          displayBalance: "2,500.00 IDRX",
+          currencyCode: "IDR",
+          tone: "muted",
+        },
+      ],
+    };
+
+    expect(
+      writeHomeBalancesPresentation(
+        () => storage,
+        { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US" },
+        presentation,
+        NOW,
+      ),
+    ).toBe(true);
+    expect(
+      readHomeBalancesPresentation(
+        () => storage,
+        { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US" },
+        NOW,
+      ),
+    ).toEqual(presentation);
+  });
+
   test("finds a same-owner record during Checking without subject or account", () => {
     const storage = memoryStorage();
     writeHomeBalancesPresentation(
