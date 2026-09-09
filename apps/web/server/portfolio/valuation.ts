@@ -38,7 +38,7 @@ import type {
   ValuationSource,
 } from "@/server/valuation/types";
 import type { VerifiedPortfolioAccount } from "./types";
-import { getBaseValuationInventory } from "./valuation-rpc";
+import { getPortfolioInventory } from "./inventory";
 
 const ZERO: Fraction = { numerator: BigInt(0), denominator: BigInt(1) };
 
@@ -49,11 +49,11 @@ export type PortfolioValuationReader = (
 ) => Promise<PortfolioValuationSnapshot>;
 
 export function createPortfolioValuationReader(dependencies: {
-  readInventory?: typeof getBaseValuationInventory;
+  readInventory?: typeof getPortfolioInventory;
   readPrices?: (inputs: readonly CodexRawQuoteInput[]) => Promise<PriceQuote[]>;
   readExchangeRates?: typeof getCoinbaseExchangeRates;
 } = {}): PortfolioValuationReader {
-  const readInventory = dependencies.readInventory ?? getBaseValuationInventory;
+  const readInventory = dependencies.readInventory ?? getPortfolioInventory;
   const readPrices = dependencies.readPrices ?? getCodexRawQuotes;
   const readExchangeRates =
     dependencies.readExchangeRates ?? getCoinbaseExchangeRates;

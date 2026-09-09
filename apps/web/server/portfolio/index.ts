@@ -1,5 +1,9 @@
 export { createPortfolioHandler } from "./handler";
 export {
+  createPortfolioInventoryReader,
+  getPortfolioInventory,
+} from "./inventory";
+export {
   DEFAULT_BASE_RPC_URL,
   PORTFOLIO_RPC_TIMEOUT_MS,
   PortfolioRpcError,

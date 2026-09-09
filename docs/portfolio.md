@@ -1,7 +1,7 @@
 # Base wallet balances and supported valuation
 
 Status: the original `/api/portfolio` USDC/native-ETH quantity contract remains unchanged for transfer compatibility. A separate authenticated `/api/portfolio/valuation?region=...` read and Home presentation are integrated locally with deterministic fixtures. No private-wallet live read was performed during implementation.
-Updated: 2026-09-08
+Updated: 2026-09-09
 
 ## What this reads
 
@@ -118,7 +118,9 @@ The supported inventory is intentionally fixed and incomplete:
 - the enabled EURC and IDRX contracts in every region, with only their Cash-bucket roles varying by selected currency;
 - three configured Morpho USDC vault positions.
 
-All direct balances, vault shares, ERC-4626 `asset()` checks, and `convertToAssets` calls are pinned to one confirmed Base block. JSON-RPC calls are chunked to at most ten and matched by validated IDs. A missing/failed read is unavailable; a successful zero remains zero. Each vault contributes once through its onchain share balance converted to verified canonical USDC at the pinned block. Indexed Morpho assets and vault shares are not separately added.
+Direct holdings (ETH + allowlisted ERC-20s) are read from CDP Onchain Data Token Balances (`GET /platform/v2/data/evm/token-balances/base/{address}`) for the session-verified smart account, authenticated with the same server CDP API-key JWT family as other CDP server reads. Home registry decimals and symbols are used; provider metadata is ignored. An allowlisted token omitted from the page set is a ready `0`. Only transport, auth, or upstream Token Balances failure marks those directs `unavailable`. The previous public-RPC batch reader remains in `valuation-rpc.ts` but is no longer the valuation hot path.
+
+Vault holdings still use pinned-block RPC (`asset()` + `convertToAssets`, and share `balanceOf`) for the three Morpho vaults, preferring dedicated `BASE_RPC_URL` when set. JSON-RPC vault calls are chunked and matched by validated IDs. A missing/failed vault read is unavailable; a successful zero remains zero. Each vault contributes once through its onchain share balance converted to verified canonical USDC at the pinned block. Indexed Morpho assets and vault shares are not separately added.
 
 Exact-contract Codex quotes retain the raw decimal coefficient, chain/address, provider timestamp and retrieval timestamp. The quote request uses the same fixed supported contract set in every region, including EURC and IDRX, independent of wallet holdings or nonzero balances. Source age is re-evaluated at fetch completion and on cache hits without changing provenance, so a cached quote cannot remain fresh after its provider timestamp exceeds the five-minute budget. Missing, stale, invalid, duplicate, wrong-contract, or unavailable quotes remain unpriced; Home never assumes a stablecoin peg.
 
