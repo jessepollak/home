@@ -19,32 +19,35 @@ export function MoneyAmountDisplay({
   prefix?: string;
   suffix?: string;
   availableLabel?: string;
-  assetId: string;
-  assetLabel: string;
-  assetOptions: ReadonlyArray<{ id: string; label: string }>;
-  onAssetChange: (assetId: string) => void;
+  assetId?: string;
+  assetLabel?: string;
+  assetOptions?: ReadonlyArray<{ id: string; label: string }>;
+  onAssetChange?: (assetId: string) => void;
 }) {
   const figure = `${prefix}${amount || "0"}${suffix}`;
+  const showAsset = Boolean(assetId && assetLabel && assetOptions && onAssetChange);
   return (
     <div className={styles.amountBlock}>
-      <label className={styles.assetPill}>
-        <CurrencyMark
-          currency={assetId === "usdc" ? "USD" : assetId.toUpperCase()}
-          symbol={assetLabel}
-        />
-        <select
-          aria-label="Asset"
-          value={assetId}
-          onChange={(event) => onAssetChange(event.target.value)}
-        >
-          {assetOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
-      </label>
+      {showAsset && assetId && assetLabel && assetOptions && onAssetChange ? (
+        <label className={styles.assetPill}>
+          <CurrencyMark
+            currency={assetId === "usdc" ? "USD" : assetId.toUpperCase()}
+            symbol={assetLabel}
+          />
+          <select
+            aria-label="Asset"
+            value={assetId}
+            onChange={(event) => onAssetChange(event.target.value)}
+          >
+            {assetOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
+        </label>
+      ) : null}
       <p className={styles.assetAmount}>{figure}</p>
       {availableLabel ? <p className={styles.available}>{availableLabel}</p> : null}
     </div>

@@ -167,21 +167,28 @@ describe("finance-first presentation", () => {
     expect(markup).not.toContain("$231.71");
   });
 
-  test("leads savings with an unavailable USDC position and leaves every vault unselected", () => {
+  test("leads Save with a dollar hero, quiet vault cards, and no essay UI", () => {
     const markup = renderToStaticMarkup(
       <SavingsExperience initialData={vaultsFixture} />,
     );
 
-    expect(markup.indexOf("USDC balance")).toBeLessThan(
-      markup.indexOf("Vault candidates"),
-    );
-    expect(markup).toContain("Position unavailable until account verification.");
-    expect(markup).toContain("Variable net APY");
-    expect(markup).toContain("Fetched snapshot");
+    expect(markup).toContain("$0.00");
+    expect(markup).toContain("Nothing saved yet");
+    expect(markup).toContain("USDC · 4.50% APY");
+    expect(markup).toContain("Get started");
+    expect(markup).toContain("Details");
     expect(markup).toContain("4.50%");
-    expect(markup).toContain("1,250 USDC");
-    expect(markup).toContain("500 USDC");
-    expect(markup).not.toContain("aria-pressed");
-    expect(markup.match(/disabled=""/g)?.length).toBe(2);
+    expect(markup).toContain('role="radio"');
+    expect(markup).toContain("Get started");
+    expect(markup).not.toContain("Rate comparison");
+    expect(markup).not.toContain("Vault candidates");
+    expect(markup).not.toContain("Fetched snapshot");
+    expect(markup).not.toContain("Variable net APY");
+    expect(markup).not.toContain("Prepare an action");
+    expect(markup).not.toContain("Morpho V1");
+    expect(markup).not.toContain("Borrow USDC");
+    expect(markup).not.toContain("1,250 USDC");
+    expect(markup).not.toContain("Share base units");
+    expect(markup).not.toContain("not an endorsement");
   });
 });
