@@ -115,12 +115,12 @@ export function RecentMoneyActions({
               key={operation.action.id}
               operation={operation}
               checking={visibleState?.checkingIds.includes(operation.action.id) ?? false}
-              onCheck={isReadRecoverable(operation) ? async () => {
+              onCheck={offersStatusCheck(operation) ? async () => {
                 setState((current) => current?.ownerKey === ownerKey
                   ? { ...current, checkingIds: [...new Set([...current.checkingIds, operation.action.id])] }
                   : current);
                 try {
-                  if (recoverOperation) {
+                  if (recoverOperation && isReadRecoverable(operation)) {
                     try {
                       await recoverOperation(operation.action);
                     } catch {
@@ -262,6 +262,11 @@ function replaceOperation(
   return operations
     .map((operation) => operation.action.id === replacement.action.id ? replacement : operation)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+function offersStatusCheck(operation: RecentMoneyActionOperation): boolean {
+  // prepared is read-only Check status: recover/execute would claim and dispatch.
+  return operation.status === "prepared" || isReadRecoverable(operation);
 }
 
 function isReadRecoverable(operation: RecentMoneyActionOperation): boolean {

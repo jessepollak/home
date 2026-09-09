@@ -100,12 +100,17 @@ describe("RecentMoneyActions recovery", () => {
     expect(within(document.body).getByRole("button", { name: "Check status" })).toBeTruthy();
   });
 
-  test("never background-claims or checks a merely prepared action", async () => {
+  test("never background-claims a merely prepared action", async () => {
     let reads = 0;
+    let recovers = 0;
     render(
       <RecentMoneyActions
         session={session}
         fetchOperations={async () => ({ operations: [operation("prepared")] })}
+        recoverOperation={async () => {
+          recovers += 1;
+          return { id: "11111111-1111-4111-8111-111111111111", status: "prepared" };
+        }}
         readOperation={async () => {
           reads += 1;
           return { operation: operation("prepared") };
@@ -115,6 +120,36 @@ describe("RecentMoneyActions recovery", () => {
 
     await within(document.body).findByText(/Ready for review/);
     expect(reads).toBe(0);
-    expect(within(document.body).queryByRole("button", { name: "Check status" })).toBeNull();
+    expect(recovers).toBe(0);
+    expect(within(document.body).getByRole("button", { name: "Check status" })).toBeTruthy();
+  });
+
+  test("offers Check status on Ready for review and invokes the read path without claiming", async () => {
+    let reads = 0;
+    let recovers = 0;
+    const prepared = operation("prepared");
+    render(
+      <RecentMoneyActions
+        session={session}
+        fetchOperations={async () => ({ operations: [prepared] })}
+        recoverOperation={async () => {
+          recovers += 1;
+          throw new Error("prepared must not claim-recover");
+        }}
+        readOperation={async (id) => {
+          reads += 1;
+          expect(id).toBe(prepared.action.id);
+          return { operation: prepared };
+        }}
+      />,
+    );
+
+    const check = await within(document.body).findByRole("button", { name: "Check status" });
+    expect(within(document.body).getByText(/Ready for review/)).toBeTruthy();
+    fireEvent.click(check);
+    await waitFor(() => expect(reads).toBe(1));
+    expect(recovers).toBe(0);
+    expect(within(document.body).getByRole("button", { name: "Check status" })).toBeTruthy();
+    expect(within(document.body).getByText(/Ready for review/)).toBeTruthy();
   });
 });
