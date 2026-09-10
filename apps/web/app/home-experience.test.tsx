@@ -1837,4 +1837,25 @@ describe("login-state home experience", () => {
     expect(page().getAllByRole("button", { name: "Back to Invest" })).toHaveLength(1);
     expect(page().getByRole("navigation", { name: "Main navigation" })).toBeTruthy();
   });
+
+  test("keeps a deep-linked Memes category in the same header band", async () => {
+    const { InvestExperience } = await import("@/features/invest/invest-experience");
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        initialPanel="invest"
+        investContent={
+          <InvestExperience initialView={{ screen: "category", shelfId: "memes" }} />
+        }
+      />,
+    );
+    await enabledAccountButton();
+    await waitFor(() =>
+      expect(document.querySelector(".app-header-title")?.textContent).toBe("Memes"),
+    );
+    expect(page().getByRole("heading", { level: 1, name: "Memes" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Back to Invest" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Account" })).toBeTruthy();
+    expect(page().getByRole("navigation", { name: "Main navigation" })).toBeTruthy();
+  });
 });
