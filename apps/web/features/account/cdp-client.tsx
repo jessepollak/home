@@ -891,6 +891,45 @@ export function AccountWalletSessionOwner({
     return "succeeded";
   }, [getCurrentFailedCleanup, isCurrentCleanupIdentity, sdkSignOut]);
 
+  const runAutomaticFencedSignOut = useCallback(async ({
+    cleanupOwnerKey,
+    cleanupGeneration = authenticationGeneration.current,
+    onFailure,
+    onSuccess,
+  }: {
+    cleanupOwnerKey: string;
+    cleanupGeneration?: number;
+    onFailure: () => void;
+    onSuccess?: () => void;
+  }): Promise<"succeeded" | "failed" | "stale"> => {
+    const pendingCleanup = sdkCleanupFlight.current;
+    const joinedForeignCleanup = Boolean(
+      pendingCleanup &&
+      (pendingCleanup.ownerKey !== cleanupOwnerKey ||
+        pendingCleanup.generation !== cleanupGeneration),
+    );
+    const result = await runFencedSignOut({
+      cleanupOwnerKey,
+      cleanupGeneration,
+      onFailure,
+      onSuccess,
+    });
+    if (result !== "stale" || !joinedForeignCleanup || !mounted.current) {
+      return result;
+    }
+
+    const activeOwnerKey = currentOwnerKey.current;
+    if (!activeOwnerKey) {
+      return "stale";
+    }
+    return runFencedSignOut({
+      cleanupOwnerKey: activeOwnerKey,
+      cleanupGeneration: authenticationGeneration.current,
+      onFailure,
+      onSuccess,
+    });
+  }, [runFencedSignOut]);
+
   const assertAuthenticationCleanupComplete = useCallback(() => {
     if (sdkCleanupFlight.current || getCurrentFailedCleanup()) {
       throw new Error("A previous sign-in is still being cleaned up.");
@@ -1009,7 +1048,10 @@ export function AccountWalletSessionOwner({
         return;
       }
       recordAuthDiagnostic({ kind: "signout", reason: "invalidated-base" });
-      await runFencedSignOut({
+      const cleanup = options.clearProviderSelectionOnSuccess
+        ? runAutomaticFencedSignOut
+        : runFencedSignOut;
+      await cleanup({
         cleanupOwnerKey: ownerKey,
         onFailure: () => {
           preserveSignedOutMessage.current = true;
@@ -1028,7 +1070,13 @@ export function AccountWalletSessionOwner({
           setMessage(failureMessage);
         },
       });
-    }, [clearBaseConnection, clearPrivateState, ownerKey, runFencedSignOut]);
+    }, [
+      clearBaseConnection,
+      clearPrivateState,
+      ownerKey,
+      runAutomaticFencedSignOut,
+      runFencedSignOut,
+    ]);
 
   const validateSession = useCallback(async () => {
     if (
@@ -1261,8 +1309,9 @@ export function AccountWalletSessionOwner({
         setMessage("Your session expired. Sign in again to continue.");
         clearBaseConnection();
         recordAuthDiagnostic({ kind: "signout", reason: "no-token-or-401" });
-        await runFencedSignOut({
+        await runAutomaticFencedSignOut({
           cleanupOwnerKey: ownerKey,
+          cleanupGeneration: validationGeneration,
           onFailure: () => {
             setStatus("signout-error");
             setMessage(
@@ -1298,6 +1347,7 @@ export function AccountWalletSessionOwner({
     isSessionSuppressed,
     ownerKey,
     rejectBaseSession,
+    runAutomaticFencedSignOut,
     runFencedSignOut,
     sdkIsSignedIn,
     sessionFetch,

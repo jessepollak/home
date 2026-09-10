@@ -71,9 +71,15 @@ function HarnessContents({ onVerified }: { onVerified: () => void }) {
   );
 }
 
-function ProductionAuthHarness({ scenario }: { scenario: Scenario }) {
+function ProductionAuthHarness({
+  scenario,
+  seedMissingConnection,
+}: {
+  scenario: Scenario;
+  seedMissingConnection: boolean;
+}) {
   const [sdkOwner, setSdkOwner] = useState<string | null>(
-    scenario === "base-missing-connection" ? "base-owner" : null,
+    seedMissingConnection ? "base-owner" : null,
   );
   const [providerPending, setProviderPending] = useState(false);
   const [providerConfirmations, setProviderConfirmations] = useState(0);
@@ -235,9 +241,17 @@ function ProductionAuthHarness({ scenario }: { scenario: Scenario }) {
 }
 
 const scenario = new URLSearchParams(window.location.search).get("scenario") as Scenario;
-if (scenario === "base-missing-connection") {
+const missingConnectionSeedKey = "home:test:base-missing-connection-seeded";
+const seedMissingConnection =
+  scenario === "base-missing-connection" &&
+  window.sessionStorage.getItem(missingConnectionSeedKey) !== "true";
+if (seedMissingConnection) {
+  window.sessionStorage.setItem(missingConnectionSeedKey, "true");
   window.sessionStorage.setItem("home:account-provider", "base-account");
 }
 createRoot(document.getElementById("root")!).render(
-  <ProductionAuthHarness scenario={scenario} />,
+  <ProductionAuthHarness
+    scenario={scenario}
+    seedMissingConnection={seedMissingConnection}
+  />,
 );

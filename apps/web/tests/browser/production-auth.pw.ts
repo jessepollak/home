@@ -294,6 +294,20 @@ test("incident 211: missing restored Base connection signs out into normal 390px
   await expect(page.getByTestId("private-address")).toHaveText(
     "private-details-hidden",
   );
+  await expect.poll(() =>
+    page.evaluate(() => window.sessionStorage.getItem("home:account-provider")),
+  ).toBeNull();
+  await page.waitForTimeout(100);
+  expect(
+    await page.evaluate(() =>
+      (window as Window & { authHarness: { events: string[] } }).authHarness.events,
+    ),
+  ).not.toContain("base:restore");
+  expect(
+    await page.evaluate(() =>
+      (window as Window & { authHarness: { events: string[] } }).authHarness.events,
+    ),
+  ).not.toContain("sdk:sign-out");
   await page.getByRole("button", { name: "Open account" }).click();
   await expect(page.getByRole("button", { name: "Continue with email" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
