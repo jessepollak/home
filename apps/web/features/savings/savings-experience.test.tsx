@@ -1,6 +1,6 @@
 import "@/features/account/dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
 import type { PreparedMoneyAction } from "@/features/money-actions/types";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/server/morpho/types";
@@ -151,6 +151,7 @@ function page() {
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
+  jest.useRealTimers();
   globalThis.fetch = originalFetch;
   cleanup();
 });
@@ -428,8 +429,13 @@ describe("Save simplify", () => {
   });
 
   test("expires a mounted funded APY from source timestamps", async () => {
-    const wallNow = Date.now();
-    const almostExpired = new Date(wallNow - 5 * 60_000 + 100).toISOString();
+    jest.useFakeTimers();
+    let currentNow = TEST_NOW;
+    const controlledNow = () => currentNow;
+    const freshnessHeadroomMs = 1_000;
+    const almostExpired = new Date(
+      currentNow - 5 * 60_000 + freshnessHeadroomMs,
+    ).toISOString();
     const expiringData: MorphoVaultsResult = {
       ...initialData,
       candidates: initialData.candidates.map((entry) => ({
@@ -441,6 +447,7 @@ describe("Save simplify", () => {
     };
     render(
       <SavingsExperience
+        now={controlledNow}
         initialData={expiringData}
         session={session(ADDRESS_A)}
         fetchPositions={async () => positions(ADDRESS_A, { [GAUNTLET]: "100000000" })}
@@ -448,7 +455,13 @@ describe("Save simplify", () => {
     );
 
     expect(await page().findByText("Earning ~4.10%")).toBeTruthy();
-    expect(await page().findByText("APY data stale", {}, { timeout: 1_000 })).toBeTruthy();
+
+    currentNow += freshnessHeadroomMs + 1;
+    await act(async () => {
+      jest.advanceTimersByTime(freshnessHeadroomMs + 1);
+    });
+
+    expect(page().getByText("APY data stale")).toBeTruthy();
     expect(page().queryByText(/Earning ~/)).toBeNull();
   });
 
