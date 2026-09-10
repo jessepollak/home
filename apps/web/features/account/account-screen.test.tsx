@@ -37,7 +37,15 @@ function deferred<T>() {
 }
 
 function SessionStatusProbe() {
-  return <output data-testid="session-status">{useAccountWallet().status}</output>;
+  const account = useAccountWallet();
+  return (
+    <>
+      <output data-testid="session-status">{account.status}</output>
+      <button type="button" onClick={() => void account.signOut().catch(() => {})}>
+        Sign out fixture session
+      </button>
+    </>
+  );
 }
 
 const noopSignOut = async () => {};
@@ -291,6 +299,66 @@ describe("production account sign-in sheet", () => {
       cleanupRequest.resolve();
       await cleanupRequest.promise;
     });
+  });
+
+  test("keeps real sign-in controls blocked when owner-null sign-out joins pending cleanup", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const cleanupRequest = deferred<void>();
+    let signOutCalls = 0;
+    const signOut = () => {
+      signOutCalls += 1;
+      return cleanupRequest.promise;
+    };
+    const view = render(
+      <SheetHarness
+        requestEmailCode={async () => ({ flowId: "must-not-start" })}
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+        signOut={signOut}
+        initiallySignedIn
+        restoredAccountProvider="base-account"
+      />,
+    );
+
+    await waitFor(() => expect(signOutCalls).toBe(1));
+    view.rerender(
+      <SheetHarness
+        requestEmailCode={async () => ({ flowId: "must-not-start" })}
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+        signOut={signOut}
+        restoredAccountProvider="base-account"
+      />,
+    );
+    fireEvent.click(
+      page().getByRole("button", { name: "Sign out fixture session" }),
+    );
+    fireEvent.click(page().getByRole("button", { name: "Open account" }));
+
+    expect(await page().findByText("Finishing sign-out…")).toBeTruthy();
+    expect(signOutCalls).toBe(1);
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "pending:base-account",
+    );
+    expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
+    expect(
+      page().queryByRole("button", { name: "Continue with Base Account" }),
+    ).toBeNull();
+
+    await act(async () => {
+      cleanupRequest.resolve();
+      await cleanupRequest.promise;
+    });
+    await waitFor(() =>
+      expect(page().getByTestId("session-status").textContent).toBe(
+        "signed-out",
+      ),
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
   });
 
   test("hands off native modal ownership while Base Account connection is pending and permits cancellation", async () => {

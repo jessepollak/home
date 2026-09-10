@@ -760,6 +760,23 @@ export function AccountWalletSessionOwner({
     return authenticationGeneration.current;
   }, []);
 
+  const isCurrentCleanupIdentity = useCallback((identity: SdkCleanupIdentity) => {
+    const activeOwnerKey = currentOwnerKey.current;
+    return (
+      identity.generation === authenticationGeneration.current &&
+      (activeOwnerKey === null || activeOwnerKey === identity.ownerKey)
+    );
+  }, []);
+
+  const getCurrentFailedCleanup = useCallback(() => {
+    const failedCleanup = failedSdkCleanup.current;
+    if (failedCleanup && !isCurrentCleanupIdentity(failedCleanup)) {
+      failedSdkCleanup.current = null;
+      return null;
+    }
+    return failedCleanup;
+  }, [isCurrentCleanupIdentity]);
+
   useLayoutEffect(() => {
     const previousOwner = previousOwnerKey.current;
     currentOwnerKey.current = ownerKey;
@@ -815,15 +832,11 @@ export function AccountWalletSessionOwner({
     onSuccess?: () => void;
   }): Promise<"succeeded" | "failed" | "stale"> => {
     let flight = sdkCleanupFlight.current;
-    let ownsFlight = false;
 
     if (!flight) {
-      const failedCleanup = failedSdkCleanup.current;
+      const failedCleanup = getCurrentFailedCleanup();
       if (failedCleanup && !explicitRetry) {
-        if (
-          mounted.current &&
-          failedCleanup.generation === authenticationGeneration.current
-        ) {
+        if (mounted.current) {
           onFailure();
         }
         return "failed";
@@ -851,31 +864,22 @@ export function AccountWalletSessionOwner({
         const result = { ...identity, succeeded };
         if (sdkCleanupFlight.current?.id === identity.id) {
           sdkCleanupFlight.current = null;
-          failedSdkCleanup.current = succeeded ? null : identity;
+          if (isCurrentCleanupIdentity(identity)) {
+            failedSdkCleanup.current = succeeded ? null : identity;
+          }
         }
         return result;
       })();
       flight = { ...identity, promise };
       sdkCleanupFlight.current = flight;
-      ownsFlight = true;
     }
 
     const result = await flight.promise;
-    if (!ownsFlight) {
-      if (
-        result.ownerKey !== cleanupOwnerKey ||
-        result.generation !== cleanupGeneration
-      ) {
-        return "stale";
-      }
-      return result.succeeded ? "succeeded" : "failed";
-    }
-
-    const activeOwnerKey = currentOwnerKey.current;
     if (
+      result.ownerKey !== cleanupOwnerKey ||
+      result.generation !== cleanupGeneration ||
       !mounted.current ||
-      result.generation !== authenticationGeneration.current ||
-      (activeOwnerKey !== result.ownerKey && activeOwnerKey !== null)
+      !isCurrentCleanupIdentity(result)
     ) {
       return "stale";
     }
@@ -885,13 +889,13 @@ export function AccountWalletSessionOwner({
     }
     onSuccess?.();
     return "succeeded";
-  }, [sdkSignOut]);
+  }, [getCurrentFailedCleanup, isCurrentCleanupIdentity, sdkSignOut]);
 
   const assertAuthenticationCleanupComplete = useCallback(() => {
-    if (sdkCleanupFlight.current || failedSdkCleanup.current) {
+    if (sdkCleanupFlight.current || getCurrentFailedCleanup()) {
       throw new Error("A previous sign-in is still being cleaned up.");
     }
-  }, []);
+  }, [getCurrentFailedCleanup]);
 
   const revokeAuthAttempt = useCallback((attempt: number) => {
     if (
@@ -1312,7 +1316,7 @@ export function AccountWalletSessionOwner({
           setStatus("signing-out");
           return;
         }
-        if (failedSdkCleanup.current) {
+        if (getCurrentFailedCleanup()) {
           setStatus("signout-error");
           return;
         }
@@ -1344,6 +1348,7 @@ export function AccountWalletSessionOwner({
     authenticationGenerationRevision,
     clearBaseConnection,
     clearPrivateState,
+    getCurrentFailedCleanup,
     isInitialized,
     isSessionSuppressed,
     ownerKey,
@@ -1447,7 +1452,7 @@ export function AccountWalletSessionOwner({
         attempt !== signInAttemptSequence.current ||
         revokedAuthAttempts.current.size > 0 ||
         sdkCleanupFlight.current !== null ||
-        failedSdkCleanup.current !== null
+        getCurrentFailedCleanup() !== null
       ) {
         throw new Error("A previous sign-in is still being cleaned up.");
       }
@@ -1475,7 +1480,7 @@ export function AccountWalletSessionOwner({
         }
         await settleAuthAttempt(attempt);
       }
-    }, [settleAuthAttempt, verifyEmailOTP],
+    }, [getCurrentFailedCleanup, settleAuthAttempt, verifyEmailOTP],
   );
 
   const signInWithBaseAccount = useCallback(
@@ -1629,10 +1634,14 @@ export function AccountWalletSessionOwner({
     ],
   );
   const signOut = useCallback(async () => {
-    const failedCleanup = failedSdkCleanup.current;
-    const cleanupOwnerKey = failedCleanup?.ownerKey ?? ownerKey;
-    const cleanupGeneration =
-      failedCleanup?.generation ?? authenticationGeneration.current;
+    const requestedOwnerKey = ownerKey;
+    const requestedGeneration = authenticationGeneration.current;
+    let failedCleanup = getCurrentFailedCleanup();
+    const pendingCleanup = sdkCleanupFlight.current;
+    let cleanupOwnerKey =
+      failedCleanup?.ownerKey ?? pendingCleanup?.ownerKey ?? requestedOwnerKey;
+    let cleanupGeneration =
+      failedCleanup?.generation ?? pendingCleanup?.generation ?? requestedGeneration;
     if (!cleanupOwnerKey) {
       clearBaseConnection();
       accountSelection.current = { provider: "restoring", hint: null };
@@ -1650,34 +1659,62 @@ export function AccountWalletSessionOwner({
     clearPrivateState();
     clearBaseConnection();
     recordAuthDiagnostic({ kind: "signout", reason: "explicit-logout" });
-    const result = await runFencedSignOut({
+
+    const onFailure = () => {
+      preserveSignedOutMessage.current = true;
+      setStatus("signout-error");
+      setMessage(
+        "Your private details are hidden, but sign-out did not finish. Retry sign out.",
+      );
+    };
+    const onSuccess = () => {
+      revokedAuthAttempts.current.clear();
+      unabortableAuthAttempts.current.clear();
+      quarantineCleanupOwners.current.clear();
+      accountSelection.current = { provider: "restoring", hint: null };
+      writeAccountProviderHint(null);
+      preserveSignedOutMessage.current = true;
+      setAuthQuarantineRevision((revision) => revision + 1);
+      setStatus("signed-out");
+      setMessage("You are signed out.");
+    };
+
+    let result = await runFencedSignOut({
       cleanupOwnerKey,
       cleanupGeneration,
       explicitRetry: Boolean(failedCleanup),
-      onFailure: () => {
-        preserveSignedOutMessage.current = true;
-        setStatus("signout-error");
-        setMessage(
-          "Your private details are hidden, but sign-out did not finish. Retry sign out.",
-        );
-      },
-      onSuccess: () => {
-        revokedAuthAttempts.current.clear();
-        unabortableAuthAttempts.current.clear();
-        quarantineCleanupOwners.current.clear();
-        accountSelection.current = { provider: "restoring", hint: null };
-        writeAccountProviderHint(null);
-        preserveSignedOutMessage.current = true;
-        setAuthQuarantineRevision((revision) => revision + 1);
-        setStatus("signed-out");
-        setMessage("You are signed out.");
-      },
+      onFailure,
+      onSuccess,
     });
+
+    if (
+      result === "stale" &&
+      requestedOwnerKey !== null &&
+      currentOwnerKey.current === requestedOwnerKey &&
+      authenticationGeneration.current === requestedGeneration
+    ) {
+      failedCleanup = getCurrentFailedCleanup();
+      cleanupOwnerKey = failedCleanup?.ownerKey ?? requestedOwnerKey;
+      cleanupGeneration = failedCleanup?.generation ?? requestedGeneration;
+      result = await runFencedSignOut({
+        cleanupOwnerKey,
+        cleanupGeneration,
+        explicitRetry: Boolean(failedCleanup),
+        onFailure,
+        onSuccess,
+      });
+    }
 
     if (result !== "succeeded") {
       throw new Error("CDP sign-out did not finish.");
     }
-  }, [clearBaseConnection, clearPrivateState, ownerKey, runFencedSignOut]);
+  }, [
+    clearBaseConnection,
+    clearPrivateState,
+    getCurrentFailedCleanup,
+    ownerKey,
+    runFencedSignOut,
+  ]);
 
   const session = getVisibleVerifiedSession(
     verifiedOwner,
