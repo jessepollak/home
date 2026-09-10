@@ -82,8 +82,12 @@ a:focus-visible,
 .app-frame-shell {
   display: flex;
   flex-direction: column;
+  height: 100vh;
   height: 100svh;
+  height: 100dvh;
+  max-height: 100vh;
   max-height: 100svh;
+  max-height: 100dvh;
   overflow: hidden;
   padding-bottom: 0;
 }
@@ -300,6 +304,9 @@ body:has(.app-frame-shell) {
   overflow-x: hidden;
   overflow-y: auto;
   padding-top: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  scroll-padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
 }
 
 .landing-main,
@@ -1156,13 +1163,9 @@ body:has(.app-frame-shell) {
 }
 
 @media (max-width: 719px) {
-  html {
-    scroll-padding-bottom: calc(70px + env(safe-area-inset-bottom));
-  }
-
-  .app-main button,
-  .app-main a,
-  .panel-stage {
+  .app-frame:not(.app-frame-shell) .app-main button,
+  .app-frame:not(.app-frame-shell) .app-main a,
+  .app-frame:not(.app-frame-shell) .panel-stage {
     scroll-margin-bottom: calc(78px + env(safe-area-inset-bottom));
   }
 }
