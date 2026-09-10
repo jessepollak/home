@@ -41,7 +41,10 @@ const OWNER = {
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 const REVIEW_HASH = "a".repeat(64);
 const USER_OP_HASH = `0x${"b".repeat(64)}` as const;
+const UPPER_USER_OP_HASH = `0x${"B".repeat(64)}` as const;
 const OTHER_USER_OP_HASH = `0x${"c".repeat(64)}` as const;
+const TRANSACTION_HASH = `0x${"d".repeat(64)}` as const;
+const UPPER_TRANSACTION_HASH = `0x${"D".repeat(64)}` as const;
 const SUBMISSION_ID = "0xfixture-call-bundle";
 
 function action(): PreparedMoneyAction {
@@ -169,6 +172,38 @@ describe("attempt command contract v1", () => {
     }))).toEqual({ kind: "recorded-user-operation-hash", userOperationHash: USER_OP_HASH });
   });
 
+  test("recovery prefers a transaction hash over user-operation or provider submission handles", () => {
+    const transactionEvidence = {
+      evidence: { kind: "transaction-hash", chainId: 8453, value: TRANSACTION_HASH },
+      provenance: { source: "verified-receipt", observedAt: "2026-09-10T05:01:04.000Z" },
+      recordedAt: "2026-09-10T05:01:04.000Z",
+    } as const;
+
+    expect(reconcileLookupForAttempt(attempt({
+      evidence: [
+        {
+          evidence: { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OP_HASH },
+          provenance: { source: "provider-return", observedAt: "2026-09-10T05:01:02.000Z" },
+          recordedAt: "2026-09-10T05:01:02.000Z",
+        },
+        transactionEvidence,
+      ],
+    }))).toEqual({ kind: "recorded-transaction-hash", transactionHash: TRANSACTION_HASH });
+
+    expect(reconcileLookupForAttempt(attempt({
+      provider: "base-account",
+      providerRequestKey: homeProviderRequestKey({ provider: "base-account", actionId: ACTION_ID }),
+      evidence: [
+        {
+          evidence: { kind: "submission-id", provider: "base-account", value: SUBMISSION_ID },
+          provenance: { source: "provider-return", observedAt: "2026-09-10T05:01:02.000Z" },
+          recordedAt: "2026-09-10T05:01:02.000Z",
+        },
+        transactionEvidence,
+      ],
+    }))).toEqual({ kind: "recorded-transaction-hash", transactionHash: TRANSACTION_HASH });
+  });
+
   test("EIP-5792: action UUID is not evidence; preallocated submissionId is rejected (#176)", () => {
     const key = homeProviderRequestKey({ provider: "base-account", actionId: ACTION_ID });
     expect(key.role).toBe("eip-5792-request-id");
@@ -264,6 +299,71 @@ describe("attempt command contract v1", () => {
       storeDecision: "unknown",
       support: "unknown",
     });
+  });
+
+  test("provider status observations advance monotonically without changing handle identity", () => {
+    const pending = {
+      kind: "provider-status",
+      handle: { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OP_HASH },
+      observedAt: "2026-09-10T05:01:03.000Z",
+      payload: "pending",
+    } as const;
+    const confirmed = {
+      ...pending,
+      observedAt: "2026-09-10T05:01:04.000Z",
+      payload: "confirmed",
+    } as const;
+
+    expect(conflictingEvidenceDecision(pending, confirmed)).toBe("advance");
+    expect(conflictingEvidenceDecision(confirmed, pending)).toBe("conflict");
+    expect(conflictingEvidenceDecision(pending, {
+      ...confirmed,
+      handle: { ...confirmed.handle, value: OTHER_USER_OP_HASH },
+    })).toBe("conflict");
+  });
+
+  test("opaque submission IDs compare exactly while chain hashes use canonical comparison", () => {
+    const opaqueSubmission = {
+      kind: "submission-id",
+      provider: "base-account",
+      value: "CallBundle-AbC123",
+    } as const;
+
+    expect(conflictingEvidenceDecision(opaqueSubmission, { ...opaqueSubmission })).toBe("duplicate");
+    expect(conflictingEvidenceDecision(opaqueSubmission, {
+      ...opaqueSubmission,
+      value: "callbundle-abc123",
+    })).toBe("conflict");
+    expect(conflictingEvidenceDecision({
+      kind: "provider-status",
+      handle: opaqueSubmission,
+      observedAt: "2026-09-10T05:01:03.000Z",
+      payload: "pending",
+    }, {
+      kind: "provider-status",
+      handle: { ...opaqueSubmission, value: "callbundle-abc123" },
+      observedAt: "2026-09-10T05:01:04.000Z",
+      payload: "confirmed",
+    })).toBe("conflict");
+
+    expect(conflictingEvidenceDecision({
+      kind: "user-operation-hash",
+      provider: "cdp-embedded",
+      value: USER_OP_HASH,
+    }, {
+      kind: "user-operation-hash",
+      provider: "cdp-embedded",
+      value: UPPER_USER_OP_HASH,
+    })).toBe("duplicate");
+    expect(conflictingEvidenceDecision({
+      kind: "transaction-hash",
+      chainId: 8453,
+      value: TRANSACTION_HASH,
+    }, {
+      kind: "transaction-hash",
+      chainId: 8453,
+      value: UPPER_TRANSACTION_HASH,
+    })).toBe("duplicate");
   });
 
   test("RecordProviderEvidence is idempotent on the same fact and fails closed on conflict", () => {

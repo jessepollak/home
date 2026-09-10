@@ -504,25 +504,30 @@ export function eip5792RecoveryMethods(): readonly Eip5792RecoveryMethod[] {
 }
 
 export function reconcileLookupForAttempt(attempt: Pick<ExecutionAttempt, "evidence" | "providerRequestKey">): ReconcileLookup {
+  let strongest: ReconcileLookup = { kind: "none", reason: "reference-free-ambiguous" };
+
   for (const recorded of attempt.evidence) {
     const { evidence } = recorded;
     if (evidence.kind === "transaction-hash") {
       return { kind: "recorded-transaction-hash", transactionHash: evidence.value };
     }
     if (evidence.kind === "user-operation-hash") {
-      return { kind: "recorded-user-operation-hash", userOperationHash: evidence.value };
+      strongest = { kind: "recorded-user-operation-hash", userOperationHash: evidence.value };
+      continue;
     }
-    if (evidence.kind === "submission-id") {
-      return { kind: "recorded-submission-id", submissionId: evidence.value };
+    if (evidence.kind === "submission-id" && strongest.kind === "none") {
+      strongest = { kind: "recorded-submission-id", submissionId: evidence.value };
+      continue;
     }
     if (evidence.kind === "provider-status") {
       if (evidence.handle.kind === "user-operation-hash") {
-        return { kind: "recorded-user-operation-hash", userOperationHash: evidence.handle.value };
+        strongest = { kind: "recorded-user-operation-hash", userOperationHash: evidence.handle.value };
+      } else if (strongest.kind === "none") {
+        strongest = { kind: "recorded-submission-id", submissionId: evidence.handle.value };
       }
-      return { kind: "recorded-submission-id", submissionId: evidence.handle.value };
     }
   }
-  return { kind: "none", reason: "reference-free-ambiguous" };
+  return strongest;
 }
 
 export function isForbiddenReconcileLookup(value: { kind: string }): value is ForbiddenReconcileLookup {
@@ -616,20 +621,47 @@ export function releaseAdmissionPreservesExecution(
   };
 }
 
+type EvidenceConflictDecision = "duplicate" | "advance" | "conflict" | "different-slot";
+type ProviderStatusPayload = Extract<ProviderEvidence, { kind: "provider-status" }>['payload'];
+
+const PROVIDER_STATUS_ADVANCES: Readonly<Record<ProviderStatusPayload, readonly ProviderStatusPayload[]>> = {
+  unavailable: ["pending", "dropped", "confirmed", "failed"],
+  pending: ["dropped", "confirmed", "failed"],
+  dropped: [],
+  confirmed: [],
+  failed: [],
+};
+
+function sameProviderHandle(existing: ProviderHandle, incoming: ProviderHandle): boolean {
+  if (existing.kind !== incoming.kind || existing.provider !== incoming.provider) return false;
+  if (existing.kind === "submission-id" && incoming.kind === "submission-id") {
+    return existing.value === incoming.value;
+  }
+  return existing.value.toLowerCase() === incoming.value.toLowerCase();
+}
+
 export function conflictingEvidenceDecision(
   existing: ProviderEvidence,
   incoming: ProviderEvidence,
-): "duplicate" | "conflict" | "different-slot" {
+): EvidenceConflictDecision {
   if (existing.kind !== incoming.kind) return "different-slot";
   if (existing.kind === "provider-status" && incoming.kind === "provider-status") {
-    return existing.handle.kind === incoming.handle.kind &&
-      existing.handle.value === incoming.handle.value &&
-      existing.payload === incoming.payload
+    if (!sameProviderHandle(existing.handle, incoming.handle)) return "conflict";
+    if (existing.payload === incoming.payload) return "duplicate";
+    return PROVIDER_STATUS_ADVANCES[existing.payload].includes(incoming.payload) ? "advance" : "conflict";
+  }
+  if (existing.kind === "submission-id" && incoming.kind === "submission-id") {
+    return existing.provider === incoming.provider && existing.value === incoming.value ? "duplicate" : "conflict";
+  }
+  if (existing.kind === "user-operation-hash" && incoming.kind === "user-operation-hash") {
+    return existing.provider === incoming.provider && existing.value.toLowerCase() === incoming.value.toLowerCase()
       ? "duplicate"
       : "conflict";
   }
-  if ("value" in existing && "value" in incoming) {
-    return existing.value.toLowerCase() === incoming.value.toLowerCase() ? "duplicate" : "conflict";
+  if (existing.kind === "transaction-hash" && incoming.kind === "transaction-hash") {
+    return existing.chainId === incoming.chainId && existing.value.toLowerCase() === incoming.value.toLowerCase()
+      ? "duplicate"
+      : "conflict";
   }
   return "conflict";
 }

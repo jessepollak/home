@@ -89,11 +89,11 @@ Evidence is append-only, typed, provenance-bearing data:
 - provider status observation tied to one of those references;
 - verified receipt/call match, block data, success, and confirmation policy result.
 
-Evidence recording is idempotent. Repeating the same fact succeeds; a conflicting transaction hash or handle for the same evidence slot fails closed. Client reports are leads until the server verifies owner, chain, sender, calls/effects, and provider relationship.
+Evidence recording is idempotent. Repeating the same fact succeeds; a conflicting transaction hash or handle for the same evidence slot fails closed. Provider-status payloads are observations of an immutable handle, so the same handle may advance monotonically (for example `pending` → `confirmed`) without changing its identity. Opaque provider submission IDs compare exactly and case-sensitively; chain hashes use their canonical hexadecimal comparison. Client reports are leads until the server verifies owner, chain, sender, calls/effects, and provider relationship.
 
 ### Reconciliation
 
-Reconciliation reads only existing attempt evidence or a provider-supported stable request key. It does not claim and cannot invoke a wallet submission API. It may append stronger evidence and advance the projected result monotonically. Weak or out-of-order observations cannot overwrite stronger verified facts.
+Reconciliation reads only existing attempt evidence or a provider-supported stable request key. It does not claim and cannot invoke a wallet submission API. It may append stronger evidence and advance the projected result monotonically. Weak or out-of-order observations cannot overwrite stronger verified facts. When several recorded references are available, a transaction hash is preferred over a user-operation hash or provider submission handle.
 
 ### Owner abandonment and admission release
 
