@@ -113,10 +113,18 @@
   font-size: 0.78rem;
 }
 
-.loadMoreError {
+.loadMoreError,
+.loadMoreNotice {
   margin: 0 0 10px;
-  color: #84251f;
   font-size: 0.75rem;
+}
+
+.loadMoreError {
+  color: #84251f;
+}
+
+.loadMoreNotice {
+  color: var(--home-muted);
 }
 
 .sentinel {

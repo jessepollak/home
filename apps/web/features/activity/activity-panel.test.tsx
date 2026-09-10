@@ -402,6 +402,113 @@ describe("ActivityPanel", () => {
     );
   });
 
+  for (const pageKind of ["empty", "overlap"] as const) {
+    test(`pauses native observer loading after a fresh-cursor ${pageKind} page`, async () => {
+      Object.defineProperty(globalThis, "IntersectionObserver", {
+        configurable: true,
+        writable: true,
+        value: ControlledIntersectionObserver,
+      });
+      const queries: string[] = [];
+      const view = render(
+        <ActivityPanel
+          session={session("subject-a", WALLET_A)}
+          fetchActivity={async (query) => {
+            queries.push(query);
+            if (queries.length === 1) {
+              return pageFor(query, WALLET_A, {
+                id: "event-1",
+                blockNumber: "20",
+                nextCursor: "cursor-1",
+              });
+            }
+            return pageFor(query, WALLET_A, {
+              id: "event-1",
+              blockNumber: "20",
+              nextCursor: `cursor-${queries.length}`,
+              empty: pageKind === "empty",
+            });
+          }}
+        />,
+      );
+
+      await waitFor(() => expect(ControlledIntersectionObserver.instances).toHaveLength(1));
+      act(() => ControlledIntersectionObserver.instances[0]!.intersect());
+      await waitFor(() =>
+        expect(view.getByText("Continue loading activity")).toBeTruthy(),
+      );
+      expect(queries).toHaveLength(2);
+      expect(new URLSearchParams(queries[1]).get("cursor")).toBe("cursor-1");
+      expect(
+        view.getByText(
+          "No additional activity was found on that page. Continue to check older activity.",
+        ),
+      ).toBeTruthy();
+      expect(view.queryByText("End of activity")).toBeNull();
+      expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(1);
+
+      act(() => {
+        for (const observer of ControlledIntersectionObserver.instances) {
+          observer.intersect();
+          observer.intersect();
+        }
+      });
+      await act(async () => Promise.resolve());
+      expect(queries).toHaveLength(2);
+    });
+  }
+
+  test("manually continues after a finite zero-unique page and appends useful rows", async () => {
+    Object.defineProperty(globalThis, "IntersectionObserver", {
+      configurable: true,
+      writable: true,
+      value: ControlledIntersectionObserver,
+    });
+    const queries: string[] = [];
+    const view = render(
+      <ActivityPanel
+        session={session("subject-a", WALLET_A)}
+        fetchActivity={async (query) => {
+          queries.push(query);
+          if (queries.length === 1) {
+            return pageFor(query, WALLET_A, {
+              id: "event-1",
+              blockNumber: "20",
+              nextCursor: "cursor-1",
+            });
+          }
+          if (queries.length === 2) {
+            return pageFor(query, WALLET_A, {
+              empty: true,
+              nextCursor: "cursor-2",
+            });
+          }
+          return pageFor(query, WALLET_A, {
+            id: "event-2",
+            blockNumber: "19",
+          });
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(ControlledIntersectionObserver.instances).toHaveLength(1));
+    act(() => ControlledIntersectionObserver.instances[0]!.intersect());
+    await waitFor(() =>
+      expect(view.getByText("Continue loading activity")).toBeTruthy(),
+    );
+    expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(1);
+
+    fireEvent.click(view.getByText("Continue loading activity"));
+    await waitFor(() => expect(view.getByText("End of activity")).toBeTruthy());
+    expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(2);
+    expect(queries.map((query) => new URLSearchParams(query).get("cursor"))).toEqual([
+      null,
+      "cursor-1",
+      "cursor-2",
+    ]);
+    expect(new Set(queries.map((query) => new URLSearchParams(query).get("to"))).size).toBe(1);
+  });
+
   test("teaser density caps rows and hides Load more without Refresh chrome", async () => {
     const view = render(
       <ActivityPanel

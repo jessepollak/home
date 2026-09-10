@@ -21,6 +21,7 @@ type OwnedActivityState =
       page: null;
       loadingMore: false;
       loadMoreError: false;
+      autoLoadPaused: false;
     }
   | {
       requestKey: string;
@@ -28,6 +29,7 @@ type OwnedActivityState =
       page: null;
       loadingMore: false;
       loadMoreError: false;
+      autoLoadPaused: false;
       error: { code: string | null; message: string | null };
     }
   | {
@@ -36,6 +38,7 @@ type OwnedActivityState =
       page: ActivityPage;
       loadingMore: boolean;
       loadMoreError: boolean;
+      autoLoadPaused: boolean;
     };
 
 type LoadMoreRequest = {
@@ -51,6 +54,7 @@ const unavailableState: OwnedActivityState = {
   page: null,
   loadingMore: false,
   loadMoreError: false,
+  autoLoadPaused: false,
 };
 
 export type UseActivityResult = ActivityState & {
@@ -113,6 +117,7 @@ export function useActivity(
             page: parseActivityPage(payload, expectedSession, windowEnd),
             loadingMore: false,
             loadMoreError: false,
+            autoLoadPaused: false,
           });
         } catch {
           setState({
@@ -121,6 +126,7 @@ export function useActivity(
             page: null,
             loadingMore: false,
             loadMoreError: false,
+            autoLoadPaused: false,
             error: {
               code: "ACTIVITY_RESPONSE_INVALID",
               message: "Activity history could not be verified.",
@@ -138,6 +144,7 @@ export function useActivity(
           page: null,
           loadingMore: false,
           loadMoreError: false,
+          autoLoadPaused: false,
           error: readActivityFailure(reason),
         });
       },
@@ -169,6 +176,7 @@ export function useActivity(
       state.requestKey !== requestKey ||
       state.status !== "ready" ||
       state.loadingMore ||
+      (!manualRetry && state.autoLoadPaused) ||
       loadMoreRequest.current
     ) {
       return;
@@ -271,6 +279,8 @@ export function useActivity(
               },
               loadingMore: false,
               loadMoreError: false,
+              autoLoadPaused:
+                nextPage.nextCursor !== null && uniqueTransfers.length === 0,
             };
           });
         } catch {
@@ -302,6 +312,7 @@ export function useActivity(
             page: null,
             loadingMore: false,
             loadMoreError: false,
+            autoLoadPaused: false,
           };
 
   return {

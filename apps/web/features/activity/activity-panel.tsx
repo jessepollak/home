@@ -124,8 +124,9 @@ export function ActivityPanel({
           hasTransfers={!isEmpty}
           loading={activity.loadingMore}
           failed={activity.loadMoreError}
+          autoLoadPaused={activity.autoLoadPaused}
           loadMore={activity.loadMore}
-          retry={activity.retryLoadMore}
+          continueManually={activity.retryLoadMore}
         />
       ) : null}
     </section>
@@ -137,15 +138,17 @@ function ActivityPagination({
   hasTransfers,
   loading,
   failed,
+  autoLoadPaused,
   loadMore,
-  retry,
+  continueManually,
 }: {
   nextCursor: string | null;
   hasTransfers: boolean;
   loading: boolean;
   failed: boolean;
+  autoLoadPaused: boolean;
   loadMore: () => void;
-  retry: () => void;
+  continueManually: () => void;
 }) {
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -156,6 +159,7 @@ function ActivityPagination({
       !nextCursor ||
       loading ||
       failed ||
+      autoLoadPaused ||
       typeof IntersectionObserver === "undefined"
     ) {
       return;
@@ -172,7 +176,7 @@ function ActivityPagination({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [failed, loadMore, loading, nextCursor]);
+  }, [autoLoadPaused, failed, loadMore, loading, nextCursor]);
 
   if (!nextCursor) {
     return hasTransfers ? (
@@ -194,14 +198,22 @@ function ActivityPagination({
         <p className={styles.loadMoreError} role="alert">
           More activity could not be loaded. Your current results are unchanged.
         </p>
+      ) : autoLoadPaused ? (
+        <p className={styles.loadMoreNotice} role="status">
+          No additional activity was found on that page. Continue to check older activity.
+        </p>
       ) : null}
       {!loading ? (
         <button
           className={styles.loadMoreButton}
           type="button"
-          onClick={failed ? retry : loadMore}
+          onClick={failed || autoLoadPaused ? continueManually : loadMore}
         >
-          {failed ? "Retry more activity" : "Load more activity"}
+          {failed
+            ? "Retry more activity"
+            : autoLoadPaused
+              ? "Continue loading activity"
+              : "Load more activity"}
         </button>
       ) : null}
       <div
