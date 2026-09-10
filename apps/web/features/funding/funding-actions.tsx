@@ -1,11 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import type { RegionId } from "@/config/regions";
 import { useAccountWallet } from "@/features/account/cdp-client";
 import { FundingExperienceForWallet } from "./funding-experience";
+
+const subscribeToMountedState = () => () => {};
+const mountedClientSnapshot = () => true;
+const mountedServerSnapshot = () => false;
 
 const iconProps = {
   width: 20,
@@ -44,6 +48,11 @@ export function FundingActionsForWallet({
   const pathname = usePathname();
   const [userOpen, setUserOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const mounted = useSyncExternalStore(
+    subscribeToMountedState,
+    mountedClientSnapshot,
+    mountedServerSnapshot,
+  );
   const routeOpen = (initialOpen || returnedFromCoinbase) && !dismissed;
   const open = userOpen || routeOpen;
 
@@ -80,7 +89,7 @@ export function FundingActionsForWallet({
         <PlusIcon />
         <span>Add money</span>
       </button>
-      {typeof document !== "undefined" ? createPortal(modal, document.body) : null}
+      {mounted ? createPortal(modal, document.body) : null}
     </>
   );
 }
