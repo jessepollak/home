@@ -17,9 +17,12 @@ import type {
   SavingsActionStateReader,
 } from "./types";
 
-export const SAVINGS_ACTION_RPC_TIMEOUT_MS = 6_000;
+/** Covers chain + pin + 8 singles (2 in flight) + confirm, plus one 400ms retry. */
+export const SAVINGS_ACTION_RPC_TIMEOUT_MS = 10_000;
 /** Public Base `-32016`s later JSON-RPC batch items; savings reads stay singles. */
 export const SAVINGS_ACTION_RPC_BATCH_SIZE = 1;
+/** Concurrent HTTP singles — not a JSON-RPC batch. */
+export const SAVINGS_ACTION_RPC_CONCURRENCY = 2;
 export const SAVINGS_ACTION_RPC_RETRY_ATTEMPTS = 2;
 /** Pause before the second attempt so public Base `-32016` / 429 can clear. */
 export const SAVINGS_ACTION_RPC_RETRY_DELAY_MS = 400;
@@ -114,19 +117,22 @@ export function createSavingsActionStateReader(options: {
       );
       const block = parseBlock(latest.result);
       const reads = createPinnedReads(input.kind, input.accountAddress, input.vaultAddress, input.amount, block.numberHex);
-      // Sequential singles: public Base `-32016`s later items in a JSON-RPC batch
-      // and parallel batch POSTs (#121 cash-before-vaults). Do not Promise.all.
+      // HTTP singles with bounded concurrency: public Base `-32016`s later items
+      // in a JSON-RPC batch. Do not POST request arrays.
       const responses: RpcSuccess[] = [];
-      for (const { rpcRequest } of reads) {
-        responses.push(
-          await executeRequired(
-            fetchImpl,
-            rpcUrl,
-            rpcRequest,
-            controller.signal,
-            rpcRetry,
+      for (const chunk of chunkReads(reads, SAVINGS_ACTION_RPC_CONCURRENCY)) {
+        const chunkResponses = await Promise.all(
+          chunk.map(({ rpcRequest }) =>
+            executeRequired(
+              fetchImpl,
+              rpcUrl,
+              rpcRequest,
+              controller.signal,
+              rpcRetry,
+            ),
           ),
         );
+        responses.push(...chunkResponses);
       }
       const resultById = new Map(responses.map((response) => [response.id, response.result]));
       const read = (label: string) => {
@@ -369,6 +375,14 @@ function rpcErrorMessage(value: unknown): string {
   if (!message) return "Base RPC rejected a savings state read.";
   const clipped = message.length > 160 ? `${message.slice(0, 157)}...` : message;
   return `Base RPC rejected a savings state read: ${clipped}`;
+}
+
+function chunkReads<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function isRateLimitedRpcError(value: unknown): boolean {

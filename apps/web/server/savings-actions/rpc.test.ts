@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morpho/config";
-import { createSavingsActionStateReader } from "./rpc";
+import {
+  SAVINGS_ACTION_RPC_CONCURRENCY,
+  SAVINGS_ACTION_RPC_TIMEOUT_MS,
+  createSavingsActionStateReader,
+} from "./rpc";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const VAULT = MORPHO_V1_CANDIDATE_ADDRESSES[0];
@@ -17,7 +21,12 @@ function addressWord(address: string): string {
 describe("savings action RPC state", () => {
   test("reads asset, exact balances, allowance, fee, limits and preview at one confirmed Base block", async () => {
     const requests: unknown[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
     const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
       const body = JSON.parse(String(init?.body)) as
         | { id: number; method: string; params: unknown[] }
         | Array<{ id: number; method: string; params: unknown[] }>;
@@ -56,7 +65,11 @@ describe("savings action RPC state", () => {
           ? { jsonrpc: "2.0", id: entry.id, error: { code: -1 } }
           : { jsonrpc: "2.0", id: entry.id, result };
       };
-      return Response.json(Array.isArray(body) ? body.map(respond).reverse() : respond(body));
+      try {
+        return Response.json(Array.isArray(body) ? body.map(respond).reverse() : respond(body));
+      } finally {
+        inFlight -= 1;
+      }
     }) as typeof fetch;
 
     const result = await createSavingsActionStateReader({
@@ -88,6 +101,8 @@ describe("savings action RPC state", () => {
     expect(calls).toHaveLength(8);
     expect(calls.every((entry) => entry.params[1] === "0x10")).toBeTrue();
     expect((requests.at(-1) as { params: unknown[] }).params[0]).toBe("0x10");
+    expect(SAVINGS_ACTION_RPC_TIMEOUT_MS).toBe(10_000);
+    expect(maxInFlight).toBeLessThanOrEqual(SAVINGS_ACTION_RPC_CONCURRENCY);
   });
 
   test("retries a public-Base -32016 once, then completes the pinned read", async () => {
