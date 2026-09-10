@@ -236,6 +236,87 @@ describe("attempt command contract v1", () => {
       evidence: { kind: "submission-id", provider: "base-account", value: SUBMISSION_ID },
       provenance: { source: "provider-return", observedAt: "2026-09-10T05:01:02.000Z" },
     })).toEqual({ ok: true });
+
+    expect(mayRecordProviderEvidence({
+      homeActionId: ACTION_ID,
+      evidence: {
+        kind: "provider-status",
+        handle: { kind: "submission-id", provider: "base-account", value: ACTION_ID },
+        observedAt: "2026-09-10T05:01:03.000Z",
+        payload: "pending",
+      },
+      provenance: { source: "provider-status-lookup", observedAt: "2026-09-10T05:01:03.000Z", locator: {
+        kind: "submission-id",
+        provider: "base-account",
+        value: ACTION_ID,
+      } },
+    })).toEqual({ ok: false, reason: "unsupported-locator" });
+
+    expect(mayRecordProviderEvidence({
+      homeActionId: ACTION_ID,
+      evidence: {
+        kind: "provider-status",
+        handle: { kind: "submission-id", provider: "base-account", value: SUBMISSION_ID },
+        observedAt: "2026-09-10T05:01:03.000Z",
+        payload: "pending",
+      },
+      provenance: { source: "provider-status-lookup", observedAt: "2026-09-10T05:01:03.000Z", locator: {
+        kind: "submission-id",
+        provider: "base-account",
+        value: SUBMISSION_ID,
+      } },
+    })).toEqual({ ok: true });
+  });
+
+  test("status-wrapped handles receive the same hash and provenance validation as direct evidence", () => {
+    const malformedUserOperationHash = "0xnot-a-user-operation-hash" as `0x${string}`;
+
+    expect(mayRecordProviderEvidence({
+      homeActionId: ACTION_ID,
+      evidence: { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OP_HASH },
+      provenance: { source: "provider-return", observedAt: "2026-09-10T05:01:02.000Z" },
+    })).toEqual({ ok: true });
+
+    expect(mayRecordProviderEvidence({
+      homeActionId: ACTION_ID,
+      evidence: {
+        kind: "provider-status",
+        handle: { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OP_HASH },
+        observedAt: "2026-09-10T05:01:03.000Z",
+        payload: "pending",
+      },
+      provenance: { source: "provider-status-lookup", observedAt: "2026-09-10T05:01:03.000Z", locator: {
+        kind: "user-operation-hash",
+        provider: "cdp-embedded",
+        value: USER_OP_HASH,
+      } },
+    })).toEqual({ ok: true });
+
+    expect(mayRecordProviderEvidence({
+      homeActionId: ACTION_ID,
+      evidence: {
+        kind: "provider-status",
+        handle: { kind: "user-operation-hash", provider: "cdp-embedded", value: malformedUserOperationHash },
+        observedAt: "2026-09-10T05:01:03.000Z",
+        payload: "pending",
+      },
+      provenance: { source: "provider-status-lookup", observedAt: "2026-09-10T05:01:03.000Z", locator: {
+        kind: "user-operation-hash",
+        provider: "cdp-embedded",
+        value: malformedUserOperationHash,
+      } },
+    })).toEqual({ ok: false, reason: "unsupported-locator" });
+
+    expect(mayRecordProviderEvidence({
+      homeActionId: ACTION_ID,
+      evidence: {
+        kind: "provider-status",
+        handle: { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OP_HASH },
+        observedAt: "2026-09-10T05:01:03.000Z",
+        payload: "pending",
+      },
+      provenance: { source: "provider-return", observedAt: "2026-09-10T05:01:03.000Z" },
+    })).toEqual({ ok: false, reason: "missing-provider-return" });
   });
 
   test("EIP-5792: 5720 is prior-submission / ambiguous, never rejected (#176)", () => {

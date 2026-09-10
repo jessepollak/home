@@ -549,19 +549,36 @@ export function mayRecordProviderEvidence(input: {
   if (input.provenance.source === "home-correlation-only") {
     return { ok: false, reason: "home-correlation-as-evidence" };
   }
-  if (input.evidence.kind === "submission-id") {
+
+  const handle = input.evidence.kind === "provider-status"
+    ? input.evidence.handle
+    : input.evidence.kind === "transaction-hash"
+    ? undefined
+    : input.evidence;
+
+  if (input.evidence.kind === "provider-status" && input.provenance.source !== "provider-status-lookup") {
+    return { ok: false, reason: "missing-provider-return" };
+  }
+  if (
+    handle &&
+    input.provenance.source === "provider-status-lookup" &&
+    !sameProviderHandle(handle, input.provenance.locator)
+  ) {
+    return { ok: false, reason: "unsupported-locator" };
+  }
+  if (handle?.kind === "submission-id") {
     if (input.provenance.source !== "provider-return" && input.provenance.source !== "provider-status-lookup") {
       return { ok: false, reason: "missing-provider-return" };
     }
     if (
       input.provenance.source === "provider-status-lookup" &&
-      ACTION_ID_PATTERN.test(input.evidence.value) &&
-      input.evidence.value.toLowerCase() === input.homeActionId.toLowerCase()
+      ACTION_ID_PATTERN.test(handle.value) &&
+      handle.value.toLowerCase() === input.homeActionId.toLowerCase()
     ) {
       return { ok: false, reason: "unsupported-locator" };
     }
   }
-  if (input.evidence.kind === "user-operation-hash" && !HASH_PATTERN.test(input.evidence.value)) {
+  if (handle?.kind === "user-operation-hash" && !HASH_PATTERN.test(handle.value)) {
     return { ok: false, reason: "unsupported-locator" };
   }
   if (input.evidence.kind === "transaction-hash" && !HASH_PATTERN.test(input.evidence.value)) {
