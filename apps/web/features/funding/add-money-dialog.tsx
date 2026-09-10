@@ -333,7 +333,7 @@ export function BuyBody({
       </p>
 
       {activePayment ? (
-        <PaymentSummary payment={activePayment} />
+        <PaymentSummary payment={activePayment} sticky={Boolean(inlineOnrampUrl)} />
       ) : (
         <>
           <label className={styles.buyField} htmlFor="buy-usdc-amount">
@@ -420,9 +420,18 @@ export function PostCheckoutBody({
   );
 }
 
-function PaymentSummary({ payment }: { payment: OnrampPaymentSummary }) {
+function PaymentSummary({
+  payment,
+  sticky = false,
+}: {
+  payment: OnrampPaymentSummary;
+  sticky?: boolean;
+}) {
   return (
-    <dl className={styles.paymentSummary} aria-label="Coinbase payment details">
+    <dl
+      className={`${styles.paymentSummary} ${sticky ? styles.paymentSummarySticky : ""}`}
+      aria-label="Coinbase payment details"
+    >
       <div>
         <dt>Amount</dt>
         <dd>{formatPaymentAmount(payment.paymentAmount)}</dd>

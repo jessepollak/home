@@ -123,7 +123,8 @@ function FundingExperienceBoundary({
 
   useEffect(() => {
     if (!open || !inlineOnramp) return;
-    const attemptId = inlineOnramp.attemptId;
+    const currentOnramp = inlineOnramp;
+    const attemptId = currentOnramp.attemptId;
 
     function onMessage(event: MessageEvent) {
       if (
@@ -136,13 +137,14 @@ function FundingExperienceBoundary({
       const eventName = readOnrampEventName(event.data);
       if (eventName === "onramp_api.polling_success") {
         const completedPayment = activePayment;
+        const receiptUrl = currentOnramp.url;
         cancelOnramp();
         setOnrampError(null);
         setShowReceipt(false);
         if (completedPayment) {
           setPostCheckoutPayment({
             ...completedPayment,
-            receiptUrl: inlineOnramp.url,
+            receiptUrl,
           });
           setStep("pending");
         }

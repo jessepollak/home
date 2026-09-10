@@ -323,6 +323,7 @@
 
 .paymentSummary {
   display: grid;
+  min-height: 70px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 2px 0 0;
   overflow: hidden;
@@ -330,6 +331,15 @@
   border-radius: var(--control-radius);
   background: var(--home-canvas);
   text-align: left;
+}
+
+.paymentSummarySticky {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: 0 0 auto;
+  background: var(--home-white);
+  box-shadow: 0 8px 12px var(--home-white);
 }
 
 .paymentSummary > div {
