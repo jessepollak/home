@@ -1327,6 +1327,20 @@ describe("login-state home experience", () => {
       if (input === "/api/actions/operations") {
         return Response.json({ operations: [] });
       }
+      if (input === "/api/actions/11111111-1111-4111-8111-111111111111") {
+        const action = await sessionFetch("/api/actions/send/prepare", {
+          body: JSON.stringify({ recipient: ADDRESS_B, amountBaseUnits: "1000001" }),
+        }).then((response) => response.json());
+        return Response.json({
+          operation: {
+            action,
+            status: "prepared",
+            attemptCount: 0,
+            createdAt: action.createdAt,
+            updatedAt: action.createdAt,
+          },
+        });
+      }
       if (input === "/api/actions/send/prepare") {
         const request = JSON.parse(String(init?.body)) as {
           recipient: `0x${string}`;
@@ -1447,7 +1461,7 @@ describe("login-state home experience", () => {
     }
   });
 
-  test("surfaces an unresolved send after refresh with Check status recover and no second prepare", async () => {
+  test("checks an unresolved send after refresh without claim, status mutation, or second prepare", async () => {
     const actionId = "11111111-1111-4111-8111-111111111111";
     const action = {
       id: actionId,
@@ -1490,9 +1504,7 @@ describe("login-state home experience", () => {
       }
       if (input === "/api/actions/operations") return Response.json({ operations: [unresolved] });
       if (input === `/api/actions/${actionId}`) {
-        return Response.json({
-          operation: { ...unresolved, status: claims > 0 ? "unknown" : "submitting" },
-        });
+        return Response.json({ operation: unresolved });
       }
       if (input === `/api/actions/${actionId}/claim`) {
         claims += 1;
@@ -1532,8 +1544,8 @@ describe("login-state home experience", () => {
     expect(await page().findByText("Send USDC")).toBeTruthy();
     expect(page().getByText(/Wallet submission unresolved/)).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Check status" }));
-    await waitFor(() => expect(page().getByText(/Outcome unknown/)).toBeTruthy());
-    expect(claims).toBe(1);
+    await waitFor(() => expect(page().getByText(/Wallet submission unresolved/)).toBeTruthy());
+    expect(claims).toBe(0);
     expect(prepares).toBe(0);
     expect(sends).toBe(0);
   });

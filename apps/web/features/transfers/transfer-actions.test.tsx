@@ -23,7 +23,7 @@ type TransferWallet = Pick<
   | "sendTransfer"
   | "checkPendingTransfer"
   | "startNewTransfer"
-> & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "executeMoneyAction" | "fetchAccountResource">>;
+> & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "checkMoneyAction" | "executeMoneyAction" | "fetchAccountResource">>;
 
 function verifiedWallet(
   sendTransfer: TransferWallet["sendTransfer"] = async (request) => ({
@@ -268,6 +268,7 @@ describe("TransferActions modals", () => {
   test("reopens an unresolved durable send as Check status recover, not a second prepare", async () => {
     const action = preparedSendAction();
     let prepares = 0;
+    let checks = 0;
     let executes = 0;
     let historyPath = "";
     render(
@@ -278,9 +279,13 @@ describe("TransferActions modals", () => {
             prepares += 1;
             return action;
           },
+          checkMoneyAction: async () => {
+            checks += 1;
+            return { id: action.id, status: "unknown" };
+          },
           executeMoneyAction: async () => {
             executes += 1;
-            return { id: action.id, status: "unknown" };
+            throw new Error("status check must not execute");
           },
           fetchAccountResource: async (path) => {
             historyPath = path;
@@ -302,7 +307,8 @@ describe("TransferActions modals", () => {
     expect(page().queryByRole("button", { name: "Send $0.10" })).toBeNull();
     expect(historyPath).toBe("/api/actions/operations?scope=unresolved-send&limit=50");
     fireEvent.click(page().getByRole("button", { name: "Check status" }));
-    await waitFor(() => expect(executes).toBe(1));
+    await waitFor(() => expect(checks).toBe(1));
+    expect(executes).toBe(0);
     expect(prepares).toBe(0);
   });
 

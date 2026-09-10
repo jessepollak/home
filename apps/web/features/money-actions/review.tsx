@@ -12,28 +12,37 @@ export type MoneyActionReviewProps = {
   action: PreparedMoneyAction;
   onClose: () => void;
   onConfirmed: (result: OperationResult) => void;
+  check?: (action: PreparedMoneyAction) => Promise<OperationResult>;
   execute?: (action: PreparedMoneyAction) => Promise<OperationResult>;
   recovering?: boolean;
 };
 
 export function MoneyActionReview(props: MoneyActionReviewProps) {
-  return props.execute
-    ? <MoneyActionReviewContent {...props} execute={props.execute} />
+  return props.execute && props.check
+    ? <MoneyActionReviewContent {...props} check={props.check} execute={props.execute} />
     : <ConnectedMoneyActionReview {...props} />;
 }
 
 function ConnectedMoneyActionReview(props: MoneyActionReviewProps) {
   const wallet = useAccountWallet();
-  return <MoneyActionReviewContent {...props} execute={wallet.executeMoneyAction} />;
+  return (
+    <MoneyActionReviewContent
+      {...props}
+      check={props.check ?? wallet.checkMoneyAction}
+      execute={props.execute ?? wallet.executeMoneyAction}
+    />
+  );
 }
 
 function MoneyActionReviewContent({
   action,
   onClose,
   onConfirmed,
+  check,
   execute,
   recovering = false,
 }: MoneyActionReviewProps & {
+  check: (action: PreparedMoneyAction) => Promise<OperationResult>;
   execute: (action: PreparedMoneyAction) => Promise<OperationResult>;
 }) {
   const [pending, setPending] = useState(false);
@@ -56,7 +65,7 @@ function MoneyActionReviewContent({
     setPending(true);
     if (!checkOnly) setError(null);
     try {
-      const result = await execute(action);
+      const result = await (checkOnly ? check(action) : execute(action));
       setAttempted(true);
       if (result.status === "confirmed") {
         setUnresolved(false);

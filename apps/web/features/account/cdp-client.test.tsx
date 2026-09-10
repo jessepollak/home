@@ -81,6 +81,26 @@ function preparedMoneyAction(
   };
 }
 
+function storedMoneyAction(
+  action: PreparedMoneyAction,
+  status: "prepared" | "submitting" | "submitted" | "included" | "confirmed" | "rejected" | "expired" | "failed" | "unknown",
+  references: {
+    submissionId?: string;
+    transactionHash?: `0x${string}`;
+    userOperationHash?: `0x${string}`;
+  } = {},
+) {
+  return {
+    action,
+    status,
+    attemptCount: status === "prepared" ? 0 : 1,
+    ...(status === "prepared" ? {} : { claimedAt: "2026-09-08T05:02:00.000Z" }),
+    ...references,
+    createdAt: action.createdAt,
+    updatedAt: "2026-09-08T05:02:00.000Z",
+  };
+}
+
 function portfolioResponse(address: typeof ADDRESS_A | typeof ADDRESS_B): Response {
   return Response.json({
     walletAddress: address,
@@ -246,16 +266,28 @@ function AccountProbe({ moneyAction }: { moneyAction?: PreparedMoneyAction }) {
         Check transfer
       </button>
       {moneyAction ? (
-        <button
-          type="button"
-          onClick={() =>
-            void client.executeMoneyAction(moneyAction)
-              .then((result) => setMoneyActionStatus(result.status))
-              .catch((error) => setMoneyActionStatus(`error:${String(error?.reason ?? "unknown")}`))
-          }
-        >
-          Probe money action
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() =>
+              void client.checkMoneyAction(moneyAction)
+                .then((result) => setMoneyActionStatus(result.status))
+                .catch((error) => setMoneyActionStatus(`error:${String(error?.reason ?? "unknown")}`))
+            }
+          >
+            Check money action
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              void client.executeMoneyAction(moneyAction)
+                .then((result) => setMoneyActionStatus(result.status))
+                .catch((error) => setMoneyActionStatus(`error:${String(error?.reason ?? "unknown")}`))
+            }
+          >
+            Probe money action
+          </button>
+        </>
       ) : null}
       <button
         type="button"
@@ -1020,6 +1052,360 @@ describe("production account session owner", () => {
     expect(requests).toHaveLength(2);
   });
 
+  test("checks a prepared money action without claiming or invoking a wallet submission API", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    let claims = 0;
+    let sends = 0;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({ operation: storedMoneyAction(action, "prepared") });
+      }
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected prepared check request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            sends += 1;
+            return { userOperationHash: `0x${"ab".repeat(32)}` };
+          },
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("prepared"));
+    expect(claims).toBe(0);
+    expect(sends).toBe(0);
+  });
+
+  test("returns reference-free submitting and unknown rows without claiming, status mutation, or wallet submission", async () => {
+    for (const durableStatus of ["submitting", "unknown"] as const) {
+      const action = {
+        ...preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z"),
+        id: durableStatus === "submitting"
+          ? "123e4567-e89b-42d3-a456-426614174011"
+          : "123e4567-e89b-42d3-a456-426614174012",
+      };
+      let walletSubmissions = 0;
+      const requests: string[] = [];
+      const sessionFetch: SessionFetch = async (input) => {
+        requests.push(String(input));
+        if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+        if (input === `/api/actions/${action.id}`) {
+          return Response.json({ operation: storedMoneyAction(action, durableStatus) });
+        }
+        throw new Error(`unexpected reference-free check request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk({
+            sendUserOperation: async () => {
+              walletSubmissions += 1;
+              return { userOperationHash: `0x${"ab".repeat(32)}` };
+            },
+          })}
+          sessionFetch={sessionFetch}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+      fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe(durableStatus));
+      expect(requests).toEqual(["/api/session", `/api/actions/${action.id}`]);
+      expect(walletSubmissions).toBe(0);
+      cleanup();
+      window.sessionStorage.clear();
+    }
+  });
+
+  test("reconciles an already-recorded embedded user-operation handle through checkMoneyAction", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    let claims = 0;
+    let submissions = 0;
+    let walletSubmissions = 0;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({
+          operation: storedMoneyAction(action, "submitted", { userOperationHash }),
+        });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        submissions += 1;
+        return Response.json({
+          operation: storedMoneyAction(action, "confirmed", {
+            userOperationHash,
+            transactionHash,
+          }),
+        });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) {
+        return Response.json({
+          status: "confirmed",
+          transactionHash,
+          blockNumber: "17",
+          success: true,
+        });
+      }
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected embedded check request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            walletSubmissions += 1;
+            return { userOperationHash };
+          },
+          getUserOperation: async () => ({
+            status: "complete",
+            transactionHash,
+            calls: action.calls.map((call) => ({
+              to: call.to,
+              data: call.data,
+              value: BigInt(call.value),
+            })),
+          }) as never,
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"));
+    expect(claims).toBe(0);
+    expect(walletSubmissions).toBe(0);
+    expect(submissions).toBe(1);
+  });
+
+  test("reconciles an already-recorded Base submission ID through checkMoneyAction without wallet_sendCalls", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const action = preparedMoneyAction("base-account", "2026-12-08T05:20:00.000Z");
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    let walletSubmissions = 0;
+    let claims = 0;
+    const connection = connectedBaseAccount({
+      sendCalls: async () => {
+        walletSubmissions += 1;
+        return "base-submission";
+      },
+      getCallsStatus: async () => ({ status: "complete", transactionHash }),
+    });
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") {
+        return sessionResponse(sessionFor("subject-a", ADDRESS_A, "base-account"));
+      }
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({
+          operation: storedMoneyAction(action, "submitted", { submissionId: "base-submission" }),
+        });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) {
+        return Response.json({
+          status: "confirmed",
+          transactionHash,
+          blockNumber: "18",
+          success: true,
+        });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        return Response.json({
+          operation: storedMoneyAction(action, "confirmed", {
+            submissionId: "base-submission",
+            transactionHash,
+          }),
+        });
+      }
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected Base check request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk()}
+        sessionFetch={sessionFetch}
+        baseAccountEnabled
+        baseAccountRestorer={async () => connection}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("provider").textContent).toBe("base-account"));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"));
+    expect(claims).toBe(0);
+    expect(walletSubmissions).toBe(0);
+  });
+
+  test("fails send balance preflight before the atomic claim", async () => {
+    const action = {
+      ...preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z"),
+      amounts: [{
+        assetId: "usdc",
+        symbol: "USDC",
+        decimals: 6,
+        amountBaseUnits: "10000000",
+        direction: "spend" as const,
+      }],
+    };
+    let claims = 0;
+    let walletSubmissions = 0;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({ operation: storedMoneyAction(action, "prepared") });
+      }
+      if (input === "/api/portfolio") return portfolioResponse(ADDRESS_A);
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected preflight request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            walletSubmissions += 1;
+            return { userOperationHash: `0x${"ab".repeat(32)}` };
+          },
+          getUserOperation: async () => ({ status: "pending" }) as never,
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:insufficient-balance"));
+    expect(claims).toBe(0);
+    expect(walletSubmissions).toBe(0);
+  });
+
+  test("fails provider capability preflight before claim or balance I/O", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    let claims = 0;
+    let portfolioReads = 0;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({ operation: storedMoneyAction(action, "prepared") });
+      }
+      if (input === "/api/portfolio") portfolioReads += 1;
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected capability preflight request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness sdk={baseSdk()} sessionFetch={sessionFetch} moneyAction={action} />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:unavailable"));
+    expect(claims).toBe(0);
+    expect(portfolioReads).toBe(0);
+  });
+
+  test("fences pure money-action recovery when the verified account switches during the durable read", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const pendingRead = deferred<Response>();
+    let providerChecks = 0;
+    let accessToken = "token-a";
+    const sdk = baseSdk({
+      getAccessToken: async () => accessToken,
+      getUserOperation: async () => {
+        providerChecks += 1;
+        return { status: "pending" } as never;
+      },
+    });
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") {
+        return new Headers(init?.headers).get("Authorization") === "Bearer token-b"
+          ? sessionResponse(sessionFor("subject-b", ADDRESS_B))
+          : sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      }
+      if (input === `/api/actions/${action.id}`) return pendingRead.promise;
+      throw new Error(`unexpected switched recovery request: ${String(input)}`);
+    };
+    const view = render(
+      <SessionHarness sdk={sdk} sessionFetch={sessionFetch} moneyAction={action} />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+
+    accessToken = "token-b";
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, ownerKey: OWNER_B }}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_B));
+    await act(async () => {
+      pendingRead.resolve(Response.json({
+        operation: storedMoneyAction(action, "submitted", { userOperationHash }),
+      }));
+      await pendingRead.promise;
+    });
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:stale-session"));
+    expect(providerChecks).toBe(0);
+  });
+
+  test("fences money-action execution before claim when the account switches during send preflight", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const pendingPortfolio = deferred<Response>();
+    let claims = 0;
+    let walletSubmissions = 0;
+    let accessToken = "token-a";
+    const sdk = baseSdk({
+      getAccessToken: async () => accessToken,
+      sendUserOperation: async () => {
+        walletSubmissions += 1;
+        return { userOperationHash: `0x${"ab".repeat(32)}` };
+      },
+      getUserOperation: async () => ({ status: "pending" }) as never,
+    });
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") {
+        return new Headers(init?.headers).get("Authorization") === "Bearer token-b"
+          ? sessionResponse(sessionFor("subject-b", ADDRESS_B))
+          : sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      }
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({ operation: storedMoneyAction(action, "prepared") });
+      }
+      if (input === "/api/portfolio") return pendingPortfolio.promise;
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected switched execution request: ${String(input)}`);
+    };
+    const view = render(
+      <SessionHarness sdk={sdk} sessionFetch={sessionFetch} moneyAction={action} />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
+
+    accessToken = "token-b";
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, ownerKey: OWNER_B }}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_B));
+    await act(async () => {
+      pendingPortfolio.resolve(portfolioResponse(ADDRESS_A));
+      await pendingPortfolio.promise;
+    });
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:stale-session"));
+    expect(claims).toBe(0);
+    expect(walletSubmissions).toBe(0);
+  });
+
   test("prevents embedded and Base money-action dispatch after delayed preflight crosses canonical expiry", async () => {
     const originalNow = Date.now;
     let now = Date.parse("2026-09-08T05:09:59.000Z");
@@ -1033,6 +1419,17 @@ describe("production account session owner", () => {
       let embeddedExpirations = 0;
       const embeddedFetch: SessionFetch = async (input, init) => {
         if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+        if (input === `/api/actions/${embeddedAction.id}`) {
+          return Response.json({
+            operation: {
+              action: embeddedAction,
+              status: "prepared",
+              attemptCount: 0,
+              createdAt: embeddedAction.createdAt,
+              updatedAt: embeddedAction.createdAt,
+            },
+          });
+        }
         if (input === "/api/portfolio") return pendingPortfolio.promise;
         if (input === `/api/actions/${embeddedAction.id}/claim`) {
           embeddedClaims += 1;
@@ -1081,7 +1478,8 @@ describe("production account session owner", () => {
       );
       await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
       fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
-      await waitFor(() => expect(embeddedClaims).toBe(1));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(embeddedClaims).toBe(0);
       now = Date.parse("2026-09-08T05:10:01.000Z");
       await act(async () => {
         pendingPortfolio.resolve(portfolioResponse(ADDRESS_A));
@@ -1090,9 +1488,6 @@ describe("production account session owner", () => {
       await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("expired"));
       expect(embeddedDispatches).toBe(0);
       expect(embeddedExpirations).toBe(1);
-      fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
-      await waitFor(() => expect(embeddedClaims).toBe(2));
-      expect(embeddedDispatches).toBe(0);
 
       cleanup();
       window.sessionStorage.clear();
@@ -1114,6 +1509,17 @@ describe("production account session owner", () => {
       const baseFetch: SessionFetch = async (input, init) => {
         if (input === "/api/session") {
           return sessionResponse(sessionFor("subject-a", ADDRESS_A, "base-account"));
+        }
+        if (input === `/api/actions/${baseAction.id}`) {
+          return Response.json({
+            operation: {
+              action: baseAction,
+              status: "prepared",
+              attemptCount: 0,
+              createdAt: baseAction.createdAt,
+              updatedAt: baseAction.createdAt,
+            },
+          });
         }
         if (input === "/api/portfolio") return portfolioResponse(ADDRESS_A);
         if (input === `/api/actions/${baseAction.id}/claim`) {
@@ -1178,6 +1584,18 @@ describe("production account session owner", () => {
     let statusWrites = 0;
     const sessionFetch: SessionFetch = async (input, init) => {
       if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({
+          operation: {
+            action,
+            status: "submitting",
+            attemptCount: 1,
+            claimedAt: "2026-09-08T05:02:00.000Z",
+            createdAt: action.createdAt,
+            updatedAt: "2026-09-08T05:02:00.000Z",
+          },
+        });
+      }
       if (input === `/api/actions/${action.id}/claim`) {
         claims += 1;
         return Response.json({

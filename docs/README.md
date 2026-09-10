@@ -10,6 +10,7 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 |---|---|
 | [Build status](build-status.md) | What is integrated, validation evidence, remaining gates |
 | [Wallet runtime spike](wallet-runtime-spike.md) | Prepare → claim → sign → reconcile; SQLite locally, Neon/Postgres when `DATABASE_URL` is set |
+| [Attempt-aware onchain transactions](onchain-transaction-architecture.md) | Decision, failure windows, pure status checks, attempt/evidence target, migration and staged implementation |
 | [Architecture review](architecture-review-2026-09.md) | Current-tree patterns, risks, contribution contract, first-week slices |
 
 ## Run & operate

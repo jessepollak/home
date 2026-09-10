@@ -23,13 +23,13 @@ export type RecentMoneyActionOperation = {
 
 export type FetchRecentMoneyActions = (signal?: AbortSignal) => Promise<unknown>;
 export type ReadRecentMoneyAction = (id: string, signal?: AbortSignal) => Promise<unknown>;
-export type RecoverRecentMoneyAction = (action: PreparedMoneyAction) => Promise<unknown>;
+export type CheckRecentMoneyAction = (action: PreparedMoneyAction) => Promise<unknown>;
 
 export function RecentMoneyActions({
   session,
   fetchOperations,
   readOperation,
-  recoverOperation,
+  checkOperation,
   refreshTrigger,
   excludeTransactionHashes = [],
   embedded = false,
@@ -38,7 +38,7 @@ export function RecentMoneyActions({
   session: VerifiedAccountSession | null;
   fetchOperations: FetchRecentMoneyActions;
   readOperation: ReadRecentMoneyAction;
-  recoverOperation?: RecoverRecentMoneyAction;
+  checkOperation?: CheckRecentMoneyAction;
   refreshTrigger?: string | number;
   excludeTransactionHashes?: Iterable<string>;
   embedded?: boolean;
@@ -120,11 +120,11 @@ export function RecentMoneyActions({
                   ? { ...current, checkingIds: [...new Set([...current.checkingIds, operation.action.id])] }
                   : current);
                 try {
-                  if (recoverOperation && isReadRecoverable(operation)) {
+                  if (checkOperation) {
                     try {
-                      await recoverOperation(operation.action);
+                      await checkOperation(operation.action);
                     } catch {
-                      // Claim recover inspects the existing attempt only; keep the durable row.
+                      // Pure status checks may be temporarily unavailable; keep the durable row.
                     }
                   }
                   const refreshed = parseReadOperation(await readOperation(operation.action.id), session!);

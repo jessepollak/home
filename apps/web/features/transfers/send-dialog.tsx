@@ -37,7 +37,7 @@ type TransferWallet = Pick<
   | "sendTransfer"
   | "checkPendingTransfer"
   | "startNewTransfer"
-> & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "executeMoneyAction">>;
+> & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "checkMoneyAction" | "executeMoneyAction">>;
 
 type FetchUnresolvedSends = (signal?: AbortSignal) => Promise<unknown>;
 
@@ -63,6 +63,7 @@ export function SendDialog({
   checkPendingTransfer,
   startNewTransfer,
   prepareMoneyAction,
+  checkMoneyAction,
   executeMoneyAction,
   fetchUnresolvedSends,
   onTransferConfirmed,
@@ -76,6 +77,7 @@ export function SendDialog({
   checkPendingTransfer: TransferWallet["checkPendingTransfer"];
   startNewTransfer: TransferWallet["startNewTransfer"];
   prepareMoneyAction?: AccountWalletClient["prepareMoneyAction"];
+  checkMoneyAction?: AccountWalletClient["checkMoneyAction"];
   executeMoneyAction?: AccountWalletClient["executeMoneyAction"];
   fetchUnresolvedSends?: FetchUnresolvedSends;
   onTransferConfirmed?: (transfer: ConfirmedTransfer) => void;
@@ -298,13 +300,13 @@ export function SendDialog({
     setError(null);
     setStep("pending");
     try {
-      if (preparedAction && !executeMoneyAction) {
+      if (preparedAction && !checkMoneyAction) {
         setError("Home can’t check this saved send right now. Try again later.");
         setStep("confirm");
         return;
       }
-      if (preparedAction && executeMoneyAction) {
-        const result = await executeMoneyAction(preparedAction);
+      if (preparedAction && checkMoneyAction) {
+        const result = await checkMoneyAction(preparedAction);
         if (result.status === "confirmed" && result.transactionHash && request) {
           complete({ ...request, transactionHash: result.transactionHash });
           return;

@@ -79,7 +79,7 @@ describe("RecentMoneyActions recovery", () => {
       <RecentMoneyActions
         session={session}
         fetchOperations={async () => ({ operations: [unresolved] })}
-        recoverOperation={async (action) => {
+        checkOperation={async (action) => {
           recovers += 1;
           expect(action.id).toBe(unresolved.action.id);
           return { id: action.id, status: "unknown" };
@@ -107,7 +107,7 @@ describe("RecentMoneyActions recovery", () => {
       <RecentMoneyActions
         session={session}
         fetchOperations={async () => ({ operations: [operation("prepared")] })}
-        recoverOperation={async () => {
+        checkOperation={async () => {
           recovers += 1;
           return { id: "11111111-1111-4111-8111-111111111111", status: "prepared" };
         }}
@@ -132,9 +132,9 @@ describe("RecentMoneyActions recovery", () => {
       <RecentMoneyActions
         session={session}
         fetchOperations={async () => ({ operations: [prepared] })}
-        recoverOperation={async () => {
+        checkOperation={async () => {
           recovers += 1;
-          throw new Error("prepared must not claim-recover");
+          return { id: prepared.action.id, status: "prepared" };
         }}
         readOperation={async (id) => {
           reads += 1;
@@ -148,7 +148,7 @@ describe("RecentMoneyActions recovery", () => {
     expect(within(document.body).getByText(/Ready for review/)).toBeTruthy();
     fireEvent.click(check);
     await waitFor(() => expect(reads).toBe(1));
-    expect(recovers).toBe(0);
+    expect(recovers).toBe(1);
     expect(within(document.body).getByRole("button", { name: "Check status" })).toBeTruthy();
     expect(within(document.body).getByText(/Ready for review/)).toBeTruthy();
   });

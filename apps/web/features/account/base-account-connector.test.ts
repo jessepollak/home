@@ -27,6 +27,7 @@ class ProviderFixture {
     receipts: [{ transactionHash: `0x${"ab".repeat(32)}` }],
   };
   emitAccountsDuringConnect = false;
+  accountsAfterSendCalls: string[] | null = null;
   requests: { method: string; params?: readonly unknown[] | object }[] = [];
   listeners = new Map<EventName, Set<(value: never) => void>>();
 
@@ -71,8 +72,11 @@ class ProviderFixture {
         return this.typedSignature;
       case "eth_sendTransaction":
         return this.transactionHash;
-      case "wallet_sendCalls":
-        return this.callsId;
+      case "wallet_sendCalls": {
+        const result = this.callsId;
+        if (this.accountsAfterSendCalls) this.accounts = this.accountsAfterSendCalls;
+        return result;
+      }
       case "wallet_getCallsStatus":
         return this.callsStatus;
       default:
@@ -202,6 +206,27 @@ describe("Base Account connector boundary", () => {
     expect(
       provider.requests.filter(({ method }) => method === "wallet_sendCalls"),
     ).toHaveLength(1);
+  });
+
+  test("returns the Base submission handle before a later account-state read could discard it", async () => {
+    const provider = new ProviderFixture();
+    provider.accountsAfterSendCalls = [OTHER_ADDRESS];
+    const connection = await connectWithBaseProvider(asProvider(provider), () => {});
+
+    const submissionId = await connection.sendCalls?.([
+      { to: OTHER_ADDRESS, value: BigInt(0), data: "0x1234" },
+    ], "action-id");
+    const evidenceUpload = submissionId ? { submissionId } : null;
+    expect(evidenceUpload).toEqual({ submissionId: "0xfixture-call-bundle" });
+    expect(
+      provider.requests.filter(({ method }) => method === "wallet_sendCalls"),
+    ).toHaveLength(1);
+    expect(
+      provider.requests.filter(({ method }) => method === "eth_accounts"),
+    ).toHaveLength(1);
+    await expect(connection.assertUnchanged()).rejects.toMatchObject({
+      reason: "account-changed",
+    });
   });
 
   test("rejects mismatched or failed Base bundle recovery evidence", async () => {

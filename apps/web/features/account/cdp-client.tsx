@@ -155,6 +155,7 @@ export type AccountWalletClient = {
   fetchSavingsPositions: (signal?: AbortSignal) => Promise<unknown>;
   fetchAccountResource: (path: string, options?: AccountResourceOptions) => Promise<unknown>;
   prepareMoneyAction: (endpoint: string, input: unknown) => Promise<PreparedMoneyAction>;
+  checkMoneyAction: (action: PreparedMoneyAction) => Promise<OperationResult>;
   executeMoneyAction: (action: PreparedMoneyAction) => Promise<OperationResult>;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   pendingTransfer: PendingTransfer | null;
@@ -215,6 +216,9 @@ export function createBlockedAccountWalletClient(
       throw new Error("Authenticated resource is unavailable.");
     },
     prepareMoneyAction: async () => {
+      throw new TransferExecutionError("unavailable");
+    },
+    checkMoneyAction: async () => {
       throw new TransferExecutionError("unavailable");
     },
     executeMoneyAction: async () => {
@@ -434,6 +438,19 @@ function operationResult(operation: StoredMoneyActionOperation): OperationResult
     ...(operation.transactionHash ? { transactionHash: operation.transactionHash } : {}),
     ...(operation.userOperationHash ? { userOperationHash: operation.userOperationHash } : {}),
   };
+}
+
+function isMoneyActionOwnedBySession(
+  action: PreparedMoneyAction,
+  session: VerifiedAccountSession,
+): boolean {
+  return Boolean(
+    session.smartAccount &&
+    action.owner.subject === session.user.subject &&
+    action.owner.address.toLowerCase() === session.smartAccount.address.toLowerCase() &&
+    action.owner.chainId === BASE_CHAIN_ID &&
+    action.owner.accountProvider === session.accountProvider
+  );
 }
 
 async function sameProviderCalls(
@@ -1645,17 +1662,126 @@ export function AccountWalletSessionOwner({
     [fetchMoneyActionApi, session],
   );
 
-  const executeMoneyAction = useCallback(
+  const recoverBaseMoneyAction = useCallback(
+    async (
+      id: string,
+      submissionId: string,
+      connection: ConnectedBaseAccount,
+      assertStillActive: () => void,
+    ): Promise<OperationResult> => {
+      if (!connection.getCallsStatus) {
+        throw new TransferExecutionError("submission-unknown");
+      }
+      const deadline = Date.now() + TRANSFER_CONFIRMATION_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        assertStillActive();
+        try {
+          const result = await connection.getCallsStatus(submissionId);
+          if (result.status === "failed") {
+            return operationResult(
+              await recordMoneyActionStatus(fetchMoneyActionApi, id, "unknown"),
+            );
+          }
+          if (result.status === "complete") {
+            await waitForBaseReceipt(
+              result.transactionHash,
+              "base-account",
+              getAccessToken,
+              sessionFetch,
+              assertStillActive,
+              deadline,
+            );
+            return operationResult(
+              await recordMoneyActionSubmission(fetchMoneyActionApi, id, {
+                submissionId,
+                transactionHash: result.transactionHash,
+              }),
+            );
+          }
+        } catch (error) {
+          if (error instanceof TransferExecutionError) throw error;
+        }
+        await waitForPoll();
+      }
+      throw new TransferExecutionError("confirmation-timeout");
+    },
+    [fetchMoneyActionApi, getAccessToken, sessionFetch],
+  );
+
+  const reconcileRecordedMoneyAction = useCallback(
+    async (
+      operation: StoredMoneyActionOperation,
+      prepared: PreparedMoneyAction,
+      assertStillActive: () => void,
+      markReferenceFreeSubmittingUnknown: boolean,
+    ): Promise<OperationResult> => {
+      if (["prepared", "confirmed", "failed", "rejected", "expired"].includes(operation.status)) {
+        return operationResult(operation);
+      }
+      if (operation.transactionHash) {
+        await waitForBaseReceipt(
+          operation.transactionHash,
+          prepared.owner.accountProvider,
+          getAccessToken,
+          sessionFetch,
+          assertStillActive,
+          undefined,
+          operation.userOperationHash
+            ? { userOperationHash: operation.userOperationHash, sender: prepared.owner.address }
+            : undefined,
+        );
+        return operationResult(await readMoneyAction(fetchMoneyActionApi, prepared.id));
+      }
+      if (operation.userOperationHash && sdkGetUserOperation) {
+        const transactionHash = await waitForEmbeddedReceipt(
+          operation.userOperationHash,
+          prepared.owner.address,
+          sdkGetUserOperation,
+          prepared.owner.accountProvider,
+          getAccessToken,
+          sessionFetch,
+          assertStillActive,
+          prepared.calls,
+        );
+        return operationResult(
+          await recordMoneyActionSubmission(fetchMoneyActionApi, prepared.id, {
+            userOperationHash: operation.userOperationHash,
+            transactionHash,
+          }),
+        );
+      }
+      if (operation.submissionId && baseConnection.current?.getCallsStatus) {
+        return recoverBaseMoneyAction(
+          prepared.id,
+          operation.submissionId,
+          baseConnection.current,
+          assertStillActive,
+        );
+      }
+      if (markReferenceFreeSubmittingUnknown && operation.status === "submitting") {
+        return operationResult(
+          await recordMoneyActionStatus(fetchMoneyActionApi, prepared.id, "unknown"),
+        );
+      }
+      return operationResult(operation);
+    },
+    [
+      fetchMoneyActionApi,
+      getAccessToken,
+      recoverBaseMoneyAction,
+      sdkGetUserOperation,
+      sessionFetch,
+    ],
+  );
+
+  const checkMoneyAction = useCallback(
     async (action: PreparedMoneyAction): Promise<OperationResult> => {
       if (
         transferInProgress.current ||
         !session?.smartAccount ||
         !ownerKey ||
         status !== "verified" ||
-        action.owner.subject !== session.user.subject ||
-        action.owner.address.toLowerCase() !== session.smartAccount.address.toLowerCase() ||
-        action.owner.chainId !== BASE_CHAIN_ID ||
-        action.owner.accountProvider !== session.accountProvider
+        !isMoneyActionOwnedBySession(action, session)
       ) {
         throw new TransferExecutionError("stale-session");
       }
@@ -1671,39 +1797,112 @@ export function AccountWalletSessionOwner({
       };
       transferInProgress.current = true;
       try {
-        const claim = await claimMoneyAction(fetchMoneyActionApi, action);
+        const operation = await readMoneyAction(fetchMoneyActionApi, action.id);
         assertActive();
-        const canonicalAction = claim.action;
-        const calls = canonicalAction.calls.map((call) => ({
-          to: call.to,
-          data: call.data,
-          value: BigInt(call.value),
-        }));
-        if (claim.disposition === "recover") {
-          return await recoverClaimedMoneyAction(claim.operation, canonicalAction, assertActive);
+        if (!isMoneyActionOwnedBySession(operation.action, session)) {
+          throw new TransferExecutionError("stale-session");
+        }
+        return await reconcileRecordedMoneyAction(
+          operation,
+          operation.action,
+          assertActive,
+          false,
+        );
+      } finally {
+        if (transferSequence.current === sequence) transferInProgress.current = false;
+      }
+    },
+    [fetchMoneyActionApi, ownerKey, reconcileRecordedMoneyAction, session, status],
+  );
+
+  const executeMoneyAction = useCallback(
+    async (action: PreparedMoneyAction): Promise<OperationResult> => {
+      if (
+        transferInProgress.current ||
+        !session?.smartAccount ||
+        !ownerKey ||
+        status !== "verified" ||
+        !isMoneyActionOwnedBySession(action, session)
+      ) {
+        throw new TransferExecutionError("stale-session");
+      }
+      const boundary = transferBoundaryKey(ownerKey, session);
+      if (!boundary || currentTransferBoundary.current !== boundary) {
+        throw new TransferExecutionError("stale-session");
+      }
+      const sequence = transferSequence.current;
+      const assertActive = () => {
+        if (transferSequence.current !== sequence || currentTransferBoundary.current !== boundary) {
+          throw new TransferExecutionError("stale-session");
+        }
+      };
+      transferInProgress.current = true;
+      try {
+        const durable = await readMoneyAction(fetchMoneyActionApi, action.id);
+        assertActive();
+        if (!isMoneyActionOwnedBySession(durable.action, session)) {
+          throw new TransferExecutionError("stale-session");
+        }
+        if (["confirmed", "failed", "rejected", "expired"].includes(durable.status)) {
+          return operationResult(durable);
         }
 
-        if (canonicalAction.kind === "send") {
-          const spend = canonicalAction.amounts.find((amount) => amount.direction === "spend");
+        if (durable.status === "prepared" && action.kind === "send") {
+          const spend = action.amounts.find((amount) => amount.direction === "spend");
           if (!spend || (spend.assetId !== "usdc" && spend.assetId !== "eth")) {
-            await recordMoneyActionStatus(fetchMoneyActionApi, canonicalAction.id, "failed");
             throw new TransferExecutionError("invalid-request");
+          }
+          if (session.accountProvider === "base-account") {
+            const connection = baseConnection.current;
+            if (
+              !connection ||
+              !connection.sendCalls ||
+              !connection.getCallsStatus ||
+              connection.address.toLowerCase() !== session.smartAccount.address.toLowerCase()
+            ) {
+              throw new TransferExecutionError("stale-session");
+            }
+          } else if (!sdkSendUserOperation || !sdkGetUserOperation) {
+            throw new TransferExecutionError("unavailable");
           }
           const portfolio = parsePortfolioSnapshot(await fetchPortfolio(), {
             subject: session.user.subject,
             smartAccountAddress: session.smartAccount.address,
             chainId: BASE_CHAIN_ID,
           });
+          assertActive();
           if (BigInt(spend.amountBaseUnits) > findTransferBalance(portfolio.assets, spend.assetId)) {
-            await recordMoneyActionStatus(fetchMoneyActionApi, canonicalAction.id, "failed");
             throw new TransferExecutionError("insufficient-balance");
           }
         }
+
+        const claim = await claimMoneyAction(fetchMoneyActionApi, action);
+        assertActive();
+        const canonicalAction = claim.action;
+        if (claim.disposition === "recover") {
+          return await reconcileRecordedMoneyAction(
+            claim.operation,
+            canonicalAction,
+            assertActive,
+            true,
+          );
+        }
+
+        const calls = canonicalAction.calls.map((call) => ({
+          to: call.to,
+          data: call.data,
+          value: BigInt(call.value),
+        }));
         assertActive();
 
         if (session.accountProvider === "base-account") {
           const connection = baseConnection.current;
-          if (!connection || !connection.sendCalls || !connection.getCallsStatus || connection.address.toLowerCase() !== session.smartAccount.address.toLowerCase()) {
+          if (
+            !connection ||
+            !connection.sendCalls ||
+            !connection.getCallsStatus ||
+            connection.address.toLowerCase() !== session.smartAccount.address.toLowerCase()
+          ) {
             await recordMoneyActionStatus(fetchMoneyActionApi, canonicalAction.id, "failed");
             throw new TransferExecutionError("stale-session");
           }
@@ -1731,7 +1930,12 @@ export function AccountWalletSessionOwner({
             throw new TransferExecutionError("submission-unknown", error);
           }
           await recordMoneyActionSubmission(fetchMoneyActionApi, canonicalAction.id, { submissionId });
-          return await recoverBaseCalls(canonicalAction.id, submissionId, connection, assertActive);
+          return await recoverBaseMoneyAction(
+            canonicalAction.id,
+            submissionId,
+            connection,
+            assertActive,
+          );
         }
 
         if (!sdkSendUserOperation || !sdkGetUserOperation) {
@@ -1780,98 +1984,14 @@ export function AccountWalletSessionOwner({
       } finally {
         if (transferSequence.current === sequence) transferInProgress.current = false;
       }
-
-      async function recoverClaimedMoneyAction(
-        operation: StoredMoneyActionOperation,
-        prepared: PreparedMoneyAction,
-        assertStillActive: () => void,
-      ): Promise<OperationResult> {
-        if (["confirmed", "failed", "rejected", "expired"].includes(operation.status)) {
-          return operationResult(operation);
-        }
-        if (operation.transactionHash) {
-          await waitForBaseReceipt(
-            operation.transactionHash,
-            prepared.owner.accountProvider,
-            getAccessToken,
-            sessionFetch,
-            assertStillActive,
-            undefined,
-            operation.userOperationHash
-              ? { userOperationHash: operation.userOperationHash, sender: prepared.owner.address }
-              : undefined,
-          );
-          return operationResult(await readMoneyAction(fetchMoneyActionApi, prepared.id));
-        }
-        if (operation.userOperationHash && sdkGetUserOperation) {
-          const transactionHash = await waitForEmbeddedReceipt(
-            operation.userOperationHash,
-            prepared.owner.address,
-            sdkGetUserOperation,
-            prepared.owner.accountProvider,
-            getAccessToken,
-            sessionFetch,
-            assertStillActive,
-            prepared.calls,
-          );
-          return operationResult(await recordMoneyActionSubmission(fetchMoneyActionApi, prepared.id, {
-            userOperationHash: operation.userOperationHash,
-            transactionHash,
-          }));
-        }
-        if (operation.submissionId && baseConnection.current?.getCallsStatus) {
-          return recoverBaseCalls(prepared.id, operation.submissionId, baseConnection.current, assertStillActive);
-        }
-        if (operation.status === "submitting") {
-          return operationResult(
-            await recordMoneyActionStatus(fetchMoneyActionApi, prepared.id, "unknown"),
-          );
-        }
-        return operationResult(operation);
-      }
-
-      async function recoverBaseCalls(
-        id: string,
-        submissionId: string,
-        connection: ConnectedBaseAccount,
-        assertStillActive: () => void,
-      ): Promise<OperationResult> {
-        if (!connection.getCallsStatus) throw new TransferExecutionError("submission-unknown");
-        const deadline = Date.now() + TRANSFER_CONFIRMATION_TIMEOUT_MS;
-        while (Date.now() < deadline) {
-          assertStillActive();
-          try {
-            const result = await connection.getCallsStatus(submissionId);
-            if (result.status === "failed") {
-              return operationResult(await recordMoneyActionStatus(fetchMoneyActionApi, id, "unknown"));
-            }
-            if (result.status === "complete") {
-              await waitForBaseReceipt(
-                result.transactionHash,
-                "base-account",
-                getAccessToken,
-                sessionFetch,
-                assertStillActive,
-                deadline,
-              );
-              return operationResult(await recordMoneyActionSubmission(fetchMoneyActionApi, id, {
-                submissionId,
-                transactionHash: result.transactionHash,
-              }));
-            }
-          } catch (error) {
-            if (error instanceof TransferExecutionError) throw error;
-          }
-          await waitForPoll();
-        }
-        throw new TransferExecutionError("confirmation-timeout");
-      }
     },
     [
       fetchMoneyActionApi,
       fetchPortfolio,
       getAccessToken,
       ownerKey,
+      reconcileRecordedMoneyAction,
+      recoverBaseMoneyAction,
       sdkGetUserOperation,
       sdkSendUserOperation,
       session,
@@ -2151,6 +2271,7 @@ export function AccountWalletSessionOwner({
       fetchSavingsPositions,
       fetchAccountResource,
       prepareMoneyAction,
+      checkMoneyAction,
       executeMoneyAction,
       fetchOperations,
       pendingTransfer,
@@ -2164,6 +2285,7 @@ export function AccountWalletSessionOwner({
     [
       baseAccountEnabled,
       cancelSignInAttempt,
+      checkMoneyAction,
       checkPendingTransfer,
       executeMoneyAction,
       fetchAccountResource,

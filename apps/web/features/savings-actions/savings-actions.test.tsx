@@ -6,7 +6,7 @@ import type { PreparedMoneyAction } from "@/features/money-actions/types";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morpho/config";
 import type { MorphoVaultCandidate } from "@/server/morpho/types";
 
-const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
+const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { SavingsMoneyDialog } = await import("./savings-actions");
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
@@ -91,6 +91,7 @@ describe("SavingsMoneyDialog", () => {
           requests.push({ endpoint, input });
           return prepared();
         }}
+        checkMoneyAction={async () => ({ id: "action-1", status: "prepared" })}
         executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
         onClose={() => {}}
       />,
@@ -123,6 +124,111 @@ describe("SavingsMoneyDialog", () => {
     ]);
   });
 
+  test("uses the pure check path for an expired durable savings action", async () => {
+    let checks = 0;
+    let executions = 0;
+    render(
+      <SavingsMoneyDialog
+        open
+        mode="deposit"
+        session={session}
+        candidate={candidate}
+        prepareMoneyAction={async () => ({
+          ...prepared(),
+          expiresAt: "2026-09-09T00:00:00.000Z",
+        })}
+        checkMoneyAction={async () => {
+          checks += 1;
+          return { id: "action-1", status: "prepared" };
+        }}
+        executeMoneyAction={async () => {
+          executions += 1;
+          return { id: "action-1", status: "unknown" };
+        }}
+        onClose={() => {}}
+      />,
+    );
+
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    const check = await page().findByRole("button", { name: "Check status" });
+    fireEvent.click(check);
+    await waitFor(() => expect(checks).toBe(1));
+    expect(executions).toBe(0);
+  });
+
+  test("switches an unresolved savings execution to pure Check status", async () => {
+    let checks = 0;
+    let executions = 0;
+    render(
+      <SavingsMoneyDialog
+        open
+        mode="deposit"
+        session={session}
+        candidate={candidate}
+        prepareMoneyAction={async () => prepared()}
+        checkMoneyAction={async () => {
+          checks += 1;
+          return { id: "action-1", status: "unknown" };
+        }}
+        executeMoneyAction={async () => {
+          executions += 1;
+          return { id: "action-1", status: "unknown" };
+        }}
+        onClose={() => {}}
+      />,
+    );
+
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    const check = await page().findByRole("button", { name: "Check status" });
+    expect(executions).toBe(1);
+    fireEvent.click(check);
+    await waitFor(() => expect(checks).toBe(1));
+    expect(executions).toBe(1);
+  });
+
+  test("executes a fresh savings action after backing out of unresolved recovery", async () => {
+    let preparations = 0;
+    const checkedIds: string[] = [];
+    const executedIds: string[] = [];
+    render(
+      <SavingsMoneyDialog
+        open
+        mode="deposit"
+        session={session}
+        candidate={candidate}
+        prepareMoneyAction={async () => {
+          preparations += 1;
+          return { ...prepared(), id: `action-${preparations}` };
+        }}
+        checkMoneyAction={async (action) => {
+          checkedIds.push(action.id);
+          return { id: action.id, status: "unknown" };
+        }}
+        executeMoneyAction={async (action) => {
+          executedIds.push(action.id);
+          return { id: action.id, status: "unknown" };
+        }}
+        onClose={() => {}}
+      />,
+    );
+
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    expect(await page().findByRole("button", { name: "Check status" })).toBeTruthy();
+
+    const backButtons = page().getAllByRole("button", { name: "Back" });
+    fireEvent.click(backButtons[backButtons.length - 1]);
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+
+    await waitFor(() => expect(executedIds).toEqual(["action-1", "action-2"]));
+    expect(checkedIds).toEqual([]);
+  });
+
   test("retains limit errors from prepareMoneyAction", async () => {
     render(
       <SavingsMoneyDialog
@@ -133,6 +239,7 @@ describe("SavingsMoneyDialog", () => {
         prepareMoneyAction={async () => {
           throw Object.assign(new Error("limit"), { status: 409 });
         }}
+        checkMoneyAction={async () => ({ id: "action-1", status: "prepared" })}
         executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
         onClose={() => {}}
       />,
@@ -159,6 +266,7 @@ describe("SavingsMoneyDialog", () => {
             serverMessage: "Base RPC rejected a savings state read: execution reverted",
           });
         }}
+        checkMoneyAction={async () => ({ id: "action-1", status: "prepared" })}
         executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
         onClose={() => {}}
       />,

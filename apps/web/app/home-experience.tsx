@@ -567,7 +567,7 @@ function HomeExperienceView({
                       fetchActivity={account.fetchActivity}
                       fetchOperations={account.fetchOperations}
                       readOperation={readOperation}
-                      recoverOperation={account.executeMoneyAction}
+                      checkOperation={account.checkMoneyAction}
                       activityRefreshTrigger={activityRefreshTrigger}
                       onTransferConfirmed={onTransferConfirmed}
                       onOpenSave={() => navigateTo(savePanelId)}
@@ -587,7 +587,7 @@ function HomeExperienceView({
                       fetchActivity={account.fetchActivity}
                       fetchOperations={account.fetchOperations}
                       readOperation={readOperation}
-                      recoverOperation={account.executeMoneyAction}
+                      checkOperation={account.checkMoneyAction}
                       activityRefreshTrigger={activityRefreshTrigger}
                       showSessionShimmer={!activitySession && (
                         paintedAssetBalances.status === "loading" ||
@@ -825,7 +825,7 @@ function HomePanel({
   fetchActivity,
   fetchOperations,
   readOperation,
-  recoverOperation,
+  checkOperation,
   activityRefreshTrigger,
   onTransferConfirmed,
   onOpenSave,
@@ -837,7 +837,7 @@ function HomePanel({
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   readOperation: (id: string, signal?: AbortSignal) => Promise<unknown>;
-  recoverOperation?: (action: PreparedMoneyAction) => Promise<unknown>;
+  checkOperation?: (action: PreparedMoneyAction) => Promise<unknown>;
   activityRefreshTrigger?: string | number;
   onTransferConfirmed?: () => void;
   onOpenSave: () => void;
@@ -953,7 +953,7 @@ function HomePanel({
             fetchActivity={fetchActivity}
             fetchOperations={fetchOperations}
             readOperation={readOperation}
-            recoverOperation={recoverOperation}
+            checkOperation={checkOperation}
             activityRefreshTrigger={activityRefreshTrigger}
           />
         </div>
@@ -985,7 +985,7 @@ function ActivityPage({
   fetchActivity,
   fetchOperations,
   readOperation,
-  recoverOperation,
+  checkOperation,
   activityRefreshTrigger,
   showSessionShimmer,
 }: {
@@ -993,7 +993,7 @@ function ActivityPage({
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   readOperation: (id: string, signal?: AbortSignal) => Promise<unknown>;
-  recoverOperation?: (action: PreparedMoneyAction) => Promise<unknown>;
+  checkOperation?: (action: PreparedMoneyAction) => Promise<unknown>;
   activityRefreshTrigger?: string | number;
   showSessionShimmer: boolean;
 }) {
@@ -1013,7 +1013,7 @@ function ActivityPage({
         fetchActivity={fetchActivity}
         fetchOperations={fetchOperations}
         readOperation={readOperation}
-        recoverOperation={recoverOperation}
+        checkOperation={checkOperation}
         activityRefreshTrigger={activityRefreshTrigger}
       />
     </div>
@@ -1027,7 +1027,7 @@ function ConnectedActivityPanel({
   fetchActivity,
   fetchOperations,
   readOperation,
-  recoverOperation,
+  checkOperation,
   activityRefreshTrigger,
 }: {
   density: ActivityPanelDensity;
@@ -1036,7 +1036,7 @@ function ConnectedActivityPanel({
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   readOperation: (id: string, signal?: AbortSignal) => Promise<unknown>;
-  recoverOperation?: (action: PreparedMoneyAction) => Promise<unknown>;
+  checkOperation?: (action: PreparedMoneyAction) => Promise<unknown>;
   activityRefreshTrigger?: string | number;
 }) {
   const [indexedTransactionHashes, setIndexedTransactionHashes] = useState<string[]>([]);
@@ -1063,7 +1063,7 @@ function ConnectedActivityPanel({
           session={activitySession}
           fetchOperations={fetchOperations}
           readOperation={readOperation}
-          recoverOperation={recoverOperation}
+          checkOperation={checkOperation}
           refreshTrigger={activityRefreshTrigger}
           excludeTransactionHashes={indexedTransactionHashes}
           embedded

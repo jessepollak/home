@@ -27,7 +27,7 @@ type TransferWallet = Pick<
   | "sendTransfer"
   | "checkPendingTransfer"
   | "startNewTransfer"
-> & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "executeMoneyAction" | "fetchAccountResource">>;
+> & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "checkMoneyAction" | "executeMoneyAction" | "fetchAccountResource">>;
 
 export function TransferActions(props: TransferActionsProps) {
   const wallet = useAccountWallet();
@@ -106,6 +106,7 @@ export function TransferActionsForWallet({
         checkPendingTransfer={wallet.checkPendingTransfer}
         startNewTransfer={wallet.startNewTransfer}
         prepareMoneyAction={wallet.prepareMoneyAction}
+        checkMoneyAction={wallet.checkMoneyAction}
         executeMoneyAction={wallet.executeMoneyAction}
         fetchUnresolvedSends={fetchUnresolvedSends}
         onTransferConfirmed={(transfer) => {

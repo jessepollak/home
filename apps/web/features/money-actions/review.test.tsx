@@ -4,6 +4,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "./types";
 
 const { cleanup, fireEvent, render, screen, waitFor } = await import("@testing-library/react");
+const {
+  AccountWalletClientProvider,
+  createBlockedAccountWalletClient,
+} = await import("@/features/account/cdp-client");
 const { MoneyActionReview } = await import("./review");
 
 const action: PreparedMoneyAction = {
@@ -28,14 +32,19 @@ afterEach(cleanup);
 
 describe("MoneyActionReview", () => {
   test("shows the full exact spend and lets an expired plan check status without signing a new plan", async () => {
+    let checks = 0;
     let executions = 0;
     render(
       <MoneyActionReview
         action={action}
         onClose={() => {}}
+        check={async () => {
+          checks += 1;
+          return { id: action.id, status: "expired" };
+        }}
         execute={async () => {
           executions += 1;
-          return { id: action.id, status: "expired" };
+          throw new Error("expired status checks must not execute");
         }}
         onConfirmed={() => {}}
       />,
@@ -46,16 +55,22 @@ describe("MoneyActionReview", () => {
     expect(screen.queryByText(/wallet will show/i)).toBeNull();
     expect(screen.getByRole("alert").textContent).toContain("expired");
     fireEvent.click(screen.getByRole("button", { name: "Check action status" }));
-    await waitFor(() => expect(executions).toBe(1));
+    await waitFor(() => expect(checks).toBe(1));
+    expect(executions).toBe(0);
   });
 
   test("keeps Check status after an unresolved execute and retries recover without a new prepare", async () => {
     const liveAction = { ...action, expiresAt: "2026-12-08T01:10:00.000Z" };
+    let checks = 0;
     let executions = 0;
     render(
       <MoneyActionReview
         action={liveAction}
         onClose={() => {}}
+        check={async () => {
+          checks += 1;
+          return { id: liveAction.id, status: "unknown" };
+        }}
         execute={async () => {
           executions += 1;
           throw new Error("lost submission refs");
@@ -67,8 +82,85 @@ describe("MoneyActionReview", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm action" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/unresolved/));
     fireEvent.click(screen.getByRole("button", { name: "Check status" }));
-    await waitFor(() => expect(executions).toBe(2));
+    await waitFor(() => expect(checks).toBe(1));
+    expect(executions).toBe(1);
     expect(screen.queryByRole("button", { name: "Confirm action" })).toBeNull();
+  });
+
+  test("preserves an execute-only injection and resolves only check from the wallet context", async () => {
+    const liveAction = { ...action, expiresAt: "2026-12-08T01:10:00.000Z" };
+    let suppliedExecutions = 0;
+    let contextChecks = 0;
+    let contextExecutions = 0;
+    const client = {
+      ...createBlockedAccountWalletClient("unconfigured"),
+      checkMoneyAction: async () => {
+        contextChecks += 1;
+        return { id: liveAction.id, status: "unknown" } as const;
+      },
+      executeMoneyAction: async () => {
+        contextExecutions += 1;
+        return { id: liveAction.id, status: "unknown" } as const;
+      },
+    };
+
+    render(
+      <AccountWalletClientProvider client={client}>
+        <MoneyActionReview
+          action={liveAction}
+          onClose={() => {}}
+          execute={async () => {
+            suppliedExecutions += 1;
+            return { id: liveAction.id, status: "unknown" };
+          }}
+          onConfirmed={() => {}}
+        />
+      </AccountWalletClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm action" }));
+    await waitFor(() => expect(suppliedExecutions).toBe(1));
+    fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+    await waitFor(() => expect(contextChecks).toBe(1));
+    expect(contextExecutions).toBe(0);
+  });
+
+  test("preserves a check-only injection and resolves only execute from the wallet context", async () => {
+    const liveAction = { ...action, expiresAt: "2026-12-08T01:10:00.000Z" };
+    let suppliedChecks = 0;
+    let contextChecks = 0;
+    let contextExecutions = 0;
+    const client = {
+      ...createBlockedAccountWalletClient("unconfigured"),
+      checkMoneyAction: async () => {
+        contextChecks += 1;
+        return { id: liveAction.id, status: "unknown" } as const;
+      },
+      executeMoneyAction: async () => {
+        contextExecutions += 1;
+        return { id: liveAction.id, status: "unknown" } as const;
+      },
+    };
+
+    render(
+      <AccountWalletClientProvider client={client}>
+        <MoneyActionReview
+          action={liveAction}
+          onClose={() => {}}
+          check={async () => {
+            suppliedChecks += 1;
+            return { id: liveAction.id, status: "unknown" };
+          }}
+          onConfirmed={() => {}}
+        />
+      </AccountWalletClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm action" }));
+    await waitFor(() => expect(contextExecutions).toBe(1));
+    fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+    await waitFor(() => expect(suppliedChecks).toBe(1));
+    expect(contextChecks).toBe(0);
   });
 
   test("reactively changes a mounted review to check-only when its deadline passes", async () => {
@@ -81,6 +173,7 @@ describe("MoneyActionReview", () => {
       <MoneyActionReview
         action={expiringAction}
         onClose={() => {}}
+        check={async () => ({ id: expiringAction.id, status: "prepared" })}
         execute={async () => {
           executions += 1;
           return { id: expiringAction.id, status: "unknown" };
@@ -102,6 +195,7 @@ describe("MoneyActionReview", () => {
       <MoneyActionReview
         action={liveAction}
         onClose={() => {}}
+        check={async () => ({ id: liveAction.id, status: "rejected" })}
         execute={async () => {
           executions += 1;
           return { id: liveAction.id, status: "rejected" };
@@ -124,6 +218,7 @@ describe("MoneyActionReview", () => {
         action={liveAction}
         recovering
         onClose={() => {}}
+        check={async () => ({ id: liveAction.id, status: "unknown" })}
         execute={async () => ({ id: liveAction.id, status: "unknown" })}
         onConfirmed={() => {}}
       />,
@@ -139,6 +234,7 @@ describe("MoneyActionReview", () => {
       <MoneyActionReview
         action={{ ...action, amounts: [{ ...action.amounts[0], maximum: true }] }}
         onClose={() => {}}
+        check={async () => ({ id: action.id, status: "unknown" })}
         execute={async () => ({ id: action.id, status: "unknown" })}
         onConfirmed={() => {}}
       />,
@@ -163,6 +259,7 @@ describe("MoneyActionReview", () => {
           }],
         }}
         onClose={() => {}}
+        check={async () => ({ id: action.id, status: "unknown" })}
         execute={async () => ({ id: action.id, status: "unknown" })}
         onConfirmed={() => {}}
       />,
