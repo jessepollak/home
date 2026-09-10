@@ -1712,7 +1712,7 @@ describe("login-state home experience", () => {
     fireEvent.click(page().getByRole("button", { name: "Save" }));
     expect(page().getByRole("region", { name: "Savings module" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
-    expect(page().queryByRole("heading", { name: "Save" })).toBeNull();
+    expect(page().getByRole("heading", { level: 1, name: "Save" })).toBeTruthy();
   });
 
   test("honors Balances and Activity dashboard deep links on first paint", async () => {
@@ -1786,7 +1786,13 @@ describe("login-state home experience", () => {
     const account = await enabledAccountButton();
     expect(document.querySelector(".app-frame-shell")).toBeTruthy();
     expect(document.querySelector(".app-header")).toBeTruthy();
-    expect(page().getByRole("heading", { level: 1, name: "Home" })).toBeTruthy();
+    expect(
+      within(document.querySelector(".app-header") as HTMLElement).getByRole(
+        "button",
+        { name: "Home" },
+      ),
+    ).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Home" })).toBeNull();
     expect(document.querySelector(".panel-fade")).toBeTruthy();
     expect(account.querySelector("[data-profile]")).toBeTruthy();
     expect(account.textContent).toBe("h");
@@ -1813,7 +1819,10 @@ describe("login-state home experience", () => {
     await enabledAccountButton();
     const header = document.querySelector(".app-header");
     expect(header).toBeTruthy();
-    expect(page().getByRole("heading", { level: 1, name: "Home" })).toBeTruthy();
+    expect(
+      within(header as HTMLElement).getByRole("button", { name: "Home" }),
+    ).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Home" })).toBeNull();
     expect(page().queryByRole("heading", { name: "Save" })).toBeNull();
 
     fireEvent.click(page().getByRole("button", { name: "Save" }));

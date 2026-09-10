@@ -469,10 +469,8 @@ function HomeExperienceView({
               backLabel={nestedChrome.backLabel}
               onBack={nestedChrome.onBack}
             />
-          ) : routeMode === "dashboard" ? (
-            <h1 className="app-header-lead-title">
-              {activeNavigation === "invest" ? "Invest" : "Home"}
-            </h1>
+          ) : routeMode === "dashboard" && activeNavigation === "invest" ? (
+            <h1 className="app-header-lead-title">Invest</h1>
           ) : (
             <HomeMark
               onClick={() => {
