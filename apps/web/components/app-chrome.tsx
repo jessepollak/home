@@ -39,19 +39,21 @@ export function useNestedAppChrome(nested: NestedAppChrome | null) {
   const chrome = useOptionalAppChrome();
   const setNested = chrome?.setNested;
   const nestedRef = useRef(nested);
-  nestedRef.current = nested;
   const title = nested?.title ?? null;
   const backLabel = nested?.backLabel ?? null;
 
   useLayoutEffect(() => {
+    nestedRef.current = nested;
+  });
+
+  useLayoutEffect(() => {
     if (!setNested) return;
-    const current = nestedRef.current;
     setNested(
-      current?.title && current.onBack && current.backLabel
+      title && backLabel
         ? {
-            title: current.title,
+            title,
+            backLabel,
             onBack: () => nestedRef.current?.onBack(),
-            backLabel: current.backLabel,
           }
         : null,
     );

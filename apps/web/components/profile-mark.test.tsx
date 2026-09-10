@@ -37,7 +37,7 @@ describe("ProfileMark", () => {
   test("shimmers while the session is checking, then fails open to a glyph", async () => {
     window.fetch = (async () => {
       throw new Error("offline");
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const loading = render(
       <ProfileMark status="loading" ownerKey="jesse@example.test" disabled />,
@@ -70,7 +70,7 @@ describe("ProfileMark", () => {
       Response.json({
         name: "jesse.base.eth",
         avatar: "https://example.test/j.png",
-      })) as typeof fetch;
+      })) as unknown as typeof fetch;
 
     const view = render(
       <ProfileMark status="ready" ownerKey="other@example.test" address={ADDRESS} />,

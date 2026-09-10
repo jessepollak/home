@@ -37,9 +37,14 @@ export function parseBasenameProfile(value: unknown): BasenameProfile | null {
   return { name, avatarUrl };
 }
 
+export type ProfileFetch = (
+  input: string,
+  init?: { headers?: HeadersInit; signal?: AbortSignal },
+) => Promise<Response>;
+
 export async function fetchBasenameProfile(
   address: string | null | undefined,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: ProfileFetch = fetch,
   signal?: AbortSignal,
 ): Promise<BasenameProfile | null> {
   if (!address || !isAddress(address)) return null;

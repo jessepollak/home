@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useNestedAppChrome, type NestedAppChrome } from "@/components/app-chrome";
+import { useNestedAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
 import {
@@ -86,35 +86,40 @@ export function InvestExperience({
     router.replace(investHref(parent), { scroll: false });
   }, [inAppChildDepth, router]);
 
-  const detailTitle =
-    view.screen === "detail"
-      ? getDiscoverAsset(view.assetId, catalog)?.displayName ?? "Asset details"
-      : null;
-  const nestedChrome = useMemo<NestedAppChrome | null>(() => {
-    if (view.screen === "category") {
-      const shelf = getDiscoverShelf(view.shelfId);
-      if (!shelf) return null;
-      return {
-        title: shelf.title,
-        onBack: () => leaveChild({ screen: "hub" }),
-        backLabel: "Back to Invest",
-      };
-    }
-    if (view.screen === "detail") {
-      const parent =
-        view.from === "hub"
-          ? ({ screen: "hub" } as const)
-          : ({ screen: "category", shelfId: view.from } as const);
-      return {
-        title: detailTitle ?? "Asset details",
-        onBack: () => leaveChild(parent),
-        backLabel: "Back",
-      };
-    }
-    return null;
-  }, [detailTitle, leaveChild, view]);
+  const chromeTitle =
+    view.screen === "category"
+      ? getDiscoverShelf(view.shelfId)?.title ?? null
+      : view.screen === "detail"
+        ? getDiscoverAsset(view.assetId, catalog)?.displayName ?? "Asset details"
+        : null;
+  const chromeBackLabel =
+    view.screen === "category"
+      ? "Back to Invest"
+      : view.screen === "detail"
+        ? "Back"
+        : null;
 
-  useNestedAppChrome(nestedChrome);
+  useNestedAppChrome(
+    chromeTitle && chromeBackLabel
+      ? {
+          title: chromeTitle,
+          backLabel: chromeBackLabel,
+          onBack: () => {
+            if (view.screen === "category") {
+              leaveChild({ screen: "hub" });
+              return;
+            }
+            if (view.screen === "detail") {
+              leaveChild(
+                view.from === "hub"
+                  ? { screen: "hub" }
+                  : { screen: "category", shelfId: view.from },
+              );
+            }
+          },
+        }
+      : null,
+  );
 
   if (view.screen === "category") {
     const shelf = getDiscoverShelf(view.shelfId);

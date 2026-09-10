@@ -20,22 +20,40 @@ export function ProfileMark({
   disabled?: boolean;
   onClick?: () => void;
 }) {
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  return (
+    <ProfileMarkButton
+      key={`${status}:${address ?? ""}:${ownerKey ?? ""}`}
+      status={status}
+      ownerKey={ownerKey}
+      address={address}
+      disabled={disabled}
+      onClick={onClick}
+    />
+  );
+}
+
+function ProfileMarkButton({
+  status,
+  ownerKey,
+  address,
+  disabled = false,
+  onClick,
+}: {
+  status: "loading" | "ready";
+  ownerKey?: string | null;
+  address?: string | null;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
   const [basename, setBasename] = useState<string | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoStatus, setPhotoStatus] = useState<"loading" | "ready" | "failed">(
-    "ready",
+    status === "ready" && address ? "loading" : "ready",
   );
 
   useEffect(() => {
-    if (status !== "ready" || !address) {
-      setPhotoUrl(null);
-      setBasename(null);
-      setPhotoStatus("ready");
-      return;
-    }
-
+    if (status !== "ready" || !address) return;
     const controller = new AbortController();
-    setPhotoStatus("loading");
     void fetchBasenameProfile(address, fetch, controller.signal).then(
       (profile) => {
         if (controller.signal.aborted) return;
@@ -61,7 +79,7 @@ export function ProfileMark({
       onClick={onClick}
     >
       <span
-        className={`${styles.mark} ${showShimmer ? "shimmer" : ""}`}
+        className={[styles.mark, showShimmer ? "shimmer" : ""].filter(Boolean).join(" ")}
         data-profile={
           showShimmer ? "shimmer" : showPhoto && photoStatus === "ready" ? "photo" : "glyph"
         }

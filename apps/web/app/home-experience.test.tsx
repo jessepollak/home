@@ -1789,7 +1789,7 @@ describe("login-state home experience", () => {
     expect(document.querySelector(".panel-fade")).toBeTruthy();
     expect(account.querySelector("[data-profile]")).toBeTruthy();
     expect(account.textContent).toBe("h");
-    expect(page().queryByRole("button", { name: "Account" }).textContent).not.toBe(
+    expect(page().getByRole("button", { name: "Account" }).textContent).not.toBe(
       "Account",
     );
 
