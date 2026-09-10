@@ -7,6 +7,9 @@ import type { AccountWalletClient } from "@/features/account/cdp-client";
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
 );
+const { MONEY_SHEET_EXIT_MS } = await import(
+  "@/features/money-modal/money-modal"
+);
 const { FundingExperienceForWallet } = await import("./funding-experience");
 
 (window as typeof window & {
@@ -168,6 +171,60 @@ describe("FundingExperience", () => {
 
     expect(page().getByText("USDC")).toBeTruthy();
     expect(page().queryByText("BRZ")).toBeNull();
+  });
+
+  test("keeps one MoneyModal lifecycle across closed, open, closing, and reopen", async () => {
+    const restoreMotion = stubReducedMotion(false);
+    const wallet = verifiedWallet();
+    const experience = (open: boolean) => (
+      <>
+        <button type="button">Funding opener</button>
+        <FundingExperienceForWallet
+          wallet={wallet}
+          navigateToHostedOnramp={() => {}}
+          open={open}
+        />
+      </>
+    );
+
+    try {
+      const view = render(experience(false));
+      const opener = page().getByRole("button", { name: "Funding opener" });
+      const dialog = document.querySelector("dialog") as HTMLDialogElement;
+      expect(dialog.open).toBe(false);
+      expect(document.body.style.overflow).toBe("");
+
+      opener.focus();
+      view.rerender(experience(true));
+      expect(document.querySelector("dialog") === dialog).toBe(true);
+      expect(dialog.open).toBe(true);
+      expect(dialog.dataset.state).toBe("open");
+      expect(document.body.style.overflow).toBe("hidden");
+
+      openBuy();
+      expect(page().getByRole("dialog", { name: "Buy" })).toBeTruthy();
+      view.rerender(experience(false));
+      expect(document.querySelector("dialog") === dialog).toBe(true);
+      expect(dialog.open).toBe(true);
+      expect(dialog.dataset.state).toBe("closing");
+      expect(document.body.style.overflow).toBe("hidden");
+
+      await act(async () => {
+        await Bun.sleep(MONEY_SHEET_EXIT_MS + 20);
+      });
+      expect(dialog.open).toBe(false);
+      expect(document.body.style.overflow).toBe("");
+      expect(document.activeElement).toBe(opener);
+
+      view.rerender(experience(true));
+      expect(document.querySelector("dialog") === dialog).toBe(true);
+      expect(dialog.open).toBe(true);
+      expect(dialog.dataset.state).toBe("open");
+      expect(document.body.style.overflow).toBe("hidden");
+      expect(page().getByRole("dialog", { name: "Add money" })).toBeTruthy();
+    } finally {
+      restoreMotion();
+    }
   });
 
   test("freezes the requested amount and method while Coinbase is opening", async () => {
@@ -345,6 +402,116 @@ describe("FundingExperience", () => {
       );
     });
     await waitFor(() => expect(page().queryByTitle("Coinbase payment")).toBeNull());
+  });
+
+  test("presents documented Coinbase iframe errors without settling or redispatching", async () => {
+    let requestCount = 0;
+    let closeCount = 0;
+    const navigations: string[] = [];
+    render(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async () => {
+            requestCount += 1;
+            return onramp("iframe");
+          },
+        }}
+        navigateToHostedOnramp={(url) => navigations.push(url)}
+        onClose={() => {
+          closeCount += 1;
+        }}
+      />,
+    );
+    openBuy();
+
+    for (const [index, eventName] of [
+      "onramp_api.polling_error",
+      "onramp_api.load_error",
+    ].entries()) {
+      if (index > 0) {
+        fireEvent.click(
+          page().getByRole("button", { name: "Change payment details" }),
+        );
+      }
+      fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
+      const frame = await page().findByTitle("Coinbase payment") as HTMLIFrameElement;
+      const source = {} as MessageEventSource;
+      bindFrameSource(frame, source);
+
+      act(() => {
+        sendCoinbaseMessage(source, "https://pay.coinbase.com", eventName);
+      });
+
+      expect(page().getByRole("alert").textContent).toContain(
+        "No deposit is being confirmed",
+      );
+      expect(page().getByRole("dialog", { name: "Buy" })).toBeTruthy();
+      expect(page().queryByRole("dialog", { name: "Deposit pending" })).toBeNull();
+      expect(requestCount).toBe(index + 1);
+      expect(closeCount).toBe(0);
+      expect(navigations).toEqual([]);
+    }
+  });
+
+  test("ignores documented errors from wrong and stale iframe sources", async () => {
+    let requestCount = 0;
+    let closeCount = 0;
+    const navigations: string[] = [];
+    render(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async () => {
+            requestCount += 1;
+            return requestCount === 1
+              ? onramp("iframe", PAYMENT_LINK_A)
+              : onramp("iframe", PAYMENT_LINK_B);
+          },
+        }}
+        navigateToHostedOnramp={(url) => navigations.push(url)}
+        onClose={() => {
+          closeCount += 1;
+        }}
+      />,
+    );
+    openBuy();
+    fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
+    const firstFrame = await page().findByTitle("Coinbase payment") as HTMLIFrameElement;
+    const firstSource = {} as MessageEventSource;
+    bindFrameSource(firstFrame, firstSource);
+
+    fireEvent.click(page().getByRole("button", { name: "Change payment details" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
+    await waitFor(() =>
+      expect(page().getByTitle("Coinbase payment").getAttribute("src")).toBe(
+        PAYMENT_LINK_B,
+      ),
+    );
+    const secondFrame = page().getByTitle("Coinbase payment") as HTMLIFrameElement;
+    const wrongSource = {} as MessageEventSource;
+    bindFrameSource(secondFrame, {} as MessageEventSource);
+
+    act(() => {
+      sendCoinbaseMessage(
+        firstSource,
+        "https://pay.coinbase.com",
+        "onramp_api.polling_error",
+      );
+      sendCoinbaseMessage(
+        wrongSource,
+        "https://pay.coinbase.com",
+        "onramp_api.load_error",
+      );
+    });
+
+    expect(page().queryByRole("alert")).toBeNull();
+    expect(page().getByRole("dialog", { name: "Buy" })).toBeTruthy();
+    expect(page().queryByRole("dialog", { name: "Deposit pending" })).toBeNull();
+    expect(page().getByTitle("Coinbase payment")).toBe(secondFrame);
+    expect(requestCount).toBe(2);
+    expect(closeCount).toBe(0);
+    expect(navigations).toEqual([]);
   });
 
   test("binds messages to the active replacement attempt", async () => {
@@ -608,3 +775,20 @@ describe("FundingExperience", () => {
     expect(page().queryByLabelText("USD amount")).toBeNull();
   });
 });
+
+function stubReducedMotion(enabled: boolean) {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: enabled && query.includes("prefers-reduced-motion"),
+    media: query,
+    onchange: null,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent() { return false; },
+  })) as typeof window.matchMedia;
+  return () => {
+    window.matchMedia = original;
+  };
+}

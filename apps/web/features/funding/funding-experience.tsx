@@ -59,9 +59,7 @@ export function FundingExperienceForWallet(
 ) {
   return (
     <FundingExperienceBoundary
-      key={`${fundingBoundary(props.wallet) ?? "signed-out"}\u0000${
-        props.open === false ? "closed" : "open"
-      }`}
+      key={fundingBoundary(props.wallet) ?? "signed-out"}
       {...props}
     />
   );
@@ -97,6 +95,21 @@ function FundingExperienceBoundary({
   const activeInlineAttemptRef = useRef<number | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const openRef = useRef(open);
+  const [renderedOpen, setRenderedOpen] = useState(open);
+
+  if (renderedOpen !== open) {
+    setRenderedOpen(open);
+    if (!open) {
+      setStep(startStep);
+      setOpeningOnramp(false);
+      setOnrampError(null);
+      setPaymentAmount("20");
+      setPaymentMethod("apple-pay");
+      setActivePayment(null);
+      setInlineOnramp(null);
+      setPostCheckoutPayment(null);
+    }
+  }
 
   useEffect(() => {
     openRef.current = open;
@@ -146,6 +159,9 @@ function FundingExperienceBoundary({
         cancelOnramp();
       } else if (
         eventName === "onramp_api.commit_error" ||
+        eventName === "onramp_api.polling_error" ||
+        eventName === "onramp_api.load_error" ||
+        // Retain the earlier polling_failed spelling for existing checkout sessions.
         eventName === "onramp_api.polling_failed" ||
         eventName === "onramp_api.session_error"
       ) {
