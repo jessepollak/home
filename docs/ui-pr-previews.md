@@ -1,6 +1,6 @@
 # UI PR previews
 
-Status: approved v1, September 8, 2026. Exact-tip proof rule (Jesse via Astra retro, September 10, 2026). Operator convention for showing a user-visible UI change in a pull request. Not a CI gate, not a contribution process, and not a production claim.
+Status: approved v1, September 8, 2026. Exact-tip proof rule and delegated publication authority (Jesse via Astra, September 10, 2026). Operator convention for showing a user-visible UI change in a pull request. Not a CI gate, not the full contribution process, and not a production claim.
 
 ## When
 
@@ -16,7 +16,7 @@ Skip docs-only, CI-only, and pure server PRs.
 
 **Motion / animation:** A short **GitHub-hosted video or GIF** in the PR description (paste/drop → `user-attachments`) is required. It must render inline; static stills alone do not prove tweens or animation.
 
-**Exact-tip lifecycle:** Capture After and ready-state proof only from the exact current PR head. Every push that changes the PR head SHA invalidates prior After/ready-state proof and readiness review. Make fresh captures, publish exact new GitHub `user-attachments` files, create a new immutable per-capture manifest, and obtain renewed proof review. An older base or pre-change capture may remain only as a truthful **Before**, with its original provenance; it never proves the current After or ready state.
+**Exact-tip lifecycle:** Capture After and ready-state proof only from the exact current PR head. Every push that changes the PR head SHA invalidates prior After/ready-state proof and readiness review. Make fresh captures, publish exact new GitHub `user-attachments` files, create a new immutable per-capture manifest, and obtain renewed proof review. An older base or pre-change capture may remain only as a truthful **Before**, with its original provenance; it never proves the current After or ready state. Routine follow-up with an unchanged head and already accepted evidence is metadata-delta-only; do not restart broad audits or recapture unchanged accepted evidence.
 
 ## How
 
@@ -74,3 +74,5 @@ CI screenshot gates and Percy/Chromatic.
 ## Done
 
 A reviewer can understand the UX change by **looking at the existing PR description**: exact new inline GitHub user-attachments show the actual changed route and applicable states on the final-head live implementation, and reviewer-accessible immutable per-capture manifests prove their provenance. They are not comps, empty scaffolds, or unlabeled harnesses. Opening links or attachments is not enough. `cursor.com/artifacts` links do not count — they expire. The applicable code/design reviewer reviews the published exact-tip proof before a UI PR advances to `status:ready-for-review` or `status:needs-jesse` for merge. `status:blocked` and `status:needs-jesse` for a Jesse decision may be applied without visual-proof gating.
+
+In a Jesse-authorized delegated run, the coordinator may undraft and publish `status:needs-jesse` only after Sol integration, fresh exact-head Astra engineering review, current CI, and every applicable proof, design, security, platform, provider, and dependency gate pass; no separate inactive Hannah stage is required. Service each actionable handoff, then advance independent eligible work on a rolling basis without waiting for all lanes or handoffs or creating a global wait-for-all barrier. Target publication within `<=5 minutes` after the last gate passes; the target never bypasses a gate, and a miss requires a named truthful blocker and observable resumption trigger. Jesse alone approves and merges. This grants no deployment, funded, destructive, or Neon-cleanup authority.

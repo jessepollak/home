@@ -12,7 +12,7 @@ Build Home as an app anyone can clone, run, contribute to, and extend. Fork-firs
 
 | Name | Role |
 |---|---|
-| Jesse (`jessepollak`) | Human owner. Only Jesse undrafts, gives final approval (+1), merges, and deploys. Everything ships through this GitHub account. |
+| Jesse (`jessepollak`) | Human owner. Only Jesse gives final approval (+1) and merges. The scoped coordinator undraft exception is in [Continuous issue pipelines](#continuous-issue-pipelines); deployment remains separately authorized. Everything ships through this GitHub account. |
 | j | CEO / ops |
 | Hunter | PM. Drive order. |
 | Hannah | Head of Engineering. Quality, reliability, maintainability. Eng review and labels. Never merge — Jesse final +1 / merge. |
@@ -73,20 +73,18 @@ Never on draft PRs.
 
 **Add `status:needs-jesse`** only when:
 
-- the item is truly ready for Jesse merge (Hannah eng LGTM done; Hazel if UI), after the required UI proof review, or
+- the item is truly ready for Jesse merge (required engineering review done; Hazel if UI), after the required UI proof review, or
 - a Jesse decision is needed; this decision escalation is allowed without visual-proof gating
 
-For readiness to merge, never before eng LGTM and never on draft PRs. A decision escalation may use `status:needs-jesse` without an eng LGTM or visual proof, including for an otherwise completed draft awaiting Jesse's explicit undraft decision. In that draft exception, the issue and PR must name the decision and state that the draft is not merge-ready; swap to the single truthful next status after Jesse decides.
+For readiness to merge, never before the required engineering review and never while the PR remains draft. A decision escalation may use `status:needs-jesse` without engineering review or visual proof, including for an otherwise completed draft awaiting Jesse's explicit undraft decision outside a coordinator-authorized run. In that draft exception, the issue and PR must name the decision and state that the draft is not merge-ready; swap to the single truthful next status after Jesse decides.
 
-`status:needs-jesse` is not a substitute for Hannah's review. Eng review first; Jesse last.
-
-On jessepollak-authored crew PRs, GitHub blocks formal `APPROVE` / `REQUEST_CHANGES`. Hannah's eng LGTM is a COMMENT, then she labels `status:needs-jesse`.
+`status:needs-jesse` is not a substitute for required engineering review. In the default crew flow, Hannah's eng LGTM is a COMMENT on jessepollak-authored PRs before she labels `status:needs-jesse`. In a Jesse-authorized delegated run, fresh exact-head Astra engineering review is the engineering gate; no separate inactive Hannah stage is required. The coordinator may undraft and mark `status:needs-jesse` only after every scoped publication gate in [Continuous issue pipelines](#continuous-issue-pipelines) passes.
 
 **Remove** both `status:ready-for-review` and `status:needs-jesse` when any of:
 
 - design or eng HOLD
 - `REQUEST_CHANGES`
-- PR goes draft, unless an otherwise completed draft is truthfully using decision-only `status:needs-jesse` for Jesse's explicit undraft decision
+- PR goes draft, unless an otherwise completed draft is truthfully using decision-only `status:needs-jesse` for Jesse's explicit undraft decision outside a coordinator-authorized run
 - a head-changing push invalidates published After/ready-state proof; remove `status:ready-for-review` or merge-ready `status:needs-jesse` until fresh capture, republication, a new immutable per-capture manifest, and renewed proof review, but do not remove a truthful decision-only `status:needs-jesse` for lack of visual proof
 - PR closed without merge
 - issue returns to `todo` or `working`
@@ -111,11 +109,11 @@ Stay in your lane. Shared files are listed in the [architecture review](architec
 Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / one `status:*` / `lane:*`) are the board.
 
 - Soft merge order, Design HOLD, smoke fails, and blockers land on the issue or PR (comment + label flip) before or instead of crew DMs. DMs, 1:1s, and babysitter are coordination, not source of truth. Land-queue / babysitter wake set and batching: [PR land chatter diet](#pr-land-chatter-diet).
-- Every PR that maps to an issue — including drafts — carries the triad the same day, matching the related issue. Drafts stay `status:working` and never claim `ready-for-review` or merge-ready `needs-jesse`. The sole exception is an otherwise completed draft truthfully labeled decision-only `status:needs-jesse` while awaiting Jesse's explicit undraft decision; the issue and PR must say the draft is not merge-ready. #78 / #60 were unlabeled drafts; same-day triad labeling remains the rule.
+- Every PR that maps to an issue — including drafts — carries the triad the same day, matching the related issue. Drafts stay `status:working` and never claim `ready-for-review` or merge-ready `needs-jesse`. The exceptions are an otherwise completed draft truthfully labeled decision-only `status:needs-jesse` while awaiting Jesse's explicit undraft decision outside a coordinator-authorized run, and a coordinator undraft performed only after the scoped gates below pass. A decision-only draft must say it is not merge-ready. #78 / #60 were unlabeled drafts; same-day triad labeling remains the rule.
 - On close or merge, scrub all `status:*` via REST `issues/{n}/labels`. Leave `owner:*` and `lane:*`. `gh pr edit` labels often no-ops.
 - `status:in-progress` is deleted. Use `status:working` only.
 - Dual `owner:*` labels are OK for FE+BE slices only when the issue comment names who owns which slice. Otherwise split issues.
-- Land path is unchanged: `working` → `ready-for-review` → `needs-jesse`. Jesse approves and merges every PR.
+- Default land path is `working` → `ready-for-review` → `needs-jesse`. A Jesse-authorized delegated run may use the scoped coordinator publication path below without a duplicate inactive Hannah stage. Jesse alone approves and merges every PR.
 
 ## Drive order
 
@@ -126,18 +124,19 @@ Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / o
 
 ## Continuous issue pipelines
 
-For a parallel push that Jesse has explicitly approved and scoped for that run, Hugo — in the existing Architect role — performs run-specific execution coordination. This does not create a standing or parallel coordinator and does not change Hunter's drive order, Hannah's engineering sequencing and review, the #205 priorities contract, or Jesse's final decisions, undraft, approval, merge, and deployment. GitHub Issues and PRs remain the [sole board](#board-is-source-of-truth); do not create a queue, tracker, or shadow inbox. The coordinator owns requirements, dependency barriers, environment provisioning, handoff disposition, integration, and destination validation.
+For a parallel push that Jesse has explicitly approved and scoped for that run, Hugo — in the existing Architect role — performs run-specific execution coordination. This does not create a standing or parallel coordinator and does not change Hunter's drive order, Hannah's standing engineering sequencing role, the #205 priorities contract, or Jesse's final approval and merge authority. Fresh exact-head Astra engineering review supplies the engineering gate for this delegated run; no separate inactive Hannah stage is required. GitHub Issues and PRs remain the [sole board](#board-is-source-of-truth); do not create a queue, tracker, or shadow inbox. The coordinator owns requirements, dependency barriers, environment provisioning, handoff disposition, integration, destination validation, and the narrowly gated publication action below.
 
-Start with six engineering issue lanes and up to eight pooled executing children. These are ceilings, not quotas: never start work merely to fill capacity. Each issue lane owns scope through implementation, review/proof, correction, and delivery; writers and reviewers consume pooled capacity rather than becoming separate lanes. Cap concurrent writers at four and heavy build/browser jobs at two while retaining review/proof capacity. CI watchers are not workers. Scale only to eight lanes and ten children after measured occupancy, handoff, review, backlog, and resource thresholds support it. Jesse-ready PRs enter his approval queue; the coordinator never undrafts, approves, merges, or deploys.
+Start with six engineering issue lanes and up to eight pooled executing children. These are ceilings, not quotas: never start work merely to fill capacity. Each issue lane owns scope through implementation, review/proof, correction, and delivery; writers and reviewers consume pooled capacity rather than becoming separate lanes. Cap concurrent writers at four and heavy build/browser jobs at two while retaining review/proof capacity. CI watchers are not workers. Scale only to eight lanes and ten children after measured occupancy, handoff, review, backlog, and resource thresholds support it. Jesse-ready PRs enter his approval queue.
 
 - Use one writer per worktree. Before dispatch, record on the issue: scope, file ownership, parent/base and head SHA, acceptance checks, required review, destination, and next owner.
-- Before admitting any new issue, service every actionable completed delivery or integration handoff: integrate and validate it at the destination, assign a concrete correction, or record an explicit truthful blocker with the current owner and a named observable resumption condition. Disposition or closure alone is not service, and deferral without that blocker and resumption condition is prohibited. Service each handoff as soon as it becomes actionable without waiting for unrelated active lanes. Only then admit the next eligible independent issue within Jesse-approved scope; do not bypass hotspot/dependency exclusions or replenish to a quota.
+- Service each actionable completed delivery or integration handoff as soon as it becomes actionable: integrate and validate it at the destination, assign a concrete correction, or record an explicit truthful blocker with the current owner and a named observable resumption condition. Disposition or closure alone is not service, and deferral without that blocker and resumption condition is prohibited. After servicing the handoff, advance its lane and dispatch the next independent eligible work within the ceilings. Do not wait for all lanes, siblings, or handoffs to finish, and do not create a global wait-for-all barrier; unrelated active or non-actionable handoffs do not block rolling dispatch. Never bypass hotspot/dependency exclusions or replenish to a quota.
 - A paused lane must retain its board status and name the dependency, current owner, retained candidate/ref, next action, and observable trigger that resumes work. A vague HOLD or idle worker is not a paused-state record.
-- Before work, review, or integration, verify the exact-head checkout, dependencies, and required live URL, then deterministically recheck the recorded parent SHA and candidate SHA, required CI and merge state, relevant issue/PR thread, published attachment identity and hashes, and current labels. After interruption or a state-changing event, recheck those exact records plus retained runs, supervisor requests, refs, and environments instead of repeating broad repository audits.
-- Keep premerge readiness, Jesse's undraft/approval/merge actions, Jesse's deployment action, postdeployment validation, and production-incident closure as separate handoffs. The [#219](https://github.com/jessepollak/home/issues/219) / [#211](https://github.com/jessepollak/home/issues/211) pattern does not allow a merge-ready fix or merge to stand in for deployed recovery and observed incident closure.
+- Before initial work, review, or integration, verify the exact-head checkout, dependencies, and required live URL, then deterministically check the recorded parent SHA and candidate SHA, required CI and merge state, relevant issue/PR thread, published attachment identity and hashes, and current labels. Routine follow-up with unchanged head and accepted evidence is metadata-delta-only: inspect only what changed since the accepted state; do not restart broad audits or recapture unchanged accepted evidence. After interruption or a state-changing event, recheck the affected exact records plus retained runs, supervisor requests, refs, and environments.
+- The coordinator may undraft a PR and mark `status:needs-jesse` only after Sol integration, fresh exact-head Astra engineering review, current CI, and every applicable proof, design, security, platform, provider, and dependency gate pass. Target publication of the ready PR state and `status:needs-jesse` within `<=5 minutes` of the last required gate passing. The target never bypasses a gate; if missed, record a named truthful blocker, current owner, and observable resumption trigger.
+- Keep premerge gate completion, the coordinator's authorized undraft/`status:needs-jesse` publication, Jesse's approval/merge actions, any separately authorized deployment action, postdeployment validation, and production-incident closure as separate handoffs. The [#219](https://github.com/jessepollak/home/issues/219) / [#211](https://github.com/jessepollak/home/issues/211) pattern does not allow a merge-ready fix or merge to stand in for deployed recovery and observed incident closure.
 - Supervisor requests are blocking; service them through the bridge before continuing. Time-box review questions, but never convert incomplete review into approval. Publish HOLDs promptly when a candidate is unsafe or incomplete.
-- After two consecutive related unresolved correction rounds of any kind, stop fan-out and consolidate one artifact covering invariants, transitions, failure cases, ownership, evidence, and terminal conditions; then assign one coherent writer against that artifact.
-- Retain candidate refs, worktrees, manifests, and evidence until integration, delivery, and any required incident closure settle. Funded activity always requires separate explicit confirmation.
+- After two consecutive related unresolved correction rounds of any kind, stop fan-out and consolidate one invariant matrix artifact covering invariants, transitions, failure cases, ownership, evidence, and terminal conditions; then assign one coherent writer against that matrix.
+- Jesse alone approves and merges. This delegation grants no deployment, funded, destructive, or Neon-cleanup authority. Retain candidate refs, worktrees, manifests, and evidence until integration, delivery, and any required incident closure settle; funded activity always requires separate explicit confirmation.
 
 ## 1:1s and learning retros
 
@@ -195,19 +194,19 @@ Process docs-only, CI-only, and pure server PRs can skip screenshots. They still
 
 ## Merge policy
 
-Crew may review. Hannah's eng review can proceed. Hannah never merges.
+Crew may review. Hannah owns the default eng-review flow and never merges. In a Jesse-authorized delegated run, fresh exact-head Astra engineering review satisfies that gate without a separate inactive Hannah stage.
 
-**Only Jesse (`jessepollak`) undrafts, gives final approval (+1), merges, and deploys.** Each action waits on Jesse even when Hannah has reviewed. Third-party PRs already required Jesse +1; crew PRs use the same bar.
+**Only Jesse (`jessepollak`) gives final approval (+1) and merges.** The coordinator may undraft only under the scoped gates in [Continuous issue pipelines](#continuous-issue-pipelines). That exception grants no approval, merge, deployment, funded, destructive, or Neon-cleanup authority. Third-party PRs already required Jesse +1; crew PRs use the same bar.
 
-When a PR is ready for Jesse, swap the issue to `status:needs-jesse` (and say so on the PR). See [status label hygiene](#status-label-hygiene). Do not merge your own work. Do not treat a crew +1 as merge permission. Never ask Hannah to merge. Land-queue pings: [PR land chatter diet](#pr-land-chatter-diet).
+When a PR is ready for Jesse, swap the issue to `status:needs-jesse` (and say so on the PR); in the authorized delegated run, the coordinator performs that publication under the scoped gates and timing target. See [status label hygiene](#status-label-hygiene). Do not merge your own work. Do not treat a crew +1 as merge permission. Never ask Hannah to merge. Land-queue pings: [PR land chatter diet](#pr-land-chatter-diet).
 
 ### CloudAgent / Auto-review
 
 Jesse-locked, September 8, 2026 (~9:14pm PT); launch path confirmed September 9, 2026 (~9:52pm PT). Global approval: crew **self-launches** CloudAgents. Do not wait on Hannah to proxy-launch.
 
 - If Auto-review still blocks a launch, ping Hannah once — she greenlights immediately. No per-run Jesse card. Do not ping Jesse for CloudAgent greenlights.
-- Hannah still owns eng review (COMMENT LGTM on jessepollak-authored PRs).
-- Jesse remains final +1 and merge.
+- Hannah owns the default eng review (COMMENT LGTM on jessepollak-authored PRs); fresh exact-head Astra review replaces a duplicate inactive Hannah stage in a Jesse-authorized delegated run.
+- Jesse remains the only final approver and merger.
 - Max one CloudAgent per PR unless Jesse marks P0. No tip-churn after Eng LGTM unless HOLD or CI fail. See [PR land chatter diet](#pr-land-chatter-diet).
 
 ## PR land chatter diet
@@ -221,7 +220,7 @@ Jesse-locked, September 10, 2026. Land-queue and babysitter GitHub listeners sta
 - **Exit quiet.** When labels + CI + draft already match the desired end-state for the event: no DMs, no board comments, no Jesse ping.
 - **Board-first.** Soft merge order, HOLD, smoke fails, and blockers land as one issue/PR comment + label flip before (or instead of) crew DMs. See [Board is source of truth](#board-is-source-of-truth).
 - **Batch asks.** At most one board comment and at most one owner ping per real state change. No Hazel+Hannah+Holly fan-out on the same tip.
-- **Jesse-only merge.** Never ask Hannah to merge. Hannah eng-reviews and labels only. See [Merge policy](#merge-policy).
+- **Jesse-only approval and merge.** Never ask Hannah or the coordinator to approve or merge. Hannah handles the default eng-review flow; Astra handles the authorized delegated run's fresh exact-head review. See [Merge policy](#merge-policy).
 - **Message Jesse only when he must decide, +1, or unblock.** If nothing for him: send nothing. Never narrate “quiet to Jesse”.
 - **One CloudAgent.** Max one CloudAgent per PR unless Jesse marks P0. No tip-churn after Eng LGTM unless HOLD or CI fail. See [CloudAgent / Auto-review](#cloudagent--auto-review).
 - **Quiet hours.** Prefer 10pm–8am PT for non-critical land wakes when a standing listener exists.
@@ -270,7 +269,7 @@ Weekdays ~9:00 PT. 15–20 min per lane. Async-first. Quiet if nothing actionabl
 - Board labels current.
 - Jesse-only merge.
 
-Daily reviews feed the merge queue. Drafts stay draft until Jesse undrafts. j (ops) owns folding playbook changes into this manual.
+Daily reviews feed the merge queue. Drafts stay draft until Jesse, or a coordinator acting under the narrow authorized gates above, undrafts. j (ops) owns folding playbook changes into this manual.
 
 First two weeks: run informally. Report after ~5 days.
 
