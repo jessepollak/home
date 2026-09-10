@@ -46,6 +46,14 @@ function rpcSuccess(id: number) {
   };
 }
 
+function rpcError(id: number) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: { code: -32000, message: "execution failed" },
+  };
+}
+
 function assetKey(asset: { chainId: number; contractAddress: string }) {
   return `${asset.chainId}:${asset.contractAddress.toLowerCase()}`;
 }
@@ -190,6 +198,30 @@ describe("onchain asset icons", () => {
       signal: new AbortController().signal,
       fetchImpl: async () =>
         Response.json([rpcSuccess(1), rpcSuccess(2), rpcSuccess(1)]),
+    });
+
+    expect([...uris.keys()]).toEqual([2]);
+  });
+
+  test("fails a valid response followed by an error for the same id closed", async () => {
+    const uris = await readContractUrisInBatches({
+      requests: requests(2),
+      rpcUrl,
+      signal: new AbortController().signal,
+      fetchImpl: async () =>
+        Response.json([rpcSuccess(1), rpcSuccess(2), rpcError(1)]),
+    });
+
+    expect([...uris.keys()]).toEqual([2]);
+  });
+
+  test("fails an error followed by a valid response for the same id closed", async () => {
+    const uris = await readContractUrisInBatches({
+      requests: requests(2),
+      rpcUrl,
+      signal: new AbortController().signal,
+      fetchImpl: async () =>
+        Response.json([rpcError(1), rpcSuccess(2), rpcSuccess(1)]),
     });
 
     expect([...uris.keys()]).toEqual([2]);

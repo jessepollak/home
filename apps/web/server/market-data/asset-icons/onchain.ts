@@ -162,9 +162,7 @@ function collectContractUris(
       !("id" in item) ||
       typeof item.id !== "number" ||
       !Number.isSafeInteger(item.id) ||
-      !requestedIds.has(item.id) ||
-      !("result" in item) ||
-      typeof item.result !== "string"
+      !requestedIds.has(item.id)
     ) {
       continue;
     }
@@ -173,6 +171,7 @@ function collectContractUris(
       continue;
     }
     seen.add(item.id);
+    if (!("result" in item) || typeof item.result !== "string") continue;
     const uri = decodeContractUri(item.result);
     if (uri) byId.set(item.id, uri);
   }
