@@ -404,6 +404,7 @@ function invalidationMessage(reason: BaseAccountInvalidation): string {
 }
 
 const transactionHashPattern = /^0x[0-9a-fA-F]{64}$/;
+const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const TRANSFER_CONFIRMATION_TIMEOUT_MS = 120_000;
 const TRANSFER_CONFIRMATION_POLL_MS = 1_500;
 
@@ -501,18 +502,12 @@ async function sameProviderCalls(
       const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
       dataMatches = hex === wanted.dataHash;
     }
-    const rawValue = value.value ?? BigInt(0);
-    if (typeof rawValue !== "bigint") return false;
-    let actualValue: string;
-    try {
-      actualValue = BigInt(rawValue).toString(10);
-    } catch {
-      return false;
-    }
+    const rawValue = value.value;
+    if (typeof rawValue !== "string" || !decimalIntegerPattern.test(rawValue)) return false;
     if (
       value.to.toLowerCase() !== wanted.to.toLowerCase() ||
       !dataMatches ||
-      actualValue !== wanted.value
+      BigInt(rawValue) !== BigInt(wanted.value)
     ) return false;
   }
   return true;
@@ -555,10 +550,15 @@ async function parseEmbeddedMoneyActionObservation(
 
   let transactionHash: `0x${string}` | undefined;
   if (value.transactionHash !== undefined) {
-    try {
-      transactionHash = normalizeTransactionHash(value.transactionHash);
-    } catch {
-      throw new TransferExecutionError("submission-unknown");
+    const pendingEmptyHash =
+      value.transactionHash === "" &&
+      (value.status === "pending" || value.status === "broadcast");
+    if (!pendingEmptyHash) {
+      try {
+        transactionHash = normalizeTransactionHash(value.transactionHash);
+      } catch {
+        throw new TransferExecutionError("submission-unknown");
+      }
     }
   }
 

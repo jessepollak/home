@@ -1,6 +1,7 @@
 import "./dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
+import type { GetUserOperationResult } from "@coinbase/cdp-core";
 import { StrictMode, useState } from "react";
 import type { AccountWalletSdkBoundary } from "./cdp-client";
 import {
@@ -113,8 +114,8 @@ function embeddedObservation(
   action: PreparedMoneyAction,
   userOperationHash: `0x${string}`,
   transactionHash: `0x${string}`,
-  overrides: Record<string, unknown> = {},
-) {
+  overrides: Partial<GetUserOperationResult> = {},
+): GetUserOperationResult {
   return {
     network: "base",
     userOpHash: userOperationHash,
@@ -123,8 +124,21 @@ function embeddedObservation(
     calls: action.calls.map((call) => ({
       to: call.to,
       data: call.data,
-      value: BigInt(call.value),
+      value: call.value,
     })),
+    ...overrides,
+  };
+}
+
+function sdkObservation(
+  userOperationHash: `0x${string}`,
+  overrides: Partial<GetUserOperationResult> = {},
+): GetUserOperationResult {
+  return {
+    network: "base",
+    userOpHash: userOperationHash,
+    calls: [],
+    status: "pending",
     ...overrides,
   };
 }
@@ -2516,17 +2530,8 @@ describe("production account session owner", () => {
             walletSubmissions += 1;
             return { userOperationHash };
           },
-          getUserOperation: async () => ({
-            network: "base",
-            userOpHash: userOperationHash,
-            status: "complete",
-            transactionHash,
-            calls: action.calls.map((call) => ({
-              to: call.to,
-              data: call.data,
-              value: BigInt(call.value),
-            })),
-          }) as never,
+          getUserOperation: async () =>
+            embeddedObservation(action, userOperationHash, transactionHash),
         })}
         sessionFetch={sessionFetch}
         moneyAction={action}
@@ -2547,11 +2552,11 @@ describe("production account session owner", () => {
     const mutations: Array<(action: PreparedMoneyAction) => unknown> = [
       (action) => embeddedObservation(action, userOperationHash, transactionHash, { userOpHash: otherUserOperationHash }),
       (action) => embeddedObservation(action, userOperationHash, transactionHash, { network: "base-sepolia" }),
-      (action) => embeddedObservation(action, userOperationHash, transactionHash, { status: "confirmed" }),
-      (action) => embeddedObservation(action, userOperationHash, transactionHash, { calls: [{ to: ADDRESS_A, data: "0x1234", value: BigInt(0) }] }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { status: "confirmed" as never }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { calls: [{ to: ADDRESS_A, data: "0x1234", value: "0" }] }),
       (action) => embeddedObservation(action, userOperationHash, transactionHash, { transactionHash: "not-a-hash" }),
       (action) => embeddedObservation(action, userOperationHash, transactionHash, { receipts: [{ revert: { data: "bad", message: "reverted" } }] }),
-      (action) => embeddedObservation(action, userOperationHash, transactionHash, { calls: [{ to: ADDRESS_B, data: "0x5678", value: BigInt(0) }] }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { calls: [{ to: ADDRESS_B, data: "0x5678", value: "0" }] }),
     ];
 
     for (const [index, mutate] of mutations.entries()) {
@@ -2608,6 +2613,97 @@ describe("production account session owner", () => {
     }
   });
 
+  test("accepts only exact SDK decimal call-value strings during CDP recovery", async () => {
+    const action: PreparedMoneyAction = {
+      ...preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z"),
+      calls: [{ to: ADDRESS_B, data: "0x1234", value: "9007199254740993" }],
+    };
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+
+    async function checkObservation(
+      observation: GetUserOperationResult,
+      expectedStatus: "confirmed" | "error:submission-unknown",
+      expectedSubmissionPosts: number,
+    ) {
+      let submissionPosts = 0;
+      let receiptReads = 0;
+      let walletSubmissions = 0;
+      const sessionFetch: SessionFetch = async (input) => {
+        if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+        if (input === `/api/actions/${action.id}`) {
+          return Response.json({ operation: storedMoneyAction(action, "submitted", { userOperationHash }) });
+        }
+        if (input === `/api/actions/${action.id}/submission`) {
+          submissionPosts += 1;
+          return Response.json({
+            operation: storedMoneyAction(action, "confirmed", { userOperationHash, transactionHash }),
+          });
+        }
+        if (String(input).startsWith("/api/transfer-receipt?")) receiptReads += 1;
+        throw new Error(`unexpected call-value observation request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk({
+            sendUserOperation: async () => {
+              walletSubmissions += 1;
+              return { userOperationHash };
+            },
+            getUserOperation: async () => observation,
+          })}
+          sessionFetch={sessionFetch}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+      fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe(expectedStatus));
+      expect({ submissionPosts, receiptReads, walletSubmissions }).toEqual({
+        submissionPosts: expectedSubmissionPosts,
+        receiptReads: 0,
+        walletSubmissions: 0,
+      });
+      cleanup();
+      window.sessionStorage.clear();
+    }
+
+    await checkObservation(
+      embeddedObservation(action, userOperationHash, transactionHash),
+      "confirmed",
+      1,
+    );
+
+    for (const value of [
+      "",
+      "-1",
+      "1.0",
+      "1e3",
+      "09007199254740993",
+      "+9007199254740993",
+      "0x20000000000001",
+      "9007199254740994",
+    ]) {
+      await checkObservation(
+        embeddedObservation(action, userOperationHash, transactionHash, {
+          calls: [{ to: ADDRESS_B, data: "0x1234", value }],
+        }),
+        "error:submission-unknown",
+        0,
+      );
+    }
+
+    for (const value of [undefined, 0, Number.MAX_SAFE_INTEGER + 1, BigInt("9007199254740993")]) {
+      await checkObservation(
+        embeddedObservation(action, userOperationHash, transactionHash, {
+          calls: [{ to: ADDRESS_B, data: "0x1234", value: value as never }],
+        }),
+        "error:submission-unknown",
+        0,
+      );
+    }
+  });
+
   test("records a validated CDP transaction candidate before receipt success and then reads terminal durable state", async () => {
     const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
     const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
@@ -2651,7 +2747,7 @@ describe("production account session owner", () => {
             walletSubmissions += 1;
             return { userOperationHash };
           },
-          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash) as never,
+          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
         })}
         sessionFetch={sessionFetch}
         moneyAction={action}
@@ -2662,6 +2758,80 @@ describe("production account session owner", () => {
     await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"));
     expect(events).toEqual(["read-1", "candidate-upload", "receipt", "read-2"]);
     expect(claims).toBe(0);
+    expect(walletSubmissions).toBe(0);
+  });
+
+  test("treats a broadcast CDP empty transaction hash as pending before a later valid candidate", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    const events: string[] = [];
+    let actionReads = 0;
+    let providerReads = 0;
+    let walletSubmissions = 0;
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        actionReads += 1;
+        events.push(`read-${actionReads}`);
+        return Response.json({
+          operation: storedMoneyAction(
+            action,
+            actionReads === 1 ? "submitted" : "confirmed",
+            actionReads === 1 ? { userOperationHash } : { userOperationHash, transactionHash },
+          ),
+        });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        events.push("candidate-upload");
+        expect(JSON.parse(String(init?.body))).toEqual({ userOperationHash, transactionHash });
+        return Response.json({
+          operation: storedMoneyAction(action, "submitted", { userOperationHash, transactionHash }),
+        });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) {
+        events.push("receipt");
+        expect(events).toContain("candidate-upload");
+        return Response.json({ status: "confirmed", transactionHash, blockNumber: "18", success: true });
+      }
+      throw new Error(`unexpected empty-hash recovery request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            walletSubmissions += 1;
+            return { userOperationHash };
+          },
+          getUserOperation: async () => {
+            providerReads += 1;
+            events.push(providerReads === 1 ? "provider-broadcast" : "provider-complete");
+            return providerReads === 1
+              ? embeddedObservation(action, userOperationHash, transactionHash, {
+                status: "broadcast",
+                transactionHash: "",
+              })
+              : embeddedObservation(action, userOperationHash, transactionHash);
+          },
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"), {
+      timeout: 3_000,
+    });
+    expect(events).toEqual([
+      "read-1",
+      "provider-broadcast",
+      "provider-complete",
+      "candidate-upload",
+      "receipt",
+      "read-2",
+    ]);
+    expect(providerReads).toBe(2);
     expect(walletSubmissions).toBe(0);
   });
 
@@ -2693,7 +2863,7 @@ describe("production account session owner", () => {
     render(
       <SessionHarness
         sdk={baseSdk({
-          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash) as never,
+          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
         })}
         sessionFetch={sessionFetch}
         moneyAction={action}
@@ -2731,7 +2901,7 @@ describe("production account session owner", () => {
             walletSubmissions += 1;
             return { userOperationHash };
           },
-          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash) as never,
+          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
         })}
         sessionFetch={sessionFetch}
         moneyAction={action}
@@ -2880,7 +3050,7 @@ describe("production account session owner", () => {
                 userOperationHash,
                 `0x${"ef".repeat(32)}`,
                 { status: "failed", transactionHash: undefined },
-              ) as never;
+              );
             },
           })}
           sessionFetch={sessionFetch}
@@ -3078,7 +3248,7 @@ describe("production account session owner", () => {
             walletSubmissions += 1;
             return { userOperationHash: `0x${"ab".repeat(32)}` };
           },
-          getUserOperation: async () => ({ status: "pending" }) as never,
+          getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`),
         })}
         sessionFetch={sessionFetch}
         moneyAction={action}
@@ -3124,7 +3294,7 @@ describe("production account session owner", () => {
       getAccessToken: async () => accessToken,
       getUserOperation: async () => {
         providerChecks += 1;
-        return { status: "pending" } as never;
+        return sdkObservation(userOperationHash);
       },
     });
     const sessionFetch: SessionFetch = async (input, init) => {
@@ -3180,7 +3350,7 @@ describe("production account session owner", () => {
       },
       getUserOperation: async () => {
         providerLookups += 1;
-        return embeddedObservation(action, userOperationHash, transactionHash) as never;
+        return embeddedObservation(action, userOperationHash, transactionHash);
       },
     });
     const sessionFetch: SessionFetch = async (input, init) => {
@@ -3268,7 +3438,7 @@ describe("production account session owner", () => {
               walletSubmissions += 1;
               return { userOperationHash };
             },
-            getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash) as never,
+            getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
           })}
           sessionFetch={sessionFetch}
           moneyAction={action}
@@ -3302,7 +3472,7 @@ describe("production account session owner", () => {
         walletSubmissions += 1;
         return { userOperationHash: `0x${"ab".repeat(32)}` };
       },
-      getUserOperation: async () => ({ status: "pending" }) as never,
+      getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`),
     });
     const sessionFetch: SessionFetch = async (input, init) => {
       if (input === "/api/session") {
@@ -3405,7 +3575,7 @@ describe("production account session owner", () => {
               embeddedDispatches += 1;
               return { userOperationHash: `0x${"ab".repeat(32)}` };
             },
-            getUserOperation: async () => ({ status: "pending" }) as never,
+            getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`),
           })}
           sessionFetch={embeddedFetch}
           moneyAction={embeddedAction}
@@ -4018,7 +4188,7 @@ describe("production account session owner", () => {
           evmSmartAccount: ADDRESS_A,
           network: "base",
         });
-        return { status: "complete", transactionHash: hash } as never;
+        return sdkObservation(userOperationHash, { status: "complete", transactionHash: hash });
       },
     });
     const sessionFetch: SessionFetch = async (input) => {
@@ -4122,8 +4292,8 @@ describe("production account session owner", () => {
           getUserOperation: async () => {
             polls += 1;
             if (polls === 1) throw new Error("temporary poll failure");
-            if (polls === 2) return { status: "complete" } as never;
-            return { status: "complete", transactionHash } as never;
+            if (polls === 2) return sdkObservation(userOperationHash, { status: "complete" });
+            return sdkObservation(userOperationHash, { status: "complete", transactionHash });
           },
         })}
         sessionFetch={sessionFetch}
@@ -4154,7 +4324,7 @@ describe("production account session owner", () => {
             sends += 1;
             return { userOperationHash };
           },
-          getUserOperation: async () => ({ status: "dropped" }) as never,
+          getUserOperation: async () => sdkObservation(userOperationHash, { status: "dropped" }),
         })}
         sessionFetch={sessionFetch}
       />,
@@ -4302,8 +4472,10 @@ describe("production account session owner", () => {
         sendCalls += 1;
         return { userOperationHash: `0x${"ab".repeat(32)}` };
       },
-      getUserOperation: async () =>
-        ({ status: "complete", transactionHash: `0x${"cd".repeat(32)}` }) as never,
+      getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`, {
+        status: "complete",
+        transactionHash: `0x${"cd".repeat(32)}`,
+      }),
     });
     const sessionFetch: SessionFetch = async (input, init) => {
       if (input === "/api/session") {
