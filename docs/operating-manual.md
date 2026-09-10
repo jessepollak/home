@@ -64,17 +64,19 @@ Prefer `status:working`. Do not use `status:in-progress` — deprecated. If you 
 **Add `status:ready-for-review`** only when all of:
 
 - eng review is actually needed
-- required design LGTM is done (if UI)
+- required design LGTM is done (if UI), after reviewing published exact-tip proof under [UI PR previews](ui-pr-previews.md)
 - the item is not on HOLD
+
+For UI PRs, every head-changing push requires fresh After/ready-state capture, republication, a new immutable per-capture manifest, and renewed proof review before this advancement.
 
 Never on draft PRs.
 
 **Add `status:needs-jesse`** only when:
 
-- the item is truly ready for Jesse merge (Hannah eng LGTM done; Hazel if UI), or
-- a Jesse decision is needed
+- the item is truly ready for Jesse merge (Hannah eng LGTM done; Hazel if UI), after the required UI proof review, or
+- a Jesse decision is needed; this decision escalation is allowed without visual-proof gating
 
-Never before eng LGTM. Never on draft PRs. Never leave `needs-jesse` on an issue whose linked PR is still draft.
+For readiness to merge, never before eng LGTM. Never on draft PRs. A decision escalation may use `status:needs-jesse` without an eng LGTM or visual proof. Never leave `needs-jesse` on an issue whose linked PR is still draft.
 
 `status:needs-jesse` is not a substitute for Hannah's review. Eng review first; Jesse last.
 
@@ -85,6 +87,7 @@ On jessepollak-authored crew PRs, GitHub blocks formal `APPROVE` / `REQUEST_CHAN
 - design or eng HOLD
 - `REQUEST_CHANGES`
 - PR goes draft
+- a head-changing push invalidates published After/ready-state proof; fresh capture, republication, a new immutable per-capture manifest, and renewed proof review are required before another ready-for-review or merge-ready needs-Jesse advancement
 - PR closed without merge
 - issue returns to `todo` or `working`
 
@@ -112,13 +115,29 @@ Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / o
 - On close or merge, scrub all `status:*` via REST `issues/{n}/labels`. Leave `owner:*` and `lane:*`. `gh pr edit` labels often no-ops.
 - `status:in-progress` is deleted. Use `status:working` only.
 - Dual `owner:*` labels are OK for FE+BE slices only when the issue comment names who owns which slice. Otherwise split issues.
-- Land path is unchanged: `working` → `ready-for-review` → `needs-jesse`. Jesse-only merge. Hannah may merge docs-only when Jesse hands it.
+- Land path is unchanged: `working` → `ready-for-review` → `needs-jesse`. Jesse approves and merges every PR.
 
 ## Drive order
 
 - Hunter sets what the crew works on and in what product order.
 - Hannah (Head of Engineering) sequences engineering and unblocks lanes.
+- Jesse-approved priorities and scope remain governed by the [#205 priorities contract](https://github.com/jessepollak/home/issues/205).
 - Do not start a second board, a parallel coordinator, or a shadow inbox for the same work.
+
+## Continuous issue pipelines
+
+For a parallel push that Jesse has explicitly approved and scoped for that run, Hugo — in the existing Architect role — performs run-specific execution coordination. This does not create a standing or parallel coordinator and does not change Hunter's drive order, Hannah's engineering sequencing and review, the #205 priorities contract, or Jesse's final decisions, approval, and merge. GitHub Issues and PRs remain the [sole board](#board-is-source-of-truth); do not create a queue, tracker, or shadow inbox. The coordinator owns requirements, dependency barriers, environment provisioning, handoff disposition, integration, and destination validation.
+
+Start with six engineering issue lanes and up to eight pooled executing children. These are ceilings, not quotas: never start work merely to fill capacity. Each issue lane owns scope through implementation, review/proof, correction, and delivery; writers and reviewers consume pooled capacity rather than becoming separate lanes. Cap concurrent writers at four and heavy build/browser jobs at two while retaining review/proof capacity. CI watchers are not workers. Scale only to eight lanes and ten children after measured occupancy, handoff, review, backlog, and resource thresholds support it. Jesse-ready PRs enter his approval queue; the coordinator never merges.
+
+- Use one writer per worktree. Before dispatch, record on the issue: scope, file ownership, parent/base and head SHA, acceptance checks, required review, destination, and next owner.
+- Before admitting new work, disposition or close every eligible completed handoff. Then admit only the next eligible independent issue within Jesse-approved scope; do not wait for unrelated siblings, bypass hotspot/dependency exclusions, or replenish to a quota.
+- A paused lane must retain its board status and name the dependency, current owner, retained candidate/ref, next action, and observable trigger that resumes work. A vague HOLD or idle worker is not a paused-state record.
+- Before work, review, or integration, verify the exact-head checkout, dependencies, and required live URL, then deterministically recheck the recorded parent SHA and candidate SHA, required CI and merge state, relevant issue/PR thread, published attachment identity and hashes, and current labels. After interruption or a state-changing event, recheck those exact records plus retained runs, supervisor requests, refs, and environments instead of repeating broad repository audits.
+- Keep premerge readiness, Jesse's undraft/approval/merge action, deployment, postdeployment validation, and production-incident closure as separate handoffs. The [#219](https://github.com/jessepollak/home/issues/219) / [#211](https://github.com/jessepollak/home/issues/211) pattern does not allow a merge-ready fix or merge to stand in for deployed recovery and observed incident closure.
+- Supervisor requests are blocking; service them through the bridge before continuing. Time-box review questions, but never convert incomplete review into approval. Publish HOLDs promptly when a candidate is unsafe or incomplete.
+- After two consecutive related rounds that do not resolve a state-machine defect, stop fan-out and consolidate one invariant matrix covering states, transitions, ownership, evidence, and terminal conditions; then assign one coherent writer against that matrix.
+- Retain candidate refs, worktrees, manifests, and evidence until integration, delivery, and any required incident closure settle. Funded activity always requires separate explicit confirmation.
 
 ## 1:1s and learning retros
 
@@ -170,7 +189,7 @@ Jesse-locked, September 9, 2026. Where writing lives. Not a wiki migration.
 
 ## Proof bar
 
-User-visible work needs proof in the PR description: screenshots, a before/after, or a short repro. [UI PR previews](ui-pr-previews.md) is the screenshot convention. A reviewer should understand the change without opening the branch.
+User-visible work needs final-head live proof in the PR description. [UI PR previews](ui-pr-previews.md) is the authoritative capture, provenance, publication, and review convention. A reviewer should understand the change without opening the branch. Every head-changing push requires fresh After/ready-state capture, republication as new attachments, a new immutable per-capture manifest accessible from the PR, and renewed proof review before a UI PR advances to `status:ready-for-review` or `status:needs-jesse` for merge. Truthful Before captures may retain older provenance. `status:blocked` and `status:needs-jesse` for a Jesse decision remain available without visual-proof gating.
 
 Process docs-only, CI-only, and pure server PRs can skip screenshots. They still need a clear claim of what changed and how it was checked (`bun check` at minimum). Product docs are not a standalone PR — see [Docs](#docs).
 
