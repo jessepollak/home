@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddressText } from "@/components/address";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import { useAccountWallet } from "@/features/account/cdp-client";
@@ -12,7 +12,11 @@ import {
   SavingsMoneyDialog,
   type SavingsActionMode,
 } from "@/features/savings-actions/savings-actions";
-import { MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morpho/config";
+import {
+  BASE_USDC_ADDRESS,
+  BASE_USDC_DECIMALS,
+  MORPHO_V1_CANDIDATE_ADDRESSES,
+} from "@/server/morpho/config";
 import type {
   Address,
   MorphoVaultCandidate,
@@ -27,6 +31,8 @@ import {
 } from "./format";
 import {
   formatExactSavingsApy,
+  getSavingsRateState,
+  nextSavingsRateExpiryAt,
   summarizeSavingsPortfolio,
   type SavingsApySummary,
 } from "./portfolio-summary";
@@ -36,6 +42,8 @@ type SavingsExperienceProps = {
   initialData?: MorphoVaultsResult | null;
   session?: VerifiedAccountSession | null;
   fetchPositions?: (signal?: AbortSignal) => Promise<unknown>;
+  fetchVaults?: (signal?: AbortSignal) => Promise<unknown>;
+  now?: () => number;
   availableUsdcBaseUnits?: string | null;
   prepareMoneyAction?: (endpoint: string, input: unknown) => Promise<PreparedMoneyAction>;
   checkMoneyAction?: (action: PreparedMoneyAction) => Promise<OperationResult>;
@@ -107,6 +115,8 @@ export function SavingsExperience({
   initialData = null,
   session = null,
   fetchPositions,
+  fetchVaults = fetchSavingsVaults,
+  now = Date.now,
   availableUsdcBaseUnits = null,
   prepareMoneyAction,
   checkMoneyAction,
@@ -124,6 +134,10 @@ export function SavingsExperience({
     state: PositionState;
   } | null>(null);
   const [positionRefreshTrigger, setPositionRefreshTrigger] = useState(0);
+  const [metadataRefreshTrigger, setMetadataRefreshTrigger] = useState(0);
+  const [rateNowMs, setRateNowMs] = useState(() => now());
+  const positionRequestSequence = useRef(0);
+  const metadataRequestSequence = useRef(0);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [actionMode, setActionMode] = useState<SavingsActionMode | null>(null);
   const hosted = Boolean(useOptionalAppChrome());
@@ -133,32 +147,60 @@ export function SavingsExperience({
     : null;
 
   useEffect(() => {
-    if (initialData) return;
+    if (initialData && metadataRefreshTrigger === 0) return;
 
     const controller = new AbortController();
-    void fetch("/api/savings/vaults", {
-      headers: { accept: "application/json" },
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Vault request failed");
-        return (await response.json()) as MorphoVaultsResult;
+    const requestSequence = ++metadataRequestSequence.current;
+    void fetchVaults(controller.signal)
+      .then((value) => {
+        if (
+          controller.signal.aborted ||
+          requestSequence !== metadataRequestSequence.current
+        ) return;
+        const data = parseVaultsResult(value);
+        if (!data) {
+          setLoadState((current) => current.status === "ready"
+            ? current
+            : { status: "error", data: null });
+          return;
+        }
+        setRateNowMs(now());
+        setLoadState({ status: "ready", data });
       })
-      .then((data) => setLoadState({ status: "ready", data }))
       .catch((error: unknown) => {
-        if (isAbortError(error)) return;
-        setLoadState({ status: "error", data: null });
+        if (
+          controller.signal.aborted ||
+          requestSequence !== metadataRequestSequence.current ||
+          isAbortError(error)
+        ) return;
+        setLoadState((current) => current.status === "ready"
+          ? current
+          : { status: "error", data: null });
       });
 
     return () => controller.abort();
-  }, [initialData]);
+  }, [fetchVaults, initialData, metadataRefreshTrigger, now]);
+
+  useEffect(() => {
+    if (loadState.status !== "ready") return;
+    const expiresAt = nextSavingsRateExpiryAt(
+      loadState.data.candidates,
+      loadState.data.source.fetchedAt,
+      rateNowMs,
+    );
+    if (expiresAt === null || expiresAt <= rateNowMs) return;
+    const timeout = setTimeout(() => setRateNowMs(now()), expiresAt - rateNowMs);
+    return () => clearTimeout(timeout);
+  }, [loadState, now, rateNowMs]);
 
   useEffect(() => {
     if (!sessionKey || !fetchPositions) return;
 
     const controller = new AbortController();
+    const requestSequence = ++positionRequestSequence.current;
     queueMicrotask(() => {
       if (controller.signal.aborted) return;
+      setRateNowMs(now());
       setPositionResult((current) => {
         if (current?.key === sessionKey && current.state.status === "ready") {
           return {
@@ -176,39 +218,39 @@ export function SavingsExperience({
 
     void fetchPositions(controller.signal)
       .then((value) => {
-        if (controller.signal.aborted) return;
+        if (
+          controller.signal.aborted ||
+          requestSequence !== positionRequestSequence.current
+        ) return;
         const data = parsePositionResult(value, sessionAddress!);
-        setPositionResult({
-          key: sessionKey,
-          state: data
-            ? { status: "ready", data, refreshing: false, refreshError: false }
-            : { status: "error" },
+        setPositionResult((current) => {
+          if (!data || !isUsablePositionResult(data)) {
+            return retainVerifiedPositionOrError(current, sessionKey);
+          }
+          return {
+            key: sessionKey,
+            state: { status: "ready", data, refreshing: false, refreshError: false },
+          };
         });
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted || isAbortError(error)) return;
-        setPositionResult((current) => {
-          if (current?.key === sessionKey && current.state.status === "ready") {
-            return {
-              key: sessionKey,
-              state: {
-                ...current.state,
-                refreshing: false,
-                refreshError: true,
-              },
-            };
-          }
-          return { key: sessionKey, state: { status: "error" } };
-        });
+        if (
+          controller.signal.aborted ||
+          requestSequence !== positionRequestSequence.current ||
+          isAbortError(error)
+        ) return;
+        setPositionResult((current) => retainVerifiedPositionOrError(current, sessionKey));
       });
 
     return () => controller.abort();
-  }, [fetchPositions, positionRefreshTrigger, sessionAddress, sessionKey]);
+  }, [fetchPositions, now, positionRefreshTrigger, sessionAddress, sessionKey]);
 
   const handleActionConfirmed = useCallback(async (result: OperationResult) => {
+    setRateNowMs(now());
     setPositionRefreshTrigger((value) => value + 1);
+    setMetadataRefreshTrigger((value) => value + 1);
     await onActionConfirmed?.(result);
-  }, [onActionConfirmed]);
+  }, [now, onActionConfirmed]);
 
   const positionState = useMemo<PositionState>(() => {
     if (!sessionKey) return { status: "idle" };
@@ -228,19 +270,19 @@ export function SavingsExperience({
   ) ?? candidates[0] ?? null;
 
   const portfolioSummary = useMemo(() => {
-    if (loadState.status !== "ready" || positionState.status !== "ready") return null;
+    if (positionState.status !== "ready") return null;
     return summarizeSavingsPortfolio({
       supportedVaultAddresses: MORPHO_V1_CANDIDATE_ADDRESSES,
-      requiredAsset: loadState.data.asset,
-      candidates: loadState.data.candidates,
+      requiredAsset: loadState.status === "ready" ? loadState.data.asset : BASE_USDC_ASSET,
+      candidates: loadState.status === "ready" ? loadState.data.candidates : [],
       positions: positionState.data.vaults,
-      metadataStale: loadState.data.stale,
+      metadataFetchedAt: loadState.status === "ready" ? loadState.data.source.fetchedAt : null,
+      metadataStale: loadState.status === "ready" && loadState.data.stale,
+      nowMs: rateNowMs,
     });
-  }, [loadState, positionState]);
+  }, [loadState, positionState, rateNowMs]);
   const balances = collectVaultBalances(candidates, positionState);
-  const coldLoading = Boolean(
-    sessionKey && (loadState.status === "loading" || positionState.status === "loading"),
-  );
+  const coldLoading = Boolean(sessionKey && positionState.status === "loading");
   const refreshing = positionState.status === "ready" && positionState.refreshing;
   const refreshError = positionState.status === "ready" && positionState.refreshError;
   const funded = portfolioSummary?.funded ?? false;
@@ -305,18 +347,21 @@ export function SavingsExperience({
               {formatUsdcUsd(availableBalance.totalBaseUnits)}
             </p>
             {funded && portfolioSummary ? (
-              <FundedApyCaption apy={portfolioSummary.apy} />
+              loadState.status === "loading" ? (
+                <p className={styles.heroCaption} role="status">Loading APY…</p>
+              ) : (
+                <FundedApyCaption apy={portfolioSummary.apy} />
+              )
             ) : (
               <>
                 <p className={styles.heroCaption}>Nothing saved yet</p>
-                {selected ? (
+                {selected && loadState.status === "ready" ? (
                   <p className={styles.heroMeta}>
                     Available vault · {shortVaultLabel(selected.name)} ·{" "}
-                    {availableVaultApyLabel(
-                      selected,
-                      loadState.status !== "ready" || loadState.data.stale,
-                    )}
+                    {availableVaultApyLabel(selected, loadState.data, rateNowMs)}
                   </p>
+                ) : loadState.status === "loading" ? (
+                  <p className={styles.heroMeta} role="status">Loading vaults…</p>
                 ) : null}
               </>
             )}
@@ -330,10 +375,10 @@ export function SavingsExperience({
           <>
             <p className={`${styles.heroAmount} ${styles.heroAmountEmpty}`}>$0.00</p>
             <p className={styles.heroCaption}>Nothing saved yet</p>
-            {selected ? (
+            {selected && loadState.status === "ready" ? (
               <p className={styles.heroMeta}>
                 Available vault · {shortVaultLabel(selected.name)} ·{" "}
-                {availableVaultApyLabel(selected, false)}
+                {availableVaultApyLabel(selected, loadState.data, rateNowMs)}
               </p>
             ) : null}
           </>
@@ -372,11 +417,9 @@ export function SavingsExperience({
                 >
                   <span className={styles.vaultName}>
                     <strong>{candidate.name}</strong>
-                    {funded ? (
+                    {funded && loadState.status === "ready" ? (
                       <span className={styles.vaultApy}>
-                        {loadState.status === "ready" && loadState.data.stale
-                          ? "APY stale"
-                          : fundedVaultApyLabel(candidate)}
+                        {fundedVaultApyLabel(candidate, loadState.data, rateNowMs)}
                       </span>
                     ) : null}
                   </span>
@@ -388,10 +431,9 @@ export function SavingsExperience({
                     </span>
                   ) : (
                     <span className={styles.vaultMeta}>
-                      {availableVaultApyLabel(
-                        candidate,
-                        loadState.status !== "ready" || loadState.data.stale,
-                      )}
+                      {loadState.status === "ready"
+                        ? availableVaultApyLabel(candidate, loadState.data, rateNowMs)
+                        : "APY unavailable"}
                     </span>
                   )}
                 </button>
@@ -477,15 +519,34 @@ export function SavingsExperience({
   );
 }
 
-function availableVaultApyLabel(candidate: MorphoVaultCandidate, stale: boolean): string {
-  if (stale) return "APY unavailable";
-  const formatted = formatApy(candidate.netApy);
-  return formatted === "—" ? "APY unavailable" : `${formatted} APY`;
+function availableVaultApyLabel(
+  candidate: MorphoVaultCandidate,
+  metadata: MorphoVaultsResult,
+  nowMs: number,
+): string {
+  const rate = getSavingsRateState(candidate, {
+    metadataFetchedAt: metadata.source.fetchedAt,
+    metadataStale: metadata.stale,
+    nowMs,
+  });
+  if (rate.status === "stale") return "APY stale";
+  if (rate.status === "unavailable") return "APY unavailable";
+  return `${formatApy(rate.value)} APY`;
 }
 
-function fundedVaultApyLabel(candidate: MorphoVaultCandidate): string {
-  const formatted = formatApy(candidate.netApy);
-  return formatted === "—" ? "APY unavailable" : formatted;
+function fundedVaultApyLabel(
+  candidate: MorphoVaultCandidate,
+  metadata: MorphoVaultsResult,
+  nowMs: number,
+): string {
+  const rate = getSavingsRateState(candidate, {
+    metadataFetchedAt: metadata.source.fetchedAt,
+    metadataStale: metadata.stale,
+    nowMs,
+  });
+  if (rate.status === "stale") return "APY stale";
+  if (rate.status === "unavailable") return "APY unavailable";
+  return formatApy(rate.value);
 }
 
 function FundedApyCaption({ apy }: { apy: SavingsApySummary }) {
@@ -539,6 +600,7 @@ function parsePositionResult(value: unknown, expectedAddress: Address): Position
     typeof value.accountAddress !== "string" ||
     value.accountAddress.toLowerCase() !== expectedAddress.toLowerCase() ||
     typeof value.fetchedAt !== "string" ||
+    !Number.isFinite(Date.parse(value.fetchedAt)) ||
     !Array.isArray(value.vaults)
   ) return null;
 
@@ -570,8 +632,96 @@ function isPosition(value: unknown, accountAddress: Address, vaultAddress: strin
     value.vaultAddress.toLowerCase() === vaultAddress.toLowerCase() &&
     (typeof value.assetsRaw === "string" || value.assetsRaw === null) &&
     typeof value.sharesRaw === "string" &&
+    readUsdcBaseUnits(value.sharesRaw) !== null &&
     typeof value.indexedAt === "string" &&
-    value.withdrawableRaw === null;
+    Number.isFinite(Date.parse(value.indexedAt)) &&
+    isMorphoSource(value.source, "vaultPosition") &&
+    value.withdrawableRaw === null &&
+    typeof value.withdrawableNote === "string";
+}
+
+function isUsablePositionResult(data: PositionResult): boolean {
+  return data.vaults.every((entry) =>
+    entry.position === null || readUsdcBaseUnits(entry.position.assetsRaw) !== null
+  );
+}
+
+function retainVerifiedPositionOrError(
+  current: { key: string; state: PositionState } | null,
+  sessionKey: string,
+): { key: string; state: PositionState } {
+  if (current?.key === sessionKey && current.state.status === "ready") {
+    return {
+      key: sessionKey,
+      state: {
+        ...current.state,
+        refreshing: false,
+        refreshError: true,
+      },
+    };
+  }
+  return { key: sessionKey, state: { status: "error" } };
+}
+
+async function fetchSavingsVaults(signal?: AbortSignal): Promise<unknown> {
+  const response = await fetch("/api/savings/vaults", {
+    headers: { accept: "application/json" },
+    signal,
+  });
+  if (!response.ok) throw new Error("Vault request failed");
+  return response.json();
+}
+
+function parseVaultsResult(value: unknown): MorphoVaultsResult | null {
+  if (
+    !isRecord(value) ||
+    value.version !== "v1" ||
+    value.chainId !== 8453 ||
+    !isSavingsAsset(value.asset) ||
+    !Array.isArray(value.candidates) ||
+    !value.candidates.every(isVaultCandidate) ||
+    !isMorphoSource(value.source, "vaults") ||
+    typeof value.stale !== "boolean"
+  ) return null;
+  const candidateAddresses = value.candidates.map((candidate) =>
+    (candidate as MorphoVaultCandidate).vaultAddress.toLowerCase()
+  );
+  if (new Set(candidateAddresses).size !== candidateAddresses.length) return null;
+  return value as MorphoVaultsResult;
+}
+
+function isVaultCandidate(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.vaultAddress !== "string") return false;
+  const vaultAddress = value.vaultAddress;
+  return value.version === "v1" &&
+    MORPHO_V1_CANDIDATE_ADDRESSES.some(
+      (address) => address.toLowerCase() === vaultAddress.toLowerCase(),
+    ) &&
+    typeof value.name === "string" &&
+    typeof value.symbol === "string" &&
+    typeof value.listed === "boolean" &&
+    value.chainId === 8453 &&
+    isSavingsAsset(value.asset) &&
+    (value.netApy === null || typeof value.netApy === "number") &&
+    (value.stateAsOf === null || typeof value.stateAsOf === "string") &&
+    isMorphoSource(value.source, "vaults");
+}
+
+function isSavingsAsset(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.address === "string" &&
+    value.address.toLowerCase() === BASE_USDC_ADDRESS.toLowerCase() &&
+    value.symbol === "USDC" &&
+    value.decimals === BASE_USDC_DECIMALS;
+}
+
+function isMorphoSource(value: unknown, query: "vaults" | "vaultPosition"): boolean {
+  return isRecord(value) &&
+    value.provider === "Morpho GraphQL" &&
+    value.endpoint === "https://api.morpho.org/graphql" &&
+    value.query === query &&
+    typeof value.fetchedAt === "string" &&
+    Number.isFinite(Date.parse(value.fetchedAt));
 }
 
 function isAbortError(error: unknown) {
@@ -581,3 +731,9 @@ function isAbortError(error: unknown) {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+const BASE_USDC_ASSET = {
+  address: BASE_USDC_ADDRESS,
+  symbol: "USDC",
+  decimals: BASE_USDC_DECIMALS,
+} as const;

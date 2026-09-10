@@ -3,6 +3,7 @@ import { BASE_USDC_ADDRESS } from "@/server/morpho/config";
 import type { MorphoVaultCandidate } from "@/server/morpho/types";
 import {
   formatExactSavingsApy,
+  getSavingsRateState,
   summarizeSavingsPortfolio,
   type SummarizeSavingsPortfolioInput,
 } from "./portfolio-summary";
@@ -10,6 +11,7 @@ import {
 const VAULT_A = "0x1111111111111111111111111111111111111111";
 const VAULT_B = "0x2222222222222222222222222222222222222222";
 const VAULT_C = "0x3333333333333333333333333333333333333333";
+const TEST_NOW = Date.parse("2026-09-10T12:04:00.000Z");
 const USDC = {
   address: BASE_USDC_ADDRESS,
   symbol: "USDC",
@@ -61,6 +63,8 @@ function input(
         ? null
         : { assetsRaw: balances[vaultAddress] ?? null },
     })),
+    metadataFetchedAt: "2026-09-10T12:00:00.000Z",
+    nowMs: TEST_NOW,
   };
 }
 
@@ -107,7 +111,7 @@ describe("savings portfolio summary", () => {
     expect(formatExactSavingsApy(summary.apy.value)).toBe("4.00%");
   });
 
-  test("fails APY closed for missing, invalid, and stale funded rates", () => {
+  test("fails APY closed for missing, negative, and stale funded rates", () => {
     const missing = summarizeSavingsPortfolio(input(
       { [VAULT_A]: "100000000", [VAULT_B]: "300000000" },
       { [VAULT_A]: 0.04, [VAULT_B]: null },
@@ -116,7 +120,7 @@ describe("savings portfolio summary", () => {
 
     const invalidInput = input(
       { [VAULT_A]: "100000000" },
-      { [VAULT_A]: Number.NaN },
+      { [VAULT_A]: -0.01 },
     );
     expect(summarizeSavingsPortfolio(invalidInput).apy.status).toBe("unavailable");
 
@@ -125,6 +129,44 @@ describe("savings portfolio summary", () => {
       metadataStale: true,
     });
     expect(stale.apy.status).toBe("stale");
+  });
+
+  test("uses state and source timestamps for a bounded freshness decision", () => {
+    const fresh = candidate(VAULT_A, 0.04);
+    expect(getSavingsRateState(fresh, {
+      metadataFetchedAt: "2026-09-10T12:00:00.000Z",
+      nowMs: TEST_NOW,
+    })).toEqual({ status: "available", value: 0.04 });
+
+    const expiredAtBoundary = {
+      ...fresh,
+      stateAsOf: new Date(TEST_NOW - 5 * 60_000 - 1).toISOString(),
+    };
+    expect(getSavingsRateState(expiredAtBoundary, {
+      metadataFetchedAt: "2026-09-10T12:00:00.000Z",
+      nowMs: TEST_NOW,
+    })).toEqual({ status: "stale", value: null });
+
+    expect(getSavingsRateState({ ...fresh, stateAsOf: null }, {
+      metadataFetchedAt: "2026-09-10T12:00:00.000Z",
+      nowMs: TEST_NOW,
+    })).toEqual({ status: "unavailable", value: null });
+    expect(getSavingsRateState(fresh, {
+      metadataFetchedAt: "not-a-timestamp",
+      nowMs: TEST_NOW,
+    })).toEqual({ status: "unavailable", value: null });
+  });
+
+  test("keeps a verified funded balance available while metadata is pending", () => {
+    const pending = input({ [VAULT_A]: "100000000" }, { [VAULT_A]: 0.04 });
+    pending.candidates = [];
+    pending.metadataFetchedAt = null;
+
+    expect(summarizeSavingsPortfolio(pending)).toMatchObject({
+      funded: true,
+      balance: { status: "available", totalBaseUnits: "100000000" },
+      apy: { status: "unavailable", value: null },
+    });
   });
 
   test("treats absent or unreadable positions as incomplete instead of zero", () => {
