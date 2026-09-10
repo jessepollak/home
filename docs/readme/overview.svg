@@ -38,7 +38,7 @@
     <rect x="354" y="131" width="48" height="34" rx="8" fill="#fff" stroke="#e6e8ec"/>
     <g transform="translate(368 138)" style="color:#0a0b0d"><use href="#user-icon"/></g>
 
-    <text x="48" y="231" class="t amount">$12,482.36</text>
+    <text x="48" y="231" class="t amount">$15,732.36</text>
     <text x="48" y="251" class="t tiny muted">TOTAL BALANCE</text>
 
     <rect x="48" y="276" width="106" height="48" rx="8" fill="#0052ff"/>
@@ -106,8 +106,6 @@
 
     <text x="650" y="244" class="t amount" text-anchor="middle">$3,250.00</text>
     <text x="650" y="271" class="t body muted" text-anchor="middle">Earning ~5.21%</text>
-    <rect x="568" y="285" width="164" height="25" rx="8" fill="#eef3ff"/>
-    <text x="650" y="302" class="t tiny blue" text-anchor="middle">ILLUSTRATIVE APY · VARIABLE</text>
 
     <text x="473" y="351" class="t upper muted">VAULT</text>
     <rect x="473" y="365" width="354" height="72" rx="12" fill="#fff" stroke="#0052ff" stroke-width="2"/>
@@ -173,7 +171,6 @@
     <rect x="898" y="688" width="354" height="104" rx="12" fill="#fff" stroke="#e6e8ec"/>
     <text x="914" y="719" class="t heading">Memes</text><text x="1236" y="719" class="t small muted" text-anchor="end">See all ›</text>
     <text x="914" y="758" class="t small muted">None trending</text>
-    <text x="898" y="824" class="t tiny muted">Prices shown are illustrative; Invest uses Base asset representations.</text>
 
     <rect x="880" y="908" width="390" height="56" fill="#fff"/>
     <path d="M880 908h390" class="hair"/>

@@ -35,7 +35,7 @@
     <text x="48" y="155" class="t heading">home</text>
     <rect x="354" y="131" width="48" height="34" rx="8" fill="#fff" stroke="#e6e8ec"/>
     <g transform="translate(368 138)" style="color:#0a0b0d"><use href="#user-icon"/></g>
-    <text x="48" y="231" class="t amount">$12,482.36</text>
+    <text x="48" y="231" class="t amount">$15,732.36</text>
     <rect x="48" y="274" width="106" height="48" rx="8" fill="#0052ff"/><text x="101" y="303" class="t small white" text-anchor="middle">Add money</text>
     <rect x="162" y="274" width="106" height="48" rx="8" fill="#fff" stroke="#e6e8ec"/><text x="215" y="303" class="t small" text-anchor="middle">Send</text>
     <rect x="276" y="274" width="126" height="48" rx="8" fill="#fff" stroke="#e6e8ec"/><text x="339" y="303" class="t small" text-anchor="middle">Receive</text>
@@ -119,7 +119,6 @@
     <g transform="translate(797 598) scale(.75)" style="color:#0052ff"><use href="#ext"/></g>
 
     <rect x="489" y="676" width="322" height="44" rx="8" fill="#fff" stroke="#e6e8ec"/><text x="650" y="703" class="t small" text-anchor="middle">Load more</text>
-    <text x="473" y="798" class="t tiny muted">Transfers link to BaseScan. Sample hashes and dates are illustrative.</text>
 
     <rect x="455" y="908" width="390" height="56" fill="#fff"/><path d="M455 908h390" class="hair"/>
     <rect x="533" y="913" width="32" height="32" rx="8" fill="#0052ff"/><g transform="translate(539 919)" style="color:#fff"><use href="#home-icon"/></g><text x="549" y="956" class="t tiny" text-anchor="middle">Home</text>
@@ -160,8 +159,8 @@
       <rect x="1076" y="498" width="167" height="53" fill="#f8f9fb"/><text x="1086" y="515" class="t micro muted">USDC WALLET</text><text x="1086" y="536" class="t small">2,160.00 USDC</text>
       <rect x="907" y="552" width="168" height="54" fill="#f8f9fb"/><text x="917" y="569" class="t micro muted">COLLATERAL SUPPLIED</text><text x="917" y="590" class="t small">0.050 cbBTC</text>
       <rect x="1076" y="552" width="167" height="54" fill="#f8f9fb"/><text x="1086" y="569" class="t micro muted">CURRENT DEBT</text><text x="1086" y="590" class="t small">1,800.00 USDC</text>
-      <rect x="907" y="607" width="168" height="54" fill="#f8f9fb"/><text x="917" y="624" class="t micro muted">BORROW CAPACITY</text><text x="917" y="645" class="t small">3,032.50 USDC</text>
-      <rect x="1076" y="607" width="167" height="54" fill="#f8f9fb"/><text x="1086" y="624" class="t micro muted">HEALTH FACTOR</text><text x="1086" y="645" class="t small">1.68</text>
+      <rect x="907" y="607" width="168" height="54" fill="#f8f9fb"/><text x="917" y="624" class="t micro muted">REMAINING CAPACITY</text><text x="917" y="645" class="t small">3,032.50 USDC</text>
+      <rect x="1076" y="607" width="167" height="54" fill="#f8f9fb"/><text x="1086" y="624" class="t micro muted">HEALTH FACTOR</text><text x="1086" y="645" class="t small">2.68</text>
     </g>
 
     <path d="M890 680h370" stroke="#e3e6eb"/>
@@ -170,7 +169,7 @@
     <rect x="906" y="747" width="338" height="44" rx="8" fill="#fff" stroke="#cfd5dd"/><text x="919" y="774" class="t small">Borrow USDC</text><text x="1228" y="774" class="t small muted" text-anchor="end">⌄</text>
     <text x="906" y="816" class="t tiny muted">AMOUNT (USDC)</text>
     <rect x="906" y="825" width="338" height="44" rx="8" fill="#fff" stroke="#cfd5dd"/><text x="919" y="852" class="t small">500.00</text>
-    <text x="906" y="880" class="t tiny muted">3,032.50 USDC current capacity</text>
+    <text x="906" y="880" class="t tiny muted">3,032.50 remaining · 4,832.50 USDC maximum debt</text>
     <rect x="906" y="895" width="338" height="45" rx="8" fill="#0052ff"/><text x="1075" y="923" class="t small white" text-anchor="middle">Review current preview</text>
   </g>
   <rect x="880" y="120" width="390" height="844" rx="18" fill="none" stroke="#dfe2e7" filter="url(#lift)"/>
