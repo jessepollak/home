@@ -296,8 +296,9 @@ describe("ActivityPanel", () => {
             transfers: Array.from({ length: ACTIVITY_TEASER_LIMIT + 2 }, (_, index) => ({
               ...first.transfers[0]!,
               id: `event-${index + 1}`,
+              blockNumber: String(20 - index),
               logIndex: String(index + 1),
-              transactionHash: `0x${(index + 10).toString(16).padStart(64, "0")}`,
+              transactionHash: `0x${(10 + index).toString(16).padStart(64, "0")}`,
             })),
           };
         }}
