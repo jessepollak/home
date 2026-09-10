@@ -3,10 +3,11 @@ import "./dom-test-harness";
 import { afterEach, describe, expect, test } from "bun:test";
 import { useState } from "react";
 import type { AccountWalletSdkBoundary } from "./cdp-client";
-import type {
-  BaseAccountConnector,
-  BaseAccountRestorer,
-  ConnectedBaseAccount,
+import {
+  BaseAccountConnectorError,
+  type BaseAccountConnector,
+  type BaseAccountRestorer,
+  type ConnectedBaseAccount,
 } from "./base-account-connector";
 import type { SessionFetch, VerifiedAccountSession } from "./session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "./session-types";
@@ -319,6 +320,12 @@ function AccountProbe({ moneyAction }: { moneyAction?: PreparedMoneyAction }) {
           </button>
         </>
       ) : null}
+      <button
+        type="button"
+        onClick={() => void client.retrySessionValidation().catch(() => {})}
+      >
+        Probe retry validation
+      </button>
       <button
         type="button"
         onClick={() => void client.signOut().catch(() => {})}
@@ -703,6 +710,355 @@ describe("production account session owner", () => {
     expect(sessionCalls).toBe(1);
     expect(restoreCalls).toBe(1);
     expect(signOutCalls).toBe(0);
+  });
+
+  test("signs out a valid Base identity only when restoration positively reports zero accounts", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    let sessionCalls = 0;
+    let restoreCalls = 0;
+    let signOutCalls = 0;
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          signOut: async () => {
+            signOutCalls += 1;
+          },
+        })}
+        sessionFetch={async () => {
+          sessionCalls += 1;
+          return sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          );
+        }}
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          restoreCalls += 1;
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(signOutCalls).toBe(1));
+    expect(sessionCalls).toBe(1);
+    expect(restoreCalls).toBe(1);
+    expect(page().getByTestId("status").textContent).toBe("signed-out");
+    expect(page().getByTestId("address").textContent).toBe(
+      "private-details-hidden",
+    );
+    expect(page().getByTestId("message").textContent).toBe(
+      "Base Account was disconnected. Sign in again to continue.",
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+  });
+
+  test("keeps transient Base restoration failure retryable and verifies after recovery", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    let restoreCalls = 0;
+    let signOutCalls = 0;
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          signOut: async () => {
+            signOutCalls += 1;
+          },
+        })}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          restoreCalls += 1;
+          if (restoreCalls === 1) {
+            throw new Error("fixture module or transport failure");
+          }
+          return connectedBaseAccount();
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("unavailable"),
+    );
+    expect(signOutCalls).toBe(0);
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "base-account",
+    );
+
+    fireEvent.click(
+      page().getByRole("button", { name: "Probe retry validation" }),
+    );
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("verified"),
+    );
+    expect(restoreCalls).toBe(2);
+    expect(signOutCalls).toBe(0);
+    expect(page().getByTestId("address").textContent).toBe(ADDRESS_A);
+  });
+
+  test("keeps missing-connection cleanup private after failure and retries sign-out only on demand", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    let signOutCalls = 0;
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          signOut: async () => {
+            signOutCalls += 1;
+            if (signOutCalls === 1) {
+              throw new Error("fixture sign-out failure");
+            }
+          },
+        })}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signout-error"),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(signOutCalls).toBe(1);
+    expect(page().getByTestId("address").textContent).toBe(
+      "private-details-hidden",
+    );
+    expect(page().getByTestId("message").textContent).toContain(
+      "Retry sign out",
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "pending:base-account",
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await waitFor(() => expect(signOutCalls).toBe(2));
+    expect(page().getByTestId("status").textContent).toBe("signed-out");
+    expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+  });
+
+  test("rejects a late missing-connection sign-out failure after the owner changes", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const pendingSignOut = deferred<void>();
+    let accessToken = "token-a";
+    const sdk = baseSdk({
+      getAccessToken: async () => accessToken,
+      signOut: () => pendingSignOut.promise,
+    });
+    const view = render(
+      <SessionHarness
+        sdk={sdk}
+        sessionFetch={async (_input, init) => {
+          const authorization = new Headers(init?.headers).get("Authorization");
+          return authorization === "Bearer token-b"
+            ? sessionResponse(sessionFor("subject-b", ADDRESS_B))
+            : sessionResponse(
+                sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+              );
+        }}
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signed-out"),
+    );
+    accessToken = "token-b";
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, ownerKey: OWNER_B }}
+        sessionFetch={async () =>
+          sessionResponse(sessionFor("subject-b", ADDRESS_B))
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => connectedBaseAccount({ address: ADDRESS_B })}
+      />,
+    );
+
+    await act(async () => {
+      pendingSignOut.reject(new Error("late owner-a cleanup failure"));
+      await pendingSignOut.promise.catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(page().getByTestId("status").textContent).not.toBe("signout-error");
+    expect(page().getByTestId("message").textContent).not.toContain(
+      "late owner-a",
+    );
+    expect(page().getByTestId("address").textContent).toBe(ADDRESS_B);
+  });
+
+  test("rejects late missing-connection sign-out results after an explicit retry supersedes them", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const firstSignOut = deferred<void>();
+    const secondSignOut = deferred<void>();
+    let signOutCalls = 0;
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          signOut: () => {
+            signOutCalls += 1;
+            return signOutCalls === 1
+              ? firstSignOut.promise
+              : secondSignOut.promise;
+          },
+        })}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(signOutCalls).toBe(1));
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await waitFor(() => expect(signOutCalls).toBe(2));
+
+    await act(async () => {
+      firstSignOut.resolve();
+      await firstSignOut.promise;
+    });
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "pending:base-account",
+    );
+
+    await act(async () => {
+      secondSignOut.reject(new Error("current retry failed"));
+      await secondSignOut.promise.catch(() => {});
+    });
+    expect(page().getByTestId("status").textContent).toBe("signout-error");
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "pending:base-account",
+    );
+  });
+
+  test("rejects late missing-connection sign-out success after unmount", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const pendingSignOut = deferred<void>();
+    const view = render(
+      <SessionHarness
+        sdk={baseSdk({ signOut: () => pendingSignOut.promise })}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+        "pending:base-account",
+      ),
+    );
+    view.unmount();
+    await act(async () => {
+      pendingSignOut.resolve();
+      await pendingSignOut.promise;
+    });
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "pending:base-account",
+    );
+  });
+
+  test("keeps owner-bound provider evidence through missing-connection logout and same-owner Base re-login", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const action = preparedMoneyAction(
+      "base-account",
+      "2026-12-08T05:20:00.000Z",
+    );
+    const storage = new TestJournalStorage();
+    const lock = new TestJournalLock();
+    const journal = new ProviderHandleJournal({ storage, lock });
+    const capture = journal.retain(action, {
+      kind: "submission-id",
+      provider: "base-account",
+      value: "same-owner-submission",
+    });
+    expect((await journal.persist(capture.entry!)).persisted).toBe(true);
+
+    const signedInSdk = baseSdk();
+    const view = render(
+      <SessionHarness
+        sdk={signedInSdk}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("subject-a", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountConnector={async () => connectedBaseAccount()}
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+        providerHandleJournalStorage={storage}
+        providerHandleJournalLock={lock}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signed-out"),
+    );
+    expect(storage.length).toBe(1);
+
+    const signedOutSdk = baseSdk({ isSignedIn: false, ownerKey: null });
+    view.rerender(
+      <SessionHarness
+        sdk={signedOutSdk}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("subject-a", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountConnector={async () => connectedBaseAccount()}
+        providerHandleJournalStorage={storage}
+        providerHandleJournalLock={lock}
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: "Probe Base sign in" }));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    view.rerender(
+      <SessionHarness
+        sdk={signedInSdk}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("subject-a", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountConnector={async () => connectedBaseAccount()}
+        providerHandleJournalStorage={storage}
+        providerHandleJournalLock={lock}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("verified"),
+    );
+    expect(storage.length).toBe(1);
+    expect(new ProviderHandleJournal({ storage, lock }).entriesForAction(action)).toHaveLength(1);
   });
 
   test("keeps a missing ambiguous provider hint private without signing out valid SDK auth", async () => {

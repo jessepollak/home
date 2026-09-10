@@ -118,6 +118,7 @@ export function AccountSignInSheet({
     signInWithBaseAccount,
     cancelSignInAttempt,
     retrySessionValidation,
+    signOut,
   } = useAccountWallet();
   const [email, setEmail] = useState("");
   const [flowId, setFlowId] = useState<string | null>(null);
@@ -417,6 +418,18 @@ export function AccountSignInSheet({
             <div className={styles.pendingPanel} aria-live="polite">
               <span className={styles.spinner} aria-hidden="true" />
               Verifying your secure session…
+            </div>
+          ) : status === "signout-error" ? (
+            <div className={styles.statusPanel} role="alert">
+              <strong>Sign-out did not finish.</strong>
+              <p>Your account details remain hidden.</p>
+              <button
+                className={styles.secondaryButton}
+                type="button"
+                onClick={() => void signOut().catch(() => {})}
+              >
+                Retry sign out
+              </button>
             </div>
           ) : status === "unavailable" ? (
             <div className={styles.statusPanel} role="alert">

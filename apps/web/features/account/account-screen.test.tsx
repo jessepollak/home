@@ -1,7 +1,10 @@
 import "./dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import type { AccountWalletSdkBoundary } from "./cdp-client";
+import type {
+  AccountWalletClient,
+  AccountWalletSdkBoundary,
+} from "./cdp-client";
 import {
   BaseAccountConnectorError,
   type BaseAccountConnector,
@@ -320,6 +323,32 @@ describe("production account sign-in sheet", () => {
     expect(page().queryByText("Sign-in is unavailable")).toBeNull();
     expect(page().queryByText("Try again later.")).toBeNull();
     expect(page().queryByText("Sign-in is not configured for this deployment.")).toBeNull();
+  });
+
+  test("offers an explicit sign-out retry while failed cleanup keeps details private", async () => {
+    let retries = 0;
+    const client: AccountWalletClient = {
+      ...createBlockedAccountWalletClient("provider-unavailable"),
+      signInAvailability: "ready",
+      baseAccountEnabled: true,
+      status: "signout-error",
+      message:
+        "Base Account was disconnected. Private details remain hidden, but sign-out did not finish. Retry sign out.",
+      signOut: async () => {
+        retries += 1;
+      },
+    };
+
+    render(
+      <AccountWalletClientProvider client={client}>
+        <AccountSignInSheet open onClose={() => {}} />
+      </AccountWalletClientProvider>,
+    );
+
+    expect(page().getByText("Sign-out did not finish.")).toBeTruthy();
+    expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Retry sign out" }));
+    await waitFor(() => expect(retries).toBe(1));
   });
 
   test("configured provider outage uses different copy from missing project ID", () => {

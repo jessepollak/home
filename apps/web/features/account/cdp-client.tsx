@@ -705,6 +705,10 @@ export function AccountWalletSessionOwner({
   );
   const validationRequest = useRef<AbortController | null>(null);
   const validationSequence = useRef(0);
+  const signOutSequence = useRef(0);
+  const mounted = useRef(true);
+  const preserveSignedOutMessage = useRef(false);
+  const previousOwnerKey = useRef(ownerKey);
   const transferSequence = useRef(0);
   const transferInProgress = useRef(false);
   const [providerHandleJournal] = useState(
@@ -730,8 +734,28 @@ export function AccountWalletSessionOwner({
   );
 
   useLayoutEffect(() => {
+    const previousOwner = previousOwnerKey.current;
     currentOwnerKey.current = ownerKey;
-  }, [ownerKey]);
+    if (previousOwner !== ownerKey && ownerKey !== null) {
+      signOutSequence.current += 1;
+      if (
+        previousOwner !== null &&
+        suppressedOwnerKey === previousOwner &&
+        suppressedOwnerKey !== ownerKey
+      ) {
+        accountSelection.current = { provider: "restoring", hint: null };
+      }
+    }
+    previousOwnerKey.current = ownerKey;
+  }, [ownerKey, suppressedOwnerKey]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      signOutSequence.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     recordAuthDiagnostic({
@@ -831,8 +855,46 @@ export function AccountWalletSessionOwner({
     }
   }, []);
 
+  const runFencedSignOut = useCallback(async ({
+    cleanupOwnerKey,
+    onFailure,
+    onSuccess,
+  }: {
+    cleanupOwnerKey: string;
+    onFailure: () => void;
+    onSuccess?: () => void;
+  }): Promise<"succeeded" | "failed" | "stale"> => {
+    const sequence = ++signOutSequence.current;
+    const signedOut = await signOutWithSessionSuppressed({
+      ownerKey: cleanupOwnerKey,
+      signOut: sdkSignOut,
+      suppress: setSuppressedOwnerKey,
+      onFailure: () => {},
+    });
+    const activeOwnerKey = currentOwnerKey.current;
+    if (
+      !mounted.current ||
+      sequence !== signOutSequence.current ||
+      (activeOwnerKey !== cleanupOwnerKey && activeOwnerKey !== null)
+    ) {
+      return "stale";
+    }
+    if (!signedOut) {
+      onFailure();
+      return "failed";
+    }
+    onSuccess?.();
+    return "succeeded";
+  }, [sdkSignOut]);
+
   const rejectBaseSession = useCallback(
-    async (failureMessage: string) => {
+    async (
+      failureMessage: string,
+      options: {
+        clearProviderSelectionOnSuccess?: boolean;
+      } = {},
+    ) => {
+      preserveSignedOutMessage.current = false;
       accountSelection.current = { provider: "blocked-authentication" };
       writeAccountProviderHint("pending:base-account");
       clearPrivateState();
@@ -843,18 +905,26 @@ export function AccountWalletSessionOwner({
         return;
       }
       recordAuthDiagnostic({ kind: "signout", reason: "invalidated-base" });
-      await signOutWithSessionSuppressed({
-        ownerKey,
-        signOut: sdkSignOut,
-        suppress: setSuppressedOwnerKey,
+      await runFencedSignOut({
+        cleanupOwnerKey: ownerKey,
         onFailure: () => {
+          preserveSignedOutMessage.current = true;
           setStatus("signout-error");
           setMessage(
-            `${failureMessage} Private details remain hidden, but sign-out did not finish.`,
+            `${failureMessage} Private details remain hidden, but sign-out did not finish. Retry sign out.`,
           );
         },
+        onSuccess: () => {
+          preserveSignedOutMessage.current = true;
+          if (options.clearProviderSelectionOnSuccess) {
+            accountSelection.current = { provider: "restoring", hint: null };
+            writeAccountProviderHint(null);
+          }
+          setStatus("signed-out");
+          setMessage(failureMessage);
+        },
       });
-    }, [clearBaseConnection, clearPrivateState, ownerKey, sdkSignOut]);
+    }, [clearBaseConnection, clearPrivateState, ownerKey, runFencedSignOut]);
 
   const validateSession = useCallback(async () => {
     if (
@@ -928,6 +998,7 @@ export function AccountWalletSessionOwner({
     const controller = new AbortController();
     const sequence = ++validationSequence.current;
     validationRequest.current = controller;
+    preserveSignedOutMessage.current = false;
     setVerifiedOwner(null);
     setStatus("validating");
     setMessage(null);
@@ -1040,6 +1111,18 @@ export function AccountWalletSessionOwner({
 
       setVerifiedOwner(null);
       if (
+        restoringSelection &&
+        validatedProvider === "base-account" &&
+        error instanceof BaseAccountConnectorError &&
+        error.reason === "missing-connection"
+      ) {
+        await rejectBaseSession(
+          "Base Account was disconnected. Sign in again to continue.",
+          { clearProviderSelectionOnSuccess: true },
+        );
+        return;
+      }
+      if (
         (selection.provider === "base-account" ||
           validatedProvider === "base-account") &&
         error instanceof BaseAccountConnectorError &&
@@ -1123,7 +1206,9 @@ export function AccountWalletSessionOwner({
         clearPrivateState();
         setStatus("signed-out");
         if (!isSessionSuppressed) {
-          setMessage(null);
+          if (!preserveSignedOutMessage.current) {
+            setMessage(null);
+          }
           if (!baseLoginInProgress.current) {
             clearBaseConnection();
           }
@@ -1164,6 +1249,7 @@ export function AccountWalletSessionOwner({
         }
       }
       activeSignInProvider.current = provider;
+      preserveSignedOutMessage.current = false;
       clearPrivateState();
       clearBaseConnection();
       accountSelection.current = {
@@ -1404,39 +1490,47 @@ export function AccountWalletSessionOwner({
   const signOut = useCallback(async () => {
     if (!ownerKey) {
       clearBaseConnection();
+      accountSelection.current = { provider: "restoring", hint: null };
+      writeAccountProviderHint(null);
+      preserveSignedOutMessage.current = true;
+      setStatus("signed-out");
+      setMessage("You are signed out.");
       return;
     }
 
+    preserveSignedOutMessage.current = false;
     setStatus("signed-out");
     setMessage(null);
     activeSignInProvider.current = null;
     clearPrivateState();
     clearBaseConnection();
     recordAuthDiagnostic({ kind: "signout", reason: "explicit-logout" });
-    const signedOut = await signOutWithSessionSuppressed({
-      ownerKey,
-      signOut: sdkSignOut,
-      suppress: setSuppressedOwnerKey,
+    const result = await runFencedSignOut({
+      cleanupOwnerKey: ownerKey,
       onFailure: () => {
+        preserveSignedOutMessage.current = true;
         setStatus("signout-error");
         setMessage(
           "Your private details are hidden, but sign-out did not finish. Retry sign out.",
         );
       },
+      onSuccess: () => {
+        revokedAuthAttempts.current.clear();
+        unabortableAuthAttempts.current.clear();
+        quarantineCleanupOwners.current.clear();
+        accountSelection.current = { provider: "restoring", hint: null };
+        writeAccountProviderHint(null);
+        preserveSignedOutMessage.current = true;
+        setAuthQuarantineRevision((revision) => revision + 1);
+        setStatus("signed-out");
+        setMessage("You are signed out.");
+      },
     });
 
-    if (signedOut) {
-      revokedAuthAttempts.current.clear();
-      unabortableAuthAttempts.current.clear();
-      quarantineCleanupOwners.current.clear();
-      writeAccountProviderHint(null);
-      setAuthQuarantineRevision((revision) => revision + 1);
-      setMessage("You are signed out.");
-      return;
+    if (result === "failed") {
+      throw new Error("CDP sign-out did not finish.");
     }
-
-    throw new Error("CDP sign-out did not finish.");
-  }, [clearBaseConnection, clearPrivateState, ownerKey, sdkSignOut]);
+  }, [clearBaseConnection, clearPrivateState, ownerKey, runFencedSignOut]);
 
   const session = getVisibleVerifiedSession(
     verifiedOwner,
