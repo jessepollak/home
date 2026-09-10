@@ -2,7 +2,11 @@ import "../account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
-import type { ActivityPage, FetchActivity } from "./types";
+import {
+  ACTIVITY_TEASER_LIMIT,
+  type ActivityPage,
+  type FetchActivity,
+} from "./types";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import(
   "@testing-library/react"
@@ -91,7 +95,7 @@ function deferred<T>() {
 afterEach(() => cleanup());
 
 describe("ActivityPanel", () => {
-  test("renders direction, bounded shared amount formatting, freshness, and explorer link", async () => {
+  test("renders direction, bounded shared amount formatting, and explorer link without Refresh chrome", async () => {
     const view = render(
       <ActivityPanel
         session={session("subject-a", WALLET_A)}
@@ -103,7 +107,9 @@ describe("ActivityPanel", () => {
 
     await waitFor(() => expect(view.getByText("Received")).toBeTruthy());
     expect(view.getByText("+1,234,567.89 USDC")).toBeTruthy();
-    expect(view.getByText(/Updated/)).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Refresh" })).toBeNull();
+    expect(view.queryByText(/^Updated(\s|$)/)).toBeNull();
+    expect(view.queryByText("Data may be delayed")).toBeNull();
     const explorer = view.getByRole("link", { name: /View received USDC/ });
     expect(explorer.getAttribute("href")).toBe(
       `https://basescan.org/tx/0x${"a".repeat(64)}`,
@@ -125,7 +131,7 @@ describe("ActivityPanel", () => {
     expect(view.getByText("+10.00 USDC")).toBeTruthy();
   });
 
-  test("keeps the pagination window and first-page freshness stable while deduplicating overlap", async () => {
+  test("keeps the pagination window stable while deduplicating overlap", async () => {
     const queries: string[] = [];
     let initialExecutionTimestamp = "";
     const fetchActivity: FetchActivity = async (query) => {
@@ -167,7 +173,8 @@ describe("ActivityPanel", () => {
     );
 
     await waitFor(() => expect(view.getByText("Load more")).toBeTruthy());
-    expect(view.getByText(/Data may be delayed/)).toBeTruthy();
+    expect(view.queryByText(/Data may be delayed/)).toBeNull();
+    expect(view.queryByRole("button", { name: "Refresh" })).toBeNull();
     fireEvent.click(view.getByText("Load more"));
     await waitFor(() => expect(queries).toHaveLength(2));
     await waitFor(() =>
@@ -177,10 +184,8 @@ describe("ActivityPanel", () => {
     const secondQuery = new URLSearchParams(queries[1]);
     expect(secondQuery.get("to")).toBe(firstQuery.get("to"));
     expect(secondQuery.get("cursor")).toBe("cursor-1");
-    expect(view.getByText(/Data may be delayed/)).toBeTruthy();
-    expect(
-      view.getByRole("status").querySelector("time")?.getAttribute("datetime"),
-    ).toBe(initialExecutionTimestamp);
+    expect(view.queryByText(/Updated /)).toBeNull();
+    expect(initialExecutionTimestamp).not.toBe("");
   });
 
   test("clears immediately on account switch, aborts the old request, and ignores its late response", async () => {
@@ -274,5 +279,38 @@ describe("ActivityPanel", () => {
     );
     expect(view.getByText("Recent Base activity timed out. Try again.")).toBeTruthy();
     expect(view.queryByText("No transfer history was inferred from this error.")).toBeNull();
+  });
+
+  test("teaser density caps rows and hides Load more without Refresh chrome", async () => {
+    const view = render(
+      <ActivityPanel
+        session={session("subject-a", WALLET_A)}
+        density="teaser"
+        fetchActivity={async (query) => {
+          const first = pageFor(query, WALLET_A, {
+            id: "event-1",
+            nextCursor: "cursor-1",
+          });
+          return {
+            ...first,
+            transfers: Array.from({ length: ACTIVITY_TEASER_LIMIT + 2 }, (_, index) => ({
+              ...first.transfers[0]!,
+              id: `event-${index + 1}`,
+              logIndex: String(index + 1),
+              transactionHash: `0x${(index + 10).toString(16).padStart(64, "0")}`,
+            })),
+          };
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(
+        ACTIVITY_TEASER_LIMIT,
+      ),
+    );
+    expect(view.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(view.queryByRole("button", { name: "Refresh" })).toBeNull();
+    expect(view.queryByText(/^Updated(\s|$)/)).toBeNull();
   });
 });

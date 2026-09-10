@@ -6,6 +6,7 @@ import { formatPresentationTokenAmount } from "@/features/formatting";
 import styles from "./activity.module.css";
 import { useActivity } from "./use-activity";
 import {
+  ACTIVITY_TEASER_LIMIT,
   activityAssets,
   type ActivityDirection,
   type ActivityPanelProps,
@@ -21,6 +22,8 @@ export function ActivityPanel({
   onTransactionHashesChange,
   leading,
   suppressEmpty = false,
+  density = "page",
+  header,
 }: ActivityPanelProps) {
   const activity = useActivity(session, fetchActivity, refreshTrigger);
   const transactionHashKey = activity.status === "ready"
@@ -31,10 +34,18 @@ export function ActivityPanel({
     onTransactionHashesChange?.(transactionHashKey ? transactionHashKey.split("\u0000") : []);
   }, [onTransactionHashesChange, transactionHashKey]);
 
+  const heading = header === undefined ? <DefaultActivityHeader /> : header;
+  const labelledBy = header === null ? undefined : "activity-title";
+  const labelled = header === null ? "Activity" : undefined;
+
   if (activity.status === "unavailable") {
     return (
-      <section className={styles.panel} aria-labelledby="activity-title">
-        <PanelHeader onRefresh={null} />
+      <section
+        className={styles.panel}
+        aria-labelledby={labelledBy}
+        aria-label={labelled}
+      >
+        {heading}
         {leading}
         {suppressEmpty ? null : <p className={styles.empty}>No activity yet</p>}
       </section>
@@ -45,10 +56,11 @@ export function ActivityPanel({
     return (
       <section
         className={styles.panel}
-        aria-labelledby="activity-title"
+        aria-labelledby={labelledBy}
+        aria-label={labelled}
         aria-busy="true"
       >
-        <PanelHeader onRefresh={null} />
+        {heading}
         {leading}
         <div className={styles.loading} role="status">
           <span className={styles.spinner} aria-hidden="true" />
@@ -60,8 +72,12 @@ export function ActivityPanel({
 
   if (activity.status === "error") {
     return (
-      <section className={styles.panel} aria-labelledby="activity-title">
-        <PanelHeader onRefresh={null} />
+      <section
+        className={styles.panel}
+        aria-labelledby={labelledBy}
+        aria-label={labelled}
+      >
+        {heading}
         {leading}
         <div className={styles.error} role="alert">
           <strong>Activity is temporarily unavailable.</strong>
@@ -79,37 +95,35 @@ export function ActivityPanel({
   }
 
   const { page } = activity;
-  const isEmpty = page.transfers.length === 0;
+  const visibleTransfers =
+    density === "teaser"
+      ? page.transfers.slice(0, ACTIVITY_TEASER_LIMIT)
+      : page.transfers;
+  const isEmpty = visibleTransfers.length === 0;
   return (
-    <section className={styles.panel} aria-labelledby="activity-title">
-      <PanelHeader onRefresh={activity.refresh} />
+    <section
+      className={styles.panel}
+      aria-labelledby={labelledBy}
+      aria-label={labelled}
+    >
+      {heading}
       {leading}
-      {isEmpty ? null : (
-        <p className={styles.freshness} role="status">
-          {page.source.stale ? "Data may be delayed" : "Updated"}{" "}
-          <time dateTime={page.source.executionTimestamp}>
-            {formatActivityDate(page.source.executionTimestamp)}
-          </time>
-          {page.source.cached ? " · cached result" : ""}
-        </p>
-      )}
-
       {isEmpty ? (
         suppressEmpty ? null : <p className={styles.empty}>No activity yet</p>
       ) : (
         <ol className={styles.list}>
-          {page.transfers.map((transfer) => (
+          {visibleTransfers.map((transfer) => (
             <TransferActivityRow key={transfer.id} transfer={transfer} />
           ))}
         </ol>
       )}
 
-      {activity.loadMoreError ? (
+      {density === "page" && activity.loadMoreError ? (
         <p className={styles.loadMoreError} role="alert">
           More activity could not be loaded. Your current results are unchanged.
         </p>
       ) : null}
-      {page.nextCursor ? (
+      {density === "page" && page.nextCursor ? (
         <button
           className={styles.loadMoreButton}
           type="button"
@@ -123,15 +137,10 @@ export function ActivityPanel({
   );
 }
 
-function PanelHeader({ onRefresh }: { onRefresh: (() => void) | null }) {
+function DefaultActivityHeader() {
   return (
     <div className={styles.header}>
       <h2 id="activity-title">Activity</h2>
-      {onRefresh ? (
-        <button className={styles.refreshButton} type="button" onClick={onRefresh}>
-          Refresh
-        </button>
-      ) : null}
     </div>
   );
 }

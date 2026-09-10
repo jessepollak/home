@@ -5,6 +5,9 @@ import { cryptoAssets } from "@/config/invest-assets";
 export const ACTIVITY_BASE_CHAIN_ID = 8453 as const;
 export const ACTIVITY_PAGE_SIZE = 25 as const;
 export const ACTIVITY_WINDOW_DAYS = 31 as const;
+export const ACTIVITY_TEASER_LIMIT = 5 as const;
+
+export type ActivityPanelDensity = "teaser" | "page";
 
 export const activityAssets = [
   {
@@ -99,4 +102,6 @@ export type ActivityPanelProps = {
   onTransactionHashesChange?: (hashes: string[]) => void;
   leading?: ReactNode;
   suppressEmpty?: boolean;
+  density?: ActivityPanelDensity;
+  header?: ReactNode | null;
 };

@@ -15,7 +15,14 @@ import {
   readAnonymousCountryPreference,
   writeAnonymousCountryPreference,
 } from "@/config/country-preference";
-import { savePanelId, type ShellPanelId } from "@/config/navigation";
+import {
+  activityPanelId,
+  balancesPanelId,
+  isHomeNestedPanelId,
+  nestedHomePanelTitle,
+  savePanelId,
+  type ShellPanelId,
+} from "@/config/navigation";
 import { parseShellLocation, shellHref } from "@/config/shell-location";
 import { PrimaryNavigation } from "@/components/primary-navigation";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -31,7 +38,11 @@ import { AccountSignInSheet } from "@/features/account/account-screen";
 import { AccountSettings } from "@/features/account/account-settings";
 import { useAccountWallet } from "@/features/account/cdp-client";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
-import { ActivityPanel, type FetchActivity } from "@/features/activity";
+import {
+  ActivityPanel,
+  type ActivityPanelDensity,
+  type FetchActivity,
+} from "@/features/activity";
 import {
   MoneyDataRefreshProvider,
   RecentMoneyActions,
@@ -422,15 +433,11 @@ export function HomeExperience({
       <header className="app-header">
         {isAccountSettingsOpen ? (
           <h1 className="account-settings-title">Account</h1>
-        ) : activeNavigation === savePanelId ? (
-          <button
-            className="header-back-link"
-            type="button"
-            onClick={() => navigateTo("home")}
-          >
-            <span aria-hidden="true">←</span>
-            <span className="sr-only">Back</span>
-          </button>
+        ) : isHomeNestedPanelId(activeNavigation) ? (
+          <NestedHomeHeader
+            title={nestedHomePanelTitle(activeNavigation)}
+            onBack={() => navigateTo("home")}
+          />
         ) : (
           <HomeMark
             onClick={() => {
@@ -504,12 +511,14 @@ export function HomeExperience({
                 id="navigation-panel"
                 tabIndex={-1}
                 aria-labelledby={
-                  activeNavigation === savePanelId
+                  isHomeNestedPanelId(activeNavigation)
                     ? undefined
                     : `${activeNavigation}-nav`
                 }
                 aria-label={
-                  activeNavigation === savePanelId ? "Savings" : undefined
+                  activeNavigation === savePanelId
+                    ? "Savings"
+                    : nestedHomePanelTitle(activeNavigation) ?? undefined
                 }
                 aria-busy={isChecking}
               >
@@ -524,6 +533,28 @@ export function HomeExperience({
                     activityRefreshTrigger={activityRefreshTrigger}
                     onTransferConfirmed={onTransferConfirmed}
                     onOpenSave={() => navigateTo(savePanelId)}
+                    onOpenBalances={() => navigateTo(balancesPanelId)}
+                    onOpenActivity={() => navigateTo(activityPanelId)}
+                  />
+                ) : null}
+                {activeNavigation === balancesPanelId ? (
+                  <BalancesPage
+                    assetBalances={paintedAssetBalances}
+                    isChecking={isChecking}
+                  />
+                ) : null}
+                {activeNavigation === activityPanelId ? (
+                  <ActivityPage
+                    activitySession={activitySession}
+                    fetchActivity={account.fetchActivity}
+                    fetchOperations={account.fetchOperations}
+                    readOperation={readOperation}
+                    recoverOperation={account.executeMoneyAction}
+                    activityRefreshTrigger={activityRefreshTrigger}
+                    showSessionShimmer={!activitySession && (
+                      paintedAssetBalances.status === "loading" ||
+                      paintedAssetBalances.revalidating === true
+                    )}
                   />
                 ) : null}
                 {activeNavigation === savePanelId
@@ -689,6 +720,52 @@ function SignedOutLanding({
   );
 }
 
+function NestedHomeHeader({
+  title,
+  onBack,
+}: {
+  title: "Balances" | "Activity" | null;
+  onBack: () => void;
+}) {
+  const back = (
+    <button className="header-back-link" type="button" onClick={onBack}>
+      <span aria-hidden="true">←</span>
+      <span className="sr-only">Back</span>
+    </button>
+  );
+  if (!title) return back;
+  return (
+    <div className="header-leading">
+      {back}
+      <h1 className="header-panel-title">{title}</h1>
+    </div>
+  );
+}
+
+function SectionTapIn({
+  headingId,
+  title,
+  onOpen,
+}: {
+  headingId: string;
+  title: "Balances" | "Activity";
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      className="section-tap-in"
+      type="button"
+      onClick={onOpen}
+      aria-label={title}
+    >
+      <h2 id={headingId}>{title}</h2>
+      <span className="section-tap-in-affordance" aria-hidden="true">
+        ›
+      </span>
+    </button>
+  );
+}
+
 function HomePanel({
   assetBalances,
   activitySession,
@@ -699,6 +776,8 @@ function HomePanel({
   activityRefreshTrigger,
   onTransferConfirmed,
   onOpenSave,
+  onOpenBalances,
+  onOpenActivity,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   activitySession: VerifiedAccountSession | null;
@@ -709,6 +788,8 @@ function HomePanel({
   activityRefreshTrigger?: string | number;
   onTransferConfirmed?: () => void;
   onOpenSave: () => void;
+  onOpenBalances: () => void;
+  onOpenActivity: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading";
   const isRevalidating = assetBalances?.revalidating === true;
@@ -719,15 +800,6 @@ function HomePanel({
       ? "Balance unavailable"
       : "Total balance";
   const balanceItems = assetBalances?.items ?? [];
-  const [indexedTransactionHashes, setIndexedTransactionHashes] = useState<string[]>([]);
-  const [localActionCount, setLocalActionCount] = useState(0);
-  const updateIndexedTransactionHashes = useCallback((hashes: string[]) => {
-    setIndexedTransactionHashes((current) =>
-      current.length === hashes.length && current.every((hash, index) => hash === hashes[index])
-        ? current
-        : hashes
-    );
-  }, []);
 
   return (
     <div className="home-panel">
@@ -764,46 +836,12 @@ function HomePanel({
       </div>
 
       <section className="balances-panel" aria-labelledby="balances-heading">
-        <h2 id="balances-heading">Balances</h2>
-        {balanceItems.length > 0 ? (
-          <ul className="supplied-asset-list">
-            {balanceItems.map((asset) => {
-              const row = presentHomeBalanceRow(asset);
-              const mark = presentHomeBalanceMark(asset);
-              return (
-                <BalanceRow
-                  key={asset.id}
-                  icon={
-                    <CurrencyMark
-                      currency={mark.currency}
-                      symbol={mark.symbol}
-                    />
-                  }
-                  iconTone="mark"
-                  label={asset.name}
-                  context={asset.displayContext}
-                  value={
-                    row.accessibleBalance ? (
-                      <span
-                        aria-label={row.accessibleBalance}
-                        title={row.accessibleBalance}
-                      >
-                        {row.visualBalance}
-                      </span>
-                    ) : (
-                      row.visualBalance
-                    )
-                  }
-                  valueTone={row.tone}
-                />
-              );
-            })}
-          </ul>
-        ) : isLoading ? (
-          <ShimmerRows count={2} />
-        ) : (
-          <p className="balances-empty">No balances yet</p>
-        )}
+        <SectionTapIn
+          headingId="balances-heading"
+          title="Balances"
+          onOpen={onOpenBalances}
+        />
+        <HomeBalancesList items={balanceItems} isLoading={isLoading} />
       </section>
 
       {showSessionShimmer ? (
@@ -840,34 +878,197 @@ function HomePanel({
           aria-labelledby="activity-title"
           aria-busy="true"
         >
-          <h2 id="activity-title">Activity</h2>
+          <SectionTapIn
+            headingId="activity-title"
+            title="Activity"
+            onOpen={onOpenActivity}
+          />
           <ShimmerRows count={2} />
         </section>
       ) : (
         <div className="activity-panel activity-panel-slot">
-          <ActivityPanel
-            session={activitySession}
-            fetchActivity={fetchActivity}
-            refreshTrigger={activityRefreshTrigger}
-            onTransactionHashesChange={updateIndexedTransactionHashes}
-            suppressEmpty={localActionCount > 0}
-            leading={
-              <RecentMoneyActions
-                session={activitySession}
-                fetchOperations={fetchOperations}
-                readOperation={readOperation}
-                recoverOperation={recoverOperation}
-                refreshTrigger={activityRefreshTrigger}
-                excludeTransactionHashes={indexedTransactionHashes}
-                embedded
-                onVisibleCountChange={setLocalActionCount}
+          <ConnectedActivityPanel
+            density="teaser"
+            header={
+              <SectionTapIn
+                headingId="activity-title"
+                title="Activity"
+                onOpen={onOpenActivity}
               />
             }
+            activitySession={activitySession}
+            fetchActivity={fetchActivity}
+            fetchOperations={fetchOperations}
+            readOperation={readOperation}
+            recoverOperation={recoverOperation}
+            activityRefreshTrigger={activityRefreshTrigger}
           />
         </div>
       )}
     </div>
   );
+}
+
+function BalancesPage({
+  assetBalances,
+  isChecking,
+}: {
+  assetBalances?: HomeAssetBalancesPresentation;
+  isChecking: boolean;
+}) {
+  const isLoading = assetBalances?.status === "loading" || isChecking;
+  return (
+    <section className="balances-panel nested-home-panel" aria-label="Balances">
+      <HomeBalancesList
+        items={assetBalances?.items ?? []}
+        isLoading={isLoading}
+      />
+    </section>
+  );
+}
+
+function ActivityPage({
+  activitySession,
+  fetchActivity,
+  fetchOperations,
+  readOperation,
+  recoverOperation,
+  activityRefreshTrigger,
+  showSessionShimmer,
+}: {
+  activitySession: VerifiedAccountSession | null;
+  fetchActivity: FetchActivity;
+  fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
+  readOperation: (id: string, signal?: AbortSignal) => Promise<unknown>;
+  recoverOperation?: (action: PreparedMoneyAction) => Promise<unknown>;
+  activityRefreshTrigger?: string | number;
+  showSessionShimmer: boolean;
+}) {
+  if (showSessionShimmer) {
+    return (
+      <section className="activity-panel nested-home-panel" aria-label="Activity" aria-busy="true">
+        <ShimmerRows count={4} />
+      </section>
+    );
+  }
+  return (
+    <div className="activity-panel activity-panel-slot nested-home-panel">
+      <ConnectedActivityPanel
+        density="page"
+        header={null}
+        activitySession={activitySession}
+        fetchActivity={fetchActivity}
+        fetchOperations={fetchOperations}
+        readOperation={readOperation}
+        recoverOperation={recoverOperation}
+        activityRefreshTrigger={activityRefreshTrigger}
+      />
+    </div>
+  );
+}
+
+function ConnectedActivityPanel({
+  density,
+  header,
+  activitySession,
+  fetchActivity,
+  fetchOperations,
+  readOperation,
+  recoverOperation,
+  activityRefreshTrigger,
+}: {
+  density: ActivityPanelDensity;
+  header?: ReactNode | null;
+  activitySession: VerifiedAccountSession | null;
+  fetchActivity: FetchActivity;
+  fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
+  readOperation: (id: string, signal?: AbortSignal) => Promise<unknown>;
+  recoverOperation?: (action: PreparedMoneyAction) => Promise<unknown>;
+  activityRefreshTrigger?: string | number;
+}) {
+  const [indexedTransactionHashes, setIndexedTransactionHashes] = useState<string[]>([]);
+  const [localActionCount, setLocalActionCount] = useState(0);
+  const updateIndexedTransactionHashes = useCallback((hashes: string[]) => {
+    setIndexedTransactionHashes((current) =>
+      current.length === hashes.length && current.every((hash, index) => hash === hashes[index])
+        ? current
+        : hashes
+    );
+  }, []);
+
+  return (
+    <ActivityPanel
+      session={activitySession}
+      fetchActivity={fetchActivity}
+      refreshTrigger={activityRefreshTrigger}
+      onTransactionHashesChange={updateIndexedTransactionHashes}
+      suppressEmpty={localActionCount > 0}
+      density={density}
+      header={header}
+      leading={
+        <RecentMoneyActions
+          session={activitySession}
+          fetchOperations={fetchOperations}
+          readOperation={readOperation}
+          recoverOperation={recoverOperation}
+          refreshTrigger={activityRefreshTrigger}
+          excludeTransactionHashes={indexedTransactionHashes}
+          embedded
+          onVisibleCountChange={setLocalActionCount}
+        />
+      }
+    />
+  );
+}
+
+function HomeBalancesList({
+  items,
+  isLoading,
+}: {
+  items: readonly HomeAssetBalanceItem[];
+  isLoading: boolean;
+}) {
+  if (items.length > 0) {
+    return (
+      <ul className="supplied-asset-list">
+        {items.map((asset) => {
+          const row = presentHomeBalanceRow(asset);
+          const mark = presentHomeBalanceMark(asset);
+          return (
+            <BalanceRow
+              key={asset.id}
+              icon={
+                <CurrencyMark
+                  currency={mark.currency}
+                  symbol={mark.symbol}
+                />
+              }
+              iconTone="mark"
+              label={asset.name}
+              context={asset.displayContext}
+              value={
+                row.accessibleBalance ? (
+                  <span
+                    aria-label={row.accessibleBalance}
+                    title={row.accessibleBalance}
+                  >
+                    {row.visualBalance}
+                  </span>
+                ) : (
+                  row.visualBalance
+                )
+              }
+              valueTone={row.tone}
+            />
+          );
+        })}
+      </ul>
+    );
+  }
+  if (isLoading) {
+    return <ShimmerRows count={2} />;
+  }
+  return <p className="balances-empty">No balances yet</p>;
 }
 
 function availableSendBalances(

@@ -430,7 +430,7 @@ function HomeHarness({
   accountSdk: AccountWalletSdkBoundary;
   sessionFetch?: SessionFetch;
   initialAccountOpen?: boolean;
-  initialPanel?: "home" | "invest" | "save";
+  initialPanel?: "home" | "invest" | "save" | "balances" | "activity";
   initialAccountSettingsOpen?: boolean;
   detectedCountry?: string | null;
   routeMode?: "landing" | "dashboard";
@@ -1666,6 +1666,76 @@ describe("login-state home experience", () => {
     expect(page().queryByText("Savings verifying unavailable")).toBeNull();
     expect(page().queryByText("Savings fixture")).toBeNull();
     expect(document.querySelector("[data-shimmer='hero']")).toBeNull();
+  });
+
+  test("taps Balances and Activity into nested lists and keeps Home free of Refresh chrome", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      />,
+    );
+
+    await enabledAccountButton();
+    expect(page().queryByRole("button", { name: "Refresh" })).toBeNull();
+    expect(page().queryByText(/^Updated(\s|$)/)).toBeNull();
+    expect(page().queryByText("Data may be delayed")).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(page().getByText("US dollar")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Save" })).toBeNull();
+    expect(pushCalls).toEqual(["/dashboard?panel=balances"]);
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(page().getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Activity" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Refresh" })).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Activity" }));
+    expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Refresh" })).toBeNull();
+    expect(page().queryByText(/^Updated(\s|$)/)).toBeNull();
+    expect(pushCalls).toEqual([
+      "/dashboard?panel=balances",
+      "/dashboard",
+      "/dashboard?panel=activity",
+    ]);
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    fireEvent.click(page().getByRole("button", { name: "Save" }));
+    expect(page().getByRole("region", { name: "Savings module" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Save" })).toBeNull();
+  });
+
+  test("honors Balances and Activity dashboard deep links on first paint", async () => {
+    const balances = render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        initialPanel="balances"
+      />,
+    );
+    await enabledAccountButton();
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(page().getByText("US dollar")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Save" })).toBeNull();
+    expect(pushCalls).toEqual([]);
+    balances.unmount();
+
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        initialPanel="activity"
+      />,
+    );
+    await enabledAccountButton();
+    expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Refresh" })).toBeNull();
+    expect(page().queryByText(/^Updated(\s|$)/)).toBeNull();
   });
 
   test("honors a dashboard panel deep link on first paint", async () => {

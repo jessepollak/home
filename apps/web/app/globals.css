@@ -131,6 +131,24 @@ body:has(.app-main-authenticated) {
   padding: 0;
 }
 
+.header-leading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.header-panel-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--home-ink);
+  font-size: 1.05rem;
+  font-weight: 750;
+  letter-spacing: -0.035em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .wordmark {
   border: 0;
   background: transparent;
@@ -587,6 +605,34 @@ body:has(.app-main-authenticated) {
   font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.section-tap-in {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.section-tap-in-affordance {
+  color: var(--home-blue);
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.nested-home-panel {
+  min-height: 100%;
 }
 
 .balances-empty {

@@ -32,7 +32,6 @@
   text-transform: uppercase;
 }
 
-.refreshButton,
 .loadMoreButton,
 .error button {
   border: 1px solid var(--home-hairline);
@@ -43,17 +42,6 @@
   font: inherit;
   font-size: 0.78rem;
   font-weight: 700;
-}
-
-.refreshButton {
-  min-height: 44px;
-  padding: 0 12px;
-}
-
-.freshness {
-  margin: 16px 0 0;
-  color: var(--home-muted);
-  font-size: 0.75rem;
 }
 
 .list {
