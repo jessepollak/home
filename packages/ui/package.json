@@ -1,0 +1,51 @@
+{
+  "name": "@home/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./text": "./src/text.tsx",
+    "./button": "./src/button.tsx",
+    "./icon-button": "./src/icon-button.tsx",
+    "./icons": "./src/icons.ts",
+    "./tokens.css": "./src/tokens.css",
+    "./styles.css": "./src/styles.css",
+    "./tailwind.css": "./src/tailwind.css",
+    "./next-font": "./src/next-font.ts",
+    "./fonts/dm-sans.woff2": "./fonts/dm-sans.woff2",
+    "./fonts/dm-sans-italic.woff2": "./fonts/dm-sans-italic.woff2",
+    "./fonts/OFL.txt": "./fonts/OFL.txt",
+    "./fonts/dm-mono-medium.ttf": "./fonts/dm-mono-medium.ttf",
+    "./fonts/DM-Mono-OFL.txt": "./fonts/DM-Mono-OFL.txt"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "2.1.10"
+  },
+  "peerDependencies": {
+    "next": "^16.3.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "peerDependenciesMeta": {
+    "next": { "optional": true }
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "20.14.0",
+    "@testing-library/react": "16.3.3",
+    "@types/bun": "^1.4.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.4",
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "typescript": "^5"
+  }
+}
