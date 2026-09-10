@@ -315,6 +315,7 @@ type AccountSelection =
   | {
       provider: "blocked-authentication";
       authentication: AuthenticationIdentity | null;
+      restoredPendingHint?: true;
     }
   | { provider: "cdp-embedded" }
   | {
@@ -337,6 +338,13 @@ function initialAccountSelection(): AccountSelection {
     const hint = window.sessionStorage.getItem(ACCOUNT_PROVIDER_HINT_KEY);
     if (hint === "cdp-embedded" || hint === "base-account") {
       return { provider: "restoring", hint };
+    }
+    if (hint === "pending:cdp-embedded" || hint === "pending:base-account") {
+      return {
+        provider: "blocked-authentication",
+        authentication: null,
+        restoredPendingHint: true,
+      };
     }
     if (hint !== null) {
       return { provider: "blocked-authentication", authentication: null };
@@ -1157,6 +1165,20 @@ export function AccountWalletSessionOwner({
     }
 
     let selection = accountSelection.current;
+    if (
+      selection.provider === "blocked-authentication" &&
+      selection.authentication === null &&
+      selection.restoredPendingHint === true
+    ) {
+      selection = {
+        ...selection,
+        authentication: {
+          ownerKey,
+          generation: authenticationGeneration.current,
+        },
+      };
+      accountSelection.current = selection;
+    }
     const activeAttempt = signInAttemptSequence.current;
     const isCurrentEmailAuthenticationPending =
       selection.provider === "pending-authentication" &&

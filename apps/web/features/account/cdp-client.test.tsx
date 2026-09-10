@@ -1326,6 +1326,141 @@ describe("production account session owner", () => {
     }
   }
 
+  for (const persistedHint of [
+    "pending:base-account",
+    "pending:cdp-embedded",
+  ] as const) {
+    for (const freshOwner of [
+      { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
+      { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
+    ] as const) {
+      for (const freshArrival of [
+        "before-b-settlement",
+        "after-b-settlement",
+      ] as const) {
+        for (const ownerBCleanupOutcome of ["success", "failure"] as const) {
+          test(`scopes ${persistedHint} to owner B so fresh ${freshOwner.label} validates ${freshArrival} after B cleanup ${ownerBCleanupOutcome}`, async () => {
+            window.sessionStorage.setItem("home:account-provider", persistedHint);
+            const ownerBCleanup = deferred<void>();
+            let activeSdkOwner: string | null = OWNER_B;
+            let sessionCalls = 0;
+            let signOutCalls = 0;
+            const signOutOwners: Array<string | null> = [];
+            const sdk = baseSdk({
+              ownerKey: OWNER_B,
+              getAccessToken: async () => `token-${activeSdkOwner ?? "none"}`,
+              signOut: () => {
+                signOutCalls += 1;
+                signOutOwners.push(activeSdkOwner);
+                return ownerBCleanup.promise;
+              },
+            });
+            const view = render(
+              <SessionHarness
+                sdk={sdk}
+                sessionFetch={async () => {
+                  sessionCalls += 1;
+                  return sessionResponse(
+                    sessionFor("unexpected-owner-b", ADDRESS_B),
+                  );
+                }}
+              />,
+            );
+
+            await waitFor(() => expect(signOutCalls).toBe(1));
+            expect(signOutOwners).toEqual([OWNER_B]);
+            expect(sessionCalls).toBe(0);
+            expect(page().getByTestId("status").textContent).toBe("signing-out");
+            expect(page().getByTestId("address").textContent).toBe(
+              "private-details-hidden",
+            );
+
+            activeSdkOwner = null;
+            view.rerender(
+              <SessionHarness
+                sdk={{ ...sdk, isSignedIn: false, ownerKey: null }}
+                sessionFetch={async () => new Response(null, { status: 401 })}
+              />,
+            );
+
+            const settleOwnerBCleanup = async () => {
+              await act(async () => {
+                if (ownerBCleanupOutcome === "success") {
+                  ownerBCleanup.resolve();
+                  await ownerBCleanup.promise;
+                } else {
+                  ownerBCleanup.reject(new Error("owner-b cleanup failure"));
+                  await ownerBCleanup.promise.catch(() => {});
+                }
+              });
+            };
+            const renderFreshOwner = () => {
+              activeSdkOwner = freshOwner.ownerKey;
+              view.rerender(
+                <SessionHarness
+                  sdk={{ ...sdk, ownerKey: freshOwner.ownerKey }}
+                  sessionFetch={async () => {
+                    sessionCalls += 1;
+                    return sessionResponse(
+                      sessionFor(
+                        `fresh-subject-${freshOwner.label.toLowerCase()}`,
+                        freshOwner.address,
+                      ),
+                    );
+                  }}
+                />,
+              );
+            };
+
+            if (freshArrival === "after-b-settlement") {
+              await settleOwnerBCleanup();
+              await waitFor(() =>
+                expect(page().getByTestId("status").textContent).toBe(
+                  ownerBCleanupOutcome === "success"
+                    ? "signed-out"
+                    : "signout-error",
+                ),
+              );
+              renderFreshOwner();
+            } else {
+              renderFreshOwner();
+            }
+
+            await waitFor(() =>
+              expect(page().getByTestId("address").textContent).toBe(
+                freshOwner.address,
+              ),
+            );
+            expect(page().getByTestId("status").textContent).toBe("verified");
+            expect(page().getByTestId("provider").textContent).toBe(
+              "cdp-embedded",
+            );
+            expect(sessionCalls).toBe(1);
+            expect(signOutCalls).toBe(1);
+            expect(signOutOwners).toEqual([OWNER_B]);
+            expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+              "cdp-embedded",
+            );
+
+            if (freshArrival === "before-b-settlement") {
+              await settleOwnerBCleanup();
+              await act(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+              });
+              expect(page().getByTestId("status").textContent).toBe("verified");
+              expect(page().getByTestId("address").textContent).toBe(
+                freshOwner.address,
+              );
+              expect(sessionCalls).toBe(1);
+              expect(signOutCalls).toBe(1);
+              expect(signOutOwners).toEqual([OWNER_B]);
+            }
+          });
+        }
+      }
+    }
+  }
+
   for (const ownerACleanupOutcome of ["success", "failure"] as const) {
     for (const freshOwner of [
       { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
