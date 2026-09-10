@@ -462,13 +462,17 @@ function HomeExperienceView({
       <header className="app-header">
         <div className="app-header-start">
           {isAccountSettingsOpen ? (
-            <h1 className="account-settings-title">Account</h1>
+            <h1 className="app-header-lead-title">Account</h1>
           ) : nestedChrome ? (
             <NestedHomeHeader
               title={nestedChrome.title}
               backLabel={nestedChrome.backLabel}
               onBack={nestedChrome.onBack}
             />
+          ) : routeMode === "dashboard" ? (
+            <h1 className="app-header-lead-title">
+              {activeNavigation === "invest" ? "Invest" : "Home"}
+            </h1>
           ) : (
             <HomeMark
               onClick={() => {

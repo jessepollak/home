@@ -1786,6 +1786,7 @@ describe("login-state home experience", () => {
     const account = await enabledAccountButton();
     expect(document.querySelector(".app-frame-shell")).toBeTruthy();
     expect(document.querySelector(".app-header")).toBeTruthy();
+    expect(page().getByRole("heading", { level: 1, name: "Home" })).toBeTruthy();
     expect(document.querySelector(".panel-fade")).toBeTruthy();
     expect(account.querySelector("[data-profile]")).toBeTruthy();
     expect(account.textContent).toBe("h");
@@ -1812,6 +1813,7 @@ describe("login-state home experience", () => {
     await enabledAccountButton();
     const header = document.querySelector(".app-header");
     expect(header).toBeTruthy();
+    expect(page().getByRole("heading", { level: 1, name: "Home" })).toBeTruthy();
     expect(page().queryByRole("heading", { name: "Save" })).toBeNull();
 
     fireEvent.click(page().getByRole("button", { name: "Save" }));

@@ -1,3 +1,4 @@
+import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
 import {
@@ -33,6 +34,7 @@ export function InvestHub({
   onSeeAll,
   onOpenAsset,
 }: InvestHubProps) {
+  const hosted = Boolean(useOptionalAppChrome());
   const markets = {
     stock: stockMarket,
     crypto: cryptoMarket ?? unavailableMarketData,
@@ -40,11 +42,19 @@ export function InvestHub({
   } as const;
 
   return (
-    <section className={styles.experience} aria-labelledby="invest-title">
-      <header className={styles.header}>
-        <h2 id="invest-title">Invest</h2>
-        <p>Browse on Base</p>
-      </header>
+    <section
+      className={styles.experience}
+      aria-label={hosted ? "Invest" : undefined}
+      aria-labelledby={hosted ? undefined : "invest-title"}
+    >
+      {hosted ? (
+        <p className={styles.hubLead}>Browse on Base</p>
+      ) : (
+        <header className={styles.header}>
+          <h2 id="invest-title">Invest</h2>
+          <p>Browse on Base</p>
+        </header>
+      )}
       <div className={styles.shelves}>
         {discoverShelves.map((shelf) => (
           <DiscoverShelf

@@ -150,7 +150,7 @@ body:has(.app-frame-shell) {
   height: 0;
 }
 
-.account-settings-title {
+.app-header-lead-title {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 720;

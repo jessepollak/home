@@ -27,7 +27,9 @@ export function PrimaryNavigation({
     <nav className={styles.navigation} aria-label="Main navigation">
       {navigationItems.map((item) => {
         const Icon = navigationIcons[item.id];
-        const isActive = activeNavigation === item.id;
+        const isActive =
+          activeNavigation === item.id ||
+          (item.id === "home" && isHomeNestedPanelId(activeNavigation));
 
         return (
           <button
