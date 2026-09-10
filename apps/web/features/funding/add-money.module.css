@@ -253,7 +253,6 @@
 .buyField,
 .paymentMethods,
 .paymentSummary,
-.pendingHelp,
 .onrampEmbed {
   width: min(100%, 340px);
 }
@@ -404,12 +403,6 @@
   line-height: 1;
 }
 
-.pendingHelp {
-  margin: 0;
-  color: var(--home-muted);
-  font-size: 0.8rem;
-  line-height: 1.45;
-}
 
 .statusStack {
   display: grid;

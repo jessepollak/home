@@ -36,9 +36,7 @@ type InlineOnramp = {
   url: string;
 };
 
-type PostCheckoutPayment = PaymentSummary & {
-  receiptUrl: string;
-};
+type PostCheckoutPayment = PaymentSummary;
 
 export function FundingExperience(props: FundingExperienceProps) {
   const wallet = useAccountWallet();
@@ -94,7 +92,6 @@ function FundingExperienceBoundary({
   const [inlineOnramp, setInlineOnramp] = useState<InlineOnramp | null>(null);
   const [postCheckoutPayment, setPostCheckoutPayment] =
     useState<PostCheckoutPayment | null>(null);
-  const [showReceipt, setShowReceipt] = useState(false);
   const requestEpochRef = useRef(0);
   const requestAbortRef = useRef<AbortController | null>(null);
   const activeInlineAttemptRef = useRef<number | null>(null);
@@ -136,16 +133,13 @@ function FundingExperienceBoundary({
       }
       const eventName = readOnrampEventName(event.data);
       if (eventName === "onramp_api.polling_success") {
-        const completedPayment = activePayment;
-        const receiptUrl = currentOnramp.url;
+        const completedPayment = activePayment
+          ? { ...activePayment }
+          : null;
         cancelOnramp();
         setOnrampError(null);
-        setShowReceipt(false);
         if (completedPayment) {
-          setPostCheckoutPayment({
-            ...completedPayment,
-            receiptUrl,
-          });
+          setPostCheckoutPayment(completedPayment);
           setStep("pending");
         }
       } else if (eventName === "onramp_api.cancel") {
@@ -232,11 +226,11 @@ function FundingExperienceBoundary({
   }
 
   function close() {
+    if (!openRef.current) return;
     openRef.current = false;
     cancelOnramp();
     setStep("method");
     setPostCheckoutPayment(null);
-    setShowReceipt(false);
     setOnrampError(null);
     onClose?.();
   }
@@ -246,7 +240,6 @@ function FundingExperienceBoundary({
     openRef.current = true;
     setStep("method");
     setPostCheckoutPayment(null);
-    setShowReceipt(false);
     setOnrampError(null);
   }
 
@@ -264,7 +257,6 @@ function FundingExperienceBoundary({
       inlineOnrampAttemptId={inlineOnramp?.attemptId ?? null}
       iframeRef={iframeRef}
       postCheckoutPayment={postCheckoutPayment}
-      showReceipt={showReceipt}
       signedOut={signedOut}
       regionId={regionId}
       onClose={close}
@@ -273,7 +265,6 @@ function FundingExperienceBoundary({
       onSelectBuy={() => {
         openRef.current = true;
         setPostCheckoutPayment(null);
-        setShowReceipt(false);
         setOnrampError(null);
         setStep("buy");
       }}
@@ -283,7 +274,6 @@ function FundingExperienceBoundary({
         cancelOnramp();
         setOnrampError(null);
       }}
-      onToggleReceipt={() => setShowReceipt((visible) => !visible)}
       onCheckBalance={close}
       onContinueToCoinbase={() => void openCoinbase()}
     />

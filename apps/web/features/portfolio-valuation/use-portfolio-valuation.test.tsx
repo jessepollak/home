@@ -6,21 +6,37 @@ import { usePortfolioValuation } from "./use-portfolio-valuation";
 import type { FetchPortfolioValuation } from "./types";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
-const session = {
+const ADDRESS_B = "0x2222222222222222222222222222222222222222" as const;
+const sessionA = {
   subject: "subject-a",
   smartAccountAddress: ADDRESS,
+  chainId: 8453 as const,
+};
+const sessionB = {
+  subject: "subject-b",
+  smartAccountAddress: ADDRESS_B,
   chainId: 8453 as const,
 };
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
-function snapshot(region: "US" | "DE") {
+function snapshot(
+  region: "US" | "DE",
+  options: {
+    address?: typeof ADDRESS | typeof ADDRESS_B;
+    totalAtoms?: string;
+  } = {},
+) {
+  const address = options.address ?? ADDRESS;
+  const totalAtoms = options.totalAtoms ?? "1";
   const currency = region === "US" ? "USD" : "EUR";
   const source = {
     provider: "Coinbase Exchange Rates",
@@ -81,7 +97,7 @@ function snapshot(region: "US" | "DE") {
   ];
   return {
     version: 2,
-    walletAddress: ADDRESS,
+    walletAddress: address,
     chainId: 8453,
     selectedRegion: region,
     quoteCurrency: currency,
@@ -136,7 +152,7 @@ function snapshot(region: "US" | "DE") {
     total: {
       label: "supported-portfolio-value",
       status: "all-supported-read-holdings-priced",
-      value: { atoms: region === "US" ? "1" : "9", scale: region === "US" ? 0 : 1 },
+      value: { atoms: totalAtoms, scale: 0 },
       currency,
       unpricedAssetKeys: [],
       unavailableAssetKeys: [],
@@ -144,9 +160,30 @@ function snapshot(region: "US" | "DE") {
   };
 }
 
-function Harness({ region, fetchValuation }: { region: "US" | "DE"; fetchValuation: FetchPortfolioValuation }) {
-  const state = usePortfolioValuation(session, region, fetchValuation);
-  return <div>{state.status === "ready" ? `${state.snapshot.selectedRegion}:${state.snapshot.quoteCurrency}` : state.status}</div>;
+function Harness({
+  region,
+  fetchValuation,
+  refreshTrigger,
+  session = sessionA,
+}: {
+  region: "US" | "DE";
+  fetchValuation: FetchPortfolioValuation;
+  refreshTrigger?: number;
+  session?: typeof sessionA | typeof sessionB;
+}) {
+  const state = usePortfolioValuation(
+    session,
+    region,
+    fetchValuation,
+    refreshTrigger,
+  );
+  return (
+    <div>
+      {state.status === "ready"
+        ? `${state.snapshot.selectedRegion}:${state.snapshot.quoteCurrency}:${state.snapshot.total.value?.atoms}`
+        : state.status}
+    </div>
+  );
 }
 
 afterEach(cleanup);
@@ -165,6 +202,88 @@ describe("portfolio valuation ownership", () => {
     await act(async () => us.resolve(snapshot("US")));
     expect(document.body.textContent).toBe("loading");
     await act(async () => de.resolve(snapshot("DE")));
-    await waitFor(() => expect(document.body.textContent).toBe("DE:EUR"));
+    await waitFor(() => expect(document.body.textContent).toBe("DE:EUR:1"));
+  });
+
+  test("same-owner refreshes read again and keep updated, unchanged, and failed results truthful", async () => {
+    const reads = [
+      deferred<unknown>(),
+      deferred<unknown>(),
+      deferred<unknown>(),
+      deferred<unknown>(),
+    ];
+    let readIndex = 0;
+    const fetchValuation: FetchPortfolioValuation = () =>
+      reads[readIndex++]!.promise;
+    const view = render(
+      <Harness region="US" fetchValuation={fetchValuation} refreshTrigger={0} />,
+    );
+
+    await act(async () => reads[0]!.resolve(snapshot("US", { totalAtoms: "1" })));
+    await waitFor(() => expect(document.body.textContent).toBe("US:USD:1"));
+
+    view.rerender(
+      <Harness region="US" fetchValuation={fetchValuation} refreshTrigger={1} />,
+    );
+    expect(document.body.textContent).toBe("US:USD:1");
+    await act(async () => reads[1]!.resolve(snapshot("US", { totalAtoms: "2" })));
+    await waitFor(() => expect(document.body.textContent).toBe("US:USD:2"));
+
+    view.rerender(
+      <Harness region="US" fetchValuation={fetchValuation} refreshTrigger={2} />,
+    );
+    expect(document.body.textContent).toBe("US:USD:2");
+    await act(async () => reads[2]!.resolve(snapshot("US", { totalAtoms: "2" })));
+    await waitFor(() => expect(document.body.textContent).toBe("US:USD:2"));
+
+    view.rerender(
+      <Harness region="US" fetchValuation={fetchValuation} refreshTrigger={3} />,
+    );
+    expect(document.body.textContent).toBe("US:USD:2");
+    await act(async () => reads[3]!.reject(new Error("valuation unavailable")));
+    await waitFor(() => expect(document.body.textContent).toBe("error"));
+    expect(readIndex).toBe(4);
+  });
+
+  test("superseded refreshes are aborted and ignored across owner changes", async () => {
+    const first = deferred<unknown>();
+    const refreshed = deferred<unknown>();
+    const nextOwner = deferred<unknown>();
+    const signals: AbortSignal[] = [];
+    let readIndex = 0;
+    const reads = [first, refreshed, nextOwner];
+    const fetchValuation: FetchPortfolioValuation = (_region, signal) => {
+      if (signal) signals.push(signal);
+      return reads[readIndex++]!.promise;
+    };
+    const view = render(
+      <Harness region="US" fetchValuation={fetchValuation} refreshTrigger={0} />,
+    );
+
+    view.rerender(
+      <Harness region="US" fetchValuation={fetchValuation} refreshTrigger={1} />,
+    );
+    expect(signals[0]?.aborted).toBe(true);
+    view.rerender(
+      <Harness
+        region="US"
+        fetchValuation={fetchValuation}
+        refreshTrigger={1}
+        session={sessionB}
+      />,
+    );
+    expect(signals[1]?.aborted).toBe(true);
+
+    await act(async () => {
+      first.resolve(snapshot("US", { totalAtoms: "1" }));
+      refreshed.resolve(snapshot("US", { totalAtoms: "2" }));
+    });
+    expect(document.body.textContent).toBe("loading");
+
+    await act(async () => {
+      nextOwner.resolve(snapshot("US", { address: ADDRESS_B, totalAtoms: "3" }));
+    });
+    await waitFor(() => expect(document.body.textContent).toBe("US:USD:3"));
+    expect(readIndex).toBe(3);
   });
 });

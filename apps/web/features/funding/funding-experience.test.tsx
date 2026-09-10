@@ -403,14 +403,82 @@ describe("FundingExperience", () => {
       expect(page().getByRole("dialog", { name: "Deposit pending" })).toBeTruthy(),
     );
     expect(page().getByLabelText("Coinbase payment details").textContent).toContain("Google Pay");
-    expect(page().getByText(/does not confirm that USDC settled on Base/)).toBeTruthy();
+    expect(
+      page().getByText("Your deposit isn’t confirmed on Base. Close to refresh your balance."),
+    ).toBeTruthy();
     expect(page().queryByText("Check received")).toBeNull();
+    expect(page().queryByTitle("Coinbase payment")).toBeNull();
+    expect(page().queryByTitle("Coinbase receipt")).toBeNull();
+    expect(page().queryByRole("button", { name: /Coinbase receipt/ })).toBeNull();
+    expect(page().queryByRole("button", { name: "Continue to Coinbase" })).toBeNull();
     expect(page().getByRole("button", { name: "Close and check balance" })).toBeTruthy();
+  });
 
-    fireEvent.click(page().getByRole("button", { name: "View Coinbase receipt" }));
-    const receipt = await page().findByTitle("Coinbase receipt");
-    expect(receipt.getAttribute("src")).toBe(PAYMENT_LINK_B);
-    expect(page().getByRole("button", { name: "Hide Coinbase receipt" })).toBeTruthy();
+  test("pending close fires once and stale checkout messages cannot refresh or redispatch", async () => {
+    let requestCount = 0;
+    let closeCount = 0;
+    const view = render(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async () => {
+            requestCount += 1;
+            return onramp("iframe");
+          },
+        }}
+        navigateToHostedOnramp={() => {}}
+        onClose={() => {
+          closeCount += 1;
+        }}
+      />,
+    );
+
+    openBuy();
+    fireEvent.change(page().getByLabelText("USD amount"), {
+      target: { value: "42.5" },
+    });
+    fireEvent.click(page().getByLabelText("Google Pay"));
+    fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
+    const frame = await page().findByTitle("Coinbase payment") as HTMLIFrameElement;
+    const source = {} as MessageEventSource;
+    bindFrameSource(frame, source);
+
+    act(() => {
+      sendCoinbaseMessage(
+        source,
+        "https://pay.coinbase.com",
+        "onramp_api.polling_success",
+      );
+    });
+    await page().findByRole("dialog", { name: "Deposit pending" });
+    expect(page().getByLabelText("Coinbase payment details").textContent).toContain("$42.50");
+    expect(page().getByLabelText("Coinbase payment details").textContent).toContain("Google Pay");
+
+    fireEvent.click(page().getByRole("button", { name: "Close and check balance" }));
+    expect(closeCount).toBe(1);
+    view.rerender(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet()}
+        navigateToHostedOnramp={() => {}}
+        open={false}
+        onClose={() => {
+          closeCount += 1;
+        }}
+      />,
+    );
+
+    act(() => {
+      sendCoinbaseMessage(
+        source,
+        "https://pay.coinbase.com",
+        "onramp_api.polling_success",
+      );
+      document.querySelector("dialog")?.dispatchEvent(new Event("close"));
+    });
+    expect(closeCount).toBe(1);
+    expect(requestCount).toBe(1);
+    expect(page().queryByTitle("Coinbase payment")).toBeNull();
+    expect(page().queryByTitle("Coinbase receipt")).toBeNull();
   });
 
   test("Change payment details and Back both cancel an active inline attempt", async () => {
@@ -459,7 +527,7 @@ describe("FundingExperience", () => {
     await waitFor(() => expect(resolvers).toHaveLength(1));
     fireEvent.click(page().getByRole("button", { name: "Close add money" }));
     await act(async () => resolvers[0]?.(onramp("hosted")));
-    expect(closes).toBeGreaterThan(0);
+    expect(closes).toBe(1);
     expect(navigations).toEqual([]);
 
     view.rerender(

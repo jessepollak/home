@@ -21,10 +21,7 @@ const PAYMENT: OnrampPaymentSummary = {
   paymentAmount: "42.5",
   paymentMethod: "google-pay",
 };
-const POST_CHECKOUT_PAYMENT: PostCheckoutPayment = {
-  ...PAYMENT,
-  receiptUrl: "/dev/add-money-qa/frame",
-};
+const POST_CHECKOUT_PAYMENT: PostCheckoutPayment = PAYMENT;
 
 const qaClient: AccountWalletClient = {
   ...createBlockedAccountWalletClient("unconfigured"),
@@ -63,7 +60,6 @@ export function AddMoneyQaClient() {
           inlineOnrampAttemptId={state === "iframe" ? 1 : null}
           iframeRef={frameRef}
           postCheckoutPayment={state === "post-checkout" ? POST_CHECKOUT_PAYMENT : null}
-          showReceipt={false}
           signedOut={false}
           regionId="ID"
           onClose={() => {}}
@@ -73,7 +69,6 @@ export function AddMoneyQaClient() {
           onPaymentAmountChange={() => {}}
           onPaymentMethodChange={() => {}}
           onEditPayment={() => {}}
-          onToggleReceipt={() => {}}
           onCheckBalance={() => {}}
           onContinueToCoinbase={() => {}}
         />

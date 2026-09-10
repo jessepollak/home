@@ -1,6 +1,6 @@
 import "@/features/account/dom-test-harness";
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ComponentProps, ReactNode } from "react";
 import type { AccountWalletSdkBoundary } from "@/features/account/cdp-client";
 import type {
@@ -48,10 +48,15 @@ const {
   writeHomeBalancesPresentation,
 } = await import("@/features/portfolio-valuation/presentation-cache");
 
+(window as typeof window & {
+  happyDOM: { settings: { disableIframePageLoading: boolean } };
+}).happyDOM.settings.disableIframePageLoading = true;
+
 const OWNER = "home-user";
 const OWNER_B = "home-user-b";
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 const ADDRESS_B = "0x2222222222222222222222222222222222222222";
+const originalConsoleError = console.error;
 
 function page() {
   return within(document.body);
@@ -573,6 +578,7 @@ function PortfolioHomeHarness({
   baseAccountEnabled = false,
   baseAccountConnector,
   routeMode = "dashboard",
+  initialAddMoney = false,
 }: {
   accountSdk: AccountWalletSdkBoundary;
   sessionFetch: SessionFetch;
@@ -580,6 +586,7 @@ function PortfolioHomeHarness({
   baseAccountEnabled?: boolean;
   baseAccountConnector?: BaseAccountConnector;
   routeMode?: "landing" | "dashboard";
+  initialAddMoney?: boolean;
 }) {
   return (
     <AccountWalletSessionOwner
@@ -588,7 +595,11 @@ function PortfolioHomeHarness({
       baseAccountEnabled={baseAccountEnabled}
       baseAccountConnector={baseAccountConnector}
     >
-      <PortfolioHomeExperience detectedCountry={detectedCountry} routeMode={routeMode} />
+      <PortfolioHomeExperience
+        detectedCountry={detectedCountry}
+        routeMode={routeMode}
+        initialAddMoney={initialAddMoney}
+      />
     </AccountWalletSessionOwner>
   );
 }
@@ -608,7 +619,15 @@ Object.defineProperty(window, "matchMedia", {
 });
 HTMLElement.prototype.scrollIntoView = () => {};
 
+beforeEach(() => {
+  console.error = (...args: unknown[]) => {
+    if (String(args[0]).includes("Iframe page loading is disabled")) return;
+    originalConsoleError(...args);
+  };
+});
+
 afterEach(() => {
+  console.error = originalConsoleError;
   cleanup();
   window.localStorage.clear();
   window.sessionStorage.clear();
@@ -923,6 +942,124 @@ describe("login-state home experience", () => {
       ).toEqual([]),
     );
     expect(window.localStorage.getItem("home.country.v1")).toBe("US");
+  });
+
+  test("refreshes the authenticated valuation after pending funding closes without resending payment", async () => {
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const refreshedValuation = deferred<Response>();
+    let valuationCount = 0;
+    const sessionFetch: SessionFetch = async (input, init) => {
+      requests.push({ input, init });
+      if (input === "/api/session") return Response.json(session());
+      if (String(input).startsWith("/api/activity?")) {
+        return Response.json(activityPage(input));
+      }
+      if (input === "/api/actions/operations") {
+        return Response.json({ operations: [] });
+      }
+      if (String(input).startsWith("/api/portfolio/valuation?")) {
+        valuationCount += 1;
+        return valuationCount === 1
+          ? valuationResponse(input, { usdc: "5000000" })
+          : refreshedValuation.promise;
+      }
+      if (input === "/api/funding/onramp-session") {
+        return Response.json({
+          url: "https://pay.coinbase.com/v2/api-onramp/apple-pay?sessionToken=fixture-token",
+          presentation: "iframe",
+          asset: {
+            id: "usdc",
+            symbol: "USDC",
+            decimals: 6,
+            tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          },
+          network: { name: "Base", chainId: 8453 },
+        });
+      }
+      return Response.json(portfolioSnapshot({ usdc: "5000000" }));
+    };
+
+    render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch}
+        initialAddMoney
+      />,
+    );
+
+    await page().findAllByText("$5.00");
+    await waitFor(() => {
+      expect(
+        readHomeBalancesPresentation(
+          () => window.localStorage,
+          {
+            ownerKey: OWNER,
+            subject: "subject-home",
+            smartAccount: ADDRESS,
+            region: "GLOBAL",
+          },
+        ),
+      ).not.toBeNull();
+    });
+    fireEvent.click(page().getByRole("button", { name: /Buy USDC with Coinbase/ }));
+    fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
+    await waitFor(() => {
+      expect(
+        requests.filter((request) => request.input === "/api/funding/onramp-session"),
+      ).toHaveLength(1);
+    });
+    const frame = await page().findByTitle("Coinbase payment") as HTMLIFrameElement;
+    const source = {} as MessageEventSource;
+    Object.defineProperty(frame, "contentWindow", {
+      configurable: true,
+      value: source,
+    });
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        source,
+        origin: "https://pay.coinbase.com",
+        data: { eventName: "onramp_api.polling_success" },
+      }));
+    });
+
+    await page().findByRole("dialog", { name: "Deposit pending" });
+    fireEvent.click(page().getByRole("button", { name: "Close and check balance" }));
+    await waitFor(() => expect(valuationCount).toBe(2));
+    expect(
+      readHomeBalancesPresentation(
+        () => window.localStorage,
+        {
+          ownerKey: OWNER,
+          subject: "subject-home",
+          smartAccount: ADDRESS,
+          region: "GLOBAL",
+        },
+      ),
+    ).toBeNull();
+    expect(page().getAllByText("$5.00").length).toBeGreaterThanOrEqual(1);
+
+    await act(async () => {
+      refreshedValuation.resolve(
+        valuationResponse("/api/portfolio/valuation?region=GLOBAL", {
+          usdc: "7000000",
+        }),
+      );
+    });
+    expect((await page().findAllByText("$7.00")).length).toBeGreaterThanOrEqual(1);
+
+    const fundingRequests = requests.filter(
+      (request) => request.input === "/api/funding/onramp-session",
+    );
+    const valuationRequests = requests.filter((request) =>
+      String(request.input).startsWith("/api/portfolio/valuation?"),
+    );
+    expect(fundingRequests).toHaveLength(1);
+    expect(valuationRequests).toHaveLength(2);
+    for (const request of [...fundingRequests, ...valuationRequests]) {
+      expect(new Headers(request.init?.headers).get("Authorization")).toBe(
+        "Bearer fixture-token",
+      );
+    }
   });
 
   test("treats a verified session without a smart account as authenticated but not ready", async () => {

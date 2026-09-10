@@ -31,9 +31,7 @@ export type OnrampPaymentSummary = {
   paymentMethod: OnrampPaymentMethod;
 };
 
-export type PostCheckoutPayment = OnrampPaymentSummary & {
-  receiptUrl: string;
-};
+export type PostCheckoutPayment = OnrampPaymentSummary;
 
 export function AddMoneyDialog({
   open,
@@ -48,7 +46,6 @@ export function AddMoneyDialog({
   inlineOnrampAttemptId,
   iframeRef,
   postCheckoutPayment,
-  showReceipt,
   signedOut,
   regionId,
   onClose,
@@ -58,7 +55,6 @@ export function AddMoneyDialog({
   onPaymentAmountChange,
   onPaymentMethodChange,
   onEditPayment,
-  onToggleReceipt,
   onCheckBalance,
   onContinueToCoinbase,
 }: {
@@ -74,7 +70,6 @@ export function AddMoneyDialog({
   inlineOnrampAttemptId: number | null;
   iframeRef: RefObject<HTMLIFrameElement | null>;
   postCheckoutPayment: PostCheckoutPayment | null;
-  showReceipt: boolean;
   signedOut: boolean;
   regionId: RegionId;
   onClose: () => void;
@@ -84,7 +79,6 @@ export function AddMoneyDialog({
   onPaymentAmountChange: (value: string) => void;
   onPaymentMethodChange: (value: OnrampPaymentMethod) => void;
   onEditPayment: () => void;
-  onToggleReceipt: () => void;
   onCheckBalance: () => void;
   onContinueToCoinbase: () => void;
 }) {
@@ -132,10 +126,7 @@ export function AddMoneyDialog({
         />
       ) : null}
       {!signedOut && step === "pending" && postCheckoutPayment ? (
-        <PostCheckoutBody
-          payment={postCheckoutPayment}
-          showReceipt={showReceipt}
-        />
+        <PostCheckoutBody payment={postCheckoutPayment} />
       ) : null}
 
       {onrampError && step === "buy" ? (
@@ -174,8 +165,6 @@ export function AddMoneyDialog({
         <MoneyModalFooter
           primaryLabel="Close and check balance"
           onPrimary={onCheckBalance}
-          secondaryLabel={showReceipt ? "Hide Coinbase receipt" : "View Coinbase receipt"}
-          onSecondary={onToggleReceipt}
         />
       ) : null}
     </MoneyModal>
@@ -386,36 +375,17 @@ export function BuyBody({
 
 export function PostCheckoutBody({
   payment,
-  showReceipt,
 }: {
   payment: PostCheckoutPayment;
-  showReceipt: boolean;
 }) {
   return (
     <div className={`${modal.body} ${styles.postCheckout}`}>
       <div className={styles.pendingMark} aria-hidden="true">…</div>
       <h3 className={styles.buyTitle}>Check your Base balance</h3>
       <p className={styles.buyLead}>
-        Coinbase returned from checkout, but that message does not confirm that USDC
-        settled on Base.
+        Your deposit isn’t confirmed on Base. Close to refresh your balance.
       </p>
       <PaymentSummary payment={payment} />
-      <p className={styles.pendingHelp}>
-        Keep your Coinbase receipt until the balance updates. Close this window to
-        check Home before starting another payment.
-      </p>
-      {showReceipt ? (
-        <section className={styles.onrampEmbed} aria-label="Coinbase receipt">
-          <iframe
-            title="Coinbase receipt"
-            className={styles.onrampFrame}
-            src={payment.receiptUrl}
-            sandbox="allow-scripts allow-same-origin"
-            referrerPolicy="no-referrer"
-            allow="payment"
-          />
-        </section>
-      ) : null}
     </div>
   );
 }

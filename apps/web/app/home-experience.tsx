@@ -90,6 +90,7 @@ export type HomeExperienceProps = {
   returnedFromCoinbase?: boolean;
   activityRefreshTrigger?: string | number;
   onTransferConfirmed?: () => void;
+  onFundingClosed?: () => void;
   selectedRegionId?: RegionId;
   onRegionChange?: (region: RegionId) => void;
 };
@@ -97,7 +98,10 @@ export type HomeExperienceProps = {
 export function PortfolioHomeExperience(
   props: Omit<
     HomeExperienceProps,
-    "activityRefreshTrigger" | "assetBalances" | "onTransferConfirmed"
+    | "activityRefreshTrigger"
+    | "assetBalances"
+    | "onFundingClosed"
+    | "onTransferConfirmed"
   >,
 ) {
   const account = useAccountWallet();
@@ -147,6 +151,7 @@ export function PortfolioHomeExperience(
         assetBalances={presentedValuation}
         selectedRegionId={selectedRegion}
         onRegionChange={setSelectedRegion}
+        onFundingClosed={refreshWalletData}
         onTransferConfirmed={refreshWalletData}
       />
     </MoneyDataRefreshProvider>
@@ -181,6 +186,7 @@ function HomeExperienceView({
   returnedFromCoinbase = false,
   activityRefreshTrigger,
   onTransferConfirmed,
+  onFundingClosed,
   selectedRegionId,
   onRegionChange,
 }: HomeExperienceProps) {
@@ -575,6 +581,7 @@ function HomeExperienceView({
                       checkOperation={account.checkMoneyAction}
                       activityRefreshTrigger={activityRefreshTrigger}
                       onTransferConfirmed={onTransferConfirmed}
+                      onFundingClosed={onFundingClosed}
                       onOpenSave={() => navigateTo(savePanelId)}
                       onOpenBalances={() => navigateTo(balancesPanelId)}
                       onOpenActivity={() => navigateTo(activityPanelId)}
@@ -836,6 +843,7 @@ function HomePanel({
   checkOperation,
   activityRefreshTrigger,
   onTransferConfirmed,
+  onFundingClosed,
   onOpenSave,
   onOpenBalances,
   onOpenActivity,
@@ -851,6 +859,7 @@ function HomePanel({
   checkOperation?: (action: PreparedMoneyAction) => Promise<unknown>;
   activityRefreshTrigger?: string | number;
   onTransferConfirmed?: () => void;
+  onFundingClosed?: () => void;
   onOpenSave: () => void;
   onOpenBalances: () => void;
   onOpenActivity: () => void;
@@ -896,6 +905,7 @@ function HomePanel({
           initialOpen={initialAddMoney}
           returnedFromCoinbase={returnedFromCoinbase}
           regionId={regionId}
+          onClosed={onFundingClosed}
         />
         <TransferActions
           onTransferConfirmed={onTransferConfirmed}
