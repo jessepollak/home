@@ -2,19 +2,21 @@
 
 An open-source home for your money on Base.
 
-Home is a mobile-first financial interface for seeing, moving, saving, and exploring money in a familiar local-currency presentation. It brings a wallet, savings, investing, activity, and a focused borrowing flow into one calm Home shell—while keeping the financial action itself explicit at review time.
+Home is a mobile-first financial app built around local currencies. See your balances, send and receive money, save in USDC, explore investments, and borrow against bitcoin collateral—with the asset, amount, and network made explicit before you confirm.
 
-> **Status:** Home is an integrated local finance spike, not a production-approved money app. The interfaces and local code are available to run, but live wallet signatures, funded end-to-end flows, provider acceptance, and deployment have not been performed. See [build status](docs/build-status.md) for the current implementation and validation limits.
+> **Status:** Home is under active development, not a production-approved money app. Real-money use requires your own provider configuration, verified account and route eligibility, and end-to-end acceptance. See [build status](docs/build-status.md) for implementation and validation details.
 
 ## UI mockups
 
+These mockups follow the current UI. Balances, prices, and rates are illustrative—not live account data or proof of production availability. Open either image to inspect the full-size screens.
+
 [![Home, Save, and Invest UI mockups](docs/readme/overview.svg)](docs/readme/overview.svg)
 
-*Home, Save, and Invest UI mockups based on current components. Balances, prices, and rates are illustrative—not live screenshots, funded proof, or production-availability claims.*
+*Home brings balances and everyday actions together; Save shows USDC vaults; Invest makes assets discoverable.*
 
 [![Send, Activity, and Borrow UI mockups](docs/readme/flows.svg)](docs/readme/flows.svg)
 
-*Send, Activity, and Borrow UI mockups based on current components. Balances, prices, and rates are illustrative—not live screenshots, funded proof, or production-availability claims.*
+*Send uses a stepped amount-and-review flow; Activity tracks transfers; Borrow is limited to USDC against cbBTC.*
 
 ## What is here
 
@@ -23,7 +25,7 @@ Home is a mobile-first financial interface for seeing, moving, saving, and explo
 - **Invest:** crypto discovery and email-controlled trade preparation/execution. The Stocks interface is informational; stock trading is not enabled.
 - **Borrow:** one bounded cbBTC/USDC Morpho market with collateral, borrow, repay, and withdrawal flows. It requires a compatible deployed account; counterfactual simulation and live funded execution have not been accepted.
 
-Country selection changes presentation and formatting; it is not an eligibility, residency, or funding decision. Ripio-backed local-currency assets are in progress and not implemented. Documented assets and provider seams are not proof of a live integration.
+Country selection changes presentation and formatting; it is not an eligibility, residency, or funding decision. The Ripio funding integration is in progress and is not enabled in this checkout. Documented assets and provider support are not proof of an executable route.
 
 ## Get started
 
@@ -88,15 +90,16 @@ bun check      # test, lint, typecheck, and build
 | `apps/web/config/` | Brand, regions, navigation, asset, and presentation configuration |
 | `docs/` | Setup, runtime, product intent, deployment, and extension notes |
 
-**Stack:** Next.js, TypeScript, Tailwind, Bun, local SQLite for local money actions, and optional Neon/Postgres for hosted persistence. Integrations include CDP, Base RPC, and Morpho; their presence in the repository does not imply shared credentials or live production availability.
+**Stack:** Next.js, TypeScript, Tailwind, and Bun; SQLite for local money actions and Neon/Postgres for hosted persistence. CDP supplies account and wallet capabilities, Base RPC supplies chain reads, and Morpho supplies savings and the supported borrowing market.
 
-## Customize, fork, or contribute
-
-Home is intended to be cloned and adapted. Replace the brand, regions, asset selection, and providers with your own configuration and projects; [Fork and extend](docs/fork-and-extend.md) maps the supported seams. For implementation status and limits, begin with [build status](docs/build-status.md). For focused upstream changes, read [CONTRIBUTING](CONTRIBUTING.md) and run `bun check` before opening a pull request.
 
 ## Forking
 
-Fork this repository to operate your own version of Home. Each operator supplies their own provider projects, credentials, persistence, and deployment. [Fork and extend](docs/fork-and-extend.md) explains the configuration points; [the docs index](docs/README.md) collects runtime and product notes. Do not treat a region setting as eligibility or a configured asset as a funded, live route.
+Home is intended to be cloned and adapted. Replace the brand, regions, asset selection, and providers with your own configuration. Each operator supplies their own provider projects, credentials, persistence, and deployment. [Fork and extend](docs/fork-and-extend.md) maps the supported seams; [the docs index](docs/README.md) collects setup and runtime guides.
+
+## Contributing
+
+Focused upstream changes are welcome. Read [CONTRIBUTING](CONTRIBUTING.md) and run `bun check` before opening a pull request. Keep credentials and funded-wallet secrets out of Git.
 
 ## License
 
