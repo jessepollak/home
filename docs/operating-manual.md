@@ -30,6 +30,15 @@ GitHub Issues on `jessepollak/home` are the sole board and intake for all Home f
 
 Every issue used to track work should carry one `owner:*`, one `status:*`, and one `lane:*`. Labels already exist on the repo.
 
+### Session execution checklist
+
+Use native todos as a short checklist of the coordinator's next 3–5 parent actions, not as another issue backlog. Link each action to its existing GitHub issue or PR; new work, priorities, ownership, blockers, and delivery status belong on GitHub first.
+
+- Name the next action, such as "Publish #157 proof" or "Review #215 handoff," rather than copying an entire feature ticket. Keep exactly one action `in_progress` while the parent is working; this reflects parent attention, not the number of parallel agents.
+- Mark an action in progress before starting it and complete it immediately after its stated result is verified. Failed or partial actions stay open with the blocker recorded on GitHub. Completing a checklist action does not imply the issue shipped, merged, or passed live acceptance.
+- Track child execution in the agent fleet by run ID. Keep only recovery pointers, candidate refs, evidence paths, and next actions in the checkpoint; do not duplicate the fleet or long-term backlog in todos.
+- Reconcile the checklist at handoffs and before yielding or compacting. Remove superseded entries only after their remaining work has a durable GitHub pointer; replace stale umbrella tasks with the next concrete parent action.
+
 ### `owner:*`
 
 | Label | Who |
@@ -124,7 +133,7 @@ Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / o
 
 ## Continuous issue pipelines
 
-For a parallel push that Jesse has explicitly approved and scoped for that run, Hugo — in the existing Architect role — performs run-specific execution coordination. This does not create a standing or parallel coordinator and does not change Hunter's drive order, Hannah's standing engineering sequencing role, the #205 priorities contract, or Jesse's final approval and merge authority. Fresh exact-head Astra engineering review supplies the engineering gate for this delegated run; no separate inactive Hannah stage is required. GitHub Issues and PRs remain the [sole board](#board-is-source-of-truth); do not create a queue, tracker, or shadow inbox. The coordinator owns requirements, dependency barriers, environment provisioning, handoff disposition, integration, destination validation, and the narrowly gated publication action below.
+For a parallel push that Jesse has explicitly approved and scoped for that run, Hugo — in the existing Architect role — performs run-specific execution coordination. This does not create a standing or parallel coordinator and does not change Hunter's drive order, Hannah's standing engineering sequencing role, the #205 priorities contract, or Jesse's final approval and merge authority. Fresh exact-head Astra engineering review supplies the engineering gate for this delegated run; no separate inactive Hannah stage is required. GitHub Issues and PRs remain the [sole board](#board-is-source-of-truth); do not create a parallel intake queue, backlog, or shadow inbox. The [session checklist](#session-execution-checklist) tracks only current parent actions. The coordinator owns requirements, dependency barriers, environment provisioning, handoff disposition, integration, destination validation, and the narrowly gated publication action below.
 
 Start with six engineering issue lanes and up to eight pooled executing children. These are ceilings, not quotas: never start work merely to fill capacity. Each issue lane owns scope through implementation, review/proof, correction, and delivery; writers and reviewers consume pooled capacity rather than becoming separate lanes. Cap concurrent writers at four and heavy build/browser jobs at two while retaining review/proof capacity. CI watchers are not workers. Scale only to eight lanes and ten children after measured occupancy, handoff, review, backlog, and resource thresholds support it. Jesse-ready PRs enter his approval queue.
 
@@ -135,7 +144,7 @@ Start with six engineering issue lanes and up to eight pooled executing children
 - The coordinator may undraft a PR and mark `status:needs-jesse` only after Sol integration, fresh exact-head Astra engineering review, current CI, and every applicable proof, design, security, platform, provider, and dependency gate pass. Target publication of the ready PR state and `status:needs-jesse` within `<=5 minutes` of the last required gate passing. The target never bypasses a gate; if missed, record a named truthful blocker, current owner, and observable resumption trigger.
 - Keep premerge gate completion, the coordinator's authorized undraft/`status:needs-jesse` publication, Jesse's approval/merge actions, any separately authorized deployment action, postdeployment validation, and production-incident closure as separate handoffs. The [#219](https://github.com/jessepollak/home/issues/219) / [#211](https://github.com/jessepollak/home/issues/211) pattern does not allow a merge-ready fix or merge to stand in for deployed recovery and observed incident closure.
 - Supervisor requests are blocking; service them through the bridge before continuing. Time-box review questions, but never convert incomplete review into approval. Publish HOLDs promptly when a candidate is unsafe or incomplete.
-- After two consecutive related unresolved correction rounds of any kind, stop fan-out and consolidate one invariant matrix artifact covering invariants, transitions, failure cases, ownership, evidence, and terminal conditions; then assign one coherent writer against that matrix.
+- After two consecutive related unresolved lifecycle or state-machine correction rounds, pause further correction fan-out for that issue and consolidate one invariant matrix covering transitions, failure cases, ownership, evidence, and terminal conditions; then assign one coherent writer against that matrix. Independent lanes continue. This is not a review-count limit or permission to accept unresolved defects.
 - Jesse alone approves and merges. This delegation grants no deployment, funded, destructive, or Neon-cleanup authority. Retain candidate refs, worktrees, manifests, and evidence until integration, delivery, and any required incident closure settle; funded activity always requires separate explicit confirmation.
 
 ## 1:1s and learning retros
