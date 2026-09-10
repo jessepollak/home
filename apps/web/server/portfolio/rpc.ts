@@ -48,19 +48,55 @@ export class PortfolioRpcError extends Error {
   }
 }
 
+export type BaseRpcUrlSource = "configured" | "public-default";
+export type BaseRpcHostClass = "cdp-node" | "public-base" | "loopback" | "other";
+
+export function describeBaseRpcUrlResolution(
+  configuredUrl: string | undefined = process.env.BASE_RPC_URL,
+): { source: BaseRpcUrlSource } {
+  return { source: configuredUrl?.trim() ? "configured" : "public-default" };
+}
+
+export function hostedRuntimeExpectsManagedBaseRpcUrl(
+  vercelEnv: string | undefined = process.env.VERCEL_ENV,
+): boolean {
+  return vercelEnv === "production" || vercelEnv === "preview";
+}
+
+export function classifyBaseRpcHost(resolvedUrl: string): BaseRpcHostClass {
+  const hostname = parseRpcUrl(resolvedUrl).hostname.toLowerCase();
+  if (hostname === "api.developer.coinbase.com") {
+    return "cdp-node";
+  }
+  if (hostname === "mainnet.base.org") {
+    return "public-base";
+  }
+  if (isLoopbackHostname(hostname)) {
+    return "loopback";
+  }
+  return "other";
+}
+
+export function inspectBaseRpcUrl(
+  configuredUrl: string | undefined = process.env.BASE_RPC_URL,
+): {
+  source: BaseRpcUrlSource;
+  hostClass: BaseRpcHostClass;
+  protocol: "https" | "http";
+} {
+  const resolvedUrl = resolveBaseRpcUrl(configuredUrl);
+  return {
+    source: describeBaseRpcUrlResolution(configuredUrl).source,
+    hostClass: classifyBaseRpcHost(resolvedUrl),
+    protocol: new URL(resolvedUrl).protocol === "http:" ? "http" : "https",
+  };
+}
+
 export function resolveBaseRpcUrl(
   configuredUrl: string | undefined = process.env.BASE_RPC_URL,
 ): string {
   const rawUrl = configuredUrl?.trim() || DEFAULT_BASE_RPC_URL;
-  let url: URL;
-
-  try {
-    url = new URL(rawUrl);
-  } catch (error) {
-    throw new PortfolioRpcError("BASE_RPC_URL must be a valid URL.", {
-      cause: error,
-    });
-  }
+  const url = parseRpcUrl(rawUrl);
 
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new PortfolioRpcError("BASE_RPC_URL must use HTTP or HTTPS.");
@@ -385,6 +421,16 @@ function assertVerifiedAccount(
     throw new PortfolioRpcError(
       "Portfolio reads require a verified Base smart account.",
     );
+  }
+}
+
+function parseRpcUrl(rawUrl: string): URL {
+  try {
+    return new URL(rawUrl);
+  } catch (error) {
+    throw new PortfolioRpcError("BASE_RPC_URL must be a valid URL.", {
+      cause: error,
+    });
   }
 }
 

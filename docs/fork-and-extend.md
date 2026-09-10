@@ -62,7 +62,7 @@ Operators bring their own projects. Nothing in this repo is a shared CDP, Morpho
 | Morpho USDC vault shortlist | `apps/web/server/morpho/config.ts` (keep in sync with `portfolioVaults`) | [Morpho setup](morpho-setup.md) |
 | One cbBTC/USDC borrow market | `apps/web/server/borrowing/config.ts` | `apps/web/server/borrowing/README.md` |
 | Invest USD indications | `CODEX_API_KEY` | [Codex prices](codex-prices.md) |
-| Base RPC | optional server-only `BASE_RPC_URL` | [Portfolio](portfolio.md) |
+| Base RPC | server-only `BASE_RPC_URL` (CDP Node HTTPS; required on Vercel Production/Preview, optional locally) | [Portfolio](portfolio.md) |
 
 Copy the root `.env.example` into gitignored `apps/web/.env.local`. Never commit secrets or use a `NEXT_PUBLIC_` prefix on server keys. Add `http://localhost:3000` and one forever-allowlisted staging/prod origin to **your** CDP Embedded Wallet CORS; add a Vercel preview origin only when that PR must demo sign-in ([preview auth](cdp-setup.md#preview-auth)). Live probes stay opt-in; do not enable them as defaults.
 

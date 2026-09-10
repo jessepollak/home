@@ -7,6 +7,8 @@ import {
 import {
   PortfolioRpcError,
   createBasePortfolioReader,
+  hostedRuntimeExpectsManagedBaseRpcUrl,
+  inspectBaseRpcUrl,
   resolveBaseRpcUrl,
 } from "./rpc";
 
@@ -243,10 +245,42 @@ describe("Base portfolio RPC reader", () => {
 
 describe("Base RPC URL configuration", () => {
   test("defaults to the public Base endpoint and permits loopback HTTP for development", () => {
-    expect(resolveBaseRpcUrl(undefined)).toBe("https://mainnet.base.org");
+    // Empty / whitespace means unset. Do not call with `undefined` here —
+    // that reads process.env and can leak BASE_RPC_URL into assertion diffs.
+    expect(resolveBaseRpcUrl("")).toBe("https://mainnet.base.org");
+    expect(resolveBaseRpcUrl("   ")).toBe("https://mainnet.base.org");
     expect(resolveBaseRpcUrl("http://127.0.0.1:8545/")).toBe(
       "http://127.0.0.1:8545",
     );
+    expect(inspectBaseRpcUrl("")).toEqual({
+      source: "public-default",
+      hostClass: "public-base",
+      protocol: "https",
+    });
+  });
+
+  test("accepts CDP Node HTTPS URLs that put the client key in the path", () => {
+    const cdpNodeUrl =
+      "https://api.developer.coinbase.com/rpc/v1/base/test-client-api-key";
+    expect(resolveBaseRpcUrl(cdpNodeUrl)).toBe(cdpNodeUrl);
+    expect(inspectBaseRpcUrl(cdpNodeUrl)).toEqual({
+      source: "configured",
+      hostClass: "cdp-node",
+      protocol: "https",
+    });
+  });
+
+  test("rejects user info and fragments on CDP-style hosts", () => {
+    expect(() =>
+      resolveBaseRpcUrl(
+        "https://user:pass@api.developer.coinbase.com/rpc/v1/base/test-client-api-key",
+      ),
+    ).toThrow("user info or a URL fragment");
+    expect(() =>
+      resolveBaseRpcUrl(
+        "https://api.developer.coinbase.com/rpc/v1/base/test-client-api-key#token",
+      ),
+    ).toThrow("user info or a URL fragment");
   });
 
   test("rejects non-HTTP schemes and non-loopback plaintext endpoints", () => {
@@ -256,5 +290,12 @@ describe("Base RPC URL configuration", () => {
     expect(() => resolveBaseRpcUrl("http://rpc.example.test")).toThrow(
       "loopback",
     );
+  });
+
+  test("treats Production and Preview as hosted runtimes that should set a managed URL", () => {
+    expect(hostedRuntimeExpectsManagedBaseRpcUrl("production")).toBe(true);
+    expect(hostedRuntimeExpectsManagedBaseRpcUrl("preview")).toBe(true);
+    expect(hostedRuntimeExpectsManagedBaseRpcUrl("development")).toBe(false);
+    expect(hostedRuntimeExpectsManagedBaseRpcUrl(undefined)).toBe(false);
   });
 });

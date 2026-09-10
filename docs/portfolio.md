@@ -1,7 +1,7 @@
 # Base wallet balances and supported valuation
 
 Status: the original `/api/portfolio` USDC/native-ETH quantity contract remains unchanged for transfer compatibility. A separate authenticated `/api/portfolio/valuation?region=...` read and Home presentation are integrated locally with deterministic fixtures. No private-wallet live read was performed during implementation.
-Updated: 2026-09-09
+Updated: 2026-09-10
 
 ## What this reads
 
@@ -32,7 +32,21 @@ By default the reader uses Base's public mainnet endpoint:
 https://mainnet.base.org
 ```
 
-Base documents its public endpoints as rate-limited and unsuitable for production traffic. The default is appropriate for local development and bounded checks; production operators should set the server-only `BASE_RPC_URL` to their managed Base endpoint. The value must use HTTPS. Plain HTTP is accepted only for a loopback hostname such as `http://127.0.0.1:8545`. User info, URL fragments, non-HTTP schemes, and non-loopback plaintext endpoints are rejected. Never expose this value with a `NEXT_PUBLIC_` prefix.
+Base documents its public endpoints as rate-limited and unsuitable for production traffic. The default is appropriate for local development and bounded checks. **Vercel Production and Preview should set** the server-only `BASE_RPC_URL` to a [CDP Node](https://docs.cdp.coinbase.com/data/node/quickstart) HTTPS JSON-RPC URL for Base mainnet (or another managed HTTPS endpoint). Home does not fail the process when the variable is unset — local `bun dev` keeps the public default — but hosted money paths that omit it keep hitting public Base rate limits.
+
+Operator steps (no secrets in git or chat):
+
+1. In [CDP Portal](https://portal.cdp.coinbase.com) open **Node**, select **Base Mainnet**, and copy the HTTPS endpoint. The documented shape is `https://api.developer.coinbase.com/rpc/v1/base/<CLIENT_API_KEY>` — the key is the last path segment, not URL userinfo.
+2. Set `BASE_RPC_URL` on the Vercel project (`home-web`) for **Production** and **Preview**. The same name is the Cloud Agent secret when agents need a live money-path smoke.
+3. Never commit the value. Never give it a `NEXT_PUBLIC_` prefix. It is not the Embedded Wallet / client RPC.
+
+The value must use HTTPS. Plain HTTP is accepted only for a loopback hostname such as `http://127.0.0.1:8545`. User info, URL fragments, non-HTTP schemes, and non-loopback plaintext endpoints are rejected. A CDP-style key-in-path HTTPS URL is accepted. Never expose this value with a `NEXT_PUBLIC_` prefix.
+
+An opt-in live smoke (skipped in CI) posts `eth_chainId` plus a dummy-account portfolio read through `resolveBaseRpcUrl`. It reports only redacted source/host class — never the URL:
+
+```sh
+BASE_RPC_LIVE_SMOKE=1 bun test apps/web/server/portfolio/rpc.live.test.ts
+```
 
 The RPC reader has one finite six-second deadline, no retries, no polling, no background work, and no shared private-response cache. It:
 

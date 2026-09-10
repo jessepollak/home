@@ -42,10 +42,11 @@ Copy the names from the root [`.env.example`](../.env.example) into the Vercel p
 | `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT` | Optional SIWE path | Leave unset for email-only |
 | `CODEX_API_KEY` | Optional Invest USD snapshots | Server-only |
 | `DATABASE_URL` | Hosted money-action persistence | Neon pooled connection string. Leave unset for local `bun dev` (SQLite). Landing and browse can deploy without it; money-action routes fail closed without it. Server-only. |
+| `BASE_RPC_URL` | Hosted money-path JSON-RPC | Server-only CDP Node (or other managed) Base HTTPS URL. **Set on Production and Preview.** Leave unset locally to use public `https://mainnet.base.org`. Never `NEXT_PUBLIC_`. See [portfolio](portfolio.md). |
 
 Landing and browse can deploy without `DATABASE_URL`. Money-action routes fail closed without it. Browsing works without credentials. Email sign-in and authenticated money actions need **your** CDP project and an **exact** Embedded Wallet CORS origin — see [Preview auth](#preview-auth). Details: [CDP setup](cdp-setup.md#preview-auth).
 
-Optional server-only `BASE_RPC_URL` is documented in [portfolio](portfolio.md); it is not in `.env.example`.
+`BASE_RPC_URL` is listed in [`.env.example`](../.env.example). Mint a CDP Node HTTPS URL from Portal → Node → Base Mainnet and set it on Production and Preview. Home does not crash when it is unset (local default stays public Base); hosted money reads that omit it stay on the rate-limited public endpoint. Never commit the value.
 
 ## Preview auth
 

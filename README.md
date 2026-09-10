@@ -40,7 +40,7 @@ If that file already exists, add only missing variables.
 |---|---|
 | Landing, browsing, public Morpho vault reads, informational Invest | Email sign-in, server session validation, authenticated balances and money actions |
 
-Email sign-in needs the public CDP project ID (`NEXT_PUBLIC_CDP_PROJECT_ID`) and matching server keys (`CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`) from **your** project. Configure the exact origin `http://localhost:3000` in that CDP project. Optional: `CODEX_API_KEY` for Invest USD snapshots; `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT` for the Base Account path. Never commit secrets or prefix server keys with `NEXT_PUBLIC_`. Details: [CDP setup](docs/cdp-setup.md).
+Email sign-in needs the public CDP project ID (`NEXT_PUBLIC_CDP_PROJECT_ID`) and matching server keys (`CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`) from **your** project. Configure the exact origin `http://localhost:3000` in that CDP project. Optional: `CODEX_API_KEY` for Invest USD snapshots; `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT` for the Base Account path; `BASE_RPC_URL` for managed Base JSON-RPC (set on Vercel Production and Preview — [portfolio](docs/portfolio.md)). Never commit secrets or prefix server keys with `NEXT_PUBLIC_`. Details: [CDP setup](docs/cdp-setup.md).
 
 ### Scripts
 

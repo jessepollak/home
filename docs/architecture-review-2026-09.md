@@ -139,7 +139,7 @@ Do not add Morpho/Borrow protocol names onto Activity rows to “make it richer.
 | Unit/contract (`apps/web/**/*.test.ts(x)`, 82 files, 372 pass + 1 skip) | `bun test` | Yes, via `bun check` |
 | Production-component Chromium auth, mocked SDK (7 scenarios) | `bun run --cwd apps/web test:browser-auth` | **No** |
 | SQLite claim/shared-bundle/race probe | `node scripts/probe-money-actions-sqlite.mjs` (see script header) | **No** |
-| Live Morpho / CDP SQL | `MORPHO_LIVE_SMOKE=1`, `CDP_SQL_SMOKE=1` | **No** (correct) |
+| Live Morpho / CDP SQL / Base RPC | `MORPHO_LIVE_SMOKE=1`, `CDP_SQL_SMOKE=1`, `BASE_RPC_LIVE_SMOKE=1` | **No** (correct) |
 
 Highest-value existing tests to copy: `server/money-actions/store.test.ts`, `issue`/`handlers` tests, portfolio/activity wallet-scope tests, valuation exact-math tests.
 
@@ -215,7 +215,7 @@ Print this. Use it as the PR checklist.
 - [ ] If you touched auth/session: a test that a client-supplied wallet/user id cannot change scope.
 - [ ] If you touched a route: `app/api/<route>/route.test.ts` still asserts Node runtime, `force-dynamic`, and unauthenticated rejection before provider calls.
 - [ ] If you touched valuation math or amounts: exact bigint/decimal fixtures; no `Number` for token amounts.
-- [ ] `bun check` green. Do not enable `MORPHO_LIVE_SMOKE`, `CDP_SQL_SMOKE`, or funded-wallet secrets in CI.
+- [ ] `bun check` green. Do not enable `MORPHO_LIVE_SMOKE`, `CDP_SQL_SMOKE`, `BASE_RPC_LIVE_SMOKE`, or funded-wallet secrets in CI.
 - [ ] Auth smoke on an allowlisted host (default: localhost or staging/prod). Add a Vercel preview origin only when the PR must demo sign-in there. [Preview auth](cdp-setup.md#preview-auth) / [#67](https://github.com/jessepollak/home/issues/67).
 
 Browser-auth (`test:browser-auth`) is required when you change sign-in, sign-out, or session restore — even if CI does not run it yet.
