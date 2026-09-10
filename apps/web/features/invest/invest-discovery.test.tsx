@@ -37,6 +37,26 @@ function renderInvest(ui: ReactElement) {
   );
 }
 
+function renderInvestInShell(ui: ReactElement) {
+  return render(
+    <AccountWalletClientProvider
+      client={createBlockedAccountWalletClient("unconfigured")}
+    >
+      <main className="app-main app-main-authenticated">{ui}</main>
+    </AccountWalletClientProvider>,
+  );
+}
+
+function shellMain() {
+  return document.querySelector(".app-main-authenticated") as HTMLElement;
+}
+
+function seeAllInShelf(title: string) {
+  const shelf = page().getByRole("heading", { name: title }).closest("section");
+  expect(shelf).toBeTruthy();
+  return within(shelf as HTMLElement).getByRole("button", { name: "See all ›" });
+}
+
 function page() {
   return within(document.body);
 }
@@ -65,6 +85,87 @@ afterEach(() => {
 const originalFetch = window.fetch;
 
 describe("invest discovery flow", () => {
+  test("opens Memes, Stocks, and Crypto nested screens at the top of the shared shell", async () => {
+    window.fetch = (async () =>
+      Response.json({
+        version: 1,
+        provider: "codex",
+        assetId: "cbbtc",
+        range: "1W",
+        fetchedAt: "2026-09-07T20:00:00.000Z",
+        status: "empty",
+        points: [],
+      })) as unknown as typeof fetch;
+
+    renderInvestInShell(
+      <InvestExperience
+        cryptoMarket={readyCrypto}
+        memeStatus="ready"
+        memeAssets={[
+          {
+            id: "base:0x1111111111111111111111111111111111111111",
+            category: "meme",
+            displayName: "Higher",
+            displaySymbol: "HIGHER",
+            initials: "HI",
+            chainId: 8453,
+            contractAddress: "0x1111111111111111111111111111111111111111",
+            availability: "informational",
+            descriptor: "Trending on Base",
+            representation: {
+              tokenSymbol: "HIGHER",
+              decimals: 18,
+              relationship: "Base ERC-20 token.",
+            },
+            contractUrl:
+              "https://basescan.org/token/0x1111111111111111111111111111111111111111",
+          },
+        ]}
+      />,
+    );
+
+    const main = shellMain();
+    expect(page().queryByText("Browse on Base")).toBeNull();
+
+    main.scrollTop = 420;
+    fireEvent.click(seeAllInShelf("Memes"));
+    await waitFor(() =>
+      expect(page().getByRole("button", { name: "Back to Invest" })).toBeTruthy(),
+    );
+    expect(main.scrollTop).toBe(0);
+
+    fireEvent.click(page().getByRole("button", { name: "Back to Invest" }));
+    await waitFor(() =>
+      expect(page().queryByRole("button", { name: "Back to Invest" })).toBeNull(),
+    );
+
+    main.scrollTop = 360;
+    fireEvent.click(seeAllInShelf("Stocks"));
+    await waitFor(() =>
+      expect(page().getByRole("button", { name: "Back to Invest" })).toBeTruthy(),
+    );
+    expect(main.scrollTop).toBe(0);
+
+    fireEvent.click(page().getByRole("button", { name: "Back to Invest" }));
+    await waitFor(() =>
+      expect(page().queryByRole("button", { name: "Back to Invest" })).toBeNull(),
+    );
+
+    main.scrollTop = 280;
+    fireEvent.click(seeAllInShelf("Crypto"));
+    await waitFor(() =>
+      expect(page().getByRole("button", { name: "Back to Invest" })).toBeTruthy(),
+    );
+    expect(main.scrollTop).toBe(0);
+
+    main.scrollTop = 190;
+    fireEvent.click(page().getByRole("button", { name: "Bitcoin details" }));
+    await waitFor(() =>
+      expect(page().getByRole("heading", { name: "Bitcoin" })).toBeTruthy(),
+    );
+    expect(main.scrollTop).toBe(0);
+  });
+
   test("opens Stocks category from See all and lists the full curated catalog", async () => {
     renderInvest(<InvestExperience />);
 

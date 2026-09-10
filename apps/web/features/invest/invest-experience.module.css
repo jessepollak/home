@@ -24,17 +24,6 @@
   line-height: 1.05;
 }
 
-.header p,
-.hubLead {
-  margin: 0;
-  color: var(--home-muted);
-  font-size: 0.92rem;
-}
-
-.hubLead {
-  padding: 2px 2px 12px;
-}
-
 .screenHeader {
   display: flex;
   align-items: center;

@@ -65,7 +65,7 @@ describe("finance-first presentation", () => {
 
     expect(markup).toContain('id="invest-title"');
     expect(markup).toContain("Invest");
-    expect(markup).toContain("Browse on Base");
+    expect(markup).not.toContain("Browse on Base");
     expect(markup).toContain("Stocks");
     expect(markup).toContain("Crypto");
     expect(markup).toContain("Memes");

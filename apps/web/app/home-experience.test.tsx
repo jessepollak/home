@@ -1847,12 +1847,17 @@ describe("login-state home experience", () => {
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
     await page().findByRole("heading", { name: "Invest" });
+    expect(page().queryByText("Browse on Base")).toBeNull();
     const memesShelf = page().getByRole("heading", { name: "Memes" }).closest("section");
     expect(memesShelf).toBeTruthy();
+    const main = document.querySelector(".app-main-authenticated") as HTMLElement;
+    expect(main).toBeTruthy();
+    main.scrollTop = 480;
     fireEvent.click(within(memesShelf as HTMLElement).getByRole("button", { name: "See all ›" }));
     await waitFor(() =>
       expect(document.querySelector(".app-header-title")?.textContent).toBe("Memes"),
     );
+    expect(main.scrollTop).toBe(0);
     expect(page().getByRole("heading", { level: 1, name: "Memes" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Back to Invest" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Account" })).toBeTruthy();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useNestedAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
@@ -24,6 +24,7 @@ import {
   investViewFromSearch,
   type InvestView,
 } from "./invest-location";
+import { resetHostScroll } from "./reset-host-scroll";
 
 export type { InvestView };
 
@@ -59,8 +60,14 @@ export function InvestExperience({
     return initialView ?? { screen: "hub" };
   });
   const [inAppChildDepth, setInAppChildDepth] = useState(0);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const currentViewKey = viewKey(view);
   const markets = { stockMarket, memeMarket, cryptoMarket };
   const catalog = memeAssets.map((asset) => applyAssetIcon(asset, assetIcons));
+
+  useLayoutEffect(() => {
+    resetHostScroll(hostRef.current);
+  }, [currentViewKey]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -121,80 +128,85 @@ export function InvestExperience({
       : null,
   );
 
+  let screen = (
+    <InvestHub
+      stockMarket={stockMarket}
+      memeMarket={memeMarket}
+      cryptoMarket={cryptoMarket}
+      memeAssets={catalog}
+      memeStatus={memeStatus}
+      assetIcons={assetIcons}
+      iconsPending={iconsPending}
+      onSeeAll={(shelfId) => go({ screen: "category", shelfId })}
+      onOpenAsset={(asset: InvestAsset) =>
+        go({ screen: "detail", assetId: asset.id, from: "hub" })
+      }
+    />
+  );
+
   if (view.screen === "category") {
     const shelf = getDiscoverShelf(view.shelfId);
-    if (!shelf) return null;
+    if (!shelf) return <div ref={hostRef} />;
     const assets = getShelfAssets(shelf, catalog).map((asset) =>
       applyAssetIcon(asset, assetIcons),
     );
-    return (
-      <div className="panel-fade">
-        <CategoryScreen
-          title={shelf.title}
-          shelfId={shelf.id}
-          assets={assets}
-          market={
-            shelf.category === "meme"
-              ? memeMarket
-              : assets[0]
-                ? marketForAsset(assets[0], markets)
-                : unavailableMarketData
-          }
-          status={shelf.id === "memes" ? memeStatus : "ready"}
-          iconsPending={iconsPending}
-          onBack={() => leaveChild({ screen: "hub" })}
-          onOpenAsset={(asset, from) =>
-            go({ screen: "detail", assetId: asset.id, from })
-          }
-        />
-      </div>
+    screen = (
+      <CategoryScreen
+        title={shelf.title}
+        shelfId={shelf.id}
+        assets={assets}
+        market={
+          shelf.category === "meme"
+            ? memeMarket
+            : assets[0]
+              ? marketForAsset(assets[0], markets)
+              : unavailableMarketData
+        }
+        status={shelf.id === "memes" ? memeStatus : "ready"}
+        iconsPending={iconsPending}
+        onBack={() => leaveChild({ screen: "hub" })}
+        onOpenAsset={(asset, from) =>
+          go({ screen: "detail", assetId: asset.id, from })
+        }
+      />
     );
-  }
-
-  if (view.screen === "detail") {
+  } else if (view.screen === "detail") {
     const parent =
       view.from === "hub"
         ? ({ screen: "hub" } as const)
         : ({ screen: "category", shelfId: view.from } as const);
     const asset = getDiscoverAsset(view.assetId, catalog);
     if (!asset) {
-      return (
-        <div className="panel-fade">
-          <AssetDetailStatusScreen
-            status={memeStatus === "loading" ? "loading" : "unavailable"}
-            onBack={() => leaveChild(parent)}
-          />
-        </div>
+      screen = (
+        <AssetDetailStatusScreen
+          status={memeStatus === "loading" ? "loading" : "unavailable"}
+          onBack={() => leaveChild(parent)}
+        />
       );
-    }
-    const marked = applyAssetIcon(asset, assetIcons);
-    return (
-      <div className="panel-fade">
+    } else {
+      const marked = applyAssetIcon(asset, assetIcons);
+      screen = (
         <AssetDetailScreen
           asset={marked}
           market={marketForAsset(marked, markets)}
           iconPending={iconsPending}
           onBack={() => leaveChild(parent)}
         />
-      </div>
-    );
+      );
+    }
   }
 
   return (
-    <div className="panel-fade">
-      <InvestHub
-        stockMarket={stockMarket}
-        memeMarket={memeMarket}
-        cryptoMarket={cryptoMarket}
-        memeAssets={catalog}
-        memeStatus={memeStatus}
-        assetIcons={assetIcons}
-        iconsPending={iconsPending}
-        onSeeAll={(shelfId) => go({ screen: "category", shelfId })}
-        onOpenAsset={(asset: InvestAsset) =>
-          go({ screen: "detail", assetId: asset.id, from: "hub" })
-        }
-      />
+    <div ref={hostRef}>
+      <div className="panel-fade" key={currentViewKey}>
+        {screen}
+      </div>
     </div>
   );
+}
+
+function viewKey(view: InvestView): string {
+  if (view.screen === "hub") return "hub";
+  if (view.screen === "category") return `category:${view.shelfId}`;
+  return `detail:${view.from}:${view.assetId}`;
 }

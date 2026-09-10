@@ -47,12 +47,9 @@ export function InvestHub({
       aria-label={hosted ? "Invest" : undefined}
       aria-labelledby={hosted ? undefined : "invest-title"}
     >
-      {hosted ? (
-        <p className={styles.hubLead}>Browse on Base</p>
-      ) : (
+      {hosted ? null : (
         <header className={styles.header}>
           <h2 id="invest-title">Invest</h2>
-          <p>Browse on Base</p>
         </header>
       )}
       <div className={styles.shelves}>
