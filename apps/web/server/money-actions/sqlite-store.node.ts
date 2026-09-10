@@ -222,7 +222,7 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
       this.database.prepare(`
         UPDATE money_action_operations
         SET status = CASE
-              WHEN status IN ('submitting', 'submitted', 'included', 'unknown') THEN 'submitted'
+              WHEN status IN ('submitting', 'submitted', 'unknown') THEN 'submitted'
               ELSE status
             END,
             submission_id = COALESCE(submission_id, ?),

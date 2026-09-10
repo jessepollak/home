@@ -131,11 +131,18 @@ try {
     { submissionId: mixedCaseId },
     "2026-09-08T05:06:02.000Z",
   )).submissionId, mixedCaseId);
+  await store.updateStatus(baseOwner, baseAction.id, "included", "2026-09-08T05:06:03.000Z");
+  assert.equal((await store.recordSubmission(
+    baseOwner,
+    baseAction.id,
+    { submissionId: mixedCaseId },
+    "2026-09-08T05:06:04.000Z",
+  )).status, "included");
   assert.equal(await store.recordSubmission(
     baseOwner,
     baseAction.id,
     { submissionId: mixedCaseId.toLowerCase() },
-    "2026-09-08T05:06:03.000Z",
+    "2026-09-08T05:06:05.000Z",
   ), null);
 
   const terminal = { ...action, id: "77777777-7777-4777-8777-777777777777" };
@@ -155,7 +162,7 @@ try {
   assert.equal(terminalRecorded.status, "failed");
   assert.equal(terminalRecorded.userOperationHash, terminalEvidence);
 
-  console.log("sqlite durable claim, mixed-case handle, terminal evidence, shared bundle, verified execution race, and admission-release probe passed");
+  console.log("sqlite durable claim, mixed-case handle, included monotonicity, terminal evidence, shared bundle, verified execution race, and admission-release probe passed");
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }

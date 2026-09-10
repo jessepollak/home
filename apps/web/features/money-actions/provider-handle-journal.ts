@@ -50,12 +50,15 @@ export type ProviderHandleJournalIssue =
   | "storage-write-failed"
   | "storage-delete-failed"
   | "capacity-exceeded"
+  | "binding-conflict"
   | "invalid-entry";
 
 export type ProviderHandleJournalSnapshot = {
   entries: ProviderHandleJournalEntry[];
   issues: ProviderHandleJournalIssue[];
   totalBytes: number;
+  persistentEntries: number;
+  persistentBytes: number;
 };
 
 export type ProviderHandleJournalRetainResult = {
@@ -96,6 +99,8 @@ export class ProviderHandleJournal {
     const issues: ProviderHandleJournalIssue[] = [];
     const entries = new Map<string, ProviderHandleJournalEntry>();
     let totalBytes = 0;
+    let persistentEntries = 0;
+    let persistentBytes = 0;
 
     for (const [key, value] of this.memory) {
       entries.set(key, structuredClone(value.entry));
@@ -109,6 +114,8 @@ export class ProviderHandleJournal {
           if (!key?.startsWith(PROVIDER_HANDLE_JOURNAL_KEY_PREFIX)) continue;
           const raw = this.storage.getItem(key);
           if (raw === null) continue;
+          persistentEntries += 1;
+          persistentBytes += byteLength(key) + byteLength(raw);
           const memoryEntry = this.memory.get(key);
           if (memoryEntry) {
             if (memoryEntry.raw !== raw) addIssue(issues, "storage-corrupt");
@@ -131,12 +138,16 @@ export class ProviderHandleJournal {
       entries: [...entries.values()].sort((left, right) => left.capturedAt.localeCompare(right.capturedAt)),
       issues,
       totalBytes,
+      persistentEntries,
+      persistentBytes,
     };
   }
 
   canRetain(): boolean {
     const snapshot = this.inspect();
-    return snapshot.entries.length < this.maxEntries && snapshot.totalBytes + MAX_ENTRY_BYTES <= this.maxTotalBytes;
+    return snapshot.entries.length < this.maxEntries &&
+      snapshot.persistentEntries < this.maxEntries &&
+      snapshot.totalBytes + MAX_ENTRY_BYTES <= this.maxTotalBytes;
   }
 
   entriesForAction(action: PreparedMoneyAction): ProviderHandleJournalEntry[] {
@@ -161,7 +172,7 @@ export class ProviderHandleJournal {
       };
     }
 
-    const entry: ProviderHandleJournalEntry = {
+    let entry: ProviderHandleJournalEntry = {
       version: PROVIDER_HANDLE_JOURNAL_VERSION,
       entryId: this.randomUUID(),
       actionId: action.id,
@@ -172,7 +183,11 @@ export class ProviderHandleJournal {
       handle: structuredClone(handle),
       capturedAt: this.now().toISOString(),
     };
-    const key = storageKey(entry.entryId);
+    let key = storageKey(entry.entryId);
+    if (this.memory.has(key) || snapshot.entries.some((candidate) => candidate.entryId === entry.entryId)) {
+      entry = { ...entry, entryId: crypto.randomUUID() };
+      key = storageKey(entry.entryId);
+    }
     const raw = JSON.stringify(entry);
     if (
       !parseProviderHandleJournalEntry(raw, key) ||
@@ -180,32 +195,28 @@ export class ProviderHandleJournal {
     ) {
       return { retained: false, persisted: false, issues: [...snapshot.issues, "invalid-entry"] };
     }
-    if (
-      snapshot.entries.length >= this.maxEntries ||
-      snapshot.totalBytes + byteLength(key) + byteLength(raw) > this.maxTotalBytes
-    ) {
-      return { retained: false, persisted: false, issues: [...snapshot.issues, "capacity-exceeded"] };
-    }
 
-    if (this.memory.has(key)) {
-      return { retained: false, persisted: false, issues: [...snapshot.issues, "storage-write-failed"] };
-    }
-    if (this.storage) {
-      try {
-        if (this.storage.getItem(key) !== null) {
-          return { retained: false, persisted: false, issues: [...snapshot.issues, "storage-write-failed"] };
-        }
-      } catch {
-        addIssue(snapshot.issues, "storage-unavailable");
-      }
-    }
-
-    // Memory is the synchronous first write. Persistent storage is best effort.
+    // A provider-returned handle must survive in-process even if another journal
+    // instance consumed the last persistent slot after this instance's preflight.
     this.memory.set(key, { entry: structuredClone(entry), raw });
+    if (
+      snapshot.persistentEntries >= this.maxEntries ||
+      snapshot.persistentBytes + byteLength(key) + byteLength(raw) > this.maxTotalBytes
+    ) {
+      return {
+        retained: true,
+        persisted: false,
+        entry,
+        issues: [...snapshot.issues, "capacity-exceeded"],
+      };
+    }
     if (!this.storage) {
       return { retained: true, persisted: false, entry, issues: snapshot.issues };
     }
     try {
+      if (this.storage.getItem(key) !== null) {
+        return { retained: true, persisted: false, entry, issues: [...snapshot.issues, "storage-write-failed"] };
+      }
       this.storage.setItem(key, raw);
       if (this.storage.getItem(key) !== raw) {
         return { retained: true, persisted: false, entry, issues: [...snapshot.issues, "storage-write-failed"] };

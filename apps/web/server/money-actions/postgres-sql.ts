@@ -96,7 +96,7 @@ export const moneyActionQueries = {
   recordSubmission: `
     UPDATE money_action_operations
     SET status = CASE
-          WHEN status IN ('submitting', 'submitted', 'included', 'unknown') THEN 'submitted'
+          WHEN status IN ('submitting', 'submitted', 'unknown') THEN 'submitted'
           ELSE status
         END,
         submission_id = COALESCE(submission_id, $1),
@@ -335,7 +335,7 @@ export function createFakePostgresExecutor(): SqlExecutor {
         ) {
           return { rows: [], rowCount: 0 };
         }
-        if (["submitting", "submitted", "included", "unknown"].includes(row.status)) {
+        if (["submitting", "submitted", "unknown"].includes(row.status)) {
           row.status = "submitted";
         }
         row.submission_id ??= values[0] == null ? null : String(values[0]);

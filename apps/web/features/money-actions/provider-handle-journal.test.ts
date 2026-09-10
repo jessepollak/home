@@ -72,6 +72,28 @@ describe("provider handle journal", () => {
     expect(parseProviderHandleJournalEntry(raw, key)?.handle.value).toBe("0xMiXeD-Base-Handle");
   });
 
+  test("stores a matching CDP user-operation handle with canonical hash binding", () => {
+    const storage = new MemoryStorage();
+    const embeddedAction = action({
+      owner: { ...OWNER, accountProvider: "cdp-embedded" },
+    });
+    const userOperationHash = `0x${"b".repeat(64)}` as const;
+    const result = journal(storage).retain(embeddedAction, {
+      kind: "user-operation-hash",
+      provider: "cdp-embedded",
+      value: userOperationHash,
+    });
+    expect(result).toMatchObject({
+      retained: true,
+      persisted: true,
+      entry: {
+        actionId: embeddedAction.id,
+        provider: "cdp-embedded",
+        handle: { kind: "user-operation-hash", value: userOperationHash },
+      },
+    });
+  });
+
   test("survives a true memory reset and is shared by two journal instances", () => {
     const storage = new MemoryStorage();
     const first = journal(storage);
@@ -173,20 +195,25 @@ describe("provider handle journal", () => {
       provider: "base-account",
       value: "bundle-A",
     });
-    expect(retained.retained).toBe(true);
+    expect(retained).toMatchObject({ retained: true, persisted: false });
     expect(retained.issues).toContain("storage-corrupt");
+    expect(retained.issues).toContain("capacity-exceeded");
 
-    const next = first.retain(action({ id: "123e4567-e89b-42d3-a456-426614174002" }), {
+    const nextAction = action({ id: "123e4567-e89b-42d3-a456-426614174002" });
+    const next = first.retain(nextAction, {
       kind: "submission-id",
       provider: "base-account",
       value: "bundle-B",
     });
-    expect(next).toMatchObject({ retained: false, persisted: false });
+    expect(next).toMatchObject({ retained: true, persisted: false });
     expect(next.issues).toContain("capacity-exceeded");
     expect(first.entriesForAction(action())[0]?.handle.value).toBe("bundle-A");
+    expect(first.entriesForAction(nextAction)[0]?.handle.value).toBe("bundle-B");
+    expect(storage.length).toBe(1);
 
+    const sizeStorage = new MemoryStorage();
     const sizeBounded = new ProviderHandleJournal({
-      storage: new MemoryStorage(),
+      storage: sizeStorage,
       maxTotalBytes: 128,
       randomUUID: () => "123e4567-e89b-42d3-a456-426614174096",
     });
@@ -194,7 +221,41 @@ describe("provider handle journal", () => {
       kind: "submission-id",
       provider: "base-account",
       value: "bundle-C",
-    })).toMatchObject({ retained: false, issues: ["capacity-exceeded"] });
+    })).toMatchObject({ retained: true, persisted: false, issues: ["capacity-exceeded"] });
+    expect(sizeBounded.entriesForAction(action())).toHaveLength(1);
+    expect(sizeStorage.length).toBe(0);
+  });
+
+  test("preserves a returned handle in memory when another instance wins the final persistent slot", () => {
+    const storage = new MemoryStorage();
+    const first = new ProviderHandleJournal({
+      storage,
+      maxEntries: 1,
+      randomUUID: () => "123e4567-e89b-42d3-a456-426614174094",
+    });
+    const second = new ProviderHandleJournal({
+      storage,
+      maxEntries: 1,
+      randomUUID: () => "123e4567-e89b-42d3-a456-426614174095",
+    });
+    expect(first.canRetain()).toBe(true);
+    expect(second.canRetain()).toBe(true);
+    expect(first.retain(action(), {
+      kind: "submission-id",
+      provider: "base-account",
+      value: "bundle-A",
+    })).toMatchObject({ retained: true, persisted: true });
+
+    const secondAction = action({ id: "123e4567-e89b-42d3-a456-426614174002" });
+    const raced = second.retain(secondAction, {
+      kind: "submission-id",
+      provider: "base-account",
+      value: "bundle-B",
+    });
+    expect(raced).toMatchObject({ retained: true, persisted: false });
+    expect(raced.issues).toContain("capacity-exceeded");
+    expect(second.entriesForAction(secondAction)[0]?.handle.value).toBe("bundle-B");
+    expect(storage.length).toBe(1);
   });
 
   test("rejects schema additions, provider mismatches, noncanonical hashes, and oversized opaque handles", () => {

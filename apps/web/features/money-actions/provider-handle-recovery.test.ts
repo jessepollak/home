@@ -194,6 +194,80 @@ describe("provider handle journal recovery", () => {
     expect(storage.length).toBe(0);
   });
 
+  test("treats prepared POST and 409 re-read acknowledgments as inconsistencies before exact evidence cleanup", async () => {
+    const currentStore = await claimedStore();
+    const initial = (await currentStore.get(OWNER, ACTION_ID))!;
+    const preparedStore = new MemoryMoneyActionStore();
+    await preparedStore.issue(action());
+    const preparedExact = {
+      ...(await preparedStore.get(OWNER, ACTION_ID))!,
+      userOperationHash: USER_OPERATION_HASH,
+    };
+
+    for (const mode of ["direct", "conflict-reread"] as const) {
+      const storage = new MemoryStorage();
+      const journal = makeJournal(storage, crypto.randomUUID());
+      journal.retain(action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
+      let posts = 0;
+      let reads = 0;
+      const result = await recoverJournaledProviderHandle({
+        fetchApi: async (_path, init) => {
+          if (init?.method === "POST") {
+            posts += 1;
+            if (mode === "conflict-reread") {
+              throw Object.assign(new Error("bounded conflict"), { status: 409 });
+            }
+          } else {
+            reads += 1;
+          }
+          return { operation: preparedExact };
+        },
+        journal,
+        action: action(),
+        operation: initial,
+        assertActive: () => {},
+      });
+      expect(result).toMatchObject({ kind: "inconsistent", operation: { status: "prepared" } });
+      expect(posts).toBe(1);
+      expect(reads).toBe(mode === "conflict-reread" ? 1 : 0);
+      expect(storage.length).toBe(1);
+    }
+  });
+
+  test("detects same-owner/action binding mismatches before exact filtering and retains them across memory reset", async () => {
+    const initial = (await (await claimedStore()).get(OWNER, ACTION_ID))!;
+    const mismatches: PreparedMoneyAction[] = [
+      { ...action(), reviewHash: "d".repeat(64) },
+      { ...action(), kind: "save-deposit" },
+      { ...action(), owner: { ...OWNER, accountProvider: "base-account" } },
+    ];
+    for (const mismatched of mismatches) {
+      const storage = new MemoryStorage();
+      const stale = makeJournal(storage, crypto.randomUUID());
+      const retained = mismatched.owner.accountProvider === "base-account"
+        ? stale.retain(mismatched, { kind: "submission-id", provider: "base-account", value: "stale-bundle" })
+        : stale.retain(mismatched, { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
+      expect(retained.retained).toBe(true);
+
+      const afterReset = makeJournal(storage, crypto.randomUUID());
+      let posts = 0;
+      const result = await recoverJournaledProviderHandle({
+        fetchApi: async (_path, init) => {
+          if (init?.method === "POST") posts += 1;
+          return { operation: initial };
+        },
+        journal: afterReset,
+        action: action(),
+        operation: initial,
+        assertActive: () => {},
+      });
+      expect(result.kind).toBe("conflict");
+      expect(result.issues).toContain("binding-conflict");
+      expect(posts).toBe(0);
+      expect(storage.length).toBe(1);
+    }
+  });
+
   test("prepared inconsistency and actual evidence conflict retain the exact entry and never POST", async () => {
     const preparedStore = new MemoryMoneyActionStore();
     await preparedStore.issue(action());

@@ -12,7 +12,7 @@ Keep the noncustodial boundary:
 
 Make that boundary attempt-aware. The immutable reviewed action, permission to dispatch, a particular wallet execution attempt, provider evidence, reconciliation, and admission blocking are different facts and must stop sharing one overloaded status.
 
-The compatibility implementation does not change the store schema. It adds a pure client `checkMoneyAction(action)` path, routes user-visible status checks through it, moves send capability and fresh-balance preflight before the first claim when the durable row is still `prepared`, and synchronously journals a provider-returned handle before evidence upload. The versioned browser journal retries only the exact owner/action/provider-bound handle through the owner-scoped submission route; it never authorizes wallet replay. Later slices add durable attempts and typed atomic commands under a single persistence owner.
+The compatibility implementation does not change the store schema. It adds a pure client `checkMoneyAction(action)` path, routes user-visible status checks through it, moves send capability and fresh-balance preflight before the first claim when the durable row is still `prepared`, and synchronously journals a provider-returned handle before evidence upload. The versioned browser journal retries only the exact owner/action/provider-bound handle through the owner-scoped submission route; it never authorizes wallet replay. Unacknowledged entries survive sign-out and account switches because they are best-effort sensitive execution metadata rather than presentation cache; purging them would recreate evidence loss. Later slices add durable attempts and typed atomic commands under a single persistence owner.
 
 ## Non-goals
 

@@ -28,10 +28,19 @@ export async function recoverJournaledProviderHandle(input: {
   assertActive: () => void;
 }): Promise<ProviderHandleRecoveryResult> {
   const snapshot = input.journal.inspect();
-  const entries = snapshot.entries.filter((entry) => entryMatches(entry, input.action));
+  const ownerActionEntries = snapshot.entries.filter((entry) => sameOwnerAction(entry, input.action));
+  const bindingConflict = ownerActionEntries.some((entry) => !entryMatches(entry, input.action));
+  const entries = ownerActionEntries.filter((entry) => entryMatches(entry, input.action));
   let operation = input.operation ?? await readMoneyAction(input.fetchApi, input.action.id, input.action);
   input.assertActive();
 
+  if (bindingConflict) {
+    return {
+      kind: "conflict",
+      operation,
+      issues: withIssue(snapshot.issues, "binding-conflict"),
+    };
+  }
   if (entries.length === 0) {
     return { kind: "none", operation, issues: snapshot.issues };
   }
@@ -39,7 +48,7 @@ export async function recoverJournaledProviderHandle(input: {
   if (entries.some((entry) => !sameProviderHandle(entry.handle, handle))) {
     return { kind: "conflict", operation, issues: snapshot.issues };
   }
-  if (operation.status === "prepared") {
+  if (isPreparedOperation(operation)) {
     return { kind: "inconsistent", operation, issues: snapshot.issues };
   }
 
@@ -71,6 +80,9 @@ export async function recoverJournaledProviderHandle(input: {
     }
   }
 
+  if (isPreparedOperation(operation)) {
+    return { kind: "inconsistent", operation, issues: snapshot.issues };
+  }
   const recorded = durableEvidenceState(operation, entries[0]!);
   if (recorded === "exact") {
     return cleanupAcknowledgedEntries(input, entries, operation, snapshot.issues);
@@ -112,6 +124,10 @@ async function cleanupAcknowledgedEntries(
   };
 }
 
+function isPreparedOperation(operation: StoredMoneyActionOperation): boolean {
+  return operation.status === "prepared";
+}
+
 function durableEvidenceState(
   operation: StoredMoneyActionOperation,
   entry: ProviderHandleJournalEntry,
@@ -130,15 +146,26 @@ function referenceFor(entry: ProviderHandleJournalEntry) {
     : { userOperationHash: entry.handle.value };
 }
 
-function entryMatches(entry: ProviderHandleJournalEntry, action: PreparedMoneyAction): boolean {
+function sameOwnerAction(entry: ProviderHandleJournalEntry, action: PreparedMoneyAction): boolean {
   return entry.actionId === action.id &&
+    entry.owner.subject === action.owner.subject &&
+    entry.owner.address === action.owner.address &&
+    entry.owner.chainId === action.owner.chainId;
+}
+
+function entryMatches(entry: ProviderHandleJournalEntry, action: PreparedMoneyAction): boolean {
+  return sameOwnerAction(entry, action) &&
     entry.reviewHash === action.reviewHash &&
     entry.actionKind === action.kind &&
     entry.provider === action.owner.accountProvider &&
-    entry.owner.subject === action.owner.subject &&
-    entry.owner.address === action.owner.address &&
-    entry.owner.chainId === action.owner.chainId &&
     entry.owner.accountProvider === action.owner.accountProvider;
+}
+
+function withIssue(
+  issues: ProviderHandleJournalIssue[],
+  issue: ProviderHandleJournalIssue,
+): ProviderHandleJournalIssue[] {
+  return issues.includes(issue) ? issues : [...issues, issue];
 }
 
 function errorStatus(error: unknown): number | null {

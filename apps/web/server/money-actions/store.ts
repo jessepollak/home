@@ -188,7 +188,7 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
     record.submissionId ??= reference.submissionId;
     record.transactionHash ??= reference.transactionHash;
     record.userOperationHash ??= reference.userOperationHash;
-    if (["submitting", "submitted", "included", "unknown"].includes(record.status)) {
+    if (["submitting", "submitted", "unknown"].includes(record.status)) {
       record.status = "submitted";
     }
     record.updatedAt = now;

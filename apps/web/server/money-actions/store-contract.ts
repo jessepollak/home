@@ -105,6 +105,22 @@ export function describeMoneyActionStore(
     expect((await store.get(owner, baseAction.id))?.submissionId).toBe(mixedCase);
   });
 
+  test(`${name} does not downgrade included evidence on an exact submission retry`, async () => {
+    const store = await createStore();
+    await store.issue(action());
+    await store.claim(OWNER, action().id, action().reviewHash, "2026-09-08T05:01:00.000Z");
+    const userOperationHash = `0x${"7".repeat(64)}` as const;
+    await store.recordSubmission(OWNER, action().id, { userOperationHash }, "2026-09-08T05:01:01.000Z");
+    await store.updateStatus(OWNER, action().id, "included", "2026-09-08T05:01:02.000Z");
+
+    await expect(store.recordSubmission(
+      OWNER,
+      action().id,
+      { userOperationHash },
+      "2026-09-08T05:01:03.000Z",
+    )).resolves.toMatchObject({ status: "included", userOperationHash });
+  });
+
   test(`${name} attaches exact late evidence without reopening an already terminal action`, async () => {
     const store = await createStore();
     const neverDispatched = { ...action(), id: "99999999-9999-4999-8999-999999999999" };

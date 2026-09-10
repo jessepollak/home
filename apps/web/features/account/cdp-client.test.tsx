@@ -11,7 +11,10 @@ import type {
 import type { SessionFetch, VerifiedAccountSession } from "./session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "./session-types";
 import type { PreparedMoneyAction } from "@/features/money-actions/types";
-import type { ProviderHandleJournalStorage } from "@/features/money-actions/provider-handle-journal";
+import {
+  ProviderHandleJournal,
+  type ProviderHandleJournalStorage,
+} from "@/features/money-actions/provider-handle-journal";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
@@ -1737,6 +1740,134 @@ describe("production account session owner", () => {
     expect(storage.length).toBe(0);
   });
 
+  test("uploads an already-returned handle from memory when another instance wins the final persistent slot", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"f".repeat(64)}` as const;
+    const storage = new TestJournalStorage();
+    const filler = new ProviderHandleJournal({ storage });
+    for (let index = 0; index < 31; index += 1) {
+      const fillerAction = {
+        ...action,
+        id: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+      };
+      expect(filler.retain(fillerAction, {
+        kind: "user-operation-hash",
+        provider: "cdp-embedded",
+        value: `0x${index.toString(16).padStart(64, "0")}`,
+      }).persisted).toBe(true);
+    }
+    const providerReturn = deferred<{ userOperationHash: `0x${string}` }>();
+    const sendEntered = deferred<void>();
+    let walletDispatches = 0;
+    let claims = 0;
+    let submissionPosts = 0;
+    let providerLookups = 0;
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === "/api/portfolio") return portfolioResponse(ADDRESS_A);
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({ operation: storedMoneyAction(action, claims === 0 ? "prepared" : "submitting") });
+      }
+      if (input === `/api/actions/${action.id}/claim`) {
+        claims += 1;
+        return Response.json({
+          action,
+          operation: storedMoneyAction(action, "submitting"),
+          disposition: "dispatch",
+        });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        submissionPosts += 1;
+        expect(JSON.parse(String(init?.body))).toEqual({ userOperationHash });
+        return Response.json({
+          operation: storedMoneyAction(action, "failed", { userOperationHash }),
+        });
+      }
+      throw new Error(`unexpected capacity-race request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            walletDispatches += 1;
+            sendEntered.resolve();
+            return providerReturn.promise;
+          },
+          getUserOperation: async () => {
+            providerLookups += 1;
+            throw new Error("terminal capacity recovery must not query the provider");
+          },
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+        providerHandleJournalStorage={storage}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
+    await sendEntered.promise;
+
+    const winner = new ProviderHandleJournal({ storage });
+    expect(winner.retain({ ...action, id: "323e4567-e89b-42d3-a456-426614174001" }, {
+      kind: "user-operation-hash",
+      provider: "cdp-embedded",
+      value: `0x${"a".repeat(64)}`,
+    })).toMatchObject({ retained: true, persisted: true });
+    expect(storage.length).toBe(32);
+    providerReturn.resolve({ userOperationHash });
+
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("failed"));
+    expect(walletDispatches).toBe(1);
+    expect(claims).toBe(1);
+    expect(submissionPosts).toBe(1);
+    expect(providerLookups).toBe(0);
+    expect(storage.length).toBe(32);
+  });
+
+  test("fails closed after a true reset when the same owner/action journal binding changed", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const storage = new TestJournalStorage();
+    const stale = new ProviderHandleJournal({ storage });
+    expect(stale.retain({ ...action, reviewHash: "d".repeat(64) }, {
+      kind: "user-operation-hash",
+      provider: "cdp-embedded",
+      value: `0x${"d".repeat(64)}`,
+    }).persisted).toBe(true);
+
+    let claims = 0;
+    let walletDispatches = 0;
+    let portfolioReads = 0;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({ operation: storedMoneyAction(action, "prepared") });
+      }
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      if (input === "/api/portfolio") portfolioReads += 1;
+      throw new Error(`binding conflict must stop before request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            walletDispatches += 1;
+            return { userOperationHash: `0x${"e".repeat(64)}` };
+          },
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+        providerHandleJournalStorage={storage}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("prepared"));
+    expect(claims).toBe(0);
+    expect(walletDispatches).toBe(0);
+    expect(portfolioReads).toBe(0);
+    expect(storage.length).toBe(1);
+  });
+
   test("retains the original owner binding across an account switch and uploads only after switching back", async () => {
     const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
     const userOperationHash = `0x${"e".repeat(64)}` as const;
@@ -2265,10 +2396,20 @@ describe("production account session owner", () => {
     expect(page().getByTestId("status").textContent).toBe("signed-out");
   });
 
-  test("wipes every home.balances.v1 key on sign-out", async () => {
+  test("wipes presentation balance cache but preserves unacknowledged provider evidence on sign-out", async () => {
     window.localStorage.setItem("home.balances.v1:subject-a:0x1111:US", "{}");
     window.localStorage.setItem("home.balances.v1:other", "{}");
     window.localStorage.setItem("home.country.v1", "US");
+    const journalAction = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    expect(new ProviderHandleJournal({ storage: window.localStorage }).retain(journalAction, {
+      kind: "user-operation-hash",
+      provider: "cdp-embedded",
+      value: `0x${"9".repeat(64)}`,
+    }).persisted).toBe(true);
+    const journalKey = Object.keys(window.localStorage).find((key) =>
+      key.startsWith("home:money-action-provider-handle:v1:"),
+    );
+    expect(journalKey).toBeDefined();
 
     render(
       <SessionHarness
@@ -2290,6 +2431,7 @@ describe("production account session owner", () => {
       ),
     ).toEqual([]);
     expect(window.localStorage.getItem("home.country.v1")).toBe("US");
+    expect(window.localStorage.getItem(journalKey!)).not.toBeNull();
   });
 
   test("keeps a configured-but-down provider distinct from missing project ID", () => {
