@@ -1,5 +1,5 @@
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
-import { canTransitionMoneyActionStatus, shouldExpireReferenceFreeUnknown } from "./status-transitions.js";
+import { canTransitionMoneyActionStatus } from "./status-transitions.js";
 import {
   applyMoneyActionPostgresSchema,
   createNeonSqlExecutor,
@@ -102,9 +102,6 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
           const changed = await tx.query(moneyActionQueries.dispatch, [now, now, id]);
           disposition = changed.rowCount === 1 ? "dispatch" : "recover";
         }
-        row = (await this.getRow(tx, owner, id))!;
-      } else if (shouldExpireReferenceFreeUnknown(fromRow(row, action))) {
-        await tx.query(moneyActionQueries.expire, [now, id]);
         row = (await this.getRow(tx, owner, id))!;
       }
       const returnedAction = claimAction ?? action;
@@ -215,6 +212,25 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
     }
   }
 
+  async releaseAdmission(
+    owner: MoneyActionOwner,
+    id: string,
+    now: string,
+  ): Promise<StoredMoneyActionOperation | null> {
+    await this.ensureSchema();
+    return this.executor.transaction(async (tx) => {
+      const changed = await tx.query(moneyActionQueries.releaseAdmission, [
+        now,
+        now,
+        id,
+        ...ownerParameters(owner),
+      ]);
+      if (changed.rowCount !== 1) return null;
+      const updated = await this.getRow(tx, owner, id);
+      return updated ? fromRow(updated) : null;
+    });
+  }
+
   private installSensitiveAction(id: string, options: MoneyActionIssueStoreOptions): void {
     this.sensitiveActions.set(id, {
       action: structuredClone(options.sensitiveAction),
@@ -313,6 +329,7 @@ function normalizeRow(row: OperationRow): OperationRow {
     transaction_hash: row.transaction_hash ?? null,
     user_operation_hash: row.user_operation_hash ?? null,
     verified_execution_key: row.verified_execution_key ?? null,
+    abandoned_at: row.abandoned_at ?? null,
   };
 }
 
@@ -328,6 +345,7 @@ function fromRow(
     submissionId: row.submission_id ?? undefined,
     transactionHash: row.transaction_hash as `0x${string}` | null ?? undefined,
     userOperationHash: row.user_operation_hash as `0x${string}` | null ?? undefined,
+    abandonedAt: row.abandoned_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

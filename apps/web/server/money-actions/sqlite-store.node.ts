@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
-import { canTransitionMoneyActionStatus, shouldExpireReferenceFreeUnknown } from "./status-transitions.js";
+import { canTransitionMoneyActionStatus } from "./status-transitions.js";
 import type {
   MoneyActionClaim,
   MoneyActionIssueStoreOptions,
@@ -22,6 +22,7 @@ type OperationRow = {
   transaction_hash: string | null;
   user_operation_hash: string | null;
   verified_execution_key: string | null;
+  abandoned_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -53,6 +54,7 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
         transaction_hash TEXT,
         user_operation_hash TEXT,
         verified_execution_key TEXT,
+        abandoned_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -61,6 +63,7 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
     `);
     this.ensureColumn("claimed_at", "TEXT");
     this.ensureColumn("verified_execution_key", "TEXT");
+    this.ensureColumn("abandoned_at", "TEXT");
     this.database.exec(`
       DROP INDEX IF EXISTS money_action_unique_submission_id;
       DROP INDEX IF EXISTS money_action_unique_transaction_hash;
@@ -153,9 +156,6 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
           disposition = changed.changes === 1 ? "dispatch" : "recover";
         }
         row = this.getRow(owner, id)!;
-      } else if (shouldExpireReferenceFreeUnknown(fromRow(row, action))) {
-        this.database.prepare(`UPDATE money_action_operations SET status = 'expired', updated_at = ? WHERE id = ?`).run(now, id);
-        row = this.getRow(owner, id)!;
       }
       this.database.exec("COMMIT");
       const returnedAction = claimAction ?? action;
@@ -178,11 +178,12 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
   ): Promise<StoredMoneyActionOperation[]> {
     const scopeClause = scope === "unresolved-send"
       ? ` AND status IN ('submitting', 'submitted', 'included', 'unknown')
+          AND abandoned_at IS NULL
           AND json_extract(action_json, '$.kind') = 'send'`
       : "";
     const rows = this.database.prepare(`
       SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-             user_operation_hash, verified_execution_key, created_at, updated_at
+             user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
       FROM money_action_operations
       WHERE subject = ? AND address = ? AND chain_id = ? AND account_provider = ?${scopeClause}
       ORDER BY updated_at DESC
@@ -281,6 +282,28 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
     }
   }
 
+  async releaseAdmission(
+    owner: MoneyActionOwner,
+    id: string,
+    now: string,
+  ): Promise<StoredMoneyActionOperation | null> {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const changed = this.database.prepare(`
+        UPDATE money_action_operations
+        SET abandoned_at = COALESCE(abandoned_at, ?), updated_at = ?
+        WHERE id = ? AND subject = ? AND address = ? AND chain_id = ? AND account_provider = ?
+          AND status IN ('submitting', 'submitted', 'included', 'unknown')
+      `).run(now, now, id, ...ownerParameters(owner));
+      const updated = changed.changes === 1 ? this.getRow(owner, id) : null;
+      this.database.exec("COMMIT");
+      return updated ? fromRow(updated) : null;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   private installSensitiveAction(id: string, options: MoneyActionIssueStoreOptions): void {
     this.sensitiveActions.set(id, {
       action: structuredClone(options.sensitiveAction),
@@ -343,7 +366,7 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
   private getRowById(id: string): OperationRow | null {
     return (this.database.prepare(`
       SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-             user_operation_hash, verified_execution_key, created_at, updated_at
+             user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
       FROM money_action_operations WHERE id = ?
     `).get(id) as unknown as OperationRow | undefined) ?? null;
   }
@@ -351,7 +374,7 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
   private getRow(owner: MoneyActionOwner, id: string): OperationRow | null {
     return (this.database.prepare(`
       SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-             user_operation_hash, verified_execution_key, created_at, updated_at
+             user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
       FROM money_action_operations
       WHERE id = ? AND subject = ? AND address = ? AND chain_id = ? AND account_provider = ?
     `).get(id, ...ownerParameters(owner)) as unknown as OperationRow | undefined) ?? null;
@@ -382,6 +405,7 @@ function fromRow(
     submissionId: row.submission_id ?? undefined,
     transactionHash: row.transaction_hash as `0x${string}` | null ?? undefined,
     userOperationHash: row.user_operation_hash as `0x${string}` | null ?? undefined,
+    abandonedAt: row.abandoned_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

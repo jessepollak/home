@@ -4,17 +4,18 @@ import type {
   PreparedMoneyAction,
 } from "@/features/money-actions/types";
 import {
+  canReleaseMoneyActionAdmission,
   canTransitionMoneyActionStatus,
-  shouldExpireReferenceFreeUnknown,
 } from "./status-transitions.js";
 
-export { hasMoneyActionChainHandle, shouldExpireReferenceFreeUnknown } from "./status-transitions.js";
+export { canReleaseMoneyActionAdmission } from "./status-transitions.js";
 
 export type StoredMoneyActionOperation = {
   action: PreparedMoneyAction;
   status: MoneyActionOperationStatus;
   attemptCount: number;
   claimedAt?: string;
+  abandonedAt?: string;
   submissionId?: string;
   transactionHash?: `0x${string}`;
   userOperationHash?: `0x${string}`;
@@ -66,6 +67,11 @@ export interface MoneyActionStore {
     now: string,
     constraints?: MoneyActionStatusConstraints,
   ): Promise<StoredMoneyActionOperation | null>;
+  releaseAdmission(
+    owner: MoneyActionOwner,
+    id: string,
+    now: string,
+  ): Promise<StoredMoneyActionOperation | null>;
 }
 
 export type VerifiedMoneyActionExecution = {
@@ -75,7 +81,7 @@ export type VerifiedMoneyActionExecution = {
 };
 
 export type MoneyActionStatusConstraints = {
-  expectedSourceStatus?: MoneyActionOperationStatus | readonly MoneyActionOperationStatus[];
+  expectedSourceStatus?: MoneyActionOperationStatus;
   requireNoSubmissionReference?: boolean;
   verifiedExecution?: VerifiedMoneyActionExecution;
 };
@@ -136,10 +142,6 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
       record.claimedAt = now;
       record.updatedAt = now;
       return this.claimResult(record, claimAction!, "dispatch");
-    }
-    if (shouldExpireReferenceFreeUnknown(record)) {
-      record.status = "expired";
-      record.updatedAt = now;
     }
     return this.claimResult(record, claimAction ?? record.action, "recover");
   }
@@ -215,6 +217,18 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
     return structuredClone(record);
   }
 
+  async releaseAdmission(
+    owner: MoneyActionOwner,
+    id: string,
+    now: string,
+  ): Promise<StoredMoneyActionOperation | null> {
+    const record = this.readOwned(owner, id);
+    if (!record || !canReleaseMoneyActionAdmission(record)) return null;
+    record.abandonedAt ??= now;
+    record.updatedAt = now;
+    return structuredClone(record);
+  }
+
   private installSensitiveAction(id: string, options: MoneyActionIssueStoreOptions): void {
     this.sensitiveActions.set(id, {
       action: structuredClone(options.sensitiveAction),
@@ -277,7 +291,7 @@ const unresolvedSendStatuses = new Set<MoneyActionOperationStatus>([
 ]);
 
 function isUnresolvedSend(record: StoredMoneyActionOperation): boolean {
-  return record.action.kind === "send" && unresolvedSendStatuses.has(record.status);
+  return record.action.kind === "send" && unresolvedSendStatuses.has(record.status) && !record.abandonedAt;
 }
 
 function verifiedExecutionKey(execution: VerifiedMoneyActionExecution): string {

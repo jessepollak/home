@@ -1,17 +1,11 @@
-export function hasMoneyActionChainHandle(record) {
-  return Boolean(record.submissionId || record.transactionHash || record.userOperationHash);
-}
-
-export function shouldExpireReferenceFreeUnknown(record) {
-  return record.status === "unknown" && !hasMoneyActionChainHandle(record);
+export function canReleaseMoneyActionAdmission(record) {
+  return ["submitting", "submitted", "included", "unknown"].includes(record.status);
 }
 
 export function canTransitionMoneyActionStatus(record, to, constraints) {
   const from = record.status;
-  if (constraints?.expectedSourceStatus != null) {
-    const expected = constraints.expectedSourceStatus;
-    const allowed = Array.isArray(expected) ? expected : [expected];
-    if (!allowed.includes(from)) return false;
+  if (constraints?.expectedSourceStatus && from !== constraints.expectedSourceStatus) {
+    return false;
   }
   if (
     constraints?.requireNoSubmissionReference &&

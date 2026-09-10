@@ -19,8 +19,8 @@ The first implementation slice does not change the store schema. It adds a pure 
 - **No naïve terminal expiry.** Elapsed time must not make late transaction, user-operation, or provider evidence unattachable.
 - No generic workflow engine, event store, saga framework, or provider-neutral `execute(anything)` API.
 - No server custody, private-key handling, background signing, or automatic compensating transfer.
-- No implementation of terminal `unknown → expired` behavior in this slice. Owner abandonment/admission release is modeled below but remains coordinated with issue #110 and its store owner.
-- No edits to the current Memory/SQLite/Postgres store, status transitions, claim handler, or owner-scoped expiry work.
+- No implementation of terminal `unknown → expired` behavior. Owner abandonment/admission release is the #110 / PR #134 store contract (`abandonedAt` plus explicit admission-release).
+- Phase 1 of #131 did not edit the store. #134 adds the bounded admission-release field and command on Memory/SQLite/Postgres without a blanket `unknown → expired` transition.
 
 ## Current boundary and failure windows
 
@@ -351,7 +351,7 @@ Use temporary real SQLite files and the repository's real Postgres contract harn
 ### Phase 4 — owner abandonment and admission release
 
 - Coordinate with issue #110's immediate user-unblock policy.
-- Implement an explicit owner-scoped command and UI language that releases Home admission without claiming onchain non-submission.
+- Bounded store/API (PR #134): `abandonedAt` plus owner-scoped `POST /api/actions/:id/admission-release`. Recover/Check status does not write `unknown → expired`. Late evidence and reconciliation stay open. Send-dialog UI language remains a Hugo follow-up.
 - Preserve late evidence attachment, warning/reconciliation behavior, and cross-attempt conflict checks.
 - Do not implement a blanket `unknown → expired` status transition.
 

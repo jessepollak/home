@@ -15,6 +15,7 @@ export const MONEY_ACTION_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS money_action_
   transaction_hash TEXT,
   user_operation_hash TEXT,
   verified_execution_key TEXT,
+  abandoned_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -25,7 +26,9 @@ CREATE INDEX IF NOT EXISTS money_action_owner_recent
 CREATE UNIQUE INDEX IF NOT EXISTS money_action_unique_verified_execution
   ON money_action_operations (verified_execution_key)
   WHERE verified_execution_key IS NOT NULL;
-`;
+
+ALTER TABLE money_action_operations ADD COLUMN IF NOT EXISTS abandoned_at TEXT;
+`
 
 export const moneyActionSchemaStatements = MONEY_ACTION_SCHEMA_SQL
   .split(";")
@@ -35,23 +38,23 @@ export const moneyActionSchemaStatements = MONEY_ACTION_SCHEMA_SQL
 export const moneyActionQueries = {
   selectById: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations WHERE id = $1
   `.trim(),
   selectByIdForUpdate: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations WHERE id = $1 FOR UPDATE
   `.trim(),
   selectOwned: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations
     WHERE id = $1 AND subject = $2 AND address = $3 AND chain_id = $4 AND account_provider = $5
   `.trim(),
   selectOwnedForUpdate: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations
     WHERE id = $1 AND subject = $2 AND address = $3 AND chain_id = $4 AND account_provider = $5
     FOR UPDATE
@@ -73,7 +76,7 @@ export const moneyActionQueries = {
   `.trim(),
   listOwned: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations
     WHERE subject = $1 AND address = $2 AND chain_id = $3 AND account_provider = $4
     ORDER BY updated_at DESC
@@ -81,10 +84,11 @@ export const moneyActionQueries = {
   `.trim(),
   listOwnedUnresolvedSends: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations
     WHERE subject = $1 AND address = $2 AND chain_id = $3 AND account_provider = $4
       AND status IN ('submitting', 'submitted', 'included', 'unknown')
+      AND abandoned_at IS NULL
       AND action_json::jsonb ->> 'kind' = 'send'
     ORDER BY updated_at DESC
     LIMIT $5
@@ -116,6 +120,12 @@ export const moneyActionQueries = {
     WHERE id = $4 AND subject = $5 AND address = $6 AND chain_id = $7 AND account_provider = $8
       AND status = $9
   `.trim(),
+  releaseAdmission: `
+    UPDATE money_action_operations
+    SET abandoned_at = COALESCE(abandoned_at, $1), updated_at = $2
+    WHERE id = $3 AND subject = $4 AND address = $5 AND chain_id = $6 AND account_provider = $7
+      AND status IN ('submitting', 'submitted', 'included', 'unknown')
+  `.trim(),
 } as const;
 
 export type OperationRow = {
@@ -127,6 +137,7 @@ export type OperationRow = {
   transaction_hash: string | null;
   user_operation_hash: string | null;
   verified_execution_key: string | null;
+  abandoned_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -216,6 +227,7 @@ function publicRow(row: StoredRow): OperationRow {
     transaction_hash: row.transaction_hash,
     user_operation_hash: row.user_operation_hash,
     verified_execution_key: row.verified_execution_key,
+    abandoned_at: row.abandoned_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -267,6 +279,7 @@ export function createFakePostgresExecutor(): SqlExecutor {
           transaction_hash: null,
           user_operation_hash: null,
           verified_execution_key: null,
+          abandoned_at: null,
           created_at: String(values[7]),
           updated_at: String(values[8]),
         });
@@ -300,6 +313,7 @@ export function createFakePostgresExecutor(): SqlExecutor {
           )
           .filter((row) => !unresolvedSendsOnly || (
             ["submitting", "submitted", "included", "unknown"].includes(row.status) &&
+            !row.abandoned_at &&
             (JSON.parse(row.action_json) as { kind?: unknown }).kind === "send"
           ))
           .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
@@ -366,6 +380,22 @@ export function createFakePostgresExecutor(): SqlExecutor {
         row.status = String(values[0]);
         row.updated_at = String(values[1]);
         row.verified_execution_key ??= nextKey;
+        return { rows: [], rowCount: 1 };
+      }
+      case moneyActionQueries.releaseAdmission: {
+        const row = rows.get(String(values[2]));
+        if (
+          !row ||
+          row.subject !== values[3] ||
+          row.address !== values[4] ||
+          row.chain_id !== Number(values[5]) ||
+          row.account_provider !== values[6] ||
+          !["submitting", "submitted", "included", "unknown"].includes(row.status)
+        ) {
+          return { rows: [], rowCount: 0 };
+        }
+        row.abandoned_at ??= String(values[0]);
+        row.updated_at = String(values[1]);
         return { rows: [], rowCount: 1 };
       }
       default:

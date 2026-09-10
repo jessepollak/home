@@ -79,7 +79,42 @@ try {
       hash: `0x${"b".repeat(64)}`,
     },
   }), null);
-  console.log("sqlite durable claim, shared bundle, and verified execution race probe passed");
+  const abandon = { ...action, id: "44444444-4444-4444-8444-444444444444" };
+  await store.issue(abandon);
+  await store.claim(owner, abandon.id, abandon.reviewHash, "2026-09-08T05:04:00.000Z");
+  const abandoned = await store.releaseAdmission(owner, abandon.id, "2026-09-08T05:04:30.000Z");
+  assert.equal(abandoned.status, "submitting");
+  assert.equal(abandoned.abandonedAt, "2026-09-08T05:04:30.000Z");
+  assert.equal(
+    (await store.list(owner, 10, "unresolved-send")).some((operation) => operation.action.id === abandon.id),
+    false,
+  );
+  const lateHash = `0x${"e".repeat(64)}`;
+  const lateTx = `0x${"f".repeat(64)}`;
+  const attached = await store.recordSubmission(
+    owner,
+    abandon.id,
+    { userOperationHash: lateHash, transactionHash: lateTx },
+    "2026-09-08T05:04:40.000Z",
+  );
+  assert.equal(attached.status, "submitted");
+  assert.equal(attached.abandonedAt, "2026-09-08T05:04:30.000Z");
+  const reconciled = await store.updateStatus(owner, abandon.id, "confirmed", "2026-09-08T05:04:41.000Z", {
+    verifiedExecution: { chainId: 8453, kind: "user-operation", hash: lateHash },
+  });
+  assert.equal(reconciled.status, "confirmed");
+  assert.equal(reconciled.abandonedAt, "2026-09-08T05:04:30.000Z");
+
+  const unknown = { ...action, id: "55555555-5555-4555-8555-555555555555" };
+  await store.issue(unknown);
+  await store.claim(owner, unknown.id, unknown.reviewHash, "2026-09-08T05:05:00.000Z");
+  await store.updateStatus(owner, unknown.id, "unknown", "2026-09-08T05:05:01.000Z");
+  const recovered = await store.claim(owner, unknown.id, unknown.reviewHash, "2026-09-08T05:05:02.000Z");
+  assert.equal(recovered.disposition, "recover");
+  assert.equal(recovered.operation.status, "unknown");
+  assert.equal(recovered.operation.abandonedAt, undefined);
+
+  console.log("sqlite durable claim, shared bundle, verified execution race, and admission-release probe passed");
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }

@@ -6,7 +6,7 @@ Send admission uses a dedicated read-only view of the authenticated account's du
 GET /api/actions/operations?scope=unresolved-send&limit=50
 ```
 
-The handler authenticates first and derives the owner tuple from the verified session. Query parameters cannot select another owner or wallet. The `unresolved-send` scope filters to `send` actions in `submitting`, `submitted`, `included`, or `unknown` status before applying the bounded limit, then preserves the existing newest-first ordering.
+The handler authenticates first and derives the owner tuple from the verified session. Query parameters cannot select another owner or wallet. The `unresolved-send` scope filters to `send` actions in `submitting`, `submitted`, `included`, or `unknown` status that have not been owner-abandoned (`abandonedAt`) before applying the bounded limit, then preserves the existing newest-first ordering. Abandonment releases this gate only; it does not expire or cancel chain execution.
 
 A scoped response is explicitly identified:
 

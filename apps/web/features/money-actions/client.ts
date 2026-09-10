@@ -64,6 +64,20 @@ export async function recordMoneyActionStatus(
   return value.operation as unknown as StoredMoneyActionOperation;
 }
 
+export async function releaseMoneyActionAdmission(
+  fetchApi: MoneyActionApiFetch,
+  id: string,
+): Promise<StoredMoneyActionOperation> {
+  const value = await fetchApi(`/api/actions/${id}/admission-release`, {
+    method: "POST",
+    body: JSON.stringify({ reason: "owner-request" }),
+  });
+  if (!isRecord(value) || !isRecord(value.operation) || !isRecord(value.operation.action) || value.operation.action.id !== id) {
+    throw new MoneyActionClientError("invalid-response");
+  }
+  return value.operation as unknown as StoredMoneyActionOperation;
+}
+
 export async function readMoneyAction(
   fetchApi: MoneyActionApiFetch,
   id: string,
