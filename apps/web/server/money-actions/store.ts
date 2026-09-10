@@ -3,7 +3,10 @@ import type {
   MoneyActionOwner,
   PreparedMoneyAction,
 } from "@/features/money-actions/types";
-import { canTransitionMoneyActionStatus } from "./status-transitions.js";
+import {
+  canTransitionMoneyActionStatus,
+  shouldExpireReferenceFreeUnknown,
+} from "./status-transitions.js";
 
 export { hasMoneyActionChainHandle, shouldExpireReferenceFreeUnknown } from "./status-transitions.js";
 
