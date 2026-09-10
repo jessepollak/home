@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Liveline, type LivelinePoint } from "liveline";
 import {
   MARKET_PRICE_RANGES,
@@ -27,10 +27,8 @@ export const LIVELINE_PLOT_PADDING = {
   left: 16,
 } as const;
 
-/** Liveline's chartReveal (~0.09/frame) must finish before a series is uncovered. */
-export const LIVELINE_SWAP_SETTLE_MS = 850;
-/** Extra cover time on chip changes so last-good is not lifted mid-reveal. */
-export const LIVELINE_CHIP_SETTLE_MS = 1200;
+/** First-load shimmer fades on `--motion-tab` so Liveline's chartReveal can play. */
+export const CHART_COVER_FADE_MS = 180;
 
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
 
@@ -74,8 +72,6 @@ type HeldLivelinePlot = {
   windowSecs: number;
 };
 
-type PlotSlotId = "a" | "b";
-
 function ChartBody({
   history,
   range,
@@ -89,55 +85,48 @@ function ChartBody({
     [history.points],
   );
   const plot = useHeldLivelinePlot(history.status, incoming, range);
-  const { revealed, pending, liveSlot } = usePresentedLivelinePlot(
-    plot,
-    reduceMotion,
-  );
-  const blankCover = !!pending && !revealed;
-  const chipHold = !!pending && !!revealed && pending.key !== revealed.key;
+  const firstCover = useFirstPaintCover(!!plot, reduceMotion);
+  const coldLoad = history.status === "loading" && !plot;
+  const chipLoad = history.status === "loading" && !!plot;
   const unavailable =
     history.status !== "loading" &&
-    (history.status === "error" || !plot) &&
-    !revealed &&
-    !pending;
-  const waitingFirstPaint = blankCover || (!revealed && !pending && !unavailable);
+    (history.status === "error" || !plot);
+  const waitingFirstPaint = coldLoad || firstCover;
+  const coverKind = coldLoad || firstCover ? "first" : chipLoad ? "chip" : null;
   const stageRole = waitingFirstPaint || unavailable ? "status" : "img";
-  const visible = revealed ?? pending;
   const stageLabel = waitingFirstPaint
     ? "Loading price history"
-    : unavailable || !visible
+    : unavailable || !plot
       ? undefined
-      : `${visible.range} price history`;
-  const slotA = plotForStableSlot("a", liveSlot, revealed, pending, chipHold);
-  const slotB = plotForStableSlot("b", liveSlot, revealed, pending, chipHold);
+      : `${plot.range} price history`;
 
   return (
     <div
       className={styles.chartStage}
       role={stageRole}
       aria-label={stageLabel}
-      data-liveline-hold={chipHold ? "chip" : blankCover ? "first" : undefined}
+      aria-busy={waitingFirstPaint || chipLoad || undefined}
+      data-liveline-hold={
+        chipLoad ? "chip" : coldLoad ? "first" : firstCover ? "reveal" : undefined
+      }
     >
-      <StablePlotSlot
-        id="a"
-        plot={slotA}
-        live={liveSlot === "a"}
-        chipHold={chipHold}
-        blankCover={blankCover}
-        reduceMotion={reduceMotion}
-      />
-      <StablePlotSlot
-        id="b"
-        plot={slotB}
-        live={liveSlot === "b"}
-        chipHold={chipHold}
-        blankCover={blankCover}
-        reduceMotion={reduceMotion}
-      />
-      {blankCover ? (
-        <div className={styles.plotCover} data-plot-cover="true" aria-hidden />
+      {plot ? (
+        <div className={styles.plotFrame} data-plot-key={plot.key} data-plot-range={plot.range}>
+          <AssetLiveline plot={plot} reduceMotion={reduceMotion} />
+        </div>
       ) : null}
-      {/* Incoming paints offstage; last-good stays the only onstage series. */}
+      {coverKind ? (
+        <div
+          className={
+            coverKind === "first"
+              ? `${styles.plotCover} shimmer`
+              : `${styles.plotCover} ${styles.plotCoverChip}`
+          }
+          data-plot-cover={coverKind}
+          data-fading={firstCover && !coldLoad ? "true" : undefined}
+          aria-hidden
+        />
+      ) : null}
       {unavailable ? (
         <p className={styles.chartMessage} role="status">
           {history.status === "error"
@@ -147,18 +136,6 @@ function ChartBody({
       ) : null}
     </div>
   );
-}
-
-/** Last-good stays in one slot; incoming mounts in the other. Slots never swap identity. */
-function plotForStableSlot(
-  id: PlotSlotId,
-  liveSlot: PlotSlotId,
-  revealed: HeldLivelinePlot | null,
-  pending: HeldLivelinePlot | null,
-  chipHold: boolean,
-) {
-  if (id === liveSlot) return revealed ?? pending;
-  return chipHold ? pending : null;
 }
 
 /** Commit a complete series only. Mid-load points/window/value stay on last-good. */
@@ -189,89 +166,30 @@ function useHeldLivelinePlot(
   return held;
 }
 
-/**
- * Last-good stays in a stable slot (same React instance). Incoming mounts in
- * the other slot at full opacity. On chip settle we promote that slot — never
- * remount last-good, and never opacity 0→1 (that retriggers chartReveal).
- */
-function usePresentedLivelinePlot(
-  plot: HeldLivelinePlot | null,
-  reduceMotion: boolean,
-) {
-  const [revealed, setRevealed] = useState<HeldLivelinePlot | null>(null);
-  const [pending, setPending] = useState<HeldLivelinePlot | null>(null);
-  const [liveSlot, setLiveSlot] = useState<PlotSlotId>("a");
+/** Opaque first-load shimmer fades once so the same Liveline instance can reveal. */
+function useFirstPaintCover(hasPlot: boolean, reduceMotion: boolean) {
+  const [covering, setCovering] = useState(false);
+  const revealed = useRef(false);
 
-  let nextRevealed = revealed;
-  let nextPending = pending;
-  let nextLiveSlot = liveSlot;
-
-  if (!plot) {
-    nextRevealed = null;
-    nextPending = null;
-    nextLiveSlot = "a";
-  } else if (reduceMotion || revealed?.key === plot.key) {
-    nextRevealed = plot;
-    nextPending = null;
-  } else if (!revealed) {
-    nextPending = plot;
-  } else if (pending?.key !== plot.key) {
-    nextPending = plot;
+  if (!hasPlot) {
+    revealed.current = false;
+    if (covering) setCovering(false);
+  } else if (!revealed.current) {
+    revealed.current = true;
+    if (reduceMotion) {
+      if (covering) setCovering(false);
+    } else if (!covering) {
+      setCovering(true);
+    }
   }
 
-  if (nextRevealed !== revealed) setRevealed(nextRevealed);
-  if (nextPending !== pending) setPending(nextPending);
-  if (nextLiveSlot !== liveSlot) setLiveSlot(nextLiveSlot);
-
-  const pendingKey = nextPending?.key ?? null;
-  const hasRevealed = !!nextRevealed;
   useEffect(() => {
-    if (reduceMotion || !plot || !pendingKey || plot.key !== pendingKey) return;
-    const delay = hasRevealed ? LIVELINE_CHIP_SETTLE_MS : LIVELINE_SWAP_SETTLE_MS;
-    const timer = window.setTimeout(() => {
-      setRevealed(plot);
-      setPending(null);
-      if (hasRevealed) {
-        setLiveSlot((slot) => (slot === "a" ? "b" : "a"));
-      }
-    }, delay);
+    if (!covering) return;
+    const timer = window.setTimeout(() => setCovering(false), CHART_COVER_FADE_MS);
     return () => window.clearTimeout(timer);
-  }, [plot, pendingKey, reduceMotion, hasRevealed]);
+  }, [covering]);
 
-  return { revealed: nextRevealed, pending: nextPending, liveSlot: nextLiveSlot };
-}
-
-function StablePlotSlot({
-  id,
-  plot,
-  live,
-  chipHold,
-  blankCover,
-  reduceMotion,
-}: {
-  id: PlotSlotId;
-  plot: HeldLivelinePlot | null;
-  live: boolean;
-  chipHold: boolean;
-  blankCover: boolean;
-  reduceMotion: boolean;
-}) {
-  if (!plot) return null;
-  const layer = live && chipHold ? "front" : "back";
-  const slot = live ? "live" : "warm";
-  return (
-    <div
-      className={`${styles.plotSlot} ${layer === "front" ? styles.plotFront : styles.plotBack}`}
-      data-plot-id={id}
-      data-plot-slot={slot}
-      data-plot-layer={layer}
-      data-plot-key={plot.key}
-      data-plot-pending={live ? (blankCover ? "true" : "false") : undefined}
-      aria-hidden={slot === "warm" ? true : undefined}
-    >
-      <AssetLiveline key={plot.key} plot={plot} reduceMotion={reduceMotion} />
-    </div>
-  );
+  return covering;
 }
 
 function commitLivelinePlot(

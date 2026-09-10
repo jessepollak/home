@@ -23,9 +23,8 @@ mock.module("liveline", () => ({
 
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const {
-  LIVELINE_CHIP_SETTLE_MS,
+  CHART_COVER_FADE_MS,
   LIVELINE_PLOT_PADDING,
-  LIVELINE_SWAP_SETTLE_MS,
   PriceChart,
   formatChartValue,
   toLivelinePoints,
@@ -68,7 +67,7 @@ async function waitForRevealed(range: MarketPriceRange = "1W") {
       within(document.body).getByRole("img", {
         name: `${range} price history`,
       }),
-    { timeout: LIVELINE_SWAP_SETTLE_MS + 200 },
+    { timeout: CHART_COVER_FADE_MS + 200 },
   );
 }
 
@@ -107,6 +106,7 @@ describe("PriceChart Liveline", () => {
     expect(chart.degen).toBe(false);
     expect(chart.badge).toBe(false);
     expect(chart.showValue).toBe(false);
+    expect(chart.lerpSpeed).toBe(0.08);
     expect(chart.data).toEqual(toLivelinePoints(points));
     expect(chart.value).toBe(64210);
     expect(chart.window).toBeGreaterThanOrEqual(7 * 86_400);
@@ -143,7 +143,7 @@ describe("PriceChart Liveline", () => {
 });
 
 describe("PriceChart states", () => {
-  test("reserves the chart stage without mounting a degenerate Liveline on cold open", () => {
+  test("reserves the chart stage with Direction 1 shimmer and no degenerate Liveline on cold open", () => {
     const { rerender } = render(
       <PriceChart
         range="1D"
@@ -155,6 +155,9 @@ describe("PriceChart states", () => {
       name: "Loading price history",
     });
     expect(loadingStage).toBeTruthy();
+    expect(loadingStage.getAttribute("aria-busy")).toBe("true");
+    expect(document.querySelector("[data-plot-cover='first']")).toBeTruthy();
+    expect(document.querySelector("[data-plot-cover='first']")?.className).toContain("shimmer");
     expect(within(document.body).queryByTestId("liveline")).toBeNull();
     expect(livelineCalls).toEqual([]);
     expect(livelineHadDegenerateFrame()).toBe(false);
@@ -168,6 +171,7 @@ describe("PriceChart states", () => {
     );
     expect(within(document.body).getByText("No price history for this range.")).toBeTruthy();
     expect(within(document.body).queryByTestId("liveline")).toBeNull();
+    expect(document.querySelector("[data-plot-cover]")).toBeNull();
 
     rerender(
       <PriceChart
@@ -181,7 +185,7 @@ describe("PriceChart states", () => {
     expect(livelineHadDegenerateFrame()).toBe(false);
   });
 
-  test("covers the first ready series until chartReveal finishes and never paints empty or value=0", async () => {
+  test("fades the first-load shimmer over the same Liveline once a complete series is ready", async () => {
     stubMatchMedia(false);
     const week = [
       { time: "2026-09-01T00:00:00.000Z", value: "62000" },
@@ -195,6 +199,7 @@ describe("PriceChart states", () => {
       />,
     );
     expect(within(document.body).queryByTestId("liveline")).toBeNull();
+    expect(document.querySelector("[data-plot-cover='first']")).toBeTruthy();
 
     rerender(
       <PriceChart
@@ -204,22 +209,25 @@ describe("PriceChart states", () => {
       />,
     );
     expect(within(document.body).getByRole("status", { name: "Loading price history" })).toBeTruthy();
-    expect(document.querySelector('[data-plot-slot="live"][data-plot-pending="true"]')).toBeTruthy();
-    expect(document.querySelector("[data-plot-cover='true']")).toBeTruthy();
+    expect(document.querySelector("[data-liveline-hold='reveal']")).toBeTruthy();
+    expect(document.querySelector("[data-plot-cover='first'][data-fading='true']")).toBeTruthy();
     const first = livelineCalls.at(-1)!;
     expect(first.data).toEqual(toLivelinePoints(week));
     expect(first.value).toBe(64210);
     expect(first.loading).toBe(false);
+    expect(first.lerpSpeed).toBe(0.08);
     expect(livelineHadDegenerateFrame()).toBe(false);
+    expect(livelineMounts).toEqual(["mount"]);
 
     await waitForRevealed("1W");
-    expect(document.querySelector('[data-plot-slot="live"][data-plot-pending="false"]')).toBeTruthy();
-    expect(document.querySelector("[data-plot-cover='true']")).toBeNull();
+    expect(document.querySelector("[data-plot-cover]")).toBeNull();
+    expect(document.querySelector("[data-liveline-hold]")).toBeNull();
     expect(livelineCalls.at(-1)?.value).toBe(64210);
+    expect(livelineMounts).toEqual(["mount"]);
     expect(livelineHadDegenerateFrame()).toBe(false);
   });
 
-  test("freezes last-good Liveline geometry until the next series is ready", async () => {
+  test("keeps one Liveline instance and tweens last-good into the next series", async () => {
     stubMatchMedia(false);
     const week = [
       { time: "2026-09-01T00:00:00.000Z", value: "62000" },
@@ -238,6 +246,7 @@ describe("PriceChart states", () => {
     expect(settled.data).toEqual(weekPoints);
     expect(settled.value).toBe(64210);
     expect(settled.loading).toBe(false);
+    expect(settled.lerpSpeed).toBe(0.08);
     const frozenWindow = settled.window;
     const frozenValue = settled.value;
     livelineCalls.length = 0;
@@ -250,15 +259,22 @@ describe("PriceChart states", () => {
       />,
     );
     expect(within(document.body).getByRole("img", { name: "1W price history" })).toBeTruthy();
+    expect(within(document.body).getByRole("img").getAttribute("aria-busy")).toBe("true");
     expect(within(document.body).getByRole("button", { name: "1D" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
+    expect(document.querySelector("[data-liveline-hold='chip']")).toBeTruthy();
+    expect(document.querySelector("[data-plot-cover='chip']")).toBeTruthy();
     const held = livelineCalls[0]!;
     expect(held.loading).toBe(false);
     expect(held.data).toEqual(weekPoints);
     expect(held.data).toBe(settled.data);
     expect(held.value).toBe(frozenValue);
     expect(held.window).toBe(frozenWindow);
+    expect(held.lerpSpeed).toBe(0.08);
+    expect(document.querySelectorAll("[data-testid='liveline']").length).toBe(1);
+    expect(livelineMounts).toEqual(["mount"]);
+    expect(livelineHadDegenerateFrame()).toBe(false);
 
     const day = [
       { time: "2026-09-08T00:00:00.000Z", value: "64100" },
@@ -271,53 +287,54 @@ describe("PriceChart states", () => {
         onRangeChange={() => {}}
       />,
     );
-    expect(within(document.body).getByRole("img", { name: "1W price history" })).toBeTruthy();
-    const liveKey = document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-key");
-    const liveId = document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-id");
-    expect(liveKey).toContain("1W");
-    expect(document.querySelector("[data-liveline-hold='chip']")).toBeTruthy();
-    expect(document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-layer")).toBe(
-      "front",
-    );
-    const mid = livelineCalls.filter((call) => !call.loading);
-    expect(mid.some((call) => call.data === settled.data && call.window === frozenWindow)).toBe(
-      true,
-    );
-    expect(mid.some((call) => call.value === 64300)).toBe(true);
-    expect(document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-key")).toBe(
-      liveKey,
-    );
-    expect(document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-id")).toBe(
-      liveId,
-    );
-    expect(document.querySelector('[data-plot-slot="warm"]')?.getAttribute("data-plot-key")).toContain(
-      "1D",
-    );
-    expect(document.querySelectorAll("[data-testid='liveline']").length).toBe(2);
-    expect(livelineMounts).toEqual(["mount", "mount"]);
+    expect(within(document.body).getByRole("img", { name: "1D price history" })).toBeTruthy();
+    expect(document.querySelector("[data-liveline-hold]")).toBeNull();
+    expect(document.querySelector("[data-plot-cover]")).toBeNull();
+    expect(document.querySelector("[data-plot-range]")?.getAttribute("data-plot-range")).toBe("1D");
+    expect(document.querySelectorAll("[data-testid='liveline']").length).toBe(1);
+    expect(livelineMounts).toEqual(["mount"]);
+    const ready = livelineCalls.at(-1)!;
+    expect(ready.data).toEqual(toLivelinePoints(day));
+    expect(ready.value).toBe(64300);
+    expect(ready.window).not.toBe(frozenWindow);
+    expect(ready.loading).toBe(false);
+    expect(ready.lerpSpeed).toBe(0.08);
     expect(livelineHadDegenerateFrame()).toBe(false);
+  });
 
-    await waitFor(
-      () => {
-        expect(within(document.body).getByRole("img", { name: "1D price history" })).toBeTruthy();
-        expect(document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-key")).toContain(
-          "1D",
-        );
-        expect(document.querySelector('[data-plot-slot="warm"]')).toBeNull();
-        expect(document.querySelector("[data-liveline-hold='chip']")).toBeNull();
-        expect(document.querySelector('[data-plot-slot="live"]')?.getAttribute("data-plot-id")).not.toBe(
-          liveId,
-        );
-        expect(livelineMounts).toEqual(["mount", "mount", "unmount"]);
-        const ready = livelineCalls.at(-1)!;
-        expect(ready.data).toEqual(toLivelinePoints(day));
-        expect(ready.value).toBe(64300);
-        expect(ready.window).not.toBe(frozenWindow);
-        expect(ready.loading).toBe(false);
-        expect(livelineHadDegenerateFrame()).toBe(false);
-      },
-      { timeout: LIVELINE_CHIP_SETTLE_MS + 200 },
+  test("swaps the series immediately when motion is reduced", () => {
+    stubMatchMedia(true);
+    const week = [
+      { time: "2026-09-01T00:00:00.000Z", value: "62000" },
+      { time: "2026-09-07T00:00:00.000Z", value: "64210" },
+    ];
+    const { rerender } = render(
+      <PriceChart
+        range="1W"
+        history={{ status: "ready", points: week }}
+        onRangeChange={() => {}}
+      />,
     );
+    expect(within(document.body).getByRole("img", { name: "1W price history" })).toBeTruthy();
+    expect(document.querySelector("[data-plot-cover]")).toBeNull();
+    expect(livelineCalls.at(-1)?.lerpSpeed).toBe(1);
+
+    const day = [
+      { time: "2026-09-08T00:00:00.000Z", value: "64100" },
+      { time: "2026-09-08T12:00:00.000Z", value: "64300" },
+    ];
+    rerender(
+      <PriceChart
+        range="1D"
+        history={{ status: "ready", points: day }}
+        onRangeChange={() => {}}
+      />,
+    );
+    expect(within(document.body).getByRole("img", { name: "1D price history" })).toBeTruthy();
+    expect(document.querySelector("[data-plot-cover]")).toBeNull();
+    expect(livelineCalls.at(-1)?.data).toEqual(toLivelinePoints(day));
+    expect(livelineCalls.at(-1)?.lerpSpeed).toBe(1);
+    expect(livelineMounts).toEqual(["mount"]);
   });
 });
 
