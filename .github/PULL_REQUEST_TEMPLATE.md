@@ -13,12 +13,15 @@ Closes #
 
 User-visible UI / core-flow PRs only. Convention: [docs/ui-pr-previews.md](docs/ui-pr-previews.md).
 
-- [ ] Live impl capture (preview / prod / localhost on this tip) — not comps, empty scaffold, or unlabeled `/dev` harness
-- [ ] Before/after (or justified after-only) inline in this description
-- [ ] Hosted on GitHub `user-attachments/assets` (paste/drop into this PR body)
+- [ ] Captured from the final current PR head after the final code push (not comps, empty scaffold, or unlabeled `/dev` harness)
+- [ ] Retained manifest records head/base SHA, capture time, origin/route, browser, viewport/DPR, fixture-vs-live boundary, command/script, and SHA-256 file hashes
+- [ ] Ready state and all applicable critical states captured (loading, failure, fallback, keyboard/focus, owner/account boundary, scrolling, motion, provider)
+- [ ] Before/after (or justified after-only) inline in this existing description
+- [ ] Published as GitHub `user-attachments/assets` (paste/drop into this PR body), not `cursor.com/artifacts` / Cloud Agent artifact links
 - [ ] Stills: `~390px` width via `<img … width="390">` or equivalent
-- [ ] **Not** `cursor.com/artifacts` / Cloud Agent artifact links (expire ~15m)
-- [ ] Motion/animation: short GitHub-hosted video or GIF preferred (same `user-attachments`); static before/after OK if not motion
+- [ ] Motion/animation: current-tip inline GitHub-hosted video or GIF; physical-platform requirements captured on that platform (emulation is supporting only)
+- [ ] Stale tip/base/HOLD text replaced or explicitly superseded; published exact-tip proof reviewed before `status:ready-for-review`
+- [ ] I will recapture and republish after any later code push unless the reviewer explicitly reaccepts a demonstrably unchanged visual surface
 
 Paste/drop shots here, then wrap the GitHub URL:
 

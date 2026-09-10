@@ -64,7 +64,7 @@ Prefer `status:working`. Do not use `status:in-progress` — deprecated. If you 
 **Add `status:ready-for-review`** only when all of:
 
 - eng review is actually needed
-- required design LGTM is done (if UI)
+- required design LGTM is done (if UI), after reviewing published exact-tip proof under [UI PR previews](ui-pr-previews.md)
 - the item is not on HOLD
 
 Never on draft PRs.
@@ -85,6 +85,7 @@ On jessepollak-authored crew PRs, GitHub blocks formal `APPROVE` / `REQUEST_CHAN
 - design or eng HOLD
 - `REQUEST_CHANGES`
 - PR goes draft
+- a code push invalidates the published exact-tip visual proof (unless the reviewer explicitly reaccepts a demonstrably unchanged visual surface)
 - PR closed without merge
 - issue returns to `todo` or `working`
 
@@ -170,7 +171,7 @@ Jesse-locked, September 9, 2026. Where writing lives. Not a wiki migration.
 
 ## Proof bar
 
-User-visible work needs proof in the PR description: screenshots, a before/after, or a short repro. [UI PR previews](ui-pr-previews.md) is the screenshot convention. A reviewer should understand the change without opening the branch.
+User-visible work needs final-head live proof in the PR description. [UI PR previews](ui-pr-previews.md) is the authoritative capture, provenance, publication, and review convention. A reviewer should understand the change without opening the branch. Published exact-tip proof must be reviewed before a UI PR receives `status:ready-for-review`; any later code push invalidates it by default.
 
 Process docs-only, CI-only, and pure server PRs can skip screenshots. They still need a clear claim of what changed and how it was checked (`bun check` at minimum). Product docs are not a standalone PR — see [Docs](#docs).
 
