@@ -16,8 +16,6 @@ Missing, malformed, invalid, expired, or cross-project tokens return `401 UNAUTH
 
 The server SDK's usage tracking and error reporting are disabled by Home before the SDK loads when `DISABLE_CDP_USAGE_TRACKING` and `DISABLE_CDP_ERROR_REPORTING` are unset. Operators may explicitly set either variable to `false` to opt that channel back in after reviewing CDP's data policy. This default applies in production even when `.env.example` was not copied.
 
-**Error reporting decision (issue #74):** keep reporting disabled. The review of what the SDK would send, and the bar for an explicit `false` override, is [CDP error reporting](cdp-error-reporting.md). Do not enable it to “fill in” Vercel gaps.
-
 ## Preview auth
 
 Email OTP and Base Account are only testable on `http://localhost:3000` and the production alias (`https://home-web-jessepollaks-projects.vercel.app`) right now. Those origins stay on Embedded Wallet CORS. Vercel preview hosts are not allowlisted — sign-in fails there (`We could not send a code…`, `We could not connect to Base Account…`). Those banners are CDP client rejections after the app loaded, not Vercel Deployment Protection. Background: [#67](https://github.com/jessepollak/home/issues/67). Hosting notes: [Vercel deploy](vercel-deploy.md#preview-auth).

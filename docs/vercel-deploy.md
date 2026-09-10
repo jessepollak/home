@@ -38,15 +38,13 @@ Copy the names from the root [`.env.example`](../.env.example) into the Vercel p
 | `CDP_SQL_AUTH_MODE` | Indexed history | Default `client-api-key` |
 | `CDP_SQL_CLIENT_API_KEY` | Indexed history in default mode | Server-only |
 | `DISABLE_CDP_USAGE_TRACKING` | Privacy default | Unset or `true` keeps CDP SDK telemetry off |
-| `DISABLE_CDP_ERROR_REPORTING` | Privacy default | Unset or `true` keeps CDP SDK error reporting off. Review: [CDP error reporting](cdp-error-reporting.md). Do not set `false` in this spike. |
+| `DISABLE_CDP_ERROR_REPORTING` | Privacy default | Unset or `true` keeps CDP SDK error reporting off |
 | `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT` | Optional SIWE path | Leave unset for email-only |
 | `CODEX_API_KEY` | Optional Invest USD snapshots | Server-only |
 | `DATABASE_URL` | Hosted money-action persistence | Neon pooled connection string. Leave unset for local `bun dev` (SQLite). Landing and browse can deploy without it; money-action routes fail closed without it. Server-only. |
 | `BASE_RPC_URL` | Hosted money-path JSON-RPC | Server-only CDP Node (or other managed) Base HTTPS URL. **Set on Production and Preview.** Leave unset locally to use public `https://mainnet.base.org`. Never `NEXT_PUBLIC_`. See [portfolio](portfolio.md). |
 
 Landing and browse can deploy without `DATABASE_URL`. Money-action routes fail closed without it. Browsing works without credentials. Email sign-in and authenticated money actions need **your** CDP project and an **exact** Embedded Wallet CORS origin — see [Preview auth](#preview-auth). Details: [CDP setup](cdp-setup.md#preview-auth).
-
-Runtime logs and traces: [observability stub](observability.md). After deploy, search Vercel Logs for `home.observability.v1`. No extra env vars. CDP error reporting stays off.
 
 `BASE_RPC_URL` is listed in [`.env.example`](../.env.example). Mint a CDP Node HTTPS URL from Portal → Node → Base Mainnet and set it on Production and Preview. Home does not crash when it is unset (local default stays public Base); hosted money reads that omit it stay on the rate-limited public endpoint. Never commit the value.
 

@@ -3,7 +3,6 @@ import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
 import { createSessionHandler } from "@/server/cdp/session";
 import { createCoinbaseHostedOnrampSession } from "@/server/funding/coinbase-onramp";
 import { createFundingOnrampSessionHandler } from "@/server/funding/handler";
-import { withRequestLog } from "@/server/observability/with-request-log";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,10 +14,7 @@ const authorizeSession = createSessionHandler({
   ),
 });
 
-export const POST = withRequestLog(
-  "POST /api/funding/onramp-session",
-  createFundingOnrampSessionHandler({
-    authorize: authorizeSession,
-    createOnrampSession: createCoinbaseHostedOnrampSession,
-  }),
-);
+export const POST = createFundingOnrampSessionHandler({
+  authorize: authorizeSession,
+  createOnrampSession: createCoinbaseHostedOnrampSession,
+});

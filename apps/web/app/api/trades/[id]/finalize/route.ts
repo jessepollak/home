@@ -6,7 +6,6 @@ import { getTradeBalance } from "@/server/trading/balance";
 import { finalizeTradeAction } from "@/server/trading/finalize";
 import { createTradeFinalizeHandler } from "@/server/trading/handler";
 import { getTradeIntentStore } from "@/server/trading/runtime-intent-store";
-import { withRequestLog } from "@/server/observability/with-request-log";
 import {
   createPermit2StateReader,
   createSmartAccountSignatureVerifier,
@@ -24,20 +23,17 @@ const resolveSigner = createTradeSignerResolver({ getValidator: getCdpAccessToke
 const readPermit2State = createPermit2StateReader();
 const verifySmartAccountSignature = createSmartAccountSignatureVerifier();
 
-export const POST = withRequestLog(
-  "POST /api/trades/:id/finalize",
-  createTradeFinalizeHandler({
-    authorize: authorizeSession,
-    finalize: async (input) => finalizeTradeAction(
-      {
-        readBalance: getTradeBalance,
-        readPermit2State,
-        resolveSigner,
-        verifySmartAccountSignature,
-        intentStore: await getTradeIntentStore(),
-        issueAction: issueMoneyAction,
-      },
-      input,
-    ),
-  }),
-);
+export const POST = createTradeFinalizeHandler({
+  authorize: authorizeSession,
+  finalize: async (input) => finalizeTradeAction(
+    {
+      readBalance: getTradeBalance,
+      readPermit2State,
+      resolveSigner,
+      verifySmartAccountSignature,
+      intentStore: await getTradeIntentStore(),
+      issueAction: issueMoneyAction,
+    },
+    input,
+  ),
+});

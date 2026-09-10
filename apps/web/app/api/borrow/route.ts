@@ -4,7 +4,6 @@ import { createSessionHandler } from "@/server/cdp/session";
 import { createBorrowHandlers } from "@/server/borrowing/handler";
 import { getBaseBorrowing } from "@/server/borrowing/rpc";
 import { issueMoneyAction } from "@/server/money-actions/issue";
-import { withRequestLog } from "@/server/observability/with-request-log";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,5 +21,5 @@ const handlers = createBorrowHandlers({
   issueAction: issueMoneyAction,
 });
 
-export const GET = withRequestLog("GET /api/borrow", handlers.GET);
-export const POST = withRequestLog("POST /api/borrow", handlers.POST);
+export const GET = handlers.GET;
+export const POST = handlers.POST;
