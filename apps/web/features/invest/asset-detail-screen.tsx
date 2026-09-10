@@ -5,7 +5,7 @@ import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import {
   presentInvestAssetMark,
-  type AssetMarkImageMap,
+  type AssetMarkResolution,
 } from "@/features/asset-mark/presentation";
 import { TradeActions } from "@/features/trading/trade-actions";
 import type { MarketDataState } from "./invest-market";
@@ -51,14 +51,12 @@ export function AssetDetailStatusScreen({
 export function AssetDetailScreen({
   asset,
   market,
-  assetImages = {},
-  iconsPending = false,
+  assetMarkResolution = {},
   onBack,
 }: {
   asset: InvestAsset;
   market: MarketDataState;
-  assetImages?: AssetMarkImageMap;
-  iconsPending?: boolean;
+  assetMarkResolution?: AssetMarkResolution;
   onBack: () => void;
 }) {
   const [range, setRange] = useState<MarketPriceRange>("1W");
@@ -68,10 +66,7 @@ export function AssetDetailScreen({
   const changeTone =
     change.startsWith("+") ? styles.changeUp : change.startsWith("-") ? styles.changeDown : "";
   const hosted = Boolean(useOptionalAppChrome());
-  const mark = presentInvestAssetMark(asset, {
-    images: assetImages,
-    pending: iconsPending,
-  });
+  const mark = presentInvestAssetMark(asset, assetMarkResolution);
   return (
     <section
       className={`${styles.experience} ${styles.detailExperience}`}

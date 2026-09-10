@@ -1,5 +1,6 @@
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
+import type { AssetMarkResolution } from "@/features/asset-mark/presentation";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
 import {
   discoverShelves,
@@ -16,8 +17,7 @@ export type InvestHubProps = {
   cryptoMarket?: MarketDataState;
   memeAssets?: readonly InvestAsset[];
   memeStatus?: MemeShelfStatus;
-  assetIcons?: Readonly<Record<string, string | null>>;
-  iconsPending?: boolean;
+  assetMarkResolution?: AssetMarkResolution;
   onSeeAll: (shelfId: DiscoverShelfId) => void;
   onOpenAsset: (asset: InvestAsset, from: "hub") => void;
 };
@@ -28,8 +28,7 @@ export function InvestHub({
   cryptoMarket,
   memeAssets = [],
   memeStatus = "empty",
-  assetIcons = {},
-  iconsPending = false,
+  assetMarkResolution = {},
   onSeeAll,
   onOpenAsset,
 }: InvestHubProps) {
@@ -59,8 +58,7 @@ export function InvestHub({
             assets={getShelfPreviewAssets(shelf, memeAssets)}
             market={markets[shelf.category]}
             status={shelf.id === "memes" ? memeStatus : "ready"}
-            assetImages={assetIcons}
-            iconsPending={iconsPending}
+            assetMarkResolution={assetMarkResolution}
             onSeeAll={() => onSeeAll(shelf.id)}
             onOpenAsset={(asset) => onOpenAsset(asset, "hub")}
           />

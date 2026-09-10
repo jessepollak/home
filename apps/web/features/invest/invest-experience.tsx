@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useRouter } from "next/navigation";
 import { useNestedAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
+import type { AssetMarkResolution } from "@/features/asset-mark/presentation";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
 import {
   getDiscoverAsset,
@@ -34,8 +35,7 @@ export type InvestExperienceProps = {
   initialView?: InvestView;
   memeAssets?: readonly InvestAsset[];
   memeStatus?: MemeShelfStatus;
-  assetIcons?: Readonly<Record<string, string | null>>;
-  iconsPending?: boolean;
+  assetMarkResolution?: AssetMarkResolution;
 };
 
 export function InvestExperience({
@@ -45,8 +45,7 @@ export function InvestExperience({
   initialView,
   memeAssets = [],
   memeStatus = "empty",
-  assetIcons = {},
-  iconsPending = false,
+  assetMarkResolution = {},
 }: InvestExperienceProps = {}) {
   const router = useRouter();
   const [view, setView] = useState<InvestView>(() => {
@@ -134,8 +133,7 @@ export function InvestExperience({
       cryptoMarket={cryptoMarket}
       memeAssets={catalog}
       memeStatus={memeStatus}
-      assetIcons={assetIcons}
-      iconsPending={iconsPending}
+      assetMarkResolution={assetMarkResolution}
       onSeeAll={(shelfId) => go({ screen: "category", shelfId })}
       onOpenAsset={(asset: InvestAsset) =>
         go({ screen: "detail", assetId: asset.id, from: "hub" })
@@ -160,8 +158,7 @@ export function InvestExperience({
               : unavailableMarketData
         }
         status={shelf.id === "memes" ? memeStatus : "ready"}
-        assetImages={assetIcons}
-        iconsPending={iconsPending}
+        assetMarkResolution={assetMarkResolution}
         onBack={() => leaveChild({ screen: "hub" })}
         onOpenAsset={(asset, from) =>
           go({ screen: "detail", assetId: asset.id, from })
@@ -186,8 +183,7 @@ export function InvestExperience({
         <AssetDetailScreen
           asset={asset}
           market={marketForAsset(asset, markets)}
-          assetImages={assetIcons}
-          iconsPending={iconsPending}
+          assetMarkResolution={assetMarkResolution}
           onBack={() => leaveChild(parent)}
         />
       );

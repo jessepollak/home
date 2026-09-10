@@ -3,7 +3,7 @@
 import type { InvestAsset } from "@/config/invest-assets";
 import {
   presentInvestAssetMark,
-  type AssetMarkImageMap,
+  type AssetMarkResolution,
 } from "@/features/asset-mark/presentation";
 import type { MarketDataState } from "./invest-market";
 import { useMarketDisplay } from "./use-market-display";
@@ -13,21 +13,16 @@ import styles from "./invest-experience.module.css";
 export function DiscoverAssetRow({
   asset,
   market,
-  assetImages = {},
-  iconsPending = false,
+  assetMarkResolution = {},
   onOpen,
 }: {
   asset: InvestAsset;
   market: MarketDataState;
-  assetImages?: AssetMarkImageMap;
-  iconsPending?: boolean;
+  assetMarkResolution?: AssetMarkResolution;
   onOpen: () => void;
 }) {
   const price = useMarketDisplay(asset.id, market);
-  const mark = presentInvestAssetMark(asset, {
-    images: assetImages,
-    pending: iconsPending,
-  });
+  const mark = presentInvestAssetMark(asset, assetMarkResolution);
   const change = price.changeLabel ?? "—";
   const changeTone =
     change.startsWith("+") ? styles.changeUp : change.startsWith("-") ? styles.changeDown : "";

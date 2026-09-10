@@ -1890,8 +1890,8 @@ describe("login-state home experience", () => {
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
         assetMarkResolution={{
           images: {
-            nvdac: "https://icons.example.test/nvda.png",
-            cbbtc: "https://icons.example.test/cbbtc.png",
+            [nvidia.assetKey]: "https://icons.example.test/nvda.png",
+            [bitcoin.assetKey]: "https://icons.example.test/cbbtc.png",
           },
           pending: false,
         }}

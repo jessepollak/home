@@ -164,8 +164,8 @@ describe("presentHomeBalanceMark", () => {
     const nvidia = investPortfolioAssets.find((asset) => asset.id === "nvdac")!;
     const bitcoin = investPortfolioAssets.find((asset) => asset.id === "cbbtc")!;
     const images = {
-      nvdac: "https://icons.example.test/nvda.png",
-      cbbtc: "https://icons.example.test/cbbtc.png",
+      [nvidia.assetKey]: "https://icons.example.test/nvda.png",
+      [bitcoin.assetKey]: "https://icons.example.test/cbbtc.png",
     };
 
     expect(
@@ -184,7 +184,7 @@ describe("presentHomeBalanceMark", () => {
       assetKey: nvidia.assetKey,
       name: "NVIDIA",
       symbol: "NV",
-      imageUrl: images.nvdac,
+      imageUrl: images[nvidia.assetKey],
       pending: false,
       currency: null,
     });

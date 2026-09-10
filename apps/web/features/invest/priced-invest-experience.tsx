@@ -54,8 +54,7 @@ export function PricedInvestExperienceWithDiscover({
         memeMarket={discover.memeMarket}
         memeAssets={discover.memeAssets}
         memeStatus={discover.memeStatus}
-        assetIcons={discover.assetIcons}
-        iconsPending={discover.iconsPending}
+        assetMarkResolution={discover.assetMarkResolution}
       />
     </PresentationQuoteProvider>
   );

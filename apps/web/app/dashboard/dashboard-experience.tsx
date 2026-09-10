@@ -23,10 +23,7 @@ export function DashboardExperience({
       detectedCountry={null}
       initialPanel={initialPanel}
       initialAccountSettingsOpen={initialAccountSettingsOpen}
-      assetMarkResolution={{
-        images: discover.assetIcons,
-        pending: discover.iconsPending,
-      }}
+      assetMarkResolution={discover.assetMarkResolution}
       investContent={
         <PricedInvestExperienceWithDiscover
           initialView={initialInvestView}

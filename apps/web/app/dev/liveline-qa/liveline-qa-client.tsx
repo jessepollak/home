@@ -42,8 +42,7 @@ export function LivelineQaClient({ assetId }: { assetId: string }) {
       <AssetDetailScreen
         asset={asset}
         market={marketForAsset(asset, markets)}
-        assetImages={discover.assetIcons}
-        iconsPending={discover.iconsPending}
+        assetMarkResolution={discover.assetMarkResolution}
         onBack={() => {}}
       />
     </main>

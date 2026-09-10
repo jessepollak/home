@@ -26,7 +26,6 @@ type AssetMarkIdentity = {
   name: string;
   symbol: string;
   currency?: string | null;
-  imageUrl?: string | null;
 };
 
 const investAssetByKey = new Map(
@@ -35,6 +34,38 @@ const investAssetByKey = new Map(
 
 export function assetKeyForInvestAsset(asset: InvestAsset): string {
   return assetKeyForErc20(asset.contractAddress);
+}
+
+/**
+ * Converts the discover response's id-keyed icon map and embedded meme
+ * images into the stable-key map shared by Home and Invest. This is a pure
+ * normalization of already-fetched data; it never starts another provider read.
+ */
+export function assetMarkResolutionFromDiscover({
+  icons,
+  memeAssets = [],
+  pending = false,
+}: {
+  icons: Readonly<Record<string, string | null>>;
+  memeAssets?: readonly InvestAsset[];
+  pending?: boolean;
+}): AssetMarkResolution {
+  const images: Record<string, string | null> = {};
+  const assetsById = new Map<string, InvestAsset>(
+    [...investAssets, ...memeAssets].map((asset) => [asset.id, asset]),
+  );
+
+  for (const [assetId, imageUrl] of Object.entries(icons)) {
+    const asset = assetsById.get(assetId);
+    if (!asset) continue;
+    images[assetKeyForInvestAsset(asset)] = normalizedImageUrl(imageUrl);
+  }
+  for (const asset of memeAssets) {
+    if (asset.imageUrl === undefined) continue;
+    images[assetKeyForInvestAsset(asset)] = normalizedImageUrl(asset.imageUrl);
+  }
+
+  return { images, pending };
 }
 
 export function presentInvestAssetMark(
@@ -47,7 +78,6 @@ export function presentInvestAssetMark(
       name: asset.displayName,
       symbol: asset.initials,
       currency: null,
-      imageUrl: asset.imageUrl,
     },
     resolution,
   );
@@ -77,18 +107,26 @@ function presentAssetMark(
   identity: AssetMarkIdentity,
   resolution: AssetMarkResolution,
 ): AssetMarkPresentation {
-  const configured = investAssetByKey.get(identity.assetKey);
-  const resolvedImage =
-    identity.imageUrl?.trim() ||
-    (configured ? resolution.images?.[configured.id]?.trim() : null) ||
-    null;
+  const resolvedImage = normalizedImageUrl(
+    resolution.images?.[identity.assetKey],
+  );
+  const canResolve =
+    investAssetByKey.has(identity.assetKey) ||
+    Object.prototype.hasOwnProperty.call(
+      resolution.images ?? {},
+      identity.assetKey,
+    );
 
   return {
     assetKey: identity.assetKey,
     name: identity.name,
     symbol: identity.symbol,
     imageUrl: resolvedImage,
-    pending: Boolean(configured && resolution.pending && !resolvedImage),
+    pending: Boolean(canResolve && resolution.pending && !resolvedImage),
     currency: identity.currency ?? null,
   };
+}
+
+function normalizedImageUrl(imageUrl: string | null | undefined): string | null {
+  return imageUrl?.trim() || null;
 }
