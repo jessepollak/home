@@ -194,12 +194,12 @@ describe("savings action RPC state", () => {
   });
 
   test("surfaces a typed rate-limited error after retries are exhausted", async () => {
-    const fetchImpl = (async (_input: RequestInfo | URL) =>
+    const fetchImpl = (async () =>
       Response.json({
         jsonrpc: "2.0",
         id: 1,
         error: { code: -32016, message: "over rate limit" },
-      })) as typeof fetch;
+      })) as unknown as typeof fetch;
 
     await expect(createSavingsActionStateReader({
       fetchImpl,
