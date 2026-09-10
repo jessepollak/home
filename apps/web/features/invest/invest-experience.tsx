@@ -34,6 +34,7 @@ export type InvestExperienceProps = {
   memeAssets?: readonly InvestAsset[];
   memeStatus?: MemeShelfStatus;
   assetIcons?: Readonly<Record<string, string | null>>;
+  iconsPending?: boolean;
 };
 
 export function InvestExperience({
@@ -44,6 +45,7 @@ export function InvestExperience({
   memeAssets = [],
   memeStatus = "empty",
   assetIcons = {},
+  iconsPending = false,
 }: InvestExperienceProps = {}) {
   const router = useRouter();
   const [view, setView] = useState<InvestView>(() => {
@@ -102,6 +104,7 @@ export function InvestExperience({
               : unavailableMarketData
         }
         status={shelf.id === "memes" ? memeStatus : "ready"}
+        iconsPending={iconsPending}
         onBack={() => leaveChild({ screen: "hub" })}
         onOpenAsset={(asset, from) =>
           go({ screen: "detail", assetId: asset.id, from })
@@ -129,6 +132,7 @@ export function InvestExperience({
       <AssetDetailScreen
         asset={marked}
         market={marketForAsset(marked, markets)}
+        iconPending={iconsPending}
         onBack={() => leaveChild(parent)}
       />
     );
@@ -142,6 +146,7 @@ export function InvestExperience({
       memeAssets={catalog}
       memeStatus={memeStatus}
       assetIcons={assetIcons}
+      iconsPending={iconsPending}
       onSeeAll={(shelfId) => go({ screen: "category", shelfId })}
       onOpenAsset={(asset: InvestAsset) =>
         go({ screen: "detail", assetId: asset.id, from: "hub" })

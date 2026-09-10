@@ -9,6 +9,7 @@ export function DiscoverShelf({
   assets,
   market,
   status = "ready",
+  iconsPending = false,
   onSeeAll,
   onOpenAsset,
 }: {
@@ -16,6 +17,7 @@ export function DiscoverShelf({
   assets: readonly InvestAsset[];
   market: MarketDataState;
   status?: MemeShelfStatus;
+  iconsPending?: boolean;
   onSeeAll: () => void;
   onOpenAsset: (asset: InvestAsset) => void;
 }) {
@@ -34,6 +36,7 @@ export function DiscoverShelf({
               key={asset.id}
               asset={asset}
               market={market}
+              iconPending={iconsPending}
               onOpen={() => onOpenAsset(asset)}
             />
           ))}

@@ -17,6 +17,7 @@ function HookProbe({ options }: { options: UseInvestDiscoverOptions }) {
       <output data-testid="meme-status">{state.memeStatus}</output>
       <output data-testid="meme-name">{state.memeAssets[0]?.displayName ?? ""}</output>
       <output data-testid="icon">{state.assetIcons.cbbtc ?? "none"}</output>
+      <output data-testid="icons-pending">{state.iconsPending ? "yes" : "no"}</output>
     </div>
   );
 }
@@ -63,6 +64,7 @@ describe("useInvestDiscover", () => {
       />,
     );
 
+    expect(page().getByTestId("icons-pending").textContent).toBe("yes");
     await waitFor(() =>
       expect(page().getByTestId("meme-status").textContent).toBe("ready"),
     );
@@ -70,6 +72,7 @@ describe("useInvestDiscover", () => {
     expect(page().getByTestId("icon").textContent).toBe(
       "https://icons.example.test/btc.png",
     );
+    expect(page().getByTestId("icons-pending").textContent).toBe("no");
   });
 
   test("fail-closes to an empty error shelf on a malformed payload", async () => {
@@ -85,5 +88,6 @@ describe("useInvestDiscover", () => {
       expect(page().getByTestId("meme-status").textContent).toBe("error"),
     );
     expect(page().getByTestId("meme-name").textContent).toBe("");
+    expect(page().getByTestId("icons-pending").textContent).toBe("no");
   });
 });

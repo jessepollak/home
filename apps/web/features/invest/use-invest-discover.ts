@@ -20,6 +20,7 @@ export type InvestDiscoverState = {
   memeStatus: MemeShelfStatus;
   memeMarket: MarketDataState;
   assetIcons: Readonly<Record<string, string | null>>;
+  iconsPending: boolean;
 };
 
 export type UseInvestDiscoverOptions = {
@@ -42,6 +43,7 @@ export function useInvestDiscover({
     memeStatus: "loading",
     memeMarket: { status: "loading" },
     assetIcons: emptyIcons,
+    iconsPending: true,
   });
   const requestController = useRef<AbortController | null>(null);
   const lastRequestAt = useRef(Number.NEGATIVE_INFINITY);
@@ -62,7 +64,7 @@ export function useInvestDiscover({
       });
       const payload = parseDiscoverResponse(await response.json());
       if (!payload) throw new Error("Invalid invest discover response");
-      setState(payload);
+      setState({ ...payload, iconsPending: false });
     } catch {
       if (controller.signal.aborted) return;
       setState({
@@ -73,6 +75,7 @@ export function useInvestDiscover({
           message: "Trending memes are unavailable.",
         },
         assetIcons: emptyIcons,
+        iconsPending: false,
       });
     }
   }, [endpoint, fetchImpl, now, refreshCooldownMs]);
@@ -96,7 +99,9 @@ export function useInvestDiscover({
   return useMemo(() => state, [state]);
 }
 
-function parseDiscoverResponse(value: unknown): InvestDiscoverState | null {
+function parseDiscoverResponse(
+  value: unknown,
+): Omit<InvestDiscoverState, "iconsPending"> | null {
   const record = readRecord(value);
   if (
     !record ||

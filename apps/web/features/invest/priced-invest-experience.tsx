@@ -38,6 +38,7 @@ export function PricedInvestExperience({
         memeAssets={discover.memeAssets}
         memeStatus={discover.memeStatus}
         assetIcons={discover.assetIcons}
+        iconsPending={discover.iconsPending}
       />
     </PresentationQuoteProvider>
   );

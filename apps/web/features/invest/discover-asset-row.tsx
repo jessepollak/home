@@ -9,10 +9,12 @@ import styles from "./invest-experience.module.css";
 export function DiscoverAssetRow({
   asset,
   market,
+  iconPending = false,
   onOpen,
 }: {
   asset: InvestAsset;
   market: MarketDataState;
+  iconPending?: boolean;
   onOpen: () => void;
 }) {
   const price = useMarketDisplay(asset.id, market);
@@ -33,6 +35,7 @@ export function DiscoverAssetRow({
           label={asset.displayName}
           initials={asset.initials}
           imageUrl={asset.imageUrl}
+          pending={iconPending}
         />
         <span className={styles.identity}>
           <strong>{asset.displayName}</strong>

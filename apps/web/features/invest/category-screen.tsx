@@ -10,6 +10,7 @@ export function CategoryScreen({
   assets,
   market,
   status = "ready",
+  iconsPending = false,
   onBack,
   onOpenAsset,
 }: {
@@ -18,6 +19,7 @@ export function CategoryScreen({
   assets: readonly InvestAsset[];
   market: MarketDataState;
   status?: MemeShelfStatus;
+  iconsPending?: boolean;
   onBack: () => void;
   onOpenAsset: (asset: InvestAsset, from: DiscoverShelfId) => void;
 }) {
@@ -36,6 +38,7 @@ export function CategoryScreen({
               key={asset.id}
               asset={asset}
               market={market}
+              iconPending={iconsPending}
               onOpen={() => onOpenAsset(asset, shelfId)}
             />
           ))}

@@ -232,6 +232,30 @@ describe("invest discovery flow", () => {
     expect(page().queryByText("Degen")).toBeNull();
   });
 
+  test("holds hub, category, and detail marks on 32px shimmer while icons are pending", async () => {
+    renderInvest(<InvestExperience iconsPending />);
+    const amazon = page().getByRole("img", { name: "Amazon icon" });
+    expect(amazon.querySelector("[data-shimmer='mark']")).toBeTruthy();
+    expect(amazon.textContent).toBe("");
+    expect(amazon.querySelector("img")).toBeNull();
+
+    fireEvent.click(page().getAllByRole("button", { name: "See all ›" })[0]!);
+    await waitFor(() =>
+      expect(page().getByRole("heading", { name: "Stocks" })).toBeTruthy(),
+    );
+    const tesla = page().getByRole("img", { name: "Tesla icon" });
+    expect(tesla.querySelector("[data-shimmer='mark']")).toBeTruthy();
+    expect(tesla.textContent).toBe("");
+
+    fireEvent.click(page().getByRole("button", { name: "Amazon details" }));
+    await waitFor(() =>
+      expect(page().getByRole("heading", { name: "Amazon" })).toBeTruthy(),
+    );
+    const detail = page().getByRole("img", { name: "Amazon icon" });
+    expect(detail.querySelector("[data-shimmer='mark']")).toBeTruthy();
+    expect(detail.textContent).toBe("");
+  });
+
   test("renders a resolved metadata image instead of a shipped SVG mark", () => {
     renderInvest(
       <InvestExperience

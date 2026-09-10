@@ -17,6 +17,7 @@ export type InvestHubProps = {
   memeAssets?: readonly InvestAsset[];
   memeStatus?: MemeShelfStatus;
   assetIcons?: Readonly<Record<string, string | null>>;
+  iconsPending?: boolean;
   onSeeAll: (shelfId: DiscoverShelfId) => void;
   onOpenAsset: (asset: InvestAsset, from: "hub") => void;
 };
@@ -28,6 +29,7 @@ export function InvestHub({
   memeAssets = [],
   memeStatus = "empty",
   assetIcons = {},
+  iconsPending = false,
   onSeeAll,
   onOpenAsset,
 }: InvestHubProps) {
@@ -53,6 +55,7 @@ export function InvestHub({
             )}
             market={markets[shelf.category]}
             status={shelf.id === "memes" ? memeStatus : "ready"}
+            iconsPending={iconsPending}
             onSeeAll={() => onSeeAll(shelf.id)}
             onOpenAsset={(asset) => onOpenAsset(asset, "hub")}
           />

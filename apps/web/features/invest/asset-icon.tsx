@@ -1,6 +1,4 @@
-"use client";
-
-import { useState } from "react";
+import { CurrencyMark } from "@/components/currency-mark";
 import styles from "./asset-icon.module.css";
 
 type AssetIconProps = {
@@ -8,7 +6,7 @@ type AssetIconProps = {
   label: string;
   initials?: string;
   imageUrl?: string;
-  size?: "sm" | "md";
+  pending?: boolean;
 };
 
 export function AssetIcon({
@@ -16,32 +14,15 @@ export function AssetIcon({
   label,
   initials,
   imageUrl,
-  size = "sm",
+  pending = false,
 }: AssetIconProps) {
-  const [failed, setFailed] = useState(false);
-  const mark = (initials ?? assetId).slice(0, 2).toUpperCase() || "?";
-  const showImage = Boolean(imageUrl) && !failed;
-
   return (
-    <span
-      className={`${styles.icon} ${styles[size]}`}
-      role="img"
-      aria-label={`${label} icon`}
-    >
-      {showImage ? (
-        // External token metadata URLs are not in the Next image allowlist.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={imageUrl}
-          alt=""
-          draggable={false}
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <span className={styles.fallback} aria-hidden="true">
-          {mark}
-        </span>
-      )}
+    <span className={styles.icon} role="img" aria-label={`${label} icon`}>
+      <CurrencyMark
+        src={imageUrl}
+        symbol={initials ?? assetId}
+        pending={pending && !imageUrl}
+      />
     </span>
   );
 }

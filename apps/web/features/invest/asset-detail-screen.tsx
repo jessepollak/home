@@ -39,10 +39,12 @@ export function AssetDetailStatusScreen({
 export function AssetDetailScreen({
   asset,
   market,
+  iconPending = false,
   onBack,
 }: {
   asset: InvestAsset;
   market: MarketDataState;
+  iconPending?: boolean;
   onBack: () => void;
 }) {
   const [range, setRange] = useState<MarketPriceRange>("1W");
@@ -66,7 +68,7 @@ export function AssetDetailScreen({
             label={asset.displayName}
             initials={asset.initials}
             imageUrl={asset.imageUrl}
-            size="md"
+            pending={iconPending}
           />
           <h2 id="invest-asset-title">{asset.displayName}</h2>
         </span>
