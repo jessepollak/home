@@ -1,6 +1,6 @@
 # Operating manual
 
-Status: agent-team operating contract, September 9, 2026. How Jesse's in-repo crew works. Not a product inventory and not production authorization.
+Status: agent-team operating contract, September 10, 2026. How Jesse's in-repo crew works. Not a product inventory and not production authorization.
 
 **Current-state docs:** [build status](build-status.md), [contribution contract](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers), [UI direction](ui-direction.md), [UI PR previews](ui-pr-previews.md), [docs index](README.md). Human onboarding: [CONTRIBUTING](../CONTRIBUTING.md).
 
@@ -109,7 +109,7 @@ Stay in your lane. Shared files are listed in the [architecture review](architec
 
 Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / one `status:*` / `lane:*`) are the board.
 
-- Soft merge order, Design HOLD, smoke fails, and blockers land on the issue or PR (comment + label flip) before or instead of crew DMs. DMs, 1:1s, and babysitter are coordination, not source of truth.
+- Soft merge order, Design HOLD, smoke fails, and blockers land on the issue or PR (comment + label flip) before or instead of crew DMs. DMs, 1:1s, and babysitter are coordination, not source of truth. Land-queue / babysitter wake set and batching: [PR land chatter diet](#pr-land-chatter-diet).
 - Every PR that maps to an issue — including drafts — carries the triad the same day, matching the related issue. Drafts stay `status:working` only — never `ready-for-review` or `needs-jesse` while still draft. #78 / #60 were unlabeled drafts; that is now the rule.
 - On close or merge, scrub all `status:*` via REST `issues/{n}/labels`. Leave `owner:*` and `lane:*`. `gh pr edit` labels often no-ops.
 - `status:in-progress` is deleted. Use `status:working` only.
@@ -182,7 +182,7 @@ Crew may review. Hannah's eng review can proceed. Hannah never merges.
 
 **Only Jesse (`jessepollak`) gives the final +1 and merges.** Merge waits on Jesse even when Hannah has reviewed. Third-party PRs already required Jesse +1; crew PRs use the same bar.
 
-When a PR is ready for Jesse, swap the issue to `status:needs-jesse` (and say so on the PR). See [status label hygiene](#status-label-hygiene). Do not merge your own work. Do not treat a crew +1 as merge permission.
+When a PR is ready for Jesse, swap the issue to `status:needs-jesse` (and say so on the PR). See [status label hygiene](#status-label-hygiene). Do not merge your own work. Do not treat a crew +1 as merge permission. Never ask Hannah to merge. Land-queue pings: [PR land chatter diet](#pr-land-chatter-diet).
 
 ### CloudAgent / Auto-review
 
@@ -191,6 +191,23 @@ Jesse-locked, September 8, 2026 (~9:14pm PT); launch path confirmed September 9,
 - If Auto-review still blocks a launch, ping Hannah once — she greenlights immediately. No per-run Jesse card. Do not ping Jesse for CloudAgent greenlights.
 - Hannah still owns eng review (COMMENT LGTM on jessepollak-authored PRs).
 - Jesse remains final +1 and merge.
+- Max one CloudAgent per PR unless Jesse marks P0. No tip-churn after Eng LGTM unless HOLD or CI fail. See [PR land chatter diet](#pr-land-chatter-diet).
+
+## PR land chatter diet
+
+Jesse-locked, September 10, 2026. Land-queue and babysitter GitHub listeners stay on a slim event set. This diet is the contract — do not keep it only in bot memory.
+
+**Wake:** `pr-opened`, `pr-pushed`, `pr-merged`, `pr-closed`, `review-requested`, `review-changes-requested`, `ci-failed`.
+
+**Do not wake (default):** `pr-comment`, `review-commented`, `inline-review-comment`, `review-approved`, `ci-passed`.
+
+- **Exit quiet.** When labels + CI + draft already match the desired end-state for the event: no DMs, no board comments, no Jesse ping.
+- **Board-first.** Soft merge order, HOLD, smoke fails, and blockers land as one issue/PR comment + label flip before (or instead of) crew DMs. See [Board is source of truth](#board-is-source-of-truth).
+- **Batch asks.** At most one board comment and at most one owner ping per real state change. No Hazel+Hannah+Holly fan-out on the same tip.
+- **Jesse-only merge.** Never ask Hannah to merge. Hannah eng-reviews and labels only. See [Merge policy](#merge-policy).
+- **Message Jesse only when he must decide, +1, or unblock.** If nothing for him: send nothing. Never narrate “quiet to Jesse”.
+- **One CloudAgent.** Max one CloudAgent per PR unless Jesse marks P0. No tip-churn after Eng LGTM unless HOLD or CI fail. See [CloudAgent / Auto-review](#cloudagent--auto-review).
+- **Quiet hours.** Prefer 10pm–8am PT for non-critical land wakes when a standing listener exists.
 
 ## Daily domain quality reviews
 
