@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   currencyFlagSrc,
   presentationCurrencyFlag,
@@ -46,11 +46,18 @@ function CurrencyMarkSlot({
   glyph: string;
   resolvedKind: "flag" | "image";
 }) {
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const [imageStatus, setImageStatus] = useState<"loading" | "ready" | "failed">(
     src ? "loading" : "ready",
   );
   const showShimmer = pending || Boolean(src && imageStatus === "loading");
   const showImage = Boolean(src && imageStatus !== "failed");
+
+  useLayoutEffect(() => {
+    const image = imageRef.current;
+    if (!src || !image?.complete || image.naturalWidth === 0) return;
+    setImageStatus("ready");
+  }, [src]);
 
   return (
     <span
@@ -69,6 +76,7 @@ function CurrencyMarkSlot({
         // Token metadata URLs and local flag SVGs are not in the Next allowlist.
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          ref={imageRef}
           className={styles.flag}
           src={src}
           alt=""

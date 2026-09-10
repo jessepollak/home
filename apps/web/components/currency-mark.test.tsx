@@ -108,6 +108,37 @@ describe("CurrencyMark", () => {
     expect(loading.container.textContent).toBe("");
   });
 
+  test("reveals an already-decoded asset image without waiting for a late onLoad", () => {
+    const proto = HTMLImageElement.prototype;
+    const complete = Object.getOwnPropertyDescriptor(proto, "complete");
+    const naturalWidth = Object.getOwnPropertyDescriptor(proto, "naturalWidth");
+    Object.defineProperty(proto, "complete", {
+      configurable: true,
+      get() {
+        return true;
+      },
+    });
+    Object.defineProperty(proto, "naturalWidth", {
+      configurable: true,
+      get() {
+        return 32;
+      },
+    });
+    try {
+      const view = render(
+        <CurrencyMark src="https://icons.example.test/amzn.png" symbol="AM" />,
+      );
+      const image = view.container.querySelector("img");
+      expect(view.container.querySelector("[data-mark='image']")).toBeTruthy();
+      expect(image?.hasAttribute("hidden")).toBe(false);
+    } finally {
+      if (complete) Object.defineProperty(proto, "complete", complete);
+      else delete (proto as { complete?: unknown }).complete;
+      if (naturalWidth) Object.defineProperty(proto, "naturalWidth", naturalWidth);
+      else delete (proto as { naturalWidth?: unknown }).naturalWidth;
+    }
+  });
+
   test("fails an asset image open to the glyph without a blank hole", () => {
     const broken = render(
       <CurrencyMark src="https://icons.example.test/missing.png" symbol="AM" />,
