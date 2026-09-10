@@ -922,6 +922,7 @@ function HomePanel({
         <HomeBalancesList
           items={previewHomeBalanceItems(balanceItems)}
           isLoading={isLoading}
+          isUnavailable={assetBalances?.status === "unavailable"}
         />
       </section>
 
@@ -1003,6 +1004,7 @@ function BalancesPage({
       <HomeBalancesList
         items={assetBalances?.items ?? []}
         isLoading={isLoading}
+        isUnavailable={assetBalances?.status === "unavailable"}
       />
     </section>
   );
@@ -1105,9 +1107,11 @@ function ConnectedActivityPanel({
 function HomeBalancesList({
   items,
   isLoading,
+  isUnavailable,
 }: {
   items: readonly HomeAssetBalanceItem[];
   isLoading: boolean;
+  isUnavailable: boolean;
 }) {
   if (items.length > 0) {
     return (
@@ -1149,7 +1153,11 @@ function HomeBalancesList({
   if (isLoading) {
     return <ShimmerRows count={2} />;
   }
-  return <p className="balances-empty">No balances yet</p>;
+  return (
+    <p className="balances-empty">
+      {isUnavailable ? "Balance unavailable" : "No balances yet"}
+    </p>
+  );
 }
 
 function availableSendBalances(

@@ -70,6 +70,27 @@ async function enabledAccountButton() {
   });
 }
 
+async function closePendingCoinbaseFunding() {
+  fireEvent.click(page().getByRole("button", { name: /Buy USDC with Coinbase/ }));
+  fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
+  const frame = await page().findByTitle("Coinbase payment") as HTMLIFrameElement;
+  const source = {} as MessageEventSource;
+  Object.defineProperty(frame, "contentWindow", {
+    configurable: true,
+    value: source,
+  });
+  act(() => {
+    window.dispatchEvent(new MessageEvent("message", {
+      source,
+      origin: "https://pay.coinbase.com",
+      data: { eventName: "onramp_api.polling_success" },
+    }));
+  });
+
+  await page().findByRole("dialog", { name: "Deposit pending" });
+  fireEvent.click(page().getByRole("button", { name: "Close and check balance" }));
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => {
@@ -1001,29 +1022,7 @@ describe("login-state home experience", () => {
         ),
       ).not.toBeNull();
     });
-    fireEvent.click(page().getByRole("button", { name: /Buy USDC with Coinbase/ }));
-    fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
-    await waitFor(() => {
-      expect(
-        requests.filter((request) => request.input === "/api/funding/onramp-session"),
-      ).toHaveLength(1);
-    });
-    const frame = await page().findByTitle("Coinbase payment") as HTMLIFrameElement;
-    const source = {} as MessageEventSource;
-    Object.defineProperty(frame, "contentWindow", {
-      configurable: true,
-      value: source,
-    });
-    act(() => {
-      window.dispatchEvent(new MessageEvent("message", {
-        source,
-        origin: "https://pay.coinbase.com",
-        data: { eventName: "onramp_api.polling_success" },
-      }));
-    });
-
-    await page().findByRole("dialog", { name: "Deposit pending" });
-    fireEvent.click(page().getByRole("button", { name: "Close and check balance" }));
+    await closePendingCoinbaseFunding();
     await waitFor(() => expect(valuationCount).toBe(2));
     expect(
       readHomeBalancesPresentation(
@@ -1060,6 +1059,92 @@ describe("login-state home experience", () => {
         "Bearer fixture-token",
       );
     }
+  });
+
+  test("shows visible unavailable copy when the funding close refresh fails", async () => {
+    let valuationCount = 0;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return Response.json(session());
+      if (String(input).startsWith("/api/activity?")) {
+        return Response.json(activityPage(input));
+      }
+      if (input === "/api/actions/operations") {
+        return Response.json({ operations: [] });
+      }
+      if (String(input).startsWith("/api/portfolio/valuation?")) {
+        valuationCount += 1;
+        return valuationCount === 1
+          ? valuationResponse(input, { usdc: "5000000" })
+          : Response.json(
+              { error: { code: "PORTFOLIO_VALUATION_UNAVAILABLE" } },
+              { status: 503 },
+            );
+      }
+      if (input === "/api/funding/onramp-session") {
+        return Response.json({
+          url: "https://pay.coinbase.com/v2/api-onramp/apple-pay?sessionToken=fixture-token",
+          presentation: "iframe",
+          asset: {
+            id: "usdc",
+            symbol: "USDC",
+            decimals: 6,
+            tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          },
+          network: { name: "Base", chainId: 8453 },
+        });
+      }
+      return Response.json(portfolioSnapshot({ usdc: "5000000" }));
+    };
+
+    render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch}
+        initialAddMoney
+      />,
+    );
+
+    await page().findAllByText("$5.00");
+    await waitFor(() => {
+      expect(
+        readHomeBalancesPresentation(
+          () => window.localStorage,
+          {
+            ownerKey: OWNER,
+            subject: "subject-home",
+            smartAccount: ADDRESS,
+            region: "GLOBAL",
+          },
+        ),
+      ).not.toBeNull();
+    });
+    await closePendingCoinbaseFunding();
+    await waitFor(() => expect(valuationCount).toBe(2));
+
+    const unavailable = await page().findByText("Balance unavailable");
+    expect(unavailable.classList.contains("balances-empty")).toBe(true);
+    expect(unavailable.textContent).toBe("Balance unavailable");
+    expect(page().queryByText("No balances yet")).toBeNull();
+    expect(page().getByRole("region", { name: "Balance unavailable" })).toBeTruthy();
+  });
+
+  test("reserves No balances yet for a verified ready empty list", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "—",
+          items: [],
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    const empty = page().getByText("No balances yet");
+    expect(empty.classList.contains("balances-empty")).toBe(true);
+    expect(empty.textContent).toBe("No balances yet");
+    expect(page().queryByText("Balance unavailable")).toBeNull();
   });
 
   test("treats a verified session without a smart account as authenticated but not ready", async () => {
