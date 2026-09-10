@@ -67,14 +67,16 @@ Prefer `status:working`. Do not use `status:in-progress` — deprecated. If you 
 - required design LGTM is done (if UI), after reviewing published exact-tip proof under [UI PR previews](ui-pr-previews.md)
 - the item is not on HOLD
 
+For UI PRs, every source-code push requires fresh capture, republication, a new immutable per-capture manifest, and renewed proof review before this advancement.
+
 Never on draft PRs.
 
 **Add `status:needs-jesse`** only when:
 
-- the item is truly ready for Jesse merge (Hannah eng LGTM done; Hazel if UI), or
-- a Jesse decision is needed
+- the item is truly ready for Jesse merge (Hannah eng LGTM done; Hazel if UI), after the required UI proof review, or
+- a Jesse decision is needed; this decision escalation is allowed without visual-proof gating
 
-Never before eng LGTM. Never on draft PRs. Never leave `needs-jesse` on an issue whose linked PR is still draft.
+For readiness to merge, never before eng LGTM. Never on draft PRs. A decision escalation may use `status:needs-jesse` without an eng LGTM or visual proof. Never leave `needs-jesse` on an issue whose linked PR is still draft.
 
 `status:needs-jesse` is not a substitute for Hannah's review. Eng review first; Jesse last.
 
@@ -85,7 +87,7 @@ On jessepollak-authored crew PRs, GitHub blocks formal `APPROVE` / `REQUEST_CHAN
 - design or eng HOLD
 - `REQUEST_CHANGES`
 - PR goes draft
-- a code push invalidates the published exact-tip visual proof (unless the reviewer explicitly reaccepts a demonstrably unchanged visual surface)
+- a source-code push invalidates the published exact-tip visual proof; fresh capture, republication, a new immutable per-capture manifest, and renewed proof review are required before another ready-for-review or merge-ready needs-Jesse advancement
 - PR closed without merge
 - issue returns to `todo` or `working`
 
@@ -113,7 +115,7 @@ Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / o
 - On close or merge, scrub all `status:*` via REST `issues/{n}/labels`. Leave `owner:*` and `lane:*`. `gh pr edit` labels often no-ops.
 - `status:in-progress` is deleted. Use `status:working` only.
 - Dual `owner:*` labels are OK for FE+BE slices only when the issue comment names who owns which slice. Otherwise split issues.
-- Land path is unchanged: `working` → `ready-for-review` → `needs-jesse`. Jesse-only merge. Hannah may merge docs-only when Jesse hands it.
+- Land path is unchanged: `working` → `ready-for-review` → `needs-jesse`. Jesse approves and merges every PR.
 
 ## Drive order
 
@@ -171,7 +173,7 @@ Jesse-locked, September 9, 2026. Where writing lives. Not a wiki migration.
 
 ## Proof bar
 
-User-visible work needs final-head live proof in the PR description. [UI PR previews](ui-pr-previews.md) is the authoritative capture, provenance, publication, and review convention. A reviewer should understand the change without opening the branch. Published exact-tip proof must be reviewed before a UI PR receives `status:ready-for-review`; any later code push invalidates it by default.
+User-visible work needs final-head live proof in the PR description. [UI PR previews](ui-pr-previews.md) is the authoritative capture, provenance, publication, and review convention. A reviewer should understand the change without opening the branch. Every source-code push requires fresh capture, republication, a new immutable per-capture manifest, and renewed proof review before a UI PR advances to `status:ready-for-review` or `status:needs-jesse` for merge. `status:blocked` and `status:needs-jesse` for a Jesse decision remain available without visual-proof gating.
 
 Process docs-only, CI-only, and pure server PRs can skip screenshots. They still need a clear claim of what changed and how it was checked (`bun check` at minimum). Product docs are not a standalone PR — see [Docs](#docs).
 
