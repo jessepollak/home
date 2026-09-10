@@ -15,8 +15,7 @@
 }
 
 .root[open] {
-  display: grid;
-  align-items: end;
+  display: block;
 }
 
 .root::backdrop {
@@ -32,10 +31,14 @@
 }
 
 .sheet {
-  position: relative;
-  inset: auto;
+  position: absolute;
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
   width: 100%;
+  min-height: 0;
   max-height: 88svh;
   flex-direction: column;
   overflow: hidden;
@@ -48,18 +51,11 @@
   color: var(--home-ink);
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   padding: 0;
+  will-change: height, transform;
 }
 
-.sheet[data-state="open"]:not([data-entered]) {
-  animation: money-sheet-enter 280ms ease-out both;
-}
-
-.sheet[data-state="closing"] {
-  animation: money-sheet-exit 220ms ease-in both;
-}
-
-.sheet[data-dragging="true"] {
-  animation: none;
+.sheet[data-state="open"]:not([data-entered]):not([data-dragging]) {
+  height: 0;
 }
 
 .grabberHit {
@@ -71,6 +67,7 @@
   justify-content: center;
   cursor: grab;
   touch-action: none;
+  user-select: none;
 }
 
 .grabberHit:active {
@@ -438,16 +435,6 @@
   to { transform: rotate(360deg); }
 }
 
-@keyframes money-sheet-enter {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-
-@keyframes money-sheet-exit {
-  from { transform: translateY(0); }
-  to { transform: translateY(100%); }
-}
-
 @keyframes money-overlay-enter {
   from { background: rgba(10, 11, 13, 0); }
   to { background: rgba(10, 11, 13, 0.42); }
@@ -461,13 +448,10 @@
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
   .root[data-state="open"],
-  .root[data-state="closing"],
-  .sheet[data-state="open"]:not([data-entered]),
-  .sheet[data-state="closing"] {
+  .root[data-state="closing"] {
     animation: none;
   }
-  .sheet {
-    transform: none;
-    transition: none;
+  .sheet[data-state="open"]:not([data-entered]):not([data-dragging]) {
+    height: auto;
   }
 }

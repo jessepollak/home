@@ -64,6 +64,7 @@ export function TradeActions({
   const activeBoundary = modalBoundary === boundary ? modalBoundary : null;
   const visibleSide = activeBoundary ? side : null;
   const visibleIntent = activeBoundary ? intent : null;
+  const dropPrivate = modalBoundary !== null && modalBoundary !== boundary;
   const visibleAction = action && actionMatchesSession(action, account.session) ? action : null;
   const amountOpen = visibleSide !== null && !visibleIntent && !visibleAction;
   const permitDialogRef = useDialog(Boolean(visibleIntent && !visibleAction));
@@ -95,16 +96,31 @@ export function TradeActions({
     setIntent(null);
   }
 
-  function close() {
+  function resetTrade() {
     if (preparing) requestController.current?.abort();
     requestController.current = null;
-    setModalBoundary(null);
     setSide(null);
     setAmount("");
     setPreparing(false);
     setSigning(false);
     setError(null);
     setIntent(null);
+  }
+
+  function close() {
+    setModalBoundary(null);
+    resetTrade();
+  }
+
+  function closeAmount() {
+    resetTrade();
+  }
+
+  function finishAmountClose() {
+    if (modalBoundary !== boundary || side === null) {
+      setModalBoundary(null);
+      resetTrade();
+    }
   }
 
   async function prepare() {
@@ -200,9 +216,11 @@ export function TradeActions({
         amount={amount}
         preparing={preparing}
         error={error}
+        immediate={dropPrivate}
         onAmountChange={setAmount}
         onContinue={() => void prepare()}
-        onClose={close}
+        onClose={closeAmount}
+        onClosed={finishAmountClose}
       />
 
       <TradePermitReview
@@ -230,7 +248,17 @@ export function TradeActions({
 }
 
 function TradeAmountDialog({
-  open, side, asset, amount, preparing, error, onAmountChange, onContinue, onClose,
+  open,
+  side,
+  asset,
+  amount,
+  preparing,
+  error,
+  immediate,
+  onAmountChange,
+  onContinue,
+  onClose,
+  onClosed,
 }: {
   open: boolean;
   side: TradeSide | null;
@@ -238,15 +266,23 @@ function TradeAmountDialog({
   amount: string;
   preparing: boolean;
   error: string | null;
+  immediate: boolean;
   onAmountChange: (value: string) => void;
   onContinue: () => void;
   onClose: () => void;
+  onClosed: () => void;
 }) {
   const sellAsset = side ? getTradeSellAsset(asset, side) : null;
   const pricing = useMoneyAssetPricing(sellAsset?.symbol ?? "USDC");
   if (!side || !sellAsset) {
     return (
-      <MoneyModal open={false} labelledBy="trade-amount-title" onCancel={onClose} onClose={onClose}>
+      <MoneyModal
+        open={false}
+        labelledBy="trade-amount-title"
+        immediate={immediate}
+        onCancel={onClose}
+        onClose={onClosed}
+      >
         <MoneyModalHeader title="Buy" titleId="trade-amount-title" onClose={onClose} />
       </MoneyModal>
     );
@@ -256,8 +292,13 @@ function TradeAmountDialog({
     <MoneyModal
       open={open}
       labelledBy="trade-amount-title"
-      onCancel={() => { if (!preparing) onClose(); }}
-      onClose={() => { if (!preparing) onClose(); }}
+      immediate={immediate}
+      onCancel={() => {
+        if (preparing) return false;
+        onClose();
+        return true;
+      }}
+      onClose={onClosed}
     >
       <MoneyModalHeader
         title={side === "buy" ? "Buy" : "Sell"}

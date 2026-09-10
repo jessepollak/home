@@ -78,8 +78,10 @@ export function SendDialog({
   fetchUnresolvedSends,
   releaseAdmission,
   ownerBoundary,
+  immediate = false,
   onTransferConfirmed,
   onClose,
+  onClosed,
 }: {
   open: boolean;
   address: `0x${string}` | null;
@@ -94,8 +96,10 @@ export function SendDialog({
   fetchUnresolvedSends?: FetchUnresolvedSends;
   releaseAdmission?: ReleaseAdmission;
   ownerBoundary: string | null;
+  immediate?: boolean;
   onTransferConfirmed?: (transfer: ConfirmedTransfer) => void;
   onClose: () => void;
+  onClosed?: () => void;
 }) {
   const [assetId, setAssetId] = useState<TransferAssetId>("usdc");
   const [recipient, setRecipient] = useState("");
@@ -153,27 +157,6 @@ export function SendDialog({
   }, [releaseState]);
 
   useEffect(() => {
-    if (open) return;
-    // Resetting a closed modal prevents the previous wallet's compose or recovery state from crossing owners.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setAssetId("usdc");
-    setRecipient("");
-    setAmount("");
-    setRequest(null);
-    setIntentId(null);
-    setPreparedAction(null);
-    setOperationStatus(null);
-    setRecoveringAction(false);
-    setStep("amount");
-    setError(null);
-    setReleaseState("idle");
-    setReleaseNotice(null);
-    setHistoryAdmission(fetchUnresolvedSends ? { status: "checking" } : prepareMoneyAction
-      ? { status: "unavailable", reason: "failed" }
-      : { status: "fallback" });
-  }, [fetchUnresolvedSends, open, prepareMoneyAction]);
-
-  useEffect(() => {
     if (!open) return;
     if (!fetchUnresolvedSends) return;
     const controller = new AbortController();
@@ -226,10 +209,11 @@ export function SendDialog({
   }
 
   function closeIfAllowed() {
-    if (step === "pending" && !pendingTransfer) return;
+    if (step === "pending" && !pendingTransfer) return false;
     releaseFenceRef.current = { open: false, ownerBoundary, actionId: null };
     reset();
     onClose();
+    return true;
   }
 
   function goBack() {
@@ -448,10 +432,11 @@ export function SendDialog({
         : releasePending
           ? "send-release-pending"
           : undefined}
+      immediate={immediate}
       onCancel={closeIfAllowed}
       onClose={() => {
         reset();
-        onClose();
+        (onClosed ?? onClose)();
       }}
     >
       <MoneyModalHeader
