@@ -94,21 +94,41 @@
   padding: 0 12px;
 }
 
-.loadMoreButton {
-  width: 100%;
-  min-height: 42px;
+.pagination {
   margin-top: 14px;
 }
 
-.loadMoreButton:disabled {
-  cursor: wait;
-  opacity: 0.58;
+.loadMoreButton {
+  width: 100%;
+  min-height: 42px;
+}
+
+.loadingMore {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--home-muted);
+  font-size: 0.78rem;
 }
 
 .loadMoreError {
-  margin: 14px 0 0;
+  margin: 0 0 10px;
   color: #84251f;
   font-size: 0.75rem;
+}
+
+.sentinel {
+  width: 100%;
+  height: 1px;
+}
+
+.end {
+  margin: 16px 0 0;
+  color: var(--home-muted);
+  font-size: 0.75rem;
+  text-align: center;
 }
 
 @keyframes spin {

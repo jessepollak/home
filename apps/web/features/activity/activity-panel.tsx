@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { ActivityRow } from "@/components/finance-rows";
 import { formatPresentationTokenAmount } from "@/features/formatting";
 import styles from "./activity.module.css";
@@ -118,22 +118,100 @@ export function ActivityPanel({
         </ol>
       )}
 
-      {density === "page" && activity.loadMoreError ? (
+      {density === "page" ? (
+        <ActivityPagination
+          nextCursor={page.nextCursor}
+          hasTransfers={!isEmpty}
+          loading={activity.loadingMore}
+          failed={activity.loadMoreError}
+          loadMore={activity.loadMore}
+          retry={activity.retryLoadMore}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function ActivityPagination({
+  nextCursor,
+  hasTransfers,
+  loading,
+  failed,
+  loadMore,
+  retry,
+}: {
+  nextCursor: string | null;
+  hasTransfers: boolean;
+  loading: boolean;
+  failed: boolean;
+  loadMore: () => void;
+  retry: () => void;
+}) {
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (
+      !sentinel ||
+      !nextCursor ||
+      loading ||
+      failed ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      return;
+    }
+    const closestRoot = sentinel.closest(".app-main-authenticated");
+    const root = closestRoot instanceof HTMLElement ? closestRoot : null;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadMore();
+        }
+      },
+      { root, rootMargin: "0px 0px 240px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [failed, loadMore, loading, nextCursor]);
+
+  if (!nextCursor) {
+    return hasTransfers ? (
+      <p className={styles.end} role="status">
+        End of activity
+      </p>
+    ) : null;
+  }
+
+  return (
+    <div className={styles.pagination}>
+      {loading ? (
+        <div className={styles.loadingMore} role="status" aria-live="polite">
+          <span className={styles.spinner} aria-hidden="true" />
+          Loading more activity…
+        </div>
+      ) : null}
+      {failed ? (
         <p className={styles.loadMoreError} role="alert">
           More activity could not be loaded. Your current results are unchanged.
         </p>
       ) : null}
-      {density === "page" && page.nextCursor ? (
+      {!loading ? (
         <button
           className={styles.loadMoreButton}
           type="button"
-          onClick={activity.loadMore}
-          disabled={activity.loadingMore}
+          onClick={failed ? retry : loadMore}
         >
-          {activity.loadingMore ? "Loading…" : activity.loadMoreError ? "Retry more" : "Load more"}
+          {failed ? "Retry more activity" : "Load more activity"}
         </button>
       ) : null}
-    </section>
+      <div
+        key={nextCursor}
+        ref={sentinelRef}
+        className={styles.sentinel}
+        data-activity-sentinel=""
+        aria-hidden="true"
+      />
+    </div>
   );
 }
 
