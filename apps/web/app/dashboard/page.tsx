@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { parseShellLocation } from "@/config/shell-location";
+import { firstQueryValue, parseShellLocation } from "@/config/shell-location";
 import { investViewFromSearch } from "@/features/invest/invest-location";
 import { PricedInvestExperience } from "@/features/invest/priced-invest-experience";
 import { AuthenticatedSavingsExperience } from "@/features/savings/savings-experience";
@@ -17,6 +17,7 @@ type DashboardPageProps = {
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const query = await searchParams;
   const location = parseShellLocation(query);
+  const returnedFromCoinbase = firstQueryValue(query.return) === "coinbase";
   return (
     <PortfolioHomeExperience
       detectedCountry={null}
@@ -25,6 +26,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       investContent={<PricedInvestExperience initialView={investViewFromSearch(query)} />}
       savingsContent={<AuthenticatedSavingsExperience />}
       routeMode="dashboard"
+      initialAddMoney={firstQueryValue(query["add-money"]) === "1" || returnedFromCoinbase}
+      returnedFromCoinbase={returnedFromCoinbase}
     />
   );
 }

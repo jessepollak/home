@@ -26,6 +26,7 @@ mock.module("next/navigation", () => ({
       backCalls += 1;
     },
   }),
+  usePathname: () => "/",
 }));
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
@@ -652,7 +653,7 @@ describe("login-state home experience", () => {
     expect(page().getByRole("navigation", { name: "Main navigation" })).toBeTruthy();
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
     expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();
-    expect(page().getByRole("link", { name: "Add money" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Add money" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Save" })).toBeTruthy();
     expect(page().getByText("Updating…")).toBeTruthy();
     expect(document.querySelector("[data-shimmer='hero']")).toBeTruthy();
@@ -677,7 +678,20 @@ describe("login-state home experience", () => {
     fireEvent.click(page().getByRole("button", { name: "Account" }));
     expect(page().getByTitle(ADDRESS).textContent).toBe("0x1111…111111");
     fireEvent.click(page().getByRole("button", { name: "Done" }));
-    expect(page().getByRole("link", { name: "Add money" }).getAttribute("href")).toBe("/fund");
+    fireEvent.click(page().getByRole("button", { name: "Add money" }));
+    const addMoney = page().getByRole("dialog", { name: "Add money" });
+    expect(addMoney).toBeTruthy();
+    expect(addMoney.closest(".action-row")).toBeNull();
+    expect(page().getByText("Fund this Base account")).toBeTruthy();
+    expect(page().getByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(page().getByRole("button", { name: /Buy USDC with Coinbase/ })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: /Receive crypto/ }));
+    expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
+    expect(page().getByText("Receive on Base")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Copy address" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Check received" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Close add money" }));
+    expect(page().queryByRole("button", { name: /Receive crypto/ })).toBeNull();
     expect(page().getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
     expect(page().getByRole("button", { name: "Receive" }).hasAttribute("disabled")).toBe(false);
     fireEvent.click(page().getByRole("button", { name: "Receive" }));
@@ -753,7 +767,7 @@ describe("login-state home experience", () => {
     await waitFor(() => expect(replaceCalls).toEqual(["/?account=signin"]));
 
     expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
-    expect(page().queryByRole("link", { name: "Add money" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Add money" })).toBeNull();
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
     expect(page().queryByRole("heading", { name: "Activity" })).toBeNull();
     expect(page().queryByRole("button", { name: "Save" })).toBeNull();
@@ -853,7 +867,7 @@ describe("login-state home experience", () => {
     await waitFor(() => expect(replaceCalls).toEqual(["/"]));
     expect(document.body.textContent).not.toContain("0x1111…111111");
     expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
-    expect(page().queryByRole("link", { name: "Add money" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Add money" })).toBeNull();
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
 
     const retry = await page().findByRole("button", { name: "Retry sign out" });
