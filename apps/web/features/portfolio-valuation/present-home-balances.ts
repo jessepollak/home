@@ -14,6 +14,7 @@ import type { PortfolioValuationState } from "./types";
 
 export type HomeAssetBalanceItem = {
   id: string;
+  assetKey?: string;
   group?: "cash" | "asset";
   name: string;
   detail?: string;
@@ -96,6 +97,7 @@ function presentCashBucket(
   if (bucket.valuationStatus === "unsupported") {
     return {
       id: bucket.id,
+      assetKey: bucket.assetKey ?? bucket.id,
       group: "cash",
       name,
       displayBalance: formatPresentationFiat(
@@ -119,6 +121,7 @@ function presentCashBucket(
   if (valuationStatus === "read-unavailable") {
     return {
       id: bucket.id,
+      assetKey: bucket.assetKey ?? bucket.id,
       group: "cash",
       name,
       displayBalance: "Unavailable",
@@ -130,6 +133,7 @@ function presentCashBucket(
   if (valuationStatus === "priced" && indicativeValue) {
     return {
       id: bucket.id,
+      assetKey: bucket.assetKey ?? bucket.id,
       group: "cash",
       name,
       displayBalance: formatPresentationFiat(
@@ -143,6 +147,7 @@ function presentCashBucket(
   const tokenAmount = unpricedCashTokenAmount(bucket, valuationStatus);
   return {
     id: bucket.id,
+    assetKey: bucket.assetKey ?? bucket.id,
     group: "cash",
     name,
     displayBalance: tokenAmount ?? "—",
@@ -222,6 +227,7 @@ function presentDirectAssetRow(
         : null;
     return {
       id: `asset:${holding.assetKey}`,
+      assetKey: holding.assetKey,
       group: "asset",
       name: holding.name,
       detail: holding.symbol,
@@ -237,6 +243,7 @@ function presentDirectAssetRow(
 
   return {
     id: `asset:${holding.assetKey}`,
+    assetKey: holding.assetKey,
     group: "asset",
     name: holding.name,
     detail: holding.symbol,

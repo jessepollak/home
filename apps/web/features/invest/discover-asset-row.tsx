@@ -1,6 +1,10 @@
 "use client";
 
 import type { InvestAsset } from "@/config/invest-assets";
+import {
+  presentInvestAssetMark,
+  type AssetMarkImageMap,
+} from "@/features/asset-mark/presentation";
 import type { MarketDataState } from "./invest-market";
 import { useMarketDisplay } from "./use-market-display";
 import { AssetIcon } from "./asset-icon";
@@ -9,15 +13,21 @@ import styles from "./invest-experience.module.css";
 export function DiscoverAssetRow({
   asset,
   market,
-  iconPending = false,
+  assetImages = {},
+  iconsPending = false,
   onOpen,
 }: {
   asset: InvestAsset;
   market: MarketDataState;
-  iconPending?: boolean;
+  assetImages?: AssetMarkImageMap;
+  iconsPending?: boolean;
   onOpen: () => void;
 }) {
   const price = useMarketDisplay(asset.id, market);
+  const mark = presentInvestAssetMark(asset, {
+    images: assetImages,
+    pending: iconsPending,
+  });
   const change = price.changeLabel ?? "—";
   const changeTone =
     change.startsWith("+") ? styles.changeUp : change.startsWith("-") ? styles.changeDown : "";
@@ -30,13 +40,7 @@ export function DiscoverAssetRow({
         onClick={onOpen}
         aria-label={`${asset.displayName} details`}
       >
-        <AssetIcon
-          assetId={asset.id}
-          label={asset.displayName}
-          initials={asset.initials}
-          imageUrl={asset.imageUrl}
-          pending={iconPending}
-        />
+        <AssetIcon mark={mark} />
         <span className={styles.identity}>
           <strong>{asset.displayName}</strong>
           <small>{asset.displaySymbol}</small>

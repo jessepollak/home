@@ -281,6 +281,7 @@ describe("presentPortfolioValuation", () => {
     expect(presented.items).toEqual([
       {
         id: "cash:usd",
+        assetKey: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
         group: "cash",
         name: "US dollar",
         displayBalance: "Unavailable",
@@ -316,6 +317,7 @@ describe("presentPortfolioValuation", () => {
     expect(presented.items.filter((item) => item.group === "asset")).toEqual([
       {
         id: `asset:${PORTFOLIO_NATIVE_ASSET_KEY}`,
+        assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
         group: "asset",
         name: "Ethereum",
         detail: "ETH",
@@ -401,6 +403,7 @@ describe("presentPortfolioValuation", () => {
 
     expect(presented.items.find((item) => item.group === "asset")).toEqual({
       id: `asset:${PORTFOLIO_NATIVE_ASSET_KEY}`,
+      assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
       group: "asset",
       name: "Ethereum",
       detail: "ETH",
@@ -446,6 +449,7 @@ describe("presentPortfolioValuation", () => {
 
     expect(presented.items.find((item) => item.group === "asset")).toEqual({
       id: `asset:${PORTFOLIO_NATIVE_ASSET_KEY}`,
+      assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
       group: "asset",
       name: "Ethereum",
       detail: "ETH",
@@ -517,6 +521,7 @@ describe("presentPortfolioValuation", () => {
     expect(JSON.stringify(wrap.items)).not.toContain("1.101012331497033445");
     expect(dust.items.find((item) => item.group === "asset")).toEqual({
       id: `asset:${PORTFOLIO_NATIVE_ASSET_KEY}`,
+      assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
       group: "asset",
       name: "Ethereum",
       detail: "ETH",
@@ -695,6 +700,7 @@ describe("presentPortfolioValuation", () => {
     expect(presented.displayTotal).toBe("Rp 17,690.40");
     expect(presented.items.find((item) => item.name === "Euro")).toEqual({
       id: `asset:${verifiedLocalCashAssets.EUR.assetKey}`,
+      assetKey: verifiedLocalCashAssets.EUR.assetKey,
       group: "asset",
       name: "Euro",
       detail: "EURC",

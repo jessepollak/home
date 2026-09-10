@@ -2,7 +2,6 @@ import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
 import {
-  applyAssetIcon,
   discoverShelves,
   getShelfPreviewAssets,
   type DiscoverShelfId,
@@ -57,11 +56,10 @@ export function InvestHub({
           <DiscoverShelf
             key={shelf.id}
             title={shelf.title}
-            assets={getShelfPreviewAssets(shelf, memeAssets).map((asset) =>
-              applyAssetIcon(asset, assetIcons),
-            )}
+            assets={getShelfPreviewAssets(shelf, memeAssets)}
             market={markets[shelf.category]}
             status={shelf.id === "memes" ? memeStatus : "ready"}
+            assetImages={assetIcons}
             iconsPending={iconsPending}
             onSeeAll={() => onSeeAll(shelf.id)}
             onOpenAsset={(asset) => onOpenAsset(asset, "hub")}

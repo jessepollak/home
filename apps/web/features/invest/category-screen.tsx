@@ -1,5 +1,6 @@
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
+import type { AssetMarkImageMap } from "@/features/asset-mark/presentation";
 import type { MarketDataState } from "./invest-market";
 import { DiscoverAssetRow } from "./discover-asset-row";
 import type { DiscoverShelfId, MemeShelfStatus } from "./discover";
@@ -11,6 +12,7 @@ export function CategoryScreen({
   assets,
   market,
   status = "ready",
+  assetImages = {},
   iconsPending = false,
   onBack,
   onOpenAsset,
@@ -20,6 +22,7 @@ export function CategoryScreen({
   assets: readonly InvestAsset[];
   market: MarketDataState;
   status?: MemeShelfStatus;
+  assetImages?: AssetMarkImageMap;
   iconsPending?: boolean;
   onBack: () => void;
   onOpenAsset: (asset: InvestAsset, from: DiscoverShelfId) => void;
@@ -46,7 +49,8 @@ export function CategoryScreen({
               key={asset.id}
               asset={asset}
               market={market}
-              iconPending={iconsPending}
+              assetImages={assetImages}
+              iconsPending={iconsPending}
               onOpen={() => onOpenAsset(asset, shelfId)}
             />
           ))}

@@ -6,7 +6,6 @@ import { useNestedAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
 import {
-  applyAssetIcon,
   getDiscoverAsset,
   getDiscoverShelf,
   getShelfAssets,
@@ -63,7 +62,7 @@ export function InvestExperience({
   const hostRef = useRef<HTMLDivElement>(null);
   const currentViewKey = viewKey(view);
   const markets = { stockMarket, memeMarket, cryptoMarket };
-  const catalog = memeAssets.map((asset) => applyAssetIcon(asset, assetIcons));
+  const catalog = memeAssets;
 
   useLayoutEffect(() => {
     resetHostScroll(hostRef.current);
@@ -147,9 +146,7 @@ export function InvestExperience({
   if (view.screen === "category") {
     const shelf = getDiscoverShelf(view.shelfId);
     if (!shelf) return <div ref={hostRef} />;
-    const assets = getShelfAssets(shelf, catalog).map((asset) =>
-      applyAssetIcon(asset, assetIcons),
-    );
+    const assets = getShelfAssets(shelf, catalog);
     screen = (
       <CategoryScreen
         title={shelf.title}
@@ -163,6 +160,7 @@ export function InvestExperience({
               : unavailableMarketData
         }
         status={shelf.id === "memes" ? memeStatus : "ready"}
+        assetImages={assetIcons}
         iconsPending={iconsPending}
         onBack={() => leaveChild({ screen: "hub" })}
         onOpenAsset={(asset, from) =>
@@ -184,12 +182,12 @@ export function InvestExperience({
         />
       );
     } else {
-      const marked = applyAssetIcon(asset, assetIcons);
       screen = (
         <AssetDetailScreen
-          asset={marked}
-          market={marketForAsset(marked, markets)}
-          iconPending={iconsPending}
+          asset={asset}
+          market={marketForAsset(asset, markets)}
+          assetImages={assetIcons}
+          iconsPending={iconsPending}
           onBack={() => leaveChild(parent)}
         />
       );

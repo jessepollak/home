@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import { parseShellLocation } from "@/config/shell-location";
 import { investViewFromSearch } from "@/features/invest/invest-location";
-import { PricedInvestExperience } from "@/features/invest/priced-invest-experience";
-import { AuthenticatedSavingsExperience } from "@/features/savings/savings-experience";
-import { PortfolioHomeExperience } from "../home-experience";
+import { DashboardExperience } from "./dashboard-experience";
 
 export const metadata: Metadata = {
   title: "Dashboard · Home",
@@ -18,13 +16,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const query = await searchParams;
   const location = parseShellLocation(query);
   return (
-    <PortfolioHomeExperience
-      detectedCountry={null}
+    <DashboardExperience
       initialPanel={location.panel}
       initialAccountSettingsOpen={location.account === "settings"}
-      investContent={<PricedInvestExperience initialView={investViewFromSearch(query)} />}
-      savingsContent={<AuthenticatedSavingsExperience />}
-      routeMode="dashboard"
+      initialInvestView={investViewFromSearch(query)}
     />
   );
 }

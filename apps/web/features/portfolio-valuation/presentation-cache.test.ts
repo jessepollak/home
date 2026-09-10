@@ -25,6 +25,7 @@ const readyPresentation: HomeAssetBalancesPresentation = {
   items: [
     {
       id: "usdc",
+      assetKey: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
       group: "cash",
       name: "US dollar",
       displayBalance: "$12.34",
