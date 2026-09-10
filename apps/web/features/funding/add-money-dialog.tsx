@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { ArrowDownToLine } from "lucide-react";
-import { AddressText } from "@/components/address-text";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
   verifiedLocalCashAssets,
@@ -13,6 +13,7 @@ import {
   type FiatCurrencyCode,
   type RegionId,
 } from "@/config/regions";
+import { formatAddress } from "@/features/formatting";
 import {
   MoneyModal,
   MoneyModalFooter,
@@ -159,22 +160,71 @@ export function ReceiveBody({
       </div>
       <div className={styles.addressBlock}>
         {address ? (
-          <AddressText
-            address={address}
-            className={styles.addressText}
-            copiedLabel="Copied"
-          />
+          <ReceiveAddress address={address} />
         ) : (
-          <span
-            className={`shimmer ${styles.addressShimmer}`}
-            data-shimmer="address"
-            aria-hidden="true"
-          />
+          <>
+            <span
+              className={`shimmer ${styles.addressShimmer}`}
+              data-shimmer="address"
+              aria-hidden="true"
+            />
+            <p className={styles.addressHint}>Preparing your Base address</p>
+          </>
         )}
-        <p className={styles.addressHint}>Tap the address to copy</p>
       </div>
       <SupportedAssets regionId={regionId} />
     </div>
+  );
+}
+
+function ReceiveAddress({ address }: { address: `0x${string}` }) {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const condensed = formatAddress(address);
+
+  async function copyAddress() {
+    if (!navigator.clipboard?.writeText) {
+      setCopyStatus("error");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("error");
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className={styles.addressText}
+        title={address}
+        aria-label={copyStatus === "copied" ? "Copied" : `Copy ${condensed}`}
+        aria-describedby="receive-address-help"
+        onClick={() => void copyAddress()}
+      >
+        {copyStatus === "copied" ? "Copied" : condensed}
+      </button>
+      {copyStatus === "error" ? (
+        <div className={styles.copyFallback}>
+          <p id="receive-address-help" className={styles.copyError} role="alert">
+            Clipboard access is unavailable. Select and copy the full address below.
+          </p>
+          <code
+            className={styles.fullAddress}
+            aria-label={`Full Base address ${address}`}
+            tabIndex={0}
+          >
+            {address}
+          </code>
+        </div>
+      ) : (
+        <p id="receive-address-help" className={styles.addressHint}>
+          Tap the address to copy
+        </p>
+      )}
+    </>
   );
 }
 

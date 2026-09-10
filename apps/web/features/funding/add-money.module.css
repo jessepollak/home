@@ -143,6 +143,41 @@
   font-size: 0.76rem;
 }
 
+.copyFallback {
+  display: grid;
+  width: min(100%, 320px);
+  justify-items: center;
+  gap: 8px;
+}
+
+.copyError {
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.fullAddress {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--home-hairline);
+  border-radius: 8px;
+  background: var(--home-canvas);
+  color: var(--home-ink);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.fullAddress:focus-visible {
+  outline: 3px solid rgba(0, 82, 255, 0.18);
+  outline-offset: 2px;
+}
+
 .addressShimmer {
   width: 148px;
   height: 18px;

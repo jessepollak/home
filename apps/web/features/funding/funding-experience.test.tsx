@@ -51,10 +51,20 @@ function page() {
 afterEach(() => {
   cleanup();
   window.sessionStorage.clear();
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: undefined,
+  });
 });
 
 describe("FundingExperience", () => {
-  test("keeps Coinbase return routing by opening the Base receive screen without a manual check flow", () => {
+  test("keeps Coinbase return routing and copies the full Base address", async () => {
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (value: string) => { copied = value; } },
+    });
+
     render(
       <FundingExperienceForWallet
         wallet={verifiedWallet()}
@@ -71,7 +81,54 @@ describe("FundingExperience", () => {
     expect(page().getByText(/other tokens in Home's supported Base inventory/)).toBeTruthy();
     expect(page().queryByRole("button", { name: "Copy address" })).toBeNull();
     expect(page().queryByRole("button", { name: "Check received" })).toBeNull();
-    expect(page().getByRole("button", { name: /Copy 0x1111…111111/ })).toBeTruthy();
+
+    fireEvent.click(page().getByRole("button", { name: /Copy 0x1111…111111/ }));
+    await waitFor(() => expect(copied).toBe(ADDRESS_A));
+    expect(page().getByRole("button", { name: "Copied" })).toBeTruthy();
+    expect(page().queryByLabelText(`Full Base address ${ADDRESS_A}`)).toBeNull();
+  });
+
+  test("offers the full selectable address when clipboard access is unavailable", async () => {
+    render(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet()}
+        navigateToHostedOnramp={() => {}}
+        initialStep="receive"
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: /Copy 0x1111…111111/ }));
+
+    const alert = await page().findByRole("alert");
+    expect(alert.textContent).toContain("Select and copy the full address below");
+    const fallback = page().getByLabelText(`Full Base address ${ADDRESS_A}`);
+    expect(fallback.textContent).toBe(ADDRESS_A);
+    expect(fallback.getAttribute("tabindex")).toBe("0");
+  });
+
+  test("offers the full selectable address when clipboard write is rejected", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => { throw new Error("denied"); } },
+    });
+    render(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet()}
+        navigateToHostedOnramp={() => {}}
+        initialStep="receive"
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: /Copy 0x1111…111111/ }));
+
+    await waitFor(() => {
+      expect(page().getByRole("alert").textContent).toContain(
+        "Select and copy the full address below",
+      );
+    });
+    expect(page().getByLabelText(`Full Base address ${ADDRESS_A}`).textContent).toBe(
+      ADDRESS_A,
+    );
   });
 
   test("does not present a disabled regional candidate as receive support", () => {
