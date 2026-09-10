@@ -127,6 +127,14 @@
   padding: 12px 0 4px;
 }
 
+.amountToolbar {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .assetPill {
   display: inline-flex;
   min-height: 36px;
@@ -141,6 +149,10 @@
   padding: 0 10px 0 4px;
 }
 
+.assetName {
+  padding-right: 4px;
+}
+
 .assetPill select {
   appearance: none;
   border: 0;
@@ -150,6 +162,58 @@
   font: inherit;
   font-weight: 750;
   padding-right: 2px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.chip {
+  min-height: 36px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 999px;
+  background: var(--home-white);
+  color: var(--home-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0 12px;
+}
+
+.chipMax {
+  border-color: var(--home-blue);
+  color: var(--home-blue);
+}
+
+.chip:disabled,
+.unitToggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.chip:focus-visible,
+.unitToggle:focus-visible {
+  outline: 3px solid rgba(0, 82, 255, 0.18);
+  outline-offset: 2px;
+}
+
+.unitToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--home-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  padding: 0;
 }
 
 .assetAmount {

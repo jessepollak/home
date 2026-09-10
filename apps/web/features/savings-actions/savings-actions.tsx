@@ -10,7 +10,9 @@ import {
   MoneyModalFooter,
   MoneyModalHeader,
   MoneyNumpad,
+  decimalFromBaseUnits,
   isPositiveDecimalAmount,
+  useMoneyAssetPricing,
 } from "@/features/money-modal";
 import type {
   OperationResult,
@@ -61,6 +63,7 @@ export function SavingsMoneyDialog({
     ? Date.parse(preparedAction.expiresAt) <= openedAt
     : false;
   const confirmAmount = amountBaseUnits ? formatUsdcUsd(amountBaseUnits) : "";
+  const pricing = useMoneyAssetPricing(candidate.asset.symbol);
   const title = step === "confirm" || step === "pending" || step === "error" || step === "failed"
     ? "Confirm"
     : mode === "deposit"
@@ -219,8 +222,15 @@ export function SavingsMoneyDialog({
             <>
               <MoneyAmountDisplay
                 amount={amount}
-                prefix="$"
+                onAmountChange={setAmount}
                 availableLabel={availableLabel}
+                availableAmount={decimalFromBaseUnits(availableBaseUnits ?? "", 6)}
+                assetId="usdc"
+                assetLabel="USDC"
+                assetLocked
+                chipSet="max"
+                pricing={pricing}
+                nativeSymbol="USDC"
               />
               <MoneyNumpad value={amount} maxDecimals={6} onChange={setAmount} />
             </>

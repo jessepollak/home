@@ -98,7 +98,10 @@ describe("SavingsMoneyDialog", () => {
 
     expect(page().getByRole("dialog", { name: "Deposit" })).toBeTruthy();
     expect(page().getByText("$50.00 available")).toBeTruthy();
+    expect(page().getByLabelText("USDC")).toBeTruthy();
     expect(page().queryByLabelText("Asset")).toBeNull();
+    expect(page().queryByRole("button", { name: "$10" })).toBeNull();
+    expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(false);
     expect(page().queryByRole("button", { name: "Back" })).toBeNull();
     typeAmount("1.234567");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));

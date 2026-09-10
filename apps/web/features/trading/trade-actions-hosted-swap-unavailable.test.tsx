@@ -57,10 +57,8 @@ describe("TradeActions hosted swap availability", () => {
     );
 
     fireEvent.click(page().getByRole("button", { name: "Buy" }));
-    fireEvent.change(page().getByLabelText("USDC amount to spend"), {
-      target: { value: "1" },
-    });
-    fireEvent.click(page().getByRole("button", { name: "Review trade" }));
+    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
 
     await waitFor(() =>
       expect(page().getByRole("alert").textContent).toBe(

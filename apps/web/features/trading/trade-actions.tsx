@@ -6,7 +6,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type FormEvent,
 } from "react";
 import { BaseAccountConnectorError } from "@/features/account/base-account-connector";
 import { useAccountWallet } from "@/features/account/cdp-client";
@@ -14,6 +13,16 @@ import type { VerifiedAccountSession } from "@/features/account/session-types";
 import { MoneyActionReview } from "@/features/money-actions/review";
 import { useMoneyDataRefresh } from "@/features/money-actions/refresh";
 import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import {
+  MoneyAmountDisplay,
+  MoneyModal,
+  MoneyModalFooter,
+  MoneyModalHeader,
+  MoneyNumpad,
+  isPositiveDecimalAmount,
+  useMoneyAssetPricing,
+} from "@/features/money-modal";
+import modal from "@/features/money-modal/money-modal.module.css";
 import type { InvestAsset } from "@/config/invest-assets";
 import {
   getTradeAssetStatus,
@@ -56,7 +65,7 @@ export function TradeActions({
   const visibleSide = activeBoundary ? side : null;
   const visibleIntent = activeBoundary ? intent : null;
   const visibleAction = action && actionMatchesSession(action, account.session) ? action : null;
-  const dialogRef = useDialog(visibleSide !== null && !visibleIntent && !visibleAction);
+  const amountOpen = visibleSide !== null && !visibleIntent && !visibleAction;
   const permitDialogRef = useDialog(Boolean(visibleIntent && !visibleAction));
 
   useEffect(() => () => requestController.current?.abort(), []);
@@ -98,8 +107,7 @@ export function TradeActions({
     setIntent(null);
   }
 
-  async function prepare(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function prepare() {
     if (!side || !boundary || !account.session?.smartAccount) return;
     const sellAsset = getTradeSellAsset(tradeAsset, side);
     let amountBaseUnits: string;
@@ -185,15 +193,15 @@ export function TradeActions({
         <button type="button" disabled={!canTrade} onClick={() => open("sell")}>Sell</button>
       </div>
 
-      <TradeDialog
-        dialogRef={dialogRef}
+      <TradeAmountDialog
+        open={amountOpen}
         side={visibleSide}
         asset={tradeAsset}
         amount={amount}
         preparing={preparing}
         error={error}
         onAmountChange={setAmount}
-        onSubmit={prepare}
+        onContinue={() => void prepare()}
         onClose={close}
       />
 
@@ -221,44 +229,73 @@ export function TradeActions({
   );
 }
 
-function TradeDialog({
-  dialogRef, side, asset, amount, preparing, error, onAmountChange, onSubmit, onClose,
+function TradeAmountDialog({
+  open, side, asset, amount, preparing, error, onAmountChange, onContinue, onClose,
 }: {
-  dialogRef: React.RefObject<HTMLDialogElement | null>;
+  open: boolean;
   side: TradeSide | null;
   asset: TradeAsset;
   amount: string;
   preparing: boolean;
   error: string | null;
   onAmountChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onContinue: () => void;
   onClose: () => void;
 }) {
-  if (!side) return <dialog ref={dialogRef} className={styles.dialog} />;
-  const sellAsset = getTradeSellAsset(asset, side);
+  const sellAsset = side ? getTradeSellAsset(asset, side) : null;
+  const pricing = useMoneyAssetPricing(sellAsset?.symbol ?? "USDC");
+  if (!side || !sellAsset) {
+    return (
+      <MoneyModal open={false} labelledBy="trade-amount-title" onCancel={onClose} onClose={onClose}>
+        <MoneyModalHeader title="Buy" titleId="trade-amount-title" onClose={onClose} />
+      </MoneyModal>
+    );
+  }
+
   return (
-    <dialog ref={dialogRef} className={styles.dialog} aria-labelledby={`trade-${asset.id}-title`}
-      onCancel={(event) => { event.preventDefault(); if (!preparing) onClose(); }}
-      onClose={() => { if (!preparing) onClose(); }}>
-      <header>
-        <h2 id={`trade-${asset.id}-title`}>{side === "buy" ? "Buy" : "Sell"} {asset.representation.tokenSymbol}</h2>
-        <button type="button" disabled={preparing} onClick={onClose} aria-label="Close trade">×</button>
-      </header>
-      <form onSubmit={onSubmit}>
-        <label htmlFor={`trade-${asset.id}-amount`}>{sellAsset.symbol} amount to spend</label>
-        <input id={`trade-${asset.id}-amount`} value={amount} onChange={(event) => onAmountChange(event.target.value)}
-          inputMode="decimal" autoComplete="off" placeholder="0.00" disabled={preparing} required />
-        <dl>
-          <div><dt>Network</dt><dd>Base (8453)</dd></div>
-          <div><dt>Maximum slippage</dt><dd>1.00%</dd></div>
-          <div><dt>Quote</dt><dd>Fresh CDP Trade API quote</dd></div>
-        </dl>
-        {error ? <p className={styles.error} role="alert">{error}</p> : null}
-        <button className={styles.prepare} type="submit" disabled={preparing}>
-          {preparing ? "Preparing fresh quote…" : "Review trade"}
-        </button>
-      </form>
-    </dialog>
+    <MoneyModal
+      open={open}
+      labelledBy="trade-amount-title"
+      onCancel={() => { if (!preparing) onClose(); }}
+      onClose={() => { if (!preparing) onClose(); }}
+    >
+      <MoneyModalHeader
+        title={side === "buy" ? "Buy" : "Sell"}
+        titleId="trade-amount-title"
+        onClose={onClose}
+        closeDisabled={preparing}
+        closeLabel="Close trade"
+      />
+      <div className={modal.body}>
+        {/*
+          Max stays off: TradeActions is not given a spendable balance field.
+          Do not invent fee/dust math or claim a backend available-spend.
+        */}
+        <MoneyAmountDisplay
+          amount={amount}
+          onAmountChange={onAmountChange}
+          assetId={sellAsset.id}
+          assetLabel={sellAsset.symbol}
+          assetCurrency={sellAsset.id === "usdc" ? "USD" : null}
+          assetLocked
+          chipSet={side === "buy" ? "quick-local" : "max"}
+          pricing={pricing}
+          nativeSymbol={sellAsset.symbol}
+        />
+        <MoneyNumpad
+          value={amount}
+          maxDecimals={sellAsset.decimals}
+          onChange={onAmountChange}
+          disabled={preparing}
+        />
+        {error ? <p className={modal.error} role="alert">{error}</p> : null}
+      </div>
+      <MoneyModalFooter
+        primaryLabel={preparing ? "Preparing…" : "Continue"}
+        primaryDisabled={preparing || !isPositiveDecimalAmount(amount)}
+        onPrimary={onContinue}
+      />
+    </MoneyModal>
   );
 }
 

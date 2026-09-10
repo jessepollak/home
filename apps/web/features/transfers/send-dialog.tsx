@@ -11,6 +11,7 @@ import {
   MoneyModalHeader,
   MoneyNumpad,
   isPositiveDecimalAmount,
+  useMoneyAssetPricing,
 } from "@/features/money-modal";
 import { useReactiveExpiry } from "@/features/money-actions/expiry";
 import type { MoneyActionKind, PreparedMoneyAction } from "@/features/money-actions/types";
@@ -332,6 +333,9 @@ export function SendDialog({
 
   const title = displayStep === "confirm" ? "Confirm" : "Send";
   const available = availableByAsset?.[assetId];
+  const pricing = useMoneyAssetPricing(TRANSFER_ASSETS[assetId].symbol);
+  // Max parses this presentation label. HomeAssetBalanceItem has no exact
+  // available base units — not a backend gap claim.
   const confirmAmount = displayRequest
     ? formatSendConfirmAmount(displayRequest.amountBaseUnits, displayRequest.assetId)
     : "";
@@ -365,7 +369,7 @@ export function SendDialog({
           <>
             <MoneyAmountDisplay
               amount={amount}
-              prefix={assetId === "usdc" ? "$" : ""}
+              onAmountChange={setAmount}
               availableLabel={available ? `${available} available` : undefined}
               assetId={assetId}
               assetLabel={TRANSFER_ASSETS[assetId].symbol}
@@ -379,6 +383,9 @@ export function SendDialog({
                   setAmount(fraction.length > maxDecimals ? `${whole}.${fraction.slice(0, maxDecimals)}` : amount);
                 }
               }}
+              chipSet="quick-local"
+              pricing={pricing}
+              nativeSymbol={TRANSFER_ASSETS[assetId].symbol}
             />
             <MoneyNumpad
               value={amount}
