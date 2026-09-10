@@ -26,11 +26,9 @@ GitHub assignees are unused. Ownership is labels.
 
 ## Task persistence
 
-GitHub Issues on `jessepollak/home` are the board for agent-team / multi-bot work.
+GitHub Issues on `jessepollak/home` are the sole board and intake for all Home feedback and tasks, including solo checkout work. Do not create or use a local, private, or parallel intake board.
 
-The private `.git/feedback-inbox.md` is **not** the crew board. That file stays for solo human intake in a checkout. See [AGENTS.md](../AGENTS.md).
-
-Every crew issue should carry one `owner:*`, one `status:*`, and one `lane:*`. Labels already exist on the repo.
+Every issue used to track work should carry one `owner:*`, one `status:*`, and one `lane:*`. Labels already exist on the repo.
 
 ### `owner:*`
 
