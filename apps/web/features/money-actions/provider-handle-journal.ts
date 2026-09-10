@@ -3,6 +3,7 @@ import type { MoneyActionKind, MoneyActionOwner, PreparedMoneyAction } from "./t
 
 export const PROVIDER_HANDLE_JOURNAL_VERSION = 1 as const;
 export const PROVIDER_HANDLE_JOURNAL_KEY_PREFIX = "home:money-action-provider-handle:v1:";
+const PROVIDER_HANDLE_JOURNAL_LOCK_NAME = "home:money-action-provider-handle:v1:persist";
 
 const DEFAULT_MAX_ENTRIES = 32;
 const DEFAULT_MAX_TOTAL_BYTES = 64 * 1024;
@@ -32,6 +33,10 @@ export type ProviderHandleJournalStorage = {
   removeItem(key: string): void;
 };
 
+export type ProviderHandleJournalLock = {
+  withLock<T>(task: () => T | Promise<T>): Promise<T>;
+};
+
 export type ProviderHandleJournalEntry = {
   version: typeof PROVIDER_HANDLE_JOURNAL_VERSION;
   entryId: string;
@@ -50,6 +55,8 @@ export type ProviderHandleJournalIssue =
   | "storage-write-failed"
   | "storage-delete-failed"
   | "capacity-exceeded"
+  | "lock-unavailable"
+  | "lock-failed"
   | "binding-conflict"
   | "invalid-entry";
 
@@ -76,6 +83,7 @@ export type ProviderHandleJournalAcknowledgeResult = {
 export class ProviderHandleJournal {
   private readonly memory = new Map<string, { entry: ProviderHandleJournalEntry; raw: string }>();
   private readonly storage: ProviderHandleJournalStorage | null;
+  private readonly lock: ProviderHandleJournalLock | null;
   private readonly now: () => Date;
   private readonly randomUUID: () => string;
   private readonly maxEntries: number;
@@ -83,12 +91,14 @@ export class ProviderHandleJournal {
 
   constructor(options: {
     storage?: ProviderHandleJournalStorage | null;
+    lock?: ProviderHandleJournalLock | null;
     now?: () => Date;
     randomUUID?: () => string;
     maxEntries?: number;
     maxTotalBytes?: number;
   } = {}) {
     this.storage = options.storage === undefined ? browserStorage() : options.storage;
+    this.lock = options.lock === undefined ? browserLock() : options.lock;
     this.now = options.now ?? (() => new Date());
     this.randomUUID = options.randomUUID ?? (() => crypto.randomUUID());
     this.maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
@@ -164,9 +174,12 @@ export class ProviderHandleJournal {
       providerHandleJournalEntryMatchesAction(entry, action) && sameProviderHandle(entry.handle, handle)
     );
     if (duplicate) {
+      const key = storageKey(duplicate.entryId);
+      const raw = JSON.stringify(duplicate);
+      this.memory.set(key, { entry: structuredClone(duplicate), raw });
       return {
         retained: true,
-        persisted: this.isPersisted(storageKey(duplicate.entryId)),
+        persisted: this.isPersisted(key),
         entry: duplicate,
         issues: snapshot.issues,
       };
@@ -196,34 +209,73 @@ export class ProviderHandleJournal {
       return { retained: false, persisted: false, issues: [...snapshot.issues, "invalid-entry"] };
     }
 
-    // A provider-returned handle must survive in-process even if another journal
-    // instance consumed the last persistent slot after this instance's preflight.
+    // Synchronous memory capture is unconditional once a valid provider handle returns.
+    // Persistence is a separate locked step so cross-tab capacity remains bounded.
     this.memory.set(key, { entry: structuredClone(entry), raw });
-    if (
-      snapshot.persistentEntries >= this.maxEntries ||
-      snapshot.persistentBytes + byteLength(key) + byteLength(raw) > this.maxTotalBytes
-    ) {
-      return {
-        retained: true,
-        persisted: false,
-        entry,
-        issues: [...snapshot.issues, "capacity-exceeded"],
-      };
+    return { retained: true, persisted: false, entry, issues: snapshot.issues };
+  }
+
+  async persist(entry: ProviderHandleJournalEntry): Promise<ProviderHandleJournalRetainResult> {
+    const key = storageKey(entry.entryId);
+    const held = this.memory.get(key);
+    if (!held || !sameJournalEntry(held.entry, entry)) {
+      return { retained: false, persisted: false, issues: ["invalid-entry"] };
     }
     if (!this.storage) {
-      return { retained: true, persisted: false, entry, issues: snapshot.issues };
+      return { retained: true, persisted: false, entry, issues: [] };
     }
+    if (!this.lock) {
+      return { retained: true, persisted: false, entry, issues: ["lock-unavailable"] };
+    }
+
     try {
-      if (this.storage.getItem(key) !== null) {
-        return { retained: true, persisted: false, entry, issues: [...snapshot.issues, "storage-write-failed"] };
-      }
-      this.storage.setItem(key, raw);
-      if (this.storage.getItem(key) !== raw) {
-        return { retained: true, persisted: false, entry, issues: [...snapshot.issues, "storage-write-failed"] };
-      }
-      return { retained: true, persisted: true, entry, issues: snapshot.issues };
+      return await this.lock.withLock(() => {
+        const snapshot = this.inspect();
+        try {
+          const existing = this.storage!.getItem(key);
+          if (existing === held.raw) {
+            return { retained: true, persisted: true, entry, issues: snapshot.issues };
+          }
+          if (existing !== null) {
+            return {
+              retained: true,
+              persisted: false,
+              entry,
+              issues: [...snapshot.issues, "storage-write-failed"],
+            };
+          }
+          if (
+            snapshot.persistentEntries >= this.maxEntries ||
+            snapshot.persistentBytes + byteLength(key) + byteLength(held.raw) > this.maxTotalBytes
+          ) {
+            return {
+              retained: true,
+              persisted: false,
+              entry,
+              issues: [...snapshot.issues, "capacity-exceeded"],
+            };
+          }
+          this.storage!.setItem(key, held.raw);
+          if (this.storage!.getItem(key) !== held.raw) {
+            return {
+              retained: true,
+              persisted: false,
+              entry,
+              issues: [...snapshot.issues, "storage-write-failed"],
+            };
+          }
+          return { retained: true, persisted: true, entry, issues: snapshot.issues };
+        } catch {
+          return {
+            retained: true,
+            persisted: false,
+            entry,
+            issues: [...snapshot.issues, "storage-write-failed"],
+          };
+        }
+      });
     } catch {
-      return { retained: true, persisted: false, entry, issues: [...snapshot.issues, "storage-write-failed"] };
+      return { retained: true, persisted: false, entry, issues: ["lock-failed"] };
     }
   }
 
@@ -349,6 +401,22 @@ function sameJournalEntry(left: ProviderHandleJournalEntry, right: ProviderHandl
 
 function storageKey(entryId: string): string {
   return `${PROVIDER_HANDLE_JOURNAL_KEY_PREFIX}${entryId}`;
+}
+
+function browserLock(): ProviderHandleJournalLock | null {
+  try {
+    if (typeof navigator === "undefined" || !navigator.locks) return null;
+    const locks = navigator.locks as unknown as {
+      request<T>(name: string, callback: () => T | Promise<T>): Promise<T>;
+    };
+    return {
+      withLock<T>(task: () => T | Promise<T>): Promise<T> {
+        return locks.request<T>(PROVIDER_HANDLE_JOURNAL_LOCK_NAME, task);
+      },
+    };
+  } catch {
+    return null;
+  }
 }
 
 function browserStorage(): ProviderHandleJournalStorage | null {

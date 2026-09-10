@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "./types";
 import {
   ProviderHandleJournal,
+  type ProviderHandleJournalLock,
   type ProviderHandleJournalStorage,
 } from "./provider-handle-journal";
 import { recoverJournaledProviderHandle } from "./provider-handle-recovery";
@@ -19,6 +20,22 @@ class MemoryStorage implements ProviderHandleJournalStorage {
   getItem(key: string) { return this.values.get(key) ?? null; }
   setItem(key: string, value: string) { this.values.set(key, value); }
   removeItem(key: string) { this.values.delete(key); }
+}
+
+class TestJournalLock implements ProviderHandleJournalLock {
+  private tail = Promise.resolve();
+
+  async withLock<T>(task: () => T | Promise<T>): Promise<T> {
+    let release!: () => void;
+    const previous = this.tail;
+    this.tail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      return await task();
+    } finally {
+      release();
+    }
+  }
 }
 
 const OWNER = {
@@ -46,12 +63,27 @@ function action(): PreparedMoneyAction {
   };
 }
 
-function makeJournal(storage: ProviderHandleJournalStorage, entryId: string) {
+function makeJournal(
+  storage: ProviderHandleJournalStorage,
+  entryId: string,
+  lock: ProviderHandleJournalLock = new TestJournalLock(),
+) {
   return new ProviderHandleJournal({
     storage,
+    lock,
     randomUUID: () => entryId,
     now: () => new Date("2026-09-10T10:01:01.000Z"),
   });
+}
+
+async function captureAndPersist(
+  journal: ProviderHandleJournal,
+  prepared: PreparedMoneyAction,
+  handle: Parameters<ProviderHandleJournal["retain"]>[1],
+) {
+  const captured = journal.retain(prepared, handle);
+  if (!captured.entry) return captured;
+  return journal.persist(captured.entry);
 }
 
 async function claimedStore() {
@@ -119,7 +151,7 @@ describe("provider handle journal recovery", () => {
     const store = await claimedStore();
     const storage = new MemoryStorage();
     const first = makeJournal(storage, "123e4567-e89b-42d3-a456-426614174091");
-    first.retain(action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
+    await captureAndPersist(first, action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
     const lost = handlerFetch(store, {
       afterCommittedPost: () => { throw new Error("response lost"); },
     });
@@ -152,7 +184,7 @@ describe("provider handle journal recovery", () => {
     const store = await claimedStore();
     const storage = new MemoryStorage();
     const journal = makeJournal(storage, "123e4567-e89b-42d3-a456-426614174093");
-    journal.retain(action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
+    await captureAndPersist(journal, action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
     const transport = handlerFetch(store, {
       beforePost: async () => {
         await store.updateStatus(OWNER, ACTION_ID, "failed", "2026-09-10T10:01:30.000Z", {
@@ -180,7 +212,7 @@ describe("provider handle journal recovery", () => {
     const store = await claimedStore();
     const storage = new MemoryStorage();
     const journal = makeJournal(storage, "123e4567-e89b-42d3-a456-426614174094");
-    journal.retain(action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
+    await captureAndPersist(journal, action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
     const transport = handlerFetch(store, { forceConflictAfterRecording: true });
     const result = await recoverJournaledProviderHandle({
       fetchApi: transport.fetchApi,
@@ -207,7 +239,7 @@ describe("provider handle journal recovery", () => {
     for (const mode of ["direct", "conflict-reread"] as const) {
       const storage = new MemoryStorage();
       const journal = makeJournal(storage, crypto.randomUUID());
-      journal.retain(action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
+      await captureAndPersist(journal, action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
       let posts = 0;
       let reads = 0;
       const result = await recoverJournaledProviderHandle({
@@ -248,6 +280,7 @@ describe("provider handle journal recovery", () => {
         ? stale.retain(mismatched, { kind: "submission-id", provider: "base-account", value: "stale-bundle" })
         : stale.retain(mismatched, { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
       expect(retained.retained).toBe(true);
+      expect((await stale.persist(retained.entry!)).persisted).toBe(true);
 
       const afterReset = makeJournal(storage, crypto.randomUUID());
       let posts = 0;
@@ -273,7 +306,7 @@ describe("provider handle journal recovery", () => {
     await preparedStore.issue(action());
     const storage = new MemoryStorage();
     const journal = makeJournal(storage, "123e4567-e89b-42d3-a456-426614174095");
-    journal.retain(action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
+    await captureAndPersist(journal, action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
     const preparedTransport = handlerFetch(preparedStore);
     const prepared = await recoverJournaledProviderHandle({
       fetchApi: preparedTransport.fetchApi,
@@ -309,7 +342,7 @@ describe("provider handle journal recovery", () => {
     ]) {
       const storage = new MemoryStorage();
       const journal = makeJournal(storage, crypto.randomUUID());
-      journal.retain(action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
+      await captureAndPersist(journal, action(), { kind: "user-operation-hash", provider: "cdp-embedded", value: USER_OPERATION_HASH });
       let posts = 0;
       const result = await recoverJournaledProviderHandle({
         fetchApi: async (_path, init) => {

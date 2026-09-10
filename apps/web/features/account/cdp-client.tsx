@@ -77,6 +77,7 @@ import type {
 } from "@/features/money-actions/types";
 import {
   ProviderHandleJournal,
+  type ProviderHandleJournalLock,
   type ProviderHandleJournalStorage,
 } from "@/features/money-actions/provider-handle-journal";
 import { recoverJournaledProviderHandle } from "@/features/money-actions/provider-handle-recovery";
@@ -669,6 +670,7 @@ export function AccountWalletSessionOwner({
   baseAccountConnector = connectBaseAccount,
   baseAccountRestorer = restoreBaseAccount,
   providerHandleJournalStorage,
+  providerHandleJournalLock,
 }: {
   children: ReactNode;
   sdk: AccountWalletSdkBoundary;
@@ -677,6 +679,7 @@ export function AccountWalletSessionOwner({
   baseAccountConnector?: BaseAccountConnector;
   baseAccountRestorer?: BaseAccountRestorer;
   providerHandleJournalStorage?: ProviderHandleJournalStorage | null;
+  providerHandleJournalLock?: ProviderHandleJournalLock | null;
 }) {
   const {
     isInitialized,
@@ -705,7 +708,10 @@ export function AccountWalletSessionOwner({
   const transferSequence = useRef(0);
   const transferInProgress = useRef(false);
   const [providerHandleJournal] = useState(
-    () => new ProviderHandleJournal({ storage: providerHandleJournalStorage }),
+    () => new ProviderHandleJournal({
+      storage: providerHandleJournalStorage,
+      lock: providerHandleJournalLock,
+    }),
   );
   const accountSelection = useRef<AccountSelection>(initialAccountSelection());
   const baseConnection = useRef<ConnectedBaseAccount | null>(null);
@@ -1977,6 +1983,7 @@ export function AccountWalletSessionOwner({
           if (!retained.retained) {
             throw new TransferExecutionError("submission-unknown");
           }
+          await providerHandleJournal.persist(retained.entry!);
           assertActive();
           const journaled = await recoverJournaledProviderHandle({
             fetchApi: fetchMoneyActionApi,
@@ -2034,6 +2041,7 @@ export function AccountWalletSessionOwner({
         if (!retained.retained) {
           throw new TransferExecutionError("submission-unknown");
         }
+        await providerHandleJournal.persist(retained.entry!);
         assertActive();
         const journaled = await recoverJournaledProviderHandle({
           fetchApi: fetchMoneyActionApi,
