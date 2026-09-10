@@ -2,6 +2,7 @@ import {
   FUNDING_BASE_CHAIN_ID,
   FUNDING_BASE_USDC_ADDRESS,
   type HostedOnrampSession,
+  type OnrampPaymentMethod,
 } from "./types";
 
 export type FundingAccountResource = (
@@ -29,6 +30,8 @@ export class FundingRequestError extends Error {
 
 export async function requestHostedOnrampSession(options: {
   fetchAccountResource: FundingAccountResource;
+  paymentMethod: OnrampPaymentMethod;
+  paymentAmount: string;
   signal?: AbortSignal;
 }): Promise<HostedOnrampSession> {
   let value: unknown;
@@ -37,7 +40,11 @@ export async function requestHostedOnrampSession(options: {
       "/api/funding/onramp-session",
       {
         method: "POST",
-        body: { assetId: "usdc" },
+        body: {
+          assetId: "usdc",
+          paymentMethod: options.paymentMethod,
+          paymentAmount: options.paymentAmount,
+        },
         signal: options.signal,
       },
     );
@@ -58,7 +65,14 @@ export function parseHostedOnrampSession(value: unknown): HostedOnrampSession {
   if (!isRecord(value) || !isRecord(value.asset) || !isRecord(value.network)) {
     throw new FundingRequestError("invalid-response");
   }
-  const url = parseCoinbaseHostedUrl(value.url);
+  const presentation =
+    value.presentation === "iframe" || value.presentation === "hosted"
+      ? value.presentation
+      : failRequest();
+  const url =
+    presentation === "iframe"
+      ? parseCoinbasePaymentLinkUrl(value.url)
+      : parseCoinbaseHostedUrl(value.url);
   if (
     value.asset.id !== "usdc" ||
     value.asset.symbol !== "USDC" ||
@@ -71,6 +85,7 @@ export function parseHostedOnrampSession(value: unknown): HostedOnrampSession {
   }
   return {
     url,
+    presentation,
     asset: {
       id: "usdc",
       symbol: "USDC",
@@ -82,6 +97,17 @@ export function parseHostedOnrampSession(value: unknown): HostedOnrampSession {
 }
 
 export function parseCoinbaseHostedUrl(value: unknown): string {
+  return parseCoinbasePayUrl(value, ["/buy", "/buy/select-asset"]);
+}
+
+export function parseCoinbasePaymentLinkUrl(value: unknown): string {
+  return parseCoinbasePayUrl(value, [
+    "/v2/api-onramp/apple-pay",
+    "/v2/api-onramp/google-pay",
+  ]);
+}
+
+function parseCoinbasePayUrl(value: unknown, pathnames: readonly string[]): string {
   if (typeof value !== "string" || value.length > 4096) {
     throw new FundingRequestError("invalid-response");
   }
@@ -91,11 +117,12 @@ export function parseCoinbaseHostedUrl(value: unknown): string {
   } catch {
     throw new FundingRequestError("invalid-response");
   }
+  const sessionTokens = url.searchParams.getAll("sessionToken");
   if (
-    url.protocol !== "https:" ||
-    url.hostname !== "pay.coinbase.com" ||
-    (url.pathname !== "/buy" && url.pathname !== "/buy/select-asset") ||
-    !url.searchParams.has("sessionToken") ||
+    url.origin !== "https://pay.coinbase.com" ||
+    !pathnames.includes(url.pathname) ||
+    sessionTokens.length !== 1 ||
+    sessionTokens[0]?.trim().length === 0 ||
     url.username ||
     url.password ||
     url.hash
@@ -103,6 +130,10 @@ export function parseCoinbaseHostedUrl(value: unknown): string {
     throw new FundingRequestError("invalid-response");
   }
   return url.toString();
+}
+
+function failRequest(): never {
+  throw new FundingRequestError("invalid-response");
 }
 
 function readErrorStatus(error: unknown): number | null {

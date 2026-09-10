@@ -231,7 +231,7 @@
   display: grid;
   justify-items: center;
   gap: 10px;
-  padding: 36px 8px 12px;
+  padding: 16px 20px 12px;
   text-align: center;
 }
 
@@ -243,11 +243,109 @@
 }
 
 .buyLead {
-  margin: 0;
-  max-width: 18rem;
+  margin: 0 0 8px;
+  max-width: 20rem;
   color: var(--home-muted);
   font-size: 0.88rem;
   line-height: 1.45;
+}
+
+.buyField,
+.paymentMethods,
+.onrampEmbed {
+  width: min(100%, 340px);
+}
+
+.buyField {
+  display: grid;
+  gap: 7px;
+  text-align: left;
+}
+
+.buyLabel {
+  color: var(--home-ink);
+  font-size: 0.82rem;
+  font-weight: 720;
+}
+
+.buyInput {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--control-radius);
+  background: var(--home-white);
+  color: var(--home-ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  padding: 0 12px;
+}
+
+.buyInput:focus-visible,
+.paymentMethod:focus-within,
+.closePayment:focus-visible {
+  outline: 3px solid rgba(0, 82, 255, 0.18);
+  outline-offset: 2px;
+}
+
+.paymentMethods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 2px 0 0;
+  border: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.paymentMethods legend {
+  grid-column: 1 / -1;
+  margin-bottom: 7px;
+  padding: 0;
+}
+
+.paymentMethod {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--control-radius);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 680;
+  padding: 0 11px;
+}
+
+.paymentMethod input {
+  accent-color: var(--home-blue);
+}
+
+.onrampEmbed {
+  display: grid;
+  justify-items: stretch;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.onrampFrame {
+  display: block;
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--control-radius);
+  background: var(--home-canvas);
+}
+
+.closePayment {
+  min-height: 44px;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--control-radius);
+  background: var(--home-white);
+  color: var(--home-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
 }
 
 .statusStack {

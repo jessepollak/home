@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 import { ArrowDownToLine } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
@@ -21,6 +21,7 @@ import {
 } from "@/features/money-modal";
 import modal from "@/features/money-modal/money-modal.module.css";
 import styles from "./add-money.module.css";
+import type { OnrampPaymentMethod } from "./types";
 import { ReceiveQr } from "./receive-qr";
 
 export type AddMoneyStep = "method" | "receive" | "buy";
@@ -31,12 +32,20 @@ export function AddMoneyDialog({
   address,
   openingOnramp,
   onrampError,
+  paymentAmount,
+  paymentMethod,
+  inlineOnrampUrl,
+  inlineOnrampAttemptId,
+  iframeRef,
   signedOut,
   regionId,
   onClose,
   onBack,
   onSelectReceive,
   onSelectBuy,
+  onPaymentAmountChange,
+  onPaymentMethodChange,
+  onCloseInlineOnramp,
   onContinueToCoinbase,
 }: {
   open: boolean;
@@ -44,12 +53,20 @@ export function AddMoneyDialog({
   address: `0x${string}` | null;
   openingOnramp: boolean;
   onrampError: string | null;
+  paymentAmount: string;
+  paymentMethod: OnrampPaymentMethod;
+  inlineOnrampUrl: string | null;
+  inlineOnrampAttemptId: number | null;
+  iframeRef: RefObject<HTMLIFrameElement | null>;
   signedOut: boolean;
   regionId: RegionId;
   onClose: () => void;
   onBack: () => void;
   onSelectReceive: () => void;
   onSelectBuy: () => void;
+  onPaymentAmountChange: (value: string) => void;
+  onPaymentMethodChange: (value: OnrampPaymentMethod) => void;
+  onCloseInlineOnramp: () => void;
   onContinueToCoinbase: () => void;
 }) {
   const title = step === "receive" ? "Receive" : step === "buy" ? "Buy" : "Add money";
@@ -76,7 +93,18 @@ export function AddMoneyDialog({
       {!signedOut && step === "receive" ? (
         <ReceiveBody address={address} regionId={regionId} />
       ) : null}
-      {!signedOut && step === "buy" ? <BuyBody /> : null}
+      {!signedOut && step === "buy" ? (
+        <BuyBody
+          paymentAmount={paymentAmount}
+          paymentMethod={paymentMethod}
+          inlineOnrampUrl={inlineOnrampUrl}
+          inlineOnrampAttemptId={inlineOnrampAttemptId}
+          iframeRef={iframeRef}
+          onPaymentAmountChange={onPaymentAmountChange}
+          onPaymentMethodChange={onPaymentMethodChange}
+          onCloseInlineOnramp={onCloseInlineOnramp}
+        />
+      ) : null}
 
       {onrampError && step === "buy" ? (
         <div className={styles.statusStack}>
@@ -96,7 +124,13 @@ export function AddMoneyDialog({
 
       {!signedOut && step === "buy" ? (
         <MoneyModalFooter
-          primaryLabel={openingOnramp ? "Opening Coinbase…" : "Continue to Coinbase"}
+          primaryLabel={
+            openingOnramp
+              ? "Opening Coinbase…"
+              : inlineOnrampUrl
+                ? "Replace Coinbase payment"
+                : "Continue to Coinbase"
+          }
           primaryDisabled={openingOnramp}
           onPrimary={onContinueToCoinbase}
           secondaryLabel="Back"
@@ -228,14 +262,82 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
   );
 }
 
-export function BuyBody() {
+export function BuyBody({
+  paymentAmount,
+  paymentMethod,
+  inlineOnrampUrl,
+  inlineOnrampAttemptId,
+  iframeRef,
+  onPaymentAmountChange,
+  onPaymentMethodChange,
+  onCloseInlineOnramp,
+}: {
+  paymentAmount: string;
+  paymentMethod: OnrampPaymentMethod;
+  inlineOnrampUrl: string | null;
+  inlineOnrampAttemptId: number | null;
+  iframeRef: RefObject<HTMLIFrameElement | null>;
+  onPaymentAmountChange: (value: string) => void;
+  onPaymentMethodChange: (value: OnrampPaymentMethod) => void;
+  onCloseInlineOnramp: () => void;
+}) {
   return (
     <div className={`${modal.body} ${styles.buy}`}>
       <CurrencyMark currency="USD" symbol="$" />
-      <h3 className={styles.buyTitle}>Continue to Coinbase</h3>
+      <h3 className={styles.buyTitle}>Buy USDC</h3>
       <p className={styles.buyLead}>
-        Buy USDC with Coinbase&apos;s hosted onramp and receive it on Base.
+        Choose a USD amount and Coinbase payment method. USDC is delivered on Base.
       </p>
+
+      <label className={styles.buyField} htmlFor="buy-usdc-amount">
+        <span className={styles.buyLabel}>USD amount</span>
+        <input
+          id="buy-usdc-amount"
+          className={styles.buyInput}
+          inputMode="decimal"
+          autoComplete="off"
+          value={paymentAmount}
+          onChange={(event) => onPaymentAmountChange(event.target.value)}
+        />
+      </label>
+
+      <fieldset className={styles.paymentMethods}>
+        <legend className={styles.buyLabel}>Payment method</legend>
+        {(["apple-pay", "google-pay"] as const).map((method) => (
+          <label className={styles.paymentMethod} key={method}>
+            <input
+              type="radio"
+              name="coinbase-payment-method"
+              value={method}
+              checked={paymentMethod === method}
+              onChange={() => onPaymentMethodChange(method)}
+            />
+            <span>{method === "apple-pay" ? "Apple Pay" : "Google Pay"}</span>
+          </label>
+        ))}
+      </fieldset>
+
+      {inlineOnrampUrl ? (
+        <section className={styles.onrampEmbed} aria-label="Coinbase payment">
+          <iframe
+            key={inlineOnrampAttemptId}
+            ref={iframeRef}
+            title="Coinbase payment"
+            className={styles.onrampFrame}
+            src={inlineOnrampUrl}
+            sandbox="allow-scripts allow-same-origin"
+            referrerPolicy="no-referrer"
+            allow="payment"
+          />
+          <button
+            className={styles.closePayment}
+            type="button"
+            onClick={onCloseInlineOnramp}
+          >
+            Close payment
+          </button>
+        </section>
+      ) : null}
     </div>
   );
 }

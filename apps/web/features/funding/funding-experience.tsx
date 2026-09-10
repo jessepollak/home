@@ -11,6 +11,7 @@ import {
   FundingRequestError,
   requestHostedOnrampSession,
 } from "./funding-client";
+import type { OnrampPaymentMethod } from "./types";
 
 export type FundingExperienceProps = {
   returnedFromCoinbase?: boolean;
@@ -24,6 +25,11 @@ type FundingWallet = Pick<
   AccountWalletClient,
   "ownerKey" | "status" | "session" | "fetchAccountResource"
 >;
+
+type InlineOnramp = {
+  attemptId: number;
+  url: string;
+};
 
 export function FundingExperience(props: FundingExperienceProps) {
   const wallet = useAccountWallet();
@@ -46,7 +52,9 @@ export function FundingExperienceForWallet(
 ) {
   return (
     <FundingExperienceBoundary
-      key={fundingBoundary(props.wallet) ?? "signed-out"}
+      key={`${fundingBoundary(props.wallet) ?? "signed-out"}\u0000${
+        props.open === false ? "closed" : "open"
+      }`}
       {...props}
     />
   );
@@ -70,32 +78,87 @@ function FundingExperienceBoundary({
   const [step, setStep] = useState<AddMoneyStep>(startStep);
   const [openingOnramp, setOpeningOnramp] = useState(false);
   const [onrampError, setOnrampError] = useState<string | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState("20");
+  const [paymentMethod, setPaymentMethod] =
+    useState<OnrampPaymentMethod>("apple-pay");
+  const [inlineOnramp, setInlineOnramp] = useState<InlineOnramp | null>(null);
   const requestEpochRef = useRef(0);
   const requestAbortRef = useRef<AbortController | null>(null);
+  const activeInlineAttemptRef = useRef<number | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const openRef = useRef(open);
 
   useEffect(() => {
     openRef.current = open;
+    if (!open) {
+      requestEpochRef.current += 1;
+      requestAbortRef.current?.abort();
+      requestAbortRef.current = null;
+      activeInlineAttemptRef.current = null;
+    }
+  }, [open]);
+
+  useEffect(() => {
     return () => {
       openRef.current = false;
       requestEpochRef.current += 1;
       requestAbortRef.current?.abort();
       requestAbortRef.current = null;
+      activeInlineAttemptRef.current = null;
     };
-  }, [open]);
+  }, []);
 
-  function cancelPendingOnramp() {
-    openRef.current = false;
+  useEffect(() => {
+    if (!open || !inlineOnramp) return;
+    const attemptId = inlineOnramp.attemptId;
+
+    function onMessage(event: MessageEvent) {
+      if (
+        event.origin !== "https://pay.coinbase.com" ||
+        event.source !== iframeRef.current?.contentWindow ||
+        activeInlineAttemptRef.current !== attemptId
+      ) {
+        return;
+      }
+      const eventName = readOnrampEventName(event.data);
+      if (eventName === "onramp_api.polling_success") {
+        cancelOnramp();
+        setOnrampError(null);
+        setStep("receive");
+      } else if (eventName === "onramp_api.cancel") {
+        cancelOnramp();
+      } else if (
+        eventName === "onramp_api.commit_error" ||
+        eventName === "onramp_api.polling_failed" ||
+        eventName === "onramp_api.session_error"
+      ) {
+        setOnrampError(
+          "Coinbase could not complete this payment. No deposit is being confirmed.",
+        );
+      }
+    }
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [inlineOnramp, open]);
+
+  function cancelOnramp() {
     requestEpochRef.current += 1;
     requestAbortRef.current?.abort();
     requestAbortRef.current = null;
+    activeInlineAttemptRef.current = null;
+    setInlineOnramp(null);
     setOpeningOnramp(false);
   }
 
   async function openCoinbase() {
     if (!session?.smartAccount || !boundary || openingOnramp || !openRef.current) return;
+    if (!isUsdPaymentAmount(paymentAmount)) {
+      setOnrampError("Enter a USD amount between 1 and 9999.99.");
+      return;
+    }
 
-    requestAbortRef.current?.abort();
+    cancelOnramp();
     const controller = new AbortController();
     const requestEpoch = requestEpochRef.current + 1;
     requestEpochRef.current = requestEpoch;
@@ -104,8 +167,10 @@ function FundingExperienceBoundary({
     setOnrampError(null);
 
     try {
-      const hosted = await requestHostedOnrampSession({
+      const onramp = await requestHostedOnrampSession({
         fetchAccountResource: wallet.fetchAccountResource,
+        paymentMethod,
+        paymentAmount,
         signal: controller.signal,
       });
       if (
@@ -115,7 +180,13 @@ function FundingExperienceBoundary({
       ) {
         return;
       }
-      navigateToHostedOnramp(hosted.url);
+      setOpeningOnramp(false);
+      if (onramp.presentation === "iframe") {
+        activeInlineAttemptRef.current = requestEpoch;
+        setInlineOnramp({ attemptId: requestEpoch, url: onramp.url });
+        return;
+      }
+      navigateToHostedOnramp(onramp.url);
     } catch (caught) {
       if (
         controller.signal.aborted ||
@@ -134,14 +205,15 @@ function FundingExperienceBoundary({
   }
 
   function close() {
-    cancelPendingOnramp();
+    openRef.current = false;
+    cancelOnramp();
     setStep("method");
     setOnrampError(null);
     onClose?.();
   }
 
   function goBack() {
-    cancelPendingOnramp();
+    cancelOnramp();
     openRef.current = true;
     setStep("method");
     setOnrampError(null);
@@ -154,6 +226,11 @@ function FundingExperienceBoundary({
       address={address}
       openingOnramp={openingOnramp}
       onrampError={onrampError}
+      paymentAmount={paymentAmount}
+      paymentMethod={paymentMethod}
+      inlineOnrampUrl={inlineOnramp?.url ?? null}
+      inlineOnrampAttemptId={inlineOnramp?.attemptId ?? null}
+      iframeRef={iframeRef}
       signedOut={signedOut}
       regionId={regionId}
       onClose={close}
@@ -163,6 +240,12 @@ function FundingExperienceBoundary({
         openRef.current = true;
         setOnrampError(null);
         setStep("buy");
+      }}
+      onPaymentAmountChange={setPaymentAmount}
+      onPaymentMethodChange={setPaymentMethod}
+      onCloseInlineOnramp={() => {
+        cancelOnramp();
+        setOnrampError(null);
       }}
       onContinueToCoinbase={() => void openCoinbase()}
     />
@@ -176,14 +259,38 @@ function fundingBoundary(wallet: FundingWallet): string | null {
     : null;
 }
 
+function isUsdPaymentAmount(value: string): boolean {
+  return /^(?:[1-9]\d{0,3})(?:\.\d{1,2})?$/.test(value);
+}
+
+function readOnrampEventName(data: unknown): string | null {
+  const value =
+    typeof data === "string"
+      ? (() => {
+          try {
+            return JSON.parse(data) as unknown;
+          } catch {
+            return null;
+          }
+        })()
+      : data;
+  return isRecord(value) && typeof value.eventName === "string"
+    ? value.eventName
+    : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function messageForOnrampError(error: unknown): string {
   if (error instanceof FundingRequestError) {
     if (error.code === "unauthenticated") {
-      return "Your verified session changed before Coinbase opened. Sign in again; no hosted session was used.";
+      return "Your verified session changed before Coinbase opened. Sign in again; no Onramp session was used.";
     }
     if (error.code === "not-configured") {
       return "Coinbase Onramp is unavailable because this deployment does not have its existing CDP server credentials configured.";
     }
   }
-  return "Coinbase hosted funding is unavailable. The existing CDP project may need Onramp access or this Home return origin allowlisted.";
+  return "Coinbase funding is unavailable. This deployment may need Headless Onramp access or its Home origin allowlisted.";
 }

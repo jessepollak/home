@@ -22,8 +22,12 @@ export const FUNDING_ASSETS = {
 
 export type FundingAssetId = keyof typeof FUNDING_ASSETS;
 
+export type OnrampPresentation = "iframe" | "hosted";
+export type OnrampPaymentMethod = "apple-pay" | "google-pay";
+
 export type HostedOnrampSession = {
   url: string;
+  presentation: OnrampPresentation;
   asset: {
     id: "usdc";
     symbol: "USDC";

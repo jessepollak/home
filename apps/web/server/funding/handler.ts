@@ -3,6 +3,7 @@ import {
   type AccountProvider,
   type VerifiedAccountSession,
 } from "@/features/account/session-types";
+import type { OnrampPaymentMethod } from "@/features/funding/types";
 import type { CreateCoinbaseOnrampSession } from "./coinbase-onramp";
 import { CoinbaseOnrampError } from "./coinbase-onramp";
 
@@ -43,19 +44,26 @@ export function createFundingOnrampSessionHandler(dependencies: {
       );
     }
 
-    if (!(await hasValidRequestBody(request))) {
+    const body = await readFundingRequestBody(request);
+    if (!body) {
       return privateError(
         "INVALID_FUNDING_REQUEST",
-        "Only canonical USDC on Base is available through hosted funding.",
+        "Only canonical USDC on Base is available through Coinbase funding.",
         400,
       );
     }
 
+    const requestUrl = new URL(request.url);
     const redirectUrl = new URL("/fund?return=coinbase", requestOrigin).toString();
     try {
       const hosted = await dependencies.createOnrampSession({
         address: session.smartAccount.address,
         redirectUrl,
+        domain: requestUrl.hostname,
+        partnerUserRef: session.user.subject,
+        paymentMethod: body.paymentMethod,
+        paymentAmount: body.paymentAmount,
+        clientIp: readClientIp(request),
         signal: request.signal,
       });
       return privateJson(hosted, 200);
@@ -69,28 +77,64 @@ export function createFundingOnrampSessionHandler(dependencies: {
       }
       return privateError(
         "ONRAMP_UNAVAILABLE",
-        "Coinbase could not create a hosted Onramp session. Verify Onramp access and allowlist this Home return origin in the existing CDP project.",
+        "Coinbase could not create an Onramp session. Verify Headless Onramp access and allowlist this Home origin in the existing CDP project.",
         503,
       );
     }
   };
 }
 
-async function hasValidRequestBody(request: Request): Promise<boolean> {
+type FundingRequestBody = {
+  paymentMethod: OnrampPaymentMethod;
+  paymentAmount: string;
+};
+
+async function readFundingRequestBody(request: Request): Promise<FundingRequestBody | null> {
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json") {
-    return false;
+    return null;
   }
   let value: unknown;
   try {
     value = await request.json();
   } catch {
-    return false;
+    return null;
   }
-  return (
-    isRecord(value) &&
-    Object.keys(value).length === 1 &&
-    value.assetId === "usdc"
-  );
+  if (!isRecord(value) || value.assetId !== "usdc") return null;
+  for (const key of Object.keys(value)) {
+    if (key !== "assetId" && key !== "paymentMethod" && key !== "paymentAmount") {
+      return null;
+    }
+  }
+  const paymentMethod = value.paymentMethod;
+  if (paymentMethod !== "apple-pay" && paymentMethod !== "google-pay") {
+    return null;
+  }
+  const paymentAmount = value.paymentAmount;
+  if (!isUsdPaymentAmount(paymentAmount)) {
+    return null;
+  }
+  return {
+    paymentMethod,
+    paymentAmount: normalizeUsdAmount(paymentAmount),
+  };
+}
+
+function isUsdPaymentAmount(value: unknown): value is string {
+  return typeof value === "string" && /^(?:[1-9]\d{0,3})(?:\.\d{1,2})?$/.test(value);
+}
+
+function normalizeUsdAmount(value: string): string {
+  const [whole, fraction = ""] = value.split(".");
+  return `${whole}.${fraction.padEnd(2, "0")}`;
+}
+
+function readClientIp(request: Request): string | undefined {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const candidate = forwarded || request.headers.get("x-real-ip")?.trim() || undefined;
+  if (!candidate || candidate.length > 45 || !/^[\d.:a-fA-F]+$/.test(candidate)) {
+    return undefined;
+  }
+  return candidate;
 }
 
 async function parseAuthorizedSession(
