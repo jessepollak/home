@@ -8,6 +8,7 @@ import {
 } from "@/config/portfolio-assets";
 import type {
   DirectPortfolioHolding,
+  NativeCashValuation,
   PortfolioValuationSnapshot,
 } from "@/server/valuation/types";
 import {
@@ -28,6 +29,50 @@ function directHolding(
     cashCurrency: null,
     balanceBaseUnits: "0",
     readStatus: "ready",
+    ...overrides,
+  };
+}
+
+function nativeCashValuation(
+  overrides: Partial<NativeCashValuation> &
+    Pick<NativeCashValuation, "holdingAssetKey" | "denominationCurrency">,
+): NativeCashValuation {
+  const fetchedAt = "2026-09-08T12:00:00.000Z";
+  return {
+    value: { atoms: "0", scale: 18 },
+    status: "priced",
+    reason: null,
+    exactContractUsdPrice: {
+      assetKey: overrides.holdingAssetKey,
+      contractAddress: overrides.holdingAssetKey.slice(
+        "eip155:8453/erc20:".length,
+      ) as `0x${string}`,
+      quoteCurrency: "USD",
+      unitPrice: { atoms: "1", scale: 0 },
+      sourceValue: "1",
+      status: "fresh",
+      source: {
+        provider: "Codex",
+        method: "fixture",
+        fetchedAt,
+        asOf: fetchedAt,
+        timeBasis: "provider-as-of",
+      },
+    },
+    denominationFx: {
+      baseCurrency: "USD",
+      quoteCurrency: overrides.denominationCurrency,
+      quoteUnitsPerUsd: { atoms: "1", scale: 0 },
+      sourceValue: "1",
+      status: "fresh",
+      source: {
+        provider: "Coinbase Exchange Rates",
+        method: "fixture",
+        fetchedAt,
+        asOf: null,
+        timeBasis: "retrieved-at",
+      },
+    },
     ...overrides,
   };
 }
@@ -602,6 +647,151 @@ describe("presentPortfolioValuation", () => {
       ["cash", "US dollar", "$10.00"],
       ["asset", "Indonesian rupiah", "100.00 IDRX"],
     ]);
+  });
+
+  test("shows nonselected EURC at its non-par native EUR value and preserves the canonical flag binding", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "ID",
+        quoteCurrency: "IDR",
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: verifiedLocalCashAssets.EUR.id,
+              assetKey: verifiedLocalCashAssets.EUR.assetKey,
+              name: verifiedLocalCashAssets.EUR.name,
+              symbol: verifiedLocalCashAssets.EUR.symbol,
+              decimals: verifiedLocalCashAssets.EUR.decimals,
+              assetKind: "erc20",
+              contractAddress: verifiedLocalCashAssets.EUR.contractAddress,
+              cashCurrency: "EUR",
+              balanceBaseUnits: "1000000",
+            }),
+          ],
+          omissions: [],
+        },
+        nativeCashValuations: [
+          nativeCashValuation({
+            holdingAssetKey: verifiedLocalCashAssets.EUR.assetKey,
+            denominationCurrency: "EUR",
+            value: { atoms: "1080000000000000000", scale: 18 },
+          }),
+        ],
+        total: {
+          label: "supported-portfolio-value",
+          status: "all-supported-read-holdings-priced",
+          value: { atoms: "1769040", scale: 2 },
+          currency: "IDR",
+          unpricedAssetKeys: [],
+          unavailableAssetKeys: [],
+        },
+      }),
+      error: null,
+    });
+
+    expect(presented.displayTotal).toBe("Rp 17,690.40");
+    expect(presented.items.find((item) => item.name === "Euro")).toEqual({
+      id: `asset:${verifiedLocalCashAssets.EUR.assetKey}`,
+      group: "asset",
+      name: "Euro",
+      detail: "EURC",
+      displayBalance: "€1.08",
+      currencyCode: "EUR",
+    });
+    expect(JSON.stringify(presented.items.find((item) => item.name === "Euro"))).not.toContain(
+      "Rp",
+    );
+  });
+
+  test("falls back to bounded token units for unavailable or legacy native-cash values", () => {
+    const holding = directHolding({
+      id: verifiedLocalCashAssets.EUR.id,
+      assetKey: verifiedLocalCashAssets.EUR.assetKey,
+      name: verifiedLocalCashAssets.EUR.name,
+      symbol: verifiedLocalCashAssets.EUR.symbol,
+      decimals: verifiedLocalCashAssets.EUR.decimals,
+      assetKind: "erc20",
+      contractAddress: verifiedLocalCashAssets.EUR.contractAddress,
+      cashCurrency: "EUR",
+      balanceBaseUnits: "109430000",
+    });
+    const base = {
+      inventory: {
+        scope: "configured-base-assets-v1" as const,
+        walletDiscoveryComplete: false as const,
+        holdings: [holding],
+        omissions: [],
+      },
+    };
+    const legacy = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot(base),
+      error: null,
+    });
+    const unavailable = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        ...base,
+        nativeCashValuations: [
+          nativeCashValuation({
+            holdingAssetKey: verifiedLocalCashAssets.EUR.assetKey,
+            denominationCurrency: "EUR",
+            value: null,
+            status: "unpriced",
+            reason: "exact-contract-price-unavailable",
+          }),
+        ],
+      }),
+      error: null,
+    });
+
+    expect(legacy.items.find((item) => item.name === "Euro")?.displayBalance).toBe(
+      "109.43 EURC",
+    );
+    expect(unavailable.items.find((item) => item.name === "Euro")?.displayBalance).toBe(
+      "109.43 EURC",
+    );
+  });
+
+  test("preserves native-cash dust bounds", () => {
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: verifiedLocalCashAssets.EUR.id,
+              assetKey: verifiedLocalCashAssets.EUR.assetKey,
+              name: verifiedLocalCashAssets.EUR.name,
+              symbol: verifiedLocalCashAssets.EUR.symbol,
+              decimals: verifiedLocalCashAssets.EUR.decimals,
+              assetKind: "erc20",
+              contractAddress: verifiedLocalCashAssets.EUR.contractAddress,
+              cashCurrency: "EUR",
+              balanceBaseUnits: "1",
+            }),
+          ],
+          omissions: [],
+        },
+        nativeCashValuations: [
+          nativeCashValuation({
+            holdingAssetKey: verifiedLocalCashAssets.EUR.assetKey,
+            denominationCurrency: "EUR",
+            value: { atoms: "108", scale: 8 },
+          }),
+        ],
+      }),
+      error: null,
+    });
+
+    expect(presented.items.find((item) => item.name === "Euro")?.displayBalance).toBe(
+      "<€0.01",
+    );
   });
 
   test("emits only transient membership hints for unread eligible asset rows", () => {

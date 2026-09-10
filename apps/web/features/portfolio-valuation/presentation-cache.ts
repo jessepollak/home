@@ -10,6 +10,8 @@ import type {
 
 export const homeBalancesPresentationCachePrefix = "home.balances.v1:";
 export const homeBalancesPresentationCacheTtlMs = 24 * 60 * 60 * 1000;
+/** Formatted row meanings changed when native-cash valuations became authoritative. */
+export const homeBalancesPresentationSemanticVersion = "2.0.0";
 
 export type CacheStorage = Pick<
   Storage,
@@ -356,6 +358,7 @@ function serializeReadyPresentation(
 
   return JSON.stringify({
     v: recordVersion,
+    presentationSemantics: homeBalancesPresentationSemanticVersion,
     ownerKey: identity.ownerKey,
     subject: identity.subject,
     smartAccount: identity.smartAccount.toLowerCase(),
@@ -394,6 +397,7 @@ function parseStoredRecord(
   const record = value as Record<string, unknown>;
   const allowedKeys = [
     "v",
+    "presentationSemantics",
     "ownerKey",
     "subject",
     "smartAccount",
@@ -402,7 +406,12 @@ function parseStoredRecord(
     "presentation",
   ];
   if (Object.keys(record).some((key) => !allowedKeys.includes(key))) return null;
-  if (record.v !== recordVersion) return null;
+  if (
+    record.v !== recordVersion ||
+    record.presentationSemantics !== homeBalancesPresentationSemanticVersion
+  ) {
+    return null;
+  }
   if (!isSafeIdentity(record.ownerKey) || !isSafeIdentity(record.subject)) {
     return null;
   }

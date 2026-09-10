@@ -6,6 +6,7 @@ import {
   homeBalancesPresentationCacheKey,
   homeBalancesPresentationCachePrefix,
   homeBalancesPresentationCacheTtlMs,
+  homeBalancesPresentationSemanticVersion,
   readHomeBalancesPresentation,
   resolvePaintedHomeBalances,
   writeHomeBalancesPresentation,
@@ -77,6 +78,13 @@ describe("home balances presentation cache", () => {
         NOW,
       ),
     ).toBe(true);
+
+    const stored = JSON.parse(
+      Object.values(storage.snapshot())[0] ?? "null",
+    ) as Record<string, unknown>;
+    expect(stored.presentationSemantics).toBe(
+      homeBalancesPresentationSemanticVersion,
+    );
 
     expect(
       readHomeBalancesPresentation(
@@ -364,6 +372,33 @@ describe("home balances presentation cache", () => {
     expect(storage.length).toBe(0);
   });
 
+  test("misses an otherwise valid record with legacy formatted-row semantics", () => {
+    const key = homeBalancesPresentationCacheKey({
+      subject: SUBJECT,
+      smartAccount: ACCOUNT,
+      region: "US",
+    });
+    const storage = memoryStorage({
+      [key]: JSON.stringify({
+        v: 1,
+        ownerKey: OWNER,
+        subject: SUBJECT,
+        smartAccount: ACCOUNT,
+        region: "US",
+        savedAt: SAVED_AT,
+        presentation: readyPresentation,
+      }),
+    });
+
+    expect(
+      readHomeBalancesPresentation(
+        () => storage,
+        { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US" },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
   test("fails open on corrupt, expired, mismatched, and token-like records", () => {
     const key = homeBalancesPresentationCacheKey({
       subject: SUBJECT,
@@ -374,10 +409,10 @@ describe("home balances presentation cache", () => {
     const cases = [
       "{",
       JSON.stringify({ v: 2, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: readyPresentation }),
-      JSON.stringify({ v: 1, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: expired, presentation: readyPresentation }),
-      JSON.stringify({ v: 1, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: readyPresentation, snapshot: { walletAddress: ACCOUNT } }),
-      JSON.stringify({ v: 1, ownerKey: "Bearer secret-token", subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: readyPresentation }),
-      JSON.stringify({ v: 1, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: { ...readyPresentation, otp: "123456" } }),
+      JSON.stringify({ v: 1, presentationSemantics: homeBalancesPresentationSemanticVersion, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: expired, presentation: readyPresentation }),
+      JSON.stringify({ v: 1, presentationSemantics: homeBalancesPresentationSemanticVersion, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: readyPresentation, snapshot: { walletAddress: ACCOUNT } }),
+      JSON.stringify({ v: 1, presentationSemantics: homeBalancesPresentationSemanticVersion, ownerKey: "Bearer secret-token", subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: readyPresentation }),
+      JSON.stringify({ v: 1, presentationSemantics: homeBalancesPresentationSemanticVersion, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: { ...readyPresentation, otp: "123456" } }),
     ];
 
     for (const raw of cases) {
