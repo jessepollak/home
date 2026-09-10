@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowDownUp, ChevronDown, Delete } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import { usePresentationRegionId } from "@/features/invest/presentation-quote";
@@ -39,6 +39,7 @@ export function MoneyAmountDisplay({
   chipSet = "none",
   pricing,
   nativeSymbol,
+  initialUnit = "local",
 }: {
   amount: string;
   onAmountChange?: (value: string) => void;
@@ -53,8 +54,10 @@ export function MoneyAmountDisplay({
   chipSet?: MoneyChipSet;
   pricing: MoneyAssetPricing;
   nativeSymbol: string;
+  initialUnit?: MoneyPrimaryUnit;
 }) {
-  const [requestedUnit, setRequestedUnit] = useState<MoneyPrimaryUnit>("local");
+  const [requestedUnit, setRequestedUnit] = useState<MoneyPrimaryUnit>(initialUnit);
+  const lastAssetId = useRef(assetId);
   const primaryUnit = resolvePrimaryUnit(pricing, requestedUnit);
   const maxAmount = availableAmount ?? parseAvailableDecimal(availableLabel ?? "");
   const availableLine = formatAvailableLine(
@@ -66,6 +69,8 @@ export function MoneyAmountDisplay({
   const secondary = formatSecondaryAmount(amount, primaryUnit, pricing, nativeSymbol);
 
   useEffect(() => {
+    if (lastAssetId.current === assetId) return;
+    lastAssetId.current = assetId;
     setRequestedUnit("local");
   }, [assetId]);
 
