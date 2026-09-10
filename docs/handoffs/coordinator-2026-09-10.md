@@ -75,4 +75,12 @@ Create separate worktrees per writer; never reuse old `/tmp` paths or assume old
 2. Resume #60 first: integrate `8378784` into existing PR #60 with a verified lease, then recapture/review/publish current-head proof and service the provider/platform gate. Do not reuse the superseded evidence.
 3. In parallel, run fresh Astra on #207 head `188183e`; if accepted, capture catalog proof/design review. Advance #209 from reviewed head `cff4bc4` to exact-tip proof/design. Keep #225 in Jesse’s approval queue and resume the transaction sequence only after it merges.
 
+## Old-host quiescence and local-worktree accounting
+
+- Coordinator-owned worktrees for #60, #186, #209, #207, #174 review, #174 mutation scratch, #215 handoff, and this migration manifest were verified with clean tracked/index state. The shared root checkout is clean but stale and must not be used as a new-machine source of truth.
+- Coordinator-owned catalog/capture listeners on ports 3110, 3127, 3210, and 4174 were stopped; no listeners remain.
+- This session's PR wake notifications for #60 and #225 were disabled. No project schedules exist. Other-session automation was deliberately left untouched: #218 and #220 remain babysat elsewhere, and #216 remains watched elsewhere.
+- No mutation child or unresolved supervisor request remains. Remote CI may continue for draft PRs independently; that is not old-host execution.
+- Dirty worktrees owned by other sessions/collaborators were found and intentionally not modified or swept into this migration: `/private/tmp/home-feedback-review-IVTmMg`, `/private/tmp/home-readme-check.kKXvMQ`, `/private/tmp/home-remediation-20260909/base-debug`, `/private/tmp/home-remediation-20260909/combined`, and `/private/tmp/home-wallet-anchor-G8pVZO`. Several old read-only review worktrees contain only untracked `node_modules`. Their contents are outside this coordinator handoff; recover them from their owning sessions, not this manifest.
+
 Old host remains migration-paused after this handoff. Do not restart its coordinator, PR notifications, or schedules without Jesse explicitly reactivating it.
