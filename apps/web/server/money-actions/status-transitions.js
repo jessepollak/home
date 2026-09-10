@@ -1,3 +1,11 @@
+export function hasMoneyActionChainHandle(record) {
+  return Boolean(record.submissionId || record.transactionHash || record.userOperationHash);
+}
+
+export function shouldExpireReferenceFreeUnknown(record) {
+  return record.status === "unknown" && !hasMoneyActionChainHandle(record);
+}
+
 export function canTransitionMoneyActionStatus(record, to, constraints) {
   const from = record.status;
   if (constraints?.expectedSourceStatus != null) {

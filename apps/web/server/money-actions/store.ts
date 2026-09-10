@@ -5,6 +5,8 @@ import type {
 } from "@/features/money-actions/types";
 import { canTransitionMoneyActionStatus } from "./status-transitions.js";
 
+export { hasMoneyActionChainHandle, shouldExpireReferenceFreeUnknown } from "./status-transitions.js";
+
 export type StoredMoneyActionOperation = {
   action: PreparedMoneyAction;
   status: MoneyActionOperationStatus;
@@ -74,18 +76,6 @@ export type MoneyActionStatusConstraints = {
   requireNoSubmissionReference?: boolean;
   verifiedExecution?: VerifiedMoneyActionExecution;
 };
-
-export function hasMoneyActionChainHandle(record: {
-  submissionId?: string;
-  transactionHash?: string;
-  userOperationHash?: string;
-}): boolean {
-  return Boolean(record.submissionId || record.transactionHash || record.userOperationHash);
-}
-
-export function shouldExpireReferenceFreeUnknown(record: StoredMoneyActionOperation): boolean {
-  return record.status === "unknown" && !hasMoneyActionChainHandle(record);
-}
 
 export function sameMoneyActionOwner(
   left: MoneyActionOwner,
