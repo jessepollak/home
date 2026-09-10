@@ -25,6 +25,11 @@ import {
   readUsdcBaseUnits,
   shortVaultLabel,
 } from "./format";
+import {
+  formatExactSavingsApy,
+  summarizeSavingsPortfolio,
+  type SavingsApySummary,
+} from "./portfolio-summary";
 import styles from "./savings-experience.module.css";
 
 type SavingsExperienceProps = {
@@ -56,7 +61,12 @@ type PositionResult = {
 type PositionState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "ready"; data: PositionResult }
+  | {
+      status: "ready";
+      data: PositionResult;
+      refreshing: boolean;
+      refreshError: boolean;
+    }
   | { status: "error" };
 
 export function AuthenticatedSavingsExperience({
@@ -147,18 +157,49 @@ export function SavingsExperience({
     if (!sessionKey || !fetchPositions) return;
 
     const controller = new AbortController();
+    queueMicrotask(() => {
+      if (controller.signal.aborted) return;
+      setPositionResult((current) => {
+        if (current?.key === sessionKey && current.state.status === "ready") {
+          return {
+            key: sessionKey,
+            state: {
+              ...current.state,
+              refreshing: true,
+              refreshError: false,
+            },
+          };
+        }
+        return { key: sessionKey, state: { status: "loading" } };
+      });
+    });
+
     void fetchPositions(controller.signal)
       .then((value) => {
         if (controller.signal.aborted) return;
         const data = parsePositionResult(value, sessionAddress!);
         setPositionResult({
           key: sessionKey,
-          state: data ? { status: "ready", data } : { status: "error" },
+          state: data
+            ? { status: "ready", data, refreshing: false, refreshError: false }
+            : { status: "error" },
         });
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted || isAbortError(error)) return;
-        setPositionResult({ key: sessionKey, state: { status: "error" } });
+        setPositionResult((current) => {
+          if (current?.key === sessionKey && current.state.status === "ready") {
+            return {
+              key: sessionKey,
+              state: {
+                ...current.state,
+                refreshing: false,
+                refreshError: true,
+              },
+            };
+          }
+          return { key: sessionKey, state: { status: "error" } };
+        });
       });
 
     return () => controller.abort();
@@ -176,27 +217,37 @@ export function SavingsExperience({
       : { status: "loading" };
   }, [positionResult, sessionKey]);
 
-  const candidates = useMemo(() => {
+  const allCandidates = useMemo(() => {
     if (loadState.status !== "ready") return [];
     return [...loadState.data.candidates]
-      .sort((left, right) => Number(/gauntlet/i.test(right.name)) - Number(/gauntlet/i.test(left.name)))
-      .slice(0, 2);
+      .sort((left, right) => Number(/gauntlet/i.test(right.name)) - Number(/gauntlet/i.test(left.name)));
   }, [loadState]);
+  const candidates = allCandidates.slice(0, 2);
   const selected = candidates.find((candidate) =>
     candidate.vaultAddress.toLowerCase() === (selectedAddress ?? "").toLowerCase(),
   ) ?? candidates[0] ?? null;
 
-  const balances = useMemo(
-    () => collectVaultBalances(candidates, positionState),
-    [candidates, positionState],
+  const portfolioSummary = useMemo(() => {
+    if (loadState.status !== "ready" || positionState.status !== "ready") return null;
+    return summarizeSavingsPortfolio({
+      supportedVaultAddresses: MORPHO_V1_CANDIDATE_ADDRESSES,
+      requiredAsset: loadState.data.asset,
+      candidates: loadState.data.candidates,
+      positions: positionState.data.vaults,
+      metadataStale: loadState.data.stale,
+    });
+  }, [loadState, positionState]);
+  const balances = collectVaultBalances(candidates, positionState);
+  const coldLoading = Boolean(
+    sessionKey && (loadState.status === "loading" || positionState.status === "loading"),
   );
-  const knownTotal = balances.reduce((sum, entry) => sum + (entry.amount ?? BigInt(0)), BigInt(0));
-  const hasKnownBalance = balances.some((entry) => entry.amount !== null && entry.amount > BigInt(0));
-  const hasUnknownBalance = balances.some((entry) => entry.present && entry.amount === null);
-  const positionsReady = positionState.status === "ready";
-  const positionsLoading = positionState.status === "loading";
-  const positionsError = positionState.status === "error";
-  const funded = hasKnownBalance;
+  const refreshing = positionState.status === "ready" && positionState.refreshing;
+  const refreshError = positionState.status === "ready" && positionState.refreshError;
+  const funded = portfolioSummary?.funded ?? false;
+  const availableBalance = portfolioSummary?.balance.status === "available"
+    ? portfolioSummary.balance
+    : null;
+  const showBalanceRows = funded || Boolean(sessionKey && !availableBalance);
   const selectedBalance = selected
     ? balances.find((entry) =>
       entry.vaultAddress.toLowerCase() === selected.vaultAddress.toLowerCase(),
@@ -205,7 +256,11 @@ export function SavingsExperience({
   const selectedAmount = selectedBalance?.amount ?? null;
   const canWithdraw = Boolean(selectedAmount && selectedAmount > BigInt(0));
   const actionsReady = Boolean(
-    session?.smartAccount && selected && prepareMoneyAction && executeMoneyAction,
+    availableBalance &&
+      session?.smartAccount &&
+      selected &&
+      prepareMoneyAction &&
+      executeMoneyAction,
   );
 
   return (
@@ -229,28 +284,63 @@ export function SavingsExperience({
         </header>
       )}
 
-      <div className={styles.hero}>
-        <p
-          className={`${styles.heroAmount} ${funded ? "" : styles.heroAmountEmpty}`.trim()}
-        >
-          {funded ? formatUsdcUsd(knownTotal.toString()) : "$0.00"}
-        </p>
-        {funded ? (
-          <p className={styles.heroCaption}>
-            Earning ~{formatApy(selected?.netApy)}
-          </p>
-        ) : positionsError || (hasUnknownBalance && positionsReady) ? (
-          <p className={styles.heroCaption} role="status">Balances unavailable</p>
-        ) : positionsLoading ? (
-          <p className={styles.heroCaption} role="status">Updating…</p>
-        ) : (
+      <div
+        className={styles.hero}
+        aria-busy={coldLoading || refreshing || undefined}
+      >
+        {coldLoading ? (
           <>
+            <span
+              className={`shimmer ${styles.heroShimmer}`}
+              data-shimmer="savings-hero"
+              aria-hidden="true"
+            />
+            <p className={styles.heroCaption} role="status">Updating…</p>
+          </>
+        ) : availableBalance ? (
+          <>
+            <p
+              className={`${styles.heroAmount} ${funded ? "" : styles.heroAmountEmpty}`.trim()}
+            >
+              {formatUsdcUsd(availableBalance.totalBaseUnits)}
+            </p>
+            {funded && portfolioSummary ? (
+              <FundedApyCaption apy={portfolioSummary.apy} />
+            ) : (
+              <>
+                <p className={styles.heroCaption}>Nothing saved yet</p>
+                {selected ? (
+                  <p className={styles.heroMeta}>
+                    Available vault · {shortVaultLabel(selected.name)} ·{" "}
+                    {availableVaultApyLabel(
+                      selected,
+                      loadState.status !== "ready" || loadState.data.stale,
+                    )}
+                  </p>
+                ) : null}
+              </>
+            )}
+            {refreshing ? (
+              <p className={styles.heroMeta} role="status">Refreshing…</p>
+            ) : refreshError ? (
+              <p className={styles.heroMeta} role="status">Refresh unavailable</p>
+            ) : null}
+          </>
+        ) : !sessionKey ? (
+          <>
+            <p className={`${styles.heroAmount} ${styles.heroAmountEmpty}`}>$0.00</p>
             <p className={styles.heroCaption}>Nothing saved yet</p>
             {selected ? (
               <p className={styles.heroMeta}>
-                {shortVaultLabel(selected.name)} · {formatApy(selected.netApy)} APY
+                Available vault · {shortVaultLabel(selected.name)} ·{" "}
+                {availableVaultApyLabel(selected, false)}
               </p>
             ) : null}
+          </>
+        ) : (
+          <>
+            <p className={styles.heroAmount}>—</p>
+            <p className={styles.heroCaption} role="status">Balance unavailable</p>
           </>
         )}
       </div>
@@ -262,7 +352,7 @@ export function SavingsExperience({
         <p className={styles.status} role="alert">Vaults are temporarily unavailable.</p>
       ) : null}
 
-      {candidates.length > 0 ? (
+      {!coldLoading && candidates.length > 0 ? (
         <section className={styles.vaults} aria-labelledby="savings-vaults-title">
           <h3 id="savings-vaults-title" className={styles.vaultKicker}>Vault</h3>
           <div className={styles.vaultList} role="radiogroup" aria-label="Vault">
@@ -283,17 +373,26 @@ export function SavingsExperience({
                   <span className={styles.vaultName}>
                     <strong>{candidate.name}</strong>
                     {funded ? (
-                      <span className={styles.vaultApy}>{formatApy(candidate.netApy)}</span>
+                      <span className={styles.vaultApy}>
+                        {loadState.status === "ready" && loadState.data.stale
+                          ? "APY stale"
+                          : fundedVaultApyLabel(candidate)}
+                      </span>
                     ) : null}
                   </span>
-                  {funded ? (
+                  {showBalanceRows ? (
                     <span className={styles.vaultBalance}>
-                      {balance?.amount === null
+                      {balance?.amount === null || balance?.amount === undefined
                         ? "—"
-                        : formatUsdcUsd((balance?.amount ?? BigInt(0)).toString())}
+                        : formatUsdcUsd(balance.amount.toString())}
                     </span>
                   ) : (
-                    <span className={styles.vaultMeta}>{formatApy(candidate.netApy)}</span>
+                    <span className={styles.vaultMeta}>
+                      {availableVaultApyLabel(
+                        candidate,
+                        loadState.status !== "ready" || loadState.data.stale,
+                      )}
+                    </span>
                   )}
                 </button>
               );
@@ -302,26 +401,28 @@ export function SavingsExperience({
         </section>
       ) : null}
 
-      <div className={`${styles.actions} ${funded ? styles.actionsSplit : ""}`.trim()}>
-        <button
-          className={styles.primary}
-          type="button"
-          disabled={!actionsReady}
-          onClick={() => setActionMode("deposit")}
-        >
-          {funded ? "Deposit" : "Get started"}
-        </button>
-        {funded ? (
+      {availableBalance || !sessionKey ? (
+        <div className={`${styles.actions} ${funded ? styles.actionsSplit : ""}`.trim()}>
           <button
-            className={styles.secondary}
+            className={styles.primary}
             type="button"
-            disabled={!actionsReady || !canWithdraw}
-            onClick={() => setActionMode("withdraw")}
+            disabled={!actionsReady}
+            onClick={() => setActionMode("deposit")}
           >
-            Withdraw
+            {funded ? "Deposit" : "Get started"}
           </button>
-        ) : null}
-      </div>
+          {funded ? (
+            <button
+              className={styles.secondary}
+              type="button"
+              disabled={!actionsReady || !canWithdraw}
+              onClick={() => setActionMode("withdraw")}
+            >
+              Withdraw
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {selected ? (
         <details className={styles.details}>
@@ -376,15 +477,42 @@ export function SavingsExperience({
   );
 }
 
+function availableVaultApyLabel(candidate: MorphoVaultCandidate, stale: boolean): string {
+  if (stale) return "APY unavailable";
+  const formatted = formatApy(candidate.netApy);
+  return formatted === "—" ? "APY unavailable" : `${formatted} APY`;
+}
+
+function fundedVaultApyLabel(candidate: MorphoVaultCandidate): string {
+  const formatted = formatApy(candidate.netApy);
+  return formatted === "—" ? "APY unavailable" : formatted;
+}
+
+function FundedApyCaption({ apy }: { apy: SavingsApySummary }) {
+  if (apy.status === "available") {
+    return (
+      <p className={styles.heroCaption}>
+        Earning ~{formatExactSavingsApy(apy.value)}
+      </p>
+    );
+  }
+  if (apy.status === "partial") {
+    return <p className={styles.heroCaption} role="status">APY partially unavailable</p>;
+  }
+  if (apy.status === "stale") {
+    return <p className={styles.heroCaption} role="status">APY data stale</p>;
+  }
+  return <p className={styles.heroCaption} role="status">APY unavailable</p>;
+}
+
 function collectVaultBalances(
   candidates: MorphoVaultCandidate[],
   state: PositionState,
-): Array<{ vaultAddress: string; present: boolean; amount: bigint | null }> {
+): Array<{ vaultAddress: string; amount: bigint | null }> {
   if (state.status !== "ready") {
     return candidates.map((candidate) => ({
       vaultAddress: candidate.vaultAddress,
-      present: false,
-      amount: BigInt(0),
+      amount: null,
     }));
   }
 
@@ -392,12 +520,14 @@ function collectVaultBalances(
     const entry = state.data.vaults.find((vault) =>
       vault.vaultAddress.toLowerCase() === candidate.vaultAddress.toLowerCase(),
     );
-    if (!entry?.position) {
-      return { vaultAddress: candidate.vaultAddress, present: false, amount: BigInt(0) };
+    if (!entry) {
+      return { vaultAddress: candidate.vaultAddress, amount: null };
+    }
+    if (!entry.position) {
+      return { vaultAddress: candidate.vaultAddress, amount: BigInt(0) };
     }
     return {
       vaultAddress: candidate.vaultAddress,
-      present: true,
       amount: readUsdcBaseUnits(entry.position.assetsRaw),
     };
   });

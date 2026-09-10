@@ -55,6 +55,12 @@
   color: #c5c9d1;
 }
 
+.heroShimmer {
+  width: min(48%, 11.5rem);
+  height: 3.4rem;
+  border-radius: var(--control-radius);
+}
+
 .heroCaption,
 .heroMeta,
 .status {

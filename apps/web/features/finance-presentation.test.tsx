@@ -174,7 +174,7 @@ describe("finance-first presentation", () => {
 
     expect(markup).toContain("$0.00");
     expect(markup).toContain("Nothing saved yet");
-    expect(markup).toContain("USDC · 4.50% APY");
+    expect(markup).toContain("Available vault · USDC · 4.50% APY");
     expect(markup).toContain("Get started");
     expect(markup).toContain("Details");
     expect(markup).toContain("4.50%");

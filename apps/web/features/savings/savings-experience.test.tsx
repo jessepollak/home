@@ -13,6 +13,7 @@ const ADDRESS_A = "0x1111111111111111111111111111111111111111";
 const ADDRESS_B = "0x2222222222222222222222222222222222222222";
 const GAUNTLET = MORPHO_V1_CANDIDATE_ADDRESSES[1];
 const STEAKHOUSE = MORPHO_V1_CANDIDATE_ADDRESSES[0];
+const THIRD_VAULT = MORPHO_V1_CANDIDATE_ADDRESSES[2];
 
 function candidate(
   vaultAddress: string,
@@ -61,11 +62,14 @@ const initialData: MorphoVaultsResult = {
   stale: false,
 };
 
-function session(address: typeof ADDRESS_A | typeof ADDRESS_B): VerifiedAccountSession {
+function session(
+  address: typeof ADDRESS_A | typeof ADDRESS_B,
+  accountProvider: VerifiedAccountSession["accountProvider"] = "cdp-embedded",
+): VerifiedAccountSession {
   return {
     user: { subject: address === ADDRESS_A ? "subject-a" : "subject-b" },
     smartAccount: { address, chainId: 8453 },
-    accountProvider: "cdp-embedded",
+    accountProvider,
   };
 }
 
@@ -130,15 +134,24 @@ function preparedAction(kind: "save-deposit" | "save-withdraw"): PreparedMoneyAc
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
 }
 
 function page() {
   return within(document.body);
 }
 
-afterEach(cleanup);
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  cleanup();
+});
 
 describe("Save simplify", () => {
   test("empty NUX keeps dollars as the hero and opens Deposit MoneyModal", async () => {
@@ -160,7 +173,7 @@ describe("Save simplify", () => {
 
     await page().findByText("Nothing saved yet");
     expect(page().getByText("$0.00")).toBeTruthy();
-    expect(page().getByText("Gauntlet · 4.10% APY")).toBeTruthy();
+    expect(page().getByText("Available vault · Gauntlet · 4.10% APY")).toBeTruthy();
     expect(page().getByRole("radio", { name: /Gauntlet USDC Prime/ }).textContent).toContain("4.10%");
     expect(page().getByRole("radio", { name: /Steakhouse USDC/ }).textContent).toContain("3.85%");
     expect(page().queryByRole("button", { name: "Withdraw" })).toBeNull();
@@ -206,7 +219,10 @@ describe("Save simplify", () => {
     );
 
     expect(await page().findByText("$1,240.00")).toBeTruthy();
-    expect(page().getByText("Earning ~4.10%")).toBeTruthy();
+    expect(page().getByText("Earning ~4.02%")).toBeTruthy();
+    fireEvent.click(page().getByRole("radio", { name: /Steakhouse USDC/ }));
+    expect(page().getByText("Earning ~4.02%")).toBeTruthy();
+    fireEvent.click(page().getByRole("radio", { name: /Gauntlet USDC Prime/ }));
     expect(page().getByRole("radio", { name: /Gauntlet USDC Prime/ }).textContent).toContain("$820.00");
     expect(page().getByRole("radio", { name: /Steakhouse USDC/ }).textContent).toContain("$420.00");
     expect(page().queryByText("Nothing saved yet")).toBeNull();
@@ -217,7 +233,33 @@ describe("Save simplify", () => {
     expect(page().getByText("$820.00 available")).toBeTruthy();
   });
 
-  test("positions loading stays Updating and does not claim unavailable", async () => {
+  test("includes funded supported vaults that are outside the two visible selection rows", async () => {
+    const allVaultData: MorphoVaultsResult = {
+      ...initialData,
+      candidates: [
+        candidate(STEAKHOUSE, "Steakhouse USDC", 0.04),
+        candidate(GAUNTLET, "Gauntlet USDC Prime", 0.06),
+        candidate(THIRD_VAULT, "Third USDC", 0.08),
+      ],
+    };
+    render(
+      <SavingsExperience
+        initialData={allVaultData}
+        session={session(ADDRESS_A)}
+        fetchPositions={async () => positions(ADDRESS_A, {
+          [STEAKHOUSE]: "100000000",
+          [GAUNTLET]: "300000000",
+          [THIRD_VAULT]: "600000000",
+        })}
+      />,
+    );
+
+    expect(await page().findByText("$1,000.00")).toBeTruthy();
+    expect(page().getByText("Earning ~7.00%")).toBeTruthy();
+    expect(page().queryByRole("radio", { name: /Third USDC/ })).toBeNull();
+  });
+
+  test("positions loading shimmers without flashing zero, empty, offer, or 0%", async () => {
     const pending = deferred<unknown>();
     render(
       <SavingsExperience
@@ -228,8 +270,13 @@ describe("Save simplify", () => {
     );
 
     expect(await page().findByText("Updating…")).toBeTruthy();
-    expect(page().queryByText("Balances unavailable")).toBeNull();
+    expect(document.querySelector("[data-shimmer='savings-hero']")).toBeTruthy();
+    expect(page().queryByText("Balance unavailable")).toBeNull();
     expect(page().queryByText("Nothing saved yet")).toBeNull();
+    expect(page().queryByText("$0.00")).toBeNull();
+    expect(page().queryByText(/Available vault/)).toBeNull();
+    expect(page().queryByText("0%")).toBeNull();
+    expect(page().queryByRole("button", { name: "Get started" })).toBeNull();
   });
 
   test("unsigned Save hero stays empty NUX not unavailable", () => {
@@ -237,7 +284,7 @@ describe("Save simplify", () => {
 
     expect(page().getByText("Nothing saved yet")).toBeTruthy();
     expect(page().getByText("$0.00")).toBeTruthy();
-    expect(page().queryByText("Balances unavailable")).toBeNull();
+    expect(page().queryByText("Balance unavailable")).toBeNull();
     expect(page().queryByText("Updating…")).toBeNull();
   });
 
@@ -256,7 +303,7 @@ describe("Save simplify", () => {
           fetchPositions={async () => payload}
         />,
       );
-      expect(await page().findByText("Balances unavailable")).toBeTruthy();
+      expect(await page().findByText("Balance unavailable")).toBeTruthy();
       expect(page().queryByText("Nothing saved yet")).toBeNull();
       cleanup();
     }
@@ -270,9 +317,158 @@ describe("Save simplify", () => {
         fetchPositions={async () => positions(ADDRESS_A, { [GAUNTLET]: null })}
       />,
     );
-    expect(await page().findByText("Balances unavailable")).toBeTruthy();
+    expect(await page().findByText("Balance unavailable")).toBeTruthy();
     expect(page().queryByText("Nothing saved yet")).toBeNull();
     expect(page().queryByText("Share base units")).toBeNull();
+  });
+
+  test("waits for positions and metadata in either request order", async () => {
+    const metadataFirstPositions = deferred<unknown>();
+    globalThis.fetch = (async () => new Response(JSON.stringify(initialData), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+    render(
+      <SavingsExperience
+        session={session(ADDRESS_A)}
+        fetchPositions={() => metadataFirstPositions.promise}
+      />,
+    );
+    expect(await page().findByText("Updating…")).toBeTruthy();
+    expect(page().queryByText("$0.00")).toBeNull();
+    await act(async () => {
+      metadataFirstPositions.resolve(positions(ADDRESS_A));
+      await metadataFirstPositions.promise;
+    });
+    expect(await page().findByText("Nothing saved yet")).toBeTruthy();
+    cleanup();
+
+    const pendingMetadata = deferred<Response>();
+    globalThis.fetch = (() => pendingMetadata.promise) as unknown as typeof fetch;
+    render(
+      <SavingsExperience
+        session={session(ADDRESS_A)}
+        fetchPositions={async () => positions(ADDRESS_A)}
+      />,
+    );
+    expect(await page().findByText("Updating…")).toBeTruthy();
+    expect(page().queryByText("$0.00")).toBeNull();
+    await act(async () => {
+      pendingMetadata.resolve(new Response(JSON.stringify(initialData), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+      await pendingMetadata.promise;
+    });
+    expect(await page().findByText("Nothing saved yet")).toBeTruthy();
+  });
+
+  test("shows truthful APY states for missing and stale funded rates", async () => {
+    const missingRateData: MorphoVaultsResult = {
+      ...initialData,
+      candidates: initialData.candidates.map((entry) =>
+        entry.vaultAddress === STEAKHOUSE ? { ...entry, netApy: null } : entry
+      ),
+    };
+    const missing = render(
+      <SavingsExperience
+        initialData={missingRateData}
+        session={session(ADDRESS_A)}
+        fetchPositions={async () => positions(ADDRESS_A, {
+          [GAUNTLET]: "100000000",
+          [STEAKHOUSE]: "300000000",
+        })}
+      />,
+    );
+    expect(await page().findByText("$400.00")).toBeTruthy();
+    expect(page().getByText("APY partially unavailable")).toBeTruthy();
+    expect(page().queryByText(/Earning ~/)).toBeNull();
+    missing.unmount();
+
+    render(
+      <SavingsExperience
+        initialData={{ ...initialData, stale: true }}
+        session={session(ADDRESS_A)}
+        fetchPositions={async () => positions(ADDRESS_A, { [GAUNTLET]: "100000000" })}
+      />,
+    );
+    expect((await page().findAllByText("$100.00")).length).toBeGreaterThan(0);
+    expect(page().getByText("APY data stale")).toBeTruthy();
+    expect(page().getByRole("radio", { name: /Gauntlet USDC Prime/ }).textContent).toContain(
+      "APY stale",
+    );
+  });
+
+  test("shows an error without inventing a zero balance or offer", async () => {
+    render(
+      <SavingsExperience
+        initialData={initialData}
+        session={session(ADDRESS_A)}
+        fetchPositions={async () => {
+          throw new Error("offline");
+        }}
+      />,
+    );
+
+    expect(await page().findByText("Balance unavailable")).toBeTruthy();
+    expect(page().queryByText("$0.00")).toBeNull();
+    expect(page().queryByText("Nothing saved yet")).toBeNull();
+    expect(page().queryByRole("button", { name: "Get started" })).toBeNull();
+  });
+
+  test("retains a verified same-owner value during refresh and reports refresh failure", async () => {
+    const pending = deferred<unknown>();
+    const view = render(
+      <SavingsExperience
+        initialData={initialData}
+        session={session(ADDRESS_A)}
+        fetchPositions={async () => positions(ADDRESS_A, { [GAUNTLET]: "99000000" })}
+      />,
+    );
+    expect((await page().findAllByText("$99.00")).length).toBeGreaterThan(0);
+
+    view.rerender(
+      <SavingsExperience
+        initialData={initialData}
+        session={session(ADDRESS_A)}
+        fetchPositions={() => pending.promise}
+      />,
+    );
+    expect(await page().findByText("Refreshing…")).toBeTruthy();
+    expect(page().getAllByText("$99.00").length).toBeGreaterThan(0);
+
+    await act(async () => {
+      pending.reject(new Error("offline"));
+      try {
+        await pending.promise;
+      } catch {
+        // The component converts this request failure into retained stale UI.
+      }
+    });
+    expect(await page().findByText("Refresh unavailable")).toBeTruthy();
+    expect(page().getAllByText("$99.00").length).toBeGreaterThan(0);
+  });
+
+  test("clears balances on provider switch before a new request resolves", async () => {
+    const pending = deferred<unknown>();
+    const view = render(
+      <SavingsExperience
+        initialData={initialData}
+        session={session(ADDRESS_A)}
+        fetchPositions={async () => positions(ADDRESS_A, { [GAUNTLET]: "99000000" })}
+      />,
+    );
+    expect((await page().findAllByText("$99.00")).length).toBeGreaterThan(0);
+
+    view.rerender(
+      <SavingsExperience
+        initialData={initialData}
+        session={session(ADDRESS_A, "base-account")}
+        fetchPositions={() => pending.promise}
+      />,
+    );
+    expect(await page().findByText("Updating…")).toBeTruthy();
+    expect(page().queryByText("$99.00")).toBeNull();
   });
 
   test("clears balances on account switch and ignores a late prior-wallet result", async () => {
