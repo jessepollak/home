@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   currencyFlagSrc,
   presentationCurrencyFlag,
@@ -20,17 +20,30 @@ export function CurrencyMark({
 }: CurrencyMarkProps) {
   const flag = pending ? null : presentationCurrencyFlag(currency);
   const src = flag ? currencyFlagSrc(flag) : null;
+  return (
+    <CurrencyMarkSlot
+      key={`${pending ? "pending" : "ready"}:${src ?? "symbol"}`}
+      src={src}
+      pending={pending}
+      glyph={symbol?.trim() || currency?.trim() || ""}
+    />
+  );
+}
+
+function CurrencyMarkSlot({
+  src,
+  pending,
+  glyph,
+}: {
+  src: string | null;
+  pending: boolean;
+  glyph: string;
+}) {
   const [flagStatus, setFlagStatus] = useState<"loading" | "ready" | "failed">(
     src ? "loading" : "ready",
   );
-
-  useEffect(() => {
-    setFlagStatus(src ? "loading" : "ready");
-  }, [src]);
-
   const showShimmer = pending || Boolean(src && flagStatus === "loading");
   const showFlag = Boolean(src && flagStatus !== "failed");
-  const glyph = (symbol?.trim() || currency?.trim() || "");
 
   return (
     <span
