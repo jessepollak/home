@@ -1,7 +1,9 @@
 export function canTransitionMoneyActionStatus(record, to, constraints) {
   const from = record.status;
-  if (constraints?.expectedSourceStatus && from !== constraints.expectedSourceStatus) {
-    return false;
+  if (constraints?.expectedSourceStatus != null) {
+    const expected = constraints.expectedSourceStatus;
+    const allowed = Array.isArray(expected) ? expected : [expected];
+    if (!allowed.includes(from)) return false;
   }
   if (
     constraints?.requireNoSubmissionReference &&

@@ -70,10 +70,22 @@ export type VerifiedMoneyActionExecution = {
 };
 
 export type MoneyActionStatusConstraints = {
-  expectedSourceStatus?: MoneyActionOperationStatus;
+  expectedSourceStatus?: MoneyActionOperationStatus | readonly MoneyActionOperationStatus[];
   requireNoSubmissionReference?: boolean;
   verifiedExecution?: VerifiedMoneyActionExecution;
 };
+
+export function hasMoneyActionChainHandle(record: {
+  submissionId?: string;
+  transactionHash?: string;
+  userOperationHash?: string;
+}): boolean {
+  return Boolean(record.submissionId || record.transactionHash || record.userOperationHash);
+}
+
+export function shouldExpireReferenceFreeUnknown(record: StoredMoneyActionOperation): boolean {
+  return record.status === "unknown" && !hasMoneyActionChainHandle(record);
+}
 
 export function sameMoneyActionOwner(
   left: MoneyActionOwner,
@@ -131,6 +143,10 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
       record.claimedAt = now;
       record.updatedAt = now;
       return this.claimResult(record, claimAction!, "dispatch");
+    }
+    if (shouldExpireReferenceFreeUnknown(record)) {
+      record.status = "expired";
+      record.updatedAt = now;
     }
     return this.claimResult(record, claimAction ?? record.action, "recover");
   }

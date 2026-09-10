@@ -118,6 +118,118 @@ export function describeMoneyActionStore(
     expect((await store.get(OWNER, unresolved.id))?.status).toBe("unknown");
   });
 
+  test(`${name} lets the owner expire or cancel a claimed reference-free unknown send and refuses a confirming handle`, async () => {
+    const store = await createStore();
+    const send = { ...action(), kind: "send" as const, title: "Send USDC" };
+    await store.issue(send);
+    await store.claim(OWNER, send.id, send.reviewHash, "2026-09-08T05:01:00.000Z");
+    await store.updateStatus(OWNER, send.id, "unknown", "2026-09-08T05:01:01.000Z");
+
+    await expect(store.updateStatus(OTHER_OWNER, send.id, "expired", "2026-09-08T05:01:02.000Z", {
+      expectedSourceStatus: ["submitting", "unknown"],
+      requireNoSubmissionReference: true,
+    })).resolves.toBeNull();
+    expect(await store.get(OTHER_OWNER, send.id)).toBeNull();
+    expect((await store.get(OWNER, send.id))?.status).toBe("unknown");
+
+    await expect(store.updateStatus(OWNER, send.id, "expired", "2026-09-08T05:01:02.000Z", {
+      expectedSourceStatus: ["submitting", "unknown"],
+      requireNoSubmissionReference: true,
+    })).resolves.toMatchObject({ status: "expired" });
+
+    const cancellable = {
+      ...action(),
+      id: "33333333-3333-4333-8333-333333333333",
+      kind: "send" as const,
+      title: "Send USDC",
+    };
+    await store.issue(cancellable);
+    await store.claim(OWNER, cancellable.id, cancellable.reviewHash, "2026-09-08T05:02:00.000Z");
+    await expect(store.updateStatus(OWNER, cancellable.id, "rejected", "2026-09-08T05:02:01.000Z", {
+      expectedSourceStatus: ["submitting", "unknown"],
+      requireNoSubmissionReference: true,
+    })).resolves.toMatchObject({ status: "rejected" });
+
+    const referenced = {
+      ...action(),
+      id: "44444444-4444-4444-8444-444444444444",
+      kind: "send" as const,
+      title: "Send USDC",
+    };
+    await store.issue(referenced);
+    await store.claim(OWNER, referenced.id, referenced.reviewHash, "2026-09-08T05:03:00.000Z");
+    const userOperationHash = `0x${"e".repeat(64)}` as const;
+    await store.recordSubmission(OWNER, referenced.id, { userOperationHash }, "2026-09-08T05:03:01.000Z");
+    await store.updateStatus(OWNER, referenced.id, "unknown", "2026-09-08T05:03:02.000Z");
+    await expect(store.updateStatus(OWNER, referenced.id, "expired", "2026-09-08T05:03:03.000Z", {
+      expectedSourceStatus: ["submitting", "unknown"],
+      requireNoSubmissionReference: true,
+    })).resolves.toBeNull();
+    expect((await store.get(OWNER, referenced.id))?.status).toBe("unknown");
+    expect((await store.get(OWNER, referenced.id))?.userOperationHash).toBe(userOperationHash);
+
+    const recoverable = {
+      ...action(),
+      id: "55555555-5555-4555-8555-555555555555",
+      kind: "send" as const,
+      title: "Send USDC",
+    };
+    await store.issue(recoverable);
+    await store.claim(OWNER, recoverable.id, recoverable.reviewHash, "2026-09-08T05:04:00.000Z");
+    await store.updateStatus(OWNER, recoverable.id, "unknown", "2026-09-08T05:04:01.000Z");
+    const recovered = await store.claim(OWNER, recoverable.id, recoverable.reviewHash, "2026-09-08T05:04:02.000Z");
+    expect(recovered).toMatchObject({
+      disposition: "recover",
+      operation: { status: "expired", attemptCount: 1 },
+    });
+    expect((await store.get(OWNER, recoverable.id))?.status).toBe("expired");
+
+    const referencedRecover = {
+      ...action(),
+      id: "66666666-6666-4666-8666-666666666666",
+      kind: "send" as const,
+      title: "Send USDC",
+    };
+    await store.issue(referencedRecover);
+    await store.claim(OWNER, referencedRecover.id, referencedRecover.reviewHash, "2026-09-08T05:05:00.000Z");
+    await store.recordSubmission(
+      OWNER,
+      referencedRecover.id,
+      { userOperationHash: `0x${"f".repeat(64)}` },
+      "2026-09-08T05:05:01.000Z",
+    );
+    await store.updateStatus(OWNER, referencedRecover.id, "unknown", "2026-09-08T05:05:02.000Z");
+    const stillOpen = await store.claim(
+      OWNER,
+      referencedRecover.id,
+      referencedRecover.reviewHash,
+      "2026-09-08T05:05:03.000Z",
+    );
+    expect(stillOpen).toMatchObject({
+      disposition: "recover",
+      operation: { status: "unknown", userOperationHash: `0x${"f".repeat(64)}` },
+    });
+
+    const inFlight = {
+      ...action(),
+      id: "77777777-7777-4777-8777-777777777777",
+      kind: "send" as const,
+      title: "Send USDC",
+    };
+    await store.issue(inFlight);
+    await store.claim(OWNER, inFlight.id, inFlight.reviewHash, "2026-09-08T05:06:00.000Z");
+    const stillSubmitting = await store.claim(
+      OWNER,
+      inFlight.id,
+      inFlight.reviewHash,
+      "2026-09-08T05:06:01.000Z",
+    );
+    expect(stillSubmitting).toMatchObject({
+      disposition: "recover",
+      operation: { status: "submitting", attemptCount: 1 },
+    });
+  });
+
   test(`${name} allows distinct account operations in one bundle but reserves proven execution identities`, async () => {
     const store = await createStore();
     const first = action();

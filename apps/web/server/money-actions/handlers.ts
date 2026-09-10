@@ -137,9 +137,11 @@ export function createMoneyActionStatusHandler(dependencies: {
       id,
       requested,
       (dependencies.now ?? (() => new Date()))().toISOString(),
-      requested === "rejected" || requested === "expired" || requested === "failed"
-        ? { expectedSourceStatus: "submitting", requireNoSubmissionReference: true }
-        : undefined,
+      requested === "rejected" || requested === "expired"
+        ? { expectedSourceStatus: ["submitting", "unknown"], requireNoSubmissionReference: true }
+        : requested === "failed"
+          ? { expectedSourceStatus: "submitting", requireNoSubmissionReference: true }
+          : undefined,
     );
     return record ? json({ operation: record }, 200) : error("ACTION_NOT_FOUND", "The action was not found or cannot transition to that status.", 404);
   };

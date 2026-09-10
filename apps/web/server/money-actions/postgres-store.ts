@@ -8,14 +8,15 @@ import {
   type OperationRow,
   type SqlExecutor,
 } from "./postgres-sql";
-import type {
-  MoneyActionClaim,
-  MoneyActionIssueStoreOptions,
-  MoneyActionListScope,
-  MoneyActionStatusConstraints,
-  MoneyActionStore,
-  StoredMoneyActionOperation,
-  VerifiedMoneyActionExecution,
+import {
+  shouldExpireReferenceFreeUnknown,
+  type MoneyActionClaim,
+  type MoneyActionIssueStoreOptions,
+  type MoneyActionListScope,
+  type MoneyActionStatusConstraints,
+  type MoneyActionStore,
+  type StoredMoneyActionOperation,
+  type VerifiedMoneyActionExecution,
 } from "./store";
 
 export class PostgresMoneyActionStore implements MoneyActionStore {
@@ -102,6 +103,9 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
           const changed = await tx.query(moneyActionQueries.dispatch, [now, now, id]);
           disposition = changed.rowCount === 1 ? "dispatch" : "recover";
         }
+        row = (await this.getRow(tx, owner, id))!;
+      } else if (shouldExpireReferenceFreeUnknown(fromRow(row, action))) {
+        await tx.query(moneyActionQueries.expire, [now, id]);
         row = (await this.getRow(tx, owner, id))!;
       }
       const returnedAction = claimAction ?? action;

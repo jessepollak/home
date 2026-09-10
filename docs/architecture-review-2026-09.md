@@ -89,6 +89,7 @@ Identity is **never** taken from `?wallet=` or a client `userId`. Portfolio and 
 
 - `prepared` + matching owner/hash + not expired → `submitting`, `attemptCount = 1`, disposition `dispatch`.
 - Any later claim → disposition `recover`, same attempt.
+- Recover of claimed `unknown` with no `submissionId` / `transactionHash` / `userOperationHash` expires the row (owner-scoped Check status). A confirming handle is not cleared. Leftover `submitting` is not auto-expired on recover (in-flight dispatch may still record a handle); the owner can still `POST /status` `expired` / `rejected` while it is reference-free.
 - SQLite uses `UPDATE ... WHERE status = 'prepared'` inside `BEGIN IMMEDIATE`.
 
 Client recover path (`cdp-client.tsx`): if `claim.disposition === "recover"`, poll existing refs and **do not** call `sendUserOperation` / `wallet_sendCalls` again. CDP embedded uses `idempotencyKey: canonicalAction.id`.
@@ -225,7 +226,7 @@ Browser-auth (`test:browser-auth`) is required when you change sign-in, sign-out
 1. **Never double-dispatch.** Claim is the only grant of `dispatch`. Refresh/recover/read/status must not call wallet submit APIs again.
 2. **Never accept client-authored call plans.** No API takes `calls[]` or a `MoneyActionDraft` from the browser for execution.
 3. **Never authorize from a client user id or `?wallet=`.** Scope = verified CDP subject + smart-account address + chain `8453` + `X-Home-Account-Provider`.
-4. **Never confirm from the client.** `POST /api/actions/:id/status` may set `unknown | rejected | expired | failed` only. Confirmation requires receipt + `verifiedExecution`.
+4. **Never confirm from the client.** `POST /api/actions/:id/status` may set `unknown | rejected | expired | failed` only. `expired` / `rejected` from `unknown` require no stored chain handle. Confirmation requires receipt + `verifiedExecution`.
 5. **Never keep a SQL/SQLite transaction open across a provider call.**
 6. **Never treat an ambiguous broadcast as retryable with a new nonce.** Record `unknown`; reconcile from the stored reference.
 7. **Never use JS floats for token amounts, debt, or settlement.** Parse once at the boundary; reject excess precision.

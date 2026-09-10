@@ -153,6 +153,105 @@ describe("money action HTTP lifecycle", () => {
     expect((await store.get(OWNER, ID))?.status).toBe("unknown");
   });
 
+  test("lets the owner expire or cancel a claimed reference-free unknown send after recover", async () => {
+    const store = new MemoryMoneyActionStore();
+    await store.issue(action());
+    await store.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    await store.updateStatus(OWNER, ID, "unknown", "2026-09-08T05:01:01.000Z");
+    const handler = createMoneyActionStatusHandler({ authorize, store });
+    const expired = await handler(request(`/api/actions/${ID}/status`, { status: "expired" }), context);
+    expect(expired.status).toBe(200);
+    expect((await expired.json()).operation.status).toBe("expired");
+
+    const cancelStore = new MemoryMoneyActionStore();
+    await cancelStore.issue(action());
+    await cancelStore.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    await cancelStore.updateStatus(OWNER, ID, "unknown", "2026-09-08T05:01:01.000Z");
+    const cancel = createMoneyActionStatusHandler({ authorize, store: cancelStore });
+    const cancelled = await cancel(request(`/api/actions/${ID}/status`, { status: "rejected" }), context);
+    expect(cancelled.status).toBe(200);
+    expect((await cancelled.json()).operation.status).toBe("rejected");
+  });
+
+  test("refuses to expire a claimed send that still has a confirming chain handle", async () => {
+    const store = new MemoryMoneyActionStore();
+    await store.issue(action());
+    await store.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    await store.recordSubmission(OWNER, ID, { userOperationHash: USER_OPERATION_HASH }, "2026-09-08T05:01:01.000Z");
+    await store.updateStatus(OWNER, ID, "unknown", "2026-09-08T05:01:02.000Z");
+    const handler = createMoneyActionStatusHandler({ authorize, store });
+    const response = await handler(request(`/api/actions/${ID}/status`, { status: "expired" }), context);
+    expect(response.status).toBe(404);
+    expect((await store.get(OWNER, ID))?.status).toBe("unknown");
+    expect((await store.get(OWNER, ID))?.userOperationHash).toBe(USER_OPERATION_HASH);
+  });
+
+  test("does not let another owner expire or recover-expire a reference-free unknown send", async () => {
+    const store = new MemoryMoneyActionStore();
+    await store.issue(action());
+    await store.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    await store.updateStatus(OWNER, ID, "unknown", "2026-09-08T05:01:01.000Z");
+    const otherAuthorize = async () => Response.json({
+      user: { subject: "subject-b" },
+      smartAccount: { address: "0x2222222222222222222222222222222222222222", chainId: 8453 },
+      accountProvider: OWNER.accountProvider,
+    });
+    const status = createMoneyActionStatusHandler({ authorize: otherAuthorize, store });
+    const statusResponse = await status(request(`/api/actions/${ID}/status`, { status: "expired" }), context);
+    expect(statusResponse.status).toBe(404);
+    expect((await store.get(OWNER, ID))?.status).toBe("unknown");
+
+    const claim = createClaimMoneyActionHandler({
+      authorize: otherAuthorize,
+      store,
+      now: () => new Date("2026-09-08T05:02:00.000Z"),
+    });
+    const claimResponse = await claim(request(`/api/actions/${ID}/claim`, { reviewHash: REVIEW_HASH }), context);
+    expect(claimResponse.status).toBe(404);
+    expect((await store.get(OWNER, ID))?.status).toBe("unknown");
+  });
+
+  test("Check status recover expires a claimed reference-free unknown send and leaves a confirming handle open", async () => {
+    const store = new MemoryMoneyActionStore();
+    await store.issue(action());
+    await store.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    await store.updateStatus(OWNER, ID, "unknown", "2026-09-08T05:01:01.000Z");
+    const recover = createClaimMoneyActionHandler({
+      authorize,
+      store,
+      now: () => new Date("2026-09-08T05:02:00.000Z"),
+    });
+    const recovered = await recover(request(`/api/actions/${ID}/claim`, { reviewHash: REVIEW_HASH }), context);
+    expect(recovered.status).toBe(200);
+    expect((await recovered.json()).operation.status).toBe("expired");
+    expect((await store.get(OWNER, ID))?.status).toBe("expired");
+
+    const referencedStore = new MemoryMoneyActionStore();
+    await referencedStore.issue(action());
+    await referencedStore.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    await referencedStore.recordSubmission(
+      OWNER,
+      ID,
+      { userOperationHash: USER_OPERATION_HASH },
+      "2026-09-08T05:01:01.000Z",
+    );
+    await referencedStore.updateStatus(OWNER, ID, "unknown", "2026-09-08T05:01:02.000Z");
+    const referencedRecover = createClaimMoneyActionHandler({
+      authorize,
+      store: referencedStore,
+      now: () => new Date("2026-09-08T05:02:00.000Z"),
+    });
+    const stillOpen = await referencedRecover(
+      request(`/api/actions/${ID}/claim`, { reviewHash: REVIEW_HASH }),
+      context,
+    );
+    expect(stillOpen.status).toBe(200);
+    expect((await stillOpen.json()).operation).toMatchObject({
+      status: "unknown",
+      userOperationHash: USER_OPERATION_HASH,
+    });
+  });
+
   test("exposes a validated owner-scoped unresolved-send view without changing ordinary history", async () => {
     const store = new MemoryMoneyActionStore();
     await store.issue(action());

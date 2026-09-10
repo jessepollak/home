@@ -3,14 +3,15 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
 import { canTransitionMoneyActionStatus } from "./status-transitions.js";
-import type {
-  MoneyActionClaim,
-  MoneyActionIssueStoreOptions,
-  MoneyActionListScope,
-  MoneyActionStatusConstraints,
-  MoneyActionStore,
-  StoredMoneyActionOperation,
-  VerifiedMoneyActionExecution,
+import {
+  shouldExpireReferenceFreeUnknown,
+  type MoneyActionClaim,
+  type MoneyActionIssueStoreOptions,
+  type MoneyActionListScope,
+  type MoneyActionStatusConstraints,
+  type MoneyActionStore,
+  type StoredMoneyActionOperation,
+  type VerifiedMoneyActionExecution,
 } from "./store";
 
 type OperationRow = {
@@ -152,6 +153,9 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
           `).run(now, now, id);
           disposition = changed.changes === 1 ? "dispatch" : "recover";
         }
+        row = this.getRow(owner, id)!;
+      } else if (shouldExpireReferenceFreeUnknown(fromRow(row, action))) {
+        this.database.prepare(`UPDATE money_action_operations SET status = 'expired', updated_at = ? WHERE id = ?`).run(now, id);
         row = this.getRow(owner, id)!;
       }
       this.database.exec("COMMIT");
