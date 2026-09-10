@@ -500,7 +500,7 @@ describe("TransferActions modals", () => {
     expect(releaseCalls).toBe(0);
   });
 
-  test("allows a pending admission-release swipe to close without another request or stale unlock", async () => {
+  test("keeps reopened same-owner recovery fenced from an older dismissed release", async () => {
     const action = preparedSendAction();
     const release = deferred<unknown>();
     let releaseCalls = 0;
@@ -551,8 +551,14 @@ describe("TransferActions modals", () => {
 
     await waitFor(() => expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull());
     expect(page().queryByRole("heading", { name: "Allow another send?" })).toBeNull();
+    await waitFor(() => expect((confirmDialog as HTMLDialogElement).open).toBe(false));
     expect(releaseCalls).toBe(1);
     expect(starts).toBe(0);
+
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    expect(await page().findByRole("dialog", { name: "Confirm" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Check status" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Allow another send" })).toBeTruthy();
 
     await act(async () => {
       release.resolve({
@@ -569,7 +575,10 @@ describe("TransferActions modals", () => {
       await Promise.resolve();
     });
 
-    expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
+    expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Check status" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Allow another send" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Continue" })).toBeNull();
     expect(releaseCalls).toBe(1);
     expect(starts).toBe(0);
   });

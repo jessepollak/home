@@ -113,6 +113,8 @@ export function SendDialog({
   const releaseConfirmationRef = useRef<HTMLHeadingElement>(null);
   const releaseFenceRef = useRef({ open, ownerBoundary, actionId: preparedAction?.id ?? null });
   const releaseInFlightRef = useRef<string | null>(null);
+  const lifecycleGenerationRef = useRef(0);
+  const lifecycleStateRef = useRef({ open, ownerBoundary });
   const [historyAdmission, setHistoryAdmission] = useState<HistoryAdmission>(() =>
     fetchUnresolvedSends ? { status: "checking" } : prepareMoneyAction
       ? { status: "unavailable", reason: "failed" }
@@ -138,6 +140,11 @@ export function SendDialog({
   const historyReady = historyAdmission.status === "ready" || historyAdmission.status === "fallback";
 
   useLayoutEffect(() => {
+    const previous = lifecycleStateRef.current;
+    if (previous.open !== open || previous.ownerBoundary !== ownerBoundary) {
+      lifecycleGenerationRef.current += 1;
+      lifecycleStateRef.current = { open, ownerBoundary };
+    }
     releaseFenceRef.current = { open, ownerBoundary, actionId: preparedAction?.id ?? null };
   }, [open, ownerBoundary, preparedAction?.id]);
 
@@ -197,6 +204,7 @@ export function SendDialog({
   }, [address, fetchUnresolvedSends, historyAttempt, open, prepareMoneyAction]);
 
   function reset(options: { admissionReleased?: boolean } = {}) {
+    lifecycleGenerationRef.current += 1;
     setAssetId("usdc");
     setRecipient("");
     setAmount("");
@@ -383,22 +391,28 @@ export function SendDialog({
     const requestKey = `${ownerBoundary}\u0000${actionId}`;
     if (releaseInFlightRef.current === requestKey) return;
     releaseInFlightRef.current = requestKey;
-    const fence = { ownerBoundary, actionId };
+    const fence = {
+      ownerBoundary,
+      actionId,
+      generation: lifecycleGenerationRef.current,
+    };
     setError(null);
     setReleaseState("pending");
     try {
       await releaseAdmission(actionId);
       const current = releaseFenceRef.current;
-      if (!current.open || current.ownerBoundary !== fence.ownerBoundary || current.actionId !== fence.actionId) {
-        return;
-      }
+      if (
+        lifecycleGenerationRef.current !== fence.generation || !current.open ||
+        current.ownerBoundary !== fence.ownerBoundary || current.actionId !== fence.actionId
+      ) return;
       startNewTransfer();
       reset({ admissionReleased: true });
     } catch {
       const current = releaseFenceRef.current;
-      if (!current.open || current.ownerBoundary !== fence.ownerBoundary || current.actionId !== fence.actionId) {
-        return;
-      }
+      if (
+        lifecycleGenerationRef.current !== fence.generation || !current.open ||
+        current.ownerBoundary !== fence.ownerBoundary || current.actionId !== fence.actionId
+      ) return;
       setError("Home couldn’t allow another send. Check status or try again.");
       setReleaseState("idle");
     } finally {
