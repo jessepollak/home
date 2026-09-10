@@ -15,8 +15,9 @@ User-visible UI / core-flow PRs only. Convention: [docs/ui-pr-previews.md](docs/
 
 - [ ] Before/after (or justified after-only) inline in this description
 - [ ] Hosted on GitHub `user-attachments/assets` (paste/drop into this PR body)
-- [ ] `~390px` width via `<img … width="390">` or equivalent
+- [ ] Stills: `~390px` width via `<img … width="390">` or equivalent
 - [ ] **Not** `cursor.com/artifacts` / Cloud Agent artifact links (expire ~15m)
+- [ ] Motion/animation: short GitHub-hosted video or GIF preferred (same `user-attachments`); static before/after OK if not motion
 
 Paste/drop shots here, then wrap the GitHub URL:
 
