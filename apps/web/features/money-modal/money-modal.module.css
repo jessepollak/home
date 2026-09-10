@@ -50,7 +50,7 @@
   padding: 0;
 }
 
-.sheet[data-state="entering"] {
+.sheet[data-state="open"]:not([data-entered]) {
   animation: money-sheet-enter 280ms ease-out both;
 }
 
@@ -462,7 +462,7 @@
   .spinner { animation: none; }
   .root[data-state="open"],
   .root[data-state="closing"],
-  .sheet[data-state="entering"],
+  .sheet[data-state="open"]:not([data-entered]),
   .sheet[data-state="closing"] {
     animation: none;
   }

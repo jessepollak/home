@@ -57,7 +57,7 @@ describe("MoneyModal shell", () => {
     expect(css).toContain("width: 36px");
     expect(css).toContain("height: 4px");
     expect(css).toContain("animation: money-sheet-enter 280ms ease-out both");
-    expect(css).toContain(".sheet[data-state=\"entering\"]");
+    expect(css).toContain(".sheet[data-state=\"open\"]:not([data-entered])");
     expect(css).toContain("animation: money-sheet-exit 220ms ease-in both");
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain("animation: none");
@@ -77,19 +77,25 @@ describe("MoneyModal shell", () => {
 
     const grabber = dialog.querySelector("[data-money-sheet-grabber]");
     const title = page().getByRole("heading", { name: "Send" });
-    expect(grabber).toBeTruthy();
-    expect(grabber?.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(grabber).toBeInstanceOf(HTMLElement);
+    expect(
+      (grabber as HTMLElement).compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   test("dismisses from × and restores the trigger", async () => {
-    render(<Harness />);
-    const trigger = page().getByRole("button", { name: "Open money" });
-    trigger.focus();
-    fireEvent.click(trigger);
-    fireEvent.click(page().getByRole("button", { name: "Close send dialog" }));
-
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-    expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
+    const restoreMotion = stubReducedMotion(true);
+    try {
+      render(<Harness />);
+      const trigger = page().getByRole("button", { name: "Open money" });
+      trigger.focus();
+      fireEvent.click(trigger);
+      fireEvent.click(page().getByRole("button", { name: "Close send dialog" }));
+      expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    } finally {
+      restoreMotion();
+    }
   });
 
   test("dismisses from a backdrop tap", async () => {
@@ -129,23 +135,30 @@ describe("MoneyModal shell", () => {
   });
 
   test("reduced motion closes without the exit delay", () => {
-    const original = window.matchMedia;
-    window.matchMedia = ((query: string) => ({
-      matches: query.includes("prefers-reduced-motion"),
-      media: query,
-      onchange: null,
-      addListener() {},
-      removeListener() {},
-      addEventListener() {},
-      removeEventListener() {},
-      dispatchEvent() { return false; },
-    })) as typeof window.matchMedia;
+    const restoreMotion = stubReducedMotion(true);
     try {
       render(<Harness startOpen />);
       fireEvent.click(page().getByRole("button", { name: "Close send dialog" }));
       expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
     } finally {
-      window.matchMedia = original;
+      restoreMotion();
     }
   });
 });
+
+function stubReducedMotion(enabled: boolean) {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: enabled && query.includes("prefers-reduced-motion"),
+    media: query,
+    onchange: null,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent() { return false; },
+  })) as typeof window.matchMedia;
+  return () => {
+    window.matchMedia = original;
+  };
+}

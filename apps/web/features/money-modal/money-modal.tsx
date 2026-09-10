@@ -4,7 +4,6 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
@@ -24,19 +23,24 @@ export function useMoneyModal(open: boolean): RefObject<HTMLDialogElement | null
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const closeTimerRef = useRef<number>(0);
-  const [scrollLocked, setScrollLocked] = useState(open);
+  const previousOverflowRef = useRef("");
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
 
+    const unlockScroll = () => {
+      document.body.style.overflow = previousOverflowRef.current;
+    };
+
     if (open) {
       window.clearTimeout(closeTimerRef.current);
       closeTimerRef.current = 0;
-      setScrollLocked(true);
       if (!dialog.open) {
         restoreFocusRef.current =
           document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        previousOverflowRef.current = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
         dialog.showModal();
         dialog.querySelector<HTMLElement>("button:not(:disabled), input:not(:disabled)")?.focus();
       }
@@ -46,14 +50,14 @@ export function useMoneyModal(open: boolean): RefObject<HTMLDialogElement | null
 
     if (!dialog.open) {
       dialog.dataset.state = "closed";
-      setScrollLocked(false);
+      unlockScroll();
       return;
     }
 
     const finish = () => {
       closeTimerRef.current = 0;
       if (dialog.open) dialog.close();
-      setScrollLocked(false);
+      unlockScroll();
       restoreFocusRef.current?.focus();
       restoreFocusRef.current = null;
     };
@@ -71,17 +75,9 @@ export function useMoneyModal(open: boolean): RefObject<HTMLDialogElement | null
   useEffect(() => {
     return () => {
       window.clearTimeout(closeTimerRef.current);
+      document.body.style.overflow = previousOverflowRef.current;
     };
   }, []);
-
-  useEffect(() => {
-    if (!scrollLocked) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [scrollLocked]);
 
   return dialogRef;
 }
@@ -103,7 +99,6 @@ export function MoneyModal({
 }) {
   const dialogRef = useMoneyModal(open);
   const sheetRef = useRef<HTMLDivElement>(null);
-  const [entered, setEntered] = useState(false);
   const dragRef = useRef({
     pointerId: -1,
     startY: 0,
@@ -113,16 +108,21 @@ export function MoneyModal({
     velocity: 0,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
     if (!open) {
-      setEntered(false);
+      delete sheet.dataset.entered;
       return;
     }
+    delete sheet.dataset.entered;
     if (prefersReducedMotion()) {
-      setEntered(true);
+      sheet.dataset.entered = "";
       return;
     }
-    const timer = window.setTimeout(() => setEntered(true), MONEY_SHEET_ENTER_MS);
+    const timer = window.setTimeout(() => {
+      sheet.dataset.entered = "";
+    }, MONEY_SHEET_ENTER_MS);
     return () => window.clearTimeout(timer);
   }, [open]);
 
@@ -220,7 +220,7 @@ export function MoneyModal({
         ref={sheetRef}
         className={styles.sheet}
         data-money-sheet=""
-        data-state={!open ? "closing" : entered ? "open" : "entering"}
+        data-state={open ? "open" : "closing"}
       >
         <div
           className={styles.grabberHit}
