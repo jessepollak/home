@@ -1,3 +1,4 @@
+import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import type { MarketDataState } from "./invest-market";
 import { DiscoverAssetRow } from "./discover-asset-row";
@@ -23,14 +24,21 @@ export function CategoryScreen({
   onBack: () => void;
   onOpenAsset: (asset: InvestAsset, from: DiscoverShelfId) => void;
 }) {
+  const hosted = Boolean(useOptionalAppChrome());
   return (
-    <section className={styles.experience} aria-labelledby="invest-category-title">
-      <header className={styles.screenHeader}>
-        <button type="button" className={styles.back} onClick={onBack} aria-label="Back to Invest">
-          <BackIcon />
-        </button>
-        <h2 id="invest-category-title">{title}</h2>
-      </header>
+    <section
+      className={styles.experience}
+      aria-label={hosted ? title : undefined}
+      aria-labelledby={hosted ? undefined : "invest-category-title"}
+    >
+      {hosted ? null : (
+        <header className={styles.screenHeader}>
+          <button type="button" className={styles.back} onClick={onBack} aria-label="Back to Invest">
+            <BackIcon />
+          </button>
+          <h2 id="invest-category-title">{title}</h2>
+        </header>
+      )}
       {assets.length > 0 ? (
         <ul className={styles.rows}>
           {assets.map((asset) => (

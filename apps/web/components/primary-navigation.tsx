@@ -1,7 +1,12 @@
 "use client";
 
 import { ChartNoAxesCombined, House } from "lucide-react";
-import { navigationItems, type NavigationId, type ShellPanelId } from "@/config/navigation";
+import {
+  isHomeNestedPanelId,
+  navigationItems,
+  type NavigationId,
+  type ShellPanelId,
+} from "@/config/navigation";
 import styles from "./primary-navigation.module.css";
 
 type PrimaryNavigationProps = {

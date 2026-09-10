@@ -1,6 +1,7 @@
 import "@/features/account/dom-test-harness";
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import type { ReactNode } from "react";
 import type { AccountWalletSdkBoundary } from "@/features/account/cdp-client";
 import type {
   BaseAccountConnector,
@@ -426,6 +427,8 @@ function HomeHarness({
   initialAccountSettingsOpen = false,
   detectedCountry = null,
   routeMode = "dashboard",
+  savingsContent = <section aria-label="Savings module">Savings fixture</section>,
+  investContent = <section aria-label="Invest module">Invest fixture</section>,
 }: {
   accountSdk: AccountWalletSdkBoundary;
   sessionFetch?: SessionFetch;
@@ -434,6 +437,8 @@ function HomeHarness({
   initialAccountSettingsOpen?: boolean;
   detectedCountry?: string | null;
   routeMode?: "landing" | "dashboard";
+  savingsContent?: ReactNode;
+  investContent?: ReactNode;
 }) {
   return (
     <AccountWalletSessionOwner sdk={accountSdk} sessionFetch={sessionFetch}>
@@ -443,8 +448,8 @@ function HomeHarness({
         initialPanel={initialPanel}
         initialAccountSettingsOpen={initialAccountSettingsOpen}
         routeMode={routeMode}
-        savingsContent={<section aria-label="Savings module">Savings fixture</section>}
-        investContent={<section aria-label="Invest module">Invest fixture</section>}
+        savingsContent={savingsContent}
+        investContent={investContent}
         assetBalances={{
           status: "ready",
           displayTotal: "$12.34",
@@ -1772,5 +1777,62 @@ describe("login-state home experience", () => {
     expect(backCalls).toBe(0);
     expect(replaceCalls).toEqual(["/dashboard"]);
     expect(await page().findByRole("heading", { name: "Balances" })).toBeTruthy();
+  });
+
+  test("pins shell chrome, shows a profile mark, and keeps the footer on Account", async () => {
+    render(
+      <HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />,
+    );
+    const account = await enabledAccountButton();
+    expect(document.querySelector(".app-frame-shell")).toBeTruthy();
+    expect(document.querySelector(".app-header")).toBeTruthy();
+    expect(document.querySelector(".panel-fade")).toBeTruthy();
+    expect(account.querySelector("[data-profile]")).toBeTruthy();
+    expect(account.textContent).toBe("h");
+    expect(page().queryByRole("button", { name: "Account" }).textContent).not.toBe(
+      "Account",
+    );
+
+    fireEvent.click(account);
+    expect(page().getByRole("heading", { level: 1, name: "Account" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Account" })).toBeNull();
+    expect(page().getByRole("navigation", { name: "Main navigation" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Done" }));
+    expect(await enabledAccountButton()).toBeTruthy();
+  });
+
+  test("swaps nested Save and Memes titles inside the same header band", async () => {
+    const { InvestExperience } = await import("@/features/invest/invest-experience");
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        investContent={<InvestExperience />}
+      />,
+    );
+    await enabledAccountButton();
+    const header = document.querySelector(".app-header");
+    expect(header).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Save" })).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Save" }));
+    expect(page().getByRole("heading", { name: "Save" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Account" })).toBeTruthy();
+    expect(document.querySelector(".app-header-title")?.textContent).toBe("Save");
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+    await page().findByRole("heading", { name: "Invest" });
+    const memesShelf = page().getByRole("heading", { name: "Memes" }).closest("section");
+    expect(memesShelf).toBeTruthy();
+    fireEvent.click(within(memesShelf as HTMLElement).getByRole("button", { name: "See all ›" }));
+    await waitFor(() =>
+      expect(document.querySelector(".app-header-title")?.textContent).toBe("Memes"),
+    );
+    expect(page().getByRole("heading", { level: 1, name: "Memes" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Back to Invest" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Account" })).toBeTruthy();
+    expect(page().getAllByRole("button", { name: "Back to Invest" })).toHaveLength(1);
+    expect(page().getByRole("navigation", { name: "Main navigation" })).toBeTruthy();
   });
 });

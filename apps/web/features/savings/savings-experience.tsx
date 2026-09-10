@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AddressText } from "@/components/address";
+import { useOptionalAppChrome } from "@/components/app-chrome";
 import { useAccountWallet } from "@/features/account/cdp-client";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
 import { useMoneyDataRefresh } from "@/features/money-actions/refresh";
@@ -112,6 +113,7 @@ export function SavingsExperience({
   const [positionRefreshTrigger, setPositionRefreshTrigger] = useState(0);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [actionMode, setActionMode] = useState<SavingsActionMode | null>(null);
+  const hosted = Boolean(useOptionalAppChrome());
   const sessionAddress = session?.smartAccount?.address ?? null;
   const sessionKey = session && sessionAddress
     ? `${session.user.subject}:${session.accountProvider}:${sessionAddress}`
@@ -204,19 +206,25 @@ export function SavingsExperience({
   );
 
   return (
-    <section className={styles.experience} aria-labelledby="savings-title">
-      <header className={styles.header}>
-        {onBack ? (
-          <button className={styles.back} type="button" onClick={onBack}>
-            <span aria-hidden="true">←</span>
-            <span className={styles.srOnly}>Back</span>
-          </button>
-        ) : (
+    <section
+      className={styles.experience}
+      aria-label={hosted ? "Save" : undefined}
+      aria-labelledby={hosted ? undefined : "savings-title"}
+    >
+      {hosted ? null : (
+        <header className={styles.header}>
+          {onBack ? (
+            <button className={styles.back} type="button" onClick={onBack}>
+              <span aria-hidden="true">←</span>
+              <span className={styles.srOnly}>Back</span>
+            </button>
+          ) : (
+            <span />
+          )}
+          <h2 id="savings-title" className={styles.title}>Save</h2>
           <span />
-        )}
-        <h2 id="savings-title" className={styles.title}>Save</h2>
-        <span />
-      </header>
+        </header>
+      )}
 
       <div className={styles.hero}>
         <p

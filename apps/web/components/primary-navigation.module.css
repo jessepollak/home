@@ -1,9 +1,11 @@
 .navigation {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  position: relative;
+  right: auto;
+  bottom: auto;
+  left: auto;
   z-index: 20;
+  order: 2;
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   border-top: 1px solid var(--home-gray-100);
@@ -84,9 +86,11 @@
 
 @media (min-width: 720px) {
   .navigation {
+    order: 1;
     position: static;
     width: 100%;
     grid-template-columns: repeat(2, minmax(110px, 150px));
+    border-top: 0;
     border-bottom: 1px solid var(--home-gray-100);
     padding: 0;
   }

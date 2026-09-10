@@ -24,8 +24,10 @@ import {
   type ShellPanelId,
 } from "@/config/navigation";
 import { parseShellLocation, shellHref } from "@/config/shell-location";
+import { AppChromeProvider, useOptionalAppChrome } from "@/components/app-chrome";
 import { PrimaryNavigation } from "@/components/primary-navigation";
 import { CurrencyMark } from "@/components/currency-mark";
+import { ProfileMark } from "@/components/profile-mark";
 import {
   presentationRegions,
   resolvePresentation,
@@ -154,7 +156,15 @@ type RegionStyle = CSSProperties & {
   "--region-surface": string;
 };
 
-export function HomeExperience({
+export function HomeExperience(props: HomeExperienceProps) {
+  return (
+    <AppChromeProvider>
+      <HomeExperienceView {...props} />
+    </AppChromeProvider>
+  );
+}
+
+function HomeExperienceView({
   detectedCountry = null,
   investContent,
   savingsContent,
@@ -194,7 +204,9 @@ export function HomeExperience({
     initialAccountSettingsOpen,
   );
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
   const shellPath = routeMode === "landing" ? "/" : "/dashboard";
+  const investChrome = useOptionalAppChrome();
 
   const closeAccount = useCallback(() => {
     setIsAccountOpen(false);
@@ -244,11 +256,11 @@ export function HomeExperience({
     if (!panelStage) return;
 
     panelStage.focus({ preventScroll: true });
-    panelStage.scrollIntoView({
+    mainRef.current?.scrollTo({
+      top: 0,
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
         ? "auto"
         : "smooth",
-      block: "start",
     });
   }, [activeNavigation, navigationRequest]);
 
@@ -428,137 +440,160 @@ export function HomeExperience({
     void account.signOut().catch(() => {});
   }
 
-  return (
-    <div className="app-frame" style={regionStyle}>
-      <header className="app-header">
-        {isAccountSettingsOpen ? (
-          <h1 className="account-settings-title">Account</h1>
-        ) : isHomeNestedPanelId(activeNavigation) ? (
-          <NestedHomeHeader
-            title={nestedHomePanelTitle(activeNavigation)}
-            onBack={() => navigateTo("home")}
-          />
-        ) : (
-          <HomeMark
-            onClick={() => {
-              if (isVerified) navigateTo("home");
-            }}
-          />
-        )}
+  const nestedChrome =
+    isAccountSettingsOpen
+      ? null
+      : isHomeNestedPanelId(activeNavigation)
+        ? {
+            title: nestedHomePanelTitle(activeNavigation) ?? "Save",
+            onBack: () => navigateTo("home"),
+            backLabel: "Back",
+          }
+        : activeNavigation === "invest"
+          ? investChrome?.nested ?? null
+          : null;
+  const panelKey = isAccountSettingsOpen ? "account" : activeNavigation;
 
-        {isAccountSettingsOpen ? (
-          <button
-            className="header-done-link"
-            type="button"
-            onClick={closeAccountSettings}
-          >
-            Done
-          </button>
-        ) : (
-          <HeaderAccountAction
-            status={account.status}
-            isSignedIn={account.isSignedIn}
-            routeMode={routeMode}
-            onDashboard={() => router.replace("/dashboard")}
-            onSignIn={openAccount}
-            onSignOut={signOut}
-            onOpenSettings={openAccountSettings}
-          />
-        )}
+  return (
+    <div
+      className={`app-frame${routeMode === "dashboard" ? " app-frame-shell" : ""}`}
+      style={regionStyle}
+    >
+      <header className="app-header">
+        <div className="app-header-start">
+          {isAccountSettingsOpen ? (
+            <h1 className="account-settings-title">Account</h1>
+          ) : nestedChrome ? (
+            <NestedHomeHeader
+              title={nestedChrome.title}
+              backLabel={nestedChrome.backLabel}
+              onBack={nestedChrome.onBack}
+            />
+          ) : (
+            <HomeMark
+              onClick={() => {
+                if (isVerified) navigateTo("home");
+              }}
+            />
+          )}
+        </div>
+        <span className="app-header-title-slot" aria-hidden="true" />
+        <div className="app-header-end">
+          {isAccountSettingsOpen ? (
+            <button
+              className="header-done-link"
+              type="button"
+              onClick={closeAccountSettings}
+            >
+              Done
+            </button>
+          ) : (
+            <HeaderAccountAction
+              status={account.status}
+              isSignedIn={account.isSignedIn}
+              routeMode={routeMode}
+              ownerKey={account.ownerKey}
+              address={account.session?.smartAccount?.address ?? null}
+              onDashboard={() => router.replace("/dashboard")}
+              onSignIn={openAccount}
+              onSignOut={signOut}
+              onOpenSettings={openAccountSettings}
+            />
+          )}
+        </div>
       </header>
 
       {routeMode === "dashboard" ? (
-        <main className="app-main app-main-authenticated">
-          {isUnavailable ? (
-            <div className="dashboard-notice" role="alert">
-              <span>{account.message ?? "Your private details remain hidden."}</span>
-              <button type="button" onClick={() => void account.retrySessionValidation()}>
-                Retry account check
-              </button>
-            </div>
-          ) : null}
+        <>
+          <main ref={mainRef} className="app-main app-main-authenticated">
+            {isUnavailable ? (
+              <div className="dashboard-notice" role="alert">
+                <span>{account.message ?? "Your private details remain hidden."}</span>
+                <button type="button" onClick={() => void account.retrySessionValidation()}>
+                  Retry account check
+                </button>
+              </div>
+            ) : null}
 
-          {isAccountSettingsOpen ? (
-            <AccountSettings
-              regionId={regionId}
-              onRegionChange={selectRegion}
-              resolutionSource={resolutionSource}
-              preferenceMessage={preferenceMessage}
-              isPreferenceReady={isPreferenceReady}
-              accountAddress={
-                isVerified ? account.session?.smartAccount?.address ?? null : null
-              }
-              onSignOut={signOut}
-            />
-          ) : isSignedOut ? (
-            <section
-              className="panel-stage"
-              aria-busy="true"
-              aria-label="Signed out"
-            >
-              <span className="sr-status">Signed out</span>
-            </section>
-          ) : (
-            <>
-              <PrimaryNavigation
-                activeNavigation={activeNavigation}
-                onNavigate={navigateTo}
-              />
-
+            {isAccountSettingsOpen ? (
+              <div className="panel-fade" key={panelKey}>
+                <AccountSettings
+                  regionId={regionId}
+                  onRegionChange={selectRegion}
+                  resolutionSource={resolutionSource}
+                  preferenceMessage={preferenceMessage}
+                  isPreferenceReady={isPreferenceReady}
+                  accountAddress={
+                    isVerified ? account.session?.smartAccount?.address ?? null : null
+                  }
+                  onSignOut={signOut}
+                />
+              </div>
+            ) : isSignedOut ? (
+              <section
+                className="panel-stage"
+                aria-busy="true"
+                aria-label="Signed out"
+              >
+                <span className="sr-status">Signed out</span>
+              </section>
+            ) : (
               <section
                 ref={panelStageRef}
                 className="panel-stage"
                 id="navigation-panel"
                 tabIndex={-1}
                 aria-labelledby={
-                  isHomeNestedPanelId(activeNavigation)
+                  isHomeNestedPanelId(activeNavigation) || nestedChrome
                     ? undefined
                     : `${activeNavigation}-nav`
                 }
                 aria-label={
                   activeNavigation === savePanelId
                     ? "Savings"
-                    : nestedHomePanelTitle(activeNavigation) ?? undefined
+                    : nestedChrome
+                      ? nestedChrome.title
+                      : undefined
                 }
                 aria-busy={isChecking}
               >
-                {activeNavigation === "home" ? (
-                  <HomePanel
-                    assetBalances={paintedAssetBalances}
-                    activitySession={activitySession}
-                    fetchActivity={account.fetchActivity}
-                    fetchOperations={account.fetchOperations}
-                    readOperation={readOperation}
-                    recoverOperation={account.executeMoneyAction}
-                    activityRefreshTrigger={activityRefreshTrigger}
-                    onTransferConfirmed={onTransferConfirmed}
-                    onOpenSave={() => navigateTo(savePanelId)}
-                    onOpenBalances={() => navigateTo(balancesPanelId)}
-                    onOpenActivity={() => navigateTo(activityPanelId)}
-                  />
-                ) : null}
-                {activeNavigation === balancesPanelId ? (
-                  <BalancesPage
-                    assetBalances={paintedAssetBalances}
-                    isChecking={isChecking}
-                  />
-                ) : null}
-                {activeNavigation === activityPanelId ? (
-                  <ActivityPage
-                    activitySession={activitySession}
-                    fetchActivity={account.fetchActivity}
-                    fetchOperations={account.fetchOperations}
-                    readOperation={readOperation}
-                    recoverOperation={account.executeMoneyAction}
-                    activityRefreshTrigger={activityRefreshTrigger}
-                    showSessionShimmer={!activitySession && (
-                      paintedAssetBalances.status === "loading" ||
-                      paintedAssetBalances.revalidating === true
-                    )}
-                  />
-                ) : null}
-                {activeNavigation === savePanelId
-                  ? (
+                <div className="panel-fade" key={panelKey}>
+                  {activeNavigation === "home" ? (
+                    <HomePanel
+                      assetBalances={paintedAssetBalances}
+                      activitySession={activitySession}
+                      fetchActivity={account.fetchActivity}
+                      fetchOperations={account.fetchOperations}
+                      readOperation={readOperation}
+                      recoverOperation={account.executeMoneyAction}
+                      activityRefreshTrigger={activityRefreshTrigger}
+                      onTransferConfirmed={onTransferConfirmed}
+                      onOpenSave={() => navigateTo(savePanelId)}
+                      onOpenBalances={() => navigateTo(balancesPanelId)}
+                      onOpenActivity={() => navigateTo(activityPanelId)}
+                    />
+                  ) : null}
+                  {activeNavigation === balancesPanelId ? (
+                    <BalancesPage
+                      assetBalances={paintedAssetBalances}
+                      isChecking={isChecking}
+                    />
+                  ) : null}
+                  {activeNavigation === activityPanelId ? (
+                    <ActivityPage
+                      activitySession={activitySession}
+                      fetchActivity={account.fetchActivity}
+                      fetchOperations={account.fetchOperations}
+                      readOperation={readOperation}
+                      recoverOperation={account.executeMoneyAction}
+                      activityRefreshTrigger={activityRefreshTrigger}
+                      showSessionShimmer={!activitySession && (
+                        paintedAssetBalances.status === "loading" ||
+                        paintedAssetBalances.revalidating === true
+                      )}
+                    />
+                  ) : null}
+                  {activeNavigation === savePanelId ? (
                     <div id="save-panel">
                       {isVerified
                         ? (savingsContent ?? <EmptyPanel label="Savings" />)
@@ -566,17 +601,23 @@ export function HomeExperience({
                           ? <SavePanelShell />
                           : <EmptyPanel label="Savings" />}
                     </div>
-                  )
-                  : null}
-                {activeNavigation === "invest" ? (
-                  <PresentationRegionProvider regionId={regionId}>
-                    {investContent ?? <EmptyPanel label="Investments" />}
-                  </PresentationRegionProvider>
-                ) : null}
+                  ) : null}
+                  {activeNavigation === "invest" ? (
+                    <PresentationRegionProvider regionId={regionId}>
+                      {investContent ?? <EmptyPanel label="Investments" />}
+                    </PresentationRegionProvider>
+                  ) : null}
+                </div>
               </section>
-            </>
-          )}
-        </main>
+            )}
+          </main>
+          {!isSignedOut ? (
+            <PrimaryNavigation
+              activeNavigation={activeNavigation}
+              onNavigate={navigateTo}
+            />
+          ) : null}
+        </>
       ) : (
         <SignedOutLanding
           isVerified={isVerified}
@@ -604,6 +645,8 @@ function HeaderAccountAction({
   status,
   isSignedIn,
   routeMode,
+  ownerKey,
+  address,
   onDashboard,
   onSignIn,
   onSignOut,
@@ -612,6 +655,8 @@ function HeaderAccountAction({
   status: ReturnType<typeof useAccountWallet>["status"];
   isSignedIn: boolean;
   routeMode: "landing" | "dashboard";
+  ownerKey: string | null;
+  address: string | null;
   onDashboard: () => void;
   onSignIn: () => void;
   onSignOut: () => void;
@@ -623,6 +668,22 @@ function HeaderAccountAction({
         Retry sign out
       </button>
     );
+  }
+
+  if (routeMode === "dashboard") {
+    const checking = status === "restoring" || status === "validating";
+    const signedIn = status === "verified" || (status === "unavailable" && isSignedIn);
+    if (checking || signedIn) {
+      return (
+        <ProfileMark
+          status={checking ? "loading" : "ready"}
+          ownerKey={ownerKey}
+          address={address}
+          disabled={checking}
+          onClick={signedIn && !checking ? onOpenSettings : undefined}
+        />
+      );
+    }
   }
 
   if (status === "restoring" || status === "validating") {
@@ -638,17 +699,9 @@ function HeaderAccountAction({
   }
 
   if (status === "verified" || (status === "unavailable" && isSignedIn)) {
-    return routeMode === "landing" ? (
+    return (
       <button className="header-account-link" type="button" onClick={onDashboard}>
         Dashboard
-      </button>
-    ) : (
-      <button
-        className="header-account-link header-account-quiet"
-        type="button"
-        onClick={onOpenSettings}
-      >
-        Account
       </button>
     );
   }
@@ -722,22 +775,20 @@ function SignedOutLanding({
 
 function NestedHomeHeader({
   title,
+  backLabel,
   onBack,
 }: {
-  title: "Balances" | "Activity" | null;
+  title: string;
+  backLabel: string;
   onBack: () => void;
 }) {
-  const back = (
-    <button className="header-back-link" type="button" onClick={onBack}>
-      <span aria-hidden="true">←</span>
-      <span className="sr-only">Back</span>
-    </button>
-  );
-  if (!title) return back;
   return (
     <div className="header-leading">
-      {back}
-      <h1 className="header-panel-title">{title}</h1>
+      <button className="header-back-link" type="button" onClick={onBack}>
+        <span aria-hidden="true">←</span>
+        <span className="sr-only">{backLabel}</span>
+      </button>
+      <h1 className="header-panel-title app-header-title">{title}</h1>
     </div>
   );
 }

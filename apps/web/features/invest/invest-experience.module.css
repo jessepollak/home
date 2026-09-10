@@ -410,11 +410,11 @@
 
 @media (max-width: 719px) {
   .detailExperience {
-    min-height: calc(100svh - 11.25rem - env(safe-area-inset-bottom));
+    min-height: calc(100% - 1rem);
   }
 
   .cta {
-    bottom: calc(70px + env(safe-area-inset-bottom));
+    bottom: 0;
   }
 }
 

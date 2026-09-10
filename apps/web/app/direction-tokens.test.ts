@@ -31,6 +31,14 @@ describe("Direction 1 — Vercel Editorial tokens", () => {
     expect(globals).toContain("--motion-tab: 0ms");
     expect(globals).toContain("--motion-chip: 0ms");
     expect(globals).toContain("--motion-press: 0ms");
+    expect(globals).toContain(".panel-fade");
+    expect(globals).toContain("animation: panel-fade var(--motion-tab) ease");
+  });
+
+  test("pins a 56px header band on the authenticated shell", () => {
+    expect(globals).toContain(".app-frame-shell");
+    expect(globals).toContain("min-height: calc(56px + env(safe-area-inset-top, 0px))");
+    expect(globals).toContain("overflow-y: auto");
   });
 
   test("lets meme Δ% green/red beat muted .quote small", () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import { TradeActions } from "@/features/trading/trade-actions";
 import type { MarketDataState } from "./invest-market";
@@ -19,14 +20,21 @@ export function AssetDetailStatusScreen({
   status: "loading" | "unavailable";
   onBack: () => void;
 }) {
+  const hosted = Boolean(useOptionalAppChrome());
   return (
-    <section className={styles.experience} aria-labelledby="invest-asset-status-title">
-      <header className={styles.screenHeader}>
-        <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
-          <BackIcon />
-        </button>
-        <h2 id="invest-asset-status-title">Asset details</h2>
-      </header>
+    <section
+      className={styles.experience}
+      aria-label={hosted ? "Asset details" : undefined}
+      aria-labelledby={hosted ? undefined : "invest-asset-status-title"}
+    >
+      {hosted ? null : (
+        <header className={styles.screenHeader}>
+          <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
+            <BackIcon />
+          </button>
+          <h2 id="invest-asset-status-title">Asset details</h2>
+        </header>
+      )}
       <p className={styles.shelfStatus} role="status">
         {status === "loading"
           ? "Loading asset details."
@@ -53,26 +61,30 @@ export function AssetDetailScreen({
   const change = price.changeLabel ?? "—";
   const changeTone =
     change.startsWith("+") ? styles.changeUp : change.startsWith("-") ? styles.changeDown : "";
+  const hosted = Boolean(useOptionalAppChrome());
   return (
     <section
       className={`${styles.experience} ${styles.detailExperience}`}
-      aria-labelledby="invest-asset-title"
+      aria-label={hosted ? asset.displayName : undefined}
+      aria-labelledby={hosted ? undefined : "invest-asset-title"}
     >
-      <header className={styles.screenHeader}>
-        <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
-          <BackIcon />
-        </button>
-        <span className={styles.detailIdentity}>
-          <AssetIcon
-            assetId={asset.id}
-            label={asset.displayName}
-            initials={asset.initials}
-            imageUrl={asset.imageUrl}
-            pending={iconPending}
-          />
-          <h2 id="invest-asset-title">{asset.displayName}</h2>
-        </span>
-      </header>
+      {hosted ? null : (
+        <header className={styles.screenHeader}>
+          <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
+            <BackIcon />
+          </button>
+          <span className={styles.detailIdentity}>
+            <AssetIcon
+              assetId={asset.id}
+              label={asset.displayName}
+              initials={asset.initials}
+              imageUrl={asset.imageUrl}
+              pending={iconPending}
+            />
+            <h2 id="invest-asset-title">{asset.displayName}</h2>
+          </span>
+        </header>
+      )}
 
       <div className={styles.priceHeader}>
         <strong data-tone={price.tone}>
