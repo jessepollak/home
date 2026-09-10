@@ -1,7 +1,7 @@
 import "@/features/account/dom-test-harness";
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import type { AccountWalletSdkBoundary } from "@/features/account/cdp-client";
 import type {
   BaseAccountConnector,
@@ -429,6 +429,7 @@ function HomeHarness({
   routeMode = "dashboard",
   savingsContent = <section aria-label="Savings module">Savings fixture</section>,
   investContent = <section aria-label="Invest module">Invest fixture</section>,
+  assetBalances,
 }: {
   accountSdk: AccountWalletSdkBoundary;
   sessionFetch?: SessionFetch;
@@ -439,6 +440,7 @@ function HomeHarness({
   routeMode?: "landing" | "dashboard";
   savingsContent?: ReactNode;
   investContent?: ReactNode;
+  assetBalances?: ComponentProps<typeof HomeExperience>["assetBalances"];
 }) {
   return (
     <AccountWalletSessionOwner sdk={accountSdk} sessionFetch={sessionFetch}>
@@ -450,19 +452,21 @@ function HomeHarness({
         routeMode={routeMode}
         savingsContent={savingsContent}
         investContent={investContent}
-        assetBalances={{
-          status: "ready",
-          displayTotal: "$12.34",
-          items: [
-            {
-              id: "usdc",
-              group: "cash",
-              name: "US dollar",
-              displayBalance: "$12.34",
-              currencyCode: "USD",
-            },
-          ],
-        }}
+        assetBalances={
+          assetBalances ?? {
+            status: "ready",
+            displayTotal: "$12.34",
+            items: [
+              {
+                id: "usdc",
+                group: "cash",
+                name: "US dollar",
+                displayBalance: "$12.34",
+                currencyCode: "USD",
+              },
+            ],
+          }
+        }
       />
     </AccountWalletSessionOwner>
   );
@@ -1726,6 +1730,71 @@ describe("login-state home experience", () => {
     expect(page().getByRole("region", { name: "Savings module" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
     expect(page().getByRole("heading", { level: 1, name: "Save" })).toBeTruthy();
+  });
+
+  test("Home hub previews four balance rows and the nested panel lists every holding", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$12.34",
+          items: [
+            {
+              id: "cash:usd",
+              group: "cash",
+              name: "US dollar",
+              displayBalance: "$1.00",
+              currencyCode: "USD",
+            },
+            {
+              id: "cash:idr",
+              group: "cash",
+              name: "Indonesian rupiah",
+              displayBalance: "Rp 2.00",
+              currencyCode: "IDR",
+            },
+            {
+              id: "asset:eur",
+              group: "asset",
+              name: "Euro",
+              displayBalance: "€3.00",
+              currencyCode: "EUR",
+            },
+            {
+              id: "asset:eth",
+              group: "asset",
+              name: "Ethereum",
+              displayBalance: "4.00 ETH",
+            },
+            {
+              id: "asset:nvda",
+              group: "asset",
+              name: "NVIDIA",
+              displayBalance: "5.00 NVDAc",
+            },
+            {
+              id: "asset:btc",
+              group: "asset",
+              name: "Bitcoin",
+              displayBalance: "6.00 cbBTC",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    expect(page().getByText("US dollar")).toBeTruthy();
+    expect(page().getByText("Ethereum")).toBeTruthy();
+    expect(page().queryByText("NVIDIA")).toBeNull();
+    expect(page().queryByText("Bitcoin")).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(page().getByText("NVIDIA")).toBeTruthy();
+    expect(page().getByText("Bitcoin")).toBeTruthy();
+    expect(page().getByText("Indonesian rupiah")).toBeTruthy();
   });
 
   test("honors Balances and Activity dashboard deep links on first paint", async () => {

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   PORTFOLIO_NATIVE_ASSET_KEY,
   PORTFOLIO_USDC_ASSET_KEY,
+  investPortfolioAssets,
   nativeEthAsset,
   verifiedLocalCashAssets,
 } from "@/config/portfolio-assets";
@@ -9,7 +10,11 @@ import type {
   DirectPortfolioHolding,
   PortfolioValuationSnapshot,
 } from "@/server/valuation/types";
-import { presentPortfolioValuation } from "./present-home-balances";
+import {
+  HOME_BALANCES_HUB_PREVIEW_COUNT,
+  previewHomeBalanceItems,
+  presentPortfolioValuation,
+} from "./present-home-balances";
 
 function directHolding(
   overrides: Partial<DirectPortfolioHolding> &
@@ -737,5 +742,151 @@ describe("presentPortfolioValuation", () => {
     expect(presented.items.find((item) => item.group === "asset")?.displayContext).toBe(
       "1.1010 ETH",
     );
+  });
+
+  test("lists every nonzero holding after cash, fiat assets first, and omits zeros", () => {
+    const nvidia = investPortfolioAssets.find((asset) => asset.id === "nvdac");
+    const meta = investPortfolioAssets.find((asset) => asset.id === "metac");
+    if (!nvidia || !meta) throw new Error("Expected tokenized stock fixtures.");
+
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "US",
+        quoteCurrency: "USD",
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: nativeEthAsset.id,
+              assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
+              name: nativeEthAsset.name,
+              symbol: nativeEthAsset.symbol,
+              balanceBaseUnits: "50000000000000000",
+            }),
+            directHolding({
+              id: nvidia.id,
+              assetKey: nvidia.assetKey,
+              name: nvidia.name,
+              symbol: nvidia.symbol,
+              decimals: nvidia.decimals,
+              assetKind: "erc20",
+              contractAddress: nvidia.contractAddress,
+              balanceBaseUnits: "150000000",
+            }),
+            directHolding({
+              id: meta.id,
+              assetKey: meta.assetKey,
+              name: meta.name,
+              symbol: meta.symbol,
+              decimals: meta.decimals,
+              assetKind: "erc20",
+              contractAddress: meta.contractAddress,
+            }),
+            directHolding({
+              id: verifiedLocalCashAssets.EUR.id,
+              assetKey: verifiedLocalCashAssets.EUR.assetKey,
+              name: verifiedLocalCashAssets.EUR.name,
+              symbol: verifiedLocalCashAssets.EUR.symbol,
+              decimals: verifiedLocalCashAssets.EUR.decimals,
+              assetKind: "erc20",
+              contractAddress: verifiedLocalCashAssets.EUR.contractAddress,
+              cashCurrency: "EUR",
+              balanceBaseUnits: "109430000",
+            }),
+          ],
+          omissions: [],
+        },
+        cashBuckets: [
+          {
+            id: "cash:usd",
+            roles: ["canonical-usd", "selected-local"],
+            assetKey: PORTFOLIO_USDC_ASSET_KEY,
+            symbol: "USDC",
+            denominationCurrency: "USD",
+            tokenAmountBaseUnits: "4343810000",
+            tokenDecimals: 6,
+            indicativeValue: { atoms: "4343810000", scale: 6 },
+            valuationStatus: "priced",
+          },
+        ],
+      }),
+      error: null,
+    });
+
+    expect(presented.items.map((item) => [item.group, item.name])).toEqual([
+      ["cash", "US dollar"],
+      ["asset", "Euro"],
+      ["asset", "Ethereum"],
+      ["asset", "NVIDIA"],
+    ]);
+    expect(presented.items.find((item) => item.name === "Meta")).toBeUndefined();
+    expect(JSON.stringify(presented.items)).not.toContain("USDC");
+  });
+
+  test("keeps unread invest holdings as membership hints, not a four-row cap", () => {
+    const nvidia = investPortfolioAssets.find((asset) => asset.id === "nvdac");
+    if (!nvidia) throw new Error("Expected tokenized stock fixtures.");
+
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "US",
+        quoteCurrency: "USD",
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: nvidia.id,
+              assetKey: nvidia.assetKey,
+              name: nvidia.name,
+              symbol: nvidia.symbol,
+              decimals: nvidia.decimals,
+              assetKind: "erc20",
+              contractAddress: nvidia.contractAddress,
+              balanceBaseUnits: null,
+              readStatus: "unavailable",
+            }),
+          ],
+          omissions: [],
+        },
+        cashBuckets: [
+          {
+            id: "cash:usd",
+            roles: ["canonical-usd", "selected-local"],
+            assetKey: PORTFOLIO_USDC_ASSET_KEY,
+            symbol: "USDC",
+            denominationCurrency: "USD",
+            tokenAmountBaseUnits: "10000000",
+            tokenDecimals: 6,
+            indicativeValue: { atoms: "10000000", scale: 6 },
+            valuationStatus: "priced",
+          },
+        ],
+      }),
+      error: null,
+    });
+
+    expect(presented.items.map((item) => item.name)).toEqual(["US dollar"]);
+    expect(presented.unavailableItemIds).toEqual([`asset:${nvidia.assetKey}`]);
+  });
+
+  test("caps only the Home hub preview, not the full Balances list", () => {
+    const items = Array.from({ length: HOME_BALANCES_HUB_PREVIEW_COUNT + 3 }, (_, index) => ({
+      id: `row-${index}`,
+      name: `Asset ${index}`,
+      displayBalance: `${index}.00`,
+    }));
+
+    expect(previewHomeBalanceItems(items)).toHaveLength(HOME_BALANCES_HUB_PREVIEW_COUNT);
+    expect(previewHomeBalanceItems(items).map((item) => item.id)).toEqual([
+      "row-0",
+      "row-1",
+      "row-2",
+      "row-3",
+    ]);
+    expect(items).toHaveLength(HOME_BALANCES_HUB_PREVIEW_COUNT + 3);
   });
 });

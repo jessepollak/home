@@ -56,6 +56,7 @@ import {
   presentHomeBalanceMark,
   presentHomeBalanceRow,
   presentPortfolioValuation,
+  previewHomeBalanceItems,
   usePaintedHomeBalances,
   usePortfolioValuation,
   writeHomeBalancesPresentation,
@@ -894,7 +895,10 @@ function HomePanel({
           title="Balances"
           onOpen={onOpenBalances}
         />
-        <HomeBalancesList items={balanceItems} isLoading={isLoading} />
+        <HomeBalancesList
+          items={previewHomeBalanceItems(balanceItems)}
+          isLoading={isLoading}
+        />
       </section>
 
       {showSessionShimmer ? (

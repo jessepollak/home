@@ -6,6 +6,8 @@ export {
   presentationCurrencySymbol,
 } from "./format";
 export {
+  HOME_BALANCES_HUB_PREVIEW_COUNT,
+  previewHomeBalanceItems,
   presentPortfolioValuation,
   type HomeAssetBalanceItem,
   type HomeAssetBalancesPresentation,

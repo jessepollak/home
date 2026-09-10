@@ -32,6 +32,16 @@ export type HomeAssetBalancesPresentation = {
   unavailableItemIds?: readonly string[];
 };
 
+/** Home hub teaser. The nested Balances panel lists every presented row. */
+export const HOME_BALANCES_HUB_PREVIEW_COUNT = 4;
+
+export function previewHomeBalanceItems(
+  items: readonly HomeAssetBalanceItem[],
+  limit = HOME_BALANCES_HUB_PREVIEW_COUNT,
+): readonly HomeAssetBalanceItem[] {
+  return items.slice(0, limit);
+}
+
 export function presentPortfolioValuation(
   valuation: PortfolioValuationState,
 ): HomeAssetBalancesPresentation {
@@ -150,45 +160,50 @@ function presentAssetRows(
   snapshot: PortfolioValuationSnapshot,
 ): HomeAssetBalanceItem[] {
   const cashAssetKeys = selectedCashAssetKeys(snapshot);
-  const items: HomeAssetBalanceItem[] = [];
+  const fiat: HomeAssetBalanceItem[] = [];
+  const other: HomeAssetBalanceItem[] = [];
   for (const holding of snapshot.inventory.holdings) {
-    if (holding.kind !== "direct") continue;
-    const isNative = holding.assetKind === "native";
-    const isNonselectedLocalCash =
-      holding.cashCurrency !== null && !cashAssetKeys.has(holding.assetKey);
-    if (!isNative && !isNonselectedLocalCash) continue;
+    if (!isPresentedDirectHolding(holding, cashAssetKeys)) continue;
     if (holding.readStatus !== "ready" || holding.balanceBaseUnits === null) {
       continue;
     }
-    if (holding.balanceBaseUnits === "0") continue;
+    const balanceBaseUnits = holding.balanceBaseUnits;
+    if (balanceBaseUnits === "0") continue;
 
-    const nativeLabel = formatPresentationTokenAmount(
-      holding.balanceBaseUnits,
-      holding.decimals,
-      holding.symbol,
-      {
-        cashCurrency: holding.cashCurrency,
-        category: holding.assetKind === "native" ? "crypto" : undefined,
-      },
-    );
-    const pricedFiat = pricedDisplayFiat(
-      snapshot.lines.find(
-        (line) => line.holdingAssetKey === holding.assetKey,
-      ),
-      holding,
-    );
-
-    items.push({
-      id: `asset:${holding.assetKey}`,
-      group: "asset",
-      name: holding.name,
-      detail: holding.symbol,
-      displayBalance: pricedFiat ?? nativeLabel,
-      ...(pricedFiat ? { displayContext: nativeLabel } : {}),
-      currencyCode: holding.cashCurrency,
-    });
+    const item = presentDirectAssetRow(snapshot, { ...holding, balanceBaseUnits });
+    if (item.currencyCode) fiat.push(item);
+    else other.push(item);
   }
-  return items;
+  return [...fiat, ...other];
+}
+
+function presentDirectAssetRow(
+  snapshot: PortfolioValuationSnapshot,
+  holding: DirectPortfolioHolding & { balanceBaseUnits: string },
+): HomeAssetBalanceItem {
+  const nativeLabel = formatPresentationTokenAmount(
+    holding.balanceBaseUnits,
+    holding.decimals,
+    holding.symbol,
+    {
+      cashCurrency: holding.cashCurrency,
+      category: holding.assetKind === "native" ? "crypto" : undefined,
+    },
+  );
+  const pricedFiat = pricedDisplayFiat(
+    snapshot.lines.find((line) => line.holdingAssetKey === holding.assetKey),
+    holding,
+  );
+
+  return {
+    id: `asset:${holding.assetKey}`,
+    group: "asset",
+    name: holding.name,
+    detail: holding.symbol,
+    displayBalance: pricedFiat ?? nativeLabel,
+    ...(pricedFiat ? { displayContext: nativeLabel } : {}),
+    currencyCode: holding.cashCurrency,
+  };
 }
 
 function presentUnavailableAssetRowIds(
@@ -196,17 +211,20 @@ function presentUnavailableAssetRowIds(
 ): Pick<HomeAssetBalancesPresentation, "unavailableItemIds"> {
   const cashAssetKeys = selectedCashAssetKeys(snapshot);
   const unavailableItemIds = snapshot.inventory.holdings.flatMap((holding) => {
-    if (holding.kind !== "direct") return [];
-    const isNative = holding.assetKind === "native";
-    const isNonselectedLocalCash =
-      holding.cashCurrency !== null && !cashAssetKeys.has(holding.assetKey);
-    if (!isNative && !isNonselectedLocalCash) return [];
+    if (!isPresentedDirectHolding(holding, cashAssetKeys)) return [];
     if (holding.readStatus === "ready" && holding.balanceBaseUnits !== null) {
       return [];
     }
     return [`asset:${holding.assetKey}`];
   });
   return unavailableItemIds.length > 0 ? { unavailableItemIds } : {};
+}
+
+function isPresentedDirectHolding(
+  holding: PortfolioValuationSnapshot["inventory"]["holdings"][number],
+  cashAssetKeys: Set<string>,
+): holding is DirectPortfolioHolding {
+  return holding.kind === "direct" && !cashAssetKeys.has(holding.assetKey);
 }
 
 function selectedCashAssetKeys(snapshot: PortfolioValuationSnapshot): Set<string> {
