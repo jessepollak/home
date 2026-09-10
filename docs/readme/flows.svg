@@ -159,7 +159,7 @@
       <rect x="1076" y="498" width="167" height="53" fill="#f8f9fb"/><text x="1086" y="515" class="t micro muted">USDC WALLET</text><text x="1086" y="536" class="t small">2,160.00 USDC</text>
       <rect x="907" y="552" width="168" height="54" fill="#f8f9fb"/><text x="917" y="569" class="t micro muted">COLLATERAL SUPPLIED</text><text x="917" y="590" class="t small">0.050 cbBTC</text>
       <rect x="1076" y="552" width="167" height="54" fill="#f8f9fb"/><text x="1086" y="569" class="t micro muted">CURRENT DEBT</text><text x="1086" y="590" class="t small">1,800.00 USDC</text>
-      <rect x="907" y="607" width="168" height="54" fill="#f8f9fb"/><text x="917" y="624" class="t micro muted">REMAINING CAPACITY</text><text x="917" y="645" class="t small">3,032.50 USDC</text>
+      <rect x="907" y="607" width="168" height="54" fill="#f8f9fb"/><text x="917" y="624" class="t micro muted">BORROW CAPACITY</text><text x="917" y="645" class="t small">3,032.50 USDC</text>
       <rect x="1076" y="607" width="167" height="54" fill="#f8f9fb"/><text x="1086" y="624" class="t micro muted">HEALTH FACTOR</text><text x="1086" y="645" class="t small">2.68</text>
     </g>
 
@@ -169,7 +169,7 @@
     <rect x="906" y="747" width="338" height="44" rx="8" fill="#fff" stroke="#cfd5dd"/><text x="919" y="774" class="t small">Borrow USDC</text><text x="1228" y="774" class="t small muted" text-anchor="end">⌄</text>
     <text x="906" y="816" class="t tiny muted">AMOUNT (USDC)</text>
     <rect x="906" y="825" width="338" height="44" rx="8" fill="#fff" stroke="#cfd5dd"/><text x="919" y="852" class="t small">500.00</text>
-    <text x="906" y="880" class="t tiny muted">3,032.50 remaining · 4,832.50 USDC maximum debt</text>
+    <text x="906" y="880" class="t tiny muted">3,032.50 USDC current capacity</text>
     <rect x="906" y="895" width="338" height="45" rx="8" fill="#0052ff"/><text x="1075" y="923" class="t small white" text-anchor="middle">Review current preview</text>
   </g>
   <rect x="880" y="120" width="390" height="844" rx="18" fill="none" stroke="#dfe2e7" filter="url(#lift)"/>
