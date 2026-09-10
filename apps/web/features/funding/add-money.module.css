@@ -252,6 +252,8 @@
 
 .buyField,
 .paymentMethods,
+.paymentSummary,
+.pendingHelp,
 .onrampEmbed {
   width: min(100%, 340px);
 }
@@ -281,8 +283,7 @@
 }
 
 .buyInput:focus-visible,
-.paymentMethod:focus-within,
-.closePayment:focus-visible {
+.paymentMethod:focus-within {
   outline: 3px solid rgba(0, 82, 255, 0.18);
   outline-offset: 2px;
 }
@@ -320,6 +321,41 @@
   accent-color: var(--home-blue);
 }
 
+.paymentSummary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 2px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--control-radius);
+  background: var(--home-canvas);
+  text-align: left;
+}
+
+.paymentSummary > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.paymentSummary > div + div {
+  border-left: 1px solid var(--home-hairline);
+}
+
+.paymentSummary dt {
+  color: var(--home-muted);
+  font-size: 0.72rem;
+  font-weight: 680;
+}
+
+.paymentSummary dd {
+  margin: 0;
+  color: var(--home-ink);
+  font-size: 0.9rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
 .onrampEmbed {
   display: grid;
   justify-items: stretch;
@@ -336,16 +372,33 @@
   background: var(--home-canvas);
 }
 
-.closePayment {
-  min-height: 44px;
-  border: 1px solid var(--home-hairline);
-  border-radius: var(--control-radius);
-  background: var(--home-white);
-  color: var(--home-ink);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.86rem;
-  font-weight: 700;
+.postCheckout {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  text-align: center;
+}
+
+.pendingMark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0, 82, 255, 0.08);
+  color: var(--home-blue);
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.pendingHelp {
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
 .statusStack {

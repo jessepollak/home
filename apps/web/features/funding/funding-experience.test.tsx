@@ -170,6 +170,43 @@ describe("FundingExperience", () => {
     expect(page().queryByText("BRZ")).toBeNull();
   });
 
+  test("freezes the requested amount and method while Coinbase is opening", async () => {
+    let resolveOnramp: ((value: ReturnType<typeof onramp>) => void) | null = null;
+    const request = new Promise<ReturnType<typeof onramp>>((resolve) => {
+      resolveOnramp = resolve;
+    });
+    render(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async () => request,
+        }}
+        navigateToHostedOnramp={() => {}}
+      />,
+    );
+
+    openBuy();
+    fireEvent.change(page().getByLabelText("USD amount"), {
+      target: { value: "42.5" },
+    });
+    fireEvent.click(page().getByLabelText("Google Pay"));
+    fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
+
+    expect(
+      (page().getByRole("button", { name: "Opening Coinbase…" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(page().getByLabelText("Coinbase payment details").textContent).toContain("$42.50");
+    expect(page().getByLabelText("Coinbase payment details").textContent).toContain("Google Pay");
+    expect(page().queryByLabelText("USD amount")).toBeNull();
+    expect(page().queryByLabelText("Apple Pay")).toBeNull();
+    expect(page().queryByLabelText("Google Pay")).toBeNull();
+
+    await act(async () => resolveOnramp?.(onramp("iframe")));
+    await page().findByTitle("Coinbase payment");
+    expect(page().getByLabelText("Coinbase payment details").textContent).toContain("$42.50");
+  });
+
   test("requires explicit amount and method, then renders a verified inline response", async () => {
     const calls: unknown[] = [];
     const navigations: string[] = [];
@@ -217,6 +254,10 @@ describe("FundingExperience", () => {
       frame.getAttribute("referrerpolicy") ?? frame.getAttribute("referrerPolicy"),
     ).toBe("no-referrer");
     expect(frame.getAttribute("allow")).toBe("payment");
+    expect(page().getByLabelText("Coinbase payment details").textContent).toContain("$42.50");
+    expect(page().getByLabelText("Coinbase payment details").textContent).toContain("Google Pay");
+    expect(page().queryByLabelText("USD amount")).toBeNull();
+    expect(page().getByRole("button", { name: "Change payment details" })).toBeTruthy();
     expect(navigations).toEqual([]);
   });
 
@@ -328,7 +369,10 @@ describe("FundingExperience", () => {
     const firstSource = {} as MessageEventSource;
     bindFrameSource(firstFrame, firstSource);
 
-    fireEvent.click(page().getByRole("button", { name: "Replace Coinbase payment" }));
+    fireEvent.click(page().getByRole("button", { name: "Change payment details" }));
+    expect(page().queryByTitle("Coinbase payment")).toBeNull();
+    fireEvent.click(page().getByLabelText("Google Pay"));
+    fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
     await waitFor(() =>
       expect(page().getByTitle("Coinbase payment").getAttribute("src")).toBe(
         PAYMENT_LINK_B,
@@ -355,10 +399,21 @@ describe("FundingExperience", () => {
         "onramp_api.polling_success",
       );
     });
-    await waitFor(() => expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy());
+    await waitFor(() =>
+      expect(page().getByRole("dialog", { name: "Deposit pending" })).toBeTruthy(),
+    );
+    expect(page().getByLabelText("Coinbase payment details").textContent).toContain("Google Pay");
+    expect(page().getByText(/does not confirm that USDC settled on Base/)).toBeTruthy();
+    expect(page().queryByText("Check received")).toBeNull();
+    expect(page().getByRole("button", { name: "Close and check balance" })).toBeTruthy();
+
+    fireEvent.click(page().getByRole("button", { name: "View Coinbase receipt" }));
+    const receipt = await page().findByTitle("Coinbase receipt");
+    expect(receipt.getAttribute("src")).toBe(PAYMENT_LINK_B);
+    expect(page().getByRole("button", { name: "Hide Coinbase receipt" })).toBeTruthy();
   });
 
-  test("Close payment and Back both cancel an active inline attempt", async () => {
+  test("Change payment details and Back both cancel an active inline attempt", async () => {
     render(
       <FundingExperienceForWallet
         wallet={{
@@ -371,8 +426,9 @@ describe("FundingExperience", () => {
     openBuy();
     fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
     await page().findByTitle("Coinbase payment");
-    fireEvent.click(page().getByRole("button", { name: "Close payment" }));
+    fireEvent.click(page().getByRole("button", { name: "Change payment details" }));
     expect(page().queryByTitle("Coinbase payment")).toBeNull();
+    expect(page().getByLabelText("USD amount")).toBeTruthy();
 
     fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
     await page().findByTitle("Coinbase payment");

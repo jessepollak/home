@@ -24,7 +24,16 @@ import styles from "./add-money.module.css";
 import type { OnrampPaymentMethod } from "./types";
 import { ReceiveQr } from "./receive-qr";
 
-export type AddMoneyStep = "method" | "receive" | "buy";
+export type AddMoneyStep = "method" | "receive" | "buy" | "pending";
+
+export type OnrampPaymentSummary = {
+  paymentAmount: string;
+  paymentMethod: OnrampPaymentMethod;
+};
+
+export type PostCheckoutPayment = OnrampPaymentSummary & {
+  receiptUrl: string;
+};
 
 export function AddMoneyDialog({
   open,
@@ -34,9 +43,12 @@ export function AddMoneyDialog({
   onrampError,
   paymentAmount,
   paymentMethod,
+  activePayment,
   inlineOnrampUrl,
   inlineOnrampAttemptId,
   iframeRef,
+  postCheckoutPayment,
+  showReceipt,
   signedOut,
   regionId,
   onClose,
@@ -45,7 +57,9 @@ export function AddMoneyDialog({
   onSelectBuy,
   onPaymentAmountChange,
   onPaymentMethodChange,
-  onCloseInlineOnramp,
+  onEditPayment,
+  onToggleReceipt,
+  onCheckBalance,
   onContinueToCoinbase,
 }: {
   open: boolean;
@@ -55,9 +69,12 @@ export function AddMoneyDialog({
   onrampError: string | null;
   paymentAmount: string;
   paymentMethod: OnrampPaymentMethod;
+  activePayment: OnrampPaymentSummary | null;
   inlineOnrampUrl: string | null;
   inlineOnrampAttemptId: number | null;
   iframeRef: RefObject<HTMLIFrameElement | null>;
+  postCheckoutPayment: PostCheckoutPayment | null;
+  showReceipt: boolean;
   signedOut: boolean;
   regionId: RegionId;
   onClose: () => void;
@@ -66,10 +83,19 @@ export function AddMoneyDialog({
   onSelectBuy: () => void;
   onPaymentAmountChange: (value: string) => void;
   onPaymentMethodChange: (value: OnrampPaymentMethod) => void;
-  onCloseInlineOnramp: () => void;
+  onEditPayment: () => void;
+  onToggleReceipt: () => void;
+  onCheckBalance: () => void;
   onContinueToCoinbase: () => void;
 }) {
-  const title = step === "receive" ? "Receive" : step === "buy" ? "Buy" : "Add money";
+  const title =
+    step === "receive"
+      ? "Receive"
+      : step === "buy"
+        ? "Buy"
+        : step === "pending"
+          ? "Deposit pending"
+          : "Add money";
 
   return (
     <MoneyModal
@@ -81,7 +107,7 @@ export function AddMoneyDialog({
       <MoneyModalHeader
         title={title}
         titleId="add-money-title"
-        onBack={step === "method" ? undefined : onBack}
+        onBack={step === "method" || step === "pending" ? undefined : onBack}
         onClose={onClose}
         closeLabel="Close add money"
       />
@@ -97,12 +123,18 @@ export function AddMoneyDialog({
         <BuyBody
           paymentAmount={paymentAmount}
           paymentMethod={paymentMethod}
+          activePayment={activePayment}
           inlineOnrampUrl={inlineOnrampUrl}
           inlineOnrampAttemptId={inlineOnrampAttemptId}
           iframeRef={iframeRef}
           onPaymentAmountChange={onPaymentAmountChange}
           onPaymentMethodChange={onPaymentMethodChange}
-          onCloseInlineOnramp={onCloseInlineOnramp}
+        />
+      ) : null}
+      {!signedOut && step === "pending" && postCheckoutPayment ? (
+        <PostCheckoutBody
+          payment={postCheckoutPayment}
+          showReceipt={showReceipt}
         />
       ) : null}
 
@@ -127,14 +159,23 @@ export function AddMoneyDialog({
           primaryLabel={
             openingOnramp
               ? "Opening Coinbase…"
-              : inlineOnrampUrl
-                ? "Replace Coinbase payment"
+              : activePayment
+                ? "Change payment details"
                 : "Continue to Coinbase"
           }
           primaryDisabled={openingOnramp}
-          onPrimary={onContinueToCoinbase}
+          onPrimary={activePayment ? onEditPayment : onContinueToCoinbase}
           secondaryLabel="Back"
           onSecondary={onBack}
+        />
+      ) : null}
+
+      {!signedOut && step === "pending" && postCheckoutPayment ? (
+        <MoneyModalFooter
+          primaryLabel="Close and check balance"
+          onPrimary={onCheckBalance}
+          secondaryLabel={showReceipt ? "Hide Coinbase receipt" : "View Coinbase receipt"}
+          onSecondary={onToggleReceipt}
         />
       ) : null}
     </MoneyModal>
@@ -265,57 +306,65 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
 export function BuyBody({
   paymentAmount,
   paymentMethod,
+  activePayment,
   inlineOnrampUrl,
   inlineOnrampAttemptId,
   iframeRef,
   onPaymentAmountChange,
   onPaymentMethodChange,
-  onCloseInlineOnramp,
 }: {
   paymentAmount: string;
   paymentMethod: OnrampPaymentMethod;
+  activePayment: OnrampPaymentSummary | null;
   inlineOnrampUrl: string | null;
   inlineOnrampAttemptId: number | null;
   iframeRef: RefObject<HTMLIFrameElement | null>;
   onPaymentAmountChange: (value: string) => void;
   onPaymentMethodChange: (value: OnrampPaymentMethod) => void;
-  onCloseInlineOnramp: () => void;
 }) {
   return (
     <div className={`${modal.body} ${styles.buy}`}>
       <CurrencyMark currency="USD" symbol="$" />
       <h3 className={styles.buyTitle}>Buy USDC</h3>
       <p className={styles.buyLead}>
-        Choose a USD amount and Coinbase payment method. USDC is delivered on Base.
+        {activePayment
+          ? "Complete this payment in Coinbase. The amount and method below are fixed for this request."
+          : "Choose a USD amount and Coinbase payment method. USDC is delivered on Base."}
       </p>
 
-      <label className={styles.buyField} htmlFor="buy-usdc-amount">
-        <span className={styles.buyLabel}>USD amount</span>
-        <input
-          id="buy-usdc-amount"
-          className={styles.buyInput}
-          inputMode="decimal"
-          autoComplete="off"
-          value={paymentAmount}
-          onChange={(event) => onPaymentAmountChange(event.target.value)}
-        />
-      </label>
-
-      <fieldset className={styles.paymentMethods}>
-        <legend className={styles.buyLabel}>Payment method</legend>
-        {(["apple-pay", "google-pay"] as const).map((method) => (
-          <label className={styles.paymentMethod} key={method}>
+      {activePayment ? (
+        <PaymentSummary payment={activePayment} />
+      ) : (
+        <>
+          <label className={styles.buyField} htmlFor="buy-usdc-amount">
+            <span className={styles.buyLabel}>USD amount</span>
             <input
-              type="radio"
-              name="coinbase-payment-method"
-              value={method}
-              checked={paymentMethod === method}
-              onChange={() => onPaymentMethodChange(method)}
+              id="buy-usdc-amount"
+              className={styles.buyInput}
+              inputMode="decimal"
+              autoComplete="off"
+              value={paymentAmount}
+              onChange={(event) => onPaymentAmountChange(event.target.value)}
             />
-            <span>{method === "apple-pay" ? "Apple Pay" : "Google Pay"}</span>
           </label>
-        ))}
-      </fieldset>
+
+          <fieldset className={styles.paymentMethods}>
+            <legend className={styles.buyLabel}>Payment method</legend>
+            {(["apple-pay", "google-pay"] as const).map((method) => (
+              <label className={styles.paymentMethod} key={method}>
+                <input
+                  type="radio"
+                  name="coinbase-payment-method"
+                  value={method}
+                  checked={paymentMethod === method}
+                  onChange={() => onPaymentMethodChange(method)}
+                />
+                <span>{paymentMethodLabel(method)}</span>
+              </label>
+            ))}
+          </fieldset>
+        </>
+      )}
 
       {inlineOnrampUrl ? (
         <section className={styles.onrampEmbed} aria-label="Coinbase payment">
@@ -329,17 +378,77 @@ export function BuyBody({
             referrerPolicy="no-referrer"
             allow="payment"
           />
-          <button
-            className={styles.closePayment}
-            type="button"
-            onClick={onCloseInlineOnramp}
-          >
-            Close payment
-          </button>
         </section>
       ) : null}
     </div>
   );
+}
+
+export function PostCheckoutBody({
+  payment,
+  showReceipt,
+}: {
+  payment: PostCheckoutPayment;
+  showReceipt: boolean;
+}) {
+  return (
+    <div className={`${modal.body} ${styles.postCheckout}`}>
+      <div className={styles.pendingMark} aria-hidden="true">…</div>
+      <h3 className={styles.buyTitle}>Check your Base balance</h3>
+      <p className={styles.buyLead}>
+        Coinbase returned from checkout, but that message does not confirm that USDC
+        settled on Base.
+      </p>
+      <PaymentSummary payment={payment} />
+      <p className={styles.pendingHelp}>
+        Keep your Coinbase receipt until the balance updates. Close this window to
+        check Home before starting another payment.
+      </p>
+      {showReceipt ? (
+        <section className={styles.onrampEmbed} aria-label="Coinbase receipt">
+          <iframe
+            title="Coinbase receipt"
+            className={styles.onrampFrame}
+            src={payment.receiptUrl}
+            sandbox="allow-scripts allow-same-origin"
+            referrerPolicy="no-referrer"
+            allow="payment"
+          />
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function PaymentSummary({ payment }: { payment: OnrampPaymentSummary }) {
+  return (
+    <dl className={styles.paymentSummary} aria-label="Coinbase payment details">
+      <div>
+        <dt>Amount</dt>
+        <dd>{formatPaymentAmount(payment.paymentAmount)}</dd>
+      </div>
+      <div>
+        <dt>Method</dt>
+        <dd>{paymentMethodLabel(payment.paymentMethod)}</dd>
+      </div>
+    </dl>
+  );
+}
+
+function formatPaymentAmount(value: string): string {
+  const amount = Number(value);
+  return Number.isFinite(amount)
+    ? new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(amount)
+    : `$${value}`;
+}
+
+function paymentMethodLabel(method: OnrampPaymentMethod): string {
+  return method === "apple-pay" ? "Apple Pay" : "Google Pay";
 }
 
 export function SupportedAssets({ regionId }: { regionId: RegionId }) {
