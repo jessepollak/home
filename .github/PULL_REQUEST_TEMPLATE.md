@@ -13,6 +13,7 @@ Closes #
 
 User-visible UI / core-flow PRs only. Convention: [docs/ui-pr-previews.md](docs/ui-pr-previews.md).
 
+- [ ] Live impl capture (preview / prod / localhost on this tip) — not comps, empty scaffold, or unlabeled `/dev` harness
 - [ ] Before/after (or justified after-only) inline in this description
 - [ ] Hosted on GitHub `user-attachments/assets` (paste/drop into this PR body)
 - [ ] Stills: `~390px` width via `<img … width="390">` or equivalent
