@@ -147,6 +147,7 @@ export function AccountSignInSheet({
   const signInBlocked =
     signInAvailability === "unconfigured" ||
     signInAvailability === "provider-unavailable";
+  const isCleaningUp = !signInBlocked && status === "signing-out";
   const isChecking =
     !signInBlocked && (status === "restoring" || status === "validating");
 
@@ -413,6 +414,11 @@ export function AccountSignInSheet({
             <div className={styles.pendingPanel} aria-live="polite">
               <span className={styles.spinner} aria-hidden="true" />
               {baseAccountPhaseMessage(activeBaseAccountPhase)}
+            </div>
+          ) : isCleaningUp ? (
+            <div className={styles.pendingPanel} aria-live="polite">
+              <span className={styles.spinner} aria-hidden="true" />
+              Finishing sign-out…
             </div>
           ) : isChecking ? (
             <div className={styles.pendingPanel} aria-live="polite">
