@@ -79,8 +79,6 @@ function attempt(overrides: Partial<ExecutionAttempt> = {}): ExecutionAttempt {
   };
 }
 
-function assignableTo<T>(_value: T): void {}
-
 describe("attempt command contract v1", () => {
   test("versions the command set and compatibility revision", () => {
     expect(ATTEMPT_COMMAND_CONTRACT_VERSION).toBe(1);
@@ -104,7 +102,7 @@ describe("attempt command contract v1", () => {
       ok: false,
       reason: "home-correlation-is-not-provider-evidence",
     });
-    assignableTo<ClaimDispatch>(command);
+    expect(command.providerRequestKey.kind).toBe("home-correlation");
   });
 
   test("only ClaimDispatch can produce authorized(v); recover never grants a new send", () => {
@@ -278,7 +276,6 @@ describe("attempt command contract v1", () => {
       provenance: { source: "provider-return", observedAt: "2026-09-10T05:01:02.000Z" },
       writeIdempotencyKey: "evidence-upload-1",
     } satisfies RecordProviderEvidence;
-    assignableTo<RecordProviderEvidence>(command);
 
     expect(conflictingEvidenceDecision(command.evidence, command.evidence)).toBe("duplicate");
     expect(conflictingEvidenceDecision(command.evidence, {
@@ -301,7 +298,7 @@ describe("attempt command contract v1", () => {
       expectedAttemptVersion: 1,
       lookup: { kind: "none", reason: "reference-free-ambiguous" },
     } satisfies ReconcileAttempt;
-    assignableTo<ReconcileAttempt>(command);
+    expect(command.lookup).toEqual({ kind: "none", reason: "reference-free-ambiguous" });
 
     expect(reconcileCapabilities()).toEqual({
       mayClaim: false,

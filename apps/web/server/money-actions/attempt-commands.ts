@@ -474,10 +474,11 @@ export function mayAuthorizeNewSend(certainty: SubmissionCertainty): boolean {
   return certainty.classification === "not-submitted";
 }
 
-export function providerRequestKeyAsEvidence(_key: HomeProviderRequestKey): {
+export function providerRequestKeyAsEvidence(key: HomeProviderRequestKey): {
   ok: false;
   reason: "home-correlation-is-not-provider-evidence";
 } {
+  void key;
   return { ok: false, reason: "home-correlation-is-not-provider-evidence" };
 }
 
