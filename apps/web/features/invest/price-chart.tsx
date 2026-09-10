@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Liveline, type LivelinePoint } from "liveline";
 import {
   MARKET_PRICE_RANGES,
@@ -168,28 +168,16 @@ function useHeldLivelinePlot(
 
 /** Opaque first-load shimmer fades once so the same Liveline instance can reveal. */
 function useFirstPaintCover(hasPlot: boolean, reduceMotion: boolean) {
-  const [covering, setCovering] = useState(false);
-  const revealed = useRef(false);
-
-  if (!hasPlot) {
-    revealed.current = false;
-    if (covering) setCovering(false);
-  } else if (!revealed.current) {
-    revealed.current = true;
-    if (reduceMotion) {
-      if (covering) setCovering(false);
-    } else if (!covering) {
-      setCovering(true);
-    }
-  }
+  const shouldCover = hasPlot && !reduceMotion;
+  const [faded, setFaded] = useState(false);
 
   useEffect(() => {
-    if (!covering) return;
-    const timer = window.setTimeout(() => setCovering(false), CHART_COVER_FADE_MS);
+    if (!shouldCover) return;
+    const timer = window.setTimeout(() => setFaded(true), CHART_COVER_FADE_MS);
     return () => window.clearTimeout(timer);
-  }, [covering]);
+  }, [shouldCover]);
 
-  return covering;
+  return shouldCover && !faded;
 }
 
 function commitLivelinePlot(
