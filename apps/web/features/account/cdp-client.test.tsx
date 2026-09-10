@@ -1326,6 +1326,156 @@ describe("production account session owner", () => {
     }
   }
 
+  for (const ownerACleanupOutcome of ["success", "failure"] as const) {
+    for (const freshOwner of [
+      { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
+      { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
+    ] as const) {
+      for (const freshArrival of [
+        "before-b-settlement",
+        "after-b-failure",
+      ] as const) {
+        test(`replaces owner B blocked selection across null with fresh ${freshOwner.label} after owner A ${ownerACleanupOutcome} ${freshArrival}`, async () => {
+          window.sessionStorage.setItem("home:account-provider", "base-account");
+          const ownerACleanup = deferred<void>();
+          const ownerBCleanup = deferred<void>();
+          let activeSdkOwner: string | null = OWNER_A;
+          let signOutCalls = 0;
+          let ownerBSessionCalls = 0;
+          let restoreCalls = 0;
+          const sdk = baseSdk({
+            getAccessToken: async () => `token-${activeSdkOwner ?? "none"}`,
+            signOut: () => {
+              signOutCalls += 1;
+              return signOutCalls === 1
+                ? ownerACleanup.promise
+                : ownerBCleanup.promise;
+            },
+          });
+          const baseAccountRestorer: BaseAccountRestorer = async () => {
+            restoreCalls += 1;
+            throw new BaseAccountConnectorError("missing-connection");
+          };
+          const view = render(
+            <SessionHarness
+              sdk={sdk}
+              sessionFetch={async () =>
+                sessionResponse(
+                  sessionFor("siwe-subject-a", ADDRESS_A, "base-account"),
+                )
+              }
+              baseAccountEnabled
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+
+          await waitFor(() => expect(signOutCalls).toBe(1));
+          activeSdkOwner = OWNER_B;
+          view.rerender(
+            <SessionHarness
+              sdk={{ ...sdk, ownerKey: OWNER_B }}
+              sessionFetch={async () => {
+                ownerBSessionCalls += 1;
+                return sessionResponse(
+                  sessionFor("siwe-subject-b", ADDRESS_B, "base-account"),
+                );
+              }}
+              baseAccountEnabled
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+          await waitFor(() => expect(ownerBSessionCalls).toBe(1));
+          await waitFor(() => expect(restoreCalls).toBe(2));
+          expect(page().getByTestId("status").textContent).toBe("signing-out");
+
+          activeSdkOwner = null;
+          view.rerender(
+            <SessionHarness
+              sdk={{ ...sdk, isSignedIn: false, ownerKey: null }}
+              sessionFetch={async () => new Response(null, { status: 401 })}
+              baseAccountEnabled
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+
+          await act(async () => {
+            if (ownerACleanupOutcome === "success") {
+              ownerACleanup.resolve();
+              await ownerACleanup.promise;
+            } else {
+              ownerACleanup.reject(new Error("owner-a cleanup failure"));
+              await ownerACleanup.promise.catch(() => {});
+            }
+          });
+          await waitFor(() => expect(signOutCalls).toBe(2));
+
+          const renderFreshOwner = () => {
+            activeSdkOwner = freshOwner.ownerKey;
+            view.rerender(
+              <SessionHarness
+                sdk={{ ...sdk, ownerKey: freshOwner.ownerKey }}
+                sessionFetch={async () =>
+                  sessionResponse(
+                    sessionFor(
+                      `fresh-subject-${freshOwner.label.toLowerCase()}`,
+                      freshOwner.address,
+                    ),
+                  )
+                }
+                baseAccountEnabled
+                baseAccountRestorer={baseAccountRestorer}
+              />,
+            );
+          };
+
+          if (freshArrival === "before-b-settlement") {
+            renderFreshOwner();
+            await waitFor(() =>
+              expect(page().getByTestId("address").textContent).toBe(
+                freshOwner.address,
+              ),
+            );
+          } else {
+            await act(async () => {
+              ownerBCleanup.reject(new Error("owner-b cleanup failure"));
+              await ownerBCleanup.promise.catch(() => {});
+            });
+            await waitFor(() =>
+              expect(page().getByTestId("status").textContent).toBe(
+                "signout-error",
+              ),
+            );
+            renderFreshOwner();
+          }
+
+          await waitFor(() =>
+            expect(page().getByTestId("address").textContent).toBe(
+              freshOwner.address,
+            ),
+          );
+          expect(page().getByTestId("status").textContent).toBe("verified");
+          expect(page().getByTestId("provider").textContent).toBe(
+            "cdp-embedded",
+          );
+          expect(signOutCalls).toBe(2);
+
+          if (freshArrival === "before-b-settlement") {
+            await act(async () => {
+              ownerBCleanup.reject(new Error("late owner-b cleanup failure"));
+              await ownerBCleanup.promise.catch(() => {});
+              await new Promise((resolve) => setTimeout(resolve, 0));
+            });
+            expect(page().getByTestId("status").textContent).toBe("verified");
+            expect(page().getByTestId("address").textContent).toBe(
+              freshOwner.address,
+            );
+            expect(signOutCalls).toBe(2);
+          }
+        });
+      }
+    }
+  }
+
   test("lets owner B explicitly sign out after a late owner A cleanup failure", async () => {
     window.sessionStorage.setItem("home:account-provider", "base-account");
     const ownerACleanup = deferred<void>();

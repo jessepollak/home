@@ -300,10 +300,22 @@ export type AccountWalletSdkBoundary = {
   signOut: () => Promise<void>;
 };
 
+type AuthenticationIdentity = {
+  ownerKey: string | null;
+  generation: number;
+};
+
 type AccountSelection =
   | { provider: "restoring"; hint: AccountProvider | null }
-  | { provider: "pending-authentication"; attemptedProvider: AccountProvider }
-  | { provider: "blocked-authentication" }
+  | {
+      provider: "pending-authentication";
+      attemptedProvider: AccountProvider;
+      authentication: AuthenticationIdentity;
+    }
+  | {
+      provider: "blocked-authentication";
+      authentication: AuthenticationIdentity | null;
+    }
   | { provider: "cdp-embedded" }
   | {
       provider: "base-account";
@@ -327,7 +339,7 @@ function initialAccountSelection(): AccountSelection {
       return { provider: "restoring", hint };
     }
     if (hint !== null) {
-      return { provider: "blocked-authentication" };
+      return { provider: "blocked-authentication", authentication: null };
     }
   } catch {
     // The restored SDK identity can still select one unambiguous provider.
@@ -788,6 +800,17 @@ export function AccountWalletSessionOwner({
     currentOwnerKey.current = ownerKey;
     if (previousOwner !== ownerKey && ownerKey !== null) {
       const previousGeneration = authenticationGeneration.current;
+      const selection = accountSelection.current;
+      const scopedAuthentication =
+        selection.provider === "pending-authentication" ||
+        selection.provider === "blocked-authentication"
+          ? selection.authentication
+          : null;
+      const ownerlessAuthenticationArrived = Boolean(
+        previousOwner === null &&
+          scopedAuthentication?.ownerKey === null &&
+          scopedAuthentication.generation === previousGeneration,
+      );
       const previousOwnerCleanupRequested =
         previousOwner !== null &&
         [...automaticCleanupRequests.current].some(
@@ -795,8 +818,24 @@ export function AccountWalletSessionOwner({
             request.ownerKey === previousOwner &&
             request.generation === previousGeneration,
         );
-      advanceAuthenticationGeneration();
+      const nextGeneration = advanceAuthenticationGeneration();
+
       if (
+        ownerlessAuthenticationArrived &&
+        (selection.provider === "pending-authentication" ||
+          selection.provider === "blocked-authentication")
+      ) {
+        accountSelection.current = {
+          ...selection,
+          authentication: { ownerKey, generation: nextGeneration },
+        };
+      } else if (
+        scopedAuthentication &&
+        (scopedAuthentication.ownerKey !== ownerKey ||
+          scopedAuthentication.generation !== nextGeneration)
+      ) {
+        accountSelection.current = { provider: "restoring", hint: null };
+      } else if (
         previousOwner !== null &&
         ((sessionSuppression?.ownerKey === previousOwner &&
           sessionSuppression.ownerKey !== ownerKey) ||
@@ -1060,7 +1099,13 @@ export function AccountWalletSessionOwner({
       } = {},
     ) => {
       preserveSignedOutMessage.current = false;
-      accountSelection.current = { provider: "blocked-authentication" };
+      accountSelection.current = {
+        provider: "blocked-authentication",
+        authentication: {
+          ownerKey,
+          generation: authenticationGeneration.current,
+        },
+      };
       writeAccountProviderHint("pending:base-account");
       clearPrivateState();
       clearBaseConnection();
@@ -1129,7 +1174,17 @@ export function AccountWalletSessionOwner({
         (!baseAccountEnabled ||
           (selection.ownerKey !== null && selection.ownerKey !== ownerKey)))
     ) {
-      accountSelection.current = { provider: "blocked-authentication" };
+      accountSelection.current = {
+        provider: "blocked-authentication",
+        authentication:
+          selection.provider === "pending-authentication" ||
+          selection.provider === "blocked-authentication"
+            ? selection.authentication
+            : {
+                ownerKey,
+                generation: authenticationGeneration.current,
+              },
+      };
       clearPrivateState();
       setStatus("signing-out");
       setMessage(
@@ -1233,7 +1288,13 @@ export function AccountWalletSessionOwner({
         restoredConnection = await baseAccountRestorer((reason) => {
           invalidation ??= reason;
           if (restoredConnection && baseConnection.current === restoredConnection) {
-            accountSelection.current = { provider: "blocked-authentication" };
+            accountSelection.current = {
+              provider: "blocked-authentication",
+              authentication: {
+                ownerKey,
+                generation: authenticationGeneration.current,
+              },
+            };
             writeAccountProviderHint("pending:base-account");
             void rejectBaseSession(invalidationMessage(reason));
           }
@@ -1431,7 +1492,7 @@ export function AccountWalletSessionOwner({
   const beginSignInAttempt = useCallback(
     (provider: "cdp-embedded" | "base-account") => {
       assertAuthenticationCleanupComplete();
-      advanceAuthenticationGeneration();
+      const generation = advanceAuthenticationGeneration();
       const previousAttempt = signInAttemptSequence.current;
       const sequence = ++signInAttemptSequence.current;
       revokeAuthAttempt(previousAttempt);
@@ -1447,6 +1508,10 @@ export function AccountWalletSessionOwner({
       accountSelection.current = {
         provider: "pending-authentication",
         attemptedProvider: provider,
+        authentication: {
+          ownerKey: currentOwnerKey.current,
+          generation,
+        },
       };
       writeAccountProviderHint(`pending:${provider}`);
       setStatus("signed-out");
@@ -1478,11 +1543,23 @@ export function AccountWalletSessionOwner({
       }
     }
     const canceledProvider = activeSignInProvider.current;
+    const canceledSelection = accountSelection.current;
+    const canceledAuthentication =
+      canceledSelection.provider === "pending-authentication" ||
+      canceledSelection.provider === "blocked-authentication"
+        ? canceledSelection.authentication
+        : {
+            ownerKey: currentOwnerKey.current,
+            generation: authenticationGeneration.current,
+          };
     activeSignInProvider.current = null;
     clearPrivateState();
     clearBaseConnection();
     if (canceledProvider) {
-      accountSelection.current = { provider: "blocked-authentication" };
+      accountSelection.current = {
+        provider: "blocked-authentication",
+        authentication: canceledAuthentication,
+      };
       writeAccountProviderHint(`pending:${canceledProvider}`);
     }
     setStatus("signed-out");
@@ -1562,6 +1639,10 @@ export function AccountWalletSessionOwner({
       }
 
       const attemptSequence = beginSignInAttempt("base-account");
+      const attemptAuthentication: AuthenticationIdentity = {
+        ownerKey: currentOwnerKey.current,
+        generation: authenticationGeneration.current,
+      };
       baseLoginInProgress.current = true;
       onPhase("connecting");
 
@@ -1582,7 +1663,10 @@ export function AccountWalletSessionOwner({
         signInAttemptSequence.current += 1;
         revokeAuthAttempt(attemptSequence);
         baseLoginInProgress.current = false;
-        accountSelection.current = { provider: "blocked-authentication" };
+        accountSelection.current = {
+          provider: "blocked-authentication",
+          authentication: attemptAuthentication,
+        };
         writeAccountProviderHint("pending:base-account");
         if (baseConnection.current === connection) baseConnection.current = null;
         if (connection) void connection.disconnect();
@@ -1666,7 +1750,10 @@ export function AccountWalletSessionOwner({
         } else if (connection) {
           await connection.disconnect();
         }
-        accountSelection.current = { provider: "blocked-authentication" };
+        accountSelection.current = {
+          provider: "blocked-authentication",
+          authentication: attemptAuthentication,
+        };
         writeAccountProviderHint("pending:base-account");
         if (error instanceof BaseAccountConnectorError) {
           throw new BaseAccountLoginError(
