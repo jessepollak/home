@@ -4,38 +4,84 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
 } from "react";
 import styles from "./money-modal.module.css";
 
+export const MONEY_SHEET_ENTER_MS = 280;
+export const MONEY_SHEET_EXIT_MS = 220;
+export const MONEY_SHEET_DISMISS_PX = 72;
+
+function prefersReducedMotion() {
+  return typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 export function useMoneyModal(open: boolean): RefObject<HTMLDialogElement | null> {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const closeTimerRef = useRef<number>(0);
+  const [scrollLocked, setScrollLocked] = useState(open);
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (open && !dialog.open) {
-      restoreFocusRef.current =
-        document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      dialog.showModal();
-      dialog.querySelector<HTMLElement>("button:not(:disabled), input:not(:disabled)")?.focus();
-    } else if (!open && dialog.open) {
-      dialog.close();
+
+    if (open) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = 0;
+      setScrollLocked(true);
+      if (!dialog.open) {
+        restoreFocusRef.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        dialog.showModal();
+        dialog.querySelector<HTMLElement>("button:not(:disabled), input:not(:disabled)")?.focus();
+      }
+      dialog.dataset.state = "open";
+      return;
+    }
+
+    if (!dialog.open) {
+      dialog.dataset.state = "closed";
+      setScrollLocked(false);
+      return;
+    }
+
+    const finish = () => {
+      closeTimerRef.current = 0;
+      if (dialog.open) dialog.close();
+      setScrollLocked(false);
       restoreFocusRef.current?.focus();
       restoreFocusRef.current = null;
+    };
+
+    if (prefersReducedMotion()) {
+      dialog.dataset.state = "closed";
+      finish();
+      return;
     }
+
+    dialog.dataset.state = "closing";
+    closeTimerRef.current = window.setTimeout(finish, MONEY_SHEET_EXIT_MS);
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
+    return () => {
+      window.clearTimeout(closeTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!scrollLocked) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [open]);
+  }, [scrollLocked]);
 
   return dialogRef;
 }
@@ -56,20 +102,140 @@ export function MoneyModal({
   children: ReactNode;
 }) {
   const dialogRef = useMoneyModal(open);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const [entered, setEntered] = useState(false);
+  const dragRef = useRef({
+    pointerId: -1,
+    startY: 0,
+    offset: 0,
+    lastY: 0,
+    lastT: 0,
+    velocity: 0,
+  });
+
+  useEffect(() => {
+    if (!open) {
+      setEntered(false);
+      return;
+    }
+    if (prefersReducedMotion()) {
+      setEntered(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setEntered(true), MONEY_SHEET_ENTER_MS);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  function clearSheetTransform() {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    sheet.style.transform = "";
+    sheet.style.transition = "";
+    delete sheet.dataset.dragging;
+  }
+
+  function onGrabberPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || !open) return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      offset: 0,
+      lastY: event.clientY,
+      lastT: event.timeStamp,
+      velocity: 0,
+    };
+    sheet.dataset.dragging = "true";
+    sheet.style.transition = "none";
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function onGrabberPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (drag.pointerId !== event.pointerId) return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const offset = Math.max(0, event.clientY - drag.startY);
+    const elapsed = Math.max(1, event.timeStamp - drag.lastT);
+    drag.offset = offset;
+    drag.velocity = (event.clientY - drag.lastY) / elapsed;
+    drag.lastY = event.clientY;
+    drag.lastT = event.timeStamp;
+    sheet.style.transform = `translateY(${offset}px)`;
+  }
+
+  function onGrabberPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (drag.pointerId !== event.pointerId) return;
+    drag.pointerId = -1;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const shouldDismiss =
+      drag.offset >= MONEY_SHEET_DISMISS_PX || (drag.offset > 24 && drag.velocity > 0.6);
+    if (shouldDismiss) {
+      if (prefersReducedMotion()) {
+        clearSheetTransform();
+        onCancel();
+        return;
+      }
+      sheet.style.transition = `transform ${MONEY_SHEET_EXIT_MS}ms ease-in`;
+      sheet.style.transform = "translateY(100%)";
+      onCancel();
+      return;
+    }
+    if (prefersReducedMotion() || drag.offset === 0) {
+      clearSheetTransform();
+      return;
+    }
+    sheet.style.transition = `transform ${MONEY_SHEET_ENTER_MS}ms ease-out`;
+    sheet.style.transform = "translateY(0)";
+    window.setTimeout(() => {
+      if (dragRef.current.pointerId === -1) clearSheetTransform();
+    }, MONEY_SHEET_ENTER_MS);
+  }
 
   return (
     <dialog
       ref={dialogRef}
-      className={styles.sheet}
+      className={styles.root}
       aria-labelledby={labelledBy}
       aria-describedby={describedBy}
       onCancel={(event) => {
         event.preventDefault();
         onCancel();
       }}
-      onClose={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+      onClose={() => {
+        clearSheetTransform();
+        onClose();
+      }}
     >
-      {open ? children : null}
+      <div
+        ref={sheetRef}
+        className={styles.sheet}
+        data-money-sheet=""
+        data-state={!open ? "closing" : entered ? "open" : "entering"}
+      >
+        <div
+          className={styles.grabberHit}
+          data-money-sheet-grabber=""
+          data-money-sheet-drag=""
+          aria-hidden="true"
+          onPointerDown={onGrabberPointerDown}
+          onPointerMove={onGrabberPointerMove}
+          onPointerUp={onGrabberPointerUp}
+          onPointerCancel={onGrabberPointerUp}
+        >
+          <span className={styles.grabber} aria-hidden="true" />
+        </div>
+        {open ? children : null}
+      </div>
     </dialog>
   );
 }

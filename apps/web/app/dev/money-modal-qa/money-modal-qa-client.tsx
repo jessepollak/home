@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   MoneyAmountDisplay,
+  MoneyModal,
   MoneyModalFooter,
   MoneyModalHeader,
   MoneyNumpad,
@@ -30,6 +31,7 @@ export function MoneyModalQaClient() {
         padding: state === "all" ? "32px 16px 64px" : 0,
       }}
     >
+      {state === "live" ? <LiveSendPreview /> : null}
       {state === "all" || state === "send-local" ? <SendPreview variant="local" /> : null}
       {state === "all" || state === "send-native" ? <SendPreview variant="native" /> : null}
       {state === "all" || state === "save" ? <SavePreview /> : null}
@@ -84,6 +86,42 @@ function SavePreview() {
   );
 }
 
+function LiveSendPreview() {
+  const [open, setOpen] = useState(true);
+  const [amount, setAmount] = useState("");
+  return (
+    <div style={{ minHeight: "100svh", width: "min(100vw, 390px)" }}>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open Send
+      </button>
+      <MoneyModal
+        open={open}
+        labelledBy="live-send-title"
+        onCancel={() => setOpen(false)}
+        onClose={() => setOpen(false)}
+      >
+        <MoneyModalHeader title="Send" titleId="live-send-title" onClose={() => setOpen(false)} />
+        <div className={modal.body}>
+          <MoneyAmountDisplay
+            amount={amount}
+            onAmountChange={setAmount}
+            availableLabel="$4,343.81 available"
+            assetId="usdc"
+            assetLabel="USDC"
+            assetOptions={assetOptions}
+            onAssetChange={() => {}}
+            chipSet="quick-local"
+            pricing={usdUsdc}
+            nativeSymbol="USDC"
+          />
+          <MoneyNumpad value={amount} maxDecimals={6} onChange={setAmount} />
+        </div>
+        <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!amount} onPrimary={() => {}} />
+      </MoneyModal>
+    </div>
+  );
+}
+
 function PreviewSheet({
   title,
   caption,
@@ -97,7 +135,10 @@ function PreviewSheet({
 }) {
   return (
     <section aria-label={caption} style={{ width: 390 }}>
-      <div className={modal.sheet} style={{ position: "relative", inset: "auto", margin: 0, maxHeight: "none" }}>
+      <div className={modal.sheet} style={{ position: "relative", inset: "auto", margin: 0, maxHeight: "none", animation: "none" }}>
+        <div className={modal.grabberHit}>
+          <span className={modal.grabber} aria-hidden="true" />
+        </div>
         <MoneyModalHeader title={title} titleId={`${caption}-title`} onClose={() => {}} />
         <div className={modal.body}>{children}</div>
         <MoneyModalFooter
