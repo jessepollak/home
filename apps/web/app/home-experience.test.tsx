@@ -1424,6 +1424,8 @@ describe("login-state home experience", () => {
           ownerKey: OWNER,
           sendUserOperation: async () => ({ userOperationHash }),
           getUserOperation: async () => ({
+            network: "base",
+            userOpHash: userOperationHash,
             status: "complete",
             transactionHash,
             calls: [{
