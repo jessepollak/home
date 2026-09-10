@@ -58,10 +58,10 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function preparedSendAction(options: { expiresAt?: string; ownerAddress?: `0x${string}` } = {}) {
+function preparedSendAction(options: { id?: string; expiresAt?: string; ownerAddress?: `0x${string}` } = {}) {
   const recipientData = `${RECIPIENT.slice(2).padStart(64, "0")}${BigInt(100000).toString(16).padStart(64, "0")}`;
   return {
-    id: "11111111-1111-4111-8111-111111111111",
+    id: options.id ?? "11111111-1111-4111-8111-111111111111",
     reviewHash: "a".repeat(64),
     owner: {
       subject: "subject-a",
@@ -310,6 +310,307 @@ describe("TransferActions modals", () => {
     await waitFor(() => expect(checks).toBe(1));
     expect(executes).toBe(0);
     expect(prepares).toBe(0);
+  });
+
+  test("releases durable send admission only after confirmation, then permits one fresh prepare", async () => {
+    const action = preparedSendAction();
+    const release = deferred<unknown>();
+    let released = false;
+    let releaseCalls = 0;
+    let prepares = 0;
+    let starts = 0;
+    render(
+      <TransferActionsForWallet
+        wallet={{
+          ...verifiedWallet(),
+          startNewTransfer: () => { starts += 1; },
+          fetchAccountResource: async (path, options) => {
+            if (path === "/api/actions/operations?scope=unresolved-send&limit=50") {
+              return released
+                ? unresolvedSendResponse()
+                : unresolvedSendResponse([{
+                    action,
+                    status: "submitting",
+                    attemptCount: 1,
+                    createdAt: action.createdAt,
+                    updatedAt: action.createdAt,
+                  }]);
+            }
+            if (path === `/api/actions/${action.id}/admission-release`) {
+              releaseCalls += 1;
+              expect(options).toMatchObject({
+                method: "POST",
+                body: { reason: "owner-request" },
+              });
+              const value = await release.promise;
+              released = true;
+              return value;
+            }
+            throw new Error(`Unexpected path: ${path}`);
+          },
+          prepareMoneyAction: async () => {
+            prepares += 1;
+            return action;
+          },
+          checkMoneyAction: async () => ({ id: action.id, status: "unknown" }),
+          executeMoneyAction: async () => ({ id: action.id, status: "unknown" }),
+        }}
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    await page().findByRole("button", { name: "Allow another send" });
+    expect(releaseCalls).toBe(0);
+    expect(prepares).toBe(0);
+
+    fireEvent.click(page().getByRole("button", { name: "Allow another send" }));
+    expect(page().getByRole("heading", { name: "Allow another send?" })).toBeTruthy();
+    expect(page().getByText(
+      "Home will allow another send while the existing send may still submit or later confirm.",
+    )).toBeTruthy();
+    expect(releaseCalls).toBe(0);
+
+    const confirmRelease = page().getByRole("button", { name: "Allow another send" });
+    fireEvent.click(confirmRelease);
+    fireEvent.click(confirmRelease);
+    expect(releaseCalls).toBe(1);
+    expect(prepares).toBe(0);
+    expect(starts).toBe(0);
+    expect(page().getByRole("status").textContent).toBe("Allowing another send…");
+    expect((page().getByRole("button", { name: "Close send dialog" }) as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      release.resolve({
+        operation: {
+          action,
+          status: "submitting",
+          attemptCount: 1,
+          abandonedAt: "2026-09-10T05:02:00.000Z",
+          createdAt: action.createdAt,
+          updatedAt: "2026-09-10T05:02:00.000Z",
+        },
+      });
+      await release.promise;
+    });
+
+    expect(await page().findByText(/Home can now start another send/)).toBeTruthy();
+    await page().findByRole("button", { name: "Continue" });
+    expect(starts).toBe(1);
+    expect(prepares).toBe(0);
+
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.change(page().getByLabelText("To"), { target: { value: RECIPIENT } });
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(prepares).toBe(1));
+  });
+
+  test("keeps recovery and Check status available when admission release fails", async () => {
+    const action = preparedSendAction();
+    let releaseCalls = 0;
+    let checks = 0;
+    let prepares = 0;
+    render(
+      <TransferActionsForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async (path) => {
+            if (path === "/api/actions/operations?scope=unresolved-send&limit=50") {
+              return unresolvedSendResponse([{
+                action,
+                status: "unknown",
+                attemptCount: 1,
+                createdAt: action.createdAt,
+                updatedAt: action.createdAt,
+              }]);
+            }
+            if (path === `/api/actions/${action.id}/admission-release`) {
+              releaseCalls += 1;
+              throw new Error("stale release");
+            }
+            throw new Error(`Unexpected path: ${path}`);
+          },
+          prepareMoneyAction: async () => {
+            prepares += 1;
+            return action;
+          },
+          checkMoneyAction: async () => {
+            checks += 1;
+            return { id: action.id, status: "unknown" };
+          },
+          executeMoneyAction: async () => ({ id: action.id, status: "unknown" }),
+        }}
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    await page().findByRole("button", { name: "Allow another send" });
+    fireEvent.click(page().getByRole("button", { name: "Allow another send" }));
+    fireEvent.click(page().getByRole("button", { name: "Allow another send" }));
+
+    expect((await page().findByRole("alert")).textContent).toMatch(/couldn’t allow another send/);
+    expect(page().getByRole("button", { name: "Check status" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Allow another send" })).toBeTruthy();
+    expect(releaseCalls).toBe(1);
+    expect(prepares).toBe(0);
+
+    fireEvent.click(page().getByRole("button", { name: "Check status" }));
+    await waitFor(() => expect(checks).toBe(1));
+    expect(prepares).toBe(0);
+    expect(page().getByRole("button", { name: "Check status" })).toBeTruthy();
+  });
+
+  test("closing admission confirmation makes no release call", async () => {
+    const action = preparedSendAction();
+    let releaseCalls = 0;
+    render(
+      <TransferActionsForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async (path) => {
+            if (path === "/api/actions/operations?scope=unresolved-send&limit=50") {
+              return unresolvedSendResponse([{
+                action,
+                status: "submitting",
+                attemptCount: 1,
+                createdAt: action.createdAt,
+                updatedAt: action.createdAt,
+              }]);
+            }
+            releaseCalls += 1;
+            throw new Error(`Unexpected release path: ${path}`);
+          },
+          prepareMoneyAction: async () => action,
+          checkMoneyAction: async () => ({ id: action.id, status: "unknown" }),
+          executeMoneyAction: async () => ({ id: action.id, status: "unknown" }),
+        }}
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    await page().findByRole("button", { name: "Allow another send" });
+    fireEvent.click(page().getByRole("button", { name: "Allow another send" }));
+    expect(page().getByRole("heading", { name: "Allow another send?" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Close send dialog" }));
+    expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
+    expect(releaseCalls).toBe(0);
+  });
+
+  test("ignores an old owner's release response without unlocking the next owner's recovery", async () => {
+    const oldAction = preparedSendAction();
+    const oldRelease = deferred<unknown>();
+    const nextAddress = "0x3333333333333333333333333333333333333333" as const;
+    const nextAction = preparedSendAction({
+      id: "22222222-2222-4222-8222-222222222222",
+      ownerAddress: nextAddress,
+    });
+    let starts = 0;
+    let prepares = 0;
+    const view = render(
+      <TransferActionsForWallet
+        wallet={{
+          ...verifiedWallet(),
+          startNewTransfer: () => { starts += 1; },
+          fetchAccountResource: async (path) => {
+            if (path === "/api/actions/operations?scope=unresolved-send&limit=50") {
+              return unresolvedSendResponse([{
+                action: oldAction,
+                status: "submitting",
+                attemptCount: 1,
+                createdAt: oldAction.createdAt,
+                updatedAt: oldAction.createdAt,
+              }]);
+            }
+            if (path === `/api/actions/${oldAction.id}/admission-release`) return oldRelease.promise;
+            throw new Error(`Unexpected path: ${path}`);
+          },
+          prepareMoneyAction: async () => oldAction,
+          checkMoneyAction: async () => ({ id: oldAction.id, status: "unknown" }),
+          executeMoneyAction: async () => ({ id: oldAction.id, status: "unknown" }),
+        }}
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    await page().findByRole("button", { name: "Allow another send" });
+    fireEvent.click(page().getByRole("button", { name: "Allow another send" }));
+    fireEvent.click(page().getByRole("button", { name: "Allow another send" }));
+    expect(page().getByRole("status").textContent).toBe("Allowing another send…");
+
+    view.rerender(
+      <TransferActionsForWallet
+        wallet={{
+          ...verifiedWallet(),
+          ownerKey: "owner-b",
+          session: {
+            user: { subject: "subject-b" },
+            smartAccount: { address: nextAddress, chainId: 8453 },
+            accountProvider: "cdp-embedded",
+          },
+          startNewTransfer: () => { starts += 1; },
+          fetchAccountResource: async (path) => {
+            if (path === "/api/actions/operations?scope=unresolved-send&limit=50") {
+              return unresolvedSendResponse([{
+                action: nextAction,
+                status: "unknown",
+                attemptCount: 1,
+                createdAt: nextAction.createdAt,
+                updatedAt: nextAction.createdAt,
+              }]);
+            }
+            throw new Error(`Unexpected path: ${path}`);
+          },
+          prepareMoneyAction: async () => {
+            prepares += 1;
+            return nextAction;
+          },
+          checkMoneyAction: async () => ({ id: nextAction.id, status: "unknown" }),
+          executeMoneyAction: async () => ({ id: nextAction.id, status: "unknown" }),
+        }}
+      />,
+    );
+
+    expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    await page().findByRole("button", { name: "Check status" });
+
+    await act(async () => {
+      oldRelease.resolve({
+        operation: {
+          action: oldAction,
+          status: "submitting",
+          attemptCount: 1,
+          abandonedAt: "2026-09-10T05:02:00.000Z",
+          createdAt: oldAction.createdAt,
+          updatedAt: "2026-09-10T05:02:00.000Z",
+        },
+      });
+      await oldRelease.promise;
+    });
+
+    expect(page().getByRole("button", { name: "Check status" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Allow another send" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Continue" })).toBeNull();
+    expect(starts).toBe(0);
+    expect(prepares).toBe(0);
+  });
+
+  test("keeps release off a newly prepared send", async () => {
+    const action = preparedSendAction();
+    render(
+      <TransferActionsForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async () => unresolvedSendResponse(),
+          prepareMoneyAction: async () => action,
+          executeMoneyAction: async () => ({ id: action.id, status: "unknown" }),
+        }}
+      />,
+    );
+
+    await composeDurableSend({ amount: "0.1" });
+    expect(await page().findByRole("button", { name: "Send $0.10" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Allow another send" })).toBeNull();
   });
 
   test("blocks a fresh durable send while history is pending even if Continue is raced", async () => {

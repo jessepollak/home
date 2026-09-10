@@ -8,6 +8,7 @@ import {
 } from "@/features/account/cdp-client";
 import { MoneyModal, MoneyModalFooter, MoneyModalHeader } from "@/features/money-modal";
 import modal from "@/features/money-modal/money-modal.module.css";
+import { releaseMoneyActionAdmission } from "@/features/money-actions/client";
 import { SendDialog } from "./send-dialog";
 import { TRANSFER_ASSETS, formatSendConfirmAmount } from "./transfer-helpers";
 import type { ConfirmedTransfer } from "./types";
@@ -52,6 +53,18 @@ export function TransferActionsForWallet({
       ? (signal?: AbortSignal) => fetchAccountResource(
           "/api/actions/operations?scope=unresolved-send&limit=50",
           { signal },
+        )
+      : undefined;
+  }, [wallet.fetchAccountResource]);
+  const releaseAdmission = useMemo(() => {
+    const fetchAccountResource = wallet.fetchAccountResource;
+    return fetchAccountResource
+      ? (id: string) => releaseMoneyActionAdmission(
+          (path, init = {}) => fetchAccountResource(path, {
+            method: init.method === "POST" ? "POST" : "GET",
+            ...(init.body === undefined ? {} : { body: JSON.parse(String(init.body)) }),
+          }),
+          id,
         )
       : undefined;
   }, [wallet.fetchAccountResource]);
@@ -109,6 +122,8 @@ export function TransferActionsForWallet({
         checkMoneyAction={wallet.checkMoneyAction}
         executeMoneyAction={wallet.executeMoneyAction}
         fetchUnresolvedSends={fetchUnresolvedSends}
+        releaseAdmission={releaseAdmission}
+        ownerBoundary={boundary}
         onTransferConfirmed={(transfer) => {
           setSuccess(transfer);
           onTransferConfirmed?.(transfer);

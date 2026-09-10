@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AddressField, AddressText } from "@/components/address";
 import type { AccountWalletClient } from "@/features/account/cdp-client";
 import {
@@ -40,6 +40,8 @@ type TransferWallet = Pick<
 > & Partial<Pick<AccountWalletClient, "prepareMoneyAction" | "checkMoneyAction" | "executeMoneyAction">>;
 
 type FetchUnresolvedSends = (signal?: AbortSignal) => Promise<unknown>;
+type ReleaseAdmission = (id: string) => Promise<unknown>;
+type ReleaseState = "idle" | "confirming" | "pending";
 
 type ComposeStep = "amount" | "address";
 type SendStep = ComposeStep | "confirm" | "pending" | "recovery" | "failed" | "error";
@@ -66,6 +68,8 @@ export function SendDialog({
   checkMoneyAction,
   executeMoneyAction,
   fetchUnresolvedSends,
+  releaseAdmission,
+  ownerBoundary,
   onTransferConfirmed,
   onClose,
 }: {
@@ -80,6 +84,8 @@ export function SendDialog({
   checkMoneyAction?: AccountWalletClient["checkMoneyAction"];
   executeMoneyAction?: AccountWalletClient["executeMoneyAction"];
   fetchUnresolvedSends?: FetchUnresolvedSends;
+  releaseAdmission?: ReleaseAdmission;
+  ownerBoundary: string | null;
   onTransferConfirmed?: (transfer: ConfirmedTransfer) => void;
   onClose: () => void;
 }) {
@@ -93,6 +99,10 @@ export function SendDialog({
   const [step, setStep] = useState<SendStep>("amount");
   const [error, setError] = useState<string | null>(null);
   const [historyAttempt, setHistoryAttempt] = useState(0);
+  const [releaseState, setReleaseState] = useState<ReleaseState>("idle");
+  const [releaseNotice, setReleaseNotice] = useState<string | null>(null);
+  const releaseFenceRef = useRef({ open, ownerBoundary, actionId: preparedAction?.id ?? null });
+  const releaseInFlightRef = useRef<string | null>(null);
   const [historyAdmission, setHistoryAdmission] = useState<HistoryAdmission>(() =>
     fetchUnresolvedSends ? { status: "checking" } : prepareMoneyAction
       ? { status: "unavailable", reason: "failed" }
@@ -111,7 +121,13 @@ export function SendDialog({
     preparedAction?.expiresAt ?? null,
   );
   const checkOnly = recoveringAction || expiredPrepared || displayStep === "recovery";
+  const durableRecovery = Boolean(recoveringAction && preparedAction && displayRequest);
+  const releasePending = releaseState === "pending";
   const historyReady = historyAdmission.status === "ready" || historyAdmission.status === "fallback";
+
+  useLayoutEffect(() => {
+    releaseFenceRef.current = { open, ownerBoundary, actionId: preparedAction?.id ?? null };
+  }, [open, ownerBoundary, preparedAction?.id]);
 
   useEffect(() => {
     if (open) return;
@@ -126,6 +142,8 @@ export function SendDialog({
     setRecoveringAction(false);
     setStep("amount");
     setError(null);
+    setReleaseState("idle");
+    setReleaseNotice(null);
     setHistoryAdmission(fetchUnresolvedSends ? { status: "checking" } : prepareMoneyAction
       ? { status: "unavailable", reason: "failed" }
       : { status: "fallback" });
@@ -160,7 +178,7 @@ export function SendDialog({
     return () => controller.abort();
   }, [address, fetchUnresolvedSends, historyAttempt, open, prepareMoneyAction]);
 
-  function reset() {
+  function reset(options: { admissionReleased?: boolean } = {}) {
     setAssetId("usdc");
     setRecipient("");
     setAmount("");
@@ -170,6 +188,10 @@ export function SendDialog({
     setRecoveringAction(false);
     setStep("amount");
     setError(null);
+    setReleaseState("idle");
+    setReleaseNotice(options.admissionReleased
+      ? "Home can now start another send. The existing send may still confirm."
+      : null);
     setHistoryAdmission(fetchUnresolvedSends ? { status: "checking" } : prepareMoneyAction
       ? { status: "unavailable", reason: "failed" }
       : { status: "fallback" });
@@ -177,6 +199,7 @@ export function SendDialog({
   }
 
   function closeIfAllowed() {
+    if (releasePending) return;
     if (step !== "pending" || pendingTransfer) {
       reset();
       onClose();
@@ -184,6 +207,10 @@ export function SendDialog({
   }
 
   function goBack() {
+    if (releaseState === "confirming") {
+      setReleaseState("idle");
+      return;
+    }
     if (recoveringAction) {
       reset();
       onClose();
@@ -296,7 +323,7 @@ export function SendDialog({
   }
 
   async function checkStatus() {
-    if (step === "pending") return;
+    if (step === "pending" || releasePending) return;
     setError(null);
     setStep("pending");
     try {
@@ -323,6 +350,38 @@ export function SendDialog({
     }
   }
 
+  async function releaseCurrentAdmission() {
+    if (
+      releaseState !== "confirming" || !releaseAdmission || !ownerBoundary ||
+      !recoveringAction || !preparedAction || !displayRequest
+    ) return;
+    const actionId = preparedAction.id;
+    const requestKey = `${ownerBoundary}\u0000${actionId}`;
+    if (releaseInFlightRef.current === requestKey) return;
+    releaseInFlightRef.current = requestKey;
+    const fence = { ownerBoundary, actionId };
+    setError(null);
+    setReleaseState("pending");
+    try {
+      await releaseAdmission(actionId);
+      const current = releaseFenceRef.current;
+      if (!current.open || current.ownerBoundary !== fence.ownerBoundary || current.actionId !== fence.actionId) {
+        return;
+      }
+      startNewTransfer();
+      reset({ admissionReleased: true });
+    } catch {
+      const current = releaseFenceRef.current;
+      if (!current.open || current.ownerBoundary !== fence.ownerBoundary || current.actionId !== fence.actionId) {
+        return;
+      }
+      setError("Home couldn’t allow another send. Check status or try again.");
+      setReleaseState("idle");
+    } finally {
+      if (releaseInFlightRef.current === requestKey) releaseInFlightRef.current = null;
+    }
+  }
+
   function complete(result: ConfirmedTransfer) {
     try {
       onTransferConfirmed?.(result);
@@ -346,7 +405,11 @@ export function SendDialog({
     <MoneyModal
       open={open}
       labelledBy="send-title"
-      describedBy={displayStep === "pending" ? "send-pending" : undefined}
+      describedBy={displayStep === "pending"
+        ? "send-pending"
+        : releasePending
+          ? "send-release-pending"
+          : undefined}
       onCancel={closeIfAllowed}
       onClose={() => {
         reset();
@@ -357,12 +420,12 @@ export function SendDialog({
         title={title}
         titleId="send-title"
         onBack={
-          displayStep === "amount" || displayStep === "pending" || displayStep === "recovery"
+          releasePending || displayStep === "amount" || displayStep === "pending" || displayStep === "recovery"
             ? undefined
             : goBack
         }
         onClose={closeIfAllowed}
-        closeDisabled={displayStep === "pending" && !pendingTransfer}
+        closeDisabled={releasePending || (displayStep === "pending" && !pendingTransfer)}
         closeLabel="Close send dialog"
       />
 
@@ -394,6 +457,9 @@ export function SendDialog({
               maxDecimals={TRANSFER_ASSETS[assetId].decimals}
               onChange={setAmount}
             />
+            {releaseNotice ? (
+              <p className={modal.status} role="status">{releaseNotice}</p>
+            ) : null}
             {historyAdmission.status === "checking" ? (
               <p className={modal.fieldHint} role="status">Checking recent sends…</p>
             ) : historyAdmission.status === "unavailable" ? (
@@ -440,6 +506,22 @@ export function SendDialog({
             {expiredPrepared && displayStep !== "pending" ? (
               <p className={modal.error} role="alert">This send expired. Go back and continue again.</p>
             ) : null}
+            {durableRecovery && (releaseState === "confirming" || releasePending) ? (
+              <section className={modal.fieldBlock} aria-labelledby="send-release-confirmation-title">
+                <h3 id="send-release-confirmation-title" className={modal.fieldLabel}>
+                  Allow another send?
+                </h3>
+                <p className={modal.fieldHint}>
+                  Home will allow another send while the existing send may still submit or later confirm.
+                </p>
+                {releasePending ? (
+                  <div id="send-release-pending" className={modal.pending} role="status">
+                    <span className={modal.spinner} aria-hidden="true" />
+                    Allowing another send…
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
           </>
         ) : null}
 
@@ -482,7 +564,28 @@ export function SendDialog({
         />
       ) : null}
 
-      {displayStep === "confirm" ? (
+      {displayStep === "confirm" && durableRecovery && releaseAdmission && ownerBoundary ? (
+        releaseState === "confirming" || releasePending ? (
+          <MoneyModalFooter
+            primaryLabel={releasePending ? "Allowing another send…" : "Allow another send"}
+            primaryDisabled={releasePending}
+            onPrimary={() => void releaseCurrentAdmission()}
+            secondaryLabel="Keep checking this send"
+            secondaryDisabled={releasePending}
+            onSecondary={() => setReleaseState("idle")}
+          />
+        ) : (
+          <MoneyModalFooter
+            primaryLabel="Check status"
+            onPrimary={() => void checkStatus()}
+            secondaryLabel="Allow another send"
+            onSecondary={() => {
+              setError(null);
+              setReleaseState("confirming");
+            }}
+          />
+        )
+      ) : displayStep === "confirm" ? (
         <MoneyModalFooter
           primaryLabel={checkOnly ? (expiredPrepared && !recoveringAction ? "Check send status" : "Check status") : `Send ${confirmAmount}`}
           primaryDisabled={false}

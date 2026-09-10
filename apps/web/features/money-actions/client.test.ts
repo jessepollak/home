@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "./types";
-import { claimMoneyAction } from "./client";
+import { claimMoneyAction, releaseMoneyActionAdmission } from "./client";
 
 const action: PreparedMoneyAction = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -34,6 +34,45 @@ function response(canonical: PreparedMoneyAction) {
     },
   };
 }
+
+describe("money action admission release client", () => {
+  test("posts the owner request to the exact action and returns the validated operation", async () => {
+    let requestedPath = "";
+    let requestedInit: RequestInit | undefined;
+    const operation = {
+      action,
+      status: "submitting" as const,
+      attemptCount: 1,
+      abandonedAt: "2026-09-10T05:02:00.000Z",
+      createdAt: action.createdAt,
+      updatedAt: "2026-09-10T05:02:00.000Z",
+    };
+
+    await expect(releaseMoneyActionAdmission(async (path, init) => {
+      requestedPath = path;
+      requestedInit = init;
+      return { operation };
+    }, action.id)).resolves.toEqual(operation);
+
+    expect(requestedPath).toBe(`/api/actions/${action.id}/admission-release`);
+    expect(requestedInit).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ reason: "owner-request" }),
+    });
+  });
+
+  test("rejects a release response for a different action", async () => {
+    await expect(releaseMoneyActionAdmission(async () => ({
+      operation: {
+        action: { ...action, id: "22222222-2222-4222-8222-222222222222" },
+        status: "submitting",
+        attemptCount: 1,
+        createdAt: action.createdAt,
+        updatedAt: action.createdAt,
+      },
+    }), action.id)).rejects.toMatchObject({ reason: "invalid-response" });
+  });
+});
 
 describe("money action claim client", () => {
   test("rejects a canonical claim whose hash-covered plan differs from the reviewed plan", async () => {

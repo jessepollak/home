@@ -122,6 +122,7 @@ describe("RecentMoneyActions recovery", () => {
     expect(reads).toBe(0);
     expect(recovers).toBe(0);
     expect(within(document.body).getByRole("button", { name: "Check status" })).toBeTruthy();
+    expect(within(document.body).queryByRole("button", { name: "Allow another send" })).toBeNull();
   });
 
   test("offers Check status on Ready for review and invokes the read path without claiming", async () => {
