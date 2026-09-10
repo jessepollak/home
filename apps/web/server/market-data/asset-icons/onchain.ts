@@ -16,6 +16,7 @@ export const CONTRACT_URI_ABI = [
 export const ONCHAIN_ICON_TIMEOUT_MS = 6_000;
 export const ONCHAIN_METADATA_TIMEOUT_MS = 4_000;
 export const ONCHAIN_METADATA_MAX_BYTES = 64_000;
+export const ONCHAIN_ICON_RPC_BATCH_MAX = 10;
 
 const configuredIconAssets = [...stockAssets, ...cryptoAssets];
 
@@ -23,6 +24,13 @@ type FetchLike = (
   input: RequestInfo | URL,
   init?: RequestInit,
 ) => Promise<Response>;
+
+type RpcRequest = {
+  jsonrpc: "2.0";
+  id: number;
+  method: "eth_call";
+  params: [{ to: `0x${string}`; data: `0x${string}` }, "latest"];
+};
 
 export async function readOnchainIconImages({
   fetchImpl = fetch,
@@ -41,40 +49,20 @@ export async function readOnchainIconImages({
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const requests = configuredIconAssets.map((asset, index) => ({
-      jsonrpc: "2.0" as const,
-      id: index + 1,
-      method: "eth_call",
-      params: [{ to: asset.contractAddress, data: callData }, "latest"],
-    }));
-
-    const response = await fetchImpl(rpcUrl, {
-      method: "POST",
-      headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify(requests),
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) return new Map();
-
-    const payload = (await response.json()) as unknown;
-    if (!Array.isArray(payload)) return new Map();
-
-    const byId = new Map<number, string>();
-    for (const item of payload) {
-      if (
-        typeof item !== "object" ||
-        item === null ||
-        !("id" in item) ||
-        !("result" in item)
-      ) {
-        continue;
-      }
-      const id = typeof item.id === "number" ? item.id : Number(item.id);
-      if (!Number.isInteger(id) || typeof item.result !== "string") continue;
-      const uri = decodeContractUri(item.result);
-      if (uri) byId.set(id, uri);
-    }
+    const requests = configuredIconAssets.map(
+      (asset, index): RpcRequest => ({
+        jsonrpc: "2.0",
+        id: index + 1,
+        method: "eth_call",
+        params: [{ to: asset.contractAddress, data: callData }, "latest"],
+      }),
+    );
+    const byId = await readContractUrisByRequestId(
+      requests,
+      fetchImpl,
+      rpcUrl,
+      controller.signal,
+    );
 
     const images = new Map<string, string>();
     await Promise.all(
@@ -95,6 +83,83 @@ export async function readOnchainIconImages({
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function readContractUrisByRequestId(
+  requests: readonly RpcRequest[],
+  fetchImpl: FetchLike,
+  rpcUrl: string,
+  signal: AbortSignal,
+): Promise<Map<number, string>> {
+  const byId = new Map<number, string>();
+  for (
+    let index = 0;
+    index < requests.length;
+    index += ONCHAIN_ICON_RPC_BATCH_MAX
+  ) {
+    if (signal.aborted) break;
+    const batch = requests.slice(index, index + ONCHAIN_ICON_RPC_BATCH_MAX);
+    try {
+      const response = await fetchImpl(rpcUrl, {
+        method: "POST",
+        headers: { accept: "application/json", "content-type": "application/json" },
+        body: JSON.stringify(batch),
+        cache: "no-store",
+        signal,
+      });
+      if (!response.ok) continue;
+      const payload = (await response.json()) as unknown;
+      if (!Array.isArray(payload)) {
+        logRpcErrorPayload(payload);
+        continue;
+      }
+      collectContractUris(payload, byId, new Set(batch.map(({ id }) => id)));
+    } catch {
+      if (signal.aborted) break;
+    }
+  }
+  return byId;
+}
+
+function collectContractUris(
+  payload: readonly unknown[],
+  byId: Map<number, string>,
+  requestedIds: ReadonlySet<number>,
+) {
+  const seen = new Set<number>();
+  for (const item of payload) {
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      !("id" in item) ||
+      !("result" in item)
+    ) {
+      continue;
+    }
+    const id = typeof item.id === "number" ? item.id : Number(item.id);
+    if (
+      !Number.isInteger(id) ||
+      !requestedIds.has(id) ||
+      seen.has(id) ||
+      typeof item.result !== "string"
+    ) {
+      continue;
+    }
+    seen.add(id);
+    const uri = decodeContractUri(item.result);
+    if (uri) byId.set(id, uri);
+  }
+}
+
+function logRpcErrorPayload(payload: unknown) {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return;
+  }
+  const error = "error" in payload ? payload.error : undefined;
+  if (typeof error !== "object" || error === null) return;
+  const code = "code" in error ? error.code : undefined;
+  const message = "message" in error ? error.message : undefined;
+  console.warn("[asset-icons] Base RPC batch rejected", { code, message });
 }
 
 export function decodeContractUri(data: string): string | null {
