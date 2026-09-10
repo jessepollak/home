@@ -747,6 +747,9 @@ export function AccountWalletSessionOwner({
   const currentOwnerKey = useRef(ownerKey);
   const cleanupSequence = useRef(0);
   const sdkCleanupFlight = useRef<SdkCleanupFlight | null>(null);
+  const automaticCleanupRequests = useRef(
+    new Set<Pick<SdkCleanupIdentity, "ownerKey" | "generation">>(),
+  );
   const failedSdkCleanup = useRef<SdkCleanupIdentity | null>(null);
   const isSessionSuppressed = isSessionSuppressedForOwner(
     sessionSuppression,
@@ -760,13 +763,16 @@ export function AccountWalletSessionOwner({
     return authenticationGeneration.current;
   }, []);
 
-  const isCurrentCleanupIdentity = useCallback((identity: SdkCleanupIdentity) => {
-    const activeOwnerKey = currentOwnerKey.current;
-    return (
-      identity.generation === authenticationGeneration.current &&
-      (activeOwnerKey === null || activeOwnerKey === identity.ownerKey)
-    );
-  }, []);
+  const isCurrentCleanupIdentity = useCallback(
+    (identity: Pick<SdkCleanupIdentity, "ownerKey" | "generation">) => {
+      const activeOwnerKey = currentOwnerKey.current;
+      return (
+        identity.generation === authenticationGeneration.current &&
+        (activeOwnerKey === null || activeOwnerKey === identity.ownerKey)
+      );
+    },
+    [],
+  );
 
   const getCurrentFailedCleanup = useCallback(() => {
     const failedCleanup = failedSdkCleanup.current;
@@ -781,11 +787,20 @@ export function AccountWalletSessionOwner({
     const previousOwner = previousOwnerKey.current;
     currentOwnerKey.current = ownerKey;
     if (previousOwner !== ownerKey && ownerKey !== null) {
+      const previousGeneration = authenticationGeneration.current;
+      const previousOwnerCleanupRequested =
+        previousOwner !== null &&
+        [...automaticCleanupRequests.current].some(
+          (request) =>
+            request.ownerKey === previousOwner &&
+            request.generation === previousGeneration,
+        );
       advanceAuthenticationGeneration();
       if (
         previousOwner !== null &&
-        sessionSuppression?.ownerKey === previousOwner &&
-        sessionSuppression.ownerKey !== ownerKey
+        ((sessionSuppression?.ownerKey === previousOwner &&
+          sessionSuppression.ownerKey !== ownerKey) ||
+          previousOwnerCleanupRequested)
       ) {
         accountSelection.current = { provider: "restoring", hint: null };
       }
@@ -902,33 +917,40 @@ export function AccountWalletSessionOwner({
     onFailure: () => void;
     onSuccess?: () => void;
   }): Promise<"succeeded" | "failed" | "stale"> => {
-    const pendingCleanup = sdkCleanupFlight.current;
-    const joinedForeignCleanup = Boolean(
-      pendingCleanup &&
-      (pendingCleanup.ownerKey !== cleanupOwnerKey ||
-        pendingCleanup.generation !== cleanupGeneration),
-    );
-    const result = await runFencedSignOut({
-      cleanupOwnerKey,
-      cleanupGeneration,
-      onFailure,
-      onSuccess,
-    });
-    if (result !== "stale" || !joinedForeignCleanup || !mounted.current) {
-      return result;
+    const requestedCleanup = {
+      ownerKey: cleanupOwnerKey,
+      generation: cleanupGeneration,
+    };
+    automaticCleanupRequests.current.add(requestedCleanup);
+    try {
+      const pendingCleanup = sdkCleanupFlight.current;
+      const joinedForeignCleanup = Boolean(
+        pendingCleanup &&
+        (pendingCleanup.ownerKey !== cleanupOwnerKey ||
+          pendingCleanup.generation !== cleanupGeneration),
+      );
+      const result = await runFencedSignOut({
+        cleanupOwnerKey,
+        cleanupGeneration,
+        onFailure,
+        onSuccess,
+      });
+      if (result !== "stale" || !joinedForeignCleanup || !mounted.current) {
+        return result;
+      }
+      if (!isCurrentCleanupIdentity(requestedCleanup)) {
+        return "stale";
+      }
+      return runFencedSignOut({
+        cleanupOwnerKey,
+        cleanupGeneration,
+        onFailure,
+        onSuccess,
+      });
+    } finally {
+      automaticCleanupRequests.current.delete(requestedCleanup);
     }
-
-    const activeOwnerKey = currentOwnerKey.current;
-    if (!activeOwnerKey) {
-      return "stale";
-    }
-    return runFencedSignOut({
-      cleanupOwnerKey: activeOwnerKey,
-      cleanupGeneration: authenticationGeneration.current,
-      onFailure,
-      onSuccess,
-    });
-  }, [runFencedSignOut]);
+  }, [isCurrentCleanupIdentity, runFencedSignOut]);
 
   const assertAuthenticationCleanupComplete = useCallback(() => {
     if (sdkCleanupFlight.current || getCurrentFailedCleanup()) {
