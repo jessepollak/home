@@ -266,6 +266,7 @@ describe("SavingsMoneyDialog", () => {
             serverMessage: "Base RPC is rate limited. Try again shortly.",
           });
         }}
+        checkMoneyAction={async () => ({ id: "action-1", status: "prepared" })}
         executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
         onClose={() => {}}
       />,
