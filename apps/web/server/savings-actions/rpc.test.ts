@@ -143,7 +143,7 @@ describe("savings action RPC state", () => {
 
     expect(calls).toBe(9);
     expect(delays).toEqual([400]);
-    expect(result.assetAddress).toBe(BASE_USDC_ADDRESS.toLowerCase());
+    expect(result.assetAddress).toBe(BASE_USDC_ADDRESS.toLowerCase() as typeof BASE_USDC_ADDRESS);
     expect(result.block.hash).toBe(BLOCK_HASH);
   });
 
@@ -194,7 +194,7 @@ describe("savings action RPC state", () => {
   });
 
   test("surfaces a typed rate-limited error after retries are exhausted", async () => {
-    const fetchImpl = (async () =>
+    const fetchImpl = (async (_input: RequestInfo | URL) =>
       Response.json({
         jsonrpc: "2.0",
         id: 1,
