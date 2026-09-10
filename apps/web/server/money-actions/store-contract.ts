@@ -76,6 +76,68 @@ export function describeMoneyActionStore(
     });
   });
 
+  test(`${name} preserves opaque Base submission IDs byte-for-byte on exact retry and rejects case-only conflicts`, async () => {
+    const store = await createStore();
+    const owner = { ...OWNER, accountProvider: "base-account" as const };
+    const baseAction = { ...action(), owner };
+    const mixedCase = "0xAbCdEf-Provider-ID";
+    await store.issue(baseAction);
+    await store.claim(owner, baseAction.id, baseAction.reviewHash, "2026-09-08T05:01:00.000Z");
+
+    await expect(store.recordSubmission(
+      owner,
+      baseAction.id,
+      { submissionId: mixedCase },
+      "2026-09-08T05:01:01.000Z",
+    )).resolves.toMatchObject({ submissionId: mixedCase, status: "submitted" });
+    await expect(store.recordSubmission(
+      owner,
+      baseAction.id,
+      { submissionId: mixedCase },
+      "2026-09-08T05:01:02.000Z",
+    )).resolves.toMatchObject({ submissionId: mixedCase, status: "submitted" });
+    await expect(store.recordSubmission(
+      owner,
+      baseAction.id,
+      { submissionId: mixedCase.toLowerCase() },
+      "2026-09-08T05:01:03.000Z",
+    )).resolves.toBeNull();
+    expect((await store.get(owner, baseAction.id))?.submissionId).toBe(mixedCase);
+  });
+
+  test(`${name} attaches exact late evidence without reopening an already terminal action`, async () => {
+    const store = await createStore();
+    const neverDispatched = { ...action(), id: "99999999-9999-4999-8999-999999999999" };
+    await store.issue(neverDispatched);
+    await store.claim(OWNER, neverDispatched.id, neverDispatched.reviewHash, "2026-09-10T05:01:00.000Z");
+    await expect(store.recordSubmission(
+      OWNER,
+      neverDispatched.id,
+      { userOperationHash: `0x${"8".repeat(64)}` },
+      "2026-09-10T05:01:01.000Z",
+    )).resolves.toBeNull();
+
+    await store.issue(action());
+    await store.claim(OWNER, action().id, action().reviewHash, "2026-09-08T05:01:00.000Z");
+    await store.updateStatus(OWNER, action().id, "failed", "2026-09-08T05:01:01.000Z", {
+      expectedSourceStatus: "submitting",
+      requireNoSubmissionReference: true,
+    });
+    const userOperationHash = `0x${"f".repeat(64)}` as const;
+    await expect(store.recordSubmission(
+      OWNER,
+      action().id,
+      { userOperationHash },
+      "2026-09-08T05:01:02.000Z",
+    )).resolves.toMatchObject({ status: "failed", userOperationHash });
+    await expect(store.recordSubmission(
+      OWNER,
+      action().id,
+      { userOperationHash },
+      "2026-09-08T05:01:03.000Z",
+    )).resolves.toMatchObject({ status: "failed", userOperationHash });
+  });
+
   test(`${name} fails closed before dispatch when a sensitive payload overlay is unavailable`, async () => {
     const store = await createStore();
     const sensitive = {

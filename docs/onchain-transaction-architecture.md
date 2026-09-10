@@ -12,7 +12,7 @@ Keep the noncustodial boundary:
 
 Make that boundary attempt-aware. The immutable reviewed action, permission to dispatch, a particular wallet execution attempt, provider evidence, reconciliation, and admission blocking are different facts and must stop sharing one overloaded status.
 
-The first implementation slice does not change the store schema. It adds a pure client `checkMoneyAction(action)` path, routes user-visible status checks through it, moves send capability and fresh-balance preflight before the first claim when the durable row is still `prepared`, and preserves a returned Base Account submission ID before any unrelated account-state read can discard it. Later slices add durable attempts and typed atomic commands under a single persistence owner.
+The compatibility implementation does not change the store schema. It adds a pure client `checkMoneyAction(action)` path, routes user-visible status checks through it, moves send capability and fresh-balance preflight before the first claim when the durable row is still `prepared`, and synchronously journals a provider-returned handle before evidence upload. The versioned browser journal retries only the exact owner/action/provider-bound handle through the owner-scoped submission route; it never authorizes wallet replay. Later slices add durable attempts and typed atomic commands under a single persistence owner.
 
 ## Non-goals
 
@@ -46,7 +46,7 @@ That prevents two tabs from both receiving first-dispatch permission, but one op
 | Wallet request throws, times out, disconnects, or page unloads after invocation begins | Claimed row, no reference | **Possibly submitted / ambiguous** | Mark unresolved; never replay with a new execution identity | Reconcile by provider request key, account activity, nonce/user-op data, or explicit owner resolution |
 | Provider accepts request but response is lost | Claimed row, no reference | **Possibly submitted / ambiguous** | Keep admission blocked; do not roll back to prepared | Provider-recoverable request identity is attached to the attempt before or during dispatch where the provider contract permits |
 | `wallet_sendCalls` returns an ID, then an unrelated account-state recheck throws | Claimed row may remain reference-free even though client briefly had a handle | **Possibly submitted; avoidable evidence loss** | Phase 1 returns/parses the ID first, then uploads it under the already-authorized owner | Evidence capture is the immediate next command after provider return |
-| Provider returns a user-op hash/submission ID, but evidence upload fails | Provider reference exists only in client memory | **Possibly submitted** | Phase 1 does not retain the handle after this first submission POST failure. This remains an evidence-loss window: keep the action unresolved and never resubmit. | Retain the returned provider handle client-side until idempotent evidence upload succeeds; the durable attempt accepts repeated identical evidence and rejects conflicts. |
+| Provider returns a user-op hash/submission ID, but evidence upload fails | Provider reference is retained in the versioned browser journal | **Possibly submitted** | Retry only the identical handle after an owner-fenced durable GET; exact durable evidence acknowledges and removes only that journal entry. Never resubmit to the wallet. | Move the same evidence contract onto the durable attempt record. |
 | Evidence is durable but receipt/status lookup is unavailable | Recorded handle, unresolved status | **Possibly submitted, now recoverable** | Poll only the recorded reference | Reconciliation command advances monotonically from verified evidence |
 | Receipt/provider result is observed, but final database write fails | Strong provider evidence, stale Home status | Execution result known to the observer; durable projection stale | Re-run verified reconciliation idempotently | Persist provider observation and projection update atomically where possible |
 | Owner releases admission while execution remains ambiguous | Admission unblocked, attempt still unresolved | **Possibly submitted** | Must not assert onchain non-submission | Store abandonment/admission release independently; accept late evidence forever within retention policy |
@@ -300,8 +300,8 @@ Use temporary real SQLite files and the repository's real Postgres contract harn
 - Read the durable row before execution. If it is still prepared, check send provider capability and a fresh exact-integer portfolio balance before claim.
 - Keep canonical claim response, expiry check, account fencing, and reviewed-call comparison at dispatch.
 - Parse/return a Base `wallet_sendCalls` ID immediately after provider return.
-- Add focused fault-injection tests. No store or handler changes.
-- Explicit follow-up: retain a returned provider handle across an initial submission POST failure and retry evidence upload idempotently. This evidence-loss window remains open in Phase 1.
+- Add focused fault-injection tests.
+- Compatibility follow-up delivered: retain a returned provider handle across an initial submission POST failure and retry the identical evidence after an owner-fenced GET. Opaque Base IDs remain byte-for-byte case-sensitive; hash references are canonicalized.
 
 ### Phase 2 — provider contract spikes and command types
 

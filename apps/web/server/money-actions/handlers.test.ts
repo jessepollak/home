@@ -339,6 +339,68 @@ describe("money action HTTP lifecycle", () => {
     expect(response.status).toBe(401);
   });
 
+  test("preserves mixed-case Base submission IDs byte-for-byte and rejects a case-only retry", async () => {
+    const owner = { ...OWNER, accountProvider: "base-account" as const };
+    const baseAction = { ...action(), owner };
+    const store = new MemoryMoneyActionStore();
+    await store.issue(baseAction);
+    await store.claim(owner, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    const baseAuthorize = async () => Response.json({
+      user: { subject: owner.subject },
+      smartAccount: { address: owner.address, chainId: 8453 },
+      accountProvider: owner.accountProvider,
+    });
+    const handler = createMoneyActionSubmissionHandler({
+      authorize: baseAuthorize,
+      store,
+      now: () => new Date("2026-09-10T05:02:00.000Z"),
+      readReceipt: async () => ({ status: "pending", transactionHash: TRANSACTION_HASH }),
+    });
+    const mixedCase = "0xAbCdEf-Provider-ID";
+
+    const recorded = await handler(request(`/api/actions/${ID}/submission`, {
+      submissionId: mixedCase,
+    }, "base-account"), context);
+    expect(recorded.status).toBe(200);
+    expect((await recorded.json()).operation.submissionId).toBe(mixedCase);
+
+    const exactRetry = await handler(request(`/api/actions/${ID}/submission`, {
+      submissionId: mixedCase,
+    }, "base-account"), context);
+    expect(exactRetry.status).toBe(200);
+    expect((await exactRetry.json()).operation.submissionId).toBe(mixedCase);
+
+    const conflict = await handler(request(`/api/actions/${ID}/submission`, {
+      submissionId: mixedCase.toLowerCase(),
+    }, "base-account"), context);
+    expect(conflict.status).toBe(409);
+    expect((await store.get(owner, ID))?.submissionId).toBe(mixedCase);
+  });
+
+  test("keeps terminal state while durably acknowledging late provider evidence", async () => {
+    const store = new MemoryMoneyActionStore();
+    await store.issue(action());
+    await store.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    await store.updateStatus(OWNER, ID, "failed", "2026-09-08T05:01:01.000Z", {
+      expectedSourceStatus: "submitting",
+      requireNoSubmissionReference: true,
+    });
+    const handler = createMoneyActionSubmissionHandler({
+      authorize,
+      store,
+      now: () => new Date("2026-09-10T05:02:00.000Z"),
+      readReceipt: async () => ({ status: "pending", transactionHash: TRANSACTION_HASH }),
+    });
+    const response = await handler(request(`/api/actions/${ID}/submission`, {
+      userOperationHash: USER_OPERATION_HASH,
+    }), context);
+    expect(response.status).toBe(200);
+    expect((await response.json()).operation).toMatchObject({
+      status: "failed",
+      userOperationHash: USER_OPERATION_HASH,
+    });
+  });
+
   test("binds embedded receipt proof to the verified owner address before confirming", async () => {
     const store = new MemoryMoneyActionStore();
     await store.issue(action());

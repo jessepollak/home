@@ -114,7 +114,48 @@ try {
   assert.equal(recovered.operation.status, "unknown");
   assert.equal(recovered.operation.abandonedAt, undefined);
 
-  console.log("sqlite durable claim, shared bundle, verified execution race, and admission-release probe passed");
+  const baseOwner = { ...owner, accountProvider: "base-account" };
+  const mixedCaseId = "0xAbCdEf-Provider-ID";
+  const baseAction = { ...action, id: "66666666-6666-4666-8666-666666666666", owner: baseOwner };
+  await store.issue(baseAction);
+  await store.claim(baseOwner, baseAction.id, baseAction.reviewHash, "2026-09-08T05:06:00.000Z");
+  assert.equal((await store.recordSubmission(
+    baseOwner,
+    baseAction.id,
+    { submissionId: mixedCaseId },
+    "2026-09-08T05:06:01.000Z",
+  )).submissionId, mixedCaseId);
+  assert.equal((await store.recordSubmission(
+    baseOwner,
+    baseAction.id,
+    { submissionId: mixedCaseId },
+    "2026-09-08T05:06:02.000Z",
+  )).submissionId, mixedCaseId);
+  assert.equal(await store.recordSubmission(
+    baseOwner,
+    baseAction.id,
+    { submissionId: mixedCaseId.toLowerCase() },
+    "2026-09-08T05:06:03.000Z",
+  ), null);
+
+  const terminal = { ...action, id: "77777777-7777-4777-8777-777777777777" };
+  await store.issue(terminal);
+  await store.claim(owner, terminal.id, terminal.reviewHash, "2026-09-08T05:07:00.000Z");
+  await store.updateStatus(owner, terminal.id, "failed", "2026-09-08T05:07:01.000Z", {
+    expectedSourceStatus: "submitting",
+    requireNoSubmissionReference: true,
+  });
+  const terminalEvidence = `0x${"9".repeat(64)}`;
+  const terminalRecorded = await store.recordSubmission(
+    owner,
+    terminal.id,
+    { userOperationHash: terminalEvidence },
+    "2026-09-08T05:07:02.000Z",
+  );
+  assert.equal(terminalRecorded.status, "failed");
+  assert.equal(terminalRecorded.userOperationHash, terminalEvidence);
+
+  console.log("sqlite durable claim, mixed-case handle, terminal evidence, shared bundle, verified execution race, and admission-release probe passed");
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }

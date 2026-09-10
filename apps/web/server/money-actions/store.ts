@@ -175,7 +175,7 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
     now: string,
   ): Promise<StoredMoneyActionOperation | null> {
     const record = this.readOwned(owner, id);
-    if (!record || !["submitting", "submitted", "unknown"].includes(record.status)) return null;
+    if (!record || record.status === "prepared" || record.attemptCount < 1 || !record.claimedAt) return null;
     if (!reference.submissionId && !reference.transactionHash && !reference.userOperationHash) {
       return null;
     }
@@ -188,7 +188,9 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
     record.submissionId ??= reference.submissionId;
     record.transactionHash ??= reference.transactionHash;
     record.userOperationHash ??= reference.userOperationHash;
-    record.status = "submitted";
+    if (["submitting", "submitted", "included", "unknown"].includes(record.status)) {
+      record.status = "submitted";
+    }
     record.updatedAt = now;
     this.sensitiveActions.delete(id);
     return structuredClone(record);

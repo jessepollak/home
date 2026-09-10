@@ -208,7 +208,9 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
       const row = this.getRow(owner, id);
       if (
         !row ||
-        !["submitting", "submitted", "unknown"].includes(row.status) ||
+        row.status === "prepared" ||
+        row.attempt_count < 1 ||
+        !row.claimed_at ||
         (row.submission_id && reference.submissionId && row.submission_id !== reference.submissionId) ||
         (row.transaction_hash && reference.transactionHash && row.transaction_hash !== reference.transactionHash) ||
         (row.user_operation_hash && reference.userOperationHash && row.user_operation_hash !== reference.userOperationHash) ||
@@ -219,7 +221,10 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
       }
       this.database.prepare(`
         UPDATE money_action_operations
-        SET status = 'submitted',
+        SET status = CASE
+              WHEN status IN ('submitting', 'submitted', 'included', 'unknown') THEN 'submitted'
+              ELSE status
+            END,
             submission_id = COALESCE(submission_id, ?),
             transaction_hash = COALESCE(transaction_hash, ?),
             user_operation_hash = COALESCE(user_operation_hash, ?),

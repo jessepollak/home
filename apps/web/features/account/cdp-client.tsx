@@ -75,6 +75,11 @@ import type {
   OperationResult,
   PreparedMoneyAction,
 } from "@/features/money-actions/types";
+import {
+  ProviderHandleJournal,
+  type ProviderHandleJournalStorage,
+} from "@/features/money-actions/provider-handle-journal";
+import { recoverJournaledProviderHandle } from "@/features/money-actions/provider-handle-recovery";
 import type { StoredMoneyActionOperation } from "@/server/money-actions/store";
 import {
   assertTransferRequest,
@@ -663,6 +668,7 @@ export function AccountWalletSessionOwner({
   baseAccountEnabled = false,
   baseAccountConnector = connectBaseAccount,
   baseAccountRestorer = restoreBaseAccount,
+  providerHandleJournalStorage,
 }: {
   children: ReactNode;
   sdk: AccountWalletSdkBoundary;
@@ -670,6 +676,7 @@ export function AccountWalletSessionOwner({
   baseAccountEnabled?: boolean;
   baseAccountConnector?: BaseAccountConnector;
   baseAccountRestorer?: BaseAccountRestorer;
+  providerHandleJournalStorage?: ProviderHandleJournalStorage | null;
 }) {
   const {
     isInitialized,
@@ -697,6 +704,9 @@ export function AccountWalletSessionOwner({
   const validationSequence = useRef(0);
   const transferSequence = useRef(0);
   const transferInProgress = useRef(false);
+  const [providerHandleJournal] = useState(
+    () => new ProviderHandleJournal({ storage: providerHandleJournalStorage }),
+  );
   const accountSelection = useRef<AccountSelection>(initialAccountSelection());
   const baseConnection = useRef<ConnectedBaseAccount | null>(null);
   const baseLoginInProgress = useRef(false);
@@ -1730,7 +1740,7 @@ export function AccountWalletSessionOwner({
             ? { userOperationHash: operation.userOperationHash, sender: prepared.owner.address }
             : undefined,
         );
-        return operationResult(await readMoneyAction(fetchMoneyActionApi, prepared.id));
+        return operationResult(await readMoneyAction(fetchMoneyActionApi, prepared.id, prepared));
       }
       if (operation.userOperationHash && sdkGetUserOperation) {
         const transactionHash = await waitForEmbeddedReceipt(
@@ -1797,10 +1807,21 @@ export function AccountWalletSessionOwner({
       };
       transferInProgress.current = true;
       try {
-        const operation = await readMoneyAction(fetchMoneyActionApi, action.id);
+        let operation = await readMoneyAction(fetchMoneyActionApi, action.id, action);
         assertActive();
         if (!isMoneyActionOwnedBySession(operation.action, session)) {
           throw new TransferExecutionError("stale-session");
+        }
+        const journalRecovery = await recoverJournaledProviderHandle({
+          fetchApi: fetchMoneyActionApi,
+          journal: providerHandleJournal,
+          action: operation.action,
+          operation,
+          assertActive,
+        });
+        operation = journalRecovery.operation;
+        if (["retained", "conflict", "inconsistent"].includes(journalRecovery.kind)) {
+          return operationResult(operation);
         }
         return await reconcileRecordedMoneyAction(
           operation,
@@ -1812,7 +1833,7 @@ export function AccountWalletSessionOwner({
         if (transferSequence.current === sequence) transferInProgress.current = false;
       }
     },
-    [fetchMoneyActionApi, ownerKey, reconcileRecordedMoneyAction, session, status],
+    [fetchMoneyActionApi, ownerKey, providerHandleJournal, reconcileRecordedMoneyAction, session, status],
   );
 
   const executeMoneyAction = useCallback(
@@ -1838,13 +1859,30 @@ export function AccountWalletSessionOwner({
       };
       transferInProgress.current = true;
       try {
-        const durable = await readMoneyAction(fetchMoneyActionApi, action.id);
+        let durable = await readMoneyAction(fetchMoneyActionApi, action.id, action);
         assertActive();
         if (!isMoneyActionOwnedBySession(durable.action, session)) {
           throw new TransferExecutionError("stale-session");
         }
+        const journalRecovery = await recoverJournaledProviderHandle({
+          fetchApi: fetchMoneyActionApi,
+          journal: providerHandleJournal,
+          action: durable.action,
+          operation: durable,
+          assertActive,
+        });
+        durable = journalRecovery.operation;
+        if (["retained", "conflict", "inconsistent"].includes(journalRecovery.kind)) {
+          return operationResult(durable);
+        }
         if (["confirmed", "failed", "rejected", "expired"].includes(durable.status)) {
           return operationResult(durable);
+        }
+        if (durable.status === "prepared" && journalRecovery.issues.includes("storage-corrupt")) {
+          throw new TransferExecutionError("unavailable");
+        }
+        if (durable.status === "prepared" && !providerHandleJournal.canRetain()) {
+          throw new TransferExecutionError("unavailable");
         }
 
         if (durable.status === "prepared" && action.kind === "send") {
@@ -1894,6 +1932,8 @@ export function AccountWalletSessionOwner({
           value: BigInt(call.value),
         }));
         assertActive();
+        // Freeze the reviewed owner/action/provider binding before crossing the wallet boundary.
+        const providerHandleBinding = structuredClone(canonicalAction);
 
         if (session.accountProvider === "base-account") {
           const connection = baseConnection.current;
@@ -1929,7 +1969,28 @@ export function AccountWalletSessionOwner({
             await recordMoneyActionStatus(fetchMoneyActionApi, canonicalAction.id, "unknown");
             throw new TransferExecutionError("submission-unknown", error);
           }
-          await recordMoneyActionSubmission(fetchMoneyActionApi, canonicalAction.id, { submissionId });
+          const retained = providerHandleJournal.retain(providerHandleBinding, {
+            kind: "submission-id",
+            provider: "base-account",
+            value: submissionId,
+          });
+          if (!retained.retained) {
+            throw new TransferExecutionError("submission-unknown");
+          }
+          assertActive();
+          const journaled = await recoverJournaledProviderHandle({
+            fetchApi: fetchMoneyActionApi,
+            journal: providerHandleJournal,
+            action: providerHandleBinding,
+            operation: claim.operation,
+            assertActive,
+          });
+          if (journaled.kind !== "acknowledged") {
+            throw new TransferExecutionError("submission-unknown");
+          }
+          if (["confirmed", "failed", "rejected", "expired"].includes(journaled.operation.status)) {
+            return operationResult(journaled.operation);
+          }
           return await recoverBaseMoneyAction(
             canonicalAction.id,
             submissionId,
@@ -1965,7 +2026,28 @@ export function AccountWalletSessionOwner({
           await recordMoneyActionStatus(fetchMoneyActionApi, canonicalAction.id, "unknown");
           throw new TransferExecutionError("submission-unknown", error);
         }
-        await recordMoneyActionSubmission(fetchMoneyActionApi, canonicalAction.id, { userOperationHash });
+        const retained = providerHandleJournal.retain(providerHandleBinding, {
+          kind: "user-operation-hash",
+          provider: "cdp-embedded",
+          value: userOperationHash,
+        });
+        if (!retained.retained) {
+          throw new TransferExecutionError("submission-unknown");
+        }
+        assertActive();
+        const journaled = await recoverJournaledProviderHandle({
+          fetchApi: fetchMoneyActionApi,
+          journal: providerHandleJournal,
+          action: providerHandleBinding,
+          operation: claim.operation,
+          assertActive,
+        });
+        if (journaled.kind !== "acknowledged") {
+          throw new TransferExecutionError("submission-unknown");
+        }
+        if (["confirmed", "failed", "rejected", "expired"].includes(journaled.operation.status)) {
+          return operationResult(journaled.operation);
+        }
         const transactionHash = await waitForEmbeddedReceipt(
           userOperationHash,
           session.smartAccount.address,
@@ -1979,7 +2061,7 @@ export function AccountWalletSessionOwner({
         const operation = await recordMoneyActionSubmission(fetchMoneyActionApi, canonicalAction.id, {
           userOperationHash,
           transactionHash,
-        });
+        }, canonicalAction);
         return operationResult(operation);
       } finally {
         if (transferSequence.current === sequence) transferInProgress.current = false;
@@ -1990,6 +2072,7 @@ export function AccountWalletSessionOwner({
       fetchPortfolio,
       getAccessToken,
       ownerKey,
+      providerHandleJournal,
       reconcileRecordedMoneyAction,
       recoverBaseMoneyAction,
       sdkGetUserOperation,

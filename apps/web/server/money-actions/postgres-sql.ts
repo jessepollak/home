@@ -95,7 +95,10 @@ export const moneyActionQueries = {
   `.trim(),
   recordSubmission: `
     UPDATE money_action_operations
-    SET status = 'submitted',
+    SET status = CASE
+          WHEN status IN ('submitting', 'submitted', 'included', 'unknown') THEN 'submitted'
+          ELSE status
+        END,
         submission_id = COALESCE(submission_id, $1),
         transaction_hash = COALESCE(transaction_hash, $2),
         user_operation_hash = COALESCE(user_operation_hash, $3),
@@ -332,7 +335,9 @@ export function createFakePostgresExecutor(): SqlExecutor {
         ) {
           return { rows: [], rowCount: 0 };
         }
-        row.status = "submitted";
+        if (["submitting", "submitted", "included", "unknown"].includes(row.status)) {
+          row.status = "submitted";
+        }
         row.submission_id ??= values[0] == null ? null : String(values[0]);
         row.transaction_hash ??= values[1] == null ? null : String(values[1]);
         row.user_operation_hash ??= values[2] == null ? null : String(values[2]);

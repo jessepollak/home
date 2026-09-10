@@ -23,32 +23,34 @@ export async function claimMoneyAction(
   if (
     !isRecord(value) ||
     !isRecord(value.action) ||
-    !isRecord(value.operation) ||
-    !isRecord(value.operation.action) ||
     value.action.id !== action.id ||
     value.action.reviewHash !== action.reviewHash ||
     (value.disposition !== "dispatch" && value.disposition !== "recover") ||
-    !(await sameReviewedAction(action, value.action)) ||
-    !(await sameReviewedAction(value.action, value.operation.action))
+    !(await sameReviewedAction(action, value.action))
   ) {
     throw new MoneyActionClientError("invalid-response");
   }
-  return value as unknown as ClaimedMoneyAction;
+  const canonicalAction = value.action as unknown as PreparedMoneyAction;
+  const operation = await parseStoredMoneyActionOperation(value.operation, action.id, canonicalAction);
+  return {
+    action: canonicalAction,
+    operation,
+    disposition: value.disposition,
+  };
 }
 
 export async function recordMoneyActionSubmission(
   fetchApi: MoneyActionApiFetch,
   id: string,
   reference: { submissionId?: string; transactionHash?: `0x${string}`; userOperationHash?: `0x${string}` },
+  expectedAction?: PreparedMoneyAction,
 ): Promise<StoredMoneyActionOperation> {
   const value = await fetchApi(`/api/actions/${id}/submission`, {
     method: "POST",
     body: JSON.stringify(reference),
   });
-  if (!isRecord(value) || !isRecord(value.operation) || !isRecord(value.operation.action) || value.operation.action.id !== id) {
-    throw new MoneyActionClientError("invalid-response");
-  }
-  return value.operation as unknown as StoredMoneyActionOperation;
+  if (!isRecord(value)) throw new MoneyActionClientError("invalid-response");
+  return parseStoredMoneyActionOperation(value.operation, id, expectedAction);
 }
 
 export async function recordMoneyActionStatus(
@@ -81,12 +83,11 @@ export async function releaseMoneyActionAdmission(
 export async function readMoneyAction(
   fetchApi: MoneyActionApiFetch,
   id: string,
+  expectedAction?: PreparedMoneyAction,
 ): Promise<StoredMoneyActionOperation> {
   const value = await fetchApi(`/api/actions/${id}`, { method: "GET" });
-  if (!isRecord(value) || !isRecord(value.operation) || !isRecord(value.operation.action) || value.operation.action.id !== id) {
-    throw new MoneyActionClientError("invalid-response");
-  }
-  return value.operation as unknown as StoredMoneyActionOperation;
+  if (!isRecord(value)) throw new MoneyActionClientError("invalid-response");
+  return parseStoredMoneyActionOperation(value.operation, id, expectedAction);
 }
 
 export class MoneyActionClientError extends Error {
@@ -96,7 +97,7 @@ export class MoneyActionClientError extends Error {
   }
 }
 
-async function sameReviewedAction(left: unknown, right: unknown): Promise<boolean> {
+export async function sameReviewedAction(left: unknown, right: unknown): Promise<boolean> {
   if (!(await hasValidSensitiveCallDigests(left)) || !(await hasValidSensitiveCallDigests(right))) {
     return false;
   }
@@ -136,6 +137,55 @@ function stableStringify(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+async function parseStoredMoneyActionOperation(
+  value: unknown,
+  id: string,
+  expectedAction?: PreparedMoneyAction,
+): Promise<StoredMoneyActionOperation> {
+  const statuses = new Set<MoneyActionOperationStatus>([
+    "prepared", "submitting", "submitted", "included", "confirmed", "rejected", "expired", "failed", "unknown",
+  ]);
+  if (
+    !isRecord(value) ||
+    !isRecord(value.action) ||
+    value.action.id !== id ||
+    typeof value.status !== "string" || !statuses.has(value.status as MoneyActionOperationStatus) ||
+    typeof value.attemptCount !== "number" || !Number.isSafeInteger(value.attemptCount) || value.attemptCount < 0 ||
+    typeof value.createdAt !== "string" || Number.isNaN(Date.parse(value.createdAt)) ||
+    typeof value.updatedAt !== "string" || Number.isNaN(Date.parse(value.updatedAt)) ||
+    (value.claimedAt !== undefined && (typeof value.claimedAt !== "string" || Number.isNaN(Date.parse(value.claimedAt)))) ||
+    (value.abandonedAt !== undefined && (typeof value.abandonedAt !== "string" || Number.isNaN(Date.parse(value.abandonedAt)))) ||
+    (value.submissionId !== undefined && (typeof value.submissionId !== "string" || !/^[\x21-\x7e]{1,512}$/.test(value.submissionId))) ||
+    (value.transactionHash !== undefined && (typeof value.transactionHash !== "string" || !/^0x[0-9a-f]{64}$/.test(value.transactionHash))) ||
+    (value.userOperationHash !== undefined && (typeof value.userOperationHash !== "string" || !/^0x[0-9a-f]{64}$/.test(value.userOperationHash))) ||
+    !(await validPreparedMoneyAction(value.action)) ||
+    (expectedAction !== undefined && !(await sameReviewedAction(expectedAction, value.action)))
+  ) {
+    throw new MoneyActionClientError("invalid-response");
+  }
+  return value as unknown as StoredMoneyActionOperation;
+}
+
+async function validPreparedMoneyAction(value: Record<string, unknown>): Promise<boolean> {
+  if (
+    typeof value.id !== "string" ||
+    typeof value.reviewHash !== "string" || !/^[0-9a-f]{64}$/.test(value.reviewHash) ||
+    !isRecord(value.owner) ||
+    typeof value.owner.subject !== "string" ||
+    typeof value.owner.address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value.owner.address) ||
+    value.owner.chainId !== 8453 ||
+    (value.owner.accountProvider !== "cdp-embedded" && value.owner.accountProvider !== "base-account") ||
+    typeof value.kind !== "string" ||
+    typeof value.title !== "string" ||
+    !Array.isArray(value.calls) ||
+    !Array.isArray(value.amounts) ||
+    !Array.isArray(value.warnings) ||
+    typeof value.createdAt !== "string" || Number.isNaN(Date.parse(value.createdAt)) ||
+    typeof value.expiresAt !== "string" || Number.isNaN(Date.parse(value.expiresAt))
+  ) return false;
+  return hasValidSensitiveCallDigests(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -85,7 +85,7 @@ export function createMoneyActionSubmissionHandler(dependencies: {
     const now = (dependencies.now ?? (() => new Date()))().toISOString();
     const store = dependencies.store ?? await getMoneyActionStore();
     const record = await store.recordSubmission(owner, id, {
-      ...(typeof body.submissionId === "string" ? { submissionId: body.submissionId.toLowerCase() } : {}),
+      ...(typeof body.submissionId === "string" ? { submissionId: body.submissionId } : {}),
       ...(typeof body.transactionHash === "string" ? { transactionHash: body.transactionHash.toLowerCase() as `0x${string}` } : {}),
       ...(typeof body.userOperationHash === "string" ? { userOperationHash: body.userOperationHash.toLowerCase() as `0x${string}` } : {}),
     }, now);

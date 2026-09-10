@@ -147,7 +147,9 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
       const row = await this.getRow(tx, owner, id, true);
       if (
         !row ||
-        !["submitting", "submitted", "unknown"].includes(row.status) ||
+        row.status === "prepared" ||
+        Number(row.attempt_count) < 1 ||
+        !row.claimed_at ||
         (row.submission_id && reference.submissionId && row.submission_id !== reference.submissionId) ||
         (row.transaction_hash && reference.transactionHash && row.transaction_hash !== reference.transactionHash) ||
         (row.user_operation_hash && reference.userOperationHash && row.user_operation_hash !== reference.userOperationHash) ||
