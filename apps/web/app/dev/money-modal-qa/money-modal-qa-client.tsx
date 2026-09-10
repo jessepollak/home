@@ -28,7 +28,7 @@ export function MoneyModalQaClient() {
         display: "grid",
         justifyItems: "center",
         gap: 32,
-        padding: state === "all" ? "32px 16px 64px" : 0,
+        padding: state === "live" ? 0 : "32px 16px 64px",
       }}
     >
       {state === "live" ? <LiveSendPreview /> : null}
