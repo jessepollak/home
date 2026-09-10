@@ -11,6 +11,12 @@ export type {
 export { MoneyActionReview } from "./review";
 export { MoneyDataRefreshProvider, useMoneyDataRefresh } from "./refresh";
 export {
+  hasOnchainExecutionReference,
+  isActivityVisibleMoneyAction,
+  visibleActivityMoneyActions,
+} from "./activity-visibility";
+export type { ActivityVisibilityInput } from "./activity-visibility";
+export {
   RecentMoneyActions,
   dedupeRecentMoneyActions,
   parseRecentMoneyActions,

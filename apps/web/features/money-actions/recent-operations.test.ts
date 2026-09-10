@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
+import { visibleActivityMoneyActions } from "./activity-visibility";
 import {
   dedupeRecentMoneyActions,
   parseRecentMoneyActions,
@@ -60,5 +61,23 @@ describe("recent Home operation activity", () => {
     expect(parsed).toHaveLength(1);
     expect(parsed[0]?.status).toBe("submitting");
     expect(parsed[0]?.transactionHash).toBeUndefined();
+  });
+
+  test("hides Rejected and other pre-chain terminals after parse", () => {
+    const rejected = { ...operation(), status: "rejected" as const, transactionHash: undefined };
+    const expired = {
+      ...operation(),
+      action: { ...operation().action, id: "22222222-2222-4222-8222-222222222222" },
+      status: "expired" as const,
+      transactionHash: undefined,
+    };
+    const failedOnchain = {
+      ...operation(),
+      action: { ...operation().action, id: "33333333-3333-4333-8333-333333333333" },
+      status: "failed" as const,
+    };
+    const parsed = parseRecentMoneyActions({ operations: [rejected, expired, failedOnchain] }, session);
+    expect(parsed.map((row) => row.status)).toEqual(["rejected", "expired", "failed"]);
+    expect(visibleActivityMoneyActions(parsed).map((row) => row.status)).toEqual(["failed"]);
   });
 });

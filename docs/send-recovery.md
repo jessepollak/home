@@ -17,7 +17,7 @@ A scoped response is explicitly identified:
 }
 ```
 
-The ordinary operations endpoint remains unchanged when `scope` is absent: it returns recent owner history with the existing default limit and `{ "operations": [...] }` envelope.
+The ordinary operations endpoint (`scope` absent) still uses the `{ "operations": [...] }` envelope and the existing default limit. It is a display filter for Activity: pre-chain `rejected` / `expired` / failed-without-execution-reference rows are omitted; confirmed success and failed-onchain remain. `MoneyActionStore` records are not deleted. `scope=unresolved-send` is unchanged.
 
 The Send UI requires the scoped response before preparing a durable send. A failed request, an unknown scope, a generic history response, or a malformed scoped record keeps admission closed. A recovered action is check-only and does not prepare or broadcast a new action.
 

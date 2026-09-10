@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ActivityRow } from "@/components/finance-rows";
 import type { VerifiedAccountSession } from "@/features/account/session-types";
 import { formatPresentationTokenAmount } from "@/features/formatting";
+import { visibleActivityMoneyActions } from "./activity-visibility";
 import type {
   MoneyActionOperationStatus,
   PreparedMoneyAction,
@@ -91,7 +92,9 @@ export function RecentMoneyActions({
   }, [fetchOperations, ownerKey, readOperation, refreshTrigger, session]);
 
   const visibleState = state?.ownerKey === ownerKey ? state : null;
-  const visible = dedupeRecentMoneyActions(visibleState?.operations ?? [], excluded);
+  const visible = visibleActivityMoneyActions(
+    dedupeRecentMoneyActions(visibleState?.operations ?? [], excluded),
+  ); // stale-payload guard; ordinary list API already omits pre-chain Rejected
   const visibleCount = visible.length + (visibleState?.unavailable ? 1 : 0);
 
   useEffect(() => {

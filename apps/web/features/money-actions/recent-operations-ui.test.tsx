@@ -13,17 +13,17 @@ const session = {
 };
 
 function operation(
-  status: "prepared" | "submitted" | "submitting" | "unknown" | "confirmed",
-  refs: { transactionHash?: typeof HASH | null } = {},
+  status: "prepared" | "submitted" | "submitting" | "unknown" | "confirmed" | "rejected" | "failed",
+  refs: { transactionHash?: typeof HASH | null; id?: string } = {},
 ) {
   const transactionHash = refs.transactionHash === null
     ? undefined
-    : refs.transactionHash ?? (status === "prepared" || status === "submitting" || status === "unknown"
+    : refs.transactionHash ?? (status === "prepared" || status === "submitting" || status === "unknown" || status === "rejected"
       ? undefined
       : HASH);
   return {
     action: {
-      id: "11111111-1111-4111-8111-111111111111",
+      id: refs.id ?? "11111111-1111-4111-8111-111111111111",
       reviewHash: "b".repeat(64),
       owner: {
         subject: session.user.subject,
@@ -151,5 +151,38 @@ describe("RecentMoneyActions recovery", () => {
     expect(recovers).toBe(1);
     expect(within(document.body).getByRole("button", { name: "Check status" })).toBeTruthy();
     expect(within(document.body).getByText(/Ready for review/)).toBeTruthy();
+  });
+
+  test("does not render Rejected pre-chain rows and keeps failed-onchain as Failed", async () => {
+    const rejected = {
+      ...operation("rejected", { id: "22222222-2222-4222-8222-222222222222", transactionHash: null }),
+      action: {
+        ...operation("rejected").action,
+        id: "22222222-2222-4222-8222-222222222222",
+        title: "Withdraw USDC from Morpho",
+      },
+    };
+    const failedOnchain = {
+      ...operation("failed", { id: "33333333-3333-4333-8333-333333333333" }),
+      action: {
+        ...operation("failed").action,
+        id: "33333333-3333-4333-8333-333333333333",
+        title: "Send USDC",
+      },
+    };
+    render(
+      <RecentMoneyActions
+        session={session}
+        fetchOperations={async () => ({
+          operations: [rejected, failedOnchain, operation("confirmed")],
+        })}
+        readOperation={async () => ({ operation: operation("confirmed") })}
+      />,
+    );
+
+    await waitFor(() => expect(within(document.body).getByText(/Confirmed/)).toBeTruthy());
+    expect(within(document.body).getByText(/Failed/)).toBeTruthy();
+    expect(within(document.body).queryByText(/Rejected/)).toBeNull();
+    expect(within(document.body).queryByText(/Withdraw USDC from Morpho/)).toBeNull();
   });
 });

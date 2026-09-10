@@ -188,6 +188,66 @@ describe("money action HTTP lifecycle", () => {
     expect(ordinaryBody.operations[0].action.id).toBe(nonSend.id);
   });
 
+  test("hides pre-chain Rejected from ordinary Activity history without deleting store records", async () => {
+    const store = new MemoryMoneyActionStore();
+    const rejected = { ...action(), id: "33333333-3333-4333-8333-333333333333", title: "Withdraw USDC from Morpho" };
+    const expired = { ...action(), id: "44444444-4444-4444-8444-444444444444", title: "Send USDC" };
+    const failedPrepare = { ...action(), id: "55555555-5555-4555-8555-555555555555", title: "Deposit USDC" };
+    const failedOnchain = { ...action(), id: "66666666-6666-4666-8666-666666666666", title: "Send ETH" };
+    const confirmed = { ...action(), id: "77777777-7777-4777-8777-777777777777", title: "Send USDC" };
+    await store.issue(rejected);
+    await store.claim(OWNER, rejected.id, rejected.reviewHash, "2026-09-08T05:01:00.000Z");
+    await store.updateStatus(OWNER, rejected.id, "rejected", "2026-09-08T05:01:10.000Z", {
+      expectedSourceStatus: "submitting",
+      requireNoSubmissionReference: true,
+    });
+    await store.issue(expired);
+    await store.claim(OWNER, expired.id, expired.reviewHash, "2026-09-08T05:02:00.000Z");
+    await store.updateStatus(OWNER, expired.id, "expired", "2026-09-08T05:02:10.000Z", {
+      expectedSourceStatus: "submitting",
+      requireNoSubmissionReference: true,
+    });
+    await store.issue(failedPrepare);
+    await store.claim(OWNER, failedPrepare.id, failedPrepare.reviewHash, "2026-09-08T05:03:00.000Z");
+    await store.updateStatus(OWNER, failedPrepare.id, "failed", "2026-09-08T05:03:10.000Z", {
+      expectedSourceStatus: "submitting",
+      requireNoSubmissionReference: true,
+    });
+    await store.issue(failedOnchain);
+    await store.claim(OWNER, failedOnchain.id, failedOnchain.reviewHash, "2026-09-08T05:04:00.000Z");
+    await store.recordSubmission(OWNER, failedOnchain.id, { userOperationHash: USER_OPERATION_HASH }, "2026-09-08T05:04:05.000Z");
+    await store.updateStatus(OWNER, failedOnchain.id, "failed", "2026-09-08T05:04:10.000Z");
+    await store.issue(confirmed);
+    await store.claim(OWNER, confirmed.id, confirmed.reviewHash, "2026-09-08T05:05:00.000Z");
+    await store.recordSubmission(OWNER, confirmed.id, {
+      userOperationHash: `0x${"d".repeat(64)}` as const,
+      transactionHash: TRANSACTION_HASH,
+    }, "2026-09-08T05:05:05.000Z");
+    await store.updateStatus(OWNER, confirmed.id, "confirmed", "2026-09-08T05:05:10.000Z");
+
+    const handler = createMoneyActionListHandler({ authorize, store });
+    const response = await handler(new Request(
+      "https://home.example/api/actions/operations?limit=20",
+      { headers: { "X-Home-Account-Provider": OWNER.accountProvider } },
+    ));
+    expect(response.status).toBe(200);
+    const body = await response.json() as { operations: Array<{ action: { id: string }; status: string }> };
+    expect(body.operations.map((operation) => ({ id: operation.action.id, status: operation.status }))).toEqual([
+      { id: confirmed.id, status: "confirmed" },
+      { id: failedOnchain.id, status: "failed" },
+    ]);
+    expect(await store.get(OWNER, rejected.id)).toMatchObject({ status: "rejected" });
+    expect(await store.get(OWNER, expired.id)).toMatchObject({ status: "expired" });
+    expect(await store.get(OWNER, failedPrepare.id)).toMatchObject({ status: "failed" });
+    expect((await store.list(OWNER, 20)).map((operation) => operation.status)).toEqual([
+      "confirmed",
+      "failed",
+      "failed",
+      "expired",
+      "rejected",
+    ]);
+  });
+
   test("rejects unknown, duplicate, or out-of-bounds operation selectors after authorization", async () => {
     const handler = createMoneyActionListHandler({ authorize, store: new MemoryMoneyActionStore() });
     for (const query of [

@@ -1,3 +1,4 @@
+import { visibleActivityMoneyActions } from "@/features/money-actions/activity-visibility";
 import type { MoneyActionOperationStatus } from "@/features/money-actions/types";
 import type { MoneyActionExecutionProof, TransferReceiptStatus } from "@/server/transfers/receipt";
 import { getMoneyActionStore } from "./runtime-store";
@@ -210,7 +211,10 @@ export function createMoneyActionListHandler(dependencies: {
     }
     const scope = rawScope ?? undefined;
     const store = dependencies.store ?? await getMoneyActionStore();
-    const operations = await store.list(owner, limit, scope);
+    const listed = await store.list(owner, scope ? limit : 50, scope);
+    const operations = scope
+      ? listed
+      : visibleActivityMoneyActions(listed).slice(0, limit);
     return json(scope ? { scope, operations } : { operations }, 200);
   };
 }
