@@ -8,6 +8,7 @@ import {
   verifiedLocalCashAssets,
 } from "@/config/portfolio-assets";
 import { parsePortfolioValuationSnapshot } from "@/features/portfolio-valuation/parse";
+import { presentPortfolioValuation } from "@/features/portfolio-valuation/present-home-balances";
 import type { CodexRawQuoteInput } from "@/server/market-data/codex/raw-quotes";
 import { supportedFiatCurrencies } from "@/server/valuation/fx-coinbase";
 import type {
@@ -456,6 +457,106 @@ describe("supported portfolio valuation assembly", () => {
     const zero = await complete(account, "US");
     expect(zero.total.status).toBe("all-supported-read-holdings-priced");
     expect(zero.total.value).toEqual({ atoms: "0", scale: 18 });
+  });
+
+  test("parses and presents funded EURC with missing denomination FX while rejecting forged null-FX semantics", async () => {
+    const read = createPortfolioValuationReader({
+      readInventory: async () =>
+        inventory({ eurc: "1000000", vaultUnderlying: "0" }),
+      readPrices: async (inputs) => prices(inputs),
+      readExchangeRates: async () => {
+        const rates = exchangeRates();
+        return {
+          ...rates,
+          quotes: rates.quotes.filter(
+            ({ quoteCurrency }) => quoteCurrency !== "EUR",
+          ),
+        };
+      },
+    });
+    const result = await read(account, "US");
+    const session = {
+      subject: "subject-a",
+      smartAccountAddress: ADDRESS,
+      chainId: 8453 as const,
+    };
+    const parsed = parsePortfolioValuationSnapshot(result, session, "US");
+    const euro = parsed.nativeCashValuations?.find(
+      ({ holdingAssetKey }) =>
+        holdingAssetKey === verifiedLocalCashAssets.EUR.assetKey,
+    );
+
+    expect(euro).toMatchObject({
+      value: null,
+      status: "unpriced",
+      reason: "denomination-fx-unavailable",
+      exactContractUsdPrice: { status: "fresh" },
+      denominationFx: null,
+    });
+    expect(
+      parsed.lines.find(
+        ({ holdingAssetKey }) =>
+          holdingAssetKey === verifiedLocalCashAssets.EUR.assetKey,
+      )?.status,
+    ).toBe("priced");
+    expect(parsed.total).toEqual({
+      label: "supported-portfolio-value",
+      status: "all-supported-read-holdings-priced",
+      value: { atoms: "2200000000000000000", scale: 18 },
+      currency: "USD",
+      unpricedAssetKeys: [],
+      unavailableAssetKeys: [],
+    });
+    expect(
+      presentPortfolioValuation({
+        status: "ready",
+        snapshot: parsed,
+        error: null,
+      }).items.find(({ name }) => name === "Euro")?.displayBalance,
+    ).toBe("1.00 EURC");
+
+    const malformed = [
+      (copy: typeof result) => {
+        const valuation = copy.nativeCashValuations?.find(
+          ({ holdingAssetKey }) =>
+            holdingAssetKey === verifiedLocalCashAssets.EUR.assetKey,
+        );
+        if (!valuation) return;
+        valuation.status = "priced";
+        valuation.reason = null;
+        valuation.value = { atoms: "108", scale: 2 };
+      },
+      (copy: typeof result) => {
+        const valuation = copy.nativeCashValuations?.find(
+          ({ holdingAssetKey }) =>
+            holdingAssetKey === verifiedLocalCashAssets.EUR.assetKey,
+        );
+        if (valuation) valuation.reason = "exact-contract-price-unavailable";
+      },
+      (copy: typeof result) => {
+        const valuation = copy.nativeCashValuations?.find(
+          ({ holdingAssetKey }) =>
+            holdingAssetKey === verifiedLocalCashAssets.EUR.assetKey,
+        );
+        if (!valuation) return;
+        valuation.status = "read-unavailable";
+        valuation.reason = "holding-read-unavailable";
+      },
+      (copy: typeof result) => {
+        const zeroValuation = copy.nativeCashValuations?.find(
+          ({ holdingAssetKey }) =>
+            holdingAssetKey === verifiedLocalCashAssets.IDR.assetKey,
+        );
+        if (zeroValuation) zeroValuation.denominationFx = null;
+      },
+    ];
+    for (const mutate of malformed) {
+      const copy = structuredClone(result);
+      mutate(copy);
+      expect(() => parsePortfolioValuationSnapshot(copy, session, "US")).toThrow(
+        "The portfolio valuation response is invalid.",
+      );
+    }
   });
 
   test("strictly parses native-cash membership, binding, status, and provenance while accepting legacy v2", async () => {

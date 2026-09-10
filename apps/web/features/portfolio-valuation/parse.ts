@@ -282,9 +282,12 @@ function validateNativeCashValuations({
     }
 
     if (
-      selectedCurrency === asset.cashCurrency &&
-      selectedFx !== null &&
-      !sameFxQuote(entry.denominationFx, selectedFx)
+      (entry.denominationFx === null &&
+        entry.status !== "unpriced" &&
+        entry.status !== "read-unavailable") ||
+      (selectedCurrency === asset.cashCurrency &&
+        selectedFx !== null &&
+        !sameFxQuote(entry.denominationFx, selectedFx))
     ) {
       return false;
     }
@@ -443,8 +446,8 @@ function validateNativeCashFx(
   value: unknown,
   currency: FiatCurrencyCode,
 ): boolean {
+  if (value === null) return true;
   return (
-    value !== null &&
     validateFx(value, currency) &&
     isRecord(value) &&
     isRecord(value.source) &&
