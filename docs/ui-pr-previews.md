@@ -14,15 +14,19 @@ Skip docs-only, CI-only, and pure server PRs.
 
 ## How
 
-Add before/after images directly in the **GitHub PR description** (upload or attach in the PR body) with short captions. ~390px width is preferred for Home.
+Paste or drop before/after images into the **GitHub PR description** (not a comment) with short captions. ~390px width is preferred for Home.
 
-**Previews must render inline** in the PR body so reviewers can scan the change without clicking. Use HTML `<img … width="390">` (preferred: it sets the width) or markdown `![alt](url)`.
+**Host must be GitHub user-attachments.** After paste/drop, GitHub inserts a `https://github.com/user-attachments/assets/…` URL. Keep that URL. Use it in HTML `<img … width="390">` (preferred: it sets the width) or markdown `![alt](url)`.
+
+**Previews must render inline** in the PR body so reviewers can scan the change without clicking.
+
+**Do not** link or embed `cursor.com/artifacts` / Cloud Agent artifact URLs. Those 302 to short-lived (~15 minute) signed S3 URLs and break for reviewers.
 
 **Do not** leave bare `https://…` URLs, markdown links like `[screenshot](url)`, or “see attached” without an inline image.
 
-**Do not commit** preview PNGs under `docs/pr-previews/` or elsewhere for new PRs. GitHub hosts the upload when you paste or drop it into the description.
+**Do not commit** preview PNGs under `docs/pr-previews/` or elsewhere for new PRs.
 
-After paste/drop, GitHub inserts a URL. Keep or wrap that URL as an `<img>` (or `![…](…)`) inside the Before/After table (or after-only block). The table example below already uses `<img>` — that embed is required for scannability, not optional markup.
+After paste/drop, wrap the GitHub user-attachments URL as an `<img>` (or `![…](…)`) inside the Before/After table (or after-only block). The table example below already uses `<img>` — that embed is required for scannability, not optional markup.
 
 When both before and after exist, use a two-column markdown table:
 
@@ -49,4 +53,4 @@ CI screenshot gates, Percy/Chromatic, issue/PR templates.
 
 ## Done
 
-A reviewer can understand the UX change by **looking at the PR description** (inline images). Opening links or attachments is not enough.
+A reviewer can understand the UX change by **looking at the PR description** (inline images on `github.com/user-attachments/assets/…`). Opening links or attachments is not enough. `cursor.com/artifacts` links do not count — they expire.
