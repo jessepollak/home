@@ -57,7 +57,9 @@ function isPresentationCashCurrency(code: string | null): boolean {
 /**
  * Cash / fiat rows may carry a presentation currency for the flag map.
  * Crypto, stock, and meme asset rows never get a country flag — only a
- * token symbol (or an empty gray disc) in the shared 32px slot.
+ * token symbol (or an empty gray disc) in the shared 32px slot. Native
+ * ETH still ships as `{ currency: null, symbol: "ETH" }`; CurrencyMark
+ * paints the dedicated diamond from that ticker.
  */
 export function presentHomeBalanceMark(
   item: HomeAssetBalanceItem,

@@ -19,10 +19,14 @@
   grid-area: 1 / 1;
 }
 
-.flag {
+.flag,
+.eth {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.flag {
   object-fit: cover;
 }
 

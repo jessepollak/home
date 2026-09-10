@@ -889,6 +889,12 @@ describe("login-state home experience", () => {
     expect(page().getByText("0.0500 ETH")).toBeTruthy();
     expect(page().getByText("Indonesian rupiah")).toBeTruthy();
     expect(page().getByText("100.00 IDRX")).toBeTruthy();
+    const ethRow = page().getByText("Ethereum").closest("li");
+    const ethMark = ethRow?.querySelector("[data-mark='eth']");
+    expect(ethMark).toBeTruthy();
+    expect(ethMark?.querySelector("svg")).toBeTruthy();
+    expect(ethMark?.textContent).toBe("");
+    expect(ethRow?.querySelector("img")).toBeNull();
     const flagSources = [...document.querySelectorAll("img")]
       .map((image) => image.getAttribute("src"))
       .filter((src) => src?.startsWith("/currency-flags/"));
@@ -1112,6 +1118,13 @@ describe("login-state home experience", () => {
     expect(page().getByText("<$0.01")).toBeTruthy();
     expect(page().getByText("<0.000001 ETH")).toBeTruthy();
     expect(document.body.textContent).not.toContain("1.101012331497033445");
+    const ethMarks = document.querySelectorAll("[data-mark='eth']");
+    expect(ethMarks).toHaveLength(2);
+    for (const mark of ethMarks) {
+      expect(mark.querySelector("svg")).toBeTruthy();
+      expect(mark.textContent).toBe("");
+    }
+    expect(document.querySelector("img[src*='eth']")).toBeNull();
   });
 
   test("renders an incomplete valuation with no useful subtotal as unavailable", async () => {

@@ -70,15 +70,53 @@ describe("CurrencyMark", () => {
     expect(missing.container.textContent).not.toBe("Lo");
     missing.unmount();
 
+    const weth = render(<CurrencyMark currency={null} symbol="WETH" />);
+    expect(weth.container.querySelector("img")).toBeNull();
+    expect(weth.container.querySelector("[data-mark='eth']")).toBeNull();
+    expect(weth.container.querySelector("[data-mark='symbol']")).toBeTruthy();
+    expect(weth.container.textContent).toBe("WETH");
+  });
+
+  test("paints a dedicated ETH diamond — never ET initials or a country flag", () => {
     const eth = render(<CurrencyMark currency={null} symbol="ETH" />);
+    const mark = eth.container.querySelector("[data-mark='eth']");
+    expect(mark).toBeTruthy();
+    expect(mark?.querySelector("svg")).toBeTruthy();
+    expect(mark?.querySelector("circle")?.getAttribute("fill")).toBe("#627EEA");
     expect(eth.container.querySelector("img")).toBeNull();
-    expect(eth.container.textContent).toBe("ETH");
+    expect(eth.container.textContent).toBe("");
     expect(eth.container.textContent).not.toBe("ET");
+    expect(eth.container.textContent).not.toBe("ETH");
     eth.unmount();
 
     const ticker = render(<CurrencyMark currency="ETH" symbol="ETH" />);
+    expect(ticker.container.querySelector("[data-mark='eth']")).toBeTruthy();
     expect(ticker.container.querySelector("img")).toBeNull();
-    expect(ticker.container.textContent).toBe("ETH");
+    expect(ticker.container.textContent).toBe("");
+
+    const pending = render(
+      <CurrencyMark currency={null} symbol="ETH" pending />,
+    );
+    expect(pending.container.querySelector("[data-mark='shimmer']")).toBeTruthy();
+    expect(pending.container.querySelector("[data-mark='eth']")).toBeNull();
+    expect(pending.container.querySelector("svg")).toBeNull();
+    expect(pending.container.textContent).toBe("");
+    pending.unmount();
+
+    const imaged = render(
+      <CurrencyMark
+        currency={null}
+        symbol="ETH"
+        src="https://icons.example.test/eth.png"
+      />,
+    );
+    expect(imaged.container.querySelector("svg")).toBeNull();
+    expect(imaged.container.querySelector("img")?.getAttribute("src")).toBe(
+      "https://icons.example.test/eth.png",
+    );
+    fireEvent.load(imaged.container.querySelector("img")!);
+    expect(imaged.container.querySelector("[data-mark='image']")).toBeTruthy();
+    expect(imaged.container.querySelector("[data-mark='eth']")).toBeNull();
   });
 
   test("holds the 32px slot on shimmer while an asset image is pending or loading", () => {
