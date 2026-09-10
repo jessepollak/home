@@ -10,7 +10,9 @@ if (!databaseUrl) {
 } else {
   describe("real PostgreSQL money action contract", () => {
     const admin = new Bun.SQL(databaseUrl);
-    const pools = [] as InstanceType<typeof Bun.SQL>[];
+    // Every fixture keeps its own schema; the executor applies SET LOCAL search_path
+    // per transaction, so one shared pool is safe even when contract tests overlap.
+    const pool = new Bun.SQL(databaseUrl);
     const schemas = [] as string[];
     let fixtureNumber = 0;
 
@@ -20,16 +22,14 @@ if (!databaseUrl) {
       await admin.unsafe(`CREATE SCHEMA "${schema}"`);
       schemas.push(schema);
 
-      const pool = new Bun.SQL(databaseUrl);
-      pools.push(pool);
       return new PostgresMoneyActionStore(createBunPostgresExecutor(pool, schema));
     });
 
     afterAll(async () => {
-      await Promise.all(pools.map((pool) => pool.close()));
       for (const schema of schemas) {
         await admin.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
       }
+      await pool.close();
       await admin.close();
     });
   });
