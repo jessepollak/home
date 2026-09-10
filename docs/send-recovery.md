@@ -22,3 +22,5 @@ The ordinary operations endpoint (`scope` absent) still uses the `{ "operations"
 The Send UI requires the scoped response before preparing a durable send. A failed request, an unknown scope, a generic history response, or a malformed scoped record keeps admission closed. A recovered action is check-only and does not prepare or broadcast a new action.
 
 This recovery view prevents newer terminal or non-send history from hiding an older unresolved send. It does not serialize independently created concurrent intents or change global claim and dispatch semantics.
+
+<!-- vercel preview rebuild 2026-09-10 #165 -->
