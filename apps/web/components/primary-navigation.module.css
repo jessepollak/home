@@ -20,6 +20,7 @@
   display: flex;
   min-width: 0;
   min-height: 56px;
+  height: 56px;
   align-items: center;
   justify-content: center;
   flex-direction: column;
@@ -35,6 +36,7 @@
 
 .iconFrame {
   display: inline-flex;
+  flex-shrink: 0;
   width: 32px;
   height: 32px;
   align-items: center;
@@ -55,6 +57,7 @@
 }
 
 .label {
+  flex-shrink: 0;
   overflow: hidden;
   max-width: 100%;
   font-size: 0.68rem;

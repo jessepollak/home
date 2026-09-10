@@ -37,7 +37,9 @@ describe("PrimaryNavigation — #162 footer lock", () => {
 
   test("centers a 56px icon+label stack", () => {
     expect(css).toMatch(/\.item \{[\s\S]*min-height: 56px/);
+    expect(css).toMatch(/\.item \{[\s\S]*height: 56px/);
     expect(css).toMatch(/\.item \{[\s\S]*padding: 8px 0/);
+    expect(css).toMatch(/\.iconFrame \{[\s\S]*flex-shrink: 0/);
     expect(css).toMatch(/\.iconFrame \{[\s\S]*width: 32px/);
     expect(css).toMatch(/\.iconFrame \{[\s\S]*height: 32px/);
     expect(css).not.toContain("min-height: 61px");
