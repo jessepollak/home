@@ -71,11 +71,12 @@ body {
 @media (max-width: 480px) {
   /* Keep catalog insets at their 100% size when the specimen enlarges text. */
   .catalog-shell { padding-inline: min(var(--home-ui-inset-outer), 16px); }
+  .catalog-header { margin-inline: min(0px, calc(8px - var(--home-ui-space-2))); }
   .catalog-controls,
   .catalog-section { padding-inline: min(var(--home-ui-space-4), 16px); }
   .catalog-controls legend { padding-inline: min(var(--home-ui-space-2), 8px); }
   .catalog-section > .home-ui-button,
-  .catalog-buttons > .home-ui-button { padding-inline: min(var(--home-ui-space-4), 16px); }
+  .catalog-buttons > .home-ui-button:not(.home-ui-icon-button) { padding-inline: min(var(--home-ui-space-4), 16px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .catalog-motion-default { display: none; }

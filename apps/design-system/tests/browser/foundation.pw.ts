@@ -25,21 +25,24 @@ async function digitWidths(page: Page, role: string) {
   );
 }
 
-async function expectWholeWords(locator: Locator, words: string[]) {
-  const fragmented = await locator.evaluate((element, expectedWords) => {
-    const textNodes: Text[] = [];
+async function expectWholeAsciiWords(locator: Locator) {
+  const fragmented = await locator.evaluate((element) => {
+    const fragments: string[] = [];
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
-    return expectedWords.filter((word) => {
-      const node = textNodes.find((candidate) => candidate.data.includes(word));
-      if (!node) return true;
-      const start = node.data.indexOf(word);
-      const range = document.createRange();
-      range.setStart(node, start);
-      range.setEnd(node, start + word.length);
-      return Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0).length > 1;
-    });
-  }, words);
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text;
+      if (!node.parentElement || node.parentElement.getClientRects().length === 0) continue;
+      for (const match of node.data.matchAll(/[A-Za-z]{4,}/g)) {
+        const range = document.createRange();
+        range.setStart(node, match.index!);
+        range.setEnd(node, match.index! + match[0].length);
+        if (Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0).length !== 1) {
+          fragments.push(match[0]);
+        }
+      }
+    }
+    return fragments;
+  });
   expect(fragmented).toEqual([]);
 }
 
@@ -86,19 +89,47 @@ for (const width of [320, 390, 1280]) {
   }
 }
 
-test("320px / 200% text keeps ordinary catalog words whole in loaded and fallback fonts", async ({ page }) => {
+test("320px / 200% text keeps all catalog words whole in loaded, fallback, and failed-font states", async ({ page }) => {
+  const expectReadableCatalog = async (catalog: Page) => {
+    await expect(catalog.getByRole("heading", { name: "Home UI foundation", exact: true })).toBeVisible();
+    await expectWholeAsciiWords(catalog.locator("main"));
+  };
   await page.setViewportSize({ width: 320, height: 900 });
   await page.goto("/");
   await page.getByRole("combobox", { name: "Text size" }).selectOption("200");
-  const wholeWords = async () => {
-    await expectWholeWords(page.getByRole("button", { name: "Secondary", exact: true }), ["Secondary"]);
-    await expectWholeWords(page.locator("legend"), ["Specimen"]);
-    await expectWholeWords(page.getByRole("heading", { name: "Typography", exact: true }), ["Typography"]);
-    await expectWholeWords(page.getByRole("button", { name: /^A long button label/ }), ["readable", "enlarged"]);
-  };
-  await wholeWords();
+  await expectReadableCatalog(page);
   await page.getByRole("checkbox", { name: "System font fallback" }).check();
-  await wholeWords();
+  await expectReadableCatalog(page);
+
+  const browser = page.context().browser();
+  expect(browser).not.toBeNull();
+  const failedFontContext = await browser!.newContext();
+  const failedFontPage = await failedFontContext.newPage();
+  try {
+    await failedFontPage.setViewportSize({ width: 320, height: 900 });
+    await failedFontPage.route(/\.(woff2|ttf)$/, (route) => route.abort());
+    await failedFontPage.goto("/");
+    await failedFontPage.getByRole("combobox", { name: "Text size" }).selectOption("200");
+    await failedFontPage.evaluate(() => document.fonts.ready);
+    expect(await failedFontPage.evaluate(() => Array.from(document.fonts).filter((font) => font.status === "error").length)).toBe(3);
+    await expectReadableCatalog(failedFontPage);
+  } finally {
+    await failedFontContext.close();
+  }
+});
+
+test("narrow normal-size icon buttons retain shared 44px geometry", async ({ page }) => {
+  for (const [width, rootSize] of [[320, "16px"], [390, "16px"], [320, "12px"]] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await page.locator("html").evaluate((element, size) => { element.style.fontSize = size; }, rootSize);
+    await expect(page.locator("html")).toHaveCSS("font-size", rootSize);
+    for (const iconButton of await page.locator(".home-ui-icon-button").all()) {
+      const box = await iconButton.boundingBox();
+      expect(box!.width).toBe(44);
+      expect(box!.height).toBe(44);
+    }
+  }
 });
 
 test("native keyboard activation, focus, pressed presentation, and disabled/loading safety", async ({ page }) => {
