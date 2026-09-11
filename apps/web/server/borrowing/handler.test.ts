@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/features/account/session-types";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/client/account/session-types";
+import type { PreparedMoneyAction } from "@/client/money-actions/types";
 import {
   BORROW_COLLATERAL_TOKEN,
   BORROW_IRM_ADDRESS,

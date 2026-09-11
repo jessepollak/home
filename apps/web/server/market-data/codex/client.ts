@@ -6,7 +6,7 @@ import {
 import type {
   MarketDataState,
   MarketSnapshot,
-} from "@/features/invest/invest-market";
+} from "@/client/invest/invest-market";
 import {
   CODEX_CACHE_TTL_MS,
   CODEX_GRAPHQL_ENDPOINT,

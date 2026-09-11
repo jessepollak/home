@@ -2,7 +2,7 @@ import type {
   MoneyActionOperationStatus,
   MoneyActionOwner,
   PreparedMoneyAction,
-} from "@/features/money-actions/types";
+} from "@/client/money-actions/types";
 import {
   canReleaseMoneyActionAdmission,
   canTransitionMoneyActionStatus,

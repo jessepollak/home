@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
   fetchBasenameProfile,
   profileGlyph,
-} from "@/features/account/basename-profile";
+} from "@/client/account/basename-profile";
 import styles from "./profile-mark.module.css";
 
 export function ProfileMark({

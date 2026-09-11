@@ -1,4 +1,4 @@
-import { installClientErrorReporting } from "@/features/observability/client-reporter";
+import { installClientErrorReporting } from "@/client/observability/client-reporter";
 
 try {
   installClientErrorReporting();

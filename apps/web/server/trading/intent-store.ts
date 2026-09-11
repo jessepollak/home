@@ -1,4 +1,4 @@
-import type { MoneyActionOwner } from "@/features/money-actions/types";
+import type { MoneyActionOwner } from "@/client/money-actions/types";
 import type { TradeIntent, TradeIntentStore } from "./types";
 
 export class MemoryTradeIntentStore implements TradeIntentStore {

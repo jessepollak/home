@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { firstQueryValue, parseShellLocation } from "@/config/shell-location";
-import { investViewFromSearch } from "@/features/invest/invest-location";
-import { DashboardExperience } from "./dashboard-experience";
+import { investViewFromSearch } from "@/client/invest/invest-location";
+import { DashboardExperience } from "@/client/home/dashboard-experience";
 
 export const metadata: Metadata = {
   title: "Dashboard · Home",

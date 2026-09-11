@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
+import type { VerifiedAccountSession } from "@/client/account/session-types";
 import type {
   MoneyActionOwner,
   PreparedMoneyAction,
-} from "@/features/money-actions/types";
+} from "@/client/money-actions/types";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import {
   appendPermit2Signature,

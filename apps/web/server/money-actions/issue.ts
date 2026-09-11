@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
-import { decodeMoneyActionApproval } from "@/features/money-actions/approval";
+import type { VerifiedAccountSession } from "@/client/account/session-types";
+import { decodeMoneyActionApproval } from "@/client/money-actions/approval";
 import type {
   MoneyActionAmount,
   MoneyActionCall,
   MoneyActionDraft,
   PreparedMoneyAction,
-} from "@/features/money-actions/types";
+} from "@/client/money-actions/types";
 import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
 import { getMoneyActionStore } from "./runtime-store";
 import { moneyActionOwner } from "./session";

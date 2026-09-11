@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   CLIENT_ERROR_ENDPOINT,
   reportClientError,
-} from "@/features/observability/client-reporter";
+} from "@/client/observability/client-reporter";
 import {
   setObservabilityLogWriterForTests,
   writeObservabilityEvent,

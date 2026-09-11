@@ -1,5 +1,5 @@
 import type { InvestAsset } from "@/config/invest-assets";
-import type { MarketSnapshot } from "@/features/invest/invest-market";
+import type { MarketSnapshot } from "@/client/invest/invest-market";
 import {
   createAssetIconResolver,
   emptyAssetIconMap,

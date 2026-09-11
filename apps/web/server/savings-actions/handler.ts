@@ -1,11 +1,11 @@
 import {
   ACCOUNT_PROVIDER_HEADER,
   type VerifiedAccountSession,
-} from "@/features/account/session-types";
+} from "@/client/account/session-types";
 import type {
   MoneyActionDraft,
   PreparedMoneyAction,
-} from "@/features/money-actions/types";
+} from "@/client/money-actions/types";
 import { MoneyActionIssueError } from "@/server/money-actions/issue";
 import { readAuthorizedMoneyActionSession } from "@/server/money-actions/session";
 import { SavingsActionError } from "./prepare";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { activityAssets } from "@/features/activity/types";
+import { activityAssets } from "@/client/activity/types";
 import type { BaseErc20TransferPage } from "@/server/chain-data/types";
 import { createActivityReader } from "./reader";
 

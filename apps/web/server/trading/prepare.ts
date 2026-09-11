@@ -1,18 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
-import type { MoneyActionCall, MoneyActionDraft } from "@/features/money-actions/types";
+import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { MoneyActionCall, MoneyActionDraft } from "@/client/money-actions/types";
 import {
   BASE_USDC,
   getTradeAssetStatus,
   getTradeBuyAsset,
   getTradeSellAsset,
   type TradeAsset,
-} from "@/features/trading/assets";
+} from "@/client/trading/assets";
 import {
   assertCanonicalTradeBaseUnits,
   formatTradeBaseUnits,
-} from "@/features/trading/amount";
-import type { PrepareTradeRequest, TradeIntentReview } from "@/features/trading/types";
+} from "@/client/trading/amount";
+import type { PrepareTradeRequest, TradeIntentReview } from "@/client/trading/types";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import {
   createCoinbaseSmartWalletTypedData,

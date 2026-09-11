@@ -1,4 +1,4 @@
-import type { MoneyActionAmount, MoneyActionDraft } from "@/features/money-actions/types";
+import type { MoneyActionAmount, MoneyActionDraft } from "@/client/money-actions/types";
 import {
   approveCall,
   borrowCall,

@@ -3,8 +3,8 @@ import {
   FUNDING_BASE_CHAIN_ID,
   FUNDING_BASE_USDC_ADDRESS,
   type HostedOnrampSession,
-} from "@/features/funding/types";
-import { parseCoinbaseHostedUrl } from "@/features/funding/funding-client";
+} from "@/client/funding/types";
+import { parseCoinbaseHostedUrl } from "@/client/funding/funding-client";
 
 const ONRAMP_HOST = "api.cdp.coinbase.com";
 const ONRAMP_PATH = "/platform/v2/onramp/sessions";

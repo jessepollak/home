@@ -4,7 +4,7 @@ import {
   encodeFunctionData,
   type Hex as ViemHex,
 } from "viem";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
+import type { VerifiedAccountSession } from "@/client/account/session-types";
 import type { AccessTokenValidator } from "@/server/cdp/session";
 import { resolveBaseRpcUrl, PORTFOLIO_RPC_TIMEOUT_MS } from "@/server/portfolio/rpc";
 import { nonceBitmapPosition, PERMIT2_ADDRESS } from "./permit2";

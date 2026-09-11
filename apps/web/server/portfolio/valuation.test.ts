@@ -7,8 +7,8 @@ import {
   portfolioVaults,
   verifiedLocalCashAssets,
 } from "@/config/portfolio-assets";
-import { parsePortfolioValuationSnapshot } from "@/features/portfolio-valuation/parse";
-import { presentPortfolioValuation } from "@/features/portfolio-valuation/present-home-balances";
+import { parsePortfolioValuationSnapshot } from "@/client/portfolio-valuation/parse";
+import { presentPortfolioValuation } from "@/client/portfolio-valuation/present-home-balances";
 import type { CodexRawQuoteInput } from "@/server/market-data/codex/raw-quotes";
 import { supportedFiatCurrencies } from "@/server/valuation/fx-coinbase";
 import type {

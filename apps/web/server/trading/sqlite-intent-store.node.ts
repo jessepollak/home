@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { MoneyActionOwner } from "@/features/money-actions/types";
+import type { MoneyActionOwner } from "@/client/money-actions/types";
 import type { TradeIntent, TradeIntentStore } from "./types";
 
 type IntentRow = {

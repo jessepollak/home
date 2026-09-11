@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { PreparedMoneyAction } from "@/client/money-actions/types";
 import { finalizeTradeAction, createTradePreclaimValidator } from "./finalize";
 import { hashTypedData } from "viem";
 import { MemoryTradeIntentStore } from "./intent-store";

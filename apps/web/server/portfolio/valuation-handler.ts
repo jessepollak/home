@@ -2,7 +2,7 @@ import { isRegionId, type RegionId } from "@/config/regions";
 import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
-} from "@/features/account/session-types";
+} from "@/client/account/session-types";
 import type { PortfolioValuationSnapshot } from "@/server/valuation/types";
 import {
   BASE_CHAIN_ID,

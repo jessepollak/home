@@ -4,11 +4,11 @@ import { describe, expect, test } from "bun:test";
 
 const globals = readFileSync(resolve(import.meta.dir, "globals.css"), "utf8");
 const invest = readFileSync(
-  resolve(import.meta.dir, "../features/invest/invest-experience.module.css"),
+  resolve(import.meta.dir, "../client/invest/invest-experience.module.css"),
   "utf8",
 );
 const chart = readFileSync(
-  resolve(import.meta.dir, "../features/invest/price-chart.tsx"),
+  resolve(import.meta.dir, "../client/invest/price-chart.tsx"),
   "utf8",
 );
 

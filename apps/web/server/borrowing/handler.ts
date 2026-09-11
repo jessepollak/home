@@ -2,7 +2,7 @@ import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
   type VerifiedAccountSession,
-} from "@/features/account/session-types";
+} from "@/client/account/session-types";
 import type { SessionAuthorizer } from "@/server/portfolio/handler";
 import type { BorrowAddress } from "./config";
 import { BorrowPreparationError, prepareBorrowAction } from "./prepare";

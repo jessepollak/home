@@ -1,7 +1,7 @@
 import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
-} from "@/features/account/session-types";
+} from "@/client/account/session-types";
 import {
   BASE_CHAIN_ID,
   type Address,

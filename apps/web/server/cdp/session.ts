@@ -4,9 +4,9 @@ import {
   type AccountProvider,
   type AccountProviderRequest,
   type VerifiedAccountSession,
-} from "@/features/account/session-types";
+} from "@/client/account/session-types";
 
-export { BASE_CHAIN_ID } from "@/features/account/session-types";
+export { BASE_CHAIN_ID } from "@/client/account/session-types";
 export type SessionPayload = VerifiedAccountSession;
 
 export type VerifiedEndUser = {

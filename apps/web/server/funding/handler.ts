@@ -2,7 +2,7 @@ import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
   type VerifiedAccountSession,
-} from "@/features/account/session-types";
+} from "@/client/account/session-types";
 import type { CreateCoinbaseOnrampSession } from "./coinbase-onramp";
 import { CoinbaseOnrampError } from "./coinbase-onramp";
 

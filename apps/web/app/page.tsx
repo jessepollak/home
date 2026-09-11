@@ -1,5 +1,5 @@
-import { SupportedGlobe } from "@/features/landing/supported-globe";
-import { PortfolioHomeExperience } from "./home-experience";
+import { SupportedGlobe } from "@/client/landing/supported-globe";
+import { PortfolioHomeExperience } from "@/client/home/home-experience";
 
 type HomePageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;

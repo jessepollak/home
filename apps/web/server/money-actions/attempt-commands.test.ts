@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import type { PreparedMoneyAction } from "@/client/money-actions/types";
 import {
   ATTEMPT_COMMAND_CONTRACT_VERSION,
   ATTEMPT_IMPLEMENTATION_TICKETS,

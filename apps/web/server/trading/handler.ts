@@ -2,9 +2,9 @@ import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
   type VerifiedAccountSession,
-} from "@/features/account/session-types";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
-import type { PrepareTradeRequest, TradeIntentReview } from "@/features/trading/types";
+} from "@/client/account/session-types";
+import type { PreparedMoneyAction } from "@/client/money-actions/types";
+import type { PrepareTradeRequest, TradeIntentReview } from "@/client/trading/types";
 import {
   TradePreparationError,
   type TradePreparationFailure,

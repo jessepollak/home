@@ -8,8 +8,8 @@ import {
   entryPoint08Abi,
   entryPoint08Address,
 } from "viem/account-abstraction";
-import type { AccountProvider } from "@/features/account/session-types";
-import type { MoneyActionCall } from "@/features/money-actions/types";
+import type { AccountProvider } from "@/client/account/session-types";
+import type { MoneyActionCall } from "@/client/money-actions/types";
 import { resolveBaseRpcUrl } from "@/server/portfolio/rpc";
 
 export const TRANSFER_RECEIPT_TIMEOUT_MS = 6_000;

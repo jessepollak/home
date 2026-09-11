@@ -18,8 +18,8 @@
  * Sources stay on the issue comments; this module encodes the locked answers.
  */
 
-import type { AccountProvider } from "@/features/account/session-types";
-import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
+import type { AccountProvider } from "@/client/account/session-types";
+import type { MoneyActionOwner, PreparedMoneyAction } from "@/client/money-actions/types";
 
 export const ATTEMPT_COMMAND_CONTRACT_VERSION = 1 as const;
 

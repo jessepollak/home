@@ -1,10 +1,10 @@
-import type { VerifiedAccountSession } from "@/features/account/session-types";
+import type { VerifiedAccountSession } from "@/client/account/session-types";
 import type {
   MoneyActionDraft,
   MoneyActionOwner,
   PreparedMoneyAction,
-} from "@/features/money-actions/types";
-import type { PrepareTradeRequest, TradeIntentReview } from "@/features/trading/types";
+} from "@/client/money-actions/types";
+import type { PrepareTradeRequest, TradeIntentReview } from "@/client/trading/types";
 
 export type Address = `0x${string}`;
 export type Hex = `0x${string}`;

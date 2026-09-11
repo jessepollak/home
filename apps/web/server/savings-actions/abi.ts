@@ -1,4 +1,4 @@
-import type { MoneyActionCall } from "@/features/money-actions/types";
+import type { MoneyActionCall } from "@/client/money-actions/types";
 import type { Address } from "@/server/morpho/types";
 
 // ERC-20 and ERC-4626 selectors from the canonical interfaces used by Morpho Vault V1.

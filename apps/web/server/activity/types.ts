@@ -1,4 +1,4 @@
-import type { ActivityPage } from "@/features/activity/types";
+import type { ActivityPage } from "@/client/activity/types";
 
 export type VerifiedActivityAccount = {
   address: `0x${string}`;

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import type { PreparedMoneyAction } from "@/client/money-actions/types";
 import type { TransferReceiptStatus } from "@/server/transfers/receipt";
 import {
   compatibilityActionRevision,

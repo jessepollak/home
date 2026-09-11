@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
-import { BASE_USDC } from "@/features/trading/assets";
+import type { VerifiedAccountSession } from "@/client/account/session-types";
+import { BASE_USDC } from "@/client/trading/assets";
 import { MemoryTradeIntentStore } from "./intent-store";
 import { hashTypedData } from "viem";
 import { PERMIT2_ADDRESS } from "./permit2";

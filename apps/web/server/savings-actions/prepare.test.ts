@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
+import type { VerifiedAccountSession } from "@/client/account/session-types";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morpho/config";
 import type { Address } from "@/server/morpho/types";
 import { SavingsActionError, createPrepareSavingsAction } from "./prepare";

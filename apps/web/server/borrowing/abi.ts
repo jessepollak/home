@@ -1,4 +1,4 @@
-import type { MoneyActionCall } from "@/features/money-actions/types";
+import type { MoneyActionCall } from "@/client/money-actions/types";
 import {
   BORROW_MARKET_PARAMS,
   type BorrowAddress,
