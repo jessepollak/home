@@ -57,7 +57,9 @@ afterEach(cleanup);
 describe("BorrowExperience", () => {
   test("shows the single verified market while keeping a signed-out wallet truly empty", () => {
     render(<BorrowExperience session={null} />);
-    expect(within(document.body).getByText("USDC against cbBTC")).toBeTruthy();
+    const title = within(document.body).getByRole("heading", { level: 1, name: "USDC against cbBTC" });
+    expect(title.classList.contains("home-ui-text")).toBe(true);
+    expect(title.getAttribute("data-text-style")).toBe("page-title");
     expect(within(document.body).getByText(/Sign in to view this wallet’s position/)).toBeTruthy();
     expect(document.body.textContent).not.toContain("Demo balance");
   });
@@ -87,10 +89,17 @@ describe("BorrowExperience", () => {
 
     render(<BorrowExperience session={session} fetchAccountResource={fetchAccountResource} />);
     expect(await within(document.body).findByText(/no cbBTC, USDC, or position/i)).toBeTruthy();
+    const refreshButton = within(document.body).getByRole("button", { name: "Refresh" });
+    expect(refreshButton.classList.contains("home-ui-button")).toBe(true);
+    expect(refreshButton.getAttribute("data-variant")).toBe("secondary");
     fireEvent.change(within(document.body).getByLabelText("Action"), { target: { value: "borrow" } });
     fireEvent.change(within(document.body).getByLabelText("Amount (USDC)"), { target: { value: "1" } });
-    fireEvent.click(within(document.body).getByRole("button", { name: "Review current preview" }));
+    const previewButton = within(document.body).getByRole("button", { name: "Review current preview" });
+    expect(previewButton.classList.contains("home-ui-button")).toBe(true);
+    expect(previewButton.getAttribute("data-variant")).toBe("primary");
+    fireEvent.click(previewButton);
     expect(await within(document.body).findByText("Read-only preview")).toBeTruthy();
+    expect(within(document.body).getByText("1 USDC").getAttribute("data-text-style")).toBe("row-value");
 
     expect(requests[0].path).toBe("/api/borrow");
     expect(requests[1]).toEqual({

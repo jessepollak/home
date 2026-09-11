@@ -44,8 +44,8 @@ jobs:
       - name: Check
         run: bun check
 
-  browser-auth:
-    name: mocked Chromium auth
+  browser-smoke:
+    name: Chromium product smoke
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -73,8 +73,8 @@ jobs:
       - name: Install Chromium
         run: bunx playwright install --with-deps chromium
 
-      - name: Test mocked browser authentication
-        run: bun run --cwd apps/web test:browser-auth
+      - name: Test signed-in send recovery smoke
+        run: bun run --cwd apps/web test:browser-smoke
 
   sqlite-probe:
     name: Node SQLite probe (Node 22.13.1)

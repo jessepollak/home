@@ -7,7 +7,7 @@ Status: code-only rollout plan for issue [#112](https://github.com/jessepollak/h
 Pull requests run these untrusted-code checks without provider or funded-wallet secrets:
 
 - `bun check`
-- `mocked Chromium auth`
+- `Chromium product smoke`
 - `Node SQLite probe (Node 22.13.1)`
 - `delivery automation tests`
 - `real PostgreSQL store contract (PostgreSQL 14)`
@@ -47,7 +47,7 @@ Jesse or a repository administrator should make these changes only after this PR
 3. Require changes through pull requests; block force pushes and branch deletion.
 4. Require these exact checks, selecting GitHub Actions as the expected source where GitHub offers that choice:
    - `bun check`
-   - `mocked Chromium auth`
+   - `Chromium product smoke`
    - `Node SQLite probe (Node 22.13.1)`
    - `delivery automation tests`
    - `real PostgreSQL store contract (PostgreSQL 14)`
@@ -69,7 +69,7 @@ Verify the connected Home project against these values in Project Settings; do n
 
 Preserve the project's working Root Directory, install/build commands, framework, output directory, and Node configuration. This rollout changes delivery gates, not the monorepo build layout. Record those existing values before rehearsal; resolve any mismatch with [the deployment setup guide](vercel-deploy.md) separately rather than changing a working deployment as part of the gate rollout.
 
-Then add Vercel Deployment Checks for the five CI jobs that also run on pushes to `main`: `bun check`, `mocked Chromium auth`, `Node SQLite probe (Node 22.13.1)`, `delivery automation tests`, and `real PostgreSQL store contract (PostgreSQL 14)`. Vercel documents that Deployment Checks hold production alias promotion until selected checks pass ([Deployment Checks](https://vercel.com/docs/deployment-checks)). Confirm in a non-production rehearsal that a failed check creates a build but does not move the production domain, then confirm a fully green commit promotes automatically.
+Then add Vercel Deployment Checks for the five CI jobs that also run on pushes to `main`: `bun check`, `Chromium product smoke`, `Node SQLite probe (Node 22.13.1)`, `delivery automation tests`, and `real PostgreSQL store contract (PostgreSQL 14)`. Vercel documents that Deployment Checks hold production alias promotion until selected checks pass ([Deployment Checks](https://vercel.com/docs/deployment-checks)). Confirm in a non-production rehearsal that a failed check creates a build but does not move the production domain, then confirm a fully green commit promotes automatically.
 
 This plan leaves the existing Git-based deployment trigger intact. Without Vercel Deployment Checks (or a later approved staged-promotion trigger), GitHub merge protection does not prove that the post-merge production build passed CI before alias promotion.
 

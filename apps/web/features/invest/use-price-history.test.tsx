@@ -173,3 +173,70 @@ describe("usePriceHistory", () => {
     expect(page().getByTestId("count").textContent).toBe("0");
   });
 });
+
+describe("point value validation", () => {
+  // Mutation-sensitive: old code used !/[1-9]/.test(point.value) on the full string,
+  // so exponent digits (e.g. the "1" in "0.0e+1") would satisfy the check, letting
+  // zero-priced points through. New code splits on /[eE]/ and tests mantissa only.
+
+  test("rejects '0.0e+1' — zero mantissa, exponent digit '1' fools old full-string check", async () => {
+    // old: !/[1-9]/.test("0.0e+1") → false (1 found) → point kept → status "ready"
+    // new: !/[1-9]/.test("0.0")    → true  (none)    → return null → status "error"
+    window.fetch = (async () =>
+      Response.json(
+        historyPayload("cbbtc", "1W", [
+          { time: "2026-09-01T00:00:00.000Z", value: "0.0e+1" },
+        ]),
+      )) as unknown as typeof fetch;
+    render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("error"),
+    );
+    expect(page().getByTestId("count").textContent).toBe("0");
+  });
+
+  test("rejects '0.0e+5' — zero mantissa, exponent digit '5' fools old full-string check", async () => {
+    // old: !/[1-9]/.test("0.0e+5") → false (5 found) → point kept → status "ready"
+    // new: !/[1-9]/.test("0.0")    → true  (none)    → return null → status "error"
+    window.fetch = (async () =>
+      Response.json(
+        historyPayload("cbbtc", "1W", [
+          { time: "2026-09-01T00:00:00.000Z", value: "0.0e+5" },
+        ]),
+      )) as unknown as typeof fetch;
+    render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("error"),
+    );
+    expect(page().getByTestId("count").textContent).toBe("0");
+  });
+
+  test("accepts '1.23e-4' — non-zero mantissa is correctly kept", async () => {
+    window.fetch = (async () =>
+      Response.json(
+        historyPayload("cbbtc", "1W", [
+          { time: "2026-09-01T00:00:00.000Z", value: "1.23e-4" },
+        ]),
+      )) as unknown as typeof fetch;
+    render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("ready"),
+    );
+    expect(page().getByTestId("count").textContent).toBe("1");
+    expect(page().getByTestId("first").textContent).toBe("1.23e-4");
+  });
+
+  test("rejects '0e0' — zero with zero exponent, no [1-9] in mantissa or full string", async () => {
+    window.fetch = (async () =>
+      Response.json(
+        historyPayload("cbbtc", "1W", [
+          { time: "2026-09-01T00:00:00.000Z", value: "0e0" },
+        ]),
+      )) as unknown as typeof fetch;
+    render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("error"),
+    );
+    expect(page().getByTestId("count").textContent).toBe("0");
+  });
+});
