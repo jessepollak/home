@@ -115,7 +115,7 @@ function formatActivityAmount(
   presentation: boolean,
 ): string {
   if (transfer.tokenSymbol === null || transfer.tokenDecimals === null) {
-    return `${transfer.amountBaseUnits} base units · unknown token`;
+    return `${transfer.amountBaseUnits} base units${presentation ? "" : " · unknown token"}`;
   }
   if (!presentation) {
     return `${formatBaseUnitAmount(

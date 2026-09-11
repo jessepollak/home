@@ -150,7 +150,7 @@ describe("presentActivityTransferRow", () => {
     });
 
     expect(presentActivityTransferRow(unknown, UTC).value).toBe(
-      "+123456789 base units · unknown token",
+      "+123456789 base units",
     );
     const details = presentActivityTransferDetails(unknown, UTC);
     expect(details.title).toBe("Received unknown token");
