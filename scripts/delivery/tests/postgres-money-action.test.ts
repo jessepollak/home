@@ -406,13 +406,20 @@ if (!databaseUrl) {
       await Promise.all([first.dispose(), second.dispose()]);
     });
 
-    test("release and evidence races preserve both facts across independent PostgreSQL connections", async () => {
+    test("owner-scoped release is idempotent and preserves late evidence plus verified reconciliation", async () => {
       const schema = await createSchema("race");
       const first = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
       const second = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
       await Promise.all([first.init(), second.init()]);
       const item = attemptFixture(106);
       const claimed = await issueAndClaim(first.store, item);
+      const releaseCommand = {
+        owner: item.owner,
+        actionId: item.action.id,
+        attemptId: claimed.attempt.attemptId,
+        policyVersion: "owner-release-v1",
+        reason: "owner-request" as const,
+      };
       const [evidence, release] = await Promise.all([
         first.store.recordProviderEvidence({
           owner: item.owner,
@@ -423,25 +430,104 @@ if (!databaseUrl) {
           provenance: { source: "provider-return", observedAt: item.evidenceAt },
           writeIdempotencyKey: "race-evidence",
         }, item.evidenceAt),
-        second.store.releaseAttemptAdmission({
-          owner: item.owner,
-          actionId: item.action.id,
-          attemptId: claimed.attempt.attemptId,
-          policyVersion: "owner-release-v1",
-          reason: "owner-request",
-        }, item.releasedAt),
+        second.store.releaseAttemptAdmission(releaseCommand, item.releasedAt),
       ]);
-      expect(evidence.ok).toBe(true);
-      expect(release.ok).toBe(true);
-      expect(await first.store.getAttemptStoreSnapshot(item.owner, item.action.id)).toMatchObject({
+      expect(evidence).toMatchObject({ ok: true, value: { disposition: "recorded" } });
+      expect(release).toMatchObject({
         ok: true,
         value: {
-          attempts: [{
-            evidence: [{ evidence: item.evidence }],
+          admission: { state: "released", at: item.releasedAt, policyVersion: "owner-release-v1" },
+          ownerResolution: { kind: "abandoned", at: item.releasedAt, reason: "owner-request" },
+          lateEvidence: "accepted",
+        },
+      });
+      expect(await first.store.list(item.owner, 10, "unresolved-send")).toEqual([]);
+      expect(await first.store.claimDispatch(item.claim, item.afterVerifiedAt)).toMatchObject({
+        ok: true,
+        value: {
+          disposition: "recover",
+          authorization: "none",
+          attempt: { attemptId: claimed.attempt.attemptId, admission: { state: "released" } },
+        },
+      });
+      const otherOwner = { ...item.owner, subject: "other-owner" };
+      expect(await second.store.releaseAttemptAdmission({ ...releaseCommand, owner: otherOwner }, item.afterVerifiedAt)).toMatchObject({
+        ok: false,
+        dispatchAuthority: "none",
+        error: { code: "owner-mismatch" },
+      });
+
+      const duplicate = await second.store.releaseAttemptAdmission(releaseCommand, item.afterVerifiedAt);
+      expect(duplicate).toEqual(release);
+      const afterRelease = await first.store.getAttemptStoreSnapshot(item.owner, item.action.id);
+      if (!afterRelease.ok) throw new Error("released attempt snapshot unavailable");
+      expect(afterRelease.value.attempts[0]).toMatchObject({
+        attemptVersion: 3,
+        evidence: [{ evidence: item.evidence }],
+        admission: { state: "released" },
+        ownerResolution: { kind: "abandoned" },
+      });
+
+      const statusAt = "2026-09-12T16:00:03.500Z";
+      expect(await first.store.recordProviderEvidence({
+        owner: item.owner,
+        actionId: item.action.id,
+        attemptId: claimed.attempt.attemptId,
+        dispatchVersion: 1,
+        evidence: {
+          kind: "provider-status",
+          handle: item.evidence,
+          observedAt: statusAt,
+          payload: "pending",
+        },
+        provenance: { source: "provider-status-lookup", observedAt: statusAt, locator: item.evidence },
+        writeIdempotencyKey: "late-status",
+      }, statusAt)).toMatchObject({ ok: true, value: { disposition: "recorded" } });
+      const afterStatus = await first.store.getAttemptStoreSnapshot(item.owner, item.action.id);
+      if (!afterStatus.ok) throw new Error("late status snapshot unavailable");
+      expect(afterStatus.value.attempts[0]).toMatchObject({
+        attemptVersion: 4,
+        evidence: [{ evidence: item.evidence }, { evidence: { kind: "provider-status", payload: "pending" } }],
+        admission: { state: "released" },
+      });
+
+      const transactionHash = `0x${"a".repeat(64)}` as const;
+      const recordedEvidence = afterStatus.value.attempts[0]!.evidence[0]!;
+      const verified = await first.store.applyVerifiedObservation(createTrustedVerifiedObservation({
+        owner: item.owner,
+        actionId: item.action.id,
+        attemptId: claimed.attempt.attemptId,
+        expectedAttemptVersion: afterStatus.value.attempts[0]!.attemptVersion,
+        expectedDispatchVersion: 1,
+        expectedEvidence: { evidence: recordedEvidence, comparison: "exact-recorded-fact" },
+        verificationLookup: {
+          kind: "user-operation-hash",
+          provider: "cdp-embedded",
+          value: item.evidence.value,
+        },
+        verifiedExecution: { chainId: 8453, kind: "user-operation", hash: item.evidence.value },
+        result: { kind: "confirmed", transactionHash, verifiedExecution: true },
+        observedAt: item.verifiedAt,
+      }));
+      expect(verified).toMatchObject({
+        ok: true,
+        value: {
+          kind: "projected",
+          attempt: {
+            reconciliation: { kind: "confirmed", transactionHash },
             admission: { state: "released" },
             ownerResolution: { kind: "abandoned" },
-          }],
+          },
         },
+      });
+      expect(await first.store.get(item.owner, item.action.id)).toMatchObject({
+        status: "confirmed",
+        transactionHash,
+        abandonedAt: item.releasedAt,
+      });
+      expect(await second.store.claimDispatch(item.claim, item.afterVerifiedAt)).toMatchObject({
+        ok: true,
+        value: { disposition: "terminal", authorization: "none", result: { kind: "confirmed" } },
       });
       await Promise.all([first.dispose(), second.dispose()]);
     });

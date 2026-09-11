@@ -1,8 +1,9 @@
 "use client";
 
-import { AddressText } from "@/components/address";
+import { CopyableValue } from "@/components/copyable-value";
 import { CountrySelect } from "@/components/country-select";
 import { CurrencyMark } from "@/components/currency-mark";
+import { formatAddress } from "@/shared/formatting";
 import {
   presentationRegions,
   type RegionId,
@@ -78,7 +79,11 @@ export function AccountSettings({
               <strong>Base account</strong>
               <small>
                 {accountAddress ? (
-                  <AddressText address={accountAddress} />
+                  <CopyableValue
+                    value={accountAddress}
+                    display={formatAddress(accountAddress)}
+                    valueKind="address"
+                  />
                 ) : (
                   "Setup in progress"
                 )}

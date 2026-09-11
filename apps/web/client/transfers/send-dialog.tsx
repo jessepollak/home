@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AddressField, AddressText } from "@/components/address";
+import { AddressField } from "@/components/address";
+import { CopyableValue } from "@/components/copyable-value";
+import { formatAddress } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import {
   MoneyAmountDisplay,
@@ -511,7 +513,16 @@ export function SendDialog({
               amount={confirmAmount}
               lead={`You're sending ${TRANSFER_ASSETS[displayRequest.assetId].symbol}`}
               rows={[
-                { label: "To", value: <AddressText address={displayRequest.recipient} /> },
+                {
+                  label: "To",
+                  value: (
+                    <CopyableValue
+                      value={displayRequest.recipient}
+                      display={formatAddress(displayRequest.recipient)}
+                      valueKind="address"
+                    />
+                  ),
+                },
                 { label: "Asset", value: TRANSFER_ASSETS[displayRequest.assetId].symbol },
                 { label: "Network", value: "Base" },
               ]}

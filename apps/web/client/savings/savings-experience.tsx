@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AddressText } from "@/components/address";
+import { CopyableValue } from "@/components/copyable-value";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { useMoneyDataRefresh } from "@/client/money-actions/refresh";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { usePortfolio } from "@/client/portfolio";
+import { formatAddress } from "@/shared/formatting";
 import {
   SavingsMoneyDialog,
   type SavingsActionMode,
@@ -479,7 +480,11 @@ export function SavingsExperience({
                 <dt>Curator</dt>
                 <dd>
                   {selected.curatorAddress ? (
-                    <AddressText address={selected.curatorAddress} />
+                    <CopyableValue
+                      value={selected.curatorAddress}
+                      display={formatAddress(selected.curatorAddress)}
+                      valueKind="address"
+                    />
                   ) : (
                     "—"
                   )}

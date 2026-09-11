@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { Button, Heading, Text } from "@home/ui";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { AddressText } from "@/components/address";
+import { CopyableValue } from "@/components/copyable-value";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MoneyActionReview } from "@/client/money-actions/review";
 import { useMoneyDataRefresh } from "@/client/money-actions/refresh";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { formatAddress } from "@/shared/formatting";
 import {
   BORROW_COLLATERAL_TOKEN,
   BORROW_LLTV_WAD,
@@ -193,16 +194,22 @@ function BorrowExperienceInner({ session, fetchAccountResource, onActionConfirme
           </div>
           <dl className={styles.addresses}>
             <Fact label="Market ID" value={shortHash(BORROW_MARKET_ID)} title={BORROW_MARKET_ID} />
-            <Fact label="Morpho" value={<AddressText address={MORPHO_BLUE_ADDRESS} />} />
+            <Fact
+              label="Morpho"
+              value={copyableAddress(MORPHO_BLUE_ADDRESS)}
+            />
             <Fact
               label="Collateral"
-              value={<>cbBTC · <AddressText address={BORROW_COLLATERAL_TOKEN.address} /></>}
+              value={<>cbBTC · {copyableAddress(BORROW_COLLATERAL_TOKEN.address)}</>}
             />
             <Fact
               label="Loan"
-              value={<>USDC · <AddressText address={BORROW_LOAN_TOKEN.address} /></>}
+              value={<>USDC · {copyableAddress(BORROW_LOAN_TOKEN.address)}</>}
             />
-            <Fact label="Oracle" value={<AddressText address={BORROW_ORACLE_ADDRESS} />} />
+            <Fact
+              label="Oracle"
+              value={copyableAddress(BORROW_ORACLE_ADDRESS)}
+            />
             <Fact label="LLTV" value={`${formatWadPercent(BORROW_LLTV_WAD.toString())}%`} />
           </dl>
         </section>
@@ -317,6 +324,16 @@ function BorrowExperienceInner({ session, fetchAccountResource, onActionConfirme
         />
       ) : null}
     </main>
+  );
+}
+
+function copyableAddress(value: string) {
+  return (
+    <CopyableValue
+      value={value}
+      display={formatAddress(value)}
+      valueKind="address"
+    />
   );
 }
 
