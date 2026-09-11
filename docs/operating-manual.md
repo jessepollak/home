@@ -99,9 +99,9 @@ Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / o
 
 Jesse-locked, September 11, 2026. This replaces the earlier pipelines, calibrated-QA, and publication sections. The goal is merged code; evidence exists to get there, not the other way around.
 
-1. **One issue, one writer, one worktree, one PR.** Small scope, one lane, ordinary branch. Up to four writers at once when the work is disjoint; a blocked lane names its dependency on the issue and the coordinator moves to the next issue.
+1. **One PR, one writer, one worktree.** Small scope, one lane, ordinary branch. An issue is normally one PR; a frontend/backend split (dual `owner:*`, see [board](#board-is-source-of-truth)) is one PR per slice. Up to four writers at once when the work is disjoint; a blocked lane names its dependency on the issue and the coordinator moves to the next issue.
 2. **The loop:** implement → `bun check` → one fresh independent review → fix blocking findings → push → CI green → attach the preview ([UI PR previews](ui-pr-previews.md)) → undraft and `status:needs-jesse`.
-3. **Blocking findings** are correctness, security, privacy, data loss, and the money-loop gates below. Everything else becomes a follow-up issue, not another review round. Hard cap: two review rounds per PR; after that it ships with the follow-ups filed, or the open question goes to Jesse.
+3. **Blocking findings** are correctness, security, privacy, data loss, and the money-loop gates below. Everything else becomes a follow-up issue, not another review round. Hard cap: two review rounds per PR. After that, if any blocking finding is still unresolved the PR goes to Jesse with the open question; otherwise it ships with the follow-ups filed.
 4. **Reviewer routing:** money, auth, and privacy paths get the strongest reviewer (Astra). Product UI and ordinary backend get Sol. Docs and metadata get Terra. Reviews are read-only and time-boxed; an unfinished review is not a pass.
 5. **Tests are proportional.** For UI fixes, test code should not exceed product code. Reuse the existing Playwright config and unit patterns. No new `/dev` harness routes or bespoke servers unless the feature itself needs them.
 6. **Preview is the proof.** The Vercel preview link plus one screenshot or one short video in the PR description. No manifests, hashes, tiles, or publication reviews.
