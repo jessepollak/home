@@ -206,10 +206,10 @@ describe("IDRX mint client", () => {
         IDRX_CUSTOMER_SUBJECT: "subject-a",
         IDRX_CUSTOMER_NAME: "JOHN SMITH",
       },
-      fetchImplementation: async () => Response.json(vaData({
-        amount: 24000.5,
-        baseAmount: 20000.5,
-      })),
+      fetchImplementation: async () => new Response(
+        '{"statusCode":200,"data":{"merchantOrderId":"20260728130000","reference":"SNAP-20260728130000","virtualAccountNo":"8680770000001234","virtualAccountName":"JOHN SMITH","amount":24000.50,"baseAmount":20000.50,"fees":[{"name":"VA Mandiri","amount":4000.25}],"expiredDate":"2026-07-28T14:00:00.000Z"}}',
+        { headers: { "Content-Type": "application/json" } },
+      ),
     });
     const result = await client({
       address: ADDRESS,
@@ -219,7 +219,11 @@ describe("IDRX mint client", () => {
       channelId: "MANDIRI",
       returnUrl: "https://home.example/fund?return=idrx",
     });
-    expect(result).toMatchObject({ amount: "24000.5", baseAmount: "20000.5" });
+    expect(result).toMatchObject({
+      amount: "24000.50",
+      baseAmount: "20000.50",
+      fees: [{ name: "VA Mandiri", amount: "4000.25" }],
+    });
   });
 
   test("fails closed without secrets, on 401, and on non-IDRX checkout URLs", async () => {

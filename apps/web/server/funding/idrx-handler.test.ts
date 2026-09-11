@@ -192,9 +192,41 @@ describe("IDRX mint handler", () => {
       assetId: "idrx", country: "ID", toBeMinted: "20000", rail: "qris",
       consent: true, attemptId: "22222222-2222-4222-8222-222222222222",
     }));
+    const recoveredAfterTabLoss = await handler(request({
+      assetId: "idrx", country: "ID", toBeMinted: "20000", rail: "qris",
+      consent: true, attemptId: "44444444-4444-4444-8444-444444444444",
+    }));
     expect(first.status).toBe(200);
     expect(recovered.status).toBe(200);
+    expect(recoveredAfterTabLoss.status).toBe(200);
     expect(await recovered.json()).toMatchObject({ merchantOrderId: "order-once" });
+    expect(await recoveredAfterTabLoss.json()).toMatchObject({ merchantOrderId: "order-once" });
+    expect(providerCalls).toBe(1);
+  });
+
+  test("rejects attempt-ID reuse with changed immutable intent", async () => {
+    const attempts = new MemoryIdrxAttemptStore();
+    let providerCalls = 0;
+    const handler = createIdrxMintHandler({
+      authorize: async () => authorizedSession(),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts,
+      createMint: async () => {
+        providerCalls += 1;
+        throw new IdrxMintError("unavailable");
+      },
+    });
+    const attemptId = "55555555-5555-4555-8555-555555555555";
+    expect((await handler(request({
+      assetId: "idrx", country: "ID", toBeMinted: "20000", rail: "qris",
+      consent: true, attemptId,
+    }))).status).toBe(409);
+    const mismatch = await handler(request({
+      assetId: "idrx", country: "ID", toBeMinted: "30000", rail: "qris",
+      consent: true, attemptId,
+    }));
+    expect(mismatch.status).toBe(409);
+    expect((await mismatch.json()).error.code).toBe("IDRX_ATTEMPT_MISMATCH");
     expect(providerCalls).toBe(1);
   });
 

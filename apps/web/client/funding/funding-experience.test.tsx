@@ -210,6 +210,11 @@ describe("FundingExperience", () => {
       },
       signal: expect.any(AbortSignal),
     }]]);
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
+    expect(page().getByText("8680770000001234")).toBeTruthy();
+    expect(calls).toHaveLength(1);
   });
 
   test("retains an ambiguous IDRX attempt across back navigation and does not offer redispatch", async () => {

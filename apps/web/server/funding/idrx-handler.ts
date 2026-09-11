@@ -4,7 +4,10 @@ import {
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
 import type { FundingSessionAuthorizer } from "./handler";
-import type { IdrxAttemptStore } from "./idrx-attempt-store";
+import type {
+  IdrxAttemptIntent,
+  IdrxAttemptStore,
+} from "./idrx-attempt-store";
 import {
   IDRX_BASE_CHAIN_ID,
   isAllowedIdrxMintAmount,
@@ -90,9 +93,20 @@ export function createIdrxMintHandler(dependencies: {
       subject: session.user.subject,
       smartAccount: session.smartAccount.address,
     };
+    const persistedIntent: IdrxAttemptIntent = {
+      toBeMinted: intent.toBeMinted,
+      rail: intent.rail,
+      channelId: intent.channelId ?? null,
+      customerSubject: customer.subject,
+      customerName: customer.customerName,
+    };
     let attempt;
     try {
-      attempt = await dependencies.attempts.begin(owner, intent.attemptId);
+      attempt = await dependencies.attempts.begin(
+        owner,
+        intent.attemptId,
+        persistedIntent,
+      );
     } catch {
       return privateError(
         "IDRX_ATTEMPT_STORE_UNAVAILABLE",
@@ -101,6 +115,13 @@ export function createIdrxMintHandler(dependencies: {
       );
     }
     if (attempt.status === "completed") return privateJson(attempt.result, 200);
+    if (attempt.status === "mismatch") {
+      return privateError(
+        "IDRX_ATTEMPT_MISMATCH",
+        "This attempt is already bound to different funding instructions.",
+        409,
+      );
+    }
     if (attempt.status === "pending") {
       return privateError(
         "IDRX_ATTEMPT_PENDING",

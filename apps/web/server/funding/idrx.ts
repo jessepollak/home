@@ -252,7 +252,7 @@ async function postMint(options: {
 
   if (response.ok) {
     try {
-      return { kind: "ok", data: await response.json() };
+      return { kind: "ok", data: parseIdrxResponseJson(await response.text()) };
     } catch (error) {
       return { kind: "fail", error: new IdrxMintError("invalid-response", error) };
     }
@@ -395,16 +395,63 @@ function readFees(value: unknown): Array<{ name: string; amount: string }> {
 }
 
 function readIdrAmount(value: unknown): string {
-  if (typeof value === "string") {
-    if (!mintAmountPattern.test(value)) throw new IdrxMintError("invalid-response");
-    return value;
+  if (typeof value !== "string" || !mintAmountPattern.test(value)) {
+    throw new IdrxMintError("invalid-response");
   }
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    const minor = value * 100;
-    if (!Number.isSafeInteger(minor)) throw new IdrxMintError("invalid-response");
-    return value.toFixed(2).replace(/(?:\.0+|(?<=[0-9])0+)$/, "").replace(/\.$/, "");
+  return value;
+}
+
+function parseIdrxResponseJson(text: string): unknown {
+  const decimalKeys = new Set(["amount", "baseAmount"]);
+  let output = "";
+  let index = 0;
+  while (index < text.length) {
+    if (text[index] !== '"') {
+      output += text[index];
+      index += 1;
+      continue;
+    }
+    const start = index;
+    index += 1;
+    while (index < text.length) {
+      if (text[index] === "\\") {
+        index += 2;
+        continue;
+      }
+      if (text[index] === '"') {
+        index += 1;
+        break;
+      }
+      index += 1;
+    }
+    const token = text.slice(start, index);
+    output += token;
+    let cursor = index;
+    while (/\s/.test(text[cursor] ?? "")) cursor += 1;
+    if (text[cursor] !== ":") continue;
+    let key: unknown;
+    try {
+      key = JSON.parse(token);
+    } catch {
+      continue;
+    }
+    if (typeof key !== "string" || !decimalKeys.has(key)) continue;
+    output += text.slice(index, cursor + 1);
+    cursor += 1;
+    const valueWhitespaceStart = cursor;
+    while (/\s/.test(text[cursor] ?? "")) cursor += 1;
+    output += text.slice(valueWhitespaceStart, cursor);
+    const numeric = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(
+      text.slice(cursor),
+    );
+    if (!numeric) {
+      index = cursor;
+      continue;
+    }
+    output += JSON.stringify(numeric[0]);
+    index = cursor + numeric[0].length;
   }
-  throw new IdrxMintError("invalid-response");
+  return JSON.parse(output);
 }
 
 function normalizeCustomerName(value: string): string {
