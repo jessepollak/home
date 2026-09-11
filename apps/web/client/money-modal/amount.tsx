@@ -86,14 +86,18 @@ export function useAutoFitAmountText(text: string) {
     if (!container || !sizer) return;
 
     const measure = () => {
-      const available = container.clientWidth;
+      const computed = window.getComputedStyle(container);
+      const horizontalPadding =
+        (Number.parseFloat(computed.paddingLeft) || 0)
+        + (Number.parseFloat(computed.paddingRight) || 0);
+      const available = container.clientWidth - horizontalPadding;
       const natural = sizer.getBoundingClientRect().width;
       if (available <= 0 || natural <= 0) return;
 
       const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
       if (!Number.isFinite(base) || base <= 0) return;
 
-      const minRaw = window.getComputedStyle(container).getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
+      const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
       const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
       // Round down and reserve headroom so the rendered amount never exceeds
       // the container by a subpixel rounding error; the exact decimal string

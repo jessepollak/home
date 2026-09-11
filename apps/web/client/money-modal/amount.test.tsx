@@ -237,6 +237,8 @@ function mountFit(ui: ReactElement) {
     CapturedResizeObserver as unknown as typeof ResizeObserver;
   window.getComputedStyle = (() => ({
     fontSize: "57.6px",
+    paddingLeft: "16px",
+    paddingRight: "16px",
     getPropertyValue: (property: string) =>
       property === "--money-amount-min-size" ? "20px" : "",
   })) as unknown as typeof window.getComputedStyle;
@@ -348,7 +350,7 @@ describe("MoneyPrimaryAmount auto-fit", () => {
       harness.setLayout(280, 600);
       harness.flushFit();
       expect(harness.amountNode.textContent).toBe("$123456789012.123456");
-      expect(harness.amountNode.style.fontSize).toBe("26px");
+      expect(harness.amountNode.style.fontSize).toBe("23px");
       expect(harness.sizerNode.textContent).toBe("$123456789012.123456");
     } finally {
       harness.cleanup();
@@ -360,7 +362,7 @@ describe("MoneyPrimaryAmount auto-fit", () => {
     try {
       harness.setLayout(280, 600);
       harness.flushFit();
-      expect(harness.amountNode.style.fontSize).toBe("26px");
+      expect(harness.amountNode.style.fontSize).toBe("23px");
 
       harness.result.rerender(<FitOnlyHarness amount="12" />);
       harness.setLayout(280, 40);
@@ -383,7 +385,7 @@ describe("MoneyPrimaryAmount auto-fit", () => {
       fireEvent.click(page().getByRole("button", { name: /as the primary amount/ }));
       harness.flushFit();
       expect(harness.amountNode.textContent).toBe("123456789012.123456");
-      expect(harness.amountNode.style.fontSize).toBe("27.9px");
+      expect(harness.amountNode.style.fontSize).toBe("24.7px");
     } finally {
       harness.cleanup();
     }
@@ -399,15 +401,15 @@ describe("MoneyPrimaryAmount auto-fit", () => {
       fireEvent.click(page().getByRole("button", { name: "1" }));
       fireEvent.click(page().getByRole("button", { name: "2" }));
       expect(harness.amountNode.textContent).toBe("$12");
-      expect(harness.amountNode.style.fontSize).toBe("57.6px");
+      expect(harness.amountNode.style.fontSize).toBe("42.2px");
 
       fireEvent.click(page().getByRole("button", { name: "3" }));
       expect(harness.amountNode.textContent).toBe("$123");
-      expect(harness.amountNode.style.fontSize).toBe("46.5px");
+      expect(harness.amountNode.style.fontSize).toBe("31.6px");
 
       fireEvent.click(page().getByRole("button", { name: "Delete last digit" }));
       expect(harness.amountNode.textContent).toBe("$12");
-      expect(harness.amountNode.style.fontSize).toBe("57.6px");
+      expect(harness.amountNode.style.fontSize).toBe("42.2px");
     } finally {
       harness.cleanup();
     }
@@ -426,6 +428,7 @@ describe("keypad pressed state and haptics", () => {
   test("keeps the amount from clipping and hides only the sizer", () => {
     expect(css).toMatch(/\.amountBlock\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
     expect(css).toMatch(/\.assetAmount\s*\{[^}]*width: 100%;/);
+    expect(css).toMatch(/\.assetAmount\s*\{[^}]*padding: 12px 16px;/);
     expect(css).toMatch(/\.assetAmount\s*\{[^}]*white-space: nowrap;/);
     expect(css).toContain(".amountSizer");
     expect(css).toContain("visibility: hidden");

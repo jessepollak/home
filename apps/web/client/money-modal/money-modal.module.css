@@ -293,6 +293,7 @@
   margin: 0;
   width: 100%;
   max-width: 100%;
+  padding: 12px 16px;
   font-size: var(--money-amount-base-size);
   font-variant-numeric: tabular-nums;
   font-weight: 750;

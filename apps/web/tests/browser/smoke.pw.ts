@@ -111,12 +111,22 @@ async function amountMetrics(page: Page) {
     const node = document.querySelector<HTMLElement>("[data-primary-amount]");
     if (!node) return null;
     const style = getComputedStyle(node);
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const textWidth = range.getBoundingClientRect().width;
+    const padding = (name: "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft") =>
+      Number.parseFloat(style[name]) || 0;
     return {
       text: node.textContent,
       clientWidth: node.clientWidth,
       scrollWidth: node.scrollWidth,
       fontSize: Number.parseFloat(style.fontSize),
       overflow: style.overflow,
+      paddingTop: padding("paddingTop"),
+      paddingRight: padding("paddingRight"),
+      paddingBottom: padding("paddingBottom"),
+      paddingLeft: padding("paddingLeft"),
+      textWidth,
     };
   });
 }
@@ -170,6 +180,12 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   expect(at320?.fontSize).toBeGreaterThanOrEqual(20);
   expect(at320?.fontSize).toBeLessThan(51.2);
   expect(at320?.overflow).toBe("visible");
+  expect(at320?.paddingLeft).toBeGreaterThanOrEqual(16);
+  expect(at320?.paddingRight).toBeGreaterThanOrEqual(16);
+  expect(at320?.paddingTop).toBeGreaterThanOrEqual(12);
+  expect(at320?.textWidth).toBeLessThanOrEqual(
+    (at320?.clientWidth ?? 0) - (at320?.paddingLeft ?? 0) - (at320?.paddingRight ?? 0) + 2,
+  );
 
   await page.getByRole("button", { name: /as the primary amount/ }).click();
   await expect(amount).toHaveText("123456789012.123456");
@@ -178,6 +194,10 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   expect(native?.scrollWidth).toBeLessThanOrEqual((native?.clientWidth ?? 0) + 2);
   expect(native?.fontSize).toBeGreaterThanOrEqual(20);
   expect(native?.fontSize).toBeLessThan(51.2);
+  expect(native?.paddingLeft).toBeGreaterThanOrEqual(16);
+  expect(native?.textWidth).toBeLessThanOrEqual(
+    (native?.clientWidth ?? 0) - (native?.paddingLeft ?? 0) - (native?.paddingRight ?? 0) + 2,
+  );
 
   await page.setViewportSize({ width: 390, height: 720 });
   await expect.poll(async () => (await amountMetrics(page))?.fontSize)
@@ -188,6 +208,10 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   expect(at390?.scrollWidth).toBeLessThanOrEqual((at390?.clientWidth ?? 0) + 2);
   expect(at390?.fontSize).toBeGreaterThanOrEqual(20);
   expect(at390?.fontSize).toBeLessThan(57.6);
+  expect(at390?.paddingLeft).toBeGreaterThanOrEqual(16);
+  expect(at390?.textWidth).toBeLessThanOrEqual(
+    (at390?.clientWidth ?? 0) - (at390?.paddingLeft ?? 0) - (at390?.paddingRight ?? 0) + 2,
+  );
 });
 
 test("money amount recomputes for text scaling", async ({ page }) => {
