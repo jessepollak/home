@@ -375,32 +375,60 @@ describe("IDRX mint client", () => {
     });
   });
 
-  test("accepts documented numeric response amounts with up to two decimals", async () => {
-    const client = createIdrxMintClient({
-      env: {
-        IDRX_CLIENT_ID: "public-key",
-        IDRX_CLIENT_SECRET: SECRET,
-        IDRX_CUSTOMER_SUBJECT: "subject-a",
-        IDRX_CUSTOMER_NAME: "JOHN SMITH",
-      },
-      fetchImplementation: async () => new Response(
-        '{"statusCode":200,"data":{"merchantOrderId":"20260728130000","reference":"SNAP-20260728130000","virtualAccountNo":"8680770000001234","virtualAccountName":"JOHN SMITH","amount":24000.50,"baseAmount":20000.50,"fees":[{"name":"VA Mandiri","amount":4000.25}],"expiredDate":"2026-07-28T14:00:00.000Z"}}',
-        { headers: { "Content-Type": "application/json" } },
-      ),
-    });
-    const result = await client({
-      address: ADDRESS,
-      customer: { subject: "subject-a", customerName: "JOHN SMITH" },
-      toBeMinted: "20000.50",
-      rail: "bank-va",
-      channelId: "MANDIRI",
-      returnUrl: "https://home.example/fund?return=idrx",
-    });
-    expect(result).toMatchObject({
-      amount: "24000.50",
-      baseAmount: "20000.50",
-      fees: [{ name: "VA Mandiri", amount: "4000.25" }],
-    });
+  test("binds exact and decimal-equivalent VA base amounts to the request", async () => {
+    for (const responseBaseAmount of ["20000.50", "20000.5"]) {
+      const client = createIdrxMintClient({
+        env: {
+          IDRX_CLIENT_ID: "public-key",
+          IDRX_CLIENT_SECRET: SECRET,
+          IDRX_CUSTOMER_SUBJECT: "subject-a",
+          IDRX_CUSTOMER_NAME: "JOHN SMITH",
+        },
+        fetchImplementation: async () => new Response(
+          `{"statusCode":200,"data":{"merchantOrderId":"20260728130000","reference":"SNAP-20260728130000","virtualAccountNo":"8680770000001234","virtualAccountName":"JOHN SMITH","amount":24000.50,"baseAmount":${responseBaseAmount},"fees":[{"name":"VA Mandiri","amount":4000.25}],"expiredDate":"2026-07-28T14:00:00.000Z"}}`,
+          { headers: { "Content-Type": "application/json" } },
+        ),
+      });
+      const result = await client({
+        address: ADDRESS,
+        customer: { subject: "subject-a", customerName: "JOHN SMITH" },
+        toBeMinted: "20000.50",
+        rail: "bank-va",
+        channelId: "MANDIRI",
+        returnUrl: "https://home.example/fund?return=idrx",
+      });
+      expect(result).toMatchObject({
+        amount: "24000.50",
+        baseAmount: responseBaseAmount,
+        fees: [{ name: "VA Mandiri", amount: "4000.25" }],
+      });
+    }
+  });
+
+  test("rejects mismatched, overflowing, and malformed VA base amounts", async () => {
+    for (const baseAmount of [
+      "20000.51",
+      "999999999999999999999999999999",
+      "20000.5x",
+    ]) {
+      const client = createIdrxMintClient({
+        env: {
+          IDRX_CLIENT_ID: "public-key",
+          IDRX_CLIENT_SECRET: SECRET,
+          IDRX_CUSTOMER_SUBJECT: "subject-a",
+          IDRX_CUSTOMER_NAME: "JOHN SMITH",
+        },
+        fetchImplementation: async () => Response.json(vaData({ baseAmount })),
+      });
+      await expect(client({
+        address: ADDRESS,
+        customer: { subject: "subject-a", customerName: "JOHN SMITH" },
+        toBeMinted: "20000.50",
+        rail: "bank-va",
+        channelId: "MANDIRI",
+        returnUrl: "https://home.example/fund?return=idrx",
+      })).rejects.toMatchObject({ code: "invalid-response" });
+    }
   });
 
   test("fails closed without secrets, on 401, and on non-IDRX checkout URLs", async () => {
@@ -490,6 +518,8 @@ describe("IDRX mint client", () => {
     expect(isAllowedIdrxMintAmount("20000.5")).toBe(true);
     expect(isAllowedIdrxMintAmount("19999.99")).toBe(false);
     expect(isAllowedIdrxMintAmount("20000.001")).toBe(false);
+    expect(isAllowedIdrxMintAmount("1000000000")).toBe(true);
+    expect(isAllowedIdrxMintAmount("1000000000.00")).toBe(true);
     expect(isAllowedIdrxMintAmount("1000000000.01")).toBe(false);
     expect(isAllowedIdrxMintAmount(20000)).toBe(false);
     expect(isAllowedIdrxMintAmount("2e4")).toBe(false);

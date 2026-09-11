@@ -1,5 +1,11 @@
 import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
 import {
+  IDRX_MAX_TO_BE_MINTED_MINOR,
+  IDRX_MIN_TO_BE_MINTED_MINOR,
+  isAllowedIdrxMintAmount,
+  parseIdrxMinorUnits,
+} from "@/shared/funding/idrx-amount";
+import {
   FUNDING_BASE_CHAIN_ID as IDRX_BASE_CHAIN_ID,
   IDRX_BASE_ADDRESS,
   IDRX_DECIMALS,
@@ -12,7 +18,14 @@ import {
 } from "@/shared/funding/types";
 import { createIdrxRequestHeaders } from "./idrx-hmac";
 
-export { IDRX_BASE_ADDRESS, IDRX_BASE_CHAIN_ID, IDRX_DECIMALS };
+export {
+  IDRX_BASE_ADDRESS,
+  IDRX_BASE_CHAIN_ID,
+  IDRX_DECIMALS,
+  IDRX_MAX_TO_BE_MINTED_MINOR,
+  IDRX_MIN_TO_BE_MINTED_MINOR,
+  isAllowedIdrxMintAmount,
+};
 export const IDRX_API_BASE_URL = "https://api.idrx.co" as const;
 export const IDRX_MINT_PATH = "/transaction/mint-request" as const;
 export const IDRX_HISTORY_PATH = "/transaction/user-transaction-history" as const;
@@ -21,8 +34,6 @@ export const IDRX_HISTORY_TAKE = 10 as const;
 export const IDRX_HISTORY_MAX_RESPONSE_BYTES = 64 * 1024;
 export const IDRX_HISTORY_TIMEOUT_MS = 2_000;
 export const IDRX_VA_CHANNELS = ["MANDIRI", "BRI"] as const;
-export const IDRX_MIN_TO_BE_MINTED_MINOR = BigInt(2_000_000);
-export const IDRX_MAX_TO_BE_MINTED_MINOR = BigInt("100000000000");
 
 export class IdrxMintError extends Error {
   readonly code: "not-configured" | "unavailable" | "invalid-response";
@@ -93,21 +104,10 @@ export function isIdrxVaChannel(value: unknown): value is IdrxVaChannel {
 }
 
 export function parseIdrxMintAmount(value: string): string {
-  const minor = parseIdrxMinorUnits(value);
-  if (minor < IDRX_MIN_TO_BE_MINTED_MINOR || minor > IDRX_MAX_TO_BE_MINTED_MINOR) {
+  if (!isAllowedIdrxMintAmount(value)) {
     throw new IdrxMintError("invalid-response");
   }
   return value;
-}
-
-export function isAllowedIdrxMintAmount(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  try {
-    parseIdrxMintAmount(value);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 // TODO(live-keys): After Jesse's IDRX dashboard key lands (individual signup →
@@ -173,6 +173,7 @@ export function createIdrxMintClient(options: {
         asset,
         preferredChannel: channelId,
         expectedCustomerName: customer.customerName,
+        expectedToBeMinted: toBeMinted,
         allowHosted: false,
       });
     }
@@ -362,6 +363,7 @@ function parseMintData(
     asset: IdrxMintAsset;
     preferredChannel: IdrxVaChannel;
     expectedCustomerName: string;
+    expectedToBeMinted: string;
     allowHosted: boolean;
   },
 ): IdrxMintResult {
@@ -373,6 +375,7 @@ function parseMintData(
       options.asset,
       options.preferredChannel,
       options.expectedCustomerName,
+      options.expectedToBeMinted,
     );
   }
   if (options.allowHosted) return parseHostedMint(value, options.asset);
@@ -384,6 +387,7 @@ function parseVirtualAccountMint(
   asset: IdrxMintAsset,
   channelId: IdrxVaChannel,
   expectedCustomerName: string,
+  expectedToBeMinted: string,
 ): IdrxVirtualAccountMint {
   if (
     typeof data.virtualAccountNo !== "string" ||
@@ -398,6 +402,12 @@ function parseVirtualAccountMint(
   ) {
     throw new IdrxMintError("invalid-response");
   }
+  const baseAmount = readIdrAmount(data.baseAmount);
+  const expectedMinor = parseIdrxMinorUnits(expectedToBeMinted);
+  const responseMinor = parseIdrxMinorUnits(baseAmount);
+  if (expectedMinor === null || responseMinor === null || responseMinor !== expectedMinor) {
+    throw new IdrxMintError("invalid-response");
+  }
   const expiredDate = readExpiredDate(data.expiredDate);
   return {
     presentation: "virtual-account",
@@ -409,7 +419,7 @@ function parseVirtualAccountMint(
     virtualAccountNo: data.virtualAccountNo,
     virtualAccountName: data.virtualAccountName.trim(),
     amount: readIdrAmount(data.amount),
-    baseAmount: readIdrAmount(data.baseAmount),
+    baseAmount,
     fees: readFees(data.fees),
     expiredDate,
     channelId,
@@ -656,22 +666,15 @@ function matchesIdrxMintIntent(
     ) return false;
   }
   if (record.toBeMinted !== undefined) {
-    if (typeof record.toBeMinted !== "string") return false;
-    try {
-      if (parseIdrxMinorUnits(record.toBeMinted) !== parseIdrxMinorUnits(intent.toBeMinted)) {
-        return false;
-      }
-    } catch {
-      return false;
-    }
+    const recordedMinor = parseIdrxMinorUnits(record.toBeMinted);
+    const intendedMinor = parseIdrxMinorUnits(intent.toBeMinted);
+    if (
+      recordedMinor === null ||
+      intendedMinor === null ||
+      recordedMinor !== intendedMinor
+    ) return false;
   }
   return true;
-}
-
-function parseIdrxMinorUnits(value: string): bigint {
-  if (!mintAmountPattern.test(value)) throw new IdrxMintError("invalid-response");
-  const [whole, fraction = ""] = value.split(".");
-  return BigInt(whole) * BigInt(100) + BigInt(fraction.padEnd(2, "0"));
 }
 
 function normalizeCustomerName(value: string): string {

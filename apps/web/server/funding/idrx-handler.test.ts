@@ -150,6 +150,49 @@ describe("IDRX mint handler", () => {
     });
   });
 
+  test("accepts the exact IDRX cap and rejects fractional overflow before dispatch", async () => {
+    const providerAmounts: string[] = [];
+    const handler = createIdrxMintHandler({
+      authorize: async () => authorizedSession(),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts: new MemoryIdrxAttemptStore(),
+      createMint: async (options) => {
+        providerAmounts.push(options.toBeMinted);
+        return {
+          presentation: "hosted",
+          rail: "qris",
+          asset: { id: "idrx", symbol: "IDRX", decimals: 2, tokenAddress: IDRX_BASE_ADDRESS },
+          network: { name: "Base", chainId: 8453 },
+          merchantOrderId: "order-cap",
+          url: "https://checkout.idrx.co/?token=fixture",
+          verification: { status: "pending", boundary: "balance-and-activity" },
+        };
+      },
+    });
+
+    const exactCap = await handler(request({
+      assetId: "idrx",
+      country: "ID",
+      toBeMinted: "1000000000",
+      rail: "qris",
+      consent: true,
+      attemptId: "12121212-1212-4212-8212-121212121212",
+    }));
+    expect(exactCap.status).toBe(200);
+
+    const overflow = await handler(request({
+      assetId: "idrx",
+      country: "ID",
+      toBeMinted: "1000000000.01",
+      rail: "qris",
+      consent: true,
+      attemptId: "13131313-1313-4313-8313-131313131313",
+    }));
+    expect(overflow.status).toBe(400);
+    expect((await overflow.json()).error.code).toBe("INVALID_IDRX_MINT");
+    expect(providerAmounts).toEqual(["1000000000"]);
+  });
+
   test("rejects client-authored destination, extra keys, and non-Indonesia rails", async () => {
     let providerCalls = 0;
     const handler = createIdrxMintHandler({

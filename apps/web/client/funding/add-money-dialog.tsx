@@ -14,6 +14,7 @@ import {
   type RegionId,
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
+import { isAllowedIdrxMintAmount } from "@/shared/funding/idrx-amount";
 import { ripioAvailability } from "@/shared/funding/ripio-contract";
 import type {
   IdrxFundingRail,
@@ -298,7 +299,6 @@ function IdrxBody({
   const [amount, setAmount] = useState("20000");
   const [rail, setRail] = useState<IdrxFundingRail>("bank-va");
   const [channel, setChannel] = useState<IdrxVaChannel>("MANDIRI");
-  const [consent, setConsent] = useState(false);
 
   if (result || returned) {
     return (
@@ -339,14 +339,13 @@ function IdrxBody({
     );
   }
 
-  const amountValid =
-    /^(?:[2-9]\d{4}|[1-9]\d{5,8}|1000000000)(?:\.\d{1,2})?$/.test(amount);
+  const amountValid = isAllowedIdrxMintAmount(amount);
   return (
     <form
       className={`${modal.body} ${styles.idrx}`}
       onSubmit={(event) => {
         event.preventDefault();
-        if (!amountValid || !consent || opening) return;
+        if (!amountValid || opening) return;
         onCreate({
           toBeMinted: amount,
           rail,
@@ -395,21 +394,10 @@ function IdrxBody({
           </select>
         </label>
       ) : null}
-      <label className={styles.consent}>
-        <input
-          type="checkbox"
-          checked={consent}
-          onChange={(event) => setConsent(event.target.checked)}
-        />
-        <span>
-          I consent to IDRX receiving this amount and my Base destination. IDRX may require
-          issuer KYC before payment.
-        </span>
-      </label>
       <button
         className={modal.primary}
         type="submit"
-        disabled={!amountValid || !consent || opening}
+        disabled={!amountValid || opening}
       >
         {opening
           ? "Creating request…"

@@ -445,8 +445,7 @@
   font-weight: 700;
 }
 
-.railGroup label,
-.consent {
+.railGroup label {
   display: flex;
   align-items: flex-start;
   gap: 9px;
@@ -455,8 +454,7 @@
   line-height: 1.4;
 }
 
-.railGroup input,
-.consent input {
+.railGroup input {
   flex: 0 0 auto;
   width: 18px;
   height: 18px;

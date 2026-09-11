@@ -243,6 +243,36 @@ describe("FundingExperience", () => {
     }
   });
 
+  test("matches the client IDRX amount cap to the exact server bound", async () => {
+    const accountRequests: string[] = [];
+    render(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async (path) => {
+            accountRequests.push(path);
+            if (path === "/api/funding/idrx-attempt") return { status: "none" };
+            throw new Error("No mint request expected");
+          },
+        }}
+        navigateToHostedOnramp={() => {}}
+        regionId="ID"
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
+    const amount = page().getByLabelText("Amount in IDR");
+    const create = await page().findByRole("button", { name: "Create virtual account" });
+    fireEvent.change(amount, { target: { value: "1000000000" } });
+    expect(create.hasAttribute("disabled")).toBeFalse();
+    expect(amount.getAttribute("aria-invalid")).toBe("false");
+
+    fireEvent.change(amount, { target: { value: "1000000000.01" } });
+    expect(create.hasAttribute("disabled")).toBeTrue();
+    expect(amount.getAttribute("aria-invalid")).toBe("true");
+    await waitFor(() => expect(accountRequests).toEqual(["/api/funding/idrx-attempt"]));
+  });
+
   test("ignores an IDRX return outside Indonesia without recovery or provider calls", () => {
     let accountRequests = 0;
     render(
@@ -295,8 +325,9 @@ describe("FundingExperience", () => {
 
     fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
     const create = await page().findByRole("button", { name: "Create virtual account" });
-    expect(create.hasAttribute("disabled")).toBeTrue();
-    fireEvent.click(page().getByRole("checkbox"));
+    expect(create.hasAttribute("disabled")).toBeFalse();
+    expect(page().queryByRole("checkbox")).toBeNull();
+    expect(page().queryByText(/I consent|issuer KYC/i)).toBeNull();
     fireEvent.click(create);
 
     await waitFor(() => expect(page().getByText("Funding pending")).toBeTruthy());
@@ -358,7 +389,6 @@ describe("FundingExperience", () => {
     );
     fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
     await page().findByRole("button", { name: "Create virtual account" });
-    fireEvent.click(page().getByRole("checkbox"));
     fireEvent.click(page().getByRole("button", { name: "Create virtual account" }));
     fireEvent.click(page().getByRole("button", { name: "Close add money" }));
 
@@ -410,7 +440,6 @@ describe("FundingExperience", () => {
     );
     fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
     await page().findByRole("button", { name: "Create virtual account" });
-    fireEvent.click(page().getByRole("checkbox"));
     fireEvent.click(page().getByRole("button", { name: "Create virtual account" }));
     await waitFor(() => expect(page().getByText("Funding pending")).toBeTruthy());
     expect(dispatches).toBe(1);

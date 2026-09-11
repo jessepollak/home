@@ -95,7 +95,7 @@ describe("funding client boundaries", () => {
     expect(calls).toEqual([["/api/funding/idrx-attempt", { method: "GET", signal: undefined }]]);
   });
 
-  test("sends only the Indonesia rail intent and explicit KYC consent", async () => {
+  test("sends only the Indonesia rail intent and internal submit acknowledgement", async () => {
     const calls: unknown[] = [];
     await requestIdrxMint({
       fetchAccountResource: async (...args) => {
