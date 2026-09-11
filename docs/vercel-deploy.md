@@ -140,7 +140,7 @@ This adapter is **not** production authorization. Do not enable authenticated mo
 Optional live adapter tests (throwaway PostgreSQL 14 database or Neon branch only):
 
 ```sh
-MONEY_ACTION_PG_TEST_URL=postgresql://… bun test scripts/delivery/tests/postgres-money-action.test.ts
+MONEY_ACTION_PG_TEST_URL=postgresql://… bun test scripts/delivery/tests/postgres-money-action*.test.ts
 ```
 
 CI uses the in-process Postgres test double plus SQLite and Memory. It does not require `DATABASE_URL`.
