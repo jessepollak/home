@@ -32,15 +32,11 @@ const sensitiveKeySource = [
 
 const sensitiveKeyPattern = new RegExp(`^(?:${sensitiveKeySource})$`, "i");
 const headerCredentialPattern = new RegExp(
-  `\\b(authorization|proxy[_-]?authorization|cookie|set[_-]?cookie)\\s*[:=]\\s*[^\\r\\n,}]*`,
+  `\\b(authorization|proxy[_-]?authorization|cookie|set[_-]?cookie)(\\s*[:=])[^\\r\\n]*`,
   "gi",
 );
-const quotedCredentialPattern = new RegExp(
-  `(["']?(?:${sensitiveKeySource})["']?\\s*[:=]\\s*)(["'])(?:\\\\.|(?!\\2).)*\\2`,
-  "gi",
-);
-const bareCredentialPattern = new RegExp(
-  `(["']?(?:${sensitiveKeySource})["']?\\s*[:=]\\s*)(?!["'])[^\\s,;&}]+`,
+const sensitiveAssignmentPattern = new RegExp(
+  `(["']?(?:${sensitiveKeySource})["']?\\s*[:=]\\s*)`,
   "gi",
 );
 const bearerOrBasicPattern = /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi;
@@ -48,7 +44,9 @@ const jwtPattern = /\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]{2,}
 const privateKeyPattern = /-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-\r\n]*PRIVATE KEY-----|$)/gi;
 const absoluteUrlPattern = /\b(?:https?|wss?):\/\/[^\s"'<>]+/gi;
 const protocolRelativeUrlPattern = /(^|[\s"'=:(])\/\/[^\s"'<>]+/g;
-const relativeQueryOrHashPattern = /(^|[\s"'=:(])(\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*)(?:\?[^\s"'<>#]*|#[^\s"'<>]*)+/g;
+const absolutePathReferencePattern = /(^|[\s"'=:(])(\/(?!\/)[^\s"'<>]*)/g;
+const relativeSlashPathPattern = /(^|[\s"'=:(])((?:\.{1,2}\/)?[A-Za-z0-9._~!$&'()*+,;=:@%-]+(?:\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]+)+)/g;
+const relativeQueryOrHashPattern = /(^|[\s"'=:(])((?:(?:\.{1,2}\/)*[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~!$&'()*+,;=:@%-]+)*)?[?#][^\s"'<>]*)/g;
 const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const secretPrefixPattern = /\b(?:sk|pk|secret|token)[-_][A-Za-z0-9_-]{12,}\b/gi;
 const highEntropyPattern = /\b(?=[A-Za-z0-9_+/=-]{24,}\b)(?=[A-Za-z0-9_+/=-]*[A-Za-z])(?=[A-Za-z0-9_+/=-]*\d)[A-Za-z0-9_+/=-]+\b/g;
@@ -65,19 +63,185 @@ export function isSensitiveKey(key: string): boolean {
   return sensitiveKeyPattern.test(normalized);
 }
 
+function redactCredentialHeaders(value: string): string {
+  return value.replace(
+    headerCredentialPattern,
+    (_match, key: string, separator: string) => `${key}${separator} ${REDACTED}`,
+  );
+}
+
+function findQuotedValueEnd(value: string, start: number, quote: string): number {
+  for (let index = start + 1; index < value.length; index += 1) {
+    if (value[index] === "\\") {
+      index += 1;
+      continue;
+    }
+    if (value[index] === quote) return index + 1;
+  }
+  return value.length;
+}
+
+function findStructuredValueEnd(value: string, start: number): number {
+  const stack = [value[start]];
+  let quote: string | null = null;
+
+  for (let index = start + 1; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote) {
+      if (character === "\\") {
+        index += 1;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "{" || character === "[") {
+      stack.push(character);
+      continue;
+    }
+    if (character === "}" || character === "]") {
+      const opener = stack.at(-1);
+      if (
+        (opener === "{" && character !== "}") ||
+        (opener === "[" && character !== "]")
+      ) {
+        return value.length;
+      }
+      stack.pop();
+      if (stack.length === 0) return index + 1;
+    }
+  }
+
+  return value.length;
+}
+
+function redactSensitiveAssignments(value: string): string {
+  let cursor = 0;
+  let output = "";
+  sensitiveAssignmentPattern.lastIndex = 0;
+
+  while (true) {
+    const match = sensitiveAssignmentPattern.exec(value);
+    if (!match) break;
+    const matchStart = match.index;
+    if (matchStart < cursor) continue;
+
+    const prefix = match[0];
+    const valueStart = matchStart + prefix.length;
+    const first = value[valueStart];
+    let valueEnd = valueStart;
+    let replacement = REDACTED;
+
+    if (first === '"' || first === "'") {
+      valueEnd = findQuotedValueEnd(value, valueStart, first);
+      replacement = `${first}${REDACTED}${first}`;
+    } else if (first === "{" || first === "[") {
+      valueEnd = findStructuredValueEnd(value, valueStart);
+    } else {
+      while (valueEnd < value.length && !/[\s,;&}\]]/.test(value[valueEnd] ?? "")) {
+        valueEnd += 1;
+      }
+    }
+
+    output += value.slice(cursor, matchStart) + prefix + replacement;
+    cursor = valueEnd;
+    sensitiveAssignmentPattern.lastIndex = valueEnd;
+  }
+
+  return output + value.slice(cursor);
+}
+
+function decodedSensitiveKey(segment: string): boolean {
+  if (isSensitiveKey(segment)) return true;
+  if (!segment.includes("%")) return false;
+  try {
+    return isSensitiveKey(decodeURIComponent(segment));
+  } catch {
+    return false;
+  }
+}
+
+function sanitizePathname(pathname: string, maxChars: number): string {
+  let redactNextSegment = false;
+  const segments = pathname.split("/").map((segment, index) => {
+    if (segment.length === 0) return "";
+
+    if (redactNextSegment) {
+      redactNextSegment = false;
+      return ":redacted";
+    }
+
+    if (decodedSensitiveKey(segment)) {
+      redactNextSegment = true;
+      return ":redacted";
+    }
+
+    if (
+      segment.length > MAX_ROUTE_SEGMENT_CHARS ||
+      segment.includes("%") ||
+      !safeRouteSegmentPattern.test(segment) ||
+      sensitiveRouteSegmentPattern.test(segment)
+    ) {
+      return ":redacted";
+    }
+
+    return index === 0 && segment === "." ? "." : segment;
+  });
+
+  return segments.join("/").replace(/\/{2,}/g, "/").slice(0, maxChars);
+}
+
+function pathHasSensitiveKey(reference: string): boolean {
+  const pathname = reference.split(/[?#]/, 1)[0] ?? "";
+  return pathname.split("/").some(decodedSensitiveKey);
+}
+
+function sanitizeEmbeddedReference(reference: string): string {
+  const pathname = reference.split(/[?#]/, 1)[0] ?? "";
+  if (!pathname) return REDACTED_URL;
+  return sanitizePathname(pathname, MAX_SCRUB_OUTPUT_CHARS) || REDACTED_URL;
+}
+
+function redactPathReferences(value: string): string {
+  return value
+    .replace(
+      absolutePathReferencePattern,
+      (_match, boundary: string, reference: string) =>
+        `${boundary}${sanitizeEmbeddedReference(reference)}`,
+    )
+    .replace(
+      relativeSlashPathPattern,
+      (match, boundary: string, reference: string) =>
+        pathHasSensitiveKey(reference)
+          ? `${boundary}${sanitizeEmbeddedReference(reference)}`
+          : match,
+    )
+    .replace(
+      relativeQueryOrHashPattern,
+      (_match, boundary: string, reference: string) =>
+        `${boundary}${sanitizeEmbeddedReference(reference)}`,
+    );
+}
+
 export function scrubString(value: string): string {
   const bounded = value.slice(0, MAX_SCRUB_INPUT_CHARS).replace(controlPattern, " ");
 
-  return bounded
-    .replace(privateKeyPattern, REDACTED)
-    .replace(absoluteUrlPattern, REDACTED_URL)
-    .replace(protocolRelativeUrlPattern, `$1${REDACTED_URL}`)
-    .replace(relativeQueryOrHashPattern, "$1$2")
-    .replace(headerCredentialPattern, "$1: [REDACTED]")
+  return redactPathReferences(
+    redactSensitiveAssignments(
+      redactCredentialHeaders(
+        bounded
+          .replace(privateKeyPattern, REDACTED)
+          .replace(absoluteUrlPattern, REDACTED_URL)
+          .replace(protocolRelativeUrlPattern, `$1${REDACTED_URL}`),
+      ),
+    ),
+  )
     .replace(bearerOrBasicPattern, REDACTED)
     .replace(jwtPattern, REDACTED)
-    .replace(quotedCredentialPattern, `$1$2${REDACTED}$2`)
-    .replace(bareCredentialPattern, `$1${REDACTED}`)
     .replace(secretPrefixPattern, REDACTED)
     .replace(emailPattern, REDACTED)
     .replace(otpPattern, REDACTED)
@@ -92,22 +256,7 @@ export function sanitizeRoutePath(value: string): string {
   }
 
   const pathname = candidate.split(/[?#]/, 1)[0] ?? "/";
-  const segments = pathname.split("/").map((segment, index) => {
-    if (index === 0 || segment.length === 0) return "";
-    if (
-      segment.length > MAX_ROUTE_SEGMENT_CHARS ||
-      segment.includes("%") ||
-      !safeRouteSegmentPattern.test(segment) ||
-      sensitiveRouteSegmentPattern.test(segment) ||
-      isSensitiveKey(segment)
-    ) {
-      return ":redacted";
-    }
-    return segment;
-  });
-
-  const sanitized = segments.join("/").replace(/\/{2,}/g, "/");
-  return (sanitized || "/").slice(0, MAX_ROUTE_CHARS);
+  return sanitizePathname(pathname, MAX_ROUTE_CHARS) || "/";
 }
 
 export function sanitizeIdentifier(value: string, fallback: string): string {

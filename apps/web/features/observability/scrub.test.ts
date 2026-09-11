@@ -85,4 +85,77 @@ describe("observability scrub security matrix", () => {
     expect(sanitizeIdentifier("authorization=secret", "Error")).toBe("Error");
     expect(sanitizeIdentifier("bad name with spaces", "Error")).toBe("Error");
   });
+
+  test("fails closed for quoted credential values truncated at the input boundary", () => {
+    const canary = "quote-boundary-canary";
+    const longUrl = `https://example.test/${"a".repeat(4_050)}`;
+    const scrubbed = scrubString(`${longUrl} token="${canary}${"z".repeat(100)}"`);
+
+    expect(scrubbed).toContain(REDACTED_URL);
+    expect(scrubbed).toContain(REDACTED);
+    expect(scrubbed).not.toContain(canary);
+    expect(scrubbed).not.toContain(canary.slice(0, 8));
+  });
+
+  test("redacts sensitive pathname keys and their following values in routes and messages", () => {
+    const absoluteCanary = "absolute-path-canary";
+    const relativeCanary = "relative-path-canary";
+
+    expect(sanitizeRoutePath(`/reset/access_token/${absoluteCanary}/done`)).toBe(
+      "/reset/:redacted/:redacted/done",
+    );
+    expect(sanitizeRoutePath(`/reset/access%5Ftoken/${absoluteCanary}`)).toBe(
+      "/reset/:redacted/:redacted",
+    );
+
+    const scrubbed = scrubString(
+      `failed at /reset/access_token/${absoluteCanary} and docs/client-secret/${relativeCanary}`,
+    );
+    expect(scrubbed).toContain("/reset/:redacted/:redacted");
+    expect(scrubbed).toContain("docs/:redacted/:redacted");
+    expect(scrubbed).not.toContain(absoluteCanary);
+    expect(scrubbed).not.toContain(relativeCanary);
+  });
+
+  test("redacts complete credential headers and structured sensitive values", () => {
+    const headerOne = "header-first-canary";
+    const headerTwo = "header-second-canary";
+    const arrayOne = "array-first-canary";
+    const arrayTwo = "array-second-canary";
+    const objectOne = "object-first-canary";
+    const objectTwo = "object-second-canary";
+    const scrubbed = scrubString(
+      [
+        `Authorization: Scheme ${headerOne}, Alternate ${headerTwo}`,
+        JSON.stringify({
+          accessToken: [arrayOne, arrayTwo],
+          clientSecret: { primary: objectOne, nested: { value: objectTwo } },
+          safe: "retained",
+        }),
+      ].join("\n"),
+    );
+
+    for (const canary of [headerOne, headerTwo, arrayOne, arrayTwo, objectOne, objectTwo]) {
+      expect(scrubbed).not.toContain(canary);
+    }
+    expect(scrubbed).toContain(`Authorization: ${REDACTED}`);
+    expect(scrubbed).toContain('"accessToken":[REDACTED]');
+    expect(scrubbed).toContain('"clientSecret":[REDACTED]');
+    expect(scrubbed).toContain('"safe":"retained"');
+  });
+
+  test("removes secrets from relative, query-only, and fragment-only references", () => {
+    const canaries = [
+      "relative-query-canary",
+      "query-only-canary",
+      "fragment-only-canary",
+      "relative-fragment-canary",
+    ];
+    const scrubbed = scrubString(
+      `settings?token=${canaries[0]} ?token=${canaries[1]} #${canaries[2]} docs/account/page#${canaries[3]}`,
+    );
+
+    for (const canary of canaries) expect(scrubbed).not.toContain(canary);
+    expect(scrubbed).toBe(`settings ${REDACTED_URL} ${REDACTED_URL} docs/account/page`);
+  });
 });

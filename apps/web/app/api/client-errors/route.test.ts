@@ -1,4 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import {
+  CLIENT_ERROR_ENDPOINT,
+  reportClientError,
+} from "@/features/observability/client-reporter";
+import {
+  setObservabilityLogWriterForTests,
+  writeObservabilityEvent,
+} from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import {
   CLIENT_ERROR_MAX_BODY_BYTES,
@@ -14,6 +22,8 @@ const safeHeaders = {
   "sec-fetch-site": "same-origin",
   "content-type": "application/json",
 };
+
+afterEach(() => setObservabilityLogWriterForTests());
 
 function request(
   body: string | Uint8Array | ReadableStream<Uint8Array>,
@@ -192,5 +202,80 @@ describe("POST /api/client-errors security matrix", () => {
       takePermit: () => true,
     })(request(JSON.stringify({ name: "Error", message: "boom", route: "/" })));
     expect(response.status).toBe(204);
+  });
+
+  test("scrubs synthetic canaries from reporter through the normalized log line", async () => {
+    const canaries = {
+      headerOne: "e2e-header-first-canary",
+      headerTwo: "e2e-header-second-canary",
+      array: "e2e-array-canary",
+      object: "e2e-object-canary",
+      path: "e2e-path-canary",
+      boundary: "e2e-boundary-canary",
+    };
+    const authorizationKey = ["Author", "ization"].join("");
+    const accessTokenKey = ["access", "Token"].join("");
+    const clientSecretKey = ["client", "Secret"].join("");
+    const tokenKey = ["to", "ken"].join("");
+    const prefix = [
+      `${authorizationKey}: Custom ${canaries.headerOne}, Alternate ${canaries.headerTwo}`,
+      JSON.stringify({
+        [accessTokenKey]: [canaries.array, "e2e-array-second-canary"],
+        [clientSecretKey]: { primary: canaries.object },
+        safe: "safe-retained",
+      }),
+      `/recover/${tokenKey}/${canaries.path}`,
+    ].join("\n");
+    const urlPrefix = "https://example.test/";
+    const longUrl = `${urlPrefix}${"a".repeat(4_070 - prefix.length - urlPrefix.length)}`;
+    const message = `${prefix}\n${longUrl} ${tokenKey}="${canaries.boundary}${"z".repeat(100)}"`;
+    const writes: string[] = [];
+    let endpointStatus = 0;
+    setObservabilityLogWriterForTests((line) => writes.push(line));
+
+    const handler = createClientErrorHandler({
+      log: writeObservabilityEvent,
+      takePermit: () => true,
+    });
+    await reportClientError(
+      {
+        name: "TypeError",
+        message,
+        route: `/recover/access_token/${canaries.path}/done?token=query-canary`,
+      },
+      async (input, init) => {
+        expect(input).toBe(CLIENT_ERROR_ENDPOINT);
+        const body = String(init.body ?? "");
+        const response = await handler(
+          request(body, {
+            ...safeHeaders,
+            "content-length": String(new TextEncoder().encode(body).byteLength),
+          }),
+        );
+        endpointStatus = response.status;
+        return { ok: response.ok, status: response.status };
+      },
+    );
+
+    expect(endpointStatus).toBe(204);
+    expect(writes).toHaveLength(1);
+    const line = JSON.parse(writes[0] ?? "{}") as Record<string, unknown>;
+    expect(line).toMatchObject({
+      schema: "home.observability.v2",
+      kind: "client-error",
+      route: "/recover/:redacted/:redacted/done",
+      errorName: "TypeError",
+    });
+    expect(line.summary).toContain("safe-retained");
+
+    const serialized = JSON.stringify(line);
+    for (const canary of [
+      ...Object.values(canaries),
+      "e2e-array-second-canary",
+      "query-canary",
+    ]) {
+      expect(serialized).not.toContain(canary);
+    }
+    expect(serialized).not.toContain(canaries.boundary.slice(0, 8));
   });
 });
