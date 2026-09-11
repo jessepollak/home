@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Button, Heading, Text } from "@home/ui";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AddressText } from "@/components/address";
 import { useAccountWallet } from "@/features/account/cdp-client";
@@ -175,20 +176,20 @@ function BorrowExperienceInner({ session, fetchAccountResource, onActionConfirme
       <section className={styles.experience} aria-labelledby="borrow-title">
         <nav className={styles.chrome} aria-label="Borrow navigation">
           <Link href="/dashboard">← Dashboard</Link>
-          <span>Home · Base</span>
+          <Text as="span" textStyle="metadata" tone="muted">Home · Base</Text>
         </nav>
         <header className={styles.header}>
           <div>
-            <p>Borrow</p>
-            <h1 id="borrow-title">USDC against cbBTC</h1>
+            <Text as="p" textStyle="metadata" tone="muted" className={styles.kicker}>Borrow</Text>
+            <Heading level={1} textStyle="page-title" id="borrow-title">USDC against cbBTC</Heading>
           </div>
-          <span>Base · Morpho Blue</span>
+          <Text as="span" textStyle="metadata" tone="muted">Base · Morpho Blue</Text>
         </header>
 
         <section className={styles.market} aria-labelledby="market-title">
           <div className={styles.sectionHeading}>
-            <h2 id="market-title">Supported market</h2>
-            <span>One verified market</span>
+            <Heading level={2} textStyle="section-title" id="market-title">Supported market</Heading>
+            <Text as="span" textStyle="metadata" tone="muted">One verified market</Text>
           </div>
           <dl className={styles.addresses}>
             <Fact label="Market ID" value={shortHash(BORROW_MARKET_ID)} title={BORROW_MARKET_ID} />
@@ -208,32 +209,35 @@ function BorrowExperienceInner({ session, fetchAccountResource, onActionConfirme
 
         {!sessionKey ? (
           <div className={styles.notice} role="status">
-            <strong>Sign in to view this wallet’s position</strong>
+            <Text as="strong" textStyle="row-label">Sign in to view this wallet’s position</Text>
           </div>
         ) : null}
         {sessionKey && state.status === "loading" ? (
-          <div className={styles.notice} role="status"><strong>Loading current market state</strong><span>Oracle, liquidity, limits, and position are read from Base RPC.</span></div>
+          <div className={styles.notice} role="status">
+            <Text as="strong" textStyle="row-label">Loading current market state</Text>
+            <Text as="span" textStyle="secondary" tone="muted">Oracle, liquidity, limits, and position are read from Base RPC.</Text>
+          </div>
         ) : null}
         {sessionKey && state.status === "error" ? (
           <div className={styles.notice} role="alert">
-            <strong>Borrowing state unavailable</strong>
-            <span>Oracle, liquidity, rate, position, or limits could not be verified. Actions remain unavailable.</span>
-            <button type="button" onClick={() => void refresh()}>Retry</button>
+            <Text as="strong" textStyle="row-label">Borrowing state unavailable</Text>
+            <Text as="span" textStyle="secondary" tone="muted">Oracle, liquidity, rate, position, or limits could not be verified. Actions remain unavailable.</Text>
+            <Button type="button" variant="secondary" onClick={() => void refresh()}>Retry</Button>
           </div>
         ) : null}
 
         {snapshot ? (
           <>
             <div className={styles.asOf}>
-              <span>RPC block {snapshot.source.blockNumber}</span>
+              <Text as="span" textStyle="metadata" tone="muted">RPC block {snapshot.source.blockNumber}</Text>
               <time dateTime={blockTime(snapshot.source.blockTimestamp)}>As of {formatTime(blockTime(snapshot.source.blockTimestamp))}</time>
             </div>
             <section className={styles.metrics} aria-labelledby="position-title">
               <div className={styles.sectionHeading}>
-                <h2 id="position-title">Wallet and position</h2>
-                <button type="button" onClick={() => void refresh()}>Refresh</button>
+                <Heading level={2} textStyle="section-title" id="position-title">Wallet and position</Heading>
+                <Button type="button" variant="secondary" onClick={() => void refresh()}>Refresh</Button>
               </div>
-              {emptyWallet ? <p className={styles.empty}>This verified wallet has no cbBTC, USDC, or position in the supported market.</p> : null}
+              {emptyWallet ? <Text as="p" textStyle="secondary" tone="muted" className={styles.empty}>This verified wallet has no cbBTC, USDC, or position in the supported market.</Text> : null}
               <dl className={styles.metricGrid}>
                 <Metric label="cbBTC wallet" value={`${formatUnits(snapshot.wallet.collateralBalanceRaw, 8)} cbBTC`} />
                 <Metric label="USDC wallet" value={`${formatUnits(snapshot.wallet.loanBalanceRaw, 6)} USDC`} />
@@ -252,8 +256,8 @@ function BorrowExperienceInner({ session, fetchAccountResource, onActionConfirme
 
             <form className={styles.form} onSubmit={submitPreview}>
               <div className={styles.sectionHeading}>
-                <h2>Preview action</h2>
-                <span>Destination: verified wallet</span>
+                <Heading level={2} textStyle="section-title">Preview action</Heading>
+                <Text as="span" textStyle="metadata" tone="muted">Destination: verified wallet</Text>
               </div>
               <label>
                 Action
@@ -275,22 +279,27 @@ function BorrowExperienceInner({ session, fetchAccountResource, onActionConfirme
                   placeholder={actionAsset.decimals === 8 ? "0.00000000" : "0.00"}
                 />
               </label>
-              <p className={styles.limit}>{selectedLimit}</p>
-              <button type="submit" disabled={!amount.trim() || preview.status === "loading"}>
+              <Text as="p" textStyle="metadata" tone="muted" className={styles.limit}>{selectedLimit}</Text>
+              <Button type="submit" disabled={!amount.trim() || preview.status === "loading"}>
                 {preview.status === "loading" ? "Checking RPC simulation…" : "Review current preview"}
-              </button>
+              </Button>
             </form>
           </>
         ) : null}
 
-        {preview.status === "error" ? <div className={styles.notice} role="alert"><strong>Preview unavailable</strong><span>{preview.message}</span></div> : null}
+        {preview.status === "error" ? (
+          <div className={styles.notice} role="alert">
+            <Text as="strong" textStyle="row-label">Preview unavailable</Text>
+            <Text as="span" textStyle="secondary" tone="muted">{preview.message}</Text>
+          </div>
+        ) : null}
         {preview.status === "preview-only" ? (
           <section className={styles.previewOnly} aria-labelledby="preview-only-title">
-            <h2 id="preview-only-title">Read-only preview</h2>
-            <strong>{preview.response.preview.title}</strong>
-            <span>{formatUnits(preview.response.preview.amount.amountBaseUnits, preview.response.preview.amount.decimals)} {preview.response.preview.amount.symbol}</span>
+            <Heading level={2} textStyle="section-title" id="preview-only-title">Read-only preview</Heading>
+            <Text as="strong" textStyle="row-label">{preview.response.preview.title}</Text>
+            <Text as="span" textStyle="row-value">{formatUnits(preview.response.preview.amount.amountBaseUnits, preview.response.preview.amount.decimals)} {preview.response.preview.amount.symbol}</Text>
             <ul>{preview.response.preview.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
-            <p>{preview.response.preview.disabledReason}</p>
+            <Text as="p" textStyle="secondary" tone="muted">{preview.response.preview.disabledReason}</Text>
           </section>
         ) : null}
       </section>
@@ -312,11 +321,28 @@ function BorrowExperienceInner({ session, fetchAccountResource, onActionConfirme
 }
 
 function Fact({ label, value, title }: { label: string; value: ReactNode; title?: string }) {
-  return <div><dt>{label}</dt><dd>{title ? <code title={title}>{value}</code> : value}</dd></div>;
+  return (
+    <div>
+      <dt><Text as="span" textStyle="metadata" tone="muted">{label}</Text></dt>
+      <dd>
+        <Text as="span" textStyle="row-value">
+          {title ? <code title={title}>{value}</code> : value}
+        </Text>
+      </dd>
+    </div>
+  );
 }
 
 function Metric({ label, value, note }: { label: string; value: string; note?: string }) {
-  return <div><dt>{label}</dt><dd>{value}{note ? <small>{note}</small> : null}</dd></div>;
+  return (
+    <div>
+      <dt><Text as="span" textStyle="metadata" tone="muted">{label}</Text></dt>
+      <dd>
+        <Text as="span" textStyle="row-value">{value}</Text>
+        {note ? <Text as="small" textStyle="metadata" tone="muted">{note}</Text> : null}
+      </dd>
+    </div>
+  );
 }
 
 function parseSnapshot(value: unknown, expectedOwner: `0x${string}`): BorrowMarketSnapshot | null {

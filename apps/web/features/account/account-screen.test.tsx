@@ -1,10 +1,14 @@
 import "./dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import type { AccountWalletSdkBoundary } from "./cdp-client";
+import type {
+  AccountWalletClient,
+  AccountWalletSdkBoundary,
+} from "./cdp-client";
 import {
   BaseAccountConnectorError,
   type BaseAccountConnector,
+  type BaseAccountRestorer,
 } from "./base-account-connector";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
@@ -33,19 +37,35 @@ function deferred<T>() {
 }
 
 function SessionStatusProbe() {
-  return <output data-testid="session-status">{useAccountWallet().status}</output>;
+  const account = useAccountWallet();
+  return (
+    <>
+      <output data-testid="session-status">{account.status}</output>
+      <button type="button" onClick={() => void account.signOut().catch(() => {})}>
+        Sign out fixture session
+      </button>
+    </>
+  );
 }
+
+const noopSignOut = async () => {};
 
 function SheetHarness({
   requestEmailCode,
   baseAccountEnabled = false,
   baseAccountConnector,
+  baseAccountRestorer,
+  signOut,
   initiallySignedIn = false,
+  restoredAccountProvider = "cdp-embedded",
 }: {
   requestEmailCode: AccountWalletSdkBoundary["signInWithEmail"];
   baseAccountEnabled?: boolean;
   baseAccountConnector?: BaseAccountConnector;
+  baseAccountRestorer?: BaseAccountRestorer;
+  signOut?: AccountWalletSdkBoundary["signOut"];
   initiallySignedIn?: boolean;
+  restoredAccountProvider?: "cdp-embedded" | "base-account";
 }) {
   const [open, setOpen] = useState(false);
   const sessionFetch = useMemo(
@@ -55,9 +75,9 @@ function SheetHarness({
         address: "0x1111111111111111111111111111111111111111",
         chainId: 8453,
       },
-      accountProvider: "cdp-embedded",
+      accountProvider: restoredAccountProvider,
     }),
-    [],
+    [restoredAccountProvider],
   );
   const sdk = useMemo<AccountWalletSdkBoundary>(
     () => ({
@@ -72,9 +92,9 @@ function SheetHarness({
       }),
       verifySiweSignature: async () => {},
       getAccessToken: async () => initiallySignedIn ? "fixture-token" : null,
-      signOut: async () => {},
+      signOut: signOut ?? noopSignOut,
     }),
-    [initiallySignedIn, requestEmailCode],
+    [initiallySignedIn, requestEmailCode, signOut],
   );
 
   return (
@@ -82,6 +102,7 @@ function SheetHarness({
       sdk={sdk}
       baseAccountEnabled={baseAccountEnabled}
       baseAccountConnector={baseAccountConnector}
+      baseAccountRestorer={baseAccountRestorer}
       sessionFetch={sessionFetch}
     >
       <SessionStatusProbe />
@@ -239,6 +260,107 @@ describe("production account sign-in sheet", () => {
     );
   });
 
+  test("blocks the real sign-in sheet while missing-connection cleanup is deferred", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const cleanupRequest = deferred<void>();
+    let signOutCalls = 0;
+
+    render(
+      <SheetHarness
+        requestEmailCode={async () => ({ flowId: "must-not-start" })}
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+        signOut={() => {
+          signOutCalls += 1;
+          return cleanupRequest.promise;
+        }}
+        initiallySignedIn
+        restoredAccountProvider="base-account"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("session-status").textContent).toBe(
+        "signing-out",
+      ),
+    );
+    expect(signOutCalls).toBe(1);
+
+    fireEvent.click(page().getByRole("button", { name: "Open account" }));
+    expect(await page().findByText("Finishing sign-out…")).toBeTruthy();
+    expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
+    expect(
+      page().queryByRole("button", { name: "Continue with Base Account" }),
+    ).toBeNull();
+
+    await act(async () => {
+      cleanupRequest.resolve();
+      await cleanupRequest.promise;
+    });
+  });
+
+  test("keeps real sign-in controls blocked when owner-null sign-out joins pending cleanup", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const cleanupRequest = deferred<void>();
+    let signOutCalls = 0;
+    const signOut = () => {
+      signOutCalls += 1;
+      return cleanupRequest.promise;
+    };
+    const view = render(
+      <SheetHarness
+        requestEmailCode={async () => ({ flowId: "must-not-start" })}
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+        signOut={signOut}
+        initiallySignedIn
+        restoredAccountProvider="base-account"
+      />,
+    );
+
+    await waitFor(() => expect(signOutCalls).toBe(1));
+    view.rerender(
+      <SheetHarness
+        requestEmailCode={async () => ({ flowId: "must-not-start" })}
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+        signOut={signOut}
+        restoredAccountProvider="base-account"
+      />,
+    );
+    fireEvent.click(
+      page().getByRole("button", { name: "Sign out fixture session" }),
+    );
+    fireEvent.click(page().getByRole("button", { name: "Open account" }));
+
+    expect(await page().findByText("Finishing sign-out…")).toBeTruthy();
+    expect(signOutCalls).toBe(1);
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "pending:base-account",
+    );
+    expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
+    expect(
+      page().queryByRole("button", { name: "Continue with Base Account" }),
+    ).toBeNull();
+
+    await act(async () => {
+      cleanupRequest.resolve();
+      await cleanupRequest.promise;
+    });
+    await waitFor(() =>
+      expect(page().getByTestId("session-status").textContent).toBe(
+        "signed-out",
+      ),
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+  });
+
   test("hands off native modal ownership while Base Account connection is pending and permits cancellation", async () => {
     const connection = deferred<never>();
     const trigger = render(
@@ -320,6 +442,32 @@ describe("production account sign-in sheet", () => {
     expect(page().queryByText("Sign-in is unavailable")).toBeNull();
     expect(page().queryByText("Try again later.")).toBeNull();
     expect(page().queryByText("Sign-in is not configured for this deployment.")).toBeNull();
+  });
+
+  test("offers an explicit sign-out retry while failed cleanup keeps details private", async () => {
+    let retries = 0;
+    const client: AccountWalletClient = {
+      ...createBlockedAccountWalletClient("provider-unavailable"),
+      signInAvailability: "ready",
+      baseAccountEnabled: true,
+      status: "signout-error",
+      message:
+        "Base Account was disconnected. Private details remain hidden, but sign-out did not finish. Retry sign out.",
+      signOut: async () => {
+        retries += 1;
+      },
+    };
+
+    render(
+      <AccountWalletClientProvider client={client}>
+        <AccountSignInSheet open onClose={() => {}} />
+      </AccountWalletClientProvider>,
+    );
+
+    expect(page().getByText("Sign-out did not finish.")).toBeTruthy();
+    expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Retry sign out" }));
+    await waitFor(() => expect(retries).toBe(1));
   });
 
   test("configured provider outage uses different copy from missing project ID", () => {

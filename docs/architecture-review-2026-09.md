@@ -220,7 +220,7 @@ Print this. Use it as the PR checklist.
 - [ ] `bun check` green. Do not enable `MORPHO_LIVE_SMOKE`, `CDP_SQL_SMOKE`, `BASE_RPC_LIVE_SMOKE`, or funded-wallet secrets in CI.
 - [ ] Auth smoke on an allowlisted host (default: localhost or staging/prod). Add a Vercel preview origin only when the PR must demo sign-in there. [Preview auth](cdp-setup.md#preview-auth) / [#67](https://github.com/jessepollak/home/issues/67).
 
-Browser-auth (`test:browser-auth`) is required when you change sign-in, sign-out, or session restore — even if CI does not run it yet.
+The browser smoke (`test:browser-smoke`) is required when you change sign-in, sign-out, or session restore — even if CI does not run it yet.
 
 ### Money-safety invariants (non-negotiable)
 

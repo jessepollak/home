@@ -16,8 +16,16 @@ export const CONTRACT_URI_ABI = [
 export const ONCHAIN_ICON_TIMEOUT_MS = 6_000;
 export const ONCHAIN_METADATA_TIMEOUT_MS = 4_000;
 export const ONCHAIN_METADATA_MAX_BYTES = 64_000;
+export const ONCHAIN_ICON_RPC_BATCH_MAX = 10;
 
 const configuredIconAssets = [...stockAssets, ...cryptoAssets];
+
+export type OnchainIconRpcRequest = {
+  jsonrpc: "2.0";
+  id: number;
+  method: "eth_call";
+  params: [{ to: `0x${string}`; data: `0x${string}` }, "latest"];
+};
 
 type FetchLike = (
   input: RequestInfo | URL,
@@ -41,60 +49,133 @@ export async function readOnchainIconImages({
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const requests = configuredIconAssets.map((asset, index) => ({
-      jsonrpc: "2.0" as const,
-      id: index + 1,
-      method: "eth_call",
-      params: [{ to: asset.contractAddress, data: callData }, "latest"],
-    }));
-
-    const response = await fetchImpl(rpcUrl, {
-      method: "POST",
-      headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify(requests),
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) return new Map();
-
-    const payload = (await response.json()) as unknown;
-    if (!Array.isArray(payload)) return new Map();
-
-    const byId = new Map<number, string>();
-    for (const item of payload) {
-      if (
-        typeof item !== "object" ||
-        item === null ||
-        !("id" in item) ||
-        !("result" in item)
-      ) {
-        continue;
-      }
-      const id = typeof item.id === "number" ? item.id : Number(item.id);
-      if (!Number.isInteger(id) || typeof item.result !== "string") continue;
-      const uri = decodeContractUri(item.result);
-      if (uri) byId.set(id, uri);
-    }
-
-    const images = new Map<string, string>();
-    await Promise.all(
-      configuredIconAssets.map(async (asset, index) => {
-        const uri = byId.get(index + 1);
-        if (!uri) return;
-        const imageUrl = await readMetadataImage(uri, fetchImpl);
-        if (!imageUrl) return;
-        images.set(
-          `${asset.chainId}:${asset.contractAddress.toLowerCase()}`,
-          imageUrl,
-        );
+    const requests = configuredIconAssets.map(
+      (asset, index): OnchainIconRpcRequest => ({
+        jsonrpc: "2.0",
+        id: index + 1,
+        method: "eth_call",
+        params: [{ to: asset.contractAddress, data: callData }, "latest"],
       }),
     );
+    const byId = await readContractUrisInBatches({
+      requests,
+      fetchImpl,
+      rpcUrl,
+      signal: controller.signal,
+    });
+
+    const resolvedImages = await Promise.all(
+      configuredIconAssets.map(async (asset, index) => {
+        const uri = byId.get(index + 1);
+        if (!uri) return null;
+        const imageUrl = await readMetadataImage(uri, fetchImpl);
+        if (!imageUrl) return null;
+        return [
+          `${asset.chainId}:${asset.contractAddress.toLowerCase()}`,
+          imageUrl,
+        ] as const;
+      }),
+    );
+    const images = new Map<string, string>();
+    for (const resolved of resolvedImages) {
+      if (resolved) images.set(...resolved);
+    }
     return images;
   } catch {
     return new Map();
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function readContractUrisInBatches({
+  requests,
+  fetchImpl,
+  rpcUrl,
+  signal,
+}: {
+  requests: readonly OnchainIconRpcRequest[];
+  fetchImpl: FetchLike;
+  rpcUrl: string;
+  signal: AbortSignal;
+}): Promise<Map<number, string>> {
+  const chunkResults: Array<Map<number, string>> = [];
+  for (
+    let index = 0;
+    index < requests.length;
+    index += ONCHAIN_ICON_RPC_BATCH_MAX
+  ) {
+    if (signal.aborted) break;
+    const batch = requests.slice(index, index + ONCHAIN_ICON_RPC_BATCH_MAX);
+    chunkResults.push(await readContractUriBatch(batch, fetchImpl, rpcUrl, signal));
+  }
+
+  const byId = new Map<number, string>();
+  for (let index = 0; index < chunkResults.length; index += 1) {
+    const batch = requests.slice(
+      index * ONCHAIN_ICON_RPC_BATCH_MAX,
+      (index + 1) * ONCHAIN_ICON_RPC_BATCH_MAX,
+    );
+    const result = chunkResults[index];
+    for (const request of batch) {
+      const uri = result?.get(request.id);
+      if (uri) byId.set(request.id, uri);
+    }
+  }
+  return byId;
+}
+
+async function readContractUriBatch(
+  batch: readonly OnchainIconRpcRequest[],
+  fetchImpl: FetchLike,
+  rpcUrl: string,
+  signal: AbortSignal,
+): Promise<Map<number, string>> {
+  try {
+    const response = await fetchImpl(rpcUrl, {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json" },
+      body: JSON.stringify(batch),
+      cache: "no-store",
+      signal,
+    });
+    if (!response.ok) return new Map();
+    const payload = (await response.json()) as unknown;
+    if (!Array.isArray(payload)) return new Map();
+    return collectContractUris(payload, new Set(batch.map(({ id }) => id)));
+  } catch {
+    return new Map();
+  }
+}
+
+function collectContractUris(
+  payload: readonly unknown[],
+  requestedIds: ReadonlySet<number>,
+): Map<number, string> {
+  const byId = new Map<number, string>();
+  const seen = new Set<number>();
+  for (const item of payload) {
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      Array.isArray(item) ||
+      !("id" in item) ||
+      typeof item.id !== "number" ||
+      !Number.isSafeInteger(item.id) ||
+      !requestedIds.has(item.id)
+    ) {
+      continue;
+    }
+    if (seen.has(item.id)) {
+      byId.delete(item.id);
+      continue;
+    }
+    seen.add(item.id);
+    if (!("result" in item) || typeof item.result !== "string") continue;
+    const uri = decodeContractUri(item.result);
+    if (uri) byId.set(item.id, uri);
+  }
+  return byId;
 }
 
 export function decodeContractUri(data: string): string | null {

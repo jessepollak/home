@@ -2,100 +2,105 @@
 
 An open-source home for your money on Base.
 
-Home is a mobile-first financial app designed around local currencies: sign in by email, hold and move money, add funds through local payment methods, save, and invest.
+Home is a mobile-first financial app built around local currencies. See your balances, send and receive money, save in USDC, explore investments, and borrow against bitcoin collateral—with the asset, amount, and network made explicit before you confirm.
 
-**Status: local finance spike, not production-approved.** The app includes local-currency wallet/savings valuation, USDC/ETH send and receive, durable operation recovery, indexed activity, Morpho USDC deposit/withdrawal, email-controlled crypto trade preparation/execution, a bounded cbBTC/USDC borrowing market, and a Coinbase funding handoff. The landing, animated Home mark, and shared finance components are integrated.
+> **Status:** Home is under active development, not a production-approved money app. Real-money use requires your own provider configuration, verified account and route eligibility, and end-to-end acceptance. See [build status](docs/build-status.md) for implementation and validation details.
 
-Real wallet signatures and funded end-to-end flows have not been exercised. Stock trading and external Base-account trading remain gated; Borrow requires a compatible deployed account, and hosted funding requires Coinbase access/origin configuration. See [build status](docs/build-status.md) for validation evidence and remaining limits.
+## UI mockups
+
+These mockups follow the current UI. Balances, prices, and rates are illustrative—not live account data or proof of production availability. Open either image to inspect the full-size screens.
+
+[![Home, Save, and Invest UI mockups](docs/readme/overview.svg)](docs/readme/overview.svg)
+
+*Home brings balances and everyday actions together; Save shows USDC vaults; Invest makes assets discoverable.*
+
+[![Send, Activity, and Borrow UI mockups](docs/readme/flows.svg)](docs/readme/flows.svg)
+
+*Send uses a stepped amount-and-review flow; Activity tracks transfers; Borrow is limited to USDC against cbBTC.*
+
+## What is here
+
+- **Home:** local-currency valuation for the configured wallet and savings inventory, plus funding, USDC/ETH send and receive, and indexed activity.
+- **Save:** public Morpho vault information and authenticated USDC deposit/withdrawal flows.
+- **Invest:** crypto discovery and email-controlled trade preparation/execution. The Stocks interface is informational; stock trading is not enabled.
+- **Borrow:** one bounded cbBTC/USDC Morpho market with collateral, borrow, repay, and withdrawal flows. It requires a compatible deployed account; counterfactual simulation and live funded execution have not been accepted.
+
+Country selection changes presentation and formatting; it is not an eligibility, residency, or funding decision. The Ripio funding integration is in progress and is not enabled in this checkout. Documented assets and provider support are not proof of an executable route.
 
 ## Get started
 
-This repository is meant to be **cloned and run**, then customized. Brand, regions, asset selection, and providers are replaceable; each operator uses their own projects and credentials. See [Fork and extend](docs/fork-and-extend.md) when you are ready to change those. Current-state docs: [build status](docs/build-status.md), [wallet runtime](docs/wallet-runtime-spike.md), [architecture review](docs/architecture-review-2026-09.md). The [docs index](docs/README.md) lists setup, product-intent, and **target/archive** notes (the 2026-09-07 design is not the live tree).
+Clone the repository and install the pinned dependencies:
+
+```sh
+git clone https://github.com/jessepollak/home.git
+cd home
+bun install --frozen-lockfile
+```
 
 ### Prerequisites
 
-- **Bun 1.3.12** — pinned as `packageManager` in `package.json`.
-- **Node.js 22 or newer** — `engines.node` is `>=22`. Local money-action persistence uses `node:sqlite`, which needs Node **22.13+**. The spike was validated on **Node 24**.
+- **Bun 1.3.12**, pinned by `packageManager`.
+- **Node.js 22.13+** for local SQLite persistence (`node:sqlite`); Node 24 was used for local validation.
+
+### Environment
+
+Create the gitignored local environment file only when it does not already exist:
+
+```sh
+if [ ! -e apps/web/.env.local ]; then
+  cp .env.example apps/web/.env.local
+fi
+```
+
+Never commit secrets. Server keys stay server-only—do not give them a `NEXT_PUBLIC_` prefix.
+
+| You can browse without CDP credentials | You need your own CDP project and configured origin |
+| --- | --- |
+| Landing, public Morpho vault reads, and informational Invest | Email sign-in, session validation, authenticated balances, and money actions |
+
+For CDP-backed flows, set `NEXT_PUBLIC_CDP_PROJECT_ID`, `CDP_API_KEY_ID`, and `CDP_API_KEY_SECRET` from your project, then allow the exact local origin `http://localhost:3000`. See [CDP setup](docs/cdp-setup.md) for the complete configuration, including preview origins.
 
 ### Run locally
 
 ```sh
-bun install --frozen-lockfile
 bun dev
 ```
 
-Open http://localhost:3000. The server binds to loopback; development document navigation from `127.0.0.1` redirects to the canonical `localhost` origin.
+Open `http://localhost:3000`. Development navigation from `127.0.0.1` redirects to the canonical `localhost` origin.
 
-### Environment
+Local `bun dev` uses a private SQLite money-action store under `.local/` when `DATABASE_URL` is unset. Hosted persistence uses server-only `DATABASE_URL` with Neon/Postgres instead; no hosted database is required to browse locally. Read [wallet runtime](docs/wallet-runtime-spike.md) and [Vercel deploy](docs/vercel-deploy.md) before deploying money actions.
 
-For a fresh clone, copy the root example into the web app (gitignored). **Do not overwrite** an existing `apps/web/.env.local`.
-
-```sh
-cp .env.example apps/web/.env.local
-```
-
-If that file already exists, add only missing variables.
-
-| Without CDP credentials | Needs your CDP project |
-|---|---|
-| Landing, browsing, public Morpho vault reads, informational Invest | Email sign-in, server session validation, authenticated balances and money actions |
-
-Email sign-in needs the public CDP project ID (`NEXT_PUBLIC_CDP_PROJECT_ID`) and matching server keys (`CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`) from **your** project. Configure the exact origin `http://localhost:3000` in that CDP project. Optional: `CODEX_API_KEY` for Invest USD snapshots; `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT` for the Base Account path; `BASE_RPC_URL` for managed Base JSON-RPC (set on Vercel Production and Preview — [portfolio](docs/portfolio.md)). Never commit secrets or prefix server keys with `NEXT_PUBLIC_`. Details: [CDP setup](docs/cdp-setup.md).
-
-### Scripts
+### Useful commands
 
 ```sh
-bun test        # Deterministic unit and contract tests; live probes stay opt-in
-bun lint        # ESLint
-bun typecheck   # Next route types and strict TypeScript
-bun build       # Production build
-bun check       # Tests, lint, typecheck and production build
-bun run --cwd apps/web test:browser-auth # Actual-component auth scenarios with mocked boundaries
-bun start       # Serve a production build
-bun run money-actions:migrate  # Apply Neon schema from local/CI (needs DATABASE_URL; not the Vercel build)
+bun test       # deterministic unit and contract tests
+bun lint       # ESLint
+bun typecheck  # Next route types and strict TypeScript
+bun build      # production build
+bun check      # test, lint, typecheck, and build
 ```
 
-GitHub Actions CI on pull requests and pushes to `main` runs `bun install --frozen-lockfile` then `bun check`. Live probes stay opt-in and are not enabled in CI.
+## Repository map
 
-### Local persistence
+| Place | Purpose |
+| --- | --- |
+| `apps/web/app/` | Next.js routes, shell, and global styles |
+| `apps/web/features/` | Home, account, activity, funding, savings, invest, and borrowing UI |
+| `apps/web/server/` | Server-side provider, money-action, and protocol boundaries |
+| `apps/web/config/` | Brand, regions, navigation, asset, and presentation configuration |
+| `docs/` | Setup, runtime, product intent, deployment, and extension notes |
 
-Money-action records use a private, automatically created SQLite database under `.local/` (typically `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace) when `DATABASE_URL` is unset. No hosted database is needed for local `bun dev`. On Vercel, landing and browse can deploy without `DATABASE_URL`; money-action routes fail closed without it. Set server-only `DATABASE_URL` (Neon) for hosted persistence, then apply the schema from local or CI with `bun run money-actions:migrate` — not as part of the default Vercel build. The hosted path does not load `node:sqlite`. Read [wallet runtime notes](docs/wallet-runtime-spike.md), [Vercel deploy](docs/vercel-deploy.md), and [build status](docs/build-status.md) before any deployment. This is not production authorization.
+**Stack:** Next.js, TypeScript, Tailwind, and Bun; SQLite for local money actions and Neon/Postgres for hosted persistence. CDP supplies account and wallet capabilities, Base RPC supplies chain reads, and Morpho supplies savings and the supported borrowing market.
 
-Edit `apps/web/app/home-experience.tsx` for the Home shell, `apps/web/features/` for account/Invest/Savings UI, `apps/web/app/globals.css` for visual tokens, and `apps/web/config/` for presentation settings and sourced asset identities. Keep one root `bun.lock`. Real configuration belongs only in the gitignored `apps/web/.env.local`.
-
-## Start here
-
-Current tree first. Target and archive docs are last so they cannot be mistaken for the live app.
-
-1. [Get started](#get-started) — clone, install, env, `bun dev`.
-2. [Build status](docs/build-status.md) — what is delivered and which gates remain.
-3. [Wallet runtime](docs/wallet-runtime-spike.md) — prepare → claim → submit → receipt; SQLite locally, Neon when `DATABASE_URL` is set.
-4. [Architecture review](docs/architecture-review-2026-09.md) — current-tree patterns, risks, contribution contract.
-5. [Docs index](docs/README.md) — full map (operate / product intent / target / archive).
-6. [Fork and extend](docs/fork-and-extend.md) — brand, regions, assets, providers.
-7. [CDP setup](docs/cdp-setup.md) · [SQL setup](docs/cdp-sql.md) · [Morpho setup](docs/morpho-setup.md) · [Invest data](docs/invest-data.md)
-8. [Vercel deploy](docs/vercel-deploy.md) — bun monorepo build settings; hosted money actions need Neon `DATABASE_URL`.
-
-Product intent (not delivery state): [product scope](docs/product-scope.md), [regional money](docs/regional-money.md), [currency defaults](docs/currency-defaults.md), [stablecoin candidates](docs/stablecoin-candidates.json).
-
-Target / archive (not the current tree): [target architecture](docs/target-architecture.md) (formerly technical design), [archived implementation plan](docs/archive/implementation-plan-2026-09-07.md).
-
-Sending a focused PR / joining as eng #2 is optional: see [CONTRIBUTING](CONTRIBUTING.md). Agent-team ops and the Jesse-only merge bar: [operating manual](docs/operating-manual.md).
-
-## Stack and boundaries
-
-Next.js, TypeScript, Tailwind and local SQLite; CDP email authentication/user-controlled smart accounts, CDP SQL history and trade quotes, Base RPC balances/receipts, and Morpho. Production shared persistence, webhook operations, and deployment remain separate work. No new hosted provider was provisioned for this spike.
-
-Country selection controls presentation, not eligibility. Wallet and savings value covers the configured inventory; Borrow collateral and debt are shown separately. Exact asset/network details and user approval remain part of financial review.
-
-Venice/agent inference, Rain cards, additional funding providers, unrestricted assets, and broader borrowing markets are not implemented.
 
 ## Forking
 
-Fork this repository to run your own Home. Brand, regions, asset selection and providers are designed to be replaceable — [fork and extend](docs/fork-and-extend.md) is the how-to. Each operator configures their own provider projects, credentials and deployment.
+Home is intended to be cloned and adapted. Replace the brand, regions, asset selection, and providers with your own configuration. Each operator supplies their own provider projects, credentials, persistence, and deployment. [Fork and extend](docs/fork-and-extend.md) maps the supported seams; [the docs index](docs/README.md) collects setup and runtime guides.
 
-Sending a focused PR is optional. If you do, run `bun check` first. **Only Jesse (`jessepollak`) merges** — see [CONTRIBUTING](CONTRIBUTING.md) and the [operating manual](docs/operating-manual.md). For UI / core-flow PRs, prefer a Before/After table of **inline embeds** (GitHub user-attachments only) in the GitHub description when both shots exist; after-only is OK when a before shot isn’t useful ([UI PR previews](docs/ui-pr-previews.md)). Never commit credentials or funded-wallet secrets. Documented token/provider support is separate from a tested integration.
+## Contributing
+
+Focused upstream changes are welcome. Read [CONTRIBUTING](CONTRIBUTING.md) and run `bun check` before opening a pull request. Keep credentials and funded-wallet secrets out of Git.
 
 ## License
 
-Original repository content is licensed under [MIT](LICENSE). Linked third-party materials, provider SDKs and trademarks retain their respective terms.
+Original repository content is licensed under [MIT](LICENSE). Third-party materials, provider SDKs, fonts, and trademarks keep their own terms. In particular, the Home mark’s font provenance and reuse constraints are documented in [`apps/web/public/home-mark/PROVENANCE.md`](apps/web/public/home-mark/PROVENANCE.md); do not assume those assets or Base-related marks are covered by MIT.

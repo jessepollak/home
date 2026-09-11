@@ -22,6 +22,7 @@ type AuthDiagnosticEvent =
         | "verified"
         | "signed-out"
         | "unavailable"
+        | "signing-out"
         | "signout-error";
       providerSelection:
         | "restoring"

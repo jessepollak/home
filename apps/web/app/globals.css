@@ -1,4 +1,8 @@
 @import "tailwindcss";
+@import "@home/ui/tokens.css";
+@import "@home/ui/tailwind.css";
+@import "@home/ui/styles.css";
+@source "../../../packages/ui/src";
 
 :root {
   --home-ink: #0a0b0d;
@@ -569,6 +573,17 @@ body:has(.app-frame-shell) {
   letter-spacing: -0.06em;
   line-height: 0.95;
   font-variant-numeric: tabular-nums;
+}
+
+.balance-status {
+  margin: 8px 0 0;
+  color: var(--home-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.balance-status-panel {
+  margin: 0 2px 8px;
 }
 
 .shimmer {

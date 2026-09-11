@@ -334,7 +334,9 @@ describe("invest discovery flow", () => {
   });
 
   test("holds hub, category, and detail marks on 32px shimmer while icons are pending", async () => {
-    renderInvest(<InvestExperience iconsPending />);
+    renderInvest(
+      <InvestExperience assetMarkResolution={{ images: {}, pending: true }} />,
+    );
     const amazon = page().getByRole("img", { name: "Amazon icon" });
     expect(amazon.querySelector("[data-shimmer='mark']")).toBeTruthy();
     expect(amazon.textContent).toBe("");
@@ -360,7 +362,12 @@ describe("invest discovery flow", () => {
   test("renders a resolved metadata image instead of a shipped SVG mark", () => {
     renderInvest(
       <InvestExperience
-        assetIcons={{ cbbtc: "https://icons.example.test/cbbtc.png" }}
+        assetMarkResolution={{
+          images: {
+            "eip155:8453/erc20:0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf":
+              "https://icons.example.test/cbbtc.png",
+          },
+        }}
       />,
     );
     const bitcoin = page().getByRole("img", { name: "Bitcoin icon" });
@@ -371,10 +378,16 @@ describe("invest discovery flow", () => {
     expect(bitcoin.textContent).toBe("");
   });
 
-  test("shows Codex trending memes on the Memes shelf", () => {
+  test("shows Codex trending memes through the shared stable-key resolution", () => {
     renderInvest(
       <InvestExperience
         memeStatus="ready"
+        assetMarkResolution={{
+          images: {
+            "eip155:8453/erc20:0x1111111111111111111111111111111111111111":
+              "https://icons.example.test/higher.png",
+          },
+        }}
         memeAssets={[
           {
             id: "base:0x1111111111111111111111111111111111111111",
@@ -393,7 +406,7 @@ describe("invest discovery flow", () => {
             },
             contractUrl:
               "https://basescan.org/token/0x1111111111111111111111111111111111111111",
-            imageUrl: "https://icons.example.test/higher.png",
+            imageUrl: "https://icons.example.test/ignored-embedded-image.png",
           },
         ]}
       />,

@@ -1,24 +1,34 @@
-export type SuppressedSessionOwner = string | null;
+export type SessionSuppression = {
+  ownerKey: string;
+  generation: number;
+};
 
 export function isSessionSuppressedForOwner(
-  suppressedOwnerKey: SuppressedSessionOwner,
+  suppression: SessionSuppression | null,
   currentOwnerKey: string | null,
+  currentGeneration: number,
 ): boolean {
-  return suppressedOwnerKey !== null && suppressedOwnerKey === currentOwnerKey;
+  return Boolean(
+    suppression &&
+      suppression.ownerKey === currentOwnerKey &&
+      suppression.generation === currentGeneration,
+  );
 }
 
 export async function signOutWithSessionSuppressed({
   ownerKey,
+  generation,
   signOut,
   suppress,
   onFailure,
 }: {
   ownerKey: string;
+  generation: number;
   signOut: () => Promise<void>;
-  suppress: (ownerKey: string) => void;
+  suppress: (suppression: SessionSuppression) => void;
   onFailure: () => void;
 }): Promise<boolean> {
-  suppress(ownerKey);
+  suppress({ ownerKey, generation });
 
   try {
     await signOut();

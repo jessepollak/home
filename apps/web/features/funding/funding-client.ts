@@ -1,19 +1,8 @@
-import type { AccountProvider } from "@/features/account/session-types";
 import {
   FUNDING_BASE_CHAIN_ID,
   FUNDING_BASE_USDC_ADDRESS,
   type HostedOnrampSession,
 } from "./types";
-
-export const FUNDING_ATTEMPT_STORAGE_KEY = "home:funding-attempt:v1";
-
-export type FundingAttempt = {
-  version: 1;
-  accountProvider: AccountProvider;
-  address: `0x${string}`;
-  startedAt: string;
-  baselineUsdcBaseUnits: string | null;
-};
 
 export type FundingAccountResource = (
   path: string,
@@ -116,59 +105,6 @@ export function parseCoinbaseHostedUrl(value: unknown): string {
   return url.toString();
 }
 
-export function readFundingAttempt(
-  storage: Pick<Storage, "getItem" | "removeItem">,
-  expected: { accountProvider: AccountProvider; address: `0x${string}` },
-): FundingAttempt | null {
-  let raw: string | null;
-  try {
-    raw = storage.getItem(FUNDING_ATTEMPT_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-
-  try {
-    const value: unknown = JSON.parse(raw);
-    if (!isRecord(value)) throw new Error("invalid");
-    const attempt: FundingAttempt = {
-      version: value.version === 1 ? 1 : fail(),
-      accountProvider:
-        value.accountProvider === "base-account" ||
-        value.accountProvider === "cdp-embedded"
-          ? value.accountProvider
-          : fail(),
-      address: readAddress(value.address),
-      startedAt: readTimestamp(value.startedAt),
-      baselineUsdcBaseUnits: readOptionalInteger(value.baselineUsdcBaseUnits),
-    };
-    if (
-      attempt.accountProvider !== expected.accountProvider ||
-      attempt.address !== expected.address.toLowerCase()
-    ) {
-      storage.removeItem(FUNDING_ATTEMPT_STORAGE_KEY);
-      return null;
-    }
-    return attempt;
-  } catch {
-    try {
-      storage.removeItem(FUNDING_ATTEMPT_STORAGE_KEY);
-    } catch {}
-    return null;
-  }
-}
-
-export function writeFundingAttempt(
-  storage: Pick<Storage, "setItem">,
-  attempt: FundingAttempt,
-): void {
-  try {
-    storage.setItem(FUNDING_ATTEMPT_STORAGE_KEY, JSON.stringify(attempt));
-  } catch {
-    // Funding still works when session storage is unavailable; return comparison will be limited.
-  }
-}
-
 function readErrorStatus(error: unknown): number | null {
   return error &&
     typeof error === "object" &&
@@ -176,28 +112,6 @@ function readErrorStatus(error: unknown): number | null {
     typeof error.status === "number"
     ? error.status
     : null;
-}
-
-function readAddress(value: unknown): `0x${string}` {
-  if (typeof value !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value)) fail();
-  return value.toLowerCase() as `0x${string}`;
-}
-
-function readTimestamp(value: unknown): string {
-  if (typeof value !== "string") fail();
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime()) || date.toISOString() !== value) fail();
-  return value;
-}
-
-function readOptionalInteger(value: unknown): string | null {
-  if (value === null) return null;
-  if (typeof value !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(value)) fail();
-  return value;
-}
-
-function fail(): never {
-  throw new Error("invalid");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

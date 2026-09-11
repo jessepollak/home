@@ -1,0 +1,184 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="1010" viewBox="0 0 1300 1010" role="img" aria-labelledby="overview-title overview-desc">
+  <title id="overview-title">Home product overview mockups</title>
+  <desc id="overview-desc">Illustrative mobile mockups of the current Home, Save, and Invest screens. All balances, prices, and yields are invented sample data.</desc>
+  <defs>
+    <style>
+      .t{font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#0a0b0d}.muted{fill:#5b6270}.white{fill:#fff}.blue{fill:#0052ff}.green{fill:#0f8a4b}.red{fill:#c3372a}.label{font-size:14px;font-weight:720}.tiny{font-size:10px;font-weight:600}.small{font-size:12px;font-weight:650}.body{font-size:14px;font-weight:650}.heading{font-size:18px;font-weight:750;letter-spacing:-.4px}.amount{font-size:42px;font-weight:750;letter-spacing:-2.2px}.sheettitle{font-size:25px;font-weight:750;letter-spacing:-.8px}.caption{font-size:13px;font-weight:750;letter-spacing:.2px}.upper{font-size:10px;font-weight:750;letter-spacing:1.1px}.hair{stroke:#e6e8ec;stroke-width:1}.icon{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    </style>
+    <filter id="lift" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#0a0b0d" flood-opacity=".08"/></filter>
+    <clipPath id="clip-home"><rect x="30" y="120" width="390" height="844" rx="18"/></clipPath>
+    <clipPath id="clip-save"><rect x="455" y="120" width="390" height="844" rx="18"/></clipPath>
+    <clipPath id="clip-invest"><rect x="880" y="120" width="390" height="844" rx="18"/></clipPath>
+    <g id="home-icon"><path class="icon" d="M3 10.5 10 4l7 6.5V18H5v-7.5M8 18v-5h4v5"/></g>
+    <g id="chart-icon"><path class="icon" d="M3 17V9m5 8V5m5 12v-7m5 7V2M2 18h17"/></g>
+    <g id="user-icon"><circle class="icon" cx="10" cy="7" r="3"/><path class="icon" d="M4.5 18c.7-3.5 2.5-5.2 5.5-5.2s4.8 1.7 5.5 5.2"/></g>
+    <g id="pig-icon"><path class="icon" d="M4 10c0-3 2.7-5 6.5-5h2.2l2-1v2.1c1 .6 1.7 1.5 2 2.6H19v4h-2.3a6.7 6.7 0 0 1-2.2 2.4V18h-3v-2H7v2H4v-3.2A5.7 5.7 0 0 1 4 10Z"/><circle cx="13.5" cy="8.5" r=".8" fill="currentColor"/></g>
+    <g id="coin-usdc"><circle cx="16" cy="16" r="16" fill="#2775ca"/><path d="M18.7 10.5c-.7-.7-1.7-1-2.9-1-1.7 0-2.7.7-2.7 1.8 0 2.8 6.5 1.2 6.5 5.8 0 2.1-1.5 3.6-3.8 3.9M15.8 7v2.3m0 11.8V23M11.2 10.3A7.5 7.5 0 0 0 10 14.5c0 2 .7 3.8 1.9 5.1M20.4 9.5a7.5 7.5 0 0 1 0 10" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/></g>
+    <g id="coin-eth"><circle cx="16" cy="16" r="16" fill="#edf0f6"/><path d="m16 5-6 11 6 3.5 6-3.5-6-11Zm0 16-6-3.5L16 27l6-9.5-6 3.5Z" fill="#627eea"/></g>
+    <g id="ext"><path class="icon" d="M4 4h7v7M11 4 4 11M9 9v4H2V6h4"/></g>
+  </defs>
+
+  <rect width="1300" height="1010" fill="#f7f8fa"/>
+  <text x="30" y="40" class="t sheettitle">Home at a glance</text>
+  <text x="30" y="65" class="t small muted">Mockup · illustrative data · current product structure</text>
+  <rect x="1017" y="26" width="253" height="38" rx="8" fill="#fff" stroke="#e6e8ec"/>
+  <circle cx="1038" cy="45" r="5" fill="#0052ff"/>
+  <text x="1052" y="49" class="t tiny muted">NOT LIVE ACCOUNT DATA</text>
+
+  <text x="30" y="104" class="t caption">Home</text>
+  <text x="455" y="104" class="t caption">Save</text>
+  <text x="880" y="104" class="t caption">Invest</text>
+
+  <!-- HOME -->
+  <g clip-path="url(#clip-home)">
+    <rect x="30" y="120" width="390" height="844" fill="#f7f8fa"/>
+    <rect x="30" y="120" width="390" height="56" fill="#fff"/>
+    <path d="M30 176h390" class="hair"/>
+    <text x="48" y="155" class="t heading" font-size="22">home</text>
+    <rect x="354" y="131" width="48" height="34" rx="8" fill="#fff" stroke="#e6e8ec"/>
+    <g transform="translate(368 138)" style="color:#0a0b0d"><use href="#user-icon"/></g>
+
+    <text x="48" y="231" class="t amount">$15,732.36</text>
+    <text x="48" y="251" class="t tiny muted">TOTAL BALANCE</text>
+
+    <rect x="48" y="276" width="106" height="48" rx="8" fill="#0052ff"/>
+    <path d="M67 292v16M59 300h16" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+    <text x="84" y="305" class="t small white">Add money</text>
+    <rect x="162" y="276" width="106" height="48" rx="8" fill="#fff" stroke="#e6e8ec"/>
+    <path d="m180 305 10-10m0 0h-7m7 0v7" fill="none" stroke="#0a0b0d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="198" y="305" class="t small">Send</text>
+    <rect x="276" y="276" width="126" height="48" rx="8" fill="#fff" stroke="#e6e8ec"/>
+    <path d="m295 295 10 10m0 0h-7m7 0v-7" fill="none" stroke="#0a0b0d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="315" y="305" class="t small">Receive</text>
+
+    <rect x="48" y="340" width="354" height="181" rx="12" fill="#fff" stroke="#e6e8ec"/>
+    <text x="64" y="369" class="t upper muted">BALANCES</text><text x="384" y="369" class="t body blue" text-anchor="end">›</text>
+    <g transform="translate(64 386)"><use href="#coin-usdc"/></g>
+    <text x="108" y="400" class="t body">USDC</text><text x="108" y="416" class="t tiny muted">Cash · USD</text>
+    <text x="384" y="400" class="t body" text-anchor="end">$7,930.00</text><text x="384" y="416" class="t tiny muted" text-anchor="end">7,930.00 USDC</text>
+    <path d="M64 432h320" class="hair"/>
+    <g transform="translate(64 445)"><use href="#coin-eth"/></g>
+    <text x="108" y="459" class="t body">Ethereum</text><text x="108" y="475" class="t tiny muted">1.850 ETH</text>
+    <text x="384" y="459" class="t body" text-anchor="end">$4,552.36</text><text x="384" y="475" class="t tiny muted" text-anchor="end">ETH</text>
+
+    <rect x="48" y="537" width="354" height="64" rx="12" fill="#fff" stroke="#e6e8ec"/>
+    <rect x="62" y="549" width="40" height="40" rx="10" fill="#e7f6ec"/>
+    <g transform="translate(72 559)" style="color:#1b7a3d"><use href="#pig-icon"/></g>
+    <text x="116" y="576" class="t body">Save</text><text x="384" y="576" class="t small blue" text-anchor="end">Earn ›</text>
+
+    <rect x="48" y="617" width="354" height="224" rx="12" fill="#fff" stroke="#e6e8ec"/>
+    <text x="64" y="646" class="t upper muted">ACTIVITY</text><text x="384" y="646" class="t body blue" text-anchor="end">›</text>
+    <rect x="64" y="665" width="32" height="32" rx="10" fill="#eaf8ef" stroke="#c6ead2"/>
+    <text x="80" y="686" class="t body green" text-anchor="middle">↓</text>
+    <text x="108" y="678" class="t body">Received</text><text x="108" y="694" class="t tiny muted">Sep 8, 9:42 AM</text>
+    <text x="366" y="686" class="t body green" text-anchor="end">+$650.00</text>
+    <g transform="translate(372 674) scale(.8)" style="color:#0052ff"><use href="#ext"/></g>
+    <path d="M64 709h320" class="hair"/>
+    <rect x="64" y="722" width="32" height="32" rx="10" fill="#fff1f0" stroke="#f0d0cd"/>
+    <text x="80" y="743" class="t body red" text-anchor="middle">↑</text>
+    <text x="108" y="735" class="t body">Sent</text><text x="108" y="751" class="t tiny muted">Sep 6, 4:18 PM</text>
+    <text x="366" y="743" class="t body" text-anchor="end">−$85.00</text>
+    <g transform="translate(372 731) scale(.8)" style="color:#0052ff"><use href="#ext"/></g>
+    <path d="M64 766h320" class="hair"/>
+    <rect x="64" y="779" width="32" height="32" rx="10" fill="#eef3ff" stroke="#d6e0f8"/>
+    <text x="80" y="800" class="t body blue" text-anchor="middle">↔</text>
+    <text x="108" y="792" class="t body">Deposit</text><text x="108" y="808" class="t tiny muted">Sep 3, 1:05 PM</text>
+    <text x="384" y="800" class="t body" text-anchor="end">$1,500.00</text>
+
+    <rect x="30" y="908" width="390" height="56" fill="#fff"/>
+    <path d="M30 908h390" class="hair"/>
+    <rect x="108" y="913" width="32" height="32" rx="8" fill="#0052ff"/>
+    <g transform="translate(114 919)" style="color:#fff"><use href="#home-icon"/></g>
+    <text x="124" y="956" class="t tiny" text-anchor="middle">Home</text>
+    <g transform="translate(307 919)" style="color:#0a0b0d"><use href="#chart-icon"/></g>
+    <text x="317" y="956" class="t tiny muted" text-anchor="middle">Invest</text>
+  </g>
+  <rect x="30" y="120" width="390" height="844" rx="18" fill="none" stroke="#dfe2e7" filter="url(#lift)"/>
+
+  <!-- SAVE -->
+  <g clip-path="url(#clip-save)">
+    <rect x="455" y="120" width="390" height="844" fill="#f7f8fa"/>
+    <rect x="455" y="120" width="390" height="56" fill="#fff"/>
+    <path d="M455 176h390" class="hair"/>
+    <text x="479" y="155" class="t heading">←</text><text x="507" y="155" class="t heading">Save</text>
+    <rect x="779" y="131" width="48" height="34" rx="8" fill="#fff" stroke="#e6e8ec"/>
+    <g transform="translate(793 138)" style="color:#0a0b0d"><use href="#user-icon"/></g>
+
+    <text x="650" y="244" class="t amount" text-anchor="middle">$3,250.00</text>
+    <text x="650" y="271" class="t body muted" text-anchor="middle">Earning ~5.21%</text>
+
+    <text x="473" y="351" class="t upper muted">VAULT</text>
+    <rect x="473" y="365" width="354" height="72" rx="12" fill="#fff" stroke="#0052ff" stroke-width="2"/>
+    <text x="489" y="393" class="t body">Gauntlet USDC Prime</text><text x="489" y="413" class="t small muted">5.21% APY</text><text x="811" y="402" class="t body" text-anchor="end">$3,250.00</text>
+    <rect x="473" y="447" width="354" height="72" rx="12" fill="#fff" stroke="#e6e8ec"/>
+    <text x="489" y="475" class="t body">Steakhouse USDC</text><text x="489" y="495" class="t small muted">4.87% APY</text><text x="811" y="484" class="t body" text-anchor="end">$0.00</text>
+
+    <rect x="473" y="551" width="171" height="50" rx="8" fill="#0052ff"/>
+    <text x="558" y="582" class="t body white" text-anchor="middle">Deposit</text>
+    <rect x="656" y="551" width="171" height="50" rx="8" fill="#fff" stroke="#e6e8ec"/>
+    <text x="741" y="582" class="t body" text-anchor="middle">Withdraw</text>
+
+    <text x="650" y="641" class="t small muted" text-anchor="middle">Details⌄</text>
+    <path d="M528 665h244" class="hair"/>
+    <text x="528" y="691" class="t small muted">Fee</text><text x="772" y="691" class="t body" text-anchor="end">0.00%</text>
+    <path d="M528 707h244" class="hair"/>
+    <text x="528" y="733" class="t small muted">Curator</text><text x="772" y="733" class="t body" text-anchor="end">0x8f…91c2</text>
+    <path d="M528 749h244" class="hair"/>
+
+    <rect x="455" y="908" width="390" height="56" fill="#fff"/>
+    <path d="M455 908h390" class="hair"/>
+    <rect x="533" y="913" width="32" height="32" rx="8" fill="#0052ff"/>
+    <g transform="translate(539 919)" style="color:#fff"><use href="#home-icon"/></g>
+    <text x="549" y="956" class="t tiny" text-anchor="middle">Home</text>
+    <g transform="translate(732 919)" style="color:#0a0b0d"><use href="#chart-icon"/></g>
+    <text x="742" y="956" class="t tiny muted" text-anchor="middle">Invest</text>
+  </g>
+  <rect x="455" y="120" width="390" height="844" rx="18" fill="none" stroke="#dfe2e7" filter="url(#lift)"/>
+
+  <!-- INVEST -->
+  <g clip-path="url(#clip-invest)">
+    <rect x="880" y="120" width="390" height="844" fill="#f7f8fa"/>
+    <rect x="880" y="120" width="390" height="56" fill="#fff"/>
+    <path d="M880 176h390" class="hair"/>
+    <text x="898" y="155" class="t heading">Invest</text>
+    <rect x="1204" y="131" width="48" height="34" rx="8" fill="#fff" stroke="#e6e8ec"/>
+    <g transform="translate(1218 138)" style="color:#0a0b0d"><use href="#user-icon"/></g>
+
+    <rect x="898" y="192" width="354" height="236" rx="12" fill="#fff" stroke="#e6e8ec"/>
+    <text x="914" y="223" class="t heading">Stocks</text><text x="1236" y="223" class="t small muted" text-anchor="end">See all ›</text>
+    <circle cx="930" cy="258" r="16" fill="#0a0b0d"/><text x="930" y="262" class="t tiny white" text-anchor="middle">NV</text>
+    <text x="958" y="255" class="t body">NVIDIA</text><text x="958" y="271" class="t tiny muted">NVDA</text><text x="1236" y="255" class="t body" text-anchor="end">$184.32</text><text x="1236" y="271" class="t tiny green" text-anchor="end">+1.84%</text>
+    <path d="M914 288h322" class="hair"/>
+    <circle cx="930" cy="314" r="16" fill="#eef3ff"/><text x="930" y="318" class="t tiny blue" text-anchor="middle">ME</text>
+    <text x="958" y="311" class="t body">Meta</text><text x="958" y="327" class="t tiny muted">META</text><text x="1236" y="311" class="t body" text-anchor="end">$762.41</text><text x="1236" y="327" class="t tiny red" text-anchor="end">−0.43%</text>
+    <path d="M914 344h322" class="hair"/>
+    <circle cx="930" cy="370" r="16" fill="#f0f2f5"/><text x="930" y="374" class="t tiny" text-anchor="middle">AP</text>
+    <text x="958" y="367" class="t body">Apple</text><text x="958" y="383" class="t tiny muted">AAPL</text><text x="1236" y="367" class="t body" text-anchor="end">$238.09</text><text x="1236" y="383" class="t tiny green" text-anchor="end">+0.67%</text>
+    <path d="M914 400h322" class="hair"/>
+
+    <rect x="898" y="440" width="354" height="236" rx="12" fill="#fff" stroke="#e6e8ec"/>
+    <text x="914" y="471" class="t heading">Crypto</text><text x="1236" y="471" class="t small muted" text-anchor="end">See all ›</text>
+    <circle cx="930" cy="506" r="16" fill="#f7931a"/><text x="930" y="510" class="t tiny white" text-anchor="middle">BT</text>
+    <text x="958" y="503" class="t body">Bitcoin</text><text x="958" y="519" class="t tiny muted">BTC · cbBTC</text><text x="1236" y="503" class="t body" text-anchor="end">$112,840</text><text x="1236" y="519" class="t tiny green" text-anchor="end">+2.12%</text>
+    <path d="M914 536h322" class="hair"/>
+    <circle cx="930" cy="562" r="16" fill="#eef3ff"/><text x="930" y="566" class="t tiny blue" text-anchor="middle">XR</text>
+    <text x="958" y="559" class="t body">XRP</text><text x="958" y="575" class="t tiny muted">XRP · cbXRP</text><text x="1236" y="559" class="t body" text-anchor="end">$2.31</text><text x="1236" y="575" class="t tiny red" text-anchor="end">−1.06%</text>
+    <path d="M914 592h322" class="hair"/>
+    <circle cx="930" cy="618" r="16" fill="#f3e7cf"/><text x="930" y="622" class="t tiny" text-anchor="middle">DO</text>
+    <text x="958" y="615" class="t body">Dogecoin</text><text x="958" y="631" class="t tiny muted">DOGE · cbDOGE</text><text x="1236" y="615" class="t body" text-anchor="end">$0.24</text><text x="1236" y="631" class="t tiny green" text-anchor="end">+3.28%</text>
+    <path d="M914 648h322" class="hair"/>
+
+    <rect x="898" y="688" width="354" height="104" rx="12" fill="#fff" stroke="#e6e8ec"/>
+    <text x="914" y="719" class="t heading">Memes</text><text x="1236" y="719" class="t small muted" text-anchor="end">See all ›</text>
+    <text x="914" y="758" class="t small muted">None trending</text>
+
+    <rect x="880" y="908" width="390" height="56" fill="#fff"/>
+    <path d="M880 908h390" class="hair"/>
+    <g transform="translate(964 919)" style="color:#0a0b0d"><use href="#home-icon"/></g>
+    <text x="974" y="956" class="t tiny muted" text-anchor="middle">Home</text>
+    <rect x="1157" y="913" width="32" height="32" rx="8" fill="#0052ff"/>
+    <g transform="translate(1163 919)" style="color:#fff"><use href="#chart-icon"/></g>
+    <text x="1173" y="956" class="t tiny" text-anchor="middle">Invest</text>
+  </g>
+  <rect x="880" y="120" width="390" height="844" rx="18" fill="none" stroke="#dfe2e7" filter="url(#lift)"/>
+</svg>

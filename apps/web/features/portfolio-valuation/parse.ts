@@ -1,15 +1,40 @@
 import {
   PORTFOLIO_NATIVE_ASSET_KEY,
   PORTFOLIO_USDC_ASSET_KEY,
+  getDirectPortfolioAssets,
 } from "@/config/portfolio-assets";
-import { presentationRegions, type RegionId } from "@/config/regions";
+import {
+  presentationRegions,
+  type FiatCurrencyCode,
+  type RegionId,
+} from "@/config/regions";
 import type { PortfolioValuationSnapshot } from "./types";
 import type { VerifiedPortfolioSession } from "@/features/portfolio";
+import {
+  baseUnitsToFraction,
+  exactDecimalToFraction,
+  multiplyFractions,
+  roundFractionPreservingPositive,
+} from "@/server/valuation/math";
+import type { ExactDecimal } from "@/server/valuation/types";
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const blockHashPattern = /^0x[0-9a-fA-F]{64}$/;
 const decimalIntegerPattern = /^(?:0|[1-9]\d*)$/;
 const assetKeyPattern = /^(?:eip155:8453\/native|eip155:8453\/erc20:0x[0-9a-f]{40})$/;
+const nativeCashAssets = getDirectPortfolioAssets().filter(
+  (asset): asset is typeof asset & {
+    assetKey: `eip155:8453/erc20:${string}`;
+    contractAddress: `0x${string}`;
+    cashCurrency: FiatCurrencyCode;
+  } =>
+    asset.kind === "erc20" &&
+    asset.contractAddress !== null &&
+    asset.cashCurrency !== null,
+);
+const nativeCashAssetByKey = new Map(
+  nativeCashAssets.map((asset) => [asset.assetKey, asset]),
+);
 
 export class PortfolioValuationResponseError extends Error {
   constructor() {
@@ -55,10 +80,12 @@ export function parsePortfolioValuationSnapshot(
   }
 
   const holdingKeys = new Set<string>();
+  const holdingsByKey = new Map<string, Record<string, unknown>>();
   for (const holding of value.inventory.holdings) {
     if (!validateHolding(holding)) fail();
     if (holdingKeys.has(holding.assetKey)) fail();
     holdingKeys.add(holding.assetKey);
+    holdingsByKey.set(holding.assetKey, holding);
   }
   if (
     !holdingKeys.has(PORTFOLIO_NATIVE_ASSET_KEY) ||
@@ -86,6 +113,20 @@ export function parsePortfolioValuationSnapshot(
     if (!validateLine(line, expectedCurrency, holdingKeys)) fail();
   }
   for (const bucket of value.cashBuckets) if (!validateCashBucket(bucket)) fail();
+  if (value.nativeCashValuations !== undefined) {
+    if (
+      !validateNativeCashValuations({
+        value: value.nativeCashValuations,
+        holdingsByKey,
+        prices: value.prices,
+        selectedFx: value.fx,
+        selectedCurrency: expectedCurrency,
+        cashBuckets: value.cashBuckets,
+      })
+    ) {
+      fail();
+    }
+  }
   if (!validateTotal(value.total, expectedCurrency, holdingKeys)) fail();
 
   return value as PortfolioValuationSnapshot;
@@ -189,6 +230,279 @@ function validateLine(
     validateNullableDecimal(value.value) &&
     ["priced", "unpriced", "read-unavailable"].includes(String(value.status)) &&
     (value.reason === null || typeof value.reason === "string")
+  );
+}
+
+function validateNativeCashValuations({
+  value,
+  holdingsByKey,
+  prices,
+  selectedFx,
+  selectedCurrency,
+  cashBuckets,
+}: {
+  value: unknown;
+  holdingsByKey: ReadonlyMap<string, Record<string, unknown>>;
+  prices: unknown[];
+  selectedFx: unknown;
+  selectedCurrency: FiatCurrencyCode | null;
+  cashBuckets: unknown[];
+}): boolean {
+  if (!Array.isArray(value) || value.length !== nativeCashAssets.length) {
+    return false;
+  }
+
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (!isRecord(entry) || typeof entry.holdingAssetKey !== "string") {
+      return false;
+    }
+    const asset = nativeCashAssetByKey.get(
+      entry.holdingAssetKey as `eip155:8453/erc20:${string}`,
+    );
+    if (!asset || seen.has(asset.assetKey)) return false;
+    seen.add(asset.assetKey);
+
+    const holding = holdingsByKey.get(asset.assetKey);
+    if (
+      !holding ||
+      holding.kind !== "direct" ||
+      holding.assetKey !== asset.assetKey ||
+      typeof holding.contractAddress !== "string" ||
+      holding.contractAddress.toLowerCase() !== asset.contractAddress.toLowerCase() ||
+      holding.cashCurrency !== asset.cashCurrency ||
+      holding.symbol !== asset.symbol ||
+      holding.decimals !== asset.decimals ||
+      entry.denominationCurrency !== asset.cashCurrency ||
+      !validateNullableDecimal(entry.value) ||
+      !validateNativeCashPrice(entry.exactContractUsdPrice, asset, prices) ||
+      !validateNativeCashFx(entry.denominationFx, asset.cashCurrency)
+    ) {
+      return false;
+    }
+
+    if (
+      (entry.denominationFx === null &&
+        entry.status !== "unpriced" &&
+        entry.status !== "read-unavailable") ||
+      (selectedCurrency === asset.cashCurrency &&
+        selectedFx !== null &&
+        !sameFxQuote(entry.denominationFx, selectedFx))
+    ) {
+      return false;
+    }
+
+    const readReady =
+      holding.readStatus === "ready" &&
+      typeof holding.balanceBaseUnits === "string" &&
+      readInteger(holding.balanceBaseUnits);
+    const isZero = readReady && holding.balanceBaseUnits === "0";
+    const priceReady =
+      isRecord(entry.exactContractUsdPrice) &&
+      entry.exactContractUsdPrice.status === "fresh" &&
+      validateDecimal(entry.exactContractUsdPrice.unitPrice);
+    const fxReady =
+      isRecord(entry.denominationFx) &&
+      entry.denominationFx.status === "fresh" &&
+      validateDecimal(entry.denominationFx.quoteUnitsPerUsd);
+
+    if (!readReady) {
+      if (
+        entry.status !== "read-unavailable" ||
+        entry.reason !== "holding-read-unavailable" ||
+        entry.value !== null
+      ) {
+        return false;
+      }
+    } else if (isZero || (priceReady && fxReady)) {
+      const pricedValue = entry.value;
+      const expectedValue = expectedNativeCashValue(
+        holding,
+        entry.exactContractUsdPrice,
+        entry.denominationFx,
+      );
+      if (
+        entry.status !== "priced" ||
+        entry.reason !== null ||
+        !validateDecimal(pricedValue) ||
+        !expectedValue ||
+        !sameExactDecimal(pricedValue, expectedValue) ||
+        (isZero && (!isRecord(pricedValue) || pricedValue.atoms !== "0")) ||
+        (!isZero && (!isRecord(pricedValue) || pricedValue.atoms === "0"))
+      ) {
+        return false;
+      }
+    } else {
+      const expectedReason = priceReady
+        ? "denomination-fx-unavailable"
+        : "exact-contract-price-unavailable";
+      if (
+        entry.status !== "unpriced" ||
+        entry.reason !== expectedReason ||
+        entry.value !== null
+      ) {
+        return false;
+      }
+    }
+  }
+
+  for (const bucket of cashBuckets) {
+    if (!isRecord(bucket) || typeof bucket.assetKey !== "string") continue;
+    const asset = nativeCashAssetByKey.get(
+      bucket.assetKey as `eip155:8453/erc20:${string}`,
+    );
+    if (!asset) return false;
+    const valuation = value.find(
+      (entry) =>
+        isRecord(entry) && entry.holdingAssetKey === bucket.assetKey,
+    );
+    const holding = holdingsByKey.get(bucket.assetKey);
+    if (
+      !isRecord(valuation) ||
+      !holding ||
+      bucket.denominationCurrency !== valuation.denominationCurrency ||
+      bucket.symbol !== holding.symbol ||
+      bucket.tokenAmountBaseUnits !== holding.balanceBaseUnits ||
+      bucket.tokenDecimals !== holding.decimals ||
+      bucket.valuationStatus !== valuation.status ||
+      !sameExactDecimal(bucket.indicativeValue, valuation.value)
+    ) {
+      return false;
+    }
+  }
+
+  return seen.size === nativeCashAssets.length;
+}
+
+function expectedNativeCashValue(
+  holding: Record<string, unknown>,
+  price: unknown,
+  fx: unknown,
+): ExactDecimal | null {
+  if (
+    typeof holding.balanceBaseUnits !== "string" ||
+    !readInteger(holding.balanceBaseUnits) ||
+    typeof holding.decimals !== "number" ||
+    !Number.isInteger(holding.decimals)
+  ) {
+    return null;
+  }
+  if (holding.balanceBaseUnits === "0") {
+    return { atoms: "0", scale: 18 };
+  }
+  if (
+    !isRecord(price) ||
+    !validateDecimal(price.unitPrice) ||
+    !isRecord(fx) ||
+    !validateDecimal(fx.quoteUnitsPerUsd)
+  ) {
+    return null;
+  }
+  try {
+    return roundFractionPreservingPositive(
+      multiplyFractions(
+        baseUnitsToFraction(holding.balanceBaseUnits, holding.decimals),
+        exactDecimalToFraction(price.unitPrice as ExactDecimal),
+        exactDecimalToFraction(fx.quoteUnitsPerUsd as ExactDecimal),
+      ),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function validateNativeCashPrice(
+  value: unknown,
+  asset: (typeof nativeCashAssets)[number],
+  prices: readonly unknown[],
+): boolean {
+  if (value === null) {
+    return !prices.some(
+      (price) => isRecord(price) && price.assetKey === asset.assetKey,
+    );
+  }
+  if (
+    !validatePrice(value) ||
+    !isRecord(value) ||
+    value.assetKey !== asset.assetKey ||
+    typeof value.contractAddress !== "string" ||
+    value.contractAddress.toLowerCase() !== asset.contractAddress.toLowerCase() ||
+    !isRecord(value.source) ||
+    value.source.provider !== "Codex" ||
+    !(
+      (value.status === "fresh" && validateDecimal(value.unitPrice)) ||
+      (value.status !== "fresh" && value.unitPrice === null)
+    )
+  ) {
+    return false;
+  }
+  const matches = prices.filter(
+    (price) => isRecord(price) && price.assetKey === asset.assetKey,
+  );
+  return matches.length === 1 && samePriceQuote(value, matches[0]);
+}
+
+function validateNativeCashFx(
+  value: unknown,
+  currency: FiatCurrencyCode,
+): boolean {
+  if (value === null) return true;
+  return (
+    validateFx(value, currency) &&
+    isRecord(value) &&
+    isRecord(value.source) &&
+    value.source.provider === "Coinbase Exchange Rates" &&
+    ((value.status === "fresh" && validateDecimal(value.quoteUnitsPerUsd)) ||
+      (value.status !== "fresh" && value.quoteUnitsPerUsd === null))
+  );
+}
+
+function samePriceQuote(left: unknown, right: unknown): boolean {
+  if (!isRecord(left) || !isRecord(right)) return false;
+  return (
+    left.assetKey === right.assetKey &&
+    typeof left.contractAddress === "string" &&
+    typeof right.contractAddress === "string" &&
+    left.contractAddress.toLowerCase() === right.contractAddress.toLowerCase() &&
+    left.quoteCurrency === right.quoteCurrency &&
+    left.sourceValue === right.sourceValue &&
+    left.status === right.status &&
+    sameExactDecimal(left.unitPrice, right.unitPrice) &&
+    sameSource(left.source, right.source)
+  );
+}
+
+function sameFxQuote(left: unknown, right: unknown): boolean {
+  if (!isRecord(left) || !isRecord(right)) return false;
+  return (
+    left.baseCurrency === right.baseCurrency &&
+    left.quoteCurrency === right.quoteCurrency &&
+    left.sourceValue === right.sourceValue &&
+    left.status === right.status &&
+    sameExactDecimal(left.quoteUnitsPerUsd, right.quoteUnitsPerUsd) &&
+    sameSource(left.source, right.source)
+  );
+}
+
+function sameExactDecimal(left: unknown, right: unknown): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    isRecord(left) &&
+    isRecord(right) &&
+    left.atoms === right.atoms &&
+    left.scale === right.scale
+  );
+}
+
+function sameSource(left: unknown, right: unknown): boolean {
+  return (
+    isRecord(left) &&
+    isRecord(right) &&
+    left.provider === right.provider &&
+    left.method === right.method &&
+    left.fetchedAt === right.fetchedAt &&
+    left.asOf === right.asOf &&
+    left.timeBasis === right.timeBasis
   );
 }
 

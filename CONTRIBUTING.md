@@ -25,7 +25,7 @@ bun check
 Optional, not in CI today:
 
 ```sh
-bun run --cwd apps/web test:browser-auth
+bun run --cwd apps/web test:browser-smoke
 node scripts/probe-money-actions-sqlite.mjs
 ```
 

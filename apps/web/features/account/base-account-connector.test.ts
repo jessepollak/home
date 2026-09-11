@@ -290,6 +290,45 @@ describe("Base Account connector boundary", () => {
     ).toBe(false);
   });
 
+  test("types only a successful empty restoration read as a missing connection", async () => {
+    const provider = new ProviderFixture();
+    provider.accounts = [];
+
+    await expect(
+      restoreWithBaseProvider(asProvider(provider), () => {}),
+    ).rejects.toMatchObject({ reason: "missing-connection" });
+    expect(provider.requests).toEqual([{ method: "eth_accounts" }]);
+
+    await expect(
+      connectWithBaseProvider(asProvider(provider), () => {}),
+    ).rejects.toMatchObject({ reason: "invalid-provider-response" });
+  });
+
+  test("keeps thrown and malformed restoration reads retryable instead of typing them as missing", async () => {
+    const thrownProvider = new ProviderFixture();
+    thrownProvider.request = async () => {
+      throw new Error("fixture transport failure");
+    };
+    await expect(
+      restoreWithBaseProvider(asProvider(thrownProvider), () => {}),
+    ).rejects.toMatchObject({ reason: "invalid-provider-response" });
+
+    for (const malformedAccounts of [null, {}, ["not-an-address"]]) {
+      const malformedProvider = new ProviderFixture();
+      malformedProvider.request = async ({ method }) =>
+        method === "eth_accounts" ? malformedAccounts : "0x2105";
+      await expect(
+        restoreWithBaseProvider(asProvider(malformedProvider), () => {}),
+      ).rejects.toMatchObject({ reason: "invalid-provider-response" });
+    }
+
+    const malformedChainProvider = new ProviderFixture();
+    malformedChainProvider.chainId = "not-a-chain";
+    await expect(
+      restoreWithBaseProvider(asProvider(malformedChainProvider), () => {}),
+    ).rejects.toMatchObject({ reason: "invalid-provider-response" });
+  });
+
   test("maps a provider rejection to a canceled connection", async () => {
     const provider = new ProviderFixture();
     provider.request = async () => {

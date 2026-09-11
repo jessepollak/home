@@ -165,22 +165,22 @@ describe("CDP embedded recovery contract (pinned SDK, unfunded)", () => {
   });
 
   test("Home passes the action id as idempotencyKey and treats send throws as unknown", () => {
-    const client = readFileSync(
-      join(import.meta.dir, "cdp-client.tsx"),
+    const actionExecution = readFileSync(
+      join(import.meta.dir, "cdp-money-action-execution.ts"),
       "utf8",
     );
-    const embeddedSendStart = client.indexOf(
+    const embeddedSendStart = actionExecution.indexOf(
       "const submission = await sdkSendUserOperation({",
     );
-    const embeddedSendEnd = client.indexOf(
+    const embeddedSendEnd = actionExecution.indexOf(
       "const retained = providerHandleJournal.retain(providerHandleBinding, {",
       embeddedSendStart,
     );
-    const embeddedPersist = client.indexOf(
+    const embeddedPersist = actionExecution.indexOf(
       "await providerHandleJournal.persist(retained.entry!);",
       embeddedSendEnd,
     );
-    const embeddedUpload = client.indexOf(
+    const embeddedUpload = actionExecution.indexOf(
       "const journaled = await recoverJournaledProviderHandle({",
       embeddedPersist,
     );
@@ -189,7 +189,7 @@ describe("CDP embedded recovery contract (pinned SDK, unfunded)", () => {
     expect(embeddedPersist).toBeGreaterThan(embeddedSendEnd);
     expect(embeddedUpload).toBeGreaterThan(embeddedPersist);
 
-    const embeddedSend = client.slice(embeddedSendStart, embeddedSendEnd);
+    const embeddedSend = actionExecution.slice(embeddedSendStart, embeddedSendEnd);
     expect(embeddedSend).toContain("idempotencyKey: canonicalAction.id");
     expect(embeddedSend).toContain(
       'recordMoneyActionStatus(fetchMoneyActionApi, canonicalAction.id, "unknown")',

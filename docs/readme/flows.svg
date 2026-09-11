@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="1010" viewBox="0 0 1300 1010" role="img" aria-labelledby="flows-title flows-desc">
+  <title id="flows-title">Home money flow mockups</title>
+  <desc id="flows-desc">Illustrative mobile mockups of the current Send amount sheet, Activity history, and the bounded USDC against cbBTC Borrow market. All values and addresses are invented.</desc>
+  <defs>
+    <style>
+      .t{font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#0a0b0d}.muted{fill:#5b6270}.white{fill:#fff}.blue{fill:#0052ff}.green{fill:#0f8a4b}.red{fill:#c3372a}.label{font-size:14px;font-weight:720}.tiny{font-size:10px;font-weight:600}.micro{font-size:9px;font-weight:600}.small{font-size:12px;font-weight:650}.body{font-size:14px;font-weight:650}.heading{font-size:18px;font-weight:750;letter-spacing:-.4px}.amount{font-size:43px;font-weight:750;letter-spacing:-2.2px}.sheettitle{font-size:25px;font-weight:750;letter-spacing:-.8px}.caption{font-size:13px;font-weight:750;letter-spacing:.2px}.upper{font-size:10px;font-weight:750;letter-spacing:1.1px}.hair{stroke:#e6e8ec;stroke-width:1}.icon{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    </style>
+    <filter id="lift" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#0a0b0d" flood-opacity=".08"/></filter>
+    <clipPath id="clip-send"><rect x="30" y="120" width="390" height="844" rx="18"/></clipPath>
+    <clipPath id="clip-activity"><rect x="455" y="120" width="390" height="844" rx="18"/></clipPath>
+    <clipPath id="clip-borrow"><rect x="880" y="120" width="390" height="844" rx="18"/></clipPath>
+    <g id="home-icon"><path class="icon" d="M3 10.5 10 4l7 6.5V18H5v-7.5M8 18v-5h4v5"/></g>
+    <g id="chart-icon"><path class="icon" d="M3 17V9m5 8V5m5 12v-7m5 7V2M2 18h17"/></g>
+    <g id="user-icon"><circle class="icon" cx="10" cy="7" r="3"/><path class="icon" d="M4.5 18c.7-3.5 2.5-5.2 5.5-5.2s4.8 1.7 5.5 5.2"/></g>
+    <g id="coin-usdc"><circle cx="16" cy="16" r="16" fill="#2775ca"/><path d="M18.7 10.5c-.7-.7-1.7-1-2.9-1-1.7 0-2.7.7-2.7 1.8 0 2.8 6.5 1.2 6.5 5.8 0 2.1-1.5 3.6-3.8 3.9M15.8 7v2.3m0 11.8V23M11.2 10.3A7.5 7.5 0 0 0 10 14.5c0 2 .7 3.8 1.9 5.1M20.4 9.5a7.5 7.5 0 0 1 0 10" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/></g>
+    <g id="ext"><path class="icon" d="M4 4h7v7M11 4 4 11M9 9v4H2V6h4"/></g>
+  </defs>
+
+  <rect width="1300" height="1010" fill="#f7f8fa"/>
+  <text x="30" y="40" class="t sheettitle">Money flows and positions</text>
+  <text x="30" y="65" class="t small muted">Mockup · illustrative data · current product structure</text>
+  <rect x="1017" y="26" width="253" height="38" rx="8" fill="#fff" stroke="#e6e8ec"/>
+  <circle cx="1038" cy="45" r="5" fill="#0052ff"/>
+  <text x="1052" y="49" class="t tiny muted">NOT LIVE ACCOUNT DATA</text>
+
+  <text x="30" y="104" class="t caption">Send · amount</text>
+  <text x="455" y="104" class="t caption">Activity</text>
+  <text x="880" y="104" class="t caption">Borrow · USDC against cbBTC</text>
+
+  <!-- SEND AMOUNT SHEET -->
+  <g clip-path="url(#clip-send)">
+    <rect x="30" y="120" width="390" height="844" fill="#f7f8fa"/>
+    <rect x="30" y="120" width="390" height="56" fill="#fff"/>
+    <path d="M30 176h390" class="hair"/>
+    <text x="48" y="155" class="t heading">home</text>
+    <rect x="354" y="131" width="48" height="34" rx="8" fill="#fff" stroke="#e6e8ec"/>
+    <g transform="translate(368 138)" style="color:#0a0b0d"><use href="#user-icon"/></g>
+    <text x="48" y="231" class="t amount">$15,732.36</text>
+    <rect x="48" y="274" width="106" height="48" rx="8" fill="#0052ff"/><text x="101" y="303" class="t small white" text-anchor="middle">Add money</text>
+    <rect x="162" y="274" width="106" height="48" rx="8" fill="#fff" stroke="#e6e8ec"/><text x="215" y="303" class="t small" text-anchor="middle">Send</text>
+    <rect x="276" y="274" width="126" height="48" rx="8" fill="#fff" stroke="#e6e8ec"/><text x="339" y="303" class="t small" text-anchor="middle">Receive</text>
+    <rect x="48" y="338" width="354" height="160" rx="12" fill="#fff" stroke="#e6e8ec"/>
+    <text x="64" y="367" class="t upper muted">BALANCES</text>
+    <g transform="translate(64 386)"><use href="#coin-usdc"/></g><text x="108" y="400" class="t body">USDC</text><text x="384" y="400" class="t body" text-anchor="end">$7,930.00</text>
+    <path d="M64 432h320" class="hair"/>
+    <text x="64" y="466" class="t body">Ethereum</text><text x="384" y="466" class="t body" text-anchor="end">$4,552.36</text>
+    <rect x="30" y="120" width="390" height="844" fill="#0a0b0d" opacity=".42"/>
+
+    <rect x="30" y="292" width="390" height="672" rx="16" fill="#fff"/>
+    <rect x="207" y="302" width="36" height="4" rx="2" fill="#0a0b0d" opacity=".28"/>
+    <text x="225" y="350" class="t heading" text-anchor="middle">Send</text>
+    <rect x="358" y="319" width="44" height="44" rx="8" fill="#fff" stroke="#e6e8ec"/>
+    <text x="380" y="348" class="t heading" text-anchor="middle">×</text>
+
+    <rect x="50" y="389" width="102" height="36" rx="18" fill="#fff" stroke="#e6e8ec"/>
+    <g transform="translate(56 391) scale(.9)"><use href="#coin-usdc"/></g><text x="95" y="412" class="t small">USDC⌄</text>
+    <rect x="237" y="389" width="50" height="36" rx="18" fill="#fff" stroke="#e6e8ec"/><text x="262" y="412" class="t small" text-anchor="middle">$10</text>
+    <rect x="293" y="389" width="50" height="36" rx="18" fill="#fff" stroke="#e6e8ec"/><text x="318" y="412" class="t small" text-anchor="middle">$25</text>
+    <rect x="349" y="389" width="53" height="36" rx="18" fill="#fff" stroke="#0052ff"/><text x="375" y="412" class="t small blue" text-anchor="middle">Max</text>
+    <text x="225" y="487" class="t amount" text-anchor="middle">$125</text>
+    <text x="225" y="517" class="t small muted" text-anchor="middle">125 USDC</text>
+    <text x="225" y="542" class="t small muted" text-anchor="middle">$7,930.00 available</text>
+
+    <g class="t body" text-anchor="middle">
+      <g><rect x="50" y="571" width="101" height="56" rx="10" fill="#f7f8fa"/><text x="100" y="605">1</text></g>
+      <g><rect x="157" y="571" width="101" height="56" rx="10" fill="#f7f8fa"/><text x="207" y="605">2</text></g>
+      <g><rect x="264" y="571" width="138" height="56" rx="10" fill="#f7f8fa"/><text x="333" y="605">3</text></g>
+      <g><rect x="50" y="635" width="101" height="56" rx="10" fill="#f7f8fa"/><text x="100" y="669">4</text></g>
+      <g><rect x="157" y="635" width="101" height="56" rx="10" fill="#f7f8fa"/><text x="207" y="669">5</text></g>
+      <g><rect x="264" y="635" width="138" height="56" rx="10" fill="#f7f8fa"/><text x="333" y="669">6</text></g>
+      <g><rect x="50" y="699" width="101" height="56" rx="10" fill="#f7f8fa"/><text x="100" y="733">7</text></g>
+      <g><rect x="157" y="699" width="101" height="56" rx="10" fill="#f7f8fa"/><text x="207" y="733">8</text></g>
+      <g><rect x="264" y="699" width="138" height="56" rx="10" fill="#f7f8fa"/><text x="333" y="733">9</text></g>
+      <g><rect x="50" y="763" width="101" height="56" rx="10" fill="#f7f8fa"/><text x="100" y="797">.</text></g>
+      <g><rect x="157" y="763" width="101" height="56" rx="10" fill="#f7f8fa"/><text x="207" y="797">0</text></g>
+      <g><rect x="264" y="763" width="138" height="56" rx="10" fill="#f7f8fa"/><text x="333" y="797">⌫</text></g>
+    </g>
+    <rect x="50" y="840" width="352" height="50" rx="8" fill="#0052ff"/>
+    <text x="226" y="871" class="t body white" text-anchor="middle">Continue</text>
+  </g>
+  <rect x="30" y="120" width="390" height="844" rx="18" fill="none" stroke="#dfe2e7" filter="url(#lift)"/>
+
+  <!-- ACTIVITY -->
+  <g clip-path="url(#clip-activity)">
+    <rect x="455" y="120" width="390" height="844" fill="#f7f8fa"/>
+    <rect x="455" y="120" width="390" height="56" fill="#fff"/>
+    <path d="M455 176h390" class="hair"/>
+    <text x="479" y="155" class="t heading">←</text><text x="507" y="155" class="t heading">Activity</text>
+    <rect x="779" y="131" width="48" height="34" rx="8" fill="#fff" stroke="#e6e8ec"/>
+    <g transform="translate(793 138)" style="color:#0a0b0d"><use href="#user-icon"/></g>
+
+    <rect x="473" y="192" width="354" height="570" rx="12" fill="#fff" stroke="#e6e8ec"/>
+    <text x="489" y="223" class="t upper muted">RECENT</text>
+
+    <rect x="489" y="243" width="32" height="32" rx="10" fill="#eaf8ef" stroke="#c6ead2"/><text x="505" y="264" class="t body green" text-anchor="middle">↓</text>
+    <text x="533" y="255" class="t body">Received</text><text x="533" y="271" class="t tiny muted">Sep 8, 9:42 AM</text><text x="791" y="255" class="t body green" text-anchor="end">+$650.00</text><text x="791" y="271" class="t tiny muted" text-anchor="end">USDC</text>
+    <g transform="translate(797 250) scale(.75)" style="color:#0052ff"><use href="#ext"/></g><path d="M489 288h322" class="hair"/>
+
+    <rect x="489" y="301" width="32" height="32" rx="10" fill="#fff1f0" stroke="#f0d0cd"/><text x="505" y="322" class="t body red" text-anchor="middle">↑</text>
+    <text x="533" y="313" class="t body">Sent</text><text x="533" y="329" class="t tiny muted">Sep 6, 4:18 PM</text><text x="791" y="313" class="t body" text-anchor="end">−$85.00</text><text x="791" y="329" class="t tiny muted" text-anchor="end">USDC</text>
+    <g transform="translate(797 308) scale(.75)" style="color:#0052ff"><use href="#ext"/></g><path d="M489 346h322" class="hair"/>
+
+    <rect x="489" y="359" width="32" height="32" rx="10" fill="#eef3ff" stroke="#d6e0f8"/><text x="505" y="380" class="t body blue" text-anchor="middle">↔</text>
+    <text x="533" y="371" class="t body">Deposit</text><text x="533" y="387" class="t tiny muted">Sep 3, 1:05 PM</text><text x="811" y="379" class="t body" text-anchor="end">$1,500.00</text><path d="M489 404h322" class="hair"/>
+
+    <rect x="489" y="417" width="32" height="32" rx="10" fill="#fff1f0" stroke="#f0d0cd"/><text x="505" y="438" class="t body red" text-anchor="middle">↑</text>
+    <text x="533" y="429" class="t body">Sent</text><text x="533" y="445" class="t tiny muted">Aug 30, 11:26 AM</text><text x="791" y="429" class="t body" text-anchor="end">−0.04 ETH</text><text x="791" y="445" class="t tiny muted" text-anchor="end">ETH</text>
+    <g transform="translate(797 424) scale(.75)" style="color:#0052ff"><use href="#ext"/></g><path d="M489 462h322" class="hair"/>
+
+    <rect x="489" y="475" width="32" height="32" rx="10" fill="#eaf8ef" stroke="#c6ead2"/><text x="505" y="496" class="t body green" text-anchor="middle">↓</text>
+    <text x="533" y="487" class="t body">Received</text><text x="533" y="503" class="t tiny muted">Aug 28, 6:14 PM</text><text x="791" y="487" class="t body green" text-anchor="end">+$2,000.00</text><text x="791" y="503" class="t tiny muted" text-anchor="end">USDC</text>
+    <g transform="translate(797 482) scale(.75)" style="color:#0052ff"><use href="#ext"/></g><path d="M489 520h322" class="hair"/>
+
+    <rect x="489" y="533" width="32" height="32" rx="10" fill="#eef3ff" stroke="#d6e0f8"/><text x="505" y="554" class="t body blue" text-anchor="middle">↔</text>
+    <text x="533" y="545" class="t body">Withdraw</text><text x="533" y="561" class="t tiny muted">Aug 23, 10:02 AM</text><text x="811" y="553" class="t body" text-anchor="end">$400.00</text><path d="M489 578h322" class="hair"/>
+
+    <rect x="489" y="591" width="32" height="32" rx="10" fill="#fff1f0" stroke="#f0d0cd"/><text x="505" y="612" class="t body red" text-anchor="middle">↑</text>
+    <text x="533" y="603" class="t body">Sent</text><text x="533" y="619" class="t tiny muted">Aug 19, 2:47 PM</text><text x="791" y="603" class="t body" text-anchor="end">−$240.00</text><text x="791" y="619" class="t tiny muted" text-anchor="end">USDC</text>
+    <g transform="translate(797 598) scale(.75)" style="color:#0052ff"><use href="#ext"/></g>
+
+    <rect x="489" y="676" width="322" height="44" rx="8" fill="#fff" stroke="#e6e8ec"/><text x="650" y="703" class="t small" text-anchor="middle">Load more</text>
+
+    <rect x="455" y="908" width="390" height="56" fill="#fff"/><path d="M455 908h390" class="hair"/>
+    <rect x="533" y="913" width="32" height="32" rx="8" fill="#0052ff"/><g transform="translate(539 919)" style="color:#fff"><use href="#home-icon"/></g><text x="549" y="956" class="t tiny" text-anchor="middle">Home</text>
+    <g transform="translate(732 919)" style="color:#0a0b0d"><use href="#chart-icon"/></g><text x="742" y="956" class="t tiny muted" text-anchor="middle">Invest</text>
+  </g>
+  <rect x="455" y="120" width="390" height="844" rx="18" fill="none" stroke="#dfe2e7" filter="url(#lift)"/>
+
+  <!-- BORROW -->
+  <g clip-path="url(#clip-borrow)">
+    <rect x="880" y="120" width="390" height="844" fill="#fff"/>
+    <rect x="890" y="130" width="370" height="824" rx="12" fill="#fff" stroke="#e3e6eb"/>
+    <rect x="890" y="130" width="370" height="48" rx="12" fill="#fff"/>
+    <path d="M890 178h370" stroke="#e3e6eb"/>
+    <text x="906" y="159" class="t small blue">← Dashboard</text><text x="1244" y="159" class="t tiny muted" text-anchor="end">Home · Base</text>
+    <path d="M890 178h370" stroke="#0052ff" stroke-width="3"/>
+    <text x="906" y="207" class="t upper muted">BORROW</text>
+    <text x="906" y="239" class="t heading" font-size="24">USDC against cbBTC</text>
+    <text x="906" y="260" class="t tiny muted">Base · Morpho Blue · one verified market</text>
+    <path d="M890 278h370" stroke="#e3e6eb"/>
+
+    <text x="906" y="307" class="t body">Supported market</text><text x="1244" y="307" class="t tiny muted" text-anchor="end">One verified market</text>
+    <rect x="906" y="320" width="338" height="90" fill="#e3e6eb"/>
+    <g>
+      <rect x="907" y="321" width="111" height="43" fill="#f8f9fb"/><text x="917" y="338" class="t micro muted">COLLATERAL</text><text x="917" y="355" class="t small">cbBTC</text>
+      <rect x="1019" y="321" width="111" height="43" fill="#f8f9fb"/><text x="1029" y="338" class="t micro muted">LOAN</text><text x="1029" y="355" class="t small">USDC</text>
+      <rect x="1131" y="321" width="112" height="43" fill="#f8f9fb"/><text x="1141" y="338" class="t micro muted">LLTV</text><text x="1141" y="355" class="t small">86.00%</text>
+      <rect x="907" y="365" width="111" height="44" fill="#f8f9fb"/><text x="917" y="382" class="t micro muted">MARKET ID</text><text x="917" y="399" class="t tiny">0x64…b7a2</text>
+      <rect x="1019" y="365" width="111" height="44" fill="#f8f9fb"/><text x="1029" y="382" class="t micro muted">MORPHO</text><text x="1029" y="399" class="t tiny">0xBb…F941</text>
+      <rect x="1131" y="365" width="112" height="44" fill="#f8f9fb"/><text x="1141" y="382" class="t micro muted">ORACLE</text><text x="1141" y="399" class="t tiny">0x9a…28D0</text>
+    </g>
+
+    <text x="906" y="440" class="t tiny muted">RPC block 35,104,882</text><text x="1244" y="440" class="t tiny muted" text-anchor="end">As of Sep 10, 2026, 11:14 AM</text>
+    <path d="M890 455h370" stroke="#e3e6eb"/>
+    <text x="906" y="484" class="t body">Wallet and position</text><text x="1244" y="484" class="t small blue" text-anchor="end">Refresh</text>
+    <rect x="906" y="497" width="338" height="165" fill="#e3e6eb"/>
+    <g>
+      <rect x="907" y="498" width="168" height="53" fill="#f8f9fb"/><text x="917" y="515" class="t micro muted">CBBTC WALLET</text><text x="917" y="536" class="t small">0.082 cbBTC</text>
+      <rect x="1076" y="498" width="167" height="53" fill="#f8f9fb"/><text x="1086" y="515" class="t micro muted">USDC WALLET</text><text x="1086" y="536" class="t small">2,160.00 USDC</text>
+      <rect x="907" y="552" width="168" height="54" fill="#f8f9fb"/><text x="917" y="569" class="t micro muted">COLLATERAL SUPPLIED</text><text x="917" y="590" class="t small">0.050 cbBTC</text>
+      <rect x="1076" y="552" width="167" height="54" fill="#f8f9fb"/><text x="1086" y="569" class="t micro muted">CURRENT DEBT</text><text x="1086" y="590" class="t small">1,800.00 USDC</text>
+      <rect x="907" y="607" width="168" height="54" fill="#f8f9fb"/><text x="917" y="624" class="t micro muted">BORROW CAPACITY</text><text x="917" y="645" class="t small">3,032.50 USDC</text>
+      <rect x="1076" y="607" width="167" height="54" fill="#f8f9fb"/><text x="1086" y="624" class="t micro muted">HEALTH FACTOR</text><text x="1086" y="645" class="t small">2.68</text>
+    </g>
+
+    <path d="M890 680h370" stroke="#e3e6eb"/>
+    <text x="906" y="709" class="t body">Preview action</text><text x="1244" y="709" class="t tiny muted" text-anchor="end">Destination: verified wallet</text>
+    <text x="906" y="738" class="t tiny muted">ACTION</text>
+    <rect x="906" y="747" width="338" height="44" rx="8" fill="#fff" stroke="#cfd5dd"/><text x="919" y="774" class="t small">Borrow USDC</text><text x="1228" y="774" class="t small muted" text-anchor="end">⌄</text>
+    <text x="906" y="816" class="t tiny muted">AMOUNT (USDC)</text>
+    <rect x="906" y="825" width="338" height="44" rx="8" fill="#fff" stroke="#cfd5dd"/><text x="919" y="852" class="t small">500.00</text>
+    <text x="906" y="880" class="t tiny muted">3,032.50 USDC current capacity</text>
+    <rect x="906" y="895" width="338" height="45" rx="8" fill="#0052ff"/><text x="1075" y="923" class="t small white" text-anchor="middle">Review current preview</text>
+  </g>
+  <rect x="880" y="120" width="390" height="844" rx="18" fill="none" stroke="#dfe2e7" filter="url(#lift)"/>
+</svg>

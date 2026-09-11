@@ -9,7 +9,6 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   readAnonymousCountryPreference,
@@ -51,6 +50,7 @@ import {
   type PreparedMoneyAction,
 } from "@/features/money-actions";
 import type { VerifiedPortfolioSession } from "@/features/portfolio";
+import { FundingActions } from "@/features/funding/funding-actions";
 import {
   deleteHomeBalancesPresentation,
   presentHomeBalanceMark,
@@ -64,6 +64,7 @@ import {
   type HomeAssetBalancesPresentation,
 } from "@/features/portfolio-valuation";
 import { TransferActions } from "@/features/transfers";
+import type { AssetMarkResolution } from "@/features/asset-mark/presentation";
 import { PresentationRegionProvider } from "@/features/invest/presentation-quote";
 import { PiggyBank } from "lucide-react";
 
@@ -84,8 +85,11 @@ export type HomeExperienceProps = {
   initialPanel?: ShellPanelId;
   initialAccountSettingsOpen?: boolean;
   assetBalances?: HomeAssetBalancesPresentation;
+  assetMarkResolution?: AssetMarkResolution;
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";
+  initialAddMoney?: boolean;
+  returnedFromCoinbase?: boolean;
   activityRefreshTrigger?: string | number;
   onTransferConfirmed?: () => void;
   selectedRegionId?: RegionId;
@@ -173,8 +177,11 @@ function HomeExperienceView({
   initialPanel = "home",
   initialAccountSettingsOpen = false,
   assetBalances,
+  assetMarkResolution,
   landingVisual,
   routeMode = "landing",
+  initialAddMoney = false,
+  returnedFromCoinbase = false,
   activityRefreshTrigger,
   onTransferConfirmed,
   selectedRegionId,
@@ -564,6 +571,7 @@ function HomeExperienceView({
                   {activeNavigation === "home" ? (
                     <HomePanel
                       assetBalances={paintedAssetBalances}
+                      assetMarkResolution={assetMarkResolution}
                       activitySession={activitySession}
                       fetchActivity={account.fetchActivity}
                       fetchOperations={account.fetchOperations}
@@ -574,11 +582,15 @@ function HomeExperienceView({
                       onOpenSave={() => navigateTo(savePanelId)}
                       onOpenBalances={() => navigateTo(balancesPanelId)}
                       onOpenActivity={() => navigateTo(activityPanelId)}
+                      initialAddMoney={initialAddMoney}
+                      returnedFromCoinbase={returnedFromCoinbase}
+                      regionId={regionId}
                     />
                   ) : null}
                   {activeNavigation === balancesPanelId ? (
                     <BalancesPage
                       assetBalances={paintedAssetBalances}
+                      assetMarkResolution={assetMarkResolution}
                       isChecking={isChecking}
                     />
                   ) : null}
@@ -822,6 +834,7 @@ function SectionTapIn({
 
 function HomePanel({
   assetBalances,
+  assetMarkResolution,
   activitySession,
   fetchActivity,
   fetchOperations,
@@ -832,8 +845,12 @@ function HomePanel({
   onOpenSave,
   onOpenBalances,
   onOpenActivity,
+  initialAddMoney = false,
+  returnedFromCoinbase = false,
+  regionId,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
+  assetMarkResolution?: AssetMarkResolution;
   activitySession: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
@@ -844,6 +861,9 @@ function HomePanel({
   onOpenSave: () => void;
   onOpenBalances: () => void;
   onOpenActivity: () => void;
+  initialAddMoney?: boolean;
+  returnedFromCoinbase?: boolean;
+  regionId: RegionId;
 }) {
   const isLoading = assetBalances?.status === "loading";
   const isRevalidating = assetBalances?.revalidating === true;
@@ -854,6 +874,10 @@ function HomePanel({
       ? "Balance unavailable"
       : "Total balance";
   const balanceItems = assetBalances?.items ?? [];
+  const showBalanceStatus =
+    assetBalances?.status !== "loading" &&
+    assetBalances?.statusLabel !== "Updating…" &&
+    Boolean(assetBalances?.statusLabel);
 
   return (
     <div className="home-panel">
@@ -873,16 +897,25 @@ function HomePanel({
             {assetBalances?.displayTotal ?? "—"}
           </p>
         )}
+        {showBalanceStatus ? (
+          <p
+            className="balance-status"
+            data-total-status={assetBalances?.totalStatus}
+          >
+            {assetBalances?.statusLabel}
+          </p>
+        ) : null}
         {isLoading || isRevalidating ? (
           <span className="sr-status">Updating…</span>
         ) : null}
       </section>
 
       <div className="action-row" aria-label="Money actions">
-        <Link href="/fund">
-          <PlusIcon />
-          <span>Add money</span>
-        </Link>
+        <FundingActions
+          initialOpen={initialAddMoney}
+          returnedFromCoinbase={returnedFromCoinbase}
+          regionId={regionId}
+        />
         <TransferActions
           onTransferConfirmed={onTransferConfirmed}
           availableByAsset={availableSendBalances(balanceItems)}
@@ -898,6 +931,8 @@ function HomePanel({
         <HomeBalancesList
           items={previewHomeBalanceItems(balanceItems)}
           isLoading={isLoading}
+          isUnavailable={assetBalances?.status === "unavailable"}
+          assetMarkResolution={assetMarkResolution}
         />
       </section>
 
@@ -968,17 +1003,33 @@ function HomePanel({
 
 function BalancesPage({
   assetBalances,
+  assetMarkResolution,
   isChecking,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
+  assetMarkResolution?: AssetMarkResolution;
   isChecking: boolean;
 }) {
   const isLoading = assetBalances?.status === "loading" || isChecking;
+  const showBalanceStatus =
+    assetBalances?.status !== "loading" &&
+    assetBalances?.statusLabel !== "Updating…" &&
+    Boolean(assetBalances?.statusLabel);
   return (
     <section className="balances-panel nested-home-panel" aria-label="Balances">
+      {showBalanceStatus ? (
+        <p
+          className="balance-status balance-status-panel"
+          data-total-status={assetBalances?.totalStatus}
+        >
+          {assetBalances?.statusLabel}
+        </p>
+      ) : null}
       <HomeBalancesList
         items={assetBalances?.items ?? []}
         isLoading={isLoading}
+        isUnavailable={assetBalances?.status === "unavailable"}
+        assetMarkResolution={assetMarkResolution}
       />
     </section>
   );
@@ -1081,16 +1132,20 @@ function ConnectedActivityPanel({
 function HomeBalancesList({
   items,
   isLoading,
+  isUnavailable = false,
+  assetMarkResolution,
 }: {
   items: readonly HomeAssetBalanceItem[];
   isLoading: boolean;
+  isUnavailable?: boolean;
+  assetMarkResolution?: AssetMarkResolution;
 }) {
   if (items.length > 0) {
     return (
       <ul className="supplied-asset-list">
         {items.map((asset) => {
           const row = presentHomeBalanceRow(asset);
-          const mark = presentHomeBalanceMark(asset);
+          const mark = presentHomeBalanceMark(asset, assetMarkResolution);
           return (
             <BalanceRow
               key={asset.id}
@@ -1098,6 +1153,8 @@ function HomeBalancesList({
                 <CurrencyMark
                   currency={mark.currency}
                   symbol={mark.symbol}
+                  src={mark.imageUrl}
+                  pending={mark.pending}
                 />
               }
               iconTone="mark"
@@ -1125,17 +1182,22 @@ function HomeBalancesList({
   if (isLoading) {
     return <ShimmerRows count={2} />;
   }
+  if (isUnavailable) return null;
   return <p className="balances-empty">No balances yet</p>;
 }
 
 function availableSendBalances(
   items: readonly HomeAssetBalanceItem[],
 ): Partial<Record<"usdc" | "eth", string>> {
-  const cashUsd = items.find((item) => item.group === "cash" && item.currencyCode === "USD");
-  const cash = cashUsd ?? items.find((item) => item.group === "cash");
-  const eth = items.find((item) => item.detail === "ETH");
+  const availableItems = items.filter(
+    (item) => item.tone !== "error" && item.displayBalance !== "—",
+  );
+  const cashUsd = availableItems.find(
+    (item) => item.group === "cash" && item.currencyCode === "USD",
+  );
+  const eth = availableItems.find((item) => item.detail === "ETH");
   return {
-    ...(cash?.displayBalance ? { usdc: cash.displayBalance } : {}),
+    ...(cashUsd?.displayBalance ? { usdc: cashUsd.displayBalance } : {}),
     ...(eth ? { eth: eth.displayContext ?? eth.displayBalance } : {}),
   };
 }
@@ -1178,25 +1240,5 @@ function EmptyPanel({ label }: { label: string }) {
     <section className="empty-panel" aria-label={label}>
       <strong>{label} unavailable</strong>
     </section>
-  );
-}
-
-const iconProps = {
-  width: 20,
-  height: 20,
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.8,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-  "aria-hidden": true,
-};
-
-function PlusIcon() {
-  return (
-    <svg {...iconProps}>
-      <path d="M12 5v14M5 12h14" />
-    </svg>
   );
 }

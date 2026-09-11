@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { investPortfolioAssets } from "@/config/portfolio-assets";
 import { presentHomeBalanceMark, presentHomeBalanceRow } from "./home-balance-row";
 
 describe("presentHomeBalanceRow", () => {
@@ -84,65 +85,129 @@ describe("presentHomeBalanceMark", () => {
     expect(
       presentHomeBalanceMark({
         id: "cash:usd",
+        assetKey: "cash:usd",
         group: "cash",
         name: "US dollar",
         displayBalance: "$25.00",
         currencyCode: "USD",
       }),
-    ).toEqual({ currency: "USD", symbol: "$" });
+    ).toEqual({
+      assetKey: "cash:usd",
+      name: "US dollar",
+      currency: "USD",
+      symbol: "$",
+      imageUrl: null,
+      pending: false,
+    });
 
     expect(
       presentHomeBalanceMark({
         id: "cash:idr",
+        assetKey: "cash:idr",
         group: "cash",
         name: "Indonesian rupiah",
         displayBalance: "Rp 2,500.00",
         currencyCode: "IDR",
       }),
-    ).toEqual({ currency: "IDR", symbol: "Rp" });
+    ).toMatchObject({ currency: "IDR", symbol: "Rp" });
 
     expect(
       presentHomeBalanceMark({
         id: "cash:unknown",
+        assetKey: "cash:unknown",
         group: "cash",
         name: "Local currency",
         displayBalance: "—",
         currencyCode: "LCL",
       }),
-    ).toEqual({ currency: "LCL", symbol: "LCL" });
+    ).toMatchObject({ currency: "LCL", symbol: "LCL" });
   });
 
   test("keeps leftover fiat asset rows eligible for flags and never flags crypto", () => {
     expect(
       presentHomeBalanceMark({
         id: "asset:eurc",
+        assetKey: "asset:eurc",
         group: "asset",
         name: "Euro",
         detail: "EURC",
         displayBalance: "€10.00",
         currencyCode: "EUR",
       }),
-    ).toEqual({ currency: "EUR", symbol: "€" });
+    ).toMatchObject({ currency: "EUR", symbol: "€" });
 
     expect(
       presentHomeBalanceMark({
         id: "asset:eth",
+        assetKey: "eip155:8453/native",
         group: "asset",
         name: "Ethereum",
         detail: "ETH",
         displayBalance: "0.5 ETH",
       }),
-    ).toEqual({ currency: null, symbol: "ETH" });
+    ).toMatchObject({ currency: null, symbol: "ETH" });
 
     expect(
       presentHomeBalanceMark({
         id: "asset:mislabelled",
+        assetKey: "eip155:8453/native",
         group: "asset",
         name: "Ethereum",
         detail: "ETH",
         displayBalance: "0.5 ETH",
         currencyCode: "ETH",
       }),
-    ).toEqual({ currency: null, symbol: "ETH" });
+    ).toMatchObject({ currency: null, symbol: "ETH" });
+  });
+
+  test("resolves the same configured stock and cbBTC images by stable asset key", () => {
+    const nvidia = investPortfolioAssets.find((asset) => asset.id === "nvdac")!;
+    const bitcoin = investPortfolioAssets.find((asset) => asset.id === "cbbtc")!;
+    const images = {
+      [nvidia.assetKey]: "https://icons.example.test/nvda.png",
+      [bitcoin.assetKey]: "https://icons.example.test/cbbtc.png",
+    };
+
+    expect(
+      presentHomeBalanceMark(
+        {
+          id: `asset:${nvidia.assetKey}`,
+          assetKey: nvidia.assetKey,
+          group: "asset",
+          name: nvidia.name,
+          detail: nvidia.symbol,
+          displayBalance: "1.0000 NVDAc",
+        },
+        { images, pending: true },
+      ),
+    ).toEqual({
+      assetKey: nvidia.assetKey,
+      name: "NVIDIA",
+      symbol: "NV",
+      imageUrl: images[nvidia.assetKey],
+      pending: false,
+      currency: null,
+    });
+
+    expect(
+      presentHomeBalanceMark(
+        {
+          id: `asset:${bitcoin.assetKey}`,
+          assetKey: bitcoin.assetKey,
+          group: "asset",
+          name: bitcoin.name,
+          detail: bitcoin.symbol,
+          displayBalance: "0.1000 cbBTC",
+        },
+        { images: {}, pending: true },
+      ),
+    ).toMatchObject({
+      assetKey: bitcoin.assetKey,
+      name: "Bitcoin",
+      symbol: "BT",
+      imageUrl: null,
+      pending: true,
+      currency: null,
+    });
   });
 });

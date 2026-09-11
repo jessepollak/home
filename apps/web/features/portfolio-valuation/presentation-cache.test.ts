@@ -6,6 +6,7 @@ import {
   homeBalancesPresentationCacheKey,
   homeBalancesPresentationCachePrefix,
   homeBalancesPresentationCacheTtlMs,
+  homeBalancesPresentationSemanticVersion,
   readHomeBalancesPresentation,
   resolvePaintedHomeBalances,
   writeHomeBalancesPresentation,
@@ -21,9 +22,11 @@ const NOW = Date.parse(SAVED_AT);
 const readyPresentation: HomeAssetBalancesPresentation = {
   status: "ready",
   displayTotal: "$12.34",
+  totalStatus: "complete",
   items: [
     {
       id: "usdc",
+      assetKey: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
       group: "cash",
       name: "US dollar",
       displayBalance: "$12.34",
@@ -78,6 +81,14 @@ describe("home balances presentation cache", () => {
       ),
     ).toBe(true);
 
+    const stored = JSON.parse(
+      Object.values(storage.snapshot())[0] ?? "null",
+    ) as Record<string, unknown>;
+    expect(stored.presentationSemantics).toBe(
+      homeBalancesPresentationSemanticVersion,
+    );
+    expect(stored.presentation).toMatchObject({ totalStatus: "complete" });
+
     expect(
       readHomeBalancesPresentation(
         () => storage,
@@ -87,6 +98,7 @@ describe("home balances presentation cache", () => {
     ).toEqual({
       status: "ready",
       displayTotal: "$12.34",
+      totalStatus: "complete",
       statusLabel: "Choose a country in Account to set how money is shown",
       items: readyPresentation.items,
     });
@@ -97,6 +109,8 @@ describe("home balances presentation cache", () => {
     const presentation: HomeAssetBalancesPresentation = {
       status: "ready",
       displayTotal: "—",
+      totalStatus: "partial",
+      statusLabel: "Partial balance",
       items: [
         {
           id: "cash:idrx",
@@ -364,6 +378,33 @@ describe("home balances presentation cache", () => {
     expect(storage.length).toBe(0);
   });
 
+  test("misses an otherwise valid record with legacy formatted-row semantics", () => {
+    const key = homeBalancesPresentationCacheKey({
+      subject: SUBJECT,
+      smartAccount: ACCOUNT,
+      region: "US",
+    });
+    const storage = memoryStorage({
+      [key]: JSON.stringify({
+        v: 1,
+        ownerKey: OWNER,
+        subject: SUBJECT,
+        smartAccount: ACCOUNT,
+        region: "US",
+        savedAt: SAVED_AT,
+        presentation: readyPresentation,
+      }),
+    });
+
+    expect(
+      readHomeBalancesPresentation(
+        () => storage,
+        { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US" },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
   test("fails open on corrupt, expired, mismatched, and token-like records", () => {
     const key = homeBalancesPresentationCacheKey({
       subject: SUBJECT,
@@ -374,10 +415,10 @@ describe("home balances presentation cache", () => {
     const cases = [
       "{",
       JSON.stringify({ v: 2, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: readyPresentation }),
-      JSON.stringify({ v: 1, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: expired, presentation: readyPresentation }),
-      JSON.stringify({ v: 1, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: readyPresentation, snapshot: { walletAddress: ACCOUNT } }),
-      JSON.stringify({ v: 1, ownerKey: "Bearer secret-token", subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: readyPresentation }),
-      JSON.stringify({ v: 1, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: { ...readyPresentation, otp: "123456" } }),
+      JSON.stringify({ v: 1, presentationSemantics: homeBalancesPresentationSemanticVersion, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: expired, presentation: readyPresentation }),
+      JSON.stringify({ v: 1, presentationSemantics: homeBalancesPresentationSemanticVersion, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: readyPresentation, snapshot: { walletAddress: ACCOUNT } }),
+      JSON.stringify({ v: 1, presentationSemantics: homeBalancesPresentationSemanticVersion, ownerKey: "Bearer secret-token", subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: readyPresentation }),
+      JSON.stringify({ v: 1, presentationSemantics: homeBalancesPresentationSemanticVersion, ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US", savedAt: SAVED_AT, presentation: { ...readyPresentation, otp: "123456" } }),
     ];
 
     for (const raw of cases) {
