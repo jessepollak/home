@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test as base, type Page } from "@playwright/test";
 import {
   SAVE_QA_CLOCK_MS,
   createSaveQaVaults,
@@ -18,14 +18,27 @@ import {
   type SaveQaServer,
 } from "./support/save-qa-server";
 
+const saveQaChromiumArgument =
+  "--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessSendPreflights";
+
+function augmentSaveQaLaunchOptions<T extends { args?: string[] }>(inherited: T): T {
+  return {
+    ...inherited,
+    args: inherited.args?.includes(saveQaChromiumArgument)
+      ? [...inherited.args]
+      : [...(inherited.args ?? []), saveQaChromiumArgument],
+  };
+}
+
+const test = base.extend({
+  launchOptions: async ({ launchOptions }, applyLaunchOptions) => {
+    await applyLaunchOptions(augmentSaveQaLaunchOptions(launchOptions));
+  },
+});
+
 test.setTimeout(120_000);
 // Intercepted localhost documents can remain server-painted without hydrating when
 // Chromium's local-network checks are active. The runner supplies a stricter exact-origin boundary.
-test.use({
-  launchOptions: {
-    args: ["--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessSendPreflights"],
-  },
-});
 
 let server: SaveQaServer;
 let origin: string;
@@ -457,7 +470,29 @@ async function listenWrongPortProbe(): Promise<{
   };
 }
 
-test("temporary exclusion servers stop when assertions fail", async () => {
+test("inherits browser launch configuration and stops temporary exclusion servers", async ({
+  browser,
+  launchOptions,
+}) => {
+  const inheritedProbe = {
+    executablePath: "/explicit/chromium",
+    args: ["--existing-browser-argument"],
+    chromiumSandbox: true,
+  };
+  expect(augmentSaveQaLaunchOptions(inheritedProbe)).toEqual({
+    executablePath: "/explicit/chromium",
+    args: ["--existing-browser-argument", saveQaChromiumArgument],
+    chromiumSandbox: true,
+  });
+  expect(launchOptions.args).toContain(saveQaChromiumArgument);
+  const explicitExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  if (explicitExecutable) expect(launchOptions.executablePath).toBe(explicitExecutable);
+  console.log("SAVE_QA_BROWSER_IDENTITY", JSON.stringify({
+    version: browser.version(),
+    executablePath: launchOptions.executablePath ?? "playwright-default",
+    args: launchOptions.args ?? [],
+  }));
+
   for (const label of ["production", "disabled development"]) {
     let stops = 0;
     const fakeServer: SaveQaServer = {
