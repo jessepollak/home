@@ -4,6 +4,9 @@ import {
   IDRX_API_BASE_URL,
   IDRX_BASE_ADDRESS,
   IDRX_DECIMALS,
+  IDRX_HISTORY_MAX_RESPONSE_BYTES,
+  IDRX_HISTORY_PAGE,
+  IDRX_HISTORY_TAKE,
   IDRX_MINT_PATH,
   IdrxMintError,
   assertIdrxBaseToken,
@@ -52,6 +55,68 @@ function hostedData() {
       paymentUrl: CHECKOUT,
     },
   };
+}
+
+const HISTORY_ORDER = "20260911130000";
+const HISTORY_INTENT = {
+  destinationWalletAddress: ADDRESS,
+  networkChainId: 8453 as const,
+  toBeMinted: "20000",
+};
+const historyEnvironment = {
+  IDRX_CLIENT_ID: "public-key",
+  IDRX_CLIENT_SECRET: SECRET,
+  IDRX_CUSTOMER_SUBJECT: "subject-a",
+  IDRX_CUSTOMER_NAME: "JOHN SMITH",
+};
+
+function historyRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    transactionType: "MINT",
+    id: 456,
+    merchantOrderId: HISTORY_ORDER,
+    requestType: "idrx",
+    chainId: 8453,
+    destinationWalletAddress: ADDRESS,
+    toBeMinted: "20000.00",
+    amount: "24000.00",
+    userMintStatus: "MINTED",
+    paymentStatus: "PAID",
+    transactionHash: `0x${"a".repeat(64)}`,
+    createdAt: "2026-09-11T13:00:00.000Z",
+    updatedAt: "2026-09-11T13:01:00.000Z",
+    ...overrides,
+  };
+}
+
+function historyPayload(records: unknown[]) {
+  return {
+    statusCode: 200,
+    message: "success",
+    metadata: {
+      totalPages: 1,
+      currentPage: IDRX_HISTORY_PAGE,
+      nextPage: null,
+      prevPage: null,
+    },
+    records,
+  };
+}
+
+function readHistory(
+  payload: unknown,
+  options: { timeoutMs?: number; merchantOrderId?: string } = {},
+) {
+  const reader = createIdrxMintStatusReader({
+    env: historyEnvironment,
+    timeoutMs: options.timeoutMs,
+    fetchImplementation: async () => Response.json(payload),
+  });
+  return reader({
+    customer: { subject: "subject-a", customerName: "JOHN SMITH" },
+    merchantOrderId: options.merchantOrderId ?? HISTORY_ORDER,
+    intent: HISTORY_INTENT,
+  });
 }
 
 describe("IDRX mint client", () => {
@@ -163,31 +228,115 @@ describe("IDRX mint client", () => {
     expect(providerCalls).toBe(0);
   });
 
-  test("reconciles only the exact merchant through the read-only history boundary", async () => {
+  test("queries bounded MINT history and classifies only documented compatible states", async () => {
     const requests: Array<{ input: string; init?: RequestInit }> = [];
+    const statuses = [
+      ["MINTED", "PAID", "minted"],
+      ["REJECTED", "PAID", "failed"],
+      ["REFUND", "PAID", "failed"],
+      ["FAILED", "PAID", "failed"],
+      ["PROCESSING", "PAID", "pending"],
+      ["NOT_AVAILABLE", "WAITING_FOR_PAYMENT", "pending"],
+      ["NOT_AVAILABLE", "EXPIRED", "expired"],
+    ] as const;
     const reader = createIdrxMintStatusReader({
-      env: {
-        IDRX_CLIENT_ID: "public-key",
-        IDRX_CLIENT_SECRET: SECRET,
-        IDRX_CUSTOMER_SUBJECT: "subject-a",
-        IDRX_CUSTOMER_NAME: "JOHN SMITH",
-      },
+      env: historyEnvironment,
       now: () => 1_700_000_000_000,
       fetchImplementation: async (input, init) => {
         requests.push({ input: String(input), init });
-        return Response.json({
-          data: { records: [{ merchantOrderId: "order-1", userMintStatus: "EXPIRED" }] },
-        });
+        const [mintStatus, paymentStatus] = statuses[requests.length - 1]!;
+        return Response.json(historyPayload([
+          historyRecord({ userMintStatus: mintStatus, paymentStatus }),
+        ]));
       },
     });
-    await expect(reader({
-      customer: { subject: "subject-a", customerName: "JOHN SMITH" },
-      merchantOrderId: "order-1",
-    })).resolves.toBe("expired");
-    expect(requests).toHaveLength(1);
+    for (const [, , expected] of statuses) {
+      await expect(reader({
+        customer: { subject: "subject-a", customerName: "JOHN SMITH" },
+        merchantOrderId: HISTORY_ORDER,
+        intent: HISTORY_INTENT,
+      })).resolves.toBe(expected);
+    }
+    expect(requests).toHaveLength(statuses.length);
     expect(requests[0]?.init?.method).toBe("GET");
     expect(requests[0]?.init?.body).toBeUndefined();
-    expect(new URL(requests[0]!.input).searchParams.get("merchantOrderId")).toBe("order-1");
+    const query = new URL(requests[0]!.input).searchParams;
+    expect(query.get("transactionType")).toBe("MINT");
+    expect(query.get("page")).toBe(String(IDRX_HISTORY_PAGE));
+    expect(query.get("take")).toBe(String(IDRX_HISTORY_TAKE));
+    expect(query.get("merchantOrderId")).toBe(HISTORY_ORDER);
+  });
+
+  test("keeps missing, duplicate, contradictory, unsupported, wrong-order, and wrong-intent evidence unresolved", async () => {
+    const unresolved = [
+      historyPayload([]),
+      historyPayload([historyRecord(), historyRecord({ id: 457 })]),
+      historyPayload([historyRecord({ paymentStatus: "WAITING_FOR_PAYMENT" })]),
+      historyPayload([historyRecord({ userMintStatus: "COMPLETED" })]),
+      historyPayload([historyRecord({ merchantOrderId: "different-order" })]),
+      historyPayload([historyRecord({ chainId: 1 })]),
+      historyPayload([historyRecord({
+        destinationWalletAddress: "0x2222222222222222222222222222222222222222",
+      })]),
+      historyPayload([historyRecord({ toBeMinted: "20000.01" })]),
+      historyPayload([historyRecord({ userMintStatus: null })]),
+    ];
+    for (const payload of unresolved) {
+      await expect(readHistory(payload)).resolves.toBe("pending");
+    }
+  });
+
+  test("bounds history headers, body, payload size, and record count independently", async () => {
+    const stalledHeaders = createIdrxMintStatusReader({
+      env: historyEnvironment,
+      timeoutMs: 10,
+      fetchImplementation: async () => new Promise<Response>(() => {}),
+    });
+    await expect(stalledHeaders({
+      customer: { subject: "subject-a", customerName: "JOHN SMITH" },
+      merchantOrderId: HISTORY_ORDER,
+      intent: HISTORY_INTENT,
+    })).rejects.toMatchObject({ code: "unavailable" });
+
+    const stalledBody = createIdrxMintStatusReader({
+      env: historyEnvironment,
+      timeoutMs: 10,
+      fetchImplementation: async () => new Response(new ReadableStream({
+        pull: async () => new Promise<void>(() => {}),
+      })),
+    });
+    await expect(stalledBody({
+      customer: { subject: "subject-a", customerName: "JOHN SMITH" },
+      merchantOrderId: HISTORY_ORDER,
+      intent: HISTORY_INTENT,
+    })).rejects.toMatchObject({ code: "unavailable" });
+
+    const malformed = createIdrxMintStatusReader({
+      env: historyEnvironment,
+      fetchImplementation: async () => new Response("{"),
+    });
+    await expect(malformed({
+      customer: { subject: "subject-a", customerName: "JOHN SMITH" },
+      merchantOrderId: HISTORY_ORDER,
+      intent: HISTORY_INTENT,
+    })).rejects.toMatchObject({ code: "invalid-response" });
+    await expect(readHistory(historyPayload(
+      Array.from({ length: IDRX_HISTORY_TAKE + 1 }, (_, index) =>
+        historyRecord({ id: index, merchantOrderId: `other-${index}` })
+      ),
+    ))).rejects.toMatchObject({ code: "invalid-response" });
+
+    const oversized = createIdrxMintStatusReader({
+      env: historyEnvironment,
+      fetchImplementation: async () => new Response(
+        JSON.stringify({ records: [], padding: "x".repeat(IDRX_HISTORY_MAX_RESPONSE_BYTES) }),
+      ),
+    });
+    await expect(oversized({
+      customer: { subject: "subject-a", customerName: "JOHN SMITH" },
+      merchantOrderId: HISTORY_ORDER,
+      intent: HISTORY_INTENT,
+    })).rejects.toMatchObject({ code: "invalid-response" });
   });
 
   test("creates QRIS only through the explicit hosted rail", async () => {

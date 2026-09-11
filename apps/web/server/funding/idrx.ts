@@ -16,6 +16,10 @@ export { IDRX_BASE_ADDRESS, IDRX_BASE_CHAIN_ID, IDRX_DECIMALS };
 export const IDRX_API_BASE_URL = "https://api.idrx.co" as const;
 export const IDRX_MINT_PATH = "/transaction/mint-request" as const;
 export const IDRX_HISTORY_PATH = "/transaction/user-transaction-history" as const;
+export const IDRX_HISTORY_PAGE = 1 as const;
+export const IDRX_HISTORY_TAKE = 10 as const;
+export const IDRX_HISTORY_MAX_RESPONSE_BYTES = 64 * 1024;
+export const IDRX_HISTORY_TIMEOUT_MS = 2_000;
 export const IDRX_VA_CHANNELS = ["MANDIRI", "BRI"] as const;
 export const IDRX_MIN_TO_BE_MINTED_MINOR = BigInt(2_000_000);
 export const IDRX_MAX_TO_BE_MINTED_MINOR = BigInt("100000000000");
@@ -37,9 +41,16 @@ export type IdrxCustomerBinding = {
 
 export type IdrxMintReconciliation = "pending" | "minted" | "expired" | "failed";
 
+export type IdrxMintReconciliationIntent = {
+  destinationWalletAddress: `0x${string}`;
+  networkChainId: typeof IDRX_BASE_CHAIN_ID;
+  toBeMinted: string;
+};
+
 export type ReadIdrxMintStatus = (options: {
   customer: IdrxCustomerBinding;
   merchantOrderId: string;
+  intent: IdrxMintReconciliationIntent;
   signal?: AbortSignal;
 }) => Promise<IdrxMintReconciliation>;
 
@@ -82,11 +93,7 @@ export function isIdrxVaChannel(value: unknown): value is IdrxVaChannel {
 }
 
 export function parseIdrxMintAmount(value: string): string {
-  if (!mintAmountPattern.test(value)) {
-    throw new IdrxMintError("invalid-response");
-  }
-  const [whole, fraction = ""] = value.split(".");
-  const minor = BigInt(whole) * BigInt(100) + BigInt(fraction.padEnd(2, "0"));
+  const minor = parseIdrxMinorUnits(value);
   if (minor < IDRX_MIN_TO_BE_MINTED_MINOR || minor > IDRX_MAX_TO_BE_MINTED_MINOR) {
     throw new IdrxMintError("invalid-response");
   }
@@ -179,11 +186,16 @@ export function createIdrxMintStatusReader(options: {
   env?: Environment;
   fetchImplementation?: IdrxFetch;
   now?: () => number;
+  timeoutMs?: number;
 } = {}): ReadIdrxMintStatus {
   const env = options.env ?? process.env;
   const fetchImplementation = options.fetchImplementation ?? fetch;
   const now = options.now ?? Date.now;
-  return async ({ customer, merchantOrderId, signal }) => {
+  const timeoutMs = options.timeoutMs ?? IDRX_HISTORY_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("IDRX history timeout must be a positive integer.");
+  }
+  return async ({ customer, merchantOrderId, intent, signal }) => {
     const clientId = env.IDRX_CLIENT_ID?.trim();
     const clientSecret = env.IDRX_CLIENT_SECRET?.trim();
     const configuredSubject = env.IDRX_CUSTOMER_SUBJECT?.trim();
@@ -193,32 +205,47 @@ export function createIdrxMintStatusReader(options: {
       throw new IdrxMintError("not-configured");
     }
     if (!merchantOrderIdPattern.test(merchantOrderId)) throw new IdrxMintError("invalid-response");
+    parseIdrxMintAmount(intent.toBeMinted);
     const url = new URL(IDRX_HISTORY_PATH, IDRX_API_BASE_URL);
+    url.searchParams.set("transactionType", "MINT");
+    url.searchParams.set("page", String(IDRX_HISTORY_PAGE));
+    url.searchParams.set("take", String(IDRX_HISTORY_TAKE));
     url.searchParams.set("merchantOrderId", merchantOrderId);
     const timestamp = String(now());
-    let response: Response;
     try {
-      response = await fetchImplementation(url, {
-        method: "GET",
-        headers: createIdrxRequestHeaders({
-          apiKey: clientId,
-          secretKey: clientSecret,
-          method: "GET",
-          url: url.toString(),
-          body: "",
-          timestamp,
-        }),
-        cache: "no-store",
-        signal,
+      return await withIdrxProviderDeadline(signal, timeoutMs, async (boundedSignal) => {
+        let response: Response;
+        try {
+          response = await fetchImplementation(url, {
+            method: "GET",
+            headers: createIdrxRequestHeaders({
+              apiKey: clientId,
+              secretKey: clientSecret,
+              method: "GET",
+              url: url.toString(),
+              body: "",
+              timestamp,
+            }),
+            cache: "no-store",
+            signal: boundedSignal,
+          });
+        } catch (error) {
+          throw new IdrxMintError("unavailable", error);
+        }
+        if (!response.ok) throw new IdrxMintError("unavailable");
+        const text = await readBoundedResponseText(
+          response,
+          IDRX_HISTORY_MAX_RESPONSE_BYTES,
+        );
+        let payload: unknown;
+        try { payload = JSON.parse(text); }
+        catch (error) { throw new IdrxMintError("invalid-response", error); }
+        return parseIdrxMintStatus(payload, merchantOrderId, intent);
       });
     } catch (error) {
+      if (error instanceof IdrxMintError) throw error;
       throw new IdrxMintError("unavailable", error);
     }
-    if (!response.ok) throw new IdrxMintError("unavailable");
-    let payload: unknown;
-    try { payload = JSON.parse(await response.text()); }
-    catch (error) { throw new IdrxMintError("invalid-response", error); }
-    return parseIdrxMintStatus(payload, merchantOrderId);
   };
 }
 
@@ -512,33 +539,139 @@ function parseIdrxResponseJson(text: string): unknown {
   return JSON.parse(output);
 }
 
+async function withIdrxProviderDeadline<T>(
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let removeAbortListener: (() => void) | undefined;
+  const stopped = new Promise<never>((_resolve, reject) => {
+    const stop = (reason: unknown) => {
+      if (controller.signal.aborted) return;
+      controller.abort(reason);
+      reject(reason);
+    };
+    timeout = setTimeout(
+      () => stop(new Error("IDRX history request deadline exceeded.")),
+      timeoutMs,
+    );
+    if (!signal) return;
+    const onAbort = () => stop(signal.reason ?? new Error("IDRX history request aborted."));
+    if (signal.aborted) onAbort();
+    else {
+      signal.addEventListener("abort", onAbort, { once: true });
+      removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+    }
+  });
+  try {
+    return await Promise.race([operation(controller.signal), stopped]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    removeAbortListener?.();
+  }
+}
+
+async function readBoundedResponseText(
+  response: Response,
+  maxBytes: number,
+): Promise<string> {
+  const declaredLength = response.headers.get("content-length");
+  if (declaredLength && /^\d+$/.test(declaredLength) && BigInt(declaredLength) > BigInt(maxBytes)) {
+    throw new IdrxMintError("invalid-response");
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let bytes = 0;
+  let text = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new IdrxMintError("invalid-response");
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    text += decoder.decode();
+    return text;
+  } catch (error) {
+    if (error instanceof IdrxMintError) throw error;
+    if (error instanceof TypeError) throw new IdrxMintError("invalid-response", error);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 function parseIdrxMintStatus(
   value: unknown,
   merchantOrderId: string,
+  intent: IdrxMintReconciliationIntent,
 ): IdrxMintReconciliation {
-  if (!isRecord(value)) throw new IdrxMintError("invalid-response");
-  const data = value.data;
-  const records = Array.isArray(data)
-    ? data
-    : isRecord(data) && Array.isArray(data.records)
-      ? data.records
-      : isRecord(data)
-        ? [data]
-        : [];
-  const matching = records.filter((record) =>
+  if (!isRecord(value) || !Array.isArray(value.records)) {
+    throw new IdrxMintError("invalid-response");
+  }
+  if (value.records.length > IDRX_HISTORY_TAKE) {
+    throw new IdrxMintError("invalid-response");
+  }
+  const matching = value.records.filter((record) =>
     isRecord(record) && record.merchantOrderId === merchantOrderId
   );
-  if (matching.length === 0) return "pending";
-  if (matching.length !== 1) throw new IdrxMintError("invalid-response");
+  if (matching.length !== 1) return "pending";
   const record = matching[0] as Record<string, unknown>;
-  const raw = record.userMintStatus ?? record.transactionStatus ?? record.status;
-  if (typeof raw !== "string") throw new IdrxMintError("invalid-response");
-  const status = raw.trim().toLocaleUpperCase("en-US");
-  if (["MINTED", "SUCCESS", "COMPLETED"].includes(status)) return "minted";
-  if (["EXPIRED", "CANCELLED", "CANCELED"].includes(status)) return "expired";
-  if (["FAILED", "REJECTED", "REFUNDED", "REFUND"].includes(status)) return "failed";
-  if (["PENDING", "PROCESSING", "PAID", "NOT_AVAILABLE"].includes(status)) return "pending";
-  throw new IdrxMintError("invalid-response");
+  if (!matchesIdrxMintIntent(record, intent)) return "pending";
+  const mintStatus = record.userMintStatus;
+  const paymentStatus = record.paymentStatus;
+  if (typeof mintStatus !== "string" || typeof paymentStatus !== "string") {
+    return "pending";
+  }
+  if (mintStatus === "MINTED" && paymentStatus === "PAID") return "minted";
+  if (
+    (mintStatus === "FAILED" || mintStatus === "REJECTED" || mintStatus === "REFUND") &&
+    paymentStatus === "PAID"
+  ) return "failed";
+  if (mintStatus === "NOT_AVAILABLE" && paymentStatus === "EXPIRED") return "expired";
+  if (
+    (mintStatus === "PROCESSING" && paymentStatus === "PAID") ||
+    (mintStatus === "NOT_AVAILABLE" && paymentStatus === "WAITING_FOR_PAYMENT")
+  ) return "pending";
+  return "pending";
+}
+
+function matchesIdrxMintIntent(
+  record: Record<string, unknown>,
+  intent: IdrxMintReconciliationIntent,
+): boolean {
+  if (record.transactionType !== undefined && record.transactionType !== "MINT") return false;
+  if (record.chainId !== undefined && record.chainId !== intent.networkChainId) return false;
+  if (record.destinationWalletAddress !== undefined) {
+    if (
+      typeof record.destinationWalletAddress !== "string" ||
+      record.destinationWalletAddress.toLowerCase() !== intent.destinationWalletAddress.toLowerCase()
+    ) return false;
+  }
+  if (record.toBeMinted !== undefined) {
+    if (typeof record.toBeMinted !== "string") return false;
+    try {
+      if (parseIdrxMinorUnits(record.toBeMinted) !== parseIdrxMinorUnits(intent.toBeMinted)) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+function parseIdrxMinorUnits(value: string): bigint {
+  if (!mintAmountPattern.test(value)) throw new IdrxMintError("invalid-response");
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(whole) * BigInt(100) + BigInt(fraction.padEnd(2, "0"));
 }
 
 function normalizeCustomerName(value: string): string {

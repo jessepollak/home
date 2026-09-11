@@ -30,4 +30,6 @@ Invest list and discovery UI must stay disclosure-free: no restriction notes, co
 
 Money-action persistence: local `bun dev` still uses SQLite when `DATABASE_URL` is unset. A Neon/Postgres `MoneyActionStore` is in the tree for hosted deploys (`DATABASE_URL` set; no `node:sqlite` on that path). See [Vercel deploy](vercel-deploy.md). That adapter is not a production authorization and does not enable money actions without `DATABASE_URL`.
 
+IDRX recovery deliberately keeps a pending admission indefinitely when the mint response never persisted a merchant order ID. Transaction history cannot be correlated safely without that provider identifier, so Home restores any saved instructions it does have and never authorizes an automatic VA-to-hosted or same-rail redispatch.
+
 Known validation limits: no live CDP email/Base authentication, wallet signature, funds, live receipt/provider probe, deployment or production transfer browser harness was run. The seven production-component auth scenarios use mocked SDK/session boundaries and callback route observation, not live providers or full Next navigation. Local acceptance is not production authorization.

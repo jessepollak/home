@@ -1,6 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "../../../apps/web/shared/money-actions/types";
 import {
+  PostgresIdrxAttemptStore,
+  type IdrxAttemptIntent,
+} from "../../../apps/web/server/funding/idrx-attempt-store";
+import {
   homeProviderRequestKey,
   type PreparedActionRevision,
 } from "../../../apps/web/server/money-actions/attempt-commands";
@@ -83,6 +87,91 @@ if (!databaseUrl) {
       }
       expect(claims[0]!.value.attempt.attemptId).toBe(claims[1]!.value.attempt.attemptId);
       await Promise.all([first.dispose(), second.dispose()]);
+    });
+
+    test("simultaneous cold IDRX stores serialize migration and admit one owner attempt", async () => {
+      const schema = await createSchema("idrx_cold");
+      const firstClient = new Bun.SQL(databaseUrl);
+      const secondClient = new Bun.SQL(databaseUrl);
+      const first = new PostgresIdrxAttemptStore(executor(schema, firstClient));
+      const second = new PostgresIdrxAttemptStore(executor(schema, secondClient));
+      const owner = {
+        subject: "idrx-owner",
+        smartAccount: "0x1111111111111111111111111111111111111111" as const,
+      };
+      const intent: IdrxAttemptIntent = {
+        toBeMinted: "20000",
+        rail: "bank-va",
+        channelId: "MANDIRI",
+        customerSubject: owner.subject,
+        customerName: "JOHN SMITH",
+      };
+      const results = await Promise.all([
+        first.begin(owner, "11111111-1111-4111-8111-111111111111", intent),
+        second.begin(owner, "22222222-2222-4222-8222-222222222222", intent),
+      ]);
+      expect(results.map((result) => result.status).sort()).toEqual(["new", "pending"]);
+      expect(results.find((result) => result.status === "pending")).toMatchObject({
+        status: "pending",
+        intent,
+      });
+      expect((await executor(schema).query("SELECT attempt_id FROM idrx_funding_attempts")).rows).toHaveLength(1);
+      const before = await executor(schema).query<{ relfilenode: string }>(
+        `SELECT relation.relfilenode::text AS relfilenode
+         FROM pg_class AS relation
+         JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+         WHERE namespace.nspname = current_schema()
+           AND relation.relname = 'idrx_funding_owner_unresolved'`,
+      );
+      expect(before.rows).toHaveLength(1);
+      const third = new PostgresIdrxAttemptStore(executor(schema));
+      expect((await third.recover(owner)).status).toBe("pending");
+      const after = await executor(schema).query<{ relfilenode: string }>(
+        `SELECT relation.relfilenode::text AS relfilenode
+         FROM pg_class AS relation
+         JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+         WHERE namespace.nspname = current_schema()
+           AND relation.relname = 'idrx_funding_owner_unresolved'`,
+      );
+      expect(after.rows).toEqual(before.rows);
+      await Promise.all([firstClient.close(), secondClient.close()]);
+    });
+
+    test("IDRX schema migration fails atomically on duplicate legacy owner admissions", async () => {
+      const schema = await createSchema("idrx_duplicate");
+      const raw = executor(schema);
+      await raw.query(`CREATE TABLE idrx_funding_attempts (
+        attempt_id UUID PRIMARY KEY,
+        subject TEXT NOT NULL,
+        address TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'completed')),
+        result_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`);
+      const values = ["idrx-legacy-owner", "0x1111111111111111111111111111111111111111", "2026-09-11T12:00:00.000Z"];
+      await raw.query(
+        "INSERT INTO idrx_funding_attempts (attempt_id, subject, address, status, created_at, updated_at) VALUES ($1, $2, $3, 'pending', $4, $4), ($5, $2, $3, 'pending', $4, $4)",
+        [
+          "33333333-3333-4333-8333-333333333333",
+          ...values,
+          "44444444-4444-4444-8444-444444444444",
+        ],
+      );
+      const store = new PostgresIdrxAttemptStore(executor(schema));
+      await expect(store.recover({
+        subject: "idrx-legacy-owner",
+        smartAccount: "0x1111111111111111111111111111111111111111",
+      })).rejects.toThrow("duplicate unresolved owner admissions");
+      const columns = await admin.unsafe(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'idrx_funding_attempts' ORDER BY column_name",
+        [schema],
+      );
+      expect(Array.from(columns).map((row) => (row as { column_name: string }).column_name)).not.toContain("released_at");
+      expect((await raw.query("SELECT attempt_id FROM idrx_funding_attempts")).rows).toHaveLength(2);
+      expect((await raw.query(
+        "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idrx_funding_owner_unresolved'",
+      )).rows).toEqual([]);
     });
 
     test("legacy and attempt writes share one case-normalized canonical reservation", async () => {

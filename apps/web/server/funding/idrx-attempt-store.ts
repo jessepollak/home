@@ -7,6 +7,7 @@ import type {
 } from "@/shared/funding/types";
 import {
   createNeonSqlExecutor,
+  isUniqueViolation,
   type SqlExecutor,
 } from "@/server/money-actions/postgres-sql";
 
@@ -66,10 +67,31 @@ const schemaStatements = [
   "ALTER TABLE idrx_funding_attempts ADD COLUMN IF NOT EXISTS intent_json TEXT",
   "ALTER TABLE idrx_funding_attempts ADD COLUMN IF NOT EXISTS released_at TEXT",
   "ALTER TABLE idrx_funding_attempts ADD COLUMN IF NOT EXISTS terminal_outcome TEXT",
-  "DROP INDEX IF EXISTS idrx_funding_owner_unresolved",
-  "CREATE UNIQUE INDEX IF NOT EXISTS idrx_funding_owner_unresolved ON idrx_funding_attempts (subject, address) WHERE released_at IS NULL",
 ] as const;
+const ownerIndexStatement =
+  "CREATE UNIQUE INDEX IF NOT EXISTS idrx_funding_owner_unresolved ON idrx_funding_attempts (subject, address) WHERE released_at IS NULL";
 const selectColumns = "attempt_id, subject, address, intent_json, status, result_json, released_at, terminal_outcome";
+
+export async function applyIdrxAttemptPostgresSchema(executor: SqlExecutor): Promise<void> {
+  await executor.transaction(async (transaction) => {
+    await transaction.query(
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      ["home_idrx_funding_attempt_schema_v2"],
+    );
+    for (const statement of schemaStatements) await transaction.query(statement);
+    const duplicates = await transaction.query(
+      `SELECT subject, address FROM idrx_funding_attempts
+       WHERE released_at IS NULL
+       GROUP BY subject, address
+       HAVING COUNT(*) > 1
+       LIMIT 1`,
+    );
+    if (duplicates.rows.length > 0) {
+      throw new Error("IDRX attempt schema has duplicate unresolved owner admissions.");
+    }
+    await transaction.query(ownerIndexStatement);
+  });
+}
 
 export class PostgresIdrxAttemptStore implements IdrxAttemptStore {
   private schemaReady: Promise<void> | null = null;
@@ -77,26 +99,33 @@ export class PostgresIdrxAttemptStore implements IdrxAttemptStore {
 
   async begin(owner: IdrxAttemptOwner, attemptId: string, intent: IdrxAttemptIntent) {
     await this.ensureSchema();
-    return this.executor.transaction(async (tx) => {
-      const exact = (await tx.query<AttemptRow>(
-        `SELECT ${selectColumns} FROM idrx_funding_attempts WHERE attempt_id = $1 FOR UPDATE`,
-        [attemptId],
-      )).rows[0];
-      if (exact) return readAttempt(exact, owner, intent);
-      const unresolved = (await tx.query<AttemptRow>(
-        `SELECT ${selectColumns} FROM idrx_funding_attempts WHERE subject = $1 AND address = $2 AND released_at IS NULL FOR UPDATE`,
-        [owner.subject, owner.smartAccount.toLowerCase()],
-      )).rows[0];
-      if (unresolved) return sameIntent(unresolved.intent_json, intent)
-        ? readAttempt(unresolved, owner, intent)
-        : { status: "mismatch" as const };
-      const now = new Date().toISOString();
-      await tx.query(
-        "INSERT INTO idrx_funding_attempts (attempt_id, subject, address, intent_json, status, created_at, updated_at) VALUES ($1, $2, $3, $4, 'pending', $5, $6)",
-        [attemptId, owner.subject, owner.smartAccount.toLowerCase(), JSON.stringify(intent), now, now],
-      );
-      return { status: "new" as const };
-    });
+    try {
+      return await this.executor.transaction(async (tx) => {
+        const exact = (await tx.query<AttemptRow>(
+          `SELECT ${selectColumns} FROM idrx_funding_attempts WHERE attempt_id = $1 FOR UPDATE`,
+          [attemptId],
+        )).rows[0];
+        if (exact) return readAttempt(exact, owner, intent);
+        const unresolved = (await tx.query<AttemptRow>(
+          `SELECT ${selectColumns} FROM idrx_funding_attempts WHERE subject = $1 AND address = $2 AND released_at IS NULL FOR UPDATE`,
+          [owner.subject, owner.smartAccount.toLowerCase()],
+        )).rows[0];
+        if (unresolved) return sameIntent(unresolved.intent_json, intent)
+          ? readAttempt(unresolved, owner, intent)
+          : { status: "mismatch" as const };
+        const now = new Date().toISOString();
+        await tx.query(
+          "INSERT INTO idrx_funding_attempts (attempt_id, subject, address, intent_json, status, created_at, updated_at) VALUES ($1, $2, $3, $4, 'pending', $5, $6)",
+          [attemptId, owner.subject, owner.smartAccount.toLowerCase(), JSON.stringify(intent), now, now],
+        );
+        return { status: "new" as const };
+      });
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      const raced = await this.readAdmission(owner, attemptId, intent);
+      if (raced) return raced;
+      throw error;
+    }
   }
 
   async recover(owner: IdrxAttemptOwner) {
@@ -127,10 +156,28 @@ export class PostgresIdrxAttemptStore implements IdrxAttemptStore {
     if (updated.rowCount !== 1) throw new Error("IDRX attempt release conflict.");
   }
 
+  private async readAdmission(
+    owner: IdrxAttemptOwner,
+    attemptId: string,
+    intent: IdrxAttemptIntent,
+  ): Promise<IdrxAttemptState | null> {
+    const exact = (await this.executor.query<AttemptRow>(
+      `SELECT ${selectColumns} FROM idrx_funding_attempts WHERE attempt_id = $1`,
+      [attemptId],
+    )).rows[0];
+    if (exact) return readAttempt(exact, owner, intent);
+    const unresolved = (await this.executor.query<AttemptRow>(
+      `SELECT ${selectColumns} FROM idrx_funding_attempts WHERE subject = $1 AND address = $2 AND released_at IS NULL LIMIT 1`,
+      [owner.subject, owner.smartAccount.toLowerCase()],
+    )).rows[0];
+    if (!unresolved) return null;
+    return sameIntent(unresolved.intent_json, intent)
+      ? readAttempt(unresolved, owner, intent)
+      : { status: "mismatch" };
+  }
+
   private async ensureSchema() {
-    this.schemaReady ??= (async () => {
-      for (const statement of schemaStatements) await this.executor.query(statement);
-    })();
+    this.schemaReady ??= applyIdrxAttemptPostgresSchema(this.executor);
     await this.schemaReady;
   }
 }

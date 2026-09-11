@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { IDRX_BASE_ADDRESS, IdrxMintError } from "./idrx";
+import {
+  createIdrxMintStatusReader,
+  IDRX_BASE_ADDRESS,
+  IDRX_HISTORY_MAX_RESPONSE_BYTES,
+  IdrxMintError,
+} from "./idrx";
 import {
   createIdrxMintHandler,
   createIdrxRecoveryHandler,
@@ -389,6 +394,57 @@ describe("IDRX attempt recovery", () => {
     expect((await attempts.recover(owner)).status).toBe("completed");
   });
 
+  test("restores saved instructions and keeps the reservation on bounded reconciliation failures", async () => {
+    const attempts = new MemoryIdrxAttemptStore();
+    const attemptId = "78787878-7878-4787-8787-787878787878";
+    const owner = { subject: "subject-a", smartAccount: ADDRESS };
+    await attempts.begin(owner, attemptId, recoveryIntent);
+    await attempts.complete(owner, attemptId, vaResult());
+    const environment = {
+      IDRX_CLIENT_ID: "public-key",
+      IDRX_CLIENT_SECRET: Buffer.from("idrx-test-secret").toString("base64"),
+      IDRX_CUSTOMER_SUBJECT: "subject-a",
+      IDRX_CUSTOMER_NAME: "JOHN SMITH",
+    };
+    const readers = [
+      createIdrxMintStatusReader({
+        env: environment,
+        timeoutMs: 10,
+        fetchImplementation: async () => new Promise<Response>(() => {}),
+      }),
+      createIdrxMintStatusReader({
+        env: environment,
+        timeoutMs: 10,
+        fetchImplementation: async () => new Response(new ReadableStream({
+          pull: async () => new Promise<void>(() => {}),
+        })),
+      }),
+      createIdrxMintStatusReader({
+        env: environment,
+        fetchImplementation: async () => new Response("{"),
+      }),
+      createIdrxMintStatusReader({
+        env: environment,
+        fetchImplementation: async () => new Response(
+          JSON.stringify({ records: [], padding: "x".repeat(IDRX_HISTORY_MAX_RESPONSE_BYTES) }),
+        ),
+      }),
+    ];
+    for (const readStatus of readers) {
+      const handler = createIdrxRecoveryHandler({
+        authorize: async () => authorizedSession(),
+        resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+        attempts,
+        readStatus,
+      });
+      expect(await (await handler(recoveryRequest())).json()).toMatchObject({
+        status: "completed",
+        result: { merchantOrderId: "order-recovery", virtualAccountNo: "8680770000001234" },
+      });
+      expect((await attempts.recover(owner)).status).toBe("completed");
+    }
+  });
+
   test("releases only after authoritative provider expiry and retains replay protection", async () => {
     const attempts = new MemoryIdrxAttemptStore();
     const attemptId = "88888888-8888-4888-8888-888888888888";
@@ -435,8 +491,14 @@ describe("IDRX attempt recovery", () => {
       authorize: async () => authorizedSession(),
       resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
       attempts,
-      readStatus: async ({ merchantOrderId }) => {
+      readStatus: async ({ customer, merchantOrderId, intent }) => {
+        expect(customer).toEqual({ subject: "subject-a", customerName: "JOHN SMITH" });
         expect(merchantOrderId).toBe("order-hosted");
+        expect(intent).toEqual({
+          destinationWalletAddress: ADDRESS,
+          networkChainId: 8453,
+          toBeMinted: "20000",
+        });
         return "minted";
       },
     });

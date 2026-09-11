@@ -76,6 +76,9 @@ export function createIdrxRecoveryHandler(dependencies: {
     }
     if (attempt.status === "none") return privateJson({ status: "none" }, 200);
     if (attempt.status === "pending") {
+      // The provider order ID is only available after mint-request returns and
+      // is intentionally not guessed. A row that never persisted it remains
+      // reserved indefinitely rather than authorizing a second dispatch.
       return privateJson({ status: "pending", attemptId: attempt.attemptId }, 200);
     }
     if (attempt.status !== "completed") {
@@ -83,16 +86,30 @@ export function createIdrxRecoveryHandler(dependencies: {
     }
     let terminal: IdrxTerminalOutcome | null = null;
     try {
-      const status = await dependencies.readStatus({
-        customer,
-        merchantOrderId: attempt.result.merchantOrderId,
-        signal: request.signal,
-      });
-      if (status !== "pending") terminal = status;
+      if (
+        attempt.intent.customerSubject === owner.subject &&
+        customer.subject === attempt.intent.customerSubject &&
+        customer.customerName === attempt.intent.customerName
+      ) {
+        const status = await dependencies.readStatus({
+          customer: {
+            subject: attempt.intent.customerSubject,
+            customerName: attempt.intent.customerName,
+          },
+          merchantOrderId: attempt.result.merchantOrderId,
+          intent: {
+            destinationWalletAddress: owner.smartAccount,
+            networkChainId: IDRX_BASE_CHAIN_ID,
+            toBeMinted: attempt.intent.toBeMinted,
+          },
+          signal: request.signal,
+        });
+        if (status !== "pending") terminal = status;
+      }
     } catch {
       // A local payment deadline is not authoritative terminal evidence.
       // Preserve saved instructions whenever provider reconciliation is
-      // pending, ambiguous, or unavailable.
+      // pending, ambiguous, malformed, oversized, or unavailable.
     }
     if (terminal) {
       try { await dependencies.attempts.release(owner, attempt.attemptId, terminal); }
