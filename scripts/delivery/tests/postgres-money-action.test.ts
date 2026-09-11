@@ -716,17 +716,26 @@ if (!databaseUrl) {
       const lockClient = new Bun.SQL(databaseUrl);
       const lockAcquired = deferred<void>();
       const releaseLock = deferred<void>();
+      const blockerCallbackSettled = deferred<void>();
       const blocker = executor(schema, lockClient).transaction(async (transaction) => {
-        await transaction.query(moneyActionQueries.acquireDataMigrationLock, [
-          "home-money-action-data-migration",
-          `${schema}:${MONEY_ACTION_DATA_MIGRATION_ID}`,
-        ]);
-        lockAcquired.resolve();
-        await releaseLock.promise;
+        try {
+          await transaction.query(moneyActionQueries.acquireDataMigrationLock, [
+            "home-money-action-data-migration",
+            `${schema}:${MONEY_ACTION_DATA_MIGRATION_ID}`,
+          ]);
+          lockAcquired.resolve();
+          await releaseLock.promise;
+        } catch (error) {
+          lockAcquired.reject(error);
+          throw error;
+        } finally {
+          blockerCallbackSettled.resolve();
+        }
       });
+      const blockerSettled = blocker.then(() => undefined, () => undefined);
 
-      try {
-        await lockAcquired.promise;
+      await runWithCleanup(async () => {
+        await settleWithin(lockAcquired.promise, 2_000, "advisory-lock blocker acquisition");
         const store = new PostgresMoneyActionStore(executor(schema));
         const startedAt = Date.now();
         let timeout: unknown;
@@ -742,17 +751,30 @@ if (!databaseUrl) {
         });
 
         releaseLock.resolve();
-        await blocker;
+        await settleWithin(blocker, 2_000, "advisory-lock blocker settlement");
         expect(await store.ensureReady()).toMatchObject({
           migrationId: MONEY_ACTION_DATA_MIGRATION_ID,
           disposition: "applied",
         });
         await expectDataMigrationComplete(rawExecutor);
-      } finally {
-        releaseLock.resolve();
-        await blocker.catch(() => {});
-        await lockClient.close();
-      }
+      }, [
+        {
+          label: "release advisory-lock blocker",
+          run: async () => { releaseLock.resolve(); },
+        },
+        {
+          label: "close advisory-lock client",
+          run: () => lockClient.close({ timeout: 1 }),
+        },
+        {
+          label: "observe advisory-lock callback cleanup",
+          run: () => settleWithin(blockerCallbackSettled.promise, 2_000, "advisory-lock callback cleanup"),
+        },
+        {
+          label: "observe advisory-lock blocker settlement",
+          run: () => settleWithin(blockerSettled, 2_000, "advisory-lock blocker cleanup settlement"),
+        },
+      ], "advisory-lock timeout test and cleanup failed");
     }, 15_000);
 
     test("actual statement timeout after mutation rolls back all data and permits a fresh retry", async () => {
@@ -769,7 +791,7 @@ if (!databaseUrl) {
         updatedAt: item.evidenceAt,
       });
 
-      const timeoutProbe = { reservationWrites: 0 };
+      const timeoutProbe = { reservationWrites: 0, attemptStateWrites: 0 };
       const timedOutStore = new PostgresMoneyActionStore(statementTimeoutExecutor(executor(schema), timeoutProbe));
       let timeout: unknown;
       try {
@@ -778,7 +800,7 @@ if (!databaseUrl) {
         timeout = error;
       }
       expect(String(timeout)).toMatch(/statement timeout/i);
-      expect(timeoutProbe.reservationWrites).toBe(1);
+      expect(timeoutProbe).toEqual({ reservationWrites: 1, attemptStateWrites: 1 });
       expect(await rawExecutor.query("SELECT user_operation_hash FROM money_action_operations WHERE id = $1", [legacy.id])).toMatchObject({
         rows: [{ user_operation_hash: uppercaseHash }],
       });
@@ -794,6 +816,14 @@ if (!databaseUrl) {
       await expectDataMigrationComplete(rawExecutor);
       expect(await rawExecutor.query("SELECT user_operation_hash FROM money_action_operations WHERE id = $1", [legacy.id])).toMatchObject({
         rows: [{ user_operation_hash: uppercaseHash.toLowerCase() }],
+      });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_states")).toMatchObject({
+        rows: [{ action_id: legacy.id }],
+        rowCount: 1,
+      });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_evidence")).toMatchObject({
+        rows: [{ action_id: legacy.id }],
+        rowCount: 1,
       });
     });
 
@@ -968,9 +998,20 @@ if (!databaseUrl) {
     });
 
     afterAll(async () => {
-      for (const schema of schemas) await admin.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-      await sharedPool.close();
-      await admin.close();
+      await runCleanupSteps([
+        {
+          label: "close shared PostgreSQL fixture pool",
+          run: () => sharedPool.close({ timeout: 2 }),
+        },
+        ...schemas.map((schema) => ({
+          label: `drop PostgreSQL fixture schema ${schema}`,
+          run: () => dropFixtureSchema(admin, schema),
+        })),
+        {
+          label: "close PostgreSQL fixture admin pool",
+          run: () => admin.close({ timeout: 2 }),
+        },
+      ], "PostgreSQL fixture cleanup failed");
     });
   });
 }
@@ -1100,19 +1141,22 @@ async function expectDataMigrationComplete(executor: SqlExecutor): Promise<void>
 
 function statementTimeoutExecutor(
   base: SqlExecutor,
-  probe: { reservationWrites: number },
+  probe: { reservationWrites: number; attemptStateWrites: number },
 ): SqlExecutor {
   return {
     async query<Row = Record<string, unknown>>(text: string, values: unknown[] = []) {
-      if (text === moneyActionQueries.selectOperationIdsForDataMigration) {
-        if (probe.reservationWrites < 1) throw new Error("statement-timeout probe reached history before mutation");
-        await base.query("SELECT pg_sleep(0.5)");
-      }
       const result = await base.query<Row>(text, values);
       if (text === moneyActionQueries.setMigrationStatementTimeout) {
         await base.query("SET LOCAL statement_timeout = '100ms'");
       }
       if (text === moneyActionQueries.reserveEvidence) probe.reservationWrites += 1;
+      if (text.startsWith("INSERT INTO money_action_attempt_states")) {
+        probe.attemptStateWrites += 1;
+        if (probe.reservationWrites < 1) {
+          throw new Error("statement-timeout probe reached attempt state before evidence mutation");
+        }
+        await base.query("SELECT pg_sleep(0.5)");
+      }
       return result;
     },
     transaction<Result>(run: (transaction: SqlExecutor) => Promise<Result>) {
@@ -1120,6 +1164,84 @@ function statementTimeoutExecutor(
     },
     ...(base.dispose ? { dispose: () => base.dispose!() } : {}),
   };
+}
+
+async function dropFixtureSchema(admin: Bun.SQL, schema: string): Promise<void> {
+  await admin.begin(async (transaction) => {
+    await transaction.unsafe("SET LOCAL lock_timeout = '2s'");
+    await transaction.unsafe("SET LOCAL statement_timeout = '2s'");
+    await transaction.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+  });
+}
+
+async function settleWithin<Result>(
+  promise: Promise<Result>,
+  timeoutMs: number,
+  label: string,
+): Promise<Result> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} did not settle within ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+type CleanupStep = Readonly<{
+  label: string;
+  run: () => Promise<unknown>;
+}>;
+
+class CleanupStepError extends Error {
+  readonly cause: unknown;
+
+  constructor(label: string, cause: unknown) {
+    super(`${label}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "CleanupStepError";
+    this.cause = cause;
+  }
+}
+
+async function runCleanupSteps(steps: readonly CleanupStep[], message: string): Promise<void> {
+  const errors: unknown[] = [];
+  for (const step of steps) {
+    try {
+      await step.run();
+    } catch (error) {
+      errors.push(new CleanupStepError(step.label, error));
+    }
+  }
+  if (errors.length > 0) throw new AggregateError(errors, message);
+}
+
+async function runWithCleanup<Result>(
+  run: () => Promise<Result>,
+  cleanup: readonly CleanupStep[],
+  message: string,
+): Promise<Result> {
+  let result: Result | undefined;
+  let primaryError: unknown;
+  let failed = false;
+  try {
+    result = await run();
+  } catch (error) {
+    failed = true;
+    primaryError = error;
+  }
+
+  try {
+    await runCleanupSteps(cleanup, `${message}: cleanup failed`);
+  } catch (cleanupError) {
+    if (failed) throw new AggregateError([primaryError, cleanupError], message);
+    throw cleanupError;
+  }
+  if (failed) throw primaryError;
+  return result as Result;
 }
 
 function deferred<Value>() {
