@@ -2,7 +2,7 @@ import {
   ACTIVITY_PAGE_SIZE,
   ACTIVITY_WINDOW_DAYS,
   activityAssets,
-  type ActivityAssetId,
+  type ActivityAsset,
   type ActivityPage,
 } from "@/shared/activity/types";
 import { createBaseErc20TransferHistory } from "@/server/chain-data/base-erc20-transfers";
@@ -20,6 +20,7 @@ import type {
 type TransferLister = (input: {
   verifiedWalletAddress: string;
   assetIds: readonly string[];
+  includeUnknownAssets?: boolean;
   from: string;
   to: string;
   limit: number;
@@ -30,6 +31,9 @@ type TransferLister = (input: {
 }) => Promise<BaseErc20TransferPage>;
 
 const windowMs = ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+const assetsByContract = new Map<string, ActivityAsset>(
+  activityAssets.map((asset) => [asset.tokenAddress.toLowerCase(), asset]),
+);
 
 export function createActivityReader(listTransfers: TransferLister): ActivityReader {
   return async function readActivity(
@@ -42,6 +46,7 @@ export function createActivityReader(listTransfers: TransferLister): ActivityRea
     const page = await listTransfers({
       verifiedWalletAddress: account.address,
       assetIds: activityAssets.map((asset) => asset.id),
+      includeUnknownAssets: true,
       from,
       to: request.to,
       limit: ACTIVITY_PAGE_SIZE,
@@ -55,10 +60,15 @@ export function createActivityReader(listTransfers: TransferLister): ActivityRea
       walletAddress: account.address.toLowerCase() as `0x${string}`,
       chainId: 8453,
       window: { from, to: request.to },
-      transfers: page.transfers.map((transfer) => ({
-        ...transfer,
-        assetId: transfer.assetId as ActivityAssetId,
-      })),
+      transfers: page.transfers.map((transfer) => {
+        const asset = assetsByContract.get(transfer.tokenAddress.toLowerCase());
+        return {
+          ...transfer,
+          assetId: asset?.id ?? null,
+          tokenSymbol: asset?.symbol ?? null,
+          tokenDecimals: asset?.decimals ?? null,
+        };
+      }),
       nextCursor: page.nextCursor,
       source: page.source,
     };

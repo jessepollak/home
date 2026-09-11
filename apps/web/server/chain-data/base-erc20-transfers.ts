@@ -24,6 +24,8 @@ const MAX_TIME_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_CACHE_AGE_MS = 15 * 60 * 1000;
 const DEFAULT_STALE_AFTER_MS = 60 * 1000;
 const TRANSFER_SIGNATURE = "Transfer(address,address,uint256)";
+const TRANSFER_SIGNATURE_TOPIC =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const MAX_LOG_ID_LENGTH = 256;
 // Includes UTF-8, JSON escaping, and base64 expansion of bounded log IDs.
 const MAX_ENCODED_CURSOR_LENGTH = 4096;
@@ -37,6 +39,7 @@ export type BaseErc20TransferHistoryOptions = {
 type ValidatedRequest = {
   walletAddress: HexAddress;
   assets: BaseErc20Asset[];
+  includeUnknownAssets: boolean;
   from: string;
   to: string;
   limit: number;
@@ -47,6 +50,7 @@ type ValidatedRequest = {
 
 type TransferRow = {
   log_id: string;
+  topics: [string, string, string];
   block_number: string;
   block_hash: string;
   source_timestamp: string;
@@ -73,9 +77,11 @@ export function buildBaseErc20TransferQuery(
 ): { sql: string; request: ValidatedRequest } {
   const request = validateRequest(input, assets, now);
   const wallet = sqlString(request.walletAddress);
-  const assetAddresses = request.assets
-    .map((asset) => sqlString(asset.address))
-    .join(", ");
+  const assetClause = request.includeUnknownAssets
+    ? ""
+    : `\n    AND address IN (${request.assets
+        .map((asset) => sqlString(asset.address))
+        .join(", ")})`;
   const cursorClause = request.cursor
     ? `\n  AND ${buildCursorPredicate(request.cursor)}`
     : "";
@@ -83,6 +89,13 @@ export function buildBaseErc20TransferQuery(
   // Re-org safety is intentional: action is aggregated for every stable log_id,
   // and only net-active logs are paginated. Filtering action = 'added' would
   // leave removed logs in history.
+  //
+  // `base.events.topics` retains canonical raw topics, but the table does not
+  // expose raw log data. The ERC-20 shape is therefore fenced by the signature
+  // topic plus exactly two indexed address topics, and the amount is the sole
+  // decoded uint256 parameter regardless of its ABI name. ERC-721's standard
+  // indexed tokenId produces a fourth topic and is excluded before pagination.
+  // Missing or malformed structural evidence fails closed in row validation.
   //
   // CoinbaSeQL's published selectStatement is GROUP BY then optional ORDER BY /
   // LIMIT — no HAVING. #46 nested ORDER BY … LIMIT after HAVING; #73 removed
@@ -98,8 +111,9 @@ export function buildBaseErc20TransferQuery(
   transaction_hash,
   toString(log_index_numeric) AS log_index,
   lower(token_address) AS token_address,
-  lower(from_address) AS from_address,
-  lower(to_address) AS to_address,
+  topics,
+  lower(concat('0x', right(toString(topics[2]), 40))) AS from_address,
+  lower(concat('0x', right(toString(topics[3]), 40))) AS to_address,
   amount_base_units
 FROM (
   SELECT
@@ -110,23 +124,32 @@ FROM (
     any(transaction_hash) AS transaction_hash,
     any(log_index) AS log_index_numeric,
     any(toString(address)) AS token_address,
-    any(toString(parameters['from'])) AS from_address,
-    any(toString(parameters['to'])) AS to_address,
-    any(toString(parameters['value'])) AS amount_base_units,
+    any(topics) AS topics,
+    any(toString(parameters[arrayElement(
+      arrayFilter(key -> parameter_types[key] = 'uint256', mapKeys(parameter_types)),
+      1
+    )])) AS amount_base_units,
     sum(toInt8(action)) AS net_action
   FROM base.events
-  WHERE event_signature = '${TRANSFER_SIGNATURE}'
-    AND address IN (${assetAddresses})
+  WHERE event_signature = '${TRANSFER_SIGNATURE}'${assetClause}
+    AND length(topics) = 3
+    AND lower(toString(topics[1])) = '${TRANSFER_SIGNATURE_TOPIC}'
+    AND match(toString(topics[2]), '^0x0{24}[0-9a-fA-F]{40}$')
+    AND match(toString(topics[3]), '^0x0{24}[0-9a-fA-F]{40}$')
+    AND length(arrayFilter(
+      key -> parameter_types[key] = 'uint256',
+      mapKeys(parameter_types)
+    )) = 1
     AND block_timestamp >= parseDateTime64BestEffort(${sqlString(request.from)})
     AND block_timestamp < parseDateTime64BestEffort(${sqlString(request.to)})
     AND (
-      lower(toString(parameters['from'])) = ${wallet}
-      OR lower(toString(parameters['to'])) = ${wallet}
+      lower(concat('0x', right(toString(topics[2]), 40))) = ${wallet}
+      OR lower(concat('0x', right(toString(topics[3]), 40))) = ${wallet}
     )
-  GROUP BY log_id
+  GROUP BY log_id, address
 )
 WHERE net_action > 0${cursorClause}
-ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, log_id DESC
+ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, token_address DESC, log_id DESC
 LIMIT ${request.limit + 1}`;
 
   return { sql, request };
@@ -164,7 +187,12 @@ export function createBaseErc20TransferHistory({
         request.assets.map((asset) => [asset.address, asset]),
       );
       const transfers = pageRows.map((row) =>
-        normalizeTransfer(row, request.walletAddress, addressToAsset),
+        normalizeTransfer(
+          row,
+          request.walletAddress,
+          addressToAsset,
+          request.includeUnknownAssets,
+        ),
       );
       const nextCursor =
         parsedRows.length > request.limit && transfers.length > 0
@@ -172,7 +200,8 @@ export function createBaseErc20TransferHistory({
               blockNumber: transfers.at(-1)!.blockNumber,
               transactionHash: transfers.at(-1)!.transactionHash,
               logIndex: transfers.at(-1)!.logIndex,
-              logId: transfers.at(-1)!.id,
+              tokenAddress: transfers.at(-1)!.tokenAddress,
+              logId: transfers.at(-1)!.logId,
             })
           : null;
       const executionTimestamp = normalizeTimestamp(
@@ -223,6 +252,7 @@ export function decodeTransferCursor(value: string): TransferHistoryCursor {
       blockNumber: parsed.blockNumber,
       transactionHash: parsed.transactionHash,
       logIndex: parsed.logIndex,
+      tokenAddress: parsed.tokenAddress,
       logId: parsed.logId,
     };
     validateCursor(cursor);
@@ -243,7 +273,11 @@ function validateRequest(
   const allowlist = validateAllowlist(assets);
   const walletAddress = normalizeBaseAddress(input.verifiedWalletAddress);
   const assetIds = [...new Set(input.assetIds)];
-  if (assetIds.length === 0 || assetIds.length > MAX_ASSETS_PER_QUERY) {
+  const includeUnknownAssets = input.includeUnknownAssets === true;
+  if (
+    assetIds.length > MAX_ASSETS_PER_QUERY ||
+    (!includeUnknownAssets && assetIds.length === 0)
+  ) {
     throw new ChainDataError(
       "invalid-input",
       `Choose between 1 and ${MAX_ASSETS_PER_QUERY} allowlisted assets.`,
@@ -295,6 +329,7 @@ function validateRequest(
   return {
     walletAddress,
     assets: selectedAssets,
+    includeUnknownAssets,
     from: fromDate.toISOString(),
     to: toDate.toISOString(),
     limit,
@@ -326,12 +361,36 @@ function validateAllowlist(
   });
 }
 
+function requiredErc20Topics(value: unknown): [string, string, string] {
+  if (
+    !Array.isArray(value) ||
+    value.length !== 3 ||
+    value.some((topic) => typeof topic !== "string")
+  ) {
+    throw invalidResponse("CDP SQL returned malformed ERC-20 topics.");
+  }
+  const topics = value as [string, string, string];
+  if (
+    topics[0].toLowerCase() !== TRANSFER_SIGNATURE_TOPIC ||
+    !/^0x0{24}[0-9a-fA-F]{40}$/.test(topics[1]) ||
+    !/^0x0{24}[0-9a-fA-F]{40}$/.test(topics[2])
+  ) {
+    throw invalidResponse("CDP SQL returned a non-ERC-20 Transfer log shape.");
+  }
+  return topics;
+}
+
+function addressFromTopic(value: string): HexAddress {
+  return normalizeBaseAddressResponse(`0x${value.slice(-40)}`);
+}
+
 function parseTransferRow(value: unknown): TransferRow {
   if (!isRecord(value)) {
     throw invalidResponse("CDP SQL returned a non-object transfer row.");
   }
   const row = {
     log_id: requiredString(value, "log_id"),
+    topics: requiredErc20Topics(value.topics),
     block_number: requiredString(value, "block_number"),
     block_hash: requiredString(value, "block_hash"),
     source_timestamp: requiredString(value, "source_timestamp"),
@@ -358,8 +417,14 @@ function parseTransferRow(value: unknown): TransferRow {
   normalizeHash(row.transaction_hash, "transaction_hash");
   normalizeTimestamp(row.source_timestamp, "source_timestamp");
   normalizeBaseAddressResponse(row.token_address);
-  normalizeBaseAddressResponse(row.from_address);
-  normalizeBaseAddressResponse(row.to_address);
+  const topicFrom = addressFromTopic(row.topics[1]);
+  const topicTo = addressFromTopic(row.topics[2]);
+  if (
+    normalizeBaseAddressResponse(row.from_address) !== topicFrom ||
+    normalizeBaseAddressResponse(row.to_address) !== topicTo
+  ) {
+    throw invalidResponse("CDP SQL returned participants inconsistent with ERC-20 topics.");
+  }
   return row;
 }
 
@@ -367,10 +432,11 @@ function normalizeTransfer(
   row: TransferRow,
   walletAddress: HexAddress,
   addressToAsset: ReadonlyMap<HexAddress, BaseErc20Asset>,
+  includeUnknownAssets: boolean,
 ): BaseErc20Transfer {
   const tokenAddress = normalizeBaseAddressResponse(row.token_address);
-  const asset = addressToAsset.get(tokenAddress);
-  if (!asset) {
+  const asset = addressToAsset.get(tokenAddress) ?? null;
+  if (!asset && !includeUnknownAssets) {
     throw invalidResponse("CDP SQL returned a token outside the request allowlist.");
   }
   const fromAddress = normalizeBaseAddressResponse(row.from_address);
@@ -386,9 +452,10 @@ function normalizeTransfer(
         : "outgoing";
 
   return {
-    id: row.log_id,
+    id: `${BASE_MAINNET_CHAIN_ID}:${tokenAddress}:${row.log_id}`,
+    logId: row.log_id,
     chainId: BASE_MAINNET_CHAIN_ID,
-    assetId: asset.id,
+    assetId: asset?.id ?? null,
     tokenAddress,
     walletAddress,
     fromAddress,
@@ -415,11 +482,13 @@ function buildCursorPredicate(cursor: TransferHistoryCursor): string {
   const block = `toUInt64(${sqlString(cursor.blockNumber)})`;
   const transactionHash = sqlString(cursor.transactionHash);
   const logIndex = `toUInt32(${sqlString(cursor.logIndex)})`;
+  const tokenAddress = sqlString(cursor.tokenAddress);
   const logId = sqlString(cursor.logId);
   return `(block_number_numeric < ${block}
     OR (block_number_numeric = ${block} AND transaction_hash < ${transactionHash})
     OR (block_number_numeric = ${block} AND transaction_hash = ${transactionHash} AND log_index_numeric < ${logIndex})
-    OR (block_number_numeric = ${block} AND transaction_hash = ${transactionHash} AND log_index_numeric = ${logIndex} AND log_id < ${logId}))`;
+    OR (block_number_numeric = ${block} AND transaction_hash = ${transactionHash} AND log_index_numeric = ${logIndex} AND token_address < ${tokenAddress})
+    OR (block_number_numeric = ${block} AND transaction_hash = ${transactionHash} AND log_index_numeric = ${logIndex} AND token_address = ${tokenAddress} AND log_id < ${logId}))`;
 }
 
 function validateCursor(value: unknown): asserts value is TransferHistoryCursor {
@@ -433,6 +502,9 @@ function validateCursor(value: unknown): asserts value is TransferHistoryCursor 
     !DECIMAL_INTEGER_PATTERN.test(value.logIndex) ||
     typeof value.transactionHash !== "string" ||
     !HASH_PATTERN.test(value.transactionHash) ||
+    typeof value.tokenAddress !== "string" ||
+    !ADDRESS_PATTERN.test(value.tokenAddress) ||
+    value.tokenAddress !== value.tokenAddress.toLowerCase() ||
     typeof value.logId !== "string" ||
     value.logId.length === 0 ||
     value.logId.length > MAX_LOG_ID_LENGTH

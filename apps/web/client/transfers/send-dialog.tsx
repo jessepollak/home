@@ -26,6 +26,7 @@ import {
   isTransferRecipient,
   normalizeTransferRecipient,
   parseTransferAmount,
+  transferRequestFromAction,
 } from "@/shared/transfers/transfer-helpers";
 import {
   TransferExecutionError,
@@ -729,7 +730,7 @@ function parseSendHistory(
     }
     if (!address || !isPreparedSendAction(candidate.action, address)) return { status: "malformed" };
     const action = candidate.action as unknown as PreparedMoneyAction;
-    const request = requestFromSendAction(action);
+    const request = transferRequestFromAction(action);
     if (!request) return { status: "malformed" };
     recovered ??= { action, request, operationStatus: candidate.status };
   }
@@ -778,27 +779,6 @@ function messageForHistoryAdmission(admission: HistoryAdmission): string {
     return "Recent sends couldn’t be checked. Retry before starting a new send.";
   }
   return "";
-}
-
-function requestFromSendAction(action: PreparedMoneyAction): TransferRequest | null {
-  if (action.kind !== "send" || action.calls.length !== 1) return null;
-  const spend = action.amounts.find((entry) => entry.direction === "spend");
-  if (!spend || (spend.assetId !== "usdc" && spend.assetId !== "eth")) return null;
-  const call = action.calls[0];
-  let recipient: `0x${string}`;
-  if (spend.assetId === "eth") {
-    recipient = call.to;
-  } else {
-    if (!call.data.startsWith("0xa9059cbb") || call.data.length !== 138) return null;
-    recipient = `0x${call.data.slice(34, 74)}` as `0x${string}`;
-  }
-  try {
-    const request = { assetId: spend.assetId, recipient, amountBaseUnits: spend.amountBaseUnits } satisfies TransferRequest;
-    assertTransferRequest(request);
-    return request;
-  } catch {
-    return null;
-  }
 }
 
 function isExplicitSubmissionFailure(error: unknown): boolean {

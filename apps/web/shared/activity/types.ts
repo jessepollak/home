@@ -27,10 +27,15 @@ export type ActivityAssetId = ActivityAsset["id"];
 export type ActivityDirection = "incoming" | "outgoing" | "self";
 
 export type ActivityTransfer = {
+  /** Chain + token contract + provider log ID, used for row identity/dedupe. */
   id: string;
+  /** Provider-stable log identity, kept separately for pagination evidence. */
+  logId: string;
   chainId: typeof ACTIVITY_BASE_CHAIN_ID;
-  assetId: ActivityAssetId;
+  assetId: ActivityAssetId | null;
   tokenAddress: `0x${string}`;
+  tokenSymbol: string | null;
+  tokenDecimals: number | null;
   walletAddress: `0x${string}`;
   fromAddress: `0x${string}`;
   toAddress: `0x${string}`;

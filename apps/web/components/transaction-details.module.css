@@ -1,0 +1,21 @@
+.explorerWrap {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0 0;
+}
+
+.explorer {
+  color: var(--home-blue);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.explorer:hover {
+  text-decoration: underline;
+}
+
+.explorer:focus-visible {
+  outline: 2px solid var(--home-blue);
+  outline-offset: 2px;
+}
