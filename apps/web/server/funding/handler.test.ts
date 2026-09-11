@@ -20,16 +20,18 @@ function request(
     paymentMethod: "apple-pay",
     paymentAmount: "20",
   },
+  options: { provider?: string; signal?: AbortSignal } = {},
 ) {
   return new Request("http://localhost:3111/api/funding/onramp-session", {
     method: "POST",
     headers: {
       Authorization: "Bearer fixture",
       "Content-Type": "application/json",
-      "X-Home-Account-Provider": "base-account",
+      "X-Home-Account-Provider": options.provider ?? "base-account",
       "X-Forwarded-For": "203.0.113.7, 10.0.0.1",
     },
     body: JSON.stringify(body),
+    signal: options.signal,
   });
 }
 
@@ -121,6 +123,152 @@ describe("funding onramp session handler", () => {
       const response = await handler(request(body));
       expect(response.status).toBe(400);
     }
+    expect(providerCalls).toBe(0);
+  });
+
+  test("rejects malformed and oversized authorization responses before provider use", async () => {
+    let providerCalls = 0;
+    const responses = [
+      () => new Response("{", { status: 200 }),
+      () =>
+        Response.json({
+          user: { subject: "subject-a" },
+          smartAccount: "not-an-account",
+          accountProvider: "base-account",
+        }),
+      () =>
+        new Response(JSON.stringify({ padding: "x".repeat(4096) }), {
+          status: 200,
+        }),
+    ];
+
+    for (const authorize of responses) {
+      const handler = createFundingOnrampSessionHandler({
+        authorize: async () => authorize(),
+        createOnrampSession: async () => {
+          providerCalls += 1;
+          throw new Error("must not run");
+        },
+      });
+      const response = await handler(request());
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({
+        error: { code: "AUTH_UNAVAILABLE" },
+      });
+    }
+    expect(providerCalls).toBe(0);
+  });
+
+  test("rejects missing smart accounts before provider use", async () => {
+    let providerCalls = 0;
+    const handler = createFundingOnrampSessionHandler({
+      authorize: async () =>
+        Response.json({
+          user: { subject: "subject-a" },
+          smartAccount: null,
+          accountProvider: "cdp-embedded",
+        }),
+      createOnrampSession: async () => {
+        providerCalls += 1;
+        throw new Error("must not run");
+      },
+    });
+
+    const response = await handler(
+      request(undefined, { provider: "cdp-embedded" }),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: "SMART_ACCOUNT_UNAVAILABLE" },
+    });
+    expect(providerCalls).toBe(0);
+  });
+
+  test("rejects wrong-chain and mismatched-provider sessions before provider use", async () => {
+    let providerCalls = 0;
+    const sessions = [
+      {
+        user: { subject: "subject-a" },
+        smartAccount: { address: ADDRESS, chainId: 1 },
+        accountProvider: "base-account",
+      },
+      {
+        user: { subject: "subject-a" },
+        smartAccount: { address: ADDRESS, chainId: 8453 },
+        accountProvider: "cdp-embedded",
+      },
+    ];
+
+    for (const session of sessions) {
+      const handler = createFundingOnrampSessionHandler({
+        authorize: async () => Response.json(session),
+        createOnrampSession: async () => {
+          providerCalls += 1;
+          throw new Error("must not run");
+        },
+      });
+      const response = await handler(request());
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({
+        error: { code: "AUTH_UNAVAILABLE" },
+      });
+    }
+    expect(providerCalls).toBe(0);
+  });
+
+  test("fails closed when bounded authorization reading is cancelled or errors in transport", async () => {
+    let providerCalls = 0;
+    const aborter = new AbortController();
+    const cancelledBody = new ReadableStream<Uint8Array>();
+    const cancelledHandler = createFundingOnrampSessionHandler({
+      authorize: async () => new Response(cancelledBody, { status: 200 }),
+      createOnrampSession: async () => {
+        providerCalls += 1;
+        throw new Error("must not run");
+      },
+    });
+    const cancelledResponse = cancelledHandler(
+      request(undefined, { signal: aborter.signal }),
+    );
+    aborter.abort();
+
+    expect((await cancelledResponse).status).toBe(503);
+
+    const transportHandler = createFundingOnrampSessionHandler({
+      authorize: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.error(new Error("authorization transport failed"));
+            },
+          }),
+          { status: 200 },
+        ),
+      createOnrampSession: async () => {
+        providerCalls += 1;
+        throw new Error("must not run");
+      },
+    });
+    const transportResponse = await transportHandler(request());
+    expect(transportResponse.status).toBe(503);
+    expect(await transportResponse.json()).toMatchObject({
+      error: { code: "AUTH_UNAVAILABLE" },
+    });
+
+    const rejectedHandler = createFundingOnrampSessionHandler({
+      authorize: async () => {
+        throw new Error("authorization request failed");
+      },
+      createOnrampSession: async () => {
+        providerCalls += 1;
+        throw new Error("must not run");
+      },
+    });
+    const rejectedResponse = await rejectedHandler(request());
+    expect(rejectedResponse.status).toBe(503);
+    expect(await rejectedResponse.json()).toMatchObject({
+      error: { code: "AUTH_UNAVAILABLE" },
+    });
     expect(providerCalls).toBe(0);
   });
 

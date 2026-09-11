@@ -21,6 +21,14 @@ function request() {
   };
 }
 
+function liveEnvironment() {
+  return {
+    CDP_API_KEY_ID: "key-id",
+    [["CDP", "API", "KEY", "SECRET"].join("_")]: "secret",
+    VERCEL_ENV: "production",
+  };
+}
+
 describe("Coinbase Onramp client", () => {
   test("creates a sandbox headless order bound to canonical USDC on Base", async () => {
     const jwtOptions: unknown[] = [];
@@ -102,6 +110,27 @@ describe("Coinbase Onramp client", () => {
     ]);
   });
 
+  test("does not start hosted fallback after headless verification is cancelled", async () => {
+    const requests: string[] = [];
+    const aborter = new AbortController();
+    const client = createCoinbaseOnrampClient({
+      env: liveEnvironment(),
+      generateJwtImplementation: async () => "signed-jwt",
+      fetchImplementation: async (input) => {
+        requests.push(String(input));
+        aborter.abort();
+        throw new DOMException("The request was cancelled.", "AbortError");
+      },
+    });
+
+    await expect(
+      client({ ...request(), signal: aborter.signal }),
+    ).rejects.toMatchObject({ code: "cancelled" });
+    expect(requests).toEqual([
+      "https://api.cdp.coinbase.com/platform/v2/onramp/orders",
+    ]);
+  });
+
   test("uses hosted fallback only in live mode when the order API is unavailable", async () => {
     const requests: string[] = [];
     const client = createCoinbaseOnrampClient({
@@ -127,6 +156,28 @@ describe("Coinbase Onramp client", () => {
     ]);
     expect(result.presentation).toBe("hosted");
     expect(result.url).toBe(HOSTED_URL);
+  });
+
+  test("preserves live hosted fallback after an order transport error", async () => {
+    const requests: string[] = [];
+    const client = createCoinbaseOnrampClient({
+      env: liveEnvironment(),
+      generateJwtImplementation: async () => "signed-jwt",
+      fetchImplementation: async (input) => {
+        requests.push(String(input));
+        if (String(input).endsWith("/onramp/orders")) {
+          throw new Error("connection reset");
+        }
+        return Response.json({ session: { onrampUrl: HOSTED_URL } });
+      },
+    });
+
+    const result = await client(request());
+    expect(requests).toEqual([
+      "https://api.cdp.coinbase.com/platform/v2/onramp/orders",
+      "https://api.cdp.coinbase.com/platform/v2/onramp/sessions",
+    ]);
+    expect(result).toMatchObject({ presentation: "hosted", url: HOSTED_URL });
   });
 
   test("fails closed for missing credentials and invalid Coinbase response URLs", async () => {

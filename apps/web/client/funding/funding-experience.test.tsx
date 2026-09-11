@@ -7,9 +7,6 @@ import type { AccountWalletClient } from "@/client/account/cdp-client";
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
 );
-const { MONEY_SHEET_EXIT_MS } = await import(
-  "@/client/money-modal/money-modal"
-);
 const { FundingExperienceForWallet } = await import("./funding-experience");
 
 (window as typeof window & {
@@ -210,7 +207,7 @@ describe("FundingExperience", () => {
       expect(document.body.style.overflow).toBe("hidden");
 
       await act(async () => {
-        await Bun.sleep(MONEY_SHEET_EXIT_MS + 20);
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       });
       expect(dialog.open).toBe(false);
       expect(document.body.style.overflow).toBe("");

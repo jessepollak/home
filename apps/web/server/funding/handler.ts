@@ -9,6 +9,8 @@ import { CoinbaseOnrampError } from "./coinbase-onramp";
 
 export type FundingSessionAuthorizer = (request: Request) => Promise<Response>;
 
+const AUTH_RESPONSE_MAX_BYTES = 4096;
+
 const privateResponseHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
   Pragma: "no-cache",
@@ -22,12 +24,22 @@ export function createFundingOnrampSessionHandler(dependencies: {
 }) {
   return async function POST(request: Request): Promise<Response> {
     const requestOrigin = new URL(request.url).origin;
-    const boundaryResponse = await dependencies.authorize(request);
+    let boundaryResponse: Response;
+    try {
+      boundaryResponse = await dependencies.authorize(request);
+    } catch {
+      return privateError(
+        "AUTH_UNAVAILABLE",
+        "Authentication is temporarily unavailable.",
+        503,
+      );
+    }
     if (!boundaryResponse.ok) return withFundingHeaders(boundaryResponse);
 
     const session = await parseAuthorizedSession(
       boundaryResponse,
       readRequestedProvider(request),
+      request.signal,
     );
     if (!session) {
       return privateError(
@@ -140,13 +152,9 @@ function readClientIp(request: Request): string | undefined {
 async function parseAuthorizedSession(
   response: Response,
   expectedProvider: AccountProvider | null,
+  signal: AbortSignal,
 ): Promise<VerifiedAccountSession | null> {
-  let value: unknown;
-  try {
-    value = await response.json();
-  } catch {
-    return null;
-  }
+  const value = await readBoundedResponseJson(response, signal);
   if (
     !isRecord(value) ||
     !isRecord(value.user) ||
@@ -183,6 +191,62 @@ async function parseAuthorizedSession(
     },
     accountProvider: expectedProvider,
   };
+}
+
+async function readBoundedResponseJson(
+  response: Response,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const contentLength = Number(response.headers.get("content-length") ?? "0");
+  if (
+    !Number.isSafeInteger(contentLength) ||
+    contentLength < 0 ||
+    contentLength > AUTH_RESPONSE_MAX_BYTES ||
+    !response.body
+  ) {
+    return undefined;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  let aborted = signal.aborted;
+  const cancel = () => {
+    aborted = true;
+    void reader.cancel(signal.reason).catch(() => undefined);
+  };
+  signal.addEventListener("abort", cancel, { once: true });
+
+  try {
+    while (!aborted) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > AUTH_RESPONSE_MAX_BYTES) {
+        await reader.cancel();
+        return undefined;
+      }
+      chunks.push(value);
+    }
+    if (aborted) return undefined;
+
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    return undefined;
+  } finally {
+    signal.removeEventListener("abort", cancel);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A cancellation may still own the reader while the request is unwinding.
+    }
+  }
 }
 
 function readRequestedProvider(request: Request): AccountProvider | null {

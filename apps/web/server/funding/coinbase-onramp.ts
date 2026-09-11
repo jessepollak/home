@@ -18,7 +18,11 @@ const SESSION_PATH = "/platform/v2/onramp/sessions";
 const ORDER_PATH = "/platform/v2/onramp/orders";
 
 export class CoinbaseOnrampError extends Error {
-  readonly code: "not-configured" | "unavailable" | "invalid-response";
+  readonly code:
+    | "not-configured"
+    | "unavailable"
+    | "invalid-response"
+    | "cancelled";
 
   constructor(code: CoinbaseOnrampError["code"], cause?: unknown) {
     super(code, { cause });
@@ -207,7 +211,10 @@ async function postCoinbaseJson(options: {
       signal: options.signal,
     });
   } catch (error) {
-    throw new CoinbaseOnrampError("unavailable", error);
+    throw new CoinbaseOnrampError(
+      options.signal?.aborted || isAbortError(error) ? "cancelled" : "unavailable",
+      error,
+    );
   }
 
   if (!response.ok) {
@@ -259,6 +266,15 @@ function withSandboxPaymentQuery(url: string, paymentMethod: OnrampPaymentMethod
 function readPaymentLinkUrl(value: unknown): unknown {
   if (typeof value === "string") return value;
   return isRecord(value) ? value.url : undefined;
+}
+
+function isAbortError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "name" in error &&
+      error.name === "AbortError",
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
