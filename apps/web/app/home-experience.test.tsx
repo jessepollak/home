@@ -622,6 +622,54 @@ Object.defineProperty(window, "matchMedia", {
 });
 HTMLElement.prototype.scrollIntoView = () => {};
 
+type TestIntersectionEntry = { isIntersecting: boolean };
+type TestIntersectionCallback = (
+  entries: TestIntersectionEntry[],
+  observer: unknown,
+) => void;
+
+const intersectionObserverInstances: TestIntersectionObserver[] = [];
+
+class TestIntersectionObserver {
+  connected = true;
+  callback: TestIntersectionCallback;
+
+  constructor(callback: TestIntersectionCallback) {
+    this.callback = callback;
+    intersectionObserverInstances.push(this);
+  }
+
+  observe() {}
+  unobserve() {}
+  disconnect() {
+    this.connected = false;
+  }
+
+  trigger(entries: TestIntersectionEntry[] = [{ isIntersecting: true }]) {
+    this.callback(entries, this);
+  }
+}
+
+Object.defineProperty(window, "IntersectionObserver", {
+  configurable: true,
+  writable: true,
+  value: TestIntersectionObserver,
+});
+
+function activeIntersectionObserver(): TestIntersectionObserver | undefined {
+  return [...intersectionObserverInstances]
+    .reverse()
+    .find((observer) => observer.connected);
+}
+
+function revealNextBalancesBatch() {
+  const observer = activeIntersectionObserver();
+  expect(observer).toBeTruthy();
+  act(() => {
+    observer!.trigger();
+  });
+}
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
@@ -631,6 +679,7 @@ afterEach(() => {
   backCalls = 0;
   document.body.style.overflow = "";
   window.history.replaceState({}, "", "/");
+  intersectionObserverInstances.length = 0;
 });
 
 describe("login-state home experience", () => {
@@ -2326,5 +2375,115 @@ describe("login-state home experience", () => {
     expect(page().getByRole("button", { name: "Back to Invest" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Account" })).toBeTruthy();
     expect(page().getByRole("navigation", { name: "Main navigation" })).toBeTruthy();
+  });
+});
+
+describe("balances incremental rendering", () => {
+  function manyBalances(count: number): HomeAssetBalancesPresentation["items"] {
+    return Array.from({ length: count }, (_, index) => ({
+      id: `asset:fixture-${index}`,
+      group: "asset",
+      name: `Holding ${index}`,
+      detail: `H${index}`,
+      displayBalance: `${index}.00 H${index}`,
+    }));
+  }
+
+  test("reveals the nested Balances list in batches and reaches the final holding without duplicates", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$99.99",
+          totalStatus: "partial",
+          statusLabel: "Partial balance",
+          items: manyBalances(25),
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+
+    // The authoritative total/status stays independent of the rendered batch.
+    expect(page().getByText("Partial balance")).toBeTruthy();
+    expect(page().getByText("Holding 0")).toBeTruthy();
+    expect(page().getByText("Holding 9")).toBeTruthy();
+    expect(page().queryByText("Holding 10")).toBeNull();
+    expect(document.querySelector(".balances-sentinel")).toBeTruthy();
+
+    revealNextBalancesBatch();
+    expect(page().getByText("Holding 19")).toBeTruthy();
+    expect(page().queryByText("Holding 20")).toBeNull();
+    expect(document.querySelector(".balances-sentinel")).toBeTruthy();
+
+    revealNextBalancesBatch();
+    expect(page().getByText("Holding 24")).toBeTruthy();
+    expect(document.querySelector(".balances-sentinel")).toBeNull();
+
+    expect(page().getAllByText("Holding 0")).toHaveLength(1);
+    expect(page().getAllByText("Holding 12")).toHaveLength(1);
+  });
+
+  test("resets the reveal window when the item set changes for another owner", async () => {
+    const view = render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$99.99",
+          items: manyBalances(25),
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    revealNextBalancesBatch();
+    expect(page().getByText("Holding 19")).toBeTruthy();
+
+    view.rerender(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$1.00",
+          items: manyBalances(25).map((item) => ({
+            ...item,
+            id: `${item.id}-other`,
+            name: `Other ${item.name}`,
+          })),
+        }}
+      />,
+    );
+
+    expect(page().getByText("Other Holding 9")).toBeTruthy();
+    expect(page().queryByText("Other Holding 10")).toBeNull();
+    expect(page().queryByText("Holding 19")).toBeNull();
+    expect(document.querySelector(".balances-sentinel")).toBeTruthy();
+  });
+
+  test("keeps Home preview capped and shows a short Balances list completely", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$99.99",
+          items: manyBalances(6),
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    expect(page().getByText("Holding 0")).toBeTruthy();
+    expect(page().getByText("Holding 3")).toBeTruthy();
+    expect(page().queryByText("Holding 4")).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByText("Holding 5")).toBeTruthy();
+    expect(document.querySelector(".balances-sentinel")).toBeNull();
   });
 });

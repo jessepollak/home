@@ -1025,7 +1025,7 @@ function BalancesPage({
           {assetBalances?.statusLabel}
         </p>
       ) : null}
-      <HomeBalancesList
+      <IncrementalBalancesList
         items={assetBalances?.items ?? []}
         isLoading={isLoading}
         isUnavailable={assetBalances?.status === "unavailable"}
@@ -1143,39 +1143,13 @@ function HomeBalancesList({
   if (items.length > 0) {
     return (
       <ul className="supplied-asset-list">
-        {items.map((asset) => {
-          const row = presentHomeBalanceRow(asset);
-          const mark = presentHomeBalanceMark(asset, assetMarkResolution);
-          return (
-            <BalanceRow
-              key={asset.id}
-              icon={
-                <CurrencyMark
-                  currency={mark.currency}
-                  symbol={mark.symbol}
-                  src={mark.imageUrl}
-                  pending={mark.pending}
-                />
-              }
-              iconTone="mark"
-              label={asset.name}
-              context={asset.displayContext}
-              value={
-                row.accessibleBalance ? (
-                  <span
-                    aria-label={row.accessibleBalance}
-                    title={row.accessibleBalance}
-                  >
-                    {row.visualBalance}
-                  </span>
-                ) : (
-                  row.visualBalance
-                )
-              }
-              valueTone={row.tone}
-            />
-          );
-        })}
+        {items.map((asset) => (
+          <HomeBalanceRowView
+            key={asset.id}
+            asset={asset}
+            assetMarkResolution={assetMarkResolution}
+          />
+        ))}
       </ul>
     );
   }
@@ -1184,6 +1158,143 @@ function HomeBalancesList({
   }
   if (isUnavailable) return null;
   return <p className="balances-empty">No balances yet</p>;
+}
+
+const BALANCES_BATCH_SIZE = 10;
+
+function IncrementalBalancesList({
+  items,
+  isLoading,
+  isUnavailable = false,
+  assetMarkResolution,
+}: {
+  items: readonly HomeAssetBalanceItem[];
+  isLoading: boolean;
+  isUnavailable?: boolean;
+  assetMarkResolution?: AssetMarkResolution;
+}) {
+  const { visibleItems, hasMore, sentinelRef } = useIncrementalBalances(items);
+
+  if (items.length === 0) {
+    if (isLoading) {
+      return <ShimmerRows count={2} />;
+    }
+    if (isUnavailable) return null;
+    return <p className="balances-empty">No balances yet</p>;
+  }
+
+  return (
+    <>
+      <ul className="supplied-asset-list">
+        {visibleItems.map((asset) => (
+          <HomeBalanceRowView
+            key={asset.id}
+            asset={asset}
+            assetMarkResolution={assetMarkResolution}
+          />
+        ))}
+      </ul>
+      {hasMore ? (
+        <div
+          ref={sentinelRef}
+          className="balances-sentinel"
+          aria-hidden="true"
+        />
+      ) : null}
+    </>
+  );
+}
+
+function HomeBalanceRowView({
+  asset,
+  assetMarkResolution,
+}: {
+  asset: HomeAssetBalanceItem;
+  assetMarkResolution?: AssetMarkResolution;
+}) {
+  const row = presentHomeBalanceRow(asset);
+  const mark = presentHomeBalanceMark(asset, assetMarkResolution);
+  return (
+    <BalanceRow
+      icon={
+        <CurrencyMark
+          currency={mark.currency}
+          symbol={mark.symbol}
+          src={mark.imageUrl}
+          pending={mark.pending}
+        />
+      }
+      iconTone="mark"
+      label={asset.name}
+      context={asset.displayContext}
+      value={
+        row.accessibleBalance ? (
+          <span
+            aria-label={row.accessibleBalance}
+            title={row.accessibleBalance}
+          >
+            {row.visualBalance}
+          </span>
+        ) : (
+          row.visualBalance
+        )
+      }
+      valueTone={row.tone}
+    />
+  );
+}
+
+type BalancesWindow = {
+  items: readonly HomeAssetBalanceItem[];
+  count: number;
+};
+
+function useIncrementalBalances(items: readonly HomeAssetBalanceItem[]) {
+  const [listWindow, setListWindow] = useState<BalancesWindow>(() => ({
+    items,
+    count: BALANCES_BATCH_SIZE,
+  }));
+  if (listWindow.items !== items) {
+    setListWindow({ items, count: BALANCES_BATCH_SIZE });
+  }
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (listWindow.count >= items.length) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setListWindow((current) =>
+            current.items === items
+              ? {
+                  items: current.items,
+                  count: Math.min(
+                    current.count + BALANCES_BATCH_SIZE,
+                    current.items.length,
+                  ),
+                }
+              : current,
+          );
+        }
+      },
+      { rootMargin: "0px 0px 40% 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [items, listWindow.count]);
+
+  const count = Math.min(listWindow.count, items.length);
+
+  return {
+    visibleItems: items.slice(0, count),
+    hasMore: count < items.length,
+    sentinelRef,
+  };
 }
 
 function availableSendBalances(
