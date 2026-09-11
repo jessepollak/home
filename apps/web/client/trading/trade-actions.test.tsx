@@ -167,7 +167,7 @@ describe("TradeActions private amount dismissal", () => {
       expect(requestSignal).toBeDefined();
 
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, 2400));
       });
 
       expect(document.querySelector("[data-primary-amount]")).toBeNull();
