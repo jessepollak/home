@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ClipboardPaste } from "lucide-react";
-import { formatAddress, isAddress } from "@/features/formatting";
+import { formatAddress, isAddress } from "@/shared/formatting";
 import styles from "./address-field.module.css";
 
 export function AddressField({

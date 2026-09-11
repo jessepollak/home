@@ -17,7 +17,7 @@ Delivery state lives in [build status](../../docs/build-status.md), not in this 
 
 - `app/`: routes, client presentation experience, root layout, and visual tokens.
 - `config/`: brand, regions, country preference, navigation, invest/portfolio asset identities.
-- `features/`: account, Invest, Savings, money-action UI.
+- `client/`: account, Invest, Savings, money-action UI.
 - `.env.local`: local values, ignored by Git. Copy from the repo-root `.env.example`; do not overwrite an existing file.
 
 The CDP provider lives in `app/layout.tsx`; Home consumes the shared verified session. Country selection is presentation only, never an eligibility or authorization check. `bun check` runs deterministic tests, lint, typecheck, and the production build; live probes remain opt-in.

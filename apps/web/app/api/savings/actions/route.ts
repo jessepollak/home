@@ -1,9 +1,9 @@
-import { isBaseAccountEnabled } from "@/features/account/session-types";
+import { isBaseAccountEnabled } from "@/shared/account/session-types";
 import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
 import { createSessionHandler } from "@/server/cdp/session";
 import { issueMoneyAction } from "@/server/money-actions/issue";
-import { createSavingsActionsHandler } from "@/server/savings-actions/handler";
-import { prepareSavingsAction } from "@/server/savings-actions/prepare";
+import { createSavingsActionsHandler } from "@/server/savings/handler";
+import { prepareSavingsAction } from "@/server/savings/prepare";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

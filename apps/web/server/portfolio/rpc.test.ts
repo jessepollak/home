@@ -3,7 +3,7 @@ import {
   BASE_CHAIN_ID,
   BASE_USDC_ADDRESS,
   type VerifiedPortfolioAccount,
-} from "./types";
+} from "@/shared/portfolio/types";
 import {
   PortfolioRpcError,
   createBasePortfolioReader,

@@ -741,6 +741,12 @@ body:has(.app-frame-shell) {
   font-size: 0.78rem;
 }
 
+.balances-sentinel {
+  height: 1px;
+  margin: -1px 0 0;
+  padding: 0;
+}
+
 .save-teaser {
   display: grid;
   width: 100%;

@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { parsePortfolioValuationSnapshot } from "../../features/portfolio-valuation/parse";
+import { parsePortfolioValuationSnapshot } from "../../shared/portfolio/parse-valuation";
 
 const OWNER = "0x1111111111111111111111111111111111111111";
 const RECIPIENT = "0x2222222222222222222222222222222222222222";

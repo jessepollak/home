@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
-import type { MoneyActionDraft } from "@/features/money-actions/types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { issueMoneyAction } from "./issue";
 import { setMoneyActionStoreForTests } from "./runtime-store";
 import { MemoryMoneyActionStore } from "./store";

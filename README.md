@@ -84,8 +84,9 @@ bun check      # test, lint, typecheck, and build
 
 | Place | Purpose |
 | --- | --- |
-| `apps/web/app/` | Next.js routes, shell, and global styles |
-| `apps/web/features/` | Home, account, activity, funding, savings, invest, and borrowing UI |
+| `apps/web/app/` | Thin Next.js route entrypoints and global styles |
+| `apps/web/client/` | Home, account, activity, funding, savings, invest, and borrowing UI |
+| `apps/web/shared/` | Runtime-agnostic contracts, validation, formatting, and pure presenters |
 | `apps/web/server/` | Server-side provider, money-action, and protocol boundaries |
 | `apps/web/config/` | Brand, regions, navigation, asset, and presentation configuration |
 | `docs/` | Setup, runtime, product intent, deployment, and extension notes |

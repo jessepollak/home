@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
+import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
 import {
   compatibilityActionRevision,
   conflictingEvidenceDecision,

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   MoneyActionKind,
   PreparedMoneyAction,
-} from "@/features/money-actions/types";
+} from "@/shared/money-actions/types";
 import {
   createClaimMoneyActionHandler,
   type SessionAuthorizer,

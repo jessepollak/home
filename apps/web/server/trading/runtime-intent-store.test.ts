@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { PostgresMoneyActionStore } from "@/server/money-actions/postgres-store";
 import { createFakePostgresExecutor } from "@/server/money-actions/postgres-sql";
 import {

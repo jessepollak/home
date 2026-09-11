@@ -11,7 +11,7 @@ export {
   MORPHO_GRAPHQL_ENDPOINT,
   MORPHO_V1_CANDIDATE_ADDRESSES,
   isConfiguredMorphoVault,
-} from "./config";
+} from "@/shared/savings/config";
 export { MorphoSchemaError } from "./normalize";
 export {
   MORPHO_API_VERSION,
@@ -22,4 +22,4 @@ export {
   type MorphoVaultPosition,
   type MorphoVaultsResult,
   type VerifiedMorphoAccount,
-} from "./types";
+} from "@/shared/savings/types";

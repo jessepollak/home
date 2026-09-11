@@ -1,3 +1,5 @@
+import "server-only";
+
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import { ChainDataError } from "./errors";
 import type {

@@ -3,7 +3,7 @@ import {
   sanitizeIdentifier,
   sanitizeRoutePath,
   scrubString,
-} from "@/features/observability/scrub";
+} from "@/shared/observability/scrub";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 

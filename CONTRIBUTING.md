@@ -33,7 +33,7 @@ Do not enable live Morpho/CDP SQL smokes or funded-wallet secrets in pull-reques
 
 ## Rules of thumb
 
-- One feature lane per PR (`apps/web/features/<x>` + `apps/web/server/<x>` + its API route).
+- One feature lane per PR (`apps/web/client/<x>` + `apps/web/server/<x>` + its API route).
 - Treat `apps/web/server/money-actions/` as a single-writer zone.
 - Never accept client-authored calldata. Never dispatch twice. Never authorize from `?wallet=` or a client user id.
 - Money-action persistence requires PostgreSQL/Neon; an unset `DATABASE_URL` fails closed.

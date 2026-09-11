@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { dmMono, dmSans } from "@home/ui/next-font";
 import { brand } from "@/config/brand";
-import { CdpAccountProvider } from "@/features/account/cdp-client";
-import { SmokeFixtureAccountProvider } from "@/features/account/smoke-fixture-provider";
-import { normalizeProjectId } from "@/features/account/session-client";
-import { isBaseAccountEnabled } from "@/features/account/session-types";
+import { CdpAccountProvider } from "@/client/account/cdp-client";
+import { SmokeFixtureAccountProvider } from "@/client/account/smoke-fixture-provider";
+import { normalizeProjectId } from "@/client/account/session-client";
+import { isBaseAccountEnabled } from "@/shared/account/session-types";
 import "./globals.css";
 
 export const metadata: Metadata = {

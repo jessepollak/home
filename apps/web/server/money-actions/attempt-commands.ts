@@ -18,8 +18,11 @@
  * Sources stay on the issue comments; this module encodes the locked answers.
  */
 
-import type { AccountProvider } from "@/features/account/session-types";
-import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
+import type { AccountProvider } from "@/shared/account/session-types";
+import type { ProviderHandle } from "@/shared/money-actions/provider-handle";
+import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
+
+export type { ProviderHandle } from "@/shared/money-actions/provider-handle";
 
 export const ATTEMPT_COMMAND_CONTRACT_VERSION = 1 as const;
 
@@ -56,11 +59,6 @@ export type HomeProviderRequestKey = {
   readonly value: string;
   readonly homeActionId: string;
 };
-
-/** Provider-returned handle. Never minted by Home before the provider returns. */
-export type ProviderHandle =
-  | { kind: "user-operation-hash"; provider: "cdp-embedded"; value: `0x${string}` }
-  | { kind: "submission-id"; provider: "base-account"; value: string };
 
 export type ProviderEvidence =
   | ProviderHandle

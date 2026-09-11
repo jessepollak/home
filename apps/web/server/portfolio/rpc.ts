@@ -6,7 +6,7 @@ import {
   type Address,
   type PortfolioSnapshot,
   type VerifiedPortfolioAccount,
-} from "./types";
+} from "@/shared/portfolio/types";
 
 export const DEFAULT_BASE_RPC_URL = "https://mainnet.base.org";
 export const PORTFOLIO_RPC_TIMEOUT_MS = 6_000;

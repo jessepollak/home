@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
-import type { TransferReceiptStatus } from "@/server/transfers/receipt";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import type { TransferReceiptStatus } from "@/server/money-actions/receipt";
 import {
   compatibilityActionRevision,
   homeProviderRequestKey,

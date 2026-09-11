@@ -2,7 +2,7 @@ import {
   sanitizeIdentifier,
   sanitizeRoutePath,
   scrubString,
-} from "@/features/observability/scrub";
+} from "@/shared/observability/scrub";
 
 export const OBSERVABILITY_SCHEMA = "home.observability.v2" as const;
 

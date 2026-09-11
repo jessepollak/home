@@ -1,3 +1,5 @@
+import "server-only";
+
 import { PostgresMoneyActionStore } from "./postgres-store";
 import { createNeonSqlExecutor } from "./postgres-sql";
 

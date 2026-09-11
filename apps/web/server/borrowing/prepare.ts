@@ -1,4 +1,4 @@
-import type { MoneyActionAmount, MoneyActionDraft } from "@/features/money-actions/types";
+import type { MoneyActionAmount, MoneyActionDraft } from "@/shared/money-actions/types";
 import {
   approveCall,
   borrowCall,
@@ -13,7 +13,7 @@ import {
   BORROW_LOAN_TOKEN,
   MORPHO_BLUE_ADDRESS,
   type BorrowAddress,
-} from "./config";
+} from "@/shared/borrowing/config";
 import {
   WAD,
   borrowCapacityAssets,
@@ -28,7 +28,7 @@ import type {
   BorrowMarketSnapshot,
   BorrowOperation,
   BorrowPreviewRequest,
-} from "./types";
+} from "@/shared/borrowing/types";
 import type { BorrowRpcReader } from "./rpc";
 
 const ACTION_EXPIRY_MS = 2 * 60_000;

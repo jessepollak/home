@@ -2,26 +2,15 @@ import type {
   MoneyActionOperationStatus,
   MoneyActionOwner,
   PreparedMoneyAction,
-} from "@/features/money-actions/types";
+  StoredMoneyActionOperation,
+} from "@/shared/money-actions/types";
 import {
   canReleaseMoneyActionAdmission,
   canTransitionMoneyActionStatus,
 } from "./status-transitions.js";
 
 export { canReleaseMoneyActionAdmission } from "./status-transitions.js";
-
-export type StoredMoneyActionOperation = {
-  action: PreparedMoneyAction;
-  status: MoneyActionOperationStatus;
-  attemptCount: number;
-  claimedAt?: string;
-  abandonedAt?: string;
-  submissionId?: string;
-  transactionHash?: `0x${string}`;
-  userOperationHash?: `0x${string}`;
-  createdAt: string;
-  updatedAt: string;
-};
+export type { StoredMoneyActionOperation } from "@/shared/money-actions/types";
 
 export type MoneyActionClaim = {
   action: PreparedMoneyAction;

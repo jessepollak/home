@@ -3,7 +3,7 @@ import {
   createCodexMarketHistoryReader,
   createErrorMarketHistoryResponse,
 } from "@/server/market-data/codex/history";
-import type { MarketPriceHistoryResponse } from "@/server/market-data/codex/history-contract";
+import type { MarketPriceHistoryResponse } from "@/shared/invest/history-contract";
 import { normalizeTrendingMemes } from "@/server/market-data/codex/trending";
 import { createMarketPriceHistoryHandler } from "./handler";
 import { dynamic, runtime } from "./route";

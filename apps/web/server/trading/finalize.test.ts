@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { finalizeTradeAction, createTradePreclaimValidator } from "./finalize";
 import { hashTypedData } from "viem";
 import { MemoryTradeIntentStore } from "./intent-store";
 import { createCoinbaseSmartWalletTypedData, PERMIT2_ADDRESS } from "./permit2";
-import type { TradeIntent } from "./types";
+import type { TradeIntent } from "@/shared/trading/server-types";
 
 const SMART = "0x3333333333333333333333333333333333333333" as const;
 const SIGNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf" as const;

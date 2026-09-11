@@ -1,7 +1,7 @@
 "use client";
 
-import { MoneyModal, MoneyModalHeader } from "@/features/money-modal";
-import modal from "@/features/money-modal/money-modal.module.css";
+import { MoneyModal, MoneyModalHeader } from "@/client/money-modal";
+import modal from "@/client/money-modal/money-modal.module.css";
 import type { TransactionDetails } from "./transaction-explorer";
 import styles from "./transaction-details.module.css";
 

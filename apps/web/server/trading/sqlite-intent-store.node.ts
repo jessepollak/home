@@ -1,8 +1,10 @@
+import "server-only";
+
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { MoneyActionOwner } from "@/features/money-actions/types";
-import type { TradeIntent, TradeIntentStore } from "./types";
+import type { MoneyActionOwner } from "@/shared/money-actions/types";
+import type { TradeIntent, TradeIntentStore } from "@/shared/trading/server-types";
 
 type IntentRow = {
   intent_json: string;

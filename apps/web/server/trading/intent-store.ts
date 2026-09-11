@@ -1,5 +1,5 @@
-import type { MoneyActionOwner } from "@/features/money-actions/types";
-import type { TradeIntent, TradeIntentStore } from "./types";
+import type { MoneyActionOwner } from "@/shared/money-actions/types";
+import type { TradeIntent, TradeIntentStore } from "@/shared/trading/server-types";
 
 export class MemoryTradeIntentStore implements TradeIntentStore {
   private readonly records = new Map<string, TradeIntent>();

@@ -1,8 +1,8 @@
-import type { MoneyActionCall } from "@/features/money-actions/types";
+import type { MoneyActionCall } from "@/shared/money-actions/types";
 import {
   BORROW_MARKET_PARAMS,
   type BorrowAddress,
-} from "./config";
+} from "@/shared/borrowing/config";
 
 export type BorrowMoneyActionCall = MoneyActionCall & {
   approval?: {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { MoneyActionStore } from "./store";
 
 const OWNER = {

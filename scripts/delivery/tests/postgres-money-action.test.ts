@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import type { PreparedMoneyAction } from "../../../apps/web/features/money-actions/types";
+import type { PreparedMoneyAction } from "../../../apps/web/shared/money-actions/types";
 import {
   homeProviderRequestKey,
   type PreparedActionRevision,

@@ -17,7 +17,7 @@ Then change configuration in place. Typed registries live under `apps/web/config
 | App name, description, repository URL | `apps/web/config/brand.ts` (consumed by `apps/web/app/layout.tsx` metadata) |
 | Color tokens and control radii | `apps/web/app/globals.css` (`--home-*` variables). Direction: [UI direction](ui-direction.md) |
 | Home / Save / Invest labels | `apps/web/config/navigation.ts` |
-| Shell and feature UI | `apps/web/app/home-experience.tsx`, `apps/web/features/` |
+| Shell and feature UI | `apps/web/client/home/home-experience.tsx`, `apps/web/client/` |
 | Animated Home mark | `apps/web/components/home-mark.tsx` and `apps/web/public/home-mark/` |
 
 The Home mark fonts are **not** MIT-licensed. Read `apps/web/public/home-mark/PROVENANCE.md` before copying or redistributing those files. A fork that keeps the mark needs its own permission for Base Sans; Doto is SIL OFL.
@@ -59,8 +59,8 @@ Operators bring their own projects. Nothing in this repo is a shared CDP, Morpho
 | Email sign-in, session validation | `NEXT_PUBLIC_CDP_PROJECT_ID`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` | [CDP setup](cdp-setup.md) |
 | Indexed ERC-20 history | `CDP_SQL_AUTH_MODE`, `CDP_SQL_CLIENT_API_KEY` | [CDP SQL](cdp-sql.md) |
 | Optional Base Account SIWE | `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT` | [Base Account](base-account.md) |
-| Morpho USDC vault shortlist | `apps/web/server/morpho/config.ts` (keep in sync with `portfolioVaults`) | [Morpho setup](morpho-setup.md) |
-| One cbBTC/USDC borrow market | `apps/web/server/borrowing/config.ts` | `apps/web/server/borrowing/README.md` |
+| Morpho USDC vault shortlist | `apps/web/shared/savings/config.ts` (keep in sync with `portfolioVaults`) | [Morpho setup](morpho-setup.md) |
+| One cbBTC/USDC borrow market | `apps/web/shared/borrowing/config.ts` | `apps/web/server/borrowing/README.md` |
 | Invest USD indications | `CODEX_API_KEY` | [Codex prices](codex-prices.md) |
 | Base RPC | server-only `BASE_RPC_URL` (CDP Node HTTPS; required on Vercel Production/Preview, optional locally) | [Portfolio](portfolio.md) |
 

@@ -1,18 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
-import type { MoneyActionCall, MoneyActionDraft } from "@/features/money-actions/types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { MoneyActionCall, MoneyActionDraft } from "@/shared/money-actions/types";
 import {
   BASE_USDC,
   getTradeAssetStatus,
   getTradeBuyAsset,
   getTradeSellAsset,
   type TradeAsset,
-} from "@/features/trading/assets";
+} from "@/shared/trading/assets";
 import {
   assertCanonicalTradeBaseUnits,
   formatTradeBaseUnits,
-} from "@/features/trading/amount";
-import type { PrepareTradeRequest, TradeIntentReview } from "@/features/trading/types";
+} from "@/shared/trading/amount";
+import type { PrepareTradeRequest, TradeIntentReview } from "@/shared/trading/types";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import {
   createCoinbaseSmartWalletTypedData,
@@ -26,7 +26,7 @@ import type {
   TradeFee,
   TradeIntent,
   TradeQuote,
-} from "./types";
+} from "@/shared/trading/server-types";
 
 const BASE_NETWORK = "base" as const;
 const MIN_SLIPPAGE_BPS = 10;

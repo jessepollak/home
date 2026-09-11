@@ -7,11 +7,11 @@ import {
   BORROW_MARKET_ID,
   BORROW_ORACLE_ADDRESS,
   MORPHO_BLUE_ADDRESS,
-} from "./config";
+} from "@/shared/borrowing/config";
 import { ORACLE_PRICE_SCALE } from "./math";
 import { BorrowPreparationError, prepareBorrowAction } from "./prepare";
 import type { BorrowRpcReader } from "./rpc";
-import type { BorrowMarketSnapshot } from "./types";
+import type { BorrowMarketSnapshot } from "@/shared/borrowing/types";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const BLOCK_HASH = `0x${"ab".repeat(32)}` as const;
