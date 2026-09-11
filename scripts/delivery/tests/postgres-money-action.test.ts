@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "../../../apps/web/shared/money-actions/types";
 import {
+  applyIdrxAttemptPostgresSchema,
   PostgresIdrxAttemptStore,
   type IdrxAttemptIntent,
 } from "../../../apps/web/server/funding/idrx-attempt-store";
@@ -124,8 +125,25 @@ if (!databaseUrl) {
            AND relation.relname = 'idrx_funding_owner_unresolved'`,
       );
       expect(before.rows).toHaveLength(1);
+      const ordinaryOwner = {
+        subject: "idrx-owner-ordinary-init",
+        smartAccount: "0x2222222222222222222222222222222222222222" as const,
+      };
+      const ordinaryIntent: IdrxAttemptIntent = {
+        ...intent,
+        customerSubject: ordinaryOwner.subject,
+      };
       const third = new PostgresIdrxAttemptStore(executor(schema));
-      expect((await third.recover(owner)).status).toBe("pending");
+      const fourth = new PostgresIdrxAttemptStore(executor(schema));
+      const ordinaryResults = await Promise.all([
+        third.begin(ordinaryOwner, "55555555-5555-4555-8555-555555555555", ordinaryIntent),
+        fourth.begin(ordinaryOwner, "66666666-6666-4666-8666-666666666666", ordinaryIntent),
+      ]);
+      expect(ordinaryResults.map((result) => result.status).sort()).toEqual(["new", "pending"]);
+      expect((await executor(schema).query(
+        "SELECT attempt_id FROM idrx_funding_attempts WHERE subject = $1 AND released_at IS NULL",
+        [ordinaryOwner.subject],
+      )).rows).toHaveLength(1);
       const after = await executor(schema).query<{ relfilenode: string }>(
         `SELECT relation.relfilenode::text AS relfilenode
          FROM pg_class AS relation
@@ -135,6 +153,107 @@ if (!databaseUrl) {
       );
       expect(after.rows).toEqual(before.rows);
       await Promise.all([firstClient.close(), secondClient.close()]);
+    });
+
+    test("IDRX migration replaces the legacy unconditional owner index after terminal release", async () => {
+      const schema = await createSchema("idrx_legacy_index");
+      const raw = executor(schema);
+      await raw.query(`CREATE TABLE idrx_funding_attempts (
+        attempt_id UUID PRIMARY KEY,
+        subject TEXT NOT NULL,
+        address TEXT NOT NULL,
+        intent_json TEXT,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'completed')),
+        result_json TEXT,
+        released_at TEXT,
+        terminal_outcome TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`);
+      await raw.query(
+        "CREATE UNIQUE INDEX idrx_funding_owner_unresolved ON idrx_funding_attempts (subject, address)",
+      );
+      const owner = {
+        subject: "idrx-legacy-index-owner",
+        smartAccount: "0x3333333333333333333333333333333333333333" as const,
+      };
+      const intent: IdrxAttemptIntent = {
+        toBeMinted: "20000",
+        rail: "bank-va",
+        channelId: "MANDIRI",
+        customerSubject: owner.subject,
+        customerName: "JOHN SMITH",
+      };
+      const firstAttemptId = "77777777-7777-4777-8777-777777777777";
+      const freshAttemptId = "88888888-8888-4888-8888-888888888888";
+      const at = "2026-09-11T12:00:00.000Z";
+      expect((await raw.query(
+        "INSERT INTO idrx_funding_attempts (attempt_id, subject, address, intent_json, status, created_at, updated_at) VALUES ($1, $2, $3, $4, 'pending', $5, $5)",
+        [firstAttemptId, owner.subject, owner.smartAccount, JSON.stringify(intent), at],
+      )).rowCount).toBe(1);
+      expect((await raw.query(
+        "UPDATE idrx_funding_attempts SET status = 'completed', result_json = $1, updated_at = $2 WHERE attempt_id = $3",
+        [JSON.stringify({ merchantOrderId: "legacy-order" }), at, firstAttemptId],
+      )).rowCount).toBe(1);
+      expect((await raw.query(
+        "UPDATE idrx_funding_attempts SET released_at = $1, terminal_outcome = 'expired', updated_at = $1 WHERE attempt_id = $2",
+        [at, firstAttemptId],
+      )).rowCount).toBe(1);
+      await expect(raw.query(
+        "INSERT INTO idrx_funding_attempts (attempt_id, subject, address, intent_json, status, created_at, updated_at) VALUES ($1, $2, $3, $4, 'pending', $5, $5)",
+        [freshAttemptId, owner.subject, owner.smartAccount, JSON.stringify(intent), at],
+      )).rejects.toThrow(/idrx_funding_owner_unresolved/);
+
+      await applyIdrxAttemptPostgresSchema(raw);
+      expect((await raw.query<{ predicate: string }>(
+        `SELECT pg_get_expr(index_metadata.indpred, index_metadata.indrelid) AS predicate
+         FROM pg_index AS index_metadata
+         JOIN pg_class AS index_relation ON index_relation.oid = index_metadata.indexrelid
+         JOIN pg_namespace AS namespace ON namespace.oid = index_relation.relnamespace
+         WHERE namespace.nspname = current_schema()
+           AND index_relation.relname = 'idrx_funding_owner_unresolved'`,
+      )).rows).toEqual([{ predicate: "(released_at IS NULL)" }]);
+      const store = new PostgresIdrxAttemptStore(executor(schema));
+      expect(await store.begin(owner, freshAttemptId, intent)).toEqual({ status: "new" });
+      expect((await raw.query(
+        "SELECT attempt_id FROM idrx_funding_attempts WHERE subject = $1 ORDER BY attempt_id",
+        [owner.subject],
+      )).rows).toHaveLength(2);
+    });
+
+    test("IDRX schema migration fails closed on an unexpected same-name index definition", async () => {
+      const schema = await createSchema("idrx_incompatible_index");
+      const raw = executor(schema);
+      await raw.query(`CREATE TABLE idrx_funding_attempts (
+        attempt_id UUID PRIMARY KEY,
+        subject TEXT NOT NULL,
+        address TEXT NOT NULL,
+        intent_json TEXT,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'completed')),
+        result_json TEXT,
+        released_at TEXT,
+        terminal_outcome TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`);
+      await raw.query(
+        "CREATE UNIQUE INDEX idrx_funding_owner_unresolved ON idrx_funding_attempts (address, subject) WHERE released_at IS NULL",
+      );
+      const before = await raw.query<{ definition: string }>(
+        `SELECT pg_get_indexdef(index_relation.oid) AS definition
+         FROM pg_class AS index_relation
+         JOIN pg_namespace AS namespace ON namespace.oid = index_relation.relnamespace
+         WHERE namespace.nspname = current_schema()
+           AND index_relation.relname = 'idrx_funding_owner_unresolved'`,
+      );
+      await expect(applyIdrxAttemptPostgresSchema(raw)).rejects.toThrow("incompatible definition");
+      expect(await raw.query<{ definition: string }>(
+        `SELECT pg_get_indexdef(index_relation.oid) AS definition
+         FROM pg_class AS index_relation
+         JOIN pg_namespace AS namespace ON namespace.oid = index_relation.relnamespace
+         WHERE namespace.nspname = current_schema()
+           AND index_relation.relname = 'idrx_funding_owner_unresolved'`,
+      )).toEqual(before);
     });
 
     test("IDRX schema migration fails atomically on duplicate legacy owner admissions", async () => {

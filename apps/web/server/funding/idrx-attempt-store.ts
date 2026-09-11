@@ -68,9 +68,26 @@ const schemaStatements = [
   "ALTER TABLE idrx_funding_attempts ADD COLUMN IF NOT EXISTS released_at TEXT",
   "ALTER TABLE idrx_funding_attempts ADD COLUMN IF NOT EXISTS terminal_outcome TEXT",
 ] as const;
+const ownerIndexName = "idrx_funding_owner_unresolved";
 const ownerIndexStatement =
-  "CREATE UNIQUE INDEX IF NOT EXISTS idrx_funding_owner_unresolved ON idrx_funding_attempts (subject, address) WHERE released_at IS NULL";
+  `CREATE UNIQUE INDEX ${ownerIndexName} ON idrx_funding_attempts (subject, address) WHERE released_at IS NULL`;
 const selectColumns = "attempt_id, subject, address, intent_json, status, result_json, released_at, terminal_outcome";
+
+type OwnerIndexRow = {
+  relation_kind: string;
+  table_name: string | null;
+  is_unique: boolean | null;
+  is_valid: boolean | null;
+  is_ready: boolean | null;
+  access_method: string | null;
+  key_count: number | null;
+  attribute_count: number | null;
+  first_key: string | null;
+  second_key: string | null;
+  predicate: string | null;
+};
+
+type OwnerIndexState = "missing" | "legacy-unconditional" | "correct";
 
 export async function applyIdrxAttemptPostgresSchema(executor: SqlExecutor): Promise<void> {
   await executor.transaction(async (transaction) => {
@@ -79,6 +96,7 @@ export async function applyIdrxAttemptPostgresSchema(executor: SqlExecutor): Pro
       ["home_idrx_funding_attempt_schema_v2"],
     );
     for (const statement of schemaStatements) await transaction.query(statement);
+    const indexState = await readOwnerIndexState(transaction);
     const duplicates = await transaction.query(
       `SELECT subject, address FROM idrx_funding_attempts
        WHERE released_at IS NULL
@@ -89,8 +107,54 @@ export async function applyIdrxAttemptPostgresSchema(executor: SqlExecutor): Pro
     if (duplicates.rows.length > 0) {
       throw new Error("IDRX attempt schema has duplicate unresolved owner admissions.");
     }
-    await transaction.query(ownerIndexStatement);
+    if (indexState === "legacy-unconditional") {
+      await transaction.query(`DROP INDEX ${ownerIndexName}`);
+    }
+    if (indexState !== "correct") await transaction.query(ownerIndexStatement);
   });
+}
+
+async function readOwnerIndexState(executor: SqlExecutor): Promise<OwnerIndexState> {
+  const row = (await executor.query<OwnerIndexRow>(
+    `SELECT index_relation.relkind::text AS relation_kind,
+            table_relation.relname AS table_name,
+            index_metadata.indisunique AS is_unique,
+            index_metadata.indisvalid AS is_valid,
+            index_metadata.indisready AS is_ready,
+            access_method.amname AS access_method,
+            index_metadata.indnkeyatts AS key_count,
+            index_metadata.indnatts AS attribute_count,
+            pg_get_indexdef(index_metadata.indexrelid, 1, TRUE) AS first_key,
+            pg_get_indexdef(index_metadata.indexrelid, 2, TRUE) AS second_key,
+            pg_get_expr(index_metadata.indpred, index_metadata.indrelid) AS predicate
+     FROM pg_class AS index_relation
+     JOIN pg_namespace AS namespace ON namespace.oid = index_relation.relnamespace
+     LEFT JOIN pg_index AS index_metadata ON index_metadata.indexrelid = index_relation.oid
+     LEFT JOIN pg_class AS table_relation ON table_relation.oid = index_metadata.indrelid
+     LEFT JOIN pg_am AS access_method ON access_method.oid = index_relation.relam
+     WHERE namespace.nspname = current_schema()
+       AND index_relation.relname = $1`,
+    [ownerIndexName],
+  )).rows[0];
+  if (!row) return "missing";
+  const compatible = row.relation_kind === "i" &&
+    row.table_name === "idrx_funding_attempts" &&
+    row.is_unique === true &&
+    row.is_valid === true &&
+    row.is_ready === true &&
+    row.access_method === "btree" &&
+    row.key_count === 2 &&
+    row.attribute_count === 2 &&
+    normalizeIndexExpression(row.first_key) === "subject" &&
+    normalizeIndexExpression(row.second_key) === "address";
+  if (!compatible) throw new Error("IDRX owner admission index has an incompatible definition.");
+  if (row.predicate === null) return "legacy-unconditional";
+  if (normalizeIndexExpression(row.predicate) === "released_atisnull") return "correct";
+  throw new Error("IDRX owner admission index has an incompatible definition.");
+}
+
+function normalizeIndexExpression(value: string | null): string {
+  return value?.replace(/[\s()"]/g, "").toLowerCase() ?? "";
 }
 
 export class PostgresIdrxAttemptStore implements IdrxAttemptStore {
