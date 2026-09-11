@@ -213,8 +213,14 @@ function HomeExperienceView({
   );
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
+  const panelScrollRef = useRef<
+    Partial<Record<ShellPanelId | "account", number>>
+  >({});
   const shellPath = routeMode === "landing" ? "/" : "/dashboard";
   const investChrome = useOptionalAppChrome();
+  const panelKey: ShellPanelId | "account" = isAccountSettingsOpen
+    ? "account"
+    : activeNavigation;
 
   const closeAccount = useCallback(() => {
     setIsAccountOpen(false);
@@ -264,13 +270,15 @@ function HomeExperienceView({
     if (!panelStage) return;
 
     panelStage.focus({ preventScroll: true });
+    const preservedTop = panelScrollRef.current[panelKey] ?? 0;
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
     mainRef.current?.scrollTo({
-      top: 0,
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "auto"
-        : "smooth",
+      top: preservedTop,
+      behavior: reducedMotion || preservedTop > 0 ? "auto" : "smooth",
     });
-  }, [activeNavigation, navigationRequest]);
+  }, [panelKey, navigationRequest]);
 
   const region = presentationRegions[regionId];
   const regionStyle: RegionStyle = {
@@ -294,6 +302,17 @@ function HomeExperienceView({
     region: regionId,
     live: liveAssetBalances,
   });
+  const balancesOwnerKey = account.ownerKey;
+  const balancesSubject = account.session?.user.subject ?? null;
+  const balancesSmartAccount = account.session?.smartAccount?.address ?? null;
+  const balancesScope =
+    balancesOwnerKey && balancesSubject && balancesSmartAccount
+      ? `${balancesOwnerKey}\u0000${balancesSubject}\u0000${balancesSmartAccount.toLowerCase()}\u0000${regionId}`
+      : null;
+  const balancesReveal = useBalancesRevealWindow(
+    balancesScope,
+    paintedAssetBalances.items,
+  );
   const activitySession: VerifiedAccountSession | null =
     isVerified && account.session?.smartAccount ? account.session : null;
   const fetchAccountResource = account.fetchAccountResource;
@@ -460,7 +479,6 @@ function HomeExperienceView({
         : activeNavigation === "invest"
           ? investChrome?.nested ?? null
           : null;
-  const panelKey = isAccountSettingsOpen ? "account" : activeNavigation;
 
   return (
     <div
@@ -515,7 +533,13 @@ function HomeExperienceView({
 
       {routeMode === "dashboard" ? (
         <>
-          <main ref={mainRef} className="app-main app-main-authenticated">
+          <main
+            ref={mainRef}
+            className="app-main app-main-authenticated"
+            onScroll={(event) => {
+              panelScrollRef.current[panelKey] = event.currentTarget.scrollTop;
+            }}
+          >
             {isUnavailable ? (
               <div className="dashboard-notice" role="alert">
                 <span>{account.message ?? "Your private details remain hidden."}</span>
@@ -592,6 +616,8 @@ function HomeExperienceView({
                       assetBalances={paintedAssetBalances}
                       assetMarkResolution={assetMarkResolution}
                       isChecking={isChecking}
+                      revealedCount={balancesReveal.count}
+                      onRevealMore={balancesReveal.extend}
                     />
                   ) : null}
                   {activeNavigation === activityPanelId ? (
@@ -1005,10 +1031,14 @@ function BalancesPage({
   assetBalances,
   assetMarkResolution,
   isChecking,
+  revealedCount,
+  onRevealMore,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   assetMarkResolution?: AssetMarkResolution;
   isChecking: boolean;
+  revealedCount: number;
+  onRevealMore: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading" || isChecking;
   const showBalanceStatus =
@@ -1025,11 +1055,13 @@ function BalancesPage({
           {assetBalances?.statusLabel}
         </p>
       ) : null}
-      <HomeBalancesList
+      <IncrementalBalancesList
         items={assetBalances?.items ?? []}
         isLoading={isLoading}
         isUnavailable={assetBalances?.status === "unavailable"}
         assetMarkResolution={assetMarkResolution}
+        revealedCount={revealedCount}
+        onRevealMore={onRevealMore}
       />
     </section>
   );
@@ -1143,39 +1175,13 @@ function HomeBalancesList({
   if (items.length > 0) {
     return (
       <ul className="supplied-asset-list">
-        {items.map((asset) => {
-          const row = presentHomeBalanceRow(asset);
-          const mark = presentHomeBalanceMark(asset, assetMarkResolution);
-          return (
-            <BalanceRow
-              key={asset.id}
-              icon={
-                <CurrencyMark
-                  currency={mark.currency}
-                  symbol={mark.symbol}
-                  src={mark.imageUrl}
-                  pending={mark.pending}
-                />
-              }
-              iconTone="mark"
-              label={asset.name}
-              context={asset.displayContext}
-              value={
-                row.accessibleBalance ? (
-                  <span
-                    aria-label={row.accessibleBalance}
-                    title={row.accessibleBalance}
-                  >
-                    {row.visualBalance}
-                  </span>
-                ) : (
-                  row.visualBalance
-                )
-              }
-              valueTone={row.tone}
-            />
-          );
-        })}
+        {items.map((asset) => (
+          <HomeBalanceRowView
+            key={asset.id}
+            asset={asset}
+            assetMarkResolution={assetMarkResolution}
+          />
+        ))}
       </ul>
     );
   }
@@ -1184,6 +1190,166 @@ function HomeBalancesList({
   }
   if (isUnavailable) return null;
   return <p className="balances-empty">No balances yet</p>;
+}
+
+const BALANCES_BATCH_SIZE = 10;
+
+type BalancesRevealWindow = {
+  key: string;
+  count: number;
+};
+
+function balancesListKey(items: readonly HomeAssetBalanceItem[]): string {
+  return JSON.stringify(
+    items.map((item) => ({
+      id: item.id,
+      assetKey: item.assetKey ?? null,
+      group: item.group ?? null,
+      name: item.name,
+      detail: item.detail ?? null,
+      displayBalance: item.displayBalance,
+      displayContext: item.displayContext ?? null,
+      currencyCode: item.currencyCode ?? null,
+      tone: item.tone ?? null,
+    })),
+  );
+}
+
+function useBalancesRevealWindow(
+  scope: string | null,
+  items: readonly HomeAssetBalanceItem[],
+) {
+  const [revealWindow, setRevealWindow] = useState<BalancesRevealWindow>(() => {
+    const key = `${scope ?? ""}\u0000${balancesListKey(items)}`;
+    return { key, count: BALANCES_BATCH_SIZE };
+  });
+  const key = `${scope ?? ""}\u0000${balancesListKey(items)}`;
+  if (revealWindow.key !== key) {
+    setRevealWindow({ key, count: BALANCES_BATCH_SIZE });
+  }
+
+  const count = Math.min(revealWindow.count, items.length);
+  const extend = useCallback(() => {
+    setRevealWindow((current) =>
+      current.key === key
+        ? {
+            key,
+            count: Math.min(
+              current.count + BALANCES_BATCH_SIZE,
+              items.length,
+            ),
+          }
+        : current,
+    );
+  }, [key, items.length]);
+
+  return { count, extend };
+}
+
+function IncrementalBalancesList({
+  items,
+  isLoading,
+  isUnavailable = false,
+  assetMarkResolution,
+  revealedCount,
+  onRevealMore,
+}: {
+  items: readonly HomeAssetBalanceItem[];
+  isLoading: boolean;
+  isUnavailable?: boolean;
+  assetMarkResolution?: AssetMarkResolution;
+  revealedCount: number;
+  onRevealMore: () => void;
+}) {
+  const count = Math.min(revealedCount, items.length);
+  const hasMore = count < items.length;
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!hasMore) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onRevealMore();
+        }
+      },
+      { rootMargin: "0px 0px 40% 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [revealedCount, items.length, hasMore, onRevealMore]);
+
+  if (items.length === 0) {
+    if (isLoading) {
+      return <ShimmerRows count={2} />;
+    }
+    if (isUnavailable) return null;
+    return <p className="balances-empty">No balances yet</p>;
+  }
+
+  return (
+    <>
+      <ul className="supplied-asset-list">
+        {items.slice(0, count).map((asset) => (
+          <HomeBalanceRowView
+            key={asset.id}
+            asset={asset}
+            assetMarkResolution={assetMarkResolution}
+          />
+        ))}
+      </ul>
+      {hasMore ? (
+        <div
+          ref={sentinelRef}
+          className="balances-sentinel"
+          aria-hidden="true"
+        />
+      ) : null}
+    </>
+  );
+}
+
+function HomeBalanceRowView({
+  asset,
+  assetMarkResolution,
+}: {
+  asset: HomeAssetBalanceItem;
+  assetMarkResolution?: AssetMarkResolution;
+}) {
+  const row = presentHomeBalanceRow(asset);
+  const mark = presentHomeBalanceMark(asset, assetMarkResolution);
+  return (
+    <BalanceRow
+      icon={
+        <CurrencyMark
+          currency={mark.currency}
+          symbol={mark.symbol}
+          src={mark.imageUrl}
+          pending={mark.pending}
+        />
+      }
+      iconTone="mark"
+      label={asset.name}
+      context={asset.displayContext}
+      value={
+        row.accessibleBalance ? (
+          <span
+            aria-label={row.accessibleBalance}
+            title={row.accessibleBalance}
+          >
+            {row.visualBalance}
+          </span>
+        ) : (
+          row.visualBalance
+        )
+      }
+      valueTone={row.tone}
+    />
+  );
 }
 
 function availableSendBalances(

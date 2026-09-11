@@ -9,6 +9,7 @@ import {
 import type {
   ActivityPage,
   ActivityState,
+  ActivityTransfer,
   FetchActivity,
 } from "./types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -20,6 +21,7 @@ type OwnedActivityState =
       page: null;
       loadingMore: false;
       loadMoreError: false;
+      autoLoadPaused: false;
     }
   | {
       requestKey: string;
@@ -27,6 +29,7 @@ type OwnedActivityState =
       page: null;
       loadingMore: false;
       loadMoreError: false;
+      autoLoadPaused: false;
       error: { code: string | null; message: string | null };
     }
   | {
@@ -35,7 +38,15 @@ type OwnedActivityState =
       page: ActivityPage;
       loadingMore: boolean;
       loadMoreError: boolean;
+      autoLoadPaused: boolean;
     };
+
+type LoadMoreRequest = {
+  requestKey: string;
+  sequence: number;
+  cursor: string;
+  controller: AbortController;
+};
 
 const unavailableState: OwnedActivityState = {
   requestKey: null,
@@ -43,12 +54,14 @@ const unavailableState: OwnedActivityState = {
   page: null,
   loadingMore: false,
   loadMoreError: false,
+  autoLoadPaused: false,
 };
 
 export type UseActivityResult = ActivityState & {
   retry: () => void;
   refresh: () => void;
   loadMore: () => void;
+  retryLoadMore: () => void;
 };
 
 export function useActivity(
@@ -57,7 +70,8 @@ export function useActivity(
   refreshTrigger?: string | number,
 ): UseActivityResult {
   const sequence = useRef(0);
-  const loadMoreController = useRef<AbortController | null>(null);
+  const loadMoreRequest = useRef<LoadMoreRequest | null>(null);
+  const attemptedCursors = useRef(new Set<string>());
   const [retryRevision, setRetryRevision] = useState(0);
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [state, setState] = useState<OwnedActivityState>(unavailableState);
@@ -75,8 +89,9 @@ export function useActivity(
 
   useEffect(() => {
     const requestSequence = ++sequence.current;
-    loadMoreController.current?.abort();
-    loadMoreController.current = null;
+    loadMoreRequest.current?.controller.abort();
+    loadMoreRequest.current = null;
+    attemptedCursors.current = new Set();
     if (!subject || !walletAddress || !provider || !requestKey) {
       return;
     }
@@ -102,6 +117,7 @@ export function useActivity(
             page: parseActivityPage(payload, expectedSession, windowEnd),
             loadingMore: false,
             loadMoreError: false,
+            autoLoadPaused: false,
           });
         } catch {
           setState({
@@ -110,6 +126,7 @@ export function useActivity(
             page: null,
             loadingMore: false,
             loadMoreError: false,
+            autoLoadPaused: false,
             error: {
               code: "ACTIVITY_RESPONSE_INVALID",
               message: "Activity history could not be verified.",
@@ -127,6 +144,7 @@ export function useActivity(
           page: null,
           loadingMore: false,
           loadMoreError: false,
+          autoLoadPaused: false,
           error: readActivityFailure(reason),
         });
       },
@@ -135,13 +153,21 @@ export function useActivity(
     return () => controller.abort();
   }, [fetchActivity, provider, requestKey, subject, walletAddress]);
 
+  useEffect(
+    () => () => {
+      loadMoreRequest.current?.controller.abort();
+      loadMoreRequest.current = null;
+    },
+    [],
+  );
+
   const retry = useCallback(() => setRetryRevision((value) => value + 1), []);
   const refresh = useCallback(
     () => setRefreshRevision((value) => value + 1),
     [],
   );
 
-  const loadMore = useCallback(() => {
+  const requestMore = useCallback((manualRetry: boolean) => {
     if (
       !subject ||
       !walletAddress ||
@@ -150,23 +176,45 @@ export function useActivity(
       state.requestKey !== requestKey ||
       state.status !== "ready" ||
       state.loadingMore ||
-      !state.page.nextCursor
+      (!manualRetry && state.autoLoadPaused) ||
+      loadMoreRequest.current
     ) {
       return;
     }
 
     const currentPage = state.page;
-    const cursor = currentPage.nextCursor!;
+    const cursor = currentPage.nextCursor;
+    if (!cursor) {
+      return;
+    }
+    if (!manualRetry && attemptedCursors.current.has(cursor)) {
+      return;
+    }
+
     const expectedSession: VerifiedAccountSession = {
       user: { subject },
       smartAccount: { address: walletAddress, chainId: 8453 },
       accountProvider: provider,
     };
-    setState({ ...state, loadingMore: true, loadMoreError: false });
-    loadMoreController.current?.abort();
     const controller = new AbortController();
-    loadMoreController.current = controller;
     const requestSequence = sequence.current;
+    const request: LoadMoreRequest = {
+      requestKey,
+      sequence: requestSequence,
+      cursor,
+      controller,
+    };
+    loadMoreRequest.current = request;
+    attemptedCursors.current.add(cursor);
+    setState((current) =>
+      current.requestKey === requestKey &&
+      current.status === "ready" &&
+      current.page.nextCursor === cursor &&
+      !current.loadingMore
+        ? { ...current, loadingMore: true, loadMoreError: false }
+        : current,
+    );
+
     const query = new URLSearchParams({
       to: currentPage.window.to,
       cursor,
@@ -174,7 +222,7 @@ export function useActivity(
 
     void fetchActivity(query, controller.signal).then(
       (payload) => {
-        if (controller.signal.aborted || sequence.current !== requestSequence) {
+        if (!isCurrentLoadMoreRequest(loadMoreRequest.current, request, sequence.current)) {
           return;
         }
         try {
@@ -183,15 +231,27 @@ export function useActivity(
             expectedSession,
             currentPage.window.to,
           );
-          if (nextPage.nextCursor === cursor) {
+          if (
+            nextPage.nextCursor === cursor ||
+            (nextPage.nextCursor !== null &&
+              attemptedCursors.current.has(nextPage.nextCursor))
+          ) {
             throw new Error("Activity cursor did not advance.");
           }
-          const seen = new Set(
-            currentPage.transfers.map((transfer) => transfer.id),
+          const seen = new Map(
+            currentPage.transfers.map((transfer) => [transfer.id, transfer]),
           );
-          const uniqueTransfers = nextPage.transfers.filter(
-            (transfer) => !seen.has(transfer.id),
-          );
+          const uniqueTransfers: ActivityTransfer[] = [];
+          for (const transfer of nextPage.transfers) {
+            const existing = seen.get(transfer.id);
+            if (existing) {
+              if (!sameActivityTransfer(existing, transfer)) {
+                throw new Error("Activity overlap changed an existing transfer.");
+              }
+              continue;
+            }
+            uniqueTransfers.push(transfer);
+          }
           const previousLast = currentPage.transfers.at(-1);
           if (
             previousLast &&
@@ -204,7 +264,8 @@ export function useActivity(
             if (
               current.requestKey !== requestKey ||
               current.status !== "ready" ||
-              current.page.window.to !== nextPage.window.to
+              current.page.window.to !== nextPage.window.to ||
+              current.page.nextCursor !== cursor
             ) {
               return current;
             }
@@ -218,20 +279,28 @@ export function useActivity(
               },
               loadingMore: false,
               loadMoreError: false,
+              autoLoadPaused:
+                nextPage.nextCursor !== null && uniqueTransfers.length === 0,
             };
           });
         } catch {
-          markLoadMoreFailed(requestKey, setState);
+          markLoadMoreFailed(requestKey, cursor, setState);
+        } finally {
+          clearLoadMoreRequest(request);
         }
       },
       () => {
-        if (controller.signal.aborted || sequence.current !== requestSequence) {
+        if (!isCurrentLoadMoreRequest(loadMoreRequest.current, request, sequence.current)) {
           return;
         }
-        markLoadMoreFailed(requestKey, setState);
+        markLoadMoreFailed(requestKey, cursor, setState);
+        clearLoadMoreRequest(request);
       },
     );
   }, [fetchActivity, provider, requestKey, state, subject, walletAddress]);
+
+  const loadMore = useCallback(() => requestMore(false), [requestMore]);
+  const retryLoadMore = useCallback(() => requestMore(true), [requestMore]);
 
   const visibleState: ActivityState =
     !requestKey
@@ -243,9 +312,56 @@ export function useActivity(
             page: null,
             loadingMore: false,
             loadMoreError: false,
+            autoLoadPaused: false,
           };
 
-  return { ...visibleState, retry, refresh, loadMore };
+  return {
+    ...visibleState,
+    retry,
+    refresh,
+    loadMore,
+    retryLoadMore,
+  };
+
+  function clearLoadMoreRequest(request: LoadMoreRequest) {
+    if (loadMoreRequest.current === request) {
+      loadMoreRequest.current = null;
+    }
+  }
+}
+
+function isCurrentLoadMoreRequest(
+  current: LoadMoreRequest | null,
+  expected: LoadMoreRequest,
+  sequence: number,
+): boolean {
+  return (
+    current === expected &&
+    !expected.controller.signal.aborted &&
+    expected.sequence === sequence
+  );
+}
+
+function sameActivityTransfer(
+  left: ActivityTransfer,
+  right: ActivityTransfer,
+): boolean {
+  return (
+    left.id === right.id &&
+    left.chainId === right.chainId &&
+    left.assetId === right.assetId &&
+    left.tokenAddress === right.tokenAddress &&
+    left.walletAddress === right.walletAddress &&
+    left.fromAddress === right.fromAddress &&
+    left.toAddress === right.toAddress &&
+    left.direction === right.direction &&
+    left.amountBaseUnits === right.amountBaseUnits &&
+    left.blockNumber === right.blockNumber &&
+    left.blockHash === right.blockHash &&
+    left.transactionHash === right.transactionHash &&
+    left.logIndex === right.logIndex &&
+    left.blockTimestamp === right.blockTimestamp
+  );
 }
 
 function readActivityFailure(reason: unknown): {
@@ -273,10 +389,13 @@ function readActivityFailure(reason: unknown): {
 
 function markLoadMoreFailed(
   requestKey: string,
+  cursor: string,
   setState: React.Dispatch<React.SetStateAction<OwnedActivityState>>,
 ) {
   setState((current) =>
-    current.requestKey === requestKey && current.status === "ready"
+    current.requestKey === requestKey &&
+    current.status === "ready" &&
+    current.page.nextCursor === cursor
       ? { ...current, loadingMore: false, loadMoreError: true }
       : current,
   );

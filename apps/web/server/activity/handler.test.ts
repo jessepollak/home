@@ -82,6 +82,8 @@ describe("activity route handler", () => {
     for (const query of [
       `to=${encodeURIComponent(TO)}&wallet=${ATTACKER}`,
       `to=${encodeURIComponent(TO)}&to=${encodeURIComponent(TO)}`,
+      `to=${encodeURIComponent(TO)}&cursor=first&cursor=second`,
+      `to=${encodeURIComponent(TO)}&cursor=`,
       "to=not-a-date",
     ]) {
       let calls = 0;

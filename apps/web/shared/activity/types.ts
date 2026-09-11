@@ -69,6 +69,7 @@ export type ActivityReadyState = {
   page: ActivityPage;
   loadingMore: boolean;
   loadMoreError: boolean;
+  autoLoadPaused: boolean;
 };
 
 export type ActivityFailure = {
@@ -77,13 +78,26 @@ export type ActivityFailure = {
 };
 
 export type ActivityState =
-  | { status: "unavailable"; page: null; loadingMore: false; loadMoreError: false }
-  | { status: "loading"; page: null; loadingMore: false; loadMoreError: false }
+  | {
+      status: "unavailable";
+      page: null;
+      loadingMore: false;
+      loadMoreError: false;
+      autoLoadPaused: false;
+    }
+  | {
+      status: "loading";
+      page: null;
+      loadingMore: false;
+      loadMoreError: false;
+      autoLoadPaused: false;
+    }
   | {
       status: "error";
       page: null;
       loadingMore: false;
       loadMoreError: false;
+      autoLoadPaused: false;
       error: ActivityFailure;
     }
   | ActivityReadyState;

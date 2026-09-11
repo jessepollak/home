@@ -13,6 +13,63 @@ const { act, cleanup, fireEvent, render, waitFor } = await import(
 );
 const { ActivityPanel } = await import("./activity-panel");
 
+class ControlledIntersectionObserver implements IntersectionObserver {
+  static instances: ControlledIntersectionObserver[] = [];
+
+  readonly root: Element | Document | null;
+  readonly rootMargin: string;
+  readonly thresholds = [0];
+  private readonly callback: IntersectionObserverCallback;
+  private target: Element | null = null;
+
+  constructor(
+    callback: IntersectionObserverCallback,
+    options: IntersectionObserverInit = {},
+  ) {
+    this.callback = callback;
+    this.root = options.root ?? null;
+    this.rootMargin = options.rootMargin ?? "0px";
+    ControlledIntersectionObserver.instances.push(this);
+  }
+
+  disconnect() {
+    this.target = null;
+  }
+
+  observe(target: Element) {
+    this.target = target;
+  }
+
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+
+  unobserve(target: Element) {
+    if (this.target === target) this.target = null;
+  }
+
+  intersect() {
+    if (!this.target) return;
+    const rect = this.target.getBoundingClientRect();
+    this.callback(
+      [
+        {
+          boundingClientRect: rect,
+          intersectionRatio: 1,
+          intersectionRect: rect,
+          isIntersecting: true,
+          rootBounds: null,
+          target: this.target,
+          time: performance.now(),
+        },
+      ],
+      this,
+    );
+  }
+}
+
+const originalIntersectionObserver = globalThis.IntersectionObserver;
+
 const WALLET_A = "0x1111111111111111111111111111111111111111" as const;
 const WALLET_B = "0x2222222222222222222222222222222222222222" as const;
 const OTHER = "0x3333333333333333333333333333333333333333" as const;
@@ -92,7 +149,15 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  ControlledIntersectionObserver.instances = [];
+  Object.defineProperty(globalThis, "IntersectionObserver", {
+    configurable: true,
+    writable: true,
+    value: originalIntersectionObserver,
+  });
+});
 
 describe("ActivityPanel", () => {
   test("renders direction, bounded shared amount formatting, and explorer link without Refresh chrome", async () => {
@@ -172,10 +237,10 @@ describe("ActivityPanel", () => {
       />,
     );
 
-    await waitFor(() => expect(view.getByText("Load more")).toBeTruthy());
+    await waitFor(() => expect(view.getByText("Load more activity")).toBeTruthy());
     expect(view.queryByText(/Data may be delayed/)).toBeNull();
     expect(view.queryByRole("button", { name: "Refresh" })).toBeNull();
-    fireEvent.click(view.getByText("Load more"));
+    fireEvent.click(view.getByText("Load more activity"));
     await waitFor(() => expect(queries).toHaveLength(2));
     await waitFor(() =>
       expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(2),
@@ -281,6 +346,172 @@ describe("ActivityPanel", () => {
     expect(view.queryByText("No transfer history was inferred from this error.")).toBeNull();
   });
 
+  test("uses the authenticated main as its sentinel root and exposes loading and end states", async () => {
+    Object.defineProperty(globalThis, "IntersectionObserver", {
+      configurable: true,
+      writable: true,
+      value: ControlledIntersectionObserver,
+    });
+    const pending = deferred<unknown>();
+    const hashes: string[][] = [];
+    const queries: string[] = [];
+    let calls = 0;
+    const view = render(
+      <main className="app-main app-main-authenticated" data-testid="scroll-root">
+        <ActivityPanel
+          session={session("subject-a", WALLET_A)}
+          onTransactionHashesChange={(next) => hashes.push(next)}
+          fetchActivity={async (query) => {
+            queries.push(query);
+            calls += 1;
+            if (calls === 1) {
+              return pageFor(query, WALLET_A, {
+                id: "event-1",
+                blockNumber: "20",
+                nextCursor: "cursor-1",
+              });
+            }
+            return pending.promise;
+          }}
+        />
+      </main>,
+    );
+
+    await waitFor(() => expect(ControlledIntersectionObserver.instances).toHaveLength(1));
+    const observer = ControlledIntersectionObserver.instances[0]!;
+    expect(observer.root).toBe(view.getByTestId("scroll-root"));
+    expect(observer.rootMargin).toBe("0px 0px 240px 0px");
+
+    act(() => observer.intersect());
+    await waitFor(() => expect(view.getByText("Loading more activity…")).toBeTruthy());
+    expect(calls).toBe(2);
+    const loadingButton = view.getByRole("button", { name: "Loading…" });
+    expect(loadingButton).toBeTruthy();
+    expect(loadingButton.hasAttribute("disabled")).toBe(true);
+    await act(async () => {
+      pending.resolve(pageFor(queries[1]!, WALLET_A, {
+        id: "event-2",
+        blockNumber: "19",
+      }));
+      await pending.promise;
+    });
+    await waitFor(() => expect(view.getByText("End of activity")).toBeTruthy());
+    expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(2);
+    await waitFor(() =>
+      expect(hashes.at(-1)).toEqual([
+        `0x${"a".repeat(64)}`,
+        `0x${"b".repeat(64)}`,
+      ]),
+    );
+  });
+
+  for (const pageKind of ["empty", "overlap"] as const) {
+    test(`pauses native observer loading after a fresh-cursor ${pageKind} page`, async () => {
+      Object.defineProperty(globalThis, "IntersectionObserver", {
+        configurable: true,
+        writable: true,
+        value: ControlledIntersectionObserver,
+      });
+      const queries: string[] = [];
+      const view = render(
+        <ActivityPanel
+          session={session("subject-a", WALLET_A)}
+          fetchActivity={async (query) => {
+            queries.push(query);
+            if (queries.length === 1) {
+              return pageFor(query, WALLET_A, {
+                id: "event-1",
+                blockNumber: "20",
+                nextCursor: "cursor-1",
+              });
+            }
+            return pageFor(query, WALLET_A, {
+              id: "event-1",
+              blockNumber: "20",
+              nextCursor: `cursor-${queries.length}`,
+              empty: pageKind === "empty",
+            });
+          }}
+        />,
+      );
+
+      await waitFor(() => expect(ControlledIntersectionObserver.instances).toHaveLength(1));
+      act(() => ControlledIntersectionObserver.instances[0]!.intersect());
+      await waitFor(() =>
+        expect(view.getByText("Continue loading activity")).toBeTruthy(),
+      );
+      expect(queries).toHaveLength(2);
+      expect(new URLSearchParams(queries[1]).get("cursor")).toBe("cursor-1");
+      expect(
+        view.getByText(
+          "No additional activity was found on that page. Continue to check older activity.",
+        ),
+      ).toBeTruthy();
+      expect(view.queryByText("End of activity")).toBeNull();
+      expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(1);
+
+      act(() => {
+        for (const observer of ControlledIntersectionObserver.instances) {
+          observer.intersect();
+          observer.intersect();
+        }
+      });
+      await act(async () => Promise.resolve());
+      expect(queries).toHaveLength(2);
+    });
+  }
+
+  test("manually continues after a finite zero-unique page and appends useful rows", async () => {
+    Object.defineProperty(globalThis, "IntersectionObserver", {
+      configurable: true,
+      writable: true,
+      value: ControlledIntersectionObserver,
+    });
+    const queries: string[] = [];
+    const view = render(
+      <ActivityPanel
+        session={session("subject-a", WALLET_A)}
+        fetchActivity={async (query) => {
+          queries.push(query);
+          if (queries.length === 1) {
+            return pageFor(query, WALLET_A, {
+              id: "event-1",
+              blockNumber: "20",
+              nextCursor: "cursor-1",
+            });
+          }
+          if (queries.length === 2) {
+            return pageFor(query, WALLET_A, {
+              empty: true,
+              nextCursor: "cursor-2",
+            });
+          }
+          return pageFor(query, WALLET_A, {
+            id: "event-2",
+            blockNumber: "19",
+          });
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(ControlledIntersectionObserver.instances).toHaveLength(1));
+    act(() => ControlledIntersectionObserver.instances[0]!.intersect());
+    await waitFor(() =>
+      expect(view.getByText("Continue loading activity")).toBeTruthy(),
+    );
+    expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(1);
+
+    fireEvent.click(view.getByText("Continue loading activity"));
+    await waitFor(() => expect(view.getByText("End of activity")).toBeTruthy());
+    expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(2);
+    expect(queries.map((query) => new URLSearchParams(query).get("cursor"))).toEqual([
+      null,
+      "cursor-1",
+      "cursor-2",
+    ]);
+    expect(new Set(queries.map((query) => new URLSearchParams(query).get("to"))).size).toBe(1);
+  });
+
   test("teaser density caps rows and hides Load more without Refresh chrome", async () => {
     const view = render(
       <ActivityPanel
@@ -310,7 +541,7 @@ describe("ActivityPanel", () => {
         ACTIVITY_TEASER_LIMIT,
       ),
     );
-    expect(view.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(view.queryByRole("button", { name: "Load more activity" })).toBeNull();
     expect(view.queryByRole("button", { name: "Refresh" })).toBeNull();
     expect(view.queryByText(/^Updated(\s|$)/)).toBeNull();
   });
