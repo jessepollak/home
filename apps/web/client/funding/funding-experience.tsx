@@ -80,6 +80,8 @@ function FundingExperienceBoundary({
         : "method"
   );
   const [step, setStep] = useState<AddMoneyStep>(startStep);
+  const visibleStep: AddMoneyStep =
+    signedOut || (step === "idrx" && regionId !== "ID") ? "method" : step;
   const [openingOnramp, setOpeningOnramp] = useState(false);
   const [onrampError, setOnrampError] = useState<string | null>(null);
   const savedIdrx = readSavedIdrxAttempt(boundary);
@@ -255,7 +257,7 @@ function FundingExperienceBoundary({
   return (
     <AddMoneyDialog
       open={open}
-      step={signedOut ? "method" : step}
+      step={visibleStep}
       address={address}
       openingOnramp={openingOnramp}
       onrampError={onrampError}

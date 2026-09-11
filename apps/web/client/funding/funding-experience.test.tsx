@@ -231,6 +231,30 @@ describe("FundingExperience", () => {
     }
   });
 
+  test("ignores an IDRX return outside Indonesia without recovery or provider calls", () => {
+    let accountRequests = 0;
+    render(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async () => {
+            accountRequests += 1;
+            throw new Error("No request expected");
+          },
+        }}
+        navigateToHostedOnramp={() => {}}
+        returnedFromIdrx
+        regionId="US"
+      />,
+    );
+
+    expect(page().getByRole("dialog", { name: "Add money" })).toBeTruthy();
+    expect(page().getByRole("button", { name: /Use Coinbase to deposit USD/ })).toBeTruthy();
+    expect(page().queryByLabelText("Amount in IDR")).toBeNull();
+    expect(page().queryByText("Funding pending")).toBeNull();
+    expect(accountRequests).toBe(0);
+  });
+
   test("creates one IDRX intent and verifies status only through balance and activity", async () => {
     const calls: Array<[string, unknown?]> = [];
     let refreshes = 0;
