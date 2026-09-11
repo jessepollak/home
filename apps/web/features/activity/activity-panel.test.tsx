@@ -385,6 +385,9 @@ describe("ActivityPanel", () => {
     act(() => observer.intersect());
     await waitFor(() => expect(view.getByText("Loading more activity…")).toBeTruthy());
     expect(calls).toBe(2);
+    const loadingButton = view.getByRole("button", { name: "Loading…" });
+    expect(loadingButton).toBeTruthy();
+    expect(loadingButton.hasAttribute("disabled")).toBe(true);
     await act(async () => {
       pending.resolve(pageFor(queries[1]!, WALLET_A, {
         id: "event-2",

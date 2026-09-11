@@ -203,19 +203,20 @@ function ActivityPagination({
           No additional activity was found on that page. Continue to check older activity.
         </p>
       ) : null}
-      {!loading ? (
-        <button
-          className={styles.loadMoreButton}
-          type="button"
-          onClick={failed || autoLoadPaused ? continueManually : loadMore}
-        >
-          {failed
+      <button
+        className={styles.loadMoreButton}
+        type="button"
+        onClick={failed || autoLoadPaused ? continueManually : loadMore}
+        disabled={loading}
+      >
+        {loading
+          ? "Loading…"
+          : failed
             ? "Retry more activity"
             : autoLoadPaused
               ? "Continue loading activity"
               : "Load more activity"}
-        </button>
-      ) : null}
+      </button>
       <div
         key={nextCursor}
         ref={sentinelRef}

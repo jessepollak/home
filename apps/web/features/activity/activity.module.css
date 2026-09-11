@@ -103,6 +103,11 @@
   min-height: 42px;
 }
 
+.loadMoreButton:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
 .loadingMore {
   display: flex;
   min-height: 42px;
