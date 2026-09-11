@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 // CDP distinguishes the font that painted glyphs from a merely declared family.
@@ -23,6 +23,24 @@ async function digitWidths(page: Page, role: string) {
       return range.getBoundingClientRect().width;
     }),
   );
+}
+
+async function expectWholeWords(locator: Locator, words: string[]) {
+  const fragmented = await locator.evaluate((element, expectedWords) => {
+    const textNodes: Text[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+    return expectedWords.filter((word) => {
+      const node = textNodes.find((candidate) => candidate.data.includes(word));
+      if (!node) return true;
+      const start = node.data.indexOf(word);
+      const range = document.createRange();
+      range.setStart(node, start);
+      range.setEnd(node, start + word.length);
+      return Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0).length > 1;
+    });
+  }, words);
+  expect(fragmented).toEqual([]);
 }
 
 async function expectNoOverflow(page: Page) {
@@ -68,6 +86,21 @@ for (const width of [320, 390, 1280]) {
   }
 }
 
+test("320px / 200% text keeps ordinary catalog words whole in loaded and fallback fonts", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto("/");
+  await page.getByRole("combobox", { name: "Text size" }).selectOption("200");
+  const wholeWords = async () => {
+    await expectWholeWords(page.getByRole("button", { name: "Secondary", exact: true }), ["Secondary"]);
+    await expectWholeWords(page.locator("legend"), ["Specimen"]);
+    await expectWholeWords(page.getByRole("heading", { name: "Typography", exact: true }), ["Typography"]);
+    await expectWholeWords(page.getByRole("button", { name: /^A long button label/ }), ["readable", "enlarged"]);
+  };
+  await wholeWords();
+  await page.getByRole("checkbox", { name: "System font fallback" }).check();
+  await wholeWords();
+});
+
 test("native keyboard activation, focus, pressed presentation, and disabled/loading safety", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -107,6 +140,8 @@ test("native keyboard activation, focus, pressed presentation, and disabled/load
   await page.getByRole("checkbox", { name: "Pressed", exact: true }).check();
   await expect(primary).toHaveAttribute("aria-pressed", "true");
   await expect(primary).not.toHaveCSS("background-color", normalColor);
+  // Wait for the 100ms color transition to settle before any state measurement.
+  await expect(primary).toHaveCSS("background-color", "rgb(0, 58, 184)");
   await page.getByRole("checkbox", { name: "Disabled", exact: true }).check();
   await expect(primary).toBeDisabled();
   await primary.evaluate((element) => (element as HTMLButtonElement).click());

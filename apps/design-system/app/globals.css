@@ -68,6 +68,15 @@ body {
 .catalog-buttons { display: flex; flex-wrap: wrap; align-items: start; gap: var(--home-ui-space-3); }
 .catalog-section > .home-ui-button { justify-self: start; }
 .catalog-motion-reduced { display: none; }
+@media (max-width: 480px) {
+  /* Keep catalog insets at their 100% size when the specimen enlarges text. */
+  .catalog-shell { padding-inline: min(var(--home-ui-inset-outer), 16px); }
+  .catalog-controls,
+  .catalog-section { padding-inline: min(var(--home-ui-space-4), 16px); }
+  .catalog-controls legend { padding-inline: min(var(--home-ui-space-2), 8px); }
+  .catalog-section > .home-ui-button,
+  .catalog-buttons > .home-ui-button { padding-inline: min(var(--home-ui-space-4), 16px); }
+}
 @media (prefers-reduced-motion: reduce) {
   .catalog-motion-default { display: none; }
   .catalog-motion-reduced { display: block; }
