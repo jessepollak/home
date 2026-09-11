@@ -11,7 +11,9 @@ const relativePrefixPattern = String.raw`(?:\.\.?\/)+`;
 const intermediateSegmentsPattern = String.raw`(?:[^/]+\/)*`;
 const clientForbiddenPattern = String.raw`^(?:@\/server(?:\/|$)|${relativePrefixPattern}${intermediateSegmentsPattern}server(?:\/|$))`;
 const serverForbiddenPattern = String.raw`^(?:@\/(?:app|client|components)(?:\/|$)|${relativePrefixPattern}${intermediateSegmentsPattern}(?:app|client|components)(?:\/|$))`;
-const sharedForbiddenPattern = String.raw`^(?:(?:react|react-dom|next)(?:\/|$)|node:|@\/(?:app|client|server|components)(?:\/|$)|${relativePrefixPattern}${intermediateSegmentsPattern}(?:app|client|server|components)(?:\/|$))`;
+const sharedForbiddenPattern = String.raw`^(?:(?:react|react-dom|next)(?:\/|$)|node:|(?:assert|async_hooks|buffer|child_process|cluster|crypto|dgram|dns|events|fs|http|http2|https|module|net|os|path|perf_hooks|process|querystring|readline|stream|string_decoder|timers|tls|tty|url|util|v8|vm|worker_threads|zlib)(?:\/|$)|@\/(?:app|client|server|components)(?:\/|$)|${relativePrefixPattern}${intermediateSegmentsPattern}(?:app|client|server|components)(?:\/|$))`;
+
+const nodeBuiltins = "assert|async_hooks|buffer|child_process|cluster|crypto|dgram|dns|events|fs|http|http2|https|module|net|os|path|perf_hooks|process|querystring|readline|stream|string_decoder|timers|tls|tty|url|util|v8|vm|worker_threads|zlib".split("|").flatMap((name) => [name, `${name}/*`]);
 
 function restrictedDynamicImports(pattern, message) {
   return [
@@ -20,7 +22,15 @@ function restrictedDynamicImports(pattern, message) {
       message,
     },
     {
+      selector: `ImportExpression > TemplateLiteral[expressions.length=0][quasis.0.value.cooked=/${pattern}/]`,
+      message,
+    },
+    {
       selector: `CallExpression[callee.name="require"][arguments.0.value=/${pattern}/]`,
+      message,
+    },
+    {
+      selector: `CallExpression[callee.name="require"] > TemplateLiteral.arguments:first-child[expressions.length=0][quasis.0.value.cooked=/${pattern}/]`,
       message,
     },
   ];
@@ -39,10 +49,10 @@ const eslintConfig = defineConfig([
   ]),
   {
     files: [
-      "client/**/*.{js,jsx,ts,tsx}",
-      "components/**/*.{js,jsx,ts,tsx}",
-      "server/**/*.{js,jsx,ts,tsx}",
-      "shared/**/*.{js,jsx,ts,tsx}",
+      "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
     ],
     rules: {
       "import/no-restricted-paths": [
@@ -71,7 +81,7 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["shared/**/*.{js,jsx,ts,tsx}"],
+    files: ["shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -92,6 +102,7 @@ const eslintConfig = defineConfig([
                 "react-dom/*",
                 "next/*",
                 "node:*",
+                ...nodeBuiltins,
                 "@/app/*",
                 "@/client/*",
                 "@/server/*",
@@ -109,7 +120,7 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["client/**/*.{js,jsx,ts,tsx}", "components/**/*.{js,jsx,ts,tsx}"],
+    files: ["client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}", "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -130,7 +141,7 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["server/**/*.{js,jsx,ts,tsx}"],
+    files: ["server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
     rules: {
       "no-restricted-imports": [
         "error",
