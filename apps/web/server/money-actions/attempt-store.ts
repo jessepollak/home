@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import type { MoneyActionOperationStatus, MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
-// Node's built-in TypeScript loader requires the extension for the SQLite process gate.
 import {
   ATTEMPT_COMMAND_CONTRACT_VERSION,
   COMPATIBILITY_ACTION_REVISION,
@@ -20,8 +19,7 @@ import {
   type RecordedProviderEvidence,
   type ReleaseAdmission,
   type ReleaseAdmissionResult,
-// @ts-expect-error Node requires the explicit TypeScript extension.
-} from "./attempt-commands.ts";
+} from "./attempt-commands";
 import type {
   MoneyActionStore,
   StoredMoneyActionOperation,
@@ -244,7 +242,6 @@ export interface MoneyActionAttemptStore extends MoneyActionStore {
 
 export type AttemptStoreResourceOptions =
   | Readonly<{ backend: "memory" }>
-  | Readonly<{ backend: "sqlite"; filename: string }>
   | Readonly<{ backend: "postgres"; connectionString: string; schema: string }>;
 
 export interface AttemptStoreResource {

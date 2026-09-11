@@ -9,8 +9,7 @@ import {
   type AttemptStorePersistence,
   type AttemptStoreTransaction,
   type PersistedAttemptState,
-// @ts-expect-error Node requires the explicit TypeScript extension.
-} from "./attempt-store-core.ts";
+} from "./attempt-store-core";
 import type { AttemptStoreResource, AttemptStoreResourceFactory } from "./attempt-store";
 import {
   applyMoneyActionPostgresSchema,
@@ -30,6 +29,13 @@ import type {
   VerifiedMoneyActionExecution,
 } from "./store";
 
+class CanonicalEvidenceConflict extends Error {
+  constructor() {
+    super("canonical money-action evidence is reserved by another action");
+    this.name = "CanonicalEvidenceConflict";
+  }
+}
+
 export class PostgresMoneyActionStore implements MoneyActionStore {
   private readonly executor: SqlExecutor;
   private readonly sensitiveActions = new Map<string, { action: PreparedMoneyAction; expiresAt: string }>();
@@ -48,7 +54,8 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
   }
 
   async ensureSchema(): Promise<void> {
-    this.schemaReady ??= applyMoneyActionPostgresSchema(this.executor);
+    this.schemaReady ??= applyMoneyActionPostgresSchema(this.executor)
+      .then(() => this.backfillCanonicalEvidenceReservations());
     await this.schemaReady;
   }
 
@@ -154,31 +161,43 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
     now: string,
   ): Promise<StoredMoneyActionOperation | null> {
     if (!reference.submissionId && !reference.transactionHash && !reference.userOperationHash) return null;
+    const normalizedReference = {
+      ...reference,
+      ...(reference.transactionHash ? { transactionHash: reference.transactionHash.toLowerCase() as `0x${string}` } : {}),
+      ...(reference.userOperationHash ? { userOperationHash: reference.userOperationHash.toLowerCase() as `0x${string}` } : {}),
+    };
     await this.ensureSchema();
-    const updated = await this.executor.transaction(async (tx) => {
-      const row = await this.getRow(tx, owner, id, true);
-      if (
-        !row ||
-        row.status === "prepared" ||
-        Number(row.attempt_count) < 1 ||
-        !row.claimed_at ||
-        (row.submission_id && reference.submissionId && row.submission_id !== reference.submissionId) ||
-        (row.transaction_hash && reference.transactionHash && row.transaction_hash !== reference.transactionHash) ||
-        (row.user_operation_hash && reference.userOperationHash && row.user_operation_hash !== reference.userOperationHash) ||
-        await this.pendingReferenceBelongsToAnotherOwnedAction(tx, owner, id, reference)
-      ) {
-        return null;
-      }
-      await tx.query(moneyActionQueries.recordSubmission, [
-        reference.submissionId ?? null,
-        reference.transactionHash ?? null,
-        reference.userOperationHash ?? null,
-        now,
-        id,
-        ...ownerParameters(owner),
-      ]);
-      return this.getRow(tx, owner, id);
-    });
+    let updated: OperationRow | null;
+    try {
+      updated = await this.executor.transaction(async (tx) => {
+        const row = await this.getRow(tx, owner, id, true);
+        if (
+          !row ||
+          row.status === "prepared" ||
+          Number(row.attempt_count) < 1 ||
+          !row.claimed_at ||
+          (row.submission_id && normalizedReference.submissionId && row.submission_id !== normalizedReference.submissionId) ||
+          (row.transaction_hash && normalizedReference.transactionHash && row.transaction_hash.toLowerCase() !== normalizedReference.transactionHash) ||
+          (row.user_operation_hash && normalizedReference.userOperationHash && row.user_operation_hash.toLowerCase() !== normalizedReference.userOperationHash) ||
+          await this.pendingReferenceBelongsToAnotherOwnedAction(tx, owner, id, normalizedReference)
+        ) {
+          return null;
+        }
+        await this.reserveEvidence(tx, owner, id, normalizedReference);
+        await tx.query(moneyActionQueries.recordSubmission, [
+          normalizedReference.submissionId ?? null,
+          normalizedReference.transactionHash ?? null,
+          normalizedReference.userOperationHash ?? null,
+          now,
+          id,
+          ...ownerParameters(owner),
+        ]);
+        return this.getRow(tx, owner, id);
+      });
+    } catch (error) {
+      if (error instanceof CanonicalEvidenceConflict || isUniqueViolation(error)) return null;
+      throw error;
+    }
     if (!updated) return null;
     this.sensitiveActions.delete(id);
     return fromRow(updated);
@@ -243,6 +262,58 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
       const updated = await this.getRow(tx, owner, id);
       return updated ? fromRow(updated) : null;
     });
+  }
+
+  private async backfillCanonicalEvidenceReservations(): Promise<void> {
+    await this.executor.transaction(async (tx) => {
+      await tx.query(moneyActionQueries.normalizeLegacyHashes);
+      const result = await tx.query<{
+        id: string;
+        action_json: string;
+        submission_id: string | null;
+        user_operation_hash: string | null;
+      }>(moneyActionQueries.selectLegacyEvidenceForReservation);
+      for (const row of result.rows) {
+        const action = parseAction(row.action_json);
+        try {
+          await this.reserveEvidence(tx, action.owner, row.id, {
+            ...(row.submission_id ? { submissionId: row.submission_id } : {}),
+            ...(row.user_operation_hash
+              ? { userOperationHash: row.user_operation_hash.toLowerCase() as `0x${string}` }
+              : {}),
+          });
+        } catch (error) {
+          if (error instanceof CanonicalEvidenceConflict) {
+            throw new Error(`conflicting legacy money-action evidence for ${row.id}`);
+          }
+          throw error;
+        }
+      }
+    });
+  }
+
+  private async reserveEvidence(
+    executor: SqlExecutor,
+    owner: MoneyActionOwner,
+    actionId: string,
+    reference: { submissionId?: string; userOperationHash?: `0x${string}` },
+  ): Promise<void> {
+    const evidence = [
+      ...(reference.submissionId
+        ? [{ kind: "submission-id" as const, provider: "base-account" as const, value: reference.submissionId }]
+        : []),
+      ...(reference.userOperationHash
+        ? [{ kind: "user-operation-hash" as const, provider: "cdp-embedded" as const, value: reference.userOperationHash }]
+        : []),
+    ];
+    for (const item of evidence) {
+      const key = evidenceUniquenessKey(owner, item);
+      if (!key) continue;
+      const result = await executor.query<{ action_id: string }>(moneyActionQueries.reserveEvidence, [key, actionId]);
+      if (result.rowCount !== 1 || result.rows[0]?.action_id !== actionId) {
+        throw new CanonicalEvidenceConflict();
+      }
+    }
   }
 
   private installSensitiveAction(id: string, options: MoneyActionIssueStoreOptions): void {
@@ -547,6 +618,9 @@ export function createPostgresAttemptStoreResourceWithExecutor(executor: SqlExec
 
 export const createPostgresAttemptStoreResource: AttemptStoreResourceFactory = (options) => {
   if (options.backend !== "postgres") throw new Error("PostgreSQL attempt-store factory requires postgres options");
+  if (typeof options.schema !== "string" || !options.schema.trim()) {
+    throw new Error("PostgreSQL attempt-store resources require an explicit nonempty schema");
+  }
   return createPostgresAttemptStoreResourceWithExecutor(
     createNeonSqlExecutor(options.connectionString, { schema: options.schema }),
   );

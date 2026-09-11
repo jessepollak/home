@@ -6,58 +6,49 @@ import { getMoneyActionStore, resolveMoneyActionStoreBackend, setMoneyActionStor
 import { MemoryMoneyActionStore } from "./store";
 
 const originalUrl = process.env.DATABASE_URL;
-const originalVercel = process.env.VERCEL;
 
 afterEach(() => {
   setMoneyActionStoreForTests(null);
   if (originalUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = originalUrl;
-  if (originalVercel === undefined) delete process.env.VERCEL;
-  else process.env.VERCEL = originalVercel;
 });
 
 describe("money action runtime store selection", () => {
-  test("uses Postgres when DATABASE_URL is set and SQLite when it is not", () => {
+  test("uses PostgreSQL only when DATABASE_URL is configured", () => {
     expect(resolveMoneyActionStoreBackend({ DATABASE_URL: "postgresql://example/home" })).toBe("postgres");
     expect(resolveMoneyActionStoreBackend({ DATABASE_URL: "  postgresql://example/home  " })).toBe("postgres");
-    expect(resolveMoneyActionStoreBackend({})).toBe("sqlite");
-    expect(resolveMoneyActionStoreBackend({ DATABASE_URL: "" })).toBe("sqlite");
-    expect(resolveMoneyActionStoreBackend({ DATABASE_URL: "   " })).toBe("sqlite");
+    expect(resolveMoneyActionStoreBackend({})).toBe("unconfigured");
+    expect(resolveMoneyActionStoreBackend({ DATABASE_URL: "" })).toBe("unconfigured");
+    expect(resolveMoneyActionStoreBackend({ DATABASE_URL: "   " })).toBe("unconfigured");
   });
 
-  test("does not fall back to SQLite on Vercel without DATABASE_URL", () => {
-    expect(resolveMoneyActionStoreBackend({ VERCEL: "1" })).toBe("hosted-unconfigured");
-    expect(resolveMoneyActionStoreBackend({ VERCEL: "1", DATABASE_URL: "postgresql://example/home" })).toBe("postgres");
-  });
-
-  test("keeps an injected test store regardless of DATABASE_URL", async () => {
+  test("keeps an injected in-memory test double regardless of DATABASE_URL", async () => {
     process.env.DATABASE_URL = "postgresql://example/home";
     const store = new MemoryMoneyActionStore();
     setMoneyActionStoreForTests(store);
     await expect(getMoneyActionStore()).resolves.toBe(store);
   });
 
-  test("loads only the Postgres adapter when DATABASE_URL is set", async () => {
-    delete process.env.VERCEL;
+  test("loads the PostgreSQL adapter when DATABASE_URL is set", async () => {
     process.env.DATABASE_URL = "postgresql://example/home";
     setMoneyActionStoreForTests(null);
     const store = await getMoneyActionStore();
     expect(store).toBeInstanceOf(PostgresMoneyActionStore);
   });
 
-  test("fails closed on Vercel when DATABASE_URL is missing", async () => {
+  test("fails closed without DATABASE_URL in local and hosted runtimes", async () => {
     delete process.env.DATABASE_URL;
-    process.env.VERCEL = "1";
     setMoneyActionStoreForTests(null);
-    await expect(getMoneyActionStore()).rejects.toThrow(/DATABASE_URL is required/);
+    await expect(getMoneyActionStore()).rejects.toThrow(/DATABASE_URL is required for PostgreSQL/);
   });
 
-  test("hosted selection source never statically imports node:sqlite", () => {
+  test("production selection has no SQLite branch, import, or hosted alias dependency", () => {
     const runtime = readFileSync(resolve(import.meta.dir, "runtime-store.ts"), "utf8");
     const postgres = readFileSync(resolve(import.meta.dir, "postgres-store.ts"), "utf8");
+    expect(runtime).not.toContain("sqlite");
+    expect(runtime).not.toContain("hosted-unconfigured");
     expect(postgres).not.toContain("node:sqlite");
     expect(postgres).not.toContain("sqlite-store");
-    expect(runtime.indexOf('import("./postgres-store")')).toBeLessThan(runtime.indexOf('import("./sqlite-store.node")'));
-    expect(runtime).toContain('if (backend === "hosted-unconfigured")');
+    expect(runtime).toContain('await import("./postgres-store")');
   });
 });

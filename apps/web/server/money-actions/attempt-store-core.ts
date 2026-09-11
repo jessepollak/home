@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
-// Node's built-in TypeScript loader requires the extension for the SQLite process gate.
 import {
   compatibilityActionRevision,
   conflictingEvidenceDecision,
@@ -16,8 +15,7 @@ import {
   type RecordProviderEvidenceResult,
   type ReleaseAdmission,
   type ReleaseAdmissionResult,
-// @ts-expect-error Node requires the explicit TypeScript extension.
-} from "./attempt-commands.ts";
+} from "./attempt-commands";
 import {
   attemptStoreError,
   attemptStoreSuccess,
@@ -39,8 +37,7 @@ import {
   type LegacyCompatibilityEnvelope,
   type MoneyActionAttemptStore,
   type TrustedVerifiedObservation,
-// @ts-expect-error Node requires the explicit TypeScript extension.
-} from "./attempt-store.ts";
+} from "./attempt-store";
 import type {
   MoneyActionClaim,
   MoneyActionIssueStoreOptions,
@@ -49,8 +46,7 @@ import type {
   MoneyActionStore,
   StoredMoneyActionOperation,
 } from "./store";
-// @ts-expect-error Node requires the explicit TypeScript extension.
-import { sameMoneyActionOwner } from "./store.ts";
+import { sameMoneyActionOwner } from "./store";
 
 export type PersistedAttemptState = {
   action: AttemptActionSnapshot;
