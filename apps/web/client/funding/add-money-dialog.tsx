@@ -297,10 +297,6 @@ export function RipioBody({ regionId }: { regionId: RegionId }) {
             Buy {availability.token} with {availability.fiatCurrency} and receive it at this
             account on Base.
           </p>
-          <p className={styles.subtitle}>
-            A held quote shows the rate and fees before an order. Ripio terms, consent, and
-            identity verification are required before local payment instructions are issued.
-          </p>
         </>
       ) : (
         <p className={styles.buyLead}>

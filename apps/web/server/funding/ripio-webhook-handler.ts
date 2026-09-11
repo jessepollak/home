@@ -40,10 +40,11 @@ export function createRipioWebhookHandler(dependencies: {
     const event = parseRipioWebhook(rawBody);
     if (!event) return Response.json({ error: "invalid-event" }, { status: 400 });
     const digest = createHash("sha256").update(rawBody).digest("hex");
-    if (await dependencies.store.hasWebhookEvent(event.eventId)) {
+    const duplicate = await dependencies.store.hasWebhookEvent(event.eventId);
+    const order = await dependencies.store.getByProviderOrderId(event.providerOrderId);
+    if (duplicate && (!order || order.state !== "sent-unverified")) {
       return Response.json({ accepted: true, duplicate: true }, { status: 202 });
     }
-    const order = await dependencies.store.getByProviderOrderId(event.providerOrderId);
     if (!order) {
       const recorded = await dependencies.store.recordUnmatchedWebhook({
         event,

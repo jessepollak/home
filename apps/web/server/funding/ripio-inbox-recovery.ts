@@ -22,13 +22,13 @@ export async function reconcilePendingRipioInbox(dependencies: {
       }
     }
     if (matches.length !== 1) continue;
-    await dependencies.store.resolveInbox({
+    const result = await dependencies.store.resolveInbox({
       eventId: item.eventId,
       country: matches[0].country,
       transaction: matches[0].transaction,
       resolvedAt: dependencies.now?.() ?? new Date().toISOString(),
     });
-    reconciled += 1;
+    if (result === "applied") reconciled += 1;
   }
   return { reconciled, stillPending: pending.length - reconciled };
 }

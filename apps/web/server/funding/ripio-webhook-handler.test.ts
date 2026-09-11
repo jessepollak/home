@@ -16,7 +16,7 @@ function order(): DurableRipioOrder { return { homeOrderId:HOME_ORDER,homeCustom
 function transaction(overrides: Partial<RipioTransactionReference> = {}): RipioTransactionReference { return { transactionId:ORDER_ID,customerId:CUSTOMER,quoteId:QUOTE,externalRef:HOME_ORDER,status:"COMPLETED",txnHash:TX_HASH,operationType:"ON_RAMP",fromCurrency:"ARS",toCurrency:"wARS",chain:"BASE",destination:DESTINATION,paymentMethodType:"bank_transfer",amount:"2100",latestRefund:null,...overrides }; }
 function signedRequest(body: string, header = "Http-X-Wh-Signature-256") { return new Request("https://home.example/api/funding/ripio/webhook", { method:"POST",headers:{ [header]:createHmac("sha256",signingKey).update(body).digest("hex") },body }); }
 function body() { return JSON.stringify({ eventType:"ONRAMP_CRYPTO_SENT",issueDatetime:"2026-09-11T18:01:00Z",transactionObject:{transactionId:ORDER_ID} }); }
-function store(overrides: Partial<RipioReconciliationStore> = {}): RipioReconciliationStore { return { hasWebhookEvent:async()=>false,recordUnmatchedWebhook:async()=>true,getByProviderOrderId:async()=>order(),applyVerifiedObservation:async()=>"applied",listPendingInbox:async()=>[],resolveInbox:async()=>{},...overrides }; }
+function store(overrides: Partial<RipioReconciliationStore> = {}): RipioReconciliationStore { return { hasWebhookEvent:async()=>false,recordUnmatchedWebhook:async()=>true,getByProviderOrderId:async()=>order(),applyVerifiedObservation:async()=>"applied",listPendingInbox:async()=>[],resolveInbox:async()=>"pending",...overrides }; }
 
 describe("Ripio webhook handler", () => {
   test("uses documented signature header, provider GET and atomic observation commit", async () => {
@@ -26,6 +26,20 @@ describe("Ripio webhook handler", () => {
     expect(applied).toHaveLength(1);
     expect((await handler(signedRequest(body(), "x-ripio-signature"))).status).toBe(401);
   });
+  test("rechecks Base evidence for duplicate completion events while still sent-unverified", async () => {
+    let evidenceReads = 0;
+    let applies = 0;
+    const pendingOrder = { ...order(), state: "sent-unverified" as const, providerTransactionHash: TX_HASH };
+    const handler = createRipioWebhookHandler({
+      signingKey,
+      store: store({ hasWebhookEvent: async () => true, getByProviderOrderId: async () => pendingOrder, applyVerifiedObservation: async () => { applies += 1; return "duplicate"; } }),
+      clientForCountry: () => ({ getTransaction: async () => transaction() } as never),
+      findBaseTransferEvidence: async () => { evidenceReads += 1; return { chainId: 8453, transactionHash: TX_HASH, tokenAddress: RIPIO_ASSETS.AR.tokenAddress, destination: DESTINATION, amountAtomic: order().expectedAmountAtomic, blockNumber: "51180068", confirmations: 1 }; },
+    });
+    expect((await handler(signedRequest(body()))).status).toBe(202);
+    expect({ evidenceReads, applies }).toEqual({ evidenceReads: 1, applies: 1 });
+  });
+
   test("rejects unrelated GET bindings before evidence or persistence", async () => {
     let evidenceReads=0,applies=0;
     const handler=createRipioWebhookHandler({signingKey,store:store({applyVerifiedObservation:async()=>{applies+=1;return "applied";}}),clientForCountry:()=>({getTransaction:async()=>transaction({customerId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"})} as never),findBaseTransferEvidence:async()=>{evidenceReads+=1;return null;}});

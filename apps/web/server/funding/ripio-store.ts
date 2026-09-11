@@ -128,25 +128,18 @@ export class PostgresRipioStore implements RipioReconciliationStore {
     await this.ensureSchema();
     return this.sql.transaction(async (tx) => {
       const duplicate = await tx.query(`SELECT event_id FROM ripio_webhook_events WHERE event_id=$1 FOR UPDATE`, [observation.event.eventId]);
-      if (duplicate.rowCount > 0) return "duplicate";
       const result = await tx.query<RipioOrderRow>(`SELECT * FROM ripio_orders WHERE provider_order_id=$1 FOR UPDATE`, [observation.event.providerOrderId]);
       const row = result.rows[0];
       if (!row) return "unmatched";
       const current = rowToOrder(row);
       if (!transactionMatchesOrder(current, observation.transaction)) return "binding-conflict";
       const reconciled = reconcileRipioOrder({ order: current, transaction: observation.transaction, transferEvidence: observation.transferEvidence, now: observation.observedAt });
-      const inserted = await insertEvent(tx, observation.event, observation.rawBodyDigest, observation.observedAt);
-      if (!inserted) return "duplicate";
-      const updated = await tx.query(
-        `UPDATE ripio_orders SET state=$1,provider_status=$2,provider_transaction_hash=$3,latest_refund_status=$4,
-         latest_refund_rejection_reason=$5,transfer_evidence_json=$6,version=$7,updated_at=$8
-         WHERE home_order_id=$9 AND provider_order_id=$10 AND version=$11 RETURNING home_order_id`,
-        [reconciled.state,reconciled.providerStatus,reconciled.providerTransactionHash,reconciled.latestRefundStatus,
-         reconciled.latestRefundRejectionReason,reconciled.transferEvidence ? JSON.stringify(reconciled.transferEvidence) : null,
-         reconciled.version,reconciled.updatedAt,reconciled.homeOrderId,reconciled.providerOrderId,current.version],
-      );
-      if (updated.rowCount !== 1) throw new Error("ripio-order-version-conflict");
-      return "applied";
+      if (duplicate.rowCount === 0) {
+        const inserted = await insertEvent(tx, observation.event, observation.rawBodyDigest, observation.observedAt);
+        if (!inserted) return "duplicate";
+      }
+      await updateOrder(tx, current, reconciled);
+      return duplicate.rowCount > 0 ? "duplicate" : "applied";
     });
   }
 
@@ -160,14 +153,42 @@ export class PostgresRipioStore implements RipioReconciliationStore {
     return result.rows.map((row) => ({ eventId: row.event_id, providerOrderId: row.provider_order_id }));
   }
 
-  async resolveInbox(input: { eventId: string; country: "AR" | "CO"; transaction: import("./ripio-client").RipioTransactionReference; resolvedAt: string }): Promise<void> {
+  async resolveInbox(input: { eventId: string; country: "AR" | "CO"; transaction: import("./ripio-client").RipioTransactionReference; resolvedAt: string }): Promise<"applied" | "pending" | "binding-conflict"> {
     await this.ensureSchema();
-    await this.sql.query(
-      `UPDATE ripio_webhook_inbox SET recovery_state='reconciled',country=$1,provider_status=$2,latest_refund_status=$3,
-       latest_refund_rejection_reason=$4,updated_at=$5 WHERE event_id=$6 AND recovery_state='pending-recovery'`,
-      [input.country,input.transaction.status,input.transaction.latestRefund?.status ?? null,input.transaction.latestRefund?.rejectionReason ?? null,input.resolvedAt,input.eventId],
-    );
+    return this.sql.transaction(async (tx) => {
+      const inbox = await tx.query<{ provider_order_id: string }>(
+        `SELECT provider_order_id FROM ripio_webhook_inbox WHERE event_id=$1 AND recovery_state='pending-recovery' FOR UPDATE`,
+        [input.eventId],
+      );
+      const providerOrderId = inbox.rows[0]?.provider_order_id;
+      if (!providerOrderId) return "pending";
+      const result = await tx.query<RipioOrderRow>(`SELECT * FROM ripio_orders WHERE provider_order_id=$1 FOR UPDATE`, [providerOrderId]);
+      const row = result.rows[0];
+      if (!row) return "pending";
+      const current = rowToOrder(row);
+      if (current.country !== input.country || !transactionMatchesOrder(current, input.transaction)) return "binding-conflict";
+      const reconciled = reconcileRipioOrder({ order: current, transaction: input.transaction, now: input.resolvedAt });
+      await updateOrder(tx, current, reconciled);
+      await tx.query(
+        `UPDATE ripio_webhook_inbox SET recovery_state='reconciled',country=$1,provider_status=$2,latest_refund_status=$3,
+         latest_refund_rejection_reason=$4,updated_at=$5 WHERE event_id=$6 AND recovery_state='pending-recovery'`,
+        [input.country,input.transaction.status,input.transaction.latestRefund?.status ?? null,input.transaction.latestRefund?.rejectionReason ?? null,input.resolvedAt,input.eventId],
+      );
+      return "applied";
+    });
   }
+}
+
+async function updateOrder(tx: SqlExecutor, current: DurableRipioOrder, reconciled: DurableRipioOrder): Promise<void> {
+  const updated = await tx.query(
+    `UPDATE ripio_orders SET state=$1,provider_status=$2,provider_transaction_hash=$3,latest_refund_status=$4,
+     latest_refund_rejection_reason=$5,transfer_evidence_json=$6,version=$7,updated_at=$8
+     WHERE home_order_id=$9 AND provider_order_id=$10 AND version=$11 RETURNING home_order_id`,
+    [reconciled.state,reconciled.providerStatus,reconciled.providerTransactionHash,reconciled.latestRefundStatus,
+     reconciled.latestRefundRejectionReason,reconciled.transferEvidence ? JSON.stringify(reconciled.transferEvidence) : null,
+     reconciled.version,reconciled.updatedAt,reconciled.homeOrderId,reconciled.providerOrderId,current.version],
+  );
+  if (updated.rowCount !== 1) throw new Error("ripio-order-version-conflict");
 }
 
 async function insertEvent(tx: SqlExecutor, event: RipioInboxRecord["event"], digest: string, recordedAt: string): Promise<boolean> {

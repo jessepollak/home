@@ -68,7 +68,7 @@ export interface RipioReconciliationStore {
   /** Locks/reloads the order, re-reconciles, and commits event+order atomically. */
   applyVerifiedObservation(observation: RipioVerifiedObservation): Promise<"applied" | "duplicate" | "unmatched" | "binding-conflict">;
   listPendingInbox(limit: number): Promise<PendingRipioInbox[]>;
-  resolveInbox(input: { eventId: string; country: "AR" | "CO"; transaction: RipioTransactionReference; resolvedAt: string }): Promise<void>;
+  resolveInbox(input: { eventId: string; country: "AR" | "CO"; transaction: RipioTransactionReference; resolvedAt: string }): Promise<"applied" | "pending" | "binding-conflict">;
 }
 
 export function verifyRipioWebhook(input: {

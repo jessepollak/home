@@ -16,8 +16,15 @@ describe("Ripio durable store schema", () => {
   test("uses row locking plus version compare-and-swap for concurrent reconciliation", () => {
     const source = PostgresRipioStore.prototype.applyVerifiedObservation.toString();
     expect(source).toContain("FOR UPDATE");
-    expect(source).toContain("version=$11");
-    expect(source).toContain("ripio-order-version-conflict");
+    expect(source).toContain("updateOrder");
+    expect(RIPIO_SCHEMA_SQL).toContain("version INTEGER NOT NULL");
+  });
+
+  test("keeps unmatched inbox recovery pending until it atomically locks and updates the order", () => {
+    const source = PostgresRipioStore.prototype.resolveInbox.toString();
+    expect(source.match(/FOR UPDATE/g)?.length).toBe(2);
+    expect(source).toContain("updateOrder");
+    expect(source).toContain("recovery_state='reconciled'");
   });
 
   test("does not define credential, access token, email, bank, or raw webhook body columns", () => {

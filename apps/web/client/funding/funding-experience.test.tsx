@@ -156,7 +156,6 @@ describe("FundingExperience", () => {
     );
     fireEvent.click(page().getByRole("button", { name: /Buy local currency with Ripio/ }));
     expect(page().getByText(/Buy wARS with ARS/)).toBeTruthy();
-    expect(page().getByText(/terms, consent, and identity verification/)).toBeTruthy();
 
     rendered.unmount();
     render(
