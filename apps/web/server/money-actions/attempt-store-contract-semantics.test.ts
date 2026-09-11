@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import type { TransferReceiptStatus } from "@/server/transfers/receipt";
 import {
   compatibilityActionRevision,
   homeProviderRequestKey,
@@ -31,6 +32,10 @@ const OWNER = {
   chainId: 8453,
   accountProvider: "cdp-embedded",
 } as const;
+const BASE_OWNER = {
+  ...OWNER,
+  accountProvider: "base-account",
+} as const;
 
 function preparedAction(overrides: Partial<PreparedMoneyAction> = {}): PreparedMoneyAction {
   return {
@@ -51,6 +56,19 @@ function preparedAction(overrides: Partial<PreparedMoneyAction> = {}): PreparedM
     createdAt: "2026-09-11T01:00:00.000Z",
     expiresAt: "2026-09-11T01:10:00.000Z",
     ...overrides,
+  };
+}
+
+function confirmedReceipt(input: {
+  transactionHash: `0x${string}`;
+  verifiedExecution: NonNullable<Extract<TransferReceiptStatus, { status: "confirmed" }>["verifiedExecution"]>;
+}): Extract<TransferReceiptStatus, { status: "confirmed" }> {
+  return {
+    status: "confirmed",
+    transactionHash: input.transactionHash,
+    blockNumber: "123",
+    success: true,
+    verifiedExecution: input.verifiedExecution,
   };
 }
 
@@ -375,6 +393,10 @@ test("brands trusted verified observations with exact evidence and both version 
     provenance: { source: "verified-receipt" as const, observedAt: "2026-09-11T01:03:00.000Z" },
     recordedAt: "2026-09-11T01:03:00.000Z",
   };
+  const receipt = confirmedReceipt({
+    transactionHash,
+    verifiedExecution: { chainId: 8453, kind: "transaction", hash: transactionHash },
+  });
   const observation = createTrustedVerifiedObservation({
     owner: OWNER,
     actionId: preparedAction().id,
@@ -382,17 +404,19 @@ test("brands trusted verified observations with exact evidence and both version 
     expectedAttemptVersion: 2,
     expectedDispatchVersion: 1,
     expectedEvidence: { evidence, comparison: "exact-recorded-fact" },
-    verifiedExecution: { chainId: 8453, kind: "transaction", hash: transactionHash },
-    result: { kind: "confirmed", transactionHash, verifiedExecution: true },
+    verificationLookup: { kind: "transaction-hash", chainId: 8453, value: transactionHash },
+    verifiedExecution: receipt.verifiedExecution!,
+    result: { kind: "confirmed", transactionHash: receipt.transactionHash, verifiedExecution: true },
     observedAt: "2026-09-11T01:04:00.000Z",
   });
   expect(observation).toMatchObject({
     expectedAttemptVersion: 2,
     expectedDispatchVersion: 1,
     expectedEvidence: { comparison: "exact-recorded-fact", evidence },
+    verificationLookup: { kind: "transaction-hash", chainId: 8453, value: transactionHash.toLowerCase() },
     verifiedExecution: { hash: transactionHash.toLowerCase() },
     result: { transactionHash: transactionHash.toLowerCase() },
-    applicationRecheck: "owner-action-attempt-versions-evidence-execution-result",
+    applicationRecheck: "owner-provider-action-attempt-versions-exact-evidence-lookup-execution-result",
   });
   expect(Object.isFrozen(observation.expectedEvidence.evidence)).toBe(true);
 });
@@ -413,6 +437,7 @@ test("rejects unrelated transaction evidence, execution identities, and results"
     expectedAttemptVersion: 2,
     expectedDispatchVersion: 1,
     expectedEvidence: { evidence, comparison: "exact-recorded-fact" as const },
+    verificationLookup: { kind: "transaction-hash" as const, chainId: 8453 as const, value: evidenceHash },
     observedAt: "2026-09-11T01:04:00.000Z",
   };
   const mismatches = [
@@ -457,6 +482,11 @@ test("binds exact user-operation U while allowing its verified containing transa
     expectedAttemptVersion: 2,
     expectedDispatchVersion: 1,
     expectedEvidence: { evidence, comparison: "exact-recorded-fact" as const },
+    verificationLookup: {
+      kind: "user-operation-hash" as const,
+      provider: "cdp-embedded" as const,
+      value: userOperationHash,
+    },
     result: { kind: "confirmed" as const, transactionHash, verifiedExecution: true as const },
     observedAt: "2026-09-11T01:04:00.000Z",
   };
@@ -466,6 +496,7 @@ test("binds exact user-operation U while allowing its verified containing transa
     verifiedExecution: { chainId: 8453, kind: "user-operation", hash: userOperationHash },
   })).toMatchObject({
     expectedEvidence: { evidence: { evidence: { value: userOperationHash } } },
+    verificationLookup: { kind: "user-operation-hash", provider: "cdp-embedded", value: userOperationHash },
     verifiedExecution: { kind: "user-operation", hash: userOperationHash },
     result: { transactionHash },
   });
@@ -477,6 +508,173 @@ test("binds exact user-operation U while allowing its verified containing transa
     ...base,
     verifiedExecution: { chainId: 8453, kind: "transaction", hash: transactionHash },
   })).toThrow("invalid-trusted-verified-observation");
+});
+
+test("accepts verified user-operation U through each exact durable lead while retaining U as execution identity", () => {
+  const userOperationHash = `0x${"1".repeat(64)}` as const;
+  const transactionHash = `0x${"2".repeat(64)}` as const;
+  const submissionId = "Base-Opaque-Submission-ID";
+  const observedAt = "2026-09-11T01:04:00.000Z";
+  const receipt = confirmedReceipt({
+    transactionHash,
+    verifiedExecution: { chainId: 8453, kind: "user-operation", hash: userOperationHash },
+  });
+  const transactionEvidence = {
+    evidence: { kind: "transaction-hash" as const, chainId: 8453 as const, value: transactionHash },
+    provenance: { source: "verified-receipt" as const, observedAt },
+    recordedAt: observedAt,
+  };
+  const cases = [
+    {
+      name: "Base submission S to U to T",
+      owner: BASE_OWNER,
+      evidence: {
+        evidence: { kind: "submission-id" as const, provider: "base-account" as const, value: submissionId },
+        provenance: { source: "provider-return" as const, observedAt },
+        recordedAt: observedAt,
+      },
+      verificationLookup: { kind: "submission-id" as const, provider: "base-account" as const, value: submissionId },
+    },
+    {
+      name: "Base transaction T to U to T",
+      owner: BASE_OWNER,
+      evidence: transactionEvidence,
+      verificationLookup: { kind: "transaction-hash" as const, chainId: 8453 as const, value: transactionHash },
+    },
+    {
+      name: "CDP transaction T to U to T",
+      owner: OWNER,
+      evidence: transactionEvidence,
+      verificationLookup: { kind: "transaction-hash" as const, chainId: 8453 as const, value: transactionHash },
+    },
+    {
+      name: "CDP user operation U to U to T",
+      owner: OWNER,
+      evidence: {
+        evidence: {
+          kind: "user-operation-hash" as const,
+          provider: "cdp-embedded" as const,
+          value: userOperationHash,
+        },
+        provenance: { source: "provider-return" as const, observedAt },
+        recordedAt: observedAt,
+      },
+      verificationLookup: {
+        kind: "user-operation-hash" as const,
+        provider: "cdp-embedded" as const,
+        value: userOperationHash,
+      },
+    },
+  ];
+
+  for (const item of cases) {
+    const observation = createTrustedVerifiedObservation({
+      owner: item.owner,
+      actionId: preparedAction().id,
+      attemptId: "attempt-1",
+      expectedAttemptVersion: 2,
+      expectedDispatchVersion: 1,
+      expectedEvidence: { evidence: item.evidence, comparison: "exact-recorded-fact" },
+      verificationLookup: item.verificationLookup,
+      verifiedExecution: receipt.verifiedExecution!,
+      result: { kind: "confirmed", transactionHash: receipt.transactionHash, verifiedExecution: true },
+      observedAt,
+    });
+    expect(observation.verifiedExecution, item.name).toEqual({
+      chainId: 8453,
+      kind: "user-operation",
+      hash: userOperationHash,
+    });
+    expect(observation.result, item.name).toEqual({
+      kind: "confirmed",
+      transactionHash,
+      verifiedExecution: true,
+    });
+    expect(observation.verificationLookup, item.name).toEqual(item.verificationLookup);
+  }
+});
+
+test("rejects wrong T, U, provider, or durable verification handle", () => {
+  const userOperationHash = `0x${"3".repeat(64)}` as const;
+  const otherUserOperationHash = `0x${"4".repeat(64)}` as const;
+  const transactionHash = `0x${"5".repeat(64)}` as const;
+  const otherTransactionHash = `0x${"6".repeat(64)}` as const;
+  const submissionId = "Base-Submission-A";
+  const otherSubmissionId = "Base-Submission-B";
+  const observedAt = "2026-09-11T01:04:00.000Z";
+  const common = {
+    actionId: preparedAction().id,
+    attemptId: "attempt-1",
+    expectedAttemptVersion: 2,
+    expectedDispatchVersion: 1,
+    observedAt,
+  };
+  const transactionEvidence = {
+    evidence: { kind: "transaction-hash" as const, chainId: 8453 as const, value: transactionHash },
+    provenance: { source: "verified-receipt" as const, observedAt },
+    recordedAt: observedAt,
+  };
+  const submissionEvidence = {
+    evidence: { kind: "submission-id" as const, provider: "base-account" as const, value: submissionId },
+    provenance: { source: "provider-return" as const, observedAt },
+    recordedAt: observedAt,
+  };
+  const userOperationEvidence = {
+    evidence: {
+      kind: "user-operation-hash" as const,
+      provider: "cdp-embedded" as const,
+      value: userOperationHash,
+    },
+    provenance: { source: "provider-return" as const, observedAt },
+    recordedAt: observedAt,
+  };
+
+  const invalid = [
+    {
+      ...common,
+      owner: BASE_OWNER,
+      expectedEvidence: { evidence: transactionEvidence, comparison: "exact-recorded-fact" as const },
+      verificationLookup: { kind: "transaction-hash" as const, chainId: 8453 as const, value: transactionHash },
+      verifiedExecution: { chainId: 8453 as const, kind: "user-operation" as const, hash: userOperationHash },
+      result: { kind: "confirmed" as const, transactionHash: otherTransactionHash, verifiedExecution: true as const },
+    },
+    {
+      ...common,
+      owner: OWNER,
+      expectedEvidence: { evidence: userOperationEvidence, comparison: "exact-recorded-fact" as const },
+      verificationLookup: {
+        kind: "user-operation-hash" as const,
+        provider: "cdp-embedded" as const,
+        value: userOperationHash,
+      },
+      verifiedExecution: { chainId: 8453 as const, kind: "user-operation" as const, hash: otherUserOperationHash },
+      result: { kind: "confirmed" as const, transactionHash, verifiedExecution: true as const },
+    },
+    {
+      ...common,
+      owner: OWNER,
+      expectedEvidence: { evidence: submissionEvidence, comparison: "exact-recorded-fact" as const },
+      verificationLookup: { kind: "submission-id" as const, provider: "base-account" as const, value: submissionId },
+      verifiedExecution: { chainId: 8453 as const, kind: "user-operation" as const, hash: userOperationHash },
+      result: { kind: "confirmed" as const, transactionHash, verifiedExecution: true as const },
+    },
+    {
+      ...common,
+      owner: BASE_OWNER,
+      expectedEvidence: { evidence: submissionEvidence, comparison: "exact-recorded-fact" as const },
+      verificationLookup: {
+        kind: "submission-id" as const,
+        provider: "base-account" as const,
+        value: otherSubmissionId,
+      },
+      verifiedExecution: { chainId: 8453 as const, kind: "user-operation" as const, hash: userOperationHash },
+      result: { kind: "confirmed" as const, transactionHash, verifiedExecution: true as const },
+    },
+  ];
+
+  for (const item of invalid) {
+    expect(() => createTrustedVerifiedObservation(item)).toThrow("invalid-trusted-verified-observation");
+  }
 });
 
 test("freezes error outcomes and every error explicitly carries no dispatch authority", () => {

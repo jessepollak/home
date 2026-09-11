@@ -126,12 +126,19 @@ export type VerifiedEvidenceBinding = Readonly<{
   comparison: "exact-recorded-fact";
 }>;
 
+/** Durable lead used to acquire verification; distinct from the reserved execution identity. */
+export type VerifiedObservationLookup =
+  | Readonly<{ kind: "transaction-hash"; chainId: 8453; value: `0x${string}` }>
+  | Readonly<{ kind: "user-operation-hash"; provider: "cdp-embedded"; value: `0x${string}` }>
+  | Readonly<{ kind: "submission-id"; provider: "base-account"; value: string }>;
+
 const trustedVerifiedObservation = Symbol("trusted-verified-money-action-observation");
 
 /**
  * Server-internal input created only after provider/receipt verification outside the
- * store transaction. Applying it must recheck owner/action/attempt, both versions,
- * the exact evidence fact, and verified execution uniqueness in one transaction.
+ * store transaction. Applying it must recheck owner/provider/action/attempt, both
+ * versions, the exact evidence and verification lookup, their binding, and the
+ * verified execution identity in one transaction. For U in T, reserve U—not T.
  */
 export type TrustedVerifiedObservation = DeepReadonly<{
   [trustedVerifiedObservation]: true;
@@ -141,12 +148,19 @@ export type TrustedVerifiedObservation = DeepReadonly<{
   expectedAttemptVersion: AttemptVersion;
   expectedDispatchVersion: DispatchVersion;
   expectedEvidence: VerifiedEvidenceBinding;
+  /** Exact durable lead used by the external verifier; it must match expectedEvidence. */
+  verificationLookup: VerifiedObservationLookup;
   verifiedExecution: VerifiedMoneyActionExecution;
   result: Extract<ReconciliationResult, { kind: "confirmed" | "failed" }>;
   observedAt: string;
   /** The apply transaction must revalidate this binding after version/evidence locks. */
-  applicationRecheck: "owner-action-attempt-versions-evidence-execution-result";
+  applicationRecheck: "owner-provider-action-attempt-versions-exact-evidence-lookup-execution-result";
 }>;
+
+export type TrustedVerifiedObservationInput = Omit<
+  TrustedVerifiedObservation,
+  typeof trustedVerifiedObservation | "applicationRecheck"
+>;
 
 export type AttemptStoreErrorCode = typeof ATTEMPT_STORE_ERROR_CODES[number];
 
@@ -437,10 +451,10 @@ export function legacyCompatibilityEnvelope(
   });
 }
 
-export function createTrustedVerifiedObservation(input: Omit<
-  TrustedVerifiedObservation,
-  typeof trustedVerifiedObservation | "applicationRecheck"
->): TrustedVerifiedObservation {
+export function createTrustedVerifiedObservation(
+  input: TrustedVerifiedObservationInput,
+): TrustedVerifiedObservation {
+  const evidenceLookup = verifiedObservationLookup(input);
   if (
     !validOwner(input.owner) ||
     !nonEmpty(input.actionId) ||
@@ -454,7 +468,9 @@ export function createTrustedVerifiedObservation(input: Omit<
     input.result.verifiedExecution !== true ||
     (input.result.kind === "confirmed" && !validHash(input.result.transactionHash)) ||
     (input.result.kind === "failed" && input.result.transactionHash !== undefined && !validHash(input.result.transactionHash)) ||
-    !verifiedObservationFieldsBind(input)
+    evidenceLookup === null ||
+    !sameVerifiedObservationLookup(evidenceLookup, input.verificationLookup) ||
+    !verifiedObservationFieldsBind(input, evidenceLookup)
   ) throw new Error("invalid-trusted-verified-observation");
 
   const cloned = structuredClone(input);
@@ -467,7 +483,8 @@ export function createTrustedVerifiedObservation(input: Omit<
     result: cloned.result.transactionHash
       ? { ...cloned.result, transactionHash: cloned.result.transactionHash.toLowerCase() as `0x${string}` }
       : cloned.result,
-    applicationRecheck: "owner-action-attempt-versions-evidence-execution-result" as const,
+    verificationLookup: evidenceLookup,
+    applicationRecheck: "owner-provider-action-attempt-versions-exact-evidence-lookup-execution-result" as const,
     [trustedVerifiedObservation]: true as const,
   }) as TrustedVerifiedObservation;
 }
@@ -532,34 +549,71 @@ function sameSanitizedSensitiveAction(
   return stableStringify(durable) === stableStringify(sanitizedTransient);
 }
 
-function verifiedObservationFieldsBind(input: Omit<
-  TrustedVerifiedObservation,
-  typeof trustedVerifiedObservation | "applicationRecheck"
->): boolean {
-  const recorded = input.expectedEvidence.evidence.evidence;
+function verifiedObservationLookup(
+  input: TrustedVerifiedObservationInput,
+): VerifiedObservationLookup | null {
+  const recorded = input.expectedEvidence.evidence;
+  if (
+    !validTimestamp(recorded.recordedAt) ||
+    !validTimestamp(recorded.provenance.observedAt) ||
+    !mayRecordProviderEvidence({
+      homeActionId: input.actionId,
+      evidence: recorded.evidence,
+      provenance: recorded.provenance,
+    }).ok
+  ) return null;
+
+  const evidence = recorded.evidence.kind === "provider-status"
+    ? recorded.evidence.handle
+    : recorded.evidence;
+  if (evidence.kind === "transaction-hash") {
+    return evidence.chainId === input.owner.chainId
+      ? { ...evidence, value: evidence.value.toLowerCase() as `0x${string}` }
+      : null;
+  }
+  if (evidence.provider !== input.owner.accountProvider) return null;
+  return evidence.kind === "user-operation-hash"
+    ? { ...evidence, value: evidence.value.toLowerCase() as `0x${string}` }
+    : { ...evidence };
+}
+
+function sameVerifiedObservationLookup(
+  durable: VerifiedObservationLookup,
+  verified: VerifiedObservationLookup,
+): boolean {
+  if (durable.kind !== verified.kind) return false;
+  if (durable.kind === "transaction-hash" && verified.kind === "transaction-hash") {
+    return durable.chainId === verified.chainId && durable.value.toLowerCase() === verified.value.toLowerCase();
+  }
+  if (durable.kind === "user-operation-hash" && verified.kind === "user-operation-hash") {
+    return durable.provider === verified.provider && durable.value.toLowerCase() === verified.value.toLowerCase();
+  }
+  if (durable.kind === "submission-id" && verified.kind === "submission-id") {
+    return durable.provider === verified.provider && durable.value === verified.value;
+  }
+  return false;
+}
+
+function verifiedObservationFieldsBind(
+  input: TrustedVerifiedObservationInput,
+  lookup: VerifiedObservationLookup,
+): boolean {
   const executionHash = input.verifiedExecution.hash.toLowerCase();
   const resultHash = input.result.transactionHash?.toLowerCase();
-  const bindingEvidence = recorded.kind === "provider-status" ? recorded.handle : recorded;
 
-  if (bindingEvidence.kind === "transaction-hash") {
-    const evidenceHash = bindingEvidence.value.toLowerCase();
-    return bindingEvidence.chainId === input.verifiedExecution.chainId &&
-      input.verifiedExecution.kind === "transaction" &&
-      resultHash !== undefined &&
-      executionHash === evidenceHash &&
-      resultHash === evidenceHash;
+  if (input.verifiedExecution.kind === "transaction") {
+    if (resultHash === undefined || executionHash !== resultHash) return false;
+    if (lookup.kind === "transaction-hash") return lookup.value.toLowerCase() === resultHash;
+    return lookup.kind === "submission-id" && input.owner.accountProvider === "base-account";
   }
-  if (bindingEvidence.kind === "user-operation-hash") {
+
+  if (lookup.kind === "user-operation-hash") {
     return input.owner.accountProvider === "cdp-embedded" &&
-      bindingEvidence.provider === "cdp-embedded" &&
-      input.verifiedExecution.kind === "user-operation" &&
-      executionHash === bindingEvidence.value.toLowerCase();
+      executionHash === lookup.value.toLowerCase();
   }
-  return input.owner.accountProvider === "base-account" &&
-    bindingEvidence.provider === "base-account" &&
-    input.verifiedExecution.kind === "transaction" &&
-    resultHash !== undefined &&
-    executionHash === resultHash;
+  if (resultHash === undefined) return false;
+  if (lookup.kind === "transaction-hash") return lookup.value.toLowerCase() === resultHash;
+  return input.owner.accountProvider === "base-account";
 }
 
 function validReconcileLookup(command: ReconcileAttempt): boolean {
