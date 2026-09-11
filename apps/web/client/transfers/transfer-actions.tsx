@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AddressText } from "@/components/address";
+import { CopyableValue } from "@/components/copyable-value";
+import { formatAddress } from "@/shared/formatting";
 import {
   useAccountWallet,
   type AccountWalletClient,
@@ -42,12 +44,16 @@ export function TransferActionsForWallet({
 }: TransferActionsProps & { wallet: TransferWallet }) {
   const [openModal, setOpenModal] = useState<"send" | "receive" | null>(null);
   const [modalOwner, setModalOwner] = useState<string | null>(null);
-  const [success, setSuccess] = useState<ConfirmedTransfer | null>(null);
+  const [success, setSuccess] = useState<{
+    transfer: ConfirmedTransfer;
+    owner: string | null;
+  } | null>(null);
   const boundary = walletBoundary(wallet);
   const verifiedAddress =
     wallet.status === "verified" ? wallet.session?.smartAccount?.address ?? null : null;
   const visibleModal = modalOwner === boundary ? openModal : null;
   const dropPrivate = modalOwner !== null && modalOwner !== boundary;
+  const visibleSuccess = success && success.owner === boundary ? success.transfer : null;
   const fetchUnresolvedSends = useMemo(() => {
     const fetchAccountResource = wallet.fetchAccountResource;
     return fetchAccountResource
@@ -132,21 +138,25 @@ export function TransferActionsForWallet({
         releaseAdmission={releaseAdmission}
         ownerBoundary={boundary}
         onTransferConfirmed={(transfer) => {
-          setSuccess(transfer);
+          setSuccess({ transfer, owner: boundary });
           onTransferConfirmed?.(transfer);
         }}
         onClose={close}
         onClosed={finishClose}
       />
 
-      {success ? (
+      {visibleSuccess ? (
         <div className={styles.successToast} role="status">
           <span className={styles.successMark} aria-hidden="true">✓</span>
           <div>
-            <strong>Sent {formatSendConfirmAmount(success.amountBaseUnits, success.assetId)}</strong>
+            <strong>Sent {formatSendConfirmAmount(visibleSuccess.amountBaseUnits, visibleSuccess.assetId)}</strong>
             <p>
-              {TRANSFER_ASSETS[success.assetId].symbol} · Base ·{" "}
-              <AddressText address={success.recipient} />
+              {TRANSFER_ASSETS[visibleSuccess.assetId].symbol} · Base ·{" "}
+              <CopyableValue
+                value={visibleSuccess.recipient}
+                display={formatAddress(visibleSuccess.recipient)}
+                valueKind="address"
+              />
             </p>
           </div>
         </div>

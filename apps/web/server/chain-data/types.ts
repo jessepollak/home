@@ -13,13 +13,15 @@ export type TransferHistoryCursor = {
   blockNumber: string;
   transactionHash: TransactionHash;
   logIndex: string;
+  tokenAddress: HexAddress;
   logId: string;
 };
 
 export type BaseErc20Transfer = {
   id: string;
+  logId: string;
   chainId: typeof BASE_MAINNET_CHAIN_ID;
-  assetId: string;
+  assetId: string | null;
   tokenAddress: HexAddress;
   walletAddress: HexAddress;
   fromAddress: HexAddress;
@@ -52,6 +54,8 @@ export type ListBaseErc20TransfersInput = {
   /** Must come from the authenticated session's verified smart account. */
   verifiedWalletAddress: string;
   assetIds: readonly string[];
+  /** Include wallet-scoped ERC-20 transfers whose contracts are not in assets. */
+  includeUnknownAssets?: boolean;
   from: string;
   to: string;
   limit?: number;

@@ -19,7 +19,7 @@ const UTC = { timeZone: "UTC" } as const;
 const usdc = requireAsset("usdc");
 const cbbtc = requireAsset("cbbtc");
 
-function requireAsset(id: ActivityTransfer["assetId"]): ActivityAsset {
+function requireAsset(id: NonNullable<ActivityTransfer["assetId"]>): ActivityAsset {
   const asset = activityAssets.find((candidate) => candidate.id === id);
   if (!asset) throw new Error(`Missing test asset ${id}.`);
   return asset;
@@ -29,11 +29,16 @@ function transfer(
   direction: ActivityDirection,
   overrides: Partial<ActivityTransfer> = {},
 ): ActivityTransfer {
+  const tokenAddress = overrides.tokenAddress ?? usdc.tokenAddress;
+  const logId = overrides.logId ?? `event-${direction}`;
   return {
-    id: `event-${direction}`,
+    id: `8453:${tokenAddress.toLowerCase()}:${logId}`,
+    logId,
     chainId: 8453,
     assetId: "usdc",
-    tokenAddress: usdc.tokenAddress,
+    tokenAddress,
+    tokenSymbol: usdc.symbol,
+    tokenDecimals: usdc.decimals,
     walletAddress: WALLET,
     fromAddress: direction === "incoming" ? OTHER : WALLET,
     toAddress: direction === "outgoing" ? OTHER : WALLET,
@@ -69,43 +74,35 @@ function expectSerializable(model: ActivityRowViewModel) {
 
 describe("presentActivityTransferRow", () => {
   test("presents incoming, outgoing, and self direction semantics", () => {
-    expect(
-      presentActivityTransferRow(transfer("incoming"), usdc, UTC),
-    ).toMatchObject({
+    expect(presentActivityTransferRow(transfer("incoming"), UTC)).toMatchObject({
       directionLabel: "Received",
       iconKey: "incoming",
       iconTone: "incoming",
       sign: "+",
       value: "+1.00 USDC",
     });
-    expect(
-      presentActivityTransferRow(transfer("outgoing"), usdc, UTC),
-    ).toMatchObject({
+    expect(presentActivityTransferRow(transfer("outgoing"), UTC)).toMatchObject({
       directionLabel: "Sent",
       iconKey: "outgoing",
       iconTone: "outgoing",
       sign: "−",
       value: "−1.00 USDC",
     });
-    expect(presentActivityTransferRow(transfer("self"), usdc, UTC)).toMatchObject(
-      {
-        directionLabel: "Self transfer",
-        iconKey: "self",
-        iconTone: "self",
-        sign: "",
-        value: "1.00 USDC",
-      },
-    );
+    expect(presentActivityTransferRow(transfer("self"), UTC)).toMatchObject({
+      directionLabel: "Self transfer",
+      iconKey: "self",
+      iconTone: "self",
+      sign: "",
+      value: "1.00 USDC",
+    });
   });
 
   test("uses the runtime formatter with an explicit timezone for deterministic dates", () => {
     const timestamp = "2026-09-07T11:05:00.000Z";
-    const utc = presentActivityTransferRow(transfer("incoming"), usdc, UTC);
-    const pacific = presentActivityTransferRow(
-      transfer("incoming"),
-      usdc,
-      { timeZone: "America/Los_Angeles" },
-    );
+    const utc = presentActivityTransferRow(transfer("incoming"), UTC);
+    const pacific = presentActivityTransferRow(transfer("incoming"), {
+      timeZone: "America/Los_Angeles",
+    });
 
     expect(utc).toMatchObject({
       dateTime: timestamp,
@@ -114,19 +111,14 @@ describe("presentActivityTransferRow", () => {
     });
     expect(pacific).toMatchObject({
       fullDate: expectedActivityDate(timestamp, "America/Los_Angeles", true),
-      shortDate: expectedActivityDate(
-        timestamp,
-        "America/Los_Angeles",
-        false,
-      ),
+      shortDate: expectedActivityDate(timestamp, "America/Los_Angeles", false),
     });
   });
 
-  test("keeps USDC cash formatting and non-USDC token symbols", () => {
+  test("keeps USDC cash formatting and contract-resolved non-USDC decimals", () => {
     expect(
       presentActivityTransferRow(
         transfer("incoming", { amountBaseUnits: "1234567890000" }),
-        usdc,
         UTC,
       ).value,
     ).toBe("+1,234,567.89 USDC");
@@ -136,63 +128,64 @@ describe("presentActivityTransferRow", () => {
         transfer("outgoing", {
           assetId: "cbbtc",
           tokenAddress: cbbtc.tokenAddress,
+          tokenSymbol: cbbtc.symbol,
+          tokenDecimals: cbbtc.decimals,
           amountBaseUnits: "123450000",
         }),
-        cbbtc,
         UTC,
       ).value,
     ).toBe("−1.2345 cbBTC");
   });
 
-  test("includes serializable date accessibility metadata without a row explorer link", () => {
-    const model = presentActivityTransferRow(transfer("incoming"), usdc, UTC);
+  test("presents unknown contracts honestly without a USDC fallback", () => {
+    const tokenAddress = "0x4444444444444444444444444444444444444444" as const;
+    const unknown = transfer("incoming", {
+      id: `8453:${tokenAddress}:unknown-log`,
+      logId: "unknown-log",
+      assetId: null,
+      tokenAddress,
+      tokenSymbol: null,
+      tokenDecimals: null,
+      amountBaseUnits: "123456789",
+    });
 
-    expect(model.fullDate).toBe(
-      expectedActivityDate(transfer("incoming").blockTimestamp, "UTC", true),
+    expect(presentActivityTransferRow(unknown, UTC).value).toBe(
+      "+123456789 base units",
     );
-    expect(model).not.toHaveProperty("explorer");
-    expectSerializable(model);
+    const details = presentActivityTransferDetails(unknown, UTC);
+    expect(details.title).toBe("Received unknown token");
+    expect(details.rows).toContainEqual({
+      label: "Amount",
+      value: "+123456789 base units · unknown token",
+    });
+    expect(details.rows).toContainEqual({
+      label: "Token contract",
+      value: "0x4444…444444",
+      title: tokenAddress,
+    });
   });
 
-  test("fails closed when validated asset metadata is impossible or mismatched", () => {
-    expect(() =>
-      presentActivityTransferRow(transfer("incoming"), undefined, UTC),
-    ).toThrow("Activity transfer asset metadata is unavailable.");
-    expect(() =>
-      presentActivityTransferRow(transfer("incoming"), cbbtc, UTC),
-    ).toThrow("Activity transfer asset metadata is unavailable.");
+  test("includes serializable date accessibility metadata without a row explorer link", () => {
+    const model = presentActivityTransferRow(transfer("incoming"), UTC);
+    expect(model).not.toHaveProperty("explorer");
+    expectSerializable(model);
   });
 });
 
 describe("presentActivityTransferDetails", () => {
-  test("derives exact, owner-fenced detail rows from structured transfer fields", () => {
-    const details = presentActivityTransferDetails(
-      transfer("incoming"),
-      usdc,
-      UTC,
-    );
+  test("derives exact owner-fenced detail rows and contract identity", () => {
+    const details = presentActivityTransferDetails(transfer("incoming"), UTC);
 
     expect(details.title).toBe("Received USDC");
+    expect(details.rows).toContainEqual({ label: "Amount", value: "+1.000001 USDC" });
+    expect(details.rows).toContainEqual({ label: "From", value: "0x2222…222222", title: OTHER });
+    expect(details.rows).toContainEqual({ label: "To", value: "0x1111…111111", title: WALLET });
     expect(details.rows).toContainEqual({
-      label: "Amount",
-      value: "+1.000001 USDC",
-    });
-    expect(details.rows).toContainEqual({
-      label: "From",
-      value: "0x2222…222222",
-      title: OTHER,
-    });
-    expect(details.rows).toContainEqual({
-      label: "To",
-      value: "0x1111…111111",
-      title: WALLET,
+      label: "Token contract",
+      value: "0x8335…A02913",
+      title: usdc.tokenAddress,
     });
     expect(details.rows).toContainEqual({ label: "Status", value: "Confirmed" });
-    expect(details.rows).toContainEqual({
-      label: "Transaction",
-      value: condensedHash(TRANSACTION_HASH),
-      title: TRANSACTION_HASH,
-    });
     expect(details.rows).toContainEqual({ label: "Block", value: "20" });
     expect(details.explorer).toEqual({
       href: `https://basescan.org/tx/${TRANSACTION_HASH}`,
@@ -205,22 +198,11 @@ describe("presentActivityTransferDetails", () => {
     expect(
       presentActivityTransferDetails(
         transfer("outgoing", { amountBaseUnits: "123450000" }),
-        usdc,
         UTC,
       ).rows,
     ).toContainEqual({ label: "Amount", value: "−123.45 USDC" });
-    expect(
-      presentActivityTransferDetails(transfer("self"), usdc, UTC).title,
-    ).toBe("Self transfer USDC");
-  });
-
-  test("fails closed on mismatched asset metadata", () => {
-    expect(() =>
-      presentActivityTransferDetails(transfer("incoming"), undefined, UTC),
-    ).toThrow("Activity transfer asset metadata is unavailable.");
+    expect(presentActivityTransferDetails(transfer("self"), UTC).title).toBe(
+      "Self transfer USDC",
+    );
   });
 });
-
-function condensedHash(value: string): string {
-  return `${value.slice(0, 10)}…${value.slice(-8)}`;
-}

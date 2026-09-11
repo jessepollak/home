@@ -14,8 +14,8 @@ const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const uint256Max = (BigInt(1) << BigInt(256)) - BigInt(1);
 const maxWindowMs = ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-const assetsById = new Map<string, ActivityAsset>(
-  activityAssets.map((asset) => [asset.id, asset]),
+const assetsByContract = new Map<string, ActivityAsset>(
+  activityAssets.map((asset) => [asset.tokenAddress.toLowerCase(), asset]),
 );
 
 export class ActivityResponseError extends Error {
@@ -103,16 +103,17 @@ function parseTransfer(
   from: string,
   to: string,
 ): ActivityTransfer {
-  if (!isRecord(value) || typeof value.assetId !== "string") {
-    throw new ActivityResponseError();
-  }
-  const asset = assetsById.get(value.assetId);
-  if (!asset) {
+  if (!isRecord(value)) {
     throw new ActivityResponseError();
   }
 
   const transferWallet = readAddress(value.walletAddress);
   const tokenAddress = readAddress(value.tokenAddress);
+  const normalizedTokenAddress = tokenAddress.toLowerCase();
+  const asset = assetsByContract.get(normalizedTokenAddress);
+  const expectedAssetId = asset?.id ?? null;
+  const expectedSymbol = asset?.symbol ?? null;
+  const expectedDecimals = asset?.decimals ?? null;
   const fromAddress = readAddress(value.fromAddress);
   const toAddress = readAddress(value.toAddress);
   const transactionHash = readHash(value.transactionHash);
@@ -133,11 +134,15 @@ function parseTransfer(
           : null;
 
   if (
-    typeof value.id !== "string" ||
-    value.id.length === 0 ||
-    value.id.length > 256 ||
+    typeof value.logId !== "string" ||
+    value.logId.length === 0 ||
+    value.logId.length > 256 ||
+    value.id !== `${ACTIVITY_BASE_CHAIN_ID}:${normalizedTokenAddress}:${value.logId}` ||
+    value.id.length > 512 ||
     value.chainId !== ACTIVITY_BASE_CHAIN_ID ||
-    tokenAddress.toLowerCase() !== asset.tokenAddress.toLowerCase() ||
+    value.assetId !== expectedAssetId ||
+    value.tokenSymbol !== expectedSymbol ||
+    value.tokenDecimals !== expectedDecimals ||
     transferWallet.toLowerCase() !== normalizedWallet ||
     direction !== expectedDirection ||
     typeof value.amountBaseUnits !== "string" ||
@@ -155,9 +160,12 @@ function parseTransfer(
 
   return {
     id: value.id,
+    logId: value.logId,
     chainId: ACTIVITY_BASE_CHAIN_ID,
-    assetId: asset.id,
-    tokenAddress: tokenAddress.toLowerCase() as `0x${string}`,
+    assetId: expectedAssetId,
+    tokenAddress: normalizedTokenAddress as `0x${string}`,
+    tokenSymbol: expectedSymbol,
+    tokenDecimals: expectedDecimals,
     walletAddress: transferWallet.toLowerCase() as `0x${string}`,
     fromAddress: fromAddress.toLowerCase() as `0x${string}`,
     toAddress: toAddress.toLowerCase() as `0x${string}`,
