@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { InvestAsset } from "@/config/invest-assets";
 import {
   assetMarkResolutionFromDiscover,
@@ -9,7 +9,7 @@ import {
 import { INVEST_DISCOVER_VERSION } from "@/shared/invest/invest-discover-contract";
 import { resolveMarketPriceAssetIdentity } from "@/shared/invest/history-contract";
 import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
-import type { MemeShelfStatus } from "./discover";
+import type { MemePagination, MemeShelfStatus } from "./discover";
 
 const DISCOVER_ENDPOINT = "/api/invest/discover";
 const VISIBILITY_REFRESH_COOLDOWN_MS = 60_000;
@@ -24,6 +24,12 @@ export type InvestDiscoverState = {
   memeStatus: MemeShelfStatus;
   memeMarket: MarketDataState;
   assetMarkResolution: AssetMarkResolution;
+  memePagination: MemePagination;
+};
+
+export type UseInvestDiscoverResult = InvestDiscoverState & {
+  loadMoreMemes: () => void;
+  retryLoadMoreMemes: () => void;
 };
 
 export type UseInvestDiscoverOptions = {
@@ -33,27 +39,67 @@ export type UseInvestDiscoverOptions = {
   refreshCooldownMs?: number;
 };
 
+type LoadMoreRequest = {
+  sequence: number;
+  offset: number;
+  controller: AbortController;
+};
+
 const emptyIcons = {} as const;
+
+const emptyPagination: MemePagination = {
+  nextOffset: null,
+  exhausted: true,
+  loadingMore: false,
+  loadMoreError: false,
+  autoLoadPaused: false,
+};
+
+const initialDiscoverState: InvestDiscoverState = {
+  memeAssets: [],
+  memeStatus: "loading",
+  memeMarket: { status: "loading" },
+  assetMarkResolution: { images: emptyIcons, pending: true },
+  memePagination: emptyPagination,
+};
+
+const errorDiscoverState: InvestDiscoverState = {
+  memeAssets: [],
+  memeStatus: "error",
+  memeMarket: {
+    status: "error",
+    message: "Trending memes are unavailable.",
+  },
+  assetMarkResolution: { images: emptyIcons, pending: false },
+  memePagination: emptyPagination,
+};
 
 export function useInvestDiscover({
   endpoint = DISCOVER_ENDPOINT,
   fetchImpl = fetch,
   now = Date.now,
   refreshCooldownMs = VISIBILITY_REFRESH_COOLDOWN_MS,
-}: UseInvestDiscoverOptions = {}): InvestDiscoverState {
-  const [state, setState] = useState<InvestDiscoverState>({
-    memeAssets: [],
-    memeStatus: "loading",
-    memeMarket: { status: "loading" },
-    assetMarkResolution: { images: emptyIcons, pending: true },
-  });
+}: UseInvestDiscoverOptions = {}): UseInvestDiscoverResult {
+  const [state, setState] = useState<InvestDiscoverState>(initialDiscoverState);
+  const sequence = useRef(0);
   const requestController = useRef<AbortController | null>(null);
+  const loadMoreRequest = useRef<LoadMoreRequest | null>(null);
+  const attemptedOffsets = useRef(new Set<number>());
+  const hasLoadedMore = useRef(false);
   const lastRequestAt = useRef(Number.NEGATIVE_INFINITY);
 
   const refresh = useCallback(async () => {
+    // Once the user has paged, a background refresh would slice rows off the
+    // top and desynchronize the loaded catalog. Keep the loaded content.
+    if (hasLoadedMore.current) return;
     const requestTime = now();
     if (requestTime - lastRequestAt.current < refreshCooldownMs) return;
     lastRequestAt.current = requestTime;
+
+    const requestSequence = ++sequence.current;
+    loadMoreRequest.current?.controller.abort();
+    loadMoreRequest.current = null;
+    attemptedOffsets.current = new Set();
     requestController.current?.abort();
     const controller = new AbortController();
     requestController.current = controller;
@@ -66,18 +112,15 @@ export function useInvestDiscover({
       });
       const payload = parseDiscoverResponse(await response.json());
       if (!payload) throw new Error("Invalid invest discover response");
+      if (controller.signal.aborted || sequence.current !== requestSequence) {
+        return;
+      }
       setState(payload);
     } catch {
-      if (controller.signal.aborted) return;
-      setState({
-        memeAssets: [],
-        memeStatus: "error",
-        memeMarket: {
-          status: "error",
-          message: "Trending memes are unavailable.",
-        },
-        assetMarkResolution: { images: emptyIcons, pending: false },
-      });
+      if (controller.signal.aborted || sequence.current !== requestSequence) {
+        return;
+      }
+      setState(errorDiscoverState);
     }
   }, [endpoint, fetchImpl, now, refreshCooldownMs]);
 
@@ -86,6 +129,8 @@ export function useInvestDiscover({
     return () => {
       window.clearTimeout(timeout);
       requestController.current?.abort();
+      loadMoreRequest.current?.controller.abort();
+      loadMoreRequest.current = null;
     };
   }, [refresh]);
 
@@ -97,7 +142,104 @@ export function useInvestDiscover({
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [refresh]);
 
-  return useMemo(() => state, [state]);
+  const requestMore = useCallback(
+    (manualRetry: boolean) => {
+      const pagination = state.memePagination;
+      const offset = pagination.nextOffset;
+      if (
+        state.memeStatus !== "ready" ||
+        offset === null ||
+        pagination.exhausted ||
+        pagination.loadingMore ||
+        loadMoreRequest.current ||
+        (!manualRetry && pagination.autoLoadPaused) ||
+        (!manualRetry && attemptedOffsets.current.has(offset))
+      ) {
+        return;
+      }
+
+      const controller = new AbortController();
+      const requestSequence = sequence.current;
+      const request: LoadMoreRequest = { sequence: requestSequence, offset, controller };
+      loadMoreRequest.current = request;
+      attemptedOffsets.current.add(offset);
+      setState((current) =>
+        current.memeStatus === "ready" &&
+        current.memePagination.nextOffset === offset &&
+        !current.memePagination.loadingMore
+          ? {
+              ...current,
+              memePagination: {
+                ...current.memePagination,
+                loadingMore: true,
+                loadMoreError: false,
+              },
+            }
+          : current,
+      );
+
+      const query = new URLSearchParams({ offset: String(offset) }).toString();
+      const url = endpoint.includes("?")
+        ? `${endpoint}&${query}`
+        : `${endpoint}?${query}`;
+
+      void (async () => {
+        try {
+          const response = await fetchImpl(url, {
+            headers: { accept: "application/json" },
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          if (!isCurrentLoadMoreRequest(loadMoreRequest.current, request, sequence.current)) {
+            return;
+          }
+          const next = parseDiscoverResponse(await response.json());
+          if (!next) throw new Error("Invalid invest discover page");
+          if (next.memePagination.nextOffset === offset) {
+            throw new Error("Discover offset did not advance.");
+          }
+          hasLoadedMore.current = true;
+          setState((current) => {
+            if (
+              current.memeStatus !== "ready" ||
+              current.memePagination.nextOffset !== offset ||
+              !current.memePagination.loadingMore
+            ) {
+              return current;
+            }
+            return mergeDiscoverPages(current, next);
+          });
+        } catch {
+          if (!isCurrentLoadMoreRequest(loadMoreRequest.current, request, sequence.current)) {
+            return;
+          }
+          setState((current) =>
+            current.memeStatus === "ready" &&
+            current.memePagination.nextOffset === offset
+              ? {
+                  ...current,
+                  memePagination: {
+                    ...current.memePagination,
+                    loadingMore: false,
+                    loadMoreError: true,
+                  },
+                }
+              : current,
+          );
+        } finally {
+          if (loadMoreRequest.current === request) {
+            loadMoreRequest.current = null;
+          }
+        }
+      })();
+    },
+    [endpoint, fetchImpl, state],
+  );
+
+  const loadMoreMemes = useCallback(() => requestMore(false), [requestMore]);
+  const retryLoadMoreMemes = useCallback(() => requestMore(true), [requestMore]);
+
+  return { ...state, loadMoreMemes, retryLoadMoreMemes };
 }
 
 function parseDiscoverResponse(
@@ -124,6 +266,9 @@ function parseDiscoverResponse(
     return null;
   }
 
+  const pagination = parsePagination(memes);
+  if (!pagination) return null;
+
   if (memes.status !== "ready") {
     return {
       memeAssets: [],
@@ -135,6 +280,7 @@ function parseDiscoverResponse(
             ? unavailableMarketData
             : { status: "ready", snapshots: [] },
       assetMarkResolution: assetMarkResolutionFromDiscover({ icons }),
+      memePagination: { ...emptyPagination, ...pagination },
     };
   }
 
@@ -186,6 +332,80 @@ function parseDiscoverResponse(
       icons,
       memeAssets: assets,
     }),
+    memePagination: { ...emptyPagination, ...pagination },
+  };
+}
+
+function parsePagination(
+  memes: Record<string, unknown>,
+): { nextOffset: number | null; exhausted: boolean } | null {
+  const exhausted = memes.exhausted;
+  if (typeof exhausted !== "boolean") return null;
+  if (exhausted) {
+    if (memes.nextOffset !== null) return null;
+    return { nextOffset: null, exhausted: true };
+  }
+  const nextOffset = memes.nextOffset;
+  if (
+    typeof nextOffset !== "number" ||
+    !Number.isSafeInteger(nextOffset) ||
+    nextOffset < 0
+  ) {
+    return null;
+  }
+  return { nextOffset, exhausted: false };
+}
+
+function mergeDiscoverPages(
+  previous: InvestDiscoverState,
+  next: InvestDiscoverState,
+): InvestDiscoverState {
+  const seenAddresses = new Set(
+    previous.memeAssets.map((asset) => asset.contractAddress.toLowerCase()),
+  );
+  const newAssets: InvestAsset[] = [];
+  for (const asset of next.memeAssets) {
+    const key = asset.contractAddress.toLowerCase();
+    if (seenAddresses.has(key)) continue;
+    seenAddresses.add(key);
+    newAssets.push(asset);
+  }
+  const assets = [...previous.memeAssets, ...newAssets];
+
+  const seenSnapshots = new Set(
+    previous.memeMarket.status === "ready"
+      ? previous.memeMarket.snapshots.map((snapshot) => snapshot.assetId)
+      : [],
+  );
+  const previousSnapshots =
+    previous.memeMarket.status === "ready" ? previous.memeMarket.snapshots : [];
+  const nextSnapshots =
+    next.memeMarket.status === "ready" ? next.memeMarket.snapshots : [];
+  const snapshots = [
+    ...previousSnapshots,
+    ...nextSnapshots.filter((snapshot) => !seenSnapshots.has(snapshot.assetId)),
+  ];
+
+  const previousImages = previous.assetMarkResolution.images ?? {};
+  const nextImages = next.assetMarkResolution.images ?? {};
+
+  return {
+    memeAssets: assets,
+    memeStatus: assets.length > 0 ? "ready" : "empty",
+    memeMarket: { status: "ready", snapshots },
+    assetMarkResolution: {
+      images: { ...previousImages, ...nextImages },
+      pending: Boolean(
+        previous.assetMarkResolution.pending || next.assetMarkResolution.pending,
+      ),
+    },
+    memePagination: {
+      nextOffset: next.memePagination.nextOffset,
+      exhausted: next.memePagination.exhausted,
+      loadingMore: false,
+      loadMoreError: false,
+      autoLoadPaused: !next.memePagination.exhausted && newAssets.length === 0,
+    },
   };
 }
 
@@ -254,6 +474,18 @@ function parseIconMap(value: unknown): Record<string, string | null> | null {
     icons[id] = imageUrl;
   }
   return icons;
+}
+
+function isCurrentLoadMoreRequest(
+  current: LoadMoreRequest | null,
+  expected: LoadMoreRequest,
+  sequence: number,
+): boolean {
+  return (
+    current === expected &&
+    !expected.controller.signal.aborted &&
+    expected.sequence === sequence
+  );
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
