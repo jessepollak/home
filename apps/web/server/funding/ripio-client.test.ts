@@ -56,12 +56,12 @@ describe("Ripio production REST client", () => {
         if (call === 1) return token();
         if (call === 2 || call === 3) return arCatalog();
         if (call === 4) return Response.json({ quoteId: QUOTE, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", finalFromAmount: "2110", toAmount: "2100", finalToAmount: "2100", rate: "1", expiration: "2026-09-11T22:00:00.000Z", fees: [{ amount: "10", type: "service", currency: "ARS", appliesOnFromAmount: true, appliesOnToAmount: false }] });
-        return Response.json({ transaction: { transactionId: ID, customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, status: "CREATED", txnHash: null }, fiatPaymentInstructions: { cvu: "1234567890123456789012", alias: "home.ripio" } });
+        return Response.json({ transaction: { transactionId: ID, customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, status: "CREATED", txnHash: null, operationType: "ON_RAMP", fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", depositAddress: DESTINATION, paymentMethodType: "bank_transfer", finalToAmount: "2100", latestRefund: null }, fiatPaymentInstructions: { cvu: "1234567890123456789012", alias: "home.ripio" } });
       },
     });
     const quote = await client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION });
     expect(quote.fees[0]).toMatchObject({ amount: "10", appliesOnFromAmount: true });
-    const order = await client.createOnramp({ customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION });
+    const order = await client.createOnramp({ customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION, fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", paymentMethodType: "bank_transfer", finalToAmount: "2100" });
     expect(order.instructions).toEqual({ kind: "ar-bank-transfer", cvu: "1234567890123456789012", alias: "home.ripio" });
   });
 
@@ -78,6 +78,39 @@ describe("Ripio production REST client", () => {
     });
     await expect(client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "invalid-request" });
     expect(calls).toBe(3);
+  });
+
+  test("uses documented exact order retrieval instead of a paginated list filter", async () => {
+    const urls: string[] = [];
+    const client = createRipioClient("AR", { env, fetchImplementation: async (input) => {
+      urls.push(String(input));
+      if (urls.length === 1) return token();
+      return Response.json({ transactionId: ID, customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, status: "CREATED", txnHash: null, operationType: "ON_RAMP", fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", depositAddress: DESTINATION, paymentMethodType: "bank_transfer", finalToAmount: "2100", latestRefund: { status: "PENDING", rejectionReason: null } });
+    } });
+    expect((await client.getTransaction(ID)).latestRefund?.status).toBe("PENDING");
+    expect(urls[1]).toBe(`https://skala.ripio.com/api/v1/transactions/${ID}/`);
+  });
+
+  test("rejects unrelated create-response customer, quote, externalRef and destination bindings as ambiguous", async () => {
+    let call = 0;
+    const client = createRipioClient("AR", { env, fetchImplementation: async () => {
+      call += 1;
+      if (call === 1) return token();
+      return Response.json({ transaction: { transactionId: ID, customerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", quoteId: QUOTE, externalRef: EXTERNAL, status: "CREATED", txnHash: null, operationType: "ON_RAMP", fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", depositAddress: DESTINATION, paymentMethodType: "bank_transfer", finalToAmount: "2100", latestRefund: null }, fiatPaymentInstructions: { cvu: "1234567890123456789012" } }, { status: 201 });
+    } });
+    await expect(client.createOnramp({ customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION, fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", paymentMethodType: "bank_transfer", finalToAmount: "2100" })).rejects.toMatchObject({ code: "ambiguous-create" });
+    expect(call).toBe(2);
+  });
+
+  test("classifies a truncated successful create response as ambiguous and never retries", async () => {
+    let calls = 0;
+    const client = createRipioClient("AR", { env, fetchImplementation: async () => {
+      calls += 1;
+      if (calls === 1) return token();
+      return new Response('{"customerId":', { status: 201, headers: { "content-type": "application/json" } });
+    } });
+    await expect(client.createCustomer({ email: "person@example.com" })).rejects.toMatchObject({ code: "ambiguous-create" });
+    expect(calls).toBe(2);
   });
 
   test("classifies disconnected creates as ambiguous and never retries", async () => {

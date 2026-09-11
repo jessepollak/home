@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RIPIO_SCHEMA_SQL, ripioSchemaStatements } from "./ripio-store";
+import { PostgresRipioStore, RIPIO_SCHEMA_SQL, ripioSchemaStatements } from "./ripio-store";
 
 describe("Ripio durable store schema", () => {
   test("separates stable customer, Home order, provider quote/order, and webhook dedupe references", () => {
@@ -8,7 +8,16 @@ describe("Ripio durable store schema", () => {
     expect(RIPIO_SCHEMA_SQL).toContain("provider_quote_id TEXT NOT NULL");
     expect(RIPIO_SCHEMA_SQL).toContain("provider_order_id TEXT NOT NULL UNIQUE");
     expect(RIPIO_SCHEMA_SQL).toContain("event_id TEXT PRIMARY KEY");
-    expect(ripioSchemaStatements.length).toBe(4);
+    expect(ripioSchemaStatements.length).toBe(6);
+    expect(RIPIO_SCHEMA_SQL).toContain("ripio_webhook_inbox");
+    expect(RIPIO_SCHEMA_SQL).toContain("version INTEGER NOT NULL");
+  });
+
+  test("uses row locking plus version compare-and-swap for concurrent reconciliation", () => {
+    const source = PostgresRipioStore.prototype.applyVerifiedObservation.toString();
+    expect(source).toContain("FOR UPDATE");
+    expect(source).toContain("version=$11");
+    expect(source).toContain("ripio-order-version-conflict");
   });
 
   test("does not define credential, access token, email, bank, or raw webhook body columns", () => {

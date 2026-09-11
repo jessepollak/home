@@ -30,17 +30,34 @@ export function serverBoundRipioQuote(input: {
 }
 
 export function serverBoundRipioOrder(input: {
-  order: Pick<DurableRipioOrder, "customerId" | "quoteId" | "homeOrderId" | "destination">;
+  order: Pick<DurableRipioOrder, "customerId" | "quoteId" | "homeOrderId" | "destination" | "fromCurrency" | "toCurrency" | "chain" | "paymentMethodType" | "expectedAmountAtomic" | "tokenDecimals">;
 }): {
   customerId: string;
   quoteId: string;
   externalRef: string;
   destination: `0x${string}`;
+  fromCurrency: string;
+  toCurrency: string;
+  chain: "BASE";
+  paymentMethodType: string;
+  finalToAmount: string;
 } {
   return {
     customerId: input.order.customerId,
     quoteId: input.order.quoteId,
     externalRef: input.order.homeOrderId,
     destination: input.order.destination,
+    fromCurrency: input.order.fromCurrency,
+    toCurrency: input.order.toCurrency,
+    chain: input.order.chain,
+    paymentMethodType: input.order.paymentMethodType,
+    finalToAmount: atomicToDecimal(input.order.expectedAmountAtomic, input.order.tokenDecimals),
   };
+}
+
+function atomicToDecimal(value: string, decimals: number): string {
+  const padded = value.padStart(decimals + 1, "0");
+  const whole = padded.slice(0, -decimals);
+  const fraction = padded.slice(-decimals).replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole;
 }

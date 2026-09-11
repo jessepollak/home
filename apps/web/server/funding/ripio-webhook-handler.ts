@@ -5,10 +5,12 @@ import type { RipioBaseTransferEvidence } from "@/shared/funding/ripio-contract"
 import type { RipioClient } from "./ripio-client";
 import {
   parseRipioWebhook,
-  reconcileRipioOrder,
+  transactionMatchesOrder,
   verifyRipioWebhook,
   type RipioReconciliationStore,
 } from "./ripio-reconciliation";
+
+const RIPIO_SIGNATURE_HEADER = "http-x-wh-signature-256";
 
 export function createRipioWebhookHandler(dependencies: {
   signingKey: string;
@@ -24,7 +26,7 @@ export function createRipioWebhookHandler(dependencies: {
   const now = dependencies.now ?? (() => new Date().toISOString());
   return async function POST(request: Request): Promise<Response> {
     const rawBody = new Uint8Array(await request.arrayBuffer());
-    const signature = request.headers.get("x-ripio-signature");
+    const signature = request.headers.get(RIPIO_SIGNATURE_HEADER);
     if (!verifyRipioWebhook({ rawBody, signature, signingKey: dependencies.signingKey })) {
       return Response.json({ error: "invalid-signature" }, { status: 401 });
     }
@@ -36,17 +38,23 @@ export function createRipioWebhookHandler(dependencies: {
     }
     const order = await dependencies.store.getByProviderOrderId(event.providerOrderId);
     if (!order) {
-      const recorded = await dependencies.store.recordWebhookEvent(event, digest);
-      return Response.json({ accepted: true, duplicate: !recorded, matched: false }, { status: 202 });
+      const recorded = await dependencies.store.recordUnmatchedWebhook({
+        event,
+        rawBodyDigest: digest,
+        state: "pending-recovery",
+        recordedAt: now(),
+      });
+      return Response.json({ accepted: true, duplicate: !recorded, matched: false, recovery: "pending" }, { status: 202 });
     }
 
-    // Webhook payloads are notifications, not authoritative state. Re-read the
-    // provider transaction and use its recorded ID/hash for reconciliation.
     let transaction;
     try {
       transaction = await dependencies.clientForCountry(order.country).getTransaction(order.providerOrderId);
     } catch {
       return Response.json({ error: "reconciliation-unavailable" }, { status: 503 });
+    }
+    if (!transactionMatchesOrder(order, transaction)) {
+      return Response.json({ error: "binding-conflict" }, { status: 409 });
     }
     let evidence: RipioBaseTransferEvidence | null = null;
     if (transaction.txnHash) {
@@ -56,15 +64,15 @@ export function createRipioWebhookHandler(dependencies: {
         tokenAddress: order.tokenAddress,
       });
     }
-    const reconciled = reconcileRipioOrder({
-      order,
-      providerStatus: transaction.status,
-      providerTransactionHash: transaction.txnHash,
+    const result = await dependencies.store.applyVerifiedObservation({
+      event,
+      rawBodyDigest: digest,
+      transaction,
       transferEvidence: evidence,
-      now: now(),
+      observedAt: now(),
     });
-    const recorded = await dependencies.store.recordWebhookEvent(event, digest);
-    if (recorded) await dependencies.store.saveReconciledOrder(reconciled);
-    return Response.json({ accepted: true, duplicate: !recorded, matched: true }, { status: 202 });
+    if (result === "binding-conflict") return Response.json({ error: "binding-conflict" }, { status: 409 });
+    if (result === "unmatched") return Response.json({ error: "order-raced" }, { status: 503 });
+    return Response.json({ accepted: true, duplicate: result === "duplicate", matched: true }, { status: 202 });
   };
 }

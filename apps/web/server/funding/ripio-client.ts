@@ -39,13 +39,24 @@ export type RipioCustomerReference = {
   createdAt: string;
 };
 
-export type RipioOrderReference = {
+export type RipioTransactionReference = {
   transactionId: string;
   customerId: string;
   quoteId: string;
   externalRef: string;
   status: string;
   txnHash: string | null;
+  operationType: "ON_RAMP";
+  fromCurrency: string;
+  toCurrency: string;
+  chain: string;
+  destination: `0x${string}`;
+  paymentMethodType: string;
+  finalToAmount: string;
+  latestRefund: { status: string; rejectionReason: string | null } | null;
+};
+
+export type RipioOrderReference = RipioTransactionReference & {
   instructions: RipioRailInstructions;
 };
 
@@ -57,9 +68,14 @@ export type RipioClient = {
     quoteId: string;
     externalRef: string;
     destination: `0x${string}`;
+    fromCurrency: string;
+    toCurrency: string;
+    chain: "BASE";
+    paymentMethodType: string;
+    finalToAmount: string;
     extraData?: Record<string, string>;
   }): Promise<RipioOrderReference>;
-  getTransaction(transactionId: string): Promise<Omit<RipioOrderReference, "instructions">>;
+  getTransaction(transactionId: string): Promise<RipioTransactionReference>;
   getCustomer(customerId: string): Promise<unknown>;
   getTerms(): Promise<unknown>;
   acceptTerms(customerId: string, termsId: string): Promise<unknown>;
@@ -150,10 +166,13 @@ export function createRipioClient(country: RipioCountry, options: {
   return {
     async createCustomer(input) {
       if (!validEmail(input.email)) throw new RipioProviderError("invalid-request");
-      return parseCustomer(await request("/api/v1/customers/", {
-        method: "POST",
-        body: JSON.stringify({ email: input.email, type: "INDIVIDUAL" }),
-      }, true));
+      return parseCreateResponse(
+        () => request("/api/v1/customers/", {
+          method: "POST",
+          body: JSON.stringify({ email: input.email, type: "INDIVIDUAL" }),
+        }, true),
+        parseCustomer,
+      );
     },
     async createQuote(input) {
       if (country === "BR" || input.country !== country || !exactRipioEntitlement(input)) {
@@ -171,33 +190,35 @@ export function createRipioClient(country: RipioCountry, options: {
         chain: input.chain,
         paymentMethodType: input.paymentMethodType,
       };
-      return parseQuote(await request("/api/v1/quotes/", {
-        method: "POST",
-        body: JSON.stringify(providerInput),
-      }, true), input);
+      return parseCreateResponse(
+        () => request("/api/v1/quotes/", {
+          method: "POST",
+          body: JSON.stringify(providerInput),
+        }, true),
+        (value) => parseQuote(value, input),
+      );
     },
     async createOnramp(input) {
       if (country === "BR" || ![input.customerId, input.quoteId, input.externalRef].every(validUuid) || !validAddress(input.destination)) {
         throw new RipioProviderError("invalid-request");
       }
-      return parseOrder(await request("/api/v1/onramp/", {
-        method: "POST",
-        body: JSON.stringify({
-          customerId: input.customerId,
-          quoteId: input.quoteId,
-          depositAddress: input.destination,
-          externalRef: input.externalRef,
-          ...(input.extraData ? { extraData: input.extraData } : {}),
-        }),
-      }, true), country as RipioEnabledCountry);
+      return parseCreateResponse(
+        () => request("/api/v1/onramp/", {
+          method: "POST",
+          body: JSON.stringify({
+            customerId: input.customerId,
+            quoteId: input.quoteId,
+            depositAddress: input.destination,
+            externalRef: input.externalRef,
+            ...(input.extraData ? { extraData: input.extraData } : {}),
+          }),
+        }, true),
+        (value) => parseOrder(value, country as RipioEnabledCountry, input),
+      );
     },
     async getTransaction(transactionId) {
       if (!validUuid(transactionId)) throw new RipioProviderError("invalid-request");
-      const value = await request(`/api/v1/transactions/?transactionId=${encodeURIComponent(transactionId)}`);
-      if (!isRecord(value) || !Array.isArray(value.transactions)) throw new RipioProviderError("invalid-response");
-      const exact = value.transactions.find((candidate) => isRecord(candidate) && candidate.transactionId === transactionId);
-      if (!exact) throw new RipioProviderError("invalid-response");
-      return parseTransaction(exact);
+      return parseTransaction(await request(`/api/v1/transactions/${encodeURIComponent(transactionId)}/`));
     },
     async getCustomer(customerId) {
       if (!validUuid(customerId)) throw new RipioProviderError("invalid-request");
@@ -243,14 +264,56 @@ function parseQuote(value: unknown, request: RipioQuoteRequest): RipioQuote {
   return { quoteId: value.quoteId, fromCurrency: request.fromCurrency, toCurrency: request.toCurrency, fromAmount: value.fromAmount as string, finalFromAmount: value.finalFromAmount as string, toAmount: value.toAmount as string, finalToAmount: value.finalToAmount as string, rate: value.rate as string, expiration: value.expiration, fees };
 }
 
-function parseOrder(value: unknown, country: RipioEnabledCountry): RipioOrderReference {
+type ExpectedOrderBinding = Parameters<RipioClient["createOnramp"]>[0];
+
+function parseOrder(value: unknown, country: RipioEnabledCountry, expected: ExpectedOrderBinding): RipioOrderReference {
   if (!isRecord(value) || !isRecord(value.transaction) || !isRecord(value.fiatPaymentInstructions)) throw new RipioProviderError("invalid-response");
-  return { ...parseTransaction(value.transaction), instructions: parseInstructions(value.fiatPaymentInstructions, country) };
+  const transaction = parseTransaction(value.transaction);
+  assertTransactionBinding(transaction, expected);
+  return { ...transaction, instructions: parseInstructions(value.fiatPaymentInstructions, country) };
 }
 
-function parseTransaction(value: unknown): Omit<RipioOrderReference, "instructions"> {
+function parseTransaction(value: unknown): RipioTransactionReference {
   if (!isRecord(value) || !validUuid(value.transactionId) || !validUuid(value.customerId) || !validUuid(value.quoteId) || !validUuid(value.externalRef) || typeof value.status !== "string" || !(value.txnHash === null || (typeof value.txnHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(value.txnHash)))) throw new RipioProviderError("invalid-response");
-  return { transactionId: value.transactionId, customerId: value.customerId, quoteId: value.quoteId, externalRef: value.externalRef, status: value.status, txnHash: value.txnHash };
+  const operationType = requiredAlias(value, ["operationType", "operation"]);
+  const fromCurrency = requiredAlias(value, ["fromCurrency", "sourceCurrency"]);
+  const toCurrency = requiredAlias(value, ["toCurrency", "destinationCurrency"]);
+  const chain = requiredAlias(value, ["chain", "network"]);
+  const destination = requiredAlias(value, ["destination", "depositAddress", "destinationAddress"]);
+  const paymentMethodType = requiredAlias(value, ["paymentMethodType", "paymentMethod"]);
+  const finalToAmount = requiredAlias(value, ["finalToAmount", "destinationAmount", "toAmount"]);
+  if (operationType !== "ON_RAMP" || !validAddress(destination) || !validDecimal(finalToAmount)) throw new RipioProviderError("invalid-response");
+  return {
+    transactionId: value.transactionId,
+    customerId: value.customerId,
+    quoteId: value.quoteId,
+    externalRef: value.externalRef,
+    status: value.status,
+    txnHash: value.txnHash,
+    operationType,
+    fromCurrency,
+    toCurrency,
+    chain,
+    destination,
+    paymentMethodType,
+    finalToAmount,
+    latestRefund: parseLatestRefund(value.latestRefund),
+  };
+}
+
+function assertTransactionBinding(transaction: RipioTransactionReference, expected: ExpectedOrderBinding): void {
+  if (
+    transaction.customerId !== expected.customerId ||
+    transaction.quoteId !== expected.quoteId ||
+    transaction.externalRef !== expected.externalRef ||
+    transaction.operationType !== "ON_RAMP" ||
+    transaction.fromCurrency !== expected.fromCurrency ||
+    transaction.toCurrency !== expected.toCurrency ||
+    transaction.chain !== expected.chain ||
+    transaction.destination.toLowerCase() !== expected.destination.toLowerCase() ||
+    transaction.paymentMethodType !== expected.paymentMethodType ||
+    !sameDecimal(transaction.finalToAmount, expected.finalToAmount)
+  ) throw new RipioProviderError("invalid-response");
 }
 
 function parseInstructions(value: Record<string, unknown>, country: RipioEnabledCountry): RipioRailInstructions {
@@ -261,6 +324,28 @@ function parseInstructions(value: Record<string, unknown>, country: RipioEnabled
   throw new RipioProviderError("invalid-response");
 }
 
+async function parseCreateResponse<T>(request: () => Promise<unknown>, parse: (value: unknown) => T): Promise<T> {
+  try {
+    return parse(await request());
+  } catch (error) {
+    if (error instanceof RipioProviderError && error.code === "invalid-response") {
+      throw new RipioProviderError("ambiguous-create", error.status, error);
+    }
+    throw error;
+  }
+}
+function parseLatestRefund(value: unknown): RipioTransactionReference["latestRefund"] {
+  if (value === null || value === undefined) return null;
+  if (!isRecord(value) || typeof value.status !== "string") throw new RipioProviderError("invalid-response");
+  const rejectionReason = value.rejectionReason === null || value.rejectionReason === undefined
+    ? null
+    : typeof value.rejectionReason === "string" ? value.rejectionReason : null;
+  return { status: value.status, rejectionReason };
+}
+function requiredAlias(value: Record<string, unknown>, aliases: string[]): string {
+  for (const alias of aliases) if (typeof value[alias] === "string" && value[alias].length > 0) return value[alias];
+  throw new RipioProviderError("invalid-response");
+}
 async function readJson(response: Response): Promise<unknown> {
   try { return await response.json(); } catch (error) { throw new RipioProviderError("invalid-response", response.status, error); }
 }
@@ -268,6 +353,11 @@ function isRecord(value: unknown): value is Record<string, unknown> { return typ
 function validUuid(value: unknown): value is string { return typeof value === "string" && UUID.test(value); }
 function validAddress(value: unknown): value is `0x${string}` { return typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value); }
 function validDecimal(value: unknown): value is string { return typeof value === "string" && /^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value); }
+function sameDecimal(left: string, right: string): boolean {
+  if (!validDecimal(left) || !validDecimal(right)) return false;
+  const normalize = (value: string) => value.replace(/\.0+$/, "").replace(/(\.[0-9]*?)0+$/, "$1");
+  return normalize(left) === normalize(right);
+}
 function validDate(value: unknown): value is string { return typeof value === "string" && Number.isFinite(Date.parse(value)); }
 function validEmail(value: string): boolean { return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 function safeHttps(value: string): boolean { try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password; } catch { return false; } }

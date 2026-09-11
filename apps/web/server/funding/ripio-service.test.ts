@@ -14,6 +14,6 @@ describe("Ripio server owner/destination binding", () => {
   });
 
   test("creates provider order arguments only from the durable Home order", () => {
-    expect(serverBoundRipioOrder({ order: { customerId: "customer", quoteId: "quote", homeOrderId: "home-order", destination: ADDRESS } })).toEqual({ customerId: "customer", quoteId: "quote", externalRef: "home-order", destination: ADDRESS });
+    expect(serverBoundRipioOrder({ order: { customerId: "customer", quoteId: "quote", homeOrderId: "home-order", destination: ADDRESS, fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", paymentMethodType: "bank_transfer", expectedAmountAtomic: "2100000000000000000000", tokenDecimals: 18 } })).toEqual({ customerId: "customer", quoteId: "quote", externalRef: "home-order", destination: ADDRESS, fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", paymentMethodType: "bank_transfer", finalToAmount: "2100" });
   });
 });

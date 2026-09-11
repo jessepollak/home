@@ -108,6 +108,8 @@ export type RipioOrderState =
   | "sent-unverified"
   | "received"
   | "cancelled"
+  | "refund-pending"
+  | "refund-rejected"
   | "refunded"
   | "outage"
   | "unknown";

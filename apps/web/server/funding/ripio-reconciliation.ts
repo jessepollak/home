@@ -6,6 +6,7 @@ import {
   type RipioBaseTransferEvidence,
   type RipioOrderState,
 } from "@/shared/funding/ripio-contract";
+import type { RipioTransactionReference } from "./ripio-client";
 
 export type DurableRipioOrder = {
   homeOrderId: string;
@@ -14,13 +15,22 @@ export type DurableRipioOrder = {
   customerId: string;
   quoteId: string;
   providerOrderId: string;
+  operationType: "ON_RAMP";
+  fromCurrency: "ARS" | "COP";
+  toCurrency: "wARS" | "wCOP";
+  chain: "BASE";
+  paymentMethodType: string;
   destination: `0x${string}`;
   tokenAddress: `0x${string}`;
+  tokenDecimals: 18;
   expectedAmountAtomic: string;
   state: RipioOrderState;
   providerStatus: string;
   providerTransactionHash: `0x${string}` | null;
+  latestRefundStatus: string | null;
+  latestRefundRejectionReason: string | null;
   transferEvidence: RipioBaseTransferEvidence | null;
+  version: number;
   updatedAt: string;
 };
 
@@ -31,12 +41,34 @@ export type RipioWebhookEvent = {
   occurredAt: string;
 };
 
+export type RipioVerifiedObservation = {
+  event: RipioWebhookEvent;
+  rawBodyDigest: string;
+  transaction: RipioTransactionReference;
+  transferEvidence: RipioBaseTransferEvidence | null;
+  observedAt: string;
+};
+
+export type RipioInboxRecord = {
+  event: RipioWebhookEvent;
+  rawBodyDigest: string;
+  state: "pending-recovery";
+  recordedAt: string;
+};
+
+export type PendingRipioInbox = {
+  eventId: string;
+  providerOrderId: string;
+};
+
 export interface RipioReconciliationStore {
   hasWebhookEvent(eventId: string): Promise<boolean>;
-  /** Must atomically return false if eventId was already persisted. */
-  recordWebhookEvent(event: RipioWebhookEvent, rawBodyDigest: string): Promise<boolean>;
+  recordUnmatchedWebhook(record: RipioInboxRecord): Promise<boolean>;
   getByProviderOrderId(providerOrderId: string): Promise<DurableRipioOrder | null>;
-  saveReconciledOrder(order: DurableRipioOrder): Promise<void>;
+  /** Locks/reloads the order, re-reconciles, and commits event+order atomically. */
+  applyVerifiedObservation(observation: RipioVerifiedObservation): Promise<"applied" | "duplicate" | "unmatched" | "binding-conflict">;
+  listPendingInbox(limit: number): Promise<PendingRipioInbox[]>;
+  resolveInbox(input: { eventId: string; country: "AR" | "CO"; transaction: RipioTransactionReference; resolvedAt: string }): Promise<void>;
 }
 
 export function verifyRipioWebhook(input: {
@@ -53,48 +85,57 @@ export function verifyRipioWebhook(input: {
 
 export function parseRipioWebhook(rawBody: Uint8Array): RipioWebhookEvent | null {
   let value: unknown;
-  try {
-    value = JSON.parse(new TextDecoder().decode(rawBody));
-  } catch {
-    return null;
-  }
+  try { value = JSON.parse(new TextDecoder().decode(rawBody)); } catch { return null; }
   if (
-    !isRecord(value) ||
-    typeof value.eventType !== "string" ||
-    value.eventType.length === 0 ||
-    typeof value.issueDatetime !== "string" ||
-    !Number.isFinite(Date.parse(value.issueDatetime)) ||
-    !isRecord(value.transactionObject) ||
-    typeof value.transactionObject.transactionId !== "string" ||
+    !isRecord(value) || typeof value.eventType !== "string" || value.eventType.length === 0 ||
+    typeof value.issueDatetime !== "string" || !Number.isFinite(Date.parse(value.issueDatetime)) ||
+    !isRecord(value.transactionObject) || typeof value.transactionObject.transactionId !== "string" ||
     !validUuid(value.transactionObject.transactionId)
   ) return null;
   return {
-    eventId: createHash("sha256")
-      .update(`${value.eventType}\u0000${value.transactionObject.transactionId}\u0000${value.issueDatetime}`)
-      .digest("hex"),
+    eventId: createHash("sha256").update(`${value.eventType}\u0000${value.transactionObject.transactionId}\u0000${value.issueDatetime}`).digest("hex"),
     providerOrderId: value.transactionObject.transactionId,
     status: value.eventType,
     occurredAt: value.issueDatetime,
   };
 }
 
+export function transactionMatchesOrder(order: DurableRipioOrder, transaction: RipioTransactionReference): boolean {
+  const expectedAmount = decimalToAtomic(transaction.finalToAmount, order.tokenDecimals);
+  return (
+    transaction.transactionId === order.providerOrderId &&
+    transaction.customerId === order.customerId &&
+    transaction.quoteId === order.quoteId &&
+    transaction.externalRef === order.homeOrderId &&
+    transaction.operationType === order.operationType &&
+    transaction.fromCurrency === order.fromCurrency &&
+    transaction.toCurrency === order.toCurrency &&
+    transaction.chain === order.chain &&
+    transaction.paymentMethodType === order.paymentMethodType &&
+    transaction.destination.toLowerCase() === order.destination.toLowerCase() &&
+    expectedAmount === order.expectedAmountAtomic
+  );
+}
+
 export function reconcileRipioOrder(input: {
   order: DurableRipioOrder;
-  providerStatus: string;
-  providerTransactionHash: string | null;
+  transaction: RipioTransactionReference;
   transferEvidence?: RipioBaseTransferEvidence | null;
   minimumConfirmations?: number;
   now: string;
 }): DurableRipioOrder {
-  const nextProvider = providerState(input.providerStatus);
+  if (!transactionMatchesOrder(input.order, input.transaction)) throw new Error("ripio-binding-conflict");
   const current = input.order.state;
-  let next = chooseMonotonicState(current, nextProvider);
+  const provider = providerState(input.transaction.status);
+  const refund = refundState(input.transaction.latestRefund?.status ?? null);
+  let next = transition(current, provider, refund);
   const evidence = input.transferEvidence ?? input.order.transferEvidence;
-  const hash = validHash(input.providerTransactionHash)
-    ? input.providerTransactionHash.toLowerCase() as `0x${string}`
+  const hash = validHash(input.transaction.txnHash)
+    ? input.transaction.txnHash.toLowerCase() as `0x${string}`
     : input.order.providerTransactionHash;
 
-  if (next === "sent-unverified" || next === "received") {
+  if (current === "received") next = "received";
+  else if (next === "sent-unverified") {
     next = evidence && hash && evidence.transactionHash.toLowerCase() === hash && exactBaseTransferMatches({
       evidence,
       destination: input.order.destination,
@@ -107,61 +148,66 @@ export function reconcileRipioOrder(input: {
   return {
     ...input.order,
     state: next,
-    providerStatus: input.providerStatus,
+    providerStatus: input.transaction.status,
     providerTransactionHash: hash,
+    latestRefundStatus: input.transaction.latestRefund?.status ?? input.order.latestRefundStatus,
+    latestRefundRejectionReason: input.transaction.latestRefund?.rejectionReason ?? input.order.latestRefundRejectionReason,
     transferEvidence: evidence ?? null,
+    version: input.order.version + 1,
     updatedAt: input.now,
   };
 }
 
-export function homeCustomerKey(input: {
-  subject: string;
-  country: "AR" | "CO";
-}): string {
-  // Stable Home identity mapping. It deliberately excludes order UUIDs, wallet
-  // addresses and provider order IDs; rotation of an account must not create a
-  // second provider person.
+export function homeCustomerKey(input: { subject: string; country: "AR" | "CO" }): string {
   return `${input.country}:${input.subject}`;
 }
 
 function providerState(status: string): RipioOrderState {
   switch (status.toUpperCase()) {
-    case "CREATED":
-    case "PENDING":
-    case "AWAITING_PAYMENT": return "awaiting-payment";
-    case "PAYMENT_RECEIVED":
-    case "ONRAMP_PAYMENT_RECEIVED": return "payment-received";
-    case "CONVERTING":
-    case "PROCESSING":
-    case "ONRAMP_CRYPTO_BUY_IN_PROGRESS": return "converting";
+    case "CREATED": case "PENDING": case "AWAITING_PAYMENT": return "awaiting-payment";
+    case "PAYMENT_RECEIVED": case "ONRAMP_PAYMENT_RECEIVED": return "payment-received";
+    case "CONVERTING": case "PROCESSING": case "ONRAMP_CRYPTO_BUY_IN_PROGRESS": return "converting";
     case "SENDING": return "sending";
-    case "COMPLETED":
-    case "SUCCESS":
-    case "ONRAMP_CRYPTO_SENT": return "sent-unverified";
-    case "CANCELLED":
-    case "EXPIRED":
-    case "ONRAMP_CANCELED": return "cancelled";
-    case "REFUNDED":
-    case "REFUND_COMPLETED":
-    case "ONRAMP_REFUNDED": return "refunded";
-    case "FAILED":
-    case "SERVICE_UNAVAILABLE":
-    case "ONRAMP_FAILED": return "outage";
+    case "COMPLETED": case "SUCCESS": case "ONRAMP_CRYPTO_SENT": return "sent-unverified";
+    case "CANCELLED": case "EXPIRED": case "ONRAMP_CANCELED": return "cancelled";
+    case "REFUNDED": case "REFUND_COMPLETED": case "ONRAMP_REFUNDED": return "refunded";
+    case "FAILED": case "SERVICE_UNAVAILABLE": case "ONRAMP_FAILED": return "outage";
     default: return "unknown";
   }
 }
 
-function chooseMonotonicState(current: RipioOrderState, next: RipioOrderState): RipioOrderState {
+function refundState(status: string | null): RipioOrderState | null {
+  switch (status?.toUpperCase()) {
+    case "PENDING": case "CREATED": case "PROCESSING": return "refund-pending";
+    case "REJECTED": case "FAILED": return "refund-rejected";
+    case "COMPLETED": case "REFUNDED": case "SUCCESS": return "refunded";
+    default: return null;
+  }
+}
+
+function transition(current: RipioOrderState, provider: RipioOrderState, refund: RipioOrderState | null): RipioOrderState {
   if (current === "received" || current === "refunded") return current;
-  if (next === "refunded") return "refunded";
-  if (next === "cancelled" && progress(current) <= progress("awaiting-payment")) return next;
-  if (next === "outage") return current === "unknown" ? "outage" : current;
-  if (next === "unknown") return current;
-  return progress(next) >= progress(current) ? next : current;
+  if (refund === "refunded") return "refunded";
+  if (refund === "refund-pending") return "refund-pending";
+  if (refund === "refund-rejected") return "refund-rejected";
+  if (current === "cancelled" || current === "refund-pending" || current === "refund-rejected") {
+    return provider === "refunded" ? "refunded" : current;
+  }
+  if (provider === "cancelled") return "cancelled";
+  if (provider === "refunded") return "refunded";
+  if (provider === "outage") return current === "unknown" ? "outage" : current;
+  if (provider === "unknown") return current;
+  return progress(provider) >= progress(current) ? provider : current;
 }
 
 function progress(state: RipioOrderState): number {
-  return ({ unknown: -1, outage: 0, cancelled: 0, refunded: 6, "awaiting-payment": 1, "payment-received": 2, converting: 3, sending: 4, "sent-unverified": 5, received: 6 } as const)[state];
+  return ({ unknown: -1, outage: 0, cancelled: 6, "refund-pending": 7, "refund-rejected": 7, refunded: 8, "awaiting-payment": 1, "payment-received": 2, converting: 3, sending: 4, "sent-unverified": 5, received: 8 } as const)[state];
+}
+function decimalToAtomic(value: string, decimals: number): string | null {
+  if (!/^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value)) return null;
+  const [whole, fraction = ""] = value.split(".");
+  if (fraction.length > decimals) return null;
+  return `${whole}${fraction.padEnd(decimals, "0")}`.replace(/^0+(?=\d)/, "");
 }
 function normalizeSignature(value: string): Uint8Array | null {
   const normalized = value.trim().replace(/^sha256=/i, "");
