@@ -225,8 +225,12 @@ async function readDirectHoldings(
         ? CDP_NATIVE_TOKEN_ADDRESS
         : (asset.contractAddress!.toLowerCase() as `0x${string}`);
     const match = listed ? byContract.get(key) : undefined;
-    const ready =
-      listed !== null && (match !== undefined || listed.complete);
+    const ready = listed !== null && (match !== undefined || listed.complete);
+    const readStatus: DirectPortfolioHolding["readStatus"] = ready
+      ? "ready"
+      : listed === null
+        ? "unavailable"
+        : "incomplete";
     // Cash omit is not a ready 0 by itself — RPC must agree (or return the
     // on-chain amount). Vault underlying is never copied into cash.
     // CDP 429/timeout (listed=null) must still verify cash; do not skip RPC.
@@ -248,7 +252,7 @@ async function readDirectHoldings(
       contractAddress: asset.contractAddress,
       cashCurrency: asset.cashCurrency,
       balanceBaseUnits: ready ? (match?.amountBaseUnits ?? "0") : null,
-      readStatus: (ready ? "ready" : "unavailable") as DirectPortfolioHolding["readStatus"],
+      readStatus,
     };
   });
   return { holdings, omittedCashIds };
@@ -336,7 +340,10 @@ async function verifyOmittedCashHoldings(
       return {
         ...holding,
         balanceBaseUnits: null,
-        readStatus: "unavailable",
+        // Preserve a missing-page distinction. A complete CDP omission still
+        // requires RPC confirmation for cash, so an RPC miss is unavailable.
+        readStatus:
+          holding.readStatus === "incomplete" ? "incomplete" : "unavailable",
       };
     }
     return {

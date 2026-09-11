@@ -10,7 +10,11 @@ export const CDP_TOKEN_BALANCES_PATH_PREFIX =
 export const CDP_NATIVE_TOKEN_ADDRESS =
   "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" as const;
 export const CDP_TOKEN_BALANCES_PAGE_SIZE = 20;
-export const CDP_TOKEN_BALANCES_MAX_PAGES = 8;
+/** Hard request budget: enough for dusty wallets while preventing unbounded scans. */
+export const CDP_TOKEN_BALANCES_MAX_PAGES = 32;
+export const CDP_TOKEN_BALANCES_PAGE_ATTEMPTS = 2;
+export const CDP_TOKEN_BALANCES_CACHE_TTL_MS = 60_000;
+export const CDP_TOKEN_BALANCES_CACHE_MAX_OWNERS = 32;
 export const CDP_TOKEN_BALANCES_TIMEOUT_MS = 10_000;
 
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
@@ -51,8 +55,15 @@ export type ListedTokenBalance = {
 
 export type TokenBalancesPageSet = {
   balances: ListedTokenBalance[];
-  /** False when the page budget ran out while a cursor remained. */
+  /** False when a page, cursor, or request budget prevented an exhaustive scan. */
   complete: boolean;
+};
+
+type PaginationCheckpoint = {
+  balances: Map<string, ListedTokenBalance>;
+  nextPageToken: string;
+  seenPageTokens: Set<string>;
+  savedAt: number;
 };
 
 export type ListTokenBalancesRequest = {
@@ -90,16 +101,35 @@ export function createCdpTokenBalancesClient(options: {
   fetchImpl?: FetchLike;
   generateJwtImpl?: JwtGenerator;
   timeoutMs?: number;
+  pageAttempts?: number;
+  cacheTtlMs?: number;
+  now?: () => number;
 } = {}) {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
   const generateJwtImpl = options.generateJwtImpl ?? generateJwt;
   const timeoutMs = options.timeoutMs ?? CDP_TOKEN_BALANCES_TIMEOUT_MS;
+  const pageAttempts = options.pageAttempts ?? CDP_TOKEN_BALANCES_PAGE_ATTEMPTS;
+  const cacheTtlMs = options.cacheTtlMs ?? CDP_TOKEN_BALANCES_CACHE_TTL_MS;
+  const now = options.now ?? Date.now;
+  const checkpoints = new Map<string, PaginationCheckpoint>();
 
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
     throw new CdpTokenBalancesError(
       "not-configured",
       "The CDP Token Balances timeout must be 1-30000ms.",
+    );
+  }
+  if (!Number.isSafeInteger(pageAttempts) || pageAttempts <= 0 || pageAttempts > 3) {
+    throw new CdpTokenBalancesError(
+      "not-configured",
+      "The CDP Token Balances page attempt budget must be 1-3.",
+    );
+  }
+  if (!Number.isSafeInteger(cacheTtlMs) || cacheTtlMs < 0 || cacheTtlMs > 300_000) {
+    throw new CdpTokenBalancesError(
+      "not-configured",
+      "The CDP Token Balances checkpoint TTL must be 0-300000ms.",
     );
   }
 
@@ -114,14 +144,18 @@ export function createCdpTokenBalancesClient(options: {
         );
       }
       const address = request.address.toLowerCase() as `0x${string}`;
-      const collected = new Map<string, ListedTokenBalance>();
-      let pageToken: string | undefined;
-      let complete = true;
+      evictExpiredCheckpoints(checkpoints, now(), cacheTtlMs);
+      const checkpoint = checkpoints.get(address);
+      const collected = new Map(checkpoint?.balances ?? []);
+      const seenPageTokens = new Set(checkpoint?.seenPageTokens ?? []);
+      let pageToken = checkpoint?.nextPageToken;
+      let complete = false;
 
       for (let page = 0; page < CDP_TOKEN_BALANCES_MAX_PAGES; page += 1) {
         let balances: Awaited<ReturnType<typeof fetchPage>>;
         try {
-          balances = await fetchPage({
+          balances = await fetchPageWithRetry({
+            attempts: pageAttempts,
             address,
             pageToken,
             env,
@@ -131,21 +165,20 @@ export function createCdpTokenBalancesClient(options: {
             signal: request.signal,
           });
         } catch (error) {
-          // Empty-cash dusty wallets always burn the page budget looking for
-          // zeros that CDP never lists. A mid-list 429 must not discard ETH
-          // already collected — inventory then RPC-verifies omitted cash.
-          if (
-            collected.size > 0 &&
-            error instanceof CdpTokenBalancesError &&
-            (error.code === "rate-limited" || error.code === "timed-out")
-          ) {
-            complete = false;
+          // A missing later page must not erase quantities already read. Save
+          // the exact cursor so the same owner can resume on the next refresh.
+          if (collected.size > 0 && pageToken && isTransientPageError(error)) {
+            saveCheckpoint(checkpoints, address, {
+              balances: collected,
+              nextPageToken: pageToken,
+              seenPageTokens,
+              savedAt: now(),
+            });
             break;
           }
           throw error;
         }
         for (const balance of balances.items) {
-          if (collected.has(balance.contractAddress)) continue;
           collected.set(balance.contractAddress, balance);
         }
         if (
@@ -153,17 +186,36 @@ export function createCdpTokenBalancesClient(options: {
           allowlistSatisfied(request.neededContractAddresses, collected)
         ) {
           complete = true;
+          checkpoints.delete(address);
           break;
         }
         if (!balances.nextPageToken) {
           complete = true;
+          checkpoints.delete(address);
           break;
         }
-        if (page === CDP_TOKEN_BALANCES_MAX_PAGES - 1) {
-          complete = false;
+        if (
+          balances.nextPageToken === pageToken ||
+          seenPageTokens.has(balances.nextPageToken)
+        ) {
+          saveCheckpoint(checkpoints, address, {
+            balances: collected,
+            nextPageToken: balances.nextPageToken,
+            seenPageTokens,
+            savedAt: now(),
+          });
           break;
         }
+        seenPageTokens.add(balances.nextPageToken);
         pageToken = balances.nextPageToken;
+        if (page === CDP_TOKEN_BALANCES_MAX_PAGES - 1) {
+          saveCheckpoint(checkpoints, address, {
+            balances: collected,
+            nextPageToken: pageToken,
+            seenPageTokens,
+            savedAt: now(),
+          });
+        }
       }
 
       return { balances: [...collected.values()], complete };
@@ -183,6 +235,63 @@ function allowlistSatisfied(
     if (!collected.has(address.toLowerCase())) return false;
   }
   return true;
+}
+
+async function fetchPageWithRetry(
+  options: Parameters<typeof fetchPage>[0] & { attempts: number },
+): Promise<Awaited<ReturnType<typeof fetchPage>>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < options.attempts; attempt += 1) {
+    try {
+      return await fetchPage(options);
+    } catch (error) {
+      lastError = error;
+      if (!isTransientPageError(error) || attempt === options.attempts - 1) {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
+}
+
+function isTransientPageError(error: unknown): boolean {
+  return (
+    error instanceof CdpTokenBalancesError &&
+    (error.code === "rate-limited" ||
+      error.code === "timed-out" ||
+      error.code === "upstream-error")
+  );
+}
+
+function evictExpiredCheckpoints(
+  checkpoints: Map<string, PaginationCheckpoint>,
+  currentTime: number,
+  ttlMs: number,
+): void {
+  for (const [address, checkpoint] of checkpoints) {
+    if (ttlMs === 0 || currentTime - checkpoint.savedAt > ttlMs) {
+      checkpoints.delete(address);
+    }
+  }
+}
+
+function saveCheckpoint(
+  checkpoints: Map<string, PaginationCheckpoint>,
+  address: string,
+  checkpoint: PaginationCheckpoint,
+): void {
+  checkpoints.delete(address);
+  checkpoints.set(address, {
+    balances: new Map(checkpoint.balances),
+    nextPageToken: checkpoint.nextPageToken,
+    seenPageTokens: new Set(checkpoint.seenPageTokens),
+    savedAt: checkpoint.savedAt,
+  });
+  while (checkpoints.size > CDP_TOKEN_BALANCES_CACHE_MAX_OWNERS) {
+    const oldest = checkpoints.keys().next().value;
+    if (typeof oldest !== "string") break;
+    checkpoints.delete(oldest);
+  }
 }
 
 async function fetchPage(options: {

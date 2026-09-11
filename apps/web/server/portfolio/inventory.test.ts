@@ -442,11 +442,11 @@ describe("Phase A portfolio inventory", () => {
       balanceBaseUnits: "42",
     });
     expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
-      readStatus: "unavailable",
+      readStatus: "incomplete",
       balanceBaseUnits: null,
     });
     expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
-      readStatus: "unavailable",
+      readStatus: "incomplete",
       balanceBaseUnits: null,
     });
   });

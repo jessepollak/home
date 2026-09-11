@@ -177,7 +177,7 @@ describe("home balances presentation cache", () => {
           displayBalance: "1.0000 NEW",
         },
       ],
-      unavailableItemIds: ["asset:fixture-eurc", "asset:never-seen"],
+      incompleteItemIds: ["asset:fixture-eurc", "asset:never-seen"],
     };
     const reconciled = resolvePaintedHomeBalances({
       ownerKey: OWNER,
@@ -195,9 +195,9 @@ describe("home balances presentation cache", () => {
         group: "asset" as const,
         name: "Euro",
         detail: "EURC",
-        displayBalance: "Unavailable",
+        displayBalance: "25.00 EURC",
+        displayContext: "Updating…",
         currencyCode: "EUR",
-        tone: "error" as const,
       },
       liveUnknown.items[1],
     ];

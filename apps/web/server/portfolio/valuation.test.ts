@@ -438,6 +438,63 @@ describe("supported portfolio valuation assembly", () => {
     );
   });
 
+  test("distinguishes incomplete inventory from unavailable reads and vault conversion failure", async () => {
+    const partial = inventory({ usdc: "0", vaultUnderlying: "0" });
+    const ethIndex = partial.holdings.findIndex(({ id }) => id === "eth");
+    const eurcIndex = partial.holdings.findIndex(({ id }) => id === "eurc");
+    const vaultIndex = partial.holdings.findIndex(
+      ({ kind }) => kind === "vault-position",
+    );
+    partial.holdings[ethIndex] = {
+      ...partial.holdings[ethIndex]!,
+      balanceBaseUnits: null,
+      readStatus: "incomplete",
+    } as PortfolioInventorySnapshot["holdings"][number];
+    partial.holdings[eurcIndex] = {
+      ...partial.holdings[eurcIndex]!,
+      balanceBaseUnits: null,
+      readStatus: "unavailable",
+    } as PortfolioInventorySnapshot["holdings"][number];
+    partial.holdings[vaultIndex] = {
+      ...partial.holdings[vaultIndex]!,
+      underlyingBaseUnits: null,
+      readStatus: "vault-failure",
+    } as PortfolioInventorySnapshot["holdings"][number];
+
+    const read = createPortfolioValuationReader({
+      readInventory: async () => partial,
+      readPrices: async (inputs) => prices(inputs),
+      readExchangeRates: async () => exchangeRates(),
+    });
+    const result = await read(account, "US");
+
+    expect(result.lines.find(({ holdingAssetKey }) =>
+      holdingAssetKey === PORTFOLIO_NATIVE_ASSET_KEY,
+    )).toMatchObject({
+      status: "read-incomplete",
+      reason: "holding-read-incomplete",
+    });
+    expect(result.lines.find(({ holdingAssetKey }) =>
+      holdingAssetKey === verifiedLocalCashAssets.EUR.assetKey,
+    )).toMatchObject({
+      status: "read-unavailable",
+      reason: "holding-read-unavailable",
+    });
+    expect(result.lines.find(({ holdingAssetKey }) =>
+      holdingAssetKey === partial.holdings[vaultIndex]!.assetKey,
+    )).toMatchObject({
+      status: "vault-failure",
+      reason: "vault-conversion-failure",
+    });
+    expect(
+      parsePortfolioValuationSnapshot(
+        result,
+        { subject: "subject-a", smartAccountAddress: ADDRESS, chainId: 8453 },
+        "US",
+      ),
+    ).toBe(result);
+  });
+
   test("makes an incomplete zero subtotal unavailable but preserves a complete zero", async () => {
     const incomplete = createPortfolioValuationReader({
       readInventory: async () =>
