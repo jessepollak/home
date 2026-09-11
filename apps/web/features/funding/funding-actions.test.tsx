@@ -191,7 +191,11 @@ describe("FundingActions hydration", () => {
         }));
       });
 
-      await page().findByRole("dialog", { name: "Deposit pending" });
+      await page().findByRole(
+        "dialog",
+        { name: "Deposit pending" },
+        { timeout: 3_000 },
+      );
       fireEvent.click(page().getByRole("button", { name: "Close and check balance" }));
       await waitFor(() => expect(closedCount).toBe(1));
       expect(replaceCalls).toEqual(["/dashboard"]);

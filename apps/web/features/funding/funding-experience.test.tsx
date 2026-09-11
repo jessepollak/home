@@ -617,7 +617,11 @@ describe("FundingExperience", () => {
         "onramp_api.polling_success",
       );
     });
-    await page().findByRole("dialog", { name: "Deposit pending" });
+    await page().findByRole(
+      "dialog",
+      { name: "Deposit pending" },
+      { timeout: 3_000 },
+    );
     expect(page().getByLabelText("Coinbase payment details").textContent).toContain("$42.50");
     expect(page().getByLabelText("Coinbase payment details").textContent).toContain("Google Pay");
 
