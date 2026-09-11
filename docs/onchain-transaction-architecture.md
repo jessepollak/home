@@ -2,7 +2,7 @@
 
 Status: **approved direction, Phase 1 in tree, Phase 2 §3 command contracts locked**. This document is specific to Home's current MoneyAction flow in `apps/web`; it is not a proposal for a general event-sourcing platform.
 
-Phase 2 §3 TypeScript commands live in [`apps/web/server/money-actions/attempt-commands.ts`](../apps/web/server/money-actions/attempt-commands.ts) (`ATTEMPT_COMMAND_CONTRACT_VERSION = 1`). Soft Pass inputs: [#175](https://github.com/jessepollak/home/issues/175) (CDP) and [#176](https://github.com/jessepollak/home/issues/176) (EIP-5792). Contract issue: [#181](https://github.com/jessepollak/home/issues/181). No additive attempt schema in this slice.
+Phase 2 §3 TypeScript commands live in [`apps/web/server/money-actions/attempt-commands.ts`](../apps/web/server/money-actions/attempt-commands.ts) (`ATTEMPT_COMMAND_CONTRACT_VERSION = 1`). Soft Pass inputs: [#175](https://github.com/jessepollak/home/issues/175) (CDP) and [#176](https://github.com/jessepollak/home/issues/176) (EIP-5792). Contract issue: [#181](https://github.com/jessepollak/home/issues/181). The Phase 3 production persistence boundary is [`apps/web/server/money-actions/attempt-store.ts`](../apps/web/server/money-actions/attempt-store.ts) (`ATTEMPT_STORE_CONTRACT_VERSION = 1`). No additive attempt schema or runtime activation is included in the contract-first milestone.
 
 ## Decision
 
@@ -310,6 +310,8 @@ Use temporary real SQLite files and the repository's real Postgres contract harn
 - Implementation tickets are enumerated on the module as `ATTEMPT_IMPLEMENTATION_TICKETS` for the #159 §4 split. Coord #110 / #134.
 
 ### Phase 3 — additive attempt persistence
+
+The canonical store contract keeps the legacy `MoneyActionStore` facade and common operation-row CAS authority during rollout while adding separately named typed attempt commands. It fixes owner-scoped immutable snapshots; store-generated production attempt IDs and deterministic legacy IDs; action/attempt/dispatch version fencing; exact-fact evidence idempotence; a server-internal verified-observation apply input that rechecks versions, evidence, and execution identity transactionally; and uniform Memory/SQLite/Postgres resource lifecycle signatures. Sensitive dispatch calldata remains a transient overlay and is never part of the durable attempt snapshot. Legacy import is lossless and preserves status, references, timestamps, attempt count, abandonment, any existing verified execution key, and unknown provenance; reference-free claimed or contradictory rows remain non-dispatchable and never imply non-submission. Every store error explicitly grants no dispatch authority.
 
 - Under one store owner, add action revisions, attempts, evidence, reconciliation, and admission fields/tables.
 - Implement atomic typed commands in Memory, SQLite, and Postgres together.
