@@ -331,7 +331,13 @@ type ProcessGroupProbe = {
   ready: Promise<{ port: number; childPid: number }>;
 };
 
-function launchProcessGroupProbe(exitLeaderAfterReady = false): ProcessGroupProbe {
+function launchProcessGroupProbe({
+  exitLeaderAfterReady = false,
+  startupDelayMs = 0,
+}: {
+  exitLeaderAfterReady?: boolean;
+  startupDelayMs?: number;
+} = {}): ProcessGroupProbe {
   const listenerScript = [
     "const http = require('node:http');",
     "process.on('SIGTERM', () => {});",
@@ -357,7 +363,7 @@ function launchProcessGroupProbe(exitLeaderAfterReady = false): ProcessGroupProb
     stdio: ["ignore", "pipe", "pipe"],
   });
   if (!leader.pid || !leader.stdout) throw new Error("Process-group probe failed to launch.");
-  const ready = new Promise<{ port: number; childPid: number }>((resolveReady, rejectReady) => {
+  const immediateReady = new Promise<{ port: number; childPid: number }>((resolveReady, rejectReady) => {
     let output = "";
     const onData = (chunk: Buffer) => {
       output += String(chunk);
@@ -373,6 +379,11 @@ function launchProcessGroupProbe(exitLeaderAfterReady = false): ProcessGroupProb
     leader.stdout.on("data", onData);
     leader.once("error", rejectReady);
   });
+  const ready = startupDelayMs > 0
+    ? immediateReady.then((value) => new Promise<typeof value>((resolveReady) => {
+        setTimeout(() => resolveReady(value), startupDelayMs);
+      }))
+    : immediateReady;
   return { leader, processGroupId: leader.pid, ready };
 }
 
@@ -393,6 +404,26 @@ async function forceCleanupProbe(probe: ProcessGroupProbe): Promise<void> {
   while (saveQaProcessGroupAlive(probe.processGroupId) && Date.now() < deadline) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 10));
   }
+}
+
+function boundedProbePromise<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function listenWrongPortProbe(): Promise<{
@@ -455,22 +486,35 @@ test("startup failures and stops await whole process-group and listener disappea
     expect(saveQaProcessGroupAlive(rejectionProbe.processGroupId)).toBe(false);
     expect(await listenerIsAlive(rejectionListener.port)).toBe(false);
 
-    const stalledProbe = launchProcessGroupProbe();
+    const stalledProbe = launchProcessGroupProbe({ startupDelayMs: 150 });
     probes.push(stalledProbe);
     const stalledReady = stalledProbe.ready;
-    await expect(startSaveQaServerForTest({
+    const stalledStartedAt = Date.now();
+    await expect(boundedProbePromise(startSaveQaServerForTest({
       reservePort: async () => 41002,
       launch: () => stalledProbe.leader,
       startupTimeoutMs: 100,
-      stopGraceMs: 40,
+      stopGraceMs: 200,
       fetchReady: async (_origin, { signal }) => {
-        await stalledReady;
-        return new Promise((_resolve, reject) => {
-          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        const aborted = new Promise<never>((_resolve, reject) => {
+          const rejectWithReason = () => reject(signal.reason);
+          if (signal.aborted) rejectWithReason();
+          else signal.addEventListener("abort", rejectWithReason, { once: true });
         });
+        await Promise.race([stalledReady, aborted]);
+        signal.throwIfAborted();
+        return aborted;
       },
-    })).rejects.toThrow("Timed out waiting for the Save QA server");
-    const stalledListener = await stalledReady;
+    }), 1_000, "Delayed readiness did not settle within the regression bound."))
+      .rejects.toThrow("Timed out waiting for the Save QA server");
+    const stalledElapsedMs = Date.now() - stalledStartedAt;
+    expect(stalledElapsedMs).toBeGreaterThanOrEqual(100);
+    expect(stalledElapsedMs).toBeLessThan(1_000);
+    const stalledListener = await boundedProbePromise(
+      stalledReady,
+      800,
+      "Delayed listener never reached readiness before forced group cleanup.",
+    );
     expect(saveQaProcessGroupAlive(stalledProbe.processGroupId)).toBe(false);
     expect(await listenerIsAlive(stalledListener.port)).toBe(false);
 
@@ -494,7 +538,7 @@ test("startup failures and stops await whole process-group and listener disappea
     expect(saveQaProcessGroupAlive(liveProbe.processGroupId)).toBe(false);
     expect(await listenerIsAlive(liveListener.port)).toBe(false);
 
-    const exitedLeaderProbe = launchProcessGroupProbe(true);
+    const exitedLeaderProbe = launchProcessGroupProbe({ exitLeaderAfterReady: true });
     probes.push(exitedLeaderProbe);
     const exitedListener = await exitedLeaderProbe.ready;
     await new Promise<void>((resolveExit) => {
