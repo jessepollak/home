@@ -1,21 +1,27 @@
+/* #162 preview rebuild touch — no product change (retry) */
 .navigation {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  position: relative;
+  right: auto;
+  bottom: auto;
+  left: auto;
   z-index: 20;
+  order: 2;
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-inline: -16px;
   border-top: 1px solid var(--home-gray-100);
   background: var(--home-white);
-  padding: 0 12px max(8px, env(safe-area-inset-bottom));
+  padding: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .item {
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: 61px;
+  min-height: 56px;
+  height: 56px;
   align-items: center;
   justify-content: center;
   flex-direction: column;
@@ -25,12 +31,13 @@
   background: transparent;
   color: var(--home-muted);
   cursor: pointer;
-  padding: 5px 8px 4px;
+  padding: 8px 0;
   transition: color var(--motion-tab) ease;
 }
 
 .iconFrame {
   display: inline-flex;
+  flex-shrink: 0;
   width: 32px;
   height: 32px;
   align-items: center;
@@ -38,13 +45,20 @@
   border: 1px solid transparent;
   border-radius: var(--control-radius);
   color: var(--home-ink);
+  transform-origin: center center;
   transition:
     background-color var(--motion-tab) ease,
     border-color var(--motion-tab) ease,
-    color var(--motion-tab) ease;
+    color var(--motion-tab) ease,
+    transform 110ms ease;
+}
+
+.item:active .iconFrame {
+  transform: scale(0.94);
 }
 
 .label {
+  flex-shrink: 0;
   overflow: hidden;
   max-width: 100%;
   font-size: 0.68rem;
@@ -84,9 +98,12 @@
 
 @media (min-width: 720px) {
   .navigation {
+    order: 1;
     position: static;
     width: 100%;
+    margin-inline: 0;
     grid-template-columns: repeat(2, minmax(110px, 150px));
+    border-top: 0;
     border-bottom: 1px solid var(--home-gray-100);
     padding: 0;
   }
@@ -114,6 +131,10 @@
   .item,
   .iconFrame {
     transition: none;
+  }
+
+  .item:active .iconFrame {
+    transform: none;
   }
 }
 

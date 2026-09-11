@@ -57,7 +57,8 @@ The Next.js API validates sessions, checks eligibility, prepares quotes/plans, c
 ```text
 apps/web/
   app/                    # Next.js routes, layouts and thin API handlers
-  features/               # onboarding, home, transfer, save, invest; later borrow/agent/card
+  client/                 # onboarding, home, transfer, save, invest; later borrow/agent/card
+  shared/                 # runtime-agnostic contracts, validation and pure presenters
   components/             # shared presentation and action review
   lib/api/                # typed HTTP client and query hooks
   server/                 # CDP auth, feature services, status refresh and composition root

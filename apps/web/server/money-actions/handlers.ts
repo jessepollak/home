@@ -1,5 +1,6 @@
-import type { MoneyActionOperationStatus } from "@/features/money-actions/types";
-import type { MoneyActionExecutionProof, TransferReceiptStatus } from "@/server/transfers/receipt";
+import { visibleActivityMoneyActions } from "@/shared/money-actions/activity-visibility";
+import type { MoneyActionOperationStatus } from "@/shared/money-actions/types";
+import type { MoneyActionExecutionProof, TransferReceiptStatus } from "@/server/money-actions/receipt";
 import { getMoneyActionStore } from "./runtime-store";
 import { moneyActionOwner, readAuthorizedMoneyActionSession } from "./session";
 import type { MoneyActionStore, StoredMoneyActionOperation } from "./store";
@@ -85,7 +86,7 @@ export function createMoneyActionSubmissionHandler(dependencies: {
     const now = (dependencies.now ?? (() => new Date()))().toISOString();
     const store = dependencies.store ?? await getMoneyActionStore();
     const record = await store.recordSubmission(owner, id, {
-      ...(typeof body.submissionId === "string" ? { submissionId: body.submissionId.toLowerCase() } : {}),
+      ...(typeof body.submissionId === "string" ? { submissionId: body.submissionId } : {}),
       ...(typeof body.transactionHash === "string" ? { transactionHash: body.transactionHash.toLowerCase() as `0x${string}` } : {}),
       ...(typeof body.userOperationHash === "string" ? { userOperationHash: body.userOperationHash.toLowerCase() as `0x${string}` } : {}),
     }, now);
@@ -142,6 +143,38 @@ export function createMoneyActionStatusHandler(dependencies: {
         : undefined,
     );
     return record ? json({ operation: record }, 200) : error("ACTION_NOT_FOUND", "The action was not found or cannot transition to that status.", 404);
+  };
+}
+
+export function createMoneyActionAdmissionReleaseHandler(dependencies: {
+  authorize: SessionAuthorizer;
+  store?: MoneyActionStore;
+  now?: () => Date;
+}) {
+  return async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+    const owner = await authorizeOwner(request, dependencies.authorize);
+    if (owner instanceof Response) return owner;
+    const { id } = await context.params;
+    const body = await readJson(request);
+    if (
+      !idPattern.test(id) ||
+      (body != null && (
+        !isRecord(body) ||
+        Object.keys(body).some((key) => key !== "reason") ||
+        (body.reason !== undefined && body.reason !== "owner-request")
+      ))
+    ) {
+      return error("INVALID_ADMISSION_RELEASE", "Only the owner can release Home admission for this action.", 400);
+    }
+    const store = dependencies.store ?? await getMoneyActionStore();
+    const record = await store.releaseAdmission(
+      owner,
+      id,
+      (dependencies.now ?? (() => new Date()))().toISOString(),
+    );
+    return record
+      ? json({ operation: record }, 200)
+      : error("ACTION_NOT_FOUND", "The action was not found or cannot release admission.", 404);
   };
 }
 
@@ -210,7 +243,10 @@ export function createMoneyActionListHandler(dependencies: {
     }
     const scope = rawScope ?? undefined;
     const store = dependencies.store ?? await getMoneyActionStore();
-    const operations = await store.list(owner, limit, scope);
+    const listed = await store.list(owner, scope ? limit : 50, scope);
+    const operations = scope
+      ? listed
+      : visibleActivityMoneyActions(listed).slice(0, limit);
     return json(scope ? { scope, operations } : { operations }, 200);
   };
 }

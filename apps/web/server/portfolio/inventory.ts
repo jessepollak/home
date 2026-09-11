@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   PORTFOLIO_BASE_CHAIN_ID,
   assertPortfolioRegistry,
@@ -8,7 +10,7 @@ import type { FiatCurrencyCode } from "@/config/regions";
 import type {
   DirectPortfolioHolding,
   PortfolioInventorySnapshot,
-} from "@/server/valuation/types";
+} from "@/shared/portfolio/valuation-types";
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import {
   CDP_NATIVE_TOKEN_ADDRESS,
@@ -26,7 +28,7 @@ import {
   createVaultInventoryReader,
   type VaultInventorySnapshot,
 } from "./inventory-vault-rpc";
-import type { VerifiedPortfolioAccount } from "./types";
+import type { VerifiedPortfolioAccount } from "@/shared/portfolio/types";
 
 export const PORTFOLIO_INVENTORY_TIMEOUT_MS = 10_000;
 /** Fresh budget for omitted-cash `balanceOf` — not leftover from CDP + vaults. */
@@ -124,15 +126,17 @@ export function createPortfolioInventoryReader(options: {
     externalSignal?.addEventListener("abort", abort, { once: true });
 
     try {
-      // Cash verify uses `latest` singles and must not wait for the vault pin —
-      // after vault batches, public Base `-32016`s the pinned cash retry.
-      const vaultsPromise = readVaultInventory(account, controller.signal);
+      // CDP first (Coinbase HTTP, not public Base). Then omitted-cash `latest`
+      // singles, then Morpho vault RPC. Overlapping cash with vault batches on
+      // public Base `-32016`s the cash reads → Unavailable on true zeros
+      // (tip-prod #69 after #107). Isolated singles stay ready-0. Incomplete
+      // CDP still does not invent zeros.
       const directs = await readDirectHoldings(
         listTokenBalances,
         address,
         controller.signal,
       );
-      const verifiedPromise = verifyOmittedCashHoldings(
+      const verifiedDirects = await verifyOmittedCashHoldings(
         directs.holdings,
         directs.omittedCashIds,
         address,
@@ -144,10 +148,7 @@ export function createPortfolioInventoryReader(options: {
           retryDelayMs: cashVerifyRetryDelayMs,
         },
       );
-      const [vaults, verifiedDirects] = await Promise.all([
-        vaultsPromise,
-        verifiedPromise,
-      ]);
+      const vaults = await readVaultInventory(account, controller.signal);
       const fetchedAt = now();
       if (Number.isNaN(fetchedAt.getTime())) {
         throw new PortfolioInventoryError("The portfolio fetch time is invalid.");

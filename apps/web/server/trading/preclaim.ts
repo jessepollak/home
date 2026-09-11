@@ -1,27 +1,36 @@
-import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
 import type { ValidateBeforeMoneyActionClaim } from "@/server/money-actions/handlers";
-import { getTradeBalance } from "./balance";
 import { createTradePreclaimValidator } from "./finalize";
 import { getTradeIntentStore } from "./runtime-intent-store";
-import {
-  createPermit2StateReader,
-  createTradeSignerResolver,
-} from "./signer";
 
-const resolveSigner = createTradeSignerResolver({
-  getValidator: getCdpAccessTokenValidator,
-});
-const readPermit2State = createPermit2StateReader();
-let validatorPromise: Promise<ValidateBeforeMoneyActionClaim> | null = null;
+export type LoadTradePreclaimValidator = () => Promise<ValidateBeforeMoneyActionClaim>;
 
-export const validateTradeBeforeClaim: ValidateBeforeMoneyActionClaim = async (input) => {
-  validatorPromise ??= getTradeIntentStore().then((intentStore) =>
-    createTradePreclaimValidator({
-      intentStore,
-      resolveSigner,
-      readBalance: getTradeBalance,
-      readPermit2State,
+export function createTradePreclaimGate(
+  loadValidator: LoadTradePreclaimValidator = loadRuntimeTradePreclaimValidator,
+): ValidateBeforeMoneyActionClaim {
+  let validatorPromise: Promise<ValidateBeforeMoneyActionClaim> | null = null;
+
+  return async (input) => {
+    if (input.action.kind !== "swap") return;
+    validatorPromise ??= loadValidator();
+    return (await validatorPromise)(input);
+  };
+}
+
+export const validateTradeBeforeClaim = createTradePreclaimGate();
+
+async function loadRuntimeTradePreclaimValidator(): Promise<ValidateBeforeMoneyActionClaim> {
+  const intentStore = await getTradeIntentStore();
+  const [{ getCdpAccessTokenValidator }, { getTradeBalance }, signer] = await Promise.all([
+    import("@/server/cdp/provider"),
+    import("./balance"),
+    import("./signer"),
+  ]);
+  return createTradePreclaimValidator({
+    intentStore,
+    resolveSigner: signer.createTradeSignerResolver({
+      getValidator: getCdpAccessTokenValidator,
     }),
-  );
-  return (await validatorPromise)(input);
-};
+    readBalance: getTradeBalance,
+    readPermit2State: signer.createPermit2StateReader(),
+  });
+}

@@ -15,9 +15,15 @@ describe("shell location", () => {
     expect(shellHref("/dashboard")).toBe("/dashboard");
   });
 
-  test("encodes Save, Invest stacks, and Account settings as search params", () => {
+  test("encodes Save, Balances, Activity, Invest stacks, and Account settings as search params", () => {
     expect(shellHref("/dashboard", { panel: "save" })).toBe(
       "/dashboard?panel=save",
+    );
+    expect(shellHref("/dashboard", { panel: "balances" })).toBe(
+      "/dashboard?panel=balances",
+    );
+    expect(shellHref("/dashboard", { panel: "activity" })).toBe(
+      "/dashboard?panel=activity",
     );
     expect(shellHref("/dashboard", { panel: "invest", shelf: "crypto" })).toBe(
       "/dashboard?panel=invest&shelf=crypto",

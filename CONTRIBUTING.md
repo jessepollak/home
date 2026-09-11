@@ -22,27 +22,27 @@ bun install --frozen-lockfile
 bun check
 ```
 
-Optional, not in CI today:
+Additional focused checks:
 
 ```sh
-bun run --cwd apps/web test:browser-auth
-node scripts/probe-money-actions-sqlite.mjs
+bun run --cwd apps/web test:browser-smoke
+MONEY_ACTION_PG_TEST_URL=postgres://... bun test scripts/delivery/tests/postgres-money-action.test.ts
 ```
 
 Do not enable live Morpho/CDP SQL smokes or funded-wallet secrets in pull-request CI.
 
 ## Rules of thumb
 
-- One feature lane per PR (`apps/web/features/<x>` + `apps/web/server/<x>` + its API route).
+- One feature lane per PR (`apps/web/client/<x>` + `apps/web/server/<x>` + its API route).
 - Treat `apps/web/server/money-actions/` as a single-writer zone.
 - Never accept client-authored calldata. Never dispatch twice. Never authorize from `?wallet=` or a client user id.
-- Local SQLite under `.local/` is not production persistence.
+- Money-action persistence requires PostgreSQL/Neon; an unset `DATABASE_URL` fails closed.
 
 The full checklist is in the [contribution contract](docs/architecture-review-2026-09.md#d-contribution-contract-for-new-engineers).
 
 ## Agent team & merge policy
 
-The in-repo agent crew (Hannah, Hank, Holly, Hazel, Hope, Hugo, Hunter, j) follows the [operating manual](docs/operating-manual.md). GitHub Issues and labels are their board — not the private local inbox.
+The in-repo agent crew (Hannah, Hank, Holly, Hazel, Hope, Hugo, Hunter, j) follows the [operating manual](docs/operating-manual.md). GitHub Issues and labels are the sole intake and execution board for all Home feedback and tasks, including solo checkout work.
 
 **Only Jesse (`jessepollak`) gives the final +1 and merges.** Crew review, including Hannah's eng review, can proceed; merge waits on Jesse. Third-party PRs already required Jesse +1; crew PRs use the same bar.
 

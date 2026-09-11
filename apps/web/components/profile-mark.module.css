@@ -1,0 +1,65 @@
+.hit {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--home-ink);
+  cursor: pointer;
+  padding: 0;
+}
+
+.hit:disabled {
+  cursor: default;
+}
+
+.mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 50%;
+  background: var(--home-gray-100);
+  color: var(--home-ink);
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.mark > * {
+  grid-area: 1 / 1;
+}
+
+.photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.glyph {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  background: var(--home-gray-100);
+  color: var(--home-ink);
+  text-transform: lowercase;
+}
+
+.hit:focus-visible {
+  outline: 2px solid var(--home-blue);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .hit:hover:not(:disabled) .mark {
+    box-shadow: inset 0 0 0 1px var(--home-hairline);
+  }
+}

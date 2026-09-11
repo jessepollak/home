@@ -1,7 +1,12 @@
 "use client";
 
 import { ChartNoAxesCombined, House } from "lucide-react";
-import { navigationItems, type NavigationId, type ShellPanelId } from "@/config/navigation";
+import {
+  isHomeNestedPanelId,
+  navigationItems,
+  type NavigationId,
+  type ShellPanelId,
+} from "@/config/navigation";
 import styles from "./primary-navigation.module.css";
 
 type PrimaryNavigationProps = {
@@ -22,7 +27,9 @@ export function PrimaryNavigation({
     <nav className={styles.navigation} aria-label="Main navigation">
       {navigationItems.map((item) => {
         const Icon = navigationIcons[item.id];
-        const isActive = activeNavigation === item.id;
+        const isActive =
+          activeNavigation === item.id ||
+          (item.id === "home" && isHomeNestedPanelId(activeNavigation));
 
         return (
           <button

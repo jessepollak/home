@@ -1,10 +1,12 @@
+import "server-only";
+
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import {
   FUNDING_BASE_CHAIN_ID,
   FUNDING_BASE_USDC_ADDRESS,
   type HostedOnrampSession,
-} from "@/features/funding/types";
-import { parseCoinbaseHostedUrl } from "@/features/funding/funding-client";
+} from "@/shared/funding/types";
+import { parseCoinbaseHostedUrl } from "@/shared/funding/funding-client";
 
 const ONRAMP_HOST = "api.cdp.coinbase.com";
 const ONRAMP_PATH = "/platform/v2/onramp/sessions";

@@ -10,7 +10,7 @@ import {
   CODEX_PRICE_SOURCE_URL,
   CODEX_TOKEN_PRICES_QUERY,
 } from "./config";
-import { MARKET_PRICE_DISPLAY_FRESHNESS_MS } from "./public-contract";
+import { MARKET_PRICE_DISPLAY_FRESHNESS_MS } from "@/shared/invest/public-contract";
 
 const NOW_ISO = "2026-09-07T20:30:00.000Z";
 const NOW_MS = Date.parse(NOW_ISO);

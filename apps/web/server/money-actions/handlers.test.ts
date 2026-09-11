@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import {
   createClaimMoneyActionHandler,
+  createMoneyActionAdmissionReleaseHandler,
   createMoneyActionListHandler,
+  createMoneyActionReadHandler,
   createMoneyActionStatusHandler,
   createMoneyActionSubmissionHandler,
 } from "./handlers";
@@ -153,6 +155,129 @@ describe("money action HTTP lifecycle", () => {
     expect((await store.get(OWNER, ID))?.status).toBe("unknown");
   });
 
+  test("does not terminalize reference-free unknown on Check status recover", async () => {
+    const store = new MemoryMoneyActionStore();
+    await store.issue(action());
+    await store.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    await store.updateStatus(OWNER, ID, "unknown", "2026-09-08T05:01:01.000Z");
+    const recover = createClaimMoneyActionHandler({
+      authorize,
+      store,
+      now: () => new Date("2026-09-08T05:02:00.000Z"),
+    });
+    const recovered = await recover(request(`/api/actions/${ID}/claim`, { reviewHash: REVIEW_HASH }), context);
+    expect(recovered.status).toBe(200);
+    expect((await recovered.json()).operation).toMatchObject({
+      status: "unknown",
+      attemptCount: 1,
+    });
+    expect((await store.get(OWNER, ID))?.status).toBe("unknown");
+    expect((await store.get(OWNER, ID))?.abandonedAt).toBeUndefined();
+
+    const status = createMoneyActionStatusHandler({ authorize, store });
+    const expired = await status(request(`/api/actions/${ID}/status`, { status: "expired" }), context);
+    expect(expired.status).toBe(404);
+    expect((await store.get(OWNER, ID))?.status).toBe("unknown");
+  });
+
+  test("lets the owner release admission while a pending wallet handle can still attach and reconcile", async () => {
+    const store = new MemoryMoneyActionStore();
+    await store.issue(action());
+    await store.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    const list = createMoneyActionListHandler({ authorize, store });
+    const blocking = await list(new Request(
+      "https://home.example/api/actions/operations?scope=unresolved-send&limit=50",
+      { headers: { "X-Home-Account-Provider": OWNER.accountProvider } },
+    ));
+    expect((await blocking.json()).operations).toHaveLength(1);
+
+    const release = createMoneyActionAdmissionReleaseHandler({
+      authorize,
+      store,
+      now: () => new Date("2026-09-08T05:01:30.000Z"),
+    });
+    const abandoned = await release(
+      request(`/api/actions/${ID}/admission-release`, { reason: "owner-request" }),
+      context,
+    );
+    expect(abandoned.status).toBe(200);
+    expect((await abandoned.json()).operation).toMatchObject({
+      status: "submitting",
+      abandonedAt: "2026-09-08T05:01:30.000Z",
+    });
+    const released = await list(new Request(
+      "https://home.example/api/actions/operations?scope=unresolved-send&limit=50",
+      { headers: { "X-Home-Account-Provider": OWNER.accountProvider } },
+    ));
+    expect((await released.json()).operations).toEqual([]);
+
+    const submit = createMoneyActionSubmissionHandler({
+      authorize,
+      store,
+      now: () => new Date("2026-09-08T05:01:40.000Z"),
+      readReceipt: async () => ({ status: "pending", transactionHash: TRANSACTION_HASH }),
+    });
+    const attached = await submit(request(`/api/actions/${ID}/submission`, {
+      userOperationHash: USER_OPERATION_HASH,
+      transactionHash: TRANSACTION_HASH,
+    }), context);
+    expect(attached.status).toBe(200);
+    expect((await attached.json()).operation).toMatchObject({
+      status: "submitted",
+      userOperationHash: USER_OPERATION_HASH,
+      transactionHash: TRANSACTION_HASH,
+      abandonedAt: "2026-09-08T05:01:30.000Z",
+    });
+
+    const read = createMoneyActionReadHandler({
+      authorize,
+      store,
+      now: () => new Date("2026-09-08T05:01:41.000Z"),
+      readReceipt: async () => ({
+        status: "confirmed",
+        success: true,
+        transactionHash: TRANSACTION_HASH,
+        blockNumber: "1",
+        verifiedExecution: {
+          chainId: 8453,
+          kind: "user-operation",
+          hash: USER_OPERATION_HASH,
+        },
+      }),
+    });
+    const reconciled = await read(new Request(`https://home.example/api/actions/${ID}`, {
+      headers: { "X-Home-Account-Provider": OWNER.accountProvider },
+    }), context);
+    expect(reconciled.status).toBe(200);
+    expect((await reconciled.json()).operation).toMatchObject({
+      status: "confirmed",
+      abandonedAt: "2026-09-08T05:01:30.000Z",
+    });
+  });
+
+  test("does not let another owner release admission or see the abandoned send", async () => {
+    const store = new MemoryMoneyActionStore();
+    await store.issue(action());
+    await store.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    const otherAuthorize = async () => Response.json({
+      user: { subject: "subject-b" },
+      smartAccount: { address: "0x2222222222222222222222222222222222222222", chainId: 8453 },
+      accountProvider: OWNER.accountProvider,
+    });
+    const release = createMoneyActionAdmissionReleaseHandler({
+      authorize: otherAuthorize,
+      store,
+      now: () => new Date("2026-09-08T05:02:00.000Z"),
+    });
+    const response = await release(
+      request(`/api/actions/${ID}/admission-release`, { reason: "owner-request" }),
+      context,
+    );
+    expect(response.status).toBe(404);
+    expect((await store.get(OWNER, ID))?.abandonedAt).toBeUndefined();
+    expect((await store.get(OWNER, ID))?.status).toBe("submitting");
+  });
+
   test("exposes a validated owner-scoped unresolved-send view without changing ordinary history", async () => {
     const store = new MemoryMoneyActionStore();
     await store.issue(action());
@@ -188,6 +313,66 @@ describe("money action HTTP lifecycle", () => {
     expect(ordinaryBody.operations[0].action.id).toBe(nonSend.id);
   });
 
+  test("hides pre-chain Rejected from ordinary Activity history without deleting store records", async () => {
+    const store = new MemoryMoneyActionStore();
+    const rejected = { ...action(), id: "33333333-3333-4333-8333-333333333333", title: "Withdraw USDC from Morpho" };
+    const expired = { ...action(), id: "44444444-4444-4444-8444-444444444444", title: "Send USDC" };
+    const failedPrepare = { ...action(), id: "55555555-5555-4555-8555-555555555555", title: "Deposit USDC" };
+    const failedOnchain = { ...action(), id: "66666666-6666-4666-8666-666666666666", title: "Send ETH" };
+    const confirmed = { ...action(), id: "77777777-7777-4777-8777-777777777777", title: "Send USDC" };
+    await store.issue(rejected);
+    await store.claim(OWNER, rejected.id, rejected.reviewHash, "2026-09-08T05:01:00.000Z");
+    await store.updateStatus(OWNER, rejected.id, "rejected", "2026-09-08T05:01:10.000Z", {
+      expectedSourceStatus: "submitting",
+      requireNoSubmissionReference: true,
+    });
+    await store.issue(expired);
+    await store.claim(OWNER, expired.id, expired.reviewHash, "2026-09-08T05:02:00.000Z");
+    await store.updateStatus(OWNER, expired.id, "expired", "2026-09-08T05:02:10.000Z", {
+      expectedSourceStatus: "submitting",
+      requireNoSubmissionReference: true,
+    });
+    await store.issue(failedPrepare);
+    await store.claim(OWNER, failedPrepare.id, failedPrepare.reviewHash, "2026-09-08T05:03:00.000Z");
+    await store.updateStatus(OWNER, failedPrepare.id, "failed", "2026-09-08T05:03:10.000Z", {
+      expectedSourceStatus: "submitting",
+      requireNoSubmissionReference: true,
+    });
+    await store.issue(failedOnchain);
+    await store.claim(OWNER, failedOnchain.id, failedOnchain.reviewHash, "2026-09-08T05:04:00.000Z");
+    await store.recordSubmission(OWNER, failedOnchain.id, { userOperationHash: USER_OPERATION_HASH }, "2026-09-08T05:04:05.000Z");
+    await store.updateStatus(OWNER, failedOnchain.id, "failed", "2026-09-08T05:04:10.000Z");
+    await store.issue(confirmed);
+    await store.claim(OWNER, confirmed.id, confirmed.reviewHash, "2026-09-08T05:05:00.000Z");
+    await store.recordSubmission(OWNER, confirmed.id, {
+      userOperationHash: `0x${"d".repeat(64)}` as const,
+      transactionHash: TRANSACTION_HASH,
+    }, "2026-09-08T05:05:05.000Z");
+    await store.updateStatus(OWNER, confirmed.id, "confirmed", "2026-09-08T05:05:10.000Z");
+
+    const handler = createMoneyActionListHandler({ authorize, store });
+    const response = await handler(new Request(
+      "https://home.example/api/actions/operations?limit=20",
+      { headers: { "X-Home-Account-Provider": OWNER.accountProvider } },
+    ));
+    expect(response.status).toBe(200);
+    const body = await response.json() as { operations: Array<{ action: { id: string }; status: string }> };
+    expect(body.operations.map((operation) => ({ id: operation.action.id, status: operation.status }))).toEqual([
+      { id: confirmed.id, status: "confirmed" },
+      { id: failedOnchain.id, status: "failed" },
+    ]);
+    expect(await store.get(OWNER, rejected.id)).toMatchObject({ status: "rejected" });
+    expect(await store.get(OWNER, expired.id)).toMatchObject({ status: "expired" });
+    expect(await store.get(OWNER, failedPrepare.id)).toMatchObject({ status: "failed" });
+    expect((await store.list(OWNER, 20)).map((operation) => operation.status)).toEqual([
+      "confirmed",
+      "failed",
+      "failed",
+      "expired",
+      "rejected",
+    ]);
+  });
+
   test("rejects unknown, duplicate, or out-of-bounds operation selectors after authorization", async () => {
     const handler = createMoneyActionListHandler({ authorize, store: new MemoryMoneyActionStore() });
     for (const query of [
@@ -212,6 +397,68 @@ describe("money action HTTP lifecycle", () => {
       "https://home.example/api/actions/operations?scope=all&owner=subject-b",
     ));
     expect(response.status).toBe(401);
+  });
+
+  test("preserves mixed-case Base submission IDs byte-for-byte and rejects a case-only retry", async () => {
+    const owner = { ...OWNER, accountProvider: "base-account" as const };
+    const baseAction = { ...action(), owner };
+    const store = new MemoryMoneyActionStore();
+    await store.issue(baseAction);
+    await store.claim(owner, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    const baseAuthorize = async () => Response.json({
+      user: { subject: owner.subject },
+      smartAccount: { address: owner.address, chainId: 8453 },
+      accountProvider: owner.accountProvider,
+    });
+    const handler = createMoneyActionSubmissionHandler({
+      authorize: baseAuthorize,
+      store,
+      now: () => new Date("2026-09-10T05:02:00.000Z"),
+      readReceipt: async () => ({ status: "pending", transactionHash: TRANSACTION_HASH }),
+    });
+    const mixedCase = "0xAbCdEf-Provider-ID";
+
+    const recorded = await handler(request(`/api/actions/${ID}/submission`, {
+      submissionId: mixedCase,
+    }, "base-account"), context);
+    expect(recorded.status).toBe(200);
+    expect((await recorded.json()).operation.submissionId).toBe(mixedCase);
+
+    const exactRetry = await handler(request(`/api/actions/${ID}/submission`, {
+      submissionId: mixedCase,
+    }, "base-account"), context);
+    expect(exactRetry.status).toBe(200);
+    expect((await exactRetry.json()).operation.submissionId).toBe(mixedCase);
+
+    const conflict = await handler(request(`/api/actions/${ID}/submission`, {
+      submissionId: mixedCase.toLowerCase(),
+    }, "base-account"), context);
+    expect(conflict.status).toBe(409);
+    expect((await store.get(owner, ID))?.submissionId).toBe(mixedCase);
+  });
+
+  test("keeps terminal state while durably acknowledging late provider evidence", async () => {
+    const store = new MemoryMoneyActionStore();
+    await store.issue(action());
+    await store.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
+    await store.updateStatus(OWNER, ID, "failed", "2026-09-08T05:01:01.000Z", {
+      expectedSourceStatus: "submitting",
+      requireNoSubmissionReference: true,
+    });
+    const handler = createMoneyActionSubmissionHandler({
+      authorize,
+      store,
+      now: () => new Date("2026-09-10T05:02:00.000Z"),
+      readReceipt: async () => ({ status: "pending", transactionHash: TRANSACTION_HASH }),
+    });
+    const response = await handler(request(`/api/actions/${ID}/submission`, {
+      userOperationHash: USER_OPERATION_HASH,
+    }), context);
+    expect(response.status).toBe(200);
+    expect((await response.json()).operation).toMatchObject({
+      status: "failed",
+      userOperationHash: USER_OPERATION_HASH,
+    });
   });
 
   test("binds embedded receipt proof to the verified owner address before confirming", async () => {

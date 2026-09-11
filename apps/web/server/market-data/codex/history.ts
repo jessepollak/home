@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   CODEX_CACHE_TTL_MS,
   CODEX_GRAPHQL_ENDPOINT,
@@ -14,7 +16,7 @@ import {
   type MarketPriceHistoryPoint,
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
-} from "./history-contract";
+} from "@/shared/invest/history-contract";
 
 export const CODEX_BARS_QUERY = `query GetBars($symbol: String!, $from: Int!, $to: Int!, $resolution: String!) {
   getBars(

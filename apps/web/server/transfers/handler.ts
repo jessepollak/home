@@ -5,7 +5,7 @@ import {
   normalizeTransactionHash,
   type TransferReceiptStatus,
   type UserOperationProof,
-} from "./receipt";
+} from "@/server/money-actions/receipt";
 
 export type TransferReceiptReader = (
   transactionHash: `0x${string}`,

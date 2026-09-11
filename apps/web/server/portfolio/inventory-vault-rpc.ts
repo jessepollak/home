@@ -6,9 +6,9 @@ import {
   portfolioVaults,
   type PortfolioAddress,
 } from "@/config/portfolio-assets";
-import type { VaultPortfolioHolding } from "@/server/valuation/types";
+import type { VaultPortfolioHolding } from "@/shared/portfolio/valuation-types";
 import { resolveBaseRpcUrl } from "./rpc";
-import type { VerifiedPortfolioAccount } from "./types";
+import type { VerifiedPortfolioAccount } from "@/shared/portfolio/types";
 
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;

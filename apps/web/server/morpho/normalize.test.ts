@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { BASE_USDC_ADDRESS } from "./config";
+import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 import { parseLosslessJson } from "./lossless-json";
 import {
   MorphoSchemaError,
   normalizeVaultCandidate,
 } from "./normalize";
-import type { MorphoSource } from "./types";
+import type { MorphoSource } from "@/shared/savings/types";
 
 const source: MorphoSource = {
   provider: "Morpho GraphQL",

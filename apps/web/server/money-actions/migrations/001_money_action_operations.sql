@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS money_action_operations (
   transaction_hash TEXT,
   user_operation_hash TEXT,
   verified_execution_key TEXT,
+  abandoned_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -31,3 +32,5 @@ CREATE INDEX IF NOT EXISTS money_action_owner_recent
 CREATE UNIQUE INDEX IF NOT EXISTS money_action_unique_verified_execution
   ON money_action_operations (verified_execution_key)
   WHERE verified_execution_key IS NOT NULL;
+
+ALTER TABLE money_action_operations ADD COLUMN IF NOT EXISTS abandoned_at TEXT;

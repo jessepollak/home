@@ -2,13 +2,13 @@ import { isRegionId, type RegionId } from "@/config/regions";
 import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
-} from "@/features/account/session-types";
-import type { PortfolioValuationSnapshot } from "@/server/valuation/types";
+} from "@/shared/account/session-types";
+import type { PortfolioValuationSnapshot } from "@/shared/portfolio/valuation-types";
 import {
   BASE_CHAIN_ID,
   type Address,
   type VerifiedPortfolioAccount,
-} from "./types";
+} from "@/shared/portfolio/types";
 import type { SessionAuthorizer } from "./handler";
 
 const privateResponseHeaders = {

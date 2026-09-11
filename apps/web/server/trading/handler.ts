@@ -2,14 +2,15 @@ import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
   type VerifiedAccountSession,
-} from "@/features/account/session-types";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
-import type { PrepareTradeRequest, TradeIntentReview } from "@/features/trading/types";
+} from "@/shared/account/session-types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import type { PrepareTradeRequest, TradeIntentReview } from "@/shared/trading/types";
 import {
   TradePreparationError,
   type TradePreparationFailure,
 } from "./prepare";
-import type { Hex } from "./types";
+import { TradeRuntimeCapabilityError } from "./runtime-intent-store";
+import type { Hex } from "@/shared/trading/server-types";
 
 export type TradeSessionAuthorizer = (request: Request) => Promise<Response>;
 export type TradePreparer = (input: {
@@ -171,6 +172,9 @@ async function parseAuthorizedSession(
 }
 
 function responseForError(error: unknown): Response {
+  if (error instanceof TradeRuntimeCapabilityError) {
+    return privateError(error.code, error.message, 503);
+  }
   if (!(error instanceof TradePreparationError)) {
     return privateError("TRADE_UNAVAILABLE", "A trade action could not be prepared safely.", 502);
   }

@@ -2,7 +2,7 @@ import {
   PORTFOLIO_RPC_TIMEOUT_MS,
   resolveBaseRpcUrl,
 } from "@/server/portfolio/rpc";
-import type { Address, TradeBalanceReader } from "./types";
+import type { Address, TradeBalanceReader } from "@/shared/trading/server-types";
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const quantityPattern = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;

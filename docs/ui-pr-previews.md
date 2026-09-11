@@ -1,52 +1,37 @@
 # UI PR previews
 
-Status: approved v1, September 8, 2026. Operator convention for showing a user-visible UI change in a pull request. Not a CI gate, not a contribution process, and not a production claim.
+Status: v2, Jesse-locked September 11, 2026. Replaces the v1 exact-tip manifest convention. Operator convention for showing a user-visible UI change in a pull request. Not a CI gate and not a production claim.
 
 ## When
 
-PRs that change user-visible UI or core flows.
-
-Skip docs-only, CI-only, and pure server PRs.
+PRs that change user-visible UI or core flows. Skip docs-only, CI-only, and pure server PRs.
 
 ## What
 
-**Before and after is preferred.** After-only is OK if a before shot isn’t useful.
+The **Vercel preview link** (posted automatically on every PR) is the primary proof. Add to the PR description:
+
+- **Non-motion UI:** one screenshot of the changed route on the current head, ~390px wide. Before/after only when the before genuinely helps.
+- **Motion / animation:** one short video or GIF (roughly 30 seconds or less) showing the transition.
+
+Capture the live implementation in a real browser — preview, production, or localhost on the PR head. Design comps, empty scaffolds, and unlabeled `/dev` harness shots are not proof. If you push new UI changes after capturing, replace the screenshot; do not keep stale ones.
 
 ## How
 
-Add before/after images directly in the **GitHub PR description** (upload or attach in the PR body) with short captions. ~390px width is preferred for Home.
+Attach from the CLI (GitHub CLI 2.100 or newer; `gh pr edit --help` lists `--attach`) so the file lands as a GitHub `user-attachments` asset and renders inline:
 
-**Previews must render inline** in the PR body so reviewers can scan the change without clicking. Use HTML `<img … width="390">` (preferred: it sets the width) or markdown `![alt](url)`.
-
-**Do not** leave bare `https://…` URLs, markdown links like `[screenshot](url)`, or “see attached” without an inline image.
-
-**Do not commit** preview PNGs under `docs/pr-previews/` or elsewhere for new PRs. GitHub hosts the upload when you paste or drop it into the description.
-
-After paste/drop, GitHub inserts a URL. Keep or wrap that URL as an `<img>` (or `![…](…)`) inside the Before/After table (or after-only block). The table example below already uses `<img>` — that embed is required for scannability, not optional markup.
-
-When both before and after exist, use a two-column markdown table:
-
-```markdown
-| Before | After |
-| --- | --- |
-| <img alt="Home before" src="https://github.com/user-attachments/assets/<id>" width="390" /> | <img alt="Home after" src="https://github.com/user-attachments/assets/<id>" width="390" /> |
-| Previous hero. | Quiet hero, Add money / Send / Receive. |
+```bash
+gh pr edit <n> --repo jessepollak/home --attach './after.png#Home after: quiet hero'
+gh pr edit <n> --repo jessepollak/home --attach ./motion.webm
 ```
 
-After-only is fine as a single image (or one column) when a before shot isn’t useful:
+Or paste/drop the file into the PR description in the browser. Either way the description must show the image or video inline; bare links, `cursor.com/artifacts` URLs (they expire), and committed PNGs under `docs/pr-previews/` are not accepted.
 
-```markdown
-**Home (after)** — quiet hero, Add money / Send / Receive.
+Stills render at a readable width with `<img src="https://github.com/user-attachments/assets/<id>" width="390" />`. Videos render as a player from their bare URL on its own line.
 
-<img alt="Signed-in Home shell" src="https://github.com/user-attachments/assets/<id>" width="390" />
-```
+## Not required
 
-`docs/pr-previews/pr-3-home-shell/` on [PR #3](https://github.com/jessepollak/home/pull/3) is a past example (`home.png`, `account.png`). Leave those files in place; they are not the current How.
-
-## Out of scope (v1)
-
-CI screenshot gates, Percy/Chromatic, issue/PR templates.
+Immutable manifests, SHA-256 hashes, tile sets, per-state screenshot matrices, publication plans, or separate proof reviews. Behavioral states belong in tests, not screenshots.
 
 ## Done
 
-A reviewer can understand the UX change by **looking at the PR description** (inline images). Opening links or attachments is not enough.
+A reviewer can open the PR, click the Vercel preview, and see one inline image or clip that matches the described change.

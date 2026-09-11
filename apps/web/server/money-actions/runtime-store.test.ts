@@ -6,58 +6,67 @@ import { getMoneyActionStore, resolveMoneyActionStoreBackend, setMoneyActionStor
 import { MemoryMoneyActionStore } from "./store";
 
 const originalUrl = process.env.DATABASE_URL;
-const originalVercel = process.env.VERCEL;
+const originalCutover = process.env.MONEY_ACTION_POSTGRES_CUTOVER;
 
 afterEach(() => {
   setMoneyActionStoreForTests(null);
   if (originalUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = originalUrl;
-  if (originalVercel === undefined) delete process.env.VERCEL;
-  else process.env.VERCEL = originalVercel;
+  if (originalCutover === undefined) delete process.env.MONEY_ACTION_POSTGRES_CUTOVER;
+  else process.env.MONEY_ACTION_POSTGRES_CUTOVER = originalCutover;
 });
 
 describe("money action runtime store selection", () => {
-  test("uses Postgres when DATABASE_URL is set and SQLite when it is not", () => {
-    expect(resolveMoneyActionStoreBackend({ DATABASE_URL: "postgresql://example/home" })).toBe("postgres");
-    expect(resolveMoneyActionStoreBackend({ DATABASE_URL: "  postgresql://example/home  " })).toBe("postgres");
-    expect(resolveMoneyActionStoreBackend({})).toBe("sqlite");
-    expect(resolveMoneyActionStoreBackend({ DATABASE_URL: "" })).toBe("sqlite");
-    expect(resolveMoneyActionStoreBackend({ DATABASE_URL: "   " })).toBe("sqlite");
+  test("requires both PostgreSQL configuration and an explicit verified-empty cutover", () => {
+    expect(resolveMoneyActionStoreBackend({
+      DATABASE_URL: "postgresql://example/home",
+      MONEY_ACTION_POSTGRES_CUTOVER: "verified-empty",
+    })).toBe("postgres");
+    expect(resolveMoneyActionStoreBackend({ DATABASE_URL: "postgresql://example/home" })).toBe("cutover-unverified");
+    expect(resolveMoneyActionStoreBackend({
+      DATABASE_URL: "postgresql://example/home",
+      MONEY_ACTION_POSTGRES_CUTOVER: "unverified",
+    })).toBe("cutover-unverified");
+    expect(resolveMoneyActionStoreBackend({})).toBe("unconfigured");
   });
 
-  test("does not fall back to SQLite on Vercel without DATABASE_URL", () => {
-    expect(resolveMoneyActionStoreBackend({ VERCEL: "1" })).toBe("hosted-unconfigured");
-    expect(resolveMoneyActionStoreBackend({ VERCEL: "1", DATABASE_URL: "postgresql://example/home" })).toBe("postgres");
-  });
-
-  test("keeps an injected test store regardless of DATABASE_URL", async () => {
+  test("keeps an injected in-memory test double regardless of cutover configuration", async () => {
     process.env.DATABASE_URL = "postgresql://example/home";
+    delete process.env.MONEY_ACTION_POSTGRES_CUTOVER;
     const store = new MemoryMoneyActionStore();
     setMoneyActionStoreForTests(store);
     await expect(getMoneyActionStore()).resolves.toBe(store);
   });
 
-  test("loads only the Postgres adapter when DATABASE_URL is set", async () => {
-    delete process.env.VERCEL;
+  test("loads the PostgreSQL adapter only after verified-empty cutover", async () => {
     process.env.DATABASE_URL = "postgresql://example/home";
+    process.env.MONEY_ACTION_POSTGRES_CUTOVER = "verified-empty";
     setMoneyActionStoreForTests(null);
     const store = await getMoneyActionStore();
     expect(store).toBeInstanceOf(PostgresMoneyActionStore);
   });
 
-  test("fails closed on Vercel when DATABASE_URL is missing", async () => {
-    delete process.env.DATABASE_URL;
-    process.env.VERCEL = "1";
+  test("fails closed when DATABASE_URL is configured without cutover verification", async () => {
+    process.env.DATABASE_URL = "postgresql://example/home";
+    delete process.env.MONEY_ACTION_POSTGRES_CUTOVER;
     setMoneyActionStoreForTests(null);
-    await expect(getMoneyActionStore()).rejects.toThrow(/DATABASE_URL is required/);
+    await expect(getMoneyActionStore()).rejects.toThrow(/verifying no unresolved legacy SQLite money actions remain/);
   });
 
-  test("hosted selection source never statically imports node:sqlite", () => {
+  test("fails closed without DATABASE_URL in local and hosted runtimes", async () => {
+    delete process.env.DATABASE_URL;
+    process.env.MONEY_ACTION_POSTGRES_CUTOVER = "verified-empty";
+    setMoneyActionStoreForTests(null);
+    await expect(getMoneyActionStore()).rejects.toThrow(/DATABASE_URL is required for PostgreSQL/);
+  });
+
+  test("production selection has no SQLite adapter branch, import, or hosted alias dependency", () => {
     const runtime = readFileSync(resolve(import.meta.dir, "runtime-store.ts"), "utf8");
     const postgres = readFileSync(resolve(import.meta.dir, "postgres-store.ts"), "utf8");
+    expect(runtime).not.toContain("sqlite-store");
     expect(postgres).not.toContain("node:sqlite");
     expect(postgres).not.toContain("sqlite-store");
-    expect(runtime.indexOf('import("./postgres-store")')).toBeLessThan(runtime.indexOf('import("./sqlite-store.node")'));
-    expect(runtime).toContain('if (backend === "hosted-unconfigured")');
+    expect(runtime).toContain('MONEY_ACTION_POSTGRES_CUTOVER === "verified-empty"');
+    expect(runtime).toContain('await import("./postgres-store")');
   });
 });

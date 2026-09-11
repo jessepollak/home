@@ -1,3 +1,5 @@
+import "server-only";
+
 import { Pool, type PoolClient } from "@neondatabase/serverless";
 
 export const MONEY_ACTION_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS money_action_operations (
@@ -15,6 +17,7 @@ export const MONEY_ACTION_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS money_action_
   transaction_hash TEXT,
   user_operation_hash TEXT,
   verified_execution_key TEXT,
+  abandoned_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -25,7 +28,9 @@ CREATE INDEX IF NOT EXISTS money_action_owner_recent
 CREATE UNIQUE INDEX IF NOT EXISTS money_action_unique_verified_execution
   ON money_action_operations (verified_execution_key)
   WHERE verified_execution_key IS NOT NULL;
-`;
+
+ALTER TABLE money_action_operations ADD COLUMN IF NOT EXISTS abandoned_at TEXT;
+`
 
 export const moneyActionSchemaStatements = MONEY_ACTION_SCHEMA_SQL
   .split(";")
@@ -35,23 +40,23 @@ export const moneyActionSchemaStatements = MONEY_ACTION_SCHEMA_SQL
 export const moneyActionQueries = {
   selectById: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations WHERE id = $1
   `.trim(),
   selectByIdForUpdate: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations WHERE id = $1 FOR UPDATE
   `.trim(),
   selectOwned: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations
     WHERE id = $1 AND subject = $2 AND address = $3 AND chain_id = $4 AND account_provider = $5
   `.trim(),
   selectOwnedForUpdate: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations
     WHERE id = $1 AND subject = $2 AND address = $3 AND chain_id = $4 AND account_provider = $5
     FOR UPDATE
@@ -73,7 +78,7 @@ export const moneyActionQueries = {
   `.trim(),
   listOwned: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations
     WHERE subject = $1 AND address = $2 AND chain_id = $3 AND account_provider = $4
     ORDER BY updated_at DESC
@@ -81,17 +86,21 @@ export const moneyActionQueries = {
   `.trim(),
   listOwnedUnresolvedSends: `
     SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
-           user_operation_hash, verified_execution_key, created_at, updated_at
+           user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
     FROM money_action_operations
     WHERE subject = $1 AND address = $2 AND chain_id = $3 AND account_provider = $4
       AND status IN ('submitting', 'submitted', 'included', 'unknown')
+      AND abandoned_at IS NULL
       AND action_json::jsonb ->> 'kind' = 'send'
     ORDER BY updated_at DESC
     LIMIT $5
   `.trim(),
   recordSubmission: `
     UPDATE money_action_operations
-    SET status = 'submitted',
+    SET status = CASE
+          WHEN status IN ('submitting', 'submitted', 'unknown') THEN 'submitted'
+          ELSE status
+        END,
         submission_id = COALESCE(submission_id, $1),
         transaction_hash = COALESCE(transaction_hash, $2),
         user_operation_hash = COALESCE(user_operation_hash, $3),
@@ -102,8 +111,30 @@ export const moneyActionQueries = {
     SELECT id FROM money_action_operations
     WHERE id <> $1 AND subject = $2 AND address = $3 AND chain_id = $4 AND account_provider = $5 AND (
       ($6::text IS NOT NULL AND submission_id = $6) OR
-      ($7::text IS NOT NULL AND user_operation_hash = $7)
+      ($7::text IS NOT NULL AND LOWER(user_operation_hash) = LOWER($7))
     ) LIMIT 1
+  `.trim(),
+  selectLegacyEvidenceForReservation: `
+    SELECT id, action_json, submission_id, user_operation_hash
+    FROM money_action_operations
+    WHERE submission_id IS NOT NULL OR user_operation_hash IS NOT NULL
+    ORDER BY id
+    FOR UPDATE
+  `.trim(),
+  normalizeLegacyHashes: `
+    UPDATE money_action_operations
+    SET transaction_hash = LOWER(transaction_hash),
+        user_operation_hash = LOWER(user_operation_hash)
+    WHERE (transaction_hash IS NOT NULL AND transaction_hash <> LOWER(transaction_hash))
+       OR (user_operation_hash IS NOT NULL AND user_operation_hash <> LOWER(user_operation_hash))
+  `.trim(),
+  reserveEvidence: `
+    INSERT INTO money_action_attempt_evidence (evidence_key, action_id)
+    VALUES ($1, $2)
+    ON CONFLICT (evidence_key) DO UPDATE
+      SET action_id = money_action_attempt_evidence.action_id
+      WHERE money_action_attempt_evidence.action_id = EXCLUDED.action_id
+    RETURNING action_id
   `.trim(),
   verifiedExecutionOther: `
     SELECT id FROM money_action_operations
@@ -116,6 +147,12 @@ export const moneyActionQueries = {
     WHERE id = $4 AND subject = $5 AND address = $6 AND chain_id = $7 AND account_provider = $8
       AND status = $9
   `.trim(),
+  releaseAdmission: `
+    UPDATE money_action_operations
+    SET abandoned_at = COALESCE(abandoned_at, $1), updated_at = $2
+    WHERE id = $3 AND subject = $4 AND address = $5 AND chain_id = $6 AND account_provider = $7
+      AND status IN ('submitting', 'submitted', 'included', 'unknown')
+  `.trim(),
 } as const;
 
 export type OperationRow = {
@@ -127,6 +164,7 @@ export type OperationRow = {
   transaction_hash: string | null;
   user_operation_hash: string | null;
   verified_execution_key: string | null;
+  abandoned_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -139,10 +177,13 @@ export type SqlQueryResult<T = Record<string, unknown>> = {
 export interface SqlExecutor {
   query<T = Record<string, unknown>>(text: string, values?: unknown[]): Promise<SqlQueryResult<T>>;
   transaction<T>(fn: (tx: SqlExecutor) => Promise<T>): Promise<T>;
+  dispose?(): Promise<void>;
 }
 
 export function isUniqueViolation(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && (error as { code: unknown }).code === "23505");
+  if (!error || typeof error !== "object") return false;
+  const value = error as { code?: unknown; errno?: unknown; sqlState?: unknown };
+  return value.code === "23505" || value.errno === "23505" || value.sqlState === "23505";
 }
 
 type Queryable = {
@@ -161,20 +202,32 @@ function wrapQueryable(queryable: Queryable, beginTransaction: (fn: (tx: SqlExec
   };
 }
 
-export function createNeonSqlExecutor(connectionString: string): SqlExecutor {
+export function createNeonSqlExecutor(
+  connectionString: string,
+  options: Readonly<{ schema?: string }> = {},
+): SqlExecutor {
   let pool: Pool | undefined;
+  let disposed = false;
+  const schemaName = options.schema === undefined ? null : options.schema;
+  const schema = schemaName === null ? null : postgresIdentifier(schemaName);
   const getPool = () => {
+    if (disposed) throw new Error("PostgreSQL money-action executor is disposed");
     pool ??= new Pool({ connectionString });
     return pool;
   };
 
-  const beginTransaction = async (fn: (tx: SqlExecutor) => Promise<unknown>) => {
+  const beginTransaction = async <Result>(fn: (tx: SqlExecutor) => Promise<Result>): Promise<Result> => {
     const client: PoolClient = await getPool().connect();
     const tx = wrapQueryable(client, () => {
       throw new Error("nested money-action transactions are not supported");
     });
     try {
       await client.query("BEGIN");
+      if (schema && schemaName) {
+        const existing = await client.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schemaName]);
+        if (existing.rows.length !== 1) throw new Error(`PostgreSQL schema ${schemaName} does not exist`);
+        await client.query(`SET LOCAL search_path TO ${schema}`);
+      }
       const result = await fn(tx);
       await client.query("COMMIT");
       return result;
@@ -186,216 +239,60 @@ export function createNeonSqlExecutor(connectionString: string): SqlExecutor {
     }
   };
 
-  return wrapQueryable(getPool(), beginTransaction);
-}
-
-type StoredRow = OperationRow & {
-  id: string;
-  review_hash: string;
-  subject: string;
-  address: string;
-  chain_id: number;
-  account_provider: string;
-};
-
-class UniqueViolationError extends Error {
-  readonly code = "23505";
-  constructor() {
-    super("unique_violation");
-    this.name = "UniqueViolationError";
-  }
-}
-
-function publicRow(row: StoredRow): OperationRow {
   return {
-    action_json: row.action_json,
-    status: row.status,
-    attempt_count: row.attempt_count,
-    claimed_at: row.claimed_at,
-    submission_id: row.submission_id,
-    transaction_hash: row.transaction_hash,
-    user_operation_hash: row.user_operation_hash,
-    verified_execution_key: row.verified_execution_key,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+    query<T = Record<string, unknown>>(text: string, values: unknown[] = []) {
+      return beginTransaction(async (tx) => tx.query<T>(text, values));
+    },
+    transaction: beginTransaction,
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      if (pool) await pool.end();
+    },
   };
 }
 
-export function createFakePostgresExecutor(): SqlExecutor {
-  const rows = new Map<string, StoredRow>();
-  let gate = Promise.resolve();
-
-  const run = (text: string, values: unknown[]): SqlQueryResult => {
-    if (moneyActionSchemaStatements.includes(text)) {
-      return { rows: [], rowCount: 0 };
-    }
-    switch (text) {
-      case moneyActionQueries.selectById:
-      case moneyActionQueries.selectByIdForUpdate: {
-        const row = rows.get(String(values[0]));
-        return { rows: row ? [publicRow(row)] : [], rowCount: row ? 1 : 0 };
-      }
-      case moneyActionQueries.selectOwned:
-      case moneyActionQueries.selectOwnedForUpdate: {
-        const row = rows.get(String(values[0]));
-        if (
-          !row ||
-          row.subject !== values[1] ||
-          row.address !== values[2] ||
-          row.chain_id !== Number(values[3]) ||
-          row.account_provider !== values[4]
-        ) {
-          return { rows: [], rowCount: 0 };
-        }
-        return { rows: [publicRow(row)], rowCount: 1 };
-      }
-      case moneyActionQueries.insert: {
-        const id = String(values[0]);
-        if (rows.has(id)) throw new UniqueViolationError();
-        rows.set(id, {
-          id,
-          review_hash: String(values[1]),
-          subject: String(values[2]),
-          address: String(values[3]),
-          chain_id: Number(values[4]),
-          account_provider: String(values[5]),
-          action_json: String(values[6]),
-          status: "prepared",
-          attempt_count: 0,
-          claimed_at: null,
-          submission_id: null,
-          transaction_hash: null,
-          user_operation_hash: null,
-          verified_execution_key: null,
-          created_at: String(values[7]),
-          updated_at: String(values[8]),
-        });
-        return { rows: [], rowCount: 1 };
-      }
-      case moneyActionQueries.expire: {
-        const row = rows.get(String(values[1]));
-        if (!row) return { rows: [], rowCount: 0 };
-        row.status = "expired";
-        row.updated_at = String(values[0]);
-        return { rows: [], rowCount: 1 };
-      }
-      case moneyActionQueries.dispatch: {
-        const row = rows.get(String(values[2]));
-        if (!row || row.status !== "prepared") return { rows: [], rowCount: 0 };
-        row.status = "submitting";
-        row.attempt_count += 1;
-        row.claimed_at ??= String(values[0]);
-        row.updated_at = String(values[1]);
-        return { rows: [], rowCount: 1 };
-      }
-      case moneyActionQueries.listOwned:
-      case moneyActionQueries.listOwnedUnresolvedSends: {
-        const unresolvedSendsOnly = text === moneyActionQueries.listOwnedUnresolvedSends;
-        const matched = [...rows.values()]
-          .filter((row) =>
-            row.subject === values[0] &&
-            row.address === values[1] &&
-            row.chain_id === Number(values[2]) &&
-            row.account_provider === values[3]
-          )
-          .filter((row) => !unresolvedSendsOnly || (
-            ["submitting", "submitted", "included", "unknown"].includes(row.status) &&
-            (JSON.parse(row.action_json) as { kind?: unknown }).kind === "send"
-          ))
-          .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
-          .slice(0, Number(values[4]))
-          .map(publicRow);
-        return { rows: matched, rowCount: matched.length };
-      }
-      case moneyActionQueries.recordSubmission: {
-        const row = rows.get(String(values[4]));
-        if (
-          !row ||
-          row.subject !== values[5] ||
-          row.address !== values[6] ||
-          row.chain_id !== Number(values[7]) ||
-          row.account_provider !== values[8]
-        ) {
-          return { rows: [], rowCount: 0 };
-        }
-        row.status = "submitted";
-        row.submission_id ??= values[0] == null ? null : String(values[0]);
-        row.transaction_hash ??= values[1] == null ? null : String(values[1]);
-        row.user_operation_hash ??= values[2] == null ? null : String(values[2]);
-        row.updated_at = String(values[3]);
-        return { rows: [], rowCount: 1 };
-      }
-      case moneyActionQueries.pendingReference: {
-        const found = [...rows.values()].some((row) =>
-          row.id !== values[0] &&
-          row.subject === values[1] &&
-          row.address === values[2] &&
-          row.chain_id === Number(values[3]) &&
-          row.account_provider === values[4] && (
-            (values[5] != null && row.submission_id === values[5]) ||
-            (values[6] != null && row.user_operation_hash === values[6])
-          )
-        );
-        return { rows: found ? [{ id: "taken" }] : [], rowCount: found ? 1 : 0 };
-      }
-      case moneyActionQueries.verifiedExecutionOther: {
-        const found = [...rows.values()].some((row) =>
-          row.id !== values[0] && row.verified_execution_key === values[1]
-        );
-        return { rows: found ? [{ id: "taken" }] : [], rowCount: found ? 1 : 0 };
-      }
-      case moneyActionQueries.updateStatus: {
-        const row = rows.get(String(values[3]));
-        if (
-          !row ||
-          row.subject !== values[4] ||
-          row.address !== values[5] ||
-          row.chain_id !== Number(values[6]) ||
-          row.account_provider !== values[7] ||
-          row.status !== values[8]
-        ) {
-          return { rows: [], rowCount: 0 };
-        }
-        const nextKey = values[2] == null ? null : String(values[2]);
-        if (nextKey) {
-          const taken = [...rows.values()].some((other) =>
-            other.id !== row.id && other.verified_execution_key === nextKey
-          );
-          if (taken) throw new UniqueViolationError();
-        }
-        row.status = String(values[0]);
-        row.updated_at = String(values[1]);
-        row.verified_execution_key ??= nextKey;
-        return { rows: [], rowCount: 1 };
-      }
-      default:
-        throw new Error(`unexpected money-action SQL: ${text}`);
-    }
-  };
-
-  const executor: SqlExecutor = {
-    async query<T = Record<string, unknown>>(text: string, values: unknown[] = []) {
-      return run(text, values) as SqlQueryResult<T>;
-    },
-    async transaction(fn) {
-      let release!: () => void;
-      const previous = gate;
-      gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      await previous;
-      try {
-        return await fn(executor);
-      } finally {
-        release();
-      }
-    },
-  };
-  return executor;
+function postgresIdentifier(value: string): string {
+  if (!/^[a-z][a-z0-9_]{0,62}$/.test(value)) throw new Error("unsafe PostgreSQL schema identifier");
+  return `"${value}"`;
 }
+
+export const MONEY_ACTION_ATTEMPT_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS money_action_attempt_states (
+  action_id TEXT PRIMARY KEY REFERENCES money_action_operations(id) ON DELETE CASCADE,
+  state_json TEXT NOT NULL,
+  verified_execution_key TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS money_action_attempt_unique_verified_execution
+  ON money_action_attempt_states (verified_execution_key)
+  WHERE verified_execution_key IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS money_action_attempt_evidence (
+  evidence_key TEXT PRIMARY KEY,
+  action_id TEXT NOT NULL REFERENCES money_action_operations(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS money_action_attempt_evidence_action
+  ON money_action_attempt_evidence (action_id);
+`;
+
+export const moneyActionAttemptSchemaStatements = MONEY_ACTION_ATTEMPT_SCHEMA_SQL
+  .split(";")
+  .map((statement) => statement.trim())
+  .filter((statement) => statement.length > 0);
 
 export async function applyMoneyActionPostgresSchema(executor: SqlExecutor): Promise<void> {
-  for (const statement of moneyActionSchemaStatements) {
-    await executor.query(statement);
-  }
+  await executor.transaction(async (transaction) => {
+    await transaction.query(
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      ["home_money_action_schema_v2"],
+    );
+    for (const statement of [...moneyActionSchemaStatements, ...moneyActionAttemptSchemaStatements]) {
+      await transaction.query(statement);
+    }
+  });
 }
+
+// Temporary #243 test-only import compatibility; never used by #245 acceptance.
+export { createFakePostgresExecutor } from "./postgres-sql-test-double";

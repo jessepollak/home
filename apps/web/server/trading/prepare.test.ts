@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
-import { BASE_USDC } from "@/features/trading/assets";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { BASE_USDC } from "@/shared/trading/assets";
 import { MemoryTradeIntentStore } from "./intent-store";
 import { hashTypedData } from "viem";
 import { PERMIT2_ADDRESS } from "./permit2";
@@ -14,7 +14,7 @@ import type {
   TradeBalanceSnapshot,
   TradeQuote,
   TradeQuoteRequest,
-} from "./types";
+} from "@/shared/trading/server-types";
 
 const SMART = "0x1111111111111111111111111111111111111111" as const;
 const SIGNER = "0x2222222222222222222222222222222222222222" as const;

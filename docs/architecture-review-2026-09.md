@@ -16,7 +16,7 @@
 - **The live app is a Bun monorepo with one Next.js app** (`apps/web`). There is no `packages/core`, `packages/db`, `lib/api`, TanStack Query, Zod, or `POST /api/webhooks/cdp`. The 2026-09-07 design that described that missing tree now lives at [target architecture](target-architecture.md); old `technical-design.md` / `implementation-plan.md` URLs are stubs.
 - **Strongest existing pattern:** thin `app/api/*/route.ts` factories + injectable `MoneyActionStore` + session-derived owner. Browsers submit intents or `{ reviewHash }`, never call plans. Keep this.
 - **Strongest safety tests already exist:** owner isolation, atomic claim (`dispatch` vs `recover`), immutable submission handles, and a Node SQLite race probe. CI runs `bun check` (372 passing unit/contract tests + lint + typecheck + build). Playwright auth and the SQLite probe are **not** in CI.
-- **Fragile seams for two people:** `features/account/cdp-client.tsx` (~2,200 lines), `app/home-experience.tsx` (~840 lines), copied `parseAuthorizedSession` in six handlers, vault addresses duplicated in config vs Morpho, and no ESLint import-boundary rule. Features already import server modules (mostly types/config; a few runtime constants).
+- **Fragile seams for two people:** `client/account/cdp-client.tsx` (~2,200 lines), `client/home/home-experience.tsx` (~840 lines), copied `parseAuthorizedSession` in six handlers, vault addresses duplicated in config vs Morpho, and no ESLint import-boundary rule. Features already import server modules (mostly types/config; a few runtime constants).
 - **Money UI is deliberately not a protocol ledger.** Activity rows are Received/Sent/Self transfer. Valuation is wallet + three USDC vaults, explicitly “Borrow separate,” not net worth. Country selection is presentation, not eligibility.
 - **Gates that remain real:** verified CDP session, provider credentials, stock eligibility, `cdp-embedded`-only trades, Borrow preview-only for undeployed accounts, hosted funding credentials, and “local SQLite ≠ production.” Local acceptance is not production authorization (`docs/build-status.md`).
 - **Go conditions:** (1) assign non-overlapping lanes, (2) require the contribution contract below on every finance PR, (3) start from current-tree docs only (target architecture is demoted), (4) do not start a parallel coordinator or a second persistence implementation without a written cutover, (5) keep live funded probes opt-in and out of CI.
@@ -27,13 +27,15 @@
 
 These are working contracts. Document them; do not reinvent them when adding a feature.
 
-### 1. Feature / server / thin-route split
+### 1. Client / shared / server / thin-route split
 
 | Layer | Path | Owns |
 |---|---|---|
 | Routes | `apps/web/app/api/**/route.ts` | `runtime = "nodejs"`, `dynamic = "force-dynamic"`, wire authorizer + handler |
-| Pages / shell | `apps/web/app/*.tsx` | Compose features; `home-experience.tsx` is the Home shell |
-| Features | `apps/web/features/*` | UI, parsers, client fetch helpers, shared money-action types |
+| Pages | `apps/web/app/**/page.tsx` | Thin route composition and metadata |
+| Web shell | `apps/web/client/home/*` | Home and dashboard client experiences |
+| Client | `apps/web/client/*` | UI, hooks, and client fetch helpers |
+| Shared | `apps/web/shared/*` | Runtime-agnostic contracts, validation, and pure presenters |
 | Server | `apps/web/server/*` | Session validation, prepare/issue, stores, RPC/SQL, receipts |
 | Config | `apps/web/config/*` | Brand, regions, navigation, asset registries (no secrets) |
 
@@ -65,12 +67,12 @@ Prepare endpoints accept **intent fields only**:
 
 `issueMoneyAction` (`apps/web/server/money-actions/issue.ts`) binds `owner` from the verified session, normalizes calls, enforces exact approval caps, caps lifetime at 30 minutes, and computes `reviewHash` as SHA-256 of canonical JSON. Claim body is **only** `{ reviewHash }` (`handlers.ts`).
 
-Client execution (`features/account/cdp-client.tsx` `executeMoneyAction`) uses **server-returned** `claim.action.calls`, not a client-held plan.
+Client execution (`client/account/cdp-client.tsx` `executeMoneyAction`) uses **server-returned** `claim.action.calls`, not a client-held plan.
 
 ### 4. Owner tuple on every durable operation
 
 ```ts
-// apps/web/features/money-actions/types.ts
+// apps/web/shared/money-actions/types.ts
 type MoneyActionOwner = {
   subject: string;
   address: `0x${string}`;
@@ -89,6 +91,8 @@ Identity is **never** taken from `?wallet=` or a client `userId`. Portfolio and 
 
 - `prepared` + matching owner/hash + not expired → `submitting`, `attemptCount = 1`, disposition `dispatch`.
 - Any later claim → disposition `recover`, same attempt.
+- Recover / Check status never terminalizes claimed `unknown` or leftover `submitting`. Missing references are not proof of non-submission.
+- Owner-scoped `POST /api/actions/:id/admission-release` sets `abandonedAt` without changing execution status. That releases the `unresolved-send` admission gate. Late `recordSubmission` and verified reconciliation remain allowed. Abandonment is Home policy, not chain cancel.
 - SQLite uses `UPDATE ... WHERE status = 'prepared'` inside `BEGIN IMMEDIATE`.
 
 Client recover path (`cdp-client.tsx`): if `claim.disposition === "recover"`, poll existing refs and **do not** call `sendUserOperation` / `wallet_sendCalls` again. CDP embedded uses `idempotencyKey: canonicalAction.id`.
@@ -106,7 +110,7 @@ Money-action routes re-parse via `readAuthorizedMoneyActionSession` and require 
 
 ### 7. One client fetch helper, allowlisted paths
 
-`AccountWalletClient.fetchAccountResource` (`features/account/cdp-client.tsx`) accepts only same-origin paths under `/api/actions`, `/api/savings/actions`, `/api/trades`, `/api/borrow`, `/api/funding`. It attaches bearer + provider headers, `cache: "no-store"`, `redirect: "error"`, and aborts on `transferBoundaryKey` change (account switch).
+`AccountWalletClient.fetchAccountResource` (`client/account/cdp-client.tsx`) accepts only same-origin paths under `/api/actions`, `/api/savings/actions`, `/api/trades`, `/api/borrow`, `/api/funding`. It attaches bearer + provider headers, `cache: "no-store"`, `redirect: "error"`, and aborts on `transferBoundaryKey` change (account switch).
 
 Do not add a second SDK/auth context inside a feature.
 
@@ -118,17 +122,17 @@ Do not add a second SDK/auth context inside a feature.
 | Invest assets | `apps/web/config/invest-assets.ts` | Stocks `availability: "restricted"` |
 | Portfolio inventory | `apps/web/config/portfolio-assets.ts` | Native ETH + USDC + 17 invest + EURC/IDRX + 3 vaults; `assertPortfolioRegistry()` |
 | Navigation | `apps/web/config/navigation.ts` | Home / Save / Invest only (Borrow is a linked page, not primary nav) |
-| Morpho vault allowlist | `apps/web/server/morpho/config.ts` | `isConfiguredMorphoVault()` |
-| Borrow market | `apps/web/server/borrowing/config.ts` | One cbBTC/USDC market |
+| Morpho vault allowlist | `apps/web/shared/savings/config.ts` | `isConfiguredMorphoVault()` |
+| Borrow market | `apps/web/shared/borrowing/config.ts` | One cbBTC/USDC market |
 
 Ticker is never identity. Asset keys are `eip155:8453/erc20:<lowercase>` or native.
 
 ### 9. Valuation and Activity composition (labels, not protocol)
 
-- **Balances:** `GET /api/portfolio` → `features/portfolio`.
-- **Valuation:** `GET /api/portfolio/valuation?region=` → `server/portfolio/valuation.ts`. Exact fraction math (`server/valuation/math.ts`). Omissions include `bounded-inventory`. Home copy: “Wallet and savings only · Borrow separate” (`app/home-experience.tsx`). Phase A inventory is Token Balances + Morpho convert RPC ([portfolio](portfolio.md)); locked B/C: [balances inventory](balances-inventory-architecture.md) / [#76](https://github.com/jessepollak/home/issues/76).
-- **Activity:** CDP SQL transfers labeled Received / Sent / Self transfer (`features/activity/activity-panel.tsx`). Coverage note excludes native ETH and complete ERC-4337 history. Indexed activity is **not** receipt confirmation. CoinbaSeQL is history only; it is not the balances path.
-- **Home operations:** `RecentMoneyActions` (`features/money-actions/recent-operations.tsx`) lists durable operations and dedupes by transaction hash already shown in Activity.
+- **Balances:** `GET /api/portfolio` → `client/portfolio`.
+- **Valuation:** `GET /api/portfolio/valuation?region=` → `server/portfolio/valuation.ts`. Exact fraction math (`shared/portfolio/valuation-math.ts`). Omissions include `bounded-inventory`. Home copy: “Wallet and savings only · Borrow separate” (`client/home/home-experience.tsx`). Phase A inventory is Token Balances + Morpho convert RPC ([portfolio](portfolio.md)); locked B/C: [balances inventory](balances-inventory-architecture.md) / [#76](https://github.com/jessepollak/home/issues/76).
+- **Activity:** CDP SQL transfers labeled Received / Sent / Self transfer (`client/activity/activity-panel.tsx`). Coverage note excludes native ETH and complete ERC-4337 history. Indexed activity is **not** receipt confirmation. CoinbaSeQL is history only; it is not the balances path.
+- **Home operations:** `RecentMoneyActions` (`client/money-actions/recent-operations.tsx`) lists durable operations and dedupes by transaction hash already shown in Activity.
 
 Do not add Morpho/Borrow protocol names onto Activity rows to “make it richer.” That mixes ledgers.
 
@@ -139,7 +143,7 @@ Do not add Morpho/Borrow protocol names onto Activity rows to “make it richer.
 | Unit/contract (`apps/web/**/*.test.ts(x)`, 82 files, 372 pass + 1 skip) | `bun test` | Yes, via `bun check` |
 | Production-component Chromium auth, mocked SDK (7 scenarios) | `bun run --cwd apps/web test:browser-auth` | **No** |
 | SQLite claim/shared-bundle/race probe | `node scripts/probe-money-actions-sqlite.mjs` (see script header) | **No** |
-| Live Morpho / CDP SQL | `MORPHO_LIVE_SMOKE=1`, `CDP_SQL_SMOKE=1` | **No** (correct) |
+| Live Morpho / CDP SQL / Base RPC | `MORPHO_LIVE_SMOKE=1`, `CDP_SQL_SMOKE=1`, `BASE_RPC_LIVE_SMOKE=1` | **No** (correct) |
 
 Highest-value existing tests to copy: `server/money-actions/store.test.ts`, `issue`/`handlers` tests, portfolio/activity wallet-scope tests, valuation exact-math tests.
 
@@ -195,18 +199,18 @@ Print this. Use it as the PR checklist.
 
 | Lane | Own these | Ask before touching |
 |---|---|---|
-| Transfers | `features/transfers/`, `server/money-actions/prepare-send.ts`, `app/api/actions/send/` | `store.ts`, `handlers.ts`, `cdp-client.tsx` execution |
-| Savings | `features/savings/`, `features/savings-actions/`, `server/savings-actions/`, `server/morpho/`, `app/api/savings/` | `config/portfolio-assets.ts` vault list (pair with Morpho config) |
-| Invest / prices | `features/invest/`, `server/market-data/`, `app/api/market-prices/` | `config/invest-assets.ts` (fans out to portfolio + activity) |
-| Trading | `features/trading/`, `server/trading/`, `app/api/trades/` | Claim route `validateBeforeClaim`, `issue.ts` reserved ids |
-| Borrow | `features/borrowing/`, `server/borrowing/`, `app/borrow/`, `app/api/borrow/` | Valuation (must stay excluded), navigation |
-| Funding | `features/funding/`, `server/funding/`, `app/fund/`, `app/api/funding/` | Do not invent a second operations table |
-| Activity / valuation | `features/activity/`, `features/portfolio/`, `features/portfolio-valuation/`, `server/activity/`, `server/portfolio/`, `server/valuation/` | Presentation labels; do not net Borrow into Cash |
-| Auth / session | `features/account/` (except dumping more into `cdp-client.tsx`), `server/cdp/` | Every authenticated route’s authorizer wiring |
-| Landing / chrome | `features/landing/`, `components/`, `app/globals.css`, `config/brand.ts`, `config/navigation.ts` | Finance copy that implies eligibility or completeness |
+| Transfers | `client/transfers/`, `server/money-actions/prepare-send.ts`, `app/api/actions/send/` | `store.ts`, `handlers.ts`, `cdp-client.tsx` execution |
+| Savings | `client/savings/`, `shared/savings/`, `server/savings/`, `server/morpho/`, `app/api/savings/` | `config/portfolio-assets.ts` vault list (pair with Morpho config) |
+| Invest / prices | `client/invest/`, `server/market-data/`, `app/api/market-prices/` | `config/invest-assets.ts` (fans out to portfolio + activity) |
+| Trading | `client/trading/`, `server/trading/`, `app/api/trades/` | Claim route `validateBeforeClaim`, `issue.ts` reserved ids |
+| Borrow | `client/borrowing/`, `server/borrowing/`, `app/borrow/`, `app/api/borrow/` | Valuation (must stay excluded), navigation |
+| Funding | `client/funding/`, `server/funding/`, `app/fund/`, `app/api/funding/` | Do not invent a second operations table |
+| Activity / valuation | `client/activity/`, `client/portfolio/`, `shared/activity/`, `shared/portfolio/`, `server/activity/`, `server/portfolio/` | Presentation labels; do not net Borrow into Cash |
+| Auth / session | `client/account/` (except dumping more into `cdp-client.tsx`), `server/cdp/` | Every authenticated route’s authorizer wiring |
+| Landing / chrome | `client/landing/`, `components/`, `app/globals.css`, `config/brand.ts`, `config/navigation.ts` | Finance copy that implies eligibility or completeness |
 | Persistence milestone | `server/money-actions/store.ts` + both implementations | Everything else — this is a dedicated cutover |
 
-`app/home-experience.tsx` is shared composition. Prefer passing content props (`docs/ui-direction.md`) over editing the shell for feature work.
+`client/home/home-experience.tsx` is shared composition. Prefer passing content props (`docs/ui-direction.md`) over editing the shell for feature work.
 
 ### Required tests before a finance PR
 
@@ -215,17 +219,17 @@ Print this. Use it as the PR checklist.
 - [ ] If you touched auth/session: a test that a client-supplied wallet/user id cannot change scope.
 - [ ] If you touched a route: `app/api/<route>/route.test.ts` still asserts Node runtime, `force-dynamic`, and unauthenticated rejection before provider calls.
 - [ ] If you touched valuation math or amounts: exact bigint/decimal fixtures; no `Number` for token amounts.
-- [ ] `bun check` green. Do not enable `MORPHO_LIVE_SMOKE`, `CDP_SQL_SMOKE`, or funded-wallet secrets in CI.
+- [ ] `bun check` green. Do not enable `MORPHO_LIVE_SMOKE`, `CDP_SQL_SMOKE`, `BASE_RPC_LIVE_SMOKE`, or funded-wallet secrets in CI.
 - [ ] Auth smoke on an allowlisted host (default: localhost or staging/prod). Add a Vercel preview origin only when the PR must demo sign-in there. [Preview auth](cdp-setup.md#preview-auth) / [#67](https://github.com/jessepollak/home/issues/67).
 
-Browser-auth (`test:browser-auth`) is required when you change sign-in, sign-out, or session restore — even if CI does not run it yet.
+The browser smoke (`test:browser-smoke`) is required when you change sign-in, sign-out, or session restore — even if CI does not run it yet.
 
 ### Money-safety invariants (non-negotiable)
 
 1. **Never double-dispatch.** Claim is the only grant of `dispatch`. Refresh/recover/read/status must not call wallet submit APIs again.
 2. **Never accept client-authored call plans.** No API takes `calls[]` or a `MoneyActionDraft` from the browser for execution.
 3. **Never authorize from a client user id or `?wallet=`.** Scope = verified CDP subject + smart-account address + chain `8453` + `X-Home-Account-Provider`.
-4. **Never confirm from the client.** `POST /api/actions/:id/status` may set `unknown | rejected | expired | failed` only. Confirmation requires receipt + `verifiedExecution`.
+4. **Never confirm from the client.** `POST /api/actions/:id/status` may set `unknown | rejected | expired | failed` only. `expired` / `rejected` / `failed` stay `submitting` + reference-free. Owner abandonment is `POST /api/actions/:id/admission-release`, not a status write. Confirmation requires receipt + `verifiedExecution`.
 5. **Never keep a SQL/SQLite transaction open across a provider call.**
 6. **Never treat an ambiguous broadcast as retryable with a new nonce.** Record `unknown`; reconcile from the stored reference.
 7. **Never use JS floats for token amounts, debt, or settlement.** Parse once at the boundary; reject excess precision.
@@ -237,7 +241,7 @@ Browser-auth (`test:browser-auth`) is required when you change sign-in, sign-out
 
 ### How to add a new money-action kind
 
-1. Add the kind to `features/money-actions/types.ts` (`MoneyActionKind`).
+1. Add the kind to `shared/money-actions/types.ts` (`MoneyActionKind`).
 2. Write `server/<feature>/prepare.ts` that builds a `MoneyActionDraft` from a **validated intent** (allowlisted contracts, amounts, chain).
 3. Call `issueMoneyAction(session, draft)` — do not persist plans yourself.
 4. Add a thin `app/api/<feature>/route.ts` with `createSessionHandler` / `createMoneyActionSessionAuthorizer`.
@@ -274,7 +278,7 @@ Small, reviewable PRs that exercise good seams. None require a live funded trans
 
 1. **Extract one session parser** (`S–M`). Replace the six `parseAuthorizedSession` copies with `server/cdp/authorized-session.ts`. Table-driven tests: malformed JSON → 503, provider header mismatch → fail closed, `?wallet=` ignored. Does not change product behavior.
 
-2. **Import-boundary guard** (`S`). ESLint restriction or a `bun test` that fails if `features/**` runtime-imports `@/server/**` outside an allowlist (`import type` + `server/market-data/codex/public-contract` + documented config constants). Prevents secret leakage before it happens.
+2. **Import-boundary guard** (`S`). ESLint restriction or a `bun test` that fails if `client/**` runtime-imports `@/server/**` outside an allowlist (`import type` + `server/market-data/codex/public-contract` + documented config constants). Prevents secret leakage before it happens.
 
 3. **Registry sync contract** (`S`). Assert `portfolioVaults[].address` equals `MORPHO_V1_CANDIDATE_ADDRESSES` (order-independent, lowercased) and that `assertPortfolioRegistry()` still bounds 3 vaults / 17 invest assets. Stops silent inventory drift.
 
@@ -286,7 +290,7 @@ Small, reviewable PRs that exercise good seams. None require a live funded trans
 
 7. **Bind or document transfer-receipt scope** (`S`). Either require `sender` to match the session smart account, or rename/document the route as “authenticated public-chain probe” and add a test that states that. Removes an inconsistent private API.
 
-8. **Split money-action execution out of `cdp-client.tsx`** (`M`, one PR, no behavior change). Move `executeMoneyAction` / recover / `assertMoneyActionDispatchable` to `features/money-actions/execute.ts` (or similar) and keep `cdp-client.tsx` as session + `fetchAccountResource`. Unblocks parallel feature PRs.
+8. **Split money-action execution out of `cdp-client.tsx`** (`M`, one PR, no behavior change). Move `executeMoneyAction` / recover / `assertMoneyActionDispatchable` to `client/money-actions/execute.ts` (or similar) and keep `cdp-client.tsx` as session + `fetchAccountResource`. Unblocks parallel feature PRs.
 
 **Defer:** Drizzle cutover, CDP webhooks, `packages/*` extraction, generic action framework, live funded send, stock eligibility, extra Borrow markets, Venice/Rain. Those are production milestones, not onboarding exercises. The Neon money-action adapter is selected with `DATABASE_URL`; local `bun dev` stays on SQLite.
 
@@ -298,14 +302,15 @@ Small, reviewable PRs that exercise good seams. None require a live funded trans
 /workspace                    # Bun workspaces: ["apps/*"]
   apps/web                    # the entire product
     app/                      # Next pages + thin API routes
-    features/                 # account, activity, borrowing, funding, invest,
-                              # landing, money-actions, portfolio,
-                              # portfolio-valuation, savings, savings-actions,
-                              # trading, transfers, formatting
-    server/                   # activity, borrowing, cdp, chain-data, funding,
-                              # market-data, money-actions, morpho, portfolio,
-                              # savings-actions, trading, transfers, valuation
-    config/                   # regions, assets, navigation, brand
+    client/                  # account, activity, borrowing, funding, home,
+                              # invest, landing, money-actions, money-modal,
+                              # observability, portfolio, savings, trading, transfers
+    shared/                  # runtime-agnostic contracts, validation, formatting,
+                              # calldata builders, and pure presenters
+    server/                  # activity, borrowing, cdp, chain-data, funding,
+                              # market-data, money-actions, morpho, observability,
+                              # portfolio, savings, trading, transfers
+    config/                  # regions, assets, navigation, brand
     tests/browser/            # Playwright auth (not in CI)
   docs/                       # current-state first; target + archive demoted
   scripts/                    # opt-in probes (cdp-sql, sqlite)
@@ -320,11 +325,11 @@ Small, reviewable PRs that exercise good seams. None require a live funded trans
 
 ## Appendix — merge hotspots (coordinate, don’t both edit)
 
-1. `apps/web/features/account/cdp-client.tsx`
-2. `apps/web/app/home-experience.tsx`
+1. `apps/web/client/account/cdp-client.tsx`
+2. `apps/web/client/home/home-experience.tsx`
 3. `apps/web/server/money-actions/{store,sqlite-store.node,issue,handlers}.ts`
 4. `apps/web/app/api/actions/[id]/claim/route.ts`
-5. `apps/web/config/portfolio-assets.ts` + `apps/web/server/morpho/config.ts`
+5. `apps/web/config/portfolio-assets.ts` + `apps/web/shared/savings/config.ts`
 6. `apps/web/config/invest-assets.ts`
 7. `apps/web/components/finance-rows.tsx` + `apps/web/app/globals.css`
 

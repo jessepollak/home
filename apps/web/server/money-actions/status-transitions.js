@@ -1,3 +1,7 @@
+export function canReleaseMoneyActionAdmission(record) {
+  return ["submitting", "submitted", "included", "unknown"].includes(record.status);
+}
+
 export function canTransitionMoneyActionStatus(record, to, constraints) {
   const from = record.status;
   if (constraints?.expectedSourceStatus && from !== constraints.expectedSourceStatus) {

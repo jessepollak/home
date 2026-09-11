@@ -2,20 +2,15 @@ import type {
   MoneyActionOperationStatus,
   MoneyActionOwner,
   PreparedMoneyAction,
-} from "@/features/money-actions/types";
-import { canTransitionMoneyActionStatus } from "./status-transitions.js";
+  StoredMoneyActionOperation,
+} from "@/shared/money-actions/types";
+import {
+  canReleaseMoneyActionAdmission,
+  canTransitionMoneyActionStatus,
+} from "./status-transitions.js";
 
-export type StoredMoneyActionOperation = {
-  action: PreparedMoneyAction;
-  status: MoneyActionOperationStatus;
-  attemptCount: number;
-  claimedAt?: string;
-  submissionId?: string;
-  transactionHash?: `0x${string}`;
-  userOperationHash?: `0x${string}`;
-  createdAt: string;
-  updatedAt: string;
-};
+export { canReleaseMoneyActionAdmission } from "./status-transitions.js";
+export type { StoredMoneyActionOperation } from "@/shared/money-actions/types";
 
 export type MoneyActionClaim = {
   action: PreparedMoneyAction;
@@ -60,6 +55,11 @@ export interface MoneyActionStore {
     status: MoneyActionOperationStatus,
     now: string,
     constraints?: MoneyActionStatusConstraints,
+  ): Promise<StoredMoneyActionOperation | null>;
+  releaseAdmission(
+    owner: MoneyActionOwner,
+    id: string,
+    now: string,
   ): Promise<StoredMoneyActionOperation | null>;
 }
 
@@ -163,21 +163,28 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
     },
     now: string,
   ): Promise<StoredMoneyActionOperation | null> {
+    const normalizedReference = {
+      ...reference,
+      ...(reference.transactionHash ? { transactionHash: reference.transactionHash.toLowerCase() as `0x${string}` } : {}),
+      ...(reference.userOperationHash ? { userOperationHash: reference.userOperationHash.toLowerCase() as `0x${string}` } : {}),
+    };
     const record = this.readOwned(owner, id);
-    if (!record || !["submitting", "submitted", "unknown"].includes(record.status)) return null;
+    if (!record || record.status === "prepared" || record.attemptCount < 1 || !record.claimedAt) return null;
     if (!reference.submissionId && !reference.transactionHash && !reference.userOperationHash) {
       return null;
     }
     if (
-      (record.submissionId && reference.submissionId && record.submissionId !== reference.submissionId) ||
-      (record.transactionHash && reference.transactionHash && record.transactionHash !== reference.transactionHash) ||
-      (record.userOperationHash && reference.userOperationHash && record.userOperationHash !== reference.userOperationHash) ||
-      this.pendingReferenceBelongsToAnotherOwnedAction(owner, id, reference)
+      (record.submissionId && normalizedReference.submissionId && record.submissionId !== normalizedReference.submissionId) ||
+      (record.transactionHash && normalizedReference.transactionHash && record.transactionHash.toLowerCase() !== normalizedReference.transactionHash) ||
+      (record.userOperationHash && normalizedReference.userOperationHash && record.userOperationHash.toLowerCase() !== normalizedReference.userOperationHash) ||
+      this.pendingReferenceBelongsToAnotherOwnedAction(owner, id, normalizedReference)
     ) return null;
-    record.submissionId ??= reference.submissionId;
-    record.transactionHash ??= reference.transactionHash;
-    record.userOperationHash ??= reference.userOperationHash;
-    record.status = "submitted";
+    record.submissionId ??= normalizedReference.submissionId;
+    record.transactionHash ??= normalizedReference.transactionHash;
+    record.userOperationHash ??= normalizedReference.userOperationHash;
+    if (["submitting", "submitted", "unknown"].includes(record.status)) {
+      record.status = "submitted";
+    }
     record.updatedAt = now;
     this.sensitiveActions.delete(id);
     return structuredClone(record);
@@ -202,6 +209,18 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
       this.verifiedExecutions.set(executionKey, id);
     }
     record.status = status;
+    record.updatedAt = now;
+    return structuredClone(record);
+  }
+
+  async releaseAdmission(
+    owner: MoneyActionOwner,
+    id: string,
+    now: string,
+  ): Promise<StoredMoneyActionOperation | null> {
+    const record = this.readOwned(owner, id);
+    if (!record || !canReleaseMoneyActionAdmission(record)) return null;
+    record.abandonedAt ??= now;
     record.updatedAt = now;
     return structuredClone(record);
   }
@@ -249,7 +268,7 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
       otherId !== id &&
       sameMoneyActionOwner(owner, record.action.owner) && (
         Boolean(reference.submissionId && record.submissionId === reference.submissionId) ||
-        Boolean(reference.userOperationHash && record.userOperationHash === reference.userOperationHash)
+        Boolean(reference.userOperationHash && record.userOperationHash?.toLowerCase() === reference.userOperationHash.toLowerCase())
       )
     );
   }
@@ -268,7 +287,7 @@ const unresolvedSendStatuses = new Set<MoneyActionOperationStatus>([
 ]);
 
 function isUnresolvedSend(record: StoredMoneyActionOperation): boolean {
-  return record.action.kind === "send" && unresolvedSendStatuses.has(record.status);
+  return record.action.kind === "send" && unresolvedSendStatuses.has(record.status) && !record.abandonedAt;
 }
 
 function verifiedExecutionKey(execution: VerifiedMoneyActionExecution): string {

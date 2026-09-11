@@ -6,7 +6,7 @@ import {
   BORROW_LOAN_TOKEN,
   BORROW_ORACLE_ADDRESS,
   MORPHO_BLUE_ADDRESS,
-} from "./config";
+} from "@/shared/borrowing/config";
 import { encodeCoinbaseExecuteBatch } from "./abi";
 import { ORACLE_PRICE_SCALE, availableBorrowAssets, borrowCapacityAssets, toAssetsUp } from "./math";
 import { BorrowRpcError, createBorrowRpcReader } from "./rpc";

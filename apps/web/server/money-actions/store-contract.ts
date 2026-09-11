@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { MoneyActionStore } from "./store";
 
 const OWNER = {
@@ -76,6 +76,103 @@ export function describeMoneyActionStore(
     });
   });
 
+  test(`${name} canonicalizes chain hashes while preserving opaque handles byte-for-byte`, async () => {
+    const store = await createStore();
+    await store.issue(action());
+    await store.claim(OWNER, action().id, action().reviewHash, "2026-09-08T05:01:00.000Z");
+    const uppercaseUserOperationHash = `0x${"A".repeat(64)}` as const;
+    const uppercaseTransactionHash = `0x${"B".repeat(64)}` as const;
+    await expect(store.recordSubmission(OWNER, action().id, {
+      userOperationHash: uppercaseUserOperationHash,
+      transactionHash: uppercaseTransactionHash,
+    }, "2026-09-08T05:01:01.000Z")).resolves.toMatchObject({
+      userOperationHash: uppercaseUserOperationHash.toLowerCase(),
+      transactionHash: uppercaseTransactionHash.toLowerCase(),
+    });
+    await expect(store.recordSubmission(OWNER, action().id, {
+      userOperationHash: uppercaseUserOperationHash.toLowerCase() as `0x${string}`,
+      transactionHash: uppercaseTransactionHash.toLowerCase() as `0x${string}`,
+    }, "2026-09-08T05:01:02.000Z")).resolves.not.toBeNull();
+  });
+
+  test(`${name} preserves opaque Base submission IDs byte-for-byte on exact retry and rejects case-only conflicts`, async () => {
+    const store = await createStore();
+    const owner = { ...OWNER, accountProvider: "base-account" as const };
+    const baseAction = { ...action(), owner };
+    const mixedCase = "0xAbCdEf-Provider-ID";
+    await store.issue(baseAction);
+    await store.claim(owner, baseAction.id, baseAction.reviewHash, "2026-09-08T05:01:00.000Z");
+
+    await expect(store.recordSubmission(
+      owner,
+      baseAction.id,
+      { submissionId: mixedCase },
+      "2026-09-08T05:01:01.000Z",
+    )).resolves.toMatchObject({ submissionId: mixedCase, status: "submitted" });
+    await expect(store.recordSubmission(
+      owner,
+      baseAction.id,
+      { submissionId: mixedCase },
+      "2026-09-08T05:01:02.000Z",
+    )).resolves.toMatchObject({ submissionId: mixedCase, status: "submitted" });
+    await expect(store.recordSubmission(
+      owner,
+      baseAction.id,
+      { submissionId: mixedCase.toLowerCase() },
+      "2026-09-08T05:01:03.000Z",
+    )).resolves.toBeNull();
+    expect((await store.get(owner, baseAction.id))?.submissionId).toBe(mixedCase);
+  });
+
+  test(`${name} does not downgrade included evidence on an exact submission retry`, async () => {
+    const store = await createStore();
+    await store.issue(action());
+    await store.claim(OWNER, action().id, action().reviewHash, "2026-09-08T05:01:00.000Z");
+    const userOperationHash = `0x${"7".repeat(64)}` as const;
+    await store.recordSubmission(OWNER, action().id, { userOperationHash }, "2026-09-08T05:01:01.000Z");
+    await store.updateStatus(OWNER, action().id, "included", "2026-09-08T05:01:02.000Z");
+
+    await expect(store.recordSubmission(
+      OWNER,
+      action().id,
+      { userOperationHash },
+      "2026-09-08T05:01:03.000Z",
+    )).resolves.toMatchObject({ status: "included", userOperationHash });
+  });
+
+  test(`${name} attaches exact late evidence without reopening an already terminal action`, async () => {
+    const store = await createStore();
+    const neverDispatched = { ...action(), id: "99999999-9999-4999-8999-999999999999" };
+    await store.issue(neverDispatched);
+    await store.claim(OWNER, neverDispatched.id, neverDispatched.reviewHash, "2026-09-10T05:01:00.000Z");
+    await expect(store.recordSubmission(
+      OWNER,
+      neverDispatched.id,
+      { userOperationHash: `0x${"8".repeat(64)}` },
+      "2026-09-10T05:01:01.000Z",
+    )).resolves.toBeNull();
+
+    await store.issue(action());
+    await store.claim(OWNER, action().id, action().reviewHash, "2026-09-08T05:01:00.000Z");
+    await store.updateStatus(OWNER, action().id, "failed", "2026-09-08T05:01:01.000Z", {
+      expectedSourceStatus: "submitting",
+      requireNoSubmissionReference: true,
+    });
+    const userOperationHash = `0x${"f".repeat(64)}` as const;
+    await expect(store.recordSubmission(
+      OWNER,
+      action().id,
+      { userOperationHash },
+      "2026-09-08T05:01:02.000Z",
+    )).resolves.toMatchObject({ status: "failed", userOperationHash });
+    await expect(store.recordSubmission(
+      OWNER,
+      action().id,
+      { userOperationHash },
+      "2026-09-08T05:01:03.000Z",
+    )).resolves.toMatchObject({ status: "failed", userOperationHash });
+  });
+
   test(`${name} fails closed before dispatch when a sensitive payload overlay is unavailable`, async () => {
     const store = await createStore();
     const sensitive = {
@@ -116,6 +213,98 @@ export function describeMoneyActionStore(
       requireNoSubmissionReference: true,
     })).resolves.toBeNull();
     expect((await store.get(OWNER, unresolved.id))?.status).toBe("unknown");
+  });
+
+  test(`${name} releases send admission on owner abandon without terminalizing late evidence`, async () => {
+    const store = await createStore();
+    const send = { ...action(), kind: "send" as const, title: "Send USDC" };
+    await store.issue(send);
+    const claimed = await store.claim(OWNER, send.id, send.reviewHash, "2026-09-08T05:01:00.000Z");
+    expect(claimed).toMatchObject({
+      disposition: "dispatch",
+      operation: { status: "submitting", attemptCount: 1 },
+    });
+    expect(await store.list(OWNER, 10, "unresolved-send")).toHaveLength(1);
+
+    await expect(store.releaseAdmission(OTHER_OWNER, send.id, "2026-09-08T05:01:30.000Z")).resolves.toBeNull();
+    expect(await store.get(OTHER_OWNER, send.id)).toBeNull();
+    expect((await store.get(OWNER, send.id))?.abandonedAt).toBeUndefined();
+
+    await expect(store.releaseAdmission(OWNER, send.id, "2026-09-08T05:01:30.000Z")).resolves.toMatchObject({
+      status: "submitting",
+      abandonedAt: "2026-09-08T05:01:30.000Z",
+    });
+    expect(await store.list(OWNER, 10, "unresolved-send")).toEqual([]);
+
+    const recovered = await store.claim(OWNER, send.id, send.reviewHash, "2026-09-08T05:01:31.000Z");
+    expect(recovered).toMatchObject({
+      disposition: "recover",
+      operation: { status: "submitting", abandonedAt: "2026-09-08T05:01:30.000Z", attemptCount: 1 },
+    });
+
+    const userOperationHash = `0x${"e".repeat(64)}` as const;
+    const transactionHash = `0x${"c".repeat(64)}` as const;
+    await expect(store.recordSubmission(
+      OWNER,
+      send.id,
+      { userOperationHash, transactionHash },
+      "2026-09-08T05:01:40.000Z",
+    )).resolves.toMatchObject({
+      status: "submitted",
+      userOperationHash,
+      transactionHash,
+      abandonedAt: "2026-09-08T05:01:30.000Z",
+    });
+    await expect(store.updateStatus(OWNER, send.id, "confirmed", "2026-09-08T05:01:41.000Z", {
+      verifiedExecution: { chainId: 8453, kind: "user-operation", hash: userOperationHash },
+    })).resolves.toMatchObject({
+      status: "confirmed",
+      abandonedAt: "2026-09-08T05:01:30.000Z",
+    });
+    expect(await store.list(OWNER, 10, "unresolved-send")).toEqual([]);
+
+    const unknownSend = {
+      ...action(),
+      id: "55555555-5555-4555-8555-555555555555",
+      kind: "send" as const,
+      title: "Send USDC",
+    };
+    await store.issue(unknownSend);
+    await store.claim(OWNER, unknownSend.id, unknownSend.reviewHash, "2026-09-08T05:04:00.000Z");
+    await store.updateStatus(OWNER, unknownSend.id, "unknown", "2026-09-08T05:04:01.000Z");
+    const unknownRecover = await store.claim(
+      OWNER,
+      unknownSend.id,
+      unknownSend.reviewHash,
+      "2026-09-08T05:04:02.000Z",
+    );
+    expect(unknownRecover).toMatchObject({
+      disposition: "recover",
+      operation: { status: "unknown", attemptCount: 1 },
+    });
+    expect((await store.get(OWNER, unknownSend.id))?.status).toBe("unknown");
+    expect((await store.get(OWNER, unknownSend.id))?.abandonedAt).toBeUndefined();
+    expect(await store.list(OWNER, 10, "unresolved-send")).toHaveLength(1);
+
+    await expect(store.releaseAdmission(OWNER, unknownSend.id, "2026-09-08T05:04:03.000Z")).resolves.toMatchObject({
+      status: "unknown",
+      abandonedAt: "2026-09-08T05:04:03.000Z",
+    });
+    await expect(store.releaseAdmission(OWNER, unknownSend.id, "2026-09-08T05:04:04.000Z")).resolves.toMatchObject({
+      status: "unknown",
+      abandonedAt: "2026-09-08T05:04:03.000Z",
+    });
+    expect(await store.list(OWNER, 10, "unresolved-send")).toEqual([]);
+
+    const prepared = {
+      ...action(),
+      id: "66666666-6666-4666-8666-666666666666",
+      kind: "send" as const,
+      title: "Send USDC",
+    };
+    await store.issue(prepared);
+    await expect(store.releaseAdmission(OWNER, prepared.id, "2026-09-08T05:05:00.000Z")).resolves.toBeNull();
+    expect((await store.get(OWNER, prepared.id))?.status).toBe("prepared");
   });
 
   test(`${name} allows distinct account operations in one bundle but reserves proven execution identities`, async () => {

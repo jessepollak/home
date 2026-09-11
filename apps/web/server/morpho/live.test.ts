@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { getMorphoVaultCandidates } from "./client";
-import { BASE_USDC_ADDRESS } from "./config";
+import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 
 const liveTest = process.env.MORPHO_LIVE_SMOKE === "1" ? test : test.skip;
 

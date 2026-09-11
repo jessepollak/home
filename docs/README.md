@@ -10,6 +10,7 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 |---|---|
 | [Build status](build-status.md) | What is integrated, validation evidence, remaining gates |
 | [Wallet runtime spike](wallet-runtime-spike.md) | Prepare → claim → sign → reconcile; SQLite locally, Neon/Postgres when `DATABASE_URL` is set |
+| [Attempt-aware onchain transactions](onchain-transaction-architecture.md) | Decision, failure windows, pure status checks, attempt/evidence target, migration and staged implementation |
 | [Architecture review](architecture-review-2026-09.md) | Current-tree patterns, risks, contribution contract, first-week slices |
 
 ## Run & operate
@@ -18,7 +19,7 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 |---|---|
 | [Operating manual](operating-manual.md) | Agent-team roles, GitHub issue labels, proof bar, Jesse-only merge |
 | [Fork and extend](fork-and-extend.md) | Brand, regions, assets, provider seams, local-spike vs production persistence |
-| [UI PR previews](ui-pr-previews.md) | Before/After **table** of inline embeds preferred when both exist; after-only OK when before isn’t useful |
+| [UI PR previews](ui-pr-previews.md) | Vercel preview link plus one inline screenshot or short video per user-visible PR |
 | [CDP setup](cdp-setup.md) | Your CDP project, `localhost` origin, email login, server validation, privacy defaults; [preview vs production auth](cdp-setup.md#preview-auth) |
 | [CDP SQL](cdp-sql.md) | Indexed Base history adapter, auth modes, bounded smoke tests. Not balances. |
 | [Base Account](base-account.md) | Optional SIWE path (`NEXT_PUBLIC_ENABLE_BASE_ACCOUNT`); not enabled by default |
@@ -26,6 +27,8 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | [Codex prices](codex-prices.md) | Optional server-only Invest USD snapshots |
 | [Portfolio](portfolio.md) | USDC/ETH reads, Token Balances inventory, regional valuation, device presentation cache, `BASE_RPC_URL`. Phase B/C: [inventory summary](balances-inventory-architecture.md) |
 | [Vercel deploy](vercel-deploy.md) | Bun monorepo install/build on Vercel; hosted money actions need Neon `DATABASE_URL`; [preview auth / CDP CORS](vercel-deploy.md#preview-auth); preview branch cleanup Actions |
+| [Privacy-safe observability](observability.md) | Scrub-first error schema, bounded client ingestion, operator queries, and the remaining route-wrapper gate |
+| [CDP error reporting](cdp-error-reporting.md) | Privacy decision: keep server SDK error reporting disabled by default |
 
 `apps/web/server/borrowing/README.md` documents the single cbBTC/USDC Morpho market used by the local Borrow spike.
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatAddress } from "@/features/formatting";
+import { formatAddress } from "@/shared/formatting";
 import styles from "./address-text.module.css";
 
 export function AddressText({

@@ -2,16 +2,16 @@ import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
   type VerifiedAccountSession,
-} from "@/features/account/session-types";
+} from "@/shared/account/session-types";
 import type { SessionAuthorizer } from "@/server/portfolio/handler";
-import type { BorrowAddress } from "./config";
+import type { BorrowAddress } from "@/shared/borrowing/config";
 import { BorrowPreparationError, prepareBorrowAction } from "./prepare";
 import { BorrowRpcError, type BorrowRpcReader } from "./rpc";
 import type {
   BorrowPreviewRequest,
   BorrowPreviewResponse,
   IssueBorrowAction,
-} from "./types";
+} from "@/shared/borrowing/types";
 
 const privateHeaders = {
   "Cache-Control": "private, no-store, max-age=0",

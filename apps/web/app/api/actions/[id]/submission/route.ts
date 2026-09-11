@@ -1,6 +1,6 @@
 import { createMoneyActionSessionAuthorizer } from "@/server/money-actions/composition";
 import { createMoneyActionSubmissionHandler } from "@/server/money-actions/handlers";
-import { getTransferReceipt } from "@/server/transfers/receipt";
+import { getTransferReceipt } from "@/server/money-actions/receipt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -1,0 +1,15 @@
+{
+  "action": "closed",
+  "repository": { "full_name": "jessepollak/home" },
+  "issue": {
+    "number": 69,
+    "state": "closed",
+    "body": "Verification record. References pull request #101; automation must not mutate any linked record.",
+    "labels": [
+      { "name": "owner:hank" },
+      { "name": "lane:backend" },
+      { "name": "status:needs-jesse" },
+      { "name": "status:legacy-value" }
+    ]
+  }
+}
