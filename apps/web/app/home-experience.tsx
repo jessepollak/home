@@ -213,6 +213,7 @@ function HomeExperienceView({
   );
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
+  const panelScrollRef = useRef<Partial<Record<ShellPanelId, number>>>({});
   const shellPath = routeMode === "landing" ? "/" : "/dashboard";
   const investChrome = useOptionalAppChrome();
 
@@ -264,11 +265,13 @@ function HomeExperienceView({
     if (!panelStage) return;
 
     panelStage.focus({ preventScroll: true });
+    const preservedTop = panelScrollRef.current[activeNavigation] ?? 0;
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
     mainRef.current?.scrollTo({
-      top: 0,
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "auto"
-        : "smooth",
+      top: preservedTop,
+      behavior: reducedMotion || preservedTop > 0 ? "auto" : "smooth",
     });
   }, [activeNavigation, navigationRequest]);
 
@@ -526,7 +529,13 @@ function HomeExperienceView({
 
       {routeMode === "dashboard" ? (
         <>
-          <main ref={mainRef} className="app-main app-main-authenticated">
+          <main
+            ref={mainRef}
+            className="app-main app-main-authenticated"
+            onScroll={(event) => {
+              panelScrollRef.current[activeNavigation] = event.currentTarget.scrollTop;
+            }}
+          >
             {isUnavailable ? (
               <div className="dashboard-notice" role="alert">
                 <span>{account.message ?? "Your private details remain hidden."}</span>
@@ -1187,7 +1196,19 @@ type BalancesRevealWindow = {
 };
 
 function balancesListKey(items: readonly HomeAssetBalanceItem[]): string {
-  return items.map((item) => item.id).join("\u0000");
+  return JSON.stringify(
+    items.map((item) => ({
+      id: item.id,
+      assetKey: item.assetKey ?? null,
+      group: item.group ?? null,
+      name: item.name,
+      detail: item.detail ?? null,
+      displayBalance: item.displayBalance,
+      displayContext: item.displayContext ?? null,
+      currencyCode: item.currencyCode ?? null,
+      tone: item.tone ?? null,
+    })),
+  );
 }
 
 function useBalancesRevealWindow(
