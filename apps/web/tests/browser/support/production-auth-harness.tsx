@@ -19,7 +19,8 @@ type Scenario =
   | "base-click"
   | "base-invalidation"
   | "base-503"
-  | "base-fast-session";
+  | "base-fast-session"
+  | "base-missing-connection";
 
 type HarnessControl = {
   arriveOwner: (ownerKey?: string) => void;
@@ -70,9 +71,16 @@ function HarnessContents({ onVerified }: { onVerified: () => void }) {
   );
 }
 
-function ProductionAuthHarness() {
-  const scenario = new URLSearchParams(window.location.search).get("scenario") as Scenario;
-  const [sdkOwner, setSdkOwner] = useState<string | null>(null);
+function ProductionAuthHarness({
+  scenario,
+  seedMissingConnection,
+}: {
+  scenario: Scenario;
+  seedMissingConnection: boolean;
+}) {
+  const [sdkOwner, setSdkOwner] = useState<string | null>(
+    seedMissingConnection ? "base-owner" : null,
+  );
   const [providerPending, setProviderPending] = useState(false);
   const [providerConfirmations, setProviderConfirmations] = useState(0);
   const [route, setRoute] = useState("/");
@@ -152,7 +160,7 @@ function ProductionAuthHarness() {
     [],
   );
 
-  const connectedBaseAccount = (): ConnectedBaseAccount => ({
+  const connectedBaseAccount = useCallback((): ConnectedBaseAccount => ({
     address: FIXTURE_ADDRESS,
     assertUnchanged: async () => {
       baseAssertCount.current += 1;
@@ -172,7 +180,7 @@ function ProductionAuthHarness() {
     disconnect: async () => {
       events.current.push("base:disconnect");
     },
-  });
+  }), [scenario]);
 
   const sessionFetch = useCallback(
     (input: RequestInfo | URL, init?: RequestInit) => {
@@ -183,6 +191,14 @@ function ProductionAuthHarness() {
     },
     [scenario],
   );
+
+  const baseAccountRestorer = useCallback(async () => {
+    events.current.push("base:restore");
+    if (scenario === "base-missing-connection") {
+      throw new BaseAccountConnectorError("missing-connection");
+    }
+    return connectedBaseAccount();
+  }, [connectedBaseAccount, scenario]);
 
   useEffect(() => {
     window.authHarness = {
@@ -203,6 +219,7 @@ function ProductionAuthHarness() {
       sessionFetch={sessionFetch}
       baseAccountEnabled
       baseAccountConnector={baseAccountConnector}
+      baseAccountRestorer={baseAccountRestorer}
     >
       <output data-testid="observed-route">{route}</output>
       <output data-testid="provider-confirmations">{providerConfirmations}</output>
@@ -223,4 +240,18 @@ function ProductionAuthHarness() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<ProductionAuthHarness />);
+const scenario = new URLSearchParams(window.location.search).get("scenario") as Scenario;
+const missingConnectionSeedKey = "home:test:base-missing-connection-seeded";
+const seedMissingConnection =
+  scenario === "base-missing-connection" &&
+  window.sessionStorage.getItem(missingConnectionSeedKey) !== "true";
+if (seedMissingConnection) {
+  window.sessionStorage.setItem(missingConnectionSeedKey, "true");
+  window.sessionStorage.setItem("home:account-provider", "base-account");
+}
+createRoot(document.getElementById("root")!).render(
+  <ProductionAuthHarness
+    scenario={scenario}
+    seedMissingConnection={seedMissingConnection}
+  />,
+);

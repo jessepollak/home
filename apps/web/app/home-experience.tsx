@@ -9,7 +9,6 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   readAnonymousCountryPreference,
@@ -51,6 +50,7 @@ import {
   type PreparedMoneyAction,
 } from "@/features/money-actions";
 import type { VerifiedPortfolioSession } from "@/features/portfolio";
+import { FundingActions } from "@/features/funding/funding-actions";
 import {
   deleteHomeBalancesPresentation,
   presentHomeBalanceMark,
@@ -88,6 +88,8 @@ export type HomeExperienceProps = {
   assetMarkResolution?: AssetMarkResolution;
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";
+  initialAddMoney?: boolean;
+  returnedFromCoinbase?: boolean;
   activityRefreshTrigger?: string | number;
   onTransferConfirmed?: () => void;
   selectedRegionId?: RegionId;
@@ -178,6 +180,8 @@ function HomeExperienceView({
   assetMarkResolution,
   landingVisual,
   routeMode = "landing",
+  initialAddMoney = false,
+  returnedFromCoinbase = false,
   activityRefreshTrigger,
   onTransferConfirmed,
   selectedRegionId,
@@ -578,6 +582,9 @@ function HomeExperienceView({
                       onOpenSave={() => navigateTo(savePanelId)}
                       onOpenBalances={() => navigateTo(balancesPanelId)}
                       onOpenActivity={() => navigateTo(activityPanelId)}
+                      initialAddMoney={initialAddMoney}
+                      returnedFromCoinbase={returnedFromCoinbase}
+                      regionId={regionId}
                     />
                   ) : null}
                   {activeNavigation === balancesPanelId ? (
@@ -838,6 +845,9 @@ function HomePanel({
   onOpenSave,
   onOpenBalances,
   onOpenActivity,
+  initialAddMoney = false,
+  returnedFromCoinbase = false,
+  regionId,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   assetMarkResolution?: AssetMarkResolution;
@@ -851,6 +861,9 @@ function HomePanel({
   onOpenSave: () => void;
   onOpenBalances: () => void;
   onOpenActivity: () => void;
+  initialAddMoney?: boolean;
+  returnedFromCoinbase?: boolean;
+  regionId: RegionId;
 }) {
   const isLoading = assetBalances?.status === "loading";
   const isRevalidating = assetBalances?.revalidating === true;
@@ -886,10 +899,11 @@ function HomePanel({
       </section>
 
       <div className="action-row" aria-label="Money actions">
-        <Link href="/fund">
-          <PlusIcon />
-          <span>Add money</span>
-        </Link>
+        <FundingActions
+          initialOpen={initialAddMoney}
+          returnedFromCoinbase={returnedFromCoinbase}
+          regionId={regionId}
+        />
         <TransferActions
           onTransferConfirmed={onTransferConfirmed}
           availableByAsset={availableSendBalances(balanceItems)}
@@ -1193,25 +1207,5 @@ function EmptyPanel({ label }: { label: string }) {
     <section className="empty-panel" aria-label={label}>
       <strong>{label} unavailable</strong>
     </section>
-  );
-}
-
-const iconProps = {
-  width: 20,
-  height: 20,
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.8,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-  "aria-hidden": true,
-};
-
-function PlusIcon() {
-  return (
-    <svg {...iconProps}>
-      <path d="M12 5v14M5 12h14" />
-    </svg>
   );
 }

@@ -11,10 +11,14 @@ export function DashboardExperience({
   initialPanel,
   initialAccountSettingsOpen,
   initialInvestView,
+  initialAddMoney,
+  returnedFromCoinbase,
 }: {
   initialPanel: ShellPanelId;
   initialAccountSettingsOpen: boolean;
   initialInvestView: InvestView;
+  initialAddMoney: boolean;
+  returnedFromCoinbase: boolean;
 }) {
   const discover = useInvestDiscover();
 
@@ -32,6 +36,8 @@ export function DashboardExperience({
       }
       savingsContent={<AuthenticatedSavingsExperience />}
       routeMode="dashboard"
+      initialAddMoney={initialAddMoney}
+      returnedFromCoinbase={returnedFromCoinbase}
     />
   );
 }

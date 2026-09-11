@@ -10,7 +10,7 @@ import type {
 
 export const homeBalancesPresentationCachePrefix = "home.balances.v1:";
 export const homeBalancesPresentationCacheTtlMs = 24 * 60 * 60 * 1000;
-/** Row semantics now include stable asset keys for shared mark resolution. */
+/** Rows include authoritative native-cash values and stable asset mark keys. */
 export const homeBalancesPresentationSemanticVersion = "3.0.0";
 
 export type CacheStorage = Pick<

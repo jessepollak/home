@@ -1,0 +1,263 @@
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--home-muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.methods {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.method {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 76px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 12px;
+  background: var(--home-white);
+  color: var(--home-ink);
+  cursor: pointer;
+  font: inherit;
+  padding: 15px 16px;
+  text-align: left;
+}
+
+.method:active {
+  background: var(--home-canvas);
+}
+
+.method:focus-visible {
+  outline: 3px solid rgba(0, 82, 255, 0.18);
+  outline-offset: 2px;
+}
+
+.methodCopy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.methodTitle {
+  font-size: 0.92rem;
+  font-weight: 720;
+}
+
+.methodHint {
+  color: var(--home-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.methodChevron {
+  color: var(--home-blue);
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1;
+  text-align: right;
+}
+
+.methodIcon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--home-canvas);
+  color: var(--home-ink);
+}
+
+.receive {
+  align-items: center;
+  gap: 14px;
+  padding-top: 8px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
+.network {
+  margin: 0;
+  border-radius: 999px;
+  background: rgba(0, 82, 255, 0.08);
+  color: var(--home-blue);
+  font-size: 0.78rem;
+  font-weight: 750;
+  padding: 6px 10px;
+}
+
+.qrFrame {
+  flex: 0 0 auto;
+  width: min(100%, 220px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid var(--home-hairline);
+  border-radius: 16px;
+  background: var(--home-white);
+}
+
+.qr {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.qrShimmer {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+}
+
+.addressBlock {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.addressText {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--home-ink);
+  font-size: 1rem;
+  font-weight: 680;
+  padding: 8px 6px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.addressHint {
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 0.76rem;
+}
+
+.copyFallback {
+  display: grid;
+  width: min(100%, 320px);
+  justify-items: center;
+  gap: 8px;
+}
+
+.copyError {
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.fullAddress {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--home-hairline);
+  border-radius: 8px;
+  background: var(--home-canvas);
+  color: var(--home-ink);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.fullAddress:focus-visible {
+  outline: 3px solid rgba(0, 82, 255, 0.18);
+  outline-offset: 2px;
+}
+
+.addressShimmer {
+  width: 148px;
+  height: 18px;
+  border-radius: 6px;
+}
+
+.supported {
+  display: grid;
+  width: 100%;
+  justify-items: center;
+  gap: 9px;
+  border-top: 1px solid var(--home-hairline);
+  padding-top: 14px;
+}
+
+.supportedLabel {
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.supportedMarks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.supportedAsset {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--home-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.supportedMore {
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.buy {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 36px 8px 12px;
+  text-align: center;
+}
+
+.buyTitle {
+  margin: 8px 0 0;
+  font-size: 1.25rem;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+}
+
+.buyLead {
+  margin: 0;
+  max-width: 18rem;
+  color: var(--home-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.statusStack {
+  display: grid;
+  gap: 8px;
+  padding: 0 20px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .method:active {
+    background: var(--home-white);
+  }
+}

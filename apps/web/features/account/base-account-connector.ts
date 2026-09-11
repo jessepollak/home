@@ -17,6 +17,7 @@ export class BaseAccountConnectorError extends Error {
   readonly reason:
     | BaseAccountInvalidation
     | "cancelled"
+    | "missing-connection"
     | "invalid-provider-response";
 
   constructor(
@@ -119,15 +120,20 @@ async function openBaseProvider(
     onInvalidated(reason);
   };
   const onAccountsChanged = (accounts: string[]) => {
-    if (!connectedAddress) {
+    if (!connectedAddress || !Array.isArray(accounts)) {
       return;
     }
-    if (firstAddress(accounts) !== connectedAddress) {
+    const nextAddress = firstAddress(accounts);
+    if (accounts.length > 0 && !nextAddress) {
+      return;
+    }
+    if (nextAddress !== connectedAddress) {
       invalidate("account-changed");
     }
   };
   const onChainChanged = (chainId: string) => {
-    if (chainIdFromProvider(chainId) !== BASE_CHAIN_ID) {
+    const nextChainId = chainIdFromProvider(chainId);
+    if (nextChainId !== null && nextChainId !== BASE_CHAIN_ID) {
       invalidate("chain-changed");
     }
   };
@@ -153,12 +159,17 @@ async function openBaseProvider(
     const accounts = await provider.request({
       method: interactive ? "eth_requestAccounts" : "eth_accounts",
     });
+    if (!interactive && Array.isArray(accounts) && accounts.length === 0) {
+      throw new BaseAccountConnectorError("missing-connection");
+    }
     connectedAddress = firstAddress(accounts);
+    if (!connectedAddress) {
+      throw new BaseAccountConnectorError("invalid-provider-response");
+    }
     const chainId = chainIdFromProvider(
       await provider.request({ method: "eth_chainId" }),
     );
-
-    if (!connectedAddress) {
+    if (chainId === null) {
       throw new BaseAccountConnectorError("invalid-provider-response");
     }
     if (chainId !== BASE_CHAIN_ID) {
@@ -187,11 +198,22 @@ async function openBaseProvider(
       provider.request({ method: "eth_accounts" }),
       provider.request({ method: "eth_chainId" }),
     ]);
-    if (firstAddress(accounts) !== connectedAddress) {
+    const accountAddress = firstAddress(accounts);
+    if (
+      !Array.isArray(accounts) ||
+      (accounts.length > 0 && !accountAddress)
+    ) {
+      throw new BaseAccountConnectorError("invalid-provider-response");
+    }
+    if (accountAddress !== connectedAddress) {
       invalidate("account-changed");
       throw new BaseAccountConnectorError("account-changed");
     }
-    if (chainIdFromProvider(chainIdValue) !== BASE_CHAIN_ID) {
+    const chainId = chainIdFromProvider(chainIdValue);
+    if (chainId === null) {
+      throw new BaseAccountConnectorError("invalid-provider-response");
+    }
+    if (chainId !== BASE_CHAIN_ID) {
       invalidate("chain-changed");
       throw new BaseAccountConnectorError("chain-changed");
     }

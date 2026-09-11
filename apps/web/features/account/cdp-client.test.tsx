@@ -1,12 +1,14 @@
 import "./dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { useState } from "react";
+import type { GetUserOperationResult } from "@coinbase/cdp-core";
+import { StrictMode, useState } from "react";
 import type { AccountWalletSdkBoundary } from "./cdp-client";
-import type {
-  BaseAccountConnector,
-  BaseAccountRestorer,
-  ConnectedBaseAccount,
+import {
+  BaseAccountConnectorError,
+  type BaseAccountConnector,
+  type BaseAccountRestorer,
+  type ConnectedBaseAccount,
 } from "./base-account-connector";
 import type { SessionFetch, VerifiedAccountSession } from "./session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "./session-types";
@@ -34,12 +36,14 @@ function page() {
 
 const OWNER_A = "sdk-user-a";
 const OWNER_B = "sdk-user-b";
+const OWNER_C = "sdk-user-c";
 const ADDRESS_A = "0x1111111111111111111111111111111111111111";
 const ADDRESS_B = "0x2222222222222222222222222222222222222222";
+const ADDRESS_C = "0x3333333333333333333333333333333333333333";
 
 function sessionFor(
   subject: string,
-  address: typeof ADDRESS_A | typeof ADDRESS_B,
+  address: typeof ADDRESS_A | typeof ADDRESS_B | typeof ADDRESS_C,
   accountProvider: VerifiedAccountSession["accountProvider"] = "cdp-embedded",
 ): VerifiedAccountSession {
   return {
@@ -106,7 +110,40 @@ function storedMoneyAction(
   };
 }
 
-function portfolioResponse(address: typeof ADDRESS_A | typeof ADDRESS_B): Response {
+function embeddedObservation(
+  action: PreparedMoneyAction,
+  userOperationHash: `0x${string}`,
+  transactionHash: `0x${string}`,
+  overrides: Partial<GetUserOperationResult> = {},
+): GetUserOperationResult {
+  return {
+    network: "base",
+    userOpHash: userOperationHash,
+    status: "complete",
+    transactionHash,
+    calls: action.calls.map((call) => ({
+      to: call.to,
+      data: call.data,
+      value: call.value,
+    })),
+    ...overrides,
+  };
+}
+
+function sdkObservation(
+  userOperationHash: `0x${string}`,
+  overrides: Partial<GetUserOperationResult> = {},
+): GetUserOperationResult {
+  return {
+    network: "base",
+    userOpHash: userOperationHash,
+    calls: [],
+    status: "pending",
+    ...overrides,
+  };
+}
+
+function portfolioResponse(address: typeof ADDRESS_A | typeof ADDRESS_B | typeof ADDRESS_C): Response {
   return Response.json({
     walletAddress: address,
     chainId: 8453,
@@ -319,6 +356,12 @@ function AccountProbe({ moneyAction }: { moneyAction?: PreparedMoneyAction }) {
           </button>
         </>
       ) : null}
+      <button
+        type="button"
+        onClick={() => void client.retrySessionValidation().catch(() => {})}
+      >
+        Probe retry validation
+      </button>
       <button
         type="button"
         onClick={() => void client.signOut().catch(() => {})}
@@ -703,6 +746,1293 @@ describe("production account session owner", () => {
     expect(sessionCalls).toBe(1);
     expect(restoreCalls).toBe(1);
     expect(signOutCalls).toBe(0);
+  });
+
+  test("signs out a valid Base identity only when restoration positively reports zero accounts", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    let sessionCalls = 0;
+    let restoreCalls = 0;
+    let signOutCalls = 0;
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          signOut: async () => {
+            signOutCalls += 1;
+          },
+        })}
+        sessionFetch={async () => {
+          sessionCalls += 1;
+          return sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          );
+        }}
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          restoreCalls += 1;
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(signOutCalls).toBe(1));
+    expect(sessionCalls).toBe(1);
+    expect(restoreCalls).toBe(1);
+    expect(page().getByTestId("status").textContent).toBe("signed-out");
+    expect(page().getByTestId("address").textContent).toBe(
+      "private-details-hidden",
+    );
+    expect(page().getByTestId("message").textContent).toBe(
+      "Base Account was disconnected. Sign in again to continue.",
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+  });
+
+  test("keeps transient Base restoration failure retryable and verifies after recovery", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    let restoreCalls = 0;
+    let signOutCalls = 0;
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          signOut: async () => {
+            signOutCalls += 1;
+          },
+        })}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          restoreCalls += 1;
+          if (restoreCalls === 1) {
+            throw new Error("fixture module or transport failure");
+          }
+          return connectedBaseAccount();
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("unavailable"),
+    );
+    expect(signOutCalls).toBe(0);
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "base-account",
+    );
+
+    fireEvent.click(
+      page().getByRole("button", { name: "Probe retry validation" }),
+    );
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("verified"),
+    );
+    expect(restoreCalls).toBe(2);
+    expect(signOutCalls).toBe(0);
+    expect(page().getByTestId("address").textContent).toBe(ADDRESS_A);
+  });
+
+  test("keeps missing-connection cleanup private after failure and retries sign-out only on demand", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    let signOutCalls = 0;
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          signOut: async () => {
+            signOutCalls += 1;
+            if (signOutCalls === 1) {
+              throw new Error("fixture sign-out failure");
+            }
+          },
+        })}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signout-error"),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(signOutCalls).toBe(1);
+    expect(page().getByTestId("address").textContent).toBe(
+      "private-details-hidden",
+    );
+    expect(page().getByTestId("message").textContent).toContain(
+      "Retry sign out",
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "pending:base-account",
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await waitFor(() => expect(signOutCalls).toBe(2));
+    expect(page().getByTestId("status").textContent).toBe("signed-out");
+    expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+  });
+
+  test("blocks email and Base client authentication while cleanup is pending", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const pendingSignOut = deferred<void>();
+    let emailSignInCalls = 0;
+    let baseConnectorCalls = 0;
+    let signOutCalls = 0;
+
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          signInWithEmail: async () => {
+            emailSignInCalls += 1;
+            return { flowId: "must-not-start" };
+          },
+          signOut: () => {
+            signOutCalls += 1;
+            return pendingSignOut.promise;
+          },
+        })}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountConnector={async () => {
+          baseConnectorCalls += 1;
+          return connectedBaseAccount();
+        }}
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(signOutCalls).toBe(1));
+    fireEvent.click(page().getByRole("button", { name: "Probe email code" }));
+    fireEvent.click(page().getByRole("button", { name: "Probe Base sign in" }));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(emailSignInCalls).toBe(0);
+    expect(baseConnectorCalls).toBe(0);
+    expect(signOutCalls).toBe(1);
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "pending:base-account",
+    );
+
+    await act(async () => {
+      pendingSignOut.resolve();
+      await pendingSignOut.promise;
+    });
+  });
+
+  test("retries the preserved cleanup owner after the SDK owner becomes null", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    let signOutCalls = 0;
+    const sdk = baseSdk({
+      signOut: async () => {
+        signOutCalls += 1;
+        if (signOutCalls === 1) {
+          throw new Error("first cleanup failed");
+        }
+      },
+    });
+    const view = render(
+      <SessionHarness
+        sdk={sdk}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signout-error"),
+    );
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, isSignedIn: false, ownerKey: null }}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(page().getByTestId("status").textContent).toBe("signout-error");
+
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await waitFor(() => expect(signOutCalls).toBe(2));
+    expect(page().getByTestId("status").textContent).toBe("signed-out");
+    expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+  });
+
+  test("validates fresh A to B to A authentication while stale cleanup stays fenced", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const pendingSignOut = deferred<void>();
+    const stableSdk = baseSdk({ signOut: () => pendingSignOut.promise });
+    const view = render(
+      <SessionHarness
+        sdk={stableSdk}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signing-out"),
+    );
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...stableSdk, ownerKey: OWNER_B }}
+        sessionFetch={async () =>
+          sessionResponse(sessionFor("subject-b", ADDRESS_B))
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => connectedBaseAccount({ address: ADDRESS_B })}
+      />,
+    );
+    await waitFor(() =>
+      expect(page().getByTestId("address").textContent).toBe(ADDRESS_B),
+    );
+
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...stableSdk, ownerKey: OWNER_A }}
+        sessionFetch={async () =>
+          sessionResponse(sessionFor("subject-a", ADDRESS_A))
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => connectedBaseAccount()}
+      />,
+    );
+    await waitFor(() =>
+      expect(page().getByTestId("address").textContent).toBe(ADDRESS_A),
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "cdp-embedded",
+    );
+
+    await act(async () => {
+      pendingSignOut.resolve();
+      await pendingSignOut.promise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(page().getByTestId("address").textContent).toBe(ADDRESS_A);
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "cdp-embedded",
+    );
+  });
+
+  test("rejects a late missing-connection sign-out failure after the owner changes", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const pendingSignOut = deferred<void>();
+    let accessToken = "token-a";
+    const sdk = baseSdk({
+      getAccessToken: async () => accessToken,
+      signOut: () => pendingSignOut.promise,
+    });
+    const view = render(
+      <SessionHarness
+        sdk={sdk}
+        sessionFetch={async (_input, init) => {
+          const authorization = new Headers(init?.headers).get("Authorization");
+          return authorization === "Bearer token-b"
+            ? sessionResponse(sessionFor("subject-b", ADDRESS_B))
+            : sessionResponse(
+                sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+              );
+        }}
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signing-out"),
+    );
+    accessToken = "token-b";
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, ownerKey: OWNER_B }}
+        sessionFetch={async () =>
+          sessionResponse(sessionFor("subject-b", ADDRESS_B))
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => connectedBaseAccount({ address: ADDRESS_B })}
+      />,
+    );
+
+    await act(async () => {
+      pendingSignOut.reject(new Error("late owner-a cleanup failure"));
+      await pendingSignOut.promise.catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(page().getByTestId("status").textContent).not.toBe("signout-error");
+    expect(page().getByTestId("message").textContent).not.toContain(
+      "late owner-a",
+    );
+    expect(page().getByTestId("address").textContent).toBe(ADDRESS_B);
+  });
+
+  for (const bFailureReason of ["401", "missing-connection"] as const) {
+    for (const ownerACleanupOutcome of ["success", "failure"] as const) {
+      for (const postJoinState of [
+        "fresh-a",
+        "fresh-c",
+        "owner-null-success",
+        "owner-null-failure",
+      ] as const) {
+        test(`fences ${bFailureReason} owner B cleanup after owner A ${ownerACleanupOutcome} when ${postJoinState}`, async () => {
+          window.sessionStorage.setItem("home:account-provider", "base-account");
+          const ownerACleanup = deferred<void>();
+          const ownerBCleanup = deferred<void>();
+          let activeSdkOwner: string | null = OWNER_A;
+          let signOutCalls = 0;
+          let ownerBSessionCalls = 0;
+          let restoreCalls = 0;
+          let emailSignInCalls = 0;
+          let baseConnectorCalls = 0;
+          const signOutOwners: Array<string | null> = [];
+          const sdk = baseSdk({
+            getAccessToken: async () => `token-${activeSdkOwner ?? "none"}`,
+            signInWithEmail: async () => {
+              emailSignInCalls += 1;
+              return { flowId: "must-not-start" };
+            },
+            signOut: () => {
+              signOutOwners.push(activeSdkOwner);
+              signOutCalls += 1;
+              if (signOutCalls === 1) return ownerACleanup.promise;
+              if (signOutCalls === 2) return ownerBCleanup.promise;
+              return Promise.resolve();
+            },
+          });
+          const baseAccountRestorer: BaseAccountRestorer = async () => {
+            restoreCalls += 1;
+            throw new BaseAccountConnectorError("missing-connection");
+          };
+          const baseAccountConnector: BaseAccountConnector = async () => {
+            baseConnectorCalls += 1;
+            return connectedBaseAccount({ address: ADDRESS_B });
+          };
+          const view = render(
+            <SessionHarness
+              sdk={sdk}
+              sessionFetch={async () =>
+                sessionResponse(
+                  sessionFor("siwe-subject-a", ADDRESS_A, "base-account"),
+                )
+              }
+              baseAccountEnabled
+              baseAccountConnector={baseAccountConnector}
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+
+          await waitFor(() => expect(signOutCalls).toBe(1));
+          expect(signOutOwners).toEqual([OWNER_A]);
+          activeSdkOwner = OWNER_B;
+          view.rerender(
+            <SessionHarness
+              sdk={{ ...sdk, ownerKey: OWNER_B }}
+              sessionFetch={async () => {
+                ownerBSessionCalls += 1;
+                return bFailureReason === "401"
+                  ? new Response(null, { status: 401 })
+                  : sessionResponse(
+                      sessionFor("siwe-subject-b", ADDRESS_B, "base-account"),
+                    );
+              }}
+              baseAccountEnabled
+              baseAccountConnector={baseAccountConnector}
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+
+          await waitFor(() => expect(ownerBSessionCalls).toBe(1));
+          if (bFailureReason === "missing-connection") {
+            await waitFor(() => expect(restoreCalls).toBe(2));
+          } else {
+            expect(restoreCalls).toBe(1);
+          }
+          expect(signOutCalls).toBe(1);
+          expect(page().getByTestId("status").textContent).toBe("signing-out");
+          expect(page().getByTestId("address").textContent).toBe(
+            "private-details-hidden",
+          );
+
+          const freshOwner =
+            postJoinState === "fresh-a"
+              ? {
+                  ownerKey: OWNER_A,
+                  address: ADDRESS_A,
+                  subject: "fresh-subject-a",
+                } as const
+              : postJoinState === "fresh-c"
+                ? {
+                    ownerKey: OWNER_C,
+                    address: ADDRESS_C,
+                    subject: "fresh-subject-c",
+                  } as const
+                : null;
+          if (freshOwner) {
+            activeSdkOwner = freshOwner.ownerKey;
+            view.rerender(
+              <SessionHarness
+                sdk={{ ...sdk, ownerKey: freshOwner.ownerKey }}
+                sessionFetch={async () =>
+                  sessionResponse(
+                    sessionFor(freshOwner.subject, freshOwner.address),
+                  )
+                }
+                baseAccountEnabled
+                baseAccountConnector={baseAccountConnector}
+                baseAccountRestorer={baseAccountRestorer}
+              />,
+            );
+            await waitFor(() =>
+              expect(page().getByTestId("address").textContent).toBe(
+                freshOwner.address,
+              ),
+            );
+            expect(page().getByTestId("status").textContent).toBe("verified");
+          } else {
+            activeSdkOwner = null;
+            view.rerender(
+              <SessionHarness
+                sdk={{ ...sdk, isSignedIn: false, ownerKey: null }}
+                sessionFetch={async () => new Response(null, { status: 401 })}
+                baseAccountEnabled
+                baseAccountConnector={baseAccountConnector}
+                baseAccountRestorer={baseAccountRestorer}
+              />,
+            );
+            await waitFor(() =>
+              expect(page().getByTestId("status").textContent).toBe(
+                "signing-out",
+              ),
+            );
+          }
+
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe email code" }),
+          );
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe Base sign in" }),
+          );
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          });
+          expect(emailSignInCalls).toBe(0);
+          expect(baseConnectorCalls).toBe(0);
+          expect(signOutCalls).toBe(1);
+
+          await act(async () => {
+            if (ownerACleanupOutcome === "success") {
+              ownerACleanup.resolve();
+              await ownerACleanup.promise;
+            } else {
+              ownerACleanup.reject(new Error("stale owner-a cleanup failure"));
+              await ownerACleanup.promise.catch(() => {});
+            }
+          });
+
+          if (freshOwner) {
+            await act(async () => {
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            });
+            expect(signOutCalls).toBe(1);
+            expect(signOutOwners).toEqual([OWNER_A]);
+            expect(page().getByTestId("status").textContent).toBe("verified");
+            expect(page().getByTestId("address").textContent).toBe(
+              freshOwner.address,
+            );
+            expect(page().getByTestId("provider").textContent).toBe(
+              "cdp-embedded",
+            );
+            return;
+          }
+
+          await waitFor(() => expect(signOutCalls).toBe(2));
+          expect(signOutOwners).toEqual([OWNER_A, null]);
+          expect(page().getByTestId("status").textContent).toBe("signing-out");
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe email code" }),
+          );
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe Base sign in" }),
+          );
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          });
+          expect(emailSignInCalls).toBe(0);
+          expect(baseConnectorCalls).toBe(0);
+          expect(signOutCalls).toBe(2);
+
+          await act(async () => {
+            if (postJoinState === "owner-null-success") {
+              ownerBCleanup.resolve();
+              await ownerBCleanup.promise;
+            } else {
+              ownerBCleanup.reject(new Error("owner-b cleanup failure"));
+              await ownerBCleanup.promise.catch(() => {});
+            }
+          });
+
+          if (postJoinState === "owner-null-success") {
+            await waitFor(() =>
+              expect(page().getByTestId("status").textContent).toBe(
+                "signed-out",
+              ),
+            );
+            expect(signOutCalls).toBe(2);
+            expect(page().getByTestId("address").textContent).toBe(
+              "private-details-hidden",
+            );
+            if (bFailureReason === "missing-connection") {
+              expect(
+                window.sessionStorage.getItem("home:account-provider"),
+              ).toBeNull();
+            }
+            return;
+          }
+
+          await waitFor(() =>
+            expect(page().getByTestId("status").textContent).toBe(
+              "signout-error",
+            ),
+          );
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe email code" }),
+          );
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe Base sign in" }),
+          );
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          });
+          expect(emailSignInCalls).toBe(0);
+          expect(baseConnectorCalls).toBe(0);
+          expect(signOutCalls).toBe(2);
+
+          fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+          await waitFor(() => expect(signOutCalls).toBe(3));
+          expect(signOutOwners).toEqual([OWNER_A, null, null]);
+          await waitFor(() =>
+            expect(page().getByTestId("status").textContent).toBe("signed-out"),
+          );
+          expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+        });
+      }
+    }
+  }
+
+  for (const persistedHint of [
+    "pending:base-account",
+    "pending:cdp-embedded",
+  ] as const) {
+    for (const freshOwner of [
+      { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
+      { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
+    ] as const) {
+      for (const freshArrival of [
+        "before-b-settlement",
+        "after-b-settlement",
+      ] as const) {
+        for (const ownerBCleanupOutcome of ["success", "failure"] as const) {
+          test(`scopes ${persistedHint} to owner B so fresh ${freshOwner.label} validates ${freshArrival} after B cleanup ${ownerBCleanupOutcome}`, async () => {
+            window.sessionStorage.setItem("home:account-provider", persistedHint);
+            const ownerBCleanup = deferred<void>();
+            let activeSdkOwner: string | null = OWNER_B;
+            let sessionCalls = 0;
+            let signOutCalls = 0;
+            const signOutOwners: Array<string | null> = [];
+            const sdk = baseSdk({
+              ownerKey: OWNER_B,
+              getAccessToken: async () => `token-${activeSdkOwner ?? "none"}`,
+              signOut: () => {
+                signOutCalls += 1;
+                signOutOwners.push(activeSdkOwner);
+                return ownerBCleanup.promise;
+              },
+            });
+            const view = render(
+              <SessionHarness
+                sdk={sdk}
+                sessionFetch={async () => {
+                  sessionCalls += 1;
+                  return sessionResponse(
+                    sessionFor("unexpected-owner-b", ADDRESS_B),
+                  );
+                }}
+              />,
+            );
+
+            await waitFor(() => expect(signOutCalls).toBe(1));
+            expect(signOutOwners).toEqual([OWNER_B]);
+            expect(sessionCalls).toBe(0);
+            expect(page().getByTestId("status").textContent).toBe("signing-out");
+            expect(page().getByTestId("address").textContent).toBe(
+              "private-details-hidden",
+            );
+
+            activeSdkOwner = null;
+            view.rerender(
+              <SessionHarness
+                sdk={{ ...sdk, isSignedIn: false, ownerKey: null }}
+                sessionFetch={async () => new Response(null, { status: 401 })}
+              />,
+            );
+
+            const settleOwnerBCleanup = async () => {
+              await act(async () => {
+                if (ownerBCleanupOutcome === "success") {
+                  ownerBCleanup.resolve();
+                  await ownerBCleanup.promise;
+                } else {
+                  ownerBCleanup.reject(new Error("owner-b cleanup failure"));
+                  await ownerBCleanup.promise.catch(() => {});
+                }
+              });
+            };
+            const renderFreshOwner = () => {
+              activeSdkOwner = freshOwner.ownerKey;
+              view.rerender(
+                <SessionHarness
+                  sdk={{ ...sdk, ownerKey: freshOwner.ownerKey }}
+                  sessionFetch={async () => {
+                    sessionCalls += 1;
+                    return sessionResponse(
+                      sessionFor(
+                        `fresh-subject-${freshOwner.label.toLowerCase()}`,
+                        freshOwner.address,
+                      ),
+                    );
+                  }}
+                />,
+              );
+            };
+
+            if (freshArrival === "after-b-settlement") {
+              await settleOwnerBCleanup();
+              await waitFor(() =>
+                expect(page().getByTestId("status").textContent).toBe(
+                  ownerBCleanupOutcome === "success"
+                    ? "signed-out"
+                    : "signout-error",
+                ),
+              );
+              renderFreshOwner();
+            } else {
+              renderFreshOwner();
+            }
+
+            await waitFor(() =>
+              expect(page().getByTestId("address").textContent).toBe(
+                freshOwner.address,
+              ),
+            );
+            expect(page().getByTestId("status").textContent).toBe("verified");
+            expect(page().getByTestId("provider").textContent).toBe(
+              "cdp-embedded",
+            );
+            expect(sessionCalls).toBe(1);
+            expect(signOutCalls).toBe(1);
+            expect(signOutOwners).toEqual([OWNER_B]);
+            expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+              "cdp-embedded",
+            );
+
+            if (freshArrival === "before-b-settlement") {
+              await settleOwnerBCleanup();
+              await act(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+              });
+              expect(page().getByTestId("status").textContent).toBe("verified");
+              expect(page().getByTestId("address").textContent).toBe(
+                freshOwner.address,
+              );
+              expect(sessionCalls).toBe(1);
+              expect(signOutCalls).toBe(1);
+              expect(signOutOwners).toEqual([OWNER_B]);
+            }
+          });
+        }
+      }
+    }
+  }
+
+  for (const ownerACleanupOutcome of ["success", "failure"] as const) {
+    for (const freshOwner of [
+      { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
+      { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
+    ] as const) {
+      for (const freshArrival of [
+        "before-b-settlement",
+        "after-b-failure",
+      ] as const) {
+        test(`replaces owner B blocked selection across null with fresh ${freshOwner.label} after owner A ${ownerACleanupOutcome} ${freshArrival}`, async () => {
+          window.sessionStorage.setItem("home:account-provider", "base-account");
+          const ownerACleanup = deferred<void>();
+          const ownerBCleanup = deferred<void>();
+          let activeSdkOwner: string | null = OWNER_A;
+          let signOutCalls = 0;
+          let ownerBSessionCalls = 0;
+          let restoreCalls = 0;
+          const sdk = baseSdk({
+            getAccessToken: async () => `token-${activeSdkOwner ?? "none"}`,
+            signOut: () => {
+              signOutCalls += 1;
+              return signOutCalls === 1
+                ? ownerACleanup.promise
+                : ownerBCleanup.promise;
+            },
+          });
+          const baseAccountRestorer: BaseAccountRestorer = async () => {
+            restoreCalls += 1;
+            throw new BaseAccountConnectorError("missing-connection");
+          };
+          const view = render(
+            <SessionHarness
+              sdk={sdk}
+              sessionFetch={async () =>
+                sessionResponse(
+                  sessionFor("siwe-subject-a", ADDRESS_A, "base-account"),
+                )
+              }
+              baseAccountEnabled
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+
+          await waitFor(() => expect(signOutCalls).toBe(1));
+          activeSdkOwner = OWNER_B;
+          view.rerender(
+            <SessionHarness
+              sdk={{ ...sdk, ownerKey: OWNER_B }}
+              sessionFetch={async () => {
+                ownerBSessionCalls += 1;
+                return sessionResponse(
+                  sessionFor("siwe-subject-b", ADDRESS_B, "base-account"),
+                );
+              }}
+              baseAccountEnabled
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+          await waitFor(() => expect(ownerBSessionCalls).toBe(1));
+          await waitFor(() => expect(restoreCalls).toBe(2));
+          expect(page().getByTestId("status").textContent).toBe("signing-out");
+
+          activeSdkOwner = null;
+          view.rerender(
+            <SessionHarness
+              sdk={{ ...sdk, isSignedIn: false, ownerKey: null }}
+              sessionFetch={async () => new Response(null, { status: 401 })}
+              baseAccountEnabled
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+
+          await act(async () => {
+            if (ownerACleanupOutcome === "success") {
+              ownerACleanup.resolve();
+              await ownerACleanup.promise;
+            } else {
+              ownerACleanup.reject(new Error("owner-a cleanup failure"));
+              await ownerACleanup.promise.catch(() => {});
+            }
+          });
+          await waitFor(() => expect(signOutCalls).toBe(2));
+
+          const renderFreshOwner = () => {
+            activeSdkOwner = freshOwner.ownerKey;
+            view.rerender(
+              <SessionHarness
+                sdk={{ ...sdk, ownerKey: freshOwner.ownerKey }}
+                sessionFetch={async () =>
+                  sessionResponse(
+                    sessionFor(
+                      `fresh-subject-${freshOwner.label.toLowerCase()}`,
+                      freshOwner.address,
+                    ),
+                  )
+                }
+                baseAccountEnabled
+                baseAccountRestorer={baseAccountRestorer}
+              />,
+            );
+          };
+
+          if (freshArrival === "before-b-settlement") {
+            renderFreshOwner();
+            await waitFor(() =>
+              expect(page().getByTestId("address").textContent).toBe(
+                freshOwner.address,
+              ),
+            );
+          } else {
+            await act(async () => {
+              ownerBCleanup.reject(new Error("owner-b cleanup failure"));
+              await ownerBCleanup.promise.catch(() => {});
+            });
+            await waitFor(() =>
+              expect(page().getByTestId("status").textContent).toBe(
+                "signout-error",
+              ),
+            );
+            renderFreshOwner();
+          }
+
+          await waitFor(() =>
+            expect(page().getByTestId("address").textContent).toBe(
+              freshOwner.address,
+            ),
+          );
+          expect(page().getByTestId("status").textContent).toBe("verified");
+          expect(page().getByTestId("provider").textContent).toBe(
+            "cdp-embedded",
+          );
+          expect(signOutCalls).toBe(2);
+
+          if (freshArrival === "before-b-settlement") {
+            await act(async () => {
+              ownerBCleanup.reject(new Error("late owner-b cleanup failure"));
+              await ownerBCleanup.promise.catch(() => {});
+              await new Promise((resolve) => setTimeout(resolve, 0));
+            });
+            expect(page().getByTestId("status").textContent).toBe("verified");
+            expect(page().getByTestId("address").textContent).toBe(
+              freshOwner.address,
+            );
+            expect(signOutCalls).toBe(2);
+          }
+        });
+      }
+    }
+  }
+
+  test("lets owner B explicitly sign out after a late owner A cleanup failure", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const ownerACleanup = deferred<void>();
+    const ownerBSignOut = deferred<void>();
+    let activeSdkOwner = OWNER_A;
+    const signOutOwners: string[] = [];
+    let signOutCalls = 0;
+    const sdk = baseSdk({
+      getAccessToken: async () =>
+        activeSdkOwner === OWNER_A ? "token-a" : "token-b",
+      signOut: () => {
+        signOutOwners.push(activeSdkOwner);
+        signOutCalls += 1;
+        return signOutCalls === 1
+          ? ownerACleanup.promise
+          : ownerBSignOut.promise;
+      },
+    });
+    const view = render(
+      <SessionHarness
+        sdk={sdk}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(signOutCalls).toBe(1));
+    activeSdkOwner = OWNER_B;
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, ownerKey: OWNER_B }}
+        sessionFetch={async () =>
+          sessionResponse(sessionFor("subject-b", ADDRESS_B))
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () =>
+          connectedBaseAccount({ address: ADDRESS_B })
+        }
+      />,
+    );
+    await waitFor(() =>
+      expect(page().getByTestId("address").textContent).toBe(ADDRESS_B),
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "cdp-embedded",
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await act(async () => {
+      ownerACleanup.reject(new Error("late owner-a cleanup failure"));
+      await ownerACleanup.promise.catch(() => {});
+    });
+    await waitFor(() => expect(signOutCalls).toBe(2));
+    expect(signOutOwners).toEqual([OWNER_A, OWNER_B]);
+    expect(page().getByTestId("status").textContent).toBe("signing-out");
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "cdp-embedded",
+    );
+
+    await act(async () => {
+      ownerBSignOut.resolve();
+      await ownerBSignOut.promise;
+    });
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signed-out"),
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+    expect(page().getByTestId("message").textContent).toBe("You are signed out.");
+  });
+
+  test("keeps owner B retryable when its explicit sign-out fails after a stale owner A failure", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const ownerACleanup = deferred<void>();
+    const ownerBSignOut = deferred<void>();
+    let activeSdkOwner = OWNER_A;
+    const signOutOwners: string[] = [];
+    let signOutCalls = 0;
+    const sdk = baseSdk({
+      getAccessToken: async () =>
+        activeSdkOwner === OWNER_A ? "token-a" : "token-b",
+      signOut: () => {
+        signOutOwners.push(activeSdkOwner);
+        signOutCalls += 1;
+        if (signOutCalls === 1) return ownerACleanup.promise;
+        if (signOutCalls === 2) return ownerBSignOut.promise;
+        return Promise.resolve();
+      },
+    });
+    const view = render(
+      <SessionHarness
+        sdk={sdk}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(signOutCalls).toBe(1));
+    activeSdkOwner = OWNER_B;
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, ownerKey: OWNER_B }}
+        sessionFetch={async () =>
+          sessionResponse(sessionFor("subject-b", ADDRESS_B))
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () =>
+          connectedBaseAccount({ address: ADDRESS_B })
+        }
+      />,
+    );
+    await waitFor(() =>
+      expect(page().getByTestId("address").textContent).toBe(ADDRESS_B),
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await act(async () => {
+      ownerACleanup.reject(new Error("late owner-a cleanup failure"));
+      await ownerACleanup.promise.catch(() => {});
+    });
+    await waitFor(() => expect(signOutCalls).toBe(2));
+    await act(async () => {
+      ownerBSignOut.reject(new Error("owner-b sign-out failure"));
+      await ownerBSignOut.promise.catch(() => {});
+    });
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signout-error"),
+    );
+    expect(signOutOwners).toEqual([OWNER_A, OWNER_B]);
+    expect(page().getByTestId("message").textContent).toContain(
+      "Retry sign out",
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "cdp-embedded",
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await waitFor(() => expect(signOutCalls).toBe(3));
+    expect(signOutOwners).toEqual([OWNER_A, OWNER_B, OWNER_B]);
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signed-out"),
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+  });
+
+  test("coalesces owner-null explicit sign-out with pending cleanup before clearing selection", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const pendingCleanup = deferred<void>();
+    let signOutCalls = 0;
+    const sdk = baseSdk({
+      signOut: () => {
+        signOutCalls += 1;
+        return pendingCleanup.promise;
+      },
+    });
+    const view = render(
+      <SessionHarness
+        sdk={sdk}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(signOutCalls).toBe(1));
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, isSignedIn: false, ownerKey: null }}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(signOutCalls).toBe(1);
+    expect(page().getByTestId("status").textContent).toBe("signing-out");
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "pending:base-account",
+    );
+
+    await act(async () => {
+      pendingCleanup.resolve();
+      await pendingCleanup.promise;
+    });
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signed-out"),
+    );
+    expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+  });
+
+  test("coalesces repeated cleanup and permits a new SDK attempt only after failure", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const firstSignOut = deferred<void>();
+    const secondSignOut = deferred<void>();
+    let signOutCalls = 0;
+    render(
+      <StrictMode>
+        <SessionHarness
+          sdk={baseSdk({
+            signOut: () => {
+              signOutCalls += 1;
+              return signOutCalls === 1
+                ? firstSignOut.promise
+                : secondSignOut.promise;
+            },
+          })}
+          sessionFetch={async () =>
+            sessionResponse(
+              sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+            )
+          }
+          baseAccountEnabled
+          baseAccountRestorer={async () => {
+            throw new BaseAccountConnectorError("missing-connection");
+          }}
+        />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(signOutCalls).toBe(1));
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(signOutCalls).toBe(1);
+
+    await act(async () => {
+      firstSignOut.reject(new Error("first cleanup failed"));
+      await firstSignOut.promise.catch(() => {});
+    });
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signout-error"),
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await waitFor(() => expect(signOutCalls).toBe(2));
+    await act(async () => {
+      secondSignOut.resolve();
+      await secondSignOut.promise;
+    });
+    expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+    expect(page().getByTestId("status").textContent).toBe("signed-out");
+  });
+
+  test("rejects late missing-connection sign-out success after unmount", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const pendingSignOut = deferred<void>();
+    const view = render(
+      <SessionHarness
+        sdk={baseSdk({ signOut: () => pendingSignOut.promise })}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("siwe-subject", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+        "pending:base-account",
+      ),
+    );
+    view.unmount();
+    await act(async () => {
+      pendingSignOut.resolve();
+      await pendingSignOut.promise;
+    });
+    expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+      "pending:base-account",
+    );
+  });
+
+  test("keeps owner-bound provider evidence through missing-connection logout and same-owner Base re-login", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const action = preparedMoneyAction(
+      "base-account",
+      "2026-12-08T05:20:00.000Z",
+    );
+    const storage = new TestJournalStorage();
+    const lock = new TestJournalLock();
+    const journal = new ProviderHandleJournal({ storage, lock });
+    const capture = journal.retain(action, {
+      kind: "submission-id",
+      provider: "base-account",
+      value: "same-owner-submission",
+    });
+    expect((await journal.persist(capture.entry!)).persisted).toBe(true);
+    const exactJournalBytes = [...storage.values.entries()];
+
+    const signedInSdk = baseSdk();
+    const view = render(
+      <SessionHarness
+        sdk={signedInSdk}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("subject-a", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountConnector={async () => connectedBaseAccount()}
+        baseAccountRestorer={async () => {
+          throw new BaseAccountConnectorError("missing-connection");
+        }}
+        providerHandleJournalStorage={storage}
+        providerHandleJournalLock={lock}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("signed-out"),
+    );
+    expect(storage.length).toBe(1);
+
+    const signedOutSdk = baseSdk({ isSignedIn: false, ownerKey: null });
+    view.rerender(
+      <SessionHarness
+        sdk={signedOutSdk}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("subject-a", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountConnector={async () => connectedBaseAccount()}
+        providerHandleJournalStorage={storage}
+        providerHandleJournalLock={lock}
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: "Probe Base sign in" }));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    view.rerender(
+      <SessionHarness
+        sdk={signedInSdk}
+        sessionFetch={async () =>
+          sessionResponse(
+            sessionFor("subject-a", ADDRESS_A, "base-account"),
+          )
+        }
+        baseAccountEnabled
+        baseAccountConnector={async () => connectedBaseAccount()}
+        providerHandleJournalStorage={storage}
+        providerHandleJournalLock={lock}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("verified"),
+    );
+    expect(storage.length).toBe(1);
+    expect([...storage.values.entries()]).toEqual(exactJournalBytes);
+    expect(new ProviderHandleJournal({ storage, lock }).entriesForAction(action)).toHaveLength(1);
   });
 
   test("keeps a missing ambiguous provider hint private without signing out valid SDK auth", async () => {
@@ -1200,15 +2530,8 @@ describe("production account session owner", () => {
             walletSubmissions += 1;
             return { userOperationHash };
           },
-          getUserOperation: async () => ({
-            status: "complete",
-            transactionHash,
-            calls: action.calls.map((call) => ({
-              to: call.to,
-              data: call.data,
-              value: BigInt(call.value),
-            })),
-          }) as never,
+          getUserOperation: async () =>
+            embeddedObservation(action, userOperationHash, transactionHash),
         })}
         sessionFetch={sessionFetch}
         moneyAction={action}
@@ -1222,12 +2545,383 @@ describe("production account session owner", () => {
     expect(submissions).toBe(1);
   });
 
+  test("rejects malformed or mismatched CDP recovery observations before candidate upload or receipt polling", async () => {
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    const otherUserOperationHash = `0x${"ab".repeat(32)}` as `0x${string}`;
+    const mutations: Array<(action: PreparedMoneyAction) => unknown> = [
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { userOpHash: otherUserOperationHash }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { network: "base-sepolia" }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { status: "confirmed" as never }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { calls: [{ to: ADDRESS_A, data: "0x1234", value: "0" }] }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { transactionHash: "not-a-hash" }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { receipts: [{ revert: { data: "bad", message: "reverted" } }] }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { calls: [{ to: ADDRESS_B, data: "0x5678", value: "0" }] }),
+    ];
+
+    for (const [index, mutate] of mutations.entries()) {
+      const action: PreparedMoneyAction = index === mutations.length - 1
+        ? {
+          ...preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z"),
+          sensitivePayload: true,
+          calls: [{
+            to: ADDRESS_B as `0x${string}`,
+            value: "0",
+            data: "0x1234",
+            dataHash: "5a0737e8cbcfa24dcc118b0ab1e6d98bee17c57daa8a1686024159aae707ed6f",
+          }],
+        }
+        : preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+      let submissionPosts = 0;
+      let receiptReads = 0;
+      let claims = 0;
+      let walletSubmissions = 0;
+      const sessionFetch: SessionFetch = async (input) => {
+        if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+        if (input === `/api/actions/${action.id}`) {
+          return Response.json({ operation: storedMoneyAction(action, "submitted", { userOperationHash }) });
+        }
+        if (input === `/api/actions/${action.id}/submission`) submissionPosts += 1;
+        if (String(input).startsWith("/api/transfer-receipt?")) receiptReads += 1;
+        if (input === `/api/actions/${action.id}/claim`) claims += 1;
+        throw new Error(`unexpected invalid observation request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk({
+            sendUserOperation: async () => {
+              walletSubmissions += 1;
+              return { userOperationHash };
+            },
+            getUserOperation: async () => mutate(action) as never,
+          })}
+          sessionFetch={sessionFetch}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+      fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:submission-unknown"));
+      expect({ submissionPosts, receiptReads, claims, walletSubmissions }).toEqual({
+        submissionPosts: 0,
+        receiptReads: 0,
+        claims: 0,
+        walletSubmissions: 0,
+      });
+      cleanup();
+      window.sessionStorage.clear();
+    }
+  });
+
+  test("accepts only exact SDK decimal call-value strings during CDP recovery", async () => {
+    const action: PreparedMoneyAction = {
+      ...preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z"),
+      calls: [{ to: ADDRESS_B, data: "0x1234", value: "9007199254740993" }],
+    };
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+
+    async function checkObservation(
+      observation: GetUserOperationResult,
+      expectedStatus: "confirmed" | "error:submission-unknown",
+      expectedSubmissionPosts: number,
+    ) {
+      let submissionPosts = 0;
+      let receiptReads = 0;
+      let walletSubmissions = 0;
+      const sessionFetch: SessionFetch = async (input) => {
+        if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+        if (input === `/api/actions/${action.id}`) {
+          return Response.json({ operation: storedMoneyAction(action, "submitted", { userOperationHash }) });
+        }
+        if (input === `/api/actions/${action.id}/submission`) {
+          submissionPosts += 1;
+          return Response.json({
+            operation: storedMoneyAction(action, "confirmed", { userOperationHash, transactionHash }),
+          });
+        }
+        if (String(input).startsWith("/api/transfer-receipt?")) receiptReads += 1;
+        throw new Error(`unexpected call-value observation request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk({
+            sendUserOperation: async () => {
+              walletSubmissions += 1;
+              return { userOperationHash };
+            },
+            getUserOperation: async () => observation,
+          })}
+          sessionFetch={sessionFetch}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+      fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe(expectedStatus));
+      expect({ submissionPosts, receiptReads, walletSubmissions }).toEqual({
+        submissionPosts: expectedSubmissionPosts,
+        receiptReads: 0,
+        walletSubmissions: 0,
+      });
+      cleanup();
+      window.sessionStorage.clear();
+    }
+
+    await checkObservation(
+      embeddedObservation(action, userOperationHash, transactionHash),
+      "confirmed",
+      1,
+    );
+
+    for (const value of [
+      "",
+      "-1",
+      "1.0",
+      "1e3",
+      "09007199254740993",
+      "+9007199254740993",
+      "0x20000000000001",
+      "9007199254740994",
+    ]) {
+      await checkObservation(
+        embeddedObservation(action, userOperationHash, transactionHash, {
+          calls: [{ to: ADDRESS_B, data: "0x1234", value }],
+        }),
+        "error:submission-unknown",
+        0,
+      );
+    }
+
+    for (const value of [undefined, 0, Number.MAX_SAFE_INTEGER + 1, BigInt("9007199254740993")]) {
+      await checkObservation(
+        embeddedObservation(action, userOperationHash, transactionHash, {
+          calls: [{ to: ADDRESS_B, data: "0x1234", value: value as never }],
+        }),
+        "error:submission-unknown",
+        0,
+      );
+    }
+  });
+
+  test("records a validated CDP transaction candidate before receipt success and then reads terminal durable state", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    const events: string[] = [];
+    let actionReads = 0;
+    let claims = 0;
+    let walletSubmissions = 0;
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        actionReads += 1;
+        events.push(`read-${actionReads}`);
+        return Response.json({
+          operation: storedMoneyAction(
+            action,
+            actionReads === 1 ? "submitted" : "confirmed",
+            { userOperationHash, transactionHash: actionReads === 1 ? undefined : transactionHash },
+          ),
+        });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        events.push("candidate-upload");
+        expect(JSON.parse(String(init?.body))).toEqual({ userOperationHash, transactionHash });
+        return Response.json({
+          operation: storedMoneyAction(action, "submitted", { userOperationHash, transactionHash }),
+        });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) {
+        events.push("receipt");
+        expect(events).toContain("candidate-upload");
+        return Response.json({ status: "confirmed", transactionHash, blockNumber: "18", success: true });
+      }
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected candidate recovery request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            walletSubmissions += 1;
+            return { userOperationHash };
+          },
+          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"));
+    expect(events).toEqual(["read-1", "candidate-upload", "receipt", "read-2"]);
+    expect(claims).toBe(0);
+    expect(walletSubmissions).toBe(0);
+  });
+
+  test("treats a broadcast CDP empty transaction hash as pending before a later valid candidate", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    const events: string[] = [];
+    let actionReads = 0;
+    let providerReads = 0;
+    let walletSubmissions = 0;
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        actionReads += 1;
+        events.push(`read-${actionReads}`);
+        return Response.json({
+          operation: storedMoneyAction(
+            action,
+            actionReads === 1 ? "submitted" : "confirmed",
+            actionReads === 1 ? { userOperationHash } : { userOperationHash, transactionHash },
+          ),
+        });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        events.push("candidate-upload");
+        expect(JSON.parse(String(init?.body))).toEqual({ userOperationHash, transactionHash });
+        return Response.json({
+          operation: storedMoneyAction(action, "submitted", { userOperationHash, transactionHash }),
+        });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) {
+        events.push("receipt");
+        expect(events).toContain("candidate-upload");
+        return Response.json({ status: "confirmed", transactionHash, blockNumber: "18", success: true });
+      }
+      throw new Error(`unexpected empty-hash recovery request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            walletSubmissions += 1;
+            return { userOperationHash };
+          },
+          getUserOperation: async () => {
+            providerReads += 1;
+            events.push(providerReads === 1 ? "provider-broadcast" : "provider-complete");
+            return providerReads === 1
+              ? embeddedObservation(action, userOperationHash, transactionHash, {
+                status: "broadcast",
+                transactionHash: "",
+              })
+              : embeddedObservation(action, userOperationHash, transactionHash);
+          },
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"), {
+      timeout: 3_000,
+    });
+    expect(events).toEqual([
+      "read-1",
+      "provider-broadcast",
+      "provider-complete",
+      "candidate-upload",
+      "receipt",
+      "read-2",
+    ]);
+    expect(providerReads).toBe(2);
+    expect(walletSubmissions).toBe(0);
+  });
+
+  test("accepts one bounded 409 candidate race only after an exact canonical reread", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    let reads = 0;
+    let posts = 0;
+    let receiptReads = 0;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        reads += 1;
+        const status = reads === 3 ? "confirmed" : "submitted";
+        const references = reads === 1 ? { userOperationHash } : { userOperationHash, transactionHash };
+        return Response.json({ operation: storedMoneyAction(action, status, references) });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        posts += 1;
+        return Response.json({ error: { code: "ACTION_NOT_CLAIMED", message: "race" } }, { status: 409 });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) {
+        receiptReads += 1;
+        return Response.json({ status: "confirmed", transactionHash, blockNumber: "19", success: true });
+      }
+      throw new Error(`unexpected 409 recovery request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"));
+    expect({ reads, posts, receiptReads }).toEqual({ reads: 3, posts: 1, receiptReads: 1 });
+  });
+
+  test("returns failed durable execution from candidate acknowledgment without receipt polling or redispatch", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    let receiptReads = 0;
+    let walletSubmissions = 0;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({ operation: storedMoneyAction(action, "submitted", { userOperationHash }) });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        return Response.json({
+          operation: storedMoneyAction(action, "failed", { userOperationHash, transactionHash }),
+        });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) receiptReads += 1;
+      throw new Error(`unexpected failed recovery request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            walletSubmissions += 1;
+            return { userOperationHash };
+          },
+          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("failed"));
+    expect(receiptReads).toBe(0);
+    expect(walletSubmissions).toBe(0);
+  });
+
   test("reconciles an already-recorded Base submission ID through checkMoneyAction without wallet_sendCalls", async () => {
     window.sessionStorage.setItem("home:account-provider", "base-account");
     const action = preparedMoneyAction("base-account", "2026-12-08T05:20:00.000Z");
     const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
     let walletSubmissions = 0;
     let claims = 0;
+    let actionReads = 0;
+    const events: string[] = [];
     const connection = connectedBaseAccount({
       sendCalls: async () => {
         walletSubmissions += 1;
@@ -1235,16 +2929,26 @@ describe("production account session owner", () => {
       },
       getCallsStatus: async () => ({ status: "complete", transactionHash }),
     });
-    const sessionFetch: SessionFetch = async (input) => {
+    const sessionFetch: SessionFetch = async (input, init) => {
       if (input === "/api/session") {
         return sessionResponse(sessionFor("subject-a", ADDRESS_A, "base-account"));
       }
       if (input === `/api/actions/${action.id}`) {
+        actionReads += 1;
+        events.push(`read-${actionReads}`);
         return Response.json({
-          operation: storedMoneyAction(action, "submitted", { submissionId: "base-submission" }),
+          operation: storedMoneyAction(
+            action,
+            actionReads === 1 ? "submitted" : "confirmed",
+            actionReads === 1
+              ? { submissionId: "base-submission" }
+              : { submissionId: "base-submission", transactionHash },
+          ),
         });
       }
       if (String(input).startsWith("/api/transfer-receipt?")) {
+        events.push("receipt");
+        expect(events).toContain("candidate-upload");
         return Response.json({
           status: "confirmed",
           transactionHash,
@@ -1253,8 +2957,13 @@ describe("production account session owner", () => {
         });
       }
       if (input === `/api/actions/${action.id}/submission`) {
+        events.push("candidate-upload");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          submissionId: "base-submission",
+          transactionHash,
+        });
         return Response.json({
-          operation: storedMoneyAction(action, "confirmed", {
+          operation: storedMoneyAction(action, "submitted", {
             submissionId: "base-submission",
             transactionHash,
           }),
@@ -1277,6 +2986,237 @@ describe("production account session owner", () => {
     await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"));
     expect(claims).toBe(0);
     expect(walletSubmissions).toBe(0);
+    expect(events).toEqual(["read-1", "candidate-upload", "receipt", "read-2"]);
+  });
+
+  test("preserves included and terminal durable progress across failed or unavailable provider observations", async () => {
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const cases = [
+      { provider: "cdp-embedded" as const, status: "included" as const, observation: "failed" as const },
+      { provider: "cdp-embedded" as const, status: "included" as const, observation: "unavailable" as const },
+      { provider: "base-account" as const, status: "included" as const, observation: "failed" as const },
+      { provider: "base-account" as const, status: "included" as const, observation: "unavailable" as const },
+      { provider: "cdp-embedded" as const, status: "confirmed" as const, observation: "failed" as const },
+      { provider: "base-account" as const, status: "failed" as const, observation: "unavailable" as const },
+    ];
+
+    for (const testCase of cases) {
+      window.sessionStorage.setItem("home:account-provider", testCase.provider);
+      const action = preparedMoneyAction(testCase.provider, "2026-12-08T05:20:00.000Z");
+      let providerLookups = 0;
+      let statusWrites = 0;
+      let claims = 0;
+      let walletSubmissions = 0;
+      const connection = connectedBaseAccount({
+        sendCalls: async () => {
+          walletSubmissions += 1;
+          return "base-submission";
+        },
+        getCallsStatus: async () => {
+          providerLookups += 1;
+          if (testCase.observation === "unavailable") throw new Error("provider unavailable");
+          return { status: "failed" };
+        },
+      });
+      const sessionFetch: SessionFetch = async (input) => {
+        if (input === "/api/session") {
+          return sessionResponse(sessionFor("subject-a", ADDRESS_A, testCase.provider));
+        }
+        if (input === `/api/actions/${action.id}`) {
+          return Response.json({
+            operation: storedMoneyAction(
+              action,
+              testCase.status,
+              testCase.provider === "cdp-embedded" ? { userOperationHash } : { submissionId: "base-submission" },
+            ),
+          });
+        }
+        if (input === `/api/actions/${action.id}/status`) statusWrites += 1;
+        if (input === `/api/actions/${action.id}/claim`) claims += 1;
+        throw new Error(`unexpected monotonic recovery request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk({
+            sendUserOperation: async () => {
+              walletSubmissions += 1;
+              return { userOperationHash };
+            },
+            getUserOperation: async () => {
+              providerLookups += 1;
+              if (testCase.observation === "unavailable") throw new Error("provider unavailable");
+              return embeddedObservation(
+                action,
+                userOperationHash,
+                `0x${"ef".repeat(32)}`,
+                { status: "failed", transactionHash: undefined },
+              );
+            },
+          })}
+          sessionFetch={sessionFetch}
+          baseAccountEnabled={testCase.provider === "base-account"}
+          baseAccountRestorer={async () => connection}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("provider").textContent).toBe(testCase.provider));
+      fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe(testCase.status));
+      expect(statusWrites).toBe(0);
+      expect(claims).toBe(0);
+      expect(walletSubmissions).toBe(0);
+      expect(providerLookups).toBe(testCase.status === "included" ? 1 : 0);
+      cleanup();
+      window.sessionStorage.clear();
+    }
+  });
+
+  test("fences a delayed CDP provider-error preserved-progress fallback after the verified owner switches", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const pendingObservation = deferred<never>();
+    const observationEntered = deferred<void>();
+    let accessToken = "token-a";
+    let providerLookups = 0;
+    let statusWrites = 0;
+    let claims = 0;
+    let walletSubmissions = 0;
+    const sdk = baseSdk({
+      getAccessToken: async () => accessToken,
+      sendUserOperation: async () => {
+        walletSubmissions += 1;
+        return { userOperationHash };
+      },
+      getUserOperation: async () => {
+        providerLookups += 1;
+        observationEntered.resolve();
+        return pendingObservation.promise;
+      },
+    });
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") {
+        return new Headers(init?.headers).get("Authorization") === `Bearer token-b`
+          ? sessionResponse(sessionFor("subject-b", ADDRESS_B))
+          : sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      }
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({
+          operation: storedMoneyAction(action, "included", { userOperationHash }),
+        });
+      }
+      if (input === `/api/actions/${action.id}/status`) statusWrites += 1;
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected delayed CDP fallback request: ${String(input)}`);
+    };
+    const view = render(
+      <SessionHarness sdk={sdk} sessionFetch={sessionFetch} moneyAction={action} />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await observationEntered.promise;
+
+    accessToken = "token-b";
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, ownerKey: OWNER_B }}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_B));
+    await act(async () => {
+      pendingObservation.reject(new Error("CDP provider unavailable"));
+      await pendingObservation.promise.catch(() => {});
+    });
+
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:stale-session"));
+    expect({ providerLookups, statusWrites, claims, walletSubmissions }).toEqual({
+      providerLookups: 1,
+      statusWrites: 0,
+      claims: 0,
+      walletSubmissions: 0,
+    });
+  });
+
+  test("fences a delayed Base provider-error preserved-progress fallback after the verified owner switches", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const action = preparedMoneyAction("base-account", "2026-12-08T05:20:00.000Z");
+    const pendingObservation = deferred<never>();
+    const observationEntered = deferred<void>();
+    let accessToken = "token-a";
+    let providerLookups = 0;
+    let statusWrites = 0;
+    let claims = 0;
+    let walletSubmissions = 0;
+    const getCallsStatus = async () => {
+      providerLookups += 1;
+      observationEntered.resolve();
+      return pendingObservation.promise;
+    };
+    const sdk = baseSdk({
+      getAccessToken: async () => accessToken,
+    });
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") {
+        return new Headers(init?.headers).get("Authorization") === `Bearer token-b`
+          ? sessionResponse(sessionFor("subject-b", ADDRESS_B))
+          : sessionResponse(sessionFor("subject-a", ADDRESS_A, "base-account"));
+      }
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({
+          operation: storedMoneyAction(action, "included", { submissionId: "base-submission" }),
+        });
+      }
+      if (input === `/api/actions/${action.id}/status`) statusWrites += 1;
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected delayed Base fallback request: ${String(input)}`);
+    };
+    const baseAccountRestorer: BaseAccountRestorer = async () => connectedBaseAccount({
+      sendCalls: async () => {
+        walletSubmissions += 1;
+        return "base-submission";
+      },
+      getCallsStatus,
+    });
+    const view = render(
+      <SessionHarness
+        sdk={sdk}
+        sessionFetch={sessionFetch}
+        baseAccountEnabled
+        baseAccountRestorer={baseAccountRestorer}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await observationEntered.promise;
+
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("signed-out"));
+
+    accessToken = "token-b";
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, ownerKey: OWNER_B }}
+        sessionFetch={sessionFetch}
+        baseAccountEnabled
+        baseAccountRestorer={baseAccountRestorer}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_B));
+    await act(async () => {
+      pendingObservation.reject(new Error("Base provider unavailable"));
+      await pendingObservation.promise.catch(() => {});
+    });
+
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:stale-session"));
+    expect({ providerLookups, statusWrites, claims, walletSubmissions }).toEqual({
+      providerLookups: 1,
+      statusWrites: 0,
+      claims: 0,
+      walletSubmissions: 0,
+    });
   });
 
   test("fails send balance preflight before the atomic claim", async () => {
@@ -1308,7 +3248,7 @@ describe("production account session owner", () => {
             walletSubmissions += 1;
             return { userOperationHash: `0x${"ab".repeat(32)}` };
           },
-          getUserOperation: async () => ({ status: "pending" }) as never,
+          getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`),
         })}
         sessionFetch={sessionFetch}
         moneyAction={action}
@@ -1354,7 +3294,7 @@ describe("production account session owner", () => {
       getAccessToken: async () => accessToken,
       getUserOperation: async () => {
         providerChecks += 1;
-        return { status: "pending" } as never;
+        return sdkObservation(userOperationHash);
       },
     });
     const sessionFetch: SessionFetch = async (input, init) => {
@@ -1391,6 +3331,135 @@ describe("production account session owner", () => {
     expect(providerChecks).toBe(0);
   });
 
+  test("fences recovered candidate acknowledgment when the verified owner switches", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    const submissionEntered = deferred<void>();
+    const pendingSubmission = deferred<Response>();
+    let accessToken = "token-a";
+    let providerLookups = 0;
+    let receiptReads = 0;
+    let claims = 0;
+    let walletSubmissions = 0;
+    const sdk = baseSdk({
+      getAccessToken: async () => accessToken,
+      sendUserOperation: async () => {
+        walletSubmissions += 1;
+        return { userOperationHash };
+      },
+      getUserOperation: async () => {
+        providerLookups += 1;
+        return embeddedObservation(action, userOperationHash, transactionHash);
+      },
+    });
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") {
+        return new Headers(init?.headers).get("Authorization") === "Bearer token-b"
+          ? sessionResponse(sessionFor("subject-b", ADDRESS_B))
+          : sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      }
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({ operation: storedMoneyAction(action, "submitted", { userOperationHash }) });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        submissionEntered.resolve();
+        return pendingSubmission.promise;
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) receiptReads += 1;
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected owner-switch recovery request: ${String(input)}`);
+    };
+    const view = render(<SessionHarness sdk={sdk} sessionFetch={sessionFetch} moneyAction={action} />);
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await submissionEntered.promise;
+
+    accessToken = "token-b";
+    view.rerender(
+      <SessionHarness sdk={{ ...sdk, ownerKey: OWNER_B }} sessionFetch={sessionFetch} moneyAction={action} />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_B));
+    await act(async () => {
+      pendingSubmission.resolve(Response.json({
+        operation: storedMoneyAction(action, "submitted", { userOperationHash, transactionHash }),
+      }));
+      await pendingSubmission.promise;
+    });
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:stale-session"));
+    expect({ providerLookups, receiptReads, claims, walletSubmissions }).toEqual({
+      providerLookups: 1,
+      receiptReads: 0,
+      claims: 0,
+      walletSubmissions: 0,
+    });
+  });
+
+  test("rejects a 409 recovery acknowledgment whose canonical action or exact reference changed", async () => {
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    for (const mismatch of ["action", "reference"] as const) {
+      const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+      let reads = 0;
+      let receiptReads = 0;
+      let claims = 0;
+      let walletSubmissions = 0;
+      const sessionFetch: SessionFetch = async (input) => {
+        if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+        if (input === `/api/actions/${action.id}`) {
+          reads += 1;
+          const rereadAction: PreparedMoneyAction = mismatch === "action"
+            ? { ...action, owner: { ...action.owner, address: ADDRESS_B as `0x${string}` } }
+            : action;
+          return Response.json({
+            operation: reads === 1
+              ? storedMoneyAction(action, "submitted", { userOperationHash })
+              : storedMoneyAction(
+                rereadAction,
+                "submitted",
+                {
+                  userOperationHash,
+                  transactionHash: mismatch === "reference" ? `0x${"aa".repeat(32)}` : transactionHash,
+                },
+              ),
+          });
+        }
+        if (input === `/api/actions/${action.id}/submission`) {
+          return Response.json({ error: { code: "ACTION_NOT_CLAIMED", message: "race" } }, { status: 409 });
+        }
+        if (String(input).startsWith("/api/transfer-receipt?")) receiptReads += 1;
+        if (input === `/api/actions/${action.id}/claim`) claims += 1;
+        throw new Error(`unexpected mismatched acknowledgment request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk({
+            sendUserOperation: async () => {
+              walletSubmissions += 1;
+              return { userOperationHash };
+            },
+            getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
+          })}
+          sessionFetch={sessionFetch}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+      fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe(
+        mismatch === "action" ? "error:invalid-response" : "error:submission-unknown",
+      ));
+      expect({ reads, receiptReads, claims, walletSubmissions }).toEqual({
+        reads: 2,
+        receiptReads: 0,
+        claims: 0,
+        walletSubmissions: 0,
+      });
+      cleanup();
+      window.sessionStorage.clear();
+    }
+  });
+
   test("fences money-action execution before claim when the account switches during send preflight", async () => {
     const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
     const pendingPortfolio = deferred<Response>();
@@ -1403,7 +3472,7 @@ describe("production account session owner", () => {
         walletSubmissions += 1;
         return { userOperationHash: `0x${"ab".repeat(32)}` };
       },
-      getUserOperation: async () => ({ status: "pending" }) as never,
+      getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`),
     });
     const sessionFetch: SessionFetch = async (input, init) => {
       if (input === "/api/session") {
@@ -1506,7 +3575,7 @@ describe("production account session owner", () => {
               embeddedDispatches += 1;
               return { userOperationHash: `0x${"ab".repeat(32)}` };
             },
-            getUserOperation: async () => ({ status: "pending" }) as never,
+            getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`),
           })}
           sessionFetch={embeddedFetch}
           moneyAction={embeddedAction}
@@ -2119,7 +4188,7 @@ describe("production account session owner", () => {
           evmSmartAccount: ADDRESS_A,
           network: "base",
         });
-        return { status: "complete", transactionHash: hash } as never;
+        return sdkObservation(userOperationHash, { status: "complete", transactionHash: hash });
       },
     });
     const sessionFetch: SessionFetch = async (input) => {
@@ -2223,8 +4292,8 @@ describe("production account session owner", () => {
           getUserOperation: async () => {
             polls += 1;
             if (polls === 1) throw new Error("temporary poll failure");
-            if (polls === 2) return { status: "complete" } as never;
-            return { status: "complete", transactionHash } as never;
+            if (polls === 2) return sdkObservation(userOperationHash, { status: "complete" });
+            return sdkObservation(userOperationHash, { status: "complete", transactionHash });
           },
         })}
         sessionFetch={sessionFetch}
@@ -2255,7 +4324,7 @@ describe("production account session owner", () => {
             sends += 1;
             return { userOperationHash };
           },
-          getUserOperation: async () => ({ status: "dropped" }) as never,
+          getUserOperation: async () => sdkObservation(userOperationHash, { status: "dropped" }),
         })}
         sessionFetch={sessionFetch}
       />,
@@ -2403,8 +4472,10 @@ describe("production account session owner", () => {
         sendCalls += 1;
         return { userOperationHash: `0x${"ab".repeat(32)}` };
       },
-      getUserOperation: async () =>
-        ({ status: "complete", transactionHash: `0x${"cd".repeat(32)}` }) as never,
+      getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`, {
+        status: "complete",
+        transactionHash: `0x${"cd".repeat(32)}`,
+      }),
     });
     const sessionFetch: SessionFetch = async (input, init) => {
       if (input === "/api/session") {

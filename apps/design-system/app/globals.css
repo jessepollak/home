@@ -1,0 +1,84 @@
+@import "tailwindcss" source(".");
+@import "@home/ui/tokens.css";
+@import "@home/ui/tailwind.css";
+@import "@home/ui/styles.css";
+/* Explicit because shared workspace packages are outside this app's source root. */
+@source "../../../packages/ui/src";
+
+body {
+  margin: 0;
+  background: var(--home-ui-color-canvas);
+  color: var(--home-ui-color-text);
+  font-family: var(--home-ui-font-family);
+}
+.catalog-shell {
+  max-inline-size: 1120px;
+  margin-inline: auto;
+  padding: var(--home-ui-space-8) var(--home-ui-inset-outer);
+}
+.catalog-header { display: grid; gap: var(--home-ui-space-2); margin-block-end: var(--home-ui-space-6); }
+.catalog-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--home-ui-space-3);
+  min-inline-size: 0;
+  padding: var(--home-ui-space-4);
+  margin-block-end: var(--home-ui-space-6);
+  border: 1px solid var(--home-ui-color-border);
+  border-radius: var(--home-ui-radius-surface);
+}
+.catalog-controls legend { padding-inline: var(--home-ui-space-2); }
+.catalog-control-grid { display: flex; flex-wrap: wrap; gap: var(--home-ui-space-4); min-inline-size: 0; }
+.catalog-control-grid label { display: flex; align-items: center; gap: var(--home-ui-space-2); min-block-size: 44px; min-inline-size: 0; max-inline-size: 100%; overflow-wrap: anywhere; }
+.catalog-control-grid input { accent-color: var(--home-ui-color-action); flex-shrink: 0; inline-size: 20px; block-size: 20px; }
+.catalog-control-grid .catalog-select-label { flex-wrap: wrap; }
+.catalog-control-grid select {
+  min-block-size: 44px;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  padding: var(--home-ui-space-2);
+  border: 1px solid var(--home-ui-color-muted);
+  border-radius: var(--home-ui-radius-control);
+  background: var(--home-ui-color-surface);
+  font: inherit;
+}
+.catalog-control-grid :is(input, select):focus-visible { outline: 2px solid var(--home-ui-color-focus); outline-offset: 3px; }
+.catalog-controls > .home-ui-button { justify-self: start; }
+.catalog-specimens { display: grid; gap: var(--home-ui-space-4); min-inline-size: 0; }
+.catalog-specimens[data-width="320"] { max-inline-size: 320px; }
+.catalog-specimens[data-width="390"] { max-inline-size: 390px; }
+.catalog-specimens[data-width="desktop"] { max-inline-size: 960px; }
+.catalog-specimens[data-font="fallback"] {
+  --home-ui-font-family: var(--home-ui-font-fallback);
+  --home-ui-font-numeric: var(--home-ui-font-numeric-fallback);
+}
+.catalog-section {
+  display: grid;
+  gap: var(--home-ui-space-4);
+  min-inline-size: 0;
+  padding: var(--home-ui-space-4);
+  border: 1px solid var(--home-ui-color-border);
+  border-radius: var(--home-ui-radius-surface);
+}
+.catalog-type-list { display: grid; gap: var(--home-ui-space-4); margin: 0; }
+.catalog-type-sample { display: grid; gap: var(--home-ui-space-1); min-inline-size: 0; }
+.catalog-type-sample dd { margin: 0; min-inline-size: 0; }
+.catalog-number-probe { display: grid; justify-items: start; min-inline-size: 0; }
+.catalog-number-probe > * { max-inline-size: 100%; }
+.catalog-buttons { display: flex; flex-wrap: wrap; align-items: start; gap: var(--home-ui-space-3); }
+.catalog-section > .home-ui-button { justify-self: start; }
+.catalog-motion-reduced { display: none; }
+@media (max-width: 480px) {
+  /* Keep catalog insets at their 100% size when the specimen enlarges text. */
+  .catalog-shell { padding-inline: min(var(--home-ui-inset-outer), 16px); }
+  .catalog-header { margin-inline: min(0px, calc(8px - var(--home-ui-space-2))); }
+  .catalog-controls,
+  .catalog-section { padding-inline: min(var(--home-ui-space-4), 16px); }
+  .catalog-controls legend { padding-inline: min(var(--home-ui-space-2), 8px); }
+  .catalog-section > .home-ui-button,
+  .catalog-buttons > .home-ui-button:not(.home-ui-icon-button) { padding-inline: min(var(--home-ui-space-4), 16px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .catalog-motion-default { display: none; }
+  .catalog-motion-reduced { display: block; }
+}

@@ -89,10 +89,9 @@ export function SavingsMoneyDialog({
   }
 
   function closeIfAllowed() {
-    if (step !== "pending") {
-      reset();
-      onClose();
-    }
+    if (step === "pending") return false;
+    onClose();
+    return true;
   }
 
   function goBack() {

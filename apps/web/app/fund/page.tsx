@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { FundingExperience } from "@/features/funding/funding-experience";
+import { redirect } from "next/navigation";
+import { firstQueryValue } from "@/config/shell-location";
 
 export const metadata: Metadata = {
   title: "Add money · Home",
@@ -10,5 +11,9 @@ export default async function FundPage({
   searchParams,
 }: PageProps<"/fund">) {
   const query = await searchParams;
-  return <FundingExperience returnedFromCoinbase={query.return === "coinbase"} />;
+  const params = new URLSearchParams({ "add-money": "1" });
+  if (firstQueryValue(query.return) === "coinbase") {
+    params.set("return", "coinbase");
+  }
+  redirect(`/dashboard?${params.toString()}`);
 }
