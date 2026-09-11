@@ -19,6 +19,13 @@ import {
 } from "./support/save-qa-server";
 
 test.setTimeout(120_000);
+// Intercepted localhost documents can remain server-painted without hydrating when
+// Chromium's local-network checks are active. The runner supplies a stricter exact-origin boundary.
+test.use({
+  launchOptions: {
+    args: ["--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessSendPreflights"],
+  },
+});
 
 let server: SaveQaServer;
 let origin: string;
