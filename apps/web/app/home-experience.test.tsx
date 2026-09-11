@@ -12,6 +12,7 @@ import type {
   VerifiedAccountSession,
 } from "@/features/account/session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "@/features/account/session-types";
+import { anonymousCountryPreferenceKey } from "@/config/country-preference";
 import {
   investPortfolioAssets,
   verifiedLocalCashAssets,
@@ -1058,6 +1059,75 @@ describe("login-state home experience", () => {
     expect(
       new Headers(valuationRequest?.init?.headers).get(ACCOUNT_PROVIDER_HEADER),
     ).toBe("cdp-embedded");
+  });
+
+  test("persists an Account country through the production Home presentation after refresh", async () => {
+    const valuationRegions: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return Response.json(session());
+      if (String(input).startsWith("/api/activity?")) {
+        return Response.json(activityPage(input));
+      }
+      if (String(input).startsWith("/api/portfolio/valuation?")) {
+        const region = new URL(
+          String(input),
+          "http://localhost",
+        ).searchParams.get("region");
+        if (region) valuationRegions.push(region);
+        return valuationResponse(input, { usdc: "1000000" });
+      }
+      return Response.json(portfolioSnapshot({ usdc: "1000000" }));
+    };
+
+    const firstVisit = render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch}
+        detectedCountry="US"
+      />,
+    );
+
+    await page().findByText("US dollar");
+    fireEvent.click(await enabledAccountButton());
+    expect(
+      page().getByRole("combobox", { name: "Country" }).textContent,
+    ).toContain("United States");
+
+    fireEvent.click(page().getByRole("combobox", { name: "Country" }));
+    fireEvent.click(
+      within(document.body).getByRole("option", { name: /Brazil/ }),
+    );
+
+    expect(window.localStorage.getItem(anonymousCountryPreferenceKey)).toBe(
+      "BR",
+    );
+    fireEvent.click(page().getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(valuationRegions.at(-1)).toBe("BR"));
+    expect(await page().findByText("Brazilian real")).toBeTruthy();
+
+    firstVisit.unmount();
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith(homeBalancesPresentationCachePrefix)) {
+        window.localStorage.removeItem(key);
+      }
+    }
+    valuationRegions.length = 0;
+
+    render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch}
+        detectedCountry="US"
+      />,
+    );
+
+    await waitFor(() => expect(valuationRegions.at(-1)).toBe("BR"));
+    expect(await page().findByText("Brazilian real")).toBeTruthy();
+    fireEvent.click(await enabledAccountButton());
+    expect(
+      page().getByRole("combobox", { name: "Country" }).textContent,
+    ).toContain("Brazil");
+    expect(page().getByText("Saved country choice.")).toBeTruthy();
   });
 
   test("renders IDR Balances with non-par EURC in euros and canonical currency marks", async () => {

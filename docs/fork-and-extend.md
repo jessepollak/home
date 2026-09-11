@@ -35,7 +35,7 @@ Country selection is presentation, not eligibility, residency, or a funding unlo
 | Native-currency UI rules | [Regional money](regional-money.md) |
 | Confirmed default token per currency | [Currency defaults](currency-defaults.md) |
 
-Changing country updates labels, formatting, and default cash presentation. It does not convert holdings or enable a route. Adding a country means a typed region record plus a verified Base asset later — not a ticker in copy. Local development has no Vercel geo header; the resolver falls back to `GLOBAL` unless the visitor picks a country.
+Changing country updates labels, formatting, and default cash presentation. It does not convert holdings or enable a route. The landing globe remains illustrative and does not read or write the saved country preference. Adding a country means a typed region record plus a verified Base asset later — not a ticker in copy. Local development has no Vercel geo header; the resolver falls back to `GLOBAL` unless the visitor picks a country.
 
 ## Asset inventories
 
