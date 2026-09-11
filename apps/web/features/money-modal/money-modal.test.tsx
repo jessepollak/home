@@ -16,6 +16,13 @@ const {
 
 const css = readFileSync(resolve(import.meta.dir, "money-modal.module.css"), "utf8");
 
+function cssRule(selector: string) {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = css.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
+  if (!match) throw new Error(`Missing CSS rule: ${selector}`);
+  return match[1];
+}
+
 function page() {
   return within(document.body);
 }
@@ -67,7 +74,6 @@ describe("MoneyModal shell", () => {
     expect(css).toContain("max-height: 88svh");
     expect(css).toContain("border-radius: 16px 16px 0 0");
     expect(css).toContain("box-shadow: 0 -8px 28px rgba(10, 11, 13, 0.18)");
-    expect(css).toContain("background: rgba(10, 11, 13, 0.42)");
     expect(css).toContain("width: 36px");
     expect(css).toContain("height: 4px");
     expect(css).toContain("position: absolute");
@@ -82,10 +88,34 @@ describe("MoneyModal shell", () => {
     expect(css).not.toContain("align-items: end");
     expect(css).not.toContain("animation: money-sheet-enter");
     expect(css).not.toContain("animation: money-sheet-exit");
-    expect(css).toContain("animation: money-overlay-enter 280ms ease-out both");
-    expect(css).toContain("animation: money-overlay-exit 220ms ease-in both");
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain("animation: none");
+  });
+
+  test("locks reversible backdrop continuity", () => {
+    const root = cssRule(".root");
+    expect(root).toContain("background-color: rgba(10, 11, 13, 0)");
+    expect(root).toContain("transition: background-color 220ms ease-in");
+
+    const open = cssRule('.root[data-state="open"]');
+    expect(open).toContain("background-color: rgba(10, 11, 13, 0.42)");
+    expect(open).toContain("transition-duration: 280ms");
+    expect(open).toContain("transition-timing-function: ease-out");
+
+    const closing = cssRule('.root[data-state="closing"]');
+    expect(closing).toContain("background-color: rgba(10, 11, 13, 0)");
+
+    const startingStyle = cssRule("@starting-style");
+    expect(startingStyle).toContain('.root[data-state="open"]');
+    expect(startingStyle).toContain("background-color: rgba(10, 11, 13, 0)");
+
+    expect(css).not.toContain("@keyframes money-overlay-enter");
+    expect(css).not.toContain("@keyframes money-overlay-exit");
+    expect(css).not.toContain("animation: money-overlay-enter");
+    expect(css).not.toContain("animation: money-overlay-exit");
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.root\[data-state="open"\],[\s\S]*?\.root\[data-state="closing"\]\s*\{\s*transition: none;/,
+    );
   });
 
   test("enter grows height from the pinned bottom without translating the sheet", () => {

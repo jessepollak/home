@@ -1,5 +1,7 @@
 .experience {
   display: grid;
+  width: 100%;
+  min-width: 0;
   gap: 28px;
   max-width: 560px;
   padding: 4px 2px 28px;
@@ -43,7 +45,9 @@
 }
 
 .heroAmount {
+  max-width: 100%;
   margin: 0;
+  overflow-wrap: anywhere;
   font-size: clamp(2.8rem, 14vw, 3.6rem);
   font-variant-numeric: tabular-nums;
   font-weight: 750;
@@ -53,6 +57,12 @@
 
 .heroAmountEmpty {
   color: #c5c9d1;
+}
+
+.heroShimmer {
+  width: min(48%, 11.5rem);
+  height: 3.4rem;
+  border-radius: var(--control-radius);
 }
 
 .heroCaption,
@@ -128,6 +138,9 @@
 }
 
 .vaultBalance {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   font-size: 0.95rem;
   font-variant-numeric: tabular-nums;
   font-weight: 750;
@@ -237,6 +250,58 @@
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+@media (max-width: 360px) {
+  .hero {
+    min-width: 0;
+    padding-inline: 0;
+  }
+
+  .heroAmount {
+    padding-bottom: 2px;
+    font-size: clamp(2.4rem, 14vw, 3.2rem);
+    letter-spacing: -0.04em;
+    line-height: 1.1;
+  }
+
+  .vaults,
+  .vaultList,
+  .actions,
+  .details {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .vault {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .vaultBalance {
+    justify-self: start;
+    text-align: left;
+  }
+
+  .actionsSplit {
+    grid-template-columns: 1fr;
+  }
+
+  .details {
+    width: 100%;
+  }
+
+  .details summary {
+    display: grid;
+    min-width: 44px;
+    min-height: 44px;
+    place-items: center;
+  }
+
+  .detailsBody {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

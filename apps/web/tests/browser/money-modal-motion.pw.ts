@@ -236,6 +236,16 @@ test("actual Receive honors reduced motion for immediate geometry and close", as
   expect(sheetStyle.height).toBe("");
   expect(sheetStyle.transition).toBe("none");
 
+  const backdropStyle = await page.locator("dialog[open]").evaluate((dialog) => {
+    const channels = getComputedStyle(dialog).backgroundColor.match(/[\d.]+/g)?.map(Number) ?? [];
+    return {
+      alpha: channels.length > 3 ? channels[3] : 1,
+      transitionDuration: getComputedStyle(dialog).transitionDuration,
+    };
+  });
+  expect(backdropStyle.alpha).toBeCloseTo(0.42, 2);
+  expect(backdropStyle.transitionDuration).toBe("0s");
+
   await page.getByRole("button", { name: "Close receive dialog" }).click();
   await expect(page.locator("dialog[open]")).toHaveCount(0);
 });
@@ -266,32 +276,66 @@ test("reopening during active exit preserves the rendered sheet geometry", async
     return (rect?.y ?? 0) - openRect.y;
   }).toBeGreaterThan(16);
 
-  const geometry = await sheet.evaluate((element) => {
+  const continuity = await sheet.evaluate((element) => {
+    const dialog = element.closest("dialog");
+    if (!dialog) throw new Error("MoneyModal sheet has no dialog root.");
     const rect = (node: Element) => {
       const { y, height, bottom } = node.getBoundingClientRect();
       return { y, height, bottom };
     };
+    const backdropAlpha = () => {
+      const channels = getComputedStyle(dialog).backgroundColor.match(/[\d.]+/g)?.map(Number) ?? [];
+      return channels.length > 3 ? channels[3] : 1;
+    };
     const before = rect(element);
-    return new Promise<{ before: ReturnType<typeof rect>; after: ReturnType<typeof rect>; state: string | null }>((resolve) => {
+    const alphaSamples = [backdropAlpha()];
+    return new Promise<{
+      before: ReturnType<typeof rect>;
+      after: ReturnType<typeof rect>;
+      alphaSamples: number[];
+      dialogState: string | null;
+      sameDialog: boolean;
+      sheetState: string | null;
+    }>((resolve) => {
       const observer = new MutationObserver(() => {
         if (element.getAttribute("data-state") !== "open") return;
         observer.disconnect();
-        resolve({
-          before,
-          after: rect(element),
-          state: element.getAttribute("data-state"),
-        });
+        const after = rect(element);
+        const sampleReopen = () => {
+          alphaSamples.push(backdropAlpha());
+          if (alphaSamples.length < 8) {
+            requestAnimationFrame(sampleReopen);
+            return;
+          }
+          resolve({
+            before,
+            after,
+            alphaSamples,
+            dialogState: dialog.getAttribute("data-state"),
+            sameDialog: document.querySelector("dialog[open]") === dialog,
+            sheetState: element.getAttribute("data-state"),
+          });
+        };
+        sampleReopen();
       });
       observer.observe(element, { attributes: true, attributeFilter: ["data-state"] });
       window.moneyModalHarness.openSend();
     });
   });
 
-  expect(geometry.state).toBe("open");
-  expect(Math.abs(geometry.after.y - geometry.before.y)).toBeLessThanOrEqual(1);
-  expect(Math.abs(geometry.after.height - geometry.before.height)).toBeLessThanOrEqual(1);
-  expect(Math.abs(geometry.after.bottom - geometry.before.bottom)).toBeLessThanOrEqual(1);
+  expect(continuity.dialogState).toBe("open");
+  expect(continuity.sheetState).toBe("open");
+  expect(continuity.sameDialog).toBe(true);
+  expect(continuity.alphaSamples[0]).toBeLessThan(0.4);
+  expect(Math.min(...continuity.alphaSamples)).toBeGreaterThan(0.2);
+  expect(Math.abs(continuity.after.y - continuity.before.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(continuity.after.height - continuity.before.height)).toBeLessThanOrEqual(1);
+  expect(Math.abs(continuity.after.bottom - continuity.before.bottom)).toBeLessThanOrEqual(1);
   await expect(page.locator("dialog[open] [data-money-sheet]")).toBeVisible();
+
+  await page.waitForTimeout(320);
+  await page.getByRole("button", { name: "Close send dialog" }).click();
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
 });
 
 test("owned overflow lock survives reopen and stale close timer cancellation", async ({ page }) => {

@@ -40,7 +40,7 @@ const vaultsFixture: MorphoVaultsResult = {
       feeRate: 0.005,
       totalAssetsRaw: "1250000000",
       liquidityRaw: "500000000",
-      stateAsOf: "2026-09-07T20:00:00.000Z",
+      stateAsOf: "2026-09-07T20:30:00.000Z",
       blockNumber: "35123456",
       source: {
         provider: "Morpho GraphQL",
@@ -169,12 +169,15 @@ describe("finance-first presentation", () => {
 
   test("leads Save with a dollar hero, quiet vault cards, and no essay UI", () => {
     const markup = renderToStaticMarkup(
-      <SavingsExperience initialData={vaultsFixture} />,
+      <SavingsExperience
+        initialData={vaultsFixture}
+        now={() => Date.parse("2026-09-07T20:31:00.000Z")}
+      />,
     );
 
     expect(markup).toContain("$0.00");
     expect(markup).toContain("Nothing saved yet");
-    expect(markup).toContain("USDC · 4.50% APY");
+    expect(markup).toContain("Available vault · USDC · 4.50% APY");
     expect(markup).toContain("Get started");
     expect(markup).toContain("Details");
     expect(markup).toContain("4.50%");
