@@ -24,6 +24,8 @@ const MAX_TIME_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_CACHE_AGE_MS = 15 * 60 * 1000;
 const DEFAULT_STALE_AFTER_MS = 60 * 1000;
 const TRANSFER_SIGNATURE = "Transfer(address,address,uint256)";
+const TRANSFER_SIGNATURE_TOPIC =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const MAX_LOG_ID_LENGTH = 256;
 // Includes UTF-8, JSON escaping, and base64 expansion of bounded log IDs.
 const MAX_ENCODED_CURSOR_LENGTH = 4096;
@@ -48,6 +50,7 @@ type ValidatedRequest = {
 
 type TransferRow = {
   log_id: string;
+  topics: [string, string, string];
   block_number: string;
   block_hash: string;
   source_timestamp: string;
@@ -87,6 +90,13 @@ export function buildBaseErc20TransferQuery(
   // and only net-active logs are paginated. Filtering action = 'added' would
   // leave removed logs in history.
   //
+  // `base.events.topics` retains canonical raw topics, but the table does not
+  // expose raw log data. The ERC-20 shape is therefore fenced by the signature
+  // topic plus exactly two indexed address topics, and the amount is the sole
+  // decoded uint256 parameter regardless of its ABI name. ERC-721's standard
+  // indexed tokenId produces a fourth topic and is excluded before pagination.
+  // Missing or malformed structural evidence fails closed in row validation.
+  //
   // CoinbaSeQL's published selectStatement is GROUP BY then optional ORDER BY /
   // LIMIT — no HAVING. #46 nested ORDER BY … LIMIT after HAVING; #73 removed
   // that inner limit but left HAVING, and prod /api/activity stayed 502
@@ -101,8 +111,9 @@ export function buildBaseErc20TransferQuery(
   transaction_hash,
   toString(log_index_numeric) AS log_index,
   lower(token_address) AS token_address,
-  lower(from_address) AS from_address,
-  lower(to_address) AS to_address,
+  topics,
+  lower(concat('0x', right(toString(topics[2]), 40))) AS from_address,
+  lower(concat('0x', right(toString(topics[3]), 40))) AS to_address,
   amount_base_units
 FROM (
   SELECT
@@ -113,18 +124,27 @@ FROM (
     any(transaction_hash) AS transaction_hash,
     any(log_index) AS log_index_numeric,
     any(toString(address)) AS token_address,
-    any(toString(parameters['from'])) AS from_address,
-    any(toString(parameters['to'])) AS to_address,
-    any(toString(parameters['value'])) AS amount_base_units,
+    any(topics) AS topics,
+    any(toString(parameters[arrayElement(
+      arrayFilter(key -> parameter_types[key] = 'uint256', mapKeys(parameter_types)),
+      1
+    )])) AS amount_base_units,
     sum(toInt8(action)) AS net_action
   FROM base.events
   WHERE event_signature = '${TRANSFER_SIGNATURE}'${assetClause}
-    AND mapContains(parameters, 'value')
+    AND length(topics) = 3
+    AND lower(toString(topics[1])) = '${TRANSFER_SIGNATURE_TOPIC}'
+    AND match(toString(topics[2]), '^0x0{24}[0-9a-fA-F]{40}$')
+    AND match(toString(topics[3]), '^0x0{24}[0-9a-fA-F]{40}$')
+    AND length(arrayFilter(
+      key -> parameter_types[key] = 'uint256',
+      mapKeys(parameter_types)
+    )) = 1
     AND block_timestamp >= parseDateTime64BestEffort(${sqlString(request.from)})
     AND block_timestamp < parseDateTime64BestEffort(${sqlString(request.to)})
     AND (
-      lower(toString(parameters['from'])) = ${wallet}
-      OR lower(toString(parameters['to'])) = ${wallet}
+      lower(concat('0x', right(toString(topics[2]), 40))) = ${wallet}
+      OR lower(concat('0x', right(toString(topics[3]), 40))) = ${wallet}
     )
   GROUP BY log_id, address
 )
@@ -161,9 +181,7 @@ export function createBaseErc20TransferHistory({
         signal: input.signal,
       });
       const metadata = parseMetadata(response);
-      const parsedRows = response.result
-        .filter(hasErc20TransferValue)
-        .map((row) => parseTransferRow(row));
+      const parsedRows = response.result.map((row) => parseTransferRow(row));
       const pageRows = parsedRows.slice(0, request.limit);
       const addressToAsset = new Map(
         request.assets.map((asset) => [asset.address, asset]),
@@ -343,13 +361,27 @@ function validateAllowlist(
   });
 }
 
-function hasErc20TransferValue(value: unknown): boolean {
-  if (!isRecord(value)) return true;
-  return (
-    value.amount_base_units !== null &&
-    value.amount_base_units !== undefined &&
-    value.amount_base_units !== ""
-  );
+function requiredErc20Topics(value: unknown): [string, string, string] {
+  if (
+    !Array.isArray(value) ||
+    value.length !== 3 ||
+    value.some((topic) => typeof topic !== "string")
+  ) {
+    throw invalidResponse("CDP SQL returned malformed ERC-20 topics.");
+  }
+  const topics = value as [string, string, string];
+  if (
+    topics[0].toLowerCase() !== TRANSFER_SIGNATURE_TOPIC ||
+    !/^0x0{24}[0-9a-fA-F]{40}$/.test(topics[1]) ||
+    !/^0x0{24}[0-9a-fA-F]{40}$/.test(topics[2])
+  ) {
+    throw invalidResponse("CDP SQL returned a non-ERC-20 Transfer log shape.");
+  }
+  return topics;
+}
+
+function addressFromTopic(value: string): HexAddress {
+  return normalizeBaseAddressResponse(`0x${value.slice(-40)}`);
 }
 
 function parseTransferRow(value: unknown): TransferRow {
@@ -358,6 +390,7 @@ function parseTransferRow(value: unknown): TransferRow {
   }
   const row = {
     log_id: requiredString(value, "log_id"),
+    topics: requiredErc20Topics(value.topics),
     block_number: requiredString(value, "block_number"),
     block_hash: requiredString(value, "block_hash"),
     source_timestamp: requiredString(value, "source_timestamp"),
@@ -384,8 +417,14 @@ function parseTransferRow(value: unknown): TransferRow {
   normalizeHash(row.transaction_hash, "transaction_hash");
   normalizeTimestamp(row.source_timestamp, "source_timestamp");
   normalizeBaseAddressResponse(row.token_address);
-  normalizeBaseAddressResponse(row.from_address);
-  normalizeBaseAddressResponse(row.to_address);
+  const topicFrom = addressFromTopic(row.topics[1]);
+  const topicTo = addressFromTopic(row.topics[2]);
+  if (
+    normalizeBaseAddressResponse(row.from_address) !== topicFrom ||
+    normalizeBaseAddressResponse(row.to_address) !== topicTo
+  ) {
+    throw invalidResponse("CDP SQL returned participants inconsistent with ERC-20 topics.");
+  }
   return row;
 }
 
