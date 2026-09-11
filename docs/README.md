@@ -27,6 +27,8 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | [Codex prices](codex-prices.md) | Optional server-only Invest USD snapshots |
 | [Portfolio](portfolio.md) | USDC/ETH reads, Token Balances inventory, regional valuation, device presentation cache, `BASE_RPC_URL`. Phase B/C: [inventory summary](balances-inventory-architecture.md) |
 | [Vercel deploy](vercel-deploy.md) | Bun monorepo install/build on Vercel; hosted money actions need Neon `DATABASE_URL`; [preview auth / CDP CORS](vercel-deploy.md#preview-auth); preview branch cleanup Actions |
+| [Privacy-safe observability](observability.md) | Scrub-first error schema, bounded client ingestion, operator queries, and the remaining route-wrapper gate |
+| [CDP error reporting](cdp-error-reporting.md) | Privacy decision: keep server SDK error reporting disabled by default |
 
 `apps/web/server/borrowing/README.md` documents the single cbBTC/USDC Morpho market used by the local Borrow spike.
 
