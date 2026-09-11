@@ -120,10 +120,6 @@ export function createPortfolioInventoryReader(options: {
     }
     assertPortfolioRegistry();
     const address = account.address.toLowerCase() as PortfolioAddress;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const abort = () => controller.abort();
-    externalSignal?.addEventListener("abort", abort, { once: true });
 
     try {
       // CDP first (Coinbase HTTP, not public Base). Then omitted-cash `latest`
@@ -131,10 +127,10 @@ export function createPortfolioInventoryReader(options: {
       // public Base `-32016`s the cash reads → Unavailable on true zeros
       // (tip-prod #69 after #107). Isolated singles stay ready-0. Incomplete
       // CDP still does not invent zeros.
-      const directs = await readDirectHoldings(
-        listTokenBalances,
-        address,
-        controller.signal,
+      const directs = await withStageTimeout(
+        externalSignal,
+        timeoutMs,
+        (signal) => readDirectHoldings(listTokenBalances, address, signal),
       );
       const verifiedDirects = await verifyOmittedCashHoldings(
         directs.holdings,
@@ -148,7 +144,13 @@ export function createPortfolioInventoryReader(options: {
           retryDelayMs: cashVerifyRetryDelayMs,
         },
       );
-      const vaults = await readVaultInventory(account, controller.signal);
+      // Vault reads get a fresh deadline even when a large CDP inventory used
+      // its entire bounded scan window.
+      const vaults = await withStageTimeout(
+        externalSignal,
+        timeoutMs,
+        (signal) => readVaultInventory(account, signal),
+      );
       const fetchedAt = now();
       if (Number.isNaN(fetchedAt.getTime())) {
         throw new PortfolioInventoryError("The portfolio fetch time is invalid.");
@@ -168,14 +170,11 @@ export function createPortfolioInventoryReader(options: {
         throw error;
       }
       throw new PortfolioInventoryError(
-        controller.signal.aborted
+        externalSignal?.aborted
           ? "The portfolio inventory request timed out or was aborted."
           : "The portfolio inventory request failed.",
         { cause: error },
       );
-    } finally {
-      clearTimeout(timeout);
-      externalSignal?.removeEventListener("abort", abort);
     }
   };
 }
@@ -225,7 +224,11 @@ async function readDirectHoldings(
         ? CDP_NATIVE_TOKEN_ADDRESS
         : (asset.contractAddress!.toLowerCase() as `0x${string}`);
     const match = listed ? byContract.get(key) : undefined;
-    const ready = listed !== null && (match !== undefined || listed.complete);
+    const authoritativeMatch =
+      match !== undefined &&
+      (listed?.authoritativeContractAddresses === undefined ||
+        listed.authoritativeContractAddresses.has(key));
+    const ready = listed !== null && (authoritativeMatch || listed.complete);
     const readStatus: DirectPortfolioHolding["readStatus"] = ready
       ? "ready"
       : listed === null
@@ -251,7 +254,9 @@ async function readDirectHoldings(
       assetKind: asset.kind,
       contractAddress: asset.contractAddress,
       cashCurrency: asset.cashCurrency,
-      balanceBaseUnits: ready ? (match?.amountBaseUnits ?? "0") : null,
+      balanceBaseUnits: ready
+        ? (authoritativeMatch ? match.amountBaseUnits : "0")
+        : null,
       readStatus,
     };
   });
@@ -352,6 +357,24 @@ async function verifyOmittedCashHoldings(
       readStatus: "ready",
     };
   });
+}
+
+async function withStageTimeout<T>(
+  externalSignal: AbortSignal | undefined,
+  timeoutMs: number,
+  run: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) abort();
+  else externalSignal?.addEventListener("abort", abort, { once: true });
+  const timeout = setTimeout(() => controller.abort("portfolio-stage-timeout"), timeoutMs);
+  try {
+    return await run(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", abort);
+  }
 }
 
 function wait(ms: number, signal?: AbortSignal): Promise<void> {

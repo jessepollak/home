@@ -55,8 +55,10 @@ export type ListedTokenBalance = {
 
 export type TokenBalancesPageSet = {
   balances: ListedTokenBalance[];
-  /** False when a page, cursor, or request budget prevented an exhaustive scan. */
+  /** False when a page, cursor, request budget, or resumed observation prevented an exhaustive scan. */
   complete: boolean;
+  /** Present on resumed scans so older checkpoint quantities stay non-authoritative. */
+  authoritativeContractAddresses?: ReadonlySet<string>;
 };
 
 type PaginationCheckpoint = {
@@ -147,8 +149,10 @@ export function createCdpTokenBalancesClient(options: {
       const currentTime = now();
       evictExpiredCheckpoints(checkpoints, currentTime, cacheTtlMs);
       const checkpoint = checkpoints.get(address);
+      const resumed = checkpoint !== undefined;
       const observationStartedAt = checkpoint?.savedAt ?? currentTime;
       const collected = new Map(checkpoint?.balances ?? []);
+      const authoritativeContractAddresses = new Set<string>();
       const seenPageTokens = new Set(checkpoint?.seenPageTokens ?? []);
       let pageToken = checkpoint?.nextPageToken;
       let complete = false;
@@ -182,17 +186,18 @@ export function createCdpTokenBalancesClient(options: {
         }
         for (const balance of balances.items) {
           collected.set(balance.contractAddress, balance);
+          authoritativeContractAddresses.add(balance.contractAddress);
         }
         if (
           request.neededContractAddresses &&
           allowlistSatisfied(request.neededContractAddresses, collected)
         ) {
-          complete = true;
+          complete = !resumed;
           checkpoints.delete(address);
           break;
         }
         if (!balances.nextPageToken) {
-          complete = true;
+          complete = !resumed;
           checkpoints.delete(address);
           break;
         }
@@ -220,7 +225,11 @@ export function createCdpTokenBalancesClient(options: {
         }
       }
 
-      return { balances: [...collected.values()], complete };
+      return {
+        balances: [...collected.values()],
+        complete,
+        ...(resumed ? { authoritativeContractAddresses } : {}),
+      };
     },
   };
 }

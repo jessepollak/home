@@ -296,11 +296,12 @@ describe("CDP Onchain Data Token Balances client", () => {
       neededContractAddresses: new Set([IDRX]),
     });
     expect(calls).toBe(4);
-    expect(second.complete).toBeTrue();
+    expect(second.complete).toBeFalse();
     expect(second.balances.map(({ amountBaseUnits }) => amountBaseUnits)).toEqual([
       "1000000",
       "2500",
     ]);
+    expect(second.authoritativeContractAddresses).toEqual(new Set([IDRX]));
   });
 
   test("expires a repeatedly failing checkpoint from the original observation time", async () => {
