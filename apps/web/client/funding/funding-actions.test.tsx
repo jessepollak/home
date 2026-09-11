@@ -100,7 +100,8 @@ describe("FundingActions hydration", () => {
       const dialog = document.body.querySelector("dialog");
       expect(dialog?.hasAttribute("open")).toBe(true);
       expect(dialog?.getAttribute("aria-labelledby")).toBe("add-money-title");
-      expect(dialog?.textContent).toContain("Fund this Base account");
+      expect(dialog?.textContent).not.toContain("Fund this Base account");
+      expect(dialog?.textContent).toContain("Use another onramp");
       expect(dialog?.closest(".action-row")).toBeNull();
     } finally {
       await unmount(fixture.root, fixture.container);

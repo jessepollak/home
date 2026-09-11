@@ -99,12 +99,13 @@ export function createPortfolioValuationReader(dependencies: {
       const decimals =
         holding.kind === "direct" ? holding.decimals : holding.underlyingDecimals;
       if (holding.readStatus !== "ready" || amount === null) {
+        const failure = holdingFailure(holding);
         lines.push({
           holdingAssetKey: holding.assetKey,
           valueCurrency: quoteCurrency ?? "USD",
           value: null,
-          status: "read-unavailable",
-          reason: "holding-read-unavailable",
+          status: failure.status,
+          reason: failure.reason,
         });
         continue;
       }
@@ -134,7 +135,11 @@ export function createPortfolioValuationReader(dependencies: {
     }
 
     const unavailableAssetKeys = lines
-      .filter(({ status }) => status === "read-unavailable")
+      .filter(({ status }) =>
+        status === "read-incomplete" ||
+        status === "read-unavailable" ||
+        status === "vault-failure",
+      )
       .map(({ holdingAssetKey }) => holdingAssetKey);
     const unpricedAssetKeys = lines
       .filter(({ status }) => status === "unpriced")
@@ -200,6 +205,23 @@ export function createPortfolioValuationReader(dependencies: {
 }
 
 export const getPortfolioValuation = createPortfolioValuationReader();
+
+function holdingFailure(
+  holding: PortfolioInventorySnapshot["holdings"][number],
+): {
+  status: "read-incomplete" | "read-unavailable" | "vault-failure";
+  reason:
+    | "holding-read-incomplete"
+    | "holding-read-unavailable"
+    | "vault-conversion-failure";
+} {
+  if (holding.kind === "vault-position") {
+    return { status: "vault-failure", reason: "vault-conversion-failure" };
+  }
+  return holding.readStatus === "incomplete"
+    ? { status: "read-incomplete", reason: "holding-read-incomplete" }
+    : { status: "read-unavailable", reason: "holding-read-unavailable" };
+}
 
 function valueHolding({
   holdingAssetKey,
@@ -312,12 +334,15 @@ function buildNativeCashValuations({
         ) ?? null;
 
       if (holding.readStatus !== "ready" || holding.balanceBaseUnits === null) {
+        const incomplete = holding.readStatus === "incomplete";
         return {
           holdingAssetKey: asset.assetKey,
           denominationCurrency: asset.cashCurrency,
           value: null,
-          status: "read-unavailable",
-          reason: "holding-read-unavailable",
+          status: incomplete ? "read-incomplete" : "read-unavailable",
+          reason: incomplete
+            ? "holding-read-incomplete"
+            : "holding-read-unavailable",
           exactContractUsdPrice,
           denominationFx,
         };

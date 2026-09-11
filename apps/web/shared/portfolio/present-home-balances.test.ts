@@ -236,7 +236,7 @@ describe("presentPortfolioValuation", () => {
     expect(partial).toMatchObject({
       displayTotal: "R$ 12,50",
       totalStatus: "partial",
-      statusLabel: "Partial balance",
+      statusLabel: "Unavailable",
     });
     expect(unavailable).toMatchObject({
       displayTotal: "—",

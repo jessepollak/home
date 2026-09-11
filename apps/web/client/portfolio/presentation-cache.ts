@@ -252,15 +252,22 @@ function reconcileReadyHomeBalances(
   cached: HomeAssetBalancesPresentation,
   live: HomeAssetBalancesPresentation,
 ): HomeAssetBalancesPresentation {
+  const incompleteIds = new Set(live.incompleteItemIds ?? []);
   const unavailableIds = new Set(live.unavailableItemIds ?? []);
-  if (unavailableIds.size === 0) return live;
+  if (incompleteIds.size === 0 && unavailableIds.size === 0) return live;
 
   const liveById = new Map(live.items.map((item) => [item.id, item]));
   const mergedItems: HomeAssetBalanceItem[] = [];
   const includedIds = new Set<string>();
-  let retainedUnavailableItem = false;
+  let retainedNonreadyItem = false;
 
   for (const cachedItem of cached.items) {
+    if (incompleteIds.has(cachedItem.id)) {
+      mergedItems.push({ ...cachedItem, displayContext: "Updating…" });
+      includedIds.add(cachedItem.id);
+      retainedNonreadyItem = true;
+      continue;
+    }
     const liveItem = liveById.get(cachedItem.id);
     if (liveItem) {
       mergedItems.push(liveItem);
@@ -277,10 +284,10 @@ function reconcileReadyHomeBalances(
       tone: "error",
     });
     includedIds.add(cachedItem.id);
-    retainedUnavailableItem = true;
+    retainedNonreadyItem = true;
   }
 
-  if (!retainedUnavailableItem) return live;
+  if (!retainedNonreadyItem) return live;
   for (const liveItem of live.items) {
     if (includedIds.has(liveItem.id)) continue;
     mergedItems.push(liveItem);
@@ -349,6 +356,7 @@ function serializeReadyPresentation(
   const items = allowlistItems(presentation.items);
   if (
     presentation.status !== "ready" ||
+    (presentation.incompleteItemIds?.length ?? 0) > 0 ||
     typeof presentation.displayTotal !== "string" ||
     presentation.displayTotal.length === 0 ||
     items === null
