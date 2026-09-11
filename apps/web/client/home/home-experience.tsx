@@ -900,10 +900,14 @@ function HomePanel({
       ? "Balance unavailable"
       : "Total balance";
   const balanceItems = assetBalances?.items ?? [];
+  const balanceStatusLabel =
+    assetBalances?.totalStatus === "partial"
+      ? "Unavailable"
+      : assetBalances?.statusLabel;
   const showBalanceStatus =
     assetBalances?.status !== "loading" &&
-    assetBalances?.statusLabel !== "Updating…" &&
-    Boolean(assetBalances?.statusLabel);
+    balanceStatusLabel !== "Updating…" &&
+    Boolean(balanceStatusLabel);
 
   return (
     <div className="home-panel">
@@ -928,7 +932,7 @@ function HomePanel({
             className="balance-status"
             data-total-status={assetBalances?.totalStatus}
           >
-            {assetBalances?.statusLabel}
+            {balanceStatusLabel}
           </p>
         ) : null}
         {isLoading || isRevalidating ? (
@@ -1041,10 +1045,14 @@ function BalancesPage({
   onRevealMore: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading" || isChecking;
+  const balanceStatusLabel =
+    assetBalances?.totalStatus === "partial"
+      ? "Unavailable"
+      : assetBalances?.statusLabel;
   const showBalanceStatus =
     assetBalances?.status !== "loading" &&
-    assetBalances?.statusLabel !== "Updating…" &&
-    Boolean(assetBalances?.statusLabel);
+    balanceStatusLabel !== "Updating…" &&
+    Boolean(balanceStatusLabel);
   return (
     <section className="balances-panel nested-home-panel" aria-label="Balances">
       {showBalanceStatus ? (
@@ -1052,7 +1060,7 @@ function BalancesPage({
           className="balance-status balance-status-panel"
           data-total-status={assetBalances?.totalStatus}
         >
-          {assetBalances?.statusLabel}
+          {balanceStatusLabel}
         </p>
       ) : null}
       <IncrementalBalancesList
@@ -1320,6 +1328,26 @@ function HomeBalanceRowView({
   asset: HomeAssetBalanceItem;
   assetMarkResolution?: AssetMarkResolution;
 }) {
+  if (asset.displayContext === "Updating…") {
+    return (
+      <li className="shimmer-row" data-shimmer="row">
+        <CurrencyMark pending />
+        <span className="shimmer-identity">
+          <span
+            className="shimmer shimmer-line shimmer-line-wide"
+            aria-hidden="true"
+          />
+          <span
+            className="shimmer shimmer-line shimmer-line-narrow"
+            aria-hidden="true"
+          />
+        </span>
+        <span className="shimmer shimmer-pill" aria-hidden="true" />
+        <span className="sr-status">Updating…</span>
+      </li>
+    );
+  }
+
   const row = presentHomeBalanceRow(asset);
   const mark = presentHomeBalanceMark(asset, assetMarkResolution);
   return (

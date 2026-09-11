@@ -175,7 +175,7 @@ export function createVaultInventoryReader(options: {
         underlyingDecimals: 6,
         sharesBaseUnits: reads.shares?.toString(10) ?? null,
         underlyingBaseUnits: ready ? converted.toString(10) : null,
-        readStatus: ready ? "ready" : "unavailable",
+        readStatus: ready ? "ready" : "vault-failure",
         conversionMethod: "erc4626-convertToAssets",
       };
     });

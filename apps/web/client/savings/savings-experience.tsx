@@ -338,7 +338,7 @@ export function SavingsExperience({
               data-shimmer="savings-hero"
               aria-hidden="true"
             />
-            <p className={styles.heroCaption} role="status">Updating…</p>
+            <p className="sr-status" role="status">Updating…</p>
           </>
         ) : availableBalance ? (
           <>
