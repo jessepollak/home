@@ -164,17 +164,17 @@ describe("FundingExperience", () => {
       expect(page().queryByText("Fund this Base account")).toBeNull();
       fireEvent.click(
         page().getByRole("button", {
-          name: new RegExp(`Use Ripio to deposit ${item.currency}`),
+          name: /Use Ripio to deposit from your local bank/,
         }),
       );
       expect(
         page().getByRole("dialog", {
-          name: `Deposit ${item.currency} with your local account`,
+          name: `Deposit ${item.currency}`,
         }),
       ).toBeTruthy();
       expect(
         page().getByRole("heading", {
-          name: `Use Ripio to deposit ${item.currency}`,
+          name: "Use Ripio to deposit from your local bank",
         }),
       ).toBeTruthy();
       if (item.regionId === "BR") {
@@ -182,6 +182,49 @@ describe("FundingExperience", () => {
       }
       rendered.unmount();
     }
+  });
+
+  test("walks every synthetic Ripio review state without creating an order", () => {
+    let accountRequests = 0;
+    render(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async () => {
+            accountRequests += 1;
+            throw new Error("No request expected");
+          },
+        }}
+        navigateToHostedOnramp={() => {}}
+        regionId="AR"
+      />,
+    );
+
+    fireEvent.click(
+      page().getByRole("button", { name: /Use Ripio to deposit from your local bank/ }),
+    );
+    expect(page().getByRole("dialog", { name: "Deposit ARS" })).toBeTruthy();
+    expect(page().getByText("Synthetic preview · no order or funds")).toBeTruthy();
+    expect(page().getByRole("region", { name: "Requirements and verification" })).toBeTruthy();
+    expect(page().getByText("Required; not accepted in preview")).toBeTruthy();
+    expect(page().getByText("Required; not checked in preview")).toBeTruthy();
+
+    const stages = [
+      { button: "Preview quote", region: "Quote review" },
+      { button: "Preview bank instructions", region: "Bank rail instructions" },
+      { button: "Preview pending deposit", region: "Pending deposit" },
+      { button: "Preview recovery", region: "Deposit recovery" },
+      { button: "Preview refund", region: "Refund status" },
+      { button: "Preview error state", region: "Provider error" },
+    ];
+    for (const stage of stages) {
+      fireEvent.click(page().getByRole("button", { name: stage.button }));
+      expect(page().getByRole("region", { name: stage.region })).toBeTruthy();
+    }
+
+    expect(page().getByRole("alert").textContent).toContain("synthetic request");
+    expect(page().getByRole("button", { name: "Restart preview" })).toBeTruthy();
+    expect(accountRequests).toBe(0);
   });
 
   test("shows only the selected-country onramp by default", () => {
@@ -192,7 +235,7 @@ describe("FundingExperience", () => {
         regionId="AR"
       />,
     );
-    expect(page().getByRole("button", { name: /Use Ripio to deposit ARS/ })).toBeTruthy();
+    expect(page().getByRole("button", { name: /Use Ripio to deposit from your local bank/ })).toBeTruthy();
     expect(page().queryByRole("button", { name: /Use Coinbase/ })).toBeNull();
 
     argentina.unmount();
@@ -231,7 +274,7 @@ describe("FundingExperience", () => {
     expect(page().queryByText("Use Coinbase to deposit USD")).toBeNull();
 
     fireEvent.click(page().getAllByRole("button", { name: "Back" })[0]);
-    expect(page().getByRole("button", { name: /Use Ripio to deposit ARS/ })).toBeTruthy();
+    expect(page().getByRole("button", { name: /Use Ripio to deposit from your local bank/ })).toBeTruthy();
     expect(page().queryByRole("button", { name: /Use Coinbase/ })).toBeNull();
   });
 
