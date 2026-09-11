@@ -10,7 +10,6 @@ import {
   createSaveQaPositions,
   createSaveQaPreparedAction,
   createSaveQaVaults,
-  isSaveQaRouteEnabled,
 } from "./fixtures";
 import { SaveQaClient } from "./save-qa-client";
 
@@ -22,14 +21,6 @@ function AccountProbe() {
 afterEach(() => cleanup());
 
 describe("Save QA route contract", () => {
-  test("requires explicit development and server opt-in values", () => {
-    expect(isSaveQaRouteEnabled("development", "1")).toBe(true);
-    expect(isSaveQaRouteEnabled("development", undefined)).toBe(false);
-    expect(isSaveQaRouteEnabled("development", "0")).toBe(false);
-    expect(isSaveQaRouteEnabled("production", "1")).toBe(false);
-    expect(isSaveQaRouteEnabled("test", "1")).toBe(false);
-  });
-
   test("uses one scenario clock and deterministic weighted fixtures", () => {
     const vaults = createSaveQaVaults("standard", SAVE_QA_CLOCK_MS);
     const positions = createSaveQaPositions("a", "weighted", SAVE_QA_CLOCK_MS) as {

@@ -95,6 +95,18 @@ async function start(command: "dev" | "start", env: NodeJS.ProcessEnv): Promise<
   };
 }
 
+export async function withSaveQaServer<T>(
+  startServer: () => Promise<SaveQaServer>,
+  runWithServer: (server: SaveQaServer) => Promise<T>,
+): Promise<T> {
+  const server = await startServer();
+  try {
+    return await runWithServer(server);
+  } finally {
+    await server.stop();
+  }
+}
+
 export async function startSaveQaDevelopmentServer(enabled: boolean): Promise<SaveQaServer> {
   return start("dev", controlledEnvironment("development", enabled));
 }

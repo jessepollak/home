@@ -7,13 +7,6 @@ import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morph
 import type { Address, MorphoVaultCandidate, MorphoVaultPosition, MorphoVaultsResult } from "@/server/morpho/types";
 
 export const SAVE_QA_CLOCK_MS = Date.parse("2026-09-11T12:00:00.000Z");
-
-export function isSaveQaRouteEnabled(
-  environment: string | undefined,
-  optIn: string | undefined,
-): boolean {
-  return environment === "development" && optIn === "1";
-}
 export const SAVE_QA_OWNER_A = "0x1111111111111111111111111111111111111111" as const;
 export const SAVE_QA_OWNER_B = "0x2222222222222222222222222222222222222222" as const;
 export const SAVE_QA_GAUNTLET = MORPHO_V1_CANDIDATE_ADDRESSES[1];

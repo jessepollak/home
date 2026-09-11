@@ -1,3 +1,4 @@
+import { createServer, type Server } from "node:http";
 import { expect, test, type Page } from "@playwright/test";
 import {
   SAVE_QA_CLOCK_MS,
@@ -9,6 +10,7 @@ import {
   buildSaveQaProduction,
   startSaveQaDevelopmentServer,
   startSaveQaProductionServer,
+  withSaveQaServer,
   type SaveQaServer,
 } from "./support/save-qa-server";
 
@@ -17,36 +19,80 @@ test.setTimeout(120_000);
 let server: SaveQaServer;
 let origin: string;
 
+const forbiddenQaMarkers = [
+  "window.saveQa",
+  "save-qa-subject",
+  "SAVE_QA",
+  "save-qa-client",
+  "QA fixture · synthetic account/data",
+] as const;
+
 type NetworkControl = {
   vaultVariant: SaveQaVaultVariant;
   deferVaults: boolean;
   releaseVaults: () => void;
   attempted: string[];
-  completed: string[];
+  intercepted: string[];
   aborted: string[];
-  interceptedVaults: number;
-  unexpectedWebSockets: string[];
+  responses: string[];
+  failures: string[];
+  allowed: string[];
+  socketAttempts: string[];
+  blockedSockets: string[];
 };
 
-async function expectExcluded(serverOrigin: string): Promise<void> {
-  const response = await fetch(`${serverOrigin}/dev/save-qa`);
+function expectNoQaMarkers(body: string, label: string): void {
+  for (const marker of forbiddenQaMarkers) {
+    expect(body, `${label} exposed ${marker}`).not.toContain(marker);
+  }
+}
+
+function referencedClientChunks(body: string): string[] {
+  return [...new Set(body.match(/\/_next\/static\/chunks\/[^"'\\\s<>]+\.js/g) ?? [])];
+}
+
+async function readDirectExcludedResponse(
+  serverOrigin: string,
+  init: RequestInit = {},
+): Promise<string> {
+  const response = await fetch(`${serverOrigin}/dev/save-qa`, {
+    ...init,
+    redirect: "manual",
+  });
   const body = await response.text();
   expect(response.status).toBe(404);
-  expect(body).not.toContain("QA fixture · synthetic account/data");
-  expect(body).not.toContain("saveQa");
-  expect(body).not.toContain("save-qa-subject");
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(response.headers.get("location")).toBeNull();
+  expect(body).toBe(init.method === "HEAD" ? "" : "Not found.\n");
+  expectNoQaMarkers(body, `${init.method ?? "GET"} exclusion body`);
+  return body;
+}
+
+async function expectExcluded(serverOrigin: string): Promise<void> {
+  const documentBody = await readDirectExcludedResponse(serverOrigin);
+  const headBody = await readDirectExcludedResponse(serverOrigin, { method: "HEAD" });
+  const postBody = await readDirectExcludedResponse(serverOrigin, { method: "POST" });
+  const rscBody = await readDirectExcludedResponse(serverOrigin, {
+    headers: { Accept: "text/x-component", RSC: "1" },
+  });
+
+  const combined = `${documentBody}${headBody}${postBody}${rscBody}`;
+  expect(referencedClientChunks(combined)).toEqual([]);
+  expect(combined).not.toContain("<script");
+  expect(combined).not.toContain("preload");
+  expect(combined).not.toContain("self.__next_f");
+  expect(combined).not.toContain("/_next/");
 }
 
 test.beforeAll(async () => {
   test.setTimeout(600_000);
   buildSaveQaProduction();
-  const production = await startSaveQaProductionServer();
-  await expectExcluded(production.origin);
-  await production.stop();
-
-  const disabled = await startSaveQaDevelopmentServer(false);
-  await expectExcluded(disabled.origin);
-  await disabled.stop();
+  await withSaveQaServer(startSaveQaProductionServer, ({ origin: productionOrigin }) =>
+    expectExcluded(productionOrigin));
+  await withSaveQaServer(() => startSaveQaDevelopmentServer(false), ({ origin: disabledOrigin }) =>
+    expectExcluded(disabledOrigin));
 
   server = await startSaveQaDevelopmentServer(true);
   origin = server.origin;
@@ -56,6 +102,31 @@ test.afterAll(async () => {
   await server?.stop();
 });
 
+function canonicalRawPath(rawUrl: string, parsed: URL): string | null {
+  if (!rawUrl.startsWith(`${origin}/`) || parsed.origin !== origin) return null;
+  const rawTarget = rawUrl.slice(origin.length);
+  const queryIndex = rawTarget.indexOf("?");
+  const rawPath = queryIndex === -1 ? rawTarget : rawTarget.slice(0, queryIndex);
+  if (
+    rawPath.length === 0 ||
+    rawPath.startsWith("//") ||
+    rawPath.includes("\\") ||
+    /%(?:2f|5c|2e)/i.test(rawPath) ||
+    rawPath.split("/").some((segment) => segment === "." || segment === "..") ||
+    parsed.pathname !== rawPath ||
+    parsed.pathname.includes("//")
+  ) {
+    return null;
+  }
+  return rawPath;
+}
+
+function allowedTrackedAsset(pathname: string): boolean {
+  return pathname === "/favicon.ico" ||
+    pathname.startsWith("/home-mark/") ||
+    pathname.startsWith("/currency-flags/");
+}
+
 async function installNetworkBoundary(page: Page): Promise<NetworkControl> {
   let releaseVaults!: () => void;
   const vaultBarrier = new Promise<void>((resolve) => { releaseVaults = resolve; });
@@ -64,37 +135,77 @@ async function installNetworkBoundary(page: Page): Promise<NetworkControl> {
     deferVaults: false,
     releaseVaults: () => releaseVaults(),
     attempted: [],
-    completed: [],
+    intercepted: [],
     aborted: [],
-    interceptedVaults: 0,
-    unexpectedWebSockets: [],
+    responses: [],
+    failures: [],
+    allowed: [],
+    socketAttempts: [],
+    blockedSockets: [],
   };
 
+  await page.addInitScript(() => {
+    const nativeFetch = window.fetch.bind(window);
+    const browserWindow = window as unknown as {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    };
+    browserWindow.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const raw = typeof input === "string" || input instanceof URL ? String(input) : input.url;
+      const rawTarget = raw.replace(/^[a-z]+:\/\/[^/]+/i, "");
+      const rawPath = rawTarget.split("?", 1)[0];
+      if (
+        raw.includes("\\") ||
+        /%(?:2f|5c|2e)/i.test(rawPath) ||
+        rawPath.startsWith("//") ||
+        rawPath.includes("//") ||
+        rawPath.split("/").some((segment) => segment === "." || segment === "..")
+      ) {
+        return Promise.reject(new TypeError("Save QA rejected a noncanonical request URL."));
+      }
+      return nativeFetch(input, init);
+    };
+  });
+
+  page.on("request", (request) => {
+    control.attempted.push(`${request.method()} ${request.url()}`);
+  });
+  page.on("response", (response) => {
+    control.responses.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+  });
+  page.on("requestfailed", (request) => {
+    control.failures.push(`${request.failure()?.errorText ?? "failed"} ${request.method()} ${request.url()}`);
+  });
+  page.on("websocket", (webSocket) => {
+    control.socketAttempts.push(webSocket.url());
+  });
+
+  const runner = new URL(origin);
   await page.routeWebSocket(
-    (url) => !(url.hostname === "localhost" && url.pathname === "/_next/hmr"),
+    (url) => !(
+      url.protocol === "ws:" &&
+      url.hostname === runner.hostname &&
+      url.port === runner.port &&
+      url.pathname === "/_next/hmr"
+    ),
     (webSocket) => {
-      control.unexpectedWebSockets.push(webSocket.url());
+      control.blockedSockets.push(webSocket.url());
       webSocket.close({ code: 1008, reason: "Save QA blocks unexpected WebSockets." });
     },
   );
 
   await page.route("**/*", async (route) => {
     const request = route.request();
-    const url = new URL(request.url());
-    control.attempted.push(`${request.method()} ${url.href}`);
-    const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-    if (!loopback) {
-      control.aborted.push(url.href);
-      await route.abort("blockedbyclient");
-      return;
-    }
+    const rawUrl = request.url();
+    const url = new URL(rawUrl);
+    const pathname = canonicalRawPath(rawUrl, url);
+    const method = request.method();
     const exactVaultRequest =
-      url.origin === origin &&
-      url.pathname === "/api/savings/vaults" &&
+      pathname === "/api/savings/vaults" &&
       url.search === "" &&
-      request.method() === "GET";
+      method === "GET";
+
     if (exactVaultRequest) {
-      control.interceptedVaults += 1;
+      control.intercepted.push(`${method} ${rawUrl}`);
       if (control.deferVaults) await vaultBarrier;
       const fixture = createSaveQaVaults(control.vaultVariant, SAVE_QA_CLOCK_MS);
       expect(fixture.candidates).toHaveLength(3);
@@ -104,16 +215,31 @@ async function installNetworkBoundary(page: Page): Promise<NetworkControl> {
         contentType: "application/json; charset=utf-8",
         body: JSON.stringify(fixture),
       });
-      control.completed.push(url.href);
       return;
     }
-    if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-      control.aborted.push(url.href);
-      await route.abort("blockedbyclient");
+
+    const allowedDocument =
+      method === "GET" &&
+      url.search === "" &&
+      (pathname === "/dev/save-qa" || pathname === "/dashboard");
+    const allowedNextAsset =
+      method === "GET" &&
+      url.search === "" &&
+      pathname?.startsWith("/_next/static/");
+    const allowedLocalAsset =
+      method === "GET" &&
+      url.search === "" &&
+      pathname !== null &&
+      allowedTrackedAsset(pathname);
+
+    if (allowedDocument || allowedNextAsset || allowedLocalAsset) {
+      control.allowed.push(`${method} ${rawUrl}`);
+      await route.continue();
       return;
     }
-    await route.continue();
-    control.completed.push(url.href);
+
+    control.aborted.push(`${method} ${rawUrl}`);
+    await route.abort("blockedbyclient");
   });
 
   return control;
@@ -167,9 +293,48 @@ async function readyWeighted(page: Page): Promise<NetworkControl> {
   return network;
 }
 
+async function listenWrongPortProbe(): Promise<{
+  origin: string;
+  hits: () => number;
+  close: () => Promise<void>;
+}> {
+  let hitCount = 0;
+  const probe: Server = createServer((_request, response) => {
+    hitCount += 1;
+    response.writeHead(200, { "Content-Type": "text/plain" });
+    response.end("wrong runner");
+  });
+  await new Promise<void>((resolveListen, rejectListen) => {
+    probe.once("error", rejectListen);
+    probe.listen(0, "127.0.0.1", () => resolveListen());
+  });
+  const address = probe.address();
+  if (!address || typeof address === "string") throw new Error("Wrong-port probe did not bind.");
+  return {
+    origin: `http://localhost:${address.port}`,
+    hits: () => hitCount,
+    close: () => new Promise<void>((resolveClose) => probe.close(() => resolveClose())),
+  };
+}
+
+test("temporary exclusion servers stop when assertions fail", async () => {
+  for (const label of ["production", "disabled development"]) {
+    let stops = 0;
+    const fakeServer: SaveQaServer = {
+      origin: `http://${label.replace(" ", "-")}.invalid`,
+      stop: async () => { stops += 1; },
+    };
+    await expect(withSaveQaServer(
+      async () => fakeServer,
+      async () => { throw new Error(`${label} exclusion failed`); },
+    )).rejects.toThrow(`${label} exclusion failed`);
+    expect(stops).toBe(1);
+  }
+});
+
 test("bare route is inert, actual dashboard mounts only when armed, and normal dashboard has no QA controller", async ({ page }) => {
   const network = await openDisarmed(page);
-  expect(network.interceptedVaults).toBe(0);
+  expect(network.intercepted.length).toBe(0);
   expect(await page.evaluate(() => window.saveQa!.snapshot().counters)).toEqual({
     portfolioReads: 0,
     valuationReads: 0,
@@ -186,7 +351,7 @@ test("bare route is inert, actual dashboard mounts only when armed, and normal d
   await arm(page, network);
   await expect(page.locator("header.app-header")).toBeVisible();
   await expect(page.locator("nav").last()).toBeVisible();
-  await expect.poll(() => network.interceptedVaults).toBeGreaterThan(0);
+  await expect.poll(() => network.intercepted.length).toBeGreaterThan(0);
   await expect.poll(() => pendingPositionCount(page)).toBe(1);
 
   await page.goto(`${origin}/dashboard`);
@@ -212,8 +377,11 @@ test("enforces exact vault interception, deny-all APIs and egress, and zero exec
   expect(probes).toEqual(["blocked", "blocked", "socket-blocked"]);
   expect(network.aborted.some((url) => url.includes("/api/private-probe"))).toBe(true);
   expect(network.aborted.some((url) => url.includes("example.com/egress-probe"))).toBe(true);
-  expect(network.interceptedVaults).toBeGreaterThan(0);
-  expect(network.unexpectedWebSockets).toEqual(["wss://example.com/socket-probe"]);
+  expect(network.intercepted.length).toBeGreaterThan(0);
+  expect(network.responses.some((event) => event.includes("200 GET") && event.endsWith("/api/savings/vaults"))).toBe(true);
+  expect(network.failures.some((event) => event.includes("/api/private-probe"))).toBe(true);
+  expect(network.failures.some((event) => event.includes("example.com/egress-probe"))).toBe(true);
+  expect(network.blockedSockets).toEqual(["wss://example.com/socket-probe"]);
   const counters = await page.evaluate(() => window.saveQa!.snapshot().counters);
   expect(counters.executions).toBe(0);
   expect(counters.checks).toBe(0);
@@ -222,10 +390,65 @@ test("enforces exact vault interception, deny-all APIs and egress, and zero exec
   expect(counters.signatures).toBe(0);
 });
 
+test("rejects redirect escapes, noncanonical variants, wrong methods, queries, paths, ports, and sockets without fallback", async ({ page }) => {
+  const wrongPort = await listenWrongPortProbe();
+  try {
+    const network = await readyWeighted(page);
+    const interceptedBefore = network.intercepted.length;
+    const results = await page.evaluate(async ({ runnerOrigin, wrongOrigin }) => {
+      const probes: Array<[string, RequestInit?]> = [
+        [`${runnerOrigin}//api/savings/vaults`],
+        [`${runnerOrigin}/api/savings/vaults?fixture=escape`],
+        [`${runnerOrigin}/api/savings/vaults/`],
+        [`${runnerOrigin}/API/savings/vaults`],
+        [`${runnerOrigin}/safe/%2e%2e/api/savings/vaults`],
+        [`${runnerOrigin}\\api\\savings\\vaults`],
+        [`${runnerOrigin}/api/savings/vaults`, { method: "POST" }],
+        [`${wrongOrigin}/api/savings/vaults`],
+      ];
+      const outcomes: string[] = [];
+      for (const [url, init] of probes) {
+        try { await fetch(url, init); outcomes.push("completed"); }
+        catch { outcomes.push("blocked"); }
+      }
+      const socket = new WebSocket(`${wrongOrigin.replace("http://", "ws://")}/_next/hmr?id=wrong-port`);
+      await new Promise<void>((resolve) => {
+        socket.addEventListener("close", () => resolve(), { once: true });
+        socket.addEventListener("error", () => resolve(), { once: true });
+      });
+      outcomes.push("socket-blocked");
+      return outcomes;
+    }, { runnerOrigin: origin, wrongOrigin: wrongPort.origin });
+
+    expect(results).toEqual([
+      "blocked",
+      "blocked",
+      "blocked",
+      "blocked",
+      "blocked",
+      "blocked",
+      "blocked",
+      "blocked",
+      "socket-blocked",
+    ]);
+    expect(network.intercepted.length).toBe(interceptedBefore);
+    expect(wrongPort.hits()).toBe(0);
+    expect(network.blockedSockets).toContain(
+      `${wrongPort.origin.replace("http://", "ws://")}/_next/hmr?id=wrong-port`,
+    );
+    expect(network.responses.every((event) => !event.includes("?fixture=escape"))).toBe(true);
+    expect(network.aborted.some((event) => event.includes("?fixture=escape"))).toBe(true);
+    expect(network.aborted.some((event) => event.startsWith("POST "))).toBe(true);
+    expect(network.allowed.every((event) => !event.includes("/api/"))).toBe(true);
+  } finally {
+    await wrongPort.close();
+  }
+});
+
 test("covers both cold request orders and painted shimmer", async ({ page }) => {
   const network = await openDisarmed(page);
   await arm(page, network);
-  await expect.poll(() => network.interceptedVaults).toBeGreaterThan(0);
+  await expect.poll(() => network.intercepted.length).toBeGreaterThan(0);
   const shimmer = page.locator("[data-shimmer='savings-hero']");
   await expect(shimmer).toBeVisible();
   const paint = await shimmer.evaluate((element) => {

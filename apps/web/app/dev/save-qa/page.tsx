@@ -1,14 +1,13 @@
 import { notFound } from "next/navigation";
-import DashboardPage from "../../dashboard/page";
-import { isSaveQaRouteEnabled } from "./fixtures";
-import { SaveQaClient } from "./save-qa-client";
+
+export const dynamic = "force-dynamic";
 
 export default async function SaveQaPage() {
-  if (!isSaveQaRouteEnabled(process.env.NODE_ENV, process.env.HOME_ENABLE_SAVE_QA)) notFound();
+  if (process.env.NODE_ENV === "production") notFound();
+  if (process.env.NODE_ENV !== "development" || process.env.HOME_ENABLE_SAVE_QA !== "1") {
+    notFound();
+  }
 
-  const dashboard = await DashboardPage({
-    searchParams: Promise.resolve({ panel: "save" }),
-  });
-
-  return <SaveQaClient>{dashboard}</SaveQaClient>;
+  const { default: EnabledSaveQaPage } = await import("./enabled-page");
+  return <EnabledSaveQaPage />;
 }
