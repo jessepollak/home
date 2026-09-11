@@ -273,6 +273,34 @@ describe("Save simplify", () => {
     expect(page().getByText("$820.00 available")).toBeTruthy();
   });
 
+  test("keeps the Details disclosure inside the selected vault card and moves it on selection", async () => {
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session(ADDRESS_A)}
+        fetchPositions={async () => positions(ADDRESS_A, {
+          [GAUNTLET]: "820000000",
+          [STEAKHOUSE]: "420000000",
+        })}
+      />,
+    );
+
+    const gauntletCard = (await page().findByRole("radio", { name: /Gauntlet USDC Prime/ }))
+      .parentElement!;
+    expect(within(gauntletCard).getByText("Details")).toBeTruthy();
+    expect(within(gauntletCard).getByText("Fee")).toBeTruthy();
+
+    fireEvent.click(page().getByRole("radio", { name: /Steakhouse USDC/ }));
+
+    const steakhouseCard = page().getByRole("radio", { name: /Steakhouse USDC/ }).parentElement!;
+    expect(within(steakhouseCard).getByText("Details")).toBeTruthy();
+    const movedGauntletCard = page()
+      .getByRole("radio", { name: /Gauntlet USDC Prime/ })
+      .parentElement!;
+    expect(within(movedGauntletCard).queryByText("Details")).toBeNull();
+  });
+
   test("includes funded supported vaults that are outside the two visible selection rows", async () => {
     const allVaultData: MorphoVaultsResult = {
       ...initialData,
@@ -313,6 +341,7 @@ describe("Save simplify", () => {
 
     expect(await page().findByText("Updating…")).toBeTruthy();
     expect(document.querySelector("[data-shimmer='savings-hero']")).toBeTruthy();
+    expect(document.querySelectorAll("[data-shimmer='vault-row']").length).toBe(0);
     expect(page().queryByText("Balance unavailable")).toBeNull();
     expect(page().queryByText("Nothing saved yet")).toBeNull();
     expect(page().queryByText("$0.00")).toBeNull();
@@ -399,7 +428,9 @@ describe("Save simplify", () => {
     );
     expect(await page().findByText("$0.00")).toBeTruthy();
     expect(page().getAllByText("Loading vaults…").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll("[data-shimmer='vault-row']").length).toBe(2);
     expect(page().queryByText(/Available vault/)).toBeNull();
+    expect(page().queryByText("Details")).toBeNull();
     await act(async () => {
       pendingMetadata.resolve(new Response(JSON.stringify(initialData), {
         status: 200,
@@ -423,6 +454,7 @@ describe("Save simplify", () => {
 
     expect(await page().findByText("$125.00")).toBeTruthy();
     expect(page().getByText("Loading APY…")).toBeTruthy();
+    expect(document.querySelector("[data-shimmer='savings-apy']")).toBeTruthy();
     expect(page().queryByText(/Earning ~/)).toBeNull();
     expect(page().queryByText(/Available vault/)).toBeNull();
     expect(page().queryByText("$0.00")).toBeNull();
@@ -548,6 +580,28 @@ describe("Save simplify", () => {
     expect(page().queryByText("$0.00")).toBeNull();
     expect(page().queryByText("Nothing saved yet")).toBeNull();
     expect(page().queryByRole("button", { name: "Get started" })).toBeNull();
+    expect(page().queryByRole("radio")).toBeNull();
+    expect(page().queryByText("Details")).toBeNull();
+  });
+
+  test("exposes no actions or vault controls when metadata fails after positions resolve", async () => {
+    render(
+      <SavingsExperience
+        now={testNow}
+        session={session(ADDRESS_A)}
+        fetchVaults={async () => {
+          throw new Error("offline");
+        }}
+        fetchPositions={async () => positions(ADDRESS_A, { [GAUNTLET]: "125000000" })}
+      />,
+    );
+
+    expect(await page().findByText("Vaults are temporarily unavailable.")).toBeTruthy();
+    expect(await page().findByText("$125.00")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Deposit" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Withdraw" })).toBeNull();
+    expect(page().queryByRole("radio")).toBeNull();
+    expect(page().queryByText("Details")).toBeNull();
   });
 
   test("retains a verified same-owner value during refresh and reports refresh failure", async () => {
