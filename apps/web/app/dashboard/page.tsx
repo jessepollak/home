@@ -16,15 +16,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const query = await searchParams;
   const location = parseShellLocation(query);
   const returnedFromCoinbase = firstQueryValue(query.return) === "coinbase";
+  const returnedFromIdrx = firstQueryValue(query.return) === "idrx";
   return (
     <DashboardExperience
       initialPanel={location.panel}
       initialAccountSettingsOpen={location.account === "settings"}
       initialInvestView={investViewFromSearch(query)}
       initialAddMoney={
-        firstQueryValue(query["add-money"]) === "1" || returnedFromCoinbase
+        firstQueryValue(query["add-money"]) === "1" || returnedFromCoinbase || returnedFromIdrx
       }
       returnedFromCoinbase={returnedFromCoinbase}
+      returnedFromIdrx={returnedFromIdrx}
     />
   );
 }

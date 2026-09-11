@@ -1,17 +1,23 @@
 import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import {
+  FUNDING_BASE_CHAIN_ID as IDRX_BASE_CHAIN_ID,
+  IDRX_BASE_ADDRESS,
+  IDRX_DECIMALS,
+  type IdrxFundingRail,
+  type IdrxHostedMint,
+  type IdrxMintAsset,
+  type IdrxMintResult,
+  type IdrxVaChannel,
+  type IdrxVirtualAccountMint,
+} from "@/shared/funding/types";
 import { createIdrxRequestHeaders } from "./idrx-hmac";
 
+export { IDRX_BASE_ADDRESS, IDRX_BASE_CHAIN_ID, IDRX_DECIMALS };
 export const IDRX_API_BASE_URL = "https://api.idrx.co" as const;
 export const IDRX_MINT_PATH = "/transaction/mint-request" as const;
-export const IDRX_BASE_CHAIN_ID = 8453 as const;
-export const IDRX_DECIMALS = 2 as const;
-export const IDRX_BASE_ADDRESS =
-  "0x18Bc5bcC660cf2B9cE3cd51a404aFe1a0cBD3C22" as const;
 export const IDRX_VA_CHANNELS = ["MANDIRI", "BRI"] as const;
 export const IDRX_MIN_TO_BE_MINTED_MINOR = BigInt(2_000_000);
 export const IDRX_MAX_TO_BE_MINTED_MINOR = BigInt("100000000000");
-
-export type IdrxVaChannel = (typeof IDRX_VA_CHANNELS)[number];
 
 export class IdrxMintError extends Error {
   readonly code: "not-configured" | "unavailable" | "invalid-response";
@@ -23,47 +29,11 @@ export class IdrxMintError extends Error {
   }
 }
 
-export type IdrxMintAsset = {
-  id: "idrx";
-  symbol: "IDRX";
-  decimals: typeof IDRX_DECIMALS;
-  tokenAddress: typeof IDRX_BASE_ADDRESS;
-};
-
-export type IdrxMintNetwork = {
-  name: "Base";
-  chainId: typeof IDRX_BASE_CHAIN_ID;
-};
-
-export type IdrxVirtualAccountMint = {
-  presentation: "virtual-account";
-  asset: IdrxMintAsset;
-  network: IdrxMintNetwork;
-  merchantOrderId: string;
-  reference: string | null;
-  virtualAccountNo: string;
-  virtualAccountName: string;
-  amount: string;
-  baseAmount: string;
-  fees: Array<{ name: string; amount: string }>;
-  expiredDate: string;
-  channelId: IdrxVaChannel;
-};
-
-export type IdrxHostedMint = {
-  presentation: "hosted";
-  asset: IdrxMintAsset;
-  network: IdrxMintNetwork;
-  merchantOrderId: string;
-  url: string;
-};
-
-export type IdrxMintResult = IdrxVirtualAccountMint | IdrxHostedMint;
-
 export type CreateIdrxMintRequest = (options: {
   address: `0x${string}`;
   toBeMinted: string;
-  channelId: IdrxVaChannel;
+  rail: IdrxFundingRail;
+  channelId?: IdrxVaChannel;
   returnUrl: string;
   signal?: AbortSignal;
 }) => Promise<IdrxMintResult>;
@@ -135,37 +105,38 @@ export function createIdrxMintClient(options: {
   const now = options.now ?? Date.now;
   const asset = assertIdrxBaseToken();
 
-  return async ({ address, toBeMinted, channelId, returnUrl, signal }) => {
-    const apiKey = env.IDRX_API_KEY?.trim();
-    const secretKey = env.IDRX_API_SECRET?.trim();
-    if (!apiKey || !secretKey) throw new IdrxMintError("not-configured");
+  return async ({ address, toBeMinted, rail, channelId, returnUrl, signal }) => {
+    const clientId = env.IDRX_CLIENT_ID?.trim();
+    const clientSecret = env.IDRX_CLIENT_SECRET?.trim();
+    if (!clientId || !clientSecret) throw new IdrxMintError("not-configured");
     parseIdrxMintAmount(toBeMinted);
-    if (!isIdrxVaChannel(channelId)) throw new IdrxMintError("invalid-response");
+
+    if (rail === "qris") {
+      const hosted = await postMint({
+        apiKey: clientId,
+        secretKey: clientSecret,
+        fetchImplementation,
+        now,
+        signal,
+        body: hostedMintBody(toBeMinted, address, returnUrl),
+      });
+      if (hosted.kind === "ok") return parseHostedMint(hosted.data, asset);
+      throw hosted.error;
+    }
+    if (rail !== "bank-va" || !channelId || !isIdrxVaChannel(channelId)) {
+      throw new IdrxMintError("invalid-response");
+    }
 
     const va = await postMint({
-      apiKey,
-      secretKey,
+      apiKey: clientId,
+      secretKey: clientSecret,
       fetchImplementation,
       now,
       signal,
       body: vaMintBody(toBeMinted, address, channelId),
     });
     if (va.kind === "ok") {
-      return parseMintData(va.data, { asset, preferredChannel: channelId, allowHosted: true });
-    }
-    if (va.kind === "va-unavailable") {
-      const hosted = await postMint({
-        apiKey,
-        secretKey,
-        fetchImplementation,
-        now,
-        signal,
-        body: hostedMintBody(toBeMinted, address, returnUrl),
-      });
-      if (hosted.kind === "ok") {
-        return parseHostedMint(hosted.data, asset);
-      }
-      throw hosted.error;
+      return parseMintData(va.data, { asset, preferredChannel: channelId, allowHosted: false });
     }
     throw va.error;
   };
@@ -296,6 +267,7 @@ function parseVirtualAccountMint(
   const expiredDate = readExpiredDate(data.expiredDate);
   return {
     presentation: "virtual-account",
+    rail: "bank-va",
     asset,
     network: { name: "Base", chainId: IDRX_BASE_CHAIN_ID },
     merchantOrderId: data.merchantOrderId,
@@ -307,6 +279,7 @@ function parseVirtualAccountMint(
     fees: readFees(data.fees),
     expiredDate,
     channelId,
+    verification: { status: "pending", boundary: "balance-and-activity" },
   };
 }
 
@@ -321,10 +294,12 @@ function parseHostedMint(value: unknown, asset: IdrxMintAsset): IdrxHostedMint {
   const url = parseIdrxCheckoutUrl(data.checkoutUrl ?? data.paymentUrl);
   return {
     presentation: "hosted",
+    rail: "qris",
     asset,
     network: { name: "Base", chainId: IDRX_BASE_CHAIN_ID },
     merchantOrderId: data.merchantOrderId,
     url,
+    verification: { status: "pending", boundary: "balance-and-activity" },
   };
 }
 

@@ -90,6 +90,7 @@ export type HomeExperienceProps = {
   routeMode?: "landing" | "dashboard";
   initialAddMoney?: boolean;
   returnedFromCoinbase?: boolean;
+  returnedFromIdrx?: boolean;
   activityRefreshTrigger?: string | number;
   onTransferConfirmed?: () => void;
   selectedRegionId?: RegionId;
@@ -182,6 +183,7 @@ function HomeExperienceView({
   routeMode = "landing",
   initialAddMoney = false,
   returnedFromCoinbase = false,
+  returnedFromIdrx = false,
   activityRefreshTrigger,
   onTransferConfirmed,
   selectedRegionId,
@@ -608,6 +610,7 @@ function HomeExperienceView({
                       onOpenActivity={() => navigateTo(activityPanelId)}
                       initialAddMoney={initialAddMoney}
                       returnedFromCoinbase={returnedFromCoinbase}
+                      returnedFromIdrx={returnedFromIdrx}
                       regionId={regionId}
                     />
                   ) : null}
@@ -873,6 +876,7 @@ function HomePanel({
   onOpenActivity,
   initialAddMoney = false,
   returnedFromCoinbase = false,
+  returnedFromIdrx = false,
   regionId,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
@@ -889,6 +893,7 @@ function HomePanel({
   onOpenActivity: () => void;
   initialAddMoney?: boolean;
   returnedFromCoinbase?: boolean;
+  returnedFromIdrx?: boolean;
   regionId: RegionId;
 }) {
   const isLoading = assetBalances?.status === "loading";
@@ -940,6 +945,7 @@ function HomePanel({
         <FundingActions
           initialOpen={initialAddMoney}
           returnedFromCoinbase={returnedFromCoinbase}
+          returnedFromIdrx={returnedFromIdrx}
           regionId={regionId}
         />
         <TransferActions

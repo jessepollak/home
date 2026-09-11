@@ -26,6 +26,7 @@ const iconProps = {
 export type FundingActionsProps = {
   initialOpen?: boolean;
   returnedFromCoinbase?: boolean;
+  returnedFromIdrx?: boolean;
   regionId?: RegionId;
   onClosed?: () => void;
 };
@@ -39,6 +40,7 @@ export function FundingActionsForWallet({
   wallet,
   initialOpen = false,
   returnedFromCoinbase = false,
+  returnedFromIdrx = false,
   regionId = "GLOBAL",
   onClosed,
 }: FundingActionsProps & {
@@ -53,13 +55,13 @@ export function FundingActionsForWallet({
     mountedClientSnapshot,
     mountedServerSnapshot,
   );
-  const routeOpen = (initialOpen || returnedFromCoinbase) && !dismissed;
+  const routeOpen = (initialOpen || returnedFromCoinbase || returnedFromIdrx) && !dismissed;
   const open = userOpen || routeOpen;
 
   function close() {
     setUserOpen(false);
     setDismissed(true);
-    if (pathname === "/dashboard" && (initialOpen || returnedFromCoinbase)) {
+    if (pathname === "/dashboard" && (initialOpen || returnedFromCoinbase || returnedFromIdrx)) {
       router.replace("/dashboard", { scroll: false });
     }
     onClosed?.();
@@ -72,6 +74,7 @@ export function FundingActionsForWallet({
       open={open}
       onClose={close}
       returnedFromCoinbase={returnedFromCoinbase}
+      returnedFromIdrx={returnedFromIdrx}
       regionId={regionId}
     />
   );

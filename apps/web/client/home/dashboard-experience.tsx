@@ -13,12 +13,14 @@ export function DashboardExperience({
   initialInvestView,
   initialAddMoney,
   returnedFromCoinbase,
+  returnedFromIdrx,
 }: {
   initialPanel: ShellPanelId;
   initialAccountSettingsOpen: boolean;
   initialInvestView: InvestView;
   initialAddMoney: boolean;
   returnedFromCoinbase: boolean;
+  returnedFromIdrx: boolean;
 }) {
   const discover = useInvestDiscover();
 
@@ -38,6 +40,7 @@ export function DashboardExperience({
       routeMode="dashboard"
       initialAddMoney={initialAddMoney}
       returnedFromCoinbase={returnedFromCoinbase}
+      returnedFromIdrx={returnedFromIdrx}
     />
   );
 }

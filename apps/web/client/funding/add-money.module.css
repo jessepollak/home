@@ -256,6 +256,118 @@
   padding: 0 20px;
 }
 
+.idrx {
+  display: grid;
+  gap: 16px;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+  color: var(--home-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 9px;
+  background: var(--home-white);
+  color: var(--home-ink);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.field input[aria-invalid="true"] {
+  border-color: var(--home-danger, #b42318);
+}
+
+.railGroup {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.railGroup legend {
+  margin-bottom: 7px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.railGroup label,
+.consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--home-ink);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.railGroup input,
+.consent input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+}
+
+.pending {
+  width: fit-content;
+  margin: 0;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+  font-size: 0.78rem;
+  font-weight: 750;
+  padding: 6px 10px;
+}
+
+.idrxFacts {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.idrxFacts div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: 12px;
+  border-bottom: 1px solid var(--home-hairline);
+  padding-bottom: 10px;
+}
+
+.idrxFacts dt {
+  color: var(--home-muted);
+  font-size: 0.78rem;
+}
+
+.idrxFacts dd {
+  margin: 0;
+  color: var(--home-ink);
+  font-size: 0.8rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.verificationCopy,
+.reconcileStatus {
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.reconcileStatus {
+  color: var(--home-ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .method:active {
     background: var(--home-white);

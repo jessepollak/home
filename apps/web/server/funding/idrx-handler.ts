@@ -2,7 +2,7 @@ import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
   type VerifiedAccountSession,
-} from "@/features/account/session-types";
+} from "@/shared/account/session-types";
 import type { FundingSessionAuthorizer } from "./handler";
 import {
   IDRX_BASE_CHAIN_ID,
@@ -10,8 +10,8 @@ import {
   isAllowedIdrxMintAmount,
   isIdrxVaChannel,
   type CreateIdrxMintRequest,
-  type IdrxVaChannel,
 } from "./idrx";
+import type { IdrxFundingRail, IdrxVaChannel } from "@/shared/funding/types";
 
 const privateResponseHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
@@ -20,7 +20,14 @@ const privateResponseHeaders = {
   Vary: `Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
 } as const;
 
-const allowedIntentKeys = new Set(["assetId", "country", "toBeMinted", "channelId"]);
+const allowedIntentKeys = new Set([
+  "assetId",
+  "country",
+  "toBeMinted",
+  "rail",
+  "channelId",
+  "consent",
+]);
 
 export function createIdrxMintHandler(dependencies: {
   authorize: FundingSessionAuthorizer;
@@ -70,6 +77,7 @@ export function createIdrxMintHandler(dependencies: {
       const minted = await dependencies.createMint({
         address: session.smartAccount.address,
         toBeMinted: intent.toBeMinted,
+        rail: intent.rail,
         channelId: intent.channelId,
         returnUrl: new URL("/fund?return=idrx", requestOrigin).toString(),
         signal: request.signal,
@@ -79,7 +87,7 @@ export function createIdrxMintHandler(dependencies: {
       if (error instanceof IdrxMintError && error.code === "not-configured") {
         return privateError(
           "IDRX_NOT_CONFIGURED",
-          "IDRX mint needs this deployment's server-only IDRX_API_KEY and IDRX_API_SECRET.",
+          "IDRX mint needs this deployment's server-only IDRX_CLIENT_ID and IDRX_CLIENT_SECRET.",
           424,
         );
       }
@@ -95,7 +103,11 @@ export function createIdrxMintHandler(dependencies: {
 async function readMintIntent(
   request: Request,
 ): Promise<
-  | { toBeMinted: string; channelId: IdrxVaChannel }
+  | {
+      toBeMinted: string;
+      rail: IdrxFundingRail;
+      channelId?: IdrxVaChannel;
+    }
   | "invalid"
   | "country"
 > {
@@ -116,14 +128,21 @@ async function readMintIntent(
     value.assetId !== "idrx" ||
     value.country !== "ID" ||
     !isAllowedIdrxMintAmount(value.toBeMinted) ||
-    (value.channelId !== undefined && !isIdrxVaChannel(value.channelId))
+    value.consent !== true ||
+    (value.rail !== "bank-va" && value.rail !== "qris") ||
+    (value.rail === "bank-va" && !isIdrxVaChannel(value.channelId)) ||
+    (value.rail === "qris" && value.channelId !== undefined)
   ) {
     return "invalid";
   }
-  return {
-    toBeMinted: value.toBeMinted,
-    channelId: isIdrxVaChannel(value.channelId) ? value.channelId : "MANDIRI",
-  };
+  if (value.rail === "bank-va") {
+    return {
+      toBeMinted: value.toBeMinted,
+      rail: "bank-va",
+      channelId: value.channelId as IdrxVaChannel,
+    };
+  }
+  return { toBeMinted: value.toBeMinted, rail: "qris" };
 }
 
 async function parseAuthorizedSession(

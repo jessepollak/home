@@ -67,7 +67,7 @@ describe("IDRX mint client", () => {
 
     const requests: Array<{ input: string; init?: RequestInit }> = [];
     const client = createIdrxMintClient({
-      env: { IDRX_API_KEY: "public-key", IDRX_API_SECRET: SECRET },
+      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET },
       now: () => 1_700_000_000_000,
       fetchImplementation: async (input, init) => {
         requests.push({ input: String(input), init });
@@ -78,6 +78,7 @@ describe("IDRX mint client", () => {
     const result = await client({
       address: ADDRESS,
       toBeMinted: "20000",
+      rail: "bank-va",
       channelId: "MANDIRI",
       returnUrl: "https://home.example/fund?return=idrx",
     });
@@ -100,6 +101,7 @@ describe("IDRX mint client", () => {
     });
     expect(result).toEqual({
       presentation: "virtual-account",
+      rail: "bank-va",
       asset: {
         id: "idrx",
         symbol: "IDRX",
@@ -116,23 +118,17 @@ describe("IDRX mint client", () => {
       fees: [{ name: "VA Mandiri", amount: "4000" }],
       expiredDate: "2026-07-28T14:00:00.000Z",
       channelId: "MANDIRI",
+      verification: { status: "pending", boundary: "balance-and-activity" },
     });
   });
 
-  test("falls back to hosted checkout when VA is unavailable", async () => {
+  test("creates QRIS only through the explicit hosted rail", async () => {
     const bodies: unknown[] = [];
     const client = createIdrxMintClient({
-      env: { IDRX_API_KEY: "public-key", IDRX_API_SECRET: SECRET },
+      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET },
       now: () => 1_700_000_000_000,
       fetchImplementation: async (_input, init) => {
-        const body = JSON.parse(String(init?.body));
-        bodies.push(body);
-        if (body.paymentMethod === "va") {
-          return Response.json(
-            { statusCode: 400, message: "Unsupported VA channel: MANDIRI" },
-            { status: 400 },
-          );
-        }
+        bodies.push(JSON.parse(String(init?.body)));
         return Response.json(hostedData());
       },
     });
@@ -140,33 +136,24 @@ describe("IDRX mint client", () => {
     const result = await client({
       address: ADDRESS,
       toBeMinted: "20000.00",
-      channelId: "BRI",
+      rail: "qris",
       returnUrl: "https://home.example/fund?return=idrx",
     });
 
-    expect(bodies).toEqual([
-      {
-        toBeMinted: "20000.00",
-        destinationWalletAddress: ADDRESS,
-        networkChainId: "8453",
-        requestType: "idrx",
-        expiryPeriod: 60,
-        paymentMethod: "va",
-        channelId: "BRI",
-      },
-      {
-        toBeMinted: "20000.00",
-        destinationWalletAddress: ADDRESS,
-        networkChainId: "8453",
-        returnUrl: "https://home.example/fund?return=idrx",
-        expiryPeriod: 60,
-        requestType: "idrx",
-      },
-    ]);
+    expect(bodies).toEqual([{
+      toBeMinted: "20000.00",
+      destinationWalletAddress: ADDRESS,
+      networkChainId: "8453",
+      returnUrl: "https://home.example/fund?return=idrx",
+      expiryPeriod: 60,
+      requestType: "idrx",
+    }]);
     expect(result).toMatchObject({
       presentation: "hosted",
+      rail: "qris",
       merchantOrderId: "20260728130000",
       url: CHECKOUT,
+      verification: { status: "pending", boundary: "balance-and-activity" },
     });
   });
 
@@ -176,6 +163,7 @@ describe("IDRX mint client", () => {
       missing({
         address: ADDRESS,
         toBeMinted: "20000",
+        rail: "bank-va",
         channelId: "MANDIRI",
         returnUrl: "https://home.example/fund?return=idrx",
       }),
@@ -183,7 +171,7 @@ describe("IDRX mint client", () => {
 
     let hostedCalls = 0;
     const unauthorized = createIdrxMintClient({
-      env: { IDRX_API_KEY: "public-key", IDRX_API_SECRET: SECRET },
+      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET },
       fetchImplementation: async (_input, init) => {
         if (JSON.parse(String(init?.body)).paymentMethod !== "va") hostedCalls += 1;
         return new Response("no", { status: 401 });
@@ -193,6 +181,7 @@ describe("IDRX mint client", () => {
       unauthorized({
         address: ADDRESS,
         toBeMinted: "20000",
+        rail: "bank-va",
         channelId: "MANDIRI",
         returnUrl: "https://home.example/fund?return=idrx",
       }),
@@ -200,7 +189,7 @@ describe("IDRX mint client", () => {
     expect(hostedCalls).toBe(0);
 
     const invalid = createIdrxMintClient({
-      env: { IDRX_API_KEY: "public-key", IDRX_API_SECRET: SECRET },
+      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET },
       fetchImplementation: async () =>
         Response.json({
           statusCode: 200,
@@ -214,6 +203,7 @@ describe("IDRX mint client", () => {
       invalid({
         address: ADDRESS,
         toBeMinted: "20000",
+        rail: "bank-va",
         channelId: "MANDIRI",
         returnUrl: "https://home.example/fund?return=idrx",
       }),
@@ -226,7 +216,7 @@ describe("IDRX mint client", () => {
   test("does not open a second mint after a 5xx VA response", async () => {
     let calls = 0;
     const client = createIdrxMintClient({
-      env: { IDRX_API_KEY: "public-key", IDRX_API_SECRET: SECRET },
+      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET },
       fetchImplementation: async () => {
         calls += 1;
         return new Response("no", { status: 503 });
@@ -236,6 +226,7 @@ describe("IDRX mint client", () => {
       client({
         address: ADDRESS,
         toBeMinted: "20000",
+        rail: "bank-va",
         channelId: "MANDIRI",
         returnUrl: "https://home.example/fund?return=idrx",
       }),

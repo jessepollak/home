@@ -1,6 +1,10 @@
 export const FUNDING_BASE_CHAIN_ID = 8453 as const;
 export const FUNDING_BASE_USDC_ADDRESS =
   "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
+export const IDRX_BASE_ADDRESS =
+  "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22" as const;
+export const IDRX_DECIMALS = 2 as const;
+export const IDRX_COUNTRY = "ID" as const;
 
 export const FUNDING_ASSETS = {
   usdc: {
@@ -21,6 +25,8 @@ export const FUNDING_ASSETS = {
 } as const;
 
 export type FundingAssetId = keyof typeof FUNDING_ASSETS;
+export type IdrxFundingRail = "bank-va" | "qris";
+export type IdrxVaChannel = "MANDIRI" | "BRI";
 
 export type HostedOnrampSession = {
   url: string;
@@ -35,3 +41,49 @@ export type HostedOnrampSession = {
     chainId: typeof FUNDING_BASE_CHAIN_ID;
   };
 };
+
+export type IdrxMintAsset = {
+  id: "idrx";
+  symbol: "IDRX";
+  decimals: typeof IDRX_DECIMALS;
+  tokenAddress: typeof IDRX_BASE_ADDRESS;
+};
+
+export type IdrxMintNetwork = {
+  name: "Base";
+  chainId: typeof FUNDING_BASE_CHAIN_ID;
+};
+
+export type IdrxMintVerification = {
+  status: "pending";
+  boundary: "balance-and-activity";
+};
+
+export type IdrxVirtualAccountMint = {
+  presentation: "virtual-account";
+  rail: "bank-va";
+  asset: IdrxMintAsset;
+  network: IdrxMintNetwork;
+  merchantOrderId: string;
+  reference: string | null;
+  virtualAccountNo: string;
+  virtualAccountName: string;
+  amount: string;
+  baseAmount: string;
+  fees: Array<{ name: string; amount: string }>;
+  expiredDate: string;
+  channelId: IdrxVaChannel;
+  verification: IdrxMintVerification;
+};
+
+export type IdrxHostedMint = {
+  presentation: "hosted";
+  rail: "qris";
+  asset: IdrxMintAsset;
+  network: IdrxMintNetwork;
+  merchantOrderId: string;
+  url: string;
+  verification: IdrxMintVerification;
+};
+
+export type IdrxMintResult = IdrxVirtualAccountMint | IdrxHostedMint;

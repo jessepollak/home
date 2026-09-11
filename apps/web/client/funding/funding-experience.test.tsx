@@ -6,6 +6,7 @@ import type { AccountWalletClient } from "@/client/account/cdp-client";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { FundingExperienceForWallet } = await import("./funding-experience");
+const { MoneyDataRefreshProvider } = await import("@/client/money-actions/refresh");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111" as const;
 const ADDRESS_B = "0x2222222222222222222222222222222222222222" as const;
@@ -144,6 +145,81 @@ describe("FundingExperience", () => {
     expect(page().getByText("USDC")).toBeTruthy();
     expect(page().queryByText("BRZ")).toBeNull();
     expect(page().getByText(/other tokens in Home's supported Base inventory/)).toBeTruthy();
+  });
+
+  test("gates IDRX to Indonesia and reconciles only through balance and activity refresh", async () => {
+    const calls: unknown[] = [];
+    let refreshes = 0;
+    render(
+      <MoneyDataRefreshProvider onConfirmed={() => { refreshes += 1; }}>
+        <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async (...args) => {
+            calls.push(args);
+            return {
+              presentation: "virtual-account",
+              rail: "bank-va",
+              asset: {
+                id: "idrx",
+                symbol: "IDRX",
+                decimals: 2,
+                tokenAddress: "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
+              },
+              network: { name: "Base", chainId: 8453 },
+              merchantOrderId: "order-1",
+              reference: "ref-1",
+              virtualAccountNo: "8680770000001234",
+              virtualAccountName: "HOME TEST",
+              amount: "24000",
+              baseAmount: "20000",
+              fees: [{ name: "VA", amount: "4000" }],
+              expiredDate: "2026-09-11T12:00:00.000Z",
+              channelId: "MANDIRI",
+              verification: { status: "pending", boundary: "balance-and-activity" },
+            };
+          },
+        }}
+        navigateToHostedOnramp={() => {}}
+        regionId="ID"
+        />
+      </MoneyDataRefreshProvider>,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
+    const create = page().getByRole("button", { name: "Create virtual account" });
+    expect(create.hasAttribute("disabled")).toBeTrue();
+    fireEvent.click(page().getByRole("checkbox"));
+    fireEvent.click(create);
+
+    await waitFor(() => expect(page().getByText("Funding pending")).toBeTruthy());
+    expect(page().getByText("8680770000001234")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Check balance & activity" }));
+    expect(refreshes).toBe(1);
+    expect(page().getByText(/Funding stays pending until IDRX appears/)).toBeTruthy();
+    expect(calls).toEqual([["/api/funding/idrx-mint", {
+      method: "POST",
+      body: {
+        assetId: "idrx",
+        country: "ID",
+        toBeMinted: "20000",
+        rail: "bank-va",
+        channelId: "MANDIRI",
+        consent: true,
+      },
+      signal: expect.any(AbortSignal),
+    }]]);
+  });
+
+  test("does not expose the Indonesia issuer rail in another region", () => {
+    render(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet()}
+        navigateToHostedOnramp={() => {}}
+        regionId="US"
+      />,
+    );
+    expect(page().queryByRole("button", { name: /Buy IDRX with rupiah/ })).toBeNull();
   });
 
   test("keeps hosted navigation active after StrictMode effect replay", async () => {

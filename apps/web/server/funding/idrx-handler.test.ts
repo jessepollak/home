@@ -16,6 +16,9 @@ function request(body: unknown = {
   assetId: "idrx",
   country: "ID",
   toBeMinted: "20000",
+  rail: "bank-va",
+  channelId: "MANDIRI",
+  consent: true,
 }) {
   return new Request("http://localhost:3111/api/funding/idrx-mint", {
     method: "POST",
@@ -33,7 +36,8 @@ describe("IDRX mint handler", () => {
     const calls: Array<{
       address: string;
       toBeMinted: string;
-      channelId: string;
+      rail: string;
+      channelId?: string;
       returnUrl: string;
     }> = [];
     const handler = createIdrxMintHandler({
@@ -42,11 +46,13 @@ describe("IDRX mint handler", () => {
         calls.push({
           address: options.address,
           toBeMinted: options.toBeMinted,
+          rail: options.rail,
           channelId: options.channelId,
           returnUrl: options.returnUrl,
         });
         return {
           presentation: "virtual-account",
+          rail: "bank-va",
           asset: {
             id: "idrx",
             symbol: "IDRX",
@@ -63,6 +69,7 @@ describe("IDRX mint handler", () => {
           fees: [{ name: "VA Mandiri", amount: "4000" }],
           expiredDate: "2026-07-28T14:00:00.000Z",
           channelId: "MANDIRI",
+          verification: { status: "pending", boundary: "balance-and-activity" },
         };
       },
     });
@@ -71,6 +78,9 @@ describe("IDRX mint handler", () => {
       assetId: "idrx",
       country: "ID",
       toBeMinted: "20000",
+      rail: "bank-va",
+      channelId: "MANDIRI",
+      consent: true,
     }));
 
     expect(response.status).toBe(200);
@@ -79,6 +89,7 @@ describe("IDRX mint handler", () => {
       {
         address: ADDRESS,
         toBeMinted: "20000",
+        rail: "bank-va",
         channelId: "MANDIRI",
         returnUrl: "http://localhost:3111/fund?return=idrx",
       },
