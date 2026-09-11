@@ -7,4 +7,4 @@ if (!url) {
 }
 
 await applyMoneyActionPostgresSchema(createNeonSqlExecutor(url));
-console.log("money_action_operations schema is ready.");
+console.log("money-action operation and attempt schemas are ready.");

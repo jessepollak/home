@@ -1,6 +1,17 @@
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
 import { canTransitionMoneyActionStatus } from "./status-transitions.js";
 import {
+  AttemptPersistenceConflict,
+  PersistentMoneyActionAttemptStore,
+  evidenceUniquenessKey,
+  type AttemptOperationRecord,
+  type AttemptStorePersistence,
+  type AttemptStoreTransaction,
+  type PersistedAttemptState,
+// @ts-expect-error Node requires the explicit TypeScript extension.
+} from "./attempt-store-core.ts";
+import type { AttemptStoreResource, AttemptStoreResourceFactory } from "./attempt-store";
+import {
   applyMoneyActionPostgresSchema,
   createNeonSqlExecutor,
   isUniqueViolation,
@@ -354,3 +365,178 @@ function fromRow(
 }
 
 export { applyMoneyActionPostgresSchema, createNeonSqlExecutor } from "./postgres-sql";
+
+class PostgresAttemptPersistence implements AttemptStorePersistence {
+  private disposed = false;
+
+  constructor(
+    private readonly executor: SqlExecutor,
+    private readonly legacy: PostgresMoneyActionStore,
+  ) {}
+
+  async init(): Promise<void> {
+    this.assertOpen();
+    await this.legacy.ensureSchema();
+  }
+
+  async listOperationIds(): Promise<string[]> {
+    this.assertOpen();
+    const result = await this.executor.query<{ id: string }>("SELECT id FROM money_action_operations ORDER BY id");
+    return result.rows.map((row) => row.id);
+  }
+
+  async transaction<Result>(run: (transaction: AttemptStoreTransaction) => Promise<Result>): Promise<Result> {
+    this.assertOpen();
+    try {
+      return await this.executor.transaction(async (executor) => run(this.transactionAdapter(executor)));
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new AttemptPersistenceConflict(message.includes("verified_execution") ? "verified-execution" : "evidence");
+      }
+      throw error;
+    }
+  }
+
+  async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
+    const disposal = this.executor.dispose?.();
+    if (disposal) await withCleanupTimeout(disposal, 5_000);
+  }
+
+  private transactionAdapter(executor: SqlExecutor): AttemptStoreTransaction {
+    return {
+      getOperationById: async (actionId) => this.getOperation(executor, actionId),
+      insertOperation: async (record) => this.insertOperation(executor, record),
+      saveOperation: async (record) => this.saveOperation(executor, record),
+      getState: async (actionId) => this.getState(executor, actionId),
+      saveState: async (actionId, state) => this.saveState(executor, actionId, state),
+      findEvidenceOwner: async (key) => {
+        const result = await executor.query<{ action_id: string }>(
+          "SELECT action_id FROM money_action_attempt_evidence WHERE evidence_key = $1",
+          [key],
+        );
+        return result.rows[0]?.action_id ?? null;
+      },
+      findVerifiedExecutionOwner: async (key) => {
+        const result = await executor.query<{ action_id: string }>(
+          "SELECT action_id FROM money_action_attempt_states WHERE verified_execution_key = $1",
+          [key],
+        );
+        return result.rows[0]?.action_id ?? null;
+      },
+    };
+  }
+
+  private async getOperation(executor: SqlExecutor, actionId: string): Promise<AttemptOperationRecord | null> {
+    const result = await executor.query<OperationRow>(`
+      SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
+             user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
+      FROM money_action_operations WHERE id = $1 FOR UPDATE
+    `.trim(), [actionId]);
+    const row = result.rows[0] ? normalizeRow(result.rows[0]) : null;
+    return row ? {
+      operation: fromRow(row),
+      ...(row.verified_execution_key ? { verifiedExecutionKey: row.verified_execution_key } : {}),
+    } : null;
+  }
+
+  private async insertOperation(executor: SqlExecutor, record: AttemptOperationRecord): Promise<void> {
+    const action = record.operation.action;
+    await executor.query(`
+      INSERT INTO money_action_operations (
+        id, review_hash, subject, address, chain_id, account_provider, action_json, status,
+        attempt_count, claimed_at, submission_id, transaction_hash, user_operation_hash,
+        verified_execution_key, abandoned_at, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    `.trim(), [
+      action.id, action.reviewHash, action.owner.subject, action.owner.address.toLowerCase(),
+      action.owner.chainId, action.owner.accountProvider, JSON.stringify(action), record.operation.status,
+      record.operation.attemptCount, record.operation.claimedAt ?? null, record.operation.submissionId ?? null,
+      record.operation.transactionHash ?? null, record.operation.userOperationHash ?? null,
+      record.verifiedExecutionKey ?? null, record.operation.abandonedAt ?? null,
+      record.operation.createdAt, record.operation.updatedAt,
+    ]);
+  }
+
+  private async saveOperation(executor: SqlExecutor, record: AttemptOperationRecord): Promise<void> {
+    const operation = record.operation;
+    await executor.query(`
+      UPDATE money_action_operations SET
+        action_json = $1, review_hash = $2, status = $3, attempt_count = $4, claimed_at = $5,
+        submission_id = $6, transaction_hash = $7, user_operation_hash = $8,
+        verified_execution_key = $9, abandoned_at = $10, updated_at = $11
+      WHERE id = $12
+    `.trim(), [
+      JSON.stringify(operation.action), operation.action.reviewHash, operation.status, operation.attemptCount,
+      operation.claimedAt ?? null, operation.submissionId ?? null, operation.transactionHash ?? null,
+      operation.userOperationHash ?? null, record.verifiedExecutionKey ?? null,
+      operation.abandonedAt ?? null, operation.updatedAt, operation.action.id,
+    ]);
+  }
+
+  private async getState(executor: SqlExecutor, actionId: string): Promise<PersistedAttemptState | null> {
+    const result = await executor.query<{ state_json: string }>(
+      "SELECT state_json FROM money_action_attempt_states WHERE action_id = $1",
+      [actionId],
+    );
+    return result.rows[0] ? JSON.parse(result.rows[0].state_json) as PersistedAttemptState : null;
+  }
+
+  private async saveState(executor: SqlExecutor, actionId: string, state: PersistedAttemptState): Promise<void> {
+    await executor.query(`
+      INSERT INTO money_action_attempt_states (action_id, state_json, verified_execution_key, updated_at)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT(action_id) DO UPDATE SET
+        state_json = EXCLUDED.state_json,
+        verified_execution_key = EXCLUDED.verified_execution_key,
+        updated_at = EXCLUDED.updated_at
+    `.trim(), [actionId, JSON.stringify(state), state.verifiedExecutionKey ?? null, new Date().toISOString()]);
+    await executor.query("DELETE FROM money_action_attempt_evidence WHERE action_id = $1", [actionId]);
+    for (const attempt of state.attempts) {
+      for (const recorded of attempt.evidence) {
+        const key = evidenceUniquenessKey(attempt.owner, recorded.evidence);
+        if (key) {
+          await executor.query(
+            "INSERT INTO money_action_attempt_evidence (evidence_key, action_id) VALUES ($1, $2)",
+            [key, actionId],
+          );
+        }
+      }
+    }
+  }
+
+  private assertOpen(): void {
+    if (this.disposed) throw new Error("PostgreSQL attempt persistence is disposed");
+  }
+}
+
+export function createPostgresAttemptStoreResourceWithExecutor(executor: SqlExecutor): AttemptStoreResource {
+  const legacy = new PostgresMoneyActionStore(executor);
+  const persistence = new PostgresAttemptPersistence(executor, legacy);
+  const store = new PersistentMoneyActionAttemptStore(legacy, persistence);
+  return { store, init: () => store.init(), dispose: () => store.dispose() };
+}
+
+export const createPostgresAttemptStoreResource: AttemptStoreResourceFactory = (options) => {
+  if (options.backend !== "postgres") throw new Error("PostgreSQL attempt-store factory requires postgres options");
+  return createPostgresAttemptStoreResourceWithExecutor(
+    createNeonSqlExecutor(options.connectionString, { schema: options.schema }),
+  );
+};
+
+async function withCleanupTimeout(disposal: Promise<void>, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      disposal,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`PostgreSQL attempt-store cleanup timed out after ${timeoutMs}ms`)), timeoutMs);
+        (timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}

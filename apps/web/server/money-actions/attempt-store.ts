@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { MoneyActionOperationStatus, MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
+// Node's built-in TypeScript loader requires the extension for the SQLite process gate.
 import {
   ATTEMPT_COMMAND_CONTRACT_VERSION,
   COMPATIBILITY_ACTION_REVISION,
@@ -19,7 +20,8 @@ import {
   type RecordedProviderEvidence,
   type ReleaseAdmission,
   type ReleaseAdmissionResult,
-} from "./attempt-commands";
+// @ts-expect-error Node requires the explicit TypeScript extension.
+} from "./attempt-commands.ts";
 import type {
   MoneyActionStore,
   StoredMoneyActionOperation,

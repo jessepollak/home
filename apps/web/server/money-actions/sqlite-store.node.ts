@@ -3,6 +3,18 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
 import { canTransitionMoneyActionStatus } from "./status-transitions.js";
+// Node's built-in TypeScript loader requires the extension for the real SQLite process gate.
+import {
+  AttemptPersistenceConflict,
+  PersistentMoneyActionAttemptStore,
+  evidenceUniquenessKey,
+  type AttemptOperationRecord,
+  type AttemptStorePersistence,
+  type AttemptStoreTransaction,
+  type PersistedAttemptState,
+// @ts-expect-error Node requires the explicit TypeScript extension.
+} from "./attempt-store-core.ts";
+import type { AttemptStoreResourceFactory } from "./attempt-store";
 import type {
   MoneyActionClaim,
   MoneyActionIssueStoreOptions,
@@ -361,6 +373,11 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
     `).get(id, executionKey));
   }
 
+  close(): void {
+    this.sensitiveActions.clear();
+    this.database.close();
+  }
+
   private ensureColumn(name: string, definition: string): void {
     const columns = this.database.prepare("PRAGMA table_info(money_action_operations)").all() as unknown as Array<{ name: string }>;
     if (!columns.some((column) => column.name === name)) {
@@ -418,4 +435,197 @@ function fromRow(
 
 function defaultDatabasePath(): string {
   return resolve(process.cwd(), ".local", "home-money-actions.sqlite");
+}
+
+class SqliteAttemptPersistence implements AttemptStorePersistence {
+  private readonly database: DatabaseSync;
+  private readonly legacy: SqliteMoneyActionStore;
+  private disposed = false;
+  private transactionGate: Promise<void> = Promise.resolve();
+
+  constructor(filename: string, legacy: SqliteMoneyActionStore) {
+    this.legacy = legacy;
+    this.database = new DatabaseSync(filename);
+    this.database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 0;");
+  }
+
+  async init(): Promise<void> {
+    this.assertOpen();
+    this.database.exec(SQLITE_ATTEMPT_SCHEMA_SQL);
+  }
+
+  async listOperationIds(): Promise<string[]> {
+    this.assertOpen();
+    const rows = this.database.prepare("SELECT id FROM money_action_operations ORDER BY id").all() as unknown as Array<{ id: string }>;
+    return rows.map((row) => row.id);
+  }
+
+  async transaction<Result>(run: (transaction: AttemptStoreTransaction) => Promise<Result>): Promise<Result> {
+    this.assertOpen();
+    let release!: () => void;
+    const previous = this.transactionGate;
+    this.transactionGate = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      await this.beginImmediate();
+      try {
+        const result = await run(this.transactionAdapter());
+        this.database.exec("COMMIT");
+        return result;
+      } catch (error) {
+        try { this.database.exec("ROLLBACK"); } catch { /* preserve original failure */ }
+        if (isSqliteUniqueViolation(error)) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new AttemptPersistenceConflict(message.includes("verified_execution") ? "verified-execution" : "evidence");
+        }
+        throw error;
+      }
+    } finally {
+      release();
+    }
+  }
+
+  async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
+    const failures: unknown[] = [];
+    try { this.database.close(); } catch (error) { failures.push(error); }
+    try { this.legacy.close(); } catch (error) { failures.push(error); }
+    if (failures.length > 0) throw new AggregateError(failures, "SQLite attempt-store cleanup failed");
+  }
+
+  private transactionAdapter(): AttemptStoreTransaction {
+    return {
+      getOperationById: async (actionId) => this.getOperation(actionId),
+      insertOperation: async (record) => this.insertOperation(record),
+      saveOperation: async (record) => this.saveOperation(record),
+      getState: async (actionId) => this.getState(actionId),
+      saveState: async (actionId, state) => this.saveState(actionId, state),
+      findEvidenceOwner: async (key) => {
+        const row = this.database.prepare("SELECT action_id FROM money_action_attempt_evidence WHERE evidence_key = ?").get(key) as { action_id: string } | undefined;
+        return row?.action_id ?? null;
+      },
+      findVerifiedExecutionOwner: async (key) => {
+        const row = this.database.prepare("SELECT action_id FROM money_action_attempt_states WHERE verified_execution_key = ?").get(key) as { action_id: string } | undefined;
+        return row?.action_id ?? null;
+      },
+    };
+  }
+
+  private getOperation(actionId: string): AttemptOperationRecord | null {
+    const row = this.database.prepare(`
+      SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
+             user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
+      FROM money_action_operations WHERE id = ?
+    `).get(actionId) as OperationRow | undefined;
+    return row ? { operation: fromRow(row), ...(row.verified_execution_key ? { verifiedExecutionKey: row.verified_execution_key } : {}) } : null;
+  }
+
+  private insertOperation(record: AttemptOperationRecord): void {
+    const action = record.operation.action;
+    this.database.prepare(`
+      INSERT INTO money_action_operations (
+        id, review_hash, subject, address, chain_id, account_provider, action_json, status,
+        attempt_count, claimed_at, submission_id, transaction_hash, user_operation_hash,
+        verified_execution_key, abandoned_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      action.id, action.reviewHash, action.owner.subject, action.owner.address.toLowerCase(),
+      action.owner.chainId, action.owner.accountProvider, JSON.stringify(action), record.operation.status,
+      record.operation.attemptCount, record.operation.claimedAt ?? null, record.operation.submissionId ?? null,
+      record.operation.transactionHash ?? null, record.operation.userOperationHash ?? null,
+      record.verifiedExecutionKey ?? null, record.operation.abandonedAt ?? null,
+      record.operation.createdAt, record.operation.updatedAt,
+    );
+  }
+
+  private saveOperation(record: AttemptOperationRecord): void {
+    const operation = record.operation;
+    this.database.prepare(`
+      UPDATE money_action_operations SET
+        action_json = ?, review_hash = ?, status = ?, attempt_count = ?, claimed_at = ?,
+        submission_id = ?, transaction_hash = ?, user_operation_hash = ?, verified_execution_key = ?,
+        abandoned_at = ?, updated_at = ?
+      WHERE id = ?
+    `).run(
+      JSON.stringify(operation.action), operation.action.reviewHash, operation.status, operation.attemptCount,
+      operation.claimedAt ?? null, operation.submissionId ?? null, operation.transactionHash ?? null,
+      operation.userOperationHash ?? null, record.verifiedExecutionKey ?? null,
+      operation.abandonedAt ?? null, operation.updatedAt, operation.action.id,
+    );
+  }
+
+  private getState(actionId: string): PersistedAttemptState | null {
+    const row = this.database.prepare("SELECT state_json FROM money_action_attempt_states WHERE action_id = ?").get(actionId) as { state_json: string } | undefined;
+    return row ? JSON.parse(row.state_json) as PersistedAttemptState : null;
+  }
+
+  private saveState(actionId: string, state: PersistedAttemptState): void {
+    this.database.prepare(`
+      INSERT INTO money_action_attempt_states (action_id, state_json, verified_execution_key, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(action_id) DO UPDATE SET
+        state_json = excluded.state_json,
+        verified_execution_key = excluded.verified_execution_key,
+        updated_at = excluded.updated_at
+    `).run(actionId, JSON.stringify(state), state.verifiedExecutionKey ?? null, new Date().toISOString());
+    this.database.prepare("DELETE FROM money_action_attempt_evidence WHERE action_id = ?").run(actionId);
+    const insert = this.database.prepare("INSERT INTO money_action_attempt_evidence (evidence_key, action_id) VALUES (?, ?)");
+    for (const attempt of state.attempts) {
+      for (const recorded of attempt.evidence) {
+        const key = evidenceUniquenessKey(attempt.owner, recorded.evidence);
+        if (key) insert.run(key, actionId);
+      }
+    }
+  }
+
+  private async beginImmediate(): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    while (true) {
+      try {
+        this.database.exec("BEGIN IMMEDIATE");
+        return;
+      } catch (error) {
+        if (!isSqliteBusy(error) || Date.now() >= deadline) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    }
+  }
+
+  private assertOpen(): void {
+    if (this.disposed) throw new Error("SQLite attempt persistence is disposed");
+  }
+}
+
+export const createSqliteAttemptStoreResource: AttemptStoreResourceFactory = (options) => {
+  if (options.backend !== "sqlite") throw new Error("SQLite attempt-store factory requires sqlite options");
+  const legacy = new SqliteMoneyActionStore(options.filename);
+  const persistence = new SqliteAttemptPersistence(options.filename, legacy);
+  const store = new PersistentMoneyActionAttemptStore(legacy, persistence);
+  return { store, init: () => store.init(), dispose: () => store.dispose() };
+};
+
+export const SQLITE_ATTEMPT_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS money_action_attempt_states (
+  action_id TEXT PRIMARY KEY REFERENCES money_action_operations(id) ON DELETE CASCADE,
+  state_json TEXT NOT NULL,
+  verified_execution_key TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS money_action_attempt_unique_verified_execution
+ON money_action_attempt_states(verified_execution_key) WHERE verified_execution_key IS NOT NULL;
+CREATE TABLE IF NOT EXISTS money_action_attempt_evidence (
+  evidence_key TEXT PRIMARY KEY,
+  action_id TEXT NOT NULL REFERENCES money_action_operations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS money_action_attempt_evidence_action
+ON money_action_attempt_evidence(action_id);
+`;
+
+function isSqliteUniqueViolation(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && String((error as { code: unknown }).code).startsWith("SQLITE_CONSTRAINT"));
+}
+
+function isSqliteBusy(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "errcode" in error && (error as { errcode: unknown }).errcode === 5);
 }
