@@ -54,6 +54,7 @@ export function createFakePostgresExecutor(): SqlExecutor {
 
   const run = (text: string, values: unknown[]): SqlQueryResult => {
     if (
+      text === "SELECT pg_advisory_xact_lock(hashtext($1))" ||
       moneyActionSchemaStatements.includes(text as typeof moneyActionSchemaStatements[number]) ||
       moneyActionAttemptSchemaStatements.includes(text as typeof moneyActionAttemptSchemaStatements[number])
     ) return { rows: [], rowCount: 0 };

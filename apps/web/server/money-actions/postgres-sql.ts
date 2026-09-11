@@ -279,9 +279,15 @@ export const moneyActionAttemptSchemaStatements = MONEY_ACTION_ATTEMPT_SCHEMA_SQ
   .filter((statement) => statement.length > 0);
 
 export async function applyMoneyActionPostgresSchema(executor: SqlExecutor): Promise<void> {
-  for (const statement of [...moneyActionSchemaStatements, ...moneyActionAttemptSchemaStatements]) {
-    await executor.query(statement);
-  }
+  await executor.transaction(async (transaction) => {
+    await transaction.query(
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      ["home_money_action_schema_v2"],
+    );
+    for (const statement of [...moneyActionSchemaStatements, ...moneyActionAttemptSchemaStatements]) {
+      await transaction.query(statement);
+    }
+  });
 }
 
 // Temporary #243 test-only import compatibility; never used by #245 acceptance.
