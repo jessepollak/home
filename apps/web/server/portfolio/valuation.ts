@@ -17,7 +17,7 @@ import {
 import {
   getCoinbaseExchangeRates,
   supportedFiatCurrencies,
-} from "@/server/valuation/fx-coinbase";
+} from "@/server/portfolio/fx-coinbase";
 import {
   addFractions,
   baseUnitsToFraction,

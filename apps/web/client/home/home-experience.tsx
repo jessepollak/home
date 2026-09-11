@@ -62,7 +62,7 @@ import {
   writeHomeBalancesPresentation,
   type HomeAssetBalanceItem,
   type HomeAssetBalancesPresentation,
-} from "@/client/portfolio-valuation";
+} from "@/client/portfolio";
 import { TransferActions } from "@/client/transfers";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";

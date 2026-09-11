@@ -10,7 +10,7 @@ import {
 import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/parse-valuation";
 import { presentPortfolioValuation } from "@/shared/portfolio/present-home-balances";
 import type { CodexRawQuoteInput } from "@/server/market-data/codex/raw-quotes";
-import { supportedFiatCurrencies } from "@/server/valuation/fx-coinbase";
+import { supportedFiatCurrencies } from "@/server/portfolio/fx-coinbase";
 import type {
   FxQuote,
   NativeEthQuote,

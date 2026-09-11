@@ -1,5 +1,5 @@
 import { getCodexMarketPrices } from "@/server/market-data/codex/client";
-import { getCoinbaseExchangeRates } from "@/server/valuation/fx-coinbase";
+import { getCoinbaseExchangeRates } from "@/server/portfolio/fx-coinbase";
 import { createMarketPricesHandler } from "./handler";
 
 export const runtime = "nodejs";

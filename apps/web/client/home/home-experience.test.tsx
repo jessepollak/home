@@ -18,7 +18,7 @@ import {
   verifiedLocalCashAssets,
 } from "@/config/portfolio-assets";
 import { presentationRegions, type RegionId } from "@/config/regions";
-import type { HomeAssetBalancesPresentation } from "@/client/portfolio-valuation";
+import type { HomeAssetBalancesPresentation } from "@/client/portfolio";
 
 const replaceCalls: string[] = [];
 const pushCalls: string[] = [];
@@ -51,7 +51,7 @@ const {
   homeBalancesPresentationCachePrefix,
   readHomeBalancesPresentation,
   writeHomeBalancesPresentation,
-} = await import("@/client/portfolio-valuation/presentation-cache");
+} = await import("@/client/portfolio/presentation-cache");
 
 const OWNER = "home-user";
 const OWNER_B = "home-user-b";

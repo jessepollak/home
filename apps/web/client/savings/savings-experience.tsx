@@ -11,7 +11,7 @@ import { usePortfolio } from "@/client/portfolio";
 import {
   SavingsMoneyDialog,
   type SavingsActionMode,
-} from "@/client/savings-actions/savings-actions";
+} from "@/client/savings/savings-actions";
 import {
   BASE_USDC_ADDRESS,
   BASE_USDC_DECIMALS,
