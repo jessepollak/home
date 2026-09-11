@@ -1,4 +1,4 @@
-import type { MoneyActionCall } from "@/features/money-actions/types";
+import type { MoneyActionCall } from "@/shared/money-actions/types";
 import {
   decodeAddressWord,
   decodeWords,
@@ -23,7 +23,7 @@ import {
   BORROW_ORACLE_ADDRESS,
   MORPHO_BLUE_ADDRESS,
   type BorrowAddress,
-} from "./config";
+} from "@/shared/borrowing/config";
 import {
   SECONDS_PER_YEAR,
   accrueBorrowAssets,
@@ -34,7 +34,7 @@ import {
   minimumCollateralForDebt,
   toAssetsUp,
 } from "./math";
-import type { BorrowMarketSnapshot } from "./types";
+import type { BorrowMarketSnapshot } from "@/shared/borrowing/types";
 import { resolveBaseRpcUrl } from "@/server/portfolio/rpc";
 
 const RPC_TIMEOUT_MS = 8_000;

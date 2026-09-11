@@ -2,8 +2,8 @@ import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
   type VerifiedAccountSession,
-} from "@/features/account/session-types";
-import type { MoneyActionOwner } from "@/features/money-actions/types";
+} from "@/shared/account/session-types";
+import type { MoneyActionOwner } from "@/shared/money-actions/types";
 
 export async function readAuthorizedMoneyActionSession(
   request: Request,

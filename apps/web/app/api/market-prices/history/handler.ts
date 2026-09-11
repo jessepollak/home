@@ -9,7 +9,7 @@ import {
   resolveMarketPriceAssetIdentity,
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
-} from "@/server/market-data/codex/history-contract";
+} from "@/shared/invest/history-contract";
 import {
   getCodexTrendingMemes,
   type TrendingMemesResult,

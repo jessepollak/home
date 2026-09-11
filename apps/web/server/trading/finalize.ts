@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   MoneyActionOwner,
   PreparedMoneyAction,
-} from "@/features/money-actions/types";
+} from "@/shared/money-actions/types";
 import { moneyActionOwner } from "@/server/money-actions/session";
 import {
   appendPermit2Signature,
@@ -22,7 +22,7 @@ import type {
   TradeBalanceReader,
   Permit2StateReader,
   TradeSignerResolver,
-} from "./types";
+} from "@/shared/trading/server-types";
 
 const MAX_QUOTE_BLOCK_LEAD = BigInt(2);
 

@@ -9,8 +9,8 @@ import {
 import {
   BASE_USDC_ADDRESS,
   MORPHO_V1_CANDIDATE_ADDRESSES,
-} from "./config";
-import type { Address } from "./types";
+} from "@/shared/savings/config";
+import type { Address } from "@/shared/savings/types";
 
 afterEach(() => clearMorphoCacheForTests());
 

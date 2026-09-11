@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   PORTFOLIO_BASE_CHAIN_ID,
   assertPortfolioRegistry,
@@ -8,7 +10,7 @@ import type { FiatCurrencyCode } from "@/config/regions";
 import type {
   DirectPortfolioHolding,
   PortfolioInventorySnapshot,
-} from "@/server/valuation/types";
+} from "@/shared/portfolio/valuation-types";
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import {
   CDP_NATIVE_TOKEN_ADDRESS,
@@ -26,7 +28,7 @@ import {
   createVaultInventoryReader,
   type VaultInventorySnapshot,
 } from "./inventory-vault-rpc";
-import type { VerifiedPortfolioAccount } from "./types";
+import type { VerifiedPortfolioAccount } from "@/shared/portfolio/types";
 
 export const PORTFOLIO_INVENTORY_TIMEOUT_MS = 10_000;
 /** Fresh budget for omitted-cash `balanceOf` — not leftover from CDP + vaults. */

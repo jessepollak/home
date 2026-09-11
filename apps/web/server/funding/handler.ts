@@ -2,8 +2,8 @@ import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
   type VerifiedAccountSession,
-} from "@/features/account/session-types";
-import type { OnrampPaymentMethod } from "@/features/funding/types";
+} from "@/shared/account/session-types";
+import type { OnrampPaymentMethod } from "@/shared/funding/types";
 import type { CreateCoinbaseOnrampSession } from "./coinbase-onramp";
 import { CoinbaseOnrampError } from "./coinbase-onramp";
 

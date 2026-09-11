@@ -1,8 +1,8 @@
 import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
-} from "@/features/account/session-types";
-import type { Address, MorphoVaultPosition } from "./types";
+} from "@/shared/account/session-types";
+import type { Address, MorphoVaultPosition } from "@/shared/savings/types";
 
 const BASE_CHAIN_ID = 8453 as const;
 

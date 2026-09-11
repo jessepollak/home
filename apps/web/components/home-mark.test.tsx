@@ -1,4 +1,4 @@
-import "@/features/account/dom-test-harness";
+import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 

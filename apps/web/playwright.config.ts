@@ -56,10 +56,20 @@ const executablePath = cachedChromiumExecutable();
 
 export default defineConfig({
   testDir: "./tests/browser",
-  testMatch: "**/*.pw.ts",
+  testMatch: "smoke.pw.ts",
   fullyParallel: false,
   workers: 1,
+  webServer: {
+    command: "bun run dev -- --port 3199",
+    url: "http://localhost:3199",
+    reuseExistingServer: false,
+    env: {
+      ...process.env,
+      HOME_PLAYWRIGHT_SMOKE: "1",
+    },
+  },
   use: {
+    baseURL: "http://localhost:3199",
     browserName: "chromium",
     headless: true,
     launchOptions: executablePath ? { executablePath } : undefined,

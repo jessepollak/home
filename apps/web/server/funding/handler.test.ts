@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { FUNDING_BASE_USDC_ADDRESS } from "@/features/funding/types";
+import { FUNDING_BASE_USDC_ADDRESS } from "@/shared/funding/types";
 import { createFundingOnrampSessionHandler } from "./handler";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;

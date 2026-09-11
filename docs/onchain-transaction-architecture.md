@@ -2,7 +2,7 @@
 
 Status: **approved direction, Phase 1 in tree, Phase 2 §3 command contracts locked**. This document is specific to Home's current MoneyAction flow in `apps/web`; it is not a proposal for a general event-sourcing platform.
 
-Phase 2 §3 TypeScript commands live in [`apps/web/server/money-actions/attempt-commands.ts`](../apps/web/server/money-actions/attempt-commands.ts) (`ATTEMPT_COMMAND_CONTRACT_VERSION = 1`). Soft Pass inputs: [#175](https://github.com/jessepollak/home/issues/175) (CDP) and [#176](https://github.com/jessepollak/home/issues/176) (EIP-5792). Contract issue: [#181](https://github.com/jessepollak/home/issues/181). No additive attempt schema in this slice.
+Phase 2 §3 TypeScript commands live in [`apps/web/server/money-actions/attempt-commands.ts`](../apps/web/server/money-actions/attempt-commands.ts) (`ATTEMPT_COMMAND_CONTRACT_VERSION = 1`). Soft Pass inputs: [#175](https://github.com/jessepollak/home/issues/175) (CDP) and [#176](https://github.com/jessepollak/home/issues/176) (EIP-5792). Contract issue: [#181](https://github.com/jessepollak/home/issues/181). The Phase 3 production persistence boundary is [`apps/web/server/money-actions/attempt-store.ts`](../apps/web/server/money-actions/attempt-store.ts) (`ATTEMPT_STORE_CONTRACT_VERSION = 1`). No additive attempt schema or runtime activation is included in the contract-first milestone.
 
 ## Decision
 
@@ -16,7 +16,7 @@ The compatibility implementation does not change the store schema. It adds a pur
 
 ## Non-goals
 
-- **No database-and-wallet atomicity.** A browser wallet request cannot participate in Home's SQLite/Postgres transaction.
+- **No database-and-wallet atomicity.** A browser wallet request cannot participate in Home's PostgreSQL transaction.
 - **No rollback after ambiguous dispatch.** Once a wallet request may have begun, a missing reference is not evidence that nothing was submitted.
 - **No naïve terminal expiry.** Elapsed time must not make late transaction, user-operation, or provider evidence unattachable.
 - No generic workflow engine, event store, saga framework, or provider-neutral `execute(anything)` API.
@@ -250,10 +250,10 @@ The attempt schema should be additive and support a rolling deployment:
    - claimed reference-free `submitting`/`unknown` → attempt 1 marked ambiguous, admission state copied from existing policy;
    - terminal row → action plus attempt/result when dispatch occurred, preserving original timestamps and status.
 3. Never backfill a reference-free claimed row as unsubmitted, rolled back, or newly prepared.
-4. Continue accepting legacy evidence endpoints while translating them into `RecordProviderEvidence` commands. Dual-read the new projection first, then the legacy row during rollout; avoid dual writers with independent conflict rules.
+4. Continue accepting legacy evidence endpoints while translating them into `RecordProviderEvidence` commands. While compatibility writers coexist, inspect and reconcile the latest legacy state under the common operation-row authority, then update the legacy and attempt projections atomically. Treat new-first reads as authoritative only after migration completeness and writer compatibility are established.
 5. Keep legacy action IDs as public IDs. Generate deterministic attempt IDs for backfill or store an explicit legacy mapping.
 6. Make evidence uniqueness owner/provider-aware and preserve the existing verified execution uniqueness contract.
-7. Cut stores over together: Memory, SQLite, and Postgres must pass one parameterized contract before runtime selection changes.
+7. Use PostgreSQL/Neon as the sole production store. Keep a small in-memory logic double, while concurrency, restart, migration, and cleanup acceptance run only against real PostgreSQL.
 8. Remove legacy status mutation only after all clients use typed commands and rollback has been rehearsed against a database snapshot.
 
 ## Fault-injection and real-store test strategy
@@ -276,7 +276,7 @@ Assertions must count calls, not rely only on UI copy: prepared and reference-fr
 
 ### Store contracts
 
-For each of Memory, SQLite, and Postgres:
+For the in-memory logic double and real PostgreSQL, with persistence/concurrency claims reserved for PostgreSQL:
 
 - concurrent claim grants one dispatch authorization/version;
 - repeated claim returns the same attempt as recover;
@@ -287,7 +287,7 @@ For each of Memory, SQLite, and Postgres:
 - migration fixtures preserve reference-free claimed rows as ambiguous;
 - process restart/remount retains attempts and evidence.
 
-Use temporary real SQLite files and the repository's real Postgres contract harness. Keep funded/live-provider tests opt-in and out of CI. Provider contract spikes should use documented sandboxes or controlled unfunded requests where possible; no replay guarantee is accepted from mocks alone.
+Use the repository's disposable-schema real PostgreSQL contract harness for persistence, concurrency, restart, migration, and cleanup. Keep funded/live-provider tests opt-in and out of CI. Provider contract spikes should use documented sandboxes or controlled unfunded requests where possible; no replay guarantee is accepted from mocks alone.
 
 ## Staged implementation plan
 
@@ -311,9 +311,11 @@ Use temporary real SQLite files and the repository's real Postgres contract harn
 
 ### Phase 3 — additive attempt persistence
 
+The canonical store contract keeps the legacy `MoneyActionStore` facade and common operation-row CAS authority during rollout while adding separately named typed attempt commands. It fixes owner-scoped immutable snapshots; store-generated production attempt IDs and deterministic legacy IDs; action/attempt/dispatch version fencing; exact-fact evidence idempotence; a server-internal verified-observation apply input that rechecks versions plus the provider-kind-aware evidence-lookup/execution/result binding transactionally; and uniform Memory/SQLite/Postgres resource lifecycle signatures. A verified user-operation `U` may be acquired from exact user-operation, containing transaction `T`, or Base submission-handle evidence while preserving `U`—not `T`—as the unique execution identity; direct transaction execution still binds evidence, execution, and result to the same `T`. Sensitive dispatch calldata remains a transient overlay and is never part of the durable attempt snapshot; its durable recipients and values stay exact and its substituted calldata is verified against the issuance digest. Legacy import is lossless and preserves status, references, timestamps, attempt count, abandonment, any existing verified execution key, and unknown provenance; abandonment or a verified key is historical attempt evidence, and reference-free claimed or contradictory rows remain non-dispatchable and never imply non-submission. Every store error explicitly grants no dispatch authority.
+
 - Under one store owner, add action revisions, attempts, evidence, reconciliation, and admission fields/tables.
-- Implement atomic typed commands in Memory, SQLite, and Postgres together.
-- Backfill and dual-read legacy rows as described above.
+- Implement atomic typed commands in PostgreSQL, with only a small in-memory logic double for fast tests.
+- Backfill and reconcile compatibility rows under the common operation-row authority as described above.
 - Keep current client routes as compatibility projections until all callers migrate.
 
 ### Phase 4 — owner abandonment and admission release

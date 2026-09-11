@@ -21,9 +21,9 @@ export {
   BASE_USDC_ADDRESS,
   BASE_USDC_DECIMALS,
   NATIVE_ETH_DECIMALS,
-} from "./types";
+} from "@/shared/portfolio/types";
 export type {
   PortfolioAssetBalance,
   PortfolioSnapshot,
   VerifiedPortfolioAccount,
-} from "./types";
+} from "@/shared/portfolio/types";

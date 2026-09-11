@@ -3,14 +3,14 @@ import {
   BASE_USDC_ADDRESS,
   BASE_USDC_DECIMALS,
   isConfiguredMorphoVault,
-} from "./config";
+} from "@/shared/savings/config";
 import {
   MORPHO_API_VERSION,
   type Address,
   type MorphoSource,
   type MorphoVaultCandidate,
   type MorphoVaultPosition,
-} from "./types";
+} from "@/shared/savings/types";
 
 export class MorphoSchemaError extends Error {
   constructor(message: string) {

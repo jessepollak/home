@@ -1,4 +1,4 @@
-import "@/features/account/dom-test-harness";
+import "@/client/account/dom-test-harness";
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

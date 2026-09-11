@@ -4,7 +4,7 @@ import {
   encodeFunctionData,
   type Hex as ViemHex,
 } from "viem";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { AccessTokenValidator } from "@/server/cdp/session";
 import { resolveBaseRpcUrl, PORTFOLIO_RPC_TIMEOUT_MS } from "@/server/portfolio/rpc";
 import { nonceBitmapPosition, PERMIT2_ADDRESS } from "./permit2";
@@ -15,7 +15,7 @@ import type {
   Permit2StateReader,
   SmartAccountSignatureVerifier,
   TradeSignerResolver,
-} from "./types";
+} from "@/shared/trading/server-types";
 
 const FACTORY_ADDRESS = "0xba5ed110efdba3d005bfc882d75358acbbb85842" as const;
 const ERC1271_MAGIC = "0x1626ba7e";

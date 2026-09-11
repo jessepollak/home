@@ -1,5 +1,5 @@
 import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
-import { isBaseAccountEnabled } from "@/features/account/session-types";
+import { isBaseAccountEnabled } from "@/shared/account/session-types";
 import { createSessionHandler } from "@/server/cdp/session";
 
 export const runtime = "nodejs";

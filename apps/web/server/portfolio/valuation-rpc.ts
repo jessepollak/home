@@ -13,9 +13,9 @@ import type {
   DirectPortfolioHolding,
   PortfolioInventorySnapshot,
   VaultPortfolioHolding,
-} from "@/server/valuation/types";
+} from "@/shared/portfolio/valuation-types";
 import { resolveBaseRpcUrl } from "./rpc";
-import type { VerifiedPortfolioAccount } from "./types";
+import type { VerifiedPortfolioAccount } from "@/shared/portfolio/types";
 
 export const VALUATION_RPC_BATCH_MAX = 10;
 export const VALUATION_RPC_TIMEOUT_MS = 6_000;

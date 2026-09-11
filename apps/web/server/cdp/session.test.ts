@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ACCOUNT_PROVIDER_HEADER } from "@/features/account/session-types";
+import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import {
   AuthUnavailableError,
   InvalidAccessTokenError,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { encodeAbiParameters } from "viem";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { createTradeSignerResolver } from "./signer";
 
 const SMART = "0x1111111111111111111111111111111111111111" as const;

@@ -4,7 +4,7 @@ import {
   BASE_USDC_DECIMALS,
   MORPHO_GRAPHQL_ENDPOINT,
   isConfiguredMorphoVault,
-} from "./config";
+} from "@/shared/savings/config";
 import { parseLosslessJson } from "./lossless-json";
 import {
   MorphoSchemaError,
@@ -18,7 +18,7 @@ import {
   type MorphoVaultPosition,
   type MorphoVaultsResult,
   type VerifiedMorphoAccount,
-} from "./types";
+} from "@/shared/savings/types";
 
 const REQUEST_TIMEOUT_MS = 8_000;
 const FRESH_CACHE_MS = 30_000;

@@ -1,7 +1,7 @@
 import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
-} from "@/features/account/session-types";
+} from "@/shared/account/session-types";
 import { ChainDataError } from "@/server/chain-data/errors";
 import type { ActivityReader } from "./types";
 

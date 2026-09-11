@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/features/account/session-types";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
+import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/shared/account/session-types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import {
   BORROW_COLLATERAL_TOKEN,
   BORROW_IRM_ADDRESS,
@@ -9,11 +9,11 @@ import {
   BORROW_MARKET_ID,
   BORROW_ORACLE_ADDRESS,
   MORPHO_BLUE_ADDRESS,
-} from "./config";
+} from "@/shared/borrowing/config";
 import { createBorrowHandlers } from "./handler";
 import { ORACLE_PRICE_SCALE } from "./math";
 import type { BorrowRpcReader } from "./rpc";
-import type { BorrowMarketSnapshot } from "./types";
+import type { BorrowMarketSnapshot } from "@/shared/borrowing/types";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;

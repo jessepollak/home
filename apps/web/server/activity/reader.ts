@@ -4,7 +4,7 @@ import {
   activityAssets,
   type ActivityAssetId,
   type ActivityPage,
-} from "@/features/activity/types";
+} from "@/shared/activity/types";
 import { createBaseErc20TransferHistory } from "@/server/chain-data/base-erc20-transfers";
 import {
   createCdpSqlAuthFromEnv,

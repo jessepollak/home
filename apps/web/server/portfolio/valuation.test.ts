@@ -7,19 +7,19 @@ import {
   portfolioVaults,
   verifiedLocalCashAssets,
 } from "@/config/portfolio-assets";
-import { parsePortfolioValuationSnapshot } from "@/features/portfolio-valuation/parse";
-import { presentPortfolioValuation } from "@/features/portfolio-valuation/present-home-balances";
+import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/parse-valuation";
+import { presentPortfolioValuation } from "@/shared/portfolio/present-home-balances";
 import type { CodexRawQuoteInput } from "@/server/market-data/codex/raw-quotes";
-import { supportedFiatCurrencies } from "@/server/valuation/fx-coinbase";
+import { supportedFiatCurrencies } from "@/server/portfolio/fx-coinbase";
 import type {
   FxQuote,
   NativeEthQuote,
   PortfolioInventorySnapshot,
   PriceQuote,
   ValuationSource,
-} from "@/server/valuation/types";
+} from "@/shared/portfolio/valuation-types";
 import { createPortfolioValuationReader } from "./valuation";
-import type { VerifiedPortfolioAccount } from "./types";
+import type { VerifiedPortfolioAccount } from "@/shared/portfolio/types";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const NOW = "2026-09-08T12:00:00.000Z";

@@ -103,17 +103,17 @@ Prune closed-PR origins. Keep production and localhost.
 - [ ] Preview auth only when the PR requires it: paste the branch-stable origin, confirm the address bar, retry email / Base Account.
 - [ ] After the PR closes: remove that preview origin from CORS (and SIWE / Onramp if you added them).
 
-## Money-action store: SQLite XOR Postgres
+## Money-action store: PostgreSQL/Neon only
 
-Exactly one store is active per process. There is no dual-write.
+PostgreSQL/Neon is the sole production money-action store. There is no SQLite fallback or dual-write.
 
 | Runtime | Selection | Adapter |
 |---|---|---|
-| Local `bun dev` with `DATABASE_URL` unset | SQLite | `SqliteMoneyActionStore` (`node:sqlite`, `.local/`) |
-| `DATABASE_URL` set | Postgres/Neon only | `PostgresMoneyActionStore` (`@neondatabase/serverless`) |
-| Vercel without `DATABASE_URL` | Fail closed | Does **not** load `node:sqlite` |
+| Local or hosted with `DATABASE_URL` and `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty` | Postgres/Neon | `PostgresMoneyActionStore` (`@neondatabase/serverless`) |
+| `DATABASE_URL` set without verified-empty cutover | Fail closed | Prevents stranding unresolved legacy SQLite actions |
+| Local or hosted without `DATABASE_URL` | Fail closed | No durable money-action adapter is constructed |
 
-`apps/web/server/money-actions/runtime-store.ts` selects the adapter. Hosted Turbopack builds alias the SQLite module to a stub so the serverless graph never loads `node:sqlite`. Tests keep using `setMoneyActionStoreForTests`. Feature plan contracts and browser execution are unchanged.
+`apps/web/server/money-actions/runtime-store.ts` enforces this selection. `verified-empty` is an explicit operator assertion that the retired SQLite store contains no unresolved action, attempt, or reference requiring migration; setting `DATABASE_URL` alone never activates the new store. Tests may inject the small in-memory store through `setMoneyActionStoreForTests`. Feature plan contracts and browser execution are unchanged.
 
 ### Operator setup (Neon on Vercel)
 
@@ -122,9 +122,10 @@ Exactly one store is active per process. There is no dual-write.
    ```sh
    bun run money-actions:migrate
    ```
-   Equivalent SQL: `apps/web/server/money-actions/migrations/001_money_action_operations.sql` (Neon SQL editor also works). The hosted store applies the same `CREATE IF NOT EXISTS` statements on first use.
-3. Confirm `DATABASE_URL` is set for Production and Preview. Do not set it in `.env.local` unless you intend to use Postgres instead of SQLite locally.
-4. Redeploy. Hosted selection must not import `node:sqlite`.
+   Operator SQL lives in `apps/web/server/money-actions/migrations/001_money_action_operations.sql` and `002_money_action_attempts.sql`. The migration command also canonicalizes existing hash references and rebuilds evidence reservations without resetting unresolved operations. The hosted store applies the same idempotent migration on first use.
+3. Before cutover, inspect the retired SQLite data and resolve or migrate every unresolved action/reference. Only a verified-empty legacy store authorizes setting `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty`.
+4. Confirm `DATABASE_URL` and the verified-empty cutover variable are set for local development, Production, and Preview when money actions are exercised.
+5. Redeploy. Money-action selection must fail closed rather than choosing another durable adapter.
 5. If PR preview builds fail at Neon’s branch cap, add the GitHub Actions credentials in [Neon preview branch cleanup](#neon-preview-branch-cleanup-github-actions) and prune stale `preview/*` branches.
 
 The table stores action plans, immutable review hashes, owner tuples, statuses, attempts, and public chain/provider refs. It stores no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.

@@ -9,7 +9,7 @@ import type {
   CoinbaseSmartWalletTypedData,
   Hex,
   Permit2TypedData,
-} from "./types";
+} from "@/shared/trading/server-types";
 import { TradePreparationError } from "./prepare";
 
 export const BASE_CHAIN_ID = 8453 as const;

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { AuthenticatedBorrowExperience } from "@/features/borrowing/borrowing-experience";
+import { AuthenticatedBorrowExperience } from "@/client/borrowing/borrowing-experience";
 
 export const metadata: Metadata = {
   title: "Borrow · Home",

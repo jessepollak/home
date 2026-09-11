@@ -1,12 +1,12 @@
-import type { VerifiedAccountSession } from "@/features/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   TRANSFER_ASSETS,
   assertTransferRequest,
   buildTransferCall,
-} from "@/features/transfers/transfer-helpers";
-import type { TransferRequest } from "@/features/transfers/types";
-import type { PreparedMoneyAction } from "@/features/money-actions/types";
-import { PORTFOLIO_BASE_USDC_ADDRESS } from "@/features/portfolio/types";
+} from "@/shared/transfers/transfer-helpers";
+import type { TransferRequest } from "@/shared/transfers/types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { PORTFOLIO_BASE_USDC_ADDRESS } from "@/shared/portfolio/types";
 import { issueMoneyAction } from "./issue";
 import { readAuthorizedMoneyActionSession } from "./session";
 import type { SessionAuthorizer } from "./handlers";

@@ -1,8 +1,8 @@
-import { isBaseAccountEnabled } from "@/features/account/session-types";
+import { isBaseAccountEnabled } from "@/shared/account/session-types";
 import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
 import { createSessionHandler } from "@/server/cdp/session";
 import { createTransferReceiptHandler } from "@/server/transfers/handler";
-import { getTransferReceipt } from "@/server/transfers/receipt";
+import { getTransferReceipt } from "@/server/money-actions/receipt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

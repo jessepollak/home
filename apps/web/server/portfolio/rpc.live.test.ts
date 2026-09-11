@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BASE_CHAIN_ID, type VerifiedPortfolioAccount } from "./types";
+import { BASE_CHAIN_ID, type VerifiedPortfolioAccount } from "@/shared/portfolio/types";
 import {
   createBasePortfolioReader,
   inspectBaseRpcUrl,

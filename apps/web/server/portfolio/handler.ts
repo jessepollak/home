@@ -1,13 +1,13 @@
 import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
-} from "@/features/account/session-types";
+} from "@/shared/account/session-types";
 import {
   BASE_CHAIN_ID,
   type Address,
   type PortfolioSnapshot,
   type VerifiedPortfolioAccount,
-} from "./types";
+} from "@/shared/portfolio/types";
 
 export type SessionAuthorizer = (request: Request) => Promise<Response>;
 export type PortfolioReader = (

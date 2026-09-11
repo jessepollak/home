@@ -1,12 +1,6 @@
 import type { ReactNode } from "react";
 import styles from "./finance-rows.module.css";
 
-export type RowExplorerLink = {
-  href: string;
-  label: string;
-  title?: string;
-};
-
 type FinanceRowProps = {
   kind: "activity" | "balance" | "asset";
   icon: ReactNode;
@@ -18,7 +12,8 @@ type FinanceRowProps = {
   valueContext?: ReactNode;
   valueContextTitle?: string;
   valueTone?: "default" | "accent" | "error" | "muted";
-  explorer?: RowExplorerLink;
+  onActivate?: () => void;
+  activateLabel?: string;
 };
 
 export type ActivityRowProps = Omit<FinanceRowProps, "kind">;
@@ -48,13 +43,15 @@ function FinanceRow({
   valueContext,
   valueContextTitle,
   valueTone = "default",
-  explorer,
+  onActivate,
+  activateLabel,
 }: FinanceRowProps) {
+  const interactive = Boolean(onActivate);
   return (
     <li
       className={styles.row}
       data-kind={kind}
-      data-has-explorer={explorer ? "true" : "false"}
+      data-interactive={interactive ? "true" : "false"}
     >
       <span className={styles.icon} data-tone={iconTone} aria-hidden="true">
         {icon}
@@ -69,27 +66,17 @@ function FinanceRow({
           <small title={valueContextTitle}>{valueContext}</small>
         ) : null}
       </span>
-      {explorer ? (
-        <a
-          className={styles.explorer}
-          href={explorer.href}
-          target="_blank"
-          rel="noreferrer"
-          aria-label={explorer.label}
-          title={explorer.title}
-        >
-          <ExplorerIcon />
-        </a>
+      {interactive ? (
+        <>
+          <span className={styles.action} aria-hidden="true">›</span>
+          <button
+            className={styles.rowAction}
+            type="button"
+            onClick={onActivate}
+            aria-label={activateLabel ?? "View details"}
+          />
+        </>
       ) : null}
     </li>
-  );
-}
-
-function ExplorerIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M6 3h7v7M13 3 5 11" />
-      <path d="M11 9v4H3V5h4" />
-    </svg>
   );
 }

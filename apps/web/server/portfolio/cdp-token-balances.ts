@@ -1,3 +1,5 @@
+import "server-only";
+
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 
 export const CDP_TOKEN_BALANCES_HOST = "api.cdp.coinbase.com" as const;

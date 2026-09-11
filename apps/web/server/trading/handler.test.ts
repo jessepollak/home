@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/features/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { createTradeFinalizeHandler, createTradeHandler } from "./handler";
 import { TradePreparationError } from "./prepare";
 import { TradeRuntimeCapabilityError } from "./runtime-intent-store";

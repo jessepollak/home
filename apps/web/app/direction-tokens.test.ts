@@ -4,11 +4,11 @@ import { describe, expect, test } from "bun:test";
 
 const globals = readFileSync(resolve(import.meta.dir, "globals.css"), "utf8");
 const invest = readFileSync(
-  resolve(import.meta.dir, "../features/invest/invest-experience.module.css"),
+  resolve(import.meta.dir, "../client/invest/invest-experience.module.css"),
   "utf8",
 );
 const chart = readFileSync(
-  resolve(import.meta.dir, "../features/invest/price-chart.tsx"),
+  resolve(import.meta.dir, "../client/invest/price-chart.tsx"),
   "utf8",
 );
 
@@ -35,10 +35,30 @@ describe("Direction 1 — Vercel Editorial tokens", () => {
     expect(globals).toContain("animation: panel-fade var(--motion-tab) ease");
   });
 
-  test("pins a 56px header band on the authenticated shell", () => {
-    expect(globals).toContain(".app-frame-shell");
+  test("allocates dynamic viewport chrome around one cleared authenticated scroll surface", () => {
+    const shell = globals.slice(
+      globals.indexOf(".app-frame-shell {"),
+      globals.indexOf(".app-frame:has(.app-main-authenticated)"),
+    );
+    const authenticatedMain = globals.slice(
+      globals.indexOf(".app-main-authenticated {"),
+      globals.indexOf(".landing-main,"),
+    );
+
+    expect(shell).toContain("height: 100vh");
+    expect(shell).toContain("height: 100svh");
+    expect(shell).toContain("height: 100dvh");
+    expect(shell).toContain("max-height: 100dvh");
     expect(globals).toContain("min-height: calc(56px + env(safe-area-inset-top, 0px))");
-    expect(globals).toContain("overflow-y: auto");
+    expect(authenticatedMain).toContain("min-height: 0");
+    expect(authenticatedMain).toContain("overflow-y: auto");
+    expect(authenticatedMain).toContain(
+      "padding-bottom: max(16px, env(safe-area-inset-bottom, 0px))",
+    );
+    expect(authenticatedMain).toContain(
+      "scroll-padding-bottom: max(16px, env(safe-area-inset-bottom, 0px))",
+    );
+    expect(authenticatedMain).toContain("-webkit-overflow-scrolling: touch");
   });
 
   test("lets meme Δ% green/red beat muted .quote small", () => {
