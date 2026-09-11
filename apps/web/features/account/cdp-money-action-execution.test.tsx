@@ -8,7 +8,7 @@ import {
   embeddedObservation, fireEvent, page, portfolioResponse, preparedMoneyAction, render,
   sdkObservation, sessionFor, sessionResponse, storedMoneyAction, waitFor, SessionHarness,
   BASE_CHAIN_ID,
-  type AccountWalletSdkBoundary, type PreparedMoneyAction, type SessionFetch, type VerifiedAccountSession,
+  type AccountWalletClient, type AccountWalletSdkBoundary, type PreparedMoneyAction, type SessionFetch, type VerifiedAccountSession,
 } from "./cdp-client-test-harness";
 import { BaseAccountConnectorError, type BaseAccountConnector, type BaseAccountRestorer } from "./base-account-connector";
 import { ACCOUNT_PROVIDER_HEADER } from "./session-types";
@@ -21,6 +21,104 @@ afterEach(() => {
 });
 
 describe("money-action execution and authenticated transport", () => {
+  test("rejects a paused authenticated request after failed logout without sending HTTP", async () => {
+    const pausedToken = deferred<string | null>();
+    let tokenCalls = 0;
+    let resourceHttpCalls = 0;
+    let latestClient: AccountWalletClient | null = null;
+    let retainedClient: AccountWalletClient | null = null;
+    const sdk = baseSdk({
+      getAccessToken: async () => {
+        tokenCalls += 1;
+        return tokenCalls === 1 ? "token-a" : pausedToken.promise;
+      },
+      signOut: async () => {
+        throw new Error("fixture logout failed");
+      },
+    });
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") {
+        return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      }
+      resourceHttpCalls += 1;
+      return Response.json({ private: true });
+    };
+
+    render(
+      <SessionHarness
+        sdk={sdk}
+        sessionFetch={sessionFetch}
+        onClient={(client) => {
+          latestClient = client;
+          if (client.session && !retainedClient) retainedClient = client;
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(retainedClient?.session?.user.subject).toBe("subject-a"),
+    );
+
+    const request = retainedClient!.fetchAccountResource(
+      "/api/savings/actions/prepare",
+      { method: "POST", body: { amountBaseUnits: "1000000" } },
+    );
+    await waitFor(() => expect(tokenCalls).toBe(2));
+    await act(async () => {
+      await latestClient!.signOut().catch(() => {});
+    });
+    pausedToken.resolve("token-a");
+
+    await expect(request).rejects.toMatchObject({ reason: "stale-session" });
+    expect(resourceHttpCalls).toBe(0);
+  });
+
+  test("rejects owner A's retained authenticated callback after owner B verifies without sending HTTP", async () => {
+    let activeToken = "token-a";
+    let resourceHttpCalls = 0;
+    let retainedOwnerAClient: AccountWalletClient | null = null;
+    const sdk = baseSdk({ getAccessToken: async () => activeToken });
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") {
+        const authorization = new Headers(init?.headers).get("Authorization");
+        return authorization === "Bearer token-b"
+          ? sessionResponse(sessionFor("subject-b", ADDRESS_B))
+          : sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      }
+      resourceHttpCalls += 1;
+      return Response.json({ owner: activeToken });
+    };
+    const view = render(
+      <SessionHarness
+        sdk={sdk}
+        sessionFetch={sessionFetch}
+        onClient={(client) => {
+          if (client.session?.user.subject === "subject-a" && !retainedOwnerAClient) {
+            retainedOwnerAClient = client;
+          }
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(retainedOwnerAClient?.session?.user.subject).toBe("subject-a"),
+    );
+
+    activeToken = "token-b";
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, ownerKey: OWNER_B }}
+        sessionFetch={sessionFetch}
+      />,
+    );
+    await waitFor(() =>
+      expect(page().getByTestId("address").textContent).toBe(ADDRESS_B),
+    );
+
+    await expect(
+      retainedOwnerAClient!.fetchAccountResource("/api/actions/operations"),
+    ).rejects.toMatchObject({ reason: "stale-session" });
+    expect(resourceHttpCalls).toBe(0);
+  });
+
   test("keeps Base mode on the fixed same-origin portfolio request", async () => {
     const requests: { input: RequestInfo | URL; init?: RequestInit }[] = [];
     const sessionFetch: SessionFetch = async (input, init) => {

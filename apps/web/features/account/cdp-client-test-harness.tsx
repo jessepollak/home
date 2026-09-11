@@ -1,8 +1,8 @@
 import "./dom-test-harness";
 
 import type { GetUserOperationResult } from "@coinbase/cdp-core";
-import { StrictMode, useState } from "react";
-import type { AccountWalletSdkBoundary } from "./cdp-client";
+import { StrictMode, useEffect, useState } from "react";
+import type { AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client";
 import type {
   BaseAccountConnector,
   BaseAccountRestorer,
@@ -202,10 +202,18 @@ export function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-export function AccountProbe({ moneyAction }: { moneyAction?: PreparedMoneyAction }) {
+export function AccountProbe({
+  moneyAction,
+  onClient,
+}: {
+  moneyAction?: PreparedMoneyAction;
+  onClient?: (client: AccountWalletClient) => void;
+}) {
   const client = useAccountWallet();
   const [emailFlowId, setEmailFlowId] = useState<string | null>(null);
   const [moneyActionStatus, setMoneyActionStatus] = useState("idle");
+
+  useEffect(() => onClient?.(client), [client, onClient]);
 
   return (
     <div>
@@ -375,6 +383,7 @@ export function SessionHarness({
   baseAccountConnector,
   baseAccountRestorer,
   moneyAction,
+  onClient,
   providerHandleJournalStorage,
   providerHandleJournalLock,
 }: {
@@ -384,6 +393,7 @@ export function SessionHarness({
   baseAccountConnector?: BaseAccountConnector;
   baseAccountRestorer?: BaseAccountRestorer;
   moneyAction?: PreparedMoneyAction;
+  onClient?: (client: AccountWalletClient) => void;
   providerHandleJournalStorage?: ProviderHandleJournalStorage | null;
   providerHandleJournalLock?: ProviderHandleJournalLock | null;
 }) {
@@ -397,7 +407,7 @@ export function SessionHarness({
       providerHandleJournalStorage={providerHandleJournalStorage}
       providerHandleJournalLock={providerHandleJournalLock}
     >
-      <AccountProbe moneyAction={moneyAction} />
+      <AccountProbe moneyAction={moneyAction} onClient={onClient} />
     </AccountWalletSessionOwner>
   );
 }
@@ -438,4 +448,4 @@ export function baseSdk(
 
 
 export { StrictMode };
-export type { AccountWalletSdkBoundary, SessionFetch, VerifiedAccountSession, PreparedMoneyAction };
+export type { AccountWalletClient, AccountWalletSdkBoundary, SessionFetch, VerifiedAccountSession, PreparedMoneyAction };

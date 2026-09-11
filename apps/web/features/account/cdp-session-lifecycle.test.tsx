@@ -680,6 +680,544 @@ describe("session lifecycle", () => {
     expect(page().getByTestId("address").textContent).toBe(ADDRESS_B);
   });
 
+  for (const bFailureReason of ["401", "missing-connection"] as const) {
+    for (const ownerACleanupOutcome of ["success", "failure"] as const) {
+      for (const postJoinState of [
+        "fresh-a",
+        "fresh-c",
+        "owner-null-success",
+        "owner-null-failure",
+      ] as const) {
+        test(`fences ${bFailureReason} owner B cleanup after owner A ${ownerACleanupOutcome} when ${postJoinState}`, async () => {
+          window.sessionStorage.setItem("home:account-provider", "base-account");
+          const ownerACleanup = deferred<void>();
+          const ownerBCleanup = deferred<void>();
+          let activeSdkOwner: string | null = OWNER_A;
+          let signOutCalls = 0;
+          let ownerBSessionCalls = 0;
+          let restoreCalls = 0;
+          let emailSignInCalls = 0;
+          let baseConnectorCalls = 0;
+          const signOutOwners: Array<string | null> = [];
+          const sdk = baseSdk({
+            getAccessToken: async () => `token-${activeSdkOwner ?? "none"}`,
+            signInWithEmail: async () => {
+              emailSignInCalls += 1;
+              return { flowId: "must-not-start" };
+            },
+            signOut: () => {
+              signOutOwners.push(activeSdkOwner);
+              signOutCalls += 1;
+              if (signOutCalls === 1) return ownerACleanup.promise;
+              if (signOutCalls === 2) return ownerBCleanup.promise;
+              return Promise.resolve();
+            },
+          });
+          const baseAccountRestorer: BaseAccountRestorer = async () => {
+            restoreCalls += 1;
+            throw new BaseAccountConnectorError("missing-connection");
+          };
+          const baseAccountConnector: BaseAccountConnector = async () => {
+            baseConnectorCalls += 1;
+            return connectedBaseAccount({ address: ADDRESS_B });
+          };
+          const view = render(
+            <SessionHarness
+              sdk={sdk}
+              sessionFetch={async () =>
+                sessionResponse(
+                  sessionFor("siwe-subject-a", ADDRESS_A, "base-account"),
+                )
+              }
+              baseAccountEnabled
+              baseAccountConnector={baseAccountConnector}
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+
+          await waitFor(() => expect(signOutCalls).toBe(1));
+          expect(signOutOwners).toEqual([OWNER_A]);
+          activeSdkOwner = OWNER_B;
+          view.rerender(
+            <SessionHarness
+              sdk={{ ...sdk, ownerKey: OWNER_B }}
+              sessionFetch={async () => {
+                ownerBSessionCalls += 1;
+                return bFailureReason === "401"
+                  ? new Response(null, { status: 401 })
+                  : sessionResponse(
+                      sessionFor("siwe-subject-b", ADDRESS_B, "base-account"),
+                    );
+              }}
+              baseAccountEnabled
+              baseAccountConnector={baseAccountConnector}
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+
+          await waitFor(() => expect(ownerBSessionCalls).toBe(1));
+          if (bFailureReason === "missing-connection") {
+            await waitFor(() => expect(restoreCalls).toBe(2));
+          } else {
+            expect(restoreCalls).toBe(1);
+          }
+          expect(signOutCalls).toBe(1);
+          expect(page().getByTestId("status").textContent).toBe("signing-out");
+          expect(page().getByTestId("address").textContent).toBe(
+            "private-details-hidden",
+          );
+
+          const freshOwner =
+            postJoinState === "fresh-a"
+              ? {
+                  ownerKey: OWNER_A,
+                  address: ADDRESS_A,
+                  subject: "fresh-subject-a",
+                } as const
+              : postJoinState === "fresh-c"
+                ? {
+                    ownerKey: OWNER_C,
+                    address: ADDRESS_C,
+                    subject: "fresh-subject-c",
+                  } as const
+                : null;
+          if (freshOwner) {
+            activeSdkOwner = freshOwner.ownerKey;
+            view.rerender(
+              <SessionHarness
+                sdk={{ ...sdk, ownerKey: freshOwner.ownerKey }}
+                sessionFetch={async () =>
+                  sessionResponse(
+                    sessionFor(freshOwner.subject, freshOwner.address),
+                  )
+                }
+                baseAccountEnabled
+                baseAccountConnector={baseAccountConnector}
+                baseAccountRestorer={baseAccountRestorer}
+              />,
+            );
+            await waitFor(() =>
+              expect(page().getByTestId("address").textContent).toBe(
+                freshOwner.address,
+              ),
+            );
+            expect(page().getByTestId("status").textContent).toBe("verified");
+          } else {
+            activeSdkOwner = null;
+            view.rerender(
+              <SessionHarness
+                sdk={{ ...sdk, isSignedIn: false, ownerKey: null }}
+                sessionFetch={async () => new Response(null, { status: 401 })}
+                baseAccountEnabled
+                baseAccountConnector={baseAccountConnector}
+                baseAccountRestorer={baseAccountRestorer}
+              />,
+            );
+            await waitFor(() =>
+              expect(page().getByTestId("status").textContent).toBe(
+                "signing-out",
+              ),
+            );
+          }
+
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe email code" }),
+          );
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe Base sign in" }),
+          );
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          });
+          expect(emailSignInCalls).toBe(0);
+          expect(baseConnectorCalls).toBe(0);
+          expect(signOutCalls).toBe(1);
+
+          await act(async () => {
+            if (ownerACleanupOutcome === "success") {
+              ownerACleanup.resolve();
+              await ownerACleanup.promise;
+            } else {
+              ownerACleanup.reject(new Error("stale owner-a cleanup failure"));
+              await ownerACleanup.promise.catch(() => {});
+            }
+          });
+
+          if (freshOwner) {
+            await act(async () => {
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            });
+            expect(signOutCalls).toBe(1);
+            expect(signOutOwners).toEqual([OWNER_A]);
+            expect(page().getByTestId("status").textContent).toBe("verified");
+            expect(page().getByTestId("address").textContent).toBe(
+              freshOwner.address,
+            );
+            expect(page().getByTestId("provider").textContent).toBe(
+              "cdp-embedded",
+            );
+            return;
+          }
+
+          await waitFor(() => expect(signOutCalls).toBe(2));
+          expect(signOutOwners).toEqual([OWNER_A, null]);
+          expect(page().getByTestId("status").textContent).toBe("signing-out");
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe email code" }),
+          );
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe Base sign in" }),
+          );
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          });
+          expect(emailSignInCalls).toBe(0);
+          expect(baseConnectorCalls).toBe(0);
+          expect(signOutCalls).toBe(2);
+
+          await act(async () => {
+            if (postJoinState === "owner-null-success") {
+              ownerBCleanup.resolve();
+              await ownerBCleanup.promise;
+            } else {
+              ownerBCleanup.reject(new Error("owner-b cleanup failure"));
+              await ownerBCleanup.promise.catch(() => {});
+            }
+          });
+
+          if (postJoinState === "owner-null-success") {
+            await waitFor(() =>
+              expect(page().getByTestId("status").textContent).toBe(
+                "signed-out",
+              ),
+            );
+            expect(signOutCalls).toBe(2);
+            expect(page().getByTestId("address").textContent).toBe(
+              "private-details-hidden",
+            );
+            if (bFailureReason === "missing-connection") {
+              expect(
+                window.sessionStorage.getItem("home:account-provider"),
+              ).toBeNull();
+            }
+            return;
+          }
+
+          await waitFor(() =>
+            expect(page().getByTestId("status").textContent).toBe(
+              "signout-error",
+            ),
+          );
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe email code" }),
+          );
+          fireEvent.click(
+            page().getByRole("button", { name: "Probe Base sign in" }),
+          );
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          });
+          expect(emailSignInCalls).toBe(0);
+          expect(baseConnectorCalls).toBe(0);
+          expect(signOutCalls).toBe(2);
+
+          fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+          await waitFor(() => expect(signOutCalls).toBe(3));
+          expect(signOutOwners).toEqual([OWNER_A, null, null]);
+          await waitFor(() =>
+            expect(page().getByTestId("status").textContent).toBe("signed-out"),
+          );
+          expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
+        });
+      }
+    }
+  }
+
+  for (const persistedHint of [
+    "pending:base-account",
+    "pending:cdp-embedded",
+  ] as const) {
+    for (const freshOwner of [
+      { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
+      { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
+    ] as const) {
+      for (const freshArrival of [
+        "before-b-settlement",
+        "after-b-settlement",
+      ] as const) {
+        for (const ownerBCleanupOutcome of ["success", "failure"] as const) {
+          test(`scopes ${persistedHint} to owner B so fresh ${freshOwner.label} validates ${freshArrival} after B cleanup ${ownerBCleanupOutcome}`, async () => {
+            window.sessionStorage.setItem("home:account-provider", persistedHint);
+            const ownerBCleanup = deferred<void>();
+            let activeSdkOwner: string | null = OWNER_B;
+            let sessionCalls = 0;
+            let signOutCalls = 0;
+            const signOutOwners: Array<string | null> = [];
+            const sdk = baseSdk({
+              ownerKey: OWNER_B,
+              getAccessToken: async () => `token-${activeSdkOwner ?? "none"}`,
+              signOut: () => {
+                signOutCalls += 1;
+                signOutOwners.push(activeSdkOwner);
+                return ownerBCleanup.promise;
+              },
+            });
+            const view = render(
+              <SessionHarness
+                sdk={sdk}
+                sessionFetch={async () => {
+                  sessionCalls += 1;
+                  return sessionResponse(
+                    sessionFor("unexpected-owner-b", ADDRESS_B),
+                  );
+                }}
+              />,
+            );
+
+            await waitFor(() => expect(signOutCalls).toBe(1));
+            expect(signOutOwners).toEqual([OWNER_B]);
+            expect(sessionCalls).toBe(0);
+            expect(page().getByTestId("status").textContent).toBe("signing-out");
+            expect(page().getByTestId("address").textContent).toBe(
+              "private-details-hidden",
+            );
+
+            activeSdkOwner = null;
+            view.rerender(
+              <SessionHarness
+                sdk={{ ...sdk, isSignedIn: false, ownerKey: null }}
+                sessionFetch={async () => new Response(null, { status: 401 })}
+              />,
+            );
+
+            const settleOwnerBCleanup = async () => {
+              await act(async () => {
+                if (ownerBCleanupOutcome === "success") {
+                  ownerBCleanup.resolve();
+                  await ownerBCleanup.promise;
+                } else {
+                  ownerBCleanup.reject(new Error("owner-b cleanup failure"));
+                  await ownerBCleanup.promise.catch(() => {});
+                }
+              });
+            };
+            const renderFreshOwner = () => {
+              activeSdkOwner = freshOwner.ownerKey;
+              view.rerender(
+                <SessionHarness
+                  sdk={{ ...sdk, ownerKey: freshOwner.ownerKey }}
+                  sessionFetch={async () => {
+                    sessionCalls += 1;
+                    return sessionResponse(
+                      sessionFor(
+                        `fresh-subject-${freshOwner.label.toLowerCase()}`,
+                        freshOwner.address,
+                      ),
+                    );
+                  }}
+                />,
+              );
+            };
+
+            if (freshArrival === "after-b-settlement") {
+              await settleOwnerBCleanup();
+              await waitFor(() =>
+                expect(page().getByTestId("status").textContent).toBe(
+                  ownerBCleanupOutcome === "success"
+                    ? "signed-out"
+                    : "signout-error",
+                ),
+              );
+              renderFreshOwner();
+            } else {
+              renderFreshOwner();
+            }
+
+            await waitFor(() =>
+              expect(page().getByTestId("address").textContent).toBe(
+                freshOwner.address,
+              ),
+            );
+            expect(page().getByTestId("status").textContent).toBe("verified");
+            expect(page().getByTestId("provider").textContent).toBe(
+              "cdp-embedded",
+            );
+            expect(sessionCalls).toBe(1);
+            expect(signOutCalls).toBe(1);
+            expect(signOutOwners).toEqual([OWNER_B]);
+            expect(window.sessionStorage.getItem("home:account-provider")).toBe(
+              "cdp-embedded",
+            );
+
+            if (freshArrival === "before-b-settlement") {
+              await settleOwnerBCleanup();
+              await act(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+              });
+              expect(page().getByTestId("status").textContent).toBe("verified");
+              expect(page().getByTestId("address").textContent).toBe(
+                freshOwner.address,
+              );
+              expect(sessionCalls).toBe(1);
+              expect(signOutCalls).toBe(1);
+              expect(signOutOwners).toEqual([OWNER_B]);
+            }
+          });
+        }
+      }
+    }
+  }
+
+  for (const ownerACleanupOutcome of ["success", "failure"] as const) {
+    for (const freshOwner of [
+      { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
+      { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
+    ] as const) {
+      for (const freshArrival of [
+        "before-b-settlement",
+        "after-b-failure",
+      ] as const) {
+        test(`replaces owner B blocked selection across null with fresh ${freshOwner.label} after owner A ${ownerACleanupOutcome} ${freshArrival}`, async () => {
+          window.sessionStorage.setItem("home:account-provider", "base-account");
+          const ownerACleanup = deferred<void>();
+          const ownerBCleanup = deferred<void>();
+          let activeSdkOwner: string | null = OWNER_A;
+          let signOutCalls = 0;
+          let ownerBSessionCalls = 0;
+          let restoreCalls = 0;
+          const sdk = baseSdk({
+            getAccessToken: async () => `token-${activeSdkOwner ?? "none"}`,
+            signOut: () => {
+              signOutCalls += 1;
+              return signOutCalls === 1
+                ? ownerACleanup.promise
+                : ownerBCleanup.promise;
+            },
+          });
+          const baseAccountRestorer: BaseAccountRestorer = async () => {
+            restoreCalls += 1;
+            throw new BaseAccountConnectorError("missing-connection");
+          };
+          const view = render(
+            <SessionHarness
+              sdk={sdk}
+              sessionFetch={async () =>
+                sessionResponse(
+                  sessionFor("siwe-subject-a", ADDRESS_A, "base-account"),
+                )
+              }
+              baseAccountEnabled
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+
+          await waitFor(() => expect(signOutCalls).toBe(1));
+          activeSdkOwner = OWNER_B;
+          view.rerender(
+            <SessionHarness
+              sdk={{ ...sdk, ownerKey: OWNER_B }}
+              sessionFetch={async () => {
+                ownerBSessionCalls += 1;
+                return sessionResponse(
+                  sessionFor("siwe-subject-b", ADDRESS_B, "base-account"),
+                );
+              }}
+              baseAccountEnabled
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+          await waitFor(() => expect(ownerBSessionCalls).toBe(1));
+          await waitFor(() => expect(restoreCalls).toBe(2));
+          expect(page().getByTestId("status").textContent).toBe("signing-out");
+
+          activeSdkOwner = null;
+          view.rerender(
+            <SessionHarness
+              sdk={{ ...sdk, isSignedIn: false, ownerKey: null }}
+              sessionFetch={async () => new Response(null, { status: 401 })}
+              baseAccountEnabled
+              baseAccountRestorer={baseAccountRestorer}
+            />,
+          );
+
+          await act(async () => {
+            if (ownerACleanupOutcome === "success") {
+              ownerACleanup.resolve();
+              await ownerACleanup.promise;
+            } else {
+              ownerACleanup.reject(new Error("owner-a cleanup failure"));
+              await ownerACleanup.promise.catch(() => {});
+            }
+          });
+          await waitFor(() => expect(signOutCalls).toBe(2));
+
+          const renderFreshOwner = () => {
+            activeSdkOwner = freshOwner.ownerKey;
+            view.rerender(
+              <SessionHarness
+                sdk={{ ...sdk, ownerKey: freshOwner.ownerKey }}
+                sessionFetch={async () =>
+                  sessionResponse(
+                    sessionFor(
+                      `fresh-subject-${freshOwner.label.toLowerCase()}`,
+                      freshOwner.address,
+                    ),
+                  )
+                }
+                baseAccountEnabled
+                baseAccountRestorer={baseAccountRestorer}
+              />,
+            );
+          };
+
+          if (freshArrival === "before-b-settlement") {
+            renderFreshOwner();
+            await waitFor(() =>
+              expect(page().getByTestId("address").textContent).toBe(
+                freshOwner.address,
+              ),
+            );
+          } else {
+            await act(async () => {
+              ownerBCleanup.reject(new Error("owner-b cleanup failure"));
+              await ownerBCleanup.promise.catch(() => {});
+            });
+            await waitFor(() =>
+              expect(page().getByTestId("status").textContent).toBe(
+                "signout-error",
+              ),
+            );
+            renderFreshOwner();
+          }
+
+          await waitFor(() =>
+            expect(page().getByTestId("address").textContent).toBe(
+              freshOwner.address,
+            ),
+          );
+          expect(page().getByTestId("status").textContent).toBe("verified");
+          expect(page().getByTestId("provider").textContent).toBe(
+            "cdp-embedded",
+          );
+          expect(signOutCalls).toBe(2);
+
+          if (freshArrival === "before-b-settlement") {
+            await act(async () => {
+              ownerBCleanup.reject(new Error("late owner-b cleanup failure"));
+              await ownerBCleanup.promise.catch(() => {});
+              await new Promise((resolve) => setTimeout(resolve, 0));
+            });
+            expect(page().getByTestId("status").textContent).toBe("verified");
+            expect(page().getByTestId("address").textContent).toBe(
+              freshOwner.address,
+            );
+            expect(signOutCalls).toBe(2);
+          }
+        });
+      }
+    }
+  }
+
   test("lets owner B explicitly sign out after a late owner A cleanup failure", async () => {
     window.sessionStorage.setItem("home:account-provider", "base-account");
     const ownerACleanup = deferred<void>();
