@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   CODEX_CACHE_TTL_MS,
   CODEX_GRAPHQL_ENDPOINT,

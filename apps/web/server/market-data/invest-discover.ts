@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { InvestAsset } from "@/config/invest-assets";
 import type { MarketSnapshot } from "@/shared/invest/invest-market";
 import {

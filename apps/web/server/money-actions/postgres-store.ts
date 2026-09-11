@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { ProviderEvidence } from "./attempt-commands";
 import { canTransitionMoneyActionStatus } from "./status-transitions.js";

@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { MoneyActionStore } from "./store";
 
 let injectedStore: MoneyActionStore | null = null;

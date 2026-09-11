@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   investAssets,
   type InvestAsset,

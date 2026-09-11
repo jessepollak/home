@@ -1,3 +1,5 @@
+import "server-only";
+
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import {
   FUNDING_BASE_CHAIN_ID,

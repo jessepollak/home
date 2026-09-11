@@ -4,9 +4,9 @@ import {
   ProviderHandleJournal,
   type ProviderHandleJournalLock,
   type ProviderHandleJournalStorage,
-} from "./provider-handle-journal";
-import { recoverJournaledProviderHandle } from "./provider-handle-recovery";
-import type { MoneyActionApiFetch } from "./client";
+} from "@/client/money-actions/provider-handle-journal";
+import { recoverJournaledProviderHandle } from "@/client/money-actions/provider-handle-recovery";
+import type { MoneyActionApiFetch } from "@/client/money-actions/client";
 import {
   createMoneyActionReadHandler,
   createMoneyActionSubmissionHandler,

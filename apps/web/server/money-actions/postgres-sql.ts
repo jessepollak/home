@@ -1,3 +1,5 @@
+import "server-only";
+
 import { Pool, type PoolClient } from "@neondatabase/serverless";
 
 export const MONEY_ACTION_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS money_action_operations (

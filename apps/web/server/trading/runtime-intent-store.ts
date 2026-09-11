@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { TradeIntentStore } from "@/shared/trading/server-types";
 
 let injectedStore: TradeIntentStore | null = null;

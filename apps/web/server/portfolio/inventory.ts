@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   PORTFOLIO_BASE_CHAIN_ID,
   assertPortfolioRegistry,
