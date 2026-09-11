@@ -22,11 +22,11 @@ bun install --frozen-lockfile
 bun check
 ```
 
-Optional, not in CI today:
+Additional focused checks:
 
 ```sh
 bun run --cwd apps/web test:browser-smoke
-node scripts/probe-money-actions-sqlite.mjs
+MONEY_ACTION_PG_TEST_URL=postgres://... bun test scripts/delivery/tests/postgres-money-action.test.ts
 ```
 
 Do not enable live Morpho/CDP SQL smokes or funded-wallet secrets in pull-request CI.
@@ -36,7 +36,7 @@ Do not enable live Morpho/CDP SQL smokes or funded-wallet secrets in pull-reques
 - One feature lane per PR (`apps/web/features/<x>` + `apps/web/server/<x>` + its API route).
 - Treat `apps/web/server/money-actions/` as a single-writer zone.
 - Never accept client-authored calldata. Never dispatch twice. Never authorize from `?wallet=` or a client user id.
-- Local SQLite under `.local/` is not production persistence.
+- Money-action persistence requires PostgreSQL/Neon; an unset `DATABASE_URL` fails closed.
 
 The full checklist is in the [contribution contract](docs/architecture-review-2026-09.md#d-contribution-contract-for-new-engineers).
 

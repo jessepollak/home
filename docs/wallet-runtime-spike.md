@@ -8,13 +8,11 @@ Home money actions now use a server-issued prepare → review → atomic claim �
 
 ## Persistence
 
-`MoneyActionStore` (`apps/web/server/money-actions/store.ts`) is the durable port. Exactly one adapter is active per process — SQLite **or** Postgres, never both. Selection lives in `apps/web/server/money-actions/runtime-store.ts`.
+`MoneyActionStore` (`apps/web/server/money-actions/store.ts`) is the durable port. PostgreSQL/Neon is the sole production adapter; selection lives in `apps/web/server/money-actions/runtime-store.ts` and requires both `DATABASE_URL` and `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty`. The cutover assertion is allowed only after verifying the retired SQLite store has no unresolved actions or references; otherwise runtime access fails closed. `MemoryMoneyActionStore` is only a small process-local test double.
 
-**Local `bun dev` (no `DATABASE_URL`):** Node-only `node:sqlite` at `apps/web/server/money-actions/sqlite-store.node.ts`. It writes ignored runtime data to `apps/web/.local/home-money-actions.sqlite` when Next runs from the web workspace (or `.local/home-money-actions.sqlite` relative to the active process working directory), with directory mode `0700` and database mode `0600`.
+The PostgreSQL adapter is `apps/web/server/money-actions/postgres-store.ts` using `@neondatabase/serverless`. Schemas live in `apps/web/server/money-actions/migrations/001_money_action_operations.sql` and `002_money_action_attempts.sql`. Operator migrate: `bun run money-actions:migrate` with `DATABASE_URL` set. Real-store contracts use disposable PostgreSQL schemas in CI. Setup: [Vercel deploy](vercel-deploy.md).
 
-**Hosted / `DATABASE_URL` set:** Neon/Postgres adapter at `apps/web/server/money-actions/postgres-store.ts` using `@neondatabase/serverless`. The Vercel path does not load `node:sqlite`. Schema: `apps/web/server/money-actions/migrations/001_money_action_operations.sql`. Operator migrate: `bun run money-actions:migrate` from local or CI with `DATABASE_URL` set (not the default Vercel build). Setup: [Vercel deploy](vercel-deploy.md).
-
-Both adapters store action plans, immutable review hashes, owner tuples, statuses, attempts, and public chain/provider operation references. They store no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
+The store keeps action plans, immutable review hashes, owner tuples, statuses, attempts, and public chain/provider operation references. It stores no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
 
 ### Swap runtime capability
 
@@ -40,4 +38,4 @@ Feature modules share `AccountWalletClient.fetchAccountResource(path, options)` 
 
 Base Account multi-call actions use the installed SDK provider's EIP-5792 `wallet_sendCalls` with `atomicRequired: true` and recover through `wallet_getCallsStatus`. CDP embedded accounts use one `sendUserOperation` call array and the prepared action id as the per-intent idempotency key. Immediately after either provider returns a valid handle, the browser synchronously retains a versioned owner/action/provider-bound journal entry before evidence upload. Failed or lost submission responses are retried only with that identical handle after an owner-fenced durable GET; refresh/remount never calls either submission API again. Opaque Base submission IDs compare byte-for-byte and are not lowercased. Unacknowledged journal entries intentionally survive sign-out and account switches: localStorage is best-effort sensitive execution metadata, not presentation cache, and purging it would recreate the evidence-loss window. Persistent insertion is serialized with the browser Web Locks API so concurrent tabs cannot exceed the journal bound; browsers without that safe primitive keep the returned handle in memory, report `lock-unavailable`, and still attempt exact evidence upload.
 
-Attempt-aware command types (Phase 2 §3, not yet persisted) live in `apps/web/server/money-actions/attempt-commands.ts`. Locked provider facts: [attempt-aware onchain transactions](onchain-transaction-architecture.md#provider-specific-facts-and-unknowns).
+Attempt-aware command types live in `apps/web/server/money-actions/attempt-commands.ts`; their PostgreSQL persistence boundary is `attempt-store.ts` plus `attempt-store-core.ts`. Locked provider facts: [attempt-aware onchain transactions](onchain-transaction-architecture.md#provider-specific-facts-and-unknowns).

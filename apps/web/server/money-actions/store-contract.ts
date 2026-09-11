@@ -76,6 +76,25 @@ export function describeMoneyActionStore(
     });
   });
 
+  test(`${name} canonicalizes chain hashes while preserving opaque handles byte-for-byte`, async () => {
+    const store = await createStore();
+    await store.issue(action());
+    await store.claim(OWNER, action().id, action().reviewHash, "2026-09-08T05:01:00.000Z");
+    const uppercaseUserOperationHash = `0x${"A".repeat(64)}` as const;
+    const uppercaseTransactionHash = `0x${"B".repeat(64)}` as const;
+    await expect(store.recordSubmission(OWNER, action().id, {
+      userOperationHash: uppercaseUserOperationHash,
+      transactionHash: uppercaseTransactionHash,
+    }, "2026-09-08T05:01:01.000Z")).resolves.toMatchObject({
+      userOperationHash: uppercaseUserOperationHash.toLowerCase(),
+      transactionHash: uppercaseTransactionHash.toLowerCase(),
+    });
+    await expect(store.recordSubmission(OWNER, action().id, {
+      userOperationHash: uppercaseUserOperationHash.toLowerCase() as `0x${string}`,
+      transactionHash: uppercaseTransactionHash.toLowerCase() as `0x${string}`,
+    }, "2026-09-08T05:01:02.000Z")).resolves.not.toBeNull();
+  });
+
   test(`${name} preserves opaque Base submission IDs byte-for-byte on exact retry and rejects case-only conflicts`, async () => {
     const store = await createStore();
     const owner = { ...OWNER, accountProvider: "base-account" as const };

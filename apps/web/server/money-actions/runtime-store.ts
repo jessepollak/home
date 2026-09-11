@@ -12,10 +12,11 @@ type StoreSelectionEnv = { [key: string]: string | undefined };
 
 export function resolveMoneyActionStoreBackend(
   env: StoreSelectionEnv = process.env as StoreSelectionEnv,
-): "postgres" | "sqlite" | "hosted-unconfigured" {
-  if (env.DATABASE_URL?.trim()) return "postgres";
-  if (env.VERCEL) return "hosted-unconfigured";
-  return "sqlite";
+): "postgres" | "cutover-unverified" | "unconfigured" {
+  if (!env.DATABASE_URL?.trim()) return "unconfigured";
+  return env.MONEY_ACTION_POSTGRES_CUTOVER === "verified-empty"
+    ? "postgres"
+    : "cutover-unverified";
 }
 
 export async function getMoneyActionStore(): Promise<MoneyActionStore> {
@@ -30,11 +31,12 @@ async function loadRuntimeStore(): Promise<MoneyActionStore> {
     const { PostgresMoneyActionStore } = await import("./postgres-store");
     return new PostgresMoneyActionStore();
   }
-  if (backend === "hosted-unconfigured") {
+  if (backend === "cutover-unverified") {
     throw new Error(
-      "DATABASE_URL is required for money-action persistence on Vercel. Local bun dev keeps SQLite when DATABASE_URL is unset.",
+      "MONEY_ACTION_POSTGRES_CUTOVER=verified-empty is required after verifying no unresolved legacy SQLite money actions remain.",
     );
   }
-  const { SqliteMoneyActionStore } = await import("./sqlite-store.node");
-  return new SqliteMoneyActionStore();
+  throw new Error(
+    "DATABASE_URL is required for PostgreSQL money-action persistence in every runtime.",
+  );
 }
