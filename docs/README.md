@@ -19,7 +19,7 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 |---|---|
 | [Operating manual](operating-manual.md) | Agent-team roles, GitHub issue labels, proof bar, Jesse-only merge |
 | [Fork and extend](fork-and-extend.md) | Brand, regions, assets, provider seams, local-spike vs production persistence |
-| [UI PR previews](ui-pr-previews.md) | Before/After **table** of inline GitHub user-attachments embeds preferred when both exist; after-only OK when before isn’t useful |
+| [UI PR previews](ui-pr-previews.md) | Vercel preview link plus one inline screenshot or short video per user-visible PR |
 | [CDP setup](cdp-setup.md) | Your CDP project, `localhost` origin, email login, server validation, privacy defaults; [preview vs production auth](cdp-setup.md#preview-auth) |
 | [CDP SQL](cdp-sql.md) | Indexed Base history adapter, auth modes, bounded smoke tests. Not balances. |
 | [Base Account](base-account.md) | Optional SIWE path (`NEXT_PUBLIC_ENABLE_BASE_ACCOUNT`); not enabled by default |
