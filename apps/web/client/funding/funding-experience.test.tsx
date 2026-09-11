@@ -182,6 +182,9 @@ describe("FundingExperience", () => {
       expect(headings[0].textContent).toBe(`Deposit ${item.currency}`);
       expect(headings[0].tagName).toBe("H2");
       expect(headings[0].id).toBe("add-money-title");
+      expect(
+        within(dialog).getAllByRole("heading", { name: `Deposit ${item.currency}` }),
+      ).toHaveLength(1);
       expect(headings[1].textContent).toBe("Use Ripio to deposit from your local bank");
       expect(headings[1].tagName).toBe("H3");
       expect(
