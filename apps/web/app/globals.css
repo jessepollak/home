@@ -1,4 +1,8 @@
 @import "tailwindcss";
+@import "@home/ui/tokens.css";
+@import "@home/ui/tailwind.css";
+@import "@home/ui/styles.css";
+@source "../../../packages/ui/src";
 
 :root {
   --home-ink: #0a0b0d;

@@ -39,6 +39,7 @@
         "@coinbase/cdp-core": "0.0.123",
         "@coinbase/cdp-hooks": "0.0.123",
         "@coinbase/cdp-sdk": "1.55.0",
+        "@home/ui": "workspace:*",
         "@neondatabase/serverless": "1.1.0",
         "@radix-ui/react-select": "2.3.7",
         "liveline": "0.0.7",
