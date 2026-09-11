@@ -874,6 +874,10 @@ function HomePanel({
       ? "Balance unavailable"
       : "Total balance";
   const balanceItems = assetBalances?.items ?? [];
+  const showBalanceStatus =
+    assetBalances?.status !== "loading" &&
+    assetBalances?.statusLabel !== "Updating…" &&
+    Boolean(assetBalances?.statusLabel);
 
   return (
     <div className="home-panel">
@@ -893,6 +897,14 @@ function HomePanel({
             {assetBalances?.displayTotal ?? "—"}
           </p>
         )}
+        {showBalanceStatus ? (
+          <p
+            className="balance-status"
+            data-total-status={assetBalances?.totalStatus}
+          >
+            {assetBalances?.statusLabel}
+          </p>
+        ) : null}
         {isLoading || isRevalidating ? (
           <span className="sr-status">Updating…</span>
         ) : null}
@@ -919,6 +931,7 @@ function HomePanel({
         <HomeBalancesList
           items={previewHomeBalanceItems(balanceItems)}
           isLoading={isLoading}
+          isUnavailable={assetBalances?.status === "unavailable"}
           assetMarkResolution={assetMarkResolution}
         />
       </section>
@@ -998,11 +1011,24 @@ function BalancesPage({
   isChecking: boolean;
 }) {
   const isLoading = assetBalances?.status === "loading" || isChecking;
+  const showBalanceStatus =
+    assetBalances?.status !== "loading" &&
+    assetBalances?.statusLabel !== "Updating…" &&
+    Boolean(assetBalances?.statusLabel);
   return (
     <section className="balances-panel nested-home-panel" aria-label="Balances">
+      {showBalanceStatus ? (
+        <p
+          className="balance-status balance-status-panel"
+          data-total-status={assetBalances?.totalStatus}
+        >
+          {assetBalances?.statusLabel}
+        </p>
+      ) : null}
       <HomeBalancesList
         items={assetBalances?.items ?? []}
         isLoading={isLoading}
+        isUnavailable={assetBalances?.status === "unavailable"}
         assetMarkResolution={assetMarkResolution}
       />
     </section>
@@ -1106,10 +1132,12 @@ function ConnectedActivityPanel({
 function HomeBalancesList({
   items,
   isLoading,
+  isUnavailable = false,
   assetMarkResolution,
 }: {
   items: readonly HomeAssetBalanceItem[];
   isLoading: boolean;
+  isUnavailable?: boolean;
   assetMarkResolution?: AssetMarkResolution;
 }) {
   if (items.length > 0) {
@@ -1154,15 +1182,21 @@ function HomeBalancesList({
   if (isLoading) {
     return <ShimmerRows count={2} />;
   }
+  if (isUnavailable) return null;
   return <p className="balances-empty">No balances yet</p>;
 }
 
 function availableSendBalances(
   items: readonly HomeAssetBalanceItem[],
 ): Partial<Record<"usdc" | "eth", string>> {
-  const cashUsd = items.find((item) => item.group === "cash" && item.currencyCode === "USD");
-  const cash = cashUsd ?? items.find((item) => item.group === "cash");
-  const eth = items.find((item) => item.detail === "ETH");
+  const availableItems = items.filter(
+    (item) => item.tone !== "error" && item.displayBalance !== "—",
+  );
+  const cashUsd = availableItems.find(
+    (item) => item.group === "cash" && item.currencyCode === "USD",
+  );
+  const cash = cashUsd ?? availableItems.find((item) => item.group === "cash");
+  const eth = availableItems.find((item) => item.detail === "ETH");
   return {
     ...(cash?.displayBalance ? { usdc: cash.displayBalance } : {}),
     ...(eth ? { eth: eth.displayContext ?? eth.displayBalance } : {}),

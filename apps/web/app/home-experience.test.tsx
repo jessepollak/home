@@ -17,6 +17,7 @@ import {
   verifiedLocalCashAssets,
 } from "@/config/portfolio-assets";
 import { presentationRegions, type RegionId } from "@/config/regions";
+import type { HomeAssetBalancesPresentation } from "@/features/portfolio-valuation";
 
 const replaceCalls: string[] = [];
 const pushCalls: string[] = [];
@@ -490,12 +491,16 @@ function seedBalancesCache({
   smartAccount = ADDRESS,
   region = "GLOBAL",
   displayTotal = "$12.34",
+  totalStatus = "complete",
+  statusLabel,
 }: {
   ownerKey?: string;
   subject?: string;
   smartAccount?: `0x${string}`;
   region?: RegionId;
   displayTotal?: string;
+  totalStatus?: NonNullable<HomeAssetBalancesPresentation["totalStatus"]>;
+  statusLabel?: string;
 } = {}) {
   writeHomeBalancesPresentation(
     () => window.localStorage,
@@ -503,6 +508,8 @@ function seedBalancesCache({
     {
       status: "ready",
       displayTotal,
+      totalStatus,
+      ...(statusLabel ? { statusLabel } : {}),
       items: [
         {
           id: "usdc",
@@ -556,6 +563,7 @@ function HomeHarness({
           assetBalances ?? {
             status: "ready",
             displayTotal: "$12.34",
+            totalStatus: "complete",
             items: [
               {
                 id: "usdc",
@@ -832,6 +840,32 @@ describe("login-state home experience", () => {
     expect(page().getAllByText("$12.34").length).toBeGreaterThanOrEqual(1);
   });
 
+  test("keeps cached partial-total truth visible while the account revalidates", async () => {
+    seedBalancesCache({
+      totalStatus: "partial",
+      statusLabel: "Partial balance",
+    });
+    const pendingSession = deferred<Response>();
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={() => pendingSession.promise}
+      />,
+    );
+
+    const status = await page().findByText("Partial balance");
+    expect(status.getAttribute("data-total-status")).toBe("partial");
+    expect(page().getByText("US dollar")).toBeTruthy();
+    expect(document.querySelector("[data-shimmer='hero']")).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByText("Partial balance")).toBeTruthy();
+
+    await act(async () => {
+      pendingSession.resolve(Response.json(session()));
+      await pendingSession.promise;
+    });
+  });
+
   test("does not paint another owner's or signed-out cache during Checking", async () => {
     seedBalancesCache({ ownerKey: OWNER_B, displayTotal: "$99.00" });
     const pendingSession = deferred<Response>();
@@ -972,6 +1006,109 @@ describe("login-state home experience", () => {
     const retry = await page().findByRole("button", { name: "Retry sign out" });
     fireEvent.click(retry);
     await waitFor(() => expect(signOutCalls).toBe(2));
+  });
+
+  test("renders partial totals and unavailable or unpriced supported holdings on Home and Balances", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$12.34",
+          totalStatus: "partial",
+          statusLabel: "Partial balance",
+          items: [
+            {
+              id: "usdc",
+              group: "cash",
+              name: "US dollar",
+              displayBalance: "$12.34",
+              currencyCode: "USD",
+            },
+            {
+              id: "asset:eth",
+              group: "asset",
+              name: "Ethereum",
+              detail: "ETH",
+              displayBalance: "0.0500 ETH",
+            },
+            {
+              id: "asset:nvidia",
+              group: "asset",
+              name: "NVIDIA",
+              detail: "NVDAC",
+              displayBalance: "Unavailable",
+              tone: "error",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    expect(page().getByText("Partial balance").getAttribute("data-total-status")).toBe(
+      "partial",
+    );
+    expect(page().getByText("0.0500 ETH")).toBeTruthy();
+    expect(page().getByText("Unavailable")).toBeTruthy();
+
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByText("Partial balance")).toBeTruthy();
+    expect(page().getByText("Ethereum")).toBeTruthy();
+    expect(page().getByText("NVIDIA")).toBeTruthy();
+  });
+
+  test("renders the GLOBAL no-currency action on Home and Balances", async () => {
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return Response.json(session());
+      if (String(input).startsWith("/api/activity?")) {
+        return Response.json(activityPage(input));
+      }
+      if (String(input).startsWith("/api/portfolio/valuation?")) {
+        return valuationResponse(input, { usdc: "12340000" });
+      }
+      return Response.json(portfolioSnapshot({ usdc: "12340000" }));
+    };
+
+    render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch}
+      />,
+    );
+
+    const label = await page().findByText(
+      "Choose a country in Account to set how money is shown",
+    );
+    expect(label.getAttribute("data-total-status")).toBe("unavailable");
+    expect(page().getByText("—")).toBeTruthy();
+
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(
+      page().getByText("Choose a country in Account to set how money is shown"),
+    ).toBeTruthy();
+  });
+
+  test("renders an unavailable verified-session state without calling it empty", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "unavailable",
+          displayTotal: null,
+          totalStatus: "unavailable",
+          statusLabel: "Balance unavailable",
+          items: [],
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    expect(page().getByText("Balance unavailable")).toBeTruthy();
+    expect(page().queryByText("No balances yet")).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByText("Balance unavailable")).toBeTruthy();
+    expect(page().queryByText("No balances yet")).toBeNull();
   });
 
   test("wires verified balances through the production owner with bounded token display and no unpriced ETH sum", async () => {

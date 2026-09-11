@@ -22,6 +22,7 @@ const NOW = Date.parse(SAVED_AT);
 const readyPresentation: HomeAssetBalancesPresentation = {
   status: "ready",
   displayTotal: "$12.34",
+  totalStatus: "complete",
   items: [
     {
       id: "usdc",
@@ -86,6 +87,7 @@ describe("home balances presentation cache", () => {
     expect(stored.presentationSemantics).toBe(
       homeBalancesPresentationSemanticVersion,
     );
+    expect(stored.presentation).toMatchObject({ totalStatus: "complete" });
 
     expect(
       readHomeBalancesPresentation(
@@ -96,6 +98,7 @@ describe("home balances presentation cache", () => {
     ).toEqual({
       status: "ready",
       displayTotal: "$12.34",
+      totalStatus: "complete",
       statusLabel: "Choose a country in Account to set how money is shown",
       items: readyPresentation.items,
     });
@@ -106,6 +109,8 @@ describe("home balances presentation cache", () => {
     const presentation: HomeAssetBalancesPresentation = {
       status: "ready",
       displayTotal: "—",
+      totalStatus: "partial",
+      statusLabel: "Partial balance",
       items: [
         {
           id: "cash:idrx",

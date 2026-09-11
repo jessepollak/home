@@ -10,8 +10,8 @@ import type {
 
 export const homeBalancesPresentationCachePrefix = "home.balances.v1:";
 export const homeBalancesPresentationCacheTtlMs = 24 * 60 * 60 * 1000;
-/** Rows include authoritative native-cash values and stable asset mark keys. */
-export const homeBalancesPresentationSemanticVersion = "3.0.0";
+/** Rows include authoritative native-cash values, asset mark keys, and total completeness. */
+export const homeBalancesPresentationSemanticVersion = "4.0.0";
 
 export type CacheStorage = Pick<
   Storage,
@@ -367,6 +367,9 @@ function serializeReadyPresentation(
     presentation: {
       status: "ready",
       displayTotal: presentation.displayTotal,
+      ...(isTotalStatus(presentation.totalStatus)
+        ? { totalStatus: presentation.totalStatus }
+        : {}),
       ...(typeof presentation.statusLabel === "string" &&
       presentation.statusLabel.length > 0 &&
       presentation.statusLabel.length <= maxLabelLength
@@ -447,7 +450,13 @@ function allowlistPresentation(
 ): HomeAssetBalancesPresentation | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const presentation = value as Record<string, unknown>;
-  const allowedKeys = ["status", "displayTotal", "statusLabel", "items"];
+  const allowedKeys = [
+    "status",
+    "displayTotal",
+    "totalStatus",
+    "statusLabel",
+    "items",
+  ];
   if (Object.keys(presentation).some((key) => !allowedKeys.includes(key))) {
     return null;
   }
@@ -462,9 +471,19 @@ function allowlistPresentation(
   const items = allowlistItems(presentation.items);
   if (!items) return null;
 
+  if (
+    presentation.totalStatus !== undefined &&
+    !isTotalStatus(presentation.totalStatus)
+  ) {
+    return null;
+  }
+
   return {
     status: "ready",
     displayTotal: presentation.displayTotal,
+    ...(isTotalStatus(presentation.totalStatus)
+      ? { totalStatus: presentation.totalStatus }
+      : {}),
     ...(typeof presentation.statusLabel === "string" &&
     presentation.statusLabel.length > 0 &&
     presentation.statusLabel.length <= maxLabelLength
@@ -552,6 +571,14 @@ function allowlistItem(value: unknown): HomeAssetBalanceItem | null {
       : {}),
     ...(item.tone ? { tone: item.tone } : {}),
   };
+}
+
+function isTotalStatus(
+  value: unknown,
+): value is NonNullable<HomeAssetBalancesPresentation["totalStatus"]> {
+  return (
+    value === "complete" || value === "partial" || value === "unavailable"
+  );
 }
 
 function isSafeIdentity(value: unknown): value is string {

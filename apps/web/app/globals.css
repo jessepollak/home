@@ -564,6 +564,17 @@ body:has(.app-frame-shell) {
   font-variant-numeric: tabular-nums;
 }
 
+.balance-status {
+  margin: 8px 0 0;
+  color: var(--home-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.balance-status-panel {
+  margin: 0 2px 8px;
+}
+
 .shimmer {
   display: block;
   position: relative;

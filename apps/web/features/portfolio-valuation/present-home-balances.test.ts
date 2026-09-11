@@ -166,6 +166,7 @@ describe("presentPortfolioValuation", () => {
     });
 
     expect(presented.displayTotal).toBe("R$ 0,00");
+    expect(presented.totalStatus).toBe("complete");
     expect(presented.statusLabel).toBeUndefined();
     expect(presented.items.map((item) => item.name)).toEqual([
       "US dollar",
@@ -184,6 +185,69 @@ describe("presentPortfolioValuation", () => {
     expect(serialized).not.toContain("Not available yet");
     expect(serialized).not.toContain("Wallet & savings");
     expect(serialized).not.toContain("Unavailable");
+  });
+
+  test("preserves partial and unavailable total truth without inventing value", () => {
+    const partial = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        total: {
+          label: "supported-portfolio-value",
+          status: "partial",
+          value: { atoms: "1250", scale: 2 },
+          currency: "BRL",
+          unpricedAssetKeys: [PORTFOLIO_NATIVE_ASSET_KEY],
+          unavailableAssetKeys: [],
+        },
+      }),
+      error: null,
+    });
+    const unavailable = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        total: {
+          label: "supported-portfolio-value",
+          status: "unavailable",
+          value: null,
+          currency: "BRL",
+          unpricedAssetKeys: [],
+          unavailableAssetKeys: [PORTFOLIO_NATIVE_ASSET_KEY],
+        },
+      }),
+      error: null,
+    });
+    const noCurrency = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "GLOBAL",
+        quoteCurrency: null,
+        total: {
+          label: "supported-portfolio-value",
+          status: "unavailable-no-quote-currency",
+          value: null,
+          currency: null,
+          unpricedAssetKeys: [],
+          unavailableAssetKeys: [],
+        },
+      }),
+      error: null,
+    });
+
+    expect(partial).toMatchObject({
+      displayTotal: "R$ 12,50",
+      totalStatus: "partial",
+      statusLabel: "Partial balance",
+    });
+    expect(unavailable).toMatchObject({
+      displayTotal: "—",
+      totalStatus: "unavailable",
+      statusLabel: "Balance unavailable",
+    });
+    expect(noCurrency).toMatchObject({
+      displayTotal: "—",
+      totalStatus: "unavailable",
+      statusLabel: "Choose a country in Account to set how money is shown",
+    });
   });
 
   test("shows known unpriced cash quantities as tokens, not fiat", () => {
@@ -800,7 +864,7 @@ describe("presentPortfolioValuation", () => {
     );
   });
 
-  test("emits only transient membership hints for unread eligible asset rows", () => {
+  test("shows unread supported asset rows without inventing balances", () => {
     const presented = presentPortfolioValuation({
       status: "ready",
       snapshot: snapshot({
@@ -861,7 +925,17 @@ describe("presentPortfolioValuation", () => {
       error: null,
     });
 
-    expect(presented.items).toHaveLength(1);
+    expect(
+      presented.items.map(({ name, displayBalance, tone }) => ({
+        name,
+        displayBalance,
+        tone,
+      })),
+    ).toEqual([
+      { name: "US dollar", displayBalance: "$10.00", tone: undefined },
+      { name: "Euro", displayBalance: "Unavailable", tone: "error" },
+      { name: "Ethereum", displayBalance: "Unavailable", tone: "error" },
+    ]);
     expect(presented.unavailableItemIds).toEqual([
       `asset:${PORTFOLIO_NATIVE_ASSET_KEY}`,
       `asset:${verifiedLocalCashAssets.EUR.assetKey}`,
@@ -1021,7 +1095,7 @@ describe("presentPortfolioValuation", () => {
     expect(JSON.stringify(presented.items)).not.toContain("USDC");
   });
 
-  test("keeps unread invest holdings as membership hints, not a four-row cap", () => {
+  test("shows unread invest holdings in the full presentation", () => {
     const nvidia = investPortfolioAssets.find((asset) => asset.id === "nvdac");
     if (!nvidia) throw new Error("Expected tokenized stock fixtures.");
 
@@ -1065,7 +1139,14 @@ describe("presentPortfolioValuation", () => {
       error: null,
     });
 
-    expect(presented.items.map((item) => item.name)).toEqual(["US dollar"]);
+    expect(presented.items.map((item) => item.name)).toEqual([
+      "US dollar",
+      "NVIDIA",
+    ]);
+    expect(presented.items[1]).toMatchObject({
+      displayBalance: "Unavailable",
+      tone: "error",
+    });
     expect(presented.unavailableItemIds).toEqual([`asset:${nvidia.assetKey}`]);
   });
 
