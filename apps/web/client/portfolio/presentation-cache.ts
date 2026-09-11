@@ -356,6 +356,7 @@ function serializeReadyPresentation(
   const items = allowlistItems(presentation.items);
   if (
     presentation.status !== "ready" ||
+    (presentation.incompleteItemIds?.length ?? 0) > 0 ||
     typeof presentation.displayTotal !== "string" ||
     presentation.displayTotal.length === 0 ||
     items === null

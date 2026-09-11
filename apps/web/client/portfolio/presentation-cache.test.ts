@@ -209,18 +209,14 @@ describe("home balances presentation cache", () => {
         reconciled,
         NOW + 1,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       readHomeBalancesPresentation(
         () => storage,
         { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US" },
         NOW + 1,
       ),
-    ).toEqual({
-      status: "ready",
-      displayTotal: "$12.34",
-      items: reconciledItems,
-    });
+    ).toEqual(cached);
 
     const liveReady: HomeAssetBalancesPresentation = {
       status: "ready",
