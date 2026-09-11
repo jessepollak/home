@@ -2,7 +2,6 @@
 
 import { AssetDetailScreen } from "@/features/invest/asset-detail-screen";
 import {
-  applyAssetIcon,
   getDiscoverAsset,
   marketForAsset,
 } from "@/features/invest/discover";
@@ -14,10 +13,7 @@ export function LivelineQaClient({ assetId }: { assetId: string }) {
   const markets = useMarketPrices();
   const discover = useInvestDiscover();
   const history = usePriceHistory(assetId, "1W");
-  const catalog = discover.memeAssets.map((asset) =>
-    applyAssetIcon(asset, discover.assetIcons),
-  );
-  const asset = getDiscoverAsset(assetId, catalog);
+  const asset = getDiscoverAsset(assetId, discover.memeAssets);
   if (!asset) {
     return (
       <main className="app-frame" style={{ maxWidth: 390 }}>
@@ -26,7 +22,6 @@ export function LivelineQaClient({ assetId }: { assetId: string }) {
     );
   }
 
-  const marked = applyAssetIcon(asset, discover.assetIcons);
   const first = history.points[0]?.value;
   const last = history.points[history.points.length - 1]?.value;
   return (
@@ -45,8 +40,9 @@ export function LivelineQaClient({ assetId }: { assetId: string }) {
           : ""}
       </p>
       <AssetDetailScreen
-        asset={marked}
-        market={marketForAsset(marked, markets)}
+        asset={asset}
+        market={marketForAsset(asset, markets)}
+        assetMarkResolution={discover.assetMarkResolution}
         onBack={() => {}}
       />
     </main>

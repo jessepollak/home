@@ -1,6 +1,7 @@
 import "./dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
+import type { GetUserOperationResult } from "@coinbase/cdp-core";
 import { StrictMode, useState } from "react";
 import type { AccountWalletSdkBoundary } from "./cdp-client";
 import {
@@ -106,6 +107,39 @@ function storedMoneyAction(
     ...references,
     createdAt: action.createdAt,
     updatedAt: "2026-09-08T05:02:00.000Z",
+  };
+}
+
+function embeddedObservation(
+  action: PreparedMoneyAction,
+  userOperationHash: `0x${string}`,
+  transactionHash: `0x${string}`,
+  overrides: Partial<GetUserOperationResult> = {},
+): GetUserOperationResult {
+  return {
+    network: "base",
+    userOpHash: userOperationHash,
+    status: "complete",
+    transactionHash,
+    calls: action.calls.map((call) => ({
+      to: call.to,
+      data: call.data,
+      value: call.value,
+    })),
+    ...overrides,
+  };
+}
+
+function sdkObservation(
+  userOperationHash: `0x${string}`,
+  overrides: Partial<GetUserOperationResult> = {},
+): GetUserOperationResult {
+  return {
+    network: "base",
+    userOpHash: userOperationHash,
+    calls: [],
+    status: "pending",
+    ...overrides,
   };
 }
 
@@ -2496,15 +2530,8 @@ describe("production account session owner", () => {
             walletSubmissions += 1;
             return { userOperationHash };
           },
-          getUserOperation: async () => ({
-            status: "complete",
-            transactionHash,
-            calls: action.calls.map((call) => ({
-              to: call.to,
-              data: call.data,
-              value: BigInt(call.value),
-            })),
-          }) as never,
+          getUserOperation: async () =>
+            embeddedObservation(action, userOperationHash, transactionHash),
         })}
         sessionFetch={sessionFetch}
         moneyAction={action}
@@ -2518,12 +2545,383 @@ describe("production account session owner", () => {
     expect(submissions).toBe(1);
   });
 
+  test("rejects malformed or mismatched CDP recovery observations before candidate upload or receipt polling", async () => {
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    const otherUserOperationHash = `0x${"ab".repeat(32)}` as `0x${string}`;
+    const mutations: Array<(action: PreparedMoneyAction) => unknown> = [
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { userOpHash: otherUserOperationHash }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { network: "base-sepolia" }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { status: "confirmed" as never }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { calls: [{ to: ADDRESS_A, data: "0x1234", value: "0" }] }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { transactionHash: "not-a-hash" }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { receipts: [{ revert: { data: "bad", message: "reverted" } }] }),
+      (action) => embeddedObservation(action, userOperationHash, transactionHash, { calls: [{ to: ADDRESS_B, data: "0x5678", value: "0" }] }),
+    ];
+
+    for (const [index, mutate] of mutations.entries()) {
+      const action: PreparedMoneyAction = index === mutations.length - 1
+        ? {
+          ...preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z"),
+          sensitivePayload: true,
+          calls: [{
+            to: ADDRESS_B as `0x${string}`,
+            value: "0",
+            data: "0x1234",
+            dataHash: "5a0737e8cbcfa24dcc118b0ab1e6d98bee17c57daa8a1686024159aae707ed6f",
+          }],
+        }
+        : preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+      let submissionPosts = 0;
+      let receiptReads = 0;
+      let claims = 0;
+      let walletSubmissions = 0;
+      const sessionFetch: SessionFetch = async (input) => {
+        if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+        if (input === `/api/actions/${action.id}`) {
+          return Response.json({ operation: storedMoneyAction(action, "submitted", { userOperationHash }) });
+        }
+        if (input === `/api/actions/${action.id}/submission`) submissionPosts += 1;
+        if (String(input).startsWith("/api/transfer-receipt?")) receiptReads += 1;
+        if (input === `/api/actions/${action.id}/claim`) claims += 1;
+        throw new Error(`unexpected invalid observation request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk({
+            sendUserOperation: async () => {
+              walletSubmissions += 1;
+              return { userOperationHash };
+            },
+            getUserOperation: async () => mutate(action) as never,
+          })}
+          sessionFetch={sessionFetch}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+      fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:submission-unknown"));
+      expect({ submissionPosts, receiptReads, claims, walletSubmissions }).toEqual({
+        submissionPosts: 0,
+        receiptReads: 0,
+        claims: 0,
+        walletSubmissions: 0,
+      });
+      cleanup();
+      window.sessionStorage.clear();
+    }
+  });
+
+  test("accepts only exact SDK decimal call-value strings during CDP recovery", async () => {
+    const action: PreparedMoneyAction = {
+      ...preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z"),
+      calls: [{ to: ADDRESS_B, data: "0x1234", value: "9007199254740993" }],
+    };
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+
+    async function checkObservation(
+      observation: GetUserOperationResult,
+      expectedStatus: "confirmed" | "error:submission-unknown",
+      expectedSubmissionPosts: number,
+    ) {
+      let submissionPosts = 0;
+      let receiptReads = 0;
+      let walletSubmissions = 0;
+      const sessionFetch: SessionFetch = async (input) => {
+        if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+        if (input === `/api/actions/${action.id}`) {
+          return Response.json({ operation: storedMoneyAction(action, "submitted", { userOperationHash }) });
+        }
+        if (input === `/api/actions/${action.id}/submission`) {
+          submissionPosts += 1;
+          return Response.json({
+            operation: storedMoneyAction(action, "confirmed", { userOperationHash, transactionHash }),
+          });
+        }
+        if (String(input).startsWith("/api/transfer-receipt?")) receiptReads += 1;
+        throw new Error(`unexpected call-value observation request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk({
+            sendUserOperation: async () => {
+              walletSubmissions += 1;
+              return { userOperationHash };
+            },
+            getUserOperation: async () => observation,
+          })}
+          sessionFetch={sessionFetch}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+      fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe(expectedStatus));
+      expect({ submissionPosts, receiptReads, walletSubmissions }).toEqual({
+        submissionPosts: expectedSubmissionPosts,
+        receiptReads: 0,
+        walletSubmissions: 0,
+      });
+      cleanup();
+      window.sessionStorage.clear();
+    }
+
+    await checkObservation(
+      embeddedObservation(action, userOperationHash, transactionHash),
+      "confirmed",
+      1,
+    );
+
+    for (const value of [
+      "",
+      "-1",
+      "1.0",
+      "1e3",
+      "09007199254740993",
+      "+9007199254740993",
+      "0x20000000000001",
+      "9007199254740994",
+    ]) {
+      await checkObservation(
+        embeddedObservation(action, userOperationHash, transactionHash, {
+          calls: [{ to: ADDRESS_B, data: "0x1234", value }],
+        }),
+        "error:submission-unknown",
+        0,
+      );
+    }
+
+    for (const value of [undefined, 0, Number.MAX_SAFE_INTEGER + 1, BigInt("9007199254740993")]) {
+      await checkObservation(
+        embeddedObservation(action, userOperationHash, transactionHash, {
+          calls: [{ to: ADDRESS_B, data: "0x1234", value: value as never }],
+        }),
+        "error:submission-unknown",
+        0,
+      );
+    }
+  });
+
+  test("records a validated CDP transaction candidate before receipt success and then reads terminal durable state", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    const events: string[] = [];
+    let actionReads = 0;
+    let claims = 0;
+    let walletSubmissions = 0;
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        actionReads += 1;
+        events.push(`read-${actionReads}`);
+        return Response.json({
+          operation: storedMoneyAction(
+            action,
+            actionReads === 1 ? "submitted" : "confirmed",
+            { userOperationHash, transactionHash: actionReads === 1 ? undefined : transactionHash },
+          ),
+        });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        events.push("candidate-upload");
+        expect(JSON.parse(String(init?.body))).toEqual({ userOperationHash, transactionHash });
+        return Response.json({
+          operation: storedMoneyAction(action, "submitted", { userOperationHash, transactionHash }),
+        });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) {
+        events.push("receipt");
+        expect(events).toContain("candidate-upload");
+        return Response.json({ status: "confirmed", transactionHash, blockNumber: "18", success: true });
+      }
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected candidate recovery request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            walletSubmissions += 1;
+            return { userOperationHash };
+          },
+          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"));
+    expect(events).toEqual(["read-1", "candidate-upload", "receipt", "read-2"]);
+    expect(claims).toBe(0);
+    expect(walletSubmissions).toBe(0);
+  });
+
+  test("treats a broadcast CDP empty transaction hash as pending before a later valid candidate", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    const events: string[] = [];
+    let actionReads = 0;
+    let providerReads = 0;
+    let walletSubmissions = 0;
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        actionReads += 1;
+        events.push(`read-${actionReads}`);
+        return Response.json({
+          operation: storedMoneyAction(
+            action,
+            actionReads === 1 ? "submitted" : "confirmed",
+            actionReads === 1 ? { userOperationHash } : { userOperationHash, transactionHash },
+          ),
+        });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        events.push("candidate-upload");
+        expect(JSON.parse(String(init?.body))).toEqual({ userOperationHash, transactionHash });
+        return Response.json({
+          operation: storedMoneyAction(action, "submitted", { userOperationHash, transactionHash }),
+        });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) {
+        events.push("receipt");
+        expect(events).toContain("candidate-upload");
+        return Response.json({ status: "confirmed", transactionHash, blockNumber: "18", success: true });
+      }
+      throw new Error(`unexpected empty-hash recovery request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            walletSubmissions += 1;
+            return { userOperationHash };
+          },
+          getUserOperation: async () => {
+            providerReads += 1;
+            events.push(providerReads === 1 ? "provider-broadcast" : "provider-complete");
+            return providerReads === 1
+              ? embeddedObservation(action, userOperationHash, transactionHash, {
+                status: "broadcast",
+                transactionHash: "",
+              })
+              : embeddedObservation(action, userOperationHash, transactionHash);
+          },
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"), {
+      timeout: 3_000,
+    });
+    expect(events).toEqual([
+      "read-1",
+      "provider-broadcast",
+      "provider-complete",
+      "candidate-upload",
+      "receipt",
+      "read-2",
+    ]);
+    expect(providerReads).toBe(2);
+    expect(walletSubmissions).toBe(0);
+  });
+
+  test("accepts one bounded 409 candidate race only after an exact canonical reread", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    let reads = 0;
+    let posts = 0;
+    let receiptReads = 0;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        reads += 1;
+        const status = reads === 3 ? "confirmed" : "submitted";
+        const references = reads === 1 ? { userOperationHash } : { userOperationHash, transactionHash };
+        return Response.json({ operation: storedMoneyAction(action, status, references) });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        posts += 1;
+        return Response.json({ error: { code: "ACTION_NOT_CLAIMED", message: "race" } }, { status: 409 });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) {
+        receiptReads += 1;
+        return Response.json({ status: "confirmed", transactionHash, blockNumber: "19", success: true });
+      }
+      throw new Error(`unexpected 409 recovery request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"));
+    expect({ reads, posts, receiptReads }).toEqual({ reads: 3, posts: 1, receiptReads: 1 });
+  });
+
+  test("returns failed durable execution from candidate acknowledgment without receipt polling or redispatch", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    let receiptReads = 0;
+    let walletSubmissions = 0;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({ operation: storedMoneyAction(action, "submitted", { userOperationHash }) });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        return Response.json({
+          operation: storedMoneyAction(action, "failed", { userOperationHash, transactionHash }),
+        });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) receiptReads += 1;
+      throw new Error(`unexpected failed recovery request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          sendUserOperation: async () => {
+            walletSubmissions += 1;
+            return { userOperationHash };
+          },
+          getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
+        })}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("failed"));
+    expect(receiptReads).toBe(0);
+    expect(walletSubmissions).toBe(0);
+  });
+
   test("reconciles an already-recorded Base submission ID through checkMoneyAction without wallet_sendCalls", async () => {
     window.sessionStorage.setItem("home:account-provider", "base-account");
     const action = preparedMoneyAction("base-account", "2026-12-08T05:20:00.000Z");
     const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
     let walletSubmissions = 0;
     let claims = 0;
+    let actionReads = 0;
+    const events: string[] = [];
     const connection = connectedBaseAccount({
       sendCalls: async () => {
         walletSubmissions += 1;
@@ -2531,16 +2929,26 @@ describe("production account session owner", () => {
       },
       getCallsStatus: async () => ({ status: "complete", transactionHash }),
     });
-    const sessionFetch: SessionFetch = async (input) => {
+    const sessionFetch: SessionFetch = async (input, init) => {
       if (input === "/api/session") {
         return sessionResponse(sessionFor("subject-a", ADDRESS_A, "base-account"));
       }
       if (input === `/api/actions/${action.id}`) {
+        actionReads += 1;
+        events.push(`read-${actionReads}`);
         return Response.json({
-          operation: storedMoneyAction(action, "submitted", { submissionId: "base-submission" }),
+          operation: storedMoneyAction(
+            action,
+            actionReads === 1 ? "submitted" : "confirmed",
+            actionReads === 1
+              ? { submissionId: "base-submission" }
+              : { submissionId: "base-submission", transactionHash },
+          ),
         });
       }
       if (String(input).startsWith("/api/transfer-receipt?")) {
+        events.push("receipt");
+        expect(events).toContain("candidate-upload");
         return Response.json({
           status: "confirmed",
           transactionHash,
@@ -2549,8 +2957,13 @@ describe("production account session owner", () => {
         });
       }
       if (input === `/api/actions/${action.id}/submission`) {
+        events.push("candidate-upload");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          submissionId: "base-submission",
+          transactionHash,
+        });
         return Response.json({
-          operation: storedMoneyAction(action, "confirmed", {
+          operation: storedMoneyAction(action, "submitted", {
             submissionId: "base-submission",
             transactionHash,
           }),
@@ -2573,6 +2986,237 @@ describe("production account session owner", () => {
     await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"));
     expect(claims).toBe(0);
     expect(walletSubmissions).toBe(0);
+    expect(events).toEqual(["read-1", "candidate-upload", "receipt", "read-2"]);
+  });
+
+  test("preserves included and terminal durable progress across failed or unavailable provider observations", async () => {
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const cases = [
+      { provider: "cdp-embedded" as const, status: "included" as const, observation: "failed" as const },
+      { provider: "cdp-embedded" as const, status: "included" as const, observation: "unavailable" as const },
+      { provider: "base-account" as const, status: "included" as const, observation: "failed" as const },
+      { provider: "base-account" as const, status: "included" as const, observation: "unavailable" as const },
+      { provider: "cdp-embedded" as const, status: "confirmed" as const, observation: "failed" as const },
+      { provider: "base-account" as const, status: "failed" as const, observation: "unavailable" as const },
+    ];
+
+    for (const testCase of cases) {
+      window.sessionStorage.setItem("home:account-provider", testCase.provider);
+      const action = preparedMoneyAction(testCase.provider, "2026-12-08T05:20:00.000Z");
+      let providerLookups = 0;
+      let statusWrites = 0;
+      let claims = 0;
+      let walletSubmissions = 0;
+      const connection = connectedBaseAccount({
+        sendCalls: async () => {
+          walletSubmissions += 1;
+          return "base-submission";
+        },
+        getCallsStatus: async () => {
+          providerLookups += 1;
+          if (testCase.observation === "unavailable") throw new Error("provider unavailable");
+          return { status: "failed" };
+        },
+      });
+      const sessionFetch: SessionFetch = async (input) => {
+        if (input === "/api/session") {
+          return sessionResponse(sessionFor("subject-a", ADDRESS_A, testCase.provider));
+        }
+        if (input === `/api/actions/${action.id}`) {
+          return Response.json({
+            operation: storedMoneyAction(
+              action,
+              testCase.status,
+              testCase.provider === "cdp-embedded" ? { userOperationHash } : { submissionId: "base-submission" },
+            ),
+          });
+        }
+        if (input === `/api/actions/${action.id}/status`) statusWrites += 1;
+        if (input === `/api/actions/${action.id}/claim`) claims += 1;
+        throw new Error(`unexpected monotonic recovery request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk({
+            sendUserOperation: async () => {
+              walletSubmissions += 1;
+              return { userOperationHash };
+            },
+            getUserOperation: async () => {
+              providerLookups += 1;
+              if (testCase.observation === "unavailable") throw new Error("provider unavailable");
+              return embeddedObservation(
+                action,
+                userOperationHash,
+                `0x${"ef".repeat(32)}`,
+                { status: "failed", transactionHash: undefined },
+              );
+            },
+          })}
+          sessionFetch={sessionFetch}
+          baseAccountEnabled={testCase.provider === "base-account"}
+          baseAccountRestorer={async () => connection}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("provider").textContent).toBe(testCase.provider));
+      fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe(testCase.status));
+      expect(statusWrites).toBe(0);
+      expect(claims).toBe(0);
+      expect(walletSubmissions).toBe(0);
+      expect(providerLookups).toBe(testCase.status === "included" ? 1 : 0);
+      cleanup();
+      window.sessionStorage.clear();
+    }
+  });
+
+  test("fences a delayed CDP provider-error preserved-progress fallback after the verified owner switches", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const pendingObservation = deferred<never>();
+    const observationEntered = deferred<void>();
+    let accessToken = "token-a";
+    let providerLookups = 0;
+    let statusWrites = 0;
+    let claims = 0;
+    let walletSubmissions = 0;
+    const sdk = baseSdk({
+      getAccessToken: async () => accessToken,
+      sendUserOperation: async () => {
+        walletSubmissions += 1;
+        return { userOperationHash };
+      },
+      getUserOperation: async () => {
+        providerLookups += 1;
+        observationEntered.resolve();
+        return pendingObservation.promise;
+      },
+    });
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") {
+        return new Headers(init?.headers).get("Authorization") === `Bearer token-b`
+          ? sessionResponse(sessionFor("subject-b", ADDRESS_B))
+          : sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      }
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({
+          operation: storedMoneyAction(action, "included", { userOperationHash }),
+        });
+      }
+      if (input === `/api/actions/${action.id}/status`) statusWrites += 1;
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected delayed CDP fallback request: ${String(input)}`);
+    };
+    const view = render(
+      <SessionHarness sdk={sdk} sessionFetch={sessionFetch} moneyAction={action} />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await observationEntered.promise;
+
+    accessToken = "token-b";
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, ownerKey: OWNER_B }}
+        sessionFetch={sessionFetch}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_B));
+    await act(async () => {
+      pendingObservation.reject(new Error("CDP provider unavailable"));
+      await pendingObservation.promise.catch(() => {});
+    });
+
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:stale-session"));
+    expect({ providerLookups, statusWrites, claims, walletSubmissions }).toEqual({
+      providerLookups: 1,
+      statusWrites: 0,
+      claims: 0,
+      walletSubmissions: 0,
+    });
+  });
+
+  test("fences a delayed Base provider-error preserved-progress fallback after the verified owner switches", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const action = preparedMoneyAction("base-account", "2026-12-08T05:20:00.000Z");
+    const pendingObservation = deferred<never>();
+    const observationEntered = deferred<void>();
+    let accessToken = "token-a";
+    let providerLookups = 0;
+    let statusWrites = 0;
+    let claims = 0;
+    let walletSubmissions = 0;
+    const getCallsStatus = async () => {
+      providerLookups += 1;
+      observationEntered.resolve();
+      return pendingObservation.promise;
+    };
+    const sdk = baseSdk({
+      getAccessToken: async () => accessToken,
+    });
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") {
+        return new Headers(init?.headers).get("Authorization") === `Bearer token-b`
+          ? sessionResponse(sessionFor("subject-b", ADDRESS_B))
+          : sessionResponse(sessionFor("subject-a", ADDRESS_A, "base-account"));
+      }
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({
+          operation: storedMoneyAction(action, "included", { submissionId: "base-submission" }),
+        });
+      }
+      if (input === `/api/actions/${action.id}/status`) statusWrites += 1;
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected delayed Base fallback request: ${String(input)}`);
+    };
+    const baseAccountRestorer: BaseAccountRestorer = async () => connectedBaseAccount({
+      sendCalls: async () => {
+        walletSubmissions += 1;
+        return "base-submission";
+      },
+      getCallsStatus,
+    });
+    const view = render(
+      <SessionHarness
+        sdk={sdk}
+        sessionFetch={sessionFetch}
+        baseAccountEnabled
+        baseAccountRestorer={baseAccountRestorer}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await observationEntered.promise;
+
+    fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("signed-out"));
+
+    accessToken = "token-b";
+    view.rerender(
+      <SessionHarness
+        sdk={{ ...sdk, ownerKey: OWNER_B }}
+        sessionFetch={sessionFetch}
+        baseAccountEnabled
+        baseAccountRestorer={baseAccountRestorer}
+        moneyAction={action}
+      />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_B));
+    await act(async () => {
+      pendingObservation.reject(new Error("Base provider unavailable"));
+      await pendingObservation.promise.catch(() => {});
+    });
+
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:stale-session"));
+    expect({ providerLookups, statusWrites, claims, walletSubmissions }).toEqual({
+      providerLookups: 1,
+      statusWrites: 0,
+      claims: 0,
+      walletSubmissions: 0,
+    });
   });
 
   test("fails send balance preflight before the atomic claim", async () => {
@@ -2604,7 +3248,7 @@ describe("production account session owner", () => {
             walletSubmissions += 1;
             return { userOperationHash: `0x${"ab".repeat(32)}` };
           },
-          getUserOperation: async () => ({ status: "pending" }) as never,
+          getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`),
         })}
         sessionFetch={sessionFetch}
         moneyAction={action}
@@ -2650,7 +3294,7 @@ describe("production account session owner", () => {
       getAccessToken: async () => accessToken,
       getUserOperation: async () => {
         providerChecks += 1;
-        return { status: "pending" } as never;
+        return sdkObservation(userOperationHash);
       },
     });
     const sessionFetch: SessionFetch = async (input, init) => {
@@ -2687,6 +3331,135 @@ describe("production account session owner", () => {
     expect(providerChecks).toBe(0);
   });
 
+  test("fences recovered candidate acknowledgment when the verified owner switches", async () => {
+    const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    const submissionEntered = deferred<void>();
+    const pendingSubmission = deferred<Response>();
+    let accessToken = "token-a";
+    let providerLookups = 0;
+    let receiptReads = 0;
+    let claims = 0;
+    let walletSubmissions = 0;
+    const sdk = baseSdk({
+      getAccessToken: async () => accessToken,
+      sendUserOperation: async () => {
+        walletSubmissions += 1;
+        return { userOperationHash };
+      },
+      getUserOperation: async () => {
+        providerLookups += 1;
+        return embeddedObservation(action, userOperationHash, transactionHash);
+      },
+    });
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") {
+        return new Headers(init?.headers).get("Authorization") === "Bearer token-b"
+          ? sessionResponse(sessionFor("subject-b", ADDRESS_B))
+          : sessionResponse(sessionFor("subject-a", ADDRESS_A));
+      }
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({ operation: storedMoneyAction(action, "submitted", { userOperationHash }) });
+      }
+      if (input === `/api/actions/${action.id}/submission`) {
+        submissionEntered.resolve();
+        return pendingSubmission.promise;
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) receiptReads += 1;
+      if (input === `/api/actions/${action.id}/claim`) claims += 1;
+      throw new Error(`unexpected owner-switch recovery request: ${String(input)}`);
+    };
+    const view = render(<SessionHarness sdk={sdk} sessionFetch={sessionFetch} moneyAction={action} />);
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+    await submissionEntered.promise;
+
+    accessToken = "token-b";
+    view.rerender(
+      <SessionHarness sdk={{ ...sdk, ownerKey: OWNER_B }} sessionFetch={sessionFetch} moneyAction={action} />,
+    );
+    await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_B));
+    await act(async () => {
+      pendingSubmission.resolve(Response.json({
+        operation: storedMoneyAction(action, "submitted", { userOperationHash, transactionHash }),
+      }));
+      await pendingSubmission.promise;
+    });
+    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:stale-session"));
+    expect({ providerLookups, receiptReads, claims, walletSubmissions }).toEqual({
+      providerLookups: 1,
+      receiptReads: 0,
+      claims: 0,
+      walletSubmissions: 0,
+    });
+  });
+
+  test("rejects a 409 recovery acknowledgment whose canonical action or exact reference changed", async () => {
+    const userOperationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    for (const mismatch of ["action", "reference"] as const) {
+      const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
+      let reads = 0;
+      let receiptReads = 0;
+      let claims = 0;
+      let walletSubmissions = 0;
+      const sessionFetch: SessionFetch = async (input) => {
+        if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+        if (input === `/api/actions/${action.id}`) {
+          reads += 1;
+          const rereadAction: PreparedMoneyAction = mismatch === "action"
+            ? { ...action, owner: { ...action.owner, address: ADDRESS_B as `0x${string}` } }
+            : action;
+          return Response.json({
+            operation: reads === 1
+              ? storedMoneyAction(action, "submitted", { userOperationHash })
+              : storedMoneyAction(
+                rereadAction,
+                "submitted",
+                {
+                  userOperationHash,
+                  transactionHash: mismatch === "reference" ? `0x${"aa".repeat(32)}` : transactionHash,
+                },
+              ),
+          });
+        }
+        if (input === `/api/actions/${action.id}/submission`) {
+          return Response.json({ error: { code: "ACTION_NOT_CLAIMED", message: "race" } }, { status: 409 });
+        }
+        if (String(input).startsWith("/api/transfer-receipt?")) receiptReads += 1;
+        if (input === `/api/actions/${action.id}/claim`) claims += 1;
+        throw new Error(`unexpected mismatched acknowledgment request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk({
+            sendUserOperation: async () => {
+              walletSubmissions += 1;
+              return { userOperationHash };
+            },
+            getUserOperation: async () => embeddedObservation(action, userOperationHash, transactionHash),
+          })}
+          sessionFetch={sessionFetch}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+      fireEvent.click(page().getByRole("button", { name: "Check money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe(
+        mismatch === "action" ? "error:invalid-response" : "error:submission-unknown",
+      ));
+      expect({ reads, receiptReads, claims, walletSubmissions }).toEqual({
+        reads: 2,
+        receiptReads: 0,
+        claims: 0,
+        walletSubmissions: 0,
+      });
+      cleanup();
+      window.sessionStorage.clear();
+    }
+  });
+
   test("fences money-action execution before claim when the account switches during send preflight", async () => {
     const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
     const pendingPortfolio = deferred<Response>();
@@ -2699,7 +3472,7 @@ describe("production account session owner", () => {
         walletSubmissions += 1;
         return { userOperationHash: `0x${"ab".repeat(32)}` };
       },
-      getUserOperation: async () => ({ status: "pending" }) as never,
+      getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`),
     });
     const sessionFetch: SessionFetch = async (input, init) => {
       if (input === "/api/session") {
@@ -2802,7 +3575,7 @@ describe("production account session owner", () => {
               embeddedDispatches += 1;
               return { userOperationHash: `0x${"ab".repeat(32)}` };
             },
-            getUserOperation: async () => ({ status: "pending" }) as never,
+            getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`),
           })}
           sessionFetch={embeddedFetch}
           moneyAction={embeddedAction}
@@ -3415,7 +4188,7 @@ describe("production account session owner", () => {
           evmSmartAccount: ADDRESS_A,
           network: "base",
         });
-        return { status: "complete", transactionHash: hash } as never;
+        return sdkObservation(userOperationHash, { status: "complete", transactionHash: hash });
       },
     });
     const sessionFetch: SessionFetch = async (input) => {
@@ -3519,8 +4292,8 @@ describe("production account session owner", () => {
           getUserOperation: async () => {
             polls += 1;
             if (polls === 1) throw new Error("temporary poll failure");
-            if (polls === 2) return { status: "complete" } as never;
-            return { status: "complete", transactionHash } as never;
+            if (polls === 2) return sdkObservation(userOperationHash, { status: "complete" });
+            return sdkObservation(userOperationHash, { status: "complete", transactionHash });
           },
         })}
         sessionFetch={sessionFetch}
@@ -3551,7 +4324,7 @@ describe("production account session owner", () => {
             sends += 1;
             return { userOperationHash };
           },
-          getUserOperation: async () => ({ status: "dropped" }) as never,
+          getUserOperation: async () => sdkObservation(userOperationHash, { status: "dropped" }),
         })}
         sessionFetch={sessionFetch}
       />,
@@ -3699,8 +4472,10 @@ describe("production account session owner", () => {
         sendCalls += 1;
         return { userOperationHash: `0x${"ab".repeat(32)}` };
       },
-      getUserOperation: async () =>
-        ({ status: "complete", transactionHash: `0x${"cd".repeat(32)}` }) as never,
+      getUserOperation: async () => sdkObservation(`0x${"ab".repeat(32)}`, {
+        status: "complete",
+        transactionHash: `0x${"cd".repeat(32)}`,
+      }),
     });
     const sessionFetch: SessionFetch = async (input, init) => {
       if (input === "/api/session") {

@@ -10,8 +10,8 @@ import type {
 
 export const homeBalancesPresentationCachePrefix = "home.balances.v1:";
 export const homeBalancesPresentationCacheTtlMs = 24 * 60 * 60 * 1000;
-/** Formatted row meanings changed when native-cash valuations became authoritative. */
-export const homeBalancesPresentationSemanticVersion = "2.0.0";
+/** Rows include authoritative native-cash values and stable asset mark keys. */
+export const homeBalancesPresentationSemanticVersion = "3.0.0";
 
 export type CacheStorage = Pick<
   Storage,
@@ -490,6 +490,7 @@ function allowlistItem(value: unknown): HomeAssetBalanceItem | null {
   const item = value as Record<string, unknown>;
   const allowedKeys = [
     "id",
+    "assetKey",
     "group",
     "name",
     "detail",
@@ -499,7 +500,11 @@ function allowlistItem(value: unknown): HomeAssetBalanceItem | null {
     "tone",
   ];
   if (Object.keys(item).some((key) => !allowedKeys.includes(key))) return null;
-  if (!isSafeLabel(item.id) || !isSafeLabel(item.name)) return null;
+  if (
+    !isSafeLabel(item.id) ||
+    (item.assetKey !== undefined && !isSafeLabel(item.assetKey)) ||
+    !isSafeLabel(item.name)
+  ) return null;
   if (
     typeof item.displayBalance !== "string" ||
     item.displayBalance.length === 0 ||
@@ -535,6 +540,7 @@ function allowlistItem(value: unknown): HomeAssetBalanceItem | null {
   return {
     id: item.id,
     name: item.name,
+    ...(typeof item.assetKey === "string" ? { assetKey: item.assetKey } : {}),
     displayBalance: item.displayBalance,
     ...(item.group ? { group: item.group } : {}),
     ...(typeof item.detail === "string" ? { detail: item.detail } : {}),

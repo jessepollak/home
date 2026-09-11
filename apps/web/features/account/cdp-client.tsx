@@ -404,6 +404,7 @@ function invalidationMessage(reason: BaseAccountInvalidation): string {
 }
 
 const transactionHashPattern = /^0x[0-9a-fA-F]{64}$/;
+const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const TRANSFER_CONFIRMATION_TIMEOUT_MS = 120_000;
 const TRANSFER_CONFIRMATION_POLL_MS = 1_500;
 
@@ -482,26 +483,118 @@ function isMoneyActionOwnedBySession(
 }
 
 async function sameProviderCalls(
-  actual: GetUserOperationResult["calls"],
+  actual: unknown,
   expected: PreparedMoneyAction["calls"],
 ): Promise<boolean> {
-  if (actual.length !== expected.length) return false;
-  for (const [index, call] of actual.entries()) {
+  if (!Array.isArray(actual) || actual.length !== expected.length) return false;
+  for (const [index, value] of actual.entries()) {
     const wanted = expected[index];
-    const data = (call.data ?? "0x").toLowerCase();
+    if (
+      !isRecord(value) ||
+      typeof value.to !== "string" ||
+      !/^0x[0-9a-fA-F]{40}$/.test(value.to) ||
+      (value.data !== undefined && (typeof value.data !== "string" || !/^0x(?:[0-9a-fA-F]{2})*$/.test(value.data)))
+    ) return false;
+    const data = (value.data ?? "0x").toLowerCase();
     let dataMatches = data === wanted.data.toLowerCase();
     if (wanted.dataHash) {
       const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
       const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
       dataMatches = hex === wanted.dataHash;
     }
+    const rawValue = value.value;
+    if (typeof rawValue !== "string" || !decimalIntegerPattern.test(rawValue)) return false;
     if (
-      call.to.toLowerCase() !== wanted.to.toLowerCase() ||
+      value.to.toLowerCase() !== wanted.to.toLowerCase() ||
       !dataMatches ||
-      BigInt(call.value ?? BigInt(0)).toString(10) !== wanted.value
+      BigInt(rawValue) !== BigInt(wanted.value)
     ) return false;
   }
   return true;
+}
+
+const embeddedOperationStatuses = new Set([
+  "pending", "signed", "broadcast", "complete", "dropped", "failed",
+]);
+
+type EmbeddedMoneyActionObservation = {
+  status: "pending" | "complete" | "dropped" | "failed";
+  transactionHash?: `0x${string}`;
+};
+
+async function parseEmbeddedMoneyActionObservation(
+  value: unknown,
+  expectedUserOperationHash: `0x${string}`,
+  expectedCalls: PreparedMoneyAction["calls"],
+): Promise<EmbeddedMoneyActionObservation> {
+  if (
+    !isRecord(value) ||
+    value.network !== "base" ||
+    typeof value.userOpHash !== "string" ||
+    typeof value.status !== "string" ||
+    !embeddedOperationStatuses.has(value.status) ||
+    !(await sameProviderCalls(value.calls, expectedCalls)) ||
+    (value.receipts !== undefined && !Array.isArray(value.receipts))
+  ) {
+    throw new TransferExecutionError("submission-unknown");
+  }
+  let observedUserOperationHash: `0x${string}`;
+  try {
+    observedUserOperationHash = normalizeTransactionHash(value.userOpHash);
+  } catch {
+    throw new TransferExecutionError("submission-unknown");
+  }
+  if (observedUserOperationHash !== expectedUserOperationHash) {
+    throw new TransferExecutionError("submission-unknown");
+  }
+
+  let transactionHash: `0x${string}` | undefined;
+  if (value.transactionHash !== undefined) {
+    const pendingEmptyHash =
+      value.transactionHash === "" &&
+      (value.status === "pending" || value.status === "broadcast");
+    if (!pendingEmptyHash) {
+      try {
+        transactionHash = normalizeTransactionHash(value.transactionHash);
+      } catch {
+        throw new TransferExecutionError("submission-unknown");
+      }
+    }
+  }
+
+  let reverted = false;
+  if (Array.isArray(value.receipts)) {
+    for (const receipt of value.receipts) {
+      if (!isRecord(receipt)) throw new TransferExecutionError("submission-unknown");
+      if (receipt.transactionHash !== undefined) {
+        let receiptHash: `0x${string}`;
+        try {
+          receiptHash = normalizeTransactionHash(receipt.transactionHash);
+        } catch {
+          throw new TransferExecutionError("submission-unknown");
+        }
+        if (transactionHash && receiptHash !== transactionHash) {
+          throw new TransferExecutionError("submission-unknown");
+        }
+      }
+      if (receipt.revert !== undefined) {
+        if (
+          !isRecord(receipt.revert) ||
+          typeof receipt.revert.data !== "string" ||
+          !/^0x[0-9a-fA-F]*$/.test(receipt.revert.data) ||
+          typeof receipt.revert.message !== "string"
+        ) {
+          throw new TransferExecutionError("submission-unknown");
+        }
+        reverted = true;
+      }
+    }
+  }
+
+  if (value.status === "failed" || reverted) return { status: "failed", ...(transactionHash ? { transactionHash } : {}) };
+  if (value.status === "dropped") return { status: "dropped", ...(transactionHash ? { transactionHash } : {}) };
+  if (value.status === "complete" && transactionHash) return { status: "complete", transactionHash };
+  return { status: "pending", ...(transactionHash ? { transactionHash } : {}) };
 }
 
 function transferError(error: unknown): TransferExecutionError {
@@ -541,16 +634,14 @@ function waitForPoll(): Promise<void> {
   );
 }
 
-async function waitForEmbeddedReceipt(
+async function waitForEmbeddedTransactionCandidate(
   userOperationHash: `0x${string}`,
   smartAccount: `0x${string}`,
   getOperation: NonNullable<AccountWalletSdkBoundary["getUserOperation"]>,
-  accountProvider: VerifiedAccountSession["accountProvider"],
-  getAccessToken: () => Promise<string | null>,
-  sessionFetch: SessionFetch | undefined,
   assertActive: () => void,
   expectedCalls?: PreparedMoneyAction["calls"],
-): Promise<`0x${string}`> {
+  failOnProviderUnavailable = false,
+): Promise<{ transactionHash: `0x${string}`; deadline: number }> {
   const normalizedUserOperationHash = normalizeTransactionHash(userOperationHash);
   const deadline = Date.now() + TRANSFER_CONFIRMATION_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -563,46 +654,118 @@ async function waitForEmbeddedReceipt(
         network: "base",
       });
     } catch {
+      if (failOnProviderUnavailable) throw new TransferExecutionError("unavailable");
       await waitForPoll();
       continue;
     }
     assertActive();
-    if (expectedCalls && !(await sameProviderCalls(result.calls, expectedCalls))) {
-      throw new TransferExecutionError("submission-unknown");
-    }
-    if (
-      result.status === "failed" ||
-      result.receipts?.some((receipt) => receipt.revert !== undefined)
-    ) {
-      throw new TransferExecutionError("failed");
-    }
-    if (result.status === "dropped") {
-      throw new TransferExecutionError("submission-unknown");
-    }
-    if (result.status === "complete") {
-      let transactionHash: `0x${string}`;
-      try {
-        transactionHash = normalizeTransactionHash(result.transactionHash);
-      } catch {
-        await waitForPoll();
-        continue;
-      }
-      return waitForBaseReceipt(
-        transactionHash,
-        accountProvider,
-        getAccessToken,
-        sessionFetch,
-        assertActive,
-        deadline,
-        {
-          userOperationHash: normalizedUserOperationHash,
-          sender: smartAccount,
-        },
+    if (expectedCalls) {
+      const observation = await parseEmbeddedMoneyActionObservation(
+        result,
+        normalizedUserOperationHash,
+        expectedCalls,
       );
+      if (observation.status === "failed") throw new TransferExecutionError("failed");
+      if (observation.status === "dropped") throw new TransferExecutionError("submission-unknown");
+      if (observation.status === "complete" && observation.transactionHash) {
+        return { transactionHash: observation.transactionHash, deadline };
+      }
+    } else {
+      if (
+        result.status === "failed" ||
+        result.receipts?.some((receipt) => receipt.revert !== undefined)
+      ) {
+        throw new TransferExecutionError("failed");
+      }
+      if (result.status === "dropped") throw new TransferExecutionError("submission-unknown");
+      if (result.status === "complete") {
+        try {
+          return { transactionHash: normalizeTransactionHash(result.transactionHash), deadline };
+        } catch {
+          await waitForPoll();
+          continue;
+        }
+      }
     }
     await waitForPoll();
   }
   throw new TransferExecutionError("confirmation-timeout");
+}
+
+async function waitForEmbeddedReceipt(
+  userOperationHash: `0x${string}`,
+  smartAccount: `0x${string}`,
+  getOperation: NonNullable<AccountWalletSdkBoundary["getUserOperation"]>,
+  accountProvider: VerifiedAccountSession["accountProvider"],
+  getAccessToken: () => Promise<string | null>,
+  sessionFetch: SessionFetch | undefined,
+  assertActive: () => void,
+  expectedCalls?: PreparedMoneyAction["calls"],
+): Promise<`0x${string}`> {
+  const candidate = await waitForEmbeddedTransactionCandidate(
+    userOperationHash,
+    smartAccount,
+    getOperation,
+    assertActive,
+    expectedCalls,
+  );
+  return waitForBaseReceipt(
+    candidate.transactionHash,
+    accountProvider,
+    getAccessToken,
+    sessionFetch,
+    assertActive,
+    candidate.deadline,
+    {
+      userOperationHash: normalizeTransactionHash(userOperationHash),
+      sender: smartAccount,
+    },
+  );
+}
+
+type MoneyActionSubmissionReference = {
+  submissionId?: string;
+  transactionHash?: `0x${string}`;
+  userOperationHash?: `0x${string}`;
+};
+
+async function acknowledgeRecoveredMoneyActionSubmission(
+  fetchApi: MoneyActionApiFetch,
+  action: PreparedMoneyAction,
+  reference: MoneyActionSubmissionReference,
+  assertActive: () => void,
+): Promise<StoredMoneyActionOperation> {
+  let operation: StoredMoneyActionOperation;
+  try {
+    operation = await recordMoneyActionSubmission(fetchApi, action.id, reference, action);
+    assertActive();
+  } catch (error) {
+    if (errorStatus(error) !== 409) throw error;
+    operation = await readMoneyAction(fetchApi, action.id, action);
+    assertActive();
+  }
+  if (!submissionReferenceMatches(operation, reference)) {
+    throw new TransferExecutionError("submission-unknown");
+  }
+  return operation;
+}
+
+function submissionReferenceMatches(
+  operation: StoredMoneyActionOperation,
+  reference: MoneyActionSubmissionReference,
+): boolean {
+  return (
+    (reference.submissionId === undefined || operation.submissionId === reference.submissionId) &&
+    (reference.transactionHash === undefined || operation.transactionHash === reference.transactionHash) &&
+    (reference.userOperationHash === undefined || operation.userOperationHash === reference.userOperationHash)
+  );
+}
+
+function errorStatus(error: unknown): number | null {
+  return error && typeof error === "object" && "status" in error &&
+    typeof (error as { status?: unknown }).status === "number"
+    ? (error as { status: number }).status
+    : null;
 }
 
 async function waitForBaseReceipt(
@@ -2139,42 +2302,57 @@ export function AccountWalletSessionOwner({
 
   const recoverBaseMoneyAction = useCallback(
     async (
-      id: string,
-      submissionId: string,
+      operation: StoredMoneyActionOperation,
+      prepared: PreparedMoneyAction,
       connection: ConnectedBaseAccount,
       assertStillActive: () => void,
     ): Promise<OperationResult> => {
-      if (!connection.getCallsStatus) {
+      const submissionId = operation.submissionId;
+      if (!submissionId || !connection.getCallsStatus) {
         throw new TransferExecutionError("submission-unknown");
       }
       const deadline = Date.now() + TRANSFER_CONFIRMATION_TIMEOUT_MS;
       while (Date.now() < deadline) {
         assertStillActive();
+        let result: Awaited<ReturnType<NonNullable<ConnectedBaseAccount["getCallsStatus"]>>>;
         try {
-          const result = await connection.getCallsStatus(submissionId);
-          if (result.status === "failed") {
-            return operationResult(
-              await recordMoneyActionStatus(fetchMoneyActionApi, id, "unknown"),
-            );
+          result = await connection.getCallsStatus(submissionId);
+        } catch {
+          if (operation.status === "included") {
+            assertStillActive();
+            return operationResult(operation);
           }
-          if (result.status === "complete") {
-            await waitForBaseReceipt(
-              result.transactionHash,
-              "base-account",
-              getAccessToken,
-              sessionFetch,
-              assertStillActive,
-              deadline,
-            );
-            return operationResult(
-              await recordMoneyActionSubmission(fetchMoneyActionApi, id, {
-                submissionId,
-                transactionHash: result.transactionHash,
-              }),
-            );
+          await waitForPoll();
+          continue;
+        }
+        assertStillActive();
+        if (result.status === "failed") {
+          if (operation.status === "included") return operationResult(operation);
+          return operationResult(
+            await recordMoneyActionStatus(fetchMoneyActionApi, prepared.id, "unknown"),
+          );
+        }
+        if (result.status === "complete") {
+          const acknowledged = await acknowledgeRecoveredMoneyActionSubmission(
+            fetchMoneyActionApi,
+            prepared,
+            { submissionId, transactionHash: result.transactionHash },
+            assertStillActive,
+          );
+          if (["confirmed", "failed", "rejected", "expired"].includes(acknowledged.status)) {
+            return operationResult(acknowledged);
           }
-        } catch (error) {
-          if (error instanceof TransferExecutionError) throw error;
+          await waitForBaseReceipt(
+            result.transactionHash,
+            "base-account",
+            getAccessToken,
+            sessionFetch,
+            assertStillActive,
+            deadline,
+          );
+          return operationResult(
+            await readMoneyAction(fetchMoneyActionApi, prepared.id, prepared),
+          );
         }
         await waitForPoll();
       }
@@ -2208,27 +2386,56 @@ export function AccountWalletSessionOwner({
         return operationResult(await readMoneyAction(fetchMoneyActionApi, prepared.id, prepared));
       }
       if (operation.userOperationHash && sdkGetUserOperation) {
-        const transactionHash = await waitForEmbeddedReceipt(
-          operation.userOperationHash,
-          prepared.owner.address,
-          sdkGetUserOperation,
+        let candidate: { transactionHash: `0x${string}`; deadline: number };
+        try {
+          candidate = await waitForEmbeddedTransactionCandidate(
+            operation.userOperationHash,
+            prepared.owner.address,
+            sdkGetUserOperation,
+            assertStillActive,
+            prepared.calls,
+            operation.status === "included",
+          );
+        } catch (error) {
+          if (
+            operation.status === "included" &&
+            error instanceof TransferExecutionError &&
+            (error.reason === "failed" || error.reason === "unavailable")
+          ) {
+            assertStillActive();
+            return operationResult(operation);
+          }
+          throw error;
+        }
+        const acknowledged = await acknowledgeRecoveredMoneyActionSubmission(
+          fetchMoneyActionApi,
+          prepared,
+          {
+            userOperationHash: operation.userOperationHash,
+            transactionHash: candidate.transactionHash,
+          },
+          assertStillActive,
+        );
+        if (["confirmed", "failed", "rejected", "expired"].includes(acknowledged.status)) {
+          return operationResult(acknowledged);
+        }
+        await waitForBaseReceipt(
+          candidate.transactionHash,
           prepared.owner.accountProvider,
           getAccessToken,
           sessionFetch,
           assertStillActive,
-          prepared.calls,
+          candidate.deadline,
+          { userOperationHash: operation.userOperationHash, sender: prepared.owner.address },
         );
         return operationResult(
-          await recordMoneyActionSubmission(fetchMoneyActionApi, prepared.id, {
-            userOperationHash: operation.userOperationHash,
-            transactionHash,
-          }),
+          await readMoneyAction(fetchMoneyActionApi, prepared.id, prepared),
         );
       }
       if (operation.submissionId && baseConnection.current?.getCallsStatus) {
         return recoverBaseMoneyAction(
-          prepared.id,
-          operation.submissionId,
+          operation,
+          prepared,
           baseConnection.current,
           assertStillActive,
         );
@@ -2458,8 +2665,8 @@ export function AccountWalletSessionOwner({
             return operationResult(journaled.operation);
           }
           return await recoverBaseMoneyAction(
-            canonicalAction.id,
-            submissionId,
+            journaled.operation,
+            canonicalAction,
             connection,
             assertActive,
           );
@@ -2515,21 +2722,12 @@ export function AccountWalletSessionOwner({
         if (["confirmed", "failed", "rejected", "expired"].includes(journaled.operation.status)) {
           return operationResult(journaled.operation);
         }
-        const transactionHash = await waitForEmbeddedReceipt(
-          userOperationHash,
-          session.smartAccount.address,
-          sdkGetUserOperation,
-          session.accountProvider,
-          getAccessToken,
-          sessionFetch,
+        return await reconcileRecordedMoneyAction(
+          journaled.operation,
+          canonicalAction,
           assertActive,
-          canonicalAction.calls,
+          false,
         );
-        const operation = await recordMoneyActionSubmission(fetchMoneyActionApi, canonicalAction.id, {
-          userOperationHash,
-          transactionHash,
-        }, canonicalAction);
-        return operationResult(operation);
       } finally {
         if (transferSequence.current === sequence) transferInProgress.current = false;
       }
@@ -2537,7 +2735,6 @@ export function AccountWalletSessionOwner({
     [
       fetchMoneyActionApi,
       fetchPortfolio,
-      getAccessToken,
       ownerKey,
       providerHandleJournal,
       reconcileRecordedMoneyAction,
@@ -2545,7 +2742,6 @@ export function AccountWalletSessionOwner({
       sdkGetUserOperation,
       sdkSendUserOperation,
       session,
-      sessionFetch,
       status,
     ],
   );

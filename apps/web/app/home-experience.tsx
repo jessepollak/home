@@ -64,6 +64,7 @@ import {
   type HomeAssetBalancesPresentation,
 } from "@/features/portfolio-valuation";
 import { TransferActions } from "@/features/transfers";
+import type { AssetMarkResolution } from "@/features/asset-mark/presentation";
 import { PresentationRegionProvider } from "@/features/invest/presentation-quote";
 import { PiggyBank } from "lucide-react";
 
@@ -84,6 +85,7 @@ export type HomeExperienceProps = {
   initialPanel?: ShellPanelId;
   initialAccountSettingsOpen?: boolean;
   assetBalances?: HomeAssetBalancesPresentation;
+  assetMarkResolution?: AssetMarkResolution;
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";
   initialAddMoney?: boolean;
@@ -180,6 +182,7 @@ function HomeExperienceView({
   initialPanel = "home",
   initialAccountSettingsOpen = false,
   assetBalances,
+  assetMarkResolution,
   landingVisual,
   routeMode = "landing",
   initialAddMoney = false,
@@ -574,6 +577,7 @@ function HomeExperienceView({
                   {activeNavigation === "home" ? (
                     <HomePanel
                       assetBalances={paintedAssetBalances}
+                      assetMarkResolution={assetMarkResolution}
                       activitySession={activitySession}
                       fetchActivity={account.fetchActivity}
                       fetchOperations={account.fetchOperations}
@@ -593,6 +597,7 @@ function HomeExperienceView({
                   {activeNavigation === balancesPanelId ? (
                     <BalancesPage
                       assetBalances={paintedAssetBalances}
+                      assetMarkResolution={assetMarkResolution}
                       isChecking={isChecking}
                     />
                   ) : null}
@@ -836,6 +841,7 @@ function SectionTapIn({
 
 function HomePanel({
   assetBalances,
+  assetMarkResolution,
   activitySession,
   fetchActivity,
   fetchOperations,
@@ -852,6 +858,7 @@ function HomePanel({
   regionId,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
+  assetMarkResolution?: AssetMarkResolution;
   activitySession: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
@@ -923,6 +930,7 @@ function HomePanel({
           items={previewHomeBalanceItems(balanceItems)}
           isLoading={isLoading}
           isUnavailable={assetBalances?.status === "unavailable"}
+          assetMarkResolution={assetMarkResolution}
         />
       </section>
 
@@ -993,9 +1001,11 @@ function HomePanel({
 
 function BalancesPage({
   assetBalances,
+  assetMarkResolution,
   isChecking,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
+  assetMarkResolution?: AssetMarkResolution;
   isChecking: boolean;
 }) {
   const isLoading = assetBalances?.status === "loading" || isChecking;
@@ -1005,6 +1015,7 @@ function BalancesPage({
         items={assetBalances?.items ?? []}
         isLoading={isLoading}
         isUnavailable={assetBalances?.status === "unavailable"}
+        assetMarkResolution={assetMarkResolution}
       />
     </section>
   );
@@ -1108,17 +1119,19 @@ function HomeBalancesList({
   items,
   isLoading,
   isUnavailable,
+  assetMarkResolution,
 }: {
   items: readonly HomeAssetBalanceItem[];
   isLoading: boolean;
   isUnavailable: boolean;
+  assetMarkResolution?: AssetMarkResolution;
 }) {
   if (items.length > 0) {
     return (
       <ul className="supplied-asset-list">
         {items.map((asset) => {
           const row = presentHomeBalanceRow(asset);
-          const mark = presentHomeBalanceMark(asset);
+          const mark = presentHomeBalanceMark(asset, assetMarkResolution);
           return (
             <BalanceRow
               key={asset.id}
@@ -1126,6 +1139,8 @@ function HomeBalancesList({
                 <CurrencyMark
                   currency={mark.currency}
                   symbol={mark.symbol}
+                  src={mark.imageUrl}
+                  pending={mark.pending}
                 />
               }
               iconTone="mark"

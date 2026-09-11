@@ -1,0 +1,36 @@
+{
+  "name": "@home/design-system",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port ${HOME_DESIGN_SYSTEM_PORT:-3100}",
+    "build": "next build && bun tests/check-built.ts",
+    "start": "next start --hostname 127.0.0.1 --port ${HOME_DESIGN_SYSTEM_PORT:-3100}",
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "bun test tests/*.test.ts*",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "@home/ui": "workspace:*",
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@happy-dom/global-registrator": "20.14.0",
+    "@playwright/test": "1.55.0",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/react": "16.3.3",
+    "@types/bun": "^1.4.1",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.4",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

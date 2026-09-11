@@ -1,0 +1,14 @@
+/* Tailwind v4 adapter only. Consumers import tokens/styles and own the reset. */
+@theme inline {
+  --color-home-ui-text: var(--home-ui-color-text);
+  --color-home-ui-muted: var(--home-ui-color-muted);
+  --color-home-ui-canvas: var(--home-ui-color-canvas);
+  --color-home-ui-surface: var(--home-ui-color-surface);
+  --color-home-ui-border: var(--home-ui-color-border);
+  --color-home-ui-action: var(--home-ui-color-action);
+  --color-home-ui-focus: var(--home-ui-color-focus);
+  --font-home-ui: var(--home-ui-font-family);
+  --font-home-ui-numeric: var(--home-ui-font-numeric);
+  --radius-home-ui-control: var(--home-ui-radius-control);
+  --radius-home-ui-surface: var(--home-ui-radius-surface);
+}
