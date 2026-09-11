@@ -86,6 +86,7 @@ describe("funding client boundaries", () => {
           verification: { status: "pending", boundary: "balance-and-activity" },
         };
       },
+      attemptId: "11111111-1111-4111-8111-111111111111",
       toBeMinted: "20000",
       rail: "qris",
       consent: true,
@@ -95,6 +96,7 @@ describe("funding client boundaries", () => {
       body: {
         assetId: "idrx",
         country: "ID",
+        attemptId: "11111111-1111-4111-8111-111111111111",
         toBeMinted: "20000",
         rail: "qris",
         consent: true,

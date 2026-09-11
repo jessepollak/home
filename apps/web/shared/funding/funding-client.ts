@@ -23,6 +23,7 @@ export class FundingRequestError extends Error {
   readonly code:
     | "unauthenticated"
     | "not-configured"
+    | "pending"
     | "unavailable"
     | "invalid-response";
 
@@ -52,6 +53,7 @@ export async function requestHostedOnrampSession(options: {
 
 export async function requestIdrxMint(options: {
   fetchAccountResource: FundingAccountResource;
+  attemptId: string;
   toBeMinted: string;
   rail: IdrxFundingRail;
   channelId?: IdrxVaChannel;
@@ -65,6 +67,7 @@ export async function requestIdrxMint(options: {
       body: {
         assetId: "idrx",
         country: IDRX_COUNTRY,
+        attemptId: options.attemptId,
         toBeMinted: options.toBeMinted,
         rail: options.rail,
         ...(options.rail === "bank-va" && options.channelId
@@ -230,7 +233,9 @@ function requestError(error: unknown): FundingRequestError {
   return new FundingRequestError(
     status === 401
       ? "unauthenticated"
-      : status === 424
+      : status === 409
+        ? "pending"
+        : status === 424
         ? "not-configured"
         : "unavailable",
   );

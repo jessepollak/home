@@ -4,12 +4,13 @@ import {
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
 import type { FundingSessionAuthorizer } from "./handler";
+import type { IdrxAttemptStore } from "./idrx-attempt-store";
 import {
   IDRX_BASE_CHAIN_ID,
-  IdrxMintError,
   isAllowedIdrxMintAmount,
   isIdrxVaChannel,
   type CreateIdrxMintRequest,
+  type IdrxCustomerBinding,
 } from "./idrx";
 import type { IdrxFundingRail, IdrxVaChannel } from "@/shared/funding/types";
 
@@ -27,11 +28,15 @@ const allowedIntentKeys = new Set([
   "rail",
   "channelId",
   "consent",
+  "attemptId",
 ]);
+const attemptIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function createIdrxMintHandler(dependencies: {
   authorize: FundingSessionAuthorizer;
   createMint: CreateIdrxMintRequest;
+  resolveCustomer: (subject: string) => IdrxCustomerBinding | null;
+  attempts: IdrxAttemptStore;
 }) {
   return async function POST(request: Request): Promise<Response> {
     const requestOrigin = new URL(request.url).origin;
@@ -73,28 +78,54 @@ export function createIdrxMintHandler(dependencies: {
       );
     }
 
+    const customer = dependencies.resolveCustomer(session.user.subject);
+    if (!customer || customer.subject !== session.user.subject) {
+      return privateError(
+        "IDRX_CUSTOMER_NOT_LINKED",
+        "Link a verified IDRX customer identity before creating a payment request.",
+        424,
+      );
+    }
+    const owner = {
+      subject: session.user.subject,
+      smartAccount: session.smartAccount.address,
+    };
+    let attempt;
+    try {
+      attempt = await dependencies.attempts.begin(owner, intent.attemptId);
+    } catch {
+      return privateError(
+        "IDRX_ATTEMPT_STORE_UNAVAILABLE",
+        "Durable IDRX attempt recovery is unavailable; no provider request was sent.",
+        424,
+      );
+    }
+    if (attempt.status === "completed") return privateJson(attempt.result, 200);
+    if (attempt.status === "pending") {
+      return privateError(
+        "IDRX_ATTEMPT_PENDING",
+        "This funding attempt may already have reached IDRX. Check balance and activity instead of creating another order.",
+        409,
+      );
+    }
+
     try {
       const minted = await dependencies.createMint({
         address: session.smartAccount.address,
+        customer,
         toBeMinted: intent.toBeMinted,
         rail: intent.rail,
         channelId: intent.channelId,
         returnUrl: new URL("/fund?return=idrx", requestOrigin).toString(),
         signal: request.signal,
       });
+      await dependencies.attempts.complete(owner, intent.attemptId, minted);
       return privateJson(minted, 200);
-    } catch (error) {
-      if (error instanceof IdrxMintError && error.code === "not-configured") {
-        return privateError(
-          "IDRX_NOT_CONFIGURED",
-          "IDRX mint needs this deployment's server-only IDRX_CLIENT_ID and IDRX_CLIENT_SECRET.",
-          424,
-        );
-      }
+    } catch {
       return privateError(
-        "IDRX_UNAVAILABLE",
-        "IDRX could not create a mint request. Try again or use hosted checkout once keys are configured.",
-        503,
+        "IDRX_ATTEMPT_PENDING",
+        "IDRX may have received this attempt. Check balance and activity; Home will not create another order.",
+        409,
       );
     }
   };
@@ -104,6 +135,7 @@ async function readMintIntent(
   request: Request,
 ): Promise<
   | {
+      attemptId: string;
       toBeMinted: string;
       rail: IdrxFundingRail;
       channelId?: IdrxVaChannel;
@@ -129,6 +161,8 @@ async function readMintIntent(
     value.country !== "ID" ||
     !isAllowedIdrxMintAmount(value.toBeMinted) ||
     value.consent !== true ||
+    typeof value.attemptId !== "string" ||
+    !attemptIdPattern.test(value.attemptId) ||
     (value.rail !== "bank-va" && value.rail !== "qris") ||
     (value.rail === "bank-va" && !isIdrxVaChannel(value.channelId)) ||
     (value.rail === "qris" && value.channelId !== undefined)
@@ -137,12 +171,17 @@ async function readMintIntent(
   }
   if (value.rail === "bank-va") {
     return {
+      attemptId: value.attemptId as string,
       toBeMinted: value.toBeMinted,
       rail: "bank-va",
       channelId: value.channelId as IdrxVaChannel,
     };
   }
-  return { toBeMinted: value.toBeMinted, rail: "qris" };
+  return {
+    attemptId: value.attemptId as string,
+    toBeMinted: value.toBeMinted,
+    rail: "qris",
+  };
 }
 
 async function parseAuthorizedSession(

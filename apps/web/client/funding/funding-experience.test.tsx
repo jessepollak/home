@@ -202,6 +202,7 @@ describe("FundingExperience", () => {
       body: {
         assetId: "idrx",
         country: "ID",
+        attemptId: expect.any(String),
         toBeMinted: "20000",
         rail: "bank-va",
         channelId: "MANDIRI",
@@ -209,6 +210,35 @@ describe("FundingExperience", () => {
       },
       signal: expect.any(AbortSignal),
     }]]);
+  });
+
+  test("retains an ambiguous IDRX attempt across back navigation and does not offer redispatch", async () => {
+    let calls = 0;
+    render(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async () => {
+            calls += 1;
+            throw Object.assign(new Error("pending"), { status: 409 });
+          },
+        }}
+        navigateToHostedOnramp={() => {}}
+        regionId="ID"
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
+    fireEvent.click(page().getByRole("checkbox"));
+    fireEvent.click(page().getByRole("button", { name: "Create virtual account" }));
+    await waitFor(() => expect(page().getByText("Funding pending")).toBeTruthy());
+    expect(calls).toBe(1);
+    expect(page().queryByRole("button", { name: "Create virtual account" })).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
+    expect(page().getByText("Funding pending")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Create virtual account" })).toBeNull();
+    expect(calls).toBe(1);
   });
 
   test("does not expose the Indonesia issuer rail in another region", () => {

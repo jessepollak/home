@@ -7,6 +7,7 @@ import { useMoneyDataRefresh } from "@/client/money-actions/refresh";
 import { AddMoneyDialog, type AddMoneyStep } from "./add-money-dialog";
 import {
   FundingRequestError,
+  parseIdrxMintResult,
   requestHostedOnrampSession,
   requestIdrxMint,
 } from "@/shared/funding/funding-client";
@@ -80,8 +81,12 @@ function FundingExperienceBoundary({
   const [step, setStep] = useState<AddMoneyStep>(startStep);
   const [openingOnramp, setOpeningOnramp] = useState(false);
   const [onrampError, setOnrampError] = useState<string | null>(null);
-  const [idrxResult, setIdrxResult] = useState<IdrxMintResult | null>(null);
-  const [idrxReturned, setIdrxReturned] = useState(returnedFromIdrx);
+  const savedIdrx = readSavedIdrxAttempt(boundary);
+  const [idrxResult, setIdrxResult] = useState<IdrxMintResult | null>(savedIdrx.result);
+  const [idrxReturned, setIdrxReturned] = useState(
+    returnedFromIdrx || savedIdrx.pending,
+  );
+  const idrxAttemptIdRef = useRef(savedIdrx.attemptId);
   const [reconcileRequested, setReconcileRequested] = useState(false);
   const requestEpochRef = useRef(0);
   const requestAbortRef = useRef<AbortController | null>(null);
@@ -146,15 +151,26 @@ function FundingExperienceBoundary({
   }) {
     if (!session?.smartAccount || regionId !== "ID") return;
     void runRequest(async (signal) => {
-      const result = await requestIdrxMint({
-        fetchAccountResource: wallet.fetchAccountResource,
-        ...options,
-        signal,
-      });
-      if (!signal.aborted && openRef.current) {
-        setIdrxResult(result);
-        setIdrxReturned(false);
-        setReconcileRequested(false);
+      const attemptId = idrxAttemptIdRef.current;
+      saveIdrxAttempt(boundary, { attemptId, pending: true, result: null });
+      try {
+        const result = await requestIdrxMint({
+          fetchAccountResource: wallet.fetchAccountResource,
+          attemptId,
+          ...options,
+          signal,
+        });
+        if (!signal.aborted && openRef.current) {
+          saveIdrxAttempt(boundary, { attemptId, pending: true, result });
+          setIdrxResult(result);
+          setIdrxReturned(false);
+          setReconcileRequested(false);
+        }
+      } catch (error) {
+        if (error instanceof FundingRequestError && error.code === "pending") {
+          setIdrxReturned(true);
+        }
+        throw error;
       }
     });
   }
@@ -165,8 +181,9 @@ function FundingExperienceBoundary({
   }
 
   function resetIdrx() {
-    setIdrxResult(null);
-    setIdrxReturned(false);
+    const saved = readSavedIdrxAttempt(boundary);
+    setIdrxResult(saved.result);
+    setIdrxReturned(saved.pending);
     setReconcileRequested(false);
     setOnrampError(null);
   }
@@ -227,6 +244,41 @@ function isCurrentRequest(
   return !controller.signal.aborted && epochRef.current === epoch && openRef.current;
 }
 
+type SavedIdrxAttempt = {
+  attemptId: string;
+  pending: boolean;
+  result: IdrxMintResult | null;
+};
+
+function readSavedIdrxAttempt(boundary: string | null): SavedIdrxAttempt {
+  const fresh = { attemptId: crypto.randomUUID(), pending: false, result: null };
+  if (!boundary || typeof window === "undefined") return fresh;
+  try {
+    const raw = window.sessionStorage.getItem(idrxStorageKey(boundary));
+    if (!raw) return fresh;
+    const parsed = JSON.parse(raw) as Partial<SavedIdrxAttempt>;
+    if (
+      typeof parsed.attemptId !== "string" ||
+      !/^[0-9a-f-]{36}$/i.test(parsed.attemptId) ||
+      typeof parsed.pending !== "boolean"
+    ) return fresh;
+    let result: IdrxMintResult | null = null;
+    if (parsed.result) result = parseIdrxMintResult(parsed.result);
+    return { attemptId: parsed.attemptId, pending: parsed.pending, result };
+  } catch {
+    return fresh;
+  }
+}
+
+function saveIdrxAttempt(boundary: string | null, value: SavedIdrxAttempt): void {
+  if (!boundary || typeof window === "undefined") return;
+  window.sessionStorage.setItem(idrxStorageKey(boundary), JSON.stringify(value));
+}
+
+function idrxStorageKey(boundary: string): string {
+  return `home.idrx-attempt.v1:${boundary}`;
+}
+
 function fundingBoundary(wallet: FundingWallet): string | null {
   const session = wallet.status === "verified" ? wallet.session : null;
   return wallet.ownerKey && session?.smartAccount
@@ -240,7 +292,10 @@ function messageForOnrampError(error: unknown): string {
       return "Your verified session changed before funding opened. Sign in again; no provider request was used.";
     }
     if (error.code === "not-configured") {
-      return "This funding method is not configured on this deployment.";
+      return "This funding method is not configured or is not linked to this verified IDRX customer.";
+    }
+    if (error.code === "pending") {
+      return "This attempt may already exist at IDRX. Check balance and activity; Home will not create another order.";
     }
   }
   return "Funding is temporarily unavailable. No payment or funding was confirmed.";

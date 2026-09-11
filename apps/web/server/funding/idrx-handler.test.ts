@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { IDRX_BASE_ADDRESS } from "./idrx";
+import { IDRX_BASE_ADDRESS, IdrxMintError } from "./idrx";
 import { createIdrxMintHandler } from "./idrx-handler";
+import { MemoryIdrxAttemptStore } from "./idrx-attempt-store";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 
@@ -19,6 +20,7 @@ function request(body: unknown = {
   rail: "bank-va",
   channelId: "MANDIRI",
   consent: true,
+  attemptId: "11111111-1111-4111-8111-111111111111",
 }) {
   return new Request("http://localhost:3111/api/funding/idrx-mint", {
     method: "POST",
@@ -42,6 +44,8 @@ describe("IDRX mint handler", () => {
     }> = [];
     const handler = createIdrxMintHandler({
       authorize: async () => authorizedSession(),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts: new MemoryIdrxAttemptStore(),
       createMint: async (options) => {
         calls.push({
           address: options.address,
@@ -81,6 +85,7 @@ describe("IDRX mint handler", () => {
       rail: "bank-va",
       channelId: "MANDIRI",
       consent: true,
+      attemptId: "11111111-1111-4111-8111-111111111111",
     }));
 
     expect(response.status).toBe(200);
@@ -105,6 +110,8 @@ describe("IDRX mint handler", () => {
     let providerCalls = 0;
     const handler = createIdrxMintHandler({
       authorize: async () => authorizedSession(),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts: new MemoryIdrxAttemptStore(),
       createMint: async () => {
         providerCalls += 1;
         throw new Error("must not run");
@@ -133,6 +140,87 @@ describe("IDRX mint handler", () => {
     expect(providerCalls).toBe(0);
   });
 
+  test("gates provider dispatch on the verified customer's credential binding", async () => {
+    let providerCalls = 0;
+    let attemptCalls = 0;
+    const handler = createIdrxMintHandler({
+      authorize: async () => authorizedSession(),
+      resolveCustomer: () => null,
+      attempts: {
+        begin: async () => { attemptCalls += 1; return { status: "new" }; },
+        complete: async () => {},
+      },
+      createMint: async () => {
+        providerCalls += 1;
+        throw new Error("must not run");
+      },
+    });
+
+    const response = await handler(request());
+    expect(response.status).toBe(424);
+    expect((await response.json()).error.code).toBe("IDRX_CUSTOMER_NOT_LINKED");
+    expect(attemptCalls).toBe(0);
+    expect(providerCalls).toBe(0);
+  });
+
+  test("recovers a completed owner-bound attempt without a second provider dispatch", async () => {
+    const attempts = new MemoryIdrxAttemptStore();
+    let providerCalls = 0;
+    const handler = createIdrxMintHandler({
+      authorize: async () => authorizedSession(),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts,
+      createMint: async () => {
+        providerCalls += 1;
+        return {
+          presentation: "hosted",
+          rail: "qris",
+          asset: { id: "idrx", symbol: "IDRX", decimals: 2, tokenAddress: IDRX_BASE_ADDRESS },
+          network: { name: "Base", chainId: 8453 },
+          merchantOrderId: "order-once",
+          url: "https://checkout.idrx.co/?token=fixture",
+          verification: { status: "pending", boundary: "balance-and-activity" },
+        };
+      },
+    });
+
+    const first = await handler(request({
+      assetId: "idrx", country: "ID", toBeMinted: "20000", rail: "qris",
+      consent: true, attemptId: "22222222-2222-4222-8222-222222222222",
+    }));
+    const recovered = await handler(request({
+      assetId: "idrx", country: "ID", toBeMinted: "20000", rail: "qris",
+      consent: true, attemptId: "22222222-2222-4222-8222-222222222222",
+    }));
+    expect(first.status).toBe(200);
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject({ merchantOrderId: "order-once" });
+    expect(providerCalls).toBe(1);
+  });
+
+  test("retains an ambiguous failed attempt and refuses a second provider dispatch", async () => {
+    const attempts = new MemoryIdrxAttemptStore();
+    let providerCalls = 0;
+    const handler = createIdrxMintHandler({
+      authorize: async () => authorizedSession(),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts,
+      createMint: async () => {
+        providerCalls += 1;
+        throw new IdrxMintError("unavailable");
+      },
+    });
+    const body = {
+      assetId: "idrx", country: "ID", toBeMinted: "20000", rail: "qris",
+      consent: true, attemptId: "33333333-3333-4333-8333-333333333333",
+    };
+    expect((await handler(request(body))).status).toBe(409);
+    const retry = await handler(request(body));
+    expect(retry.status).toBe(409);
+    expect((await retry.json()).error.code).toBe("IDRX_ATTEMPT_PENDING");
+    expect(providerCalls).toBe(1);
+  });
+
   test("preserves unauthenticated privacy and never calls IDRX", async () => {
     let providerCalls = 0;
     const handler = createIdrxMintHandler({
@@ -141,6 +229,8 @@ describe("IDRX mint handler", () => {
           { error: { code: "UNAUTHENTICATED", message: "A valid access token is required." } },
           { status: 401 },
         ),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts: new MemoryIdrxAttemptStore(),
       createMint: async () => {
         providerCalls += 1;
         throw new Error("must not run");

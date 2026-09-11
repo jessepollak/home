@@ -10,6 +10,7 @@ import {
   createIdrxMintClient,
   isAllowedIdrxMintAmount,
   parseIdrxCheckoutUrl,
+  resolveConfiguredIdrxCustomer,
 } from "./idrx";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
@@ -67,7 +68,7 @@ describe("IDRX mint client", () => {
 
     const requests: Array<{ input: string; init?: RequestInit }> = [];
     const client = createIdrxMintClient({
-      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET },
+      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET, IDRX_CUSTOMER_SUBJECT: "subject-a", IDRX_CUSTOMER_NAME: "JOHN SMITH" },
       now: () => 1_700_000_000_000,
       fetchImplementation: async (input, init) => {
         requests.push({ input: String(input), init });
@@ -77,6 +78,7 @@ describe("IDRX mint client", () => {
 
     const result = await client({
       address: ADDRESS,
+      customer: { subject: "subject-a", customerName: "JOHN SMITH" },
       toBeMinted: "20000",
       rail: "bank-va",
       channelId: "MANDIRI",
@@ -122,10 +124,48 @@ describe("IDRX mint client", () => {
     });
   });
 
+  test("binds customer-specific credentials to the verified Home subject and VA name", async () => {
+    expect(resolveConfiguredIdrxCustomer("subject-a", {
+      IDRX_CLIENT_ID: "public-key",
+      IDRX_CLIENT_SECRET: SECRET,
+      IDRX_CUSTOMER_SUBJECT: "subject-a",
+      IDRX_CUSTOMER_NAME: "JOHN SMITH",
+    })).toEqual({ subject: "subject-a", customerName: "JOHN SMITH" });
+    expect(resolveConfiguredIdrxCustomer("subject-b", {
+      IDRX_CLIENT_ID: "public-key",
+      IDRX_CLIENT_SECRET: SECRET,
+      IDRX_CUSTOMER_SUBJECT: "subject-a",
+      IDRX_CUSTOMER_NAME: "JOHN SMITH",
+    })).toBeNull();
+
+    let providerCalls = 0;
+    const client = createIdrxMintClient({
+      env: {
+        IDRX_CLIENT_ID: "public-key",
+        IDRX_CLIENT_SECRET: SECRET,
+        IDRX_CUSTOMER_SUBJECT: "subject-a",
+        IDRX_CUSTOMER_NAME: "JOHN SMITH",
+      },
+      fetchImplementation: async () => {
+        providerCalls += 1;
+        return Response.json(vaData());
+      },
+    });
+    await expect(client({
+      address: ADDRESS,
+      customer: { subject: "subject-b", customerName: "JANE SMITH" },
+      toBeMinted: "20000",
+      rail: "bank-va",
+      channelId: "MANDIRI",
+      returnUrl: "https://home.example/fund?return=idrx",
+    })).rejects.toMatchObject({ code: "not-configured" });
+    expect(providerCalls).toBe(0);
+  });
+
   test("creates QRIS only through the explicit hosted rail", async () => {
     const bodies: unknown[] = [];
     const client = createIdrxMintClient({
-      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET },
+      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET, IDRX_CUSTOMER_SUBJECT: "subject-a", IDRX_CUSTOMER_NAME: "JOHN SMITH" },
       now: () => 1_700_000_000_000,
       fetchImplementation: async (_input, init) => {
         bodies.push(JSON.parse(String(init?.body)));
@@ -135,6 +175,7 @@ describe("IDRX mint client", () => {
 
     const result = await client({
       address: ADDRESS,
+      customer: { subject: "subject-a", customerName: "JOHN SMITH" },
       toBeMinted: "20000.00",
       rail: "qris",
       returnUrl: "https://home.example/fund?return=idrx",
@@ -157,11 +198,36 @@ describe("IDRX mint client", () => {
     });
   });
 
+  test("accepts documented numeric response amounts with up to two decimals", async () => {
+    const client = createIdrxMintClient({
+      env: {
+        IDRX_CLIENT_ID: "public-key",
+        IDRX_CLIENT_SECRET: SECRET,
+        IDRX_CUSTOMER_SUBJECT: "subject-a",
+        IDRX_CUSTOMER_NAME: "JOHN SMITH",
+      },
+      fetchImplementation: async () => Response.json(vaData({
+        amount: 24000.5,
+        baseAmount: 20000.5,
+      })),
+    });
+    const result = await client({
+      address: ADDRESS,
+      customer: { subject: "subject-a", customerName: "JOHN SMITH" },
+      toBeMinted: "20000.50",
+      rail: "bank-va",
+      channelId: "MANDIRI",
+      returnUrl: "https://home.example/fund?return=idrx",
+    });
+    expect(result).toMatchObject({ amount: "24000.5", baseAmount: "20000.5" });
+  });
+
   test("fails closed without secrets, on 401, and on non-IDRX checkout URLs", async () => {
     const missing = createIdrxMintClient({ env: {} });
     await expect(
       missing({
         address: ADDRESS,
+        customer: { subject: "subject-a", customerName: "JOHN SMITH" },
         toBeMinted: "20000",
         rail: "bank-va",
         channelId: "MANDIRI",
@@ -171,7 +237,7 @@ describe("IDRX mint client", () => {
 
     let hostedCalls = 0;
     const unauthorized = createIdrxMintClient({
-      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET },
+      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET, IDRX_CUSTOMER_SUBJECT: "subject-a", IDRX_CUSTOMER_NAME: "JOHN SMITH" },
       fetchImplementation: async (_input, init) => {
         if (JSON.parse(String(init?.body)).paymentMethod !== "va") hostedCalls += 1;
         return new Response("no", { status: 401 });
@@ -180,6 +246,7 @@ describe("IDRX mint client", () => {
     await expect(
       unauthorized({
         address: ADDRESS,
+        customer: { subject: "subject-a", customerName: "JOHN SMITH" },
         toBeMinted: "20000",
         rail: "bank-va",
         channelId: "MANDIRI",
@@ -189,7 +256,7 @@ describe("IDRX mint client", () => {
     expect(hostedCalls).toBe(0);
 
     const invalid = createIdrxMintClient({
-      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET },
+      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET, IDRX_CUSTOMER_SUBJECT: "subject-a", IDRX_CUSTOMER_NAME: "JOHN SMITH" },
       fetchImplementation: async () =>
         Response.json({
           statusCode: 200,
@@ -202,6 +269,7 @@ describe("IDRX mint client", () => {
     await expect(
       invalid({
         address: ADDRESS,
+        customer: { subject: "subject-a", customerName: "JOHN SMITH" },
         toBeMinted: "20000",
         rail: "bank-va",
         channelId: "MANDIRI",
@@ -216,7 +284,7 @@ describe("IDRX mint client", () => {
   test("does not open a second mint after a 5xx VA response", async () => {
     let calls = 0;
     const client = createIdrxMintClient({
-      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET },
+      env: { IDRX_CLIENT_ID: "public-key", IDRX_CLIENT_SECRET: SECRET, IDRX_CUSTOMER_SUBJECT: "subject-a", IDRX_CUSTOMER_NAME: "JOHN SMITH" },
       fetchImplementation: async () => {
         calls += 1;
         return new Response("no", { status: 503 });
@@ -225,6 +293,7 @@ describe("IDRX mint client", () => {
     await expect(
       client({
         address: ADDRESS,
+        customer: { subject: "subject-a", customerName: "JOHN SMITH" },
         toBeMinted: "20000",
         rail: "bank-va",
         channelId: "MANDIRI",

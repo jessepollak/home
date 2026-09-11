@@ -29,8 +29,14 @@ export class IdrxMintError extends Error {
   }
 }
 
+export type IdrxCustomerBinding = {
+  subject: string;
+  customerName: string;
+};
+
 export type CreateIdrxMintRequest = (options: {
   address: `0x${string}`;
+  customer: IdrxCustomerBinding;
   toBeMinted: string;
   rail: IdrxFundingRail;
   channelId?: IdrxVaChannel;
@@ -105,10 +111,21 @@ export function createIdrxMintClient(options: {
   const now = options.now ?? Date.now;
   const asset = assertIdrxBaseToken();
 
-  return async ({ address, toBeMinted, rail, channelId, returnUrl, signal }) => {
+  return async ({ address, customer, toBeMinted, rail, channelId, returnUrl, signal }) => {
     const clientId = env.IDRX_CLIENT_ID?.trim();
     const clientSecret = env.IDRX_CLIENT_SECRET?.trim();
-    if (!clientId || !clientSecret) throw new IdrxMintError("not-configured");
+    const configuredSubject = env.IDRX_CUSTOMER_SUBJECT?.trim();
+    const configuredName = env.IDRX_CUSTOMER_NAME?.trim();
+    if (
+      !clientId ||
+      !clientSecret ||
+      !configuredSubject ||
+      !configuredName ||
+      configuredSubject !== customer.subject ||
+      normalizeCustomerName(configuredName) !== normalizeCustomerName(customer.customerName)
+    ) {
+      throw new IdrxMintError("not-configured");
+    }
     parseIdrxMintAmount(toBeMinted);
 
     if (rail === "qris") {
@@ -136,13 +153,36 @@ export function createIdrxMintClient(options: {
       body: vaMintBody(toBeMinted, address, channelId),
     });
     if (va.kind === "ok") {
-      return parseMintData(va.data, { asset, preferredChannel: channelId, allowHosted: false });
+      return parseMintData(va.data, {
+        asset,
+        preferredChannel: channelId,
+        expectedCustomerName: customer.customerName,
+        allowHosted: false,
+      });
     }
     throw va.error;
   };
 }
 
 export const createIdrxMintRequest = createIdrxMintClient();
+
+export function resolveConfiguredIdrxCustomer(
+  subject: string,
+  env: Environment = process.env,
+): IdrxCustomerBinding | null {
+  const clientId = env.IDRX_CLIENT_ID?.trim();
+  const clientSecret = env.IDRX_CLIENT_SECRET?.trim();
+  const configuredSubject = env.IDRX_CUSTOMER_SUBJECT?.trim();
+  const customerName = env.IDRX_CUSTOMER_NAME?.trim();
+  if (
+    !clientId ||
+    !clientSecret ||
+    !configuredSubject ||
+    !customerName ||
+    configuredSubject !== subject
+  ) return null;
+  return { subject: configuredSubject, customerName };
+}
 
 function vaMintBody(
   toBeMinted: string,
@@ -236,13 +276,19 @@ function parseMintData(
   options: {
     asset: IdrxMintAsset;
     preferredChannel: IdrxVaChannel;
+    expectedCustomerName: string;
     allowHosted: boolean;
   },
 ): IdrxMintResult {
   const data = readData(value);
   const virtualAccountNo = data.virtualAccountNo;
   if (typeof virtualAccountNo === "string" && virtualAccountNo.length > 0) {
-    return parseVirtualAccountMint(data, options.asset, options.preferredChannel);
+    return parseVirtualAccountMint(
+      data,
+      options.asset,
+      options.preferredChannel,
+      options.expectedCustomerName,
+    );
   }
   if (options.allowHosted) return parseHostedMint(value, options.asset);
   throw new IdrxMintError("invalid-response");
@@ -252,6 +298,7 @@ function parseVirtualAccountMint(
   data: Record<string, unknown>,
   asset: IdrxMintAsset,
   channelId: IdrxVaChannel,
+  expectedCustomerName: string,
 ): IdrxVirtualAccountMint {
   if (
     typeof data.virtualAccountNo !== "string" ||
@@ -259,6 +306,8 @@ function parseVirtualAccountMint(
     typeof data.virtualAccountName !== "string" ||
     data.virtualAccountName.trim().length === 0 ||
     data.virtualAccountName.length > 128 ||
+    normalizeCustomerName(data.virtualAccountName) !==
+      normalizeCustomerName(expectedCustomerName) ||
     typeof data.merchantOrderId !== "string" ||
     !merchantOrderIdPattern.test(data.merchantOrderId)
   ) {
@@ -350,10 +399,16 @@ function readIdrAmount(value: unknown): string {
     if (!mintAmountPattern.test(value)) throw new IdrxMintError("invalid-response");
     return value;
   }
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
-    return String(value);
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    const minor = value * 100;
+    if (!Number.isSafeInteger(minor)) throw new IdrxMintError("invalid-response");
+    return value.toFixed(2).replace(/(?:\.0+|(?<=[0-9])0+)$/, "").replace(/\.$/, "");
   }
   throw new IdrxMintError("invalid-response");
+}
+
+function normalizeCustomerName(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleUpperCase("id-ID");
 }
 
 function readExpiredDate(value: unknown): string {
