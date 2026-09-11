@@ -88,31 +88,22 @@ export function presentActivityTransferRow(
 }
 
 function formatActivityDate(value: string, timeZone: string): string {
-  const parts = activityDateParts(value, timeZone, true);
-  return `${parts.month} ${parts.day}, ${parts.year}, ${parts.hour}:${parts.minute} ${parts.dayPeriod}`;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  }).format(new Date(value));
 }
 
 function formatActivityDateShort(value: string, timeZone: string): string {
-  const parts = activityDateParts(value, timeZone, false);
-  return `${parts.month} ${parts.day}, ${parts.hour}:${parts.minute} ${parts.dayPeriod}`;
-}
-
-function activityDateParts(
-  value: string,
-  timeZone: string,
-  includeYear: boolean,
-): Record<string, string> {
-  return Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      ...(includeYear ? { year: "numeric" as const } : {}),
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone,
-    })
-      .formatToParts(new Date(value))
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, part.value]),
-  );
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  }).format(new Date(value));
 }

@@ -47,6 +47,21 @@ function transfer(
   };
 }
 
+function expectedActivityDate(
+  value: string,
+  timeZone: string,
+  includeYear: boolean,
+): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(includeYear ? { year: "numeric" as const } : {}),
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  }).format(new Date(value));
+}
+
 function expectSerializable(model: ActivityRowViewModel) {
   expect(JSON.parse(JSON.stringify(model))).toEqual(model);
 }
@@ -82,7 +97,8 @@ describe("presentActivityTransferRow", () => {
     );
   });
 
-  test("uses an explicit timezone for deterministic full and short dates", () => {
+  test("uses the runtime formatter with an explicit timezone for deterministic dates", () => {
+    const timestamp = "2026-09-07T11:05:00.000Z";
     const utc = presentActivityTransferRow(transfer("incoming"), usdc, UTC);
     const pacific = presentActivityTransferRow(
       transfer("incoming"),
@@ -91,13 +107,17 @@ describe("presentActivityTransferRow", () => {
     );
 
     expect(utc).toMatchObject({
-      dateTime: "2026-09-07T11:05:00.000Z",
-      fullDate: "Sep 7, 2026, 11:05 AM",
-      shortDate: "Sep 7, 11:05 AM",
+      dateTime: timestamp,
+      fullDate: expectedActivityDate(timestamp, "UTC", true),
+      shortDate: expectedActivityDate(timestamp, "UTC", false),
     });
     expect(pacific).toMatchObject({
-      fullDate: "Sep 7, 2026, 4:05 AM",
-      shortDate: "Sep 7, 4:05 AM",
+      fullDate: expectedActivityDate(timestamp, "America/Los_Angeles", true),
+      shortDate: expectedActivityDate(
+        timestamp,
+        "America/Los_Angeles",
+        false,
+      ),
     });
   });
 
@@ -126,7 +146,9 @@ describe("presentActivityTransferRow", () => {
   test("includes serializable BaseScan and date accessibility metadata", () => {
     const model = presentActivityTransferRow(transfer("incoming"), usdc, UTC);
 
-    expect(model.fullDate).toBe("Sep 7, 2026, 11:05 AM");
+    expect(model.fullDate).toBe(
+      expectedActivityDate(transfer("incoming").blockTimestamp, "UTC", true),
+    );
     expect(model.explorer).toEqual({
       href: `https://basescan.org/tx/${TRANSACTION_HASH}`,
       label: "View received USDC transfer on BaseScan",
