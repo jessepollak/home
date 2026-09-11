@@ -630,6 +630,7 @@ type TestIntersectionCallback = (
 ) => void;
 
 const intersectionObserverInstances: TestIntersectionObserver[] = [];
+let autoIntersectOnObserve = false;
 
 class TestIntersectionObserver {
   connected = true;
@@ -640,7 +641,15 @@ class TestIntersectionObserver {
     intersectionObserverInstances.push(this);
   }
 
-  observe() {}
+  observe() {
+    if (autoIntersectOnObserve) {
+      queueMicrotask(() => {
+        if (this.connected) {
+          this.callback([{ isIntersecting: true }], this);
+        }
+      });
+    }
+  }
   unobserve() {}
   disconnect() {
     this.connected = false;
@@ -681,6 +690,7 @@ afterEach(() => {
   document.body.style.overflow = "";
   window.history.replaceState({}, "", "/");
   intersectionObserverInstances.length = 0;
+  autoIntersectOnObserve = false;
 });
 
 describe("login-state home experience", () => {
@@ -2580,6 +2590,58 @@ describe("balances incremental rendering", () => {
     expect(page().queryByRole("button", { name: "Back" })).toBeNull();
 
     fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(main.scrollTop).toBe(480);
+  });
+
+  test("auto-fills more than two batches while the sentinel stays intersecting", async () => {
+    autoIntersectOnObserve = true;
+    try {
+      render(
+        <HomeHarness
+          accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+          assetBalances={{
+            status: "ready",
+            displayTotal: "$99.99",
+            items: manyBalances(35),
+          }}
+        />,
+      );
+
+      await enabledAccountButton();
+      fireEvent.click(page().getByRole("button", { name: "Balances" }));
+      await waitFor(() => expect(page().getByText("Holding 34")).toBeTruthy());
+      expect(document.querySelector(".balances-sentinel")).toBeNull();
+    } finally {
+      autoIntersectOnObserve = false;
+    }
+  });
+
+  test("keeps Account settings scroll separate from the Balances slot", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$99.99",
+          items: manyBalances(25),
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    const main = document.querySelector(".app-main-authenticated") as HTMLElement;
+    expect(main).toBeTruthy();
+    main.scrollTop = 480;
+    fireEvent.scroll(main);
+
+    fireEvent.click(page().getByRole("button", { name: "Account" }));
+    expect(await page().findByRole("combobox", { name: "Country" })).toBeTruthy();
+    main.scrollTop = 120;
+    fireEvent.scroll(main);
+
+    fireEvent.click(page().getByRole("button", { name: "Done" }));
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
     expect(main.scrollTop).toBe(480);
   });

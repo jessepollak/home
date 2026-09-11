@@ -213,9 +213,14 @@ function HomeExperienceView({
   );
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
-  const panelScrollRef = useRef<Partial<Record<ShellPanelId, number>>>({});
+  const panelScrollRef = useRef<
+    Partial<Record<ShellPanelId | "account", number>>
+  >({});
   const shellPath = routeMode === "landing" ? "/" : "/dashboard";
   const investChrome = useOptionalAppChrome();
+  const panelKey: ShellPanelId | "account" = isAccountSettingsOpen
+    ? "account"
+    : activeNavigation;
 
   const closeAccount = useCallback(() => {
     setIsAccountOpen(false);
@@ -265,7 +270,7 @@ function HomeExperienceView({
     if (!panelStage) return;
 
     panelStage.focus({ preventScroll: true });
-    const preservedTop = panelScrollRef.current[activeNavigation] ?? 0;
+    const preservedTop = panelScrollRef.current[panelKey] ?? 0;
     const reducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
@@ -273,7 +278,7 @@ function HomeExperienceView({
       top: preservedTop,
       behavior: reducedMotion || preservedTop > 0 ? "auto" : "smooth",
     });
-  }, [activeNavigation, navigationRequest]);
+  }, [panelKey, navigationRequest]);
 
   const region = presentationRegions[regionId];
   const regionStyle: RegionStyle = {
@@ -474,7 +479,6 @@ function HomeExperienceView({
         : activeNavigation === "invest"
           ? investChrome?.nested ?? null
           : null;
-  const panelKey = isAccountSettingsOpen ? "account" : activeNavigation;
 
   return (
     <div
@@ -533,7 +537,7 @@ function HomeExperienceView({
             ref={mainRef}
             className="app-main app-main-authenticated"
             onScroll={(event) => {
-              panelScrollRef.current[activeNavigation] = event.currentTarget.scrollTop;
+              panelScrollRef.current[panelKey] = event.currentTarget.scrollTop;
             }}
           >
             {isUnavailable ? (
@@ -1277,7 +1281,7 @@ function IncrementalBalancesList({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, onRevealMore]);
+  }, [revealedCount, items.length, hasMore, onRevealMore]);
 
   if (items.length === 0) {
     if (isLoading) {
