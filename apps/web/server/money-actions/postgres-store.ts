@@ -1,4 +1,5 @@
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
+import type { ProviderEvidence } from "./attempt-commands";
 import { canTransitionMoneyActionStatus } from "./status-transitions.js";
 import {
   AttemptPersistenceConflict,
@@ -419,11 +420,14 @@ class PostgresAttemptPersistence implements AttemptStorePersistence {
         );
         return result.rows[0]?.action_id ?? null;
       },
+      findLegacyEvidenceOwner: async (owner, evidence) => this.findLegacyEvidenceOwner(executor, owner, evidence),
       findVerifiedExecutionOwner: async (key) => {
-        const result = await executor.query<{ action_id: string }>(
-          "SELECT action_id FROM money_action_attempt_states WHERE verified_execution_key = $1",
-          [key],
-        );
+        const result = await executor.query<{ action_id: string }>(`
+          SELECT action_id FROM money_action_attempt_states WHERE verified_execution_key = $1
+          UNION ALL
+          SELECT id AS action_id FROM money_action_operations WHERE verified_execution_key = $1
+          LIMIT 1
+        `.trim(), [key]);
         return result.rows[0]?.action_id ?? null;
       },
     };
@@ -442,14 +446,15 @@ class PostgresAttemptPersistence implements AttemptStorePersistence {
     } : null;
   }
 
-  private async insertOperation(executor: SqlExecutor, record: AttemptOperationRecord): Promise<void> {
+  private async insertOperation(executor: SqlExecutor, record: AttemptOperationRecord): Promise<boolean> {
     const action = record.operation.action;
-    await executor.query(`
+    const result = await executor.query(`
       INSERT INTO money_action_operations (
         id, review_hash, subject, address, chain_id, account_provider, action_json, status,
         attempt_count, claimed_at, submission_id, transaction_hash, user_operation_hash,
         verified_execution_key, abandoned_at, created_at, updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      ON CONFLICT (id) DO NOTHING
     `.trim(), [
       action.id, action.reviewHash, action.owner.subject, action.owner.address.toLowerCase(),
       action.owner.chainId, action.owner.accountProvider, JSON.stringify(action), record.operation.status,
@@ -458,6 +463,25 @@ class PostgresAttemptPersistence implements AttemptStorePersistence {
       record.verifiedExecutionKey ?? null, record.operation.abandonedAt ?? null,
       record.operation.createdAt, record.operation.updatedAt,
     ]);
+    return result.rowCount === 1;
+  }
+
+  private async findLegacyEvidenceOwner(
+    executor: SqlExecutor,
+    owner: MoneyActionOwner,
+    evidence: ProviderEvidence,
+  ): Promise<string | null> {
+    const lead = evidence.kind === "provider-status" ? evidence.handle : evidence;
+    if (lead.kind === "transaction-hash") return null;
+    const column = lead.kind === "submission-id" ? "submission_id" : "user_operation_hash";
+    const comparison = lead.kind === "user-operation-hash" ? `LOWER(${column}) = LOWER($5)` : `${column} = $5`;
+    const result = await executor.query<{ id: string }>(`
+      SELECT id FROM money_action_operations
+      WHERE subject = $1 AND address = $2 AND chain_id = $3 AND account_provider = $4
+        AND ${comparison}
+      LIMIT 1
+    `.trim(), [...ownerParameters(owner), lead.value]);
+    return result.rows[0]?.id ?? null;
   }
 
   private async saveOperation(executor: SqlExecutor, record: AttemptOperationRecord): Promise<void> {
@@ -494,16 +518,18 @@ class PostgresAttemptPersistence implements AttemptStorePersistence {
         updated_at = EXCLUDED.updated_at
     `.trim(), [actionId, JSON.stringify(state), state.verifiedExecutionKey ?? null, new Date().toISOString()]);
     await executor.query("DELETE FROM money_action_attempt_evidence WHERE action_id = $1", [actionId]);
+    const reservations = new Set(state.legacyEvidenceReservations ?? []);
     for (const attempt of state.attempts) {
       for (const recorded of attempt.evidence) {
         const key = evidenceUniquenessKey(attempt.owner, recorded.evidence);
-        if (key) {
-          await executor.query(
-            "INSERT INTO money_action_attempt_evidence (evidence_key, action_id) VALUES ($1, $2)",
-            [key, actionId],
-          );
-        }
+        if (key) reservations.add(key);
       }
+    }
+    for (const key of reservations) {
+      await executor.query(
+        "INSERT INTO money_action_attempt_evidence (evidence_key, action_id) VALUES ($1, $2)",
+        [key, actionId],
+      );
     }
   }
 

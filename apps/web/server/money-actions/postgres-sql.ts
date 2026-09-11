@@ -182,7 +182,8 @@ export function createNeonSqlExecutor(
 ): SqlExecutor {
   let pool: Pool | undefined;
   let disposed = false;
-  const schema = options.schema ? postgresIdentifier(options.schema) : null;
+  const schemaName = options.schema ?? null;
+  const schema = schemaName ? postgresIdentifier(schemaName) : null;
   const getPool = () => {
     if (disposed) throw new Error("PostgreSQL money-action executor is disposed");
     pool ??= new Pool({ connectionString });
@@ -196,7 +197,11 @@ export function createNeonSqlExecutor(
     });
     try {
       await client.query("BEGIN");
-      if (schema) await client.query(`SET LOCAL search_path TO ${schema}, public`);
+      if (schema && schemaName) {
+        const existing = await client.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schemaName]);
+        if (existing.rows.length !== 1) throw new Error(`PostgreSQL schema ${schemaName} does not exist`);
+        await client.query(`SET LOCAL search_path TO ${schema}`);
+      }
       const result = await fn(tx);
       await client.query("COMMIT");
       return result;
@@ -285,7 +290,10 @@ export function createFakePostgresExecutor(): SqlExecutor {
     }
     if (text.startsWith("INSERT INTO money_action_operations (") && values.length === 17) {
       const id = String(values[0]);
-      if (rows.has(id)) throw new UniqueViolationError();
+      if (rows.has(id)) {
+        if (text.includes("ON CONFLICT (id) DO NOTHING")) return { rows: [], rowCount: 0 };
+        throw new UniqueViolationError();
+      }
       rows.set(id, {
         id,
         review_hash: String(values[1]),
@@ -350,8 +358,7 @@ export function createFakePostgresExecutor(): SqlExecutor {
     }
     if (text === "INSERT INTO money_action_attempt_evidence (evidence_key, action_id) VALUES ($1, $2)") {
       const key = String(values[0]);
-      const existing = attemptEvidence.get(key);
-      if (existing && existing !== values[1]) throw new UniqueViolationError();
+      if (attemptEvidence.has(key)) throw new UniqueViolationError();
       attemptEvidence.set(key, String(values[1]));
       return { rows: [], rowCount: 1 };
     }
@@ -362,6 +369,25 @@ export function createFakePostgresExecutor(): SqlExecutor {
     if (text === "SELECT action_id FROM money_action_attempt_states WHERE verified_execution_key = $1") {
       const found = [...attemptStates.entries()].find(([, state]) => state.verified_execution_key === values[0]);
       return { rows: found ? [{ action_id: found[0] }] : [], rowCount: found ? 1 : 0 };
+    }
+    if (text.includes("UNION ALL") && text.includes("verified_execution_key = $1")) {
+      const stateOwner = [...attemptStates.entries()].find(([, state]) => state.verified_execution_key === values[0])?.[0];
+      const operationOwner = [...rows.values()].find((row) => row.verified_execution_key === values[0])?.id;
+      const actionId = stateOwner ?? operationOwner;
+      return { rows: actionId ? [{ action_id: actionId }] : [], rowCount: actionId ? 1 : 0 };
+    }
+    if (text.startsWith("SELECT id FROM money_action_operations\n      WHERE subject = $1")) {
+      const submission = text.includes("submission_id = $5");
+      const found = [...rows.values()].find((row) =>
+        row.subject === values[0] &&
+        row.address === values[1] &&
+        row.chain_id === Number(values[2]) &&
+        row.account_provider === values[3] &&
+        (submission
+          ? row.submission_id === values[4]
+          : row.user_operation_hash?.toLowerCase() === String(values[4]).toLowerCase())
+      );
+      return { rows: found ? [{ id: found.id }] : [], rowCount: found ? 1 : 0 };
     }
     switch (text) {
       case moneyActionQueries.selectById:

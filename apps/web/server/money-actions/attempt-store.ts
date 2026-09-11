@@ -491,6 +491,42 @@ export function createTrustedVerifiedObservation(
   }) as TrustedVerifiedObservation;
 }
 
+export function revalidateTrustedVerifiedObservation(
+  observation: TrustedVerifiedObservation,
+  context: Readonly<{
+    action: DeepReadonly<DurableAttemptAction>;
+    attempt: DeepReadonly<ExecutionAttempt>;
+    evidence: DeepReadonly<RecordedProviderEvidence>;
+  }>,
+): boolean {
+  const lookup = verifiedObservationLookup(observation);
+  return observation[trustedVerifiedObservation] === true &&
+    observation.applicationRecheck === "owner-provider-action-attempt-versions-exact-evidence-lookup-execution-result" &&
+    observation.expectedEvidence.comparison === "exact-recorded-fact" &&
+    validOwner(observation.owner) &&
+    validVersion(observation.expectedAttemptVersion) &&
+    validVersion(observation.expectedDispatchVersion) &&
+    validTimestamp(observation.observedAt) &&
+    observation.verifiedExecution.chainId === observation.owner.chainId &&
+    validHash(observation.verifiedExecution.hash) &&
+    observation.result.verifiedExecution === true &&
+    (observation.result.kind !== "confirmed" || validHash(observation.result.transactionHash)) &&
+    (observation.result.kind !== "failed" || observation.result.transactionHash === undefined || validHash(observation.result.transactionHash)) &&
+    observation.actionId === context.action.id &&
+    observation.actionId === context.attempt.actionId &&
+    observation.attemptId === context.attempt.attemptId &&
+    observation.owner.subject === context.action.owner.subject &&
+    observation.owner.address.toLowerCase() === context.action.owner.address.toLowerCase() &&
+    observation.owner.chainId === context.action.owner.chainId &&
+    observation.owner.accountProvider === context.action.owner.accountProvider &&
+    context.attempt.actionRevision === context.action.revision &&
+    context.attempt.provider === context.action.owner.accountProvider &&
+    stableStringify(observation.expectedEvidence.evidence) === stableStringify(context.evidence) &&
+    lookup !== null &&
+    sameVerifiedObservationLookup(lookup, observation.verificationLookup) &&
+    verifiedObservationFieldsBind(observation, lookup);
+}
+
 export function attemptStoreSuccess<Value>(value: Value): AttemptStoreSuccess<Value> {
   return immutableSnapshot({ ok: true as const, value });
 }

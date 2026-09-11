@@ -3,6 +3,7 @@ import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-act
 // Node's built-in TypeScript loader requires the extension for the SQLite process gate.
 import {
   compatibilityActionRevision,
+  conflictingEvidenceDecision,
   projectClaimDisposition,
   type ClaimDispatch,
   type ClaimDispatchResult,
@@ -21,6 +22,7 @@ import {
   attemptStoreError,
   attemptStoreSuccess,
   legacyCompatibilityEnvelope,
+  revalidateTrustedVerifiedObservation,
   sameAttemptFact,
   snapshotAttemptAction,
   validateClaimDispatch,
@@ -54,6 +56,7 @@ export type PersistedAttemptState = {
   action: AttemptActionSnapshot;
   attempts: ExecutionAttempt[];
   evidenceWrites?: Record<string, { attemptId: string; evidence: ProviderEvidence }>;
+  legacyEvidenceReservations?: string[];
   importedLegacy?: LegacyCompatibilityEnvelope;
   verifiedExecutionKey?: string;
 };
@@ -65,11 +68,12 @@ export type AttemptOperationRecord = {
 
 export interface AttemptStoreTransaction {
   getOperationById(actionId: string): Promise<AttemptOperationRecord | null>;
-  insertOperation(record: AttemptOperationRecord): Promise<void>;
+  insertOperation(record: AttemptOperationRecord): Promise<boolean>;
   saveOperation(record: AttemptOperationRecord): Promise<void>;
   getState(actionId: string): Promise<PersistedAttemptState | null>;
   saveState(actionId: string, state: PersistedAttemptState): Promise<void>;
   findEvidenceOwner(evidenceKey: string): Promise<string | null>;
+  findLegacyEvidenceOwner(owner: MoneyActionOwner, evidence: ProviderEvidence): Promise<string | null>;
   findVerifiedExecutionOwner(executionKey: string): Promise<string | null>;
 }
 
@@ -195,7 +199,18 @@ export class PersistentMoneyActionAttemptStore implements MoneyActionAttemptStor
           return attemptStoreSuccess({ disposition: "existing" as const, action: state.action });
         }
         const state: PersistedAttemptState = { action: clone(actionSnapshot), attempts: [] };
-        await tx.insertOperation({ operation });
+        if (!await tx.insertOperation({ operation })) {
+          const winner = await tx.getOperationById(input.durableAction.id);
+          if (!winner || !sameAction(winner.operation.action, stripRevision(input.durableAction))) {
+            return attemptStoreError("action-revision-mismatch");
+          }
+          const winnerState = synchronizeLegacyState(await tx.getState(input.durableAction.id), winner);
+          if (!winnerState || !sameAction(winnerState.action.action, input.durableAction)) {
+            return attemptStoreError("action-revision-mismatch");
+          }
+          await tx.saveState(input.durableAction.id, winnerState);
+          return attemptStoreSuccess({ disposition: "existing" as const, action: winnerState.action });
+        }
         await tx.saveState(input.durableAction.id, state);
         return attemptStoreSuccess({ disposition: "issued" as const, action: state.action });
       });
@@ -346,14 +361,28 @@ export class PersistentMoneyActionAttemptStore implements MoneyActionAttemptStor
         }
         const existingFact = attempt.evidence.find((item) => sameAttemptFact(item.evidence, command.evidence));
         if (existingFact) return attemptStoreSuccess({ disposition: "duplicate" as const, evidence: existingFact });
-        const slot = evidenceSlot(command.evidence);
-        const conflicting = attempt.evidence.find((item) => evidenceSlot(item.evidence) === slot);
-        if (conflicting) {
-          return attemptStoreSuccess({ disposition: "conflict" as const, slot: command.evidence.kind, existing: conflicting });
+        const sameSlot = attempt.evidence.filter((item) => evidenceSlot(item.evidence) === evidenceSlot(command.evidence));
+        const latestInSlot = sameSlot.at(-1);
+        if (latestInSlot) {
+          const decision = conflictingEvidenceDecision(latestInSlot.evidence, command.evidence);
+          if (decision === "duplicate") {
+            return attemptStoreSuccess({ disposition: "duplicate" as const, evidence: latestInSlot });
+          }
+          if (decision !== "advance") {
+            return attemptStoreSuccess({
+              disposition: "conflict" as const,
+              slot: command.evidence.kind,
+              existing: latestInSlot,
+            });
+          }
+        }
+        if (legacyReferenceConflict(record.operation, command.evidence)) {
+          return attemptStoreError("conflicting-evidence");
         }
         const uniqueKey = evidenceUniquenessKey(command.owner, command.evidence);
         if (uniqueKey) {
-          const assigned = await tx.findEvidenceOwner(uniqueKey);
+          const assigned = await tx.findEvidenceOwner(uniqueKey) ??
+            await tx.findLegacyEvidenceOwner(command.owner, command.evidence);
           if (assigned && assigned !== command.actionId) return attemptStoreError("conflicting-evidence");
         }
         const evidence: RecordedProviderEvidence = {
@@ -417,14 +446,25 @@ export class PersistentMoneyActionAttemptStore implements MoneyActionAttemptStor
         const { record, state, attempt, index } = loaded;
         const exactEvidence = attempt.evidence.find((item) => sameJson(item, observation.expectedEvidence.evidence));
         if (!exactEvidence) return attemptStoreError("conflicting-evidence");
+        if (!revalidateTrustedVerifiedObservation(observation, {
+          action: state.action.action,
+          attempt,
+          evidence: exactEvidence,
+        })) return attemptStoreError("invalid-command");
         if (dispatchVersion(attempt) !== observation.expectedDispatchVersion) return attemptStoreError("dispatch-version-mismatch");
         const executionKey = verifiedExecutionKey(observation.verifiedExecution);
+        const reservedExecutionKey = record.verifiedExecutionKey ?? state.verifiedExecutionKey;
+        if (
+          (record.verifiedExecutionKey && state.verifiedExecutionKey && record.verifiedExecutionKey !== state.verifiedExecutionKey) ||
+          (reservedExecutionKey && reservedExecutionKey !== executionKey)
+        ) return attemptStoreError("verified-execution-conflict");
         if (
           sameJson(attempt.reconciliation, observation.result) &&
-          state.verifiedExecutionKey === executionKey
+          reservedExecutionKey === executionKey
         ) {
           return attemptStoreSuccess({ kind: "unchanged" as const, attempt });
         }
+        if (isVerifiedTerminal(attempt.reconciliation)) return attemptStoreError("verified-execution-conflict");
         if (attempt.attemptVersion !== observation.expectedAttemptVersion) {
           return attemptStoreError("attempt-version-mismatch", { retryable: true });
         }
@@ -504,7 +544,13 @@ export class PersistentMoneyActionAttemptStore implements MoneyActionAttemptStor
         }
         const record = recordFromLegacy(operation);
         const state = stateFromLegacy(record, operation);
-        await tx.insertOperation(record);
+        if (!await tx.insertOperation(record)) {
+          const winner = await tx.getOperationById(operation.action.id);
+          if (!winner || !sameAction(winner.operation.action, operation.action)) {
+            return attemptStoreError("action-revision-mismatch");
+          }
+          return attemptStoreSuccess({ disposition: "existing" as const, operation });
+        }
         await tx.saveState(operation.action.id, state);
         return attemptStoreSuccess({ disposition: "imported" as const, operation });
       });
@@ -578,7 +624,7 @@ function synchronizeLegacyState(
       ...(record.verifiedExecutionKey ? { verifiedExecutionKey: record.verifiedExecutionKey } : {}),
     });
     if (envelope.mappedAttempt) return stateFromLegacy(record, envelope, state.action);
-    return state;
+    return withLegacyReservations(state, record.operation);
   }
   const index = state.attempts.length - 1;
   const attempt = state.attempts[index]!;
@@ -599,8 +645,8 @@ function synchronizeLegacyState(
   ) {
     next = { ...next, reconciliation: { kind: "ambiguous" } };
   }
-  if (next === attempt) return state;
-  return replaceAttempt(state, index, next);
+  const synchronized = next === attempt ? state : replaceAttempt(state, index, next);
+  return withLegacyReservations(synchronized, record.operation);
 }
 
 function stateFromLegacy(
@@ -641,6 +687,7 @@ function stateFromLegacy(
   return {
     action: clone(action),
     attempts,
+    legacyEvidenceReservations: legacyEvidenceReservationKeys(record.operation),
     importedLegacy: clone(envelope),
     ...(record.verifiedExecutionKey ? { verifiedExecutionKey: record.verifiedExecutionKey } : {}),
   };
@@ -705,18 +752,25 @@ function projectEvidence(
 }
 
 function projectReconcileLookup(attempt: ExecutionAttempt, command: ReconcileAttempt): ExecutionAttempt["reconciliation"] | null {
+  if (isVerifiedTerminal(attempt.reconciliation)) return attempt.reconciliation;
   const lookup = command.lookup;
-  if (lookup.kind === "none") return { kind: "ambiguous" };
+  if (lookup.kind === "none") {
+    return attempt.reconciliation.kind === "authorized-no-evidence"
+      ? { kind: "ambiguous" }
+      : attempt.reconciliation;
+  }
   const evidence = attempt.evidence.map((item) => item.evidence.kind === "provider-status" ? item.evidence.handle : item.evidence);
   if (lookup.kind === "recorded-user-operation-hash") {
     const expected = lookup.userOperationHash.toLowerCase();
     const matched = evidence.find((item) => item.kind === "user-operation-hash" && item.value.toLowerCase() === expected);
-    return matched && matched.kind === "user-operation-hash" ? { kind: "pending", handle: matched } : null;
+    if (!matched || matched.kind !== "user-operation-hash") return null;
+    return attempt.reconciliation.kind === "pending" ? attempt.reconciliation : { kind: "pending", handle: matched };
   }
   if (lookup.kind === "recorded-submission-id") {
     const expected = lookup.submissionId;
     const matched = evidence.find((item) => item.kind === "submission-id" && item.value === expected);
-    return matched && matched.kind === "submission-id" ? { kind: "pending", handle: matched } : null;
+    if (!matched || matched.kind !== "submission-id") return null;
+    return attempt.reconciliation.kind === "pending" ? attempt.reconciliation : { kind: "pending", handle: matched };
   }
   const expected = lookup.transactionHash.toLowerCase();
   const matched = evidence.some((item) => item.kind === "transaction-hash" && item.value.toLowerCase() === expected);
@@ -728,11 +782,66 @@ function evidenceSlot(evidence: ProviderEvidence): string {
   return `provider-status:${evidenceSlot(evidence.handle)}`;
 }
 
+function legacyReferenceConflict(operation: StoredMoneyActionOperation, evidence: ProviderEvidence): boolean {
+  if (evidence.kind === "provider-status") {
+    if (evidence.handle.kind === "submission-id") {
+      return operation.submissionId !== undefined && operation.submissionId !== evidence.handle.value;
+    }
+    return operation.userOperationHash !== undefined &&
+      operation.userOperationHash.toLowerCase() !== evidence.handle.value.toLowerCase();
+  }
+  if (evidence.kind === "submission-id") return operation.submissionId !== undefined;
+  if (evidence.kind === "user-operation-hash") return operation.userOperationHash !== undefined;
+  return operation.transactionHash !== undefined;
+}
+
+function legacyEvidenceReservationKeys(operation: StoredMoneyActionOperation): string[] {
+  const keys: string[] = [];
+  if (operation.submissionId) {
+    const key = evidenceUniquenessKey(operation.action.owner, {
+      kind: "submission-id",
+      provider: "base-account",
+      value: operation.submissionId,
+    });
+    if (key) keys.push(key);
+  }
+  if (operation.userOperationHash) {
+    const key = evidenceUniquenessKey(operation.action.owner, {
+      kind: "user-operation-hash",
+      provider: "cdp-embedded",
+      value: operation.userOperationHash,
+    });
+    if (key) keys.push(key);
+  }
+  return [...new Set(keys)];
+}
+
+function withLegacyReservations(
+  state: PersistedAttemptState,
+  operation: StoredMoneyActionOperation,
+): PersistedAttemptState {
+  const reservations = legacyEvidenceReservationKeys(operation);
+  if (sameJson(state.legacyEvidenceReservations ?? [], reservations)) return state;
+  return { ...state, legacyEvidenceReservations: reservations };
+}
+
+function isVerifiedTerminal(result: ExecutionAttempt["reconciliation"]): boolean {
+  return result.kind === "confirmed" || result.kind === "failed" || result.kind === "rejected";
+}
+
 export function evidenceUniquenessKey(owner: MoneyActionOwner, evidence: ProviderEvidence): string | null {
   const lead = evidence.kind === "provider-status" ? evidence.handle : evidence;
   if (lead.kind === "transaction-hash") return null;
   const value = lead.kind === "user-operation-hash" ? lead.value.toLowerCase() : lead.value;
-  return [owner.subject, owner.address.toLowerCase(), owner.chainId, lead.provider, lead.kind, value].join("\u0000");
+  return JSON.stringify([
+    owner.subject,
+    owner.address.toLowerCase(),
+    owner.chainId,
+    owner.accountProvider,
+    lead.provider,
+    lead.kind,
+    value,
+  ]);
 }
 
 export function verifiedExecutionKey(execution: { chainId: number; kind: string; hash: string }): string {

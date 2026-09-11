@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
+import type { ProviderEvidence } from "./attempt-commands";
 import { canTransitionMoneyActionStatus } from "./status-transitions.js";
 // Node's built-in TypeScript loader requires the extension for the real SQLite process gate.
 import {
@@ -14,7 +15,7 @@ import {
   type PersistedAttemptState,
 // @ts-expect-error Node requires the explicit TypeScript extension.
 } from "./attempt-store-core.ts";
-import type { AttemptStoreResourceFactory } from "./attempt-store";
+import type { AttemptStoreResourceFactory, MoneyActionAttemptStore } from "./attempt-store";
 import type {
   MoneyActionClaim,
   MoneyActionIssueStoreOptions,
@@ -42,14 +43,16 @@ type OperationRow = {
 export class SqliteMoneyActionStore implements MoneyActionStore {
   private readonly database: DatabaseSync;
   private readonly sensitiveActions = new Map<string, { action: PreparedMoneyAction; expiresAt: string }>();
+  private readonly nonBlockingWrites: boolean;
 
-  constructor(path = defaultDatabasePath()) {
+  constructor(path = defaultDatabasePath(), options: Readonly<{ nonBlockingWrites?: boolean }> = {}) {
+    this.nonBlockingWrites = options.nonBlockingWrites ?? false;
     const directory = dirname(path);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     chmodSync(directory, 0o700);
     this.database = new DatabaseSync(path);
     chmodSync(path, 0o600);
-    this.database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+    this.database.exec(`PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = ${this.nonBlockingWrites ? 0 : 5000};`);
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS money_action_operations (
         id TEXT PRIMARY KEY,
@@ -86,7 +89,8 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
   }
 
   async issue(action: PreparedMoneyAction, options?: MoneyActionIssueStoreOptions): Promise<"issued" | "existing"> {
-    this.database.exec("BEGIN IMMEDIATE");
+    const pendingWrite = this.beginWrite();
+    if (pendingWrite) await pendingWrite;
     try {
       const existing = this.getRowById(action.id);
       if (existing) {
@@ -137,7 +141,8 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
     reviewHash: string,
     now: string,
   ): Promise<MoneyActionClaim | null> {
-    this.database.exec("BEGIN IMMEDIATE");
+    const pendingWrite = this.beginWrite();
+    if (pendingWrite) await pendingWrite;
     try {
       let row = this.getRow(owner, id);
       if (!row) {
@@ -215,7 +220,8 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
     now: string,
   ): Promise<StoredMoneyActionOperation | null> {
     if (!reference.submissionId && !reference.transactionHash && !reference.userOperationHash) return null;
-    this.database.exec("BEGIN IMMEDIATE");
+    const pendingWrite = this.beginWrite();
+    if (pendingWrite) await pendingWrite;
     try {
       const row = this.getRow(owner, id);
       if (
@@ -267,7 +273,8 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
     now: string,
     constraints?: MoneyActionStatusConstraints,
   ): Promise<StoredMoneyActionOperation | null> {
-    this.database.exec("BEGIN IMMEDIATE");
+    const pendingWrite = this.beginWrite();
+    if (pendingWrite) await pendingWrite;
     try {
       const row = this.getRow(owner, id);
       const existing = row ? fromRow(row) : null;
@@ -304,7 +311,8 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
     id: string,
     now: string,
   ): Promise<StoredMoneyActionOperation | null> {
-    this.database.exec("BEGIN IMMEDIATE");
+    const pendingWrite = this.beginWrite();
+    if (pendingWrite) await pendingWrite;
     try {
       const changed = this.database.prepare(`
         UPDATE money_action_operations
@@ -376,6 +384,27 @@ export class SqliteMoneyActionStore implements MoneyActionStore {
   close(): void {
     this.sensitiveActions.clear();
     this.database.close();
+  }
+
+  private beginWrite(): Promise<void> | null {
+    if (!this.nonBlockingWrites) {
+      this.database.exec("BEGIN IMMEDIATE");
+      return null;
+    }
+    return this.beginWriteWithRetry();
+  }
+
+  private async beginWriteWithRetry(): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    while (true) {
+      try {
+        this.database.exec("BEGIN IMMEDIATE");
+        return;
+      } catch (error) {
+        if (!isSqliteBusy(error) || Date.now() >= deadline) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    }
   }
 
   private ensureColumn(name: string, definition: string): void {
@@ -505,8 +534,14 @@ class SqliteAttemptPersistence implements AttemptStorePersistence {
         const row = this.database.prepare("SELECT action_id FROM money_action_attempt_evidence WHERE evidence_key = ?").get(key) as { action_id: string } | undefined;
         return row?.action_id ?? null;
       },
+      findLegacyEvidenceOwner: async (owner, evidence) => this.findLegacyEvidenceOwner(owner, evidence),
       findVerifiedExecutionOwner: async (key) => {
-        const row = this.database.prepare("SELECT action_id FROM money_action_attempt_states WHERE verified_execution_key = ?").get(key) as { action_id: string } | undefined;
+        const row = this.database.prepare(`
+          SELECT action_id FROM money_action_attempt_states WHERE verified_execution_key = ?
+          UNION ALL
+          SELECT id AS action_id FROM money_action_operations WHERE verified_execution_key = ?
+          LIMIT 1
+        `).get(key, key) as { action_id: string } | undefined;
         return row?.action_id ?? null;
       },
     };
@@ -521,10 +556,10 @@ class SqliteAttemptPersistence implements AttemptStorePersistence {
     return row ? { operation: fromRow(row), ...(row.verified_execution_key ? { verifiedExecutionKey: row.verified_execution_key } : {}) } : null;
   }
 
-  private insertOperation(record: AttemptOperationRecord): void {
+  private insertOperation(record: AttemptOperationRecord): boolean {
     const action = record.operation.action;
-    this.database.prepare(`
-      INSERT INTO money_action_operations (
+    const result = this.database.prepare(`
+      INSERT OR IGNORE INTO money_action_operations (
         id, review_hash, subject, address, chain_id, account_provider, action_json, status,
         attempt_count, claimed_at, submission_id, transaction_hash, user_operation_hash,
         verified_execution_key, abandoned_at, created_at, updated_at
@@ -537,6 +572,22 @@ class SqliteAttemptPersistence implements AttemptStorePersistence {
       record.verifiedExecutionKey ?? null, record.operation.abandonedAt ?? null,
       record.operation.createdAt, record.operation.updatedAt,
     );
+    return result.changes === 1;
+  }
+
+  private findLegacyEvidenceOwner(owner: MoneyActionOwner, evidence: ProviderEvidence): string | null {
+    const lead = evidence.kind === "provider-status" ? evidence.handle : evidence;
+    if (lead.kind === "transaction-hash") return null;
+    const column = lead.kind === "submission-id" ? "submission_id" : "user_operation_hash";
+    const value = lead.kind === "user-operation-hash" ? lead.value.toLowerCase() : lead.value;
+    const comparison = lead.kind === "user-operation-hash" ? `LOWER(${column}) = ?` : `${column} = ?`;
+    const row = this.database.prepare(`
+      SELECT id FROM money_action_operations
+      WHERE subject = ? AND address = ? AND chain_id = ? AND account_provider = ?
+        AND ${comparison}
+      LIMIT 1
+    `).get(...ownerParameters(owner), value) as { id: string } | undefined;
+    return row?.id ?? null;
   }
 
   private saveOperation(record: AttemptOperationRecord): void {
@@ -571,12 +622,14 @@ class SqliteAttemptPersistence implements AttemptStorePersistence {
     `).run(actionId, JSON.stringify(state), state.verifiedExecutionKey ?? null, new Date().toISOString());
     this.database.prepare("DELETE FROM money_action_attempt_evidence WHERE action_id = ?").run(actionId);
     const insert = this.database.prepare("INSERT INTO money_action_attempt_evidence (evidence_key, action_id) VALUES (?, ?)");
+    const reservations = new Set(state.legacyEvidenceReservations ?? []);
     for (const attempt of state.attempts) {
       for (const recorded of attempt.evidence) {
         const key = evidenceUniquenessKey(attempt.owner, recorded.evidence);
-        if (key) insert.run(key, actionId);
+        if (key) reservations.add(key);
       }
     }
+    for (const key of reservations) insert.run(key, actionId);
   }
 
   private async beginImmediate(): Promise<void> {
@@ -599,11 +652,31 @@ class SqliteAttemptPersistence implements AttemptStorePersistence {
 
 export const createSqliteAttemptStoreResource: AttemptStoreResourceFactory = (options) => {
   if (options.backend !== "sqlite") throw new Error("SQLite attempt-store factory requires sqlite options");
-  const legacy = new SqliteMoneyActionStore(options.filename);
+  const legacy = new SqliteMoneyActionStore(options.filename, { nonBlockingWrites: true });
   const persistence = new SqliteAttemptPersistence(options.filename, legacy);
-  const store = new PersistentMoneyActionAttemptStore(legacy, persistence);
-  return { store, init: () => store.init(), dispose: () => store.dispose() };
+  const kernel = new PersistentMoneyActionAttemptStore(legacy, persistence);
+  const store = serializeSqliteStore(kernel);
+  return { store, init: () => kernel.init(), dispose: () => kernel.dispose() };
 };
+
+function serializeSqliteStore(store: MoneyActionAttemptStore): MoneyActionAttemptStore {
+  let gate = Promise.resolve();
+  return new Proxy(store, {
+    get(target, property, receiver) {
+      const member = Reflect.get(target, property, receiver);
+      if (typeof member !== "function") return member;
+      return (...args: unknown[]) => {
+        let release!: () => void;
+        const previous = gate;
+        gate = new Promise<void>((resolve) => { release = resolve; });
+        return previous.then(
+          () => Reflect.apply(member, target, args),
+          () => Reflect.apply(member, target, args),
+        ).finally(release);
+      };
+    },
+  }) as MoneyActionAttemptStore;
+}
 
 export const SQLITE_ATTEMPT_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS money_action_attempt_states (
@@ -622,8 +695,12 @@ CREATE INDEX IF NOT EXISTS money_action_attempt_evidence_action
 ON money_action_attempt_evidence(action_id);
 `;
 
-function isSqliteUniqueViolation(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && String((error as { code: unknown }).code).startsWith("SQLITE_CONSTRAINT"));
+export function isSqliteUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const value = error as { code?: unknown; errcode?: unknown };
+  return String(value.code ?? "").startsWith("SQLITE_CONSTRAINT") ||
+    value.errcode === 1555 ||
+    value.errcode === 2067;
 }
 
 function isSqliteBusy(error: unknown): boolean {
