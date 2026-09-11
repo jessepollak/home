@@ -85,7 +85,6 @@ Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / o
 - Soft merge order, Design HOLD, smoke fails, and blockers land on the issue or PR (comment + label flip) before or instead of crew DMs. Land-queue / babysitter wake set and batching: [PR land chatter diet](#pr-land-chatter-diet).
 - Every PR that maps to an issue — including drafts — carries the triad the same day, matching the related issue. Drafts stay `status:working`.
 - On close or merge, scrub all `status:*` via REST `issues/{n}/labels`. Leave `owner:*` and `lane:*`. `gh pr edit` labels often no-ops.
-- Dual `owner:*` labels are OK for FE+BE slices only when the issue comment names who owns which slice. Otherwise split issues.
 - Jesse alone approves and merges every PR.
 
 ## Drive order
@@ -99,7 +98,7 @@ Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / o
 
 Jesse-locked, September 11, 2026. This replaces the earlier pipelines, calibrated-QA, and publication sections. The goal is merged code; evidence exists to get there, not the other way around.
 
-1. **One PR, one writer, one worktree.** Small scope, one lane, ordinary branch. An issue is normally one PR; a frontend/backend split (dual `owner:*`, see [board](#board-is-source-of-truth)) is one PR per slice. Up to four writers at once when the work is disjoint; a blocked lane names its dependency on the issue and the coordinator moves to the next issue.
+1. **One issue, one writer, one worktree, one PR.** Small scope, one lane, one owner, ordinary branch. If an issue needs more than one lane, split the issue. Up to four writers at once when the work is disjoint; a blocked lane names its dependency on the issue and the coordinator moves to the next issue.
 2. **The loop:** implement → `bun check` → one fresh independent review → fix blocking findings → push → CI green → attach the preview ([UI PR previews](ui-pr-previews.md)) → undraft and `status:needs-jesse`.
 3. **Blocking findings** are correctness, security, privacy, data loss, and the money-loop gates below. Everything else becomes a follow-up issue, not another review round. Hard cap: two review rounds per PR. After that, if any blocking finding is still unresolved the PR goes to Jesse with the open question; otherwise it ships with the follow-ups filed.
 4. **Reviewer routing:** money, auth, and privacy paths get the strongest reviewer (Astra). Product UI and ordinary backend get Sol. Docs and metadata get Terra. Reviews are read-only and time-boxed; an unfinished review is not a pass.
