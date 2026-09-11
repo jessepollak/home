@@ -37,7 +37,9 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
-          gh pr edit "$PR" --repo "$REPO" \
-            --remove-label status:needs-jesse --remove-label status:todo --remove-label status:blocked \
-            --remove-label status:ready-for-review --remove-label status:in-progress \
-            --add-label status:working --add-label review:jesse
+          # Remove only the status labels actually present; gh pr edit aborts on a
+          # label name that does not exist in the repository.
+          current=$(gh pr view "$PR" --repo "$REPO" --json labels --jq '.labels[].name | select(startswith("status:"))')
+          args=()
+          for label in $current; do args+=(--remove-label "$label"); done
+          gh pr edit "$PR" --repo "$REPO" "${args[@]}" --add-label status:working --add-label review:jesse
