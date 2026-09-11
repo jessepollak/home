@@ -175,7 +175,7 @@ export type OrderProvider = {
   verifyWebhook?(raw: Uint8Array, headers: Headers, ctx: WebhookContext):
     { ok: true; providerOrderId: string; eventId: string; occurredAt: string; bindingHint?: string } | { ok: false };
 
-  ensureCustomer?(input: CustomerIntent, ctx: ProviderContext): Promise<ProviderCustomer>;
+  ensureCustomer?(input: CustomerIntent, ctx: ProviderContext): Promise<ProviderCustomer>; // required when customer === "api"
 };
 
 export type ProviderContext = {
@@ -186,6 +186,48 @@ export type ProviderContext = {
 };
 
 export type WebhookContext = { env: Readonly<Record<string, string>>; now(): string };
+
+// Resolved from the manifest + asset registry by the core; adapters receive it, never construct it.
+export type FundingBinding = {
+  id: string;                              // "ripio:AR"
+  providerId: string;
+  region: CountryCode;
+  asset: FundingAsset;                     // from shared/funding/assets.ts
+  paymentMethod: { id: string; label: string; rail: string };
+  apiOrigins: ReadonlyArray<string>;
+  environment: "production" | "sandbox";
+};
+
+export type QuoteIntent = {
+  binding: FundingBinding;
+  destination: `0x${string}`;
+  fiatAmount: string;
+};
+
+export type ProviderQuote = {
+  providerQuoteId: string;
+  fiatAmount: string;
+  finalFiatAmount: string;
+  tokenAmountAtomic: string;               // at the asset's decimals
+  rate: string;
+  fees: ReadonlyArray<{ label: string; amount: string; currency: string }>;
+  expiresAt: string;
+};
+
+export type CustomerIntent = {
+  binding: FundingBinding;
+  homeSubject: string;                     // owner subject; the adapter may hash it, never persist it
+  email?: string;                          // only when the manifest declares it as required
+};
+
+export type CustomerRequirement =
+  | { kind: "terms"; id: string; url: string }
+  | { kind: "kyc-url"; url: string };
+
+export type ProviderCustomer = {
+  customerRef?: string;                    // opaque provider identifier; the only thing the core persists
+  requirements: ReadonlyArray<CustomerRequirement>;  // empty means the user may create orders
+};
 
 export type OrderIntent = {
   homeOrderId: string;                     // sent as the external reference when referenceStrategy is client-supplied
@@ -263,7 +305,7 @@ Credential state and eligibility are separate. Credentials say whether the deplo
 
 - `none` / `provider-hosted`: KYC happens on the issuer's surface. Eligibility default: any verified user in the binding's region.
 - `operator-account`: the deployment operator holds one issuer account and mints to user destinations under its own name. Eligibility default: an explicit allowlist of Home subjects from env (`FUNDING_<ID>_ELIGIBLE_SUBJECTS`), matching the IDRX draft, which binds credentials to one configured subject. Widening to "any verified user in region" is an operator decision recorded in the rollout registry, not a side effect of setting credentials.
-- `api`: the adapter enrolls the user with the issuer. Phase 1 supports `ensureCustomer` returning an opaque `customerRef` plus `requirements` of kind `terms` (id, url) or `kyc-url` (hosted link). The core never persists identity data. Ripio's current client creates a customer from an email and submits KYC fields directly; no hosted KYC link exists in the evidence packet. Until Ripio confirms a hosted path or an identity-collection step is designed separately, the Ripio order flow stops at the requirements step and is not available to users. This keeps the flexible-KYC decision without building identity handling speculatively.
+- `api`: the adapter enrolls the user with the issuer. Phase 1 supports `ensureCustomer` returning a `ProviderCustomer`: an optional opaque `customerRef` plus `requirements`, each either `{ kind: "terms", id, url }` or `{ kind: "kyc-url", url }` (types above). An empty `requirements` list means the user may create orders. The core persists only `customerRef`, never identity data. Ripio's current client creates a customer from an email and submits KYC fields directly; no hosted KYC link exists in the evidence packet. Until Ripio confirms a hosted path or an identity-collection step is designed separately, the Ripio order flow stops at the requirements step and is not available to users. This keeps the flexible-KYC decision without building identity handling speculatively.
 
 `core/authorize.ts` evaluates `credentialState × eligibility × region` and returns only usable bindings from `GET /api/funding/providers`. Owner-scoped tests cover every mode.
 
@@ -277,9 +319,9 @@ Credential state and eligibility are separate. Credentials say whether the deplo
 
 1. Client posts `{ bindingId, paymentMethodId, fiatAmount, quoteHandle? }`. No destination, token, reference, or calldata.
 2. Core authorizes the session (existing `createSessionHandler` boundary), requires a chain 8453 smart account, resolves the binding, and checks credentials and eligibility. Missing credentials → `424 FUNDING_PROVIDER_NOT_CONFIGURED`; ineligible → `403`.
-3. Core reserves a `funding_orders` row before any I/O: `homeOrderId`, owner tuple, binding, immutable intent digest, `state: "reserving"`, `dispatchCount: 0`. A refresh recovers the reservation; it never creates a second row for the same intent.
+3. Core reserves a `funding_orders` row before any I/O: `homeOrderId`, owner tuple, binding, immutable intent digest, `creationBlockNumber` (current Base head, read once at reservation), `state: "reserving"`, `dispatchCount: 0`. A refresh recovers the reservation; it never creates a second row for the same intent.
 4. Core increments `dispatchCount` and calls `createOrder`.
-   - `created`: the echoed token must equal the registry asset or the order fails `binding-conflict` and nothing is shown. Redirect URLs are validated per the redirect rules below. Core persists `providerOrderId`, expected atomic amount, fees, expiry, reported state, and the instruction.
+   - `created`: the echoed token must equal the registry asset or the order fails `binding-conflict` and nothing is shown. Redirect URLs are validated per the redirect rules below. Core persists `providerOrderId`, expected atomic amount, fees, expiry, reported state, and the instruction (every kind, including `redirect`) in `funding_order_instructions` for owner-scoped display and recovery.
    - `rejected`: the row is closed with the code; retryable rejections may be re-attempted by the user as a new order.
    - `ambiguous`: the row moves to `dispatch-ambiguous`. If `retrySafety` is `lookup-by-reference`, the core calls `findOrderByReference(homeOrderId)` and adopts a match. If `idempotency-key`, one retry with the same key is allowed. If `none`, the row stays `dispatch-ambiguous` permanently and the UI tells the user to check Activity before trying again. `createOrder` is never called twice for one row unless the manifest proves the retry is idempotent.
 5. Client renders the instruction and polls `GET /api/funding/orders/[id]`. A stale row triggers `getOrder`. The observation's echoed fields are checked against the row (destination, reference, fiat, token, amount); a conflict freezes the row and is surfaced, never applied.
@@ -288,13 +330,13 @@ Credential state and eligibility are separate. Credentials say whether the deplo
 
 ### Settlement evidence
 
-`received` requires a `Transfer` log of exactly `expectedTokenAmountAtomic` of the registry asset to the row's destination, in a transaction the provider identified by hash, at or after the row's creation block, with at least N confirmations. The core persists a claim on `(chainId, transactionHash, logIndex)` in `funding_evidence_claims` with a uniqueness constraint; evidence already claimed by any other row is rejected. There is no log-scan attribution path: a provider that reports `sent` without a hash leaves the row at `sent-unverified`, and the UI says the issuer reports the transfer as sent and points to Activity.
+`received` requires a `Transfer` log of exactly `expectedTokenAmountAtomic` of the registry asset to the row's destination, in a transaction the provider identified by hash, in a block at or after the row's `creationBlockNumber`, with at least N confirmations. The core persists a claim on `(chainId, transactionHash, logIndex)` in `funding_evidence_claims` with a uniqueness constraint; evidence already claimed by any other row is rejected. There is no log-scan attribution path: a provider that reports `sent` without a hash leaves the row at `sent-unverified`, and the UI says the issuer reports the transfer as sent and points to Activity.
 
 ### Persistence
 
 Postgres only, matching [#245](https://github.com/jessepollak/home/pull/245). Tables:
 
-- `funding_orders` — owner tuple, binding, provider, `provider_order_id` (unique per provider), intent digest, `dispatch_count`, expected atomic amount, fees, expiry, `reported_state`, `core_state`, `transaction_hash`, `version`.
+- `funding_orders` — owner tuple, binding, provider, `provider_order_id` (unique per provider), intent digest, `creation_block_number`, `dispatch_count`, expected atomic amount, fees, expiry, `reported_state`, `core_state`, `transaction_hash`, `version`.
 - `funding_order_instructions` — `home_order_id`, `instruction_json`, `expires_at`. Separate from order metadata because it holds the provider's receiving details (VA numbers, CVUs, account names, payment URLs). Owner-scoped reads only, `private, no-store` responses, redacted from logs, encrypted at rest where the deployment provides a key, and deleted when the order reaches a terminal state or the instruction expires.
 - `funding_quotes` — owner-scoped snapshots with expiry.
 - `funding_evidence_claims` — unique `(chain_id, transaction_hash, log_index)` → `home_order_id`.
@@ -304,7 +346,7 @@ Postgres only, matching [#245](https://github.com/jessepollak/home/pull/245). Ta
 
 ### Redirect rules
 
-Redirect URLs are opaque, short-lived bearer material. Coinbase requires a `sessionToken` query parameter, so query tokens are allowed. The core requires `https:`, a host in the manifest's redirect origins, an allowed path prefix when declared, no userinfo, no fragment, and a bounded length. Hosted-session URLs are never persisted. Order redirect instructions are persisted in `funding_order_instructions` only when recovery needs them and are deleted on expiry.
+Redirect URLs are opaque, short-lived bearer material. Coinbase requires a `sessionToken` query parameter, so query tokens are allowed. The core requires `https:`, a host in the manifest's redirect origins, an allowed path prefix when declared, no userinfo, no fragment, and a bounded length. Hosted-session URLs are never persisted. Order instructions of every kind, including `redirect`, are persisted in `funding_order_instructions` for owner-scoped display and recovery, redacted from logs, and deleted when the order reaches a terminal state or the instruction expires.
 
 ### Credential gating and rollout
 
@@ -365,13 +407,14 @@ The contributor runs their clone against production with their own credentials a
   "transactionHash": "0x…",
   "logIndex": 3,
   "blockNumber": "…",
+  "creationBlockNumber": "…",
   "providerReceiptRedacted": { "...": "provider status payload with identifiers only" },
   "recording": "https://…",
   "attestation": "signed statement from the issuer organization"
 }
 ```
 
-`bun run funding:verify-proof <id>` checks against Base RPC that the transaction exists, that the log at `logIndex` is a `Transfer` of the registry asset to `destination` for exactly `expectedTokenAmountAtomic`, that the block is at or after `recordedAt` minus a tolerance, and that the manifest and fixture digests match the tree at `commit`. It does not claim to prove the destination is a Home account; that is not publicly verifiable and is not asserted.
+`bun run funding:verify-proof <id>` checks against Base RPC that the transaction exists, that the log at `logIndex` is a `Transfer` of the registry asset to `destination` for exactly `expectedTokenAmountAtomic`, that its block is at or after `creationBlockNumber` from the proof (the same bound the core applies), and that the manifest and fixture digests match the tree at `commit`. It does not claim to prove the destination is a Home account; that is not publicly verifiable and is not asserted.
 
 ### Enable gate
 
