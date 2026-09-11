@@ -709,6 +709,94 @@ if (!databaseUrl) {
       await Promise.all([first.dispose(), second.dispose(), restart.dispose()]);
     });
 
+    test("actual advisory-lock timeout clears readiness for a same-store retry after release", async () => {
+      const schema = await createSchema("migration_lock_timeout");
+      const rawExecutor = executor(schema);
+      await applyMoneyActionPostgresSchema(rawExecutor);
+      const lockClient = new Bun.SQL(databaseUrl);
+      const lockAcquired = deferred<void>();
+      const releaseLock = deferred<void>();
+      const blocker = executor(schema, lockClient).transaction(async (transaction) => {
+        await transaction.query(moneyActionQueries.acquireDataMigrationLock, [
+          "home-money-action-data-migration",
+          `${schema}:${MONEY_ACTION_DATA_MIGRATION_ID}`,
+        ]);
+        lockAcquired.resolve();
+        await releaseLock.promise;
+      });
+
+      try {
+        await lockAcquired.promise;
+        const store = new PostgresMoneyActionStore(executor(schema));
+        const startedAt = Date.now();
+        let timeout: unknown;
+        try {
+          await store.ensureReady();
+        } catch (error) {
+          timeout = error;
+        }
+        expect(String(timeout)).toMatch(/lock timeout/i);
+        expect(Date.now() - startedAt).toBeGreaterThanOrEqual(4_500);
+        expect(await rawExecutor.query("SELECT migration_id FROM money_action_data_migrations")).toMatchObject({
+          rows: [],
+        });
+
+        releaseLock.resolve();
+        await blocker;
+        expect(await store.ensureReady()).toMatchObject({
+          migrationId: MONEY_ACTION_DATA_MIGRATION_ID,
+          disposition: "applied",
+        });
+        await expectDataMigrationComplete(rawExecutor);
+      } finally {
+        releaseLock.resolve();
+        await blocker.catch(() => {});
+        await lockClient.close();
+      }
+    }, 15_000);
+
+    test("actual statement timeout after mutation rolls back all data and permits a fresh retry", async () => {
+      const schema = await createSchema("migration_statement_timeout");
+      const rawExecutor = executor(schema);
+      await applyMoneyActionPostgresSchema(rawExecutor);
+      const item = attemptFixture(124);
+      const legacy = legacyAction(124, item.owner);
+      const uppercaseHash = `0x${"D".repeat(64)}` as const;
+      await insertRawLegacyOperation(rawExecutor, legacy, {
+        status: "submitted",
+        claimedAt: item.claimedAt,
+        userOperationHash: uppercaseHash,
+        updatedAt: item.evidenceAt,
+      });
+
+      const timeoutProbe = { reservationWrites: 0 };
+      const timedOutStore = new PostgresMoneyActionStore(statementTimeoutExecutor(executor(schema), timeoutProbe));
+      let timeout: unknown;
+      try {
+        await timedOutStore.ensureReady();
+      } catch (error) {
+        timeout = error;
+      }
+      expect(String(timeout)).toMatch(/statement timeout/i);
+      expect(timeoutProbe.reservationWrites).toBe(1);
+      expect(await rawExecutor.query("SELECT user_operation_hash FROM money_action_operations WHERE id = $1", [legacy.id])).toMatchObject({
+        rows: [{ user_operation_hash: uppercaseHash }],
+      });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_states")).toMatchObject({ rows: [] });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_evidence")).toMatchObject({ rows: [] });
+      expect(await rawExecutor.query("SELECT migration_id FROM money_action_data_migrations")).toMatchObject({ rows: [] });
+
+      const retry = new PostgresMoneyActionStore(executor(schema));
+      expect(await retry.ensureReady()).toMatchObject({
+        migrationId: MONEY_ACTION_DATA_MIGRATION_ID,
+        disposition: "applied",
+      });
+      await expectDataMigrationComplete(rawExecutor);
+      expect(await rawExecutor.query("SELECT user_operation_hash FROM money_action_operations WHERE id = $1", [legacy.id])).toMatchObject({
+        rows: [{ user_operation_hash: uppercaseHash.toLowerCase() }],
+      });
+    });
+
     test("failure after reservations rolls back normalization, attempt state, reservations, and marker", async () => {
       const schema = await createSchema("migration_reservation_failure");
       const rawExecutor = executor(schema);
@@ -1008,6 +1096,40 @@ async function expectDataMigrationComplete(executor: SqlExecutor): Promise<void>
     rows: [{ migration_id: MONEY_ACTION_DATA_MIGRATION_ID }],
     rowCount: 1,
   });
+}
+
+function statementTimeoutExecutor(
+  base: SqlExecutor,
+  probe: { reservationWrites: number },
+): SqlExecutor {
+  return {
+    async query<Row = Record<string, unknown>>(text: string, values: unknown[] = []) {
+      if (text === moneyActionQueries.selectOperationIdsForDataMigration) {
+        if (probe.reservationWrites < 1) throw new Error("statement-timeout probe reached history before mutation");
+        await base.query("SELECT pg_sleep(0.5)");
+      }
+      const result = await base.query<Row>(text, values);
+      if (text === moneyActionQueries.setMigrationStatementTimeout) {
+        await base.query("SET LOCAL statement_timeout = '100ms'");
+      }
+      if (text === moneyActionQueries.reserveEvidence) probe.reservationWrites += 1;
+      return result;
+    },
+    transaction<Result>(run: (transaction: SqlExecutor) => Promise<Result>) {
+      return base.transaction((transaction) => run(statementTimeoutExecutor(transaction, probe)));
+    },
+    ...(base.dispose ? { dispose: () => base.dispose!() } : {}),
+  };
+}
+
+function deferred<Value>() {
+  let resolve!: (value: Value | PromiseLike<Value>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 function observingExecutor(
