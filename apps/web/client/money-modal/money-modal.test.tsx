@@ -78,6 +78,31 @@ function Harness({
   );
 }
 
+function ExternalCloseHarness() {
+  const [open, setOpen] = useState(true);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(false)}>
+        Close externally
+      </button>
+      <MoneyModal
+        open={open}
+        labelledBy="external-sheet-title"
+        onCancel={() => setOpen(false)}
+        onClose={() => setOpen(false)}
+      >
+        <MoneyModalHeader
+          title="External"
+          titleId="external-sheet-title"
+          onClose={() => setOpen(false)}
+          closeLabel="Close external dialog"
+        />
+        <div>External body</div>
+      </MoneyModal>
+    </>
+  );
+}
+
 afterEach(cleanup);
 
 async function flushSheetExit() {
@@ -308,6 +333,35 @@ describe("MoneyModal shell", () => {
     await flushSheetReturn();
     expect((document.querySelector("[data-money-sheet]") as HTMLElement).style.transform)
       .toBe("translate3d(0, 0px, 0)");
+  });
+
+  test("external open=false during an upward drag keeps closing and unlocks scroll", async () => {
+    const restoreMotion = stubReducedMotion(false);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "auto";
+    try {
+      render(<ExternalCloseHarness />);
+      expect(document.body.style.overflow).toBe("hidden");
+
+      const grabber = document.querySelector("[data-money-sheet-grabber]");
+      expect(grabber).toBeTruthy();
+      await act(async () => {
+        fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 160 });
+        await sleep(40);
+        fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 120 });
+        fireEvent.click(page().getByRole("button", { name: "Close externally" }));
+        fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 120 });
+      });
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 2600));
+      });
+      expect(document.querySelector("dialog[open]")).toBeNull();
+      expect(document.body.style.overflow).toBe("auto");
+    } finally {
+      document.body.style.overflow = previousOverflow;
+      restoreMotion();
+    }
   });
 
   test("projects the dismissal destination proportionally to sheet height", () => {

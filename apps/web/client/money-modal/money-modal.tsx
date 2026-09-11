@@ -320,6 +320,7 @@ export function MoneyModal({
     }
     closingRef.current = true;
     if (dragRef.current.dismissing) return;
+    if (dragRef.current.pointerId !== -1) return;
     const currentHeight = sheet.getBoundingClientRect().height;
     sheet.style.height = `${Math.max(0, currentHeight)}px`;
     if (prefersReducedMotion() || immediate) {
@@ -411,6 +412,16 @@ export function MoneyModal({
       : 0;
     const translateY = Math.max(0, drag.baseY + drag.offset);
     delete sheet.dataset.dragging;
+    if (!open) {
+      // An external close started mid-drag: keep closing from the released
+      // position/velocity instead of dropping back to the open position.
+      if (prefersReducedMotion()) {
+        applySheetShift(sheet, sheetHeight(sheet));
+        return;
+      }
+      startSheetYSpring(sheet, translateY, sheetHeight(sheet), releaseVelocity, finishClose);
+      return;
+    }
     if (resolveSheetDragDismiss(translateY, releaseVelocity, sheetHeight(sheet))) {
       const accepted = onCancel() !== false;
       if (!accepted) {
@@ -435,7 +446,20 @@ export function MoneyModal({
     finishPointer(event);
     const sheet = sheetRef.current;
     if (!sheet) return;
+    const now = event.timeStamp || performance.now();
+    const releaseVelocity = now - drag.lastSampleT <= MONEY_SHEET_FLICK_MAX_AGE_MS
+      ? drag.velocity
+      : 0;
+    const translateY = Math.max(0, drag.baseY + drag.offset);
     delete sheet.dataset.dragging;
+    if (!open) {
+      if (prefersReducedMotion()) {
+        applySheetShift(sheet, sheetHeight(sheet));
+        return;
+      }
+      startSheetYSpring(sheet, translateY, sheetHeight(sheet), releaseVelocity, finishClose);
+      return;
+    }
     finishSheetReturn(sheet, drag.targetHeight);
   }
 
