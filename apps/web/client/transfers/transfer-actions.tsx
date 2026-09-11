@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AddressText } from "@/components/address";
+import { CopyableValue } from "@/components/copyable-value";
+import { formatAddress } from "@/shared/formatting";
 import {
   useAccountWallet,
   type AccountWalletClient,
@@ -146,7 +148,11 @@ export function TransferActionsForWallet({
             <strong>Sent {formatSendConfirmAmount(success.amountBaseUnits, success.assetId)}</strong>
             <p>
               {TRANSFER_ASSETS[success.assetId].symbol} · Base ·{" "}
-              <AddressText address={success.recipient} />
+              <CopyableValue
+                value={success.recipient}
+                display={formatAddress(success.recipient)}
+                valueKind="address"
+              />
             </p>
           </div>
         </div>
