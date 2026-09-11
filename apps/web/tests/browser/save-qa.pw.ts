@@ -876,17 +876,116 @@ test("uses real keyboard activation, focus, held pointer state, and non-executab
   expect(counters.checks).toBe(0);
 });
 
-test("keeps long labels, large values and actions unclipped at 320px", async ({ page }) => {
+test("keeps enlarged long labels, exact large values and all Save controls within 320px", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
   const network = await openDisarmed(page);
+  await page.evaluate(() => { document.documentElement.style.fontSize = "125%"; });
   await arm(page, network, { vaultVariant: "long" });
   await resolvePosition(page, "large");
-  await expect(page.getByRole("button", { name: "Deposit" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Withdraw" })).toBeVisible();
-  await expect(page.getByText(/Institutional USDC Income Strategy/).first()).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-  const clipped = await page.locator("#save-panel").evaluate((root) => Array.from(root.querySelectorAll<HTMLElement>("strong, p, button"))
-    .filter((element) => element.offsetParent !== null)
-    .some((element) => element.scrollWidth > element.clientWidth + 1));
-  expect(clipped).toBe(false);
+
+  const save = page.locator("#save-panel");
+  const hero = save.getByText("$1,111,111,110.11111", { exact: true });
+  const apy = save.getByText("Earning ~4.22%", { exact: true });
+  const firstName = save.getByText(
+    "Institutional USDC Income Strategy With An Intentionally Long Curator Label",
+    { exact: true },
+  );
+  const secondName = save.getByText(
+    "Institutional USDC Income Strategy With An Intentionally Long Curator Label Prime",
+    { exact: true },
+  );
+  const firstBalance = save.getByText("$123,456,789.012345", { exact: true });
+  const secondBalance = save.getByText("$987,654,321.098765", { exact: true });
+  const radios = save.getByRole("radio");
+  const deposit = save.getByRole("button", { name: "Deposit" });
+  const withdraw = save.getByRole("button", { name: "Withdraw" });
+  const details = save.getByText("Details", { exact: true });
+  const critical = [
+    hero,
+    apy,
+    firstName,
+    secondName,
+    firstBalance,
+    secondBalance,
+    radios.nth(0),
+    radios.nth(1),
+    deposit,
+    withdraw,
+    details,
+  ];
+
+  await expect(radios).toHaveCount(2);
+  for (const locator of critical) await expect(locator).toBeVisible();
+  await expect(hero).toHaveText("$1,111,111,110.11111");
+  await expect(apy).toHaveText("Earning ~4.22%");
+  await expect(radios.nth(0)).toContainText("$123,456,789.012345");
+  await expect(radios.nth(1)).toContainText("$987,654,321.098765");
+  await expect(deposit).toBeEnabled();
+  await expect(withdraw).toBeEnabled();
+
+  const documentWidth = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+    viewport: window.innerWidth,
+  }));
+  expect(documentWidth).toEqual({ client: 320, scroll: 320, viewport: 320 });
+
+  for (const locator of critical) {
+    const geometry = await locator.evaluate((element) => {
+      const node = element as HTMLElement;
+      const rect = node.getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        height: rect.height,
+        clientWidth: node.clientWidth,
+        scrollWidth: node.scrollWidth,
+        text: (node.innerText || node.textContent || "").trim(),
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(geometry.text.length).toBeGreaterThan(0);
+    expect(geometry.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth);
+    expect(geometry.width).toBeGreaterThan(0);
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
+  }
+
+  for (const target of [radios.nth(0), radios.nth(1), deposit, withdraw]) {
+    expect((await target.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+  }
+
+  const responsiveLayout = await save.evaluate((root) => {
+    const hero = Array.from(root.querySelectorAll<HTMLElement>("p"))
+      .find((element) => element.textContent?.includes("$1,111,111,110.11111"));
+    const radio = root.querySelector<HTMLElement>("[role='radio']");
+    const actionButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("button"))
+      .filter((button) => button.textContent === "Deposit" || button.textContent === "Withdraw");
+    const balance = Array.from(root.querySelectorAll<HTMLElement>("span"))
+      .find((element) => element.textContent === "$123,456,789.012345");
+    const name = Array.from(root.querySelectorAll<HTMLElement>("strong"))
+      .find((element) => element.textContent?.includes("Intentionally Long Curator Label"));
+    if (!hero || !radio || actionButtons.length !== 2 || !balance || !name) {
+      throw new Error("Expected complete responsive Save fixture geometry.");
+    }
+    const heroStyle = getComputedStyle(hero);
+    const heroLineHeight = Number.parseFloat(heroStyle.lineHeight);
+    const depositRect = actionButtons[0].getBoundingClientRect();
+    const withdrawRect = actionButtons[1].getBoundingClientRect();
+    const nameRect = name.getBoundingClientRect();
+    const balanceRect = balance.getBoundingClientRect();
+    return {
+      heroWraps: hero.scrollHeight > heroLineHeight * 1.5,
+      singleVaultColumn: getComputedStyle(radio).gridTemplateColumns.split(" ").length === 1,
+      balanceBelowName: balanceRect.top >= nameRect.bottom - 1,
+      actionsStacked: withdrawRect.top >= depositRect.bottom,
+    };
+  });
+  expect(responsiveLayout).toEqual({
+    heroWraps: true,
+    singleVaultColumn: true,
+    balanceBelowName: true,
+    actionsStacked: true,
+  });
 });
