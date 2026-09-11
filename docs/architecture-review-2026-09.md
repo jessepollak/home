@@ -122,8 +122,8 @@ Do not add a second SDK/auth context inside a feature.
 | Invest assets | `apps/web/config/invest-assets.ts` | Stocks `availability: "restricted"` |
 | Portfolio inventory | `apps/web/config/portfolio-assets.ts` | Native ETH + USDC + 17 invest + EURC/IDRX + 3 vaults; `assertPortfolioRegistry()` |
 | Navigation | `apps/web/config/navigation.ts` | Home / Save / Invest only (Borrow is a linked page, not primary nav) |
-| Morpho vault allowlist | `apps/web/server/morpho/config.ts` | `isConfiguredMorphoVault()` |
-| Borrow market | `apps/web/server/borrowing/config.ts` | One cbBTC/USDC market |
+| Morpho vault allowlist | `apps/web/shared/savings/config.ts` | `isConfiguredMorphoVault()` |
+| Borrow market | `apps/web/shared/borrowing/config.ts` | One cbBTC/USDC market |
 
 Ticker is never identity. Asset keys are `eip155:8453/erc20:<lowercase>` or native.
 

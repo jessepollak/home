@@ -7,6 +7,25 @@ const sharedLayerMessage =
 const clientLayerMessage = "client modules must not import the server layer";
 const serverLayerMessage = "server modules must not import web client or app layers";
 
+const relativePrefixPattern = String.raw`(?:\.\.?\/)+`;
+const intermediateSegmentsPattern = String.raw`(?:[^/]+\/)*`;
+const clientForbiddenPattern = String.raw`^(?:@\/server(?:\/|$)|${relativePrefixPattern}${intermediateSegmentsPattern}server(?:\/|$))`;
+const serverForbiddenPattern = String.raw`^(?:@\/(?:app|client|components)(?:\/|$)|${relativePrefixPattern}${intermediateSegmentsPattern}(?:app|client|components)(?:\/|$))`;
+const sharedForbiddenPattern = String.raw`^(?:(?:react|react-dom|next)(?:\/|$)|node:|@\/(?:app|client|server|components)(?:\/|$)|${relativePrefixPattern}${intermediateSegmentsPattern}(?:app|client|server|components)(?:\/|$))`;
+
+function restrictedDynamicImports(pattern, message) {
+  return [
+    {
+      selector: `ImportExpression[source.value=/${pattern}/]`,
+      message,
+    },
+    {
+      selector: `CallExpression[callee.name="require"][arguments.0.value=/${pattern}/]`,
+      message,
+    },
+  ];
+}
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -18,6 +37,39 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    files: [
+      "client/**/*.{js,jsx,ts,tsx}",
+      "components/**/*.{js,jsx,ts,tsx}",
+      "server/**/*.{js,jsx,ts,tsx}",
+      "shared/**/*.{js,jsx,ts,tsx}",
+    ],
+    rules: {
+      "import/no-restricted-paths": [
+        "error",
+        {
+          basePath: ".",
+          zones: [
+            {
+              target: ["./client", "./components"],
+              from: "./server",
+              message: clientLayerMessage,
+            },
+            {
+              target: "./server",
+              from: ["./client", "./components", "./app"],
+              message: serverLayerMessage,
+            },
+            {
+              target: "./shared",
+              from: ["./app", "./client", "./server", "./components"],
+              message: sharedLayerMessage,
+            },
+          ],
+        },
+      ],
+    },
+  },
   {
     files: ["shared/**/*.{js,jsx,ts,tsx}"],
     rules: {
@@ -50,6 +102,10 @@ const eslintConfig = defineConfig([
           ],
         },
       ],
+      "no-restricted-syntax": [
+        "error",
+        ...restrictedDynamicImports(sharedForbiddenPattern, sharedLayerMessage),
+      ],
     },
   },
   {
@@ -66,6 +122,10 @@ const eslintConfig = defineConfig([
             },
           ],
         },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
       ],
     },
   },
@@ -87,6 +147,10 @@ const eslintConfig = defineConfig([
             },
           ],
         },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        ...restrictedDynamicImports(serverForbiddenPattern, serverLayerMessage),
       ],
     },
   },
