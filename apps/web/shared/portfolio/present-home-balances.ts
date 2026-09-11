@@ -91,7 +91,7 @@ export function presentPortfolioValuation(
       : totalUnavailable
         ? "Balance unavailable"
         : totalPartial
-          ? "Partial balance"
+          ? "Unavailable"
           : undefined,
     items: [
       ...snapshot.cashBuckets.map((bucket) =>

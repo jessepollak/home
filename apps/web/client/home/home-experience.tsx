@@ -900,10 +900,14 @@ function HomePanel({
       ? "Balance unavailable"
       : "Total balance";
   const balanceItems = assetBalances?.items ?? [];
+  const balanceStatusLabel =
+    assetBalances?.totalStatus === "partial"
+      ? "Unavailable"
+      : assetBalances?.statusLabel;
   const showBalanceStatus =
     assetBalances?.status !== "loading" &&
-    assetBalances?.statusLabel !== "Updating…" &&
-    Boolean(assetBalances?.statusLabel);
+    balanceStatusLabel !== "Updating…" &&
+    Boolean(balanceStatusLabel);
 
   return (
     <div className="home-panel">
@@ -928,7 +932,7 @@ function HomePanel({
             className="balance-status"
             data-total-status={assetBalances?.totalStatus}
           >
-            {assetBalances?.statusLabel}
+            {balanceStatusLabel}
           </p>
         ) : null}
         {isLoading || isRevalidating ? (
@@ -1041,10 +1045,14 @@ function BalancesPage({
   onRevealMore: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading" || isChecking;
+  const balanceStatusLabel =
+    assetBalances?.totalStatus === "partial"
+      ? "Unavailable"
+      : assetBalances?.statusLabel;
   const showBalanceStatus =
     assetBalances?.status !== "loading" &&
-    assetBalances?.statusLabel !== "Updating…" &&
-    Boolean(assetBalances?.statusLabel);
+    balanceStatusLabel !== "Updating…" &&
+    Boolean(balanceStatusLabel);
   return (
     <section className="balances-panel nested-home-panel" aria-label="Balances">
       {showBalanceStatus ? (
@@ -1052,7 +1060,7 @@ function BalancesPage({
           className="balance-status balance-status-panel"
           data-total-status={assetBalances?.totalStatus}
         >
-          {assetBalances?.statusLabel}
+          {balanceStatusLabel}
         </p>
       ) : null}
       <IncrementalBalancesList
@@ -1322,6 +1330,7 @@ function HomeBalanceRowView({
 }) {
   const row = presentHomeBalanceRow(asset);
   const mark = presentHomeBalanceMark(asset, assetMarkResolution);
+  const isUpdating = asset.displayContext === "Updating…";
   return (
     <BalanceRow
       icon={
@@ -1334,7 +1343,20 @@ function HomeBalanceRowView({
       }
       iconTone="mark"
       label={asset.name}
-      context={asset.displayContext}
+      context={
+        isUpdating ? (
+          <>
+            <span
+              className="shimmer shimmer-line shimmer-line-narrow"
+              data-shimmer="balance-context"
+              aria-hidden="true"
+            />
+            <span className="sr-status">Updating…</span>
+          </>
+        ) : (
+          asset.displayContext
+        )
+      }
       value={
         row.accessibleBalance ? (
           <span

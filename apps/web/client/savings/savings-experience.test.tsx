@@ -311,7 +311,8 @@ describe("Save simplify", () => {
       />,
     );
 
-    expect(await page().findByText("Updating…")).toBeTruthy();
+    const status = await page().findByText("Updating…");
+    expect(status.classList.contains("sr-status")).toBe(true);
     expect(document.querySelector("[data-shimmer='savings-hero']")).toBeTruthy();
     expect(page().queryByText("Balance unavailable")).toBeNull();
     expect(page().queryByText("Nothing saved yet")).toBeNull();

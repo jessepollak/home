@@ -110,7 +110,7 @@ describe("home balances presentation cache", () => {
       status: "ready",
       displayTotal: "—",
       totalStatus: "partial",
-      statusLabel: "Partial balance",
+      statusLabel: "Unavailable",
       items: [
         {
           id: "cash:idrx",
