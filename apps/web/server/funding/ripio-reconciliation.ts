@@ -101,19 +101,21 @@ export function parseRipioWebhook(rawBody: Uint8Array): RipioWebhookEvent | null
 }
 
 export function transactionMatchesOrder(order: DurableRipioOrder, transaction: RipioTransactionReference): boolean {
-  const expectedAmount = decimalToAtomic(transaction.finalToAmount, order.tokenDecimals);
+  const returnedAmount = transaction.amount === undefined
+    ? order.expectedAmountAtomic
+    : decimalToAtomic(transaction.amount, order.tokenDecimals);
   return (
     transaction.transactionId === order.providerOrderId &&
-    transaction.customerId === order.customerId &&
-    transaction.quoteId === order.quoteId &&
-    transaction.externalRef === order.homeOrderId &&
-    transaction.operationType === order.operationType &&
-    transaction.fromCurrency === order.fromCurrency &&
-    transaction.toCurrency === order.toCurrency &&
-    transaction.chain === order.chain &&
-    transaction.paymentMethodType === order.paymentMethodType &&
-    transaction.destination.toLowerCase() === order.destination.toLowerCase() &&
-    expectedAmount === order.expectedAmountAtomic
+    !conflicts(transaction.customerId, order.customerId) &&
+    !conflicts(transaction.quoteId, order.quoteId) &&
+    !conflicts(transaction.externalRef, order.homeOrderId) &&
+    !conflicts(transaction.operationType, order.operationType) &&
+    !conflicts(transaction.fromCurrency, order.fromCurrency) &&
+    !conflicts(transaction.toCurrency, order.toCurrency) &&
+    !conflicts(transaction.chain, order.chain) &&
+    !conflicts(transaction.paymentMethodType, order.paymentMethodType) &&
+    (transaction.destination === undefined || transaction.destination.toLowerCase() === order.destination.toLowerCase()) &&
+    returnedAmount === order.expectedAmountAtomic
   );
 }
 
@@ -214,6 +216,7 @@ function normalizeSignature(value: string): Uint8Array | null {
   if (!/^[0-9a-f]{64}$/i.test(normalized)) return null;
   return Buffer.from(normalized, "hex");
 }
+function conflicts(actual: string | undefined, expected: string): boolean { return actual !== undefined && actual !== expected; }
 function validHash(value: unknown): value is `0x${string}` { return typeof value === "string" && /^0x[0-9a-fA-F]{64}$/.test(value); }
 function validUuid(value: string): boolean { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

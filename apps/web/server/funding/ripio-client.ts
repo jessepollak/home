@@ -23,6 +23,7 @@ export class RipioProviderError extends Error {
     | "unauthorized"
     | "unavailable"
     | "invalid-response"
+    | "binding-conflict"
     | "ambiguous-create";
   readonly status: number | null;
 
@@ -41,23 +42,35 @@ export type RipioCustomerReference = {
 
 export type RipioTransactionReference = {
   transactionId: string;
-  customerId: string;
-  quoteId: string;
-  externalRef: string;
   status: string;
   txnHash: string | null;
-  operationType: "ON_RAMP";
-  fromCurrency: string;
-  toCurrency: string;
-  chain: string;
-  destination: `0x${string}`;
-  paymentMethodType: string;
-  finalToAmount: string;
+  customerId?: string;
+  quoteId?: string;
+  externalRef?: string;
+  operationType?: "ON_RAMP";
+  fromCurrency?: string;
+  toCurrency?: string;
+  chain?: string;
+  destination?: `0x${string}`;
+  paymentMethodType?: string;
+  amount?: string;
   latestRefund: { status: string; rejectionReason: string | null } | null;
 };
 
 export type RipioOrderReference = RipioTransactionReference & {
   instructions: RipioRailInstructions;
+};
+
+export type RipioTransactionBinding = {
+  customerId: string;
+  quoteId: string;
+  externalRef: string;
+  destination: `0x${string}`;
+  fromCurrency: string;
+  toCurrency: string;
+  chain: "BASE";
+  paymentMethodType: string;
+  finalToAmount: string;
 };
 
 export type RipioClient = {
@@ -75,7 +88,7 @@ export type RipioClient = {
     finalToAmount: string;
     extraData?: Record<string, string>;
   }): Promise<RipioOrderReference>;
-  getTransaction(transactionId: string): Promise<RipioTransactionReference>;
+  getTransaction(transactionId: string, expected?: RipioTransactionBinding): Promise<RipioTransactionReference>;
   getCustomer(customerId: string): Promise<unknown>;
   getTerms(): Promise<unknown>;
   acceptTerms(customerId: string, termsId: string): Promise<unknown>;
@@ -216,9 +229,11 @@ export function createRipioClient(country: RipioCountry, options: {
         (value) => parseOrder(value, country as RipioEnabledCountry, input),
       );
     },
-    async getTransaction(transactionId) {
+    async getTransaction(transactionId, expected) {
       if (!validUuid(transactionId)) throw new RipioProviderError("invalid-request");
-      return parseTransaction(await request(`/api/v1/transactions/${encodeURIComponent(transactionId)}/`));
+      const transaction = parseTransaction(await request(`/api/v1/transactions/${encodeURIComponent(transactionId)}/`), transactionId);
+      if (expected) assertTransactionBinding(transaction, expected);
+      return transaction;
     },
     async getCustomer(customerId) {
       if (!validUuid(customerId)) throw new RipioProviderError("invalid-request");
@@ -264,7 +279,7 @@ function parseQuote(value: unknown, request: RipioQuoteRequest): RipioQuote {
   return { quoteId: value.quoteId, fromCurrency: request.fromCurrency, toCurrency: request.toCurrency, fromAmount: value.fromAmount as string, finalFromAmount: value.finalFromAmount as string, toAmount: value.toAmount as string, finalToAmount: value.finalToAmount as string, rate: value.rate as string, expiration: value.expiration, fees };
 }
 
-type ExpectedOrderBinding = Parameters<RipioClient["createOnramp"]>[0];
+type ExpectedOrderBinding = RipioTransactionBinding;
 
 function parseOrder(value: unknown, country: RipioEnabledCountry, expected: ExpectedOrderBinding): RipioOrderReference {
   if (!isRecord(value) || !isRecord(value.transaction) || !isRecord(value.fiatPaymentInstructions)) throw new RipioProviderError("invalid-response");
@@ -273,47 +288,59 @@ function parseOrder(value: unknown, country: RipioEnabledCountry, expected: Expe
   return { ...transaction, instructions: parseInstructions(value.fiatPaymentInstructions, country) };
 }
 
-function parseTransaction(value: unknown): RipioTransactionReference {
-  if (!isRecord(value) || !validUuid(value.transactionId) || !validUuid(value.customerId) || !validUuid(value.quoteId) || !validUuid(value.externalRef) || typeof value.status !== "string" || !(value.txnHash === null || (typeof value.txnHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(value.txnHash)))) throw new RipioProviderError("invalid-response");
-  const operationType = requiredAlias(value, ["operationType", "operation"]);
-  const fromCurrency = requiredAlias(value, ["fromCurrency", "sourceCurrency"]);
-  const toCurrency = requiredAlias(value, ["toCurrency", "destinationCurrency"]);
-  const chain = requiredAlias(value, ["chain", "network"]);
-  const destination = requiredAlias(value, ["destination", "depositAddress", "destinationAddress"]);
-  const paymentMethodType = requiredAlias(value, ["paymentMethodType", "paymentMethod"]);
-  const finalToAmount = requiredAlias(value, ["finalToAmount", "destinationAmount", "toAmount"]);
-  if (operationType !== "ON_RAMP" || !validAddress(destination) || !validDecimal(finalToAmount)) throw new RipioProviderError("invalid-response");
+function parseTransaction(value: unknown, expectedTransactionId?: string): RipioTransactionReference {
+  if (!isRecord(value) || !validUuid(value.transactionId) || (expectedTransactionId && value.transactionId !== expectedTransactionId) || typeof value.status !== "string" || value.status.length === 0) {
+    throw new RipioProviderError("invalid-response");
+  }
+  const customerId = optionalUuid(value, "customerId");
+  const quoteId = optionalUuid(value, "quoteId");
+  const externalRef = optionalUuid(value, "externalRef");
+  const source = optionalString(value, "source");
+  const fromCurrency = optionalString(value, "fromCurrency");
+  const toCurrency = optionalString(value, "toCurrency");
+  const chain = optionalString(value, "chain");
+  const paymentMethodType = optionalString(value, "paymentMethodType");
+  const depositAddress = optionalString(value, "depositAddress");
+  const amount = optionalString(value, "amount");
+  if (source !== undefined && source !== "ON_RAMP") throw new RipioProviderError("invalid-response");
+  if (depositAddress !== undefined && !validAddress(depositAddress)) throw new RipioProviderError("invalid-response");
+  if (amount !== undefined && !validDecimal(amount)) throw new RipioProviderError("invalid-response");
+  const txnHash = value.txnHash === undefined || value.txnHash === null
+    ? null
+    : typeof value.txnHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(value.txnHash)
+      ? value.txnHash
+      : invalidTransactionField();
   return {
     transactionId: value.transactionId,
-    customerId: value.customerId,
-    quoteId: value.quoteId,
-    externalRef: value.externalRef,
     status: value.status,
-    txnHash: value.txnHash,
-    operationType,
-    fromCurrency,
-    toCurrency,
-    chain,
-    destination,
-    paymentMethodType,
-    finalToAmount,
+    txnHash,
+    ...(customerId ? { customerId } : {}),
+    ...(quoteId ? { quoteId } : {}),
+    ...(externalRef ? { externalRef } : {}),
+    ...(source ? { operationType: source } : {}),
+    ...(fromCurrency ? { fromCurrency } : {}),
+    ...(toCurrency ? { toCurrency } : {}),
+    ...(chain ? { chain } : {}),
+    ...(depositAddress ? { destination: depositAddress } : {}),
+    ...(paymentMethodType ? { paymentMethodType } : {}),
+    ...(amount ? { amount } : {}),
     latestRefund: parseLatestRefund(value.latestRefund),
   };
 }
 
 function assertTransactionBinding(transaction: RipioTransactionReference, expected: ExpectedOrderBinding): void {
   if (
-    transaction.customerId !== expected.customerId ||
-    transaction.quoteId !== expected.quoteId ||
-    transaction.externalRef !== expected.externalRef ||
-    transaction.operationType !== "ON_RAMP" ||
-    transaction.fromCurrency !== expected.fromCurrency ||
-    transaction.toCurrency !== expected.toCurrency ||
-    transaction.chain !== expected.chain ||
-    transaction.destination.toLowerCase() !== expected.destination.toLowerCase() ||
-    transaction.paymentMethodType !== expected.paymentMethodType ||
-    !sameDecimal(transaction.finalToAmount, expected.finalToAmount)
-  ) throw new RipioProviderError("invalid-response");
+    conflicts(transaction.customerId, expected.customerId) ||
+    conflicts(transaction.quoteId, expected.quoteId) ||
+    conflicts(transaction.externalRef, expected.externalRef) ||
+    conflicts(transaction.operationType, "ON_RAMP") ||
+    conflicts(transaction.fromCurrency, expected.fromCurrency) ||
+    conflicts(transaction.toCurrency, expected.toCurrency) ||
+    conflicts(transaction.chain, expected.chain) ||
+    (transaction.destination !== undefined && transaction.destination.toLowerCase() !== expected.destination.toLowerCase()) ||
+    conflicts(transaction.paymentMethodType, expected.paymentMethodType) ||
+    (transaction.amount !== undefined && !sameDecimal(transaction.amount, expected.finalToAmount))
+  ) throw new RipioProviderError("binding-conflict");
 }
 
 function parseInstructions(value: Record<string, unknown>, country: RipioEnabledCountry): RipioRailInstructions {
@@ -328,7 +355,7 @@ async function parseCreateResponse<T>(request: () => Promise<unknown>, parse: (v
   try {
     return parse(await request());
   } catch (error) {
-    if (error instanceof RipioProviderError && error.code === "invalid-response") {
+    if (error instanceof RipioProviderError && (error.code === "invalid-response" || error.code === "binding-conflict")) {
       throw new RipioProviderError("ambiguous-create", error.status, error);
     }
     throw error;
@@ -342,10 +369,19 @@ function parseLatestRefund(value: unknown): RipioTransactionReference["latestRef
     : typeof value.rejectionReason === "string" ? value.rejectionReason : null;
   return { status: value.status, rejectionReason };
 }
-function requiredAlias(value: Record<string, unknown>, aliases: string[]): string {
-  for (const alias of aliases) if (typeof value[alias] === "string" && value[alias].length > 0) return value[alias];
-  throw new RipioProviderError("invalid-response");
+function optionalString(value: Record<string, unknown>, field: string): string | undefined {
+  if (!(field in value)) return undefined;
+  if (typeof value[field] !== "string" || value[field].length === 0) throw new RipioProviderError("invalid-response");
+  return value[field];
 }
+function optionalUuid(value: Record<string, unknown>, field: string): string | undefined {
+  const candidate = optionalString(value, field);
+  if (candidate === undefined) return undefined;
+  if (!validUuid(candidate)) throw new RipioProviderError("invalid-response");
+  return candidate;
+}
+function invalidTransactionField(): never { throw new RipioProviderError("invalid-response"); }
+function conflicts(actual: string | undefined, expected: string): boolean { return actual !== undefined && actual !== expected; }
 async function readJson(response: Response): Promise<unknown> {
   try { return await response.json(); } catch (error) { throw new RipioProviderError("invalid-response", response.status, error); }
 }

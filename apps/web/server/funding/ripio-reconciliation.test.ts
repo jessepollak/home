@@ -15,7 +15,7 @@ function order(overrides: Partial<DurableRipioOrder> = {}): DurableRipioOrder {
   return { homeOrderId: HOME_ORDER, homeCustomerKey: "AR:home-user", country: "AR", customerId: CUSTOMER, quoteId: QUOTE, providerOrderId: ORDER_ID, operationType: "ON_RAMP", fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION, tokenAddress: RIPIO_ASSETS.AR.tokenAddress, tokenDecimals: 18, expectedAmountAtomic: "2100000000000000000000", state: "awaiting-payment", providerStatus: "CREATED", providerTransactionHash: null, latestRefundStatus: null, latestRefundRejectionReason: null, transferEvidence: null, version: 1, updatedAt: "2026-09-11T18:00:00.000Z", ...overrides };
 }
 function transaction(overrides: Partial<RipioTransactionReference> = {}): RipioTransactionReference {
-  return { transactionId: ORDER_ID, customerId: CUSTOMER, quoteId: QUOTE, externalRef: HOME_ORDER, status: "CREATED", txnHash: null, operationType: "ON_RAMP", fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", destination: DESTINATION, paymentMethodType: "bank_transfer", finalToAmount: "2100", latestRefund: null, ...overrides };
+  return { transactionId: ORDER_ID, customerId: CUSTOMER, quoteId: QUOTE, externalRef: HOME_ORDER, status: "CREATED", txnHash: null, operationType: "ON_RAMP", fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", destination: DESTINATION, paymentMethodType: "bank_transfer", amount: "2100", latestRefund: null, ...overrides };
 }
 
 describe("Ripio webhook and reconciliation contract", () => {
@@ -37,7 +37,7 @@ describe("Ripio webhook and reconciliation contract", () => {
       { customerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, { quoteId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
       { externalRef: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, { operationType: "OFF_RAMP" }, { fromCurrency: "COP" },
       { toCurrency: "wCOP" }, { chain: "ETHEREUM" }, { destination: "0x2222222222222222222222222222222222222222" },
-      { paymentMethodType: "breb" }, { finalToAmount: "2101" },
+      { paymentMethodType: "breb" }, { amount: "2101" },
     ]) expect(transactionMatchesOrder(order(), transaction(mismatch as Partial<RipioTransactionReference>))).toBe(false);
   });
   test("preserves terminals and explicitly tracks cancellation/refund progress", () => {

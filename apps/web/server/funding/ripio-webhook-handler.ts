@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import type { RipioBaseTransferEvidence } from "@/shared/funding/ripio-contract";
-import type { RipioClient } from "./ripio-client";
+import { RipioProviderError, type RipioClient } from "./ripio-client";
 import {
   parseRipioWebhook,
   transactionMatchesOrder,
@@ -11,6 +11,13 @@ import {
 } from "./ripio-reconciliation";
 
 const RIPIO_SIGNATURE_HEADER = "http-x-wh-signature-256";
+
+function atomicToDecimal(value: string, decimals: number): string {
+  const padded = value.padStart(decimals + 1, "0");
+  const whole = padded.slice(0, -decimals);
+  const fraction = padded.slice(-decimals).replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole;
+}
 
 export function createRipioWebhookHandler(dependencies: {
   signingKey: string;
@@ -49,8 +56,21 @@ export function createRipioWebhookHandler(dependencies: {
 
     let transaction;
     try {
-      transaction = await dependencies.clientForCountry(order.country).getTransaction(order.providerOrderId);
-    } catch {
+      transaction = await dependencies.clientForCountry(order.country).getTransaction(order.providerOrderId, {
+        customerId: order.customerId,
+        quoteId: order.quoteId,
+        externalRef: order.homeOrderId,
+        destination: order.destination,
+        fromCurrency: order.fromCurrency,
+        toCurrency: order.toCurrency,
+        chain: order.chain,
+        paymentMethodType: order.paymentMethodType,
+        finalToAmount: atomicToDecimal(order.expectedAmountAtomic, order.tokenDecimals),
+      });
+    } catch (error) {
+      if (error instanceof RipioProviderError && error.code === "binding-conflict") {
+        return Response.json({ error: "binding-conflict" }, { status: 409 });
+      }
       return Response.json({ error: "reconciliation-unavailable" }, { status: 503 });
     }
     if (!transactionMatchesOrder(order, transaction)) {
