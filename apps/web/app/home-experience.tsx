@@ -294,6 +294,17 @@ function HomeExperienceView({
     region: regionId,
     live: liveAssetBalances,
   });
+  const balancesOwnerKey = account.ownerKey;
+  const balancesSubject = account.session?.user.subject ?? null;
+  const balancesSmartAccount = account.session?.smartAccount?.address ?? null;
+  const balancesScope =
+    balancesOwnerKey && balancesSubject && balancesSmartAccount
+      ? `${balancesOwnerKey}\u0000${balancesSubject}\u0000${balancesSmartAccount.toLowerCase()}\u0000${regionId}`
+      : null;
+  const balancesReveal = useBalancesRevealWindow(
+    balancesScope,
+    paintedAssetBalances.items,
+  );
   const activitySession: VerifiedAccountSession | null =
     isVerified && account.session?.smartAccount ? account.session : null;
   const fetchAccountResource = account.fetchAccountResource;
@@ -592,6 +603,8 @@ function HomeExperienceView({
                       assetBalances={paintedAssetBalances}
                       assetMarkResolution={assetMarkResolution}
                       isChecking={isChecking}
+                      revealedCount={balancesReveal.count}
+                      onRevealMore={balancesReveal.extend}
                     />
                   ) : null}
                   {activeNavigation === activityPanelId ? (
@@ -1005,10 +1018,14 @@ function BalancesPage({
   assetBalances,
   assetMarkResolution,
   isChecking,
+  revealedCount,
+  onRevealMore,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   assetMarkResolution?: AssetMarkResolution;
   isChecking: boolean;
+  revealedCount: number;
+  onRevealMore: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading" || isChecking;
   const showBalanceStatus =
@@ -1030,6 +1047,8 @@ function BalancesPage({
         isLoading={isLoading}
         isUnavailable={assetBalances?.status === "unavailable"}
         assetMarkResolution={assetMarkResolution}
+        revealedCount={revealedCount}
+        onRevealMore={onRevealMore}
       />
     </section>
   );
@@ -1162,18 +1181,82 @@ function HomeBalancesList({
 
 const BALANCES_BATCH_SIZE = 10;
 
+type BalancesRevealWindow = {
+  key: string;
+  count: number;
+};
+
+function balancesListKey(items: readonly HomeAssetBalanceItem[]): string {
+  return items.map((item) => item.id).join("\u0000");
+}
+
+function useBalancesRevealWindow(
+  scope: string | null,
+  items: readonly HomeAssetBalanceItem[],
+) {
+  const [revealWindow, setRevealWindow] = useState<BalancesRevealWindow>(() => {
+    const key = `${scope ?? ""}\u0000${balancesListKey(items)}`;
+    return { key, count: BALANCES_BATCH_SIZE };
+  });
+  const key = `${scope ?? ""}\u0000${balancesListKey(items)}`;
+  if (revealWindow.key !== key) {
+    setRevealWindow({ key, count: BALANCES_BATCH_SIZE });
+  }
+
+  const count = Math.min(revealWindow.count, items.length);
+  const extend = useCallback(() => {
+    setRevealWindow((current) =>
+      current.key === key
+        ? {
+            key,
+            count: Math.min(
+              current.count + BALANCES_BATCH_SIZE,
+              items.length,
+            ),
+          }
+        : current,
+    );
+  }, [key, items.length]);
+
+  return { count, extend };
+}
+
 function IncrementalBalancesList({
   items,
   isLoading,
   isUnavailable = false,
   assetMarkResolution,
+  revealedCount,
+  onRevealMore,
 }: {
   items: readonly HomeAssetBalanceItem[];
   isLoading: boolean;
   isUnavailable?: boolean;
   assetMarkResolution?: AssetMarkResolution;
+  revealedCount: number;
+  onRevealMore: () => void;
 }) {
-  const { visibleItems, hasMore, sentinelRef } = useIncrementalBalances(items);
+  const count = Math.min(revealedCount, items.length);
+  const hasMore = count < items.length;
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!hasMore) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onRevealMore();
+        }
+      },
+      { rootMargin: "0px 0px 40% 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, onRevealMore]);
 
   if (items.length === 0) {
     if (isLoading) {
@@ -1186,7 +1269,7 @@ function IncrementalBalancesList({
   return (
     <>
       <ul className="supplied-asset-list">
-        {visibleItems.map((asset) => (
+        {items.slice(0, count).map((asset) => (
           <HomeBalanceRowView
             key={asset.id}
             asset={asset}
@@ -1242,59 +1325,6 @@ function HomeBalanceRowView({
       valueTone={row.tone}
     />
   );
-}
-
-type BalancesWindow = {
-  items: readonly HomeAssetBalanceItem[];
-  count: number;
-};
-
-function useIncrementalBalances(items: readonly HomeAssetBalanceItem[]) {
-  const [listWindow, setListWindow] = useState<BalancesWindow>(() => ({
-    items,
-    count: BALANCES_BATCH_SIZE,
-  }));
-  if (listWindow.items !== items) {
-    setListWindow({ items, count: BALANCES_BATCH_SIZE });
-  }
-
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (listWindow.count >= items.length) return;
-    if (typeof IntersectionObserver === "undefined") return;
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setListWindow((current) =>
-            current.items === items
-              ? {
-                  items: current.items,
-                  count: Math.min(
-                    current.count + BALANCES_BATCH_SIZE,
-                    current.items.length,
-                  ),
-                }
-              : current,
-          );
-        }
-      },
-      { rootMargin: "0px 0px 40% 0px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [items, listWindow.count]);
-
-  const count = Math.min(listWindow.count, items.length);
-
-  return {
-    visibleItems: items.slice(0, count),
-    hasMore: count < items.length,
-    sentinelRef,
-  };
 }
 
 function availableSendBalances(

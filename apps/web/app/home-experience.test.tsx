@@ -2427,6 +2427,66 @@ describe("balances incremental rendering", () => {
     expect(page().getAllByText("Holding 12")).toHaveLength(1);
   });
 
+  test("preserves the revealed window when leaving and re-entering Balances", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$99.99",
+          items: manyBalances(25),
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    revealNextBalancesBatch();
+    expect(page().getByText("Holding 19")).toBeTruthy();
+    expect(page().queryByText("Holding 20")).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    expect(page().queryByText("Holding 19")).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByText("Holding 19")).toBeTruthy();
+    expect(page().queryByText("Holding 20")).toBeNull();
+    expect(document.querySelector(".balances-sentinel")).toBeTruthy();
+  });
+
+  test("keeps the revealed window across an equivalent-data refresh", async () => {
+    const view = render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$99.99",
+          items: manyBalances(25),
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    revealNextBalancesBatch();
+    expect(page().getByText("Holding 19")).toBeTruthy();
+
+    view.rerender(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$99.99",
+          items: manyBalances(25),
+        }}
+      />,
+    );
+
+    expect(page().getByText("Holding 19")).toBeTruthy();
+    expect(page().queryByText("Holding 20")).toBeNull();
+    expect(document.querySelector(".balances-sentinel")).toBeTruthy();
+  });
+
   test("resets the reveal window when the item set changes for another owner", async () => {
     const view = render(
       <HomeHarness
