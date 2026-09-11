@@ -24,6 +24,10 @@ import styles from "./money-modal.module.css";
 const AMOUNT_MIN_FONT_PROPERTY = "--money-amount-min-size";
 const AMOUNT_MIN_FONT_SIZE_FALLBACK = 20;
 const AMOUNT_FIT_TOLERANCE_PX = 0.5;
+// Font rendering is not perfectly proportional to `font-size` (glyph advances
+// and negative letter-spacing round at each size). Reserve a small headroom so
+// a measured fit never overflows the container by a subpixel rounding error.
+const AMOUNT_FIT_SAFETY_FACTOR = 0.97;
 
 /**
  * Scales a formatted amount to fit the available width without changing,
@@ -91,8 +95,13 @@ export function useAutoFitAmountText(text: string) {
 
       const minRaw = window.getComputedStyle(container).getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
       const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
+      // Round down and reserve headroom so the rendered amount never exceeds
+      // the container by a subpixel rounding error; the exact decimal string
+      // is never altered.
       const target =
-        Math.round(fitAmountFontSize(available, natural, base, min) * 10) / 10;
+        Math.floor(
+          fitAmountFontSize(available * AMOUNT_FIT_SAFETY_FACTOR, natural, base, min) * 10,
+        ) / 10;
 
       setFontSize((current) =>
         current !== undefined && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
