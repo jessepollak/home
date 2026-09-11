@@ -97,14 +97,6 @@ export function marketForAsset(
   return markets.cryptoMarket ?? unavailableMarketData;
 }
 
-export function applyAssetIcon(
-  asset: InvestAsset,
-  icons: Readonly<Record<string, string | null>> = {},
-): InvestAsset {
-  const imageUrl = asset.imageUrl ?? icons[asset.id] ?? undefined;
-  return imageUrl ? { ...asset, imageUrl } : asset;
-}
-
 export function isInvestAssetId(value: string): value is InvestAssetId {
   return assetById.has(value);
 }

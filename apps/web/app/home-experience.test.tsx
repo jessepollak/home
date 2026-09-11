@@ -12,8 +12,13 @@ import type {
   VerifiedAccountSession,
 } from "@/features/account/session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "@/features/account/session-types";
-import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import { anonymousCountryPreferenceKey } from "@/config/country-preference";
+import {
+  investPortfolioAssets,
+  verifiedLocalCashAssets,
+} from "@/config/portfolio-assets";
 import { presentationRegions, type RegionId } from "@/config/regions";
+import type { HomeAssetBalancesPresentation } from "@/features/portfolio-valuation";
 
 const replaceCalls: string[] = [];
 const pushCalls: string[] = [];
@@ -487,12 +492,16 @@ function seedBalancesCache({
   smartAccount = ADDRESS,
   region = "GLOBAL",
   displayTotal = "$12.34",
+  totalStatus = "complete",
+  statusLabel,
 }: {
   ownerKey?: string;
   subject?: string;
   smartAccount?: `0x${string}`;
   region?: RegionId;
   displayTotal?: string;
+  totalStatus?: NonNullable<HomeAssetBalancesPresentation["totalStatus"]>;
+  statusLabel?: string;
 } = {}) {
   writeHomeBalancesPresentation(
     () => window.localStorage,
@@ -500,6 +509,8 @@ function seedBalancesCache({
     {
       status: "ready",
       displayTotal,
+      totalStatus,
+      ...(statusLabel ? { statusLabel } : {}),
       items: [
         {
           id: "usdc",
@@ -524,6 +535,7 @@ function HomeHarness({
   savingsContent = <section aria-label="Savings module">Savings fixture</section>,
   investContent = <section aria-label="Invest module">Invest fixture</section>,
   assetBalances,
+  assetMarkResolution,
 }: {
   accountSdk: AccountWalletSdkBoundary;
   sessionFetch?: SessionFetch;
@@ -535,6 +547,7 @@ function HomeHarness({
   savingsContent?: ReactNode;
   investContent?: ReactNode;
   assetBalances?: ComponentProps<typeof HomeExperience>["assetBalances"];
+  assetMarkResolution?: ComponentProps<typeof HomeExperience>["assetMarkResolution"];
 }) {
   return (
     <AccountWalletSessionOwner sdk={accountSdk} sessionFetch={sessionFetch}>
@@ -546,10 +559,12 @@ function HomeHarness({
         routeMode={routeMode}
         savingsContent={savingsContent}
         investContent={investContent}
+        assetMarkResolution={assetMarkResolution}
         assetBalances={
           assetBalances ?? {
             status: "ready",
             displayTotal: "$12.34",
+            totalStatus: "complete",
             items: [
               {
                 id: "usdc",
@@ -826,6 +841,32 @@ describe("login-state home experience", () => {
     expect(page().getAllByText("$12.34").length).toBeGreaterThanOrEqual(1);
   });
 
+  test("keeps cached partial-total truth visible while the account revalidates", async () => {
+    seedBalancesCache({
+      totalStatus: "partial",
+      statusLabel: "Partial balance",
+    });
+    const pendingSession = deferred<Response>();
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={() => pendingSession.promise}
+      />,
+    );
+
+    const status = await page().findByText("Partial balance");
+    expect(status.getAttribute("data-total-status")).toBe("partial");
+    expect(page().getByText("US dollar")).toBeTruthy();
+    expect(document.querySelector("[data-shimmer='hero']")).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByText("Partial balance")).toBeTruthy();
+
+    await act(async () => {
+      pendingSession.resolve(Response.json(session()));
+      await pendingSession.promise;
+    });
+  });
+
   test("does not paint another owner's or signed-out cache during Checking", async () => {
     seedBalancesCache({ ownerKey: OWNER_B, displayTotal: "$99.00" });
     const pendingSession = deferred<Response>();
@@ -968,6 +1009,160 @@ describe("login-state home experience", () => {
     await waitFor(() => expect(signOutCalls).toBe(2));
   });
 
+  test("renders partial totals and unavailable or unpriced supported holdings on Home and Balances", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$12.34",
+          totalStatus: "partial",
+          statusLabel: "Partial balance",
+          items: [
+            {
+              id: "usdc",
+              group: "cash",
+              name: "US dollar",
+              displayBalance: "$12.34",
+              currencyCode: "USD",
+            },
+            {
+              id: "asset:eth",
+              group: "asset",
+              name: "Ethereum",
+              detail: "ETH",
+              displayBalance: "0.0500 ETH",
+            },
+            {
+              id: "asset:nvidia",
+              group: "asset",
+              name: "NVIDIA",
+              detail: "NVDAC",
+              displayBalance: "Unavailable",
+              tone: "error",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    expect(page().getByText("Partial balance").getAttribute("data-total-status")).toBe(
+      "partial",
+    );
+    expect(page().getByText("0.0500 ETH")).toBeTruthy();
+    expect(page().getByText("Unavailable")).toBeTruthy();
+
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByText("Partial balance")).toBeTruthy();
+    expect(page().getByText("Ethereum")).toBeTruthy();
+    expect(page().getByText("NVIDIA")).toBeTruthy();
+  });
+
+  test("never substitutes funded non-USD cash for unavailable USDC send availability", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "€2,234.56",
+          totalStatus: "partial",
+          statusLabel: "Partial balance",
+          items: [
+            {
+              id: "cash:usd",
+              group: "cash",
+              name: "US dollar",
+              displayBalance: "Unavailable",
+              currencyCode: "USD",
+              tone: "error",
+            },
+            {
+              id: "cash:eur",
+              group: "cash",
+              name: "Euro",
+              displayBalance: "€1,234.56",
+              currencyCode: "EUR",
+            },
+            {
+              id: "cash:idr",
+              group: "cash",
+              name: "Indonesian rupiah",
+              displayBalance: "Rp 1,000.00",
+              currencyCode: "IDR",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    expect(page().getByText("€1,234.56")).toBeTruthy();
+    expect(page().getByText("Rp 1,000.00")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+
+    const send = page().getByRole("dialog", { name: "Send" });
+    expect(within(send).queryByText("1,234.56 USDC available")).toBeNull();
+    expect(within(send).queryByText("1,000.00 USDC available")).toBeNull();
+    expect(
+      (within(send).getByRole("button", { name: "Max" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  test("renders the GLOBAL no-currency action on Home and Balances", async () => {
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return Response.json(session());
+      if (String(input).startsWith("/api/activity?")) {
+        return Response.json(activityPage(input));
+      }
+      if (String(input).startsWith("/api/portfolio/valuation?")) {
+        return valuationResponse(input, { usdc: "12340000" });
+      }
+      return Response.json(portfolioSnapshot({ usdc: "12340000" }));
+    };
+
+    render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch}
+      />,
+    );
+
+    const label = await page().findByText(
+      "Choose a country in Account to set how money is shown",
+    );
+    expect(label.getAttribute("data-total-status")).toBe("unavailable");
+    expect(page().getByText("—")).toBeTruthy();
+
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(
+      page().getByText("Choose a country in Account to set how money is shown"),
+    ).toBeTruthy();
+  });
+
+  test("renders an unavailable verified-session state without calling it empty", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "unavailable",
+          displayTotal: null,
+          totalStatus: "unavailable",
+          statusLabel: "Balance unavailable",
+          items: [],
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    expect(page().getByText("Balance unavailable")).toBeTruthy();
+    expect(page().queryByText("No balances yet")).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    expect(page().getByText("Balance unavailable")).toBeTruthy();
+    expect(page().queryByText("No balances yet")).toBeNull();
+  });
+
   test("wires verified balances through the production owner with bounded token display and no unpriced ETH sum", async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const sessionFetch: SessionFetch = async (input, init) => {
@@ -1052,6 +1247,75 @@ describe("login-state home experience", () => {
     expect(
       new Headers(valuationRequest?.init?.headers).get(ACCOUNT_PROVIDER_HEADER),
     ).toBe("cdp-embedded");
+  });
+
+  test("persists an Account country through the production Home presentation after refresh", async () => {
+    const valuationRegions: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return Response.json(session());
+      if (String(input).startsWith("/api/activity?")) {
+        return Response.json(activityPage(input));
+      }
+      if (String(input).startsWith("/api/portfolio/valuation?")) {
+        const region = new URL(
+          String(input),
+          "http://localhost",
+        ).searchParams.get("region");
+        if (region) valuationRegions.push(region);
+        return valuationResponse(input, { usdc: "1000000" });
+      }
+      return Response.json(portfolioSnapshot({ usdc: "1000000" }));
+    };
+
+    const firstVisit = render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch}
+        detectedCountry="US"
+      />,
+    );
+
+    await page().findByText("US dollar");
+    fireEvent.click(await enabledAccountButton());
+    expect(
+      page().getByRole("combobox", { name: "Country" }).textContent,
+    ).toContain("United States");
+
+    fireEvent.click(page().getByRole("combobox", { name: "Country" }));
+    fireEvent.click(
+      within(document.body).getByRole("option", { name: /Brazil/ }),
+    );
+
+    expect(window.localStorage.getItem(anonymousCountryPreferenceKey)).toBe(
+      "BR",
+    );
+    fireEvent.click(page().getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(valuationRegions.at(-1)).toBe("BR"));
+    expect(await page().findByText("Brazilian real")).toBeTruthy();
+
+    firstVisit.unmount();
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith(homeBalancesPresentationCachePrefix)) {
+        window.localStorage.removeItem(key);
+      }
+    }
+    valuationRegions.length = 0;
+
+    render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch}
+        detectedCountry="US"
+      />,
+    );
+
+    await waitFor(() => expect(valuationRegions.at(-1)).toBe("BR"));
+    expect(await page().findByText("Brazilian real")).toBeTruthy();
+    fireEvent.click(await enabledAccountButton());
+    expect(
+      page().getByRole("combobox", { name: "Country" }).textContent,
+    ).toContain("Brazil");
+    expect(page().getByText("Saved country choice.")).toBeTruthy();
   });
 
   test("renders IDR Balances with non-par EURC in euros and canonical currency marks", async () => {
@@ -1893,9 +2157,18 @@ describe("login-state home experience", () => {
   });
 
   test("Home hub previews four balance rows and the nested panel lists every holding", async () => {
+    const nvidia = investPortfolioAssets.find((asset) => asset.id === "nvdac")!;
+    const bitcoin = investPortfolioAssets.find((asset) => asset.id === "cbbtc")!;
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetMarkResolution={{
+          images: {
+            [nvidia.assetKey]: "https://icons.example.test/nvda.png",
+            [bitcoin.assetKey]: "https://icons.example.test/cbbtc.png",
+          },
+          pending: false,
+        }}
         assetBalances={{
           status: "ready",
           displayTotal: "$12.34",
@@ -1928,15 +2201,19 @@ describe("login-state home experience", () => {
               displayBalance: "4.00 ETH",
             },
             {
-              id: "asset:nvda",
+              id: `asset:${nvidia.assetKey}`,
+              assetKey: nvidia.assetKey,
               group: "asset",
               name: "NVIDIA",
+              detail: "NVDAc",
               displayBalance: "5.00 NVDAc",
             },
             {
-              id: "asset:btc",
+              id: `asset:${bitcoin.assetKey}`,
+              assetKey: bitcoin.assetKey,
               group: "asset",
               name: "Bitcoin",
+              detail: "cbBTC",
               displayBalance: "6.00 cbBTC",
             },
           ],
@@ -1952,8 +2229,14 @@ describe("login-state home experience", () => {
 
     fireEvent.click(page().getByRole("button", { name: "Balances" }));
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
-    expect(page().getByText("NVIDIA")).toBeTruthy();
-    expect(page().getByText("Bitcoin")).toBeTruthy();
+    const nvidiaRow = page().getByText("NVIDIA").closest("li")!;
+    const bitcoinRow = page().getByText("Bitcoin").closest("li")!;
+    expect(nvidiaRow.querySelector("img")?.getAttribute("src")).toBe(
+      "https://icons.example.test/nvda.png",
+    );
+    expect(bitcoinRow.querySelector("img")?.getAttribute("src")).toBe(
+      "https://icons.example.test/cbbtc.png",
+    );
     expect(page().getByText("Indonesian rupiah")).toBeTruthy();
   });
 

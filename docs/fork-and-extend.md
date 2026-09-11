@@ -35,7 +35,7 @@ Country selection is presentation, not eligibility, residency, or a funding unlo
 | Native-currency UI rules | [Regional money](regional-money.md) |
 | Confirmed default token per currency | [Currency defaults](currency-defaults.md) |
 
-Changing country updates labels, formatting, and default cash presentation. It does not convert holdings or enable a route. Adding a country means a typed region record plus a verified Base asset later — not a ticker in copy. Local development has no Vercel geo header; the resolver falls back to `GLOBAL` unless the visitor picks a country.
+Changing country updates labels, formatting, and default cash presentation. It does not convert holdings or enable a route. The landing globe remains illustrative and does not read or write the saved country preference. Adding a country means a typed region record plus a verified Base asset later — not a ticker in copy. Local development has no Vercel geo header; the resolver falls back to `GLOBAL` unless the visitor picks a country.
 
 ## Asset inventories
 
@@ -88,4 +88,4 @@ Venice/agent inference, Rain cards, additional funding providers, unrestricted a
 - Keep configuration and secrets out of git. `.env.local` is gitignored; use permission `0600` for real keys.
 - Country, language, and eligibility stay separate. A region switch must not imply residency or unlock a restricted stock.
 - Exact asset, network, and user approval remain part of financial review. Documented token support is not a tested live integration.
-- `bun check` is the same gate CI runs (`bun install --frozen-lockfile` then `bun check`) if you send a focused PR. User-visible UI / core-flow PRs should embed before/after images inline in a table in the GitHub PR description (GitHub user-attachments only; [UI PR previews](ui-pr-previews.md)).
+- `bun check` is the same gate CI runs (`bun install --frozen-lockfile` then `bun check`) if you send a focused PR. User-visible UI / core-flow PRs include the Vercel preview link and one inline screenshot or short clip in the PR description ([UI PR previews](ui-pr-previews.md)).

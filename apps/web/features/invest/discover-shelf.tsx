@@ -1,4 +1,5 @@
 import type { InvestAsset } from "@/config/invest-assets";
+import type { AssetMarkResolution } from "@/features/asset-mark/presentation";
 import type { MarketDataState } from "./invest-market";
 import type { MemeShelfStatus } from "./discover";
 import { DiscoverAssetRow } from "./discover-asset-row";
@@ -9,7 +10,7 @@ export function DiscoverShelf({
   assets,
   market,
   status = "ready",
-  iconsPending = false,
+  assetMarkResolution = {},
   onSeeAll,
   onOpenAsset,
 }: {
@@ -17,7 +18,7 @@ export function DiscoverShelf({
   assets: readonly InvestAsset[];
   market: MarketDataState;
   status?: MemeShelfStatus;
-  iconsPending?: boolean;
+  assetMarkResolution?: AssetMarkResolution;
   onSeeAll: () => void;
   onOpenAsset: (asset: InvestAsset) => void;
 }) {
@@ -36,7 +37,7 @@ export function DiscoverShelf({
               key={asset.id}
               asset={asset}
               market={market}
-              iconPending={iconsPending}
+              assetMarkResolution={assetMarkResolution}
               onOpen={() => onOpenAsset(asset)}
             />
           ))}

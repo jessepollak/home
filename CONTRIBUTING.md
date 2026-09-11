@@ -25,7 +25,7 @@ bun check
 Additional focused checks:
 
 ```sh
-bun run --cwd apps/web test:browser-auth
+bun run --cwd apps/web test:browser-smoke
 MONEY_ACTION_PG_TEST_URL=postgres://... bun test scripts/delivery/tests/postgres-money-action.test.ts
 ```
 

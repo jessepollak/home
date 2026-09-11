@@ -1,27 +1,19 @@
 import { CurrencyMark } from "@/components/currency-mark";
+import type { AssetMarkPresentation } from "@/features/asset-mark/presentation";
 import styles from "./asset-icon.module.css";
 
 type AssetIconProps = {
-  assetId: string;
-  label: string;
-  initials?: string;
-  imageUrl?: string;
-  pending?: boolean;
+  mark: AssetMarkPresentation;
 };
 
-export function AssetIcon({
-  assetId,
-  label,
-  initials,
-  imageUrl,
-  pending = false,
-}: AssetIconProps) {
+export function AssetIcon({ mark }: AssetIconProps) {
   return (
-    <span className={styles.icon} role="img" aria-label={`${label} icon`}>
+    <span className={styles.icon} role="img" aria-label={`${mark.name} icon`}>
       <CurrencyMark
-        src={imageUrl}
-        symbol={initials ?? assetId}
-        pending={pending && !imageUrl}
+        currency={mark.currency}
+        src={mark.imageUrl}
+        symbol={mark.symbol}
+        pending={mark.pending}
       />
     </span>
   );

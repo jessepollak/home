@@ -14,6 +14,7 @@ import type { PortfolioValuationState } from "./types";
 
 export type HomeAssetBalanceItem = {
   id: string;
+  assetKey?: string;
   group?: "cash" | "asset";
   name: string;
   detail?: string;
@@ -26,6 +27,8 @@ export type HomeAssetBalanceItem = {
 export type HomeAssetBalancesPresentation = {
   status: "loading" | "ready" | "unavailable";
   displayTotal: string | null;
+  /** Whether the displayed total covers every supported holding that was read. */
+  totalStatus?: "complete" | "partial" | "unavailable";
   statusLabel?: string;
   items: readonly HomeAssetBalanceItem[];
   revalidating?: true;
@@ -58,6 +61,8 @@ export function presentPortfolioValuation(
     return {
       status: "unavailable",
       displayTotal: null,
+      totalStatus: "unavailable",
+      statusLabel: "Balance unavailable",
       items: [],
     };
   }
@@ -66,6 +71,7 @@ export function presentPortfolioValuation(
   const needsQuoteCurrency =
     snapshot.total.status === "unavailable-no-quote-currency";
   const totalUnavailable = snapshot.total.status === "unavailable";
+  const totalPartial = snapshot.total.status === "partial";
 
   return {
     status: "ready",
@@ -73,11 +79,19 @@ export function presentPortfolioValuation(
       snapshot.total.value && snapshot.total.currency
         ? formatPresentationFiat(snapshot.total.value, snapshot.total.currency)
         : "—",
+    totalStatus:
+      totalPartial
+        ? "partial"
+        : needsQuoteCurrency || totalUnavailable
+          ? "unavailable"
+          : "complete",
     statusLabel: needsQuoteCurrency
       ? "Choose a country in Account to set how money is shown"
       : totalUnavailable
         ? "Balance unavailable"
-        : undefined,
+        : totalPartial
+          ? "Partial balance"
+          : undefined,
     items: [
       ...snapshot.cashBuckets.map((bucket) =>
         presentCashBucket(bucket, snapshot.nativeCashValuations),
@@ -96,6 +110,7 @@ function presentCashBucket(
   if (bucket.valuationStatus === "unsupported") {
     return {
       id: bucket.id,
+      assetKey: bucket.assetKey ?? bucket.id,
       group: "cash",
       name,
       displayBalance: formatPresentationFiat(
@@ -119,6 +134,7 @@ function presentCashBucket(
   if (valuationStatus === "read-unavailable") {
     return {
       id: bucket.id,
+      assetKey: bucket.assetKey ?? bucket.id,
       group: "cash",
       name,
       displayBalance: "Unavailable",
@@ -130,6 +146,7 @@ function presentCashBucket(
   if (valuationStatus === "priced" && indicativeValue) {
     return {
       id: bucket.id,
+      assetKey: bucket.assetKey ?? bucket.id,
       group: "cash",
       name,
       displayBalance: formatPresentationFiat(
@@ -143,6 +160,7 @@ function presentCashBucket(
   const tokenAmount = unpricedCashTokenAmount(bucket, valuationStatus);
   return {
     id: bucket.id,
+    assetKey: bucket.assetKey ?? bucket.id,
     group: "cash",
     name,
     displayBalance: tokenAmount ?? "—",
@@ -183,17 +201,35 @@ function presentAssetRows(
   const other: HomeAssetBalanceItem[] = [];
   for (const holding of snapshot.inventory.holdings) {
     if (!isPresentedDirectHolding(holding, cashAssetKeys)) continue;
-    if (holding.readStatus !== "ready" || holding.balanceBaseUnits === null) {
-      continue;
-    }
-    const balanceBaseUnits = holding.balanceBaseUnits;
-    if (balanceBaseUnits === "0") continue;
-
-    const item = presentDirectAssetRow(snapshot, { ...holding, balanceBaseUnits });
+    const item =
+      holding.readStatus !== "ready" || holding.balanceBaseUnits === null
+        ? presentUnavailableDirectAssetRow(holding)
+        : holding.balanceBaseUnits === "0"
+          ? null
+          : presentDirectAssetRow(snapshot, {
+              ...holding,
+              balanceBaseUnits: holding.balanceBaseUnits,
+            });
+    if (!item) continue;
     if (item.currencyCode) fiat.push(item);
     else other.push(item);
   }
   return [...fiat, ...other];
+}
+
+function presentUnavailableDirectAssetRow(
+  holding: DirectPortfolioHolding,
+): HomeAssetBalanceItem {
+  return {
+    id: `asset:${holding.assetKey}`,
+    assetKey: holding.assetKey,
+    group: "asset",
+    name: holding.name,
+    detail: holding.symbol,
+    displayBalance: "Unavailable",
+    currencyCode: holding.cashCurrency,
+    tone: "error",
+  };
 }
 
 function presentDirectAssetRow(
@@ -222,6 +258,7 @@ function presentDirectAssetRow(
         : null;
     return {
       id: `asset:${holding.assetKey}`,
+      assetKey: holding.assetKey,
       group: "asset",
       name: holding.name,
       detail: holding.symbol,
@@ -237,6 +274,7 @@ function presentDirectAssetRow(
 
   return {
     id: `asset:${holding.assetKey}`,
+    assetKey: holding.assetKey,
     group: "asset",
     name: holding.name,
     detail: holding.symbol,

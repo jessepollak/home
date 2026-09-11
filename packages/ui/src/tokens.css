@@ -1,0 +1,74 @@
+/* Opt-in semantic values. No reset, element rules, @font-face, or Tailwind. */
+:root {
+  --home-ui-color-text: #0a0b0d;
+  --home-ui-color-muted: #5b6270;
+  --home-ui-color-canvas: #f7f8fa;
+  --home-ui-color-surface: #ffffff;
+  --home-ui-color-border: #e6e8ec;
+  --home-ui-color-action: #0052ff;
+  --home-ui-color-action-hover: #0047db;
+  --home-ui-color-action-pressed: #003ab8;
+  --home-ui-color-on-action: #ffffff;
+  --home-ui-color-focus: #0052ff;
+  --home-ui-color-subtle-hover: #eef0f4;
+  --home-ui-color-subtle-pressed: #e6e8ec;
+  --home-ui-color-disabled-text: #5b6270;
+  --home-ui-color-disabled-surface: #e6e8ec;
+  --home-ui-color-success: #137333;
+  --home-ui-color-error: #b42318;
+  /* Domain consumers choose these explicitly; outgoing money is not an error. */
+  --home-ui-color-market-gain: #137333;
+  --home-ui-color-market-loss: #b42318;
+
+  --home-ui-font-fallback: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --home-ui-font-family: var(--home-ui-font-dm-sans, var(--home-ui-font-fallback));
+  /* DM Sans has proportional digits, not tnum. Numeric roles opt into DM Mono. */
+  --home-ui-font-numeric-fallback: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
+  --home-ui-font-numeric: var(--home-ui-font-dm-mono, var(--home-ui-font-numeric-fallback));
+  --home-ui-type-amount-size: 2.5rem;
+  --home-ui-type-amount-leading: 1.1;
+  --home-ui-type-page-title-size: 2rem;
+  --home-ui-type-page-title-leading: 1.2;
+  --home-ui-type-sheet-title-size: 1.5rem;
+  --home-ui-type-sheet-title-leading: 1.25;
+  --home-ui-type-section-title-size: 1.125rem;
+  --home-ui-type-section-title-leading: 1.4;
+  --home-ui-type-row-label-size: 1rem;
+  --home-ui-type-row-value-size: 1rem;
+  --home-ui-type-body-size: 1rem;
+  --home-ui-type-input-size: 1rem;
+  --home-ui-type-control-size: 1rem;
+  --home-ui-type-secondary-size: 0.875rem;
+  --home-ui-type-metadata-size: 0.75rem;
+  --home-ui-type-body-leading: 1.5;
+  --home-ui-type-control-leading: 1.25;
+  --home-ui-type-weight-regular: 400;
+  --home-ui-type-weight-medium: 500;
+  --home-ui-type-weight-strong: 600;
+
+  --home-ui-space-1: 0.25rem;
+  --home-ui-space-2: 0.5rem;
+  --home-ui-space-3: 0.75rem;
+  --home-ui-space-4: 1rem;
+  --home-ui-space-6: 1.5rem;
+  --home-ui-space-8: 2rem;
+  --home-ui-inset-outer: var(--home-ui-space-4);
+  --home-ui-inset-row: var(--home-ui-space-3);
+  --home-ui-radius-control: 8px;
+  --home-ui-radius-surface: 12px;
+  /* Artwork is fixed optical size; interactive targets grow with text. */
+  --home-ui-icon-size: 20px;
+  --home-ui-icon-size-large: 24px;
+  --home-ui-target-min: 44px;
+  --home-ui-motion-press: 100ms;
+  --home-ui-motion-chip: 120ms;
+  --home-ui-motion-tab: 180ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --home-ui-motion-press: 0ms;
+    --home-ui-motion-chip: 0ms;
+    --home-ui-motion-tab: 0ms;
+  }
+}
