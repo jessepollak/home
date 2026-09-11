@@ -449,6 +449,10 @@ export class PersistentMoneyActionAttemptStore implements MoneyActionAttemptStor
         })) return attemptStoreError("invalid-command");
         if (dispatchVersion(attempt) !== observation.expectedDispatchVersion) return attemptStoreError("dispatch-version-mismatch");
         const executionKey = verifiedExecutionKey(observation.verifiedExecution);
+        const lockedLegacyTerminal = legacyVerifiedTerminalKind(record);
+        if (lockedLegacyTerminal && observation.result.kind !== lockedLegacyTerminal) {
+          return attemptStoreError("verified-execution-conflict");
+        }
         const reservedExecutionKey = record.verifiedExecutionKey ?? state.verifiedExecutionKey;
         if (
           (record.verifiedExecutionKey && state.verifiedExecutionKey && record.verifiedExecutionKey !== state.verifiedExecutionKey) ||
@@ -632,6 +636,14 @@ function synchronizeLegacyState(
       ownerResolution: { kind: "abandoned", at: record.operation.abandonedAt, reason: "policy-timeout" },
     };
   }
+  const lockedLegacyResult = legacyVerifiedTerminalResult(record);
+  if (lockedLegacyResult && !sameJson(next.reconciliation, lockedLegacyResult)) {
+    next = {
+      ...next,
+      reconciliation: lockedLegacyResult,
+      attemptVersion: next.attemptVersion + 1,
+    };
+  }
   if (["confirmed", "failed", "expired"].includes(record.operation.status) && next.dispatch.phase !== "closed") {
     next = { ...next, dispatch: { phase: "closed", version: dispatchVersion(next) } };
   } else if (
@@ -670,7 +682,7 @@ function stateFromLegacy(
         homeActionId: envelope.action.id,
       },
       evidence: [],
-      reconciliation: legacyResult(record.operation),
+      reconciliation: legacyVerifiedTerminalResult(record) ?? legacyResult(record.operation),
       ownerResolution: envelope.abandonedAt
         ? { kind: "abandoned", at: envelope.abandonedAt, reason: "policy-timeout" }
         : { kind: "active" },
@@ -687,6 +699,32 @@ function stateFromLegacy(
     importedLegacy: clone(envelope),
     ...(record.verifiedExecutionKey ? { verifiedExecutionKey: record.verifiedExecutionKey } : {}),
   };
+}
+
+function legacyVerifiedTerminalKind(
+  record: AttemptOperationRecord,
+): "confirmed" | "failed" | null {
+  if (!record.verifiedExecutionKey) return null;
+  return record.operation.status === "confirmed" || record.operation.status === "failed"
+    ? record.operation.status
+    : null;
+}
+
+function legacyVerifiedTerminalResult(
+  record: AttemptOperationRecord,
+): Extract<ExecutionAttempt["reconciliation"], { kind: "confirmed" | "failed" }> | null {
+  const kind = legacyVerifiedTerminalKind(record);
+  if (kind === "failed") {
+    return {
+      kind,
+      ...(record.operation.transactionHash ? { transactionHash: record.operation.transactionHash } : {}),
+      verifiedExecution: true,
+    };
+  }
+  if (kind === "confirmed" && record.operation.transactionHash) {
+    return { kind, transactionHash: record.operation.transactionHash, verifiedExecution: true };
+  }
+  return null;
 }
 
 function legacyResult(operation: StoredMoneyActionOperation): ExecutionAttempt["reconciliation"] {

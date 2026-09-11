@@ -4,12 +4,17 @@ import {
   homeProviderRequestKey,
   type PreparedActionRevision,
 } from "../../../apps/web/server/money-actions/attempt-commands";
+import { evidenceUniquenessKey } from "../../../apps/web/server/money-actions/attempt-store-core";
 import { createTrustedVerifiedObservation } from "../../../apps/web/server/money-actions/attempt-store";
 import {
   createPostgresAttemptStoreResourceWithExecutor,
   PostgresMoneyActionStore,
 } from "../../../apps/web/server/money-actions/postgres-store";
-import type { SqlExecutor } from "../../../apps/web/server/money-actions/postgres-sql";
+import {
+  applyMoneyActionPostgresSchema,
+  moneyActionQueries,
+  type SqlExecutor,
+} from "../../../apps/web/server/money-actions/postgres-sql";
 import { describeMoneyActionStore } from "../../../apps/web/server/money-actions/store-contract";
 import { createBunPostgresExecutor } from "../bun-postgres-executor";
 
@@ -180,6 +185,227 @@ if (!databaseUrl) {
       await resource.dispose();
     });
 
+    test("provider status advances monotonically on real PostgreSQL", async () => {
+      const schema = await createSchema("status");
+      const resource = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
+      await resource.init();
+      const item = attemptFixture(112);
+      const claimed = await issueAndClaim(resource.store, item);
+      await resource.store.recordProviderEvidence({
+        owner: item.owner,
+        actionId: item.action.id,
+        attemptId: claimed.attempt.attemptId,
+        dispatchVersion: 1,
+        evidence: item.evidence,
+        provenance: { source: "provider-return", observedAt: item.evidenceAt },
+        writeIdempotencyKey: "status-handle",
+      }, item.evidenceAt);
+      for (const [payload, observedAt] of [
+        ["pending", "2026-09-12T16:00:03.000Z"],
+        ["confirmed", "2026-09-12T16:00:04.000Z"],
+      ] as const) {
+        const evidence = { kind: "provider-status" as const, handle: item.evidence, observedAt, payload };
+        expect(await resource.store.recordProviderEvidence({
+          owner: item.owner,
+          actionId: item.action.id,
+          attemptId: claimed.attempt.attemptId,
+          dispatchVersion: 1,
+          evidence,
+          provenance: { source: "provider-status-lookup", observedAt, locator: item.evidence },
+          writeIdempotencyKey: `status-${payload}`,
+        }, observedAt)).toMatchObject({ ok: true, value: { disposition: "recorded" } });
+      }
+      expect(await resource.store.getAttemptStoreSnapshot(item.owner, item.action.id)).toMatchObject({
+        ok: true,
+        value: { attempts: [{ attemptVersion: 4, evidence: [{}, {}, {}] }] },
+      });
+      await resource.dispose();
+    });
+
+    test("tampered verified observations fail inside the real PostgreSQL apply transaction", async () => {
+      const schema = await createSchema("tamper");
+      const resource = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
+      await resource.init();
+      const item = attemptFixture(113);
+      const claimed = await issueAndClaim(resource.store, item);
+      const recorded = await resource.store.recordProviderEvidence({
+        owner: item.owner,
+        actionId: item.action.id,
+        attemptId: claimed.attempt.attemptId,
+        dispatchVersion: 1,
+        evidence: item.evidence,
+        provenance: { source: "provider-return", observedAt: item.evidenceAt },
+        writeIdempotencyKey: "tamper-evidence",
+      }, item.evidenceAt);
+      if (!recorded.ok || recorded.value.disposition !== "recorded") throw new Error("evidence was not recorded");
+      const transactionHash = `0x${"a".repeat(64)}` as const;
+      const observation = createTrustedVerifiedObservation({
+        owner: item.owner,
+        actionId: item.action.id,
+        attemptId: claimed.attempt.attemptId,
+        expectedAttemptVersion: 2,
+        expectedDispatchVersion: 1,
+        expectedEvidence: { evidence: recorded.value.evidence, comparison: "exact-recorded-fact" },
+        verificationLookup: { kind: "user-operation-hash", provider: "cdp-embedded", value: item.evidence.value },
+        verifiedExecution: { chainId: 8453, kind: "user-operation", hash: item.evidence.value },
+        result: { kind: "confirmed", transactionHash, verifiedExecution: true },
+        observedAt: item.verifiedAt,
+      });
+      expect(await resource.store.applyVerifiedObservation({
+        ...observation,
+        verificationLookup: {
+          kind: "user-operation-hash",
+          provider: "cdp-embedded",
+          value: `0x${"b".repeat(64)}`,
+        },
+      })).toMatchObject({ ok: false, error: { code: "invalid-command" } });
+      expect(await resource.store.get(item.owner, item.action.id)).toMatchObject({ status: "submitted" });
+      await resource.dispose();
+    });
+
+    test("legacy verified terminals fence conflicting attempt outcomes and execution keys", async () => {
+      const schema = await createSchema("terminal_fence");
+      const resource = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
+      await resource.init();
+      const item = attemptFixture(114);
+      const claimed = await issueAndClaim(resource.store, item);
+      const userOperationHash = `0x${"c".repeat(64)}` as const;
+      const transactionHash = `0x${"d".repeat(64)}` as const;
+      const recorded = await resource.store.recordProviderEvidence({
+        owner: item.owner,
+        actionId: item.action.id,
+        attemptId: claimed.attempt.attemptId,
+        dispatchVersion: 1,
+        evidence: { kind: "user-operation-hash", provider: "cdp-embedded", value: userOperationHash },
+        provenance: { source: "provider-return", observedAt: item.evidenceAt },
+        writeIdempotencyKey: "legacy-terminal-evidence",
+      }, item.evidenceAt);
+      if (!recorded.ok || recorded.value.disposition !== "recorded") throw new Error("evidence was not recorded");
+      await resource.store.recordSubmission(item.owner, item.action.id, { transactionHash }, item.evidenceAt);
+      expect(await resource.store.updateStatus(item.owner, item.action.id, "confirmed", item.verifiedAt, {
+        verifiedExecution: { chainId: 8453, kind: "user-operation", hash: userOperationHash },
+      })).toMatchObject({ status: "confirmed" });
+      const conflicting = createTrustedVerifiedObservation({
+        owner: item.owner,
+        actionId: item.action.id,
+        attemptId: claimed.attempt.attemptId,
+        expectedAttemptVersion: 2,
+        expectedDispatchVersion: 1,
+        expectedEvidence: { evidence: recorded.value.evidence, comparison: "exact-recorded-fact" },
+        verificationLookup: { kind: "user-operation-hash", provider: "cdp-embedded", value: userOperationHash },
+        verifiedExecution: { chainId: 8453, kind: "user-operation", hash: userOperationHash },
+        result: { kind: "failed", transactionHash, verifiedExecution: true },
+        observedAt: item.afterVerifiedAt,
+      });
+      expect(await resource.store.applyVerifiedObservation(conflicting)).toMatchObject({
+        ok: false,
+        error: { code: "verified-execution-conflict" },
+      });
+      expect(await resource.store.get(item.owner, item.action.id)).toMatchObject({ status: "confirmed" });
+      expect(await resource.store.getAttemptStoreSnapshot(item.owner, item.action.id)).toMatchObject({
+        ok: true,
+        value: { attempts: [{ reconciliation: { kind: "confirmed", transactionHash } }] },
+      });
+
+      const replacement = attemptFixture(115);
+      const replacementClaim = await issueAndClaim(resource.store, replacement);
+      const replacementEvidence = await resource.store.recordProviderEvidence({
+        owner: replacement.owner,
+        actionId: replacement.action.id,
+        attemptId: replacementClaim.attempt.attemptId,
+        dispatchVersion: 1,
+        evidence: { kind: "transaction-hash", chainId: 8453, value: `0x${"e".repeat(64)}` },
+        provenance: { source: "verified-receipt", observedAt: replacement.evidenceAt },
+        writeIdempotencyKey: "replacement-execution",
+      }, replacement.evidenceAt);
+      if (!replacementEvidence.ok || replacementEvidence.value.disposition !== "recorded") {
+        throw new Error("replacement evidence was not recorded");
+      }
+      expect(await resource.store.applyVerifiedObservation(createTrustedVerifiedObservation({
+        owner: replacement.owner,
+        actionId: replacement.action.id,
+        attemptId: replacementClaim.attempt.attemptId,
+        expectedAttemptVersion: 2,
+        expectedDispatchVersion: 1,
+        expectedEvidence: { evidence: replacementEvidence.value.evidence, comparison: "exact-recorded-fact" },
+        verificationLookup: { kind: "transaction-hash", chainId: 8453, value: `0x${"e".repeat(64)}` },
+        verifiedExecution: { chainId: 8453, kind: "user-operation", hash: userOperationHash },
+        result: { kind: "confirmed", transactionHash: `0x${"e".repeat(64)}`, verifiedExecution: true },
+        observedAt: replacement.verifiedAt,
+      }))).toMatchObject({ ok: false, error: { code: "verified-execution-conflict" } });
+      await resource.dispose();
+    });
+
+    test("competing legacy and attempt reservations leave no partial loser writes", async () => {
+      const schema = await createSchema("reservation_rollback");
+      const first = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
+      const second = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
+      await Promise.all([first.init(), second.init()]);
+      const item = attemptFixture(116);
+      const attemptClaim = await issueAndClaim(first.store, item);
+      const legacy = legacyAction(116, item.owner);
+      await second.store.issue(legacy);
+      await second.store.claim(item.owner, legacy.id, legacy.reviewHash, item.claimedAt);
+      const sharedHash = `0x${"f".repeat(64)}` as const;
+      const legacyTransaction = `0x${"1".repeat(64)}` as const;
+      const [attemptWrite, legacyWrite] = await Promise.all([
+        first.store.recordProviderEvidence({
+          owner: item.owner,
+          actionId: item.action.id,
+          attemptId: attemptClaim.attempt.attemptId,
+          dispatchVersion: 1,
+          evidence: { kind: "user-operation-hash", provider: "cdp-embedded", value: sharedHash },
+          provenance: { source: "provider-return", observedAt: item.evidenceAt },
+          writeIdempotencyKey: "competing-attempt",
+        }, item.evidenceAt),
+        second.store.recordSubmission(item.owner, legacy.id, {
+          userOperationHash: sharedHash,
+          transactionHash: legacyTransaction,
+        }, item.evidenceAt),
+      ]);
+      expect(Number(attemptWrite.ok) + Number(legacyWrite !== null)).toBe(1);
+      if (!legacyWrite) {
+        expect(await second.store.get(item.owner, legacy.id)).toMatchObject({
+          status: "submitting",
+          transactionHash: undefined,
+          userOperationHash: undefined,
+        });
+      }
+
+      const reserved = attemptFixture(117, item.owner);
+      await issueAndClaim(first.store, reserved);
+      const forcedHash = `0x${"2".repeat(64)}` as const;
+      const forcedKey = evidenceUniquenessKey(item.owner, {
+        kind: "user-operation-hash",
+        provider: "cdp-embedded",
+        value: forcedHash,
+      });
+      if (!forcedKey) throw new Error("expected a provider evidence reservation key");
+      await executor(schema).query(moneyActionQueries.reserveEvidence, [forcedKey, reserved.action.id]);
+      const rollback = legacyAction(117, item.owner);
+      const rollbackSubmission = "Rollback-Opaque-Submission";
+      await second.store.issue(rollback);
+      await second.store.claim(item.owner, rollback.id, rollback.reviewHash, item.claimedAt);
+      expect(await second.store.recordSubmission(item.owner, rollback.id, {
+        submissionId: rollbackSubmission,
+        userOperationHash: forcedHash,
+        transactionHash: `0x${"3".repeat(64)}`,
+      }, item.evidenceAt)).toBeNull();
+      expect(await second.store.get(item.owner, rollback.id)).toMatchObject({
+        status: "submitting",
+        submissionId: undefined,
+        transactionHash: undefined,
+        userOperationHash: undefined,
+      });
+      const retry = legacyAction(118, item.owner);
+      await second.store.issue(retry);
+      await second.store.claim(item.owner, retry.id, retry.reviewHash, item.claimedAt);
+      expect(await second.store.recordSubmission(item.owner, retry.id, {
+        submissionId: rollbackSubmission,
+      }, item.afterVerifiedAt)).toMatchObject({ submissionId: rollbackSubmission });
+      await Promise.all([first.dispose(), second.dispose()]);
+    });
+
     test("release and evidence races preserve both facts across independent PostgreSQL connections", async () => {
       const schema = await createSchema("race");
       const first = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
@@ -273,19 +499,28 @@ if (!databaseUrl) {
       });
     });
 
-    test("legacy migration preserves unresolved identities and never reopens dispatch", async () => {
+    test("legacy migration backfills raw unreserved uppercase rows without reopening dispatch", async () => {
       const schema = await createSchema("migration");
       const item = attemptFixture(108);
-      const legacy = new PostgresMoneyActionStore(executor(schema));
+      const rawExecutor = executor(schema);
+      await applyMoneyActionPostgresSchema(rawExecutor);
       const prepared = legacyAction(108, item.owner);
-      await legacy.issue(prepared);
-      await legacy.claim(item.owner, prepared.id, prepared.reviewHash, item.claimedAt);
-      await legacy.updateStatus(item.owner, prepared.id, "unknown", item.evidenceAt);
+      await insertRawLegacyOperation(rawExecutor, prepared, {
+        status: "unknown",
+        claimedAt: item.claimedAt,
+        updatedAt: item.evidenceAt,
+      });
       const referenced = legacyAction(110, item.owner);
       const legacyHash = `0x${"E".repeat(64)}` as const;
-      await legacy.issue(referenced);
-      await legacy.claim(item.owner, referenced.id, referenced.reviewHash, item.claimedAt);
-      await legacy.recordSubmission(item.owner, referenced.id, { userOperationHash: legacyHash }, item.evidenceAt);
+      await insertRawLegacyOperation(rawExecutor, referenced, {
+        status: "submitted",
+        claimedAt: item.claimedAt,
+        userOperationHash: legacyHash,
+        updatedAt: item.evidenceAt,
+      });
+      expect(await rawExecutor.query("SELECT evidence_key FROM money_action_attempt_evidence")).toMatchObject({
+        rows: [],
+      });
 
       const resource = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
       await resource.init();
@@ -293,8 +528,12 @@ if (!databaseUrl) {
         ok: true,
         value: { attempts: [{ attemptId: `legacy:${prepared.id}:1`, reconciliation: { kind: "ambiguous" } }] },
       });
-      expect(await resource.store.claimDispatch({ ...item.claim, actionId: prepared.id, reviewHash: prepared.reviewHash,
-        providerRequestKey: homeProviderRequestKey({ provider: "cdp-embedded", actionId: prepared.id }) }, item.afterVerifiedAt)).toMatchObject({
+      expect(await resource.store.claimDispatch({
+        ...item.claim,
+        actionId: prepared.id,
+        reviewHash: prepared.reviewHash,
+        providerRequestKey: homeProviderRequestKey({ provider: "cdp-embedded", actionId: prepared.id }),
+      }, item.afterVerifiedAt)).toMatchObject({
         ok: true,
         value: { disposition: "recover", authorization: "none" },
       });
@@ -306,10 +545,9 @@ if (!databaseUrl) {
       });
       expect(await resource.store.getAttemptStoreSnapshot(item.owner, referenced.id)).toMatchObject({
         ok: true,
-        value: {
-          attempts: [{ attemptId: `legacy:${referenced.id}:1`, evidence: [] }],
-        },
+        value: { attempts: [{ attemptId: `legacy:${referenced.id}:1`, evidence: [] }] },
       });
+      expect((await rawExecutor.query("SELECT evidence_key FROM money_action_attempt_evidence")).rows).toHaveLength(1);
       const collision = attemptFixture(111, item.owner);
       const collisionClaim = await issueAndClaim(resource.store, collision);
       expect(await resource.store.recordProviderEvidence({
@@ -451,6 +689,41 @@ async function issueAndClaim(
   const claimed = await store.claimDispatch(item.claim, item.claimedAt);
   if (!claimed.ok || claimed.value.disposition !== "dispatch") throw new Error("fixture did not dispatch");
   return claimed.value;
+}
+
+async function insertRawLegacyOperation(
+  executor: SqlExecutor,
+  action: PreparedMoneyAction,
+  input: Readonly<{
+    status: "unknown" | "submitted";
+    claimedAt: string;
+    updatedAt: string;
+    userOperationHash?: `0x${string}`;
+  }>,
+): Promise<void> {
+  await executor.query(moneyActionQueries.insert, [
+    action.id,
+    action.reviewHash,
+    action.owner.subject,
+    action.owner.address.toLowerCase(),
+    action.owner.chainId,
+    action.owner.accountProvider,
+    JSON.stringify(action),
+    action.createdAt,
+    action.createdAt,
+  ]);
+  await executor.query(`
+    UPDATE money_action_operations
+    SET status = $1, attempt_count = 1, claimed_at = $2,
+        user_operation_hash = $3, updated_at = $4
+    WHERE id = $5
+  `.trim(), [
+    input.status,
+    input.claimedAt,
+    input.userOperationHash ?? null,
+    input.updatedAt,
+    action.id,
+  ]);
 }
 
 function disposableExecutor(client: Bun.SQL, schema: string, onDispose: () => void = () => {}): SqlExecutor {

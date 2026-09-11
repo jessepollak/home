@@ -8,7 +8,7 @@ Home money actions now use a server-issued prepare → review → atomic claim �
 
 ## Persistence
 
-`MoneyActionStore` (`apps/web/server/money-actions/store.ts`) is the durable port. PostgreSQL/Neon is the sole production adapter; selection lives in `apps/web/server/money-actions/runtime-store.ts` and fails closed whenever `DATABASE_URL` is absent. `MemoryMoneyActionStore` is only a small process-local test double.
+`MoneyActionStore` (`apps/web/server/money-actions/store.ts`) is the durable port. PostgreSQL/Neon is the sole production adapter; selection lives in `apps/web/server/money-actions/runtime-store.ts` and requires both `DATABASE_URL` and `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty`. The cutover assertion is allowed only after verifying the retired SQLite store has no unresolved actions or references; otherwise runtime access fails closed. `MemoryMoneyActionStore` is only a small process-local test double.
 
 The PostgreSQL adapter is `apps/web/server/money-actions/postgres-store.ts` using `@neondatabase/serverless`. Schemas live in `apps/web/server/money-actions/migrations/001_money_action_operations.sql` and `002_money_action_attempts.sql`. Operator migrate: `bun run money-actions:migrate` with `DATABASE_URL` set. Real-store contracts use disposable PostgreSQL schemas in CI. Setup: [Vercel deploy](vercel-deploy.md).
 
