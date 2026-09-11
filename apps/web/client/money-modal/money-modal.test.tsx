@@ -7,11 +7,12 @@ import { useState } from "react";
 
 const { act, cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const {
-  MONEY_SHEET_DISMISS_PX,
-  MONEY_SHEET_EXIT_MS,
+  MONEY_SHEET_DISMISS_FRACTION,
+  MONEY_SHEET_DISMISS_PROJECTION_MS,
   MoneyModal,
   MoneyModalFooter,
   MoneyModalHeader,
+  resolveSheetDragDismiss,
 } = await import("./money-modal");
 
 const css = readFileSync(resolve(import.meta.dir, "money-modal.module.css"), "utf8");
@@ -25,6 +26,23 @@ function cssRule(selector: string) {
 
 function page() {
   return within(document.body);
+}
+
+function dismissDistance() {
+  // happy-dom reports no layout height for the sheet, so the module falls back
+  // to window.innerHeight. Express gestures against the same proportional base
+  // so the tests stay proportional rather than hard-coding pixels.
+  return window.innerHeight * MONEY_SHEET_DISMISS_FRACTION;
+}
+
+async function flushSheetReturn() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  });
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function Harness({
@@ -60,11 +78,36 @@ function Harness({
   );
 }
 
+function ExternalCloseHarness() {
+  const [open, setOpen] = useState(true);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(false)}>
+        Close externally
+      </button>
+      <MoneyModal
+        open={open}
+        labelledBy="external-sheet-title"
+        onCancel={() => setOpen(false)}
+        onClose={() => setOpen(false)}
+      >
+        <MoneyModalHeader
+          title="External"
+          titleId="external-sheet-title"
+          onClose={() => setOpen(false)}
+          closeLabel="Close external dialog"
+        />
+        <div>External body</div>
+      </MoneyModal>
+    </>
+  );
+}
+
 afterEach(cleanup);
 
 async function flushSheetExit() {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, MONEY_SHEET_EXIT_MS + 20));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   });
 }
 
@@ -181,37 +224,44 @@ describe("MoneyModal shell", () => {
     expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
   });
 
-  test("drag-down on the grabber dismisses", async () => {
+  test("drag-down past the proportional threshold dismisses", async () => {
     render(<Harness startOpen />);
     const grabber = document.querySelector("[data-money-sheet-grabber]");
     expect(grabber).toBeTruthy();
+    const distance = dismissDistance() + 24;
 
     await act(async () => {
       fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
-      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 40 + MONEY_SHEET_DISMISS_PX + 8 });
-      fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 40 + MONEY_SHEET_DISMISS_PX + 8 });
+      await sleep(10);
+      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 40 + distance });
+      await sleep(120);
+      fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 40 + distance });
     });
 
     await flushSheetExit();
     expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
   });
 
-  test("a short grabber drag keeps the sheet open", () => {
-    render(<Harness startOpen />);
-    const grabber = document.querySelector("[data-money-sheet-grabber]");
-    fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
-    fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 52 });
-    fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 52 });
-    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
-  });
-
-  test("a grabber flick dismisses before the distance threshold", async () => {
+  test("a short proportional grabber drag keeps the sheet open", async () => {
     render(<Harness startOpen />);
     const grabber = document.querySelector("[data-money-sheet-grabber]");
     await act(async () => {
-      fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40, timeStamp: 1000 });
-      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 72, timeStamp: 1040 });
-      fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 72, timeStamp: 1040 });
+      fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
+      await sleep(60);
+      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 70 });
+      fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 70 });
+    });
+    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
+  });
+
+  test("a grabber flick dismisses through the projected destination", async () => {
+    render(<Harness startOpen />);
+    const grabber = document.querySelector("[data-money-sheet-grabber]");
+    await act(async () => {
+      fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
+      await sleep(40);
+      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 88 });
+      fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 88 });
     });
     await flushSheetExit();
     expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
@@ -220,16 +270,112 @@ describe("MoneyModal shell", () => {
   test("ages out flick velocity while the pointer is held still", async () => {
     render(<Harness startOpen />);
     const grabber = document.querySelector("[data-money-sheet-grabber]");
-    fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
-    fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 72 });
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 120));
+      fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
+      await sleep(40);
+      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 88 });
+      await sleep(120);
+      fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 88 });
     });
-    fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 72 });
     expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
   });
 
-  test("returns a rejected dismissal to the open position", () => {
+  test("down-pause-up reopens even after clearing the proportional threshold", async () => {
+    render(<Harness startOpen />);
+    const grabber = document.querySelector("[data-money-sheet-grabber]");
+    const downY = 40 + dismissDistance() + 40;
+    const upY = 40 + dismissDistance() + 30;
+
+    await act(async () => {
+      fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
+      await sleep(10);
+      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: downY });
+      await sleep(120);
+      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: upY });
+      fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: upY });
+    });
+
+    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
+    await flushSheetReturn();
+    expect((document.querySelector("[data-money-sheet]") as HTMLElement).style.transform)
+      .toBe("translate3d(0, 0px, 0)");
+  });
+
+  test("pointer cancel never dismisses and springs back to open", async () => {
+    render(<Harness startOpen />);
+    const grabber = document.querySelector("[data-money-sheet-grabber]");
+    const distance = dismissDistance() + 24;
+    await act(async () => {
+      fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
+      await sleep(10);
+      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 40 + distance });
+      fireEvent.pointerCancel(grabber!, { pointerId: 1, clientY: 40 + distance });
+    });
+    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
+
+    await flushSheetReturn();
+    expect((document.querySelector("[data-money-sheet]") as HTMLElement).style.transform)
+      .toBe("translate3d(0, 0px, 0)");
+  });
+
+  test("lost pointer capture never dismisses", async () => {
+    render(<Harness startOpen />);
+    const grabber = document.querySelector("[data-money-sheet-grabber]");
+    const distance = dismissDistance() + 24;
+    await act(async () => {
+      fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
+      await sleep(10);
+      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 40 + distance });
+      fireEvent.lostPointerCapture(grabber!, { pointerId: 1, clientY: 40 + distance });
+    });
+    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
+
+    await flushSheetReturn();
+    expect((document.querySelector("[data-money-sheet]") as HTMLElement).style.transform)
+      .toBe("translate3d(0, 0px, 0)");
+  });
+
+  test("external open=false during an upward drag keeps closing and unlocks scroll", async () => {
+    const restoreMotion = stubReducedMotion(false);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "auto";
+    try {
+      render(<ExternalCloseHarness />);
+      expect(document.body.style.overflow).toBe("hidden");
+
+      const grabber = document.querySelector("[data-money-sheet-grabber]");
+      expect(grabber).toBeTruthy();
+      await act(async () => {
+        fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 160 });
+        await sleep(40);
+        fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 120 });
+        fireEvent.click(page().getByRole("button", { name: "Close externally" }));
+        fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 120 });
+      });
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 2600));
+      });
+      expect(document.querySelector("dialog[open]")).toBeNull();
+      expect(document.body.style.overflow).toBe("auto");
+    } finally {
+      document.body.style.overflow = previousOverflow;
+      restoreMotion();
+    }
+  });
+
+  test("projects the dismissal destination proportionally to sheet height", () => {
+    expect(resolveSheetDragDismiss(0, 0, 800)).toBe(false);
+    expect(resolveSheetDragDismiss(200, 0, 800)).toBe(true);
+    expect(resolveSheetDragDismiss(200, 0, 1000)).toBe(false);
+    expect(resolveSheetDragDismiss(160, 0.4, 800)).toBe(true);
+    expect(resolveSheetDragDismiss(160, -0.1, 800)).toBe(false);
+    expect(MONEY_SHEET_DISMISS_FRACTION).toBeGreaterThan(0);
+    expect(MONEY_SHEET_DISMISS_FRACTION).toBeLessThan(1);
+    expect(MONEY_SHEET_DISMISS_PROJECTION_MS).toBeGreaterThan(0);
+  });
+
+  test("returns a rejected dismissal to the open position", async () => {
     render(
       <MoneyModal
         open
@@ -241,10 +387,16 @@ describe("MoneyModal shell", () => {
       </MoneyModal>,
     );
     const grabber = document.querySelector("[data-money-sheet-grabber]");
-    fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
-    fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 40 + MONEY_SHEET_DISMISS_PX + 8 });
-    fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 40 + MONEY_SHEET_DISMISS_PX + 8 });
+    const distance = dismissDistance() + 24;
+    await act(async () => {
+      fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
+      await sleep(10);
+      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 40 + distance });
+      fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 40 + distance });
+    });
     expect(page().getByRole("dialog", { name: "Blocked" })).toBeTruthy();
+
+    await flushSheetReturn();
     expect((document.querySelector("[data-money-sheet]") as HTMLElement).style.transform)
       .toBe("translate3d(0, 0px, 0)");
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDownUp, ChevronDown, Delete } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
@@ -20,6 +20,123 @@ import {
   type MoneyPrimaryUnit,
 } from "./amount-units";
 import styles from "./money-modal.module.css";
+
+const AMOUNT_MIN_FONT_PROPERTY = "--money-amount-min-size";
+const AMOUNT_MIN_FONT_SIZE_FALLBACK = 20;
+const AMOUNT_FIT_TOLERANCE_PX = 0.5;
+// Font rendering is not perfectly proportional to `font-size` (glyph advances
+// and negative letter-spacing round at each size). Reserve a small headroom so
+// a measured fit never overflows the container by a subpixel rounding error.
+const AMOUNT_FIT_SAFETY_FACTOR = 0.97;
+
+/**
+ * Scales a formatted amount to fit the available width without changing,
+ * rounding, abbreviating, ellipsizing, or clipping the value. Returns the
+ * largest font size (px) up to `baseFontSize` that keeps the value inside
+ * `availableWidth` given its measured `naturalWidth` at `baseFontSize`.
+ * Below `minFontSize` it stops shrinking and the full value stays visible.
+ */
+export function fitAmountFontSize(
+  availableWidth: number,
+  naturalWidth: number,
+  baseFontSize: number,
+  minFontSize: number,
+): number {
+  if (
+    !Number.isFinite(availableWidth)
+    || !Number.isFinite(naturalWidth)
+    || !Number.isFinite(baseFontSize)
+    || availableWidth <= 0
+    || naturalWidth <= 0
+    || baseFontSize <= 0
+  ) {
+    return baseFontSize;
+  }
+  if (availableWidth >= naturalWidth) return baseFontSize;
+  const scaled = (baseFontSize * availableWidth) / naturalWidth;
+  return Math.min(baseFontSize, Math.max(minFontSize, scaled));
+}
+
+export function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+export function triggerKeyHaptic(durationMs = 12): void {
+  if (prefersReducedMotion()) return;
+  if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+  try {
+    navigator.vibrate(durationMs);
+  } catch {
+    // Haptics are optional; unsupported or blocked devices stay silent.
+  }
+}
+
+export function useAutoFitAmountText(text: string) {
+  const containerRef = useRef<HTMLParagraphElement>(null);
+  const sizerRef = useRef<HTMLSpanElement>(null);
+  const [fontSize, setFontSize] = useState<number | undefined>(undefined);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const sizer = sizerRef.current;
+    if (!container || !sizer) return;
+
+    const measure = () => {
+      const computed = window.getComputedStyle(container);
+      const horizontalPadding =
+        (Number.parseFloat(computed.paddingLeft) || 0)
+        + (Number.parseFloat(computed.paddingRight) || 0);
+      const available = container.clientWidth - horizontalPadding;
+      const natural = sizer.getBoundingClientRect().width;
+      if (available <= 0 || natural <= 0) return;
+
+      const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
+      if (!Number.isFinite(base) || base <= 0) return;
+
+      const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
+      const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
+      // Round down and reserve headroom so the rendered amount never exceeds
+      // the container by a subpixel rounding error; the exact decimal string
+      // is never altered.
+      const target =
+        Math.floor(
+          fitAmountFontSize(available * AMOUNT_FIT_SAFETY_FACTOR, natural, base, min) * 10,
+        ) / 10;
+
+      setFontSize((current) =>
+        current !== undefined && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
+          ? current
+          : target,
+      );
+    };
+
+    measure();
+
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(measure);
+      observer.observe(container);
+      observer.observe(sizer);
+    }
+
+    let active = true;
+    const fonts = (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts;
+    fonts?.ready?.then(() => {
+      if (active) measure();
+    }).catch(() => {});
+
+    return () => {
+      active = false;
+      observer?.disconnect();
+    };
+  }, [text]);
+
+  return { containerRef, sizerRef, fontSize };
+}
 
 export function useMoneyAssetPricing(assetSymbol: string): MoneyAssetPricing {
   return moneyAssetPricing(assetSymbol, usePresentationRegionId());
@@ -95,9 +212,7 @@ export function MoneyAmountDisplay({
           />
         ) : null}
       </div>
-      <p className={styles.assetAmount} data-primary-amount>
-        {formatPrimaryAmount(amount, primaryUnit, pricing)}
-      </p>
+      <MoneyPrimaryAmount amount={amount} unit={primaryUnit} pricing={pricing} />
       {pricing.status === "priced" ? (
         <MoneyUnitToggle
           secondaryLabel={secondary}
@@ -108,6 +223,40 @@ export function MoneyAmountDisplay({
       ) : null}
       {availableLine ? <p className={styles.available}>{availableLine}</p> : null}
     </div>
+  );
+}
+
+export function MoneyPrimaryAmount({
+  amount,
+  unit,
+  pricing,
+}: {
+  amount: string;
+  unit: MoneyPrimaryUnit;
+  pricing: MoneyAssetPricing;
+}) {
+  const text = formatPrimaryAmount(amount, unit, pricing);
+  const { containerRef, sizerRef, fontSize } = useAutoFitAmountText(text);
+
+  return (
+    <>
+      <p
+        ref={containerRef}
+        className={styles.assetAmount}
+        data-primary-amount
+        style={fontSize === undefined ? undefined : { fontSize }}
+      >
+        {text}
+      </p>
+      <span
+        ref={sizerRef}
+        className={styles.amountSizer}
+        data-amount-sizer
+        aria-hidden="true"
+      >
+        {text}
+      </span>
+    </>
   );
 }
 
@@ -253,9 +402,18 @@ export function MoneyNumpad({
           type="button"
           disabled={disabled}
           aria-label={key === "backspace" ? "Delete last digit" : key === "." ? "Decimal point" : key}
-          onClick={() => onChange(applyNumpadKey(value, key, maxDecimals))}
+          onClick={() => {
+            const next = applyNumpadKey(value, key, maxDecimals);
+            if (next === value) return;
+            onChange(next);
+            triggerKeyHaptic();
+          }}
         >
-          {key === "backspace" ? <Delete size={22} strokeWidth={1.8} /> : key}
+          {key === "backspace" ? (
+            <Delete size={22} strokeWidth={1.8} aria-hidden="true" />
+          ) : (
+            key
+          )}
         </button>
       ))}
     </div>

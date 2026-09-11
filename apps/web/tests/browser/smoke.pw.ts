@@ -90,6 +90,47 @@ async function installApiFixtures(page: Page) {
   });
 }
 
+async function signIn(page: Page) {
+  await page.goto("/?account=signin");
+  await page.getByLabel("Email address").fill("fixture@example.test");
+  await page.getByLabel("Email address").press("Enter");
+  await page.getByLabel("Verification code").fill("123456");
+  await page.getByRole("button", { name: "Verify and continue" }).click();
+  await expect(page).toHaveURL(/\/dashboard/);
+}
+
+async function typeAmount(page: Page, value: string) {
+  for (const char of value) {
+    const name = char === "." ? "Decimal point" : char;
+    await page.getByRole("button", { name, exact: true }).click();
+  }
+}
+
+async function amountMetrics(page: Page) {
+  return page.evaluate(() => {
+    const node = document.querySelector<HTMLElement>("[data-primary-amount]");
+    if (!node) return null;
+    const style = getComputedStyle(node);
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const textWidth = range.getBoundingClientRect().width;
+    const padding = (name: "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft") =>
+      Number.parseFloat(style[name]) || 0;
+    return {
+      text: node.textContent,
+      clientWidth: node.clientWidth,
+      scrollWidth: node.scrollWidth,
+      fontSize: Number.parseFloat(style.fontSize),
+      overflow: style.overflow,
+      paddingTop: padding("paddingTop"),
+      paddingRight: padding("paddingRight"),
+      paddingBottom: padding("paddingBottom"),
+      paddingLeft: padding("paddingLeft"),
+      textWidth,
+    };
+  });
+}
+
 test("signed-in send survives reload without a second wallet dispatch", async ({ page }) => {
   parsePortfolioValuationSnapshot(valuation(), {
     subject: "playwright-smoke-subject",
@@ -98,13 +139,7 @@ test("signed-in send survives reload without a second wallet dispatch", async ({
   }, "US");
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
   await installApiFixtures(page);
-  await page.goto("/?account=signin");
-  await page.getByLabel("Email address").fill("fixture@example.test");
-  await page.getByLabel("Email address").press("Enter");
-  await page.getByLabel("Verification code").fill("123456");
-  await page.getByRole("button", { name: "Verify and continue" }).click();
-
-  await expect(page).toHaveURL(/\/dashboard/);
+  await signIn(page);
   await expect(page.getByText("$12.34", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { name: "1", exact: true }).click();
@@ -124,4 +159,78 @@ test("signed-in send survives reload without a second wallet dispatch", async ({
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByText("$12.34", { exact: true })).toHaveCount(0);
+});
+
+test("money amount auto-fits the longest local and native values at 320px and 390px", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await page.setViewportSize({ width: 320, height: 720 });
+  await signIn(page);
+  await page.getByRole("button", { name: "Send" }).click();
+
+  const amount = page.locator("[data-primary-amount]");
+  await typeAmount(page, "123456789012.123456");
+  await expect(amount).toHaveText("$123456789012.123456");
+
+  const at320 = await amountMetrics(page);
+  expect(at320?.text).toBe("$123456789012.123456");
+  expect(at320?.clientWidth).toBeGreaterThanOrEqual(270);
+  expect(at320?.clientWidth).toBeLessThanOrEqual(285);
+  expect(at320?.scrollWidth).toBeLessThanOrEqual((at320?.clientWidth ?? 0) + 2);
+  expect(at320?.fontSize).toBeGreaterThanOrEqual(20);
+  expect(at320?.fontSize).toBeLessThan(51.2);
+  expect(at320?.overflow).toBe("visible");
+  expect(at320?.paddingLeft).toBeGreaterThanOrEqual(16);
+  expect(at320?.paddingRight).toBeGreaterThanOrEqual(16);
+  expect(at320?.paddingTop).toBeGreaterThanOrEqual(12);
+  expect(at320?.textWidth).toBeLessThanOrEqual(
+    (at320?.clientWidth ?? 0) - (at320?.paddingLeft ?? 0) - (at320?.paddingRight ?? 0) + 2,
+  );
+
+  await page.getByRole("button", { name: /as the primary amount/ }).click();
+  await expect(amount).toHaveText("123456789012.123456");
+  const native = await amountMetrics(page);
+  expect(native?.text).toBe("123456789012.123456");
+  expect(native?.scrollWidth).toBeLessThanOrEqual((native?.clientWidth ?? 0) + 2);
+  expect(native?.fontSize).toBeGreaterThanOrEqual(20);
+  expect(native?.fontSize).toBeLessThan(51.2);
+  expect(native?.paddingLeft).toBeGreaterThanOrEqual(16);
+  expect(native?.textWidth).toBeLessThanOrEqual(
+    (native?.clientWidth ?? 0) - (native?.paddingLeft ?? 0) - (native?.paddingRight ?? 0) + 2,
+  );
+
+  await page.setViewportSize({ width: 390, height: 720 });
+  await expect.poll(async () => (await amountMetrics(page))?.fontSize)
+    .toBeGreaterThan((native?.fontSize ?? 0) + 1);
+  const at390 = await amountMetrics(page);
+  expect(at390?.clientWidth).toBeGreaterThanOrEqual(340);
+  expect(at390?.clientWidth).toBeLessThanOrEqual(355);
+  expect(at390?.scrollWidth).toBeLessThanOrEqual((at390?.clientWidth ?? 0) + 2);
+  expect(at390?.fontSize).toBeGreaterThanOrEqual(20);
+  expect(at390?.fontSize).toBeLessThan(57.6);
+  expect(at390?.paddingLeft).toBeGreaterThanOrEqual(16);
+  expect(at390?.textWidth).toBeLessThanOrEqual(
+    (at390?.clientWidth ?? 0) - (at390?.paddingLeft ?? 0) - (at390?.paddingRight ?? 0) + 2,
+  );
+});
+
+test("money amount recomputes for text scaling", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await page.setViewportSize({ width: 320, height: 720 });
+  await signIn(page);
+  await page.getByRole("button", { name: "Send" }).click();
+
+  const amount = page.locator("[data-primary-amount]");
+  await typeAmount(page, "5");
+  await expect(amount).toHaveText("$5");
+
+  const before = await amountMetrics(page);
+  expect(before?.fontSize).toBeGreaterThanOrEqual(44);
+
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "200%";
+  });
+  await expect.poll(async () => (await amountMetrics(page))?.fontSize).toBeGreaterThan((before?.fontSize ?? 0) + 5);
+  await expect(amount).toHaveText("$5");
 });

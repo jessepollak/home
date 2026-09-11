@@ -192,9 +192,12 @@
 
 .amountBlock {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   justify-items: center;
   gap: 10px;
   padding: 12px 0 4px;
+  --money-amount-base-size: clamp(2.8rem, 16vw, 3.6rem);
+  --money-amount-min-size: 20px;
 }
 
 .amountToolbar {
@@ -288,7 +291,24 @@
 
 .assetAmount {
   margin: 0;
-  font-size: clamp(2.8rem, 16vw, 3.6rem);
+  width: 100%;
+  max-width: 100%;
+  padding: 12px 16px;
+  font-size: var(--money-amount-base-size);
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  letter-spacing: -0.06em;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.amountSizer {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: var(--money-amount-base-size);
   font-variant-numeric: tabular-nums;
   font-weight: 750;
   letter-spacing: -0.06em;
@@ -308,7 +328,10 @@
 }
 
 .key {
+  display: flex;
   min-height: 56px;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 10px;
   background: var(--home-canvas);
@@ -318,6 +341,11 @@
   font-size: 1.25rem;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
+}
+
+.key:active:not(:disabled) {
+  background: var(--home-hairline);
+  transform: scale(0.96);
 }
 
 .fieldBlock {
