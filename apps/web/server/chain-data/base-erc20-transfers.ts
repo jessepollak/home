@@ -119,6 +119,7 @@ FROM (
     sum(toInt8(action)) AS net_action
   FROM base.events
   WHERE event_signature = '${TRANSFER_SIGNATURE}'${assetClause}
+    AND mapContains(parameters, 'value')
     AND block_timestamp >= parseDateTime64BestEffort(${sqlString(request.from)})
     AND block_timestamp < parseDateTime64BestEffort(${sqlString(request.to)})
     AND (
@@ -160,7 +161,9 @@ export function createBaseErc20TransferHistory({
         signal: input.signal,
       });
       const metadata = parseMetadata(response);
-      const parsedRows = response.result.map((row) => parseTransferRow(row));
+      const parsedRows = response.result
+        .filter(hasErc20TransferValue)
+        .map((row) => parseTransferRow(row));
       const pageRows = parsedRows.slice(0, request.limit);
       const addressToAsset = new Map(
         request.assets.map((asset) => [asset.address, asset]),
@@ -338,6 +341,15 @@ function validateAllowlist(
     addresses.add(address);
     return { ...asset, address };
   });
+}
+
+function hasErc20TransferValue(value: unknown): boolean {
+  if (!isRecord(value)) return true;
+  return (
+    value.amount_base_units !== null &&
+    value.amount_base_units !== undefined &&
+    value.amount_base_units !== ""
+  );
 }
 
 function parseTransferRow(value: unknown): TransferRow {

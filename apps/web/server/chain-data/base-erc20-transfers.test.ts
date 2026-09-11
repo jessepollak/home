@@ -69,6 +69,10 @@ describe("Base ERC20 transfer query", () => {
     expect(sql).toContain("FROM base.events");
     expect(sql).toContain("GROUP BY log_id, address");
     expect(sql).toContain("sum(toInt8(action)) AS net_action");
+    expect(sql).toContain("AND mapContains(parameters, 'value')");
+    expect(sql.indexOf("mapContains(parameters, 'value')")).toBeLessThan(
+      sql.indexOf("GROUP BY log_id, address"),
+    );
     expect(sql).toContain("WHERE net_action > 0");
     expect(sql).not.toMatch(/\bHAVING\b/);
     expect(sql).toContain(`lower(toString(parameters['from'])) = '${WALLET}'`);
@@ -387,6 +391,40 @@ describe("Base ERC20 transfer adapter", () => {
     await expect(history.listTransfers(input())).rejects.toMatchObject({
       code: "invalid-response",
     });
+  });
+
+  test("filters mixed ERC-20 and ERC-721 transfer shapes before pagination", async () => {
+    const erc20 = row({ log_id: "erc20-log", log_index: "2" });
+    const erc721 = {
+      ...row({ log_id: "erc721-log", log_index: "1" }),
+      amount_base_units: null,
+      token_id: "42",
+    };
+    let sql = "";
+    const history = createBaseErc20TransferHistory({
+      assets,
+      transport: {
+        async run(request) {
+          sql = request.sql;
+          return transportFor([erc20, erc721]).run(request);
+        },
+      },
+      now: () => NOW,
+    });
+
+    const page = await history.listTransfers(
+      input({ includeUnknownAssets: true, limit: 1 }),
+    );
+
+    expect(sql).toContain("AND mapContains(parameters, 'value')");
+    expect(sql.indexOf("mapContains(parameters, 'value')")).toBeLessThan(
+      sql.lastIndexOf("LIMIT 2"),
+    );
+    expect(page.transfers).toHaveLength(1);
+    expect(page.transfers[0]?.logId).toBe("erc20-log");
+    expect(page.transfers[0]?.amountBaseUnits).toBe(
+      "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+    );
   });
 
   test("preserves an unknown contract as unknown when explicitly requested", async () => {
