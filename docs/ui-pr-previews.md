@@ -17,7 +17,7 @@ Capture the live implementation in a real browser — preview, production, or lo
 
 ## How
 
-Attach from the CLI so the file lands as a GitHub `user-attachments` asset and renders inline:
+Attach from the CLI (GitHub CLI 2.100 or newer; `gh pr edit --help` lists `--attach`) so the file lands as a GitHub `user-attachments` asset and renders inline:
 
 ```bash
 gh pr edit <n> --repo jessepollak/home --attach './after.png#Home after: quiet hero'
