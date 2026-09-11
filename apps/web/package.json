@@ -9,7 +9,7 @@
     "lint": "eslint . --max-warnings 0",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "bun test",
-    "test:browser-auth": "playwright test --config playwright.config.ts",
+    "test:browser-smoke": "playwright test --config playwright.config.ts",
     "money-actions:migrate": "bun ./server/money-actions/migrate.ts"
   },
   "dependencies": {
