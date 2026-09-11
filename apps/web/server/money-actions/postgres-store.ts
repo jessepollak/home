@@ -7,6 +7,7 @@ import {
   AttemptPersistenceConflict,
   PersistentMoneyActionAttemptStore,
   evidenceUniquenessKey,
+  synchronizeLegacyState,
   type AttemptOperationRecord,
   type AttemptStorePersistence,
   type AttemptStoreTransaction,
@@ -17,6 +18,7 @@ import {
   applyMoneyActionPostgresSchema,
   createNeonSqlExecutor,
   isUniqueViolation,
+  MONEY_ACTION_DATA_MIGRATION_ID,
   moneyActionQueries,
   type OperationRow,
   type SqlExecutor,
@@ -38,10 +40,137 @@ class CanonicalEvidenceConflict extends Error {
   }
 }
 
+export type MoneyActionDataMigrationResult = Readonly<{
+  migrationId: typeof MONEY_ACTION_DATA_MIGRATION_ID;
+  disposition: "applied" | "already-complete";
+  aggregateCount: number;
+}>;
+
+export async function ensureMoneyActionPostgresReady(
+  executor: SqlExecutor,
+): Promise<MoneyActionDataMigrationResult> {
+  await applyMoneyActionPostgresSchema(executor);
+  return runMoneyActionDataMigration(executor);
+}
+
+export async function runMoneyActionDataMigration(
+  executor: SqlExecutor,
+): Promise<MoneyActionDataMigrationResult> {
+  return executor.transaction(async (tx) => {
+    await tx.query(moneyActionQueries.setMigrationLockTimeout);
+    await tx.query(moneyActionQueries.setMigrationStatementTimeout);
+
+    const schemaResult = await tx.query<{ schema_name: string | null }>(moneyActionQueries.selectEffectiveSchema);
+    const schemaName = schemaResult.rows[0]?.schema_name;
+    if (schemaResult.rowCount !== 1 || schemaResult.rows.length !== 1 || !schemaName) {
+      throw new Error("money-action data migration could not resolve its PostgreSQL schema");
+    }
+    await tx.query(moneyActionQueries.acquireDataMigrationLock, [
+      "home-money-action-data-migration",
+      `${schemaName}:${MONEY_ACTION_DATA_MIGRATION_ID}`,
+    ]);
+
+    const marker = await tx.query<{ migration_id: string }>(
+      moneyActionQueries.selectDataMigration,
+      [MONEY_ACTION_DATA_MIGRATION_ID],
+    );
+    if (marker.rowCount !== marker.rows.length || marker.rows.length > 1) {
+      throw new Error("money-action data migration marker returned an unexpected result");
+    }
+    if (marker.rows.length === 1) {
+      if (marker.rows[0]?.migration_id !== MONEY_ACTION_DATA_MIGRATION_ID) {
+        throw new Error("money-action data migration marker did not match the requested migration");
+      }
+      return {
+        migrationId: MONEY_ACTION_DATA_MIGRATION_ID,
+        disposition: "already-complete",
+        aggregateCount: 0,
+      };
+    }
+
+    await tx.query(moneyActionQueries.normalizeLegacyHashes);
+    const evidenceRows = await tx.query<{
+      id: string;
+      action_json: string;
+      submission_id: string | null;
+      user_operation_hash: string | null;
+    }>(moneyActionQueries.selectLegacyEvidenceForReservation);
+    for (const row of evidenceRows.rows) {
+      const action = parseAction(row.action_json);
+      try {
+        await reserveCanonicalEvidence(tx, action.owner, row.id, {
+          ...(row.submission_id ? { submissionId: row.submission_id } : {}),
+          ...(row.user_operation_hash
+            ? { userOperationHash: row.user_operation_hash.toLowerCase() as `0x${string}` }
+            : {}),
+        });
+      } catch (error) {
+        if (error instanceof CanonicalEvidenceConflict) {
+          throw new Error("conflicting legacy money-action evidence prevents data migration");
+        }
+        throw error;
+      }
+    }
+
+    const history = await tx.query<{ id: string }>(moneyActionQueries.selectOperationIdsForDataMigration);
+    const transaction = new PostgresAttemptTransaction(tx);
+    for (const row of history.rows) {
+      if (!row.id) throw new Error("money-action data migration found an invalid operation identifier");
+      const record = await transaction.getOperationById(row.id);
+      if (!record) throw new Error("money-action data migration lost a locked operation");
+      const existing = await transaction.getState(row.id);
+      const state = synchronizeLegacyState(existing, record);
+      if (!state) throw new Error("money-action data migration could not construct attempt state");
+      if (state !== existing) await transaction.saveState(row.id, state);
+    }
+
+    const inserted = await tx.query<{ migration_id: string }>(
+      moneyActionQueries.insertDataMigration,
+      [MONEY_ACTION_DATA_MIGRATION_ID],
+    );
+    if (
+      inserted.rowCount !== 1 ||
+      inserted.rows.length !== 1 ||
+      inserted.rows[0]?.migration_id !== MONEY_ACTION_DATA_MIGRATION_ID
+    ) {
+      throw new Error("money-action data migration marker was not recorded atomically");
+    }
+    return {
+      migrationId: MONEY_ACTION_DATA_MIGRATION_ID,
+      disposition: "applied",
+      aggregateCount: history.rows.length,
+    };
+  });
+}
+
+async function reserveCanonicalEvidence(
+  executor: SqlExecutor,
+  owner: MoneyActionOwner,
+  actionId: string,
+  reference: { submissionId?: string; userOperationHash?: `0x${string}` },
+): Promise<void> {
+  const evidence = [
+    ...(reference.submissionId
+      ? [{ kind: "submission-id" as const, provider: "base-account" as const, value: reference.submissionId }]
+      : []),
+    ...(reference.userOperationHash
+      ? [{ kind: "user-operation-hash" as const, provider: "cdp-embedded" as const, value: reference.userOperationHash }]
+      : []),
+  ];
+  for (const item of evidence) {
+    const key = evidenceUniquenessKey(owner, item);
+    if (!key) continue;
+    const result = await executor.query<{ action_id: string }>(moneyActionQueries.reserveEvidence, [key, actionId]);
+    if (result.rowCount !== 1 || result.rows.length !== 1 || result.rows[0]?.action_id !== actionId) {
+      throw new CanonicalEvidenceConflict();
+    }
+  }
+}
+
 export class PostgresMoneyActionStore implements MoneyActionStore {
   private readonly executor: SqlExecutor;
   private readonly sensitiveActions = new Map<string, { action: PreparedMoneyAction; expiresAt: string }>();
-  private schemaReady: Promise<void> | null = null;
+  private schemaReady: Promise<MoneyActionDataMigrationResult> | null = null;
 
   constructor(executorOrUrl?: SqlExecutor | string) {
     if (typeof executorOrUrl === "object") {
@@ -56,9 +185,12 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
   }
 
   async ensureSchema(): Promise<void> {
-    this.schemaReady ??= applyMoneyActionPostgresSchema(this.executor)
-      .then(() => this.backfillCanonicalEvidenceReservations());
-    await this.schemaReady;
+    await this.ensureReady();
+  }
+
+  async ensureReady(): Promise<MoneyActionDataMigrationResult> {
+    this.schemaReady ??= ensureMoneyActionPostgresReady(this.executor);
+    return this.schemaReady;
   }
 
   async issue(action: PreparedMoneyAction, options?: MoneyActionIssueStoreOptions): Promise<"issued" | "existing"> {
@@ -266,56 +398,13 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
     });
   }
 
-  private async backfillCanonicalEvidenceReservations(): Promise<void> {
-    await this.executor.transaction(async (tx) => {
-      await tx.query(moneyActionQueries.normalizeLegacyHashes);
-      const result = await tx.query<{
-        id: string;
-        action_json: string;
-        submission_id: string | null;
-        user_operation_hash: string | null;
-      }>(moneyActionQueries.selectLegacyEvidenceForReservation);
-      for (const row of result.rows) {
-        const action = parseAction(row.action_json);
-        try {
-          await this.reserveEvidence(tx, action.owner, row.id, {
-            ...(row.submission_id ? { submissionId: row.submission_id } : {}),
-            ...(row.user_operation_hash
-              ? { userOperationHash: row.user_operation_hash.toLowerCase() as `0x${string}` }
-              : {}),
-          });
-        } catch (error) {
-          if (error instanceof CanonicalEvidenceConflict) {
-            throw new Error(`conflicting legacy money-action evidence for ${row.id}`);
-          }
-          throw error;
-        }
-      }
-    });
-  }
-
-  private async reserveEvidence(
+  private reserveEvidence(
     executor: SqlExecutor,
     owner: MoneyActionOwner,
     actionId: string,
     reference: { submissionId?: string; userOperationHash?: `0x${string}` },
   ): Promise<void> {
-    const evidence = [
-      ...(reference.submissionId
-        ? [{ kind: "submission-id" as const, provider: "base-account" as const, value: reference.submissionId }]
-        : []),
-      ...(reference.userOperationHash
-        ? [{ kind: "user-operation-hash" as const, provider: "cdp-embedded" as const, value: reference.userOperationHash }]
-        : []),
-    ];
-    for (const item of evidence) {
-      const key = evidenceUniquenessKey(owner, item);
-      if (!key) continue;
-      const result = await executor.query<{ action_id: string }>(moneyActionQueries.reserveEvidence, [key, actionId]);
-      if (result.rowCount !== 1 || result.rows[0]?.action_id !== actionId) {
-        throw new CanonicalEvidenceConflict();
-      }
-    }
+    return reserveCanonicalEvidence(executor, owner, actionId, reference);
   }
 
   private installSensitiveAction(id: string, options: MoneyActionIssueStoreOptions): void {
@@ -453,16 +542,10 @@ class PostgresAttemptPersistence implements AttemptStorePersistence {
     await this.legacy.ensureSchema();
   }
 
-  async listOperationIds(): Promise<string[]> {
-    this.assertOpen();
-    const result = await this.executor.query<{ id: string }>("SELECT id FROM money_action_operations ORDER BY id");
-    return result.rows.map((row) => row.id);
-  }
-
   async transaction<Result>(run: (transaction: AttemptStoreTransaction) => Promise<Result>): Promise<Result> {
     this.assertOpen();
     try {
-      return await this.executor.transaction(async (executor) => run(this.transactionAdapter(executor)));
+      return await this.executor.transaction(async (executor) => run(new PostgresAttemptTransaction(executor)));
     } catch (error) {
       if (isUniqueViolation(error)) {
         const message = error instanceof Error ? error.message : String(error);
@@ -479,35 +562,16 @@ class PostgresAttemptPersistence implements AttemptStorePersistence {
     if (disposal) await withCleanupTimeout(disposal, 5_000);
   }
 
-  private transactionAdapter(executor: SqlExecutor): AttemptStoreTransaction {
-    return {
-      getOperationById: async (actionId) => this.getOperation(executor, actionId),
-      insertOperation: async (record) => this.insertOperation(executor, record),
-      saveOperation: async (record) => this.saveOperation(executor, record),
-      getState: async (actionId) => this.getState(executor, actionId),
-      saveState: async (actionId, state) => this.saveState(executor, actionId, state),
-      findEvidenceOwner: async (key) => {
-        const result = await executor.query<{ action_id: string }>(
-          "SELECT action_id FROM money_action_attempt_evidence WHERE evidence_key = $1",
-          [key],
-        );
-        return result.rows[0]?.action_id ?? null;
-      },
-      findLegacyEvidenceOwner: async (owner, evidence) => this.findLegacyEvidenceOwner(executor, owner, evidence),
-      findVerifiedExecutionOwner: async (key) => {
-        const result = await executor.query<{ action_id: string }>(`
-          SELECT action_id FROM money_action_attempt_states WHERE verified_execution_key = $1
-          UNION ALL
-          SELECT id AS action_id FROM money_action_operations WHERE verified_execution_key = $1
-          LIMIT 1
-        `.trim(), [key]);
-        return result.rows[0]?.action_id ?? null;
-      },
-    };
+  private assertOpen(): void {
+    if (this.disposed) throw new Error("PostgreSQL attempt persistence is disposed");
   }
+}
 
-  private async getOperation(executor: SqlExecutor, actionId: string): Promise<AttemptOperationRecord | null> {
-    const result = await executor.query<OperationRow>(`
+class PostgresAttemptTransaction implements AttemptStoreTransaction {
+  constructor(private readonly executor: SqlExecutor) {}
+
+  async getOperationById(actionId: string): Promise<AttemptOperationRecord | null> {
+    const result = await this.executor.query<OperationRow>(`
       SELECT action_json, status, attempt_count, claimed_at, submission_id, transaction_hash,
              user_operation_hash, verified_execution_key, abandoned_at, created_at, updated_at
       FROM money_action_operations WHERE id = $1 FOR UPDATE
@@ -519,9 +583,9 @@ class PostgresAttemptPersistence implements AttemptStorePersistence {
     } : null;
   }
 
-  private async insertOperation(executor: SqlExecutor, record: AttemptOperationRecord): Promise<boolean> {
+  async insertOperation(record: AttemptOperationRecord): Promise<boolean> {
     const action = record.operation.action;
-    const result = await executor.query(`
+    const result = await this.executor.query(`
       INSERT INTO money_action_operations (
         id, review_hash, subject, address, chain_id, account_provider, action_json, status,
         attempt_count, claimed_at, submission_id, transaction_hash, user_operation_hash,
@@ -539,27 +603,9 @@ class PostgresAttemptPersistence implements AttemptStorePersistence {
     return result.rowCount === 1;
   }
 
-  private async findLegacyEvidenceOwner(
-    executor: SqlExecutor,
-    owner: MoneyActionOwner,
-    evidence: ProviderEvidence,
-  ): Promise<string | null> {
-    const lead = evidence.kind === "provider-status" ? evidence.handle : evidence;
-    if (lead.kind === "transaction-hash") return null;
-    const column = lead.kind === "submission-id" ? "submission_id" : "user_operation_hash";
-    const comparison = lead.kind === "user-operation-hash" ? `LOWER(${column}) = LOWER($5)` : `${column} = $5`;
-    const result = await executor.query<{ id: string }>(`
-      SELECT id FROM money_action_operations
-      WHERE subject = $1 AND address = $2 AND chain_id = $3 AND account_provider = $4
-        AND ${comparison}
-      LIMIT 1
-    `.trim(), [...ownerParameters(owner), lead.value]);
-    return result.rows[0]?.id ?? null;
-  }
-
-  private async saveOperation(executor: SqlExecutor, record: AttemptOperationRecord): Promise<void> {
+  async saveOperation(record: AttemptOperationRecord): Promise<void> {
     const operation = record.operation;
-    await executor.query(`
+    await this.executor.query(`
       UPDATE money_action_operations SET
         action_json = $1, review_hash = $2, status = $3, attempt_count = $4, claimed_at = $5,
         submission_id = $6, transaction_hash = $7, user_operation_hash = $8,
@@ -573,16 +619,16 @@ class PostgresAttemptPersistence implements AttemptStorePersistence {
     ]);
   }
 
-  private async getState(executor: SqlExecutor, actionId: string): Promise<PersistedAttemptState | null> {
-    const result = await executor.query<{ state_json: string }>(
+  async getState(actionId: string): Promise<PersistedAttemptState | null> {
+    const result = await this.executor.query<{ state_json: string }>(
       "SELECT state_json FROM money_action_attempt_states WHERE action_id = $1",
       [actionId],
     );
     return result.rows[0] ? JSON.parse(result.rows[0].state_json) as PersistedAttemptState : null;
   }
 
-  private async saveState(executor: SqlExecutor, actionId: string, state: PersistedAttemptState): Promise<void> {
-    await executor.query(`
+  async saveState(actionId: string, state: PersistedAttemptState): Promise<void> {
+    await this.executor.query(`
       INSERT INTO money_action_attempt_states (action_id, state_json, verified_execution_key, updated_at)
       VALUES ($1, $2, $3, $4)
       ON CONFLICT(action_id) DO UPDATE SET
@@ -590,7 +636,7 @@ class PostgresAttemptPersistence implements AttemptStorePersistence {
         verified_execution_key = EXCLUDED.verified_execution_key,
         updated_at = EXCLUDED.updated_at
     `.trim(), [actionId, JSON.stringify(state), state.verifiedExecutionKey ?? null, new Date().toISOString()]);
-    await executor.query("DELETE FROM money_action_attempt_evidence WHERE action_id = $1", [actionId]);
+    await this.executor.query("DELETE FROM money_action_attempt_evidence WHERE action_id = $1", [actionId]);
     const reservations = new Set(state.legacyEvidenceReservations ?? []);
     for (const attempt of state.attempts) {
       for (const recorded of attempt.evidence) {
@@ -599,15 +645,43 @@ class PostgresAttemptPersistence implements AttemptStorePersistence {
       }
     }
     for (const key of reservations) {
-      await executor.query(
+      await this.executor.query(
         "INSERT INTO money_action_attempt_evidence (evidence_key, action_id) VALUES ($1, $2)",
         [key, actionId],
       );
     }
   }
 
-  private assertOpen(): void {
-    if (this.disposed) throw new Error("PostgreSQL attempt persistence is disposed");
+  async findEvidenceOwner(key: string): Promise<string | null> {
+    const result = await this.executor.query<{ action_id: string }>(
+      "SELECT action_id FROM money_action_attempt_evidence WHERE evidence_key = $1",
+      [key],
+    );
+    return result.rows[0]?.action_id ?? null;
+  }
+
+  async findLegacyEvidenceOwner(owner: MoneyActionOwner, evidence: ProviderEvidence): Promise<string | null> {
+    const lead = evidence.kind === "provider-status" ? evidence.handle : evidence;
+    if (lead.kind === "transaction-hash") return null;
+    const column = lead.kind === "submission-id" ? "submission_id" : "user_operation_hash";
+    const comparison = lead.kind === "user-operation-hash" ? `LOWER(${column}) = LOWER($5)` : `${column} = $5`;
+    const result = await this.executor.query<{ id: string }>(`
+      SELECT id FROM money_action_operations
+      WHERE subject = $1 AND address = $2 AND chain_id = $3 AND account_provider = $4
+        AND ${comparison}
+      LIMIT 1
+    `.trim(), [...ownerParameters(owner), lead.value]);
+    return result.rows[0]?.id ?? null;
+  }
+
+  async findVerifiedExecutionOwner(key: string): Promise<string | null> {
+    const result = await this.executor.query<{ action_id: string }>(`
+      SELECT action_id FROM money_action_attempt_states WHERE verified_execution_key = $1
+      UNION ALL
+      SELECT id AS action_id FROM money_action_operations WHERE verified_execution_key = $1
+      LIMIT 1
+    `.trim(), [key]);
+    return result.rows[0]?.action_id ?? null;
   }
 }
 

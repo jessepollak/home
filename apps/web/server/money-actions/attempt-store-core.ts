@@ -75,7 +75,6 @@ export interface AttemptStoreTransaction {
 
 export interface AttemptStorePersistence {
   init(): Promise<void>;
-  listOperationIds(): Promise<string[]>;
   transaction<Result>(run: (transaction: AttemptStoreTransaction) => Promise<Result>): Promise<Result>;
   dispose(): Promise<void>;
 }
@@ -108,15 +107,6 @@ export class PersistentMoneyActionAttemptStore implements MoneyActionAttemptStor
     if (this.lifecycle === "disposed") throw new Error("attempt-store resource is disposed");
     if (this.lifecycle === "initialized") return;
     await this.persistence.init();
-    for (const actionId of await this.persistence.listOperationIds()) {
-      await this.persistence.transaction(async (tx) => {
-        const record = await tx.getOperationById(actionId);
-        if (!record) return;
-        const existing = await tx.getState(actionId);
-        const state = synchronizeLegacyState(existing, record);
-        if (state && state !== existing) await tx.saveState(actionId, state);
-      });
-    }
     this.lifecycle = "initialized";
   }
 
@@ -609,7 +599,7 @@ async function loadOwnedAttempt(
   return { ok: true, record, state, attempt: state.attempts[index]!, index };
 }
 
-function synchronizeLegacyState(
+export function synchronizeLegacyState(
   state: PersistedAttemptState | null,
   record: AttemptOperationRecord,
 ): PersistedAttemptState | null {

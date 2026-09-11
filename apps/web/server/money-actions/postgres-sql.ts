@@ -2,6 +2,8 @@ import "server-only";
 
 import { Pool, type PoolClient } from "@neondatabase/serverless";
 
+export const MONEY_ACTION_DATA_MIGRATION_ID = "canonical-evidence-reservations-v1" as const;
+
 export const MONEY_ACTION_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS money_action_operations (
   id TEXT PRIMARY KEY,
   review_hash TEXT NOT NULL,
@@ -153,6 +155,18 @@ export const moneyActionQueries = {
     WHERE id = $3 AND subject = $4 AND address = $5 AND chain_id = $6 AND account_provider = $7
       AND status IN ('submitting', 'submitted', 'included', 'unknown')
   `.trim(),
+  setMigrationLockTimeout: "SET LOCAL lock_timeout = '5s'",
+  setMigrationStatementTimeout: "SET LOCAL statement_timeout = '60s'",
+  selectEffectiveSchema: "SELECT current_schema() AS schema_name",
+  acquireDataMigrationLock: "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+  selectDataMigration: `
+    SELECT migration_id FROM money_action_data_migrations WHERE migration_id = $1
+  `.trim(),
+  selectOperationIdsForDataMigration: "SELECT id FROM money_action_operations ORDER BY id",
+  insertDataMigration: `
+    INSERT INTO money_action_data_migrations (migration_id) VALUES ($1)
+    RETURNING migration_id
+  `.trim(),
 } as const;
 
 export type OperationRow = {
@@ -282,13 +296,30 @@ export const moneyActionAttemptSchemaStatements = MONEY_ACTION_ATTEMPT_SCHEMA_SQ
   .map((statement) => statement.trim())
   .filter((statement) => statement.length > 0);
 
+export const MONEY_ACTION_DATA_MIGRATION_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS money_action_data_migrations (
+  migration_id TEXT PRIMARY KEY,
+  completed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+`;
+
+export const moneyActionDataMigrationSchemaStatements = MONEY_ACTION_DATA_MIGRATION_SCHEMA_SQL
+  .split(";")
+  .map((statement) => statement.trim())
+  .filter((statement) => statement.length > 0);
+
 export async function applyMoneyActionPostgresSchema(executor: SqlExecutor): Promise<void> {
   await executor.transaction(async (transaction) => {
+    await transaction.query(moneyActionQueries.setMigrationLockTimeout);
+    await transaction.query(moneyActionQueries.setMigrationStatementTimeout);
     await transaction.query(
       "SELECT pg_advisory_xact_lock(hashtext($1))",
       ["home_money_action_schema_v2"],
     );
-    for (const statement of [...moneyActionSchemaStatements, ...moneyActionAttemptSchemaStatements]) {
+    for (const statement of [
+      ...moneyActionSchemaStatements,
+      ...moneyActionAttemptSchemaStatements,
+      ...moneyActionDataMigrationSchemaStatements,
+    ]) {
       await transaction.query(statement);
     }
   });

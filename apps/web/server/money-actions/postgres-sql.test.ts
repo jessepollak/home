@@ -7,6 +7,8 @@ import {
   createNeonSqlExecutor,
   isUniqueViolation,
   MONEY_ACTION_ATTEMPT_SCHEMA_SQL,
+  MONEY_ACTION_DATA_MIGRATION_ID,
+  MONEY_ACTION_DATA_MIGRATION_SCHEMA_SQL,
   MONEY_ACTION_SCHEMA_SQL,
 } from "./postgres-sql";
 
@@ -14,12 +16,15 @@ test("embedded Postgres schemas match the operator migration files", () => {
   const cases = [
     ["001_money_action_operations.sql", MONEY_ACTION_SCHEMA_SQL],
     ["002_money_action_attempts.sql", MONEY_ACTION_ATTEMPT_SCHEMA_SQL],
+    ["003_money_action_data_migrations.sql", MONEY_ACTION_DATA_MIGRATION_SCHEMA_SQL],
   ] as const;
   for (const [filename, embedded] of cases) {
     const file = readFileSync(resolve(import.meta.dir, "migrations", filename), "utf8");
     const sqlFromFile = file.replace(/^--.*$/gm, "").trim();
     expect(sqlFromFile).toBe(embedded.trim());
   }
+  expect(MONEY_ACTION_DATA_MIGRATION_SCHEMA_SQL).not.toContain("INSERT INTO");
+  expect(MONEY_ACTION_DATA_MIGRATION_ID).toBe("canonical-evidence-reservations-v1");
 });
 
 test("explicit PostgreSQL schemas fail closed when empty or missing", () => {

@@ -1,5 +1,7 @@
 import {
+  MONEY_ACTION_DATA_MIGRATION_ID,
   moneyActionAttemptSchemaStatements,
+  moneyActionDataMigrationSchemaStatements,
   moneyActionQueries,
   moneyActionSchemaStatements,
   type OperationRow,
@@ -50,17 +52,35 @@ export function createFakePostgresExecutor(): SqlExecutor {
     throw new Error("The compatibility PostgreSQL SQL double is test-only");
   }
   const rows = new Map<string, StoredRow>();
+  let dataMigrationComplete = false;
   let gate = Promise.resolve();
 
   const run = (text: string, values: unknown[]): SqlQueryResult => {
     if (
       text === "SELECT pg_advisory_xact_lock(hashtext($1))" ||
+      text === moneyActionQueries.acquireDataMigrationLock ||
+      text === moneyActionQueries.setMigrationLockTimeout ||
+      text === moneyActionQueries.setMigrationStatementTimeout ||
       moneyActionSchemaStatements.includes(text as typeof moneyActionSchemaStatements[number]) ||
-      moneyActionAttemptSchemaStatements.includes(text as typeof moneyActionAttemptSchemaStatements[number])
+      moneyActionAttemptSchemaStatements.includes(text as typeof moneyActionAttemptSchemaStatements[number]) ||
+      moneyActionDataMigrationSchemaStatements.includes(text as typeof moneyActionDataMigrationSchemaStatements[number])
     ) return { rows: [], rowCount: 0 };
 
+    if (text === moneyActionQueries.selectEffectiveSchema) {
+      return { rows: [{ schema_name: "public" }], rowCount: 1 };
+    }
+    if (text === moneyActionQueries.selectDataMigration) {
+      return dataMigrationComplete
+        ? { rows: [{ migration_id: MONEY_ACTION_DATA_MIGRATION_ID }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    }
+    if (text === moneyActionQueries.insertDataMigration) {
+      dataMigrationComplete = true;
+      return { rows: [{ migration_id: MONEY_ACTION_DATA_MIGRATION_ID }], rowCount: 1 };
+    }
     if (text === moneyActionQueries.normalizeLegacyHashes) return { rows: [], rowCount: 0 };
     if (text === moneyActionQueries.selectLegacyEvidenceForReservation) return { rows: [], rowCount: 0 };
+    if (text === moneyActionQueries.selectOperationIdsForDataMigration) return { rows: [], rowCount: 0 };
 
     switch (text) {
       case moneyActionQueries.selectById:
