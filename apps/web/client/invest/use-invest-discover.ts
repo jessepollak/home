@@ -146,8 +146,9 @@ export function useInvestDiscover({
     (manualRetry: boolean) => {
       const pagination = state.memePagination;
       const offset = pagination.nextOffset;
+      // A non-null next offset on a successful initial load is the gate. Empty
+      // catalog pages (zero normalized assets) must still be advanceable.
       if (
-        state.memeStatus !== "ready" ||
         offset === null ||
         pagination.exhausted ||
         pagination.loadingMore ||
@@ -164,7 +165,6 @@ export function useInvestDiscover({
       loadMoreRequest.current = request;
       attemptedOffsets.current.add(offset);
       setState((current) =>
-        current.memeStatus === "ready" &&
         current.memePagination.nextOffset === offset &&
         !current.memePagination.loadingMore
           ? {
@@ -193,15 +193,23 @@ export function useInvestDiscover({
           if (!isCurrentLoadMoreRequest(loadMoreRequest.current, request, sequence.current)) {
             return;
           }
+          if (!response.ok) {
+            throw new Error("Discover page request failed.");
+          }
           const next = parseDiscoverResponse(await response.json());
           if (!next) throw new Error("Invalid invest discover page");
+          if (
+            next.memeStatus === "error" ||
+            next.memeStatus === "unavailable"
+          ) {
+            throw new Error("Discover page is unavailable.");
+          }
           if (next.memePagination.nextOffset === offset) {
             throw new Error("Discover offset did not advance.");
           }
           hasLoadedMore.current = true;
           setState((current) => {
             if (
-              current.memeStatus !== "ready" ||
               current.memePagination.nextOffset !== offset ||
               !current.memePagination.loadingMore
             ) {
@@ -214,7 +222,6 @@ export function useInvestDiscover({
             return;
           }
           setState((current) =>
-            current.memeStatus === "ready" &&
             current.memePagination.nextOffset === offset
               ? {
                   ...current,

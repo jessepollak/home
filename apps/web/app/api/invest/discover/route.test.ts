@@ -68,4 +68,18 @@ describe("GET /api/invest/discover", () => {
     expect(body).toBe(JSON.stringify(createErrorInvestDiscover()));
     expect(body).not.toContain("fixture-secret");
   });
+
+  test("never caches a provider error envelope as a successful page", async () => {
+    const response = await createInvestDiscoverHandler(async () => ({
+      ...payload,
+      memes: {
+        ...payload.memes,
+        status: "error" as const,
+        message: "envelope failed",
+      },
+    }))(discoverRequest("/api/invest/discover?offset=24"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
 });

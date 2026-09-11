@@ -41,6 +41,11 @@ export const CODEX_TRENDING_MAX_PAGE_SIZE = 200;
  */
 export const CODEX_TRENDING_LIMIT = CODEX_TRENDING_PAGE_SIZE;
 export const CODEX_TRENDING_MEME_CATEGORY = "memes";
+/** Bounded memo caches: arbitrary safe-integer offsets must not grow memory. */
+export const CODEX_TRENDING_PAGE_CACHE_MAX_ENTRIES = 32;
+export const CODEX_TRENDING_PAGE_MAX_IN_FLIGHT = 8;
+export const CODEX_TRENDING_ADMISSION_CACHE_MAX_ENTRIES = 256;
+export const CODEX_TRENDING_ADMISSION_MAX_IN_FLIGHT = 8;
 
 export const CODEX_TRENDING_QUERY = `query FilterTrendingMemes(
   $filters: TokenFilters
@@ -78,6 +83,22 @@ export const CODEX_TRENDING_QUERY = `query FilterTrendingMemes(
   }
 }`;
 
+export const CODEX_TRENDING_ADMISSION_QUERY = `query CheckTrendingBaseMeme(
+  $tokens: [String!]
+  $filters: TokenFilters
+  $limit: Int
+) {
+  filterTokens(tokens: $tokens, filters: $filters, limit: $limit) {
+    results {
+      token {
+        address
+        networkId
+      }
+    }
+    count
+  }
+}`;
+
 export type TrendingMemesStatus =
   | "ready"
   | "empty"
@@ -112,6 +133,17 @@ type TrendingPageOptions = {
   fetchImpl?: FetchLike;
   now?: Clock;
   timeoutMs?: number;
+  cacheMaxEntries?: number;
+  maxInFlight?: number;
+};
+
+type TrendingMemeAdmissionOptions = {
+  apiKey: string | undefined;
+  fetchImpl?: FetchLike;
+  now?: Clock;
+  timeoutMs?: number;
+  cacheMaxEntries?: number;
+  maxInFlight?: number;
 };
 
 type CachedTrending = {
@@ -122,6 +154,11 @@ type CachedTrending = {
 type CachedTrendingPage = {
   storedAt: number;
   result: TrendingMemesPage;
+};
+
+type CachedAdmission = {
+  storedAt: number;
+  admitted: boolean;
 };
 
 const excludedDiscoverTokens = [...stockAssets, ...cryptoAssets].map(
@@ -166,15 +203,18 @@ export function createCodexTrendingMemesReader({
 }
 
 /**
- * Offset-paginated reader used by the discover API. Each offset keeps its own
- * 45-second cache entry and in-flight coalescing so a scroll storm does not
- * re-request the same page or exceed the provider budget.
+ * Offset-paginated reader used by the discover API. Only successful pages are
+ * cached (a rejected read leaves no cache entry), both cache and in-flight maps
+ * are bounded so arbitrary safe-integer offsets cannot grow memory, and
+ * concurrent reads for one offset coalesce.
  */
 export function createCodexTrendingMemesPageReader({
   apiKey,
   fetchImpl = fetch,
   now = () => new Date(),
   timeoutMs = CODEX_REQUEST_TIMEOUT_MS,
+  cacheMaxEntries = CODEX_TRENDING_PAGE_CACHE_MAX_ENTRIES,
+  maxInFlight = CODEX_TRENDING_PAGE_MAX_IN_FLIGHT,
 }: TrendingPageOptions) {
   const cache = new Map<string, CachedTrendingPage>();
   const inFlight = new Map<string, Promise<TrendingMemesPage>>();
@@ -186,15 +226,24 @@ export function createCodexTrendingMemesPageReader({
 
     const safeOffset = clampTrendingOffset(offset);
     const limit = CODEX_TRENDING_PAGE_SIZE;
-    const key = `${safeOffset}:${limit}`;
+    const key = trendingPageKey(safeOffset, limit);
 
     const currentTime = now().getTime();
+    pruneTrendingPageCache(cache, currentTime);
     const cached = cache.get(key);
-    if (cached && currentTime - cached.storedAt <= CODEX_CACHE_TTL_MS) {
+    if (cached) {
+      // Refresh recency so the bounded cache keeps the most-recently-used page.
+      cache.delete(key);
+      cache.set(key, cached);
       return cached.result;
     }
     const existing = inFlight.get(key);
     if (existing) return existing;
+    if (inFlight.size >= maxInFlight) {
+      throw new CodexMarketDataError(
+        "Codex trending pages are temporarily overloaded.",
+      );
+    }
 
     const pending = fetchTrendingMemesPage({
       apiKey: apiKey.trim(),
@@ -207,8 +256,79 @@ export function createCodexTrendingMemesPageReader({
     inFlight.set(key, pending);
     try {
       const result = await pending;
-      cache.set(key, { storedAt: now().getTime(), result });
+      setBoundedTrendingPageCache(
+        cache,
+        key,
+        { storedAt: now().getTime(), result },
+        cacheMaxEntries,
+      );
       return result;
+    } finally {
+      inFlight.delete(key);
+    }
+  };
+}
+
+/**
+ * Provider-backed exact admission for a canonical Base meme contract. This is
+ * deliberately independent from the page-zero discover catalog so a page-2+
+ * meme still passes history admission. It fails closed for arbitrary or
+ * non-meme contracts and never trusts client-supplied catalog data.
+ */
+export function createCodexTrendingMemeAdmissionReader({
+  apiKey,
+  fetchImpl = fetch,
+  now = () => new Date(),
+  timeoutMs = CODEX_REQUEST_TIMEOUT_MS,
+  cacheMaxEntries = CODEX_TRENDING_ADMISSION_CACHE_MAX_ENTRIES,
+  maxInFlight = CODEX_TRENDING_ADMISSION_MAX_IN_FLIGHT,
+}: TrendingMemeAdmissionOptions) {
+  const cache = new Map<string, CachedAdmission>();
+  const inFlight = new Map<string, Promise<boolean>>();
+
+  return async function isTrendingBaseMeme(
+    contractAddress: string,
+    networkId: number,
+  ): Promise<boolean> {
+    const address = readAddress(contractAddress);
+    if (!address || networkId !== BASE_CHAIN_ID) return false;
+    if (!apiKey?.trim()) return false;
+
+    const key = trendingAdmissionKey(networkId, address);
+    const currentTime = now().getTime();
+    pruneTrendingAdmissionCache(cache, currentTime);
+    const cached = cache.get(key);
+    if (cached) {
+      cache.delete(key);
+      cache.set(key, cached);
+      return cached.admitted;
+    }
+    const existing = inFlight.get(key);
+    if (existing !== undefined) return existing;
+    if (inFlight.size >= maxInFlight) {
+      // Fail closed; a burst does not default to admission.
+      return false;
+    }
+
+    const pending = fetchTrendingMemeAdmission({
+      apiKey: apiKey.trim(),
+      address,
+      networkId,
+      fetchImpl,
+      timeoutMs,
+    });
+    inFlight.set(key, pending);
+    try {
+      const admitted = await pending;
+      setBoundedTrendingAdmissionCache(
+        cache,
+        key,
+        { storedAt: now().getTime(), admitted },
+        cacheMaxEntries,
+      );
+      return admitted;
+    } catch {
+      return false;
     } finally {
       inFlight.delete(key);
     }
@@ -243,11 +363,30 @@ export function getCodexTrendingMemesPage(
   return sharedPageReader(offset);
 }
 
+let sharedAdmissionReader: ReturnType<
+  typeof createCodexTrendingMemeAdmissionReader
+> | null = null;
+let sharedAdmissionKey: string | undefined;
+
+export function getCodexTrendingMemeAdmission(
+  contractAddress: string,
+  networkId: number,
+): Promise<boolean> {
+  const apiKey = process.env.CODEX_API_KEY;
+  if (!sharedAdmissionReader || sharedAdmissionKey !== apiKey) {
+    sharedAdmissionKey = apiKey;
+    sharedAdmissionReader = createCodexTrendingMemeAdmissionReader({ apiKey });
+  }
+  return sharedAdmissionReader(contractAddress, networkId);
+}
+
 export function clearCodexTrendingMemesCacheForTests() {
   sharedReader = null;
   sharedKey = undefined;
   sharedPageReader = null;
   sharedPageKey = undefined;
+  sharedAdmissionReader = null;
+  sharedAdmissionKey = undefined;
 }
 
 export function createUnavailableTrendingMemes(): TrendingMemesResult {
@@ -347,6 +486,38 @@ async function fetchTrendingMemesPage({
   });
 }
 
+async function fetchTrendingMemeAdmission({
+  apiKey,
+  address,
+  networkId,
+  fetchImpl,
+  timeoutMs,
+}: {
+  apiKey: string;
+  address: `0x${string}`;
+  networkId: number;
+  fetchImpl: FetchLike;
+  timeoutMs: number;
+}): Promise<boolean> {
+  const payload = await executeCodexGraphql({
+    apiKey,
+    query: CODEX_TRENDING_ADMISSION_QUERY,
+    variables: {
+      tokens: [`${address.toLowerCase()}:${networkId}`],
+      filters: {
+        network: [networkId],
+        potentialScam: false,
+        trendingIgnored: false,
+        categories: { anyOf: [CODEX_TRENDING_MEME_CATEGORY] },
+      },
+      limit: 1,
+    },
+    fetchImpl,
+    timeoutMs,
+  });
+  return normalizeTrendingMemeAdmission(payload, address, networkId);
+}
+
 function stripTrendingPagination(page: TrendingMemesPage): TrendingMemesResult {
   return {
     status: page.status,
@@ -400,6 +571,46 @@ function readTrendingConnection(data: unknown): Record<string, unknown> {
     );
   }
   return connection;
+}
+
+/**
+ * True only when the provider returns the exact contract under the same
+ * Base/meme/scam filters used by the catalog. The `count` field is validated
+ * against the returned rows, and a mismatched or missing row fails closed.
+ */
+export function normalizeTrendingMemeAdmission(
+  data: unknown,
+  address: string,
+  networkId: number,
+): boolean {
+  const connection = readTrendingConnection(data);
+  const count = readInteger(connection.count);
+  if (count === null) {
+    throw new CodexMarketDataError(
+      "Codex trending admission returned an invalid count.",
+    );
+  }
+  const results = connection.results as unknown[];
+  if (count !== results.length) {
+    throw new CodexMarketDataError(
+      "Codex trending admission returned an inconsistent result count.",
+    );
+  }
+
+  const target = address.toLowerCase();
+  for (const value of results) {
+    const row = readRecord(value);
+    const token = readRecord(row?.token);
+    const candidate = token ? readAddress(token.address) : null;
+    if (
+      candidate &&
+      candidate.toLowerCase() === target &&
+      readInteger(token?.networkId) === networkId
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function normalizeTrendingRows(
@@ -467,6 +678,64 @@ function clampTrendingOffset(offset: number): number {
 function clampTrendingPageLimit(limit: number): number {
   if (!Number.isFinite(limit) || limit <= 0) return CODEX_TRENDING_PAGE_SIZE;
   return Math.min(Math.floor(limit), CODEX_TRENDING_MAX_PAGE_SIZE);
+}
+
+function trendingPageKey(offset: number, limit: number): string {
+  return `${offset}:${limit}`;
+}
+
+function trendingAdmissionKey(networkId: number, address: string): string {
+  return `${networkId}:${address.toLowerCase()}`;
+}
+
+function pruneTrendingPageCache(
+  cache: Map<string, CachedTrendingPage>,
+  currentTime: number,
+) {
+  for (const [key, entry] of cache) {
+    if (currentTime - entry.storedAt > CODEX_CACHE_TTL_MS) cache.delete(key);
+  }
+}
+
+function setBoundedTrendingPageCache(
+  cache: Map<string, CachedTrendingPage>,
+  key: string,
+  entry: CachedTrendingPage,
+  cacheMaxEntries: number,
+) {
+  if (cacheMaxEntries <= 0) return;
+  cache.delete(key);
+  while (cache.size >= cacheMaxEntries) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
+  cache.set(key, entry);
+}
+
+function pruneTrendingAdmissionCache(
+  cache: Map<string, CachedAdmission>,
+  currentTime: number,
+) {
+  for (const [key, entry] of cache) {
+    if (currentTime - entry.storedAt > CODEX_CACHE_TTL_MS) cache.delete(key);
+  }
+}
+
+function setBoundedTrendingAdmissionCache(
+  cache: Map<string, CachedAdmission>,
+  key: string,
+  entry: CachedAdmission,
+  cacheMaxEntries: number,
+) {
+  if (cacheMaxEntries <= 0) return;
+  cache.delete(key);
+  while (cache.size >= cacheMaxEntries) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
+  cache.set(key, entry);
 }
 
 function readTrendingAsset(value: unknown): InvestAsset | null {
