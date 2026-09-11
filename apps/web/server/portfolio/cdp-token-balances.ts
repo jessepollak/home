@@ -144,8 +144,10 @@ export function createCdpTokenBalancesClient(options: {
         );
       }
       const address = request.address.toLowerCase() as `0x${string}`;
-      evictExpiredCheckpoints(checkpoints, now(), cacheTtlMs);
+      const currentTime = now();
+      evictExpiredCheckpoints(checkpoints, currentTime, cacheTtlMs);
       const checkpoint = checkpoints.get(address);
+      const observationStartedAt = checkpoint?.savedAt ?? currentTime;
       const collected = new Map(checkpoint?.balances ?? []);
       const seenPageTokens = new Set(checkpoint?.seenPageTokens ?? []);
       let pageToken = checkpoint?.nextPageToken;
@@ -172,7 +174,7 @@ export function createCdpTokenBalancesClient(options: {
               balances: collected,
               nextPageToken: pageToken,
               seenPageTokens,
-              savedAt: now(),
+              savedAt: observationStartedAt,
             });
             break;
           }
@@ -202,7 +204,7 @@ export function createCdpTokenBalancesClient(options: {
             balances: collected,
             nextPageToken: balances.nextPageToken,
             seenPageTokens,
-            savedAt: now(),
+            savedAt: observationStartedAt,
           });
           break;
         }
@@ -213,7 +215,7 @@ export function createCdpTokenBalancesClient(options: {
             balances: collected,
             nextPageToken: pageToken,
             seenPageTokens,
-            savedAt: now(),
+            savedAt: observationStartedAt,
           });
         }
       }
