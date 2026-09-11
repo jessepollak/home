@@ -21,7 +21,7 @@ import {
 } from "@/client/money-modal";
 import modal from "@/client/money-modal/money-modal.module.css";
 import styles from "./add-money.module.css";
-import type { OnrampPaymentMethod } from "./types";
+import type { OnrampPaymentMethod } from "@/shared/funding/types";
 import { ReceiveQr } from "./receive-qr";
 
 export type AddMoneyStep = "method" | "receive" | "buy" | "pending";
