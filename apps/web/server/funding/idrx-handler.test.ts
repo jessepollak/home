@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { IDRX_BASE_ADDRESS, IdrxMintError } from "./idrx";
-import { createIdrxMintHandler } from "./idrx-handler";
+import {
+  createIdrxMintHandler,
+  createIdrxRecoveryHandler,
+} from "./idrx-handler";
 import { MemoryIdrxAttemptStore } from "./idrx-attempt-store";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
@@ -10,6 +13,15 @@ function authorizedSession() {
     user: { subject: "subject-a" },
     smartAccount: { address: ADDRESS, chainId: 8453 },
     accountProvider: "base-account",
+  });
+}
+
+function recoveryRequest() {
+  return new Request("http://localhost:3111/api/funding/idrx-attempt", {
+    headers: {
+      Authorization: "Bearer fixture-token",
+      "X-Home-Account-Provider": "base-account",
+    },
   });
 }
 
@@ -32,6 +44,33 @@ function request(body: unknown = {
     body: JSON.stringify(body),
   });
 }
+
+function vaResult(expiredDate = "2026-09-12T14:00:00.000Z") {
+  return {
+    presentation: "virtual-account" as const,
+    rail: "bank-va" as const,
+    asset: { id: "idrx" as const, symbol: "IDRX" as const, decimals: 2 as const, tokenAddress: IDRX_BASE_ADDRESS },
+    network: { name: "Base" as const, chainId: 8453 as const },
+    merchantOrderId: "order-recovery",
+    reference: "ref-recovery",
+    virtualAccountNo: "8680770000001234",
+    virtualAccountName: "JOHN SMITH",
+    amount: "24000",
+    baseAmount: "20000",
+    fees: [{ name: "VA", amount: "4000" }],
+    expiredDate,
+    channelId: "MANDIRI" as const,
+    verification: { status: "pending" as const, boundary: "balance-and-activity" as const },
+  };
+}
+
+const recoveryIntent = {
+  toBeMinted: "20000",
+  rail: "bank-va" as const,
+  channelId: "MANDIRI" as const,
+  customerSubject: "subject-a",
+  customerName: "JOHN SMITH",
+};
 
 describe("IDRX mint handler", () => {
   test("binds the session smart account and a same-origin return URL", async () => {
@@ -148,7 +187,9 @@ describe("IDRX mint handler", () => {
       resolveCustomer: () => null,
       attempts: {
         begin: async () => { attemptCalls += 1; return { status: "new" }; },
+        recover: async () => ({ status: "none" }),
         complete: async () => {},
+        release: async () => {},
       },
       createMint: async () => {
         providerCalls += 1;
@@ -273,5 +314,86 @@ describe("IDRX mint handler", () => {
     expect(response.status).toBe(401);
     expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
     expect(providerCalls).toBe(0);
+  });
+});
+
+describe("IDRX attempt recovery", () => {
+  test("returns completed VA instructions after the initiating response was lost", async () => {
+    const attempts = new MemoryIdrxAttemptStore();
+    const attemptId = "66666666-6666-4666-8666-666666666666";
+    await attempts.begin({ subject: "subject-a", smartAccount: ADDRESS }, attemptId, recoveryIntent);
+    await attempts.complete({ subject: "subject-a", smartAccount: ADDRESS }, attemptId, vaResult());
+    let statusReads = 0;
+    const handler = createIdrxRecoveryHandler({
+      authorize: async () => authorizedSession(),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts,
+      readStatus: async () => { statusReads += 1; return "pending"; },
+      now: () => Date.parse("2026-09-11T12:00:00.000Z"),
+    });
+    const response = await handler(recoveryRequest());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "completed",
+      result: { virtualAccountNo: "8680770000001234" },
+    });
+    expect(statusReads).toBe(1);
+  });
+
+  test("releases an authoritatively expired reservation but preserves its attempt replay record", async () => {
+    const attempts = new MemoryIdrxAttemptStore();
+    const attemptId = "77777777-7777-4777-8777-777777777777";
+    const owner = { subject: "subject-a", smartAccount: ADDRESS };
+    await attempts.begin(owner, attemptId, recoveryIntent);
+    await attempts.complete(owner, attemptId, vaResult("2026-09-11T11:00:00.000Z"));
+    const handler = createIdrxRecoveryHandler({
+      authorize: async () => authorizedSession(),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts,
+      readStatus: async () => { throw new Error("must not read after expiry"); },
+      now: () => Date.parse("2026-09-11T12:00:00.000Z"),
+    });
+    const response = await handler(recoveryRequest());
+    expect(await response.json()).toEqual({ status: "terminal", outcome: "expired" });
+    expect(await attempts.recover(owner)).toEqual({ status: "none" });
+    expect(await attempts.begin(owner, attemptId, recoveryIntent)).toEqual({
+      status: "terminal",
+      outcome: "expired",
+    });
+    expect(await attempts.begin(owner, "88888888-8888-4888-8888-888888888888", {
+      ...recoveryIntent,
+      toBeMinted: "30000",
+    })).toEqual({ status: "new" });
+  });
+
+  test("uses bounded read-only provider status to release a terminal hosted attempt", async () => {
+    const attempts = new MemoryIdrxAttemptStore();
+    const attemptId = "99999999-9999-4999-8999-999999999999";
+    const owner = { subject: "subject-a", smartAccount: ADDRESS };
+    const hostedIntent = { ...recoveryIntent, rail: "qris" as const, channelId: null };
+    await attempts.begin(owner, attemptId, hostedIntent);
+    await attempts.complete(owner, attemptId, {
+      presentation: "hosted",
+      rail: "qris",
+      asset: { id: "idrx", symbol: "IDRX", decimals: 2, tokenAddress: IDRX_BASE_ADDRESS },
+      network: { name: "Base", chainId: 8453 },
+      merchantOrderId: "order-hosted",
+      url: "https://checkout.idrx.co/?token=fixture",
+      verification: { status: "pending", boundary: "balance-and-activity" },
+    });
+    const handler = createIdrxRecoveryHandler({
+      authorize: async () => authorizedSession(),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts,
+      readStatus: async ({ merchantOrderId }) => {
+        expect(merchantOrderId).toBe("order-hosted");
+        return "minted";
+      },
+    });
+    expect(await (await handler(recoveryRequest())).json()).toEqual({
+      status: "terminal",
+      outcome: "minted",
+    });
+    expect(await attempts.recover(owner)).toEqual({ status: "none" });
   });
 });

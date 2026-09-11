@@ -15,6 +15,7 @@ import { createIdrxRequestHeaders } from "./idrx-hmac";
 export { IDRX_BASE_ADDRESS, IDRX_BASE_CHAIN_ID, IDRX_DECIMALS };
 export const IDRX_API_BASE_URL = "https://api.idrx.co" as const;
 export const IDRX_MINT_PATH = "/transaction/mint-request" as const;
+export const IDRX_HISTORY_PATH = "/transaction/user-transaction-history" as const;
 export const IDRX_VA_CHANNELS = ["MANDIRI", "BRI"] as const;
 export const IDRX_MIN_TO_BE_MINTED_MINOR = BigInt(2_000_000);
 export const IDRX_MAX_TO_BE_MINTED_MINOR = BigInt("100000000000");
@@ -33,6 +34,14 @@ export type IdrxCustomerBinding = {
   subject: string;
   customerName: string;
 };
+
+export type IdrxMintReconciliation = "pending" | "minted" | "expired" | "failed";
+
+export type ReadIdrxMintStatus = (options: {
+  customer: IdrxCustomerBinding;
+  merchantOrderId: string;
+  signal?: AbortSignal;
+}) => Promise<IdrxMintReconciliation>;
 
 export type CreateIdrxMintRequest = (options: {
   address: `0x${string}`;
@@ -165,6 +174,55 @@ export function createIdrxMintClient(options: {
 }
 
 export const createIdrxMintRequest = createIdrxMintClient();
+
+export function createIdrxMintStatusReader(options: {
+  env?: Environment;
+  fetchImplementation?: IdrxFetch;
+  now?: () => number;
+} = {}): ReadIdrxMintStatus {
+  const env = options.env ?? process.env;
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+  const now = options.now ?? Date.now;
+  return async ({ customer, merchantOrderId, signal }) => {
+    const clientId = env.IDRX_CLIENT_ID?.trim();
+    const clientSecret = env.IDRX_CLIENT_SECRET?.trim();
+    const configuredSubject = env.IDRX_CUSTOMER_SUBJECT?.trim();
+    const configuredName = env.IDRX_CUSTOMER_NAME?.trim();
+    if (!clientId || !clientSecret || configuredSubject !== customer.subject ||
+      !configuredName || normalizeCustomerName(configuredName) !== normalizeCustomerName(customer.customerName)) {
+      throw new IdrxMintError("not-configured");
+    }
+    if (!merchantOrderIdPattern.test(merchantOrderId)) throw new IdrxMintError("invalid-response");
+    const url = new URL(IDRX_HISTORY_PATH, IDRX_API_BASE_URL);
+    url.searchParams.set("merchantOrderId", merchantOrderId);
+    const timestamp = String(now());
+    let response: Response;
+    try {
+      response = await fetchImplementation(url, {
+        method: "GET",
+        headers: createIdrxRequestHeaders({
+          apiKey: clientId,
+          secretKey: clientSecret,
+          method: "GET",
+          url: url.toString(),
+          body: "",
+          timestamp,
+        }),
+        cache: "no-store",
+        signal,
+      });
+    } catch (error) {
+      throw new IdrxMintError("unavailable", error);
+    }
+    if (!response.ok) throw new IdrxMintError("unavailable");
+    let payload: unknown;
+    try { payload = JSON.parse(await response.text()); }
+    catch (error) { throw new IdrxMintError("invalid-response", error); }
+    return parseIdrxMintStatus(payload, merchantOrderId);
+  };
+}
+
+export const readIdrxMintStatus = createIdrxMintStatusReader();
 
 export function resolveConfiguredIdrxCustomer(
   subject: string,
@@ -452,6 +510,35 @@ function parseIdrxResponseJson(text: string): unknown {
     index = cursor + numeric[0].length;
   }
   return JSON.parse(output);
+}
+
+function parseIdrxMintStatus(
+  value: unknown,
+  merchantOrderId: string,
+): IdrxMintReconciliation {
+  if (!isRecord(value)) throw new IdrxMintError("invalid-response");
+  const data = value.data;
+  const records = Array.isArray(data)
+    ? data
+    : isRecord(data) && Array.isArray(data.records)
+      ? data.records
+      : isRecord(data)
+        ? [data]
+        : [];
+  const matching = records.filter((record) =>
+    isRecord(record) && record.merchantOrderId === merchantOrderId
+  );
+  if (matching.length === 0) return "pending";
+  if (matching.length !== 1) throw new IdrxMintError("invalid-response");
+  const record = matching[0] as Record<string, unknown>;
+  const raw = record.userMintStatus ?? record.transactionStatus ?? record.status;
+  if (typeof raw !== "string") throw new IdrxMintError("invalid-response");
+  const status = raw.trim().toLocaleUpperCase("en-US");
+  if (["MINTED", "SUCCESS", "COMPLETED"].includes(status)) return "minted";
+  if (["EXPIRED", "CANCELLED", "CANCELED"].includes(status)) return "expired";
+  if (["FAILED", "REJECTED", "REFUNDED", "REFUND"].includes(status)) return "failed";
+  if (["PENDING", "PROCESSING", "PAID", "NOT_AVAILABLE"].includes(status)) return "pending";
+  throw new IdrxMintError("invalid-response");
 }
 
 function normalizeCustomerName(value: string): string {

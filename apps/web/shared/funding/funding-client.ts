@@ -7,6 +7,7 @@ import {
   type HostedOnrampSession,
   type IdrxFundingRail,
   type IdrxMintResult,
+  type IdrxRecoveryResult,
   type IdrxVaChannel,
 } from "./types";
 
@@ -49,6 +50,36 @@ export async function requestHostedOnrampSession(options: {
     throw requestError(error);
   }
   return parseHostedOnrampSession(value);
+}
+
+export async function recoverIdrxAttempt(options: {
+  fetchAccountResource: FundingAccountResource;
+  signal?: AbortSignal;
+}): Promise<IdrxRecoveryResult> {
+  let value: unknown;
+  try {
+    value = await options.fetchAccountResource("/api/funding/idrx-attempt", {
+      method: "GET",
+      signal: options.signal,
+    });
+  } catch (error) {
+    throw requestError(error);
+  }
+  if (!isRecord(value) || typeof value.status !== "string") {
+    throw new FundingRequestError("invalid-response");
+  }
+  if (value.status === "none") return { status: "none" };
+  if (value.status === "pending" && typeof value.attemptId === "string") {
+    return { status: "pending", attemptId: value.attemptId };
+  }
+  if (value.status === "completed") {
+    return { status: "completed", result: parseIdrxMintResult(value.result) };
+  }
+  if (value.status === "terminal" &&
+    (value.outcome === "expired" || value.outcome === "failed" || value.outcome === "minted")) {
+    return { status: "terminal", outcome: value.outcome };
+  }
+  throw new FundingRequestError("invalid-response");
 }
 
 export async function requestIdrxMint(options: {

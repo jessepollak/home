@@ -8,6 +8,7 @@ import { AddMoneyDialog, type AddMoneyStep } from "./add-money-dialog";
 import {
   FundingRequestError,
   parseIdrxMintResult,
+  recoverIdrxAttempt,
   requestHostedOnrampSession,
   requestIdrxMint,
 } from "@/shared/funding/funding-client";
@@ -88,6 +89,7 @@ function FundingExperienceBoundary({
   );
   const idrxAttemptIdRef = useRef(savedIdrx.attemptId);
   const [reconcileRequested, setReconcileRequested] = useState(false);
+  const recoveryStartedRef = useRef(false);
   const requestEpochRef = useRef(0);
   const requestAbortRef = useRef<AbortController | null>(null);
   const openRef = useRef(open);
@@ -132,6 +134,14 @@ function FundingExperienceBoundary({
     }
   }
 
+  useEffect(() => {
+    if (step !== "idrx" || signedOut || regionId !== "ID" || recoveryStartedRef.current) return;
+    recoveryStartedRef.current = true;
+    recoverExistingIdrx();
+  // Recovery is deliberately one non-dispatching read when the IDRX step mounts.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function openCoinbase() {
     if (!session?.smartAccount) return;
     void runRequest(async (signal) => {
@@ -175,9 +185,46 @@ function FundingExperienceBoundary({
     });
   }
 
+  function recoverExistingIdrx() {
+    if (!session?.smartAccount || regionId !== "ID") return;
+    void runRequest(async (signal) => {
+      const recovered = await recoverIdrxAttempt({
+        fetchAccountResource: wallet.fetchAccountResource,
+        signal,
+      });
+      if (signal.aborted || !openRef.current) return;
+      if (recovered.status === "completed") {
+        saveIdrxAttempt(boundary, {
+          attemptId: idrxAttemptIdRef.current,
+          pending: true,
+          result: recovered.result,
+        });
+        setIdrxResult(recovered.result);
+        setIdrxReturned(false);
+        return;
+      }
+      if (recovered.status === "pending") {
+        idrxAttemptIdRef.current = recovered.attemptId;
+        saveIdrxAttempt(boundary, {
+          attemptId: recovered.attemptId,
+          pending: true,
+          result: null,
+        });
+        setIdrxResult(null);
+        setIdrxReturned(true);
+        return;
+      }
+      clearSavedIdrxAttempt(boundary);
+      idrxAttemptIdRef.current = crypto.randomUUID();
+      setIdrxResult(null);
+      setIdrxReturned(false);
+    });
+  }
+
   function checkIdrxFunding() {
     refreshMoneyData();
     setReconcileRequested(true);
+    recoverExistingIdrx();
   }
 
   function resetIdrx() {
@@ -226,6 +273,7 @@ function FundingExperienceBoundary({
         openRef.current = true;
         resetIdrx();
         setStep("idrx");
+        recoverExistingIdrx();
       }}
       onContinueToCoinbase={openCoinbase}
       onCreateIdrx={createIdrx}
@@ -273,6 +321,11 @@ function readSavedIdrxAttempt(boundary: string | null): SavedIdrxAttempt {
 function saveIdrxAttempt(boundary: string | null, value: SavedIdrxAttempt): void {
   if (!boundary || typeof window === "undefined") return;
   window.sessionStorage.setItem(idrxStorageKey(boundary), JSON.stringify(value));
+}
+
+function clearSavedIdrxAttempt(boundary: string | null): void {
+  if (!boundary || typeof window === "undefined") return;
+  window.sessionStorage.removeItem(idrxStorageKey(boundary));
 }
 
 function idrxStorageKey(boundary: string): string {

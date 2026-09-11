@@ -3,6 +3,7 @@ import {
   FundingRequestError,
   parseHostedOnrampSession,
   parseIdrxMintResult,
+  recoverIdrxAttempt,
   requestHostedOnrampSession,
   requestIdrxMint,
 } from "./funding-client";
@@ -64,6 +65,34 @@ describe("funding client boundaries", () => {
       ...result,
       verification: { status: "confirmed", boundary: "provider" },
     })).toThrow(FundingRequestError);
+  });
+
+  test("recovers persisted instructions through a non-dispatching authenticated GET", async () => {
+    const calls: unknown[] = [];
+    const recovered = await recoverIdrxAttempt({
+      fetchAccountResource: async (...args) => {
+        calls.push(args);
+        return {
+          status: "completed",
+          result: {
+            presentation: "hosted",
+            rail: "qris",
+            asset: {
+              id: "idrx",
+              symbol: "IDRX",
+              decimals: 2,
+              tokenAddress: "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
+            },
+            network: { name: "Base", chainId: 8453 },
+            merchantOrderId: "order-2",
+            url: "https://checkout.idrx.co/?token=fixture",
+            verification: { status: "pending", boundary: "balance-and-activity" },
+          },
+        };
+      },
+    });
+    expect(recovered).toMatchObject({ status: "completed", result: { merchantOrderId: "order-2" } });
+    expect(calls).toEqual([["/api/funding/idrx-attempt", { method: "GET", signal: undefined }]]);
   });
 
   test("sends only the Indonesia rail intent and explicit KYC consent", async () => {

@@ -87,3 +87,9 @@ export type IdrxHostedMint = {
 };
 
 export type IdrxMintResult = IdrxVirtualAccountMint | IdrxHostedMint;
+
+export type IdrxRecoveryResult =
+  | { status: "none" }
+  | { status: "pending"; attemptId: string }
+  | { status: "completed"; result: IdrxMintResult }
+  | { status: "terminal"; outcome: "expired" | "failed" | "minted" };

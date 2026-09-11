@@ -17,6 +17,30 @@ type FundingWallet = Pick<
   "ownerKey" | "status" | "session" | "fetchAccountResource"
 >;
 
+function idrxVa() {
+  return {
+    presentation: "virtual-account",
+    rail: "bank-va",
+    asset: {
+      id: "idrx",
+      symbol: "IDRX",
+      decimals: 2,
+      tokenAddress: "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
+    },
+    network: { name: "Base", chainId: 8453 },
+    merchantOrderId: "order-1",
+    reference: "ref-1",
+    virtualAccountNo: "8680770000001234",
+    virtualAccountName: "HOME TEST",
+    amount: "24000",
+    baseAmount: "20000",
+    fees: [{ name: "VA", amount: "4000" }],
+    expiredDate: "2026-09-12T12:00:00.000Z",
+    channelId: "MANDIRI",
+    verification: { status: "pending", boundary: "balance-and-activity" },
+  };
+}
+
 function hosted() {
   return {
     url: HOSTED_URL,
@@ -148,8 +172,9 @@ describe("FundingExperience", () => {
   });
 
   test("gates IDRX to Indonesia and reconciles only through balance and activity refresh", async () => {
-    const calls: unknown[] = [];
+    const calls: Array<[string, unknown?]> = [];
     let refreshes = 0;
+    let created = false;
     render(
       <MoneyDataRefreshProvider onConfirmed={() => { refreshes += 1; }}>
         <FundingExperienceForWallet
@@ -157,27 +182,13 @@ describe("FundingExperience", () => {
           ...verifiedWallet(),
           fetchAccountResource: async (...args) => {
             calls.push(args);
-            return {
-              presentation: "virtual-account",
-              rail: "bank-va",
-              asset: {
-                id: "idrx",
-                symbol: "IDRX",
-                decimals: 2,
-                tokenAddress: "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
-              },
-              network: { name: "Base", chainId: 8453 },
-              merchantOrderId: "order-1",
-              reference: "ref-1",
-              virtualAccountNo: "8680770000001234",
-              virtualAccountName: "HOME TEST",
-              amount: "24000",
-              baseAmount: "20000",
-              fees: [{ name: "VA", amount: "4000" }],
-              expiredDate: "2026-09-11T12:00:00.000Z",
-              channelId: "MANDIRI",
-              verification: { status: "pending", boundary: "balance-and-activity" },
-            };
+            if (args[0] === "/api/funding/idrx-attempt") {
+              return created
+                ? { status: "completed", result: idrxVa() }
+                : { status: "none" };
+            }
+            created = true;
+            return idrxVa();
           },
         }}
         navigateToHostedOnramp={() => {}}
@@ -187,7 +198,7 @@ describe("FundingExperience", () => {
     );
 
     fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
-    const create = page().getByRole("button", { name: "Create virtual account" });
+    const create = await page().findByRole("button", { name: "Create virtual account" });
     expect(create.hasAttribute("disabled")).toBeTrue();
     fireEvent.click(page().getByRole("checkbox"));
     fireEvent.click(create);
@@ -197,7 +208,7 @@ describe("FundingExperience", () => {
     fireEvent.click(page().getByRole("button", { name: "Check balance & activity" }));
     expect(refreshes).toBe(1);
     expect(page().getByText(/Funding stays pending until IDRX appears/)).toBeTruthy();
-    expect(calls).toEqual([["/api/funding/idrx-mint", {
+    expect(calls.filter(([path]) => path === "/api/funding/idrx-mint")).toEqual([["/api/funding/idrx-mint", {
       method: "POST",
       body: {
         assetId: "idrx",
@@ -214,17 +225,75 @@ describe("FundingExperience", () => {
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
     expect(page().getByText("8680770000001234")).toBeTruthy();
-    expect(calls).toHaveLength(1);
+    expect(calls.filter(([path]) => path === "/api/funding/idrx-mint")).toHaveLength(1);
+  });
+
+  test("recovers completed VA instructions after close discards the initiating response", async () => {
+    let resolveMint!: (value: unknown) => void;
+    const pendingMint = new Promise<unknown>((resolve) => { resolveMint = resolve; });
+    let persistedResult: unknown = null;
+    let dispatches = 0;
+    const view = render(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async (path) => {
+            if (path === "/api/funding/idrx-attempt") {
+              return persistedResult
+                ? { status: "completed", result: persistedResult }
+                : { status: "none" };
+            }
+            dispatches += 1;
+            return pendingMint;
+          },
+        }}
+        navigateToHostedOnramp={() => {}}
+        regionId="ID"
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
+    await page().findByRole("button", { name: "Create virtual account" });
+    fireEvent.click(page().getByRole("checkbox"));
+    fireEvent.click(page().getByRole("button", { name: "Create virtual account" }));
+    fireEvent.click(page().getByRole("button", { name: "Close add money" }));
+
+    persistedResult = idrxVa();
+    await act(async () => { resolveMint(persistedResult); await pendingMint; });
+    expect(page().queryByText("8680770000001234")).toBeNull();
+
+    view.rerender(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async (path) => path === "/api/funding/idrx-attempt"
+            ? { status: "completed", result: persistedResult }
+            : (() => { throw new Error("must not redispatch"); })(),
+        }}
+        navigateToHostedOnramp={() => {}}
+        regionId="ID"
+        open
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
+    expect(await page().findByText("8680770000001234")).toBeTruthy();
+    expect(dispatches).toBe(1);
   });
 
   test("retains an ambiguous IDRX attempt across back navigation and does not offer redispatch", async () => {
-    let calls = 0;
+    let dispatches = 0;
+    let pendingAttemptId: string | null = null;
     render(
       <FundingExperienceForWallet
         wallet={{
           ...verifiedWallet(),
-          fetchAccountResource: async () => {
-            calls += 1;
+          fetchAccountResource: async (path, options) => {
+            if (path === "/api/funding/idrx-attempt") {
+              return pendingAttemptId
+                ? { status: "pending", attemptId: pendingAttemptId }
+                : { status: "none" };
+            }
+            dispatches += 1;
+            pendingAttemptId = (options?.body as { attemptId: string }).attemptId;
             throw Object.assign(new Error("pending"), { status: 409 });
           },
         }}
@@ -233,17 +302,18 @@ describe("FundingExperience", () => {
       />,
     );
     fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
+    await page().findByRole("button", { name: "Create virtual account" });
     fireEvent.click(page().getByRole("checkbox"));
     fireEvent.click(page().getByRole("button", { name: "Create virtual account" }));
     await waitFor(() => expect(page().getByText("Funding pending")).toBeTruthy());
-    expect(calls).toBe(1);
+    expect(dispatches).toBe(1);
     expect(page().queryByRole("button", { name: "Create virtual account" })).toBeNull();
 
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
     expect(page().getByText("Funding pending")).toBeTruthy();
     expect(page().queryByRole("button", { name: "Create virtual account" })).toBeNull();
-    expect(calls).toBe(1);
+    expect(dispatches).toBe(1);
   });
 
   test("does not expose the Indonesia issuer rail in another region", () => {

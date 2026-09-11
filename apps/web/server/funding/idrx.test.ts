@@ -8,6 +8,7 @@ import {
   IdrxMintError,
   assertIdrxBaseToken,
   createIdrxMintClient,
+  createIdrxMintStatusReader,
   isAllowedIdrxMintAmount,
   parseIdrxCheckoutUrl,
   resolveConfiguredIdrxCustomer,
@@ -160,6 +161,33 @@ describe("IDRX mint client", () => {
       returnUrl: "https://home.example/fund?return=idrx",
     })).rejects.toMatchObject({ code: "not-configured" });
     expect(providerCalls).toBe(0);
+  });
+
+  test("reconciles only the exact merchant through the read-only history boundary", async () => {
+    const requests: Array<{ input: string; init?: RequestInit }> = [];
+    const reader = createIdrxMintStatusReader({
+      env: {
+        IDRX_CLIENT_ID: "public-key",
+        IDRX_CLIENT_SECRET: SECRET,
+        IDRX_CUSTOMER_SUBJECT: "subject-a",
+        IDRX_CUSTOMER_NAME: "JOHN SMITH",
+      },
+      now: () => 1_700_000_000_000,
+      fetchImplementation: async (input, init) => {
+        requests.push({ input: String(input), init });
+        return Response.json({
+          data: { records: [{ merchantOrderId: "order-1", userMintStatus: "EXPIRED" }] },
+        });
+      },
+    });
+    await expect(reader({
+      customer: { subject: "subject-a", customerName: "JOHN SMITH" },
+      merchantOrderId: "order-1",
+    })).resolves.toBe("expired");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.init?.method).toBe("GET");
+    expect(requests[0]?.init?.body).toBeUndefined();
+    expect(new URL(requests[0]!.input).searchParams.get("merchantOrderId")).toBe("order-1");
   });
 
   test("creates QRIS only through the explicit hosted rail", async () => {

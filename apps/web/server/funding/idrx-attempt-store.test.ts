@@ -39,9 +39,18 @@ describe("IDRX attempt store contract", () => {
   test("persists immutable intent, remains pending after ambiguity, and recovers completion", async () => {
     const store = new MemoryIdrxAttemptStore();
     expect(await store.begin(owner, attemptId, intent)).toEqual({ status: "new" });
-    expect(await store.begin(owner, attemptId, intent)).toEqual({ status: "pending" });
+    expect(await store.begin(owner, attemptId, intent)).toEqual({
+      status: "pending",
+      attemptId,
+      intent,
+    });
     await store.complete(owner, attemptId, result);
-    expect(await store.begin(owner, attemptId, intent)).toEqual({ status: "completed", result });
+    expect(await store.begin(owner, attemptId, intent)).toEqual({
+      status: "completed",
+      attemptId,
+      intent,
+      result,
+    });
   });
 
   test("rejects reuse of an attempt ID with changed amount, rail, channel, or customer", async () => {
@@ -64,7 +73,24 @@ describe("IDRX attempt store contract", () => {
       owner,
       "22222222-2222-4222-8222-222222222222",
       intent,
-    )).toEqual({ status: "pending" });
+    )).toEqual({ status: "pending", attemptId, intent });
+  });
+
+  test("releases only the terminal reservation while preserving attempt-ID replay protection", async () => {
+    const store = new MemoryIdrxAttemptStore();
+    expect(await store.begin(owner, attemptId, intent)).toEqual({ status: "new" });
+    await store.complete(owner, attemptId, result);
+    await store.release(owner, attemptId, "expired");
+    expect(await store.recover(owner)).toEqual({ status: "none" });
+    expect(await store.begin(owner, attemptId, intent)).toEqual({
+      status: "terminal",
+      outcome: "expired",
+    });
+    expect(await store.begin(
+      owner,
+      "33333333-3333-4333-8333-333333333333",
+      { ...intent, toBeMinted: "30000" },
+    )).toEqual({ status: "new" });
   });
 
   test("does not expose an attempt to another verified owner", async () => {

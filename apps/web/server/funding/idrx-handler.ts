@@ -7,6 +7,7 @@ import type { FundingSessionAuthorizer } from "./handler";
 import type {
   IdrxAttemptIntent,
   IdrxAttemptStore,
+  IdrxTerminalOutcome,
 } from "./idrx-attempt-store";
 import {
   IDRX_BASE_CHAIN_ID,
@@ -14,6 +15,7 @@ import {
   isIdrxVaChannel,
   type CreateIdrxMintRequest,
   type IdrxCustomerBinding,
+  type ReadIdrxMintStatus,
 } from "./idrx";
 import type { IdrxFundingRail, IdrxVaChannel } from "@/shared/funding/types";
 
@@ -34,6 +36,82 @@ const allowedIntentKeys = new Set([
   "attemptId",
 ]);
 const attemptIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function createIdrxRecoveryHandler(dependencies: {
+  authorize: FundingSessionAuthorizer;
+  resolveCustomer: (subject: string) => IdrxCustomerBinding | null;
+  attempts: IdrxAttemptStore;
+  readStatus: ReadIdrxMintStatus;
+  now?: () => number;
+}) {
+  return async function GET(request: Request): Promise<Response> {
+    const boundaryResponse = await dependencies.authorize(request);
+    if (!boundaryResponse.ok) return withFundingHeaders(boundaryResponse);
+    const session = await parseAuthorizedSession(
+      boundaryResponse,
+      readRequestedProvider(request),
+    );
+    if (!session?.smartAccount) {
+      return privateError("AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.", 503);
+    }
+    const customer = dependencies.resolveCustomer(session.user.subject);
+    if (!customer || customer.subject !== session.user.subject) {
+      return privateError(
+        "IDRX_CUSTOMER_NOT_LINKED",
+        "Link a verified IDRX customer identity before recovering a payment request.",
+        424,
+      );
+    }
+    const owner = {
+      subject: session.user.subject,
+      smartAccount: session.smartAccount.address,
+    };
+    let attempt;
+    try { attempt = await dependencies.attempts.recover(owner); }
+    catch {
+      return privateError(
+        "IDRX_ATTEMPT_STORE_UNAVAILABLE",
+        "Durable IDRX attempt recovery is unavailable.",
+        424,
+      );
+    }
+    if (attempt.status === "none") return privateJson({ status: "none" }, 200);
+    if (attempt.status === "pending") {
+      return privateJson({ status: "pending", attemptId: attempt.attemptId }, 200);
+    }
+    if (attempt.status !== "completed") {
+      return privateError("IDRX_ATTEMPT_INVALID", "The saved IDRX attempt is invalid.", 409);
+    }
+    const localExpiry = attempt.result.presentation === "virtual-account"
+      ? Date.parse(attempt.result.expiredDate)
+      : Number.NaN;
+    let terminal: IdrxTerminalOutcome | null = Number.isFinite(localExpiry) &&
+      localExpiry <= (dependencies.now ?? Date.now)()
+      ? "expired"
+      : null;
+    if (!terminal) {
+      try {
+        const status = await dependencies.readStatus({
+          customer,
+          merchantOrderId: attempt.result.merchantOrderId,
+          signal: request.signal,
+        });
+        if (status !== "pending") terminal = status;
+      } catch {
+        // Recovery remains non-dispatching and returns saved instructions when
+        // the bounded read-only provider reconciliation is unavailable.
+      }
+    }
+    if (terminal) {
+      try { await dependencies.attempts.release(owner, attempt.attemptId, terminal); }
+      catch {
+        return privateError("IDRX_ATTEMPT_STORE_UNAVAILABLE", "IDRX reconciliation could not be saved.", 424);
+      }
+      return privateJson({ status: "terminal", outcome: terminal }, 200);
+    }
+    return privateJson({ status: "completed", result: attempt.result }, 200);
+  };
+}
 
 export function createIdrxMintHandler(dependencies: {
   authorize: FundingSessionAuthorizer;
