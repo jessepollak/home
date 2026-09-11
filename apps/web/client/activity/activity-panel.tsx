@@ -11,13 +11,10 @@ import styles from "./activity.module.css";
 import { useActivity } from "./use-activity";
 import {
   ACTIVITY_TEASER_LIMIT,
-  activityAssets,
   type ActivityDirection,
   type ActivityPanelProps,
   type ActivityTransfer,
 } from "./types";
-
-const assetsById = new Map(activityAssets.map((asset) => [asset.id, asset]));
 
 export function ActivityPanel({
   session,
@@ -50,11 +47,7 @@ export function ActivityPanel({
   const labelled = header === null ? "Activity" : undefined;
   const timeZone = runtimeTimeZone();
   const details = selectedTransfer
-    ? presentActivityTransferDetails(
-        selectedTransfer,
-        assetsById.get(selectedTransfer.assetId),
-        { timeZone },
-      )
+    ? presentActivityTransferDetails(selectedTransfer, { timeZone })
     : null;
   const detailsTitleId = "activity-transfer-details-title";
 
@@ -277,8 +270,7 @@ function TransferActivityRow({
   timeZone: string;
   onActivate: () => void;
 }) {
-  const asset = assetsById.get(transfer.assetId)!;
-  const model = presentActivityTransferRow(transfer, asset, { timeZone });
+  const model = presentActivityTransferRow(transfer, { timeZone });
   return (
     <ActivityRow
       icon={iconForDirection(transfer.direction)}
@@ -292,7 +284,7 @@ function TransferActivityRow({
       contextTitle={model.fullDate}
       value={model.value}
       onActivate={onActivate}
-      activateLabel={`View ${model.directionLabel.toLowerCase()} ${asset.symbol} transaction details`}
+      activateLabel={`View ${model.directionLabel.toLowerCase()} ${transfer.tokenSymbol ?? "unknown token"} transaction details`}
     />
   );
 }
