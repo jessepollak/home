@@ -72,7 +72,16 @@ try {
   const replay = { ...action, id: "33333333-3333-4333-8333-333333333333" };
   await store.issue(replay);
   await store.claim(owner, replay.id, replay.reviewHash, "2026-09-08T05:03:00.000Z");
-  assert.equal(await store.updateStatus(owner, replay.id, "confirmed", "2026-09-08T05:03:01.000Z", {
+  await store.recordSubmission(
+    owner,
+    replay.id,
+    {
+      transactionHash: `0x${"e".repeat(64)}`,
+      userOperationHash: `0x${"f".repeat(64)}`,
+    },
+    "2026-09-08T05:03:01.000Z",
+  );
+  assert.equal(await store.updateStatus(owner, replay.id, "confirmed", "2026-09-08T05:03:02.000Z", {
     verifiedExecution: {
       chainId: 8453,
       kind: "user-operation",
