@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
-  const accountProvider = process.env.HOME_PLAYWRIGHT_SMOKE === "1" ? (
+  const accountProvider = process.env.HOME_PLAYWRIGHT_SMOKE === "1" && !process.env.VERCEL ? (
     <SmokeFixtureAccountProvider>{children}</SmokeFixtureAccountProvider>
   ) : (
     <CdpAccountProvider
