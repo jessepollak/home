@@ -5,6 +5,7 @@ const MAX_SCRUB_INPUT_CHARS = 4_096;
 const MAX_SCRUB_OUTPUT_CHARS = 2_048;
 const MAX_ROUTE_CHARS = 192;
 const MAX_ROUTE_SEGMENT_CHARS = 48;
+const MAX_PATH_SEGMENT_DECODE_PASSES = 3;
 
 const sensitiveKeySource = [
   "authorization",
@@ -43,10 +44,20 @@ const bearerOrBasicPattern = /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi;
 const jwtPattern = /\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]{2,}\b/g;
 const privateKeyPattern = /-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-\r\n]*PRIVATE KEY-----|$)/gi;
 const absoluteUrlPattern = /\b(?:https?|wss?):\/\/[^\s"'<>]+/gi;
+const embeddedPathBoundarySource = `[\\s"'=:(\\[\\]{}]`;
 const protocolRelativeUrlPattern = /(^|[\s"'=:(])\/\/[^\s"'<>]+/g;
-const absolutePathReferencePattern = /(^|[\s"'=:(])(\/(?!\/)[^\s"'<>]*)/g;
-const relativeSlashPathPattern = /(^|[\s"'=:(])((?:\.{1,2}\/)?[A-Za-z0-9._~!$&'()*+,;=:@%-]+(?:\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]+)+)/g;
-const relativeQueryOrHashPattern = /(^|[\s"'=:(])((?:(?:\.{1,2}\/)*[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~!$&'()*+,;=:@%-]+)*)?[?#][^\s"'<>]*)/g;
+const absolutePathReferencePattern = new RegExp(
+  `(^|${embeddedPathBoundarySource})(\\/(?!\\/)[^\\s"'<>\\[\\]{}]*)`,
+  "g",
+);
+const relativeSlashPathPattern = new RegExp(
+  `(^|${embeddedPathBoundarySource})((?:\\.{1,2}\\/)?[A-Za-z0-9._~!$&'()*+,;=:@%-]+(?:\\/[A-Za-z0-9._~!$&'()*+,;=:@%\\/-]+)+)`,
+  "g",
+);
+const relativeQueryOrHashPattern = new RegExp(
+  `(^|${embeddedPathBoundarySource})((?:(?:\\.{1,2}\\/)*[A-Za-z0-9._~-]+(?:\\/[A-Za-z0-9._~!$&'()*+,;=:@%-]+)*)?[?#][^\\s"'<>\\[\\]{}]*)`,
+  "g",
+);
 const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const secretPrefixPattern = /\b(?:sk|pk|secret|token)[-_][A-Za-z0-9_-]{12,}\b/gi;
 const highEntropyPattern = /\b(?=[A-Za-z0-9_+/=-]{24,}\b)(?=[A-Za-z0-9_+/=-]*[A-Za-z])(?=[A-Za-z0-9_+/=-]*\d)[A-Za-z0-9_+/=-]+\b/g;
@@ -156,13 +167,23 @@ function redactSensitiveAssignments(value: string): string {
 }
 
 function decodedSensitiveKey(segment: string): boolean {
-  if (isSensitiveKey(segment)) return true;
-  if (!segment.includes("%")) return false;
-  try {
-    return isSensitiveKey(decodeURIComponent(segment));
-  } catch {
-    return false;
+  let candidate = segment;
+
+  for (let pass = 0; pass < MAX_PATH_SEGMENT_DECODE_PASSES; pass += 1) {
+    if (isSensitiveKey(candidate)) return true;
+    if (!candidate.includes("%")) return false;
+
+    try {
+      const decoded = decodeURIComponent(candidate);
+      if (decoded === candidate) return false;
+      candidate = decoded;
+    } catch {
+      return true;
+    }
   }
+
+  if (isSensitiveKey(candidate)) return true;
+  return candidate.includes("%");
 }
 
 function sanitizePathname(pathname: string, maxChars: number): string {
@@ -230,8 +251,8 @@ function redactPathReferences(value: string): string {
 export function scrubString(value: string): string {
   const bounded = value.slice(0, MAX_SCRUB_INPUT_CHARS).replace(controlPattern, " ");
 
-  return redactPathReferences(
-    redactSensitiveAssignments(
+  return redactSensitiveAssignments(
+    redactPathReferences(
       redactCredentialHeaders(
         bounded
           .replace(privateKeyPattern, REDACTED)

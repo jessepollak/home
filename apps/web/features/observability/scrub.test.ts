@@ -117,6 +117,30 @@ describe("observability scrub security matrix", () => {
     expect(scrubbed).not.toContain(relativeCanary);
   });
 
+  test("recursively decodes path keys and scrubs bracket- and brace-wrapped references", () => {
+    const absoluteCanary = "short-absolute-canary";
+    const relativeCanary = "short-relative-canary";
+
+    expect(sanitizeRoutePath(`/reset/%2574oken/${absoluteCanary}`)).toBe(
+      "/reset/:redacted/:redacted",
+    );
+    expect(sanitizeRoutePath(`/reset/%ZZ/${absoluteCanary}`)).toBe(
+      "/reset/:redacted/:redacted",
+    );
+    expect(sanitizeRoutePath(`/reset/%25252574oken/${absoluteCanary}`)).toBe(
+      "/reset/:redacted/:redacted",
+    );
+
+    const scrubbed = scrubString(
+      `[/reset/%2574oken/${absoluteCanary}] {docs/%2574oken/${relativeCanary}}`,
+    );
+    expect(scrubbed).toBe(
+      "[/reset/:redacted/:redacted] {docs/:redacted/:redacted}",
+    );
+    expect(scrubbed).not.toContain(absoluteCanary);
+    expect(scrubbed).not.toContain(relativeCanary);
+  });
+
   test("redacts complete credential headers and structured sensitive values", () => {
     const headerOne = "header-first-canary";
     const headerTwo = "header-second-canary";

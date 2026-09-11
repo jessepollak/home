@@ -278,4 +278,53 @@ describe("POST /api/client-errors security matrix", () => {
     }
     expect(serialized).not.toContain(canaries.boundary.slice(0, 8));
   });
+
+  test("scrubs recursively encoded keys in wrapped paths through the normalized log line", async () => {
+    const routeCanary = "wrapped-route-canary";
+    const absoluteCanary = "wrapped-absolute-canary";
+    const relativeCanary = "wrapped-relative-canary";
+    const writes: string[] = [];
+    let endpointStatus = 0;
+    setObservabilityLogWriterForTests((line) => writes.push(line));
+
+    const handler = createClientErrorHandler({
+      log: writeObservabilityEvent,
+      takePermit: () => true,
+    });
+    await reportClientError(
+      {
+        name: "TypeError",
+        message: `[/reset/%2574oken/${absoluteCanary}] {docs/%2574oken/${relativeCanary}}`,
+        route: `/reset/%2574oken/${routeCanary}`,
+      },
+      async (input, init) => {
+        expect(input).toBe(CLIENT_ERROR_ENDPOINT);
+        const body = String(init.body ?? "");
+        const response = await handler(
+          request(body, {
+            ...safeHeaders,
+            "content-length": String(new TextEncoder().encode(body).byteLength),
+          }),
+        );
+        endpointStatus = response.status;
+        return { ok: response.ok, status: response.status };
+      },
+    );
+
+    expect(endpointStatus).toBe(204);
+    expect(writes).toHaveLength(1);
+    const line = JSON.parse(writes[0] ?? "{}") as Record<string, unknown>;
+    expect(line).toMatchObject({
+      schema: "home.observability.v2",
+      kind: "client-error",
+      route: "/reset/:redacted/:redacted",
+      errorName: "TypeError",
+      summary: "[/reset/:redacted/:redacted] {docs/:redacted/:redacted}",
+    });
+
+    const serialized = JSON.stringify(line);
+    for (const canary of [routeCanary, absoluteCanary, relativeCanary]) {
+      expect(serialized).not.toContain(canary);
+    }
+  });
 });
