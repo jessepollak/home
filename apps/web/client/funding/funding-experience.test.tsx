@@ -170,16 +170,27 @@ describe("FundingExperience", () => {
               : new RegExp(`Deposit ${item.currency}`),
         }),
       );
+      const dialog = page().getByRole("dialog", {
+        name: `Deposit ${item.currency}`,
+      });
+      expect(dialog).toBeTruthy();
+
+      // Lock the rendered hierarchy: the dialog header (h2) carries the
+      // local-fiat title, and the provider subheader (h3) sits directly below
+      // it. No duplicate or inverted copy is allowed.
+      const headings = within(dialog).getAllByRole("heading");
+      expect(headings[0].textContent).toBe(`Deposit ${item.currency}`);
+      expect(headings[0].tagName).toBe("H2");
+      expect(headings[0].id).toBe("add-money-title");
       expect(
-        page().getByRole("dialog", {
-          name: `Deposit ${item.currency}`,
-        }),
-      ).toBeTruthy();
+        within(dialog).getAllByRole("heading", { name: `Deposit ${item.currency}` }),
+      ).toHaveLength(1);
+      expect(headings[1].textContent).toBe("Use Ripio to deposit from your local bank");
+      expect(headings[1].tagName).toBe("H3");
       expect(
-        page().getByRole("heading", {
-          name: "Use Ripio to deposit from your local bank",
-        }),
-      ).toBeTruthy();
+        within(dialog).getAllByText("Use Ripio to deposit from your local bank"),
+      ).toHaveLength(1);
+      expect(within(dialog).queryByText("Deposit from your local account")).toBeNull();
       if (item.regionId === "BR") {
         expect(page().getByText(/does not currently expose Home's selected BRZ/)).toBeTruthy();
       }

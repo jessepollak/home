@@ -325,5 +325,5 @@ export async function applyMoneyActionPostgresSchema(executor: SqlExecutor): Pro
   });
 }
 
-// Temporary #243 test-only import compatibility; never used by #245 acceptance.
+// Test-only SQL compatibility export; real money-store acceptance runs against PostgreSQL.
 export { createFakePostgresExecutor } from "./postgres-sql-test-double";

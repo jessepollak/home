@@ -7,6 +7,6 @@
   },
   "include": [
     "bun-postgres-executor.ts",
-    "tests/postgres-money-action.test.ts"
+    "tests/postgres-money-action*.test.ts"
   ]
 }
