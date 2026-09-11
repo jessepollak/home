@@ -14,6 +14,7 @@ import {
   type RegionId,
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
+import { ripioAvailability } from "@/shared/funding/ripio-contract";
 import {
   MoneyModal,
   MoneyModalFooter,
@@ -23,7 +24,7 @@ import modal from "@/client/money-modal/money-modal.module.css";
 import styles from "./add-money.module.css";
 import { ReceiveQr } from "./receive-qr";
 
-export type AddMoneyStep = "method" | "receive" | "buy";
+export type AddMoneyStep = "method" | "receive" | "buy" | "ripio";
 
 export function AddMoneyDialog({
   open,
@@ -37,6 +38,7 @@ export function AddMoneyDialog({
   onBack,
   onSelectReceive,
   onSelectBuy,
+  onSelectRipio,
   onContinueToCoinbase,
 }: {
   open: boolean;
@@ -50,9 +52,10 @@ export function AddMoneyDialog({
   onBack: () => void;
   onSelectReceive: () => void;
   onSelectBuy: () => void;
+  onSelectRipio: () => void;
   onContinueToCoinbase: () => void;
 }) {
-  const title = step === "receive" ? "Receive" : step === "buy" ? "Buy" : "Add money";
+  const title = step === "receive" ? "Receive" : step === "buy" || step === "ripio" ? "Buy" : "Add money";
 
   return (
     <MoneyModal
@@ -71,12 +74,18 @@ export function AddMoneyDialog({
 
       {signedOut ? <SignedOutBody /> : null}
       {!signedOut && step === "method" ? (
-        <MethodBody onSelectReceive={onSelectReceive} onSelectBuy={onSelectBuy} />
+        <MethodBody
+          regionId={regionId}
+          onSelectReceive={onSelectReceive}
+          onSelectBuy={onSelectBuy}
+          onSelectRipio={onSelectRipio}
+        />
       ) : null}
       {!signedOut && step === "receive" ? (
         <ReceiveBody address={address} regionId={regionId} />
       ) : null}
       {!signedOut && step === "buy" ? <BuyBody /> : null}
+      {!signedOut && step === "ripio" ? <RipioBody regionId={regionId} /> : null}
 
       {onrampError && step === "buy" ? (
         <div className={styles.statusStack}>
@@ -103,17 +112,27 @@ export function AddMoneyDialog({
           onSecondary={onBack}
         />
       ) : null}
+      {!signedOut && step === "ripio" ? (
+        <div className={modal.footer}>
+          <button className={modal.quiet} type="button" onClick={onBack}>Back</button>
+        </div>
+      ) : null}
     </MoneyModal>
   );
 }
 
 export function MethodBody({
+  regionId,
   onSelectReceive,
   onSelectBuy,
+  onSelectRipio,
 }: {
+  regionId: RegionId;
   onSelectReceive: () => void;
   onSelectBuy: () => void;
+  onSelectRipio: () => void;
 }) {
+  const ripio = ripioAvailability(regionId);
   return (
     <div className={modal.body}>
       <p className={styles.subtitle}>Fund this Base account</p>
@@ -128,6 +147,27 @@ export function MethodBody({
           </span>
           <span className={styles.methodChevron} aria-hidden="true">›</span>
         </button>
+        {ripio ? (
+          <button
+            className={styles.method}
+            type="button"
+            onClick={onSelectRipio}
+          >
+            <CurrencyMark
+              currency={presentationRegions[regionId].currency.code ?? "USD"}
+              symbol={presentationRegions[regionId].currency.symbol ?? "$"}
+            />
+            <span className={styles.methodCopy}>
+              <span className={styles.methodTitle}>Buy local currency with Ripio</span>
+              <span className={styles.methodHint}>
+                {ripio.available
+                  ? `${ripio.token} delivered directly on Base`
+                  : "Brazil route unavailable until the supported asset is selected"}
+              </span>
+            </span>
+            <span className={styles.methodChevron} aria-hidden="true">›</span>
+          </button>
+        ) : null}
         <button className={styles.method} type="button" onClick={onSelectBuy}>
           <CurrencyMark currency="USD" symbol="$" />
           <span className={styles.methodCopy}>
@@ -236,6 +276,38 @@ export function BuyBody() {
       <p className={styles.buyLead}>
         Buy USDC with Coinbase&apos;s hosted onramp and receive it on Base.
       </p>
+    </div>
+  );
+}
+
+export function RipioBody({ regionId }: { regionId: RegionId }) {
+  const availability = ripioAvailability(regionId);
+  if (!availability) return null;
+  const region = presentationRegions[regionId];
+  return (
+    <div className={`${modal.body} ${styles.buy}`}>
+      <CurrencyMark
+        currency={region.currency.code ?? "USD"}
+        symbol={region.currency.symbol ?? "$"}
+      />
+      <h3 className={styles.buyTitle}>Ripio direct funding</h3>
+      {availability.available ? (
+        <>
+          <p className={styles.buyLead}>
+            Buy {availability.token} with {availability.fiatCurrency} and receive it at this
+            account on Base.
+          </p>
+          <p className={styles.subtitle}>
+            A held quote shows the rate and fees before an order. Ripio terms, consent, and
+            identity verification are required before local payment instructions are issued.
+          </p>
+        </>
+      ) : (
+        <p className={styles.buyLead}>
+          Ripio does not currently expose Home&apos;s selected BRZ asset on Base. No Brazil
+          order can be created until the Brazil asset decision is resolved.
+        </p>
+      )}
     </div>
   );
 }

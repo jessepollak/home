@@ -146,6 +146,30 @@ describe("FundingExperience", () => {
     expect(page().getByText(/other tokens in Home's supported Base inventory/)).toBeTruthy();
   });
 
+  test("gates the direct Ripio entry to AR/CO and keeps Brazil blocked on its unresolved asset", () => {
+    const rendered = render(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet()}
+        navigateToHostedOnramp={() => {}}
+        regionId="AR"
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: /Buy local currency with Ripio/ }));
+    expect(page().getByText(/Buy wARS with ARS/)).toBeTruthy();
+    expect(page().getByText(/terms, consent, and identity verification/)).toBeTruthy();
+
+    rendered.unmount();
+    render(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet()}
+        navigateToHostedOnramp={() => {}}
+        regionId="BR"
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: /Buy local currency with Ripio/ }));
+    expect(page().getByText(/does not currently expose Home's selected BRZ/)).toBeTruthy();
+  });
+
   test("keeps hosted navigation active after StrictMode effect replay", async () => {
     const navigations: string[] = [];
     render(

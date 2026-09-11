@@ -164,6 +164,11 @@ function FundingExperienceBoundary({
         setOnrampError(null);
         setStep("buy");
       }}
+      onSelectRipio={() => {
+        openRef.current = true;
+        setOnrampError(null);
+        setStep("ripio");
+      }}
       onContinueToCoinbase={() => void openCoinbase()}
     />
   );

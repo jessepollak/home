@@ -1,0 +1,96 @@
+import { describe, expect, test } from "bun:test";
+import { createRipioClient, RipioProviderError, ripioCredentialState } from "./ripio-client";
+
+const ID = "11111111-1111-4111-8111-111111111111";
+const CUSTOMER = "22222222-2222-4222-8222-222222222222";
+const QUOTE = "33333333-3333-4333-8333-333333333333";
+const EXTERNAL = "44444444-4444-4444-8444-444444444444";
+const DESTINATION = "0x1111111111111111111111111111111111111111" as const;
+const env = {
+  RIPIO_CLIENT_ID_AR: "client-ar",
+  RIPIO_CLIENT_SECRET_AR: "secret-ar-long-enough",
+};
+
+function token() {
+  return Response.json({ access_token: "provider-access-token", expires_in: 36000, scope: "read write" });
+}
+
+function arCatalog() {
+  return Response.json([{ network_name: "BASE", assets: [{ name: "wARS", contract_address: "0x0DC4F92879B7670e5f4e4e6e3c801D229129D90D" }] }]);
+}
+
+describe("Ripio production REST client", () => {
+  test("uses only the exact country credential pair and production host", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const client = createRipioClient("AR", {
+      env,
+      fetchImplementation: async (input, init) => {
+        requests.push({ url: String(input), init });
+        if (requests.length === 1) return token();
+        return Response.json({ networks: [] });
+      },
+    });
+    await client.getDepositNetworks();
+    expect(requests.map((request) => request.url)).toEqual([
+      "https://skala.ripio.com/oauth2/token/",
+      "https://skala.ripio.com/api/v1/depositNetworks/?include_currency=true",
+    ]);
+    expect(String(requests[0]?.init?.headers)).not.toContain("secret-ar-long-enough");
+    expect(ripioCredentialState("AR", env)).toBe("configured");
+    expect(ripioCredentialState("CO", env)).toBe("missing");
+  });
+
+  test("rejects cross-country/token/rail quote combinations before provider I/O", async () => {
+    let calls = 0;
+    const client = createRipioClient("AR", { env, fetchImplementation: async () => { calls += 1; return token(); } });
+    await expect(client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wCOP", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toBeInstanceOf(RipioProviderError);
+    expect(calls).toBe(0);
+  });
+
+  test("parses quote economics and country-specific rail instructions", async () => {
+    let call = 0;
+    const client = createRipioClient("AR", {
+      env,
+      fetchImplementation: async () => {
+        call += 1;
+        if (call === 1) return token();
+        if (call === 2 || call === 3) return arCatalog();
+        if (call === 4) return Response.json({ quoteId: QUOTE, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", finalFromAmount: "2110", toAmount: "2100", finalToAmount: "2100", rate: "1", expiration: "2026-09-11T22:00:00.000Z", fees: [{ amount: "10", type: "service", currency: "ARS", appliesOnFromAmount: true, appliesOnToAmount: false }] });
+        return Response.json({ transaction: { transactionId: ID, customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, status: "CREATED", txnHash: null }, fiatPaymentInstructions: { cvu: "1234567890123456789012", alias: "home.ripio" } });
+      },
+    });
+    const quote = await client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION });
+    expect(quote.fees[0]).toMatchObject({ amount: "10", appliesOnFromAmount: true });
+    const order = await client.createOnramp({ customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION });
+    expect(order.instructions).toEqual({ kind: "ar-bank-transfer", cvu: "1234567890123456789012", alias: "home.ripio" });
+  });
+
+  test("fails closed when either live production catalog lacks the exact Base token contract", async () => {
+    let calls = 0;
+    const client = createRipioClient("AR", {
+      env,
+      fetchImplementation: async () => {
+        calls += 1;
+        if (calls === 1) return token();
+        if (calls === 2) return arCatalog();
+        return Response.json([{ network_name: "ETHEREUM_SEPOLIA", assets: [{ name: "RTEST", contract_address: "0x0472eDf217331A7809e33AA0920b8ab864EEB437" }] }]);
+      },
+    });
+    await expect(client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "invalid-request" });
+    expect(calls).toBe(3);
+  });
+
+  test("classifies disconnected creates as ambiguous and never retries", async () => {
+    let calls = 0;
+    const client = createRipioClient("AR", {
+      env,
+      fetchImplementation: async () => {
+        calls += 1;
+        if (calls === 1) return token();
+        throw new Error("connection reset after write");
+      },
+    });
+    await expect(client.createCustomer({ email: "person@example.com" })).rejects.toMatchObject({ code: "ambiguous-create" });
+    expect(calls).toBe(2);
+  });
+});
