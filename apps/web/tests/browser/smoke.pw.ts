@@ -234,3 +234,58 @@ test("money amount recomputes for text scaling", async ({ page }) => {
   await expect.poll(async () => (await amountMetrics(page))?.fontSize).toBeGreaterThan((before?.fontSize ?? 0) + 5);
   await expect(amount).toHaveText("$5");
 });
+
+test("account sign-in and settings stay reachable at 390px, 320px, and 200% text", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?account=signin");
+
+  const dialog = page.locator("dialog");
+  await expect(page.getByRole("dialog", { name: "Sign in to Home" })).toBeVisible();
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "200%";
+  });
+
+  const close = page.getByRole("button", { name: "Close sign in" });
+  const email = page.getByLabel("Email address");
+  const continueWithEmail = page.getByRole("button", { name: "Continue with email" });
+  await expect(dialog).toBeVisible();
+  await expect(close).toBeVisible();
+  await expect(email).toBeVisible();
+  await expect(continueWithEmail).toBeVisible();
+
+  for (const control of [close, email, continueWithEmail]) {
+    const box = await control.boundingBox();
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+  expect(
+    await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+
+  await email.fill("fixture@example.test");
+  await email.press("Enter");
+  await page.getByLabel("Verification code").fill("123456");
+  expect(
+    await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+  await page.getByRole("button", { name: "Verify and continue" }).click();
+  await expect(page).toHaveURL(/\/dashboard/);
+
+  await page.getByRole("button", { name: "Account" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Preferences" })).toBeVisible();
+  const country = page.getByRole("combobox", { name: "Country" });
+  const signOut = page.getByRole("button", { name: "Sign out" });
+  for (const control of [country, signOut]) {
+    const box = await control.boundingBox();
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+  await country.click();
+  await page.getByRole("option", { name: /United Kingdom/ }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  await expect(country).toBeVisible();
+  await expect(signOut).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+});

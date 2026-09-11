@@ -1,87 +1,120 @@
 .page {
   display: grid;
-  gap: 28px;
-  padding: 8px 0 24px;
+  gap: var(--home-ui-space-8);
+  color: var(--home-ui-color-text);
+  font-family: var(--home-ui-font-family);
+  overflow-wrap: anywhere;
+  padding: var(--home-ui-space-2) 0 var(--home-ui-space-6);
 }
 
 .section {
   display: grid;
-  gap: 10px;
-}
-
-.kicker {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.64rem;
-  font-weight: 750;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  gap: var(--home-ui-space-3);
 }
 
 .card {
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
-  background: #ffffff;
+  border: 1px solid var(--home-ui-color-border);
+  border-radius: var(--home-ui-radius-surface);
+  background: var(--home-ui-color-surface);
 }
 
 .countryRow,
 .row,
 .rowButton {
-  display: grid;
   width: 100%;
   min-height: 64px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  text-align: left;
+  padding: var(--home-ui-space-3) 14px;
 }
 
-.row,
-.rowButton {
-  grid-template-columns: minmax(0, 1fr) auto;
+.countryRow,
+.row {
+  display: grid;
+  align-items: center;
+  gap: var(--home-ui-space-3);
+}
+
+.countryRow {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.countryRow > [role="combobox"] {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.row {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .row + .rowButton,
 .row + .row {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--home-ui-color-border);
 }
 
 .countryCopy,
 .row > div {
   display: grid;
   min-width: 0;
-  gap: 3px;
+  gap: var(--home-ui-space-1);
 }
 
-.countryCopy span,
-.row strong,
-.rowButton span {
-  font-size: 0.92rem;
-  font-weight: 700;
-}
-
-.countryCopy p,
-.row small {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.72rem;
-  line-height: 1.35;
+.row small button {
+  display: inline-flex;
+  min-height: var(--home-ui-target-min);
+  align-items: center;
 }
 
 .row code {
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--home-ui-font-numeric);
 }
 
 .rowButton {
-  border: 0;
-  background: #ffffff;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
+  display: block;
+  border-radius: 0;
+  color: var(--home-ui-color-text);
+  text-align: left;
 }
 
-.rowButton svg {
-  color: var(--muted);
+.rowButton:focus-visible {
+  outline-offset: -3px;
+}
+
+.rowButton :global(.home-ui-button__label),
+.rowButtonContent {
+  width: 100%;
+  min-width: 0;
+}
+
+.rowButtonContent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--home-ui-space-3);
+}
+
+.rowButtonContent svg {
+  flex: 0 0 auto;
+  color: var(--home-ui-color-muted);
+}
+
+@media (max-width: 350px) {
+  .countryRow {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .countryRow > [role="combobox"] {
+    grid-column: 2;
+    width: 100%;
+    justify-content: space-between;
+    text-align: left;
+  }
+}
+
+@media (forced-colors: active) {
+  .card {
+    border-color: CanvasText;
+  }
 }

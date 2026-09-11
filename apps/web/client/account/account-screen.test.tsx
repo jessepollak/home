@@ -121,6 +121,42 @@ afterEach(() => {
 });
 
 describe("production account sign-in sheet", () => {
+  test("uses shared sheet typography, controls, and accessible Phosphor artwork", async () => {
+    render(
+      <SheetHarness
+        requestEmailCode={async () => ({ flowId: "presentation-flow" })}
+        baseAccountEnabled
+        baseAccountConnector={async () => {
+          throw new BaseAccountConnectorError("cancelled");
+        }}
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Open account" }));
+
+    const heading = await page().findByRole("heading", {
+      level: 2,
+      name: "Sign in to Home",
+    });
+    expect(heading.getAttribute("data-text-style")).toBe("sheet-title");
+
+    const close = page().getByRole("button", { name: "Close sign in" });
+    expect(close.classList.contains("home-ui-icon-button")).toBe(true);
+    expect(close.getAttribute("data-variant")).toBe("secondary");
+    expect(close.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(close.querySelector("svg")?.getAttribute("width")).toBe("20");
+
+    for (const name of ["Continue with email", "Continue with Base Account"]) {
+      const button = await page().findByRole("button", { name });
+      expect(button.classList.contains("home-ui-button")).toBe(true);
+    }
+    expect(
+      page()
+        .getByRole("button", { name: "Continue with Base Account" })
+        .getAttribute("data-variant"),
+    ).toBe("secondary");
+  });
+
   test("uses a modal dialog, keeps dynamic focus inside, and restores its trigger on Escape", async () => {
     const codeRequest = deferred<{ flowId: string }>();
     const trigger = render(
@@ -169,6 +205,7 @@ describe("production account sign-in sheet", () => {
     const otpInput = await page().findByRole("textbox", {
       name: "Verification code",
     });
+    expect(page().getByText("Sent to person@example.com. Codes expire.")).toBeTruthy();
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).toBe(otpInput);
 
