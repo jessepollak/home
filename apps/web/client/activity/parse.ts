@@ -1,4 +1,4 @@
-import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   ACTIVITY_BASE_CHAIN_ID,
   ACTIVITY_PAGE_SIZE,

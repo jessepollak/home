@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { PreparedMoneyAction } from "./types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import {
   PROVIDER_HANDLE_JOURNAL_KEY_PREFIX,
   ProviderHandleJournal,

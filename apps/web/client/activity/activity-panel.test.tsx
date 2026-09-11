@@ -1,7 +1,7 @@
 import "../account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   ACTIVITY_TEASER_LIMIT,
   type ActivityPage,

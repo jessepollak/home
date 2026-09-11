@@ -1,7 +1,7 @@
 "use client";
 
 import type { ProviderInterface } from "@base-org/account";
-import { BASE_CHAIN_ID } from "./session-types";
+import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 
 const BASE_CHAIN_HEX = "0x2105";
 const evmAddressPattern = /^0x[0-9a-fA-F]{40}$/;

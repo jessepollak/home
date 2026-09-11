@@ -1,8 +1,8 @@
 import type {
   MoneyActionOperationStatus,
   PreparedMoneyAction,
-} from "./types";
-import type { StoredMoneyActionOperation } from "@/server/money-actions/store";
+} from "@/shared/money-actions/types";
+import type { StoredMoneyActionOperation } from "@/shared/money-actions/types";
 
 export type MoneyActionApiFetch = (path: string, init?: RequestInit) => Promise<unknown>;
 

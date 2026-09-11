@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddressText } from "@/components/address";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import { useAccountWallet } from "@/client/account/cdp-client";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { useMoneyDataRefresh } from "@/client/money-actions/refresh";
-import type { OperationResult, PreparedMoneyAction } from "@/client/money-actions/types";
+import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { usePortfolio } from "@/client/portfolio";
 import {
   SavingsMoneyDialog,
@@ -16,13 +16,13 @@ import {
   BASE_USDC_ADDRESS,
   BASE_USDC_DECIMALS,
   MORPHO_V1_CANDIDATE_ADDRESSES,
-} from "@/server/morpho/config";
+} from "@/shared/savings/config";
 import type {
   Address,
   MorphoVaultCandidate,
   MorphoVaultPosition,
   MorphoVaultsResult,
-} from "@/server/morpho/types";
+} from "@/shared/savings/types";
 import {
   formatApy,
   formatUsdcUsd,

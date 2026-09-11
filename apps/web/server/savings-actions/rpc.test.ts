@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morpho/config";
+import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import {
   SAVINGS_ACTION_RPC_CONCURRENCY,
   SAVINGS_ACTION_RPC_TIMEOUT_MS,

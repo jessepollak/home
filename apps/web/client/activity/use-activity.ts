@@ -11,7 +11,7 @@ import type {
   ActivityState,
   FetchActivity,
 } from "./types";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
 type OwnedActivityState =
   | {

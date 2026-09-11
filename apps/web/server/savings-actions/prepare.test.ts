@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
-import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morpho/config";
-import type { Address } from "@/server/morpho/types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
+import type { Address } from "@/shared/savings/types";
 import { SavingsActionError, createPrepareSavingsAction } from "./prepare";
 import { SavingsActionRpcError } from "./rpc";
 import type { SavingsActionState, SavingsActionStateReader } from "./types";

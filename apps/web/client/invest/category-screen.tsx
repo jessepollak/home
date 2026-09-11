@@ -1,7 +1,7 @@
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
-import type { MarketDataState } from "./invest-market";
+import type { MarketDataState } from "@/shared/invest/invest-market";
 import { DiscoverAssetRow } from "./discover-asset-row";
 import type { DiscoverShelfId, MemeShelfStatus } from "./discover";
 import styles from "./invest-experience.module.css";

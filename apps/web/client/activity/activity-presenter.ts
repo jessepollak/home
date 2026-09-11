@@ -1,4 +1,4 @@
-import { formatPresentationTokenAmount } from "@/client/formatting";
+import { formatPresentationTokenAmount } from "@/shared/formatting";
 import type {
   ActivityAsset,
   ActivityDirection,

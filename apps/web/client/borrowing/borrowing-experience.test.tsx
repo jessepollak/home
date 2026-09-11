@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   BORROW_COLLATERAL_TOKEN,
   BORROW_IRM_ADDRESS,
@@ -10,8 +10,8 @@ import {
   BORROW_MARKET_ID,
   BORROW_ORACLE_ADDRESS,
   MORPHO_BLUE_ADDRESS,
-} from "@/server/borrowing/config";
-import type { BorrowMarketSnapshot } from "@/server/borrowing/types";
+} from "@/shared/borrowing/config";
+import type { BorrowMarketSnapshot } from "@/shared/borrowing/types";
 
 const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const { BorrowExperience } = await import("./borrowing-experience");

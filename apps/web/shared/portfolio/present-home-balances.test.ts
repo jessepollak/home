@@ -10,7 +10,7 @@ import type {
   DirectPortfolioHolding,
   NativeCashValuation,
   PortfolioValuationSnapshot,
-} from "@/server/valuation/types";
+} from "@/shared/portfolio/valuation-types";
 import {
   HOME_BALANCES_HUB_PREVIEW_COUNT,
   previewHomeBalanceItems,

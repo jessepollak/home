@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { ActivityRow } from "@/components/finance-rows";
-import { formatPresentationTokenAmount } from "@/client/formatting";
+import { formatPresentationTokenAmount } from "@/shared/formatting";
 import styles from "./activity.module.css";
 import { useActivity } from "./use-activity";
 import {

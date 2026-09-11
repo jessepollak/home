@@ -1,4 +1,4 @@
-import type { AccountProvider } from "@/client/account/session-types";
+import type { AccountProvider } from "@/shared/account/session-types";
 
 export type MoneyActionKind =
   | "send"
@@ -72,4 +72,17 @@ export type OperationResult = {
   status: MoneyActionOperationStatus;
   transactionHash?: `0x${string}`;
   userOperationHash?: `0x${string}`;
+};
+
+export type StoredMoneyActionOperation = {
+  action: PreparedMoneyAction;
+  status: MoneyActionOperationStatus;
+  attemptCount: number;
+  claimedAt?: string;
+  abandonedAt?: string;
+  submissionId?: string;
+  transactionHash?: `0x${string}`;
+  userOperationHash?: `0x${string}`;
+  createdAt: string;
+  updatedAt: string;
 };

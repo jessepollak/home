@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MoneyActionIssueError } from "@/server/money-actions/issue";
-import { MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morpho/config";
+import { MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import { createSavingsActionsHandler } from "./handler";
 import { SavingsActionError } from "./prepare";
 

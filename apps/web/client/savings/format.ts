@@ -1,5 +1,5 @@
-import { formatPercentage } from "@/client/formatting";
-import { BASE_USDC_DECIMALS } from "@/server/morpho/config";
+import { formatPercentage } from "@/shared/formatting";
+import { BASE_USDC_DECIMALS } from "@/shared/savings/config";
 
 const canonicalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 

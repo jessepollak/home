@@ -12,7 +12,7 @@ import {
   CdpTokenBalancesError,
 } from "./cdp-token-balances";
 import { createPortfolioInventoryReader } from "./inventory";
-import type { VerifiedPortfolioAccount } from "./types";
+import type { VerifiedPortfolioAccount } from "@/shared/portfolio/types";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;

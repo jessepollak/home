@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { BASE_USDC_ADDRESS } from "@/server/morpho/config";
-import type { MorphoVaultCandidate } from "@/server/morpho/types";
+import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
+import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import {
   formatExactSavingsApy,
   getSavingsRateState,

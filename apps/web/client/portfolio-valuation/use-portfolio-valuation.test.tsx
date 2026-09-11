@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { usePortfolioValuation } from "./use-portfolio-valuation";
-import type { FetchPortfolioValuation } from "./types";
+import type { FetchPortfolioValuation } from "@/shared/portfolio/valuation-state";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const session = {

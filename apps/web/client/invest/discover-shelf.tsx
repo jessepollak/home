@@ -1,6 +1,6 @@
 import type { InvestAsset } from "@/config/invest-assets";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
-import type { MarketDataState } from "./invest-market";
+import type { MarketDataState } from "@/shared/invest/invest-market";
 import type { MemeShelfStatus } from "./discover";
 import { DiscoverAssetRow } from "./discover-asset-row";
 import styles from "./invest-experience.module.css";

@@ -26,7 +26,7 @@ import {
   multiplyFractions,
   roundFractionPreservingPositive,
   type Fraction,
-} from "@/server/valuation/math";
+} from "@/shared/portfolio/valuation-math";
 import type {
   CashBucket,
   FxQuote,
@@ -37,8 +37,8 @@ import type {
   PriceQuote,
   ValuationLine,
   ValuationSource,
-} from "@/server/valuation/types";
-import type { VerifiedPortfolioAccount } from "./types";
+} from "@/shared/portfolio/valuation-types";
+import type { VerifiedPortfolioAccount } from "@/shared/portfolio/types";
 import { getPortfolioInventory } from "./inventory";
 
 const ZERO: Fraction = { numerator: BigInt(0), denominator: BigInt(1) };

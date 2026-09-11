@@ -4,7 +4,7 @@ import {
   type PortfolioAssetBalance,
   type PortfolioSnapshot,
   type VerifiedPortfolioSession,
-} from "./types";
+} from "@/shared/portfolio/types";
 
 const UINT256_MAX =
   (BigInt(1) << BigInt(256)) - BigInt(1);

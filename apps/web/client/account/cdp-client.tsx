@@ -27,17 +27,17 @@ import {
 } from "./sign-in-copy";
 import { BaseAccountConnectorError } from "./base-account-connector";
 import type { VerifiedAccountSession } from "./session-client";
-import { BASE_CHAIN_ID } from "./session-types";
+import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 import type {
   OperationResult,
   PreparedMoneyAction,
-} from "@/client/money-actions/types";
+} from "@/shared/money-actions/types";
 import {
   TransferExecutionError,
   type ConfirmedTransfer,
   type PendingTransfer,
   type TransferRequest,
-} from "@/client/transfers/types";
+} from "@/shared/transfers/types";
 import {
   AccountWalletContext,
   AccountWalletSessionOwner,

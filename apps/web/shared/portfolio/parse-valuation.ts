@@ -8,15 +8,15 @@ import {
   type FiatCurrencyCode,
   type RegionId,
 } from "@/config/regions";
-import type { PortfolioValuationSnapshot } from "./types";
-import type { VerifiedPortfolioSession } from "@/client/portfolio";
+import type { PortfolioValuationSnapshot } from "./valuation-state";
+import type { VerifiedPortfolioSession } from "@/shared/portfolio/types";
 import {
   baseUnitsToFraction,
   exactDecimalToFraction,
   multiplyFractions,
   roundFractionPreservingPositive,
-} from "@/server/valuation/math";
-import type { ExactDecimal } from "@/server/valuation/types";
+} from "@/shared/portfolio/valuation-math";
+import type { ExactDecimal } from "@/shared/portfolio/valuation-types";
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const blockHashPattern = /^0x[0-9a-fA-F]{64}$/;

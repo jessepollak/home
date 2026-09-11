@@ -7,7 +7,7 @@ import { BaseAccountConnectorError, type BaseAccountConnector, type BaseAccountI
 import { connectBaseAccount, restoreBaseAccount } from "./base-account-connector";
 import { classifyAuthDiagnosticError, recordAuthDiagnostic } from "./auth-diagnostics";
 import { getVisibleVerifiedSession, SessionValidationError, validateAccountSession, type SessionFetch, type VerifiedSessionOwner } from "./session-client";
-import { BASE_CHAIN_ID, type AccountProvider, type AccountProviderRequest } from "./session-types";
+import { BASE_CHAIN_ID, type AccountProvider, type AccountProviderRequest } from "@/shared/account/session-types";
 import { clearHomeBalancesPresentationCache } from "@/client/portfolio-valuation/presentation-cache";
 import { isSessionSuppressedForOwner, signOutWithSessionSuppressed, type SessionSuppression } from "./session-sign-out";
 import type { ProviderHandleJournalLock, ProviderHandleJournalStorage } from "@/client/money-actions/provider-handle-journal";

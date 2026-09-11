@@ -1,5 +1,5 @@
 import { presentationRegions } from "@/config/regions";
-import type { ExactDecimal } from "@/server/valuation/types";
+import type { ExactDecimal } from "@/shared/portfolio/valuation-types";
 
 const integerPattern = /^(?:0|[1-9]\d*)$/;
 const prefixSymbols = new Set(["$", "£", "€", "₺", "₦"]);

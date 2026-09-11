@@ -13,7 +13,7 @@ import {
   type FiatCurrencyCode,
   type RegionId,
 } from "@/config/regions";
-import { formatAddress } from "@/client/formatting";
+import { formatAddress } from "@/shared/formatting";
 import {
   MoneyModal,
   MoneyModalFooter,

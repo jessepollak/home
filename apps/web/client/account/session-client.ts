@@ -4,10 +4,10 @@ import {
   BASE_CHAIN_ID,
   type AccountProviderRequest,
   type VerifiedAccountSession,
-} from "./session-types";
+} from "@/shared/account/session-types";
 
-export { BASE_CHAIN_ID } from "./session-types";
-export type { VerifiedAccountSession } from "./session-types";
+export { BASE_CHAIN_ID } from "@/shared/account/session-types";
+export type { VerifiedAccountSession } from "@/shared/account/session-types";
 
 export type SessionValidationFailure =
   | "unauthenticated"

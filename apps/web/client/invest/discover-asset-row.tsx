@@ -5,7 +5,7 @@ import {
   presentInvestAssetMark,
   type AssetMarkResolution,
 } from "@/client/asset-mark/presentation";
-import type { MarketDataState } from "./invest-market";
+import type { MarketDataState } from "@/shared/invest/invest-market";
 import { useMarketDisplay } from "./use-market-display";
 import { AssetIcon } from "./asset-icon";
 import styles from "./invest-experience.module.css";

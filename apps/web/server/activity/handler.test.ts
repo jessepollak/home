@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { activityAssets, type ActivityPage } from "@/client/activity/types";
+import { activityAssets, type ActivityPage } from "@/shared/activity/types";
 import { createBaseErc20TransferHistory } from "@/server/chain-data/base-erc20-transfers";
 import { createCdpSqlHttpTransport } from "@/server/chain-data/cdp-sql-client";
 import { ChainDataError } from "@/server/chain-data/errors";

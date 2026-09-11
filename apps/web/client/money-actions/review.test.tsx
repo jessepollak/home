@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import type { PreparedMoneyAction } from "./types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 
 const { cleanup, fireEvent, render, screen, waitFor } = await import("@testing-library/react");
 const {

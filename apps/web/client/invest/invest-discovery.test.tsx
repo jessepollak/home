@@ -2,7 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { ReactElement } from "react";
-import type { MarketDataState } from "./invest-market";
+import type { MarketDataState } from "@/shared/invest/invest-market";
 
 const pushCalls: string[] = [];
 const replaceCalls: string[] = [];

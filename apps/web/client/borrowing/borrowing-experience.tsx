@@ -5,10 +5,10 @@ import { Button, Heading, Text } from "@home/ui";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AddressText } from "@/components/address";
 import { useAccountWallet } from "@/client/account/cdp-client";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MoneyActionReview } from "@/client/money-actions/review";
 import { useMoneyDataRefresh } from "@/client/money-actions/refresh";
-import type { PreparedMoneyAction } from "@/client/money-actions/types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import {
   BORROW_COLLATERAL_TOKEN,
   BORROW_LLTV_WAD,
@@ -16,12 +16,12 @@ import {
   BORROW_MARKET_ID,
   BORROW_ORACLE_ADDRESS,
   MORPHO_BLUE_ADDRESS,
-} from "@/server/borrowing/config";
+} from "@/shared/borrowing/config";
 import type {
   BorrowMarketSnapshot,
   BorrowOperation,
   BorrowPreviewResponse,
-} from "@/server/borrowing/types";
+} from "@/shared/borrowing/types";
 import styles from "./borrowing-experience.module.css";
 
 type FetchAccountResource = (

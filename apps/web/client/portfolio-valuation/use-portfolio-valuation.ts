@@ -3,13 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { RegionId } from "@/config/regions";
 import { isVerifiedPortfolioSession } from "@/client/portfolio/parse";
-import { parsePortfolioValuationSnapshot } from "./parse";
+import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/parse-valuation";
 import type {
   FetchPortfolioValuation,
   PortfolioValuationSnapshot,
   PortfolioValuationState,
   VerifiedPortfolioValuationSession,
-} from "./types";
+} from "@/shared/portfolio/valuation-state";
 
 type OwnedState =
   | { requestKey: null; status: "unavailable"; snapshot: null; error: null }

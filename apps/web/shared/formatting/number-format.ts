@@ -1,4 +1,4 @@
-import { formatMoneyLabel } from "@/client/portfolio-valuation/format";
+import { formatMoneyLabel } from "@/shared/portfolio/valuation-format";
 
 const canonicalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const decimalPattern = /^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i;

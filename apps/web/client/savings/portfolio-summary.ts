@@ -1,4 +1,4 @@
-import type { MorphoVaultCandidate, MorphoVaultPosition } from "@/server/morpho/types";
+import type { MorphoVaultCandidate, MorphoVaultPosition } from "@/shared/savings/types";
 
 const canonicalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const decimalPattern = /^(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i;

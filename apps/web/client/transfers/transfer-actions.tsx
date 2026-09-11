@@ -10,8 +10,8 @@ import { MoneyModal, MoneyModalFooter, MoneyModalHeader } from "@/client/money-m
 import modal from "@/client/money-modal/money-modal.module.css";
 import { releaseMoneyActionAdmission } from "@/client/money-actions/client";
 import { SendDialog } from "./send-dialog";
-import { TRANSFER_ASSETS, formatSendConfirmAmount } from "./transfer-helpers";
-import type { ConfirmedTransfer } from "./types";
+import { TRANSFER_ASSETS, formatSendConfirmAmount } from "@/shared/transfers/transfer-helpers";
+import type { ConfirmedTransfer } from "@/shared/transfers/types";
 import styles from "./transfers.module.css";
 
 export type TransferActionsProps = {

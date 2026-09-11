@@ -1,5 +1,5 @@
-import type { MoneyActionCall } from "@/client/money-actions/types";
-import type { Address } from "@/server/morpho/types";
+import type { MoneyActionCall } from "@/shared/money-actions/types";
+import type { Address } from "@/shared/savings/types";
 
 // ERC-20 and ERC-4626 selectors from the canonical interfaces used by Morpho Vault V1.
 export const SELECTOR = {

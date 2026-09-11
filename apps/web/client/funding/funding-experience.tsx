@@ -10,7 +10,7 @@ import {
 import {
   FundingRequestError,
   requestHostedOnrampSession,
-} from "./funding-client";
+} from "@/shared/funding/funding-client";
 
 export type FundingExperienceProps = {
   returnedFromCoinbase?: boolean;

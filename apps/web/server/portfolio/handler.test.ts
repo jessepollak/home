@@ -4,7 +4,7 @@ import {
   BASE_CHAIN_ID,
   BASE_USDC_ADDRESS,
   type PortfolioSnapshot,
-} from "./types";
+} from "@/shared/portfolio/types";
 
 const VERIFIED_ADDRESS = "0x1111111111111111111111111111111111111111";
 const ATTACKER_ADDRESS = "0x9999999999999999999999999999999999999999";

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   MoneyAmountDisplay,
   MoneyConfirmSummary,
@@ -17,9 +17,9 @@ import {
 import type {
   OperationResult,
   PreparedMoneyAction,
-} from "@/client/money-actions/types";
+} from "@/shared/money-actions/types";
 import { formatApy, formatUsdcUsd, parseUsdcAmount } from "@/client/savings/format";
-import type { MorphoVaultCandidate } from "@/server/morpho/types";
+import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import modal from "@/client/money-modal/money-modal.module.css";
 import styles from "./savings-actions.module.css";
 

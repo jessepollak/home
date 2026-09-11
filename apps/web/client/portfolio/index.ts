@@ -10,4 +10,4 @@ export type {
   PortfolioSnapshot,
   PortfolioState,
   VerifiedPortfolioSession,
-} from "./types";
+} from "@/shared/portfolio/types";

@@ -4,7 +4,7 @@ import { brand } from "@/config/brand";
 import { CdpAccountProvider } from "@/client/account/cdp-client";
 import { SmokeFixtureAccountProvider } from "@/client/account/smoke-fixture-provider";
 import { normalizeProjectId } from "@/client/account/session-client";
-import { isBaseAccountEnabled } from "@/client/account/session-types";
+import { isBaseAccountEnabled } from "@/shared/account/session-types";
 import "./globals.css";
 
 export const metadata: Metadata = {

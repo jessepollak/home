@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { useEffect } from "react";
 import type { LivelinePoint, LivelineProps } from "liveline";
-import type { MarketPriceHistoryPoint, MarketPriceRange } from "@/server/market-data/codex/history-contract";
+import type { MarketPriceHistoryPoint, MarketPriceRange } from "@/shared/invest/history-contract";
 
 const livelineCalls: LivelineProps[] = [];
 const livelineMounts: string[] = [];

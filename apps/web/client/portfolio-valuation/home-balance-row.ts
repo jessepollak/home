@@ -4,8 +4,8 @@ import {
   type AssetMarkPresentation,
   type AssetMarkResolution,
 } from "@/client/asset-mark/presentation";
-import { presentationCurrencySymbol } from "./format";
-import type { HomeAssetBalanceItem } from "./present-home-balances";
+import { presentationCurrencySymbol } from "@/shared/portfolio/valuation-format";
+import type { HomeAssetBalanceItem } from "@/shared/portfolio/present-home-balances";
 
 export type HomeBalanceRowPresentation = {
   visualBalance: string;

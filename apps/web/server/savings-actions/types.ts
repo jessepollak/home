@@ -1,6 +1,6 @@
-import type { VerifiedAccountSession } from "@/client/account/session-types";
-import type { MoneyActionDraft } from "@/client/money-actions/types";
-import type { Address } from "@/server/morpho/types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { MoneyActionDraft } from "@/shared/money-actions/types";
+import type { Address } from "@/shared/savings/types";
 
 export type SavingsActionKind = "deposit" | "withdraw";
 

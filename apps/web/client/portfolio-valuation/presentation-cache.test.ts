@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { HomeAssetBalancesPresentation } from "./present-home-balances";
+import type { HomeAssetBalancesPresentation } from "@/shared/portfolio/present-home-balances";
 import {
   clearHomeBalancesPresentationCache,
   deleteHomeBalancesPresentation,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { formatBaseUnitAmount } from "./format";
 import { PortfolioResponseError, parsePortfolioSnapshot } from "./parse";
-import type { PortfolioSnapshot, VerifiedPortfolioSession } from "./types";
+import type { PortfolioSnapshot, VerifiedPortfolioSession } from "@/shared/portfolio/types";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 const verifiedSession: VerifiedPortfolioSession = {

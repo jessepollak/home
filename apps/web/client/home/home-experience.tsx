@@ -38,7 +38,7 @@ import { HomeMark } from "@/components/home-mark";
 import { AccountSignInSheet } from "@/client/account/account-screen";
 import { AccountSettings } from "@/client/account/account-settings";
 import { useAccountWallet } from "@/client/account/cdp-client";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   ActivityPanel,
   type ActivityPanelDensity,

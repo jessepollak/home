@@ -10,7 +10,7 @@ import {
   type AccountWalletSdkBoundary, type PreparedMoneyAction, type SessionFetch, type VerifiedAccountSession,
 } from "./cdp-client-test-harness";
 import { BaseAccountConnectorError, type BaseAccountConnector, type BaseAccountRestorer, type ConnectedBaseAccount } from "./base-account-connector";
-import { ACCOUNT_PROVIDER_HEADER } from "./session-types";
+import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { ProviderHandleJournal } from "@/client/money-actions/provider-handle-journal";
 
 afterEach(() => {

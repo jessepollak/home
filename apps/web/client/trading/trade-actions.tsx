@@ -9,10 +9,10 @@ import {
 } from "react";
 import { BaseAccountConnectorError } from "@/client/account/base-account-connector";
 import { useAccountWallet } from "@/client/account/cdp-client";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MoneyActionReview } from "@/client/money-actions/review";
 import { useMoneyDataRefresh } from "@/client/money-actions/refresh";
-import type { PreparedMoneyAction } from "@/client/money-actions/types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import {
   MoneyAmountDisplay,
   MoneyModal,
@@ -29,8 +29,8 @@ import {
   getTradeSellAsset,
   type TradeAsset,
   type TradeSide,
-} from "./assets";
-import { formatTradeBaseUnits, parseTradeAmount } from "./amount";
+} from "@/shared/trading/assets";
+import { formatTradeBaseUnits, parseTradeAmount } from "@/shared/trading/amount";
 import {
   DEFAULT_TRADE_SLIPPAGE_BPS,
   TradeClientError,
@@ -38,7 +38,7 @@ import {
   type TradeApiErrorCode,
   type TradeIntentReview,
   type TradeUnavailableReason,
-} from "./types";
+} from "@/shared/trading/types";
 import styles from "./trade-actions.module.css";
 
 export function TradeActions({

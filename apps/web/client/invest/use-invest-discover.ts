@@ -6,9 +6,9 @@ import {
   assetMarkResolutionFromDiscover,
   type AssetMarkResolution,
 } from "@/client/asset-mark/presentation";
-import { INVEST_DISCOVER_VERSION } from "@/server/market-data/invest-discover-contract";
-import { resolveMarketPriceAssetIdentity } from "@/server/market-data/codex/history-contract";
-import { unavailableMarketData, type MarketDataState } from "./invest-market";
+import { INVEST_DISCOVER_VERSION } from "@/shared/invest/invest-discover-contract";
+import { resolveMarketPriceAssetIdentity } from "@/shared/invest/history-contract";
+import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
 import type { MemeShelfStatus } from "./discover";
 
 const DISCOVER_ENDPOINT = "/api/invest/discover";

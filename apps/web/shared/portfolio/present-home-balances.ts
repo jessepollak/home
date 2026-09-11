@@ -1,16 +1,16 @@
-import { formatPresentationTokenAmount } from "@/client/formatting";
+import { formatPresentationTokenAmount } from "@/shared/formatting";
 import type {
   CashBucket,
   DirectPortfolioHolding,
   NativeCashValuation,
   PortfolioValuationSnapshot,
   ValuationLine,
-} from "@/server/valuation/types";
+} from "@/shared/portfolio/valuation-types";
 import {
   formatPresentationFiat,
   presentationCurrencyName,
-} from "./format";
-import type { PortfolioValuationState } from "./types";
+} from "./valuation-format";
+import type { PortfolioValuationState } from "./valuation-state";
 
 export type HomeAssetBalanceItem = {
   id: string;

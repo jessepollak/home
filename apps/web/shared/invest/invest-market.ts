@@ -3,7 +3,7 @@ import {
   formatPresentationPrice,
   formatSignedPercentChange,
   scaleDecimalByExact,
-} from "@/client/formatting";
+} from "@/shared/formatting";
 
 export type MarketSnapshot = {
   assetId: string;

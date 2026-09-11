@@ -8,7 +8,7 @@ import {
   initialAccountSelection,
   writeAccountProviderHint,
 } from "./cdp-wallet-provider-capabilities";
-import { TransferExecutionError } from "@/client/transfers/types";
+import { TransferExecutionError } from "@/shared/transfers/types";
 
 const providerHintKey = "home:account-provider";
 

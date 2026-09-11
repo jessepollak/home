@@ -4,14 +4,14 @@ export {
   formatPresentationFiat,
   presentationCurrencyName,
   presentationCurrencySymbol,
-} from "./format";
+} from "@/shared/portfolio/valuation-format";
 export {
   HOME_BALANCES_HUB_PREVIEW_COUNT,
   previewHomeBalanceItems,
   presentPortfolioValuation,
   type HomeAssetBalanceItem,
   type HomeAssetBalancesPresentation,
-} from "./present-home-balances";
+} from "@/shared/portfolio/present-home-balances";
 export {
   presentHomeBalanceMark,
   presentHomeBalanceRow,
@@ -30,11 +30,11 @@ export {
 export {
   PortfolioValuationResponseError,
   parsePortfolioValuationSnapshot,
-} from "./parse";
+} from "@/shared/portfolio/parse-valuation";
 export { usePortfolioValuation } from "./use-portfolio-valuation";
 export type {
   FetchPortfolioValuation,
   PortfolioValuationSnapshot,
   PortfolioValuationState,
   VerifiedPortfolioValuationSession,
-} from "./types";
+} from "@/shared/portfolio/valuation-state";

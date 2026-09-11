@@ -6,7 +6,7 @@ import {
   MARKET_PRICE_RANGES,
   type MarketPriceHistoryPoint,
   type MarketPriceRange,
-} from "@/server/market-data/codex/history-contract";
+} from "@/shared/invest/history-contract";
 import type { PriceHistoryState } from "./use-price-history";
 import styles from "./invest-experience.module.css";
 

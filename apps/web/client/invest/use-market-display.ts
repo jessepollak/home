@@ -4,7 +4,7 @@ import {
   getMarketDisplay,
   type MarketDataState,
   type MarketDisplay,
-} from "./invest-market";
+} from "@/shared/invest/invest-market";
 import { usePresentationQuote } from "./presentation-quote";
 
 export function useMarketDisplay(

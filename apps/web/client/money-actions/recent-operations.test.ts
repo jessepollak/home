@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
-import { visibleActivityMoneyActions } from "./activity-visibility";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { visibleActivityMoneyActions } from "@/shared/money-actions/activity-visibility";
 import {
   dedupeRecentMoneyActions,
   parseRecentMoneyActions,

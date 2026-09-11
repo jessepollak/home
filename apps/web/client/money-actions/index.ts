@@ -7,15 +7,15 @@ export type {
   MoneyActionOwner,
   OperationResult,
   PreparedMoneyAction,
-} from "./types";
+} from "@/shared/money-actions/types";
 export { MoneyActionReview } from "./review";
 export { MoneyDataRefreshProvider, useMoneyDataRefresh } from "./refresh";
 export {
   hasOnchainExecutionReference,
   isActivityVisibleMoneyAction,
   visibleActivityMoneyActions,
-} from "./activity-visibility";
-export type { ActivityVisibilityInput } from "./activity-visibility";
+} from "@/shared/money-actions/activity-visibility";
+export type { ActivityVisibilityInput } from "@/shared/money-actions/activity-visibility";
 export {
   RecentMoneyActions,
   dedupeRecentMoneyActions,

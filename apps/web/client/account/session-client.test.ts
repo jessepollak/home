@@ -9,7 +9,7 @@ import {
 import {
   ACCOUNT_PROVIDER_HEADER,
   isBaseAccountEnabled,
-} from "./session-types";
+} from "@/shared/account/session-types";
 
 const TEST_ADDRESS = "0x1111111111111111111111111111111111111111";
 

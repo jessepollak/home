@@ -3,7 +3,7 @@ import {
   formatFiatValue,
   formatPresentationFiat,
   presentationCurrencyName,
-} from "./format";
+} from "./valuation-format";
 
 describe("portfolio fiat formatting", () => {
   test("keeps positive values below display precision distinct from true zero", () => {

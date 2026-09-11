@@ -1,9 +1,9 @@
-import type { PreparedMoneyAction } from "@/client/money-actions/types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { InvestAssetId } from "@/config/invest-assets";
 import type {
   CoinbaseSmartWalletTypedData,
   Permit2TypedData,
-} from "@/server/trading/types";
+} from "@/shared/trading/server-types";
 import type { TradeSide } from "./assets";
 
 export const DEFAULT_TRADE_SLIPPAGE_BPS = 100 as const;

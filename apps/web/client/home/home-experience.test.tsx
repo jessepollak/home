@@ -11,7 +11,7 @@ import type {
   SessionFetch,
   VerifiedAccountSession,
 } from "@/client/account/session-client";
-import { ACCOUNT_PROVIDER_HEADER } from "@/client/account/session-types";
+import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { anonymousCountryPreferenceKey } from "@/config/country-preference";
 import {
   investPortfolioAssets,

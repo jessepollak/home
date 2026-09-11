@@ -1,5 +1,5 @@
 import type { InvestAsset } from "@/config/invest-assets";
-import type { MarketSnapshot } from "@/client/invest/invest-market";
+import type { MarketSnapshot } from "@/shared/invest/invest-market";
 import {
   createAssetIconResolver,
   emptyAssetIconMap,
@@ -11,7 +11,7 @@ import {
   createUnavailableTrendingMemes,
   type TrendingMemesResult,
 } from "./codex/trending";
-import { INVEST_DISCOVER_VERSION } from "./invest-discover-contract";
+import { INVEST_DISCOVER_VERSION } from "@/shared/invest/invest-discover-contract";
 
 export { INVEST_DISCOVER_VERSION };
 

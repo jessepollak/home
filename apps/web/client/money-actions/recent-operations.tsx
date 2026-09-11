@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { ActivityRow } from "@/components/finance-rows";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
-import { formatPresentationTokenAmount } from "@/client/formatting";
-import { visibleActivityMoneyActions } from "./activity-visibility";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { formatPresentationTokenAmount } from "@/shared/formatting";
+import { visibleActivityMoneyActions } from "@/shared/money-actions/activity-visibility";
 import type {
   MoneyActionOperationStatus,
   PreparedMoneyAction,
-} from "./types";
+} from "@/shared/money-actions/types";
 import styles from "./recent-operations.module.css";
 
 export type RecentMoneyActionOperation = {

@@ -1,6 +1,6 @@
-import { visibleActivityMoneyActions } from "@/client/money-actions/activity-visibility";
-import type { MoneyActionOperationStatus } from "@/client/money-actions/types";
-import type { MoneyActionExecutionProof, TransferReceiptStatus } from "@/server/transfers/receipt";
+import { visibleActivityMoneyActions } from "@/shared/money-actions/activity-visibility";
+import type { MoneyActionOperationStatus } from "@/shared/money-actions/types";
+import type { MoneyActionExecutionProof, TransferReceiptStatus } from "@/server/money-actions/receipt";
 import { getMoneyActionStore } from "./runtime-store";
 import { moneyActionOwner, readAuthorizedMoneyActionSession } from "./session";
 import type { MoneyActionStore, StoredMoneyActionOperation } from "./store";

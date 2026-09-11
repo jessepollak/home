@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useNestedAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
-import { unavailableMarketData, type MarketDataState } from "./invest-market";
+import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
 import {
   getDiscoverAsset,
   getDiscoverShelf,

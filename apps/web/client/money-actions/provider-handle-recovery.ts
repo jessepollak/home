@@ -10,8 +10,8 @@ import {
   type ProviderHandleJournalEntry,
   type ProviderHandleJournalIssue,
 } from "./provider-handle-journal";
-import type { PreparedMoneyAction } from "./types";
-import type { StoredMoneyActionOperation } from "@/server/money-actions/store";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import type { StoredMoneyActionOperation } from "@/shared/money-actions/types";
 
 export type ProviderHandleRecoveryResult = {
   kind: "none" | "acknowledged" | "retained" | "conflict" | "inconsistent";

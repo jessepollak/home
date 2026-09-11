@@ -2,11 +2,11 @@
 
 import { useMemo, useSyncExternalStore } from "react";
 import { isRegionId, type RegionId } from "@/config/regions";
-import { isAddress } from "@/client/formatting";
+import { isAddress } from "@/shared/formatting";
 import type {
   HomeAssetBalanceItem,
   HomeAssetBalancesPresentation,
-} from "./present-home-balances";
+} from "@/shared/portfolio/present-home-balances";
 
 export const homeBalancesPresentationCachePrefix = "home.balances.v1:";
 export const homeBalancesPresentationCacheTtlMs = 24 * 60 * 60 * 1000;

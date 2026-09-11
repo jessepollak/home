@@ -7,7 +7,7 @@ import {
   type MarketPriceHistoryPoint,
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
-} from "@/server/market-data/codex/history-contract";
+} from "@/shared/invest/history-contract";
 
 const HISTORY_ENDPOINT = "/api/market-prices/history";
 

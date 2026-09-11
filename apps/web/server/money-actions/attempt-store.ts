@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { MoneyActionOperationStatus, MoneyActionOwner, PreparedMoneyAction } from "@/client/money-actions/types";
+import type { MoneyActionOperationStatus, MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
 import {
   ATTEMPT_COMMAND_CONTRACT_VERSION,
   COMPATIBILITY_ACTION_REVISION,

@@ -1,7 +1,7 @@
 import {
   PORTFOLIO_BASE_USDC_ADDRESS,
   type PortfolioAssetBalance,
-} from "@/client/portfolio/types";
+} from "@/shared/portfolio/types";
 import {
   TransferExecutionError,
   type TransferAssetId,

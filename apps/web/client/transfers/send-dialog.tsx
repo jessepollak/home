@@ -18,7 +18,7 @@ import type {
   MoneyActionKind,
   MoneyActionOperationStatus,
   PreparedMoneyAction,
-} from "@/client/money-actions/types";
+} from "@/shared/money-actions/types";
 import {
   TRANSFER_ASSETS,
   assertTransferRequest,
@@ -26,14 +26,14 @@ import {
   isTransferRecipient,
   normalizeTransferRecipient,
   parseTransferAmount,
-} from "./transfer-helpers";
+} from "@/shared/transfers/transfer-helpers";
 import {
   TransferExecutionError,
   type ConfirmedTransfer,
   type PendingTransfer,
   type TransferAssetId,
   type TransferRequest,
-} from "./types";
+} from "@/shared/transfers/types";
 import modal from "@/client/money-modal/money-modal.module.css";
 
 type TransferWallet = Pick<

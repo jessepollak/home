@@ -9,7 +9,7 @@ import type {
   ConnectedBaseAccount,
 } from "./base-account-connector";
 import type { SessionFetch, VerifiedAccountSession } from "./session-client";
-import type { PreparedMoneyAction } from "@/client/money-actions/types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type {
   ProviderHandleJournalLock,
   ProviderHandleJournalStorage,

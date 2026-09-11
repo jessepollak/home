@@ -1,4 +1,4 @@
-import type { MoneyActionOwner, PreparedMoneyAction } from "@/client/money-actions/types";
+import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { ProviderEvidence } from "./attempt-commands";
 import { canTransitionMoneyActionStatus } from "./status-transitions.js";
 import {

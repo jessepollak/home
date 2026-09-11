@@ -7,7 +7,7 @@ import {
   parseExactDecimal,
   roundFractionPreservingPositive,
   roundFractionToExactDecimal,
-} from "./math";
+} from "./valuation-math";
 
 describe("exact portfolio valuation math", () => {
   test("parses decimal and exponent lexemes without floating point", () => {

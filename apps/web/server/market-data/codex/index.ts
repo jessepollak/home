@@ -22,4 +22,4 @@ export {
   MARKET_PRICE_FRESHNESS_MS,
   MARKET_PRICES_VERSION,
   type MarketPricesResponse,
-} from "./public-contract";
+} from "@/shared/invest/public-contract";

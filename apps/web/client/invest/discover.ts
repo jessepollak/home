@@ -5,8 +5,8 @@ import {
   type InvestAsset,
   type InvestAssetId,
 } from "@/config/invest-assets";
-import { matchesMarketPriceAssetIdentity } from "@/server/market-data/codex/history-contract";
-import { unavailableMarketData, type MarketDataState } from "./invest-market";
+import { matchesMarketPriceAssetIdentity } from "@/shared/invest/history-contract";
+import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
 
 export const STOCK_PREVIEW_COUNT = 6;
 export const MEME_PREVIEW_COUNT = 4;

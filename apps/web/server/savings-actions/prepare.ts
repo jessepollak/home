@@ -1,12 +1,12 @@
-import type { VerifiedAccountSession } from "@/client/account/session-types";
-import type { MoneyActionDraft } from "@/client/money-actions/types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import {
   BASE_CHAIN_ID,
   BASE_USDC_ADDRESS,
   BASE_USDC_DECIMALS,
   isConfiguredMorphoVault,
-} from "@/server/morpho/config";
-import type { Address } from "@/server/morpho/types";
+} from "@/shared/savings/config";
+import type { Address } from "@/shared/savings/types";
 import {
   SavingsActionAbiError,
   encodeApproveCall,

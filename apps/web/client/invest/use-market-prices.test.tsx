@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   type MarketPricesResponse,
-} from "@/server/market-data/codex/public-contract";
+} from "@/shared/invest/public-contract";
 import type { UseMarketPricesOptions } from "./use-market-prices";
 
 const { cleanup, render, waitFor, within } = await import("@testing-library/react");

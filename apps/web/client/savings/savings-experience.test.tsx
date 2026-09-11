@@ -1,10 +1,10 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
-import type { PreparedMoneyAction } from "@/client/money-actions/types";
-import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/server/morpho/types";
-import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/server/morpho/config";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
+import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { SavingsExperience } = await import("./savings-experience");

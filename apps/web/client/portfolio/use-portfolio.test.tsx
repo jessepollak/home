@@ -5,7 +5,7 @@ import type {
   FetchPortfolio,
   PortfolioSnapshot,
   VerifiedPortfolioSession,
-} from "./types";
+} from "@/shared/portfolio/types";
 
 const { act, cleanup, render, waitFor } = await import("@testing-library/react");
 const { usePortfolio } = await import("./use-portfolio");

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { VerifiedAccountSession } from "@/client/account/session-types";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { ActivityResponseError, parseActivityPage } from "./parse";
 import type { ActivityPage } from "./types";
 

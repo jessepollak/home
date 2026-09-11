@@ -7,7 +7,7 @@ import {
   type Hex,
 } from "viem";
 import { entryPoint06Abi, entryPoint06Address } from "viem/account-abstraction";
-import { createTransferReceiptHandler } from "./handler";
+import { createTransferReceiptHandler } from "@/server/transfers/handler";
 import {
   createTransferReceiptReader,
   normalizeTransactionHash,

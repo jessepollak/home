@@ -5,7 +5,7 @@ import { presentationRegions, type RegionId } from "@/config/regions";
 import type {
   MarketPresentationQuote,
   PresentationFxQuote,
-} from "./invest-market";
+} from "@/shared/invest/invest-market";
 
 export type { PresentationFxQuote };
 

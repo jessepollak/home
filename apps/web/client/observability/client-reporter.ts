@@ -2,7 +2,7 @@ import {
   sanitizeIdentifier,
   sanitizeRoutePath,
   scrubString,
-} from "./scrub";
+} from "@/shared/observability/scrub";
 
 export const CLIENT_ERROR_ENDPOINT = "/api/client-errors";
 export const CLIENT_ERROR_MAX_REPORTS_PER_PAGE = 5;

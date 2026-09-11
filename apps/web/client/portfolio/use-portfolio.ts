@@ -7,7 +7,7 @@ import type {
   PortfolioSnapshot,
   PortfolioState,
   VerifiedPortfolioSession,
-} from "./types";
+} from "@/shared/portfolio/types";
 
 type OwnedPortfolioState =
   | { ownerKey: null; status: "unavailable"; snapshot: null; error: null }

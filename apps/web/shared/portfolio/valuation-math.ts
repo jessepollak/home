@@ -1,4 +1,4 @@
-import type { ExactDecimal } from "./types";
+import type { ExactDecimal } from "./valuation-types";
 
 export type Fraction = {
   numerator: bigint;

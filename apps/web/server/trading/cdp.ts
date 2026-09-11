@@ -6,7 +6,7 @@ import type {
   TradeQuote,
   TradeQuoteClient,
   TradeQuoteRequest,
-} from "./types";
+} from "@/shared/trading/server-types";
 
 const CDP_API_HOST = "api.cdp.coinbase.com";
 const CDP_API_PATH = "/platform/v2/evm/swaps";

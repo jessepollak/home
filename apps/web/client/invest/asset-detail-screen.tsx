@@ -8,13 +8,13 @@ import {
   type AssetMarkResolution,
 } from "@/client/asset-mark/presentation";
 import { TradeActions } from "@/client/trading/trade-actions";
-import type { MarketDataState } from "./invest-market";
+import type { MarketDataState } from "@/shared/invest/invest-market";
 import { useMarketDisplay } from "./use-market-display";
 import { AssetIcon } from "./asset-icon";
 import { BackIcon } from "./category-screen";
 import { PriceChart } from "./price-chart";
 import { usePriceHistory } from "./use-price-history";
-import type { MarketPriceRange } from "@/server/market-data/codex/history-contract";
+import type { MarketPriceRange } from "@/shared/invest/history-contract";
 import styles from "./invest-experience.module.css";
 
 export function AssetDetailStatusScreen({

@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import type { MarketPriceRange } from "@/server/market-data/codex/history-contract";
+import type { MarketPriceRange } from "@/shared/invest/history-contract";
 
 const { cleanup, render, waitFor, within } = await import("@testing-library/react");
 const { usePriceHistory } = await import("./use-price-history");

@@ -7,7 +7,7 @@ import type { AccountSessionStatus, AccountWalletSdkBoundary } from "./cdp-clien
 import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
 import type { AuthenticatedTransport } from "./cdp-authenticated-transport";
 import type { SessionFetch, VerifiedAccountSession } from "./session-client";
-import { ACCOUNT_PROVIDER_HEADER, BASE_CHAIN_ID } from "./session-types";
+import { ACCOUNT_PROVIDER_HEADER, BASE_CHAIN_ID } from "@/shared/account/session-types";
 import type { ConnectedBaseAccount } from "./base-account-connector";
 import { BaseAccountConnectorError } from "./base-account-connector";
 import { parsePortfolioSnapshot } from "@/client/portfolio/parse";
@@ -18,12 +18,12 @@ import {
   recordMoneyActionSubmission,
   type MoneyActionApiFetch,
 } from "@/client/money-actions/client";
-import type { OperationResult, PreparedMoneyAction } from "@/client/money-actions/types";
+import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { ProviderHandleJournal } from "@/client/money-actions/provider-handle-journal";
 import { recoverJournaledProviderHandle } from "@/client/money-actions/provider-handle-recovery";
-import type { StoredMoneyActionOperation } from "@/server/money-actions/store";
-import { assertTransferRequest, buildTransferCall, findTransferBalance } from "@/client/transfers/transfer-helpers";
-import { TransferExecutionError, type ConfirmedTransfer, type PendingTransfer, type TransferRequest } from "@/client/transfers/types";
+import type { StoredMoneyActionOperation } from "@/shared/money-actions/types";
+import { assertTransferRequest, buildTransferCall, findTransferBalance } from "@/shared/transfers/transfer-helpers";
+import { TransferExecutionError, type ConfirmedTransfer, type PendingTransfer, type TransferRequest } from "@/shared/transfers/types";
 
 const transactionHashPattern = /^0x[0-9a-fA-F]{64}$/;
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;

@@ -8,7 +8,7 @@ import {
 } from "./base-account-connector";
 import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
 import type { VerifiedAccountSession } from "./session-client";
-import type { AccountProvider } from "./session-types";
+import type { AccountProvider } from "@/shared/account/session-types";
 import {
   ProviderHandleJournal,
   type ProviderHandleJournalLock,

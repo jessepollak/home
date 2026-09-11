@@ -7,7 +7,7 @@ import {
   trendingTokenId,
   type InvestAsset,
 } from "@/config/invest-assets";
-import type { MarketSnapshot } from "@/client/invest/invest-market";
+import type { MarketSnapshot } from "@/shared/invest/invest-market";
 import { sanitizeImageUrl } from "../asset-icons/image-url";
 import { formatChangeLabel } from "./change-label";
 import { CodexMarketDataError } from "./client";

@@ -6,7 +6,7 @@ import {
 import type {
   MarketDataState,
   MarketSnapshot,
-} from "@/client/invest/invest-market";
+} from "@/shared/invest/invest-market";
 import {
   CODEX_CACHE_TTL_MS,
   CODEX_GRAPHQL_ENDPOINT,
@@ -24,7 +24,7 @@ import {
   MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   MARKET_PRICES_VERSION,
   type MarketPricesResponse,
-} from "./public-contract";
+} from "@/shared/invest/public-contract";
 
 type FetchLike = (
   input: RequestInfo | URL,

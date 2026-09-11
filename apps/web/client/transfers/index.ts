@@ -12,10 +12,10 @@ export {
   isTransferRecipient,
   normalizeTransferRecipient,
   parseTransferAmount,
-} from "./transfer-helpers";
+} from "@/shared/transfers/transfer-helpers";
 export {
   TransferExecutionError,
   type ConfirmedTransfer,
   type TransferAssetId,
   type TransferRequest,
-} from "./types";
+} from "@/shared/transfers/types";

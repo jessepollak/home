@@ -1,5 +1,5 @@
-import { BASE_CHAIN_ID, BASE_USDC_ADDRESS } from "@/server/morpho/config";
-import type { Address } from "@/server/morpho/types";
+import { BASE_CHAIN_ID, BASE_USDC_ADDRESS } from "@/shared/savings/config";
+import type { Address } from "@/shared/savings/types";
 import { resolveBaseRpcUrl } from "@/server/portfolio/rpc";
 import {
   SELECTOR,

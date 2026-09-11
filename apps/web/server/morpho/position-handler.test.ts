@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Address, MorphoVaultPosition } from "./types";
+import type { Address, MorphoVaultPosition } from "@/shared/savings/types";
 import { createSavingsPositionsHandler } from "./position-handler";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as Address;

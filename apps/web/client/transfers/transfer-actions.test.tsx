@@ -2,8 +2,8 @@ import "../account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
-import { formatAddress } from "@/client/formatting";
-import { TransferExecutionError, type ConfirmedTransfer, type PendingTransfer } from "./types";
+import { formatAddress } from "@/shared/formatting";
+import { TransferExecutionError, type ConfirmedTransfer, type PendingTransfer } from "@/shared/transfers/types";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"

@@ -1,6 +1,6 @@
 import type { FiatCurrencyCode } from "@/config/regions";
-import { parseExactDecimal } from "./math";
-import type { FxQuote, NativeEthQuote, ValuationSource } from "./types";
+import { parseExactDecimal } from "@/shared/portfolio/valuation-math";
+import type { FxQuote, NativeEthQuote, ValuationSource } from "@/shared/portfolio/valuation-types";
 
 export const COINBASE_EXCHANGE_RATES_URL =
   "https://api.coinbase.com/v2/exchange-rates?currency=USD" as const;

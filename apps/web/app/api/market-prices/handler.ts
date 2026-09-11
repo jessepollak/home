@@ -5,8 +5,8 @@ import {
 import type {
   MarketPricesFxQuote,
   MarketPricesResponse,
-} from "@/server/market-data/codex/public-contract";
-import type { FxQuote } from "@/server/valuation/types";
+} from "@/shared/invest/public-contract";
+import type { FxQuote } from "@/shared/portfolio/valuation-types";
 
 type MarketPricesReader = () => Promise<MarketPricesResponse>;
 type ExchangeRatesReader = () => Promise<{ quotes: readonly FxQuote[] }>;

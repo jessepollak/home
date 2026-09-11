@@ -10,13 +10,13 @@ import {
   MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   MARKET_PRICES_VERSION,
   type MarketPricesResponse,
-} from "@/server/market-data/codex/public-contract";
+} from "@/shared/invest/public-contract";
 import {
   unavailableMarketData,
   type MarketDataState,
   type MarketSnapshot,
   type PresentationFxQuote,
-} from "./invest-market";
+} from "@/shared/invest/invest-market";
 
 const presentationFiatCodes = new Set<FiatCurrencyCode>(
   Object.values(presentationRegions).flatMap((region) =>

@@ -2,7 +2,7 @@ import type { FiatCurrencyCode } from "@/config/regions";
 import type {
   MarketDataState,
   PresentationFxQuote,
-} from "@/client/invest/invest-market";
+} from "@/shared/invest/invest-market";
 
 export const MARKET_PRICES_VERSION = 1 as const;
 

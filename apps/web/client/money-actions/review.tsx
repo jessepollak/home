@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { formatBaseUnitAmount } from "@/client/portfolio";
-import { decodeMoneyActionApproval } from "./approval";
+import { decodeMoneyActionApproval } from "@/shared/money-actions/approval";
 import { useReactiveExpiry } from "./expiry";
-import type { OperationResult, PreparedMoneyAction } from "./types";
+import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import styles from "./review.module.css";
 
 export type MoneyActionReviewProps = {
