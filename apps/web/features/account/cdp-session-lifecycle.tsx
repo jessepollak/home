@@ -1371,4 +1371,3 @@ export function AccountWalletSessionOwner({
     </AccountWalletContext.Provider>
   );
 }
-
