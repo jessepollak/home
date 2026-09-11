@@ -33,6 +33,7 @@ export type HomeAssetBalancesPresentation = {
   items: readonly HomeAssetBalanceItem[];
   revalidating?: true;
   /** Current-snapshot membership hints; never written to the presentation cache. */
+  incompleteItemIds?: readonly string[];
   unavailableItemIds?: readonly string[];
 };
 
@@ -90,7 +91,7 @@ export function presentPortfolioValuation(
       : totalUnavailable
         ? "Balance unavailable"
         : totalPartial
-          ? "Partial balance"
+          ? "Unavailable"
           : undefined,
     items: [
       ...snapshot.cashBuckets.map((bucket) =>
@@ -98,7 +99,7 @@ export function presentPortfolioValuation(
       ),
       ...presentAssetRows(snapshot),
     ],
-    ...presentUnavailableAssetRowIds(snapshot),
+    ...presentNonreadyItemIds(snapshot),
   };
 }
 
@@ -131,7 +132,10 @@ function presentCashBucket(
     ? nativeValuation.value
     : bucket.indicativeValue;
 
-  if (valuationStatus === "read-unavailable") {
+  if (
+    valuationStatus === "read-incomplete" ||
+    valuationStatus === "read-unavailable"
+  ) {
     return {
       id: bucket.id,
       assetKey: bucket.assetKey ?? bucket.id,
@@ -284,18 +288,24 @@ function presentDirectAssetRow(
   };
 }
 
-function presentUnavailableAssetRowIds(
+function presentNonreadyItemIds(
   snapshot: PortfolioValuationSnapshot,
-): Pick<HomeAssetBalancesPresentation, "unavailableItemIds"> {
+): Pick<HomeAssetBalancesPresentation, "incompleteItemIds" | "unavailableItemIds"> {
   const cashAssetKeys = selectedCashAssetKeys(snapshot);
-  const unavailableItemIds = snapshot.inventory.holdings.flatMap((holding) => {
-    if (!isPresentedDirectHolding(holding, cashAssetKeys)) return [];
-    if (holding.readStatus === "ready" && holding.balanceBaseUnits !== null) {
-      return [];
-    }
-    return [`asset:${holding.assetKey}`];
-  });
-  return unavailableItemIds.length > 0 ? { unavailableItemIds } : {};
+  const incompleteItemIds: string[] = [];
+  const unavailableItemIds: string[] = [];
+  for (const holding of snapshot.inventory.holdings) {
+    if (holding.kind !== "direct" || holding.readStatus === "ready") continue;
+    const id = cashAssetKeys.has(holding.assetKey)
+      ? `cash:${holding.assetKey}`
+      : `asset:${holding.assetKey}`;
+    if (holding.readStatus === "incomplete") incompleteItemIds.push(id);
+    else unavailableItemIds.push(id);
+  }
+  return {
+    ...(incompleteItemIds.length > 0 ? { incompleteItemIds } : {}),
+    ...(unavailableItemIds.length > 0 ? { unavailableItemIds } : {}),
+  };
 }
 
 function isPresentedDirectHolding(

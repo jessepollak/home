@@ -415,6 +415,44 @@ describe("Phase A portfolio inventory", () => {
     });
   });
 
+  test("keeps checkpointed quantities non-authoritative while accepting fresh resumed-page balances", async () => {
+    const snapshot = await createPortfolioInventoryReader({
+      listTokenBalances: async () => ({
+        complete: false,
+        balances: [
+          {
+            contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
+            amountBaseUnits: "42",
+            native: true,
+          },
+          {
+            contractAddress: PORTFOLIO_USDC_ADDRESS.toLowerCase() as `0x${string}`,
+            amountBaseUnits: "7000000",
+            native: false,
+          },
+        ],
+        authoritativeContractAddresses: new Set([
+          PORTFOLIO_USDC_ADDRESS.toLowerCase(),
+        ]),
+      }),
+      readVaultInventory: async () => ({
+        block: pinnedBlock(),
+        holdings: [],
+      }),
+      readOmittedCashBalances: async (requests) => omittedZeros(requests),
+      now: () => new Date("2026-09-11T12:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "incomplete",
+      balanceBaseUnits: null,
+    });
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "7000000",
+    });
+  });
+
   test("does not invent ready zeros when Token Balances pagination is truncated and cash RPC also fails", async () => {
     const snapshot = await createPortfolioInventoryReader({
       cashVerifyRetryDelayMs: 0,
@@ -442,11 +480,11 @@ describe("Phase A portfolio inventory", () => {
       balanceBaseUnits: "42",
     });
     expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
-      readStatus: "unavailable",
+      readStatus: "incomplete",
       balanceBaseUnits: null,
     });
     expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
-      readStatus: "unavailable",
+      readStatus: "incomplete",
       balanceBaseUnits: null,
     });
   });
@@ -699,6 +737,44 @@ describe("Phase A portfolio inventory", () => {
     expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
       readStatus: "ready",
       balanceBaseUnits: "0",
+    });
+  });
+
+  test("gives vault conversion a fresh deadline after a bounded CDP scan times out", async () => {
+    let vaultSignalWasAborted = true;
+    const snapshot = await createPortfolioInventoryReader({
+      timeoutMs: 5,
+      cashVerifyRetryDelayMs: 0,
+      listTokenBalances: async ({ signal }) =>
+        new Promise((resolve) => {
+          signal?.addEventListener(
+            "abort",
+            () =>
+              resolve({
+                complete: false,
+                balances: [
+                  {
+                    contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
+                    amountBaseUnits: "42",
+                    native: true,
+                  },
+                ],
+              }),
+            { once: true },
+          );
+        }),
+      readOmittedCashBalances: async (requests) => omittedZeros(requests),
+      readVaultInventory: async (_account, signal) => {
+        vaultSignalWasAborted = signal.aborted;
+        return { block: pinnedBlock(), holdings: [] };
+      },
+      now: () => new Date("2026-09-11T12:00:00.000Z"),
+    })(account, "IDR");
+
+    expect(vaultSignalWasAborted).toBeFalse();
+    expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
+      readStatus: "ready",
+      balanceBaseUnits: "42",
     });
   });
 

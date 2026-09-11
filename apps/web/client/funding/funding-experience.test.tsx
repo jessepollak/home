@@ -171,28 +171,88 @@ describe("FundingExperience", () => {
     expect(page().getByText(/other tokens in Home's supported Base inventory/)).toBeTruthy();
   });
 
-  test("gates IDRX to Indonesia and reconciles only through balance and activity refresh", async () => {
+  test("selects only the accepted provider flow for AR, CO, BR, ID, and US", async () => {
+    const cases = [
+      { regionId: "AR", button: /Deposit ARS/, dialog: "Deposit ARS", provider: "ripio" },
+      { regionId: "CO", button: /Deposit COP/, dialog: "Deposit COP", provider: "ripio" },
+      { regionId: "BR", button: /Ripio unavailable/, dialog: "Deposit BRL", provider: "br" },
+      { regionId: "ID", button: /Buy IDRX with rupiah/, dialog: "Buy IDRX", provider: "idrx" },
+      { regionId: "US", button: /Use Coinbase to deposit USD/, dialog: "Deposit USD", provider: "coinbase" },
+    ] as const;
+
+    for (const item of cases) {
+      const accountRequests: string[] = [];
+      const rendered = render(
+        <FundingExperienceForWallet
+          wallet={{
+            ...verifiedWallet(),
+            fetchAccountResource: async (path) => {
+              accountRequests.push(path);
+              if (path === "/api/funding/idrx-attempt") return { status: "none" };
+              throw new Error("No provider or order request expected");
+            },
+          }}
+          navigateToHostedOnramp={() => {}}
+          regionId={item.regionId}
+        />,
+      );
+
+      expect(page().queryByText("Fund this Base account")).toBeNull();
+      expect(page().getByRole("button", { name: item.button })).toBeTruthy();
+      if (item.provider !== "ripio" && item.provider !== "br") {
+        expect(page().queryByRole("button", { name: /Use Ripio/ })).toBeNull();
+      }
+      if (item.provider !== "idrx") {
+        expect(page().queryByRole("button", { name: /Buy IDRX with rupiah/ })).toBeNull();
+      }
+      if (item.provider !== "coinbase") {
+        expect(page().queryByRole("button", { name: /Use Coinbase/ })).toBeNull();
+      }
+
+      fireEvent.click(page().getByRole("button", { name: item.button }));
+      expect(page().getByRole("dialog", { name: item.dialog })).toBeTruthy();
+      if (item.provider === "ripio" || item.provider === "br") {
+        expect(
+          page().getByRole("heading", {
+            name: "Use Ripio to deposit from your local bank",
+          }),
+        ).toBeTruthy();
+      }
+      if (item.provider === "br") {
+        expect(page().getByText(/does not currently expose Home's selected BRZ/)).toBeTruthy();
+      }
+      if (item.provider === "idrx") {
+        expect(page().getByLabelText("Amount in IDR")).toBeTruthy();
+        await waitFor(() => expect(accountRequests).toEqual(["/api/funding/idrx-attempt"]));
+      } else {
+        expect(accountRequests).toEqual([]);
+      }
+      rendered.unmount();
+    }
+  });
+
+  test("creates one IDRX intent and verifies status only through balance and activity", async () => {
     const calls: Array<[string, unknown?]> = [];
     let refreshes = 0;
     let created = false;
     render(
       <MoneyDataRefreshProvider onConfirmed={() => { refreshes += 1; }}>
         <FundingExperienceForWallet
-        wallet={{
-          ...verifiedWallet(),
-          fetchAccountResource: async (...args) => {
-            calls.push(args);
-            if (args[0] === "/api/funding/idrx-attempt") {
-              return created
-                ? { status: "completed", result: idrxVa() }
-                : { status: "none" };
-            }
-            created = true;
-            return idrxVa();
-          },
-        }}
-        navigateToHostedOnramp={() => {}}
-        regionId="ID"
+          wallet={{
+            ...verifiedWallet(),
+            fetchAccountResource: async (...args) => {
+              calls.push(args);
+              if (args[0] === "/api/funding/idrx-attempt") {
+                return created
+                  ? { status: "completed", result: idrxVa() }
+                  : { status: "none" };
+              }
+              created = true;
+              return idrxVa();
+            },
+          }}
+          navigateToHostedOnramp={() => {}}
+          regionId="ID"
         />
       </MoneyDataRefreshProvider>,
     );
@@ -208,27 +268,36 @@ describe("FundingExperience", () => {
     fireEvent.click(page().getByRole("button", { name: "Check balance & activity" }));
     expect(refreshes).toBe(1);
     expect(page().getByText(/Funding stays pending until IDRX appears/)).toBeTruthy();
-    expect(calls.filter(([path]) => path === "/api/funding/idrx-mint")).toEqual([["/api/funding/idrx-mint", {
-      method: "POST",
-      body: {
-        assetId: "idrx",
-        country: "ID",
-        attemptId: expect.any(String),
-        toBeMinted: "20000",
-        rail: "bank-va",
-        channelId: "MANDIRI",
-        consent: true,
+    await waitFor(() => {
+      expect(calls.filter(([path]) => path === "/api/funding/idrx-attempt")).toHaveLength(2);
+    });
+    expect(calls.filter(([path]) => path === "/api/funding/idrx-mint")).toEqual([[
+      "/api/funding/idrx-mint",
+      {
+        method: "POST",
+        body: {
+          assetId: "idrx",
+          country: "ID",
+          attemptId: expect.any(String),
+          toBeMinted: "20000",
+          rail: "bank-va",
+          channelId: "MANDIRI",
+          consent: true,
+        },
+        signal: expect.any(AbortSignal),
       },
-      signal: expect.any(AbortSignal),
-    }]]);
+    ]]);
 
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
     expect(page().getByText("8680770000001234")).toBeTruthy();
+    await waitFor(() => {
+      expect(calls.filter(([path]) => path === "/api/funding/idrx-attempt")).toHaveLength(3);
+    });
     expect(calls.filter(([path]) => path === "/api/funding/idrx-mint")).toHaveLength(1);
   });
 
-  test("recovers completed VA instructions after close discards the initiating response", async () => {
+  test("recovers completed IDRX instructions after close discards the initiating response", async () => {
     let resolveMint!: (value: unknown) => void;
     const pendingMint = new Promise<unknown>((resolve) => { resolveMint = resolve; });
     let persistedResult: unknown = null;
@@ -279,8 +348,9 @@ describe("FundingExperience", () => {
     expect(dispatches).toBe(1);
   });
 
-  test("retains an ambiguous IDRX attempt across back navigation and does not offer redispatch", async () => {
+  test("keeps an ambiguous IDRX attempt pending across back navigation without redispatch", async () => {
     let dispatches = 0;
+    let recoveries = 0;
     let pendingAttemptId: string | null = null;
     render(
       <FundingExperienceForWallet
@@ -288,6 +358,7 @@ describe("FundingExperience", () => {
           ...verifiedWallet(),
           fetchAccountResource: async (path, options) => {
             if (path === "/api/funding/idrx-attempt") {
+              recoveries += 1;
               return pendingAttemptId
                 ? { status: "pending", attemptId: pendingAttemptId }
                 : { status: "none" };
@@ -313,10 +384,72 @@ describe("FundingExperience", () => {
     fireEvent.click(page().getByRole("button", { name: /Buy IDRX with rupiah/ }));
     expect(page().getByText("Funding pending")).toBeTruthy();
     expect(page().queryByRole("button", { name: "Create virtual account" })).toBeNull();
+    await waitFor(() => expect(recoveries).toBe(2));
     expect(dispatches).toBe(1);
   });
 
-  test("does not expose the Indonesia issuer rail in another region", () => {
+  test("walks every synthetic Ripio review state without creating an order", () => {
+    let accountRequests = 0;
+    render(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async () => {
+            accountRequests += 1;
+            throw new Error("No request expected");
+          },
+        }}
+        navigateToHostedOnramp={() => {}}
+        regionId="AR"
+      />,
+    );
+
+    expect(
+      page().getByRole(
+        "button",
+        { name: /Deposit ARS Use Ripio to deposit from your local bank/ },
+      ),
+    ).toBeTruthy();
+    fireEvent.click(
+      page().getByRole("button", { name: /Deposit ARS/ }),
+    );
+    expect(page().getByRole("dialog", { name: "Deposit ARS" })).toBeTruthy();
+    expect(page().getByText("Synthetic preview · no order or funds")).toBeTruthy();
+    expect(page().getByRole("region", { name: "Requirements and verification" })).toBeTruthy();
+    expect(page().getByText("Required; not accepted in preview")).toBeTruthy();
+    expect(page().getByText("Required; not checked in preview")).toBeTruthy();
+
+    const stages = [
+      { button: "Preview quote", region: "Quote review" },
+      { button: "Preview bank instructions", region: "Bank rail instructions" },
+      { button: "Preview pending deposit", region: "Pending deposit" },
+      { button: "Preview recovery", region: "Deposit recovery" },
+      { button: "Preview refund", region: "Refund status" },
+      { button: "Preview error state", region: "Provider error" },
+    ];
+    for (const stage of stages) {
+      fireEvent.click(page().getByRole("button", { name: stage.button }));
+      expect(page().getByRole("region", { name: stage.region })).toBeTruthy();
+    }
+
+    expect(page().getByRole("alert").textContent).toContain("synthetic request");
+    expect(page().getByRole("button", { name: "Restart preview" })).toBeTruthy();
+    expect(accountRequests).toBe(0);
+  });
+
+  test("shows only the selected-country onramp by default", () => {
+    const argentina = render(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet()}
+        navigateToHostedOnramp={() => {}}
+        regionId="AR"
+      />,
+    );
+    expect(page().getByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().getByRole("button", { name: /Use Ripio to deposit from your local bank/ })).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Use Coinbase/ })).toBeNull();
+
+    argentina.unmount();
     render(
       <FundingExperienceForWallet
         wallet={verifiedWallet()}
@@ -324,7 +457,36 @@ describe("FundingExperience", () => {
         regionId="US"
       />,
     );
-    expect(page().queryByRole("button", { name: /Buy IDRX with rupiah/ })).toBeNull();
+    expect(page().getByRole("button", { name: /Use Coinbase to deposit USD/ })).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Use Ripio/ })).toBeNull();
+  });
+
+  test("searches out-of-geo providers without changing the selected country or enabling Ripio", () => {
+    render(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet()}
+        navigateToHostedOnramp={() => {}}
+        regionId="AR"
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Use another onramp" }));
+    expect(page().getByRole("searchbox", { name: "Search onramps" })).toBeTruthy();
+    expect(page().queryByText("Use Ripio to deposit ARS")).toBeNull();
+    expect(page().getByText("Use Coinbase to deposit USD")).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Use Ripio to deposit COP/ })).toBeNull();
+    expect(page().getByText("Use Ripio to deposit COP")).toBeTruthy();
+    expect(page().getAllByText("Unavailable for your selected country").length).toBeGreaterThan(0);
+
+    fireEvent.change(page().getByRole("searchbox", { name: "Search onramps" }), {
+      target: { value: "COP" },
+    });
+    expect(page().getByText("Use Ripio to deposit COP")).toBeTruthy();
+    expect(page().queryByText("Use Coinbase to deposit USD")).toBeNull();
+
+    fireEvent.click(page().getAllByRole("button", { name: "Back" })[0]);
+    expect(page().getByRole("button", { name: /Use Ripio to deposit from your local bank/ })).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Use Coinbase/ })).toBeNull();
   });
 
   test("keeps hosted navigation active after StrictMode effect replay", async () => {
@@ -334,11 +496,12 @@ describe("FundingExperience", () => {
         <FundingExperienceForWallet
           wallet={{ ...verifiedWallet(), fetchAccountResource: async () => hosted() }}
           navigateToHostedOnramp={(url) => navigations.push(url)}
+          regionId="US"
         />
       </StrictMode>,
     );
 
-    fireEvent.click(page().getByRole("button", { name: /Buy USDC with Coinbase/ }));
+    fireEvent.click(page().getByRole("button", { name: /Use Coinbase to deposit USD/ }));
     fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
     await waitFor(() => expect(navigations).toEqual([HOSTED_URL]));
   });
@@ -355,13 +518,14 @@ describe("FundingExperience", () => {
       <FundingExperienceForWallet
         wallet={{ ...verifiedWallet(), fetchAccountResource: async () => pending }}
         navigateToHostedOnramp={(url) => navigations.push(url)}
+        regionId="US"
         onClose={() => {
           closes += 1;
         }}
       />,
     );
 
-    fireEvent.click(page().getByRole("button", { name: /Buy USDC with Coinbase/ }));
+    fireEvent.click(page().getByRole("button", { name: /Use Coinbase to deposit USD/ }));
     fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
     await waitFor(() => expect(page().getByRole("button", { name: "Opening Coinbase…" })).toBeTruthy());
     fireEvent.click(page().getByRole("button", { name: "Close add money" }));
@@ -386,10 +550,11 @@ describe("FundingExperience", () => {
       <FundingExperienceForWallet
         wallet={{ ...verifiedWallet(), fetchAccountResource: async () => pending }}
         navigateToHostedOnramp={(url) => navigations.push(url)}
+        regionId="US"
       />,
     );
 
-    fireEvent.click(page().getByRole("button", { name: /Buy USDC with Coinbase/ }));
+    fireEvent.click(page().getByRole("button", { name: /Use Coinbase to deposit USD/ }));
     fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
     await waitFor(() => expect(page().getByRole("button", { name: "Opening Coinbase…" })).toBeTruthy());
     view.unmount();

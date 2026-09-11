@@ -112,7 +112,10 @@ function FundingExperienceBoundary({
     setOpeningOnramp(false);
   }
 
-  async function runRequest(request: (signal: AbortSignal) => Promise<void>) {
+  async function runRequest(
+    provider: "coinbase" | "idrx",
+    request: (signal: AbortSignal) => Promise<void>,
+  ) {
     if (!boundary || openingOnramp || !openRef.current) return;
     requestAbortRef.current?.abort();
     const controller = new AbortController();
@@ -125,7 +128,7 @@ function FundingExperienceBoundary({
       await request(controller.signal);
     } catch (caught) {
       if (!isCurrentRequest(controller, requestEpoch, requestEpochRef, openRef)) return;
-      setOnrampError(messageForOnrampError(caught));
+      setOnrampError(messageForOnrampError(caught, provider));
     } finally {
       if (requestEpochRef.current === requestEpoch) {
         requestAbortRef.current = null;
@@ -144,7 +147,7 @@ function FundingExperienceBoundary({
 
   function openCoinbase() {
     if (!session?.smartAccount) return;
-    void runRequest(async (signal) => {
+    void runRequest("coinbase", async (signal) => {
       const hosted = await requestHostedOnrampSession({
         fetchAccountResource: wallet.fetchAccountResource,
         signal,
@@ -160,7 +163,7 @@ function FundingExperienceBoundary({
     consent: true;
   }) {
     if (!session?.smartAccount || regionId !== "ID") return;
-    void runRequest(async (signal) => {
+    void runRequest("idrx", async (signal) => {
       const attemptId = idrxAttemptIdRef.current;
       saveIdrxAttempt(boundary, { attemptId, pending: true, result: null });
       try {
@@ -187,7 +190,7 @@ function FundingExperienceBoundary({
 
   function recoverExistingIdrx() {
     if (!session?.smartAccount || regionId !== "ID") return;
-    void runRequest(async (signal) => {
+    void runRequest("idrx", async (signal) => {
       const recovered = await recoverIdrxAttempt({
         fetchAccountResource: wallet.fetchAccountResource,
         signal,
@@ -275,6 +278,16 @@ function FundingExperienceBoundary({
         setStep("idrx");
         recoverExistingIdrx();
       }}
+      onSelectRipio={() => {
+        openRef.current = true;
+        setOnrampError(null);
+        setStep("ripio");
+      }}
+      onSelectAnotherOnramp={() => {
+        openRef.current = true;
+        setOnrampError(null);
+        setStep("onramps");
+      }}
       onContinueToCoinbase={openCoinbase}
       onCreateIdrx={createIdrx}
       onOpenIdrxCheckout={navigateToHostedOnramp}
@@ -339,17 +352,26 @@ function fundingBoundary(wallet: FundingWallet): string | null {
     : null;
 }
 
-function messageForOnrampError(error: unknown): string {
+function messageForOnrampError(
+  error: unknown,
+  provider: "coinbase" | "idrx",
+): string {
   if (error instanceof FundingRequestError) {
     if (error.code === "unauthenticated") {
-      return "Your verified session changed before funding opened. Sign in again; no provider request was used.";
+      return provider === "coinbase"
+        ? "Your verified session changed before Coinbase opened. Sign in again; no hosted session was used."
+        : "Your verified session changed before funding opened. Sign in again; no provider request was used.";
     }
     if (error.code === "not-configured") {
-      return "This funding method is not configured or is not linked to this verified IDRX customer.";
+      return provider === "coinbase"
+        ? "Coinbase Onramp is unavailable because this deployment does not have its existing CDP server credentials configured."
+        : "This funding method is not configured or is not linked to this verified IDRX customer.";
     }
-    if (error.code === "pending") {
+    if (provider === "idrx" && error.code === "pending") {
       return "This attempt may already exist at IDRX. Check balance and activity; Home will not create another order.";
     }
   }
-  return "Funding is temporarily unavailable. No payment or funding was confirmed.";
+  return provider === "coinbase"
+    ? "Coinbase hosted funding is unavailable. The existing CDP project may need Onramp access or this Home return origin allowlisted."
+    : "Funding is temporarily unavailable. No payment or funding was confirmed.";
 }

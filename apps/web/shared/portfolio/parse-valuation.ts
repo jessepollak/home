@@ -141,13 +141,13 @@ function validateHolding(
     typeof value.assetKey !== "string" ||
     !assetKeyPattern.test(value.assetKey) ||
     typeof value.name !== "string" ||
-    typeof value.symbol !== "string" ||
-    (value.readStatus !== "ready" && value.readStatus !== "unavailable")
+    typeof value.symbol !== "string"
   ) {
     return false;
   }
   if (value.kind === "direct") {
     return (
+      ["ready", "incomplete", "unavailable"].includes(String(value.readStatus)) &&
       Number.isInteger(value.decimals) &&
       (value.assetKind === "native" || value.assetKind === "erc20") &&
       (value.contractAddress === null ||
@@ -159,6 +159,7 @@ function validateHolding(
   }
   return (
     value.kind === "vault-position" &&
+    (value.readStatus === "ready" || value.readStatus === "vault-failure") &&
     typeof value.vaultAddress === "string" &&
     addressPattern.test(value.vaultAddress) &&
     value.underlyingAssetKey === PORTFOLIO_USDC_ASSET_KEY &&
@@ -228,7 +229,13 @@ function validateLine(
     holdingKeys.has(value.holdingAssetKey) &&
     value.valueCurrency === currency &&
     validateNullableDecimal(value.value) &&
-    ["priced", "unpriced", "read-unavailable"].includes(String(value.status)) &&
+    [
+      "priced",
+      "unpriced",
+      "read-incomplete",
+      "read-unavailable",
+      "vault-failure",
+    ].includes(String(value.status)) &&
     (value.reason === null || typeof value.reason === "string")
   );
 }
@@ -284,6 +291,7 @@ function validateNativeCashValuations({
     if (
       (entry.denominationFx === null &&
         entry.status !== "unpriced" &&
+        entry.status !== "read-incomplete" &&
         entry.status !== "read-unavailable") ||
       (selectedCurrency === asset.cashCurrency &&
         selectedFx !== null &&
@@ -307,9 +315,11 @@ function validateNativeCashValuations({
       validateDecimal(entry.denominationFx.quoteUnitsPerUsd);
 
     if (!readReady) {
+      const incomplete = holding.readStatus === "incomplete";
       if (
-        entry.status !== "read-unavailable" ||
-        entry.reason !== "holding-read-unavailable" ||
+        entry.status !== (incomplete ? "read-incomplete" : "read-unavailable") ||
+        entry.reason !==
+          (incomplete ? "holding-read-incomplete" : "holding-read-unavailable") ||
         entry.value !== null
       ) {
         return false;
@@ -522,7 +532,13 @@ function validateCashBucket(value: unknown): boolean {
     (value.tokenAmountBaseUnits === null || readInteger(value.tokenAmountBaseUnits)) &&
     (value.tokenDecimals === null || Number.isInteger(value.tokenDecimals)) &&
     validateNullableDecimal(value.indicativeValue) &&
-    ["priced", "unpriced", "read-unavailable", "unsupported"].includes(
+    [
+      "priced",
+      "unpriced",
+      "read-incomplete",
+      "read-unavailable",
+      "unsupported",
+    ].includes(
       String(value.valuationStatus),
     )
   );

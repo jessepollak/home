@@ -31,7 +31,7 @@ export type DirectPortfolioHolding = {
   contractAddress: PortfolioAddress | null;
   cashCurrency: FiatCurrencyCode | null;
   balanceBaseUnits: string | null;
-  readStatus: "ready" | "unavailable";
+  readStatus: "ready" | "incomplete" | "unavailable";
 };
 
 export type VaultPortfolioHolding = {
@@ -47,7 +47,7 @@ export type VaultPortfolioHolding = {
   underlyingDecimals: 6;
   sharesBaseUnits: string | null;
   underlyingBaseUnits: string | null;
-  readStatus: "ready" | "unavailable";
+  readStatus: "ready" | "vault-failure";
   conversionMethod: "erc4626-convertToAssets";
 };
 
@@ -95,7 +95,12 @@ export type ValuationLine = {
   holdingAssetKey: PortfolioAssetKey;
   valueCurrency: FiatCurrencyCode;
   value: ExactDecimal | null;
-  status: "priced" | "unpriced" | "read-unavailable";
+  status:
+    | "priced"
+    | "unpriced"
+    | "read-incomplete"
+    | "read-unavailable"
+    | "vault-failure";
   reason: string | null;
 };
 
@@ -103,8 +108,9 @@ export type NativeCashValuation = {
   holdingAssetKey: `eip155:8453/erc20:${string}`;
   denominationCurrency: FiatCurrencyCode;
   value: ExactDecimal | null;
-  status: "priced" | "unpriced" | "read-unavailable";
+  status: "priced" | "unpriced" | "read-incomplete" | "read-unavailable";
   reason:
+    | "holding-read-incomplete"
     | "holding-read-unavailable"
     | "exact-contract-price-unavailable"
     | "denomination-fx-unavailable"
@@ -125,6 +131,7 @@ export type CashBucket = {
   valuationStatus:
     | "priced"
     | "unpriced"
+    | "read-incomplete"
     | "read-unavailable"
     | "unsupported";
 };
