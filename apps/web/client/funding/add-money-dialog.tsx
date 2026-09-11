@@ -24,7 +24,7 @@ import modal from "@/client/money-modal/money-modal.module.css";
 import styles from "./add-money.module.css";
 import { ReceiveQr } from "./receive-qr";
 
-export type AddMoneyStep = "method" | "receive" | "buy" | "ripio";
+export type AddMoneyStep = "method" | "receive" | "buy" | "ripio" | "onramps";
 
 export function AddMoneyDialog({
   open,
@@ -39,6 +39,7 @@ export function AddMoneyDialog({
   onSelectReceive,
   onSelectBuy,
   onSelectRipio,
+  onSelectAnotherOnramp,
   onContinueToCoinbase,
 }: {
   open: boolean;
@@ -53,9 +54,20 @@ export function AddMoneyDialog({
   onSelectReceive: () => void;
   onSelectBuy: () => void;
   onSelectRipio: () => void;
+  onSelectAnotherOnramp: () => void;
   onContinueToCoinbase: () => void;
 }) {
-  const title = step === "receive" ? "Receive" : step === "buy" || step === "ripio" ? "Buy" : "Add money";
+  const currency = presentationRegions[regionId].currency.code ?? "USD";
+  const title =
+    step === "receive"
+      ? "Receive"
+      : step === "buy"
+        ? "Deposit USD with your local account"
+        : step === "ripio"
+          ? `Deposit ${currency} with your local account`
+          : step === "onramps"
+            ? "Choose another onramp"
+            : "Add money";
 
   return (
     <MoneyModal
@@ -79,6 +91,7 @@ export function AddMoneyDialog({
           onSelectReceive={onSelectReceive}
           onSelectBuy={onSelectBuy}
           onSelectRipio={onSelectRipio}
+          onSelectAnotherOnramp={onSelectAnotherOnramp}
         />
       ) : null}
       {!signedOut && step === "receive" ? (
@@ -86,6 +99,12 @@ export function AddMoneyDialog({
       ) : null}
       {!signedOut && step === "buy" ? <BuyBody /> : null}
       {!signedOut && step === "ripio" ? <RipioBody regionId={regionId} /> : null}
+      {!signedOut && step === "onramps" ? (
+        <OtherOnrampsBody
+          regionId={regionId}
+          onSelectCoinbase={onSelectBuy}
+        />
+      ) : null}
 
       {onrampError && step === "buy" ? (
         <div className={styles.statusStack}>
@@ -112,7 +131,7 @@ export function AddMoneyDialog({
           onSecondary={onBack}
         />
       ) : null}
-      {!signedOut && step === "ripio" ? (
+      {!signedOut && (step === "ripio" || step === "onramps") ? (
         <div className={modal.footer}>
           <button className={modal.quiet} type="button" onClick={onBack}>Back</button>
         </div>
@@ -126,16 +145,20 @@ export function MethodBody({
   onSelectReceive,
   onSelectBuy,
   onSelectRipio,
+  onSelectAnotherOnramp,
 }: {
   regionId: RegionId;
   onSelectReceive: () => void;
   onSelectBuy: () => void;
   onSelectRipio: () => void;
+  onSelectAnotherOnramp: () => void;
 }) {
   const ripio = ripioAvailability(regionId);
+  const localCurrency = presentationRegions[regionId].currency.code ?? "USD";
+  const showRipio = regionId === "AR" || regionId === "CO" || regionId === "BR";
+  const showCoinbase = regionId === "US";
   return (
     <div className={modal.body}>
-      <p className={styles.subtitle}>Fund this Base account</p>
       <div className={styles.methods}>
         <button className={styles.method} type="button" onClick={onSelectReceive}>
           <span className={styles.methodIcon} aria-hidden="true">
@@ -147,7 +170,7 @@ export function MethodBody({
           </span>
           <span className={styles.methodChevron} aria-hidden="true">›</span>
         </button>
-        {ripio ? (
+        {ripio && showRipio ? (
           <button
             className={styles.method}
             type="button"
@@ -158,25 +181,36 @@ export function MethodBody({
               symbol={presentationRegions[regionId].currency.symbol ?? "$"}
             />
             <span className={styles.methodCopy}>
-              <span className={styles.methodTitle}>Buy local currency with Ripio</span>
+              <span className={styles.methodTitle}>
+                Use Ripio to deposit {localCurrency}
+              </span>
               <span className={styles.methodHint}>
                 {ripio.available
-                  ? `${ripio.token} delivered directly on Base`
+                  ? "Deposit from your local account"
                   : "Brazil route unavailable until the supported asset is selected"}
               </span>
             </span>
             <span className={styles.methodChevron} aria-hidden="true">›</span>
           </button>
         ) : null}
-        <button className={styles.method} type="button" onClick={onSelectBuy}>
-          <CurrencyMark currency="USD" symbol="$" />
-          <span className={styles.methodCopy}>
-            <span className={styles.methodTitle}>Buy USDC with Coinbase</span>
-            <span className={styles.methodHint}>Hosted onramp to Base</span>
-          </span>
-          <span className={styles.methodChevron} aria-hidden="true">›</span>
-        </button>
+        {showCoinbase ? (
+          <button className={styles.method} type="button" onClick={onSelectBuy}>
+            <CurrencyMark currency="USD" symbol="$" />
+            <span className={styles.methodCopy}>
+              <span className={styles.methodTitle}>Use Coinbase to deposit USD</span>
+              <span className={styles.methodHint}>Deposit from your local account</span>
+            </span>
+            <span className={styles.methodChevron} aria-hidden="true">›</span>
+          </button>
+        ) : null}
       </div>
+      <button
+        className={styles.anotherOnramp}
+        type="button"
+        onClick={onSelectAnotherOnramp}
+      >
+        Use another onramp
+      </button>
     </div>
   );
 }
@@ -272,9 +306,9 @@ export function BuyBody() {
   return (
     <div className={`${modal.body} ${styles.buy}`}>
       <CurrencyMark currency="USD" symbol="$" />
-      <h3 className={styles.buyTitle}>Continue to Coinbase</h3>
+      <h3 className={styles.buyTitle}>Use Coinbase to deposit USD</h3>
       <p className={styles.buyLead}>
-        Buy USDC with Coinbase&apos;s hosted onramp and receive it on Base.
+        Continue to Coinbase&apos;s hosted onramp to deposit into this account.
       </p>
     </div>
   );
@@ -284,26 +318,114 @@ export function RipioBody({ regionId }: { regionId: RegionId }) {
   const availability = ripioAvailability(regionId);
   if (!availability) return null;
   const region = presentationRegions[regionId];
+  const localCurrency = region.currency.code ?? "USD";
   return (
     <div className={`${modal.body} ${styles.buy}`}>
       <CurrencyMark
         currency={region.currency.code ?? "USD"}
         symbol={region.currency.symbol ?? "$"}
       />
-      <h3 className={styles.buyTitle}>Ripio direct funding</h3>
+      <h3 className={styles.buyTitle}>
+        Use Ripio to deposit {localCurrency}
+      </h3>
       {availability.available ? (
-        <>
-          <p className={styles.buyLead}>
-            Buy {availability.token} with {availability.fiatCurrency} and receive it at this
-            account on Base.
-          </p>
-        </>
+        <p className={styles.buyLead}>
+          Deposit from your local account and receive the funds in this account.
+        </p>
       ) : (
         <p className={styles.buyLead}>
           Ripio does not currently expose Home&apos;s selected BRZ asset on Base. No Brazil
           order can be created until the Brazil asset decision is resolved.
         </p>
       )}
+    </div>
+  );
+}
+
+type OtherOnramp = {
+  id: string;
+  provider: "Coinbase" | "Ripio";
+  currency: "USD" | "ARS" | "COP" | "BRL";
+  regionId: "US" | "AR" | "CO" | "BR";
+};
+
+const otherOnramps: readonly OtherOnramp[] = [
+  { id: "coinbase-usd", provider: "Coinbase", currency: "USD", regionId: "US" },
+  { id: "ripio-ars", provider: "Ripio", currency: "ARS", regionId: "AR" },
+  { id: "ripio-cop", provider: "Ripio", currency: "COP", regionId: "CO" },
+  { id: "ripio-brl", provider: "Ripio", currency: "BRL", regionId: "BR" },
+];
+
+export function OtherOnrampsBody({
+  regionId,
+  onSelectCoinbase,
+}: {
+  regionId: RegionId;
+  onSelectCoinbase: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const matches = otherOnramps.filter((onramp) => {
+    if (onramp.regionId === regionId) return false;
+    return `${onramp.provider} ${onramp.currency}`
+      .toLocaleLowerCase()
+      .includes(normalizedQuery);
+  });
+
+  return (
+    <div className={modal.body}>
+      <label className={styles.searchLabel} htmlFor="other-onramp-search">
+        Search onramps
+      </label>
+      <input
+        id="other-onramp-search"
+        className={styles.searchInput}
+        type="search"
+        value={query}
+        placeholder="Provider or currency"
+        onChange={(event) => setQuery(event.currentTarget.value)}
+      />
+      <div className={styles.otherOnramps} aria-live="polite">
+        {matches.map((onramp) => {
+          const canOpen = onramp.provider === "Coinbase";
+          const region = presentationRegions[onramp.regionId];
+          const content = (
+            <>
+              <CurrencyMark currency={onramp.currency} symbol={region.currency.symbol ?? "$"} />
+              <span className={styles.methodCopy}>
+                <span className={styles.methodTitle}>
+                  Use {onramp.provider} to deposit {onramp.currency}
+                </span>
+                <span className={styles.methodHint}>
+                  {canOpen
+                    ? "Available without changing your saved country"
+                    : "Unavailable for your selected country"}
+                </span>
+              </span>
+              {canOpen ? (
+                <span className={styles.methodChevron} aria-hidden="true">›</span>
+              ) : null}
+            </>
+          );
+          return canOpen ? (
+            <button
+              className={styles.method}
+              type="button"
+              onClick={onSelectCoinbase}
+              key={onramp.id}
+            >
+              {content}
+            </button>
+          ) : (
+            <div className={`${styles.method} ${styles.unavailableMethod}`} key={onramp.id}>
+              {content}
+            </div>
+          );
+        })}
+        {matches.length === 0 ? (
+          <p className={styles.noOnramps}>No onramps match your search.</p>
+        ) : null}
+      </div>
     </div>
   );
 }

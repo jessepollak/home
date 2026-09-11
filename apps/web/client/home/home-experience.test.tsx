@@ -849,9 +849,10 @@ describe("login-state home experience", () => {
     const addMoney = page().getByRole("dialog", { name: "Add money" });
     expect(addMoney).toBeTruthy();
     expect(addMoney.closest(".action-row")).toBeNull();
-    expect(page().getByText("Fund this Base account")).toBeTruthy();
+    expect(page().queryByText("Fund this Base account")).toBeNull();
     expect(page().getByRole("button", { name: /Receive crypto/ })).toBeTruthy();
-    expect(page().getByRole("button", { name: /Buy USDC with Coinbase/ })).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Use Coinbase/ })).toBeNull();
+    expect(page().getByRole("button", { name: "Use another onramp" })).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: /Receive crypto/ }));
     expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
     expect(page().getByText("Receive on Base")).toBeTruthy();

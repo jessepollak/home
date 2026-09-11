@@ -8,7 +8,6 @@
 .methods {
   display: grid;
   gap: 12px;
-  margin-top: 10px;
 }
 
 .method {
@@ -70,6 +69,65 @@
   border-radius: 50%;
   background: var(--home-canvas);
   color: var(--home-ink);
+}
+
+.anotherOnramp {
+  width: fit-content;
+  min-height: 44px;
+  margin: 8px auto 0;
+  border: 0;
+  background: transparent;
+  color: var(--home-blue);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 10px 6px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.anotherOnramp:focus-visible,
+.searchInput:focus-visible {
+  outline: 3px solid rgba(0, 82, 255, 0.18);
+  outline-offset: 2px;
+}
+
+.searchLabel {
+  color: var(--home-ink);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.searchInput {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 7px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 9px;
+  background: var(--home-white);
+  color: var(--home-ink);
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 10px 12px;
+}
+
+.otherOnramps {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.unavailableMethod {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.noOnramps {
+  margin: 12px 0;
+  color: var(--home-muted);
+  font-size: 0.84rem;
+  text-align: center;
 }
 
 .receive {
