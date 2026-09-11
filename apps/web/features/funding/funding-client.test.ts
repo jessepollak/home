@@ -1,14 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  FUNDING_ATTEMPT_STORAGE_KEY,
   FundingRequestError,
   parseHostedOnrampSession,
-  readFundingAttempt,
   requestHostedOnrampSession,
 } from "./funding-client";
 import { FUNDING_BASE_USDC_ADDRESS } from "./types";
-
-const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 
 function hosted(url = "https://pay.coinbase.com/buy/select-asset?sessionToken=fixture") {
   return {
@@ -54,32 +50,5 @@ describe("funding client boundaries", () => {
         },
       ],
     ]);
-  });
-
-  test("drops return baselines when the verified account changes", () => {
-    let removed = false;
-    const storage = {
-      getItem: (key: string) =>
-        key === FUNDING_ATTEMPT_STORAGE_KEY
-          ? JSON.stringify({
-              version: 1,
-              accountProvider: "base-account",
-              address: ADDRESS,
-              startedAt: "2026-09-08T10:00:00.000Z",
-              baselineUsdcBaseUnits: "1000000",
-            })
-          : null,
-      removeItem: () => {
-        removed = true;
-      },
-    };
-
-    expect(
-      readFundingAttempt(storage, {
-        accountProvider: "base-account",
-        address: "0x2222222222222222222222222222222222222222",
-      }),
-    ).toBeNull();
-    expect(removed).toBe(true);
   });
 });

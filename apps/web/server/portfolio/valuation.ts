@@ -30,6 +30,7 @@ import {
 import type {
   CashBucket,
   FxQuote,
+  NativeCashValuation,
   NativeEthQuote,
   PortfolioInventorySnapshot,
   PortfolioValuationSnapshot,
@@ -150,6 +151,11 @@ export function createPortfolioValuationReader(dependencies: {
           : valuationIncomplete
             ? "partial"
             : "all-supported-read-holdings-priced";
+    const nativeCashValuations = buildNativeCashValuations({
+      inventory,
+      prices,
+      fxQuotes,
+    });
 
     return {
       version: 2,
@@ -171,13 +177,12 @@ export function createPortfolioValuationReader(dependencies: {
         : null,
       nativeEthQuote,
       lines,
+      nativeCashValuations,
       cashBuckets: buildCashBuckets({
         region,
         quoteCurrency,
         inventory,
-        prices,
-        fxQuotes,
-        nativeEthQuote,
+        nativeCashValuations,
       }),
       total: {
         label: "supported-portfolio-value",
@@ -270,20 +275,131 @@ function valueHolding({
   };
 }
 
+function buildNativeCashValuations({
+  inventory,
+  prices,
+  fxQuotes,
+}: {
+  inventory: PortfolioInventorySnapshot;
+  prices: readonly PriceQuote[];
+  fxQuotes: readonly FxQuote[];
+}): NativeCashValuation[] {
+  return getDirectPortfolioAssets()
+    .filter(
+      (asset): asset is typeof asset & {
+        assetKey: `eip155:8453/erc20:${string}`;
+        contractAddress: `0x${string}`;
+        cashCurrency: FiatCurrencyCode;
+      } =>
+        asset.kind === "erc20" &&
+        asset.contractAddress !== null &&
+        asset.cashCurrency !== null,
+    )
+    .map((asset) => {
+      const holding = inventory.holdings.find(
+        (candidate) =>
+          candidate.kind === "direct" && candidate.assetKey === asset.assetKey,
+      );
+      if (!holding || holding.kind !== "direct") {
+        throw new Error("A configured native-cash holding is missing.");
+      }
+
+      const exactContractUsdPrice =
+        prices.find((quote) => quote.assetKey === asset.assetKey) ?? null;
+      const denominationFx =
+        fxQuotes.find(
+          (quote) => quote.quoteCurrency === asset.cashCurrency,
+        ) ?? null;
+
+      if (holding.readStatus !== "ready" || holding.balanceBaseUnits === null) {
+        return {
+          holdingAssetKey: asset.assetKey,
+          denominationCurrency: asset.cashCurrency,
+          value: null,
+          status: "read-unavailable",
+          reason: "holding-read-unavailable",
+          exactContractUsdPrice,
+          denominationFx,
+        };
+      }
+
+      const result = valueNativeCashHolding({
+        amount: holding.balanceBaseUnits,
+        decimals: holding.decimals,
+        exactContractUsdPrice,
+        denominationFx,
+      });
+      return {
+        holdingAssetKey: asset.assetKey,
+        denominationCurrency: asset.cashCurrency,
+        value: result.fraction
+          ? roundFractionPreservingPositive(result.fraction)
+          : null,
+        status: result.status,
+        reason: result.reason,
+        exactContractUsdPrice,
+        denominationFx,
+      };
+    });
+}
+
+function valueNativeCashHolding({
+  amount,
+  decimals,
+  exactContractUsdPrice,
+  denominationFx,
+}: {
+  amount: string;
+  decimals: number;
+  exactContractUsdPrice: PriceQuote | null;
+  denominationFx: FxQuote | null;
+}): {
+  fraction: Fraction | null;
+  status: "priced" | "unpriced";
+  reason: NativeCashValuation["reason"];
+} {
+  const quantity = baseUnitsToFraction(amount, decimals);
+  if (quantity.numerator === BigInt(0)) {
+    return { fraction: ZERO, status: "priced", reason: null };
+  }
+  if (
+    exactContractUsdPrice?.status !== "fresh" ||
+    !exactContractUsdPrice.unitPrice
+  ) {
+    return {
+      fraction: null,
+      status: "unpriced",
+      reason: "exact-contract-price-unavailable",
+    };
+  }
+  if (denominationFx?.status !== "fresh" || !denominationFx.quoteUnitsPerUsd) {
+    return {
+      fraction: null,
+      status: "unpriced",
+      reason: "denomination-fx-unavailable",
+    };
+  }
+  return {
+    fraction: multiplyFractions(
+      quantity,
+      exactDecimalToFraction(exactContractUsdPrice.unitPrice),
+      exactDecimalToFraction(denominationFx.quoteUnitsPerUsd),
+    ),
+    status: "priced",
+    reason: null,
+  };
+}
+
 function buildCashBuckets({
   region,
   quoteCurrency,
   inventory,
-  prices,
-  fxQuotes,
-  nativeEthQuote,
+  nativeCashValuations,
 }: {
   region: RegionId;
   quoteCurrency: FiatCurrencyCode | null;
   inventory: PortfolioInventorySnapshot;
-  prices: readonly PriceQuote[];
-  fxQuotes: readonly FxQuote[];
-  nativeEthQuote: NativeEthQuote;
+  nativeCashValuations: readonly NativeCashValuation[];
 }): CashBucket[] {
   const usdc = inventory.holdings.find(
     (holding) =>
@@ -299,9 +415,7 @@ function buildCashBuckets({
         ? ["canonical-usd", "selected-local"]
         : ["canonical-usd"],
       "USD",
-      prices,
-      fxQuotes,
-      nativeEthQuote,
+      nativeCashValuations,
     ),
   ];
 
@@ -322,9 +436,7 @@ function buildCashBuckets({
           holding,
           ["selected-local"],
           quoteCurrency,
-          prices,
-          fxQuotes,
-          nativeEthQuote,
+          nativeCashValuations,
         ),
       );
     } else {
@@ -351,23 +463,16 @@ function supportedCashBucket(
   holding: Extract<PortfolioInventorySnapshot["holdings"][number], { kind: "direct" }>,
   roles: CashBucket["roles"],
   currency: FiatCurrencyCode,
-  prices: readonly PriceQuote[],
-  fxQuotes: readonly FxQuote[],
-  nativeEthQuote: NativeEthQuote,
+  nativeCashValuations: readonly NativeCashValuation[],
 ): CashBucket {
-  const result =
-    holding.balanceBaseUnits === null || holding.readStatus !== "ready"
-      ? null
-      : valueHolding({
-          holdingAssetKey: holding.assetKey,
-          pricingAssetKey: holding.assetKey,
-          amount: holding.balanceBaseUnits,
-          decimals: holding.decimals,
-          currency,
-          prices,
-          fxQuotes,
-          nativeEthQuote,
-        });
+  const valuation = nativeCashValuations.find(
+    (candidate) =>
+      candidate.holdingAssetKey === holding.assetKey &&
+      candidate.denominationCurrency === currency,
+  );
+  if (!valuation) {
+    throw new Error("A configured native-cash valuation is missing.");
+  }
   return {
     id: `cash:${holding.assetKey}`,
     roles,
@@ -376,15 +481,8 @@ function supportedCashBucket(
     denominationCurrency: currency,
     tokenAmountBaseUnits: holding.balanceBaseUnits,
     tokenDecimals: holding.decimals,
-    indicativeValue: result?.fraction
-      ? roundFractionPreservingPositive(result.fraction)
-      : null,
-    valuationStatus:
-      holding.readStatus !== "ready"
-        ? "read-unavailable"
-        : result?.status === "priced"
-          ? "priced"
-          : "unpriced",
+    indicativeValue: valuation.value,
+    valuationStatus: valuation.status,
   };
 }
 

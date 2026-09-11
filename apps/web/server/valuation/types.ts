@@ -99,6 +99,20 @@ export type ValuationLine = {
   reason: string | null;
 };
 
+export type NativeCashValuation = {
+  holdingAssetKey: `eip155:8453/erc20:${string}`;
+  denominationCurrency: FiatCurrencyCode;
+  value: ExactDecimal | null;
+  status: "priced" | "unpriced" | "read-unavailable";
+  reason:
+    | "holding-read-unavailable"
+    | "exact-contract-price-unavailable"
+    | "denomination-fx-unavailable"
+    | null;
+  exactContractUsdPrice: PriceQuote | null;
+  denominationFx: FxQuote | null;
+};
+
 export type CashBucket = {
   id: string;
   roles: Array<"canonical-usd" | "selected-local">;
@@ -137,6 +151,8 @@ export type PortfolioValuationSnapshot = {
   fx: FxQuote | null;
   nativeEthQuote: NativeEthQuote;
   lines: ValuationLine[];
+  /** Additive v2 extension. Legacy v2 snapshots may omit it. */
+  nativeCashValuations?: NativeCashValuation[];
   cashBuckets: CashBucket[];
   total: {
     label: "supported-portfolio-value";

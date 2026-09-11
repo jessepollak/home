@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
+import {
+  presentInvestAssetMark,
+  type AssetMarkResolution,
+} from "@/features/asset-mark/presentation";
 import { TradeActions } from "@/features/trading/trade-actions";
 import type { MarketDataState } from "./invest-market";
 import { useMarketDisplay } from "./use-market-display";
@@ -47,12 +51,12 @@ export function AssetDetailStatusScreen({
 export function AssetDetailScreen({
   asset,
   market,
-  iconPending = false,
+  assetMarkResolution = {},
   onBack,
 }: {
   asset: InvestAsset;
   market: MarketDataState;
-  iconPending?: boolean;
+  assetMarkResolution?: AssetMarkResolution;
   onBack: () => void;
 }) {
   const [range, setRange] = useState<MarketPriceRange>("1W");
@@ -62,6 +66,7 @@ export function AssetDetailScreen({
   const changeTone =
     change.startsWith("+") ? styles.changeUp : change.startsWith("-") ? styles.changeDown : "";
   const hosted = Boolean(useOptionalAppChrome());
+  const mark = presentInvestAssetMark(asset, assetMarkResolution);
   return (
     <section
       className={`${styles.experience} ${styles.detailExperience}`}
@@ -74,13 +79,7 @@ export function AssetDetailScreen({
             <BackIcon />
           </button>
           <span className={styles.detailIdentity}>
-            <AssetIcon
-              assetId={asset.id}
-              label={asset.displayName}
-              initials={asset.initials}
-              imageUrl={asset.imageUrl}
-              pending={iconPending}
-            />
+            <AssetIcon mark={mark} />
             <h2 id="invest-asset-title">{asset.displayName}</h2>
           </span>
         </header>

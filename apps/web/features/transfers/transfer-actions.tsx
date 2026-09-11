@@ -47,6 +47,7 @@ export function TransferActionsForWallet({
   const verifiedAddress =
     wallet.status === "verified" ? wallet.session?.smartAccount?.address ?? null : null;
   const visibleModal = modalOwner === boundary ? openModal : null;
+  const dropPrivate = modalOwner !== null && modalOwner !== boundary;
   const fetchUnresolvedSends = useMemo(() => {
     const fetchAccountResource = wallet.fetchAccountResource;
     return fetchAccountResource
@@ -76,6 +77,9 @@ export function TransferActionsForWallet({
     setOpenModal(modalName);
   };
   const close = () => {
+    setOpenModal(null);
+  };
+  const finishClose = () => {
     setOpenModal(null);
     setModalOwner(null);
   };
@@ -108,11 +112,14 @@ export function TransferActionsForWallet({
       <ReceiveDialog
         open={visibleModal === "receive"}
         address={verifiedAddress}
+        immediate={dropPrivate}
         onClose={close}
+        onClosed={finishClose}
       />
       <SendDialog
         open={visibleModal === "send"}
         address={verifiedAddress}
+        immediate={dropPrivate}
         pendingTransfer={wallet.pendingTransfer}
         availableByAsset={availableByAsset}
         sendTransfer={wallet.sendTransfer}
@@ -129,6 +136,7 @@ export function TransferActionsForWallet({
           onTransferConfirmed?.(transfer);
         }}
         onClose={close}
+        onClosed={finishClose}
       />
 
       {success ? (
@@ -150,16 +158,19 @@ export function TransferActionsForWallet({
 function ReceiveDialog({
   open,
   address,
+  immediate = false,
   onClose,
+  onClosed,
 }: {
   open: boolean;
   address: `0x${string}` | null;
+  immediate?: boolean;
   onClose: () => void;
+  onClosed: () => void;
 }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
 
   const close = () => {
-    setCopyStatus("idle");
     onClose();
   };
 
@@ -180,8 +191,12 @@ function ReceiveDialog({
     <MoneyModal
       open={open}
       labelledBy="receive-title"
+      immediate={immediate}
       onCancel={close}
-      onClose={close}
+      onClose={() => {
+        setCopyStatus("idle");
+        onClosed();
+      }}
     >
       <MoneyModalHeader
         title="Receive"

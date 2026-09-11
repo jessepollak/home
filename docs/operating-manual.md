@@ -1,6 +1,6 @@
 # Operating manual
 
-Status: agent-team operating contract, September 10, 2026. How Jesse's in-repo crew works. Not a product inventory and not production authorization.
+Status: agent-team operating contract, September 11, 2026. How Jesse's in-repo crew works. Not a product inventory and not production authorization.
 
 **Current-state docs:** [build status](build-status.md), [contribution contract](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers), [UI direction](ui-direction.md), [UI PR previews](ui-pr-previews.md), [docs index](README.md). Human onboarding: [CONTRIBUTING](../CONTRIBUTING.md).
 
@@ -12,11 +12,11 @@ Build Home as an app anyone can clone, run, contribute to, and extend. Fork-firs
 
 | Name | Role |
 |---|---|
-| Jesse (`jessepollak`) | Human owner. Final +1 and merge. Everything ships through this GitHub account. |
+| Jesse (`jessepollak`) | Human owner. Only Jesse gives final approval (+1) and merges. Everything ships through this GitHub account. |
 | j | CEO / ops |
 | Hunter | PM. Drive order. |
 | Hannah | Head of Engineering. Quality, reliability, maintainability. Eng review and labels. Never merge — Jesse final +1 / merge. |
-| Hugo | Architect. Architecture, cross-cutting technical integrity, independent review, and scoped fix PRs. Hannah retains engineering sequencing and review; Hunter retains drive order; Jesse retains final decisions, +1, and merge. Hugo is not a second execution coordinator and does not duplicate active lane ownership. |
+| Hugo | Architect. Architecture, cross-cutting technical integrity, independent review, scoped fix PRs, and — when Jesse authorizes a run — the delivery coordinator described in [Delivery loop](#delivery-loop). Hunter retains drive order; Jesse retains final decisions, +1, and merge. |
 | Hank | Backend |
 | Holly | Frontend |
 | Hazel | Design |
@@ -29,6 +29,8 @@ GitHub assignees are unused. Ownership is labels.
 GitHub Issues on `jessepollak/home` are the sole board and intake for all Home feedback and tasks, including solo checkout work. Do not create or use a local, private, or parallel intake board.
 
 Every issue used to track work should carry one `owner:*`, one `status:*`, and one `lane:*`. Labels already exist on the repo.
+
+Native todos are a short checklist of the coordinator's next few parent actions, each linked to its GitHub issue or PR. They are not a second backlog, and completing one does not mean anything shipped.
 
 ### `owner:*`
 
@@ -55,40 +57,13 @@ Keep one owner. Re-label when ownership moves. Do not assign the GitHub user —
 | `status:blocked` | Blocked; name the dependency on the issue |
 | `status:needs-jesse` | Needs a Jesse decision or merge |
 
-One `status:*` at a time. Swap; do not stack. When you advance, remove the previous status label.
-
-Prefer `status:working`. Do not use `status:in-progress` — deprecated. If you see it, remove it and apply the single current `status:*` (usually `status:working`).
+One `status:*` at a time. Swap; do not stack. When you advance, remove the previous status label. `status:in-progress` is deprecated; if you see it, remove it.
 
 #### Status label hygiene
 
-**Add `status:ready-for-review`** only when all of:
-
-- eng review is actually needed
-- required design LGTM is done (if UI)
-- the item is not on HOLD
-
-Never on draft PRs.
-
-**Add `status:needs-jesse`** only when:
-
-- the item is truly ready for Jesse merge (Hannah eng LGTM done; Hazel if UI), or
-- a Jesse decision is needed
-
-Never before eng LGTM. Never on draft PRs. Never leave `needs-jesse` on an issue whose linked PR is still draft.
-
-`status:needs-jesse` is not a substitute for Hannah's review. Eng review first; Jesse last.
-
-On jessepollak-authored crew PRs, GitHub blocks formal `APPROVE` / `REQUEST_CHANGES`. Hannah's eng LGTM is a COMMENT, then she labels `status:needs-jesse`.
-
-**Remove** both `status:ready-for-review` and `status:needs-jesse` when any of:
-
-- design or eng HOLD
-- `REQUEST_CHANGES`
-- PR goes draft
-- PR closed without merge
-- issue returns to `todo` or `working`
-
-Then leave only the single current `status:*`.
+- `status:ready-for-review`: the [delivery loop](#delivery-loop) is complete except eng review. Never on drafts.
+- `status:needs-jesse`: the loop is complete and the PR is undrafted, or Jesse must make a decision (say which on the PR).
+- Remove both on `REQUEST_CHANGES`, a HOLD, a return to draft, a close without merge, or a return to `todo`/`working`.
 
 ### `lane:*`
 
@@ -107,18 +82,32 @@ Stay in your lane. Shared files are listed in the [architecture review](architec
 
 Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / one `status:*` / `lane:*`) are the board.
 
-- Soft merge order, Design HOLD, smoke fails, and blockers land on the issue or PR (comment + label flip) before or instead of crew DMs. DMs, 1:1s, and babysitter are coordination, not source of truth. Land-queue / babysitter wake set and batching: [PR land chatter diet](#pr-land-chatter-diet).
-- Every PR that maps to an issue — including drafts — carries the triad the same day, matching the related issue. Drafts stay `status:working` only — never `ready-for-review` or `needs-jesse` while still draft. #78 / #60 were unlabeled drafts; that is now the rule.
+- Soft merge order, Design HOLD, smoke fails, and blockers land on the issue or PR (comment + label flip) before or instead of crew DMs. Land-queue / babysitter wake set and batching: [PR land chatter diet](#pr-land-chatter-diet).
+- Every PR that maps to an issue — including drafts — carries the triad the same day, matching the related issue. Drafts stay `status:working`.
 - On close or merge, scrub all `status:*` via REST `issues/{n}/labels`. Leave `owner:*` and `lane:*`. `gh pr edit` labels often no-ops.
-- `status:in-progress` is deleted. Use `status:working` only.
-- Dual `owner:*` labels are OK for FE+BE slices only when the issue comment names who owns which slice. Otherwise split issues.
-- Land path is unchanged: `working` → `ready-for-review` → `needs-jesse`. Jesse-only merge. Hannah may merge docs-only when Jesse hands it.
+- Jesse alone approves and merges every PR.
 
 ## Drive order
 
 - Hunter sets what the crew works on and in what product order.
 - Hannah (Head of Engineering) sequences engineering and unblocks lanes.
+- Jesse-approved priorities and scope remain governed by the [#205 priorities contract](https://github.com/jessepollak/home/issues/205).
 - Do not start a second board, a parallel coordinator, or a shadow inbox for the same work.
+
+## Delivery loop
+
+Jesse-locked, September 11, 2026. This replaces the earlier pipelines, calibrated-QA, and publication sections. The goal is merged code; evidence exists to get there, not the other way around.
+
+1. **One issue, one writer, one worktree, one PR.** Small scope, one lane, one owner, ordinary branch. If an issue needs more than one lane, split the issue. Run as many lanes as the backlog has disjoint issues (5–10 is normal); the shared limit is heavy jobs — at most four concurrent `bun check` / Playwright runs on one machine — not writers. Lanes are self-contained: the coordinator picks the next issue, launches the lane, and reads the result. A blocked lane names its dependency on the issue and the coordinator moves on.
+2. **The loop:** implement → `bun check` → one fresh independent review → fix blocking findings → push → CI green → attach the preview ([UI PR previews](ui-pr-previews.md)) → undraft and `status:needs-jesse`.
+3. **Blocking findings** are correctness, security, privacy, data loss, and the money-loop gates below. Everything else becomes a follow-up issue, not another review round. Hard cap: two review rounds per PR. After that, if any blocking finding is still unresolved the PR goes to Jesse with the open question; otherwise it ships with the follow-ups filed.
+4. **Reviewer routing:** money, auth, and privacy paths get the strongest reviewer (Astra). Product UI and ordinary backend get Sol. Docs and metadata get Terra. Reviews are read-only and time-boxed; an unfinished review is not a pass.
+5. **Tests are proportional.** For UI fixes, test code should not exceed product code. Reuse the existing Playwright config and unit patterns. No new `/dev` harness routes or bespoke servers unless the feature itself needs them.
+6. **Preview is the proof.** The Vercel preview link plus one screenshot or one short video in the PR description. No manifests, hashes, tiles, or publication reviews.
+7. **Git:** ordinary pushes to the owned branch; append fixes. Never rewrite published history or force-update `main`; a rewrite needs Jesse's explicit exception.
+8. **PR + CI is the status.** No progress comments, checkpoints, or receipts on GitHub. Comment only for a blocker, a decision for Jesse, or a handoff to another owner.
+9. **Money work keeps its rigor** (see [PRs](#prs)) and runs on its own cadence. It never sets the tempo for unrelated UI or docs work.
+10. **Authority:** the coordinator may undraft and mark `status:needs-jesse` when the loop is complete. Jesse alone approves and merges. Nothing here grants deployment, funded, destructive, or Neon-cleanup authority.
 
 ## 1:1s and learning retros
 
@@ -170,25 +159,25 @@ Jesse-locked, September 9, 2026. Where writing lives. Not a wiki migration.
 
 ## Proof bar
 
-User-visible work needs proof in the PR description: screenshots, a before/after, or a short repro. [UI PR previews](ui-pr-previews.md) is the screenshot convention. A reviewer should understand the change without opening the branch.
+User-visible work needs the Vercel preview link and one screenshot (or one short video for motion) in the PR description, captured from the current head. See [UI PR previews](ui-pr-previews.md). A reviewer should understand the change without opening the branch.
 
-Process docs-only, CI-only, and pure server PRs can skip screenshots. They still need a clear claim of what changed and how it was checked (`bun check` at minimum). Product docs are not a standalone PR — see [Docs](#docs).
+Docs-only, CI-only, and pure server PRs skip screenshots. They still need a clear claim of what changed and how it was checked (`bun check` at minimum). Product docs are not a standalone PR — see [Docs](#docs).
 
 ## Merge policy
 
-Crew may review. Hannah's eng review can proceed. Hannah never merges.
+Crew may review. Hannah owns the default eng-review flow and never merges. In a Jesse-authorized delegated run, the one fresh review in the [delivery loop](#delivery-loop) is the engineering gate.
 
-**Only Jesse (`jessepollak`) gives the final +1 and merges.** Merge waits on Jesse even when Hannah has reviewed. Third-party PRs already required Jesse +1; crew PRs use the same bar.
+**Only Jesse (`jessepollak`) gives final approval (+1) and merges.** The coordinator may undraft and mark `status:needs-jesse` when the delivery loop is complete; that grants no approval, merge, deployment, funded, destructive, or Neon-cleanup authority. Third-party PRs already required Jesse +1; crew PRs use the same bar.
 
-When a PR is ready for Jesse, swap the issue to `status:needs-jesse` (and say so on the PR). See [status label hygiene](#status-label-hygiene). Do not merge your own work. Do not treat a crew +1 as merge permission. Never ask Hannah to merge. Land-queue pings: [PR land chatter diet](#pr-land-chatter-diet).
+Do not merge your own work. Do not treat a crew +1 as merge permission. Never ask Hannah to merge. Land-queue pings: [PR land chatter diet](#pr-land-chatter-diet).
 
 ### CloudAgent / Auto-review
 
 Jesse-locked, September 8, 2026 (~9:14pm PT); launch path confirmed September 9, 2026 (~9:52pm PT). Global approval: crew **self-launches** CloudAgents. Do not wait on Hannah to proxy-launch.
 
 - If Auto-review still blocks a launch, ping Hannah once — she greenlights immediately. No per-run Jesse card. Do not ping Jesse for CloudAgent greenlights.
-- Hannah still owns eng review (COMMENT LGTM on jessepollak-authored PRs).
-- Jesse remains final +1 and merge.
+- Hannah owns the default eng review (COMMENT LGTM on jessepollak-authored PRs); the delivery-loop review replaces a duplicate inactive Hannah stage in a Jesse-authorized delegated run.
+- Jesse remains the only final approver and merger.
 - Max one CloudAgent per PR unless Jesse marks P0. No tip-churn after Eng LGTM unless HOLD or CI fail. See [PR land chatter diet](#pr-land-chatter-diet).
 
 ## PR land chatter diet
@@ -202,7 +191,7 @@ Jesse-locked, September 10, 2026. Land-queue and babysitter GitHub listeners sta
 - **Exit quiet.** When labels + CI + draft already match the desired end-state for the event: no DMs, no board comments, no Jesse ping.
 - **Board-first.** Soft merge order, HOLD, smoke fails, and blockers land as one issue/PR comment + label flip before (or instead of) crew DMs. See [Board is source of truth](#board-is-source-of-truth).
 - **Batch asks.** At most one board comment and at most one owner ping per real state change. No Hazel+Hannah+Holly fan-out on the same tip.
-- **Jesse-only merge.** Never ask Hannah to merge. Hannah eng-reviews and labels only. See [Merge policy](#merge-policy).
+- **Jesse-only approval and merge.** Never ask Hannah or the coordinator to approve or merge. See [Merge policy](#merge-policy).
 - **Message Jesse only when he must decide, +1, or unblock.** If nothing for him: send nothing. Never narrate “quiet to Jesse”.
 - **One CloudAgent.** Max one CloudAgent per PR unless Jesse marks P0. No tip-churn after Eng LGTM unless HOLD or CI fail. See [CloudAgent / Auto-review](#cloudagent--auto-review).
 - **Quiet hours.** Prefer 10pm–8am PT for non-critical land wakes when a standing listener exists.
@@ -215,7 +204,7 @@ Weekdays ~9:00 PT. 15–20 min per lane. Async-first. Quiet if nothing actionabl
 |---|---|
 | Hank | Backend |
 | Holly | Frontend |
-| Hazel | Design / proof on open UI PRs that day |
+| Hazel | Design / preview on open UI PRs that day |
 | Hannah | Eng review and labels. Never merge. |
 
 **Shared (all lanes):** File or bump issues. Ping Hannah on merge-blockers. Quiet if clean.
@@ -229,13 +218,13 @@ Weekdays ~9:00 PT. 15–20 min per lane. Async-first. Quiet if nothing actionabl
 
 ### Holly
 
-- Frontend tickets and UI proof.
+- Frontend tickets and UI previews.
 - No CLS / clip.
 - Direction 1. Ping Hazel for design LGTM.
 
 ### Hazel
 
-- Proof artifact present.
+- Preview present.
 - LGTM or concrete nits.
 
 ### Hannah
@@ -246,12 +235,12 @@ Weekdays ~9:00 PT. 15–20 min per lane. Async-first. Quiet if nothing actionabl
 
 ### Good looks like
 
-- Repro + proof on user-visible work.
+- Repro + preview on user-visible work.
 - Typed money errors.
 - Board labels current.
 - Jesse-only merge.
 
-Daily reviews feed the merge queue. Drafts stay draft until Jesse undrafts. j (ops) owns folding playbook changes into this manual.
+Daily reviews feed the merge queue. Drafts stay draft until Jesse, or the coordinator completing the [delivery loop](#delivery-loop), undrafts. j (ops) owns folding playbook changes into this manual.
 
 First two weeks: run informally. Report after ~5 days.
 

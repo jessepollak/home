@@ -12,7 +12,10 @@ import type {
   VerifiedAccountSession,
 } from "@/features/account/session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "@/features/account/session-types";
-import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import {
+  investPortfolioAssets,
+  verifiedLocalCashAssets,
+} from "@/config/portfolio-assets";
 import { presentationRegions, type RegionId } from "@/config/regions";
 
 const replaceCalls: string[] = [];
@@ -26,6 +29,7 @@ mock.module("next/navigation", () => ({
       backCalls += 1;
     },
   }),
+  usePathname: () => "/",
 }));
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
@@ -243,6 +247,78 @@ function valuationSnapshot({
     asOf: null,
     timeBasis: "retrieved-at",
   };
+  const codexSource = {
+    provider: "Codex",
+    method: "fixture",
+    fetchedAt,
+    asOf: fetchedAt,
+    timeBasis: "provider-as-of",
+  };
+  const nativeCashFixtures = [
+    {
+      assetKey: usdcKey,
+      contractAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      symbol: "USDC",
+      currency: "USD",
+      amount: usdc,
+      decimals: 6,
+      price: { atoms: "1", scale: 0 },
+    },
+    {
+      assetKey: verifiedLocalCashAssets.EUR.assetKey,
+      contractAddress: verifiedLocalCashAssets.EUR.contractAddress,
+      symbol: verifiedLocalCashAssets.EUR.symbol,
+      currency: "EUR",
+      amount: eurc,
+      decimals: verifiedLocalCashAssets.EUR.decimals,
+      price: { atoms: "12", scale: 1 },
+    },
+    {
+      assetKey: verifiedLocalCashAssets.IDR.assetKey,
+      contractAddress: verifiedLocalCashAssets.IDR.contractAddress,
+      symbol: verifiedLocalCashAssets.IDR.symbol,
+      currency: "IDR",
+      amount: idrx,
+      decimals: verifiedLocalCashAssets.IDR.decimals,
+      price: { atoms: "1", scale: 0 },
+    },
+  ] as const;
+  const prices = nativeCashFixtures.map((asset) => ({
+    assetKey: asset.assetKey,
+    contractAddress: asset.contractAddress,
+    quoteCurrency: "USD",
+    unitPrice: asset.price,
+    sourceValue:
+      asset.price.scale === 0 ? asset.price.atoms : "1.2",
+    status: "fresh",
+    source: codexSource,
+  }));
+  const nativeCashValuations = nativeCashFixtures.map((asset) => {
+    const scaleDelta = 18 - asset.decimals - asset.price.scale;
+    const atoms = (
+      BigInt(asset.amount) *
+      BigInt(asset.price.atoms) *
+      BigInt(10) ** BigInt(scaleDelta)
+    ).toString();
+    return {
+      holdingAssetKey: asset.assetKey,
+      denominationCurrency: asset.currency,
+      value: { atoms, scale: 18 },
+      status: "priced",
+      reason: null,
+      exactContractUsdPrice: prices.find(
+        ({ assetKey }) => assetKey === asset.assetKey,
+      ),
+      denominationFx: {
+        baseCurrency: "USD",
+        quoteCurrency: asset.currency,
+        quoteUnitsPerUsd: { atoms: "1", scale: 0 },
+        sourceValue: "1",
+        status: "fresh",
+        source,
+      },
+    };
+  });
   const cashBuckets = [
     {
       id: `cash:${usdcKey}`,
@@ -255,22 +331,42 @@ function valuationSnapshot({
       denominationCurrency: "USD",
       tokenAmountBaseUnits: usdc,
       tokenDecimals: 6,
-      indicativeValue: { atoms: usdc, scale: 6 },
+      indicativeValue: nativeCashValuations[0]?.value ?? null,
       valuationStatus: "priced",
     },
   ];
   if (currency && currency !== "USD") {
-    cashBuckets.push({
-      id: `cash:unsupported:${currency}`,
-      roles: ["selected-local"],
-      assetKey: null,
-      symbol: presentationRegions[region].candidateAsset?.symbol ?? currency,
-      denominationCurrency: currency,
-      tokenAmountBaseUnits: null,
-      tokenDecimals: null,
-      indicativeValue: null,
-      valuationStatus: "unsupported",
-    } as never);
+    const selected = nativeCashFixtures.find(
+      (asset) => asset.currency === currency,
+    );
+    if (selected) {
+      cashBuckets.push({
+        id: `cash:${selected.assetKey}`,
+        roles: ["selected-local"],
+        assetKey: selected.assetKey,
+        symbol: selected.symbol,
+        denominationCurrency: selected.currency,
+        tokenAmountBaseUnits: selected.amount,
+        tokenDecimals: selected.decimals,
+        indicativeValue:
+          nativeCashValuations.find(
+            ({ holdingAssetKey }) => holdingAssetKey === selected.assetKey,
+          )?.value ?? null,
+        valuationStatus: "priced",
+      } as never);
+    } else {
+      cashBuckets.push({
+        id: `cash:unsupported:${currency}`,
+        roles: ["selected-local"],
+        assetKey: null,
+        symbol: presentationRegions[region].candidateAsset?.symbol ?? currency,
+        denominationCurrency: currency,
+        tokenAmountBaseUnits: null,
+        tokenDecimals: null,
+        indicativeValue: null,
+        valuationStatus: "unsupported",
+      } as never);
+    }
   }
   return {
     version: 2,
@@ -286,7 +382,7 @@ function valuationSnapshot({
       holdings,
       omissions: [],
     },
-    prices: [],
+    prices,
     fx: currency
       ? {
           baseCurrency: "USD",
@@ -314,6 +410,7 @@ function valuationSnapshot({
           reason: null,
         }))
       : [],
+    nativeCashValuations,
     cashBuckets,
     total: {
       label: "supported-portfolio-value",
@@ -430,6 +527,7 @@ function HomeHarness({
   savingsContent = <section aria-label="Savings module">Savings fixture</section>,
   investContent = <section aria-label="Invest module">Invest fixture</section>,
   assetBalances,
+  assetMarkResolution,
 }: {
   accountSdk: AccountWalletSdkBoundary;
   sessionFetch?: SessionFetch;
@@ -441,6 +539,7 @@ function HomeHarness({
   savingsContent?: ReactNode;
   investContent?: ReactNode;
   assetBalances?: ComponentProps<typeof HomeExperience>["assetBalances"];
+  assetMarkResolution?: ComponentProps<typeof HomeExperience>["assetMarkResolution"];
 }) {
   return (
     <AccountWalletSessionOwner sdk={accountSdk} sessionFetch={sessionFetch}>
@@ -452,6 +551,7 @@ function HomeHarness({
         routeMode={routeMode}
         savingsContent={savingsContent}
         investContent={investContent}
+        assetMarkResolution={assetMarkResolution}
         assetBalances={
           assetBalances ?? {
             status: "ready",
@@ -652,7 +752,7 @@ describe("login-state home experience", () => {
     expect(page().getByRole("navigation", { name: "Main navigation" })).toBeTruthy();
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
     expect(page().getByRole("heading", { name: "Activity" })).toBeTruthy();
-    expect(page().getByRole("link", { name: "Add money" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Add money" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Save" })).toBeTruthy();
     expect(page().getByText("Updating…")).toBeTruthy();
     expect(document.querySelector("[data-shimmer='hero']")).toBeTruthy();
@@ -677,7 +777,20 @@ describe("login-state home experience", () => {
     fireEvent.click(page().getByRole("button", { name: "Account" }));
     expect(page().getByTitle(ADDRESS).textContent).toBe("0x1111…111111");
     fireEvent.click(page().getByRole("button", { name: "Done" }));
-    expect(page().getByRole("link", { name: "Add money" }).getAttribute("href")).toBe("/fund");
+    fireEvent.click(page().getByRole("button", { name: "Add money" }));
+    const addMoney = page().getByRole("dialog", { name: "Add money" });
+    expect(addMoney).toBeTruthy();
+    expect(addMoney.closest(".action-row")).toBeNull();
+    expect(page().getByText("Fund this Base account")).toBeTruthy();
+    expect(page().getByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(page().getByRole("button", { name: /Buy USDC with Coinbase/ })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: /Receive crypto/ }));
+    expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
+    expect(page().getByText("Receive on Base")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Copy address" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Check received" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Close add money" }));
+    expect(page().queryByRole("button", { name: /Receive crypto/ })).toBeNull();
     expect(page().getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
     expect(page().getByRole("button", { name: "Receive" }).hasAttribute("disabled")).toBe(false);
     fireEvent.click(page().getByRole("button", { name: "Receive" }));
@@ -753,7 +866,7 @@ describe("login-state home experience", () => {
     await waitFor(() => expect(replaceCalls).toEqual(["/?account=signin"]));
 
     expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
-    expect(page().queryByRole("link", { name: "Add money" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Add money" })).toBeNull();
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
     expect(page().queryByRole("heading", { name: "Activity" })).toBeNull();
     expect(page().queryByRole("button", { name: "Save" })).toBeNull();
@@ -853,7 +966,7 @@ describe("login-state home experience", () => {
     await waitFor(() => expect(replaceCalls).toEqual(["/"]));
     expect(document.body.textContent).not.toContain("0x1111…111111");
     expect(page().queryByRole("heading", { name: "Balances" })).toBeNull();
-    expect(page().queryByRole("link", { name: "Add money" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Add money" })).toBeNull();
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
 
     const retry = await page().findByRole("button", { name: "Retry sign out" });
@@ -897,7 +1010,7 @@ describe("login-state home experience", () => {
     expect(page().getByText("Ethereum")).toBeTruthy();
     expect(page().getByText("0.0500 ETH")).toBeTruthy();
     expect(page().getByText("Indonesian rupiah")).toBeTruthy();
-    expect(page().getByText("100.00 IDRX")).toBeTruthy();
+    expect(page().getByText("Rp 100.00")).toBeTruthy();
     const ethRow = page().getByText("Ethereum").closest("li");
     const ethMark = ethRow?.querySelector("[data-mark='eth']");
     expect(ethMark).toBeTruthy();
@@ -945,6 +1058,45 @@ describe("login-state home experience", () => {
     expect(
       new Headers(valuationRequest?.init?.headers).get(ACCOUNT_PROVIDER_HEADER),
     ).toBe("cdp-embedded");
+  });
+
+  test("renders IDR Balances with non-par EURC in euros and canonical currency marks", async () => {
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return Response.json(session());
+      if (String(input).startsWith("/api/activity?")) {
+        return Response.json(activityPage(input));
+      }
+      if (String(input).startsWith("/api/portfolio/valuation?")) {
+        return valuationResponse(input, {
+          usdc: "4343850000",
+          idrx: "23409041",
+          eurc: "109430000",
+        });
+      }
+      return Response.json(portfolioSnapshot());
+    };
+
+    render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch}
+        detectedCountry="ID"
+      />,
+    );
+
+    await page().findByText("Indonesian rupiah");
+    expect(page().getByText("$4,343.85")).toBeTruthy();
+    expect(page().getByText("Rp 234,090.41")).toBeTruthy();
+    expect(page().getByText("€131.32")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("Rp 131.32");
+    const euroRow = page().getByText("Euro").closest("li");
+    expect(euroRow?.querySelector("img")?.getAttribute("src")).toBe(
+      "/currency-flags/eu.svg",
+    );
+    const idrRow = page().getByText("Indonesian rupiah").closest("li");
+    expect(idrRow?.querySelector("img")?.getAttribute("src")).toBe(
+      "/currency-flags/id.svg",
+    );
   });
 
   test("repairs a legacy cached unpriced cash row at the Home display boundary", async () => {
@@ -1410,14 +1562,16 @@ describe("login-state home experience", () => {
           ownerKey: OWNER,
           sendUserOperation: async () => ({ userOperationHash }),
           getUserOperation: async () => ({
+            network: "base",
+            userOpHash: userOperationHash,
             status: "complete",
             transactionHash,
             calls: [{
               to: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
               data: `0xa9059cbb${ADDRESS_B.slice(2).padStart(64, "0")}${BigInt(1000001).toString(16).padStart(64, "0")}`,
-              value: BigInt(0),
+              value: "0",
             }],
-          }) as never,
+          }),
         })}
         sessionFetch={sessionFetch}
       />,
@@ -1745,9 +1899,18 @@ describe("login-state home experience", () => {
   });
 
   test("Home hub previews four balance rows and the nested panel lists every holding", async () => {
+    const nvidia = investPortfolioAssets.find((asset) => asset.id === "nvdac")!;
+    const bitcoin = investPortfolioAssets.find((asset) => asset.id === "cbbtc")!;
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetMarkResolution={{
+          images: {
+            [nvidia.assetKey]: "https://icons.example.test/nvda.png",
+            [bitcoin.assetKey]: "https://icons.example.test/cbbtc.png",
+          },
+          pending: false,
+        }}
         assetBalances={{
           status: "ready",
           displayTotal: "$12.34",
@@ -1780,15 +1943,19 @@ describe("login-state home experience", () => {
               displayBalance: "4.00 ETH",
             },
             {
-              id: "asset:nvda",
+              id: `asset:${nvidia.assetKey}`,
+              assetKey: nvidia.assetKey,
               group: "asset",
               name: "NVIDIA",
+              detail: "NVDAc",
               displayBalance: "5.00 NVDAc",
             },
             {
-              id: "asset:btc",
+              id: `asset:${bitcoin.assetKey}`,
+              assetKey: bitcoin.assetKey,
               group: "asset",
               name: "Bitcoin",
+              detail: "cbBTC",
               displayBalance: "6.00 cbBTC",
             },
           ],
@@ -1804,8 +1971,14 @@ describe("login-state home experience", () => {
 
     fireEvent.click(page().getByRole("button", { name: "Balances" }));
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
-    expect(page().getByText("NVIDIA")).toBeTruthy();
-    expect(page().getByText("Bitcoin")).toBeTruthy();
+    const nvidiaRow = page().getByText("NVIDIA").closest("li")!;
+    const bitcoinRow = page().getByText("Bitcoin").closest("li")!;
+    expect(nvidiaRow.querySelector("img")?.getAttribute("src")).toBe(
+      "https://icons.example.test/nvda.png",
+    );
+    expect(bitcoinRow.querySelector("img")?.getAttribute("src")).toBe(
+      "https://icons.example.test/cbbtc.png",
+    );
     expect(page().getByText("Indonesian rupiah")).toBeTruthy();
   });
 

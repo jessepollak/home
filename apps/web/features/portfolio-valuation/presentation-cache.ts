@@ -10,6 +10,8 @@ import type {
 
 export const homeBalancesPresentationCachePrefix = "home.balances.v1:";
 export const homeBalancesPresentationCacheTtlMs = 24 * 60 * 60 * 1000;
+/** Rows include authoritative native-cash values and stable asset mark keys. */
+export const homeBalancesPresentationSemanticVersion = "3.0.0";
 
 export type CacheStorage = Pick<
   Storage,
@@ -356,6 +358,7 @@ function serializeReadyPresentation(
 
   return JSON.stringify({
     v: recordVersion,
+    presentationSemantics: homeBalancesPresentationSemanticVersion,
     ownerKey: identity.ownerKey,
     subject: identity.subject,
     smartAccount: identity.smartAccount.toLowerCase(),
@@ -394,6 +397,7 @@ function parseStoredRecord(
   const record = value as Record<string, unknown>;
   const allowedKeys = [
     "v",
+    "presentationSemantics",
     "ownerKey",
     "subject",
     "smartAccount",
@@ -402,7 +406,12 @@ function parseStoredRecord(
     "presentation",
   ];
   if (Object.keys(record).some((key) => !allowedKeys.includes(key))) return null;
-  if (record.v !== recordVersion) return null;
+  if (
+    record.v !== recordVersion ||
+    record.presentationSemantics !== homeBalancesPresentationSemanticVersion
+  ) {
+    return null;
+  }
   if (!isSafeIdentity(record.ownerKey) || !isSafeIdentity(record.subject)) {
     return null;
   }
@@ -481,6 +490,7 @@ function allowlistItem(value: unknown): HomeAssetBalanceItem | null {
   const item = value as Record<string, unknown>;
   const allowedKeys = [
     "id",
+    "assetKey",
     "group",
     "name",
     "detail",
@@ -490,7 +500,11 @@ function allowlistItem(value: unknown): HomeAssetBalanceItem | null {
     "tone",
   ];
   if (Object.keys(item).some((key) => !allowedKeys.includes(key))) return null;
-  if (!isSafeLabel(item.id) || !isSafeLabel(item.name)) return null;
+  if (
+    !isSafeLabel(item.id) ||
+    (item.assetKey !== undefined && !isSafeLabel(item.assetKey)) ||
+    !isSafeLabel(item.name)
+  ) return null;
   if (
     typeof item.displayBalance !== "string" ||
     item.displayBalance.length === 0 ||
@@ -526,6 +540,7 @@ function allowlistItem(value: unknown): HomeAssetBalanceItem | null {
   return {
     id: item.id,
     name: item.name,
+    ...(typeof item.assetKey === "string" ? { assetKey: item.assetKey } : {}),
     displayBalance: item.displayBalance,
     ...(item.group ? { group: item.group } : {}),
     ...(typeof item.detail === "string" ? { detail: item.detail } : {}),

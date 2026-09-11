@@ -260,6 +260,59 @@ test("regression: failed post-Base session validation restores recoverable modal
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
 });
 
+test("incident 211: missing restored Base connection signs out into normal 390px sign-in", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openScenario(page, "base-missing-connection");
+  await waitForHarnessEvent(page, "base:restore");
+  await waitForHarnessEvent(page, "sdk:sign-out");
+
+  await expect(page.getByTestId("private-address")).toHaveText(
+    "private-details-hidden",
+  );
+  await expect(page.getByTestId("session-message")).toHaveText(
+    "Base Account was disconnected. Sign in again to continue.",
+  );
+  await expect.poll(() =>
+    page.evaluate(() => window.sessionStorage.getItem("home:account-provider")),
+  ).toBeNull();
+
+  await page.getByRole("button", { name: "Open account" }).click();
+  await expect(page.getByRole("button", { name: "Continue with email" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Continue with Base Account" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  await page.screenshot({
+    path: "/tmp/issue-211-base-missing-connection-390.png",
+    fullPage: true,
+  });
+
+  await page.reload();
+  await expect(page.getByTestId("session-status")).toHaveText("signed-out");
+  await expect(page.getByTestId("private-address")).toHaveText(
+    "private-details-hidden",
+  );
+  await expect.poll(() =>
+    page.evaluate(() => window.sessionStorage.getItem("home:account-provider")),
+  ).toBeNull();
+  await page.waitForTimeout(100);
+  expect(
+    await page.evaluate(() =>
+      (window as Window & { authHarness: { events: string[] } }).authHarness.events,
+    ),
+  ).not.toContain("base:restore");
+  expect(
+    await page.evaluate(() =>
+      (window as Window & { authHarness: { events: string[] } }).authHarness.events,
+    ),
+  ).not.toContain("sdk:sign-out");
+  await page.getByRole("button", { name: "Open account" }).click();
+  await expect(page.getByRole("button", { name: "Continue with email" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
+});
+
 test("regression: verified Base session navigates when final provider assertion finishes late", async ({
   page,
 }) => {

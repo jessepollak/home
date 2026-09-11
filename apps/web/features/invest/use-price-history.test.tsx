@@ -15,7 +15,7 @@ function page() {
 function historyPayload(
   assetId: string,
   range: MarketPriceRange,
-  points: readonly { time: string; value: string }[],
+  points: readonly { time: string; value: unknown }[],
 ) {
   return {
     version: 1,
@@ -104,6 +104,47 @@ describe("usePriceHistory", () => {
     rerender(<HookProbe assetId={dynamicId} range="1D" />);
     await waitFor(() => expect(page().getByTestId("status").textContent).toBe("error"));
     expect(page().getByTestId("count").textContent).toBe("0");
+  });
+
+  test.each([
+    ["zero integer", "0"],
+    ["zero decimal with a positive exponent", "0.0e+123"],
+    ["zero with an uppercase negative exponent", "0E-7"],
+    ["negative", "-1"],
+    ["malformed", "1e"],
+    ["non-string", 1],
+  ] as const)("rejects %s history values", async (_description, value) => {
+    window.fetch = (async () =>
+      Response.json(
+        historyPayload("cbbtc", "1W", [
+          { time: "2026-09-09T00:00:00.000Z", value },
+        ]),
+      )) as unknown as typeof fetch;
+
+    render(<HookProbe assetId="cbbtc" range="1W" />);
+
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("error"));
+    expect(page().getByTestId("count").textContent).toBe("0");
+    expect(page().getByTestId("first").textContent).toBe("");
+  });
+
+  test.each([
+    ["positive decimal", "0.0123"],
+    ["lowercase scientific", "1.25e-7"],
+    ["uppercase scientific", "6.02E+23"],
+  ] as const)("preserves an exact %s history value", async (_description, value) => {
+    window.fetch = (async () =>
+      Response.json(
+        historyPayload("cbbtc", "1W", [
+          { time: "2026-09-09T00:00:00.000Z", value },
+        ]),
+      )) as unknown as typeof fetch;
+
+    render(<HookProbe assetId="cbbtc" range="1W" />);
+
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
+    expect(page().getByTestId("count").textContent).toBe("1");
+    expect(page().getByTestId("first").textContent).toBe(value);
   });
 
   test("does not keep another asset’s series while the next history loads", async () => {

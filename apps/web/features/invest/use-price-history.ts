@@ -121,7 +121,7 @@ function parseHistoryResponse(value: unknown): MarketPriceHistoryResponse | null
       !Number.isFinite(Date.parse(point.time)) ||
       typeof point.value !== "string" ||
       !/^(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(point.value) ||
-      !/[1-9]/.test(point.value)
+      !/[1-9]/.test((point.value.split(/[eE]/)[0] ?? ""))
     ) {
       return null;
     }

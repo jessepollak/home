@@ -1007,4 +1007,26 @@ describe("TransferActions modals", () => {
     expect(page().queryByTitle(ADDRESS)).toBeNull();
     expect(page().getByRole("button", { name: "Receive" }).hasAttribute("disabled")).toBe(true);
   });
+
+  test("drops Send compose content in the account-boundary close frame", async () => {
+    const view = render(<TransferActionsForWallet wallet={verifiedWallet()} />);
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    await page().findByRole("button", { name: "Continue" });
+    typeAmount("13");
+    expect(document.querySelector("[data-primary-amount]")?.textContent).toBe("$13");
+
+    view.rerender(
+      <TransferActionsForWallet
+        wallet={{
+          ...verifiedWallet(),
+          ownerKey: "owner-b",
+          status: "validating",
+          session: null,
+        }}
+      />,
+    );
+
+    expect(document.querySelector("[data-primary-amount]")).toBeNull();
+    expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
+  });
 });

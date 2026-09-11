@@ -118,6 +118,7 @@ export function AccountSignInSheet({
     signInWithBaseAccount,
     cancelSignInAttempt,
     retrySessionValidation,
+    signOut,
   } = useAccountWallet();
   const [email, setEmail] = useState("");
   const [flowId, setFlowId] = useState<string | null>(null);
@@ -146,6 +147,7 @@ export function AccountSignInSheet({
   const signInBlocked =
     signInAvailability === "unconfigured" ||
     signInAvailability === "provider-unavailable";
+  const isCleaningUp = !signInBlocked && status === "signing-out";
   const isChecking =
     !signInBlocked && (status === "restoring" || status === "validating");
 
@@ -413,10 +415,27 @@ export function AccountSignInSheet({
               <span className={styles.spinner} aria-hidden="true" />
               {baseAccountPhaseMessage(activeBaseAccountPhase)}
             </div>
+          ) : isCleaningUp ? (
+            <div className={styles.pendingPanel} aria-live="polite">
+              <span className={styles.spinner} aria-hidden="true" />
+              Finishing sign-out…
+            </div>
           ) : isChecking ? (
             <div className={styles.pendingPanel} aria-live="polite">
               <span className={styles.spinner} aria-hidden="true" />
               Verifying your secure session…
+            </div>
+          ) : status === "signout-error" ? (
+            <div className={styles.statusPanel} role="alert">
+              <strong>Sign-out did not finish.</strong>
+              <p>Your account details remain hidden.</p>
+              <button
+                className={styles.secondaryButton}
+                type="button"
+                onClick={() => void signOut().catch(() => {})}
+              >
+                Retry sign out
+              </button>
             </div>
           ) : status === "unavailable" ? (
             <div className={styles.statusPanel} role="alert">
