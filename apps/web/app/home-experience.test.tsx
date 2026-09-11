@@ -1058,6 +1058,57 @@ describe("login-state home experience", () => {
     expect(page().getByText("NVIDIA")).toBeTruthy();
   });
 
+  test("never substitutes funded non-USD cash for unavailable USDC send availability", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "€2,234.56",
+          totalStatus: "partial",
+          statusLabel: "Partial balance",
+          items: [
+            {
+              id: "cash:usd",
+              group: "cash",
+              name: "US dollar",
+              displayBalance: "Unavailable",
+              currencyCode: "USD",
+              tone: "error",
+            },
+            {
+              id: "cash:eur",
+              group: "cash",
+              name: "Euro",
+              displayBalance: "€1,234.56",
+              currencyCode: "EUR",
+            },
+            {
+              id: "cash:idr",
+              group: "cash",
+              name: "Indonesian rupiah",
+              displayBalance: "Rp 1,000.00",
+              currencyCode: "IDR",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    expect(page().getByText("€1,234.56")).toBeTruthy();
+    expect(page().getByText("Rp 1,000.00")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+
+    const send = page().getByRole("dialog", { name: "Send" });
+    expect(within(send).queryByText("1,234.56 USDC available")).toBeNull();
+    expect(within(send).queryByText("1,000.00 USDC available")).toBeNull();
+    expect(
+      (within(send).getByRole("button", { name: "Max" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
   test("renders the GLOBAL no-currency action on Home and Balances", async () => {
     const sessionFetch: SessionFetch = async (input) => {
       if (input === "/api/session") return Response.json(session());

@@ -1195,10 +1195,9 @@ function availableSendBalances(
   const cashUsd = availableItems.find(
     (item) => item.group === "cash" && item.currencyCode === "USD",
   );
-  const cash = cashUsd ?? availableItems.find((item) => item.group === "cash");
   const eth = availableItems.find((item) => item.detail === "ETH");
   return {
-    ...(cash?.displayBalance ? { usdc: cash.displayBalance } : {}),
+    ...(cashUsd?.displayBalance ? { usdc: cashUsd.displayBalance } : {}),
     ...(eth ? { eth: eth.displayContext ?? eth.displayBalance } : {}),
   };
 }
