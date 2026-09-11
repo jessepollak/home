@@ -1110,15 +1110,27 @@ describe("login-state home experience", () => {
     expect(
       document.querySelector(".balance-status")?.getAttribute("data-total-status"),
     ).toBe("partial");
-    expect(page().getByText("0.0500 ETH")).toBeTruthy();
     expect(page().getAllByText("Unavailable")).toHaveLength(2);
-    expect(document.querySelector("[data-shimmer='balance-context']")).toBeTruthy();
+    expect(page().queryByText("0.0500 ETH")).toBeNull();
+    expect(page().queryByText("Ethereum")).toBeNull();
+    const updatingRow = document.querySelector("[data-shimmer='row']");
+    expect(updatingRow).toBeTruthy();
+    expect(updatingRow?.querySelector("[data-shimmer='mark']")).toBeTruthy();
+    expect(
+      updatingRow?.querySelector(".shimmer-identity .shimmer-line-wide"),
+    ).toBeTruthy();
+    expect(
+      updatingRow?.querySelector(".shimmer-identity .shimmer-line-narrow"),
+    ).toBeTruthy();
+    expect(updatingRow?.querySelector(".shimmer-pill")).toBeTruthy();
     expect(page().getByText("Updating…").classList.contains("sr-status")).toBe(true);
 
     fireEvent.click(page().getByRole("button", { name: "Balances" }));
     expect(page().getAllByText("Unavailable")).toHaveLength(2);
-    expect(page().getByText("Ethereum")).toBeTruthy();
+    expect(page().queryByText("0.0500 ETH")).toBeNull();
+    expect(page().queryByText("Ethereum")).toBeNull();
     expect(page().getByText("NVIDIA")).toBeTruthy();
+    expect(document.querySelector("[data-shimmer='row']")).toBeTruthy();
   });
 
   test("never substitutes funded non-USD cash for unavailable USDC send availability", async () => {

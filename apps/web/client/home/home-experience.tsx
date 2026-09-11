@@ -1328,9 +1328,28 @@ function HomeBalanceRowView({
   asset: HomeAssetBalanceItem;
   assetMarkResolution?: AssetMarkResolution;
 }) {
+  if (asset.displayContext === "Updating…") {
+    return (
+      <li className="shimmer-row" data-shimmer="row">
+        <CurrencyMark pending />
+        <span className="shimmer-identity">
+          <span
+            className="shimmer shimmer-line shimmer-line-wide"
+            aria-hidden="true"
+          />
+          <span
+            className="shimmer shimmer-line shimmer-line-narrow"
+            aria-hidden="true"
+          />
+        </span>
+        <span className="shimmer shimmer-pill" aria-hidden="true" />
+        <span className="sr-status">Updating…</span>
+      </li>
+    );
+  }
+
   const row = presentHomeBalanceRow(asset);
   const mark = presentHomeBalanceMark(asset, assetMarkResolution);
-  const isUpdating = asset.displayContext === "Updating…";
   return (
     <BalanceRow
       icon={
@@ -1343,20 +1362,7 @@ function HomeBalanceRowView({
       }
       iconTone="mark"
       label={asset.name}
-      context={
-        isUpdating ? (
-          <>
-            <span
-              className="shimmer shimmer-line shimmer-line-narrow"
-              data-shimmer="balance-context"
-              aria-hidden="true"
-            />
-            <span className="sr-status">Updating…</span>
-          </>
-        ) : (
-          asset.displayContext
-        )
-      }
+      context={asset.displayContext}
       value={
         row.accessibleBalance ? (
           <span
