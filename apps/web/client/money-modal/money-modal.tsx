@@ -10,14 +10,35 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { animate } from "motion/react";
+import { MONEY_SHEET_SPRING } from "@/shared/motion";
 import styles from "./money-modal.module.css";
 
-export const MONEY_SHEET_ENTER_MS = 280;
-export const MONEY_SHEET_EXIT_MS = 220;
-export const MONEY_SHEET_DISMISS_PX = 72;
-export const MONEY_SHEET_FLICK_PX = 24;
-export const MONEY_SHEET_FLICK_VELOCITY = 0.6;
+export const MONEY_SHEET_DISMISS_FRACTION = 0.25;
+export const MONEY_SHEET_DISMISS_PROJECTION_MS = 240;
 export const MONEY_SHEET_FLICK_MAX_AGE_MS = 100;
+export const MONEY_SHEET_VELOCITY_WINDOW_MS = 160;
+
+/**
+ * Resolves a drag release against the shared proportional threshold. Recent
+ * upward velocity always resolves back toward the open position, even when the
+ * current translate already cleared the fixed distance threshold (the
+ * down-pause-up reopen case). Downward or stationary releases use a projected
+ * destination: current translate plus the signed velocity carried over a short
+ * spring response horizon.
+ */
+export function resolveSheetDragDismiss(
+  translateY: number,
+  releaseVelocity: number,
+  sheetHeightPx: number,
+) {
+  const dismissDistance = sheetHeightPx * MONEY_SHEET_DISMISS_FRACTION;
+  if (releaseVelocity < 0) return false;
+  return (
+    translateY + releaseVelocity * MONEY_SHEET_DISMISS_PROJECTION_MS
+    >= dismissDistance
+  );
+}
 
 function prefersReducedMotion() {
   return typeof window.matchMedia === "function"
@@ -41,29 +62,9 @@ function readTranslateY(sheet: HTMLElement) {
   }
 }
 
-function applySheetShift(
-  sheet: HTMLElement,
-  y: number,
-  ms: number | null,
-  ease = "ease-out",
-) {
-  sheet.style.transition = ms === null ? "none" : `transform ${ms}ms ${ease}`;
+function applySheetShift(sheet: HTMLElement, y: number) {
+  sheet.style.transition = "none";
   sheet.style.transform = `translate3d(0, ${Math.max(0, y)}px, 0)`;
-}
-
-function applySheetHeight(
-  sheet: HTMLElement,
-  heightPx: number | null,
-  ms: number | null,
-) {
-  sheet.style.transition = ms === null ? "none" : `height ${ms}ms ease-out`;
-  sheet.style.height = heightPx === null ? "" : `${Math.max(0, heightPx)}px`;
-}
-
-function applySheetReturn(sheet: HTMLElement, heightPx: number, ms: number) {
-  sheet.style.transition = `transform ${ms}ms ease-out, height ${ms}ms ease-out`;
-  sheet.style.transform = "translate3d(0, 0px, 0)";
-  sheet.style.height = `${Math.max(0, heightPx)}px`;
 }
 
 function measureNaturalSheetHeight(sheet: HTMLElement) {
@@ -105,34 +106,29 @@ function unlockBodyScroll() {
 export function useMoneyModal(
   open: boolean,
   immediate = false,
-): RefObject<HTMLDialogElement | null> {
+): {
+  dialogRef: RefObject<HTMLDialogElement | null>;
+  finishClose: () => void;
+} {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
-  const closeTimerRef = useRef<number>(0);
   const ownsScrollLockRef = useRef(false);
+
+  const finishClose = useCallback(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (dialog.open) dialog.close();
+    if (ownsScrollLockRef.current) {
+      unlockBodyScroll();
+      ownsScrollLockRef.current = false;
+    }
+    restoreFocusRef.current?.focus({ preventScroll: true });
+    restoreFocusRef.current = null;
+  }, []);
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-
-    const clearCloseTimer = () => {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = 0;
-    };
-    const unlockScroll = () => {
-      if (!ownsScrollLockRef.current) return;
-      unlockBodyScroll();
-      ownsScrollLockRef.current = false;
-    };
-    const finish = () => {
-      clearCloseTimer();
-      if (dialog.open) dialog.close();
-      unlockScroll();
-      restoreFocusRef.current?.focus({ preventScroll: true });
-      restoreFocusRef.current = null;
-    };
-
-    clearCloseTimer();
 
     if (open) {
       if (!dialog.open) {
@@ -161,17 +157,16 @@ export function useMoneyModal(
 
     if (prefersReducedMotion() || immediate) {
       dialog.dataset.state = "closed";
-      finish();
+      finishClose();
       return;
     }
 
+    // The sheet spring below owns the exit; it calls finishClose on complete.
     dialog.dataset.state = "closing";
-    closeTimerRef.current = window.setTimeout(finish, MONEY_SHEET_EXIT_MS);
-  }, [immediate, open]);
+  }, [finishClose, immediate, open]);
 
   useEffect(() => {
     return () => {
-      window.clearTimeout(closeTimerRef.current);
       if (ownsScrollLockRef.current) {
         unlockBodyScroll();
         ownsScrollLockRef.current = false;
@@ -179,7 +174,7 @@ export function useMoneyModal(
     };
   }, []);
 
-  return dialogRef;
+  return { dialogRef, finishClose };
 }
 
 export function MoneyModal({
@@ -199,9 +194,9 @@ export function MoneyModal({
   onClose: () => void;
   children: ReactNode;
 }) {
-  const dialogRef = useMoneyModal(open, immediate);
+  const { dialogRef, finishClose } = useMoneyModal(open, immediate);
   const sheetRef = useRef<HTMLDivElement>(null);
-  const settleTimerRef = useRef<number>(0);
+  const sheetAnimRef = useRef<{ stop: () => void } | null>(null);
   const closingRef = useRef(false);
   const dragRef = useRef({
     pointerId: -1,
@@ -219,42 +214,76 @@ export function MoneyModal({
   if (open && presentedChildren !== children) setPresentedChildren(children);
   if (open && !contentMounted) setContentMounted(true);
 
-  const clearSettleTimer = useCallback(() => {
-    window.clearTimeout(settleTimerRef.current);
-    settleTimerRef.current = 0;
+  const stopSheetAnim = useCallback(() => {
+    sheetAnimRef.current?.stop();
+    sheetAnimRef.current = null;
   }, []);
 
-  const finishSheetReturn = useCallback((sheet: HTMLElement, targetHeight: number) => {
-    clearSettleTimer();
+  const startSheetYSpring = useCallback((sheet: HTMLElement, fromY: number, toY: number, velocity: number, onComplete?: () => void) => {
+    stopSheetAnim();
+    sheet.style.transition = "none";
+    sheet.style.transform = `translate3d(0, ${Math.max(0, fromY)}px, 0)`;
+    sheetAnimRef.current = animate(fromY, toY, {
+      ...MONEY_SHEET_SPRING,
+      velocity: velocity * 1000,
+      onUpdate: (latest) => {
+        sheet.style.transform = `translate3d(0, ${Math.max(0, latest)}px, 0)`;
+      },
+      onComplete: () => {
+        sheetAnimRef.current = null;
+        sheet.style.transform = `translate3d(0, ${Math.max(0, toY)}px, 0)`;
+        onComplete?.();
+      },
+    });
+  }, [stopSheetAnim]);
+
+  const startSheetHeightSpring = useCallback((sheet: HTMLElement, fromHeight: number, toHeight: number, onComplete?: () => void) => {
+    stopSheetAnim();
+    sheet.style.transition = "none";
+    sheet.style.height = `${Math.max(0, fromHeight)}px`;
+    sheetAnimRef.current = animate(fromHeight, toHeight, {
+      ...MONEY_SHEET_SPRING,
+      onUpdate: (latest) => {
+        sheet.style.height = `${Math.max(0, latest)}px`;
+      },
+      onComplete: () => {
+        sheetAnimRef.current = null;
+        sheet.style.height = `${Math.max(0, toHeight)}px`;
+        onComplete?.();
+      },
+    });
+  }, [stopSheetAnim]);
+
+  const finishSheetReturn = useCallback((sheet: HTMLElement, targetHeight: number, releaseVelocity = 0) => {
     sheet.dataset.entered = "";
     if (prefersReducedMotion()) {
-      applySheetShift(sheet, 0, null);
+      stopSheetAnim();
+      applySheetShift(sheet, 0);
       clearSheetEnter(sheet);
       return;
     }
-    applySheetReturn(sheet, targetHeight, MONEY_SHEET_ENTER_MS);
-    settleTimerRef.current = window.setTimeout(() => {
-      settleTimerRef.current = 0;
+    sheet.style.height = `${Math.max(0, targetHeight)}px`;
+    startSheetYSpring(sheet, Math.max(0, readTranslateY(sheet)), 0, releaseVelocity, () => {
       if (dragRef.current.pointerId === -1 && !dragRef.current.dismissing && open) {
         clearSheetEnter(sheet);
         sheet.style.transition = "none";
       }
-    }, MONEY_SHEET_ENTER_MS);
-  }, [clearSettleTimer, open]);
+    });
+  }, [open, startSheetYSpring, stopSheetAnim]);
 
   useLayoutEffect(() => {
     const sheet = sheetRef.current;
     if (!sheet) return;
-    clearSettleTimer();
 
     if (open) {
       dragRef.current.dismissing = false;
-      delete sheet.dataset.entered;
       const reopening = closingRef.current;
       closingRef.current = false;
+      delete sheet.dataset.entered;
 
       if (prefersReducedMotion()) {
-        applySheetShift(sheet, 0, null);
+        stopSheetAnim();
+        applySheetShift(sheet, 0);
         clearSheetEnter(sheet);
         sheet.dataset.entered = "";
         return;
@@ -267,31 +296,22 @@ export function MoneyModal({
         sheet.style.transition = "none";
         sheet.style.height = `${currentHeight}px`;
         sheet.style.transform = `translate3d(0, ${currentY}px, 0)`;
-        const frame = window.requestAnimationFrame(() => {
-          if (dragRef.current.pointerId !== -1) return;
-          finishSheetReturn(sheet, target);
-          sheet.dataset.entered = "";
-        });
-        return () => window.cancelAnimationFrame(frame);
+        sheet.dataset.entered = "";
+        finishSheetReturn(sheet, target);
+        return;
       }
 
       const target = measureNaturalSheetHeight(sheet);
-      applySheetShift(sheet, 0, null);
-      applySheetHeight(sheet, 0, null);
-      const frame = window.requestAnimationFrame(() => {
-        if (dragRef.current.pointerId !== -1) return;
-        applySheetHeight(sheet, target, MONEY_SHEET_ENTER_MS);
-        sheet.dataset.entered = "";
+      stopSheetAnim();
+      applySheetShift(sheet, 0);
+      sheet.dataset.entered = "";
+      startSheetHeightSpring(sheet, 0, target, () => {
+        if (dragRef.current.pointerId === -1 && !dragRef.current.dismissing && open) {
+          clearSheetEnter(sheet);
+          sheet.style.transition = "none";
+        }
       });
-      const unlock = window.setTimeout(() => {
-        if (dragRef.current.pointerId !== -1 || dragRef.current.dismissing) return;
-        clearSheetEnter(sheet);
-        sheet.style.transition = "none";
-      }, MONEY_SHEET_ENTER_MS);
-      return () => {
-        window.cancelAnimationFrame(frame);
-        window.clearTimeout(unlock);
-      };
+      return;
     }
 
     if (!dialogRef.current?.open) {
@@ -300,21 +320,23 @@ export function MoneyModal({
     }
     closingRef.current = true;
     if (dragRef.current.dismissing) return;
+    if (dragRef.current.pointerId !== -1) return;
     const currentHeight = sheet.getBoundingClientRect().height;
-    applySheetHeight(sheet, currentHeight, null);
+    sheet.style.height = `${Math.max(0, currentHeight)}px`;
     if (prefersReducedMotion() || immediate) {
-      applySheetShift(sheet, currentHeight || sheetHeight(sheet), null);
+      stopSheetAnim();
+      applySheetShift(sheet, currentHeight || sheetHeight(sheet));
       return;
     }
-    applySheetShift(sheet, currentHeight || sheetHeight(sheet), MONEY_SHEET_EXIT_MS, "ease-in");
-  }, [clearSettleTimer, dialogRef, finishSheetReturn, immediate, open]);
+    startSheetYSpring(sheet, Math.max(0, readTranslateY(sheet)), sheetHeight(sheet), 0, finishClose);
+  }, [dialogRef, finishClose, finishSheetReturn, immediate, open, startSheetHeightSpring, startSheetYSpring, stopSheetAnim]);
 
-  useEffect(() => clearSettleTimer, [clearSettleTimer]);
+  useEffect(() => stopSheetAnim, [stopSheetAnim]);
 
   function clearSheetTransform() {
+    stopSheetAnim();
     const sheet = sheetRef.current;
     if (!sheet) return;
-    clearSettleTimer();
     sheet.style.transform = "";
     sheet.style.transition = "";
     clearSheetEnter(sheet);
@@ -333,7 +355,7 @@ export function MoneyModal({
     if (event.button !== 0 || !open) return;
     const sheet = sheetRef.current;
     if (!sheet) return;
-    clearSettleTimer();
+    stopSheetAnim();
     const currentY = Math.max(0, readTranslateY(sheet));
     const currentHeight = sheet.getBoundingClientRect().height;
     const targetHeight = measureNaturalSheetHeight(sheet);
@@ -365,15 +387,16 @@ export function MoneyModal({
     const offset = Math.max(0, event.clientY - drag.startY);
     const shift = drag.baseY + offset;
     drag.samples.push({ y: event.clientY, t: now });
-    const windowStart = now - 80;
-    while (drag.samples.length > 1 && drag.samples[0].t < windowStart) {
+    const windowStart = now - MONEY_SHEET_VELOCITY_WINDOW_MS;
+    while (drag.samples.length > 2 && drag.samples[0].t < windowStart) {
       drag.samples.shift();
     }
-    const first = drag.samples[0];
+    const newest = drag.samples[drag.samples.length - 1];
+    const previous = drag.samples[drag.samples.length - 2] ?? newest;
     drag.offset = offset;
-    drag.velocity = (event.clientY - first.y) / Math.max(1, now - first.t);
+    drag.velocity = (newest.y - previous.y) / Math.max(1, newest.t - previous.t);
     drag.lastSampleT = now;
-    applySheetShift(sheet, shift, null);
+    applySheetShift(sheet, shift);
   }
 
   function onGrabberPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
@@ -387,26 +410,54 @@ export function MoneyModal({
     const releaseVelocity = now - drag.lastSampleT <= MONEY_SHEET_FLICK_MAX_AGE_MS
       ? drag.velocity
       : 0;
-    const shouldDismiss =
-      drag.offset >= MONEY_SHEET_DISMISS_PX
-      || (drag.offset > MONEY_SHEET_FLICK_PX && releaseVelocity > MONEY_SHEET_FLICK_VELOCITY);
+    const translateY = Math.max(0, drag.baseY + drag.offset);
     delete sheet.dataset.dragging;
-    if (shouldDismiss) {
+    if (!open) {
+      // An external close started mid-drag: keep closing from the released
+      // position/velocity instead of dropping back to the open position.
+      if (prefersReducedMotion()) {
+        applySheetShift(sheet, sheetHeight(sheet));
+        return;
+      }
+      startSheetYSpring(sheet, translateY, sheetHeight(sheet), releaseVelocity, finishClose);
+      return;
+    }
+    if (resolveSheetDragDismiss(translateY, releaseVelocity, sheetHeight(sheet))) {
       const accepted = onCancel() !== false;
       if (!accepted) {
-        finishSheetReturn(sheet, drag.targetHeight);
+        finishSheetReturn(sheet, drag.targetHeight, releaseVelocity);
         return;
       }
       drag.dismissing = true;
       if (prefersReducedMotion()) {
-        applySheetShift(sheet, sheetHeight(sheet), null);
+        applySheetShift(sheet, sheetHeight(sheet));
         return;
       }
-      applySheetShift(sheet, sheetHeight(sheet), MONEY_SHEET_EXIT_MS, "ease-in");
+      startSheetYSpring(sheet, translateY, sheetHeight(sheet), releaseVelocity, finishClose);
       return;
     }
-    if (drag.offset === 0 && drag.baseY === 0 && sheet.style.height === "") {
-      applySheetShift(sheet, 0, null);
+    finishSheetReturn(sheet, drag.targetHeight, releaseVelocity);
+  }
+
+  function onGrabberPointerCancel(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (drag.pointerId !== event.pointerId) return;
+    drag.pointerId = -1;
+    finishPointer(event);
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const now = event.timeStamp || performance.now();
+    const releaseVelocity = now - drag.lastSampleT <= MONEY_SHEET_FLICK_MAX_AGE_MS
+      ? drag.velocity
+      : 0;
+    const translateY = Math.max(0, drag.baseY + drag.offset);
+    delete sheet.dataset.dragging;
+    if (!open) {
+      if (prefersReducedMotion()) {
+        applySheetShift(sheet, sheetHeight(sheet));
+        return;
+      }
+      startSheetYSpring(sheet, translateY, sheetHeight(sheet), releaseVelocity, finishClose);
       return;
     }
     finishSheetReturn(sheet, drag.targetHeight);
@@ -459,7 +510,8 @@ export function MoneyModal({
           onPointerDown={onGrabberPointerDown}
           onPointerMove={onGrabberPointerMove}
           onPointerUp={onGrabberPointerUp}
-          onPointerCancel={onGrabberPointerUp}
+          onPointerCancel={onGrabberPointerCancel}
+          onLostPointerCapture={onGrabberPointerCancel}
         >
           <span className={styles.grabber} aria-hidden="true" />
         </div>

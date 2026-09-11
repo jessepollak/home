@@ -1,0 +1,75 @@
+.text {
+  display: inline;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  text-align: inherit;
+  text-decoration: none;
+  touch-action: manipulation;
+  transition: color 120ms ease;
+}
+
+.text:focus-visible {
+  outline: 2px solid var(--home-blue);
+  outline-offset: 3px;
+}
+
+.copied {
+  color: var(--home-blue);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.fallback {
+  display: block;
+  margin-top: 6px;
+}
+
+.error {
+  display: block;
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.fullValue {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid var(--home-hairline);
+  border-radius: 8px;
+  background: var(--home-canvas);
+  color: var(--home-ink);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.fullValue:focus-visible {
+  outline: 3px solid var(--home-blue);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .text {
+    transition: none;
+  }
+}

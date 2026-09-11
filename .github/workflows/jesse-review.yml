@@ -1,0 +1,43 @@
+# Jesse and the crew post from the same GitHub account. The crew marks every
+# comment it writes with a trailing "<!-- hugo -->"; anything from jessepollak
+# without that marker is Jesse reviewing. Flip the PR back to working and add
+# review:jesse so the lane picks it up as a mandatory fix round.
+name: Jesse review pickup
+
+on:
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: jesse-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  flag:
+    name: Flag Jesse review
+    runs-on: ubuntu-latest
+    if: >-
+      github.actor == 'jessepollak' &&
+      (github.event_name != 'issue_comment' || github.event.issue.pull_request != null) &&
+      (github.event.issue.state || github.event.pull_request.state) == 'open' &&
+      (github.event_name != 'pull_request_review' || github.event.review.body != '') &&
+      !contains(github.event.comment.body || github.event.review.body, '<!-- hugo -->')
+    steps:
+      - name: Move PR to working and add review:jesse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          gh pr edit "$PR" --repo "$REPO" \
+            --remove-label status:needs-jesse --remove-label status:todo --remove-label status:blocked \
+            --remove-label status:ready-for-review --remove-label status:in-progress \
+            --add-label status:working --add-label review:jesse

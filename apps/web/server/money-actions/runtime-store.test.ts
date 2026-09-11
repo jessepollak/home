@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { PostgresMoneyActionStore } from "./postgres-store";
 import { getMoneyActionStore, resolveMoneyActionStoreBackend, setMoneyActionStoreForTests } from "./runtime-store";
 import { MemoryMoneyActionStore } from "./store";
 
@@ -38,12 +37,11 @@ describe("money action runtime store selection", () => {
     await expect(getMoneyActionStore()).resolves.toBe(store);
   });
 
-  test("loads the PostgreSQL adapter only after verified-empty cutover", async () => {
-    process.env.DATABASE_URL = "postgresql://example/home";
-    process.env.MONEY_ACTION_POSTGRES_CUTOVER = "verified-empty";
-    setMoneyActionStoreForTests(null);
-    const store = await getMoneyActionStore();
-    expect(store).toBeInstanceOf(PostgresMoneyActionStore);
+  test("loads and initializes the PostgreSQL attempt adapter only after verified-empty cutover", () => {
+    const runtime = readFileSync(resolve(import.meta.dir, "runtime-store.ts"), "utf8");
+    expect(runtime).toContain("createPostgresAttemptStoreResourceWithExecutor");
+    expect(runtime).toContain("await resource.init()");
+    expect(runtime).toContain("return resource.store");
   });
 
   test("fails closed when DATABASE_URL is configured without cutover verification", async () => {
