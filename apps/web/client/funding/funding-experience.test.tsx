@@ -198,6 +198,7 @@ describe("FundingExperience", () => {
 
     expect(page().getByText("USDC")).toBeTruthy();
     expect(page().queryByText("BRZ")).toBeNull();
+    expect(page().getByText(/other tokens in Home's supported Base inventory/)).toBeTruthy();
   });
 
   test("uses US Coinbase and AR/CO Ripio as the selected-country providers", () => {
@@ -223,6 +224,58 @@ describe("FundingExperience", () => {
         expect(page().queryByRole("button", { name: /Use Ripio/ })).toBeNull();
       } else {
         expect(page().queryByRole("button", { name: /Use Coinbase/ })).toBeNull();
+      }
+      rendered.unmount();
+    }
+  });
+
+  test("uses local-fiat provider headings and keeps Brazil blocked on its unresolved asset", () => {
+    const cases = [
+      { regionId: "AR", currency: "ARS" },
+      { regionId: "CO", currency: "COP" },
+      { regionId: "BR", currency: "BRL" },
+    ] as const;
+
+    for (const item of cases) {
+      const rendered = render(
+        <FundingExperienceForWallet
+          wallet={verifiedWallet()}
+          navigateToHostedOnramp={() => {}}
+          regionId={item.regionId}
+        />,
+      );
+      expect(page().queryByText("Fund this Base account")).toBeNull();
+      fireEvent.click(
+        page().getByRole("button", {
+          name:
+            item.regionId === "BR"
+              ? /Ripio unavailable/
+              : new RegExp(`Deposit ${item.currency}`),
+        }),
+      );
+      const dialog = page().getByRole("dialog", {
+        name: `Deposit ${item.currency}`,
+      });
+      expect(dialog).toBeTruthy();
+
+      // Lock the rendered hierarchy: the dialog header (h2) carries the
+      // local-fiat title, and the provider subheader (h3) sits directly below
+      // it. No duplicate or inverted copy is allowed.
+      const headings = within(dialog).getAllByRole("heading");
+      expect(headings[0].textContent).toBe(`Deposit ${item.currency}`);
+      expect(headings[0].tagName).toBe("H2");
+      expect(headings[0].id).toBe("add-money-title");
+      expect(
+        within(dialog).getAllByRole("heading", { name: `Deposit ${item.currency}` }),
+      ).toHaveLength(1);
+      expect(headings[1].textContent).toBe("Use Ripio to deposit from your local bank");
+      expect(headings[1].tagName).toBe("H3");
+      expect(
+        within(dialog).getAllByText("Use Ripio to deposit from your local bank"),
+      ).toHaveLength(1);
+      expect(within(dialog).queryByText("Deposit from your local account")).toBeNull();
+      if (item.regionId === "BR") {
+        expect(page().getByText(/does not currently expose Home's selected BRZ/)).toBeTruthy();
       }
       rendered.unmount();
     }

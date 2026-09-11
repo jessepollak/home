@@ -284,6 +284,7 @@ export function SavingsExperience({
   }, [loadState, positionState, rateNowMs]);
   const balances = collectVaultBalances(candidates, positionState);
   const coldLoading = Boolean(sessionKey && positionState.status === "loading");
+  const positionFailed = Boolean(sessionKey && positionState.status === "error");
   const refreshing = positionState.status === "ready" && positionState.refreshing;
   const refreshError = positionState.status === "ready" && positionState.refreshError;
   const funded = portfolioSummary?.funded ?? false;
@@ -349,7 +350,14 @@ export function SavingsExperience({
             </p>
             {funded && portfolioSummary ? (
               loadState.status === "loading" ? (
-                <p className={styles.heroCaption} role="status">Loading APY…</p>
+                <>
+                  <span
+                    className={`shimmer ${styles.apyShimmer}`}
+                    data-shimmer="savings-apy"
+                    aria-hidden="true"
+                  />
+                  <span className="sr-status" role="status">Loading APY…</span>
+                </>
               ) : (
                 <FundedApyCaption apy={portfolioSummary.apy} />
               )
@@ -361,8 +369,6 @@ export function SavingsExperience({
                     Available vault · {shortVaultLabel(selected.name)} ·{" "}
                     {availableVaultApyLabel(selected, loadState.data, rateNowMs)}
                   </p>
-                ) : loadState.status === "loading" ? (
-                  <p className={styles.heroMeta} role="status">Loading vaults…</p>
                 ) : null}
               </>
             )}
@@ -392,13 +398,18 @@ export function SavingsExperience({
       </div>
 
       {loadState.status === "loading" ? (
-        <p className={styles.status} role="status">Loading vaults…</p>
-      ) : null}
-      {loadState.status === "error" ? (
+        <section
+          className={styles.vaults}
+          aria-labelledby="savings-vaults-title"
+          aria-busy="true"
+        >
+          <h3 id="savings-vaults-title" className={styles.vaultKicker}>Vault</h3>
+          <VaultListSkeleton />
+          <span className="sr-status" role="status">Loading vaults…</span>
+        </section>
+      ) : loadState.status === "error" ? (
         <p className={styles.status} role="alert">Vaults are temporarily unavailable.</p>
-      ) : null}
-
-      {!coldLoading && candidates.length > 0 ? (
+      ) : !coldLoading && !positionFailed && candidates.length > 0 ? (
         <section className={styles.vaults} aria-labelledby="savings-vaults-title">
           <h3 id="savings-vaults-title" className={styles.vaultKicker}>Vault</h3>
           <div className={styles.vaultList} role="radiogroup" aria-label="Vault">
@@ -408,43 +419,71 @@ export function SavingsExperience({
                 entry.vaultAddress.toLowerCase() === candidate.vaultAddress.toLowerCase(),
               );
               return (
-                <button
+                <div
                   key={candidate.vaultAddress}
                   className={`${styles.vault} ${isSelected ? styles.vaultSelected : ""}`.trim()}
-                  type="button"
-                  role="radio"
-                  aria-checked={isSelected}
-                  onClick={() => setSelectedAddress(candidate.vaultAddress)}
                 >
-                  <span className={styles.vaultName}>
-                    <strong>{candidate.name}</strong>
-                    {funded && loadState.status === "ready" ? (
-                      <span className={styles.vaultApy}>
-                        {fundedVaultApyLabel(candidate, loadState.data, rateNowMs)}
+                  <button
+                    className={styles.vaultHeader}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    onClick={() => setSelectedAddress(candidate.vaultAddress)}
+                  >
+                    <span className={styles.vaultName}>
+                      <strong>{candidate.name}</strong>
+                      {funded && loadState.status === "ready" ? (
+                        <span className={styles.vaultApy}>
+                          {fundedVaultApyLabel(candidate, loadState.data, rateNowMs)}
+                        </span>
+                      ) : null}
+                    </span>
+                    {showBalanceRows ? (
+                      <span className={styles.vaultBalance}>
+                        {balance?.amount === null || balance?.amount === undefined
+                          ? "—"
+                          : formatUsdcUsd(balance.amount.toString())}
                       </span>
-                    ) : null}
-                  </span>
-                  {showBalanceRows ? (
-                    <span className={styles.vaultBalance}>
-                      {balance?.amount === null || balance?.amount === undefined
-                        ? "—"
-                        : formatUsdcUsd(balance.amount.toString())}
-                    </span>
-                  ) : (
-                    <span className={styles.vaultMeta}>
-                      {loadState.status === "ready"
-                        ? availableVaultApyLabel(candidate, loadState.data, rateNowMs)
-                        : "APY unavailable"}
-                    </span>
-                  )}
-                </button>
+                    ) : (
+                      <span className={styles.vaultMeta}>
+                        {loadState.status === "ready"
+                          ? availableVaultApyLabel(candidate, loadState.data, rateNowMs)
+                          : "APY unavailable"}
+                      </span>
+                    )}
+                  </button>
+                  {isSelected ? (
+                    <div className={styles.detailsBody}>
+                      <dl className={styles.detailsFacts}>
+                        <div className={styles.detailsFact}>
+                          <dt>Fee</dt>
+                          <dd>{formatApy(selected.feeRate)}</dd>
+                        </div>
+                        <div className={styles.detailsFact}>
+                          <dt>Curator</dt>
+                          <dd>
+                            {selected.curatorAddress ? (
+                              <CopyableValue
+                                value={selected.curatorAddress}
+                                display={formatAddress(selected.curatorAddress)}
+                                valueKind="address"
+                              />
+                            ) : (
+                              "—"
+                            )}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  ) : null}
+                </div>
               );
             })}
           </div>
         </section>
       ) : null}
 
-      {availableBalance || !sessionKey ? (
+      {loadState.status !== "error" && (availableBalance || !sessionKey) ? (
         <div className={`${styles.actions} ${funded ? styles.actionsSplit : ""}`.trim()}>
           <button
             className={styles.primary}
@@ -465,34 +504,6 @@ export function SavingsExperience({
             </button>
           ) : null}
         </div>
-      ) : null}
-
-      {selected ? (
-        <details className={styles.details}>
-          <summary>Details</summary>
-          <div className={styles.detailsBody}>
-            <dl>
-              <div>
-                <dt>Fee</dt>
-                <dd>{formatApy(selected.feeRate)}</dd>
-              </div>
-              <div>
-                <dt>Curator</dt>
-                <dd>
-                  {selected.curatorAddress ? (
-                    <CopyableValue
-                      value={selected.curatorAddress}
-                      display={formatAddress(selected.curatorAddress)}
-                      valueKind="address"
-                    />
-                  ) : (
-                    "—"
-                  )}
-                </dd>
-              </div>
-            </dl>
-          </div>
-        </details>
       ) : null}
 
       {session && selected && prepareMoneyAction && checkMoneyAction && executeMoneyAction ? (
@@ -569,6 +580,19 @@ function FundedApyCaption({ apy }: { apy: SavingsApySummary }) {
     return <p className={styles.heroCaption} role="status">APY data stale</p>;
   }
   return <p className={styles.heroCaption} role="status">APY unavailable</p>;
+}
+
+function VaultListSkeleton() {
+  return (
+    <ul className={styles.vaultSkeletonList} aria-hidden="true">
+      {[0, 1].map((index) => (
+        <li key={index} className={styles.vaultSkeleton} data-shimmer="vault-row">
+          <span className={`shimmer ${styles.vaultSkeletonName}`} />
+          <span className={`shimmer ${styles.vaultSkeletonValue}`} />
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function collectVaultBalances(

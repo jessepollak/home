@@ -1,6 +1,8 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
@@ -16,6 +18,10 @@ const STEAKHOUSE = MORPHO_V1_CANDIDATE_ADDRESSES[0];
 const THIRD_VAULT = MORPHO_V1_CANDIDATE_ADDRESSES[2];
 const TEST_NOW = Date.parse("2026-09-10T12:04:00.000Z");
 const testNow = () => TEST_NOW;
+const detailsCss = readFileSync(
+  resolve(import.meta.dir, "savings-experience.module.css"),
+  "utf8",
+);
 
 function candidate(
   vaultAddress: string,
@@ -181,7 +187,11 @@ describe("Save simplify", () => {
     expect(page().getByRole("radio", { name: /Gauntlet USDC Prime/ }).textContent).toContain("4.10%");
     expect(page().getByRole("radio", { name: /Steakhouse USDC/ }).textContent).toContain("3.85%");
     expect(page().queryByRole("button", { name: "Withdraw" })).toBeNull();
-    expect(page().getByText("Details")).toBeTruthy();
+    const gauntletCard = page().getByRole("radio", { name: /Gauntlet USDC Prime/ }).parentElement!;
+    expect(within(gauntletCard).getByText("Fee")).toBeTruthy();
+    expect(within(gauntletCard).getByText("Curator")).toBeTruthy();
+    expect(page().queryByText("Details")).toBeNull();
+    expect(document.querySelectorAll("summary").length).toBe(0);
     expect(page().queryByText("Rate comparison")).toBeNull();
     expect(page().queryByText("Vault candidates")).toBeNull();
     expect(page().queryByText("Prepare an action")).toBeNull();
@@ -273,6 +283,70 @@ describe("Save simplify", () => {
     expect(page().getByText("$820.00 available")).toBeTruthy();
   });
 
+  test("shows Fee and Curator automatically inside the selected vault card and moves them on selection", async () => {
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session(ADDRESS_A)}
+        fetchPositions={async () => positions(ADDRESS_A, {
+          [GAUNTLET]: "820000000",
+          [STEAKHOUSE]: "420000000",
+        })}
+      />,
+    );
+
+    const gauntletCard = (await page().findByRole("radio", { name: /Gauntlet USDC Prime/ }))
+      .parentElement!;
+    expect(within(gauntletCard).getByText("Fee")).toBeTruthy();
+    expect(within(gauntletCard).getByText("Curator")).toBeTruthy();
+
+    fireEvent.click(page().getByRole("radio", { name: /Steakhouse USDC/ }));
+
+    const steakhouseCard = page().getByRole("radio", { name: /Steakhouse USDC/ }).parentElement!;
+    expect(within(steakhouseCard).getByText("Fee")).toBeTruthy();
+    expect(within(steakhouseCard).getByText("Curator")).toBeTruthy();
+    const movedGauntletCard = page()
+      .getByRole("radio", { name: /Gauntlet USDC Prime/ })
+      .parentElement!;
+    expect(within(movedGauntletCard).queryByText("Fee")).toBeNull();
+    expect(within(movedGauntletCard).queryByText("Curator")).toBeNull();
+  });
+
+  test("renders selected-card details automatically with no caret or disclosure control", async () => {
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session(ADDRESS_A)}
+        fetchPositions={async () => positions(ADDRESS_A, {
+          [GAUNTLET]: "820000000",
+          [STEAKHOUSE]: "420000000",
+        })}
+      />,
+    );
+
+    const gauntletCard = (await page().findByRole("radio", { name: /Gauntlet USDC Prime/ }))
+      .parentElement!;
+    expect(within(gauntletCard).getByText("Fee")).toBeTruthy();
+    expect(within(gauntletCard).getByText("Curator")).toBeTruthy();
+    expect(within(gauntletCard).getByText("10.00%")).toBeTruthy();
+    expect(document.querySelectorAll("details").length).toBe(0);
+    expect(document.querySelectorAll("summary").length).toBe(0);
+    expect(page().queryByText("Details")).toBeNull();
+    expect(within(gauntletCard).queryByText("⌄")).toBeNull();
+  });
+
+  test("animates the selected-card details open and skips motion under reduced motion", () => {
+    expect(detailsCss).toContain("@keyframes details-open");
+    expect(detailsCss).toContain("animation: details-open var(--motion-tab) ease");
+    expect(detailsCss).toContain("block-size: 0");
+    expect(detailsCss).toContain("block-size: auto");
+    const reducedMotion = detailsCss.slice(detailsCss.indexOf("@media (prefers-reduced-motion: reduce)"));
+    expect(reducedMotion).toContain(".detailsBody");
+    expect(reducedMotion).toContain("animation: none");
+  });
+
   test("includes funded supported vaults that are outside the two visible selection rows", async () => {
     const allVaultData: MorphoVaultsResult = {
       ...initialData,
@@ -314,6 +388,7 @@ describe("Save simplify", () => {
     const status = await page().findByText("Updating…");
     expect(status.classList.contains("sr-status")).toBe(true);
     expect(document.querySelector("[data-shimmer='savings-hero']")).toBeTruthy();
+    expect(document.querySelectorAll("[data-shimmer='vault-row']").length).toBe(0);
     expect(page().queryByText("Balance unavailable")).toBeNull();
     expect(page().queryByText("Nothing saved yet")).toBeNull();
     expect(page().queryByText("$0.00")).toBeNull();
@@ -400,7 +475,9 @@ describe("Save simplify", () => {
     );
     expect(await page().findByText("$0.00")).toBeTruthy();
     expect(page().getAllByText("Loading vaults…").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll("[data-shimmer='vault-row']").length).toBe(2);
     expect(page().queryByText(/Available vault/)).toBeNull();
+    expect(page().queryByText("Details")).toBeNull();
     await act(async () => {
       pendingMetadata.resolve(new Response(JSON.stringify(initialData), {
         status: 200,
@@ -424,6 +501,7 @@ describe("Save simplify", () => {
 
     expect(await page().findByText("$125.00")).toBeTruthy();
     expect(page().getByText("Loading APY…")).toBeTruthy();
+    expect(document.querySelector("[data-shimmer='savings-apy']")).toBeTruthy();
     expect(page().queryByText(/Earning ~/)).toBeNull();
     expect(page().queryByText(/Available vault/)).toBeNull();
     expect(page().queryByText("$0.00")).toBeNull();
@@ -549,6 +627,28 @@ describe("Save simplify", () => {
     expect(page().queryByText("$0.00")).toBeNull();
     expect(page().queryByText("Nothing saved yet")).toBeNull();
     expect(page().queryByRole("button", { name: "Get started" })).toBeNull();
+    expect(page().queryByRole("radio")).toBeNull();
+    expect(page().queryByText("Details")).toBeNull();
+  });
+
+  test("exposes no actions or vault controls when metadata fails after positions resolve", async () => {
+    render(
+      <SavingsExperience
+        now={testNow}
+        session={session(ADDRESS_A)}
+        fetchVaults={async () => {
+          throw new Error("offline");
+        }}
+        fetchPositions={async () => positions(ADDRESS_A, { [GAUNTLET]: "125000000" })}
+      />,
+    );
+
+    expect(await page().findByText("Vaults are temporarily unavailable.")).toBeTruthy();
+    expect(await page().findByText("$125.00")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Deposit" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Withdraw" })).toBeNull();
+    expect(page().queryByRole("radio")).toBeNull();
+    expect(page().queryByText("Details")).toBeNull();
   });
 
   test("retains a verified same-owner value during refresh and reports refresh failure", async () => {

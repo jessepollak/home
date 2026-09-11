@@ -65,6 +65,12 @@
   border-radius: var(--control-radius);
 }
 
+.apyShimmer {
+  width: 7rem;
+  height: 0.9rem;
+  border-radius: 4px;
+}
+
 .heroCaption,
 .heroMeta,
 .status {
@@ -100,6 +106,42 @@
 .vault {
   display: grid;
   width: 100%;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--panel-radius);
+  background: var(--home-white);
+}
+
+.vaultHeader {
+  display: grid;
+  width: 100%;
+  min-height: 64px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 14px 16px;
+  text-align: left;
+  font: inherit;
+}
+
+.vaultSelected {
+  border-color: var(--home-blue);
+  box-shadow: 0 0 0 1px var(--home-blue);
+}
+
+.vaultSkeletonList {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vaultSkeleton {
+  display: grid;
   min-height: 64px;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -107,15 +149,20 @@
   border: 1px solid var(--home-hairline);
   border-radius: var(--panel-radius);
   background: var(--home-white);
-  color: inherit;
-  cursor: pointer;
   padding: 14px 16px;
-  text-align: left;
 }
 
-.vaultSelected {
-  border-color: var(--home-blue);
-  box-shadow: 0 0 0 1px var(--home-blue);
+.vaultSkeletonName {
+  width: 42%;
+  min-width: 5rem;
+  height: 12px;
+  border-radius: 4px;
+}
+
+.vaultSkeletonValue {
+  width: 3.25rem;
+  height: 12px;
+  border-radius: 999px;
 }
 
 .vaultName {
@@ -181,65 +228,64 @@
 .primary:disabled,
 .secondary:disabled,
 .back:disabled,
-.vault:disabled {
+.vaultHeader:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
 
-.details {
-  justify-self: center;
-}
-
-.details summary {
-  width: fit-content;
-  margin: 0 auto;
-  color: var(--home-muted);
-  cursor: pointer;
-  font-size: 0.86rem;
-  font-weight: 650;
-  list-style: none;
-  text-align: center;
-}
-
-.details summary::-webkit-details-marker {
-  display: none;
-}
-
 .detailsBody {
-  display: grid;
-  gap: 10px;
-  margin-top: 14px;
-  min-width: 240px;
-}
-
-.detailsBody dl {
-  display: grid;
-  gap: 0;
-  margin: 0;
-}
-
-.detailsBody div {
-  display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
-  gap: 12px;
   border-top: 1px solid var(--home-hairline);
-  padding: 12px 0;
+  min-width: 0;
+  overflow-y: clip;
+  padding: 12px 16px 14px;
+  interpolate-size: allow-keywords;
+  animation: details-open var(--motion-tab) ease;
 }
 
-.detailsBody div:last-child {
-  border-bottom: 1px solid var(--home-hairline);
+@keyframes details-open {
+  from {
+    block-size: 0;
+    opacity: 0;
+  }
+
+  to {
+    block-size: auto;
+    opacity: 1;
+  }
 }
 
-.detailsBody dt {
-  color: var(--home-muted);
-  font-size: 0.82rem;
-}
-
-.detailsBody dd {
+.detailsFacts {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
   margin: 0;
-  font-size: 0.9rem;
-  font-weight: 650;
+}
+
+.detailsFact {
+  min-width: 0;
+}
+
+.detailsFact:last-child {
   text-align: right;
+}
+
+.detailsFact dt {
+  margin: 0;
+  color: var(--home-muted);
+  font-size: 0.7rem;
+  font-weight: 450;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.detailsFact dd {
+  margin: 3px 0 0;
+  color: var(--home-muted);
+  font-size: 0.8rem;
+  font-weight: 450;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .srOnly {
@@ -267,13 +313,12 @@
 
   .vaults,
   .vaultList,
-  .actions,
-  .details {
+  .actions {
     min-width: 0;
     max-width: 100%;
   }
 
-  .vault {
+  .vaultHeader {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
   }
@@ -286,28 +331,16 @@
   .actionsSplit {
     grid-template-columns: 1fr;
   }
-
-  .details {
-    width: 100%;
-  }
-
-  .details summary {
-    display: grid;
-    min-width: 44px;
-    min-height: 44px;
-    place-items: center;
-  }
-
-  .detailsBody {
-    width: 100%;
-    min-width: 0;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vault,
+  .vaultHeader,
   .primary,
   .secondary {
     transition: none;
+  }
+
+  .detailsBody {
+    animation: none;
   }
 }
