@@ -11,6 +11,7 @@ import {
   buildSaveQaProduction,
   startSaveQaDevelopmentServer,
   startSaveQaProductionServer,
+  saveQaProcessGroupAlive,
   startSaveQaServerForTest,
   teardownSaveQaProcessGroup,
   withSaveQaServer,
@@ -324,23 +325,73 @@ async function readyWeighted(page: Page): Promise<NetworkControl> {
   return network;
 }
 
-function launchLifecycleProbe(ignoreTerm: boolean): ChildProcess {
-  const script = ignoreTerm
-    ? "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"
-    : "setInterval(() => {}, 1000);";
-  return spawn(process.execPath, ["-e", script], {
+type ProcessGroupProbe = {
+  leader: ChildProcess;
+  processGroupId: number;
+  ready: Promise<{ port: number; childPid: number }>;
+};
+
+function launchProcessGroupProbe(exitLeaderAfterReady = false): ProcessGroupProbe {
+  const listenerScript = [
+    "const http = require('node:http');",
+    "process.on('SIGTERM', () => {});",
+    "const server = http.createServer((_request, response) => { response.end('alive'); });",
+    "server.listen(0, '127.0.0.1', () => {",
+    "  const address = server.address();",
+    "  console.log(JSON.stringify({ port: address.port, childPid: process.pid }));",
+    "});",
+    "setInterval(() => {}, 1000);",
+  ].join("\n");
+  const leaderScript = [
+    "const { spawn } = require('node:child_process');",
+    `const listener = spawn(process.execPath, ['-e', ${JSON.stringify(listenerScript)}], { stdio: ['ignore', 'pipe', 'ignore'] });`,
+    "listener.stdout.once('data', (chunk) => {",
+    "  process.stdout.write(chunk);",
+    exitLeaderAfterReady
+      ? "  setTimeout(() => process.exit(0), 5);"
+      : "  setInterval(() => {}, 1000);",
+    "});",
+  ].join("\n");
+  const leader = spawn(process.execPath, ["-e", leaderScript], {
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  if (!leader.pid || !leader.stdout) throw new Error("Process-group probe failed to launch.");
+  const ready = new Promise<{ port: number; childPid: number }>((resolveReady, rejectReady) => {
+    let output = "";
+    const onData = (chunk: Buffer) => {
+      output += String(chunk);
+      const newline = output.indexOf("\n");
+      if (newline < 0) return;
+      leader.stdout?.off("data", onData);
+      try {
+        resolveReady(JSON.parse(output.slice(0, newline)) as { port: number; childPid: number });
+      } catch (error) {
+        rejectReady(error);
+      }
+    };
+    leader.stdout.on("data", onData);
+    leader.once("error", rejectReady);
+  });
+  return { leader, processGroupId: leader.pid, ready };
 }
 
-function processAlive(child: ChildProcess): boolean {
-  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return false;
+async function listenerIsAlive(port: number): Promise<boolean> {
   try {
-    process.kill(child.pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    const response = await fetch(`http://127.0.0.1:${port}`, {
+      signal: AbortSignal.timeout(250),
+    });
+    return response.status === 200 && await response.text() === "alive";
+  } catch {
+    return false;
+  }
+}
+
+async function forceCleanupProbe(probe: ProcessGroupProbe): Promise<void> {
+  try { process.kill(-probe.processGroupId, "SIGKILL"); } catch { /* already gone */ }
+  const deadline = Date.now() + 1_000;
+  while (saveQaProcessGroupAlive(probe.processGroupId) && Date.now() < deadline) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
   }
 }
 
@@ -383,60 +434,84 @@ test("temporary exclusion servers stop when assertions fail", async () => {
   }
 });
 
-test("startup failures and repeated stops perform awaited bounded process-group cleanup", async () => {
-  const probes: ChildProcess[] = [];
+test("startup failures and stops await whole process-group and listener disappearance", async () => {
+  const probes: ProcessGroupProbe[] = [];
   try {
-    const rejectionChild = launchLifecycleProbe(false);
-    probes.push(rejectionChild);
+    const rejectionProbe = launchProcessGroupProbe();
+    probes.push(rejectionProbe);
+    const rejectionReady = rejectionProbe.ready;
     await expect(startSaveQaServerForTest({
       reservePort: async () => 41001,
-      launch: () => rejectionChild,
-      startupTimeoutMs: 30,
-      stopGraceMs: 30,
-      fetchReady: async () => { throw new Error("injected readiness rejection"); },
+      launch: () => rejectionProbe.leader,
+      startupTimeoutMs: 100,
+      stopGraceMs: 40,
+      fetchReady: async () => {
+        await rejectionReady;
+        throw new Error("injected readiness rejection");
+      },
       sleep: async () => {},
     })).rejects.toThrow("Timed out waiting for the Save QA server");
-    await expect.poll(() => processAlive(rejectionChild)).toBe(false);
+    const rejectionListener = await rejectionReady;
+    expect(saveQaProcessGroupAlive(rejectionProbe.processGroupId)).toBe(false);
+    expect(await listenerIsAlive(rejectionListener.port)).toBe(false);
 
-    const stalledChild = launchLifecycleProbe(false);
-    probes.push(stalledChild);
+    const stalledProbe = launchProcessGroupProbe();
+    probes.push(stalledProbe);
+    const stalledReady = stalledProbe.ready;
     await expect(startSaveQaServerForTest({
       reservePort: async () => 41002,
-      launch: () => stalledChild,
-      startupTimeoutMs: 40,
-      stopGraceMs: 30,
-      fetchReady: async (_origin, { signal }) => new Promise((_resolve, reject) => {
-        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-      }),
-    })).rejects.toThrow("Timed out waiting for the Save QA server");
-    await expect.poll(() => processAlive(stalledChild)).toBe(false);
-
-    const resistantChild = launchLifecycleProbe(true);
-    probes.push(resistantChild);
-    await expect(startSaveQaServerForTest({
-      reservePort: async () => 41003,
-      launch: () => resistantChild,
+      launch: () => stalledProbe.leader,
       startupTimeoutMs: 100,
-      stopGraceMs: 30,
-      fetchReady: async () => ({ status: 503 }),
+      stopGraceMs: 40,
+      fetchReady: async (_origin, { signal }) => {
+        await stalledReady;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
     })).rejects.toThrow("Timed out waiting for the Save QA server");
-    await expect.poll(() => processAlive(resistantChild)).toBe(false);
-    expect(resistantChild.signalCode).toBe("SIGKILL");
+    const stalledListener = await stalledReady;
+    expect(saveQaProcessGroupAlive(stalledProbe.processGroupId)).toBe(false);
+    expect(await listenerIsAlive(stalledListener.port)).toBe(false);
 
-    const liveChild = launchLifecycleProbe(false);
-    probes.push(liveChild);
+    const liveProbe = launchProcessGroupProbe();
+    probes.push(liveProbe);
+    const liveReady = liveProbe.ready;
     const liveServer = await startSaveQaServerForTest({
-      reservePort: async () => 41004,
-      launch: () => liveChild,
-      startupTimeoutMs: 100,
-      stopGraceMs: 30,
-      fetchReady: async () => ({ status: 200 }),
+      reservePort: async () => 41003,
+      launch: () => liveProbe.leader,
+      startupTimeoutMs: 200,
+      stopGraceMs: 40,
+      fetchReady: async () => {
+        await liveReady;
+        return { status: 200 };
+      },
     });
+    const liveListener = await liveReady;
+    expect(saveQaProcessGroupAlive(liveProbe.processGroupId)).toBe(true);
+    expect(await listenerIsAlive(liveListener.port)).toBe(true);
     await Promise.all([liveServer.stop(), liveServer.stop()]);
-    await expect.poll(() => processAlive(liveChild)).toBe(false);
-    await teardownSaveQaProcessGroup(liveChild, 10);
+    expect(saveQaProcessGroupAlive(liveProbe.processGroupId)).toBe(false);
+    expect(await listenerIsAlive(liveListener.port)).toBe(false);
+
+    const exitedLeaderProbe = launchProcessGroupProbe(true);
+    probes.push(exitedLeaderProbe);
+    const exitedListener = await exitedLeaderProbe.ready;
+    await new Promise<void>((resolveExit) => {
+      if (exitedLeaderProbe.leader.exitCode !== null) resolveExit();
+      else exitedLeaderProbe.leader.once("exit", () => resolveExit());
+    });
+    expect(exitedLeaderProbe.leader.exitCode).toBe(0);
+    expect(saveQaProcessGroupAlive(exitedLeaderProbe.processGroupId)).toBe(true);
+    expect(await listenerIsAlive(exitedListener.port)).toBe(true);
+    await Promise.all([
+      teardownSaveQaProcessGroup(exitedLeaderProbe.leader, 40),
+      teardownSaveQaProcessGroup(exitedLeaderProbe.leader, 40),
+    ]);
+    expect(saveQaProcessGroupAlive(exitedLeaderProbe.processGroupId)).toBe(false);
+    expect(await listenerIsAlive(exitedListener.port)).toBe(false);
   } finally {
-    await Promise.all(probes.map((child) => teardownSaveQaProcessGroup(child, 10).catch(() => {})));
+    await Promise.all(probes.map((probe) => forceCleanupProbe(probe)));
   }
 });
 

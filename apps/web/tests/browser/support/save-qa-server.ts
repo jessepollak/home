@@ -65,28 +65,37 @@ function childExited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null;
 }
 
-function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (!child.pid || childExited(child)) return;
+export function saveQaProcessGroupAlive(processGroupId: number): boolean {
   try {
-    process.kill(-child.pid, signal);
+    process.kill(-processGroupId, 0);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    if (code === "EPERM") return true;
+    throw error;
+  }
+}
+
+function signalProcessGroup(processGroupId: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-processGroupId, signal);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }
 }
 
-async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
-  if (childExited(child)) return true;
-  return new Promise((resolveExit) => {
-    const onExit = () => {
-      clearTimeout(timer);
-      resolveExit(true);
-    };
-    const timer = setTimeout(() => {
-      child.off("exit", onExit);
-      resolveExit(childExited(child));
-    }, timeoutMs);
-    child.once("exit", onExit);
-  });
+async function waitForProcessGroupGone(
+  processGroupId: number,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (saveQaProcessGroupAlive(processGroupId)) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) return false;
+    await new Promise((resolveWait) => setTimeout(resolveWait, Math.min(10, remainingMs)));
+  }
+  return true;
 }
 
 export function teardownSaveQaProcessGroup(
@@ -96,13 +105,18 @@ export function teardownSaveQaProcessGroup(
   const existing = teardownTasks.get(child);
   if (existing) return existing;
 
+  const processGroupId = child.pid;
   const task = (async () => {
-    if (childExited(child)) return;
-    signalProcessGroup(child, "SIGTERM");
-    if (await waitForExit(child, graceMs)) return;
-    signalProcessGroup(child, "SIGKILL");
-    if (!(await waitForExit(child, graceMs))) {
-      throw new Error("Save QA process group did not exit after SIGKILL.");
+    if (!processGroupId) {
+      if (childExited(child)) return;
+      throw new Error("Save QA process group leader has no process id.");
+    }
+    if (!saveQaProcessGroupAlive(processGroupId)) return;
+    signalProcessGroup(processGroupId, "SIGTERM");
+    if (await waitForProcessGroupGone(processGroupId, graceMs)) return;
+    signalProcessGroup(processGroupId, "SIGKILL");
+    if (!(await waitForProcessGroupGone(processGroupId, graceMs))) {
+      throw new Error(`Save QA process group ${processGroupId} survived SIGKILL.`);
     }
   })();
   teardownTasks.set(child, task);
