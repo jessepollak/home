@@ -1,4 +1,11 @@
-import { formatPresentationTokenAmount } from "@/features/formatting";
+import { formatAddress, formatPresentationTokenAmount } from "@/features/formatting";
+import { formatBaseUnitAmount } from "@/features/portfolio/format";
+import {
+  condensedTransactionHash,
+  transactionExplorerLink,
+  type TransactionDetailRow,
+  type TransactionDetails,
+} from "@/components/transaction-explorer";
 import type {
   ActivityAsset,
   ActivityDirection,
@@ -17,11 +24,6 @@ export type ActivityRowViewModel = {
   fullDate: string;
   shortDate: string;
   value: string;
-  explorer: {
-    href: string;
-    label: string;
-    title: string;
-  };
 };
 
 export type ActivityPresenterOptions = {
@@ -79,11 +81,53 @@ export function presentActivityTransferRow(
       asset.symbol,
       { cashCurrency: asset.symbol === "USDC" ? "USD" : null },
     )}`,
-    explorer: {
-      href: `https://basescan.org/tx/${transfer.transactionHash}`,
-      label: `View ${direction.label.toLowerCase()} ${asset.symbol} transfer on BaseScan`,
-      title: "View on BaseScan",
+  };
+}
+
+export function presentActivityTransferDetails(
+  transfer: ActivityTransfer,
+  asset: ActivityAsset | undefined,
+  options: ActivityPresenterOptions,
+): TransactionDetails {
+  if (!asset || asset.id !== transfer.assetId) {
+    throw new TypeError("Activity transfer asset metadata is unavailable.");
+  }
+
+  const direction = directionPresentation[transfer.direction];
+  const fullDate = formatActivityDate(transfer.blockTimestamp, options.timeZone);
+  const rows: TransactionDetailRow[] = [
+    {
+      label: "Amount",
+      value: `${direction.sign}${formatBaseUnitAmount(
+        transfer.amountBaseUnits,
+        asset.decimals,
+      )} ${asset.symbol}`,
     },
+    {
+      label: "From",
+      value: formatAddress(transfer.fromAddress),
+      title: transfer.fromAddress,
+    },
+    {
+      label: "To",
+      value: formatAddress(transfer.toAddress),
+      title: transfer.toAddress,
+    },
+    { label: "Network", value: "Base (8453)" },
+    { label: "Status", value: "Confirmed" },
+    { label: "Date", value: fullDate },
+    {
+      label: "Transaction",
+      value: condensedTransactionHash(transfer.transactionHash),
+      title: transfer.transactionHash,
+    },
+    { label: "Block", value: transfer.blockNumber },
+  ];
+
+  return {
+    title: `${direction.label} ${asset.symbol}`,
+    rows,
+    explorer: transactionExplorerLink(transfer.transactionHash),
   };
 }
 
