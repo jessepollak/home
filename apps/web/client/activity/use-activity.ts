@@ -348,9 +348,12 @@ function sameActivityTransfer(
 ): boolean {
   return (
     left.id === right.id &&
+    left.logId === right.logId &&
     left.chainId === right.chainId &&
     left.assetId === right.assetId &&
     left.tokenAddress === right.tokenAddress &&
+    left.tokenSymbol === right.tokenSymbol &&
+    left.tokenDecimals === right.tokenDecimals &&
     left.walletAddress === right.walletAddress &&
     left.fromAddress === right.fromAddress &&
     left.toAddress === right.toAddress &&

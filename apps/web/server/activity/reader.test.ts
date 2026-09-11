@@ -7,7 +7,7 @@ const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const TO = "2026-09-07T12:00:00.000Z";
 
 describe("recent activity reader", () => {
-  test("requests a stable bounded 31-day page for the reviewed asset allowlist", async () => {
+  test("requests a stable bounded wallet-scoped page including unknown contracts", async () => {
     let received: Parameters<Parameters<typeof createActivityReader>[0]>[0] | undefined;
     const signal = new AbortController().signal;
     const result: BaseErc20TransferPage = {
@@ -36,6 +36,7 @@ describe("recent activity reader", () => {
     expect(received).toEqual({
       verifiedWalletAddress: WALLET,
       assetIds: activityAssets.map((asset) => asset.id),
+      includeUnknownAssets: true,
       from: "2026-08-07T12:00:00.000Z",
       to: TO,
       limit: 25,
@@ -49,6 +50,66 @@ describe("recent activity reader", () => {
       to: TO,
     });
     expect(page.nextCursor).toBe("next-page");
+  });
+
+  test("resolves identity by contract and preserves unknown contract quantities", async () => {
+    const usdc = activityAssets.find((asset) => asset.id === "usdc")!;
+    const cbbtc = activityAssets.find((asset) => asset.id === "cbbtc")!;
+    const unknown = "0x4444444444444444444444444444444444444444" as const;
+    const transactionHash = `0x${"a".repeat(64)}` as const;
+    const makeTransfer = (
+      tokenAddress: `0x${string}`,
+      logId: string,
+      logIndex: string,
+      amountBaseUnits: string,
+    ) => ({
+      id: `8453:${tokenAddress.toLowerCase()}:${logId}`,
+      logId,
+      chainId: 8453 as const,
+      assetId: null,
+      tokenAddress: tokenAddress.toLowerCase() as `0x${string}`,
+      walletAddress: WALLET,
+      fromAddress: "0x2222222222222222222222222222222222222222" as const,
+      toAddress: WALLET,
+      direction: "incoming" as const,
+      amountBaseUnits,
+      blockNumber: "20",
+      blockHash: `0x${"b".repeat(64)}` as const,
+      transactionHash,
+      logIndex,
+      blockTimestamp: "2026-09-07T11:00:00.000Z",
+    });
+    const reader = createActivityReader(async () => ({
+      transfers: [
+        makeTransfer(usdc.tokenAddress, "usdc-log", "3", "1000001"),
+        makeTransfer(cbbtc.tokenAddress, "btc-log", "2", "123456789"),
+        makeTransfer(unknown, "unknown-log", "1", "999999999999999999"),
+      ],
+      nextCursor: null,
+      source: {
+        provider: "cdp-sql",
+        cached: false,
+        stale: false,
+        executionTimestamp: TO,
+        executionTimeMs: 1,
+        fetchedAt: TO,
+      },
+    }));
+
+    const page = await reader(
+      { address: WALLET, chainId: 8453, verification: "session-smart-account" },
+      { to: TO, cursor: null },
+    );
+
+    expect(page.transfers.map(({ assetId, tokenSymbol, tokenDecimals, amountBaseUnits, logId }) => ({
+      assetId, tokenSymbol, tokenDecimals, amountBaseUnits, logId,
+    }))).toEqual([
+      { assetId: "usdc", tokenSymbol: "USDC", tokenDecimals: 6, amountBaseUnits: "1000001", logId: "usdc-log" },
+      { assetId: "cbbtc", tokenSymbol: "cbBTC", tokenDecimals: 8, amountBaseUnits: "123456789", logId: "btc-log" },
+      { assetId: null, tokenSymbol: null, tokenDecimals: null, amountBaseUnits: "999999999999999999", logId: "unknown-log" },
+    ]);
+    expect(new Set(page.transfers.map((transfer) => transfer.id)).size).toBe(3);
+    expect(new Set(page.transfers.map((transfer) => transfer.transactionHash)).size).toBe(1);
   });
 
   test("advances the underlying source cursor without shifting the fixed activity window", async () => {

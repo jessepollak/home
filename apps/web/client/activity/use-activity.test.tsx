@@ -31,11 +31,15 @@ function transfer(
   blockNumber: string,
 ): ActivityTransfer {
   const to = new URLSearchParams(query).get("to")!;
+  const tokenAddress = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
   return {
-    id,
+    id: `8453:${tokenAddress}:${id}`,
+    logId: id,
     chainId: 8453,
     assetId: "usdc",
-    tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    tokenAddress,
+    tokenSymbol: "USDC",
+    tokenDecimals: 6,
     walletAddress,
     fromAddress: OTHER,
     toAddress: walletAddress,
@@ -102,7 +106,7 @@ function HookHarness({
       {activity.status === "ready" ? (
         <>
           <output data-testid="ids">
-            {activity.page.transfers.map((item) => item.id).join(",")}
+            {activity.page.transfers.map((item) => item.logId).join(",")}
           </output>
           <output data-testid="cursor">{activity.page.nextCursor ?? "end"}</output>
           <output data-testid="loading-more">

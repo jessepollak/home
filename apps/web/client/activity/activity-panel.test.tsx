@@ -105,6 +105,8 @@ function pageFor(
   const direction = options.direction ?? "incoming";
   const fromAddress = direction === "incoming" ? OTHER : walletAddress;
   const toAddress = direction === "outgoing" ? OTHER : walletAddress;
+  const logId = options.id ?? "event-1";
+  const tokenAddress = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
   return {
     walletAddress,
     chainId: 8453,
@@ -113,10 +115,13 @@ function pageFor(
       ? []
       : [
           {
-            id: options.id ?? "event-1",
+            id: `8453:${tokenAddress}:${logId}`,
+            logId,
             chainId: 8453,
             assetId: "usdc",
-            tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            tokenAddress,
+            tokenSymbol: "USDC",
+            tokenDecimals: 6,
             walletAddress,
             fromAddress,
             toAddress,
@@ -576,7 +581,8 @@ describe("ActivityPanel", () => {
             ...first,
             transfers: Array.from({ length: ACTIVITY_TEASER_LIMIT + 2 }, (_, index) => ({
               ...first.transfers[0]!,
-              id: `event-${index + 1}`,
+              id: `8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913:event-${index + 1}`,
+              logId: `event-${index + 1}`,
               blockNumber: String(20 - index),
               logIndex: String(index + 1),
               transactionHash: `0x${(10 + index).toString(16).padStart(64, "0")}`,
