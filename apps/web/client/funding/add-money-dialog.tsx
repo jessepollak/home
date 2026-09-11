@@ -154,6 +154,7 @@ export function MethodBody({
   onSelectAnotherOnramp: () => void;
 }) {
   const ripio = ripioAvailability(regionId);
+  const localCurrency = presentationRegions[regionId].currency.code ?? "USD";
   const showRipio = regionId === "AR" || regionId === "CO" || regionId === "BR";
   const showCoinbase = regionId === "US";
   return (
@@ -176,16 +177,16 @@ export function MethodBody({
             onClick={onSelectRipio}
           >
             <CurrencyMark
-              currency={presentationRegions[regionId].currency.code ?? "USD"}
+              currency={localCurrency}
               symbol={presentationRegions[regionId].currency.symbol ?? "$"}
             />
             <span className={styles.methodCopy}>
               <span className={styles.methodTitle}>
-                Use Ripio to deposit from your local bank
+                {ripio.available ? `Deposit ${localCurrency}` : "Ripio unavailable"}
               </span>
               <span className={styles.methodHint}>
                 {ripio.available
-                  ? "Deposit from your local account"
+                  ? "Use Ripio to deposit from your local bank"
                   : "Brazil route unavailable until the supported asset is selected"}
               </span>
             </span>
@@ -196,8 +197,8 @@ export function MethodBody({
           <button className={styles.method} type="button" onClick={onSelectBuy}>
             <CurrencyMark currency="USD" symbol="$" />
             <span className={styles.methodCopy}>
-              <span className={styles.methodTitle}>Use Coinbase to deposit USD</span>
-              <span className={styles.methodHint}>Deposit from your local account</span>
+              <span className={styles.methodTitle}>Deposit USD</span>
+              <span className={styles.methodHint}>Use Coinbase to deposit USD</span>
             </span>
             <span className={styles.methodChevron} aria-hidden="true">›</span>
           </button>

@@ -164,7 +164,10 @@ describe("FundingExperience", () => {
       expect(page().queryByText("Fund this Base account")).toBeNull();
       fireEvent.click(
         page().getByRole("button", {
-          name: /Use Ripio to deposit from your local bank/,
+          name:
+            item.regionId === "BR"
+              ? /Ripio unavailable/
+              : new RegExp(`Deposit ${item.currency}`),
         }),
       );
       expect(
@@ -200,8 +203,14 @@ describe("FundingExperience", () => {
       />,
     );
 
+    expect(
+      page().getByRole(
+        "button",
+        { name: /Deposit ARS Use Ripio to deposit from your local bank/ },
+      ),
+    ).toBeTruthy();
     fireEvent.click(
-      page().getByRole("button", { name: /Use Ripio to deposit from your local bank/ }),
+      page().getByRole("button", { name: /Deposit ARS/ }),
     );
     expect(page().getByRole("dialog", { name: "Deposit ARS" })).toBeTruthy();
     expect(page().getByText("Synthetic preview · no order or funds")).toBeTruthy();
@@ -235,6 +244,7 @@ describe("FundingExperience", () => {
         regionId="AR"
       />,
     );
+    expect(page().getByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
     expect(page().getByRole("button", { name: /Use Ripio to deposit from your local bank/ })).toBeTruthy();
     expect(page().queryByRole("button", { name: /Use Coinbase/ })).toBeNull();
 
