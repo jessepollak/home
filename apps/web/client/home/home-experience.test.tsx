@@ -706,7 +706,7 @@ describe("login-state home experience", () => {
     expect(within(main).queryByText("Activity")).toBeNull();
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
     expect(page().queryByRole("button", { name: "Add money" })).toBeNull();
-    expect(page().queryByRole("button", { name: "Receive" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Send" })).toBeNull();
 
     const createAccount = within(main).getByRole("button", {
       name: "Create account",
@@ -861,12 +861,12 @@ describe("login-state home experience", () => {
     fireEvent.click(page().getByRole("button", { name: "Close add money" }));
     expect(page().queryByRole("button", { name: /Receive crypto/ })).toBeNull();
     expect(page().getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
-    expect(page().getByRole("button", { name: "Receive" }).hasAttribute("disabled")).toBe(false);
-    fireEvent.click(page().getByRole("button", { name: "Receive" }));
-    expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
-    expect(page().getByTitle(ADDRESS).textContent).toBe("0x1111…111111");
-    fireEvent.click(page().getByRole("button", { name: "Close receive dialog" }));
-    expect(page().queryByRole("dialog", { name: "Receive" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    const send = page().getByRole("dialog", { name: "Send" });
+    expect(send).toBeTruthy();
+    expect(send.closest(".action-row")).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Close send dialog" }));
+    expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
     expect(page().queryByText("One home for your money.")).toBeNull();
   });
 

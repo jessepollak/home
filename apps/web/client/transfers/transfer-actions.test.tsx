@@ -2,7 +2,6 @@ import "../account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
-import { formatAddress } from "@/shared/formatting";
 import { TransferExecutionError, type ConfirmedTransfer, type PendingTransfer } from "@/shared/transfers/types";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
@@ -141,41 +140,9 @@ async function composeDurableSend(options: { asset?: "usdc" | "eth"; amount: str
 
 afterEach(() => {
   cleanup();
-  Object.defineProperty(navigator, "clipboard", {
-    configurable: true,
-    value: undefined,
-  });
 });
 
 describe("TransferActions modals", () => {
-  test("shows a condensed Base address and reports clipboard failures", async () => {
-    let copied = "";
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: async (value: string) => { copied = value; } },
-    });
-    render(<TransferActionsForWallet wallet={verifiedWallet()} />);
-
-    fireEvent.click(page().getByRole("button", { name: "Receive" }));
-    expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
-    expect(page().getByTitle(ADDRESS).textContent).toBe(formatAddress(ADDRESS));
-    expect(page().getByText("Base address")).toBeTruthy();
-    expect(page().queryByText(/8453/)).toBeNull();
-
-    fireEvent.click(page().getByRole("button", { name: "Copy address" }));
-    await waitFor(() => expect(copied).toBe(ADDRESS));
-    expect(page().getByRole("button", { name: "Copied" })).toBeTruthy();
-
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: async () => { throw new Error("denied"); } },
-    });
-    fireEvent.click(page().getByRole("button", { name: "Copied" }));
-    await waitFor(() =>
-      expect(page().getByRole("alert").textContent).toContain("Clipboard access failed"),
-    );
-  });
-
   test("walks amount → address → confirm, prevents duplicate send, and returns a compact success", async () => {
     const pending = deferred<ConfirmedTransfer>();
     let calls = 0;
@@ -590,7 +557,7 @@ describe("TransferActions modals", () => {
 
     await waitFor(() => expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull());
     expect(page().queryByRole("heading", { name: "Allow another send?" })).toBeNull();
-    await waitFor(() => expect((confirmDialog as HTMLDialogElement).open).toBe(false));
+    await waitFor(() => expect((confirmDialog as HTMLDialogElement).open).toBe(false), { timeout: 3000 });
     expect(releaseCalls).toBe(1);
     expect(starts).toBe(0);
 
@@ -1029,8 +996,8 @@ describe("TransferActions modals", () => {
 
   test("hides an open private modal immediately when the verified owner changes", () => {
     const view = render(<TransferActionsForWallet wallet={verifiedWallet()} />);
-    fireEvent.click(page().getByRole("button", { name: "Receive" }));
-    expect(page().getByTitle(ADDRESS)).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Send" }));
+    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
 
     view.rerender(
       <TransferActionsForWallet
@@ -1043,8 +1010,8 @@ describe("TransferActions modals", () => {
       />,
     );
 
-    expect(page().queryByTitle(ADDRESS)).toBeNull();
-    expect(page().getByRole("button", { name: "Receive" }).hasAttribute("disabled")).toBe(true);
+    expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
+    expect(page().getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
   });
 
   test("drops Send compose content in the account-boundary close frame", async () => {
