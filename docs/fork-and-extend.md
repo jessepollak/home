@@ -17,7 +17,7 @@ Then change configuration in place. Typed registries live under `apps/web/config
 | App name, description, repository URL | `apps/web/config/brand.ts` (consumed by `apps/web/app/layout.tsx` metadata) |
 | Color tokens and control radii | `apps/web/app/globals.css` (`--home-*` variables). Direction: [UI direction](ui-direction.md) |
 | Home / Save / Invest labels | `apps/web/config/navigation.ts` |
-| Shell and feature UI | `apps/web/app/home-experience.tsx`, `apps/web/features/` |
+| Shell and feature UI | `apps/web/client/home/home-experience.tsx`, `apps/web/client/` |
 | Animated Home mark | `apps/web/components/home-mark.tsx` and `apps/web/public/home-mark/` |
 
 The Home mark fonts are **not** MIT-licensed. Read `apps/web/public/home-mark/PROVENANCE.md` before copying or redistributing those files. A fork that keeps the mark needs its own permission for Base Sans; Doto is SIL OFL.

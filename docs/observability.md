@@ -8,7 +8,7 @@ Home's first observability milestone is deliberately scrub-first. It provides a 
 
 | Surface | Source | Behavior |
 |---|---|---|
-| Shared scrubber | `apps/web/features/observability/scrub.ts` | Removes credentials, tokens, email addresses, raw URLs, query/hash data, risky path segments, and high-entropy strings before a value can enter the schema |
+| Shared scrubber | `apps/web/shared/observability/scrub.ts` | Removes credentials, tokens, email addresses, raw URLs, query/hash data, risky path segments, and high-entropy strings before a value can enter the schema |
 | Closed log schema | `apps/web/server/observability/schema.ts` | Emits only `home.observability.v2` fields; arbitrary objects and provider payloads are not accepted |
 | JSON writer | `apps/web/server/observability/log.ts` | Writes one JSON line and swallows sink failures |
 | Server error owner | `apps/web/instrumentation.ts` → `onRequestError` | Uses the route template, method, route type, and sanitized error class only; it never reads the exception message, stack, digest, request URL, or headers |
@@ -37,7 +37,7 @@ The focused tests lock the following contract:
 | Abuse behavior | Five sends per page; 30 accepted read attempts/minute per server instance | Excess reports shed with `429`; rejected origin/type/declared-size requests are not read |
 | Failure isolation | Sink/network/installation failures are swallowed | Application startup, hydration, and endpoint success never depend on reporting |
 
-Tests: `features/observability/scrub.test.ts`, `features/observability/client-reporter.test.ts`, `server/observability/schema.test.ts`, `server/observability/log.test.ts`, `server/observability/on-request-error.test.ts`, and `app/api/client-errors/route.test.ts`.
+Tests: `shared/observability/scrub.test.ts`, `client/observability/client-reporter.test.ts`, `server/observability/schema.test.ts`, `server/observability/log.test.ts`, `server/observability/on-request-error.test.ts`, and `app/api/client-errors/route.test.ts`.
 
 ## OpenTelemetry posture
 
