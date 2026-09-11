@@ -259,9 +259,10 @@
   }
 
   .heroAmount {
+    padding-bottom: 2px;
     font-size: clamp(2.4rem, 14vw, 3.2rem);
     letter-spacing: -0.04em;
-    line-height: 1;
+    line-height: 1.1;
   }
 
   .vaults,
@@ -288,6 +289,13 @@
 
   .details {
     width: 100%;
+  }
+
+  .details summary {
+    display: grid;
+    min-width: 44px;
+    min-height: 44px;
+    place-items: center;
   }
 
   .detailsBody {

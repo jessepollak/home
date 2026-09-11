@@ -952,9 +952,149 @@ test("keeps enlarged long labels, exact large values and all Save controls withi
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
   }
 
-  for (const target of [radios.nth(0), radios.nth(1), deposit, withdraw]) {
-    expect((await target.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+  for (const target of [radios.nth(0), radios.nth(1), deposit, withdraw, details]) {
+    const box = await target.boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
   }
+
+  const financialIntegrity = await save.evaluate((root) => {
+    const findText = (selector: string, text: string) =>
+      Array.from(root.querySelectorAll<HTMLElement>(selector))
+        .find((element) => element.textContent === text);
+    const hero = findText("p", "$1,111,111,110.11111");
+    const names = [
+      findText("strong", "Institutional USDC Income Strategy With An Intentionally Long Curator Label"),
+      findText("strong", "Institutional USDC Income Strategy With An Intentionally Long Curator Label Prime"),
+    ];
+    const balances = [
+      findText("span", "$123,456,789.012345"),
+      findText("span", "$987,654,321.098765"),
+    ];
+    if (!hero || names.some((name) => !name) || balances.some((balance) => !balance)) {
+      throw new Error("Expected complete financial text fixture.");
+    }
+
+    const lastCharacterRect = (element: HTMLElement) => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let textNode: Text | null = null;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (node.textContent?.length) textNode = node as Text;
+      }
+      if (!textNode?.textContent) throw new Error("Financial text has no terminal character.");
+      const range = document.createRange();
+      range.setStart(textNode, textNode.textContent.length - 1);
+      range.setEnd(textNode, textNode.textContent.length);
+      const rect = range.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+    };
+    const inspect = (element: HTMLElement, fontFloor: number, requireTwoLines = false) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const lineHeight = Number.parseFloat(style.lineHeight);
+      const last = lastCharacterRect(element);
+      return {
+        verticallyContained: element.scrollHeight <= element.clientHeight,
+        overflowVisible: ![style.overflowX, style.overflowY]
+          .some((value) => value === "hidden" || value === "clip"),
+        lastCharacterInside:
+          last.left >= rect.left &&
+          last.right <= rect.right &&
+          last.top >= rect.top &&
+          last.bottom <= rect.bottom,
+        readableFont: Number.parseFloat(style.fontSize) >= fontFloor,
+        renderedWrap: !requireTwoLines || rect.height >= lineHeight * 1.9,
+        metrics: {
+          rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, height: rect.height },
+          clientHeight: element.clientHeight,
+          scrollHeight: element.scrollHeight,
+          lineHeight,
+          fontSize: Number.parseFloat(style.fontSize),
+          last,
+        },
+      };
+    };
+    const passes = () => {
+      const heroResult = inspect(hero, 48, true);
+      const nameResults = names.map((name) => inspect(name!, 18));
+      const balanceResults = balances.map((balance) => inspect(balance!, 19));
+      return {
+        hero: heroResult,
+        names: nameResults,
+        balances: balanceResults,
+        passed: [heroResult, ...nameResults, ...balanceResults]
+          .every((result) => Object.values(result).every(Boolean)),
+      };
+    };
+    const preserveStyle = (element: HTMLElement, mutate: () => void) => {
+      const original = element.getAttribute("style");
+      mutate();
+      const result = passes().passed;
+      if (original === null) element.removeAttribute("style");
+      else element.setAttribute("style", original);
+      return result;
+    };
+
+    const baseline = passes();
+    const heroLineHeight = Number.parseFloat(getComputedStyle(hero).lineHeight);
+    const clippedHeroAccepted = preserveStyle(hero, () => {
+      hero.style.height = `${heroLineHeight}px`;
+      hero.style.overflow = "hidden";
+    });
+    const firstName = names[0]!;
+    const nameLineHeight = Number.parseFloat(getComputedStyle(firstName).lineHeight);
+    const clippedNameAccepted = preserveStyle(firstName, () => {
+      firstName.style.height = `${nameLineHeight}px`;
+      firstName.style.overflow = "hidden";
+    });
+    const tinyTextAccepted = (() => {
+      const elements = [...names, ...balances] as HTMLElement[];
+      const originals = elements.map((element) => element.getAttribute("style"));
+      elements.forEach((element) => { element.style.fontSize = "1px"; });
+      const result = passes().passed;
+      elements.forEach((element, index) => {
+        const original = originals[index];
+        if (original === null) element.removeAttribute("style");
+        else element.setAttribute("style", original);
+      });
+      return result;
+    })();
+    return { baseline, clippedHeroAccepted, clippedNameAccepted, tinyTextAccepted };
+  });
+  expect(financialIntegrity.baseline.passed, JSON.stringify(financialIntegrity.baseline)).toBe(true);
+  expect(financialIntegrity.baseline.hero).toMatchObject({
+    verticallyContained: true,
+    overflowVisible: true,
+    lastCharacterInside: true,
+    readableFont: true,
+    renderedWrap: true,
+  });
+  expect(financialIntegrity.baseline.hero.metrics.fontSize).toBeGreaterThanOrEqual(48);
+  expect(financialIntegrity.baseline.hero.metrics.rect.height).toBeGreaterThanOrEqual(
+    financialIntegrity.baseline.hero.metrics.lineHeight * 1.9,
+  );
+  expect(financialIntegrity.baseline.hero.metrics.scrollHeight).toBeLessThanOrEqual(
+    financialIntegrity.baseline.hero.metrics.clientHeight,
+  );
+  for (const result of financialIntegrity.baseline.names) {
+    expect(result.verticallyContained).toBe(true);
+    expect(result.overflowVisible).toBe(true);
+    expect(result.lastCharacterInside).toBe(true);
+    expect(result.readableFont).toBe(true);
+    expect(result.metrics.fontSize).toBeGreaterThanOrEqual(18);
+    expect(result.metrics.last.bottom).toBeLessThanOrEqual(result.metrics.rect.bottom);
+  }
+  for (const result of financialIntegrity.baseline.balances) {
+    expect(result.verticallyContained).toBe(true);
+    expect(result.overflowVisible).toBe(true);
+    expect(result.lastCharacterInside).toBe(true);
+    expect(result.readableFont).toBe(true);
+    expect(result.metrics.fontSize).toBeGreaterThanOrEqual(19);
+    expect(result.metrics.last.bottom).toBeLessThanOrEqual(result.metrics.rect.bottom);
+  }
+  expect(financialIntegrity.clippedHeroAccepted).toBe(false);
+  expect(financialIntegrity.clippedNameAccepted).toBe(false);
+  expect(financialIntegrity.tinyTextAccepted).toBe(false);
 
   const responsiveLayout = await save.evaluate((root) => {
     const hero = Array.from(root.querySelectorAll<HTMLElement>("p"))
