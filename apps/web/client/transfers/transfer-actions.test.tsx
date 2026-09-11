@@ -222,6 +222,45 @@ describe("TransferActions modals", () => {
     expect(onConfirmed[0]?.amountBaseUnits).toBe("1");
   });
 
+  test("fences a confirmed send recipient when the owner boundary changes", async () => {
+    const pending = deferred<ConfirmedTransfer>();
+    const view = render(
+      <TransferActionsForWallet
+        wallet={verifiedWallet(async () => pending.promise)}
+      />,
+    );
+
+    composeSend({ asset: "eth", amount: "0.000000000000000001" });
+    fireEvent.click(
+      page().getByRole("button", { name: "Send 0.000000000000000001 ETH" }),
+    );
+
+    await act(async () => {
+      pending.resolve({
+        assetId: "eth",
+        recipient: RECIPIENT,
+        amountBaseUnits: "1",
+        transactionHash: HASH,
+      });
+      await pending.promise;
+    });
+
+    expect(page().getByText("Sent 0.000000000000000001 ETH")).toBeTruthy();
+
+    view.rerender(
+      <TransferActionsForWallet
+        wallet={{
+          ...verifiedWallet(),
+          ownerKey: "owner-b",
+          status: "validating",
+          session: null,
+        }}
+      />,
+    );
+
+    expect(page().queryByText("Sent 0.000000000000000001 ETH")).toBeNull();
+  });
+
   test("reopens an existing timed-out submission and checks it without sending again", async () => {
     let sends = 0;
     let checks = 0;
