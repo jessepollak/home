@@ -179,7 +179,9 @@ export interface SqlExecutor {
 }
 
 export function isUniqueViolation(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && (error as { code: unknown }).code === "23505");
+  if (!error || typeof error !== "object") return false;
+  const value = error as { code?: unknown; errno?: unknown; sqlState?: unknown };
+  return value.code === "23505" || value.errno === "23505" || value.sqlState === "23505";
 }
 
 type Queryable = {

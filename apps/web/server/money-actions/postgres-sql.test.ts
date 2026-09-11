@@ -5,6 +5,7 @@ import { evidenceUniquenessKey } from "./attempt-store-core";
 import { createPostgresAttemptStoreResource } from "./postgres-store";
 import {
   createNeonSqlExecutor,
+  isUniqueViolation,
   MONEY_ACTION_ATTEMPT_SCHEMA_SQL,
   MONEY_ACTION_SCHEMA_SQL,
 } from "./postgres-sql";
@@ -52,6 +53,13 @@ test("evidence reservation keys are canonical PostgreSQL-safe tuples", () => {
     "user-operation-hash",
     `0x${"a".repeat(64)}`,
   ]);
+});
+
+test("recognizes node-postgres and Bun.SQL unique-violation shapes", () => {
+  expect(isUniqueViolation({ code: "23505" })).toBe(true);
+  expect(isUniqueViolation({ code: "ERR_POSTGRES_SERVER_ERROR", errno: "23505" })).toBe(true);
+  expect(isUniqueViolation({ sqlState: "23505" })).toBe(true);
+  expect(isUniqueViolation({ code: "ERR_POSTGRES_SERVER_ERROR" })).toBe(false);
 });
 
 test("the temporary SQL double remains isolated to the companion trading test", () => {
