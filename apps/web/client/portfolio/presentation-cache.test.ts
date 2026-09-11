@@ -110,7 +110,7 @@ describe("home balances presentation cache", () => {
       status: "ready",
       displayTotal: "—",
       totalStatus: "partial",
-      statusLabel: "Partial balance",
+      statusLabel: "Unavailable",
       items: [
         {
           id: "cash:idrx",
@@ -177,7 +177,7 @@ describe("home balances presentation cache", () => {
           displayBalance: "1.0000 NEW",
         },
       ],
-      unavailableItemIds: ["asset:fixture-eurc", "asset:never-seen"],
+      incompleteItemIds: ["asset:fixture-eurc", "asset:never-seen"],
     };
     const reconciled = resolvePaintedHomeBalances({
       ownerKey: OWNER,
@@ -195,9 +195,9 @@ describe("home balances presentation cache", () => {
         group: "asset" as const,
         name: "Euro",
         detail: "EURC",
-        displayBalance: "Unavailable",
+        displayBalance: "25.00 EURC",
+        displayContext: "Updating…",
         currencyCode: "EUR",
-        tone: "error" as const,
       },
       liveUnknown.items[1],
     ];
@@ -209,18 +209,14 @@ describe("home balances presentation cache", () => {
         reconciled,
         NOW + 1,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       readHomeBalancesPresentation(
         () => storage,
         { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US" },
         NOW + 1,
       ),
-    ).toEqual({
-      status: "ready",
-      displayTotal: "$12.34",
-      items: reconciledItems,
-    });
+    ).toEqual(cached);
 
     const liveReady: HomeAssetBalancesPresentation = {
       status: "ready",

@@ -119,7 +119,8 @@ describe("FundingActions hydration", () => {
       const dialog = document.body.querySelector("dialog");
       expect(dialog?.hasAttribute("open")).toBe(true);
       expect(dialog?.getAttribute("aria-labelledby")).toBe("add-money-title");
-      expect(dialog?.textContent).toContain("Fund this Base account");
+      expect(dialog?.textContent).not.toContain("Fund this Base account");
+      expect(dialog?.textContent).toContain("Use another onramp");
       expect(dialog?.closest(".action-row")).toBeNull();
     } finally {
       await unmount(fixture.root, fixture.container);
@@ -168,6 +169,7 @@ describe("FundingActions hydration", () => {
           },
         }}
         initialOpen
+        regionId="US"
         onClosed={() => {
           closedCount += 1;
         }}
@@ -175,7 +177,7 @@ describe("FundingActions hydration", () => {
     );
 
     try {
-      fireEvent.click(page().getByRole("button", { name: /Buy USDC with Coinbase/ }));
+      fireEvent.click(page().getByRole("button", { name: /Deposit USD/ }));
       fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
       const frame = await page().findByTitle("Coinbase payment") as HTMLIFrameElement;
       const source = {} as MessageEventSource;
@@ -203,7 +205,7 @@ describe("FundingActions hydration", () => {
 
       fireEvent.click(page().getByRole("button", { name: "Add money" }));
       expect(page().getByRole("dialog", { name: "Add money" })).toBeTruthy();
-      expect(page().getByRole("button", { name: /Buy USDC with Coinbase/ })).toBeTruthy();
+      expect(page().getByRole("button", { name: /Deposit USD/ })).toBeTruthy();
       expect(requestCount).toBe(1);
     } finally {
       await unmount(fixture.root, fixture.container);

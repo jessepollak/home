@@ -172,6 +172,41 @@ describe("CDP Onchain Data Token Balances client", () => {
     ]);
   });
 
+  test("finds a needed supported token after more than 160 synthetic balances", async () => {
+    let pages = 0;
+    const needed = USDC.toLowerCase() as `0x${string}`;
+    const client = createCdpTokenBalancesClient({
+      env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: async () => {
+        pages += 1;
+        const balances = Array.from({ length: 20 }, (_, index) =>
+          token(
+            `0x${((pages - 1) * 20 + index + 1).toString(16).padStart(40, "0")}`,
+            "1",
+          ),
+        );
+        if (pages === 9) balances[7] = token(needed, "2500000");
+        return Response.json({
+          balances,
+          nextPageToken: `page-${pages + 1}`,
+        });
+      },
+    });
+
+    const listed = await client.listBalances({
+      address: ADDRESS,
+      neededContractAddresses: new Set([needed]),
+    });
+    expect(pages).toBe(9);
+    expect(listed.complete).toBeTrue();
+    expect(listed.balances.find(({ contractAddress }) => contractAddress === needed)).toEqual({
+      contractAddress: needed,
+      amountBaseUnits: "2500000",
+      native: false,
+    });
+  });
+
   test("marks the page set incomplete when the page budget ends with a remaining cursor", async () => {
     let pages = 0;
     const client = createCdpTokenBalancesClient({
@@ -195,6 +230,150 @@ describe("CDP Onchain Data Token Balances client", () => {
     expect(listed.balances.some(({ contractAddress }) => contractAddress === IDRX)).toBeFalse();
   });
 
+  test("retries a transient middle page and continues without losing quantities", async () => {
+    let calls = 0;
+    const client = createCdpTokenBalancesClient({
+      env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return Response.json({
+            balances: [token(USDC, "1000000")],
+            nextPageToken: "page-two",
+          });
+        }
+        if (calls === 2) return new Response("slow down", { status: 429 });
+        return Response.json({ balances: [token(IDRX, "2500")] });
+      },
+    });
+
+    const listed = await client.listBalances({
+      address: ADDRESS,
+      neededContractAddresses: new Set([USDC.toLowerCase(), IDRX]),
+    });
+    expect(calls).toBe(3);
+    expect(listed.complete).toBeTrue();
+    expect(listed.balances.map(({ amountBaseUnits }) => amountBaseUnits)).toEqual([
+      "1000000",
+      "2500",
+    ]);
+  });
+
+  test("resumes a failed middle page from a bounded same-owner checkpoint", async () => {
+    let calls = 0;
+    let middleFailures = 0;
+    const client = createCdpTokenBalancesClient({
+      pageAttempts: 2,
+      env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: async (input) => {
+        calls += 1;
+        const pageToken = new URL(String(input)).searchParams.get("pageToken");
+        if (pageToken === null) {
+          return Response.json({
+            balances: [token(USDC, "1000000")],
+            nextPageToken: "page-two",
+          });
+        }
+        if (middleFailures < 2) {
+          middleFailures += 1;
+          return new Response("slow down", { status: 429 });
+        }
+        return Response.json({ balances: [token(IDRX, "2500")] });
+      },
+    });
+
+    const first = await client.listBalances({
+      address: ADDRESS,
+      neededContractAddresses: new Set([IDRX]),
+    });
+    expect(first).toMatchObject({ complete: false });
+    expect(first.balances[0]?.amountBaseUnits).toBe("1000000");
+
+    const second = await client.listBalances({
+      address: ADDRESS,
+      neededContractAddresses: new Set([IDRX]),
+    });
+    expect(calls).toBe(4);
+    expect(second.complete).toBeFalse();
+    expect(second.balances.map(({ amountBaseUnits }) => amountBaseUnits)).toEqual([
+      "1000000",
+      "2500",
+    ]);
+    expect(second.authoritativeContractAddresses).toEqual(new Set([IDRX]));
+  });
+
+  test("expires a repeatedly failing checkpoint from the original observation time", async () => {
+    let currentTime = 0;
+    let pageOneCalls = 0;
+    let continuationFailures = 0;
+    const client = createCdpTokenBalancesClient({
+      cacheTtlMs: 60_000,
+      pageAttempts: 1,
+      now: () => currentTime,
+      env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: async (input) => {
+        const pageToken = new URL(String(input)).searchParams.get("pageToken");
+        if (pageToken === null) {
+          pageOneCalls += 1;
+          return Response.json({
+            balances: [token(USDC, pageOneCalls === 1 ? "1000000" : "2000000")],
+            nextPageToken: "page-two",
+          });
+        }
+        if (continuationFailures < 2) {
+          continuationFailures += 1;
+          return new Response("slow down", { status: 429 });
+        }
+        return Response.json({ balances: [token(IDRX, "2500")] });
+      },
+    });
+
+    const request = {
+      address: ADDRESS,
+      neededContractAddresses: new Set([IDRX]),
+    };
+    expect(await client.listBalances(request)).toMatchObject({ complete: false });
+
+    currentTime = 59_000;
+    expect(await client.listBalances(request)).toMatchObject({ complete: false });
+
+    currentTime = 118_000;
+    const recovered = await client.listBalances(request);
+    expect(pageOneCalls).toBe(2);
+    expect(recovered.complete).toBeTrue();
+    expect(
+      recovered.balances.find(
+        ({ contractAddress }) => contractAddress === USDC.toLowerCase(),
+      )?.amountBaseUnits,
+    ).toBe("2000000");
+  });
+
+  test("stops safely when an upstream cursor is exhausted without advancing", async () => {
+    let pages = 0;
+    const client = createCdpTokenBalancesClient({
+      env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: async () => {
+        pages += 1;
+        return Response.json({
+          balances: [token(USDC, "1000000")],
+          nextPageToken: "stuck",
+        });
+      },
+    });
+
+    const listed = await client.listBalances({
+      address: ADDRESS,
+      neededContractAddresses: new Set([IDRX]),
+    });
+    expect(pages).toBe(2);
+    expect(listed.complete).toBeFalse();
+    expect(listed.balances[0]?.amountBaseUnits).toBe("1000000");
+  });
+
   test("keeps already-listed balances when a later page is rate-limited", async () => {
     let pages = 0;
     const client = createCdpTokenBalancesClient({
@@ -216,7 +395,7 @@ describe("CDP Onchain Data Token Balances client", () => {
       address: ADDRESS,
       neededContractAddresses: new Set([IDRX]),
     });
-    expect(pages).toBe(2);
+    expect(pages).toBe(3);
     expect(listed.complete).toBeFalse();
     expect(listed.balances).toEqual([
       {

@@ -64,8 +64,12 @@ function page() {
 }
 
 function openBuy() {
-  const button = page().queryByRole("button", { name: /Buy USDC with Coinbase/ });
-  if (button) fireEvent.click(button);
+  let button = page().queryByRole("button", { name: /Deposit USD/ });
+  if (!button) {
+    fireEvent.click(page().getByRole("button", { name: "Use another onramp" }));
+    button = page().getByRole("button", { name: /Use Coinbase to deposit USD/ });
+  }
+  fireEvent.click(button);
 }
 
 function bindFrameSource(
@@ -104,6 +108,7 @@ beforeEach(() => {
 afterEach(() => {
   console.error = originalConsoleError;
   cleanup();
+  window.sessionStorage.clear();
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: undefined,
@@ -156,6 +161,31 @@ describe("FundingExperience", () => {
     expect(fallback.getAttribute("tabindex")).toBe("0");
   });
 
+  test("offers the selectable full address when clipboard write is rejected", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => { throw new Error("denied"); } },
+    });
+    render(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet()}
+        navigateToHostedOnramp={() => {}}
+        initialStep="receive"
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: /Copy 0x1111…111111/ }));
+
+    await waitFor(() => {
+      expect(page().getByRole("alert").textContent).toContain(
+        "Select and copy the full address below",
+      );
+    });
+    expect(page().getByLabelText(`Full Base address ${ADDRESS_A}`).textContent).toBe(
+      ADDRESS_A,
+    );
+  });
+
   test("does not present a disabled regional candidate as receive support", () => {
     render(
       <FundingExperienceForWallet
@@ -168,6 +198,111 @@ describe("FundingExperience", () => {
 
     expect(page().getByText("USDC")).toBeTruthy();
     expect(page().queryByText("BRZ")).toBeNull();
+  });
+
+  test("uses US Coinbase and AR/CO Ripio as the selected-country providers", () => {
+    const cases = [
+      { regionId: "US", currency: "USD", provider: "Coinbase" },
+      { regionId: "AR", currency: "ARS", provider: "Ripio" },
+      { regionId: "CO", currency: "COP", provider: "Ripio" },
+    ] as const;
+
+    for (const item of cases) {
+      const rendered = render(
+        <FundingExperienceForWallet
+          wallet={verifiedWallet()}
+          navigateToHostedOnramp={() => {}}
+          regionId={item.regionId}
+        />,
+      );
+      expect(page().queryByText("Fund this Base account")).toBeNull();
+      expect(
+        page().getByRole("button", { name: new RegExp(`Deposit ${item.currency}`) }),
+      ).toBeTruthy();
+      if (item.provider === "Coinbase") {
+        expect(page().queryByRole("button", { name: /Use Ripio/ })).toBeNull();
+      } else {
+        expect(page().queryByRole("button", { name: /Use Coinbase/ })).toBeNull();
+      }
+      rendered.unmount();
+    }
+  });
+
+  test("keeps Brazil fail-closed while AR and CO expose every synthetic Ripio state", () => {
+    for (const regionId of ["AR", "CO"] as const) {
+      let accountRequests = 0;
+      const rendered = render(
+        <FundingExperienceForWallet
+          wallet={{
+            ...verifiedWallet(),
+            fetchAccountResource: async () => {
+              accountRequests += 1;
+              throw new Error("No provider request expected");
+            },
+          }}
+          navigateToHostedOnramp={() => {}}
+          regionId={regionId}
+        />,
+      );
+
+      fireEvent.click(page().getByRole("button", { name: /Deposit (ARS|COP)/ }));
+      expect(page().getByText("Synthetic preview · no order or funds")).toBeTruthy();
+      expect(
+        page().getByRole("region", { name: "Requirements and verification" }),
+      ).toBeTruthy();
+      for (const stage of [
+        { button: "Preview quote", region: "Quote review" },
+        { button: "Preview bank instructions", region: "Bank rail instructions" },
+        { button: "Preview pending deposit", region: "Pending deposit" },
+        { button: "Preview recovery", region: "Deposit recovery" },
+        { button: "Preview refund", region: "Refund status" },
+        { button: "Preview error state", region: "Provider error" },
+      ]) {
+        fireEvent.click(page().getByRole("button", { name: stage.button }));
+        expect(page().getByRole("region", { name: stage.region })).toBeTruthy();
+      }
+      expect(accountRequests).toBe(0);
+      rendered.unmount();
+    }
+
+    render(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet()}
+        navigateToHostedOnramp={() => {}}
+        regionId="BR"
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: /Ripio unavailable/ }));
+    expect(page().getByRole("dialog", { name: "Deposit BRL" })).toBeTruthy();
+    expect(page().getByText(/does not currently expose Home's selected BRZ/)).toBeTruthy();
+    expect(page().queryByText("Synthetic preview · no order or funds")).toBeNull();
+  });
+
+  test("searches providers without changing the selected region or enabling cross-region Ripio", () => {
+    render(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet()}
+        navigateToHostedOnramp={() => {}}
+        regionId="AR"
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Use another onramp" }));
+    expect(page().getByRole("searchbox", { name: "Search onramps" })).toBeTruthy();
+    expect(page().queryByText("Use Ripio to deposit ARS")).toBeNull();
+    expect(page().getByRole("button", { name: /Use Coinbase to deposit USD/ })).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Use Ripio to deposit COP/ })).toBeNull();
+    expect(page().getByText("Use Ripio to deposit COP")).toBeTruthy();
+
+    fireEvent.change(page().getByRole("searchbox", { name: "Search onramps" }), {
+      target: { value: "COP" },
+    });
+    expect(page().getByText("Use Ripio to deposit COP")).toBeTruthy();
+    expect(page().queryByText("Use Coinbase to deposit USD")).toBeNull();
+
+    fireEvent.click(page().getAllByRole("button", { name: "Back" })[0]!);
+    expect(page().getByRole("button", { name: /Deposit ARS/ })).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Use Coinbase/ })).toBeNull();
   });
 
   test("keeps one MoneyModal lifecycle across closed, open, closing, and reopen", async () => {
@@ -199,7 +334,7 @@ describe("FundingExperience", () => {
       expect(document.body.style.overflow).toBe("hidden");
 
       openBuy();
-      expect(page().getByRole("dialog", { name: "Buy" })).toBeTruthy();
+      expect(page().getByRole("dialog", { name: "Deposit USD" })).toBeTruthy();
       view.rerender(experience(false));
       expect(document.querySelector("dialog") === dialog).toBe(true);
       expect(dialog.open).toBe(true);
@@ -443,7 +578,7 @@ describe("FundingExperience", () => {
       expect(page().getByRole("alert").textContent).toContain(
         "No deposit is being confirmed",
       );
-      expect(page().getByRole("dialog", { name: "Buy" })).toBeTruthy();
+      expect(page().getByRole("dialog", { name: "Deposit USD" })).toBeTruthy();
       expect(page().queryByRole("dialog", { name: "Deposit pending" })).toBeNull();
       expect(requestCount).toBe(index + 1);
       expect(closeCount).toBe(0);
@@ -503,7 +638,7 @@ describe("FundingExperience", () => {
     });
 
     expect(page().queryByRole("alert")).toBeNull();
-    expect(page().getByRole("dialog", { name: "Buy" })).toBeTruthy();
+    expect(page().getByRole("dialog", { name: "Deposit USD" })).toBeTruthy();
     expect(page().queryByRole("dialog", { name: "Deposit pending" })).toBeNull();
     expect(page().getByTitle("Coinbase payment")).toBe(secondFrame);
     expect(requestCount).toBe(2);
@@ -554,7 +689,7 @@ describe("FundingExperience", () => {
         "onramp_api.polling_success",
       );
     });
-    expect(page().getByRole("dialog", { name: "Buy" })).toBeTruthy();
+    expect(page().getByRole("dialog", { name: "Deposit USD" })).toBeTruthy();
 
     act(() => {
       sendCoinbaseMessage(
@@ -752,6 +887,28 @@ describe("FundingExperience", () => {
     view.unmount();
     await act(async () => resolvers[3]?.(onramp("hosted")));
     expect(navigations).toEqual([]);
+  });
+
+  test("hides the prior verified address as soon as the account boundary changes", () => {
+    const view = render(
+      <FundingExperienceForWallet
+        wallet={verifiedWallet(ADDRESS_A)}
+        navigateToHostedOnramp={() => {}}
+        initialStep="receive"
+      />,
+    );
+    expect(page().getByTitle(ADDRESS_A)).toBeTruthy();
+
+    view.rerender(
+      <FundingExperienceForWallet
+        wallet={{ ...verifiedWallet(ADDRESS_B), status: "validating", session: null }}
+        navigateToHostedOnramp={() => {}}
+        initialStep="receive"
+      />,
+    );
+
+    expect(page().queryByTitle(ADDRESS_A)).toBeNull();
+    expect(page().getByText(/Sign in and verify a Base account/)).toBeTruthy();
   });
 
   test("signed-out empty state does not expose funding actions", () => {

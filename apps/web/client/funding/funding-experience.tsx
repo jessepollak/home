@@ -291,6 +291,18 @@ function FundingExperienceBoundary({
         setOnrampError(null);
       }}
       onCheckBalance={close}
+      onSelectRipio={() => {
+        openRef.current = true;
+        setPostCheckoutPayment(null);
+        setOnrampError(null);
+        setStep("ripio");
+      }}
+      onSelectAnotherOnramp={() => {
+        openRef.current = true;
+        setPostCheckoutPayment(null);
+        setOnrampError(null);
+        setStep("onramps");
+      }}
       onContinueToCoinbase={() => void openCoinbase()}
     />
   );

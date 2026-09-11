@@ -37,7 +37,15 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
-          gh pr edit "$PR" --repo "$REPO" \
-            --remove-label status:needs-jesse --remove-label status:todo --remove-label status:blocked \
-            --remove-label status:ready-for-review --remove-label status:in-progress \
-            --add-label status:working --add-label review:jesse
+          # Remove only the status labels actually present; gh pr edit aborts on a
+          # label name that does not exist in the repository.
+          # status:working is excluded so a second comment never removes what it adds.
+          # Removal and addition are separate commands: gh applies --add before --remove.
+          stale=$(gh pr view "$PR" --repo "$REPO" --json labels \
+            --jq '.labels[].name | select(startswith("status:") and . != "status:working")')
+          if [ -n "$stale" ]; then
+            args=()
+            for label in $stale; do args+=(--remove-label "$label"); done
+            gh pr edit "$PR" --repo "$REPO" "${args[@]}"
+          fi
+          gh pr edit "$PR" --repo "$REPO" --add-label status:working --add-label review:jesse
