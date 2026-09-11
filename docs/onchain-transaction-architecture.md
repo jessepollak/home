@@ -250,7 +250,7 @@ The attempt schema should be additive and support a rolling deployment:
    - claimed reference-free `submitting`/`unknown` → attempt 1 marked ambiguous, admission state copied from existing policy;
    - terminal row → action plus attempt/result when dispatch occurred, preserving original timestamps and status.
 3. Never backfill a reference-free claimed row as unsubmitted, rolled back, or newly prepared.
-4. Continue accepting legacy evidence endpoints while translating them into `RecordProviderEvidence` commands. Dual-read the new projection first, then the legacy row during rollout; avoid dual writers with independent conflict rules.
+4. Continue accepting legacy evidence endpoints while translating them into `RecordProviderEvidence` commands. While compatibility writers coexist, inspect and reconcile the latest legacy state under the common operation-row authority, then update the legacy and attempt projections atomically. Treat new-first reads as authoritative only after migration completeness and writer compatibility are established.
 5. Keep legacy action IDs as public IDs. Generate deterministic attempt IDs for backfill or store an explicit legacy mapping.
 6. Make evidence uniqueness owner/provider-aware and preserve the existing verified execution uniqueness contract.
 7. Cut stores over together: Memory, SQLite, and Postgres must pass one parameterized contract before runtime selection changes.
@@ -311,11 +311,11 @@ Use temporary real SQLite files and the repository's real Postgres contract harn
 
 ### Phase 3 — additive attempt persistence
 
-The canonical store contract keeps the legacy `MoneyActionStore` facade and common operation-row CAS authority during rollout while adding separately named typed attempt commands. It fixes owner-scoped immutable snapshots; store-generated production attempt IDs and deterministic legacy IDs; action/attempt/dispatch version fencing; exact-fact evidence idempotence; a server-internal verified-observation apply input that rechecks versions, evidence, and execution identity transactionally; and uniform Memory/SQLite/Postgres resource lifecycle signatures. Sensitive dispatch calldata remains a transient overlay and is never part of the durable attempt snapshot. Legacy import is lossless and preserves status, references, timestamps, attempt count, abandonment, any existing verified execution key, and unknown provenance; reference-free claimed or contradictory rows remain non-dispatchable and never imply non-submission. Every store error explicitly grants no dispatch authority.
+The canonical store contract keeps the legacy `MoneyActionStore` facade and common operation-row CAS authority during rollout while adding separately named typed attempt commands. It fixes owner-scoped immutable snapshots; store-generated production attempt IDs and deterministic legacy IDs; action/attempt/dispatch version fencing; exact-fact evidence idempotence; a server-internal verified-observation apply input that rechecks versions plus the provider-kind-aware evidence/execution/result binding transactionally; and uniform Memory/SQLite/Postgres resource lifecycle signatures. Sensitive dispatch calldata remains a transient overlay and is never part of the durable attempt snapshot; its durable recipients and values stay exact and its substituted calldata is verified against the issuance digest. Legacy import is lossless and preserves status, references, timestamps, attempt count, abandonment, any existing verified execution key, and unknown provenance; abandonment or a verified key is historical attempt evidence, and reference-free claimed or contradictory rows remain non-dispatchable and never imply non-submission. Every store error explicitly grants no dispatch authority.
 
 - Under one store owner, add action revisions, attempts, evidence, reconciliation, and admission fields/tables.
 - Implement atomic typed commands in Memory, SQLite, and Postgres together.
-- Backfill and dual-read legacy rows as described above.
+- Backfill and reconcile compatibility rows under the common operation-row authority as described above.
 - Keep current client routes as compatibility projections until all callers migrate.
 
 ### Phase 4 — owner abandonment and admission release

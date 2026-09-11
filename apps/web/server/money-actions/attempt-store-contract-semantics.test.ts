@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "@/features/money-actions/types";
 import {
@@ -101,14 +102,16 @@ test("validates v1 claim fields and keeps action/provider/request-key bindings e
   });
 });
 
-test("separates durable sensitive digests from optional transient dispatch material", () => {
+test("allows only digest-verified calldata substitution in a transient sensitive overlay", () => {
+  const data = "0xfeed" as const;
+  const dataHash = createHash("sha256").update(data).digest("hex");
   const sensitive = compatibilityActionRevision(preparedAction({
     sensitivePayload: true,
     calls: [{
       to: "0x3333333333333333333333333333333333333333",
-      data: "0xfeed",
-      dataHash: "b".repeat(64),
-      value: "0",
+      data,
+      dataHash,
+      value: "7",
     }],
   }));
   const durable = {
@@ -120,14 +123,51 @@ test("separates durable sensitive digests from optional transient dispatch mater
     transientSensitivePayload: { action: sensitive, expiresAt: sensitive.expiresAt },
   } as const;
   expect(validateIssueAttemptAction(input)).toEqual({ ok: true });
-  expect(snapshotAttemptAction(input)).toMatchObject({
-    action: { calls: [{ data: "0x", dataHash: "b".repeat(64) }] },
+  const snapshot = snapshotAttemptAction(input);
+  expect(snapshot).toMatchObject({
+    action: { calls: [{ data: "0x", dataHash, value: "7" }] },
     sensitivePayloadStorage: "transient-only",
   });
-  expect(validateIssueAttemptAction({
-    ...input,
-    durableAction: sensitive,
-  })).toEqual({ ok: false, reason: "invalid-command" });
+  expect(JSON.stringify(snapshot)).not.toContain(data);
+
+  const alteredRecipient = {
+    ...sensitive,
+    calls: [{ ...sensitive.calls[0]!, to: "0x4444444444444444444444444444444444444444" as const }],
+  };
+  const alteredValue = {
+    ...sensitive,
+    calls: [{ ...sensitive.calls[0]!, value: "8" }],
+  };
+  const alteredCalldata = {
+    ...sensitive,
+    calls: [{ ...sensitive.calls[0]!, data: "0xbeef" as const }],
+  };
+  const copiedWrongDigest = "c".repeat(64);
+  const alteredDigest = {
+    durableAction: {
+      ...durable,
+      calls: [{ ...durable.calls[0]!, dataHash: copiedWrongDigest }],
+    },
+    transientSensitivePayload: {
+      action: {
+        ...sensitive,
+        calls: [{ ...sensitive.calls[0]!, dataHash: copiedWrongDigest }],
+      },
+      expiresAt: sensitive.expiresAt,
+    },
+  };
+
+  for (const action of [alteredRecipient, alteredValue, alteredCalldata]) {
+    expect(validateIssueAttemptAction({
+      ...input,
+      transientSensitivePayload: { action, expiresAt: sensitive.expiresAt },
+    })).toEqual({ ok: false, reason: "invalid-command" });
+  }
+  expect(validateIssueAttemptAction(alteredDigest)).toEqual({ ok: false, reason: "invalid-command" });
+  expect(validateIssueAttemptAction({ ...input, durableAction: sensitive })).toEqual({
+    ok: false,
+    reason: "invalid-command",
+  });
 });
 
 test("returns owner-scoped action and attempt values as defensive immutable snapshots", () => {
@@ -216,6 +256,48 @@ test("keeps reference-free claimed and contradictory legacy rows non-dispatchabl
     "prepared-with-attempt-facts",
     "reference-without-attempt",
   ]);
+});
+
+test("treats abandonment and verified execution keys as historical attempt indicators", () => {
+  const base = {
+    action: preparedAction(),
+    status: "prepared" as const,
+    attemptCount: 0,
+    createdAt: "2026-09-11T01:00:00.000Z",
+    updatedAt: "2026-09-11T01:02:00.000Z",
+  };
+  const verifiedExecutionKey = `8453:transaction:0x${"c".repeat(64)}`;
+  const cases = [
+    {
+      envelope: legacyCompatibilityEnvelope({
+        ...base,
+        abandonedAt: "2026-09-11T01:01:00.000Z",
+      }),
+      contradictions: ["prepared-with-attempt-facts"],
+    },
+    {
+      envelope: legacyCompatibilityEnvelope(base, { verifiedExecutionKey }),
+      contradictions: ["prepared-with-attempt-facts", "verified-key-without-terminal-status"],
+    },
+    {
+      envelope: legacyCompatibilityEnvelope({
+        ...base,
+        abandonedAt: "2026-09-11T01:01:00.000Z",
+      }, { verifiedExecutionKey }),
+      contradictions: ["prepared-with-attempt-facts", "verified-key-without-terminal-status"],
+    },
+  ] as const;
+
+  for (const { envelope, contradictions } of cases) {
+    expect(envelope.dispatchEligibility).toBe("non-dispatchable");
+    expect(envelope.mappedAttempt).toEqual({
+      source: "legacy-deterministic",
+      attemptId: legacyAttemptId(base.action.id, 1),
+      sequence: 1,
+    });
+    expect(envelope.submissionCertainty).toBe("not-asserted");
+    expect(envelope.contradictions).toEqual(contradictions);
+  }
 });
 
 test("preserves a legacy verified execution key exactly but does not infer one from terminal status", () => {
@@ -310,8 +392,91 @@ test("brands trusted verified observations with exact evidence and both version 
     expectedEvidence: { comparison: "exact-recorded-fact", evidence },
     verifiedExecution: { hash: transactionHash.toLowerCase() },
     result: { transactionHash: transactionHash.toLowerCase() },
+    applicationRecheck: "owner-action-attempt-versions-evidence-execution-result",
   });
   expect(Object.isFrozen(observation.expectedEvidence.evidence)).toBe(true);
+});
+
+test("rejects unrelated transaction evidence, execution identities, and results", () => {
+  const evidenceHash = `0x${"a".repeat(64)}` as const;
+  const executionHash = `0x${"b".repeat(64)}` as const;
+  const resultHash = `0x${"c".repeat(64)}` as const;
+  const evidence = {
+    evidence: { kind: "transaction-hash" as const, chainId: 8453 as const, value: evidenceHash },
+    provenance: { source: "verified-receipt" as const, observedAt: "2026-09-11T01:03:00.000Z" },
+    recordedAt: "2026-09-11T01:03:00.000Z",
+  };
+  const base = {
+    owner: OWNER,
+    actionId: preparedAction().id,
+    attemptId: "attempt-1",
+    expectedAttemptVersion: 2,
+    expectedDispatchVersion: 1,
+    expectedEvidence: { evidence, comparison: "exact-recorded-fact" as const },
+    observedAt: "2026-09-11T01:04:00.000Z",
+  };
+  const mismatches = [
+    {
+      verifiedExecution: { chainId: 8453 as const, kind: "transaction" as const, hash: evidenceHash },
+      result: { kind: "confirmed" as const, transactionHash: resultHash, verifiedExecution: true as const },
+    },
+    {
+      verifiedExecution: { chainId: 8453 as const, kind: "transaction" as const, hash: executionHash },
+      result: { kind: "confirmed" as const, transactionHash: evidenceHash, verifiedExecution: true as const },
+    },
+    {
+      verifiedExecution: { chainId: 8453 as const, kind: "transaction" as const, hash: executionHash },
+      result: { kind: "confirmed" as const, transactionHash: resultHash, verifiedExecution: true as const },
+    },
+  ];
+
+  for (const mismatch of mismatches) {
+    expect(() => createTrustedVerifiedObservation({ ...base, ...mismatch })).toThrow(
+      "invalid-trusted-verified-observation",
+    );
+  }
+});
+
+test("binds exact user-operation U while allowing its verified containing transaction T", () => {
+  const userOperationHash = `0x${"d".repeat(64)}` as const;
+  const otherUserOperationHash = `0x${"e".repeat(64)}` as const;
+  const transactionHash = `0x${"f".repeat(64)}` as const;
+  const evidence = {
+    evidence: {
+      kind: "user-operation-hash" as const,
+      provider: "cdp-embedded" as const,
+      value: userOperationHash,
+    },
+    provenance: { source: "provider-return" as const, observedAt: "2026-09-11T01:03:00.000Z" },
+    recordedAt: "2026-09-11T01:03:00.000Z",
+  };
+  const base = {
+    owner: OWNER,
+    actionId: preparedAction().id,
+    attemptId: "attempt-1",
+    expectedAttemptVersion: 2,
+    expectedDispatchVersion: 1,
+    expectedEvidence: { evidence, comparison: "exact-recorded-fact" as const },
+    result: { kind: "confirmed" as const, transactionHash, verifiedExecution: true as const },
+    observedAt: "2026-09-11T01:04:00.000Z",
+  };
+
+  expect(createTrustedVerifiedObservation({
+    ...base,
+    verifiedExecution: { chainId: 8453, kind: "user-operation", hash: userOperationHash },
+  })).toMatchObject({
+    expectedEvidence: { evidence: { evidence: { value: userOperationHash } } },
+    verifiedExecution: { kind: "user-operation", hash: userOperationHash },
+    result: { transactionHash },
+  });
+  expect(() => createTrustedVerifiedObservation({
+    ...base,
+    verifiedExecution: { chainId: 8453, kind: "user-operation", hash: otherUserOperationHash },
+  })).toThrow("invalid-trusted-verified-observation");
+  expect(() => createTrustedVerifiedObservation({
+    ...base,
+    verifiedExecution: { chainId: 8453, kind: "transaction", hash: transactionHash },
+  })).toThrow("invalid-trusted-verified-observation");
 });
 
 test("freezes error outcomes and every error explicitly carries no dispatch authority", () => {

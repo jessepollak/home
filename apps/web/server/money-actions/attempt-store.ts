@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { MoneyActionOperationStatus, MoneyActionOwner, PreparedMoneyAction } from "@/features/money-actions/types";
 import {
   ATTEMPT_COMMAND_CONTRACT_VERSION,
@@ -143,6 +144,8 @@ export type TrustedVerifiedObservation = DeepReadonly<{
   verifiedExecution: VerifiedMoneyActionExecution;
   result: Extract<ReconciliationResult, { kind: "confirmed" | "failed" }>;
   observedAt: string;
+  /** The apply transaction must revalidate this binding after version/evidence locks. */
+  applicationRecheck: "owner-action-attempt-versions-evidence-execution-result";
 }>;
 
 export type AttemptStoreErrorCode = typeof ATTEMPT_STORE_ERROR_CODES[number];
@@ -255,13 +258,12 @@ export function validateIssueAttemptAction(input: IssueAttemptAction): AttemptSt
   const transient = transientSensitivePayload.action;
   if (
     !validPreparedRevision(transient) ||
-    transient.id !== durableAction.id ||
-    transient.reviewHash !== durableAction.reviewHash ||
-    !sameOwner(transient.owner, durableAction.owner) ||
     !transient.sensitivePayload ||
-    transient.calls.length !== durableAction.calls.length ||
+    !sameSanitizedSensitiveAction(durableAction, transient) ||
     transient.calls.some((call, index) =>
-      call.data === "0x" || call.dataHash !== durableAction.calls[index]?.dataHash
+      call.data === "0x" ||
+      call.dataHash !== durableAction.calls[index]?.dataHash ||
+      createHash("sha256").update(call.data).digest("hex") !== call.dataHash
     ) ||
     !validTimestamp(transientSensitivePayload.expiresAt) ||
     Date.parse(transientSensitivePayload.expiresAt) > Date.parse(durableAction.expiresAt)
@@ -358,7 +360,11 @@ export function legacyCompatibilityEnvelope(
   const hasReference = Boolean(
     operation.submissionId || operation.transactionHash || operation.userOperationHash,
   );
-  const hasAttemptFacts = operation.attemptCount > 0 || Boolean(operation.claimedAt) || hasReference;
+  const hasAttemptFacts = operation.attemptCount > 0 ||
+    Boolean(operation.claimedAt) ||
+    Boolean(operation.abandonedAt) ||
+    Boolean(options.verifiedExecutionKey) ||
+    hasReference;
   if (!Number.isSafeInteger(operation.attemptCount) || operation.attemptCount < 0) {
     contradictions.push("negative-attempt-count");
   }
@@ -433,7 +439,7 @@ export function legacyCompatibilityEnvelope(
 
 export function createTrustedVerifiedObservation(input: Omit<
   TrustedVerifiedObservation,
-  typeof trustedVerifiedObservation
+  typeof trustedVerifiedObservation | "applicationRecheck"
 >): TrustedVerifiedObservation {
   if (
     !validOwner(input.owner) ||
@@ -447,7 +453,8 @@ export function createTrustedVerifiedObservation(input: Omit<
     !validTimestamp(input.observedAt) ||
     input.result.verifiedExecution !== true ||
     (input.result.kind === "confirmed" && !validHash(input.result.transactionHash)) ||
-    (input.result.kind === "failed" && input.result.transactionHash !== undefined && !validHash(input.result.transactionHash))
+    (input.result.kind === "failed" && input.result.transactionHash !== undefined && !validHash(input.result.transactionHash)) ||
+    !verifiedObservationFieldsBind(input)
   ) throw new Error("invalid-trusted-verified-observation");
 
   const cloned = structuredClone(input);
@@ -460,6 +467,7 @@ export function createTrustedVerifiedObservation(input: Omit<
     result: cloned.result.transactionHash
       ? { ...cloned.result, transactionHash: cloned.result.transactionHash.toLowerCase() as `0x${string}` }
       : cloned.result,
+    applicationRecheck: "owner-action-attempt-versions-evidence-execution-result" as const,
     [trustedVerifiedObservation]: true as const,
   }) as TrustedVerifiedObservation;
 }
@@ -513,6 +521,47 @@ function validPreparedRevision(action: PreparedActionRevision): boolean {
     validTimestamp(action.expiresAt);
 }
 
+function sameSanitizedSensitiveAction(
+  durable: PreparedActionRevision,
+  transient: PreparedActionRevision,
+): boolean {
+  const sanitizedTransient = {
+    ...transient,
+    calls: transient.calls.map((call) => ({ ...call, data: "0x" as const })),
+  };
+  return stableStringify(durable) === stableStringify(sanitizedTransient);
+}
+
+function verifiedObservationFieldsBind(input: Omit<
+  TrustedVerifiedObservation,
+  typeof trustedVerifiedObservation | "applicationRecheck"
+>): boolean {
+  const recorded = input.expectedEvidence.evidence.evidence;
+  const executionHash = input.verifiedExecution.hash.toLowerCase();
+  const resultHash = input.result.transactionHash?.toLowerCase();
+  const bindingEvidence = recorded.kind === "provider-status" ? recorded.handle : recorded;
+
+  if (bindingEvidence.kind === "transaction-hash") {
+    const evidenceHash = bindingEvidence.value.toLowerCase();
+    return bindingEvidence.chainId === input.verifiedExecution.chainId &&
+      input.verifiedExecution.kind === "transaction" &&
+      resultHash !== undefined &&
+      executionHash === evidenceHash &&
+      resultHash === evidenceHash;
+  }
+  if (bindingEvidence.kind === "user-operation-hash") {
+    return input.owner.accountProvider === "cdp-embedded" &&
+      bindingEvidence.provider === "cdp-embedded" &&
+      input.verifiedExecution.kind === "user-operation" &&
+      executionHash === bindingEvidence.value.toLowerCase();
+  }
+  return input.owner.accountProvider === "base-account" &&
+    bindingEvidence.provider === "base-account" &&
+    input.verifiedExecution.kind === "transaction" &&
+    resultHash !== undefined &&
+    executionHash === resultHash;
+}
+
 function validReconcileLookup(command: ReconcileAttempt): boolean {
   switch (command.lookup.kind) {
     case "recorded-user-operation-hash":
@@ -533,13 +582,6 @@ function validOwner(owner: MoneyActionOwner): boolean {
     (owner.accountProvider === "cdp-embedded" || owner.accountProvider === "base-account");
 }
 
-function sameOwner(left: MoneyActionOwner, right: MoneyActionOwner): boolean {
-  return left.subject === right.subject &&
-    left.address.toLowerCase() === right.address.toLowerCase() &&
-    left.chainId === right.chainId &&
-    left.accountProvider === right.accountProvider;
-}
-
 function validVersion(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 1;
 }
@@ -558,6 +600,17 @@ function validTimestamp(value: string): boolean {
 
 function nonEmpty(value: string): boolean {
   return value.trim().length > 0;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function immutableSnapshot<Value>(value: Value): DeepReadonly<Value> {
