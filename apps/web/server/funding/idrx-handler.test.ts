@@ -271,6 +271,37 @@ describe("IDRX mint handler", () => {
     expect(providerCalls).toBe(1);
   });
 
+  test("never redispatches a released attempt ID through POST", async () => {
+    const attempts = new MemoryIdrxAttemptStore();
+    const attemptId = "abababab-abab-4bab-8bab-abababababab";
+    const owner = { subject: "subject-a", smartAccount: ADDRESS };
+    await attempts.begin(owner, attemptId, recoveryIntent);
+    await attempts.complete(owner, attemptId, vaResult());
+    await attempts.release(owner, attemptId, "expired");
+    let providerCalls = 0;
+    const handler = createIdrxMintHandler({
+      authorize: async () => authorizedSession(),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts,
+      createMint: async () => {
+        providerCalls += 1;
+        throw new Error("must not dispatch");
+      },
+    });
+    const response = await handler(request({
+      assetId: "idrx",
+      country: "ID",
+      toBeMinted: "20000",
+      rail: "bank-va",
+      channelId: "MANDIRI",
+      consent: true,
+      attemptId,
+    }));
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("IDRX_ATTEMPT_TERMINAL");
+    expect(providerCalls).toBe(0);
+  });
+
   test("retains an ambiguous failed attempt and refuses a second provider dispatch", async () => {
     const attempts = new MemoryIdrxAttemptStore();
     let providerCalls = 0;
@@ -329,7 +360,6 @@ describe("IDRX attempt recovery", () => {
       resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
       attempts,
       readStatus: async () => { statusReads += 1; return "pending"; },
-      now: () => Date.parse("2026-09-11T12:00:00.000Z"),
     });
     const response = await handler(recoveryRequest());
     expect(response.status).toBe(200);
@@ -340,7 +370,7 @@ describe("IDRX attempt recovery", () => {
     expect(statusReads).toBe(1);
   });
 
-  test("releases an authoritatively expired reservation but preserves its attempt replay record", async () => {
+  test("preserves elapsed VA instructions while provider reconciliation remains pending", async () => {
     const attempts = new MemoryIdrxAttemptStore();
     const attemptId = "77777777-7777-4777-8777-777777777777";
     const owner = { subject: "subject-a", smartAccount: ADDRESS };
@@ -350,17 +380,37 @@ describe("IDRX attempt recovery", () => {
       authorize: async () => authorizedSession(),
       resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
       attempts,
-      readStatus: async () => { throw new Error("must not read after expiry"); },
-      now: () => Date.parse("2026-09-11T12:00:00.000Z"),
+      readStatus: async () => "pending",
     });
-    const response = await handler(recoveryRequest());
-    expect(await response.json()).toEqual({ status: "terminal", outcome: "expired" });
+    expect(await (await handler(recoveryRequest())).json()).toMatchObject({
+      status: "completed",
+      result: { virtualAccountNo: "8680770000001234" },
+    });
+    expect((await attempts.recover(owner)).status).toBe("completed");
+  });
+
+  test("releases only after authoritative provider expiry and retains replay protection", async () => {
+    const attempts = new MemoryIdrxAttemptStore();
+    const attemptId = "88888888-8888-4888-8888-888888888888";
+    const owner = { subject: "subject-a", smartAccount: ADDRESS };
+    await attempts.begin(owner, attemptId, recoveryIntent);
+    await attempts.complete(owner, attemptId, vaResult("2026-09-11T11:00:00.000Z"));
+    const handler = createIdrxRecoveryHandler({
+      authorize: async () => authorizedSession(),
+      resolveCustomer: (subject) => ({ subject, customerName: "JOHN SMITH" }),
+      attempts,
+      readStatus: async () => "expired",
+    });
+    expect(await (await handler(recoveryRequest())).json()).toEqual({
+      status: "terminal",
+      outcome: "expired",
+    });
     expect(await attempts.recover(owner)).toEqual({ status: "none" });
     expect(await attempts.begin(owner, attemptId, recoveryIntent)).toEqual({
       status: "terminal",
       outcome: "expired",
     });
-    expect(await attempts.begin(owner, "88888888-8888-4888-8888-888888888888", {
+    expect(await attempts.begin(owner, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", {
       ...recoveryIntent,
       toBeMinted: "30000",
     })).toEqual({ status: "new" });

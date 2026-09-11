@@ -42,7 +42,6 @@ export function createIdrxRecoveryHandler(dependencies: {
   resolveCustomer: (subject: string) => IdrxCustomerBinding | null;
   attempts: IdrxAttemptStore;
   readStatus: ReadIdrxMintStatus;
-  now?: () => number;
 }) {
   return async function GET(request: Request): Promise<Response> {
     const boundaryResponse = await dependencies.authorize(request);
@@ -82,25 +81,18 @@ export function createIdrxRecoveryHandler(dependencies: {
     if (attempt.status !== "completed") {
       return privateError("IDRX_ATTEMPT_INVALID", "The saved IDRX attempt is invalid.", 409);
     }
-    const localExpiry = attempt.result.presentation === "virtual-account"
-      ? Date.parse(attempt.result.expiredDate)
-      : Number.NaN;
-    let terminal: IdrxTerminalOutcome | null = Number.isFinite(localExpiry) &&
-      localExpiry <= (dependencies.now ?? Date.now)()
-      ? "expired"
-      : null;
-    if (!terminal) {
-      try {
-        const status = await dependencies.readStatus({
-          customer,
-          merchantOrderId: attempt.result.merchantOrderId,
-          signal: request.signal,
-        });
-        if (status !== "pending") terminal = status;
-      } catch {
-        // Recovery remains non-dispatching and returns saved instructions when
-        // the bounded read-only provider reconciliation is unavailable.
-      }
+    let terminal: IdrxTerminalOutcome | null = null;
+    try {
+      const status = await dependencies.readStatus({
+        customer,
+        merchantOrderId: attempt.result.merchantOrderId,
+        signal: request.signal,
+      });
+      if (status !== "pending") terminal = status;
+    } catch {
+      // A local payment deadline is not authoritative terminal evidence.
+      // Preserve saved instructions whenever provider reconciliation is
+      // pending, ambiguous, or unavailable.
     }
     if (terminal) {
       try { await dependencies.attempts.release(owner, attempt.attemptId, terminal); }
@@ -204,6 +196,20 @@ export function createIdrxMintHandler(dependencies: {
       return privateError(
         "IDRX_ATTEMPT_PENDING",
         "This funding attempt may already have reached IDRX. Check balance and activity instead of creating another order.",
+        409,
+      );
+    }
+    if (attempt.status === "terminal") {
+      return privateError(
+        "IDRX_ATTEMPT_TERMINAL",
+        "This attempt is terminal and cannot be dispatched again.",
+        409,
+      );
+    }
+    if (attempt.status !== "new") {
+      return privateError(
+        "IDRX_ATTEMPT_INVALID",
+        "IDRX could not reserve a new funding attempt.",
         409,
       );
     }
