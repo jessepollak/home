@@ -49,6 +49,7 @@ Do not start a clone or a PR from these. Webhooks, Drizzle, and `packages/*` rem
 
 | Doc | Use it for |
 |---|---|
+| [Funding provider seam](funding-provider-seam.md) | Proposed adapter contract, core-owned order lifecycle, verification and enable gates for issuer-contributed 1:1 onramps. Tracking [#282](https://github.com/jessepollak/home/issues/282). |
 | [Target architecture](target-architecture.md) | Proposed Vercel + Neon/Postgres + webhook design. Formerly `docs/technical-design.md`. |
 | [Balances inventory](balances-inventory-architecture.md) | Locked inventory direction (Phase A shipped in #80; B/C not in tree). Full research on [#76](https://github.com/jessepollak/home/issues/76). |
 | [Archived implementation plan](archive/implementation-plan-2026-09-07.md) | 2026-09-07 two-hour chunk plan. [build status](build-status.md) is the scoreboard. |
