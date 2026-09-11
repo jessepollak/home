@@ -30,8 +30,12 @@ export async function getMoneyActionStore(): Promise<MoneyActionStore> {
 async function loadRuntimeStore(): Promise<MoneyActionStore> {
   const backend = resolveMoneyActionStoreBackend();
   if (backend === "postgres") {
-    const { PostgresMoneyActionStore } = await import("./postgres-store");
-    return new PostgresMoneyActionStore();
+    const { createNeonSqlExecutor, createPostgresAttemptStoreResourceWithExecutor } = await import("./postgres-store");
+    const resource = createPostgresAttemptStoreResourceWithExecutor(
+      createNeonSqlExecutor(process.env.DATABASE_URL!),
+    );
+    await resource.init();
+    return resource.store;
   }
   if (backend === "cutover-unverified") {
     throw new Error(
