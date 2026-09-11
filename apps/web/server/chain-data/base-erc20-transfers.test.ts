@@ -15,6 +15,8 @@ const TOKEN = "0x3333333333333333333333333333333333333333";
 const TX_A = `0x${"a".repeat(64)}` as const;
 const TX_B = `0x${"b".repeat(64)}` as const;
 const BLOCK = `0x${"c".repeat(64)}` as const;
+const TRANSFER_TOPIC =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const NOW = new Date("2026-09-07T12:00:00.000Z");
 const assets = [
   { id: "verified-usdc", chainId: 8453, address: TOKEN },
@@ -30,9 +32,14 @@ function input(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function addressTopic(address: string): string {
+  return `0x${address.slice(2).padStart(64, "0")}`;
+}
+
 function row(overrides: Record<string, unknown> = {}) {
   return {
     log_id: "base:event:1",
+    topics: [TRANSFER_TOPIC, addressTopic(OTHER), addressTopic(WALLET)],
     block_number: "18446744073709551615",
     block_hash: BLOCK,
     source_timestamp: "2026-09-07T11:59:00.000Z",
@@ -67,28 +74,54 @@ describe("Base ERC20 transfer query", () => {
     const { sql } = buildBaseErc20TransferQuery(input(), assets, NOW);
 
     expect(sql).toContain("FROM base.events");
-    expect(sql).toContain("GROUP BY log_id");
+    expect(sql).toContain("GROUP BY log_id, address");
     expect(sql).toContain("sum(toInt8(action)) AS net_action");
+    expect(sql).toContain("AND length(topics) = 3");
+    expect(sql).toContain(`AND lower(toString(topics[1])) = '${TRANSFER_TOPIC}'`);
+    expect(sql).toContain("parameter_types[key] = 'uint256'");
+    expect(sql).not.toContain("parameters['value']");
+    expect(sql.indexOf("AND length(topics) = 3")).toBeLessThan(
+      sql.indexOf("GROUP BY log_id, address"),
+    );
     expect(sql).toContain("WHERE net_action > 0");
     expect(sql).not.toMatch(/\bHAVING\b/);
-    expect(sql).toContain(`lower(toString(parameters['from'])) = '${WALLET}'`);
-    expect(sql).toContain(`lower(toString(parameters['to'])) = '${WALLET}'`);
+    expect(sql).toContain(
+      `lower(concat('0x', right(toString(topics[2]), 40))) = '${WALLET}'`,
+    );
+    expect(sql).toContain(
+      `lower(concat('0x', right(toString(topics[3]), 40))) = '${WALLET}'`,
+    );
     expect(sql).toContain(`address IN ('${TOKEN}')`);
     expect(sql).not.toContain("lower(toString(address))");
     expect(sql).not.toMatch(/GROUP BY log_id[\s\S]*LIMIT 10000/);
     expect(sql).toMatch(/LIMIT 51$/);
-    expect(sql).toContain("any(toString(parameters['value'])) AS amount_base_units");
+    expect(sql).toContain("any(toString(parameters[arrayElement(");
     expect(sql).toContain("any(block_number) AS block_number_numeric");
     expect(sql).toContain("any(log_index) AS log_index_numeric");
     expect(sql).toContain("any(block_timestamp) AS event_timestamp");
     expect(sql).toContain("formatDateTime(event_timestamp,");
     expect(sql).not.toContain("any(block_timestamp) AS block_timestamp");
     expect(sql).toContain(
-      "ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, log_id DESC",
+      "ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, token_address DESC, log_id DESC",
     );
     expect(sql).not.toContain("ORDER BY block_number DESC");
     expect(sql).toContain("LIMIT 51");
     expect(sql).not.toContain("SELECT *");
+  });
+
+  test("can query every wallet-scoped ERC-20 contract without a token fallback", () => {
+    const { sql } = buildBaseErc20TransferQuery(
+      input({ includeUnknownAssets: true }),
+      assets,
+      NOW,
+    );
+    expect(sql).not.toContain("address IN (");
+    expect(sql).toContain(
+      `lower(concat('0x', right(toString(topics[2]), 40))) = '${WALLET}'`,
+    );
+    expect(sql).toContain(
+      `lower(concat('0x', right(toString(topics[3]), 40))) = '${WALLET}'`,
+    );
   });
 
   test("rejects address injection and non-allowlisted assets", () => {
@@ -212,6 +245,10 @@ describe("Base ERC20 transfer adapter", () => {
     expect(page.transfers[0]?.blockNumber).toBe("18446744073709551615");
     expect(page.transfers[0]?.logIndex).toBe("4294967295");
     expect(page.transfers[0]?.direction).toBe("incoming");
+    expect(page.transfers[0]?.logId).toBe("base:event:1");
+    expect(page.transfers[0]?.id).toBe(
+      `8453:${TOKEN}:base:event:1`,
+    );
     expect(page.source.cached).toBe(true);
     expect(page.source.stale).toBe(true);
     expect(page.source.executionTimestamp).toBe("2026-09-07T11:58:00.000Z");
@@ -234,6 +271,7 @@ describe("Base ERC20 transfer adapter", () => {
       blockNumber: "18446744073709551615",
       transactionHash: TX_B,
       logIndex: "2",
+      tokenAddress: TOKEN,
       logId: "base:event:2",
     });
 
@@ -258,7 +296,7 @@ describe("Base ERC20 transfer adapter", () => {
     const transport: CdpSqlTransport = {
       async run(request) {
         expect(request.sql).toContain(
-          "ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, log_id DESC",
+          "ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, token_address DESC, log_id DESC",
         );
         const cursorIndex = request.sql.match(
           /log_index_numeric < toUInt32\('(\d+)'\)/,
@@ -357,7 +395,7 @@ describe("Base ERC20 transfer adapter", () => {
     expect(() => decodeTransferCursor("a".repeat(4097))).toThrow(ChainDataError);
     expect(() => encodeTransferCursor({
       blockNumber: "1".repeat(4096), transactionHash: TX_A,
-      logIndex: "1", logId: "synthetic",
+      logIndex: "1", tokenAddress: TOKEN, logId: "synthetic",
     })).toThrow(ChainDataError);
   });
 
@@ -371,6 +409,107 @@ describe("Base ERC20 transfer adapter", () => {
     await expect(history.listTransfers(input())).rejects.toMatchObject({
       code: "invalid-response",
     });
+  });
+
+  test("uses structural ERC-20 evidence before mixed-log pagination without ABI names", () => {
+    const { sql } = buildBaseErc20TransferQuery(
+      input({ includeUnknownAssets: true, limit: 1 }),
+      assets,
+      NOW,
+    );
+
+    const shapeFilter = sql.indexOf("AND length(topics) = 3");
+    const pagination = sql.lastIndexOf("LIMIT 2");
+    expect(shapeFilter).toBeGreaterThan(0);
+    expect(shapeFilter).toBeLessThan(pagination);
+    expect(sql).toContain("parameter_types[key] = 'uint256'");
+    expect(sql).toContain("mapKeys(parameter_types)");
+    expect(sql).not.toMatch(/parameters\['(?:value|_value|amount|wad)'\]/);
+  });
+
+  test("accepts arbitrary decoded ERC-20 amount names after structural SQL derivation", async () => {
+    for (const parameterName of ["_value", "amount", "wad", "shares"]) {
+      const history = createBaseErc20TransferHistory({
+        assets,
+        transport: transportFor([
+          row({ log_id: `erc20-${parameterName}`, amount_parameter_name: parameterName }),
+        ]),
+        now: () => NOW,
+      });
+      const page = await history.listTransfers(
+        input({ includeUnknownAssets: true }),
+      );
+      expect(page.transfers[0]?.logId).toBe(`erc20-${parameterName}`);
+      expect(page.transfers[0]?.amountBaseUnits).toBe(
+        "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      );
+    }
+  });
+
+  test("fails closed for ERC-721 value naming and malformed topic evidence", async () => {
+    const invalidRows = [
+      row({
+        topics: [
+          TRANSFER_TOPIC,
+          addressTopic(OTHER),
+          addressTopic(WALLET),
+          `0x${"0".repeat(63)}1`,
+        ],
+        amount_parameter_name: "value",
+      }),
+      row({ topics: [TRANSFER_TOPIC, addressTopic(OTHER)] }),
+      row({ topics: [`0x${"0".repeat(64)}`, addressTopic(OTHER), addressTopic(WALLET)] }),
+      row({ topics: [TRANSFER_TOPIC, "0x1234", addressTopic(WALLET)] }),
+      { ...row(), topics: undefined },
+      row({ amount_base_units: null }),
+      row({ amount_base_units: "0x01" }),
+    ];
+
+    for (const invalidRow of invalidRows) {
+      const history = createBaseErc20TransferHistory({
+        assets,
+        transport: transportFor([invalidRow]),
+        now: () => NOW,
+      });
+      await expect(
+        history.listTransfers(input({ includeUnknownAssets: true })),
+      ).rejects.toMatchObject({ code: "invalid-response" });
+    }
+  });
+
+  test("preserves an unknown contract as unknown when explicitly requested", async () => {
+    const unknownToken = "0x5555555555555555555555555555555555555555";
+    const history = createBaseErc20TransferHistory({
+      assets,
+      transport: transportFor([row({ token_address: unknownToken })]),
+      now: () => NOW,
+    });
+
+    const page = await history.listTransfers(
+      input({ includeUnknownAssets: true }),
+    );
+    expect(page.transfers[0]).toMatchObject({
+      id: `8453:${unknownToken}:base:event:1`,
+      logId: "base:event:1",
+      assetId: null,
+      tokenAddress: unknownToken,
+      amountBaseUnits: "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+    });
+  });
+
+  test("keeps wallet identity in the query cache key", () => {
+    const otherWallet = "0x9999999999999999999999999999999999999999";
+    const first = buildBaseErc20TransferQuery(
+      input({ includeUnknownAssets: true }), assets, NOW,
+    ).sql;
+    const second = buildBaseErc20TransferQuery(
+      input({ verifiedWalletAddress: otherWallet, includeUnknownAssets: true }),
+      assets,
+      NOW,
+    ).sql;
+    expect(first).not.toBe(second);
+    expect(first).toContain(WALLET);
+    expect(second).toContain(otherWallet);
   });
 
   test("rejects rows outside the verified wallet or asset scope", async () => {

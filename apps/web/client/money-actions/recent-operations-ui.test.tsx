@@ -186,4 +186,109 @@ describe("RecentMoneyActions recovery", () => {
     expect(within(document.body).queryByText(/Rejected/)).toBeNull();
     expect(within(document.body).queryByText(/Withdraw USDC from Morpho/)).toBeNull();
   });
+
+  test("opens read-only details with a BaseScan link for a confirmed transaction", async () => {
+    render(
+      <RecentMoneyActions
+        session={session}
+        fetchOperations={async () => ({ operations: [operation("confirmed")] })}
+        readOperation={async () => ({ operation: operation("confirmed") })}
+      />,
+    );
+
+    const detailsButton = await within(document.body).findByRole("button", {
+      name: "View Send USDC transaction details",
+    });
+    fireEvent.click(detailsButton);
+
+    const dialog = within(document.body).getByRole("dialog", { name: "Send USDC" });
+    expect(within(dialog).getByText("Confirmed")).toBeTruthy();
+    expect(within(dialog).getByText("1 USDC")).toBeTruthy();
+    expect(
+      within(dialog).getByRole("link", { name: "View on BaseScan" }),
+    ).toHaveProperty("href", `https://basescan.org/tx/${HASH}`);
+  });
+
+  test("never links BaseScan when a durable action has no real transaction hash", async () => {
+    render(
+      <RecentMoneyActions
+        session={session}
+        fetchOperations={async () => ({ operations: [operation("submitting")] })}
+        readOperation={async () => ({ operation: operation("submitting") })}
+      />,
+    );
+
+    const detailsButton = await within(document.body).findByRole("button", {
+      name: "View Send USDC transaction details",
+    });
+    fireEvent.click(detailsButton);
+
+    const dialog = within(document.body).getByRole("dialog", { name: "Send USDC" });
+    expect(within(dialog).getByText("Wallet submission unresolved")).toBeTruthy();
+    expect(
+      within(dialog).queryByRole("link", { name: "View on BaseScan" }),
+    ).toBeNull();
+  });
+
+  test("derives open details from the reconciled state instead of a stale snapshot", async () => {
+    let reads = 0;
+    render(
+      <RecentMoneyActions
+        session={session}
+        fetchOperations={async () => ({ operations: [operation("submitting")] })}
+        readOperation={async () => {
+          reads += 1;
+          return { operation: operation(reads === 1 ? "confirmed" : "submitting") };
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(within(document.body).getByText(/Confirmed/)).toBeTruthy(),
+    );
+
+    fireEvent.click(
+      within(document.body).getByRole("button", {
+        name: "View Send USDC transaction details",
+      }),
+    );
+
+    const dialog = within(document.body).getByRole("dialog", { name: "Send USDC" });
+    expect(within(dialog).getByText("Confirmed")).toBeTruthy();
+    expect(
+      within(dialog).getByRole("link", { name: "View on BaseScan" }),
+    ).toHaveProperty("href", `https://basescan.org/tx/${HASH}`);
+  });
+
+  test("closes details when the selected operation is deduplicated away", async () => {
+    const view = render(
+      <RecentMoneyActions
+        session={session}
+        fetchOperations={async () => ({ operations: [operation("confirmed")] })}
+        readOperation={async () => ({ operation: operation("confirmed") })}
+      />,
+    );
+
+    fireEvent.click(
+      await within(document.body).findByRole("button", {
+        name: "View Send USDC transaction details",
+      }),
+    );
+    expect(within(document.body).getByRole("dialog", { name: "Send USDC" })).toBeTruthy();
+
+    view.rerender(
+      <RecentMoneyActions
+        session={session}
+        fetchOperations={async () => ({ operations: [operation("confirmed")] })}
+        readOperation={async () => ({ operation: operation("confirmed") })}
+        excludeTransactionHashes={[HASH]}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        within(document.body).queryByRole("dialog", { name: "Send USDC" }),
+      ).toBeNull(),
+    );
+  });
 });

@@ -2,9 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { ActivityRow } from "@/components/finance-rows";
+import { TransactionDetailsModal } from "@/components/transaction-details";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { formatPresentationTokenAmount } from "@/shared/formatting";
 import { visibleActivityMoneyActions } from "@/shared/money-actions/activity-visibility";
+import {
+  labelForOperationStatus,
+  presentOperationDetails,
+  primaryOperationAmount,
+} from "./operation-details";
 import type {
   MoneyActionOperationStatus,
   PreparedMoneyAction,
@@ -48,6 +54,12 @@ export function RecentMoneyActions({
   const ownerKey = session?.smartAccount
     ? `${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.accountProvider}`
     : null;
+  const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
+  const [selectedOwnerKey, setSelectedOwnerKey] = useState<string | null>(ownerKey);
+  if (selectedOwnerKey !== ownerKey) {
+    setSelectedOwnerKey(ownerKey);
+    setSelectedOperationId(null);
+  }
   const [state, setState] = useState<{
     ownerKey: string;
     operations: RecentMoneyActionOperation[];
@@ -96,6 +108,13 @@ export function RecentMoneyActions({
     dedupeRecentMoneyActions(visibleState?.operations ?? [], excluded),
   ); // stale-payload guard; ordinary list API already omits pre-chain Rejected
   const visibleCount = visible.length + (visibleState?.unavailable ? 1 : 0);
+  const selectedOperation = selectedOperationId
+    ? visible.find((operation) => operation.action.id === selectedOperationId) ?? null
+    : null;
+  const details = selectedOperation
+    ? presentOperationDetails(selectedOperation)
+    : null;
+  const detailsTitleId = "home-operation-details-title";
 
   useEffect(() => {
     onVisibleCountChange?.(visibleCount);
@@ -118,6 +137,7 @@ export function RecentMoneyActions({
               key={operation.action.id}
               operation={operation}
               checking={visibleState?.checkingIds.includes(operation.action.id) ?? false}
+              onActivate={() => setSelectedOperationId(operation.action.id)}
               onCheck={offersStatusCheck(operation) ? async () => {
                 setState((current) => current?.ownerKey === ownerKey
                   ? { ...current, checkingIds: [...new Set([...current.checkingIds, operation.action.id])] }
@@ -148,6 +168,13 @@ export function RecentMoneyActions({
           ))}
         </ol>
       )}
+
+      <TransactionDetailsModal
+        open={selectedOperation !== null}
+        titleId={detailsTitleId}
+        details={details}
+        onClose={() => setSelectedOperationId(null)}
+      />
     </section>
   );
 }
@@ -203,13 +230,15 @@ function OperationRow({
   operation,
   checking,
   onCheck,
+  onActivate,
 }: {
   operation: RecentMoneyActionOperation;
   checking: boolean;
   onCheck?: () => Promise<void>;
+  onActivate?: () => void;
 }) {
-  const amount = operation.action.amounts[0];
-  const status = labelForStatus(operation.status);
+  const amount = primaryOperationAmount(operation);
+  const status = labelForOperationStatus(operation.status);
   const date = new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -241,11 +270,8 @@ function OperationRow({
       )}
       value={value}
       valueTone={operation.status === "failed" || operation.status === "rejected" ? "error" : operation.status === "unknown" ? "muted" : "default"}
-      explorer={operation.transactionHash ? {
-        href: `https://basescan.org/tx/${operation.transactionHash}`,
-        label: `View ${operation.action.title} on BaseScan`,
-        title: "View on BaseScan",
-      } : undefined}
+      onActivate={onActivate}
+      activateLabel={`View ${operation.action.title} transaction details`}
     />
   );
 }
@@ -274,20 +300,6 @@ function offersStatusCheck(operation: RecentMoneyActionOperation): boolean {
 
 function isReadRecoverable(operation: RecentMoneyActionOperation): boolean {
   return ["submitting", "submitted", "included", "unknown"].includes(operation.status);
-}
-
-function labelForStatus(status: MoneyActionOperationStatus): string {
-  switch (status) {
-    case "prepared": return "Ready for review";
-    case "submitting": return "Wallet submission unresolved";
-    case "submitted": return "Submitted";
-    case "included": return "Included";
-    case "confirmed": return "Confirmed";
-    case "rejected": return "Rejected";
-    case "expired": return "Expired";
-    case "failed": return "Failed";
-    case "unknown": return "Outcome unknown";
-  }
 }
 
 function iconForStatus(status: MoneyActionOperationStatus): string {

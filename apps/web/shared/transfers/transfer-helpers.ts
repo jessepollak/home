@@ -1,3 +1,4 @@
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import {
   PORTFOLIO_BASE_USDC_ADDRESS,
   type PortfolioAssetBalance,
@@ -147,6 +148,39 @@ export function encodeUsdcTransfer(
   return `0xa9059cbb${normalizedRecipient.slice(2).padStart(64, "0")}${amountBaseUnits
     .toString(16)
     .padStart(64, "0")}`;
+}
+
+/**
+ * Decodes a prepared "send" money action back into its transfer request.
+ * ERC-20 (USDC) sends carry the recipient in the `transfer(address,uint256)`
+ * calldata while `call.to` is the token contract; native ETH sends use
+ * `call.to` directly as the recipient.
+ */
+export function transferRequestFromAction(
+  action: PreparedMoneyAction,
+): TransferRequest | null {
+  if (action.kind !== "send" || action.calls.length !== 1) return null;
+  const spend = action.amounts.find((entry) => entry.direction === "spend");
+  if (!spend || (spend.assetId !== "usdc" && spend.assetId !== "eth")) return null;
+  const call = action.calls[0];
+  let recipient: `0x${string}`;
+  if (spend.assetId === "eth") {
+    recipient = call.to;
+  } else {
+    if (!call.data.startsWith("0xa9059cbb") || call.data.length !== 138) return null;
+    recipient = `0x${call.data.slice(34, 74)}` as `0x${string}`;
+  }
+  try {
+    const request = {
+      assetId: spend.assetId,
+      recipient,
+      amountBaseUnits: spend.amountBaseUnits,
+    } satisfies TransferRequest;
+    assertTransferRequest(request);
+    return request;
+  } catch {
+    return null;
+  }
 }
 
 function readBaseUnits(value: string, requirePositive = false): bigint {

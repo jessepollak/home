@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityRow } from "@/components/finance-rows";
-import { formatPresentationTokenAmount } from "@/shared/formatting";
+import { TransactionDetailsModal } from "@/components/transaction-details";
+import {
+  presentActivityTransferDetails,
+  presentActivityTransferRow,
+} from "./activity-presenter";
 import styles from "./activity.module.css";
 import { useActivity } from "./use-activity";
 import {
   ACTIVITY_TEASER_LIMIT,
-  activityAssets,
   type ActivityDirection,
   type ActivityPanelProps,
   type ActivityTransfer,
 } from "./types";
-
-const assetsById = new Map(activityAssets.map((asset) => [asset.id, asset]));
 
 export function ActivityPanel({
   session,
@@ -26,6 +27,13 @@ export function ActivityPanel({
   header,
 }: ActivityPanelProps) {
   const activity = useActivity(session, fetchActivity, refreshTrigger);
+  const [selectedTransfer, setSelectedTransfer] =
+    useState<ActivityTransfer | null>(null);
+  const [detailsStatus, setDetailsStatus] = useState(activity.status);
+  if (detailsStatus !== activity.status) {
+    setDetailsStatus(activity.status);
+    if (activity.status !== "ready") setSelectedTransfer(null);
+  }
   const transactionHashKey = activity.status === "ready"
     ? [...new Set(activity.page.transfers.map((transfer) => transfer.transactionHash.toLowerCase()))].join("\u0000")
     : "";
@@ -37,6 +45,11 @@ export function ActivityPanel({
   const heading = header === undefined ? <DefaultActivityHeader /> : header;
   const labelledBy = header === null ? undefined : "activity-title";
   const labelled = header === null ? "Activity" : undefined;
+  const timeZone = runtimeTimeZone();
+  const details = selectedTransfer
+    ? presentActivityTransferDetails(selectedTransfer, { timeZone })
+    : null;
+  const detailsTitleId = "activity-transfer-details-title";
 
   if (activity.status === "unavailable") {
     return (
@@ -113,7 +126,12 @@ export function ActivityPanel({
       ) : (
         <ol className={styles.list}>
           {visibleTransfers.map((transfer) => (
-            <TransferActivityRow key={transfer.id} transfer={transfer} />
+            <TransferActivityRow
+              key={transfer.id}
+              transfer={transfer}
+              timeZone={timeZone}
+              onActivate={() => setSelectedTransfer(transfer)}
+            />
           ))}
         </ol>
       )}
@@ -129,6 +147,13 @@ export function ActivityPanel({
           continueManually={activity.retryLoadMore}
         />
       ) : null}
+
+      <TransactionDetailsModal
+        open={selectedTransfer !== null}
+        titleId={detailsTitleId}
+        details={details}
+        onClose={() => setSelectedTransfer(null)}
+      />
     </section>
   );
 }
@@ -236,70 +261,44 @@ function DefaultActivityHeader() {
   );
 }
 
-function TransferActivityRow({ transfer }: { transfer: ActivityTransfer }) {
-  const asset = assetsById.get(transfer.assetId)!;
-  const directionLabel = labelForDirection(transfer.direction);
-  const sign =
-    transfer.direction === "incoming"
-      ? "+"
-      : transfer.direction === "outgoing"
-        ? "−"
-        : "";
-  const fullDate = formatActivityDate(transfer.blockTimestamp);
-
+function TransferActivityRow({
+  transfer,
+  timeZone,
+  onActivate,
+}: {
+  transfer: ActivityTransfer;
+  timeZone: string;
+  onActivate: () => void;
+}) {
+  const model = presentActivityTransferRow(transfer, { timeZone });
   return (
     <ActivityRow
-      icon={
-        transfer.direction === "incoming"
-          ? "↓"
-          : transfer.direction === "outgoing"
-            ? "↑"
-            : "↔"
-      }
-      iconTone={transfer.direction}
-      label={directionLabel}
+      icon={iconForDirection(transfer.direction)}
+      iconTone={model.iconTone}
+      label={model.directionLabel}
       context={
-        <time dateTime={transfer.blockTimestamp} aria-label={fullDate}>
-          {formatActivityDateShort(transfer.blockTimestamp)}
+        <time dateTime={model.dateTime} aria-label={model.fullDate}>
+          {model.shortDate}
         </time>
       }
-      contextTitle={fullDate}
-      value={`${sign}${formatPresentationTokenAmount(
-        transfer.amountBaseUnits,
-        asset.decimals,
-        asset.symbol,
-        { cashCurrency: asset.symbol === "USDC" ? "USD" : null },
-      )}`}
-      explorer={{
-        href: `https://basescan.org/tx/${transfer.transactionHash}`,
-        label: `View ${directionLabel.toLowerCase()} ${asset.symbol} transfer on BaseScan`,
-        title: "View on BaseScan",
-      }}
+      contextTitle={model.fullDate}
+      value={model.value}
+      onActivate={onActivate}
+      activateLabel={`View ${model.directionLabel.toLowerCase()} ${transfer.tokenSymbol ?? "unknown token"} transaction details`}
     />
   );
 }
 
-function labelForDirection(direction: ActivityDirection): string {
-  if (direction === "incoming") return "Received";
-  if (direction === "outgoing") return "Sent";
-  return "Self transfer";
+function iconForDirection(direction: ActivityDirection): string {
+  if (direction === "incoming") return "↓";
+  if (direction === "outgoing") return "↑";
+  return "↔";
 }
 
-function formatActivityDate(value: string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function formatActivityDateShort(value: string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+function runtimeTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
 }

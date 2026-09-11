@@ -8,7 +8,7 @@ import {
   type FetchActivity,
 } from "./types";
 
-const { act, cleanup, fireEvent, render, waitFor } = await import(
+const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
 );
 const { ActivityPanel } = await import("./activity-panel");
@@ -105,6 +105,8 @@ function pageFor(
   const direction = options.direction ?? "incoming";
   const fromAddress = direction === "incoming" ? OTHER : walletAddress;
   const toAddress = direction === "outgoing" ? OTHER : walletAddress;
+  const logId = options.id ?? "event-1";
+  const tokenAddress = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
   return {
     walletAddress,
     chainId: 8453,
@@ -113,10 +115,13 @@ function pageFor(
       ? []
       : [
           {
-            id: options.id ?? "event-1",
+            id: `8453:${tokenAddress}:${logId}`,
+            logId,
             chainId: 8453,
             assetId: "usdc",
-            tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            tokenAddress,
+            tokenSymbol: "USDC",
+            tokenDecimals: 6,
             walletAddress,
             fromAddress,
             toAddress,
@@ -160,7 +165,7 @@ afterEach(() => {
 });
 
 describe("ActivityPanel", () => {
-  test("renders direction, bounded shared amount formatting, and explorer link without Refresh chrome", async () => {
+  test("renders direction, bounded shared amount formatting, and details without Refresh chrome", async () => {
     const view = render(
       <ActivityPanel
         session={session("subject-a", WALLET_A)}
@@ -175,11 +180,21 @@ describe("ActivityPanel", () => {
     expect(view.queryByRole("button", { name: "Refresh" })).toBeNull();
     expect(view.queryByText(/^Updated(\s|$)/)).toBeNull();
     expect(view.queryByText("Data may be delayed")).toBeNull();
-    const explorer = view.getByRole("link", { name: /View received USDC/ });
-    expect(explorer.getAttribute("href")).toBe(
+    expect(view.queryByText("Activity coverage")).toBeNull();
+    expect(view.queryByRole("link", { name: "View on BaseScan" })).toBeNull();
+
+    fireEvent.click(
+      view.getByRole("button", { name: "View received USDC transaction details" }),
+    );
+    const dialog = view.getByRole("dialog", { name: "Received USDC" });
+    expect(
+      within(dialog).getByRole("link", { name: "View on BaseScan" }),
+    ).toHaveProperty(
+      "href",
       `https://basescan.org/tx/0x${"a".repeat(64)}`,
     );
-    expect(view.queryByText("Activity coverage")).toBeNull();
+    expect(within(dialog).getByText("+1234567.89 USDC")).toBeTruthy();
+    expect(within(dialog).getByText("Confirmed")).toBeTruthy();
   });
 
   test("renders Base Account session transfers the same as email CDP", async () => {
@@ -243,7 +258,7 @@ describe("ActivityPanel", () => {
     fireEvent.click(view.getByText("Load more activity"));
     await waitFor(() => expect(queries).toHaveLength(2));
     await waitFor(() =>
-      expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(2),
+      expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(2),
     );
     const firstQuery = new URLSearchParams(queries[0]);
     const secondQuery = new URLSearchParams(queries[1]);
@@ -251,6 +266,46 @@ describe("ActivityPanel", () => {
     expect(secondQuery.get("cursor")).toBe("cursor-1");
     expect(view.queryByText(/Updated /)).toBeNull();
     expect(initialExecutionTimestamp).not.toBe("");
+  });
+
+  test("closes an open transfer detail on account switch without leaking the prior owner", async () => {
+    const pendingA = deferred<unknown>();
+    const queries: string[] = [];
+    let calls = 0;
+    const fetchActivity: FetchActivity = (query) => {
+      queries.push(query);
+      calls += 1;
+      return calls === 1
+        ? pendingA.promise
+        : Promise.resolve(pageFor(query, WALLET_B, { id: "event-2" }));
+    };
+    const view = render(
+      <ActivityPanel
+        session={session("subject-a", WALLET_A)}
+        fetchActivity={fetchActivity}
+      />,
+    );
+    await waitFor(() => expect(calls).toBe(1));
+    await act(async () => {
+      pendingA.resolve(pageFor(queries[0]!, WALLET_A));
+      await pendingA.promise;
+    });
+
+    fireEvent.click(
+      view.getByRole("button", { name: "View received USDC transaction details" }),
+    );
+    expect(view.getByRole("dialog", { name: "Received USDC" })).toBeTruthy();
+
+    view.rerender(
+      <ActivityPanel
+        session={session("subject-b", WALLET_B)}
+        fetchActivity={fetchActivity}
+      />,
+    );
+    await waitFor(() =>
+      expect(view.getByText("Loading recent activity…")).toBeTruthy(),
+    );
+    expect(view.queryByRole("dialog")).toBeNull();
   });
 
   test("clears immediately on account switch, aborts the old request, and ignores its late response", async () => {
@@ -396,7 +451,7 @@ describe("ActivityPanel", () => {
       await pending.promise;
     });
     await waitFor(() => expect(view.getByText("End of activity")).toBeTruthy());
-    expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(2);
+    expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(2);
     await waitFor(() =>
       expect(hashes.at(-1)).toEqual([
         `0x${"a".repeat(64)}`,
@@ -448,7 +503,7 @@ describe("ActivityPanel", () => {
         ),
       ).toBeTruthy();
       expect(view.queryByText("End of activity")).toBeNull();
-      expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(1);
+      expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(1);
 
       act(() => {
         for (const observer of ControlledIntersectionObserver.instances) {
@@ -499,11 +554,11 @@ describe("ActivityPanel", () => {
     await waitFor(() =>
       expect(view.getByText("Continue loading activity")).toBeTruthy(),
     );
-    expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(1);
+    expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(1);
 
     fireEvent.click(view.getByText("Continue loading activity"));
     await waitFor(() => expect(view.getByText("End of activity")).toBeTruthy());
-    expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(2);
+    expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(2);
     expect(queries.map((query) => new URLSearchParams(query).get("cursor"))).toEqual([
       null,
       "cursor-1",
@@ -526,7 +581,8 @@ describe("ActivityPanel", () => {
             ...first,
             transfers: Array.from({ length: ACTIVITY_TEASER_LIMIT + 2 }, (_, index) => ({
               ...first.transfers[0]!,
-              id: `event-${index + 1}`,
+              id: `8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913:event-${index + 1}`,
+              logId: `event-${index + 1}`,
               blockNumber: String(20 - index),
               logIndex: String(index + 1),
               transactionHash: `0x${(10 + index).toString(16).padStart(64, "0")}`,
@@ -537,7 +593,7 @@ describe("ActivityPanel", () => {
     );
 
     await waitFor(() =>
-      expect(view.getAllByRole("link", { name: /transfer on BaseScan/ })).toHaveLength(
+      expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(
         ACTIVITY_TEASER_LIMIT,
       ),
     );

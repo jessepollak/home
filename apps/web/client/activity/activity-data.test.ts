@@ -19,10 +19,13 @@ function validPage(): ActivityPage {
     window: { from: "2026-08-07T12:00:00.000Z", to: TO },
     transfers: [
       {
-        id: "event-2",
+        id: "8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913:event-2",
+        logId: "event-2",
         chainId: 8453,
         assetId: "usdc",
         tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        tokenSymbol: "USDC",
+        tokenDecimals: 6,
         walletAddress: WALLET,
         fromAddress: OTHER,
         toAddress: WALLET,
@@ -35,10 +38,13 @@ function validPage(): ActivityPage {
         blockTimestamp: "2026-09-07T11:00:00.000Z",
       },
       {
-        id: "event-1",
+        id: "8453:0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf:event-1",
+        logId: "event-1",
         chainId: 8453,
         assetId: "cbbtc",
         tokenAddress: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+        tokenSymbol: "cbBTC",
+        tokenDecimals: 8,
         walletAddress: WALLET,
         fromAddress: WALLET,
         toAddress: OTHER,
@@ -76,13 +82,39 @@ describe("activity response parser", () => {
     ]);
   });
 
-  test("rejects another wallet, unknown assets, invalid direction, duplicate rows, and unstable windows", () => {
+  test("accepts an unknown contract with honest null metadata", () => {
+    const base = validPage();
+    const unknownAddress = "0x4444444444444444444444444444444444444444";
+    const unknown = {
+      ...base.transfers[0],
+      id: `8453:${unknownAddress}:unknown-log`,
+      logId: "unknown-log",
+      assetId: null,
+      tokenAddress: unknownAddress,
+      tokenSymbol: null,
+      tokenDecimals: null,
+    };
+    const parsed = parseActivityPage(
+      { ...base, transfers: [unknown], nextCursor: null },
+      session,
+      TO,
+    );
+    expect(parsed.transfers[0]).toMatchObject({
+      assetId: null,
+      tokenAddress: unknownAddress,
+      tokenSymbol: null,
+      tokenDecimals: null,
+      amountBaseUnits: "1000001",
+    });
+  });
+
+  test("rejects another wallet, forged token metadata, invalid direction, duplicate rows, and unstable windows", () => {
     const base = validPage();
     const cases: unknown[] = [
       { ...base, walletAddress: OTHER },
       {
         ...base,
-        transfers: [{ ...base.transfers[0], assetId: "unreviewed-token" }],
+        transfers: [{ ...base.transfers[0], tokenSymbol: "FAKE" }],
       },
       {
         ...base,

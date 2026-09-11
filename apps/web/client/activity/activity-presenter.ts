@@ -1,9 +1,12 @@
-import { formatPresentationTokenAmount } from "@/shared/formatting";
-import type {
-  ActivityAsset,
-  ActivityDirection,
-  ActivityTransfer,
-} from "./types";
+import { formatAddress, formatPresentationTokenAmount } from "@/shared/formatting";
+import { formatBaseUnitAmount } from "@/client/portfolio/format";
+import {
+  condensedTransactionHash,
+  transactionExplorerLink,
+  type TransactionDetailRow,
+  type TransactionDetails,
+} from "@/components/transaction-explorer";
+import type { ActivityDirection, ActivityTransfer } from "./types";
 
 export type ActivityIconKey = "incoming" | "outgoing" | "self";
 
@@ -17,11 +20,6 @@ export type ActivityRowViewModel = {
   fullDate: string;
   shortDate: string;
   value: string;
-  explorer: {
-    href: string;
-    label: string;
-    title: string;
-  };
 };
 
 export type ActivityPresenterOptions = {
@@ -51,13 +49,8 @@ const directionPresentation = {
 
 export function presentActivityTransferRow(
   transfer: ActivityTransfer,
-  asset: ActivityAsset | undefined,
   options: ActivityPresenterOptions,
 ): ActivityRowViewModel {
-  if (!asset || asset.id !== transfer.assetId) {
-    throw new TypeError("Activity transfer asset metadata is unavailable.");
-  }
-
   const direction = directionPresentation[transfer.direction];
   const fullDate = formatActivityDate(transfer.blockTimestamp, options.timeZone);
 
@@ -73,18 +66,69 @@ export function presentActivityTransferRow(
       transfer.blockTimestamp,
       options.timeZone,
     ),
-    value: `${direction.sign}${formatPresentationTokenAmount(
-      transfer.amountBaseUnits,
-      asset.decimals,
-      asset.symbol,
-      { cashCurrency: asset.symbol === "USDC" ? "USD" : null },
-    )}`,
-    explorer: {
-      href: `https://basescan.org/tx/${transfer.transactionHash}`,
-      label: `View ${direction.label.toLowerCase()} ${asset.symbol} transfer on BaseScan`,
-      title: "View on BaseScan",
-    },
+    value: `${direction.sign}${formatActivityAmount(transfer, true)}`,
   };
+}
+
+export function presentActivityTransferDetails(
+  transfer: ActivityTransfer,
+  options: ActivityPresenterOptions,
+): TransactionDetails {
+  const direction = directionPresentation[transfer.direction];
+  const fullDate = formatActivityDate(transfer.blockTimestamp, options.timeZone);
+  const rows: TransactionDetailRow[] = [
+    {
+      label: "Amount",
+      value: `${direction.sign}${formatActivityAmount(transfer, false)}`,
+    },
+    {
+      label: "From",
+      value: formatAddress(transfer.fromAddress),
+      title: transfer.fromAddress,
+    },
+    {
+      label: "To",
+      value: formatAddress(transfer.toAddress),
+      title: transfer.toAddress,
+    },
+    { label: "Token contract", value: formatAddress(transfer.tokenAddress), title: transfer.tokenAddress },
+    { label: "Network", value: "Base (8453)" },
+    { label: "Status", value: "Confirmed" },
+    { label: "Date", value: fullDate },
+    {
+      label: "Transaction",
+      value: condensedTransactionHash(transfer.transactionHash),
+      title: transfer.transactionHash,
+    },
+    { label: "Block", value: transfer.blockNumber },
+  ];
+
+  return {
+    title: `${direction.label} ${transfer.tokenSymbol ?? "unknown token"}`,
+    rows,
+    explorer: transactionExplorerLink(transfer.transactionHash),
+  };
+}
+
+function formatActivityAmount(
+  transfer: ActivityTransfer,
+  presentation: boolean,
+): string {
+  if (transfer.tokenSymbol === null || transfer.tokenDecimals === null) {
+    return `${transfer.amountBaseUnits} base units${presentation ? "" : " · unknown token"}`;
+  }
+  if (!presentation) {
+    return `${formatBaseUnitAmount(
+      transfer.amountBaseUnits,
+      transfer.tokenDecimals,
+    )} ${transfer.tokenSymbol}`;
+  }
+  return formatPresentationTokenAmount(
+    transfer.amountBaseUnits,
+    transfer.tokenDecimals,
+    transfer.tokenSymbol,
+    { cashCurrency: transfer.assetId === "usdc" ? "USD" : null },
+  );
 }
 
 function formatActivityDate(value: string, timeZone: string): string {
