@@ -6,7 +6,7 @@ Home is meant to be forked. Brand, regions, asset selection, and providers are c
 
 ## Start from a running clone
 
-Follow [Get started](../README.md#get-started) first: `bun install --frozen-lockfile`, copy `.env.example` to `apps/web/.env.local` without overwriting an existing file, then `bun dev`. Browsing works without credentials. Email sign-in and authenticated money actions need your own CDP project.
+Follow [Get started](../README.md#get-started) first: `bun install --frozen-lockfile`, copy `.env.example` to `apps/web/.env.local` without overwriting an existing file, then `bun dev`. Browsing works without credentials. Email sign-in and authenticated money actions need your own CDP project; money actions also require the PostgreSQL configuration below.
 
 Then change configuration in place. Typed registries live under `apps/web/config/`. Provider seams live under `apps/web/server/` and the matching setup docs below. Keep one root `bun.lock`.
 
@@ -72,14 +72,9 @@ Changing a vault or market address is not enough: adapters check chain, exact co
 
 The running app is a **local finance spike**, not a production-approved deployment. See [build status](build-status.md) and [wallet runtime](wallet-runtime-spike.md).
 
-| Local spike (what `bun dev` uses) | Hosted / proposed production |
-|---|---|
-| Node `node:sqlite` money-action store under `.local/` when `DATABASE_URL` is unset | Neon Postgres `MoneyActionStore` when `DATABASE_URL` is set ([Vercel deploy](vercel-deploy.md)); Drizzle/webhooks still [target architecture](target-architecture.md) |
-| No webhooks or CDP-hosted shared history write path | CDP webhooks, request-driven status, isolated preview/production databases |
-| Public Base RPC by default | Operator-managed `BASE_RPC_URL` |
-| Durable operations recoverable on this machine only (SQLite) | Shared money-action rows on Neon when `DATABASE_URL` is configured |
+Money actions have no local SQLite fallback: in local and hosted runtimes, they require PostgreSQL through `DATABASE_URL` plus `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty`. Set the cutover value only after verifying no unresolved legacy SQLite money actions remain; otherwise money actions fail closed. CI runs the real PostgreSQL money/attempt contract against disposable PostgreSQL 14.
 
-`MoneyActionStore` stays injectable. Exactly one adapter is active per process. Do not point a fork at someone else's database or CDP project. Bun monorepo Vercel settings are in [Vercel deploy](vercel-deploy.md).
+This is limited to money actions. The separate trading intent runtime uses local SQLite only when neither `VERCEL` nor `DATABASE_URL` is set; it fails closed for hosted or database-configured trading and does not provide multi-instance swap readiness. Public Base RPC remains the local default; operators should configure `BASE_RPC_URL`. Do not point a fork at someone else's database or CDP project. Bun monorepo Vercel settings are in [Vercel deploy](vercel-deploy.md).
 
 Venice/agent inference, Rain cards, additional funding providers, unrestricted assets, and broader borrow markets are not implemented. Stock trading and external Base-account trading remain gated.
 
