@@ -9,9 +9,10 @@
   border: 0;
   padding: 0;
   overflow: hidden;
-  background: rgba(10, 11, 13, 0.42);
+  background-color: rgba(10, 11, 13, 0);
   color: var(--home-ink);
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  transition: background-color 220ms ease-in;
 }
 
 .root[open] {
@@ -23,11 +24,19 @@
 }
 
 .root[data-state="open"] {
-  animation: money-overlay-enter 280ms ease-out both;
+  background-color: rgba(10, 11, 13, 0.42);
+  transition-duration: 280ms;
+  transition-timing-function: ease-out;
 }
 
 .root[data-state="closing"] {
-  animation: money-overlay-exit 220ms ease-in both;
+  background-color: rgba(10, 11, 13, 0);
+}
+
+@starting-style {
+  .root[data-state="open"] {
+    background-color: rgba(10, 11, 13, 0);
+  }
 }
 
 .sheet {
@@ -435,21 +444,11 @@
   to { transform: rotate(360deg); }
 }
 
-@keyframes money-overlay-enter {
-  from { background: rgba(10, 11, 13, 0); }
-  to { background: rgba(10, 11, 13, 0.42); }
-}
-
-@keyframes money-overlay-exit {
-  from { background: rgba(10, 11, 13, 0.42); }
-  to { background: rgba(10, 11, 13, 0); }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
   .root[data-state="open"],
   .root[data-state="closing"] {
-    animation: none;
+    transition: none;
   }
   .sheet[data-state="open"]:not([data-entered]):not([data-dragging]) {
     height: auto;
