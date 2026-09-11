@@ -1,4 +1,4 @@
-import type { ProviderHandle } from "@/server/money-actions/attempt-commands";
+import type { ProviderHandle } from "@/shared/money-actions/provider-handle";
 import type { MoneyActionKind, MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
 
 export const PROVIDER_HANDLE_JOURNAL_VERSION = 1 as const;
