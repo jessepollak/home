@@ -1,41 +1,30 @@
 "use client";
 
-import { useState } from "react";
 import { formatAddress } from "@/shared/formatting";
-import styles from "./address-text.module.css";
+import { CopyableValue } from "./copyable-value";
 
+/**
+ * Address-specific convenience over the shared {@link CopyableValue} primitive.
+ */
 export function AddressText({
   address,
   className,
   copiedLabel = "Copied",
+  resetKey,
 }: {
   address: string;
   className?: string;
   copiedLabel?: string;
+  resetKey?: string;
 }) {
-  const [copied, setCopied] = useState(false);
-  const condensed = formatAddress(address);
-
-  async function copy() {
-    if (!navigator.clipboard?.writeText) return;
-    try {
-      await navigator.clipboard.writeText(address);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   return (
-    <button
-      type="button"
-      className={`${styles.text}${copied ? ` ${styles.copied}` : ""}${className ? ` ${className}` : ""}`}
-      title={address}
-      aria-label={copied ? copiedLabel : `Copy ${condensed}`}
-      onClick={() => void copy()}
-    >
-      {copied ? copiedLabel : condensed}
-    </button>
+    <CopyableValue
+      value={address}
+      display={formatAddress(address)}
+      copiedLabel={copiedLabel}
+      valueKind="address"
+      className={className}
+      resetKey={resetKey}
+    />
   );
 }
