@@ -11,7 +11,10 @@ import { BASE_CHAIN_ID, type AccountProvider, type AccountProviderRequest } from
 import { clearHomeBalancesPresentationCache } from "@/features/portfolio-valuation/presentation-cache";
 import { isSessionSuppressedForOwner, signOutWithSessionSuppressed, type SessionSuppression } from "./session-sign-out";
 import type { ProviderHandleJournalLock, ProviderHandleJournalStorage } from "@/features/money-actions/provider-handle-journal";
-import { useAuthenticatedTransport } from "./cdp-authenticated-transport";
+import {
+  accountAuthorizationBoundary,
+  useAuthenticatedTransport,
+} from "./cdp-authenticated-transport";
 import { useMoneyActionExecution } from "./cdp-money-action-execution";
 import {
   BaseAccountLoginError,
@@ -26,15 +29,25 @@ import {
 
 export const AccountWalletContext = createContext<AccountWalletClient | null>(null);
 
-export type OwnerGenerationIdentity = { ownerKey: string | null; generation: number };
+export type OwnerGenerationIdentity = {
+  ownerKey: string | null;
+  generation: number;
+  authorizationRevision: number;
+  authorizationBoundary: string | null;
+};
 
 export type OwnerGenerationFence = {
   currentOwnerKeyRef: MutableRefObject<string | null>;
   generationRef: MutableRefObject<number>;
   revision: number;
   advance: () => number;
+  invalidateAuthorization: () => void;
+  updateAuthorizationBoundary: (boundary: string | null) => void;
   updateOwnerKey: (ownerKey: string | null) => void;
-  capture: () => OwnerGenerationIdentity;
+  capture: (
+    ownerKey: string | null,
+    authorizationBoundary: string | null,
+  ) => OwnerGenerationIdentity;
   isCurrent: (identity: OwnerGenerationIdentity) => boolean;
   isCurrentCleanupIdentity: (identity: { ownerKey: string; generation: number }) => boolean;
 };
@@ -42,22 +55,40 @@ export type OwnerGenerationFence = {
 function useOwnerGenerationFence(ownerKey: string | null): OwnerGenerationFence {
   const currentOwnerKeyRef = useRef(ownerKey);
   const generationRef = useRef(0);
+  const authorizationRevisionRef = useRef(0);
+  const authorizationBoundaryRef = useRef<string | null>(null);
   const [revision, setRevision] = useState(0);
   const advance = useCallback(() => {
     generationRef.current += 1;
     setRevision((value) => value + 1);
     return generationRef.current;
   }, []);
+  const invalidateAuthorization = useCallback(() => {
+    authorizationRevisionRef.current += 1;
+  }, []);
+  const updateAuthorizationBoundary = useCallback((boundary: string | null) => {
+    if (authorizationBoundaryRef.current !== boundary) {
+      authorizationBoundaryRef.current = boundary;
+      authorizationRevisionRef.current += 1;
+    }
+  }, []);
   const updateOwnerKey = useCallback((nextOwnerKey: string | null) => {
     currentOwnerKeyRef.current = nextOwnerKey;
   }, []);
-  const capture = useCallback(() => ({
-    ownerKey: currentOwnerKeyRef.current,
+  const capture = useCallback((
+    boundOwnerKey: string | null,
+    authorizationBoundary: string | null,
+  ) => ({
+    ownerKey: boundOwnerKey,
     generation: generationRef.current,
+    authorizationRevision: authorizationRevisionRef.current,
+    authorizationBoundary,
   }), []);
   const isCurrent = useCallback((identity: OwnerGenerationIdentity) =>
     identity.ownerKey === currentOwnerKeyRef.current &&
-    identity.generation === generationRef.current, []);
+    identity.generation === generationRef.current &&
+    identity.authorizationRevision === authorizationRevisionRef.current &&
+    identity.authorizationBoundary === authorizationBoundaryRef.current, []);
   const isCurrentCleanupIdentity = useCallback(
     (identity: { ownerKey: string; generation: number }) => {
       const activeOwnerKey = currentOwnerKeyRef.current;
@@ -67,8 +98,8 @@ function useOwnerGenerationFence(ownerKey: string | null): OwnerGenerationFence 
     [],
   );
   return useMemo(() => ({
-    currentOwnerKeyRef, generationRef, revision, advance, updateOwnerKey, capture, isCurrent, isCurrentCleanupIdentity,
-  }), [advance, capture, isCurrent, isCurrentCleanupIdentity, revision, updateOwnerKey]);
+    currentOwnerKeyRef, generationRef, revision, advance, invalidateAuthorization, updateAuthorizationBoundary, updateOwnerKey, capture, isCurrent, isCurrentCleanupIdentity,
+  }), [advance, capture, invalidateAuthorization, isCurrent, isCurrentCleanupIdentity, revision, updateAuthorizationBoundary, updateOwnerKey]);
 }
 
 type SdkCleanupIdentity = {
@@ -118,6 +149,7 @@ export function AccountWalletSessionOwner({
     signOut: sdkSignOut,
   } = sdk;
   const ownerFence = useOwnerGenerationFence(ownerKey);
+  const { invalidateAuthorization } = ownerFence;
   const walletProvider = useWalletProviderCapabilities({
     ownerFence,
     providerHandleJournalStorage,
@@ -166,6 +198,11 @@ export function AccountWalletSessionOwner({
     ownerKey,
     isSessionSuppressed || status !== "verified",
   );
+  const authorizationBoundary =
+    session && ownerKey ? accountAuthorizationBoundary(ownerKey, session) : null;
+  useLayoutEffect(() => {
+    ownerFence.updateAuthorizationBoundary(authorizationBoundary);
+  }, [authorizationBoundary, ownerFence]);
   const transport = useAuthenticatedTransport({
     session,
     status,
@@ -493,10 +530,11 @@ export function AccountWalletSessionOwner({
   const clearPrivateState = useCallback(() => {
     validationRequest.current?.abort();
     validationSequence.current += 1;
+    invalidateAuthorization();
     resetMoneyActions();
     setVerifiedOwner(null);
     clearHomeBalancesPresentationCache(() => window.localStorage);
-  }, [resetMoneyActions]);
+  }, [invalidateAuthorization, resetMoneyActions]);
 
   const rejectBaseSession = useCallback(
     async (
@@ -1297,8 +1335,15 @@ export function AccountWalletSessionOwner({
   ]);
 
   const signTypedData = useCallback(
-    (typedData: unknown) => signProviderTypedData(typedData, session, status),
-    [session, signProviderTypedData, status],
+    (typedData: unknown) =>
+      signProviderTypedData(
+        typedData,
+        session,
+        status,
+        ownerKey,
+        authorizationBoundary,
+      ),
+    [authorizationBoundary, ownerKey, session, signProviderTypedData, status],
   );
 
   const client = useMemo<AccountWalletClient>(

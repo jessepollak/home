@@ -691,7 +691,7 @@ export function useMoneyActionExecution({
         throw new TransferExecutionError("stale-session");
       }
       const sequence = transferSequence.current;
-      const ownerIdentity = ownerFence.capture();
+      const ownerIdentity = ownerFence.capture(ownerKey, boundary);
       const assertActive = () => {
         if (!ownerFence.isCurrent(ownerIdentity) || transferSequence.current !== sequence || currentTransferBoundary.current !== boundary) {
           throw new TransferExecutionError("stale-session");
@@ -744,7 +744,7 @@ export function useMoneyActionExecution({
         throw new TransferExecutionError("stale-session");
       }
       const sequence = transferSequence.current;
-      const ownerIdentity = ownerFence.capture();
+      const ownerIdentity = ownerFence.capture(ownerKey, boundary);
       const assertActive = () => {
         if (!ownerFence.isCurrent(ownerIdentity) || transferSequence.current !== sequence || currentTransferBoundary.current !== boundary) {
           throw new TransferExecutionError("stale-session");
@@ -1042,7 +1042,7 @@ export function useMoneyActionExecution({
         throw new TransferExecutionError("stale-session");
       }
       const sequence = transferSequence.current;
-      const ownerIdentity = ownerFence.capture();
+      const ownerIdentity = ownerFence.capture(ownerKey, boundary);
       const assertActive = () => {
         if (
           !ownerFence.isCurrent(ownerIdentity) ||

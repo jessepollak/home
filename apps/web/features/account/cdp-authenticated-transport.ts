@@ -11,6 +11,15 @@ import { ACCOUNT_PROVIDER_HEADER } from "./session-types";
 import { TransferExecutionError } from "@/features/transfers/types";
 import type { MoneyActionApiFetch } from "@/features/money-actions/client";
 
+export function accountAuthorizationBoundary(
+  ownerKey: string,
+  session: VerifiedAccountSession,
+): string | null {
+  return session.smartAccount
+    ? `${ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.accountProvider}`
+    : null;
+}
+
 const accountResourcePrefixes = [
   "/api/actions",
   "/api/savings/actions",
@@ -148,7 +157,8 @@ export function useAuthenticatedTransport({
       if (!session?.smartAccount || status !== "verified" || !ownerKey) {
         throw new TransferExecutionError("stale-session");
       }
-      const identity = ownerFence.capture();
+      const boundary = accountAuthorizationBoundary(ownerKey, session);
+      const identity = ownerFence.capture(ownerKey, boundary);
       const assertActive = () => {
         if (!ownerFence.isCurrent(identity)) {
           throw new TransferExecutionError("stale-session");

@@ -169,6 +169,8 @@ export function useWalletProviderCapabilities({
       typedData: unknown,
       session: VerifiedAccountSession | null,
       status: string,
+      ownerKey: string | null,
+      authorizationBoundary: string | null,
     ) => {
       if (
         status !== "verified" ||
@@ -177,7 +179,7 @@ export function useWalletProviderCapabilities({
       ) {
         throw new BaseAccountConnectorError("invalid-provider-response");
       }
-      const identity = ownerFence.capture();
+      const identity = ownerFence.capture(ownerKey, authorizationBoundary);
       const connection = baseConnectionRef.current;
       if (
         !ownerFence.isCurrent(identity) ||
