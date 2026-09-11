@@ -867,7 +867,7 @@ body:has(.app-frame-shell) {
 
 .action-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
@@ -875,7 +875,7 @@ body:has(.app-frame-shell) {
   display: contents;
 }
 
-.action-row button,
+.action-row [data-action-trigger],
 .action-row > a {
   display: flex;
   min-height: 48px;
@@ -897,7 +897,7 @@ body:has(.app-frame-shell) {
     color var(--motion-press) ease;
 }
 
-.action-row button:active:not(:disabled),
+.action-row [data-action-trigger]:active:not(:disabled),
 .action-row > a:active {
   transform: scale(0.98);
 }
@@ -908,11 +908,11 @@ body:has(.app-frame-shell) {
   color: #ffffff;
 }
 
-.action-row button:disabled {
+.action-row [data-action-trigger]:disabled {
   cursor: not-allowed;
 }
 
-.action-row svg {
+.action-row [data-action-trigger] svg {
   width: 18px;
   color: currentColor;
 }
@@ -1372,7 +1372,7 @@ body:has(.app-frame-shell) {
   }
 
   .header-account-link:active:not(:disabled),
-  .action-row button:active:not(:disabled),
+  .action-row [data-action-trigger]:active:not(:disabled),
   .action-row > a:active,
   .save-teaser:active {
     transform: none;

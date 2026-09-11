@@ -44,8 +44,8 @@ function publicRow(row: StoredRow): OperationRow {
 }
 
 /**
- * Compatibility-only SQL double for the companion trade-intent test.
- * Issue #245 money-store acceptance must never use this implementation.
+ * Compatibility SQL double for the companion trade-intent test and focused SQL orchestration tests.
+ * Money-store acceptance must use the real PostgreSQL delivery suite.
  */
 export function createFakePostgresExecutor(): SqlExecutor {
   if (process.env.NODE_ENV === "production") {

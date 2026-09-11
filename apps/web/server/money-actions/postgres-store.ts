@@ -189,8 +189,15 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
   }
 
   async ensureReady(): Promise<MoneyActionDataMigrationResult> {
-    this.schemaReady ??= ensureMoneyActionPostgresReady(this.executor);
-    return this.schemaReady;
+    if (this.schemaReady) return this.schemaReady;
+    const readiness = ensureMoneyActionPostgresReady(this.executor);
+    this.schemaReady = readiness;
+    try {
+      return await readiness;
+    } catch (error) {
+      if (this.schemaReady === readiness) this.schemaReady = null;
+      throw error;
+    }
   }
 
   async issue(action: PreparedMoneyAction, options?: MoneyActionIssueStoreOptions): Promise<"issued" | "existing"> {

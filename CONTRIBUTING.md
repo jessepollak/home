@@ -26,7 +26,7 @@ Additional focused checks:
 
 ```sh
 bun run --cwd apps/web test:browser-smoke
-MONEY_ACTION_PG_TEST_URL=postgres://... bun test scripts/delivery/tests/postgres-money-action.test.ts
+MONEY_ACTION_PG_TEST_URL=postgres://... bun test scripts/delivery/tests/postgres-money-action*.test.ts
 ```
 
 Do not enable live Morpho/CDP SQL smokes or funded-wallet secrets in pull-request CI.
