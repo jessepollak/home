@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { expect, test, type Page } from "@playwright/test";
 import {
@@ -10,6 +11,8 @@ import {
   buildSaveQaProduction,
   startSaveQaDevelopmentServer,
   startSaveQaProductionServer,
+  startSaveQaServerForTest,
+  teardownSaveQaProcessGroup,
   withSaveQaServer,
   type SaveQaServer,
 } from "./support/save-qa-server";
@@ -121,10 +124,17 @@ function canonicalRawPath(rawUrl: string, parsed: URL): string | null {
   return rawPath;
 }
 
+const trackedAssetPaths = new Set([
+  "/home-mark/BaseSans-Medium.woff",
+  "/home-mark/Doto.ttf",
+  ...[
+    "ar", "au", "br", "ca", "ch", "cl", "co", "eu", "gb", "id",
+    "mx", "my", "ng", "nz", "pe", "sg", "tr", "us", "za",
+  ].map((country) => `/currency-flags/${country}.svg`),
+]);
+
 function allowedTrackedAsset(pathname: string): boolean {
-  return pathname === "/favicon.ico" ||
-    pathname.startsWith("/home-mark/") ||
-    pathname.startsWith("/currency-flags/");
+  return trackedAssetPaths.has(pathname);
 }
 
 async function installNetworkBoundary(page: Page): Promise<NetworkControl> {
@@ -231,11 +241,32 @@ async function installNetworkBoundary(page: Page): Promise<NetworkControl> {
       url.search === "" &&
       pathname !== null &&
       allowedTrackedAsset(pathname);
+    const allowedRedirectProbe =
+      method === "GET" &&
+      url.search === "" &&
+      pathname === "/home-mark/";
 
-    if (allowedDocument || allowedNextAsset || allowedLocalAsset) {
-      control.allowed.push(`${method} ${rawUrl}`);
-      await route.continue();
-      return;
+    if (allowedDocument || allowedNextAsset || allowedLocalAsset || allowedRedirectProbe) {
+      try {
+        const upstream = await route.fetch({ maxRedirects: 0 });
+        const status = upstream.status();
+        if (
+          status < 200 ||
+          status >= 300 ||
+          upstream.url() !== rawUrl
+        ) {
+          control.aborted.push(`${method} ${rawUrl}`);
+          await route.abort("blockedbyclient");
+          return;
+        }
+        control.allowed.push(`${method} ${rawUrl}`);
+        await route.fulfill({ response: upstream });
+        return;
+      } catch {
+        control.aborted.push(`${method} ${rawUrl}`);
+        await route.abort("blockedbyclient");
+        return;
+      }
     }
 
     control.aborted.push(`${method} ${rawUrl}`);
@@ -293,6 +324,26 @@ async function readyWeighted(page: Page): Promise<NetworkControl> {
   return network;
 }
 
+function launchLifecycleProbe(ignoreTerm: boolean): ChildProcess {
+  const script = ignoreTerm
+    ? "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"
+    : "setInterval(() => {}, 1000);";
+  return spawn(process.execPath, ["-e", script], {
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function processAlive(child: ChildProcess): boolean {
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return false;
+  try {
+    process.kill(child.pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
 async function listenWrongPortProbe(): Promise<{
   origin: string;
   hits: () => number;
@@ -329,6 +380,63 @@ test("temporary exclusion servers stop when assertions fail", async () => {
       async () => { throw new Error(`${label} exclusion failed`); },
     )).rejects.toThrow(`${label} exclusion failed`);
     expect(stops).toBe(1);
+  }
+});
+
+test("startup failures and repeated stops perform awaited bounded process-group cleanup", async () => {
+  const probes: ChildProcess[] = [];
+  try {
+    const rejectionChild = launchLifecycleProbe(false);
+    probes.push(rejectionChild);
+    await expect(startSaveQaServerForTest({
+      reservePort: async () => 41001,
+      launch: () => rejectionChild,
+      startupTimeoutMs: 30,
+      stopGraceMs: 30,
+      fetchReady: async () => { throw new Error("injected readiness rejection"); },
+      sleep: async () => {},
+    })).rejects.toThrow("Timed out waiting for the Save QA server");
+    await expect.poll(() => processAlive(rejectionChild)).toBe(false);
+
+    const stalledChild = launchLifecycleProbe(false);
+    probes.push(stalledChild);
+    await expect(startSaveQaServerForTest({
+      reservePort: async () => 41002,
+      launch: () => stalledChild,
+      startupTimeoutMs: 40,
+      stopGraceMs: 30,
+      fetchReady: async (_origin, { signal }) => new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      }),
+    })).rejects.toThrow("Timed out waiting for the Save QA server");
+    await expect.poll(() => processAlive(stalledChild)).toBe(false);
+
+    const resistantChild = launchLifecycleProbe(true);
+    probes.push(resistantChild);
+    await expect(startSaveQaServerForTest({
+      reservePort: async () => 41003,
+      launch: () => resistantChild,
+      startupTimeoutMs: 100,
+      stopGraceMs: 30,
+      fetchReady: async () => ({ status: 503 }),
+    })).rejects.toThrow("Timed out waiting for the Save QA server");
+    await expect.poll(() => processAlive(resistantChild)).toBe(false);
+    expect(resistantChild.signalCode).toBe("SIGKILL");
+
+    const liveChild = launchLifecycleProbe(false);
+    probes.push(liveChild);
+    const liveServer = await startSaveQaServerForTest({
+      reservePort: async () => 41004,
+      launch: () => liveChild,
+      startupTimeoutMs: 100,
+      stopGraceMs: 30,
+      fetchReady: async () => ({ status: 200 }),
+    });
+    await Promise.all([liveServer.stop(), liveServer.stop()]);
+    await expect.poll(() => processAlive(liveChild)).toBe(false);
+    await teardownSaveQaProcessGroup(liveChild, 10);
+  } finally {
+    await Promise.all(probes.map((child) => teardownSaveQaProcessGroup(child, 10).catch(() => {})));
   }
 });
 
@@ -395,7 +503,7 @@ test("rejects redirect escapes, noncanonical variants, wrong methods, queries, p
   try {
     const network = await readyWeighted(page);
     const interceptedBefore = network.intercepted.length;
-    const results = await page.evaluate(async ({ runnerOrigin, wrongOrigin }) => {
+    const result = await page.evaluate(async ({ runnerOrigin, wrongOrigin }) => {
       const probes: Array<[string, RequestInit?]> = [
         [`${runnerOrigin}//api/savings/vaults`],
         [`${runnerOrigin}/api/savings/vaults?fixture=escape`],
@@ -417,10 +525,24 @@ test("rejects redirect escapes, noncanonical variants, wrong methods, queries, p
         socket.addEventListener("error", () => resolve(), { once: true });
       });
       outcomes.push("socket-blocked");
-      return outcomes;
+      let redirectOutcome = "completed";
+      try { await fetch(`${runnerOrigin}/home-mark/`); }
+      catch { redirectOutcome = "blocked"; }
+      const font = await fetch(`${runnerOrigin}/home-mark/BaseSans-Medium.woff`);
+      const fontBytes = (await font.arrayBuffer()).byteLength;
+      const flag = await fetch(`${runnerOrigin}/currency-flags/us.svg`);
+      const flagBody = await flag.text();
+      return {
+        outcomes,
+        redirectOutcome,
+        fontStatus: font.status,
+        fontBytes,
+        flagStatus: flag.status,
+        flagBody,
+      };
     }, { runnerOrigin: origin, wrongOrigin: wrongPort.origin });
 
-    expect(results).toEqual([
+    expect(result.outcomes).toEqual([
       "blocked",
       "blocked",
       "blocked",
@@ -431,6 +553,11 @@ test("rejects redirect escapes, noncanonical variants, wrong methods, queries, p
       "blocked",
       "socket-blocked",
     ]);
+    expect(result.redirectOutcome).toBe("blocked");
+    expect(result.fontStatus).toBe(200);
+    expect(result.fontBytes).toBeGreaterThan(0);
+    expect(result.flagStatus).toBe(200);
+    expect(result.flagBody).toContain("<svg");
     expect(network.intercepted.length).toBe(interceptedBefore);
     expect(wrongPort.hits()).toBe(0);
     expect(network.blockedSockets).toContain(
@@ -439,6 +566,11 @@ test("rejects redirect escapes, noncanonical variants, wrong methods, queries, p
     expect(network.responses.every((event) => !event.includes("?fixture=escape"))).toBe(true);
     expect(network.aborted.some((event) => event.includes("?fixture=escape"))).toBe(true);
     expect(network.aborted.some((event) => event.startsWith("POST "))).toBe(true);
+    expect(network.aborted).toContain(`GET ${origin}/home-mark/`);
+    expect(network.attempted).toContain(`GET ${origin}/home-mark/`);
+    expect(network.attempted).not.toContain(`GET ${origin}/home-mark`);
+    expect(network.responses).toContain(`200 GET ${origin}/home-mark/BaseSans-Medium.woff`);
+    expect(network.responses).toContain(`200 GET ${origin}/currency-flags/us.svg`);
     expect(network.allowed.every((event) => !event.includes("/api/"))).toBe(true);
   } finally {
     await wrongPort.close();

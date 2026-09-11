@@ -7,7 +7,28 @@ export type SaveQaServer = {
   stop: () => Promise<void>;
 };
 
+type ReadinessResponse = { status: number };
+type SaveQaServerRuntime = {
+  startupTimeoutMs?: number;
+  stopGraceMs?: number;
+  reservePort?: () => Promise<number>;
+  launch?: (
+    command: "dev" | "start",
+    port: number,
+    env: NodeJS.ProcessEnv,
+  ) => ChildProcess;
+  fetchReady?: (
+    origin: string,
+    init: { redirect: "manual"; signal: AbortSignal },
+  ) => Promise<ReadinessResponse>;
+  sleep?: (milliseconds: number) => Promise<void>;
+  now?: () => number;
+};
+
 const webRoot = resolve(__dirname, "../../..");
+const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
+const DEFAULT_STOP_GRACE_MS = 5_000;
+const teardownTasks = new WeakMap<ChildProcess, Promise<void>>();
 
 function controlledEnvironment(nodeEnv: "development" | "production", enabled: boolean): NodeJS.ProcessEnv {
   const copied = ["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "SHELL", "TERM", "CI"];
@@ -40,24 +61,91 @@ async function unusedPort(): Promise<number> {
   });
 }
 
-async function waitForServer(origin: string, child: ChildProcess): Promise<void> {
-  const deadline = Date.now() + 120_000;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Save QA server exited with ${child.exitCode}.`);
-    try {
-      const response = await fetch(origin, { redirect: "manual" });
-      if (response.status < 500) return;
-    } catch {
-      // Startup is still in progress.
-    }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 200));
-  }
-  throw new Error("Timed out waiting for the Save QA server.");
+function childExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
 }
 
-async function start(command: "dev" | "start", env: NodeJS.ProcessEnv): Promise<SaveQaServer> {
-  const port = await unusedPort();
-  const child = spawn(
+function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (!child.pid || childExited(child)) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+}
+
+async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (childExited(child)) return true;
+  return new Promise((resolveExit) => {
+    const onExit = () => {
+      clearTimeout(timer);
+      resolveExit(true);
+    };
+    const timer = setTimeout(() => {
+      child.off("exit", onExit);
+      resolveExit(childExited(child));
+    }, timeoutMs);
+    child.once("exit", onExit);
+  });
+}
+
+export function teardownSaveQaProcessGroup(
+  child: ChildProcess,
+  graceMs = DEFAULT_STOP_GRACE_MS,
+): Promise<void> {
+  const existing = teardownTasks.get(child);
+  if (existing) return existing;
+
+  const task = (async () => {
+    if (childExited(child)) return;
+    signalProcessGroup(child, "SIGTERM");
+    if (await waitForExit(child, graceMs)) return;
+    signalProcessGroup(child, "SIGKILL");
+    if (!(await waitForExit(child, graceMs))) {
+      throw new Error("Save QA process group did not exit after SIGKILL.");
+    }
+  })();
+  teardownTasks.set(child, task);
+  return task;
+}
+
+async function waitForServer(
+  origin: string,
+  child: ChildProcess,
+  runtime: SaveQaServerRuntime,
+): Promise<void> {
+  const now = runtime.now ?? Date.now;
+  const sleep = runtime.sleep ?? ((milliseconds: number) =>
+    new Promise<void>((resolveWait) => setTimeout(resolveWait, milliseconds)));
+  const fetchReady = runtime.fetchReady ?? ((input, init) => fetch(input, init));
+  const deadline = now() + (runtime.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
+  let lastFailure: unknown = null;
+
+  while (now() < deadline) {
+    if (childExited(child)) throw new Error(`Save QA server exited with ${child.exitCode}.`);
+    const remainingMs = Math.max(1, deadline - now());
+    try {
+      const response = await fetchReady(origin, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(remainingMs),
+      });
+      if (response.status < 500) return;
+      lastFailure = new Error(`Save QA readiness returned ${response.status}.`);
+    } catch (error) {
+      lastFailure = error;
+    }
+    const afterFetchMs = deadline - now();
+    if (afterFetchMs > 0) await sleep(Math.min(200, afterFetchMs));
+  }
+  throw new Error("Timed out waiting for the Save QA server.", { cause: lastFailure });
+}
+
+function defaultLaunch(
+  command: "dev" | "start",
+  port: number,
+  env: NodeJS.ProcessEnv,
+): ChildProcess {
+  return spawn(
     "bun",
     ["x", "next", command, "--hostname", "localhost", "--port", String(port)],
     {
@@ -67,32 +155,36 @@ async function start(command: "dev" | "start", env: NodeJS.ProcessEnv): Promise<
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
+}
+
+async function start(
+  command: "dev" | "start",
+  env: NodeJS.ProcessEnv,
+  runtime: SaveQaServerRuntime = {},
+): Promise<SaveQaServer> {
+  const port = await (runtime.reservePort ?? unusedPort)();
+  const child = (runtime.launch ?? defaultLaunch)(command, port, env);
   let output = "";
   child.stdout?.on("data", (chunk) => { output += String(chunk); });
   child.stderr?.on("data", (chunk) => { output += String(chunk); });
   const origin = `http://localhost:${port}`;
   try {
-    await waitForServer(origin, child);
+    await waitForServer(origin, child, runtime);
   } catch (error) {
-    if (child.pid) process.kill(-child.pid, "SIGTERM");
+    await teardownSaveQaProcessGroup(child, runtime.stopGraceMs);
     throw new Error(`${String(error)}\n${output}`);
   }
+
   return {
     origin,
-    stop: async () => {
-      if (child.exitCode !== null) return;
-      if (child.pid) process.kill(-child.pid, "SIGTERM");
-      await Promise.race([
-        new Promise<void>((resolveExit) => child.once("exit", () => resolveExit())),
-        new Promise<void>((resolveTimeout) => setTimeout(() => {
-          if (child.pid) {
-            try { process.kill(-child.pid, "SIGKILL"); } catch { /* already stopped */ }
-          }
-          resolveTimeout();
-        }, 5_000)),
-      ]);
-    },
+    stop: () => teardownSaveQaProcessGroup(child, runtime.stopGraceMs),
   };
+}
+
+export async function startSaveQaServerForTest(
+  runtime: SaveQaServerRuntime,
+): Promise<SaveQaServer> {
+  return start("dev", controlledEnvironment("development", true), runtime);
 }
 
 export async function withSaveQaServer<T>(
