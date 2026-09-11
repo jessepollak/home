@@ -21,6 +21,15 @@ import { describeMoneyActionStore } from "../../../apps/web/server/money-actions
 import { createBunPostgresExecutor } from "../bun-postgres-executor";
 
 const databaseUrl = process.env.MONEY_ACTION_PG_TEST_URL?.trim();
+const POSTGRES_CLEANUP_TIMEOUT_SECONDS = 2;
+const POSTGRES_CLEANUP_TIMEOUT_MS = POSTGRES_CLEANUP_TIMEOUT_SECONDS * 1_000;
+const POSTGRES_FIXTURE_SCHEMA_COUNT = 18;
+const POSTGRES_FIXTURE_POOL_COUNT = 2;
+const POSTGRES_CLEANUP_SCHEDULING_MARGIN_MS = 5_000;
+// Keep the schema count aligned with createSchema call sites: 18×2s drops + 2×2s closes + 5s margin = 45s.
+const POSTGRES_AFTER_ALL_TIMEOUT_MS =
+  (POSTGRES_FIXTURE_SCHEMA_COUNT + POSTGRES_FIXTURE_POOL_COUNT) * POSTGRES_CLEANUP_TIMEOUT_MS
+  + POSTGRES_CLEANUP_SCHEDULING_MARGIN_MS;
 
 if (!databaseUrl) {
   test.skip("real PostgreSQL store contract requires MONEY_ACTION_PG_TEST_URL", () => {});
@@ -1001,7 +1010,7 @@ if (!databaseUrl) {
       await runCleanupSteps([
         {
           label: "close shared PostgreSQL fixture pool",
-          run: () => sharedPool.close({ timeout: 2 }),
+          run: () => sharedPool.close({ timeout: POSTGRES_CLEANUP_TIMEOUT_SECONDS }),
         },
         ...schemas.map((schema) => ({
           label: `drop PostgreSQL fixture schema ${schema}`,
@@ -1009,10 +1018,10 @@ if (!databaseUrl) {
         })),
         {
           label: "close PostgreSQL fixture admin pool",
-          run: () => admin.close({ timeout: 2 }),
+          run: () => admin.close({ timeout: POSTGRES_CLEANUP_TIMEOUT_SECONDS }),
         },
       ], "PostgreSQL fixture cleanup failed");
-    });
+    }, POSTGRES_AFTER_ALL_TIMEOUT_MS);
   });
 }
 
@@ -1168,8 +1177,8 @@ function statementTimeoutExecutor(
 
 async function dropFixtureSchema(admin: Bun.SQL, schema: string): Promise<void> {
   await admin.begin(async (transaction) => {
-    await transaction.unsafe("SET LOCAL lock_timeout = '2s'");
-    await transaction.unsafe("SET LOCAL statement_timeout = '2s'");
+    await transaction.unsafe(`SET LOCAL lock_timeout = '${POSTGRES_CLEANUP_TIMEOUT_SECONDS}s'`);
+    await transaction.unsafe(`SET LOCAL statement_timeout = '${POSTGRES_CLEANUP_TIMEOUT_SECONDS}s'`);
     await transaction.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
   });
 }
