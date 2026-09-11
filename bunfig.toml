@@ -1,0 +1,2 @@
+[test]
+preload = ["./apps/web/tests/server-only-preload.ts"]
