@@ -453,34 +453,28 @@ export function SavingsExperience({
                     )}
                   </button>
                   {isSelected ? (
-                    <details className={styles.details}>
-                      <summary className={styles.detailsSummary}>
-                        <span className={styles.detailsChevron} aria-hidden="true">⌄</span>
-                        <span className="sr-status">Details</span>
-                      </summary>
-                      <div className={styles.detailsBody}>
-                        <dl className={styles.detailsFacts}>
-                          <div className={styles.detailsFact}>
-                            <dt>Fee</dt>
-                            <dd>{formatApy(selected.feeRate)}</dd>
-                          </div>
-                          <div className={styles.detailsFact}>
-                            <dt>Curator</dt>
-                            <dd>
-                              {selected.curatorAddress ? (
-                                <CopyableValue
-                                  value={selected.curatorAddress}
-                                  display={formatAddress(selected.curatorAddress)}
-                                  valueKind="address"
-                                />
-                              ) : (
-                                "—"
-                              )}
-                            </dd>
-                          </div>
-                        </dl>
-                      </div>
-                    </details>
+                    <div className={styles.detailsBody}>
+                      <dl className={styles.detailsFacts}>
+                        <div className={styles.detailsFact}>
+                          <dt>Fee</dt>
+                          <dd>{formatApy(selected.feeRate)}</dd>
+                        </div>
+                        <div className={styles.detailsFact}>
+                          <dt>Curator</dt>
+                          <dd>
+                            {selected.curatorAddress ? (
+                              <CopyableValue
+                                value={selected.curatorAddress}
+                                display={formatAddress(selected.curatorAddress)}
+                                valueKind="address"
+                              />
+                            ) : (
+                              "—"
+                            )}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
                   ) : null}
                 </div>
               );

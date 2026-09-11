@@ -1,6 +1,8 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
@@ -16,6 +18,10 @@ const STEAKHOUSE = MORPHO_V1_CANDIDATE_ADDRESSES[0];
 const THIRD_VAULT = MORPHO_V1_CANDIDATE_ADDRESSES[2];
 const TEST_NOW = Date.parse("2026-09-10T12:04:00.000Z");
 const testNow = () => TEST_NOW;
+const detailsCss = readFileSync(
+  resolve(import.meta.dir, "savings-experience.module.css"),
+  "utf8",
+);
 
 function candidate(
   vaultAddress: string,
@@ -181,7 +187,11 @@ describe("Save simplify", () => {
     expect(page().getByRole("radio", { name: /Gauntlet USDC Prime/ }).textContent).toContain("4.10%");
     expect(page().getByRole("radio", { name: /Steakhouse USDC/ }).textContent).toContain("3.85%");
     expect(page().queryByRole("button", { name: "Withdraw" })).toBeNull();
-    expect(page().getByText("Details")).toBeTruthy();
+    const gauntletCard = page().getByRole("radio", { name: /Gauntlet USDC Prime/ }).parentElement!;
+    expect(within(gauntletCard).getByText("Fee")).toBeTruthy();
+    expect(within(gauntletCard).getByText("Curator")).toBeTruthy();
+    expect(page().queryByText("Details")).toBeNull();
+    expect(document.querySelectorAll("summary").length).toBe(0);
     expect(page().queryByText("Rate comparison")).toBeNull();
     expect(page().queryByText("Vault candidates")).toBeNull();
     expect(page().queryByText("Prepare an action")).toBeNull();
@@ -273,7 +283,7 @@ describe("Save simplify", () => {
     expect(page().getByText("$820.00 available")).toBeTruthy();
   });
 
-  test("keeps the Details disclosure inside the selected vault card and moves it on selection", async () => {
+  test("shows Fee and Curator automatically inside the selected vault card and moves them on selection", async () => {
     render(
       <SavingsExperience
         now={testNow}
@@ -288,21 +298,22 @@ describe("Save simplify", () => {
 
     const gauntletCard = (await page().findByRole("radio", { name: /Gauntlet USDC Prime/ }))
       .parentElement!;
-    expect(within(gauntletCard).getByText("Details")).toBeTruthy();
     expect(within(gauntletCard).getByText("Fee")).toBeTruthy();
     expect(within(gauntletCard).getByText("Curator")).toBeTruthy();
 
     fireEvent.click(page().getByRole("radio", { name: /Steakhouse USDC/ }));
 
     const steakhouseCard = page().getByRole("radio", { name: /Steakhouse USDC/ }).parentElement!;
-    expect(within(steakhouseCard).getByText("Details")).toBeTruthy();
+    expect(within(steakhouseCard).getByText("Fee")).toBeTruthy();
+    expect(within(steakhouseCard).getByText("Curator")).toBeTruthy();
     const movedGauntletCard = page()
       .getByRole("radio", { name: /Gauntlet USDC Prime/ })
       .parentElement!;
-    expect(within(movedGauntletCard).queryByText("Details")).toBeNull();
+    expect(within(movedGauntletCard).queryByText("Fee")).toBeNull();
+    expect(within(movedGauntletCard).queryByText("Curator")).toBeNull();
   });
 
-  test("toggles the disclosure from its summary and keeps fee and curator facts visible", async () => {
+  test("renders selected-card details automatically with no caret or disclosure control", async () => {
     render(
       <SavingsExperience
         now={testNow}
@@ -315,19 +326,25 @@ describe("Save simplify", () => {
       />,
     );
 
-    const card = (await page().findByRole("radio", { name: /Gauntlet USDC Prime/ }))
+    const gauntletCard = (await page().findByRole("radio", { name: /Gauntlet USDC Prime/ }))
       .parentElement!;
-    const details = within(card).getByText("Details").closest("details")!;
-    const summary = details.querySelector("summary")!;
-    expect(details.open).toBe(false);
+    expect(within(gauntletCard).getByText("Fee")).toBeTruthy();
+    expect(within(gauntletCard).getByText("Curator")).toBeTruthy();
+    expect(within(gauntletCard).getByText("10.00%")).toBeTruthy();
+    expect(document.querySelectorAll("details").length).toBe(0);
+    expect(document.querySelectorAll("summary").length).toBe(0);
+    expect(page().queryByText("Details")).toBeNull();
+    expect(within(gauntletCard).queryByText("⌄")).toBeNull();
+  });
 
-    fireEvent.click(summary);
-    expect(details.open).toBe(true);
-    expect(within(details).getByText("Fee")).toBeTruthy();
-    expect(within(details).getByText("Curator")).toBeTruthy();
-
-    fireEvent.click(summary);
-    expect(details.open).toBe(false);
+  test("animates the selected-card details open and skips motion under reduced motion", () => {
+    expect(detailsCss).toContain("@keyframes details-open");
+    expect(detailsCss).toContain("animation: details-open var(--motion-tab) ease");
+    expect(detailsCss).toContain("block-size: 0");
+    expect(detailsCss).toContain("block-size: auto");
+    const reducedMotion = detailsCss.slice(detailsCss.indexOf("@media (prefers-reduced-motion: reduce)"));
+    expect(reducedMotion).toContain(".detailsBody");
+    expect(reducedMotion).toContain("animation: none");
   });
 
   test("includes funded supported vaults that are outside the two visible selection rows", async () => {
