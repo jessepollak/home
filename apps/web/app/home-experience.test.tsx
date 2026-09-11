@@ -12,7 +12,10 @@ import type {
   VerifiedAccountSession,
 } from "@/features/account/session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "@/features/account/session-types";
-import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import {
+  investPortfolioAssets,
+  verifiedLocalCashAssets,
+} from "@/config/portfolio-assets";
 import { presentationRegions, type RegionId } from "@/config/regions";
 
 const replaceCalls: string[] = [];
@@ -524,6 +527,7 @@ function HomeHarness({
   savingsContent = <section aria-label="Savings module">Savings fixture</section>,
   investContent = <section aria-label="Invest module">Invest fixture</section>,
   assetBalances,
+  assetMarkResolution,
 }: {
   accountSdk: AccountWalletSdkBoundary;
   sessionFetch?: SessionFetch;
@@ -535,6 +539,7 @@ function HomeHarness({
   savingsContent?: ReactNode;
   investContent?: ReactNode;
   assetBalances?: ComponentProps<typeof HomeExperience>["assetBalances"];
+  assetMarkResolution?: ComponentProps<typeof HomeExperience>["assetMarkResolution"];
 }) {
   return (
     <AccountWalletSessionOwner sdk={accountSdk} sessionFetch={sessionFetch}>
@@ -546,6 +551,7 @@ function HomeHarness({
         routeMode={routeMode}
         savingsContent={savingsContent}
         investContent={investContent}
+        assetMarkResolution={assetMarkResolution}
         assetBalances={
           assetBalances ?? {
             status: "ready",
@@ -1893,9 +1899,18 @@ describe("login-state home experience", () => {
   });
 
   test("Home hub previews four balance rows and the nested panel lists every holding", async () => {
+    const nvidia = investPortfolioAssets.find((asset) => asset.id === "nvdac")!;
+    const bitcoin = investPortfolioAssets.find((asset) => asset.id === "cbbtc")!;
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetMarkResolution={{
+          images: {
+            [nvidia.assetKey]: "https://icons.example.test/nvda.png",
+            [bitcoin.assetKey]: "https://icons.example.test/cbbtc.png",
+          },
+          pending: false,
+        }}
         assetBalances={{
           status: "ready",
           displayTotal: "$12.34",
@@ -1928,15 +1943,19 @@ describe("login-state home experience", () => {
               displayBalance: "4.00 ETH",
             },
             {
-              id: "asset:nvda",
+              id: `asset:${nvidia.assetKey}`,
+              assetKey: nvidia.assetKey,
               group: "asset",
               name: "NVIDIA",
+              detail: "NVDAc",
               displayBalance: "5.00 NVDAc",
             },
             {
-              id: "asset:btc",
+              id: `asset:${bitcoin.assetKey}`,
+              assetKey: bitcoin.assetKey,
               group: "asset",
               name: "Bitcoin",
+              detail: "cbBTC",
               displayBalance: "6.00 cbBTC",
             },
           ],
@@ -1952,8 +1971,14 @@ describe("login-state home experience", () => {
 
     fireEvent.click(page().getByRole("button", { name: "Balances" }));
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
-    expect(page().getByText("NVIDIA")).toBeTruthy();
-    expect(page().getByText("Bitcoin")).toBeTruthy();
+    const nvidiaRow = page().getByText("NVIDIA").closest("li")!;
+    const bitcoinRow = page().getByText("Bitcoin").closest("li")!;
+    expect(nvidiaRow.querySelector("img")?.getAttribute("src")).toBe(
+      "https://icons.example.test/nvda.png",
+    );
+    expect(bitcoinRow.querySelector("img")?.getAttribute("src")).toBe(
+      "https://icons.example.test/cbbtc.png",
+    );
     expect(page().getByText("Indonesian rupiah")).toBeTruthy();
   });
 

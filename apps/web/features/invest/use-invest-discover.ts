@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InvestAsset } from "@/config/invest-assets";
+import {
+  assetMarkResolutionFromDiscover,
+  type AssetMarkResolution,
+} from "@/features/asset-mark/presentation";
 import { INVEST_DISCOVER_VERSION } from "@/server/market-data/invest-discover-contract";
 import { resolveMarketPriceAssetIdentity } from "@/server/market-data/codex/history-contract";
 import { unavailableMarketData, type MarketDataState } from "./invest-market";
@@ -19,8 +23,7 @@ export type InvestDiscoverState = {
   memeAssets: readonly InvestAsset[];
   memeStatus: MemeShelfStatus;
   memeMarket: MarketDataState;
-  assetIcons: Readonly<Record<string, string | null>>;
-  iconsPending: boolean;
+  assetMarkResolution: AssetMarkResolution;
 };
 
 export type UseInvestDiscoverOptions = {
@@ -42,8 +45,7 @@ export function useInvestDiscover({
     memeAssets: [],
     memeStatus: "loading",
     memeMarket: { status: "loading" },
-    assetIcons: emptyIcons,
-    iconsPending: true,
+    assetMarkResolution: { images: emptyIcons, pending: true },
   });
   const requestController = useRef<AbortController | null>(null);
   const lastRequestAt = useRef(Number.NEGATIVE_INFINITY);
@@ -64,7 +66,7 @@ export function useInvestDiscover({
       });
       const payload = parseDiscoverResponse(await response.json());
       if (!payload) throw new Error("Invalid invest discover response");
-      setState({ ...payload, iconsPending: false });
+      setState(payload);
     } catch {
       if (controller.signal.aborted) return;
       setState({
@@ -74,8 +76,7 @@ export function useInvestDiscover({
           status: "error",
           message: "Trending memes are unavailable.",
         },
-        assetIcons: emptyIcons,
-        iconsPending: false,
+        assetMarkResolution: { images: emptyIcons, pending: false },
       });
     }
   }, [endpoint, fetchImpl, now, refreshCooldownMs]);
@@ -101,7 +102,7 @@ export function useInvestDiscover({
 
 function parseDiscoverResponse(
   value: unknown,
-): Omit<InvestDiscoverState, "iconsPending"> | null {
+): InvestDiscoverState | null {
   const record = readRecord(value);
   if (
     !record ||
@@ -133,7 +134,7 @@ function parseDiscoverResponse(
           : memes.status === "unavailable"
             ? unavailableMarketData
             : { status: "ready", snapshots: [] },
-      assetIcons: icons,
+      assetMarkResolution: assetMarkResolutionFromDiscover({ icons }),
     };
   }
 
@@ -181,7 +182,10 @@ function parseDiscoverResponse(
     memeAssets: assets,
     memeStatus: assets.length > 0 ? "ready" : "empty",
     memeMarket: { status: "ready", snapshots },
-    assetIcons: icons,
+    assetMarkResolution: assetMarkResolutionFromDiscover({
+      icons,
+      memeAssets: assets,
+    }),
   };
 }
 

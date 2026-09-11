@@ -1,4 +1,9 @@
 import { presentationRegions } from "@/config/regions";
+import {
+  presentPortfolioAssetMark,
+  type AssetMarkPresentation,
+  type AssetMarkResolution,
+} from "@/features/asset-mark/presentation";
 import { presentationCurrencySymbol } from "./format";
 import type { HomeAssetBalanceItem } from "./present-home-balances";
 
@@ -8,10 +13,7 @@ export type HomeBalanceRowPresentation = {
   tone?: "default" | "muted" | "error";
 };
 
-export type HomeBalanceMarkPresentation = {
-  currency: string | null;
-  symbol: string | null;
-};
+export type HomeBalanceMarkPresentation = AssetMarkPresentation;
 
 const cashTokenAmountPattern =
   /^((?:<)?(?:0|[1-9]\d{0,2}(?:,\d{3})*)(?:\.\d+)?)\s+(\S+)$/;
@@ -63,13 +65,22 @@ function isPresentationCashCurrency(code: string | null): boolean {
  */
 export function presentHomeBalanceMark(
   item: HomeAssetBalanceItem,
+  resolution: AssetMarkResolution = {},
 ): HomeBalanceMarkPresentation {
-  const currency = item.currencyCode ?? null;
-  if (item.group === "asset" && !isPresentationCashCurrency(currency)) {
-    return { currency: null, symbol: item.detail ?? null };
-  }
-  return {
-    currency,
-    symbol: currency ? presentationCurrencySymbol(currency) : item.detail ?? null,
-  };
+  const itemCurrency = item.currencyCode ?? null;
+  const currency =
+    item.group === "asset" && !isPresentationCashCurrency(itemCurrency)
+      ? null
+      : itemCurrency;
+  return presentPortfolioAssetMark(
+    {
+      assetKey: item.assetKey ?? item.id,
+      name: item.name,
+      symbol: currency
+        ? presentationCurrencySymbol(currency)
+        : item.detail ?? item.name,
+      currency,
+    },
+    resolution,
+  );
 }

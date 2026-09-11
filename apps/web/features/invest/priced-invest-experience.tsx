@@ -14,16 +14,33 @@ import {
   presentationQuoteForRegion,
   usePresentationRegionId,
 } from "./presentation-quote";
-import { useInvestDiscover } from "./use-invest-discover";
+import {
+  useInvestDiscover,
+  type InvestDiscoverState,
+} from "./use-invest-discover";
 import { useMarketPrices } from "./use-market-prices";
 
 export function PricedInvestExperience({
   initialView,
 }: Pick<InvestExperienceProps, "initialView"> = {}) {
+  const discover = useInvestDiscover();
+  return (
+    <PricedInvestExperienceWithDiscover
+      initialView={initialView}
+      discover={discover}
+    />
+  );
+}
+
+export function PricedInvestExperienceWithDiscover({
+  initialView,
+  discover,
+}: Pick<InvestExperienceProps, "initialView"> & {
+  discover: InvestDiscoverState;
+}) {
   const persistedRegion = usePersistedPresentationRegion();
   const regionId = usePresentationRegionId(persistedRegion);
   const { fx, ...marketProps } = useMarketPrices();
-  const discover = useInvestDiscover();
   const quote = useMemo(
     () => presentationQuoteForRegion(regionId, fx),
     [fx, regionId],
@@ -37,8 +54,7 @@ export function PricedInvestExperience({
         memeMarket={discover.memeMarket}
         memeAssets={discover.memeAssets}
         memeStatus={discover.memeStatus}
-        assetIcons={discover.assetIcons}
-        iconsPending={discover.iconsPending}
+        assetMarkResolution={discover.assetMarkResolution}
       />
     </PresentationQuoteProvider>
   );
