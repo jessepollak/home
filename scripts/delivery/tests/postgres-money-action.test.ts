@@ -17,13 +17,24 @@ import {
 } from "../../../apps/web/server/money-actions/postgres-store";
 import {
   applyMoneyActionPostgresSchema,
+  MONEY_ACTION_DATA_MIGRATION_ID,
   moneyActionQueries,
   type SqlExecutor,
+  type SqlQueryResult,
 } from "../../../apps/web/server/money-actions/postgres-sql";
 import { describeMoneyActionStore } from "../../../apps/web/server/money-actions/store-contract";
 import { createBunPostgresExecutor } from "../bun-postgres-executor";
 
 const databaseUrl = process.env.MONEY_ACTION_PG_TEST_URL?.trim();
+const POSTGRES_CLEANUP_TIMEOUT_SECONDS = 2;
+const POSTGRES_CLEANUP_TIMEOUT_MS = POSTGRES_CLEANUP_TIMEOUT_SECONDS * 1_000;
+const POSTGRES_FIXTURE_SCHEMA_COUNT = 18;
+const POSTGRES_FIXTURE_POOL_COUNT = 2;
+const POSTGRES_CLEANUP_SCHEDULING_MARGIN_MS = 5_000;
+// Keep the schema count aligned with createSchema call sites: 18×2s drops + 2×2s closes + 5s margin = 45s.
+const POSTGRES_AFTER_ALL_TIMEOUT_MS =
+  (POSTGRES_FIXTURE_SCHEMA_COUNT + POSTGRES_FIXTURE_POOL_COUNT) * POSTGRES_CLEANUP_TIMEOUT_MS
+  + POSTGRES_CLEANUP_SCHEDULING_MARGIN_MS;
 
 if (!databaseUrl) {
   test.skip("real PostgreSQL store contract requires MONEY_ACTION_PG_TEST_URL", () => {});
@@ -297,6 +308,7 @@ if (!databaseUrl) {
       const schema = await createSchema("reservation");
       const resource = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
       await resource.init();
+      await expectDataMigrationComplete(executor(schema));
       const first = attemptFixture(101);
       const firstClaim = await issueAndClaim(resource.store, first);
       const uppercaseHash = `0x${"A".repeat(64)}` as const;
@@ -549,6 +561,7 @@ if (!databaseUrl) {
       const first = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
       const second = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
       await Promise.all([first.init(), second.init()]);
+      await expectDataMigrationComplete(executor(schema));
       const item = attemptFixture(116);
       const attemptClaim = await issueAndClaim(first.store, item);
       const legacy = legacyAction(116, item.owner);
@@ -619,6 +632,7 @@ if (!databaseUrl) {
       const first = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
       const second = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
       await Promise.all([first.init(), second.init()]);
+      await expectDataMigrationComplete(executor(schema));
       const item = attemptFixture(106);
       const claimed = await issueAndClaim(first.store, item);
       const releaseCommand = {
@@ -816,8 +830,14 @@ if (!databaseUrl) {
         rows: [],
       });
 
+      expect(await new PostgresMoneyActionStore(executor(schema)).ensureReady()).toEqual({
+        migrationId: MONEY_ACTION_DATA_MIGRATION_ID,
+        disposition: "applied",
+        aggregateCount: 2,
+      });
       const resource = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
       await resource.init();
+      await expectDataMigrationComplete(rawExecutor);
       expect(await resource.store.getAttemptStoreSnapshot(item.owner, prepared.id)).toMatchObject({
         ok: true,
         value: { attempts: [{ attemptId: `legacy:${prepared.id}:1`, reconciliation: { kind: "ambiguous" } }] },
@@ -860,6 +880,301 @@ if (!databaseUrl) {
       await resource.dispose();
     });
 
+    test("concurrent initializers run exactly one history scan and restarts skip migration work", async () => {
+      const schema = await createSchema("migration_once");
+      const rawExecutor = executor(schema);
+      await applyMoneyActionPostgresSchema(rawExecutor);
+      const item = attemptFixture(119);
+      const legacy = legacyAction(119, item.owner);
+      await insertRawLegacyOperation(rawExecutor, legacy, {
+        status: "unknown",
+        claimedAt: item.claimedAt,
+        updatedAt: item.evidenceAt,
+      });
+
+      let historyScans = 0;
+      let normalizations = 0;
+      const observe = async (
+        text: string,
+        _values: unknown[],
+        run: () => Promise<SqlQueryResult<unknown>>,
+      ): Promise<SqlQueryResult<unknown>> => {
+        if (text === moneyActionQueries.selectOperationIdsForDataMigration) historyScans += 1;
+        if (text === moneyActionQueries.normalizeLegacyHashes) normalizations += 1;
+        return run();
+      };
+      const first = createPostgresAttemptStoreResourceWithExecutor(observingExecutor(executor(schema), observe));
+      const second = createPostgresAttemptStoreResourceWithExecutor(observingExecutor(executor(schema), observe));
+      await Promise.all([first.init(), second.init()]);
+      expect(historyScans).toBe(1);
+      expect(normalizations).toBe(1);
+      await expectDataMigrationComplete(rawExecutor);
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_states")).toMatchObject({
+        rows: [{ action_id: legacy.id }],
+        rowCount: 1,
+      });
+      expect(await new PostgresMoneyActionStore(observingExecutor(executor(schema), observe)).ensureReady()).toEqual({
+        migrationId: MONEY_ACTION_DATA_MIGRATION_ID,
+        disposition: "already-complete",
+        aggregateCount: 0,
+      });
+
+      const restart = createPostgresAttemptStoreResourceWithExecutor(observingExecutor(executor(schema), observe));
+      await restart.init();
+      expect(historyScans).toBe(1);
+      expect(normalizations).toBe(1);
+      await Promise.all([first.dispose(), second.dispose(), restart.dispose()]);
+    });
+
+    test("actual advisory-lock timeout clears readiness for a same-store retry after release", async () => {
+      const schema = await createSchema("migration_lock_timeout");
+      const rawExecutor = executor(schema);
+      await applyMoneyActionPostgresSchema(rawExecutor);
+      const lockClient = new Bun.SQL(databaseUrl);
+      const lockAcquired = deferred<void>();
+      const releaseLock = deferred<void>();
+      const blockerCallbackSettled = deferred<void>();
+      const blocker = executor(schema, lockClient).transaction(async (transaction) => {
+        try {
+          await transaction.query(moneyActionQueries.acquireDataMigrationLock, [
+            "home-money-action-data-migration",
+            `${schema}:${MONEY_ACTION_DATA_MIGRATION_ID}`,
+          ]);
+          lockAcquired.resolve();
+          await releaseLock.promise;
+        } catch (error) {
+          lockAcquired.reject(error);
+          throw error;
+        } finally {
+          blockerCallbackSettled.resolve();
+        }
+      });
+      const blockerSettled = blocker.then(() => undefined, () => undefined);
+
+      await runWithCleanup(async () => {
+        await settleWithin(lockAcquired.promise, 2_000, "advisory-lock blocker acquisition");
+        const store = new PostgresMoneyActionStore(executor(schema));
+        const startedAt = Date.now();
+        let timeout: unknown;
+        try {
+          await store.ensureReady();
+        } catch (error) {
+          timeout = error;
+        }
+        expect(String(timeout)).toMatch(/lock timeout/i);
+        expect(Date.now() - startedAt).toBeGreaterThanOrEqual(4_500);
+        expect(await rawExecutor.query("SELECT migration_id FROM money_action_data_migrations")).toMatchObject({
+          rows: [],
+        });
+
+        releaseLock.resolve();
+        await settleWithin(blocker, 2_000, "advisory-lock blocker settlement");
+        expect(await store.ensureReady()).toMatchObject({
+          migrationId: MONEY_ACTION_DATA_MIGRATION_ID,
+          disposition: "applied",
+        });
+        await expectDataMigrationComplete(rawExecutor);
+      }, [
+        {
+          label: "release advisory-lock blocker",
+          run: async () => { releaseLock.resolve(); },
+        },
+        {
+          label: "close advisory-lock client",
+          run: () => lockClient.close({ timeout: 1 }),
+        },
+        {
+          label: "observe advisory-lock callback cleanup",
+          run: () => settleWithin(blockerCallbackSettled.promise, 2_000, "advisory-lock callback cleanup"),
+        },
+        {
+          label: "observe advisory-lock blocker settlement",
+          run: () => settleWithin(blockerSettled, 2_000, "advisory-lock blocker cleanup settlement"),
+        },
+      ], "advisory-lock timeout test and cleanup failed");
+    }, 15_000);
+
+    test("actual statement timeout after mutation rolls back all data and permits a fresh retry", async () => {
+      const schema = await createSchema("migration_statement_timeout");
+      const rawExecutor = executor(schema);
+      await applyMoneyActionPostgresSchema(rawExecutor);
+      const item = attemptFixture(124);
+      const legacy = legacyAction(124, item.owner);
+      const uppercaseHash = `0x${"D".repeat(64)}` as const;
+      await insertRawLegacyOperation(rawExecutor, legacy, {
+        status: "submitted",
+        claimedAt: item.claimedAt,
+        userOperationHash: uppercaseHash,
+        updatedAt: item.evidenceAt,
+      });
+
+      const timeoutProbe = { reservationWrites: 0, attemptStateWrites: 0 };
+      const timedOutStore = new PostgresMoneyActionStore(statementTimeoutExecutor(executor(schema), timeoutProbe));
+      let timeout: unknown;
+      try {
+        await timedOutStore.ensureReady();
+      } catch (error) {
+        timeout = error;
+      }
+      expect(String(timeout)).toMatch(/statement timeout/i);
+      expect(timeoutProbe).toEqual({ reservationWrites: 1, attemptStateWrites: 1 });
+      expect(await rawExecutor.query("SELECT user_operation_hash FROM money_action_operations WHERE id = $1", [legacy.id])).toMatchObject({
+        rows: [{ user_operation_hash: uppercaseHash }],
+      });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_states")).toMatchObject({ rows: [] });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_evidence")).toMatchObject({ rows: [] });
+      expect(await rawExecutor.query("SELECT migration_id FROM money_action_data_migrations")).toMatchObject({ rows: [] });
+
+      const retry = new PostgresMoneyActionStore(executor(schema));
+      expect(await retry.ensureReady()).toMatchObject({
+        migrationId: MONEY_ACTION_DATA_MIGRATION_ID,
+        disposition: "applied",
+      });
+      await expectDataMigrationComplete(rawExecutor);
+      expect(await rawExecutor.query("SELECT user_operation_hash FROM money_action_operations WHERE id = $1", [legacy.id])).toMatchObject({
+        rows: [{ user_operation_hash: uppercaseHash.toLowerCase() }],
+      });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_states")).toMatchObject({
+        rows: [{ action_id: legacy.id }],
+        rowCount: 1,
+      });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_evidence")).toMatchObject({
+        rows: [{ action_id: legacy.id }],
+        rowCount: 1,
+      });
+    });
+
+    test("failure after reservations rolls back normalization, attempt state, reservations, and marker", async () => {
+      const schema = await createSchema("migration_reservation_failure");
+      const rawExecutor = executor(schema);
+      await applyMoneyActionPostgresSchema(rawExecutor);
+      const item = attemptFixture(120);
+      const legacy = legacyAction(120, item.owner);
+      const uppercaseHash = `0x${"A".repeat(64)}` as const;
+      await insertRawLegacyOperation(rawExecutor, legacy, {
+        status: "submitted",
+        claimedAt: item.claimedAt,
+        userOperationHash: uppercaseHash,
+        updatedAt: item.evidenceAt,
+      });
+
+      let reservations = 0;
+      const failing = observingExecutor(executor(schema), async (text, _values, run) => {
+        if (text === moneyActionQueries.selectOperationIdsForDataMigration) {
+          if (reservations < 1) throw new Error("migration did not reserve legacy evidence before history scan");
+          throw new Error("injected failure after reservations");
+        }
+        const result = await run();
+        if (text === moneyActionQueries.reserveEvidence) reservations += 1;
+        return result;
+      });
+      const failed = createPostgresAttemptStoreResourceWithExecutor(failing);
+      await expect(failed.init()).rejects.toThrow("injected failure after reservations");
+      await failed.dispose();
+      expect(await rawExecutor.query("SELECT user_operation_hash FROM money_action_operations WHERE id = $1", [legacy.id])).toMatchObject({
+        rows: [{ user_operation_hash: uppercaseHash }],
+      });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_states")).toMatchObject({ rows: [] });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_evidence")).toMatchObject({ rows: [] });
+      expect(await rawExecutor.query("SELECT migration_id FROM money_action_data_migrations")).toMatchObject({ rows: [] });
+
+      const retry = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
+      await retry.init();
+      await expectDataMigrationComplete(rawExecutor);
+      expect(await rawExecutor.query("SELECT user_operation_hash FROM money_action_operations WHERE id = $1", [legacy.id])).toMatchObject({
+        rows: [{ user_operation_hash: uppercaseHash.toLowerCase() }],
+      });
+      await retry.dispose();
+    });
+
+    test("failure after marker insertion but before commit leaves no partial migration and retries cleanly", async () => {
+      const schema = await createSchema("migration_marker_failure");
+      const rawExecutor = executor(schema);
+      await applyMoneyActionPostgresSchema(rawExecutor);
+      const item = attemptFixture(121);
+      const legacy = legacyAction(121, item.owner);
+      const uppercaseHash = `0x${"B".repeat(64)}` as const;
+      await insertRawLegacyOperation(rawExecutor, legacy, {
+        status: "submitted",
+        claimedAt: item.claimedAt,
+        userOperationHash: uppercaseHash,
+        updatedAt: item.evidenceAt,
+      });
+
+      const failing = observingExecutor(executor(schema), async (text, _values, run) => {
+        const result = await run();
+        if (text === moneyActionQueries.insertDataMigration) {
+          throw new Error("injected failure after marker insert");
+        }
+        return result;
+      });
+      const failed = createPostgresAttemptStoreResourceWithExecutor(failing);
+      await expect(failed.init()).rejects.toThrow("injected failure after marker insert");
+      await failed.dispose();
+      expect(await rawExecutor.query("SELECT user_operation_hash FROM money_action_operations WHERE id = $1", [legacy.id])).toMatchObject({
+        rows: [{ user_operation_hash: uppercaseHash }],
+      });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_states")).toMatchObject({ rows: [] });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_evidence")).toMatchObject({ rows: [] });
+      expect(await rawExecutor.query("SELECT migration_id FROM money_action_data_migrations")).toMatchObject({ rows: [] });
+
+      const retry = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
+      await retry.init();
+      await expectDataMigrationComplete(rawExecutor);
+      expect(await rawExecutor.query("SELECT user_operation_hash FROM money_action_operations WHERE id = $1", [legacy.id])).toMatchObject({
+        rows: [{ user_operation_hash: uppercaseHash.toLowerCase() }],
+      });
+      await retry.dispose();
+    });
+
+    test("conflicting pre-existing reservation fails closed without changing its owner or recording a marker", async () => {
+      const schema = await createSchema("migration_conflict");
+      const rawExecutor = executor(schema);
+      await applyMoneyActionPostgresSchema(rawExecutor);
+      const owner = ownerFor(122);
+      const item = attemptFixture(122, owner);
+      const first = legacyAction(122, owner);
+      const second = legacyAction(123, owner);
+      const sharedHash = `0x${"C".repeat(64)}` as const;
+      await insertRawLegacyOperation(rawExecutor, first, {
+        status: "submitted",
+        claimedAt: item.claimedAt,
+        userOperationHash: sharedHash,
+        updatedAt: item.evidenceAt,
+      });
+      await insertRawLegacyOperation(rawExecutor, second, {
+        status: "submitted",
+        claimedAt: item.claimedAt,
+        userOperationHash: sharedHash,
+        updatedAt: item.evidenceAt,
+      });
+      const reservationKey = evidenceUniquenessKey(owner, {
+        kind: "user-operation-hash",
+        provider: "cdp-embedded",
+        value: sharedHash,
+      });
+      if (!reservationKey) throw new Error("expected migration reservation key");
+      await rawExecutor.query(moneyActionQueries.reserveEvidence, [reservationKey, first.id]);
+
+      const resource = createPostgresAttemptStoreResourceWithExecutor(executor(schema));
+      await expect(resource.init()).rejects.toThrow("conflicting legacy money-action evidence prevents data migration");
+      await resource.dispose();
+      expect(await rawExecutor.query(
+        "SELECT action_id FROM money_action_attempt_evidence WHERE evidence_key = $1",
+        [reservationKey],
+      )).toMatchObject({ rows: [{ action_id: first.id }], rowCount: 1 });
+      expect(await rawExecutor.query("SELECT migration_id FROM money_action_data_migrations")).toMatchObject({ rows: [] });
+      expect(await rawExecutor.query("SELECT action_id FROM money_action_attempt_states")).toMatchObject({ rows: [] });
+      expect(await rawExecutor.query(
+        "SELECT id, user_operation_hash FROM money_action_operations ORDER BY id",
+      )).toMatchObject({
+        rows: [
+          { id: first.id, user_operation_hash: sharedHash },
+          { id: second.id, user_operation_hash: sharedHash },
+        ],
+      });
+    });
+
     test("process-local sensitive swap overlays fail closed across store instances", async () => {
       const schema = await createSchema("overlay");
       const issuing = new PostgresMoneyActionStore(executor(schema));
@@ -900,10 +1215,21 @@ if (!databaseUrl) {
     });
 
     afterAll(async () => {
-      for (const schema of schemas) await admin.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-      await sharedPool.close();
-      await admin.close();
-    });
+      await runCleanupSteps([
+        {
+          label: "close shared PostgreSQL fixture pool",
+          run: () => sharedPool.close({ timeout: POSTGRES_CLEANUP_TIMEOUT_SECONDS }),
+        },
+        ...schemas.map((schema) => ({
+          label: `drop PostgreSQL fixture schema ${schema}`,
+          run: () => dropFixtureSchema(admin, schema),
+        })),
+        {
+          label: "close PostgreSQL fixture admin pool",
+          run: () => admin.close({ timeout: POSTGRES_CLEANUP_TIMEOUT_SECONDS }),
+        },
+      ], "PostgreSQL fixture cleanup failed");
+    }, POSTGRES_AFTER_ALL_TIMEOUT_MS);
   });
 }
 
@@ -1018,6 +1344,154 @@ async function insertRawLegacyOperation(
     input.updatedAt,
     action.id,
   ]);
+}
+
+async function expectDataMigrationComplete(executor: SqlExecutor): Promise<void> {
+  expect(await executor.query<{ migration_id: string }>(
+    moneyActionQueries.selectDataMigration,
+    [MONEY_ACTION_DATA_MIGRATION_ID],
+  )).toMatchObject({
+    rows: [{ migration_id: MONEY_ACTION_DATA_MIGRATION_ID }],
+    rowCount: 1,
+  });
+}
+
+function statementTimeoutExecutor(
+  base: SqlExecutor,
+  probe: { reservationWrites: number; attemptStateWrites: number },
+): SqlExecutor {
+  return {
+    async query<Row = Record<string, unknown>>(text: string, values: unknown[] = []) {
+      const result = await base.query<Row>(text, values);
+      if (text === moneyActionQueries.setMigrationStatementTimeout) {
+        await base.query("SET LOCAL statement_timeout = '100ms'");
+      }
+      if (text === moneyActionQueries.reserveEvidence) probe.reservationWrites += 1;
+      if (text.startsWith("INSERT INTO money_action_attempt_states")) {
+        probe.attemptStateWrites += 1;
+        if (probe.reservationWrites < 1) {
+          throw new Error("statement-timeout probe reached attempt state before evidence mutation");
+        }
+        await base.query("SELECT pg_sleep(0.5)");
+      }
+      return result;
+    },
+    transaction<Result>(run: (transaction: SqlExecutor) => Promise<Result>) {
+      return base.transaction((transaction) => run(statementTimeoutExecutor(transaction, probe)));
+    },
+    ...(base.dispose ? { dispose: () => base.dispose!() } : {}),
+  };
+}
+
+async function dropFixtureSchema(admin: Bun.SQL, schema: string): Promise<void> {
+  await admin.begin(async (transaction) => {
+    await transaction.unsafe(`SET LOCAL lock_timeout = '${POSTGRES_CLEANUP_TIMEOUT_SECONDS}s'`);
+    await transaction.unsafe(`SET LOCAL statement_timeout = '${POSTGRES_CLEANUP_TIMEOUT_SECONDS}s'`);
+    await transaction.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+  });
+}
+
+async function settleWithin<Result>(
+  promise: Promise<Result>,
+  timeoutMs: number,
+  label: string,
+): Promise<Result> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} did not settle within ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+type CleanupStep = Readonly<{
+  label: string;
+  run: () => Promise<unknown>;
+}>;
+
+class CleanupStepError extends Error {
+  readonly cause: unknown;
+
+  constructor(label: string, cause: unknown) {
+    super(`${label}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "CleanupStepError";
+    this.cause = cause;
+  }
+}
+
+async function runCleanupSteps(steps: readonly CleanupStep[], message: string): Promise<void> {
+  const errors: unknown[] = [];
+  for (const step of steps) {
+    try {
+      await step.run();
+    } catch (error) {
+      errors.push(new CleanupStepError(step.label, error));
+    }
+  }
+  if (errors.length > 0) throw new AggregateError(errors, message);
+}
+
+async function runWithCleanup<Result>(
+  run: () => Promise<Result>,
+  cleanup: readonly CleanupStep[],
+  message: string,
+): Promise<Result> {
+  let result: Result | undefined;
+  let primaryError: unknown;
+  let failed = false;
+  try {
+    result = await run();
+  } catch (error) {
+    failed = true;
+    primaryError = error;
+  }
+
+  try {
+    await runCleanupSteps(cleanup, `${message}: cleanup failed`);
+  } catch (cleanupError) {
+    if (failed) throw new AggregateError([primaryError, cleanupError], message);
+    throw cleanupError;
+  }
+  if (failed) throw primaryError;
+  return result as Result;
+}
+
+function deferred<Value>() {
+  let resolve!: (value: Value | PromiseLike<Value>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function observingExecutor(
+  base: SqlExecutor,
+  observe: (
+    text: string,
+    values: unknown[],
+    run: () => Promise<SqlQueryResult<unknown>>,
+  ) => Promise<SqlQueryResult<unknown>>,
+): SqlExecutor {
+  return {
+    async query<Row = Record<string, unknown>>(text: string, values: unknown[] = []) {
+      return await observe(
+        text,
+        values,
+        () => base.query<unknown>(text, values),
+      ) as SqlQueryResult<Row>;
+    },
+    transaction<Result>(run: (transaction: SqlExecutor) => Promise<Result>) {
+      return base.transaction((transaction) => run(observingExecutor(transaction, observe)));
+    },
+    ...(base.dispose ? { dispose: () => base.dispose!() } : {}),
+  };
 }
 
 function disposableExecutor(client: Bun.SQL, schema: string, onDispose: () => void = () => {}): SqlExecutor {

@@ -1,20 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { AddressText } from "@/components/address";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { CopyableValue } from "@/components/copyable-value";
 import { formatAddress } from "@/shared/formatting";
 import {
   useAccountWallet,
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
-import { MoneyModal, MoneyModalFooter, MoneyModalHeader } from "@/client/money-modal";
-import modal from "@/client/money-modal/money-modal.module.css";
 import { releaseMoneyActionAdmission } from "@/client/money-actions/client";
 import { SendDialog } from "./send-dialog";
 import { TRANSFER_ASSETS, formatSendConfirmAmount } from "@/shared/transfers/transfer-helpers";
 import type { ConfirmedTransfer } from "@/shared/transfers/types";
 import styles from "./transfers.module.css";
+
+const subscribeToMountedState = () => () => {};
+const mountedClientSnapshot = () => true;
+const mountedServerSnapshot = () => false;
 
 export type TransferActionsProps = {
   onTransferConfirmed?: (transfer: ConfirmedTransfer) => void;
@@ -42,16 +44,21 @@ export function TransferActionsForWallet({
   onTransferConfirmed,
   availableByAsset,
 }: TransferActionsProps & { wallet: TransferWallet }) {
-  const [openModal, setOpenModal] = useState<"send" | "receive" | null>(null);
+  const [sendOpen, setSendOpen] = useState(false);
   const [modalOwner, setModalOwner] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
     transfer: ConfirmedTransfer;
     owner: string | null;
   } | null>(null);
+  const mounted = useSyncExternalStore(
+    subscribeToMountedState,
+    mountedClientSnapshot,
+    mountedServerSnapshot,
+  );
   const boundary = walletBoundary(wallet);
   const verifiedAddress =
     wallet.status === "verified" ? wallet.session?.smartAccount?.address ?? null : null;
-  const visibleModal = modalOwner === boundary ? openModal : null;
+  const visibleSend = modalOwner === boundary && sendOpen;
   const dropPrivate = modalOwner !== null && modalOwner !== boundary;
   const visibleSuccess = success && success.owner === boundary ? success.transfer : null;
   const fetchUnresolvedSends = useMemo(() => {
@@ -76,17 +83,17 @@ export function TransferActionsForWallet({
       : undefined;
   }, [wallet.fetchAccountResource]);
 
-  const open = (modalName: "send" | "receive") => {
+  const openSend = () => {
     if (!boundary) return;
     setSuccess(null);
     setModalOwner(boundary);
-    setOpenModal(modalName);
+    setSendOpen(true);
   };
   const close = () => {
-    setOpenModal(null);
+    setSendOpen(false);
   };
   const finishClose = () => {
-    setOpenModal(null);
+    setSendOpen(false);
     setModalOwner(null);
   };
 
@@ -100,50 +107,41 @@ export function TransferActionsForWallet({
     <div className={styles.actions} aria-label="Transfer actions">
       <button
         className={styles.secondaryAction}
+        data-action-trigger=""
         type="button"
         disabled={!boundary}
-        onClick={() => open("send")}
+        onClick={openSend}
       >
         Send
       </button>
-      <button
-        className={styles.secondaryAction}
-        type="button"
-        disabled={!boundary}
-        onClick={() => open("receive")}
-      >
-        Receive
-      </button>
 
-      <ReceiveDialog
-        open={visibleModal === "receive"}
-        address={verifiedAddress}
-        immediate={dropPrivate}
-        onClose={close}
-        onClosed={finishClose}
-      />
-      <SendDialog
-        open={visibleModal === "send"}
-        address={verifiedAddress}
-        immediate={dropPrivate}
-        pendingTransfer={wallet.pendingTransfer}
-        availableByAsset={availableByAsset}
-        sendTransfer={wallet.sendTransfer}
-        checkPendingTransfer={wallet.checkPendingTransfer}
-        startNewTransfer={wallet.startNewTransfer}
-        prepareMoneyAction={wallet.prepareMoneyAction}
-        checkMoneyAction={wallet.checkMoneyAction}
-        executeMoneyAction={wallet.executeMoneyAction}
-        fetchUnresolvedSends={fetchUnresolvedSends}
-        releaseAdmission={releaseAdmission}
-        ownerBoundary={boundary}
-        onTransferConfirmed={(transfer) => {
-          setSuccess({ transfer, owner: boundary });
-          onTransferConfirmed?.(transfer);
-        }}
-        onClose={close}
-        onClosed={finishClose}
-      />
+      {mounted
+        ? createPortal(
+            <SendDialog
+              open={visibleSend}
+              address={verifiedAddress}
+              immediate={dropPrivate}
+              pendingTransfer={wallet.pendingTransfer}
+              availableByAsset={availableByAsset}
+              sendTransfer={wallet.sendTransfer}
+              checkPendingTransfer={wallet.checkPendingTransfer}
+              startNewTransfer={wallet.startNewTransfer}
+              prepareMoneyAction={wallet.prepareMoneyAction}
+              checkMoneyAction={wallet.checkMoneyAction}
+              executeMoneyAction={wallet.executeMoneyAction}
+              fetchUnresolvedSends={fetchUnresolvedSends}
+              releaseAdmission={releaseAdmission}
+              ownerBoundary={boundary}
+              onTransferConfirmed={(transfer) => {
+                setSuccess({ transfer, owner: boundary });
+                onTransferConfirmed?.(transfer);
+              }}
+              onClose={close}
+              onClosed={finishClose}
+            />,
+            document.body,
+          )
+        : null}
 
       {visibleSuccess ? (
         <div className={styles.successToast} role="status">
@@ -162,82 +160,6 @@ export function TransferActionsForWallet({
         </div>
       ) : null}
     </div>
-  );
-}
-
-function ReceiveDialog({
-  open,
-  address,
-  immediate = false,
-  onClose,
-  onClosed,
-}: {
-  open: boolean;
-  address: `0x${string}` | null;
-  immediate?: boolean;
-  onClose: () => void;
-  onClosed: () => void;
-}) {
-  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
-
-  const close = () => {
-    onClose();
-  };
-
-  async function copyAddress() {
-    if (!address || !navigator.clipboard?.writeText) {
-      setCopyStatus("error");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(address);
-      setCopyStatus("copied");
-    } catch {
-      setCopyStatus("error");
-    }
-  }
-
-  return (
-    <MoneyModal
-      open={open}
-      labelledBy="receive-title"
-      immediate={immediate}
-      onCancel={close}
-      onClose={() => {
-        setCopyStatus("idle");
-        onClosed();
-      }}
-    >
-      <MoneyModalHeader
-        title="Receive"
-        titleId="receive-title"
-        onClose={close}
-        closeLabel="Close receive dialog"
-      />
-      <div className={modal.body}>
-        <div className={modal.fieldBlock}>
-          <p className={modal.fieldLabel}>Your address</p>
-          {address ? (
-            <p className={styles.receiveAddress}>
-              <AddressText address={address} />
-            </p>
-          ) : (
-            <p className={modal.fieldHint}>Address unavailable</p>
-          )}
-          <p className={modal.fieldHint}>Base address</p>
-        </div>
-        {copyStatus === "error" ? (
-          <p className={modal.error} role="alert">
-            Clipboard access failed. Select and copy the address manually.
-          </p>
-        ) : null}
-      </div>
-      <MoneyModalFooter
-        primaryLabel={copyStatus === "copied" ? "Copied" : "Copy address"}
-        primaryDisabled={!address}
-        onPrimary={() => void copyAddress()}
-      />
-    </MoneyModal>
   );
 }
 

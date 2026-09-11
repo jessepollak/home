@@ -83,6 +83,7 @@ export function FundingActionsForWallet({
     <>
       <button
         className="add-money"
+        data-action-trigger=""
         type="button"
         onClick={() => {
           setDismissed(false);

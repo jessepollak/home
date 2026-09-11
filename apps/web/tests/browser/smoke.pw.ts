@@ -161,6 +161,35 @@ test("signed-in send survives reload without a second wallet dispatch", async ({
   await expect(page.getByText("$12.34", { exact: true })).toHaveCount(0);
 });
 
+test("send modal leaves action-row trigger styling at 390px", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await page.setViewportSize({ width: 390, height: 720 });
+  await signIn(page);
+
+  await expect(page.locator(".action-row [data-action-trigger]")).toHaveCount(2);
+  await page.getByRole("button", { name: "Send" }).click();
+  const dialog = page.getByRole("dialog", { name: "Send" });
+  await expect(dialog).toBeVisible();
+  await expect.poll(() =>
+    page.evaluate(() => Boolean(document.querySelector("dialog")?.closest(".action-row"))),
+  ).toBe(false);
+
+  const primary = dialog.getByRole("button", { name: "Continue" });
+  await expect(primary).toBeVisible();
+  const primaryStyle = await primary.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      fontSize: Number.parseFloat(style.fontSize),
+    };
+  });
+  // The action-row trigger rule (white surface, 0.78rem) must not reach the
+  // portaled modal footer; the modal keeps its own blue surface and 0.92rem.
+  expect(primaryStyle.backgroundColor).toBe("rgb(0, 82, 255)");
+  expect(primaryStyle.fontSize).toBeCloseTo(14.72, 1);
+});
+
 test("money amount auto-fits the longest local and native values at 320px and 390px", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
   await installApiFixtures(page);

@@ -8,17 +8,16 @@ Pull requests run these untrusted-code checks without provider or funded-wallet 
 
 - `bun check`
 - `Chromium product smoke`
-- `Node SQLite probe (Node 22.13.1)`
 - `delivery automation tests`
-- `real PostgreSQL store contract (PostgreSQL 14)`
+- `real PostgreSQL money/attempt contract (PostgreSQL 14)`
 
-The `delivery automation tests` job also runs the scoped TypeScript project at `scripts/delivery/tsconfig.json`, which covers the new Bun PostgreSQL executor and its contract test without changing package metadata.
+The `delivery automation tests` job also runs the scoped TypeScript project at `scripts/delivery/tsconfig.json`, which type-checks the Bun PostgreSQL executor without changing package metadata.
 
 `PR destination` uses `pull_request_target` and explicitly checks out the trusted policy from `main`; it never checks out or executes the pull request head. Before any API call it validates the event repository, pull request number, 40-hex event head SHA, API configuration, and bounded reconciliation count. It first publishes **`delivery/pr-destination`** as pending on that trusted event head, refetches the live pull request, and also marks any newly observed live head pending before further verification. Success is published only after the current live repository, number, base, labels, state, and head are stable and policy-valid. A failed refresh after success makes one bounded best-effort pending publication so a usable status API does not silently leave that success authoritative. Its only write permission is `statuses:write`; the other permissions are read-only. The workflow job result itself is attached to the `pull_request_target` base SHA and is not exact-head proof. Pull request metadata reads and commit-status writes remain non-atomic.
 
 The metadata workflow also executes the trusted copy from `main`. Before deleting anything, it GETs the current issue or pull request and re-derives cleanup eligibility from the live state, base, and labels. Its only write permission is `issues:write`, and the trusted implementation only sends `DELETE` requests for `status:*` labels on that same record.
 
-The browser suite uses mocked SDK/session boundaries. The SQLite probe exercises the local `node:sqlite` claim, shared-bundle, and verified-execution races. The PostgreSQL job runs the reusable production-store contract against isolated schemas in a disposable PostgreSQL 14 service through Bun's built-in SQL client. These checks do not use a live provider, funded wallet, deployment, or persistent production database.
+The browser suite uses mocked SDK/session boundaries. The PostgreSQL job runs the money/attempt store contract against isolated schemas in a disposable PostgreSQL 14 service through Bun's built-in SQL client. These checks do not use a live provider, funded wallet, deployment, or persistent production database.
 
 ## Destination and label semantics
 
@@ -38,7 +37,7 @@ The `delivery:stacked` label does not exist at the time this plan was written. C
 
 ## Safe rollout
 
-Jesse or a repository administrator should make these changes only after this PR is merged to `main` and all six check names have appeared on a test pull request.
+Jesse or a repository administrator should make these changes only after this PR is merged to `main` and all five check names have appeared on a test pull request.
 
 ### 1. GitHub
 
@@ -48,9 +47,8 @@ Jesse or a repository administrator should make these changes only after this PR
 4. Require these exact checks, selecting GitHub Actions as the expected source where GitHub offers that choice:
    - `bun check`
    - `Chromium product smoke`
-   - `Node SQLite probe (Node 22.13.1)`
    - `delivery automation tests`
-   - `real PostgreSQL store contract (PostgreSQL 14)`
+   - `real PostgreSQL money/attempt contract (PostgreSQL 14)`
    - `delivery/pr-destination`
 5. Do **not** select `Publish current-head PR destination status` as the destination requirement. That Actions job result is not the exact-head status; require the stable `delivery/pr-destination` commit-status context above.
 6. Use strict required checks (branch must be current with `main`) unless Jesse explicitly accepts the merge-race risk of loose checks.
@@ -69,7 +67,7 @@ Verify the connected Home project against these values in Project Settings; do n
 
 Preserve the project's working Root Directory, install/build commands, framework, output directory, and Node configuration. This rollout changes delivery gates, not the monorepo build layout. Record those existing values before rehearsal; resolve any mismatch with [the deployment setup guide](vercel-deploy.md) separately rather than changing a working deployment as part of the gate rollout.
 
-Then add Vercel Deployment Checks for the five CI jobs that also run on pushes to `main`: `bun check`, `Chromium product smoke`, `Node SQLite probe (Node 22.13.1)`, `delivery automation tests`, and `real PostgreSQL store contract (PostgreSQL 14)`. Vercel documents that Deployment Checks hold production alias promotion until selected checks pass ([Deployment Checks](https://vercel.com/docs/deployment-checks)). Confirm in a non-production rehearsal that a failed check creates a build but does not move the production domain, then confirm a fully green commit promotes automatically.
+Then add Vercel Deployment Checks for the four CI jobs that also run on pushes to `main`: `bun check`, `Chromium product smoke`, `delivery automation tests`, and `real PostgreSQL money/attempt contract (PostgreSQL 14)`. Vercel documents that Deployment Checks hold production alias promotion until selected checks pass ([Deployment Checks](https://vercel.com/docs/deployment-checks)). Confirm in a non-production rehearsal that a failed check creates a build but does not move the production domain, then confirm a fully green commit promotes automatically.
 
 This plan leaves the existing Git-based deployment trigger intact. Without Vercel Deployment Checks (or a later approved staged-promotion trigger), GitHub merge protection does not prove that the post-merge production build passed CI before alias promotion.
 

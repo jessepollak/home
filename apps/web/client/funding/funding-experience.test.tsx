@@ -173,11 +173,11 @@ describe("FundingExperience", () => {
 
   test("selects only the accepted provider flow for AR, CO, BR, ID, and US", async () => {
     const cases = [
-      { regionId: "AR", button: /Deposit ARS/, dialog: "Deposit ARS", provider: "ripio" },
-      { regionId: "CO", button: /Deposit COP/, dialog: "Deposit COP", provider: "ripio" },
-      { regionId: "BR", button: /Ripio unavailable/, dialog: "Deposit BRL", provider: "br" },
-      { regionId: "ID", button: /Buy IDRX with rupiah/, dialog: "Buy IDRX", provider: "idrx" },
-      { regionId: "US", button: /Use Coinbase to deposit USD/, dialog: "Deposit USD", provider: "coinbase" },
+      { regionId: "AR", button: /Deposit ARS/, dialog: "Deposit ARS", provider: "ripio", currency: "ARS" },
+      { regionId: "CO", button: /Deposit COP/, dialog: "Deposit COP", provider: "ripio", currency: "COP" },
+      { regionId: "BR", button: /Ripio unavailable/, dialog: "Deposit BRL", provider: "br", currency: "BRL" },
+      { regionId: "ID", button: /Buy IDRX with rupiah/, dialog: "Buy IDRX", provider: "idrx", currency: undefined },
+      { regionId: "US", button: /Use Coinbase to deposit USD/, dialog: "Deposit USD", provider: "coinbase", currency: undefined },
     ] as const;
 
     for (const item of cases) {
@@ -210,13 +210,25 @@ describe("FundingExperience", () => {
       }
 
       fireEvent.click(page().getByRole("button", { name: item.button }));
-      expect(page().getByRole("dialog", { name: item.dialog })).toBeTruthy();
+      const dialog = page().getByRole("dialog", { name: item.dialog });
+      expect(dialog).toBeTruthy();
       if (item.provider === "ripio" || item.provider === "br") {
+        // Lock the rendered hierarchy: the dialog header (h2) carries the
+        // local-fiat title, and the provider subheader (h3) sits directly below
+        // it. No duplicate or inverted copy is allowed.
+        const headings = within(dialog).getAllByRole("heading");
+        expect(headings[0].textContent).toBe(`Deposit ${item.currency}`);
+        expect(headings[0].tagName).toBe("H2");
+        expect(headings[0].id).toBe("add-money-title");
         expect(
-          page().getByRole("heading", {
-            name: "Use Ripio to deposit from your local bank",
-          }),
-        ).toBeTruthy();
+          within(dialog).getAllByRole("heading", { name: `Deposit ${item.currency}` }),
+        ).toHaveLength(1);
+        expect(headings[1].textContent).toBe("Use Ripio to deposit from your local bank");
+        expect(headings[1].tagName).toBe("H3");
+        expect(
+          within(dialog).getAllByText("Use Ripio to deposit from your local bank"),
+        ).toHaveLength(1);
+        expect(within(dialog).queryByText("Deposit from your local account")).toBeNull();
       }
       if (item.provider === "br") {
         expect(page().getByText(/does not currently expose Home's selected BRZ/)).toBeTruthy();
