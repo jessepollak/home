@@ -2,7 +2,10 @@ import "server-only";
 
 import type { MoneyActionStore } from "./store";
 
-type RuntimeMoneyActionStore = MoneyActionStore & { ensureSchema(): Promise<void> };
+type RuntimeMoneyActionStore = MoneyActionStore & {
+  ensureSchema(): Promise<void>;
+  dispose?(): Promise<void>;
+};
 type RuntimeStoreFactory = (connectionString: string) => Promise<RuntimeMoneyActionStore>;
 
 const defaultRuntimeStoreFactory: RuntimeStoreFactory = async (connectionString) => {
@@ -54,8 +57,13 @@ async function loadRuntimeStore(): Promise<MoneyActionStore> {
   const backend = resolveMoneyActionStoreBackend();
   if (backend === "postgres") {
     const store = await runtimeStoreFactory(process.env.DATABASE_URL!);
-    await store.ensureSchema();
-    return store;
+    try {
+      await store.ensureSchema();
+      return store;
+    } catch (error) {
+      try { await store.dispose?.(); } catch { /* preserve the readiness failure */ }
+      throw error;
+    }
   }
   if (backend === "cutover-unverified") {
     throw new Error(

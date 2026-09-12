@@ -70,6 +70,7 @@ describe("money action runtime store selection", () => {
       { status: "rejected", reason: { message: "transient runtime readiness failure" } },
       { status: "rejected", reason: { message: "transient runtime readiness failure" } },
     ]);
+    expect(first.disposeCalls).toBe(1);
 
     await expect(getMoneyActionStore()).resolves.toBe(recovered);
     await expect(getMoneyActionStore()).resolves.toBe(recovered);
@@ -134,9 +135,14 @@ describe("money action runtime store selection", () => {
 
 class RuntimeTestStore extends MemoryMoneyActionStore {
   readiness: () => Promise<void> = async () => {};
+  disposeCalls = 0;
 
   ensureSchema(): Promise<void> {
     return this.readiness();
+  }
+
+  async dispose(): Promise<void> {
+    this.disposeCalls += 1;
   }
 }
 

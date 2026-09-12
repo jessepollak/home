@@ -50,6 +50,10 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
     }
   }
 
+  async dispose(): Promise<void> {
+    await this.executor.dispose?.();
+  }
+
   async issue(action: PreparedMoneyAction, options?: MoneyActionIssueStoreOptions): Promise<"issued" | "existing"> {
     await this.ensureSchema();
     try {
