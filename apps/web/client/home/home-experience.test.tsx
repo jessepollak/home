@@ -23,12 +23,58 @@ import type { HomeAssetBalancesPresentation } from "@/client/portfolio";
 const replaceCalls: string[] = [];
 const pushCalls: string[] = [];
 let backCalls = 0;
+let autoPopRouterBack = true;
+
+// History-aware App Router double. `push`/`replace` keep a real call ledger
+// AND advance an in-test history stack, syncing `window.location` so the
+// components under test read the URL they just navigated to. `back` pops the
+// stack and emits a real `popstate`, so a broken `router.back` fails here.
+let historyEntries: string[] = ["/"];
+let historyCursor = 0;
+
+function syncHistoryLocation(href: string) {
+  window.history.replaceState({}, "", href);
+}
+
+function pushHistory(href: string) {
+  pushCalls.push(href);
+  historyEntries = historyEntries.slice(0, historyCursor + 1);
+  historyEntries.push(href);
+  historyCursor = historyEntries.length - 1;
+  syncHistoryLocation(href);
+}
+
+function replaceHistory(href: string) {
+  replaceCalls.push(href);
+  historyEntries[historyCursor] = href;
+  syncHistoryLocation(href);
+}
+
+function popHistory() {
+  if (historyCursor > 0) {
+    historyCursor -= 1;
+    syncHistoryLocation(historyEntries[historyCursor]);
+  }
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function resetHistory() {
+  replaceCalls.length = 0;
+  pushCalls.length = 0;
+  backCalls = 0;
+  autoPopRouterBack = true;
+  historyEntries = ["/"];
+  historyCursor = 0;
+  syncHistoryLocation("/");
+}
+
 mock.module("next/navigation", () => ({
   useRouter: () => ({
-    replace: (href: string) => replaceCalls.push(href),
-    push: (href: string) => pushCalls.push(href),
+    replace: (href: string) => replaceHistory(href),
+    push: (href: string) => pushHistory(href),
     back: () => {
       backCalls += 1;
+      if (autoPopRouterBack) popHistory();
     },
   }),
   usePathname: () => "/",
@@ -44,9 +90,12 @@ const {
   createBlockedAccountWalletClient,
 } = await import("@/client/account/cdp-client");
 const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
-const { HomeExperience, PortfolioHomeExperience } = await import(
-  "./home-experience"
-);
+const {
+  HomeExperience,
+  PortfolioHomeExperience,
+  clampHomeScrollTop,
+  homeBalancesRestoreScope,
+} = await import("./home-experience");
 const {
   homeBalancesPresentationCachePrefix,
   readHomeBalancesPresentation,
@@ -681,15 +730,35 @@ function revealNextBalancesBatch() {
   });
 }
 
+function stubInvestHistory() {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname === "/api/market-prices/history") {
+      return Response.json({
+        version: 1,
+        provider: "codex",
+        assetId: url.searchParams.get("assetId") ?? "",
+        range: url.searchParams.get("range") ?? "1D",
+        currency: "USD",
+        fetchedAt: null,
+        status: "empty",
+        points: [],
+      });
+    }
+    return original(input);
+  }) as typeof fetch;
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
   window.sessionStorage.clear();
-  replaceCalls.length = 0;
-  pushCalls.length = 0;
-  backCalls = 0;
   document.body.style.overflow = "";
-  window.history.replaceState({}, "", "/");
+  resetHistory();
   intersectionObserverInstances.length = 0;
   autoIntersectOnObserve = false;
 });
@@ -2523,6 +2592,66 @@ describe("balances incremental rendering", () => {
     }));
   }
 
+  function readyBalances(
+    count = 25,
+    items?: HomeAssetBalancesPresentation["items"],
+  ) {
+    return {
+      status: "ready" as const,
+      displayTotal: "$99.99",
+      items: items ?? manyBalances(count),
+    };
+  }
+
+  async function openManyBalances(
+    props: Partial<ComponentProps<typeof HomeHarness>> = {},
+  ) {
+    const view = render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={readyBalances()}
+        {...props}
+      />,
+    );
+    await enabledAccountButton();
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    return view;
+  }
+
+  function balancesMain() {
+    const main = document.querySelector(".app-main-authenticated") as HTMLElement;
+    expect(main).toBeTruthy();
+    return main;
+  }
+
+  function scrollBalances(main: HTMLElement, top = 480) {
+    main.scrollTop = top;
+    fireEvent.scroll(main);
+  }
+
+  function expectRevealWindowAtSecondBatch() {
+    expect(page().getByText("Holding 19")).toBeTruthy();
+    expect(page().queryByText("Holding 20")).toBeNull();
+  }
+
+  async function openAssetFromBalances() {
+    const { InvestExperience } = await import("@/client/invest/invest-experience");
+    const restoreFetch = stubInvestHistory();
+    await openManyBalances({ investContent: <InvestExperience /> });
+    revealNextBalancesBatch();
+    const main = balancesMain();
+    scrollBalances(main);
+    await openNvidiaAsset();
+    return { main, restoreFetch };
+  }
+
+  async function openNvidiaAsset() {
+    fireEvent.click(page().getByRole("button", { name: "Invest" }));
+    await page().findByRole("heading", { name: "Invest" });
+    fireEvent.click(page().getByRole("button", { name: "NVIDIA details" }));
+    await page().findByRole("heading", { name: "NVIDIA" });
+  }
+
   test("reveals the nested Balances list in batches and reaches the final holding without duplicates", async () => {
     render(
       <HomeHarness
@@ -2561,7 +2690,7 @@ describe("balances incremental rendering", () => {
     expect(page().getAllByText("Holding 12")).toHaveLength(1);
   });
 
-  test("preserves the revealed window when leaving and re-entering Balances", async () => {
+  test("clears the revealed window on a fresh forward Balances entry", async () => {
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
@@ -2583,8 +2712,10 @@ describe("balances incremental rendering", () => {
     expect(page().queryByText("Holding 19")).toBeNull();
 
     fireEvent.click(page().getByRole("button", { name: "Balances" }));
-    expect(page().getByText("Holding 19")).toBeTruthy();
-    expect(page().queryByText("Holding 20")).toBeNull();
+    expect(page().getByText("Holding 0")).toBeTruthy();
+    expect(page().getByText("Holding 9")).toBeTruthy();
+    expect(page().queryByText("Holding 10")).toBeNull();
+    expect(page().queryByText("Holding 19")).toBeNull();
     expect(document.querySelector(".balances-sentinel")).toBeTruthy();
   });
 
@@ -2621,7 +2752,7 @@ describe("balances incremental rendering", () => {
     expect(document.querySelector(".balances-sentinel")).toBeTruthy();
   });
 
-  test("preserves Balances scroll position when leaving and re-entering", async () => {
+  test("clears Balances scroll on a fresh forward Balances entry", async () => {
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
@@ -2645,7 +2776,7 @@ describe("balances incremental rendering", () => {
 
     fireEvent.click(page().getByRole("button", { name: "Balances" }));
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
-    expect(main.scrollTop).toBe(480);
+    expect(main.scrollTop).toBe(0);
   });
 
   test("auto-fills more than two batches while the sentinel stays intersecting", async () => {
@@ -2671,7 +2802,7 @@ describe("balances incremental rendering", () => {
     }
   });
 
-  test("keeps Account settings scroll separate from the Balances slot", async () => {
+  test("restores Balances after an asynchronous Account settings Back pop", async () => {
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
@@ -2685,6 +2816,7 @@ describe("balances incremental rendering", () => {
 
     await enabledAccountButton();
     fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    revealNextBalancesBatch();
     const main = document.querySelector(".app-main-authenticated") as HTMLElement;
     expect(main).toBeTruthy();
     main.scrollTop = 480;
@@ -2695,9 +2827,15 @@ describe("balances incremental rendering", () => {
     main.scrollTop = 120;
     fireEvent.scroll(main);
 
+    autoPopRouterBack = false;
     fireEvent.click(page().getByRole("button", { name: "Done" }));
+    expect(page().getByRole("heading", { level: 1, name: "Account" })).toBeTruthy();
+    expect(backCalls).toBe(1);
+
+    act(() => popHistory());
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
     expect(main.scrollTop).toBe(480);
+    expectRevealWindowAtSecondBatch();
   });
 
   test("resets the reveal window when rows change materially with unchanged IDs", async () => {
@@ -2795,5 +2933,278 @@ describe("balances incremental rendering", () => {
     fireEvent.click(page().getByRole("button", { name: "Balances" }));
     expect(page().getByText("Holding 5")).toBeTruthy();
     expect(document.querySelector(".balances-sentinel")).toBeNull();
+  });
+
+  test("restores Balances scroll and revealed batches after opening an asset and using app Back", async () => {
+    const { main, restoreFetch } = await openAssetFromBalances();
+    try {
+      fireEvent.click(page().getByRole("button", { name: "Back" }));
+      await page().findByRole("heading", { name: "Invest" });
+      act(() => popHistory());
+
+      expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+      expect(main.scrollTop).toBe(480);
+      expectRevealWindowAtSecondBatch();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("restores Balances scroll via browser history back after opening an asset", async () => {
+    const { main, restoreFetch } = await openAssetFromBalances();
+    try {
+      act(() => popHistory()); // asset detail -> Invest hub
+      act(() => popHistory()); // Invest hub -> Balances
+
+      expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+      expect(main.scrollTop).toBe(480);
+      expectRevealWindowAtSecondBatch();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("keeps a generic Balances→Invest→Back return at the top without restoring", async () => {
+    await openManyBalances();
+    revealNextBalancesBatch();
+    const main = balancesMain();
+    scrollBalances(main);
+
+    fireEvent.click(page().getByRole("button", { name: "Invest" }));
+    await page().findByRole("heading", { name: "Invest" });
+    act(() => popHistory());
+
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(main.scrollTop).toBe(0);
+    expect(page().getByText("Holding 0")).toBeTruthy();
+    expect(page().queryByText("Holding 10")).toBeNull();
+  });
+
+  test("keeps a direct Balances→Home→Back return at the top without restoring", async () => {
+    await openManyBalances();
+    revealNextBalancesBatch();
+    const main = balancesMain();
+    scrollBalances(main);
+
+    fireEvent.click(page().getByRole("button", { name: "Home" }));
+    expect(page().queryByRole("button", { name: "Back" })).toBeNull();
+    act(() => popHistory());
+
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(main.scrollTop).toBe(0);
+    expect(page().getByText("Holding 9")).toBeTruthy();
+    expect(page().queryByText("Holding 10")).toBeNull();
+  });
+
+  test("keeps a Balances→Home→Activity→Back return at the top without restoring", async () => {
+    await openManyBalances();
+    revealNextBalancesBatch();
+    const main = balancesMain();
+    scrollBalances(main);
+
+    fireEvent.click(page().getByRole("button", { name: "Home" }));
+    fireEvent.click(page().getByRole("button", { name: "Activity" }));
+    await page().findByRole("heading", { name: "Activity" });
+    act(() => popHistory()); // Activity -> Home
+    act(() => popHistory()); // Home -> Balances
+
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(main.scrollTop).toBe(0);
+    expect(page().getByText("Holding 9")).toBeTruthy();
+    expect(page().queryByText("Holding 10")).toBeNull();
+  });
+
+  const identityFences = [
+    {
+      name: "owner",
+      rerender: (view: ReturnType<typeof render>) =>
+        view.rerender(
+          <HomeHarness
+            accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })}
+            sessionFetch={async () =>
+              Response.json(
+                session(
+                  { address: ADDRESS_B, chainId: BASE_CHAIN_ID },
+                  "cdp-embedded",
+                  "subject-home-b",
+                ),
+              )
+            }
+            assetBalances={readyBalances()}
+          />,
+        ),
+    },
+    {
+      name: "account provider",
+      rerender: (view: ReturnType<typeof render>) =>
+        view.rerender(
+          <HomeHarness
+            accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+            sessionFetch={async () =>
+              Response.json(
+                session(
+                  { address: ADDRESS, chainId: BASE_CHAIN_ID },
+                  "base-account",
+                ),
+              )
+            }
+            assetBalances={readyBalances()}
+          />,
+        ),
+    },
+    {
+      name: "subject",
+      rerender: (view: ReturnType<typeof render>) =>
+        view.rerender(
+          <HomeHarness
+            accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+            sessionFetch={async () =>
+              Response.json(
+                session(
+                  { address: ADDRESS, chainId: BASE_CHAIN_ID },
+                  "cdp-embedded",
+                  "subject-home-other",
+                ),
+              )
+            }
+            assetBalances={readyBalances()}
+          />,
+        ),
+    },
+    {
+      name: "smart account",
+      rerender: (view: ReturnType<typeof render>) =>
+        view.rerender(
+          <HomeHarness
+            accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+            sessionFetch={async () =>
+              Response.json(
+                session({ address: ADDRESS_B, chainId: BASE_CHAIN_ID }),
+              )
+            }
+            assetBalances={readyBalances()}
+          />,
+        ),
+    },
+    {
+      name: "region",
+      rerender: (view: ReturnType<typeof render>) =>
+        view.rerender(
+          <HomeHarness
+            accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+            detectedCountry="US"
+            assetBalances={readyBalances()}
+          />,
+        ),
+    },
+    {
+      name: "list",
+      rerender: (view: ReturnType<typeof render>) =>
+        view.rerender(
+          <HomeHarness
+            accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+            assetBalances={readyBalances(
+              25,
+              manyBalances(25).map((item) => ({
+                ...item,
+                id: `${item.id}-other`,
+                name: `Other ${item.name}`,
+              })),
+            )}
+          />,
+        ),
+    },
+  ];
+
+  for (const fence of identityFences) {
+    test(`clears saved Balances scroll when the ${fence.name} identity changes`, async () => {
+      const view = await openManyBalances();
+      const main = balancesMain();
+      scrollBalances(main);
+
+      fence.rerender(view);
+
+      await waitFor(() => expect(main.scrollTop).toBe(0));
+    });
+  }
+
+  test("does not refetch portfolio valuation when returning to Balances", async () => {
+    const valuationRequests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") return Response.json(session());
+      if (String(input).startsWith("/api/activity?")) {
+        return Response.json(activityPage(input));
+      }
+      if (String(input).startsWith("/api/portfolio/valuation?")) {
+        valuationRequests.push(String(input));
+        return valuationResponse(input, { usdc: "12340000" });
+      }
+      return Response.json(portfolioSnapshot({ usdc: "12340000" }));
+    };
+
+    render(
+      <PortfolioHomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        sessionFetch={sessionFetch}
+      />,
+    );
+
+    expect(await page().findByLabelText("Total balance")).toBeTruthy();
+    expect(valuationRequests).toHaveLength(1);
+
+    fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    await page().findByRole("heading", { name: "Balances" });
+    const main = document.querySelector(".app-main-authenticated") as HTMLElement;
+    expect(main).toBeTruthy();
+    main.scrollTop = 480;
+    fireEvent.scroll(main);
+
+    fireEvent.click(page().getByRole("button", { name: "Invest" }));
+    await page().findByRole("heading", { name: "Invest" });
+
+    act(() => popHistory());
+
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(main.scrollTop).toBe(0);
+    expect(valuationRequests).toHaveLength(1);
+  });
+});
+
+describe("balances scroll clamp", () => {
+  test("clamps a saved offset to the current scrollable range", () => {
+    const tall = { scrollHeight: 1000, clientHeight: 400 } as HTMLElement;
+    const short = { scrollHeight: 600, clientHeight: 400 } as HTMLElement;
+    const flat = { scrollHeight: 300, clientHeight: 400 } as HTMLElement;
+
+    expect(clampHomeScrollTop(tall, 480)).toBe(480);
+    expect(clampHomeScrollTop(short, 480)).toBe(200);
+    // When content is shorter than the viewport, defer to the native clamp.
+    expect(clampHomeScrollTop(flat, 480)).toBe(480);
+    expect(clampHomeScrollTop(null, 480)).toBe(480);
+    expect(clampHomeScrollTop(tall, 0)).toBe(0);
+  });
+});
+
+describe("balances restoration identity", () => {
+  test("fences the reveal scope by account provider independently", () => {
+    const base = {
+      ownerKey: "owner",
+      provider: "cdp-embedded",
+      subject: "subject",
+      smartAccount: ADDRESS,
+      region: "US" as RegionId,
+    };
+    const embedded = homeBalancesRestoreScope(base);
+    const baseAccount = homeBalancesRestoreScope({
+      ...base,
+      provider: "base-account",
+    });
+
+    expect(embedded).toBeTruthy();
+    expect(baseAccount).toBeTruthy();
+    expect(baseAccount).not.toBe(embedded);
+    expect(
+      homeBalancesRestoreScope({ ...base, smartAccount: null }),
+    ).toBeNull();
   });
 });
