@@ -19,12 +19,14 @@ type ConformanceOptions = {
   paymentMethodId: string;
   env: Readonly<Record<string, string>>;
   intent: OrderIntent;
-  successResponse: () => Response;
+  successResponse: (requestIndex: number, url: string) => Response;
+  createRequestPath?: string;
+  reconciliationProviderOrderId?: string;
   invalidCreateResponses: ReadonlyArray<{
     name: string;
-    response: () => Response;
+    response: (requestIndex: number, url: string) => Response;
   }>;
-  unknownStatusResponse: () => Response;
+  unknownStatusResponse: (requestIndex: number, url: string) => Response;
 };
 
 type RecordedRequest = {
@@ -134,12 +136,15 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
             url: input instanceof Request ? input.url : String(input),
             init,
           });
-          return options.successResponse();
+          return options.successResponse(requests.length, input instanceof Request ? input.url : String(input));
         }) as unknown as typeof fetch,
       });
       const result = await options.provider.createOrder(options.intent, ctx);
-      expect(requests).toHaveLength(1);
-      const body = parseRequestBody(requests[0]?.init.body);
+      const createRequests = options.createRequestPath
+        ? requests.filter((request) => new URL(request.url).pathname === options.createRequestPath)
+        : requests;
+      expect(createRequests).toHaveLength(1);
+      const body = parseRequestBody(createRequests[0]?.init.body);
       expect(containsValue(body, options.intent.destination)).toBe(true);
       if (options.provider.manifest.reference === "home") {
         expect(containsValue(body, options.intent.homeOrderId)).toBe(true);
@@ -160,19 +165,22 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
       expect(options.invalidCreateResponses.length).toBeGreaterThan(0);
       for (const scenario of options.invalidCreateResponses) {
         let calls = 0;
+        let createCalls = 0;
         const ctx = createProviderContext({
           manifest: options.provider.manifest,
           region: options.region,
           paymentMethodId: options.paymentMethodId,
           env: options.env,
-          fetchImplementation: (async () => {
+          fetchImplementation: (async (input: RequestInfo | URL) => {
             calls += 1;
-            return scenario.response();
+            const url = input instanceof Request ? input.url : String(input);
+            if (!options.createRequestPath || new URL(url).pathname === options.createRequestPath) createCalls += 1;
+            return scenario.response(calls, url);
           }) as unknown as typeof fetch,
         });
         const result = await options.provider.createOrder(options.intent, ctx);
         expect(result, scenario.name).toEqual({ outcome: "ambiguous" });
-        expect(calls, scenario.name).toBe(1);
+        expect(createCalls, scenario.name).toBe(1);
       }
     });
 
@@ -209,13 +217,16 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
     });
 
     test("maps an unrecognized provider status to unknown", async () => {
+      let calls = 0;
       const ctx = createProviderContext({
         manifest: options.provider.manifest,
         region: options.region,
         paymentMethodId: options.paymentMethodId,
         env: options.env,
-        fetchImplementation: (async () =>
-          options.unknownStatusResponse()) as unknown as typeof fetch,
+        fetchImplementation: (async (input: RequestInfo | URL) => {
+          calls += 1;
+          return options.unknownStatusResponse(calls, input instanceof Request ? input.url : String(input));
+        }) as unknown as typeof fetch,
       });
       await expect(options.provider.getOrder(
         reconciliationIntent(options, ctx.binding.asset),
@@ -230,11 +241,15 @@ function reconciliationIntent(
   asset: FundingAsset,
 ): ReconciliationIntent {
   return {
-    providerOrderId: "synthetic-order-1",
+    homeOrderId: options.intent.homeOrderId,
+    providerOrderId: options.reconciliationProviderOrderId ?? "synthetic-order-1",
+    providerQuoteId: options.intent.quote?.providerQuoteId,
+    customerRef: options.intent.customerRef,
     transactionType: "MINT",
     chainId: asset.chainId,
     tokenAddress: asset.address,
     destination: options.intent.destination,
+    fiatAmount: options.intent.fiatAmount,
     expectedTokenAmountAtomic: decimalToAtomic(
       options.intent.fiatAmount,
       asset.decimals,

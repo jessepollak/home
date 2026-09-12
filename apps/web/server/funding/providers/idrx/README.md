@@ -1,6 +1,6 @@
 # IDRX funding adapter
 
-This adapter implements the IDRX issuer API as an `order` provider on Base. It is an unwired candidate: no production route, store, UI, or environment-driven enablement calls it yet.
+This adapter implements the IDRX issuer API as an `order` provider on Base. It is wired through the #301 provider registry, private funding routes, durable order store, and Add money flow; it remains inert until every manifest environment variable is configured.
 
 - Region / asset: Indonesia (`ID`) / `base:idrx` (2 decimals).
 - Operator account: no per-user KYC. The declared server-only environment is `IDRX_CLIENT_ID`, `IDRX_CLIENT_SECRET`, and `IDRX_CUSTOMER_NAME`.

@@ -27,7 +27,8 @@ export const ripioProvider: FundingProvider = {
     const customer = await client.createCustomer({ email });
     const terms = await client.getTerms();
     const termsId = readTermsId(terms);
-    if (termsId) await client.acceptTerms(customer.customerId, termsId);
+    if (!termsId) throw new RipioProviderError("invalid-response");
+    await client.acceptTerms(customer.customerId, termsId);
     const kyc = Object.fromEntries(
       Object.entries(input.fields).filter(([name]) => name !== "email"),
     );
@@ -97,22 +98,37 @@ export const ripioProvider: FundingProvider = {
   },
 
   async getOrder(input, ctx) {
-    const transaction = await clientFor(ctx).getTransaction(input.providerOrderId);
+    if (!input.homeOrderId || !input.customerRef || !input.providerQuoteId) throw new RipioProviderError("binding-conflict");
+    const transaction = await clientFor(ctx).getTransaction(input.providerOrderId, {
+      customerId: input.customerRef,
+      quoteId: input.providerQuoteId,
+      externalRef: input.homeOrderId,
+      destination: input.destination,
+      fromCurrency: ctx.binding.asset.fiatCurrency,
+      toCurrency: ctx.binding.asset.symbol,
+      chain: "BASE",
+      paymentMethodType: ctx.binding.paymentMethod.id,
+      finalToAmount: atomicToDecimal(input.expectedTokenAmountAtomic, input.tokenDecimals),
+    });
     if (
-      transaction.destination && transaction.destination.toLowerCase() !== input.destination.toLowerCase()
-      || transaction.operationType && transaction.operationType !== "ON_RAMP"
-      || transaction.chain && transaction.chain !== "BASE"
-      || transaction.fromCurrency && transaction.fromCurrency !== ctx.binding.asset.fiatCurrency
-      || transaction.toCurrency && transaction.toCurrency !== ctx.binding.asset.symbol
-      || transaction.paymentMethodType && transaction.paymentMethodType !== ctx.binding.paymentMethod.id
-      || transaction.amount && decimalToAtomic(transaction.amount, input.tokenDecimals) !== input.expectedTokenAmountAtomic
+      transaction.customerId !== input.customerRef
+      || transaction.quoteId !== input.providerQuoteId
+      || transaction.externalRef !== input.homeOrderId
+      || transaction.destination?.toLowerCase() !== input.destination.toLowerCase()
+      || transaction.operationType !== "ON_RAMP"
+      || transaction.chain !== "BASE"
+      || transaction.fromCurrency !== ctx.binding.asset.fiatCurrency
+      || transaction.toCurrency !== ctx.binding.asset.symbol
+      || transaction.paymentMethodType !== ctx.binding.paymentMethod.id
+      || transaction.amount === undefined
+      || decimalToAtomic(transaction.amount, input.tokenDecimals) !== input.expectedTokenAmountAtomic
     ) throw new RipioProviderError("binding-conflict");
-    return observationFor(transaction.status, transaction.txnHash);
+    return observationFor(transaction.status, transaction.txnHash, transaction.latestRefund);
   },
 
   verifyWebhook(raw, headers, ctx) {
     const supplied = headers.get(ripioManifest.webhook.signatureHeader)?.trim().replace(/^sha256=/i, "");
-    if (!supplied || !/^[0-9a-f]{64}$/i.test(supplied)) return null;
+    if (!supplied || supplied.length > 128 || !/^[0-9a-f]{64}$/i.test(supplied)) return null;
     const expected = createHmac("sha256", ctx.env.RIPIO_WEBHOOK_SECRET).update(raw).digest();
     const actual = Buffer.from(supplied, "hex");
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
@@ -138,22 +154,29 @@ function countryFor(ctx: ProviderContext): "AR" | "CO" {
 function instructionsFor(order: RipioOrderReference, quote: Quote, ctx: ProviderContext) {
   const amount = quote.fiatAmount;
   const currency = ctx.binding.asset.fiatCurrency;
-  switch (order.instructions.kind) {
-    case "ar-bank-transfer":
-      return { kind: "bank-transfer" as const, rail: "CVU", accountNumber: order.instructions.cvu, alias: order.instructions.alias, amount, currency };
-    case "co-payment-url":
-      return { kind: "redirect" as const, url: order.instructions.paymentUrl };
-    case "co-breb":
-      return { kind: "payment-key" as const, scheme: "Bre-B", key: order.instructions.brebKey, amount, currency };
-    case "co-r2p-nequi":
-      return { kind: "payment-key" as const, scheme: "Nequi", key: order.instructions.phoneNumber, amount, currency };
+  const method = ctx.binding.paymentMethod.id;
+  if (method === "bank_transfer" && ctx.binding.region === "AR" && order.instructions.kind === "ar-bank-transfer") {
+    return { kind: "bank-transfer" as const, rail: "CVU", accountNumber: order.instructions.cvu, alias: order.instructions.alias, amount, currency };
   }
+  if ((method === "bank_transfer" || method === "r2p_bancolombia") && ctx.binding.region === "CO" && order.instructions.kind === "co-payment-url") {
+    assertRedirectOrigin(order.instructions.paymentUrl);
+    return { kind: "redirect" as const, url: order.instructions.paymentUrl };
+  }
+  if (method === "breb" && ctx.binding.region === "CO" && order.instructions.kind === "co-breb") {
+    return { kind: "payment-key" as const, scheme: "Bre-B", key: order.instructions.brebKey, amount, currency };
+  }
+  if (method === "r2p_nequi" && ctx.binding.region === "CO" && order.instructions.kind === "co-r2p-nequi") {
+    return { kind: "payment-key" as const, scheme: "Nequi", key: order.instructions.phoneNumber, amount, currency };
+  }
+  throw new RipioProviderError("binding-conflict");
 }
 
-function observationFor(status: string, hash: string | null): Observation {
+function observationFor(status: string, hash: string | null, refund: { status: string; rejectionReason: string | null } | null): Observation {
   const normalized = status.toUpperCase();
+  const refundStatus = refund?.status.toUpperCase();
   let state: ReportedState;
-  if (["CREATED", "PENDING", "AWAITING_PAYMENT"].includes(normalized)) state = "awaiting-payment";
+  if (["COMPLETED", "REFUNDED", "SUCCESS"].includes(refundStatus ?? "")) state = "refunded";
+  else if (["CREATED", "PENDING", "AWAITING_PAYMENT"].includes(normalized)) state = "awaiting-payment";
   else if (["PAYMENT_RECEIVED", "ONRAMP_PAYMENT_RECEIVED"].includes(normalized)) state = "payment-received";
   else if (["CONVERTING", "PROCESSING", "SENDING", "ONRAMP_CRYPTO_BUY_IN_PROGRESS"].includes(normalized)) state = "settling";
   else if (["COMPLETED", "SUCCESS", "ONRAMP_CRYPTO_SENT"].includes(normalized)) state = "sent";
@@ -163,6 +186,14 @@ function observationFor(status: string, hash: string | null): Observation {
   else if (["FAILED", "SERVICE_UNAVAILABLE", "ONRAMP_FAILED"].includes(normalized)) state = "failed";
   else state = "unknown";
   return { state, providerStatus: status, transactionHash: hash as `0x${string}` | null };
+}
+
+function assertRedirectOrigin(value: string): void {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new RipioProviderError("binding-conflict"); }
+  if (!ripioManifest.redirectOrigins?.some((origin) => origin === url.origin) || url.username || url.password || url.hash) {
+    throw new RipioProviderError("binding-conflict");
+  }
 }
 
 function decimalToAtomic(value: string, decimals: number): string {
