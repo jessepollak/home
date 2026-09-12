@@ -33,7 +33,7 @@ const localeCases = [
     percentage: "4.50%",
     delta: "−0.67%",
     tiny: "$0.0000001234",
-    date: "Sep 7, 2026 at 11:05 AM",
+    date: "Sep 7, 2026, 11:05 AM",
   },
   {
     regionId: "BR" as const,
@@ -55,17 +55,17 @@ const localeCases = [
     percentage: "4,50%",
     delta: "−0,67%",
     tiny: "$ 0,0000001234",
-    date: "7 de sept de 2026, 11:05 a. m.",
+    date: "7 de sept de 2026, 11:05 a. m.",
   },
   {
     regionId: "ID" as const,
     currency: "IDR",
-    fiat: "Rp1.234,56",
+    fiat: "Rp 1.234,56",
     token: "−123,45 USDC",
-    compact: "Rp64,21 rb",
+    compact: "Rp 64,21 rb",
     percentage: "4,50%",
     delta: "−0,67%",
-    tiny: "Rp0,0000001234",
+    tiny: "Rp 0,0000001234",
     date: "7 Sep 2026, 11.05",
   },
 ];
@@ -210,7 +210,7 @@ describe("presentation money formatting", () => {
     expect(formatFiatValue({ atoms: "0", scale: 18 }, "USD")).toBe("USD 0.00");
     expect(presentationCurrencyName("USD")).toBe("US dollar");
     expect(formatPresentationFiat({ atoms: "481240", scale: 2 }, "IDR", 2, "ID")).toBe(
-      "Rp4.812,40",
+      "Rp 4.812,40",
     );
     expect(formatMoneyLabel("4,812.40", "BRL", "BR")).toBe("R$ 4.812,40");
   });
