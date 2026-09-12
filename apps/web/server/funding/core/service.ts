@@ -18,6 +18,7 @@ export type FundingCoreDependencies = {
   fetchImplementation?: typeof fetch;
   currentBaseBlock: () => Promise<string>;
   verifyReceipt: (order: FundingOrder, hash: `0x${string}`) => Promise<ReceiptMatch>;
+  logUnmatchedWebhook?: (event: { providerId: string; reason: "invalid" | "unmatched" }) => void;
   now?: () => Date;
 };
 
@@ -46,6 +47,7 @@ export class FundingCore {
         region: binding.region,
         assetId: asset.id,
         assetSymbol: asset.symbol,
+        assetDecimals: asset.decimals,
         currency: asset.fiatCurrency,
         paymentMethods: binding.paymentMethods,
         quotes: provider.manifest.quotes === true,
@@ -96,26 +98,35 @@ export class FundingCore {
     const provider = this.provider(claims.providerId);
     const binding = provider?.manifest.bindings.find((candidate) => candidate.region === claims.region && candidate.assetId === claims.assetId && candidate.paymentMethods.some((method) => method.id === claims.paymentMethod));
     if (!provider || !binding || !binding.env.every((name) => Boolean(this.env[name]?.trim()))) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
+    const owner = ownerFor(session);
+    const intentDigest = createHash("sha256").update(body.quoteToken).digest("hex");
+    const existing = await this.deps.store.getByIntent(owner, intentDigest);
+    if (existing) return publicOrder(existing);
     const id = randomUUID();
     const timestamp = this.now().toISOString();
     const reserved = await this.deps.store.reserve({
-      id, owner: ownerFor(session), destination: session.smartAccount.address, providerId: claims.providerId,
+      id, owner, destination: session.smartAccount.address, providerId: claims.providerId,
       region: claims.region, assetId: claims.assetId, paymentMethod: claims.paymentMethod,
-      fiatAmount: claims.fiatAmount, intentDigest: createHash("sha256").update(body.quoteToken).digest("hex"),
-      quote: claims.quote, customerRef: claims.customerRef, creationBlock: await this.deps.currentBaseBlock(), createdAt: timestamp,
+      fiatAmount: claims.fiatAmount, intentDigest,
+      quote: claims.quote, quoteToken: body.quoteToken, customerRef: claims.customerRef,
+      creationBlock: await this.deps.currentBaseBlock(), createdAt: timestamp,
     });
     if (!reserved.created) return publicOrder(reserved.order);
     const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, paymentMethodId: claims.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation });
     const result = await provider.createOrder({ homeOrderId: id, destination: session.smartAccount.address, fiatAmount: claims.fiatAmount, quote: claims.quote, customerRef: claims.customerRef ?? undefined, returnUrl: `${returnOrigin}/fund?return=funding` }, ctx);
-    if (result.outcome === "ambiguous") return publicOrder(await this.deps.store.markDispatchAmbiguous(id, this.now().toISOString()));
-    if (result.outcome === "rejected") return publicOrder(await this.deps.store.applyObservation(id, { state: "failed", providerStatus: result.message, updatedAt: this.now().toISOString() }));
+    if (result.outcome === "ambiguous") return publicOrder(await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString()));
+    if (result.outcome === "rejected") {
+      const rejected = await this.deps.store.applyObservation(id, { state: "failed", providerStatus: result.message, expectedVersion: reserved.order.version, updatedAt: this.now().toISOString() });
+      if (!rejected) throw new FundingCoreError("ORDER_STATE_CHANGED", 409);
+      return publicOrder(rejected);
+    }
     const asset = getFundingAsset(claims.assetId)!;
     if (result.order.tokenAddress.toLowerCase() !== asset.address.toLowerCase() || result.order.expectedTokenAmountAtomic !== claims.quote.tokenAmountAtomic) {
       // The create reached the provider, so a contradictory echo is an ambiguous
       // dispatch, never a safe rejection that the UI may repeat.
-      return publicOrder(await this.deps.store.markDispatchAmbiguous(id, this.now().toISOString()));
+      return publicOrder(await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString()));
     }
-    return publicOrder(await this.deps.store.completeDispatch(id, { ...result.order, updatedAt: this.now().toISOString() }));
+    return publicOrder(await this.deps.store.completeDispatch(id, { ...result.order, expectedVersion: reserved.order.version, updatedAt: this.now().toISOString() }));
   }
 
   async getOrder(session: VerifiedAccountSession, id: string) {
@@ -142,9 +153,15 @@ export class FundingCore {
       }
       if (providerOrderId) break;
     }
-    if (!providerOrderId) return { accepted: true, matched: false };
+    if (!providerOrderId) {
+      this.deps.logUnmatchedWebhook?.({ providerId, reason: "invalid" });
+      return { accepted: true, matched: false };
+    }
     const order = await this.deps.store.getByProviderOrderId(providerId, providerOrderId);
-    if (!order) return { accepted: true, matched: false };
+    if (!order) {
+      this.deps.logUnmatchedWebhook?.({ providerId, reason: "unmatched" });
+      return { accepted: true, matched: false };
+    }
     await this.refresh(order, true);
     return { accepted: true, matched: true };
   }
@@ -160,13 +177,34 @@ export class FundingCore {
     const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation });
     let observation: Observation;
     try {
-      observation = await provider.getOrder({ providerOrderId: order.providerOrderId, transactionType: "MINT", chainId: 8453, tokenAddress: asset.address, destination: order.destination, expectedTokenAmountAtomic: order.expectedTokenAmountAtomic, tokenDecimals: asset.decimals }, ctx);
+      observation = await provider.getOrder({
+        homeOrderId: order.id,
+        providerOrderId: order.providerOrderId,
+        providerQuoteId: order.quote.providerQuoteId,
+        customerRef: order.customerRef ?? undefined,
+        transactionType: "MINT",
+        chainId: 8453,
+        tokenAddress: asset.address,
+        destination: order.destination,
+        fiatAmount: order.fiatAmount,
+        expectedTokenAmountAtomic: order.expectedTokenAmountAtomic,
+        tokenDecimals: asset.decimals,
+      }, ctx);
     } catch { return order; }
     const nextState = observation.state === "sent" ? "sent-unverified" : observation.state;
-    let updated = await this.deps.store.applyObservation(order.id, { state: nextState, providerStatus: observation.providerStatus, transactionHash: observation.transactionHash, updatedAt: this.now().toISOString() });
+    let updated = await this.deps.store.applyObservation(order.id, {
+      state: nextState,
+      providerStatus: observation.providerStatus,
+      providerTransactionHash: observation.transactionHash,
+      expectedVersion: order.version,
+      updatedAt: this.now().toISOString(),
+    });
+    // A concurrent or terminal transition won the compare-and-swap. This stale
+    // observation must not claim a receipt or overwrite the winning state.
+    if (!updated) return await this.deps.store.getOwned(order.id, order.owner) ?? order;
     if (observation.transactionHash) {
       const evidence = await this.deps.verifyReceipt(updated, observation.transactionHash);
-      if (evidence) updated = await this.deps.store.claimReceipt(order.id, { ...evidence, updatedAt: this.now().toISOString() }) ?? updated;
+      if (evidence) updated = await this.deps.store.claimReceipt(order.id, { ...evidence, expectedVersion: updated.version, updatedAt: this.now().toISOString() }) ?? updated;
     }
     return updated;
   }
@@ -178,7 +216,7 @@ export class FundingCore {
 export class FundingCoreError extends Error { constructor(readonly code: string, readonly status: number) { super(code); } }
 
 export function publicOrder(order: FundingOrder) {
-  return { id: order.id, providerId: order.providerId, region: order.region, assetId: order.assetId, paymentMethod: order.paymentMethod, fiatAmount: order.fiatAmount, state: order.state, expectedTokenAmountAtomic: order.expectedTokenAmountAtomic, fees: order.fees, expiresAt: order.expiresAt, instructions: order.instructions, providerStatus: order.providerStatus, transactionHash: order.transactionHash, createdAt: order.createdAt, updatedAt: order.updatedAt };
+  return { id: order.id, providerId: order.providerId, region: order.region, assetId: order.assetId, paymentMethod: order.paymentMethod, fiatAmount: order.fiatAmount, quote: order.quote, quoteToken: order.quoteToken, state: order.state, expectedTokenAmountAtomic: order.expectedTokenAmountAtomic, fees: order.fees, expiresAt: order.expiresAt, instructions: order.instructions, providerStatus: order.providerStatus, transactionHash: order.transactionHash, createdAt: order.createdAt, updatedAt: order.updatedAt };
 }
 function ownerFor(session: VerifiedAccountSession): FundingOrderOwner { return { subject: session.user.subject, accountProvider: session.accountProvider }; }
 function localOneToOneQuote(fiatAmount: string, decimals: number, now: Date): Quote { return { fiatAmount, tokenAmountAtomic: decimalToAtomic(fiatAmount, decimals), fees: [], expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString() }; }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { presentationRegions } from "@/config/regions";
-import { FUNDING_CHAIN_ID, fundingAssets } from "./assets";
+import { FUNDING_CHAIN_ID, fundingAssets, getFundingAsset } from "./assets";
 
 const regionByAsset = {
   "base:usdc": "US",
@@ -41,6 +41,12 @@ describe("funding asset registry", () => {
       expect(asset.chainId).toBe(FUNDING_CHAIN_ID);
       expect(new URL(asset.issuerDocsUrl).protocol).toBe("https:");
     }
+  });
+
+  test("returns only own registry properties", () => {
+    expect(getFundingAsset("base:idrx")?.symbol).toBe("IDRX");
+    expect(getFundingAsset("toString")).toBeUndefined();
+    expect(getFundingAsset("__proto__")).toBeUndefined();
   });
 
   test("agrees with regional fiat/symbol defaults and the currency-defaults document", async () => {

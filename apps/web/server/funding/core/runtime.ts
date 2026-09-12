@@ -20,6 +20,9 @@ export function getFundingCore(): FundingCore {
     store: createRuntimeFundingOrderStore(),
     currentBaseBlock: () => readCurrentBaseBlock(),
     verifyReceipt: (order, hash) => verifyBaseFundingReceipt(order, hash),
+    logUnmatchedWebhook: ({ providerId, reason }) => {
+      console.info(JSON.stringify({ event: "funding-webhook-unmatched", providerId, reason }));
+    },
   });
   return core;
 }

@@ -81,11 +81,15 @@ export type CreateOrderResult =
   | { outcome: "ambiguous" };
 
 export type ReconciliationIntent = Readonly<{
+  homeOrderId?: string;
   providerOrderId: string;
+  providerQuoteId?: string;
+  customerRef?: string;
   transactionType: "MINT";
   chainId: FundingAsset["chainId"];
   tokenAddress: `0x${string}`;
   destination: `0x${string}`;
+  fiatAmount?: string;
   expectedTokenAmountAtomic: string;
   tokenDecimals: number;
 }>;

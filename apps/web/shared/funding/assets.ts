@@ -58,5 +58,7 @@ export const fundingAssets = {
 } as const satisfies Record<FundingAssetId, FundingAsset>;
 
 export function getFundingAsset(id: string): FundingAsset | undefined {
-  return fundingAssets[id as FundingAssetId];
+  return Object.prototype.hasOwnProperty.call(fundingAssets, id)
+    ? fundingAssets[id as FundingAssetId]
+    : undefined;
 }
