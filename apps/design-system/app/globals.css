@@ -118,6 +118,20 @@ body {
   transform: translateX(6px);
 }
 .catalog-section > .home-ui-button { justify-self: start; }
+.catalog-sheet-matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: var(--home-ui-space-3);
+  min-inline-size: 0;
+}
+.catalog-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--home-ui-space-3);
+  min-inline-size: 0;
+}
+.home-ui-sheet__footer > .home-ui-button { width: 100%; }
 .catalog-motion-reduced { display: none; }
 @media (max-width: 480px) {
   /* Keep catalog insets at their 100% size when the specimen enlarges text. */
