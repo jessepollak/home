@@ -29,6 +29,10 @@ function hosted() {
   };
 }
 
+function fundingBinding() {
+  return { providerId: "ripio", displayName: "Ripio", region: "AR", assetId: "base:wars", assetSymbol: "wARS", assetDecimals: 18, currency: "ARS", paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }], quotes: true, kyc: null };
+}
+
 function verifiedWallet(address: `0x${string}` = ADDRESS_A): FundingWallet {
   return {
     ownerKey: `owner-${address}`,
@@ -152,10 +156,10 @@ describe("FundingExperience", () => {
       ...verifiedWallet(),
       fetchAccountResource: async (path: string, options?: { body?: unknown }) => {
         requests.push({ path, body: options?.body });
-        if (path.startsWith("/api/funding/providers")) return { providers: [{ providerId: "ripio", displayName: "Ripio", region: "AR", assetId: "base:wars", assetSymbol: "wARS", currency: "ARS", paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }], quotes: true, kyc: null }] };
+        if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
         if (path.startsWith("/api/funding/orders?")) return { order: null };
-        if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "1000" } };
-        if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", state: "awaiting-payment", fiatAmount: "1000", providerStatus: null, instructions: { kind: "bank-transfer", rail: "CVU", accountNumber: "1234567890", amount: "1000", currency: "ARS" } } };
+        if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [{ label: "Rail", amount: "10", currency: "ARS" }], expiresAt: "2099-01-01T00:00:00.000Z" } };
+        if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "awaiting-payment", fiatAmount: "1000", providerStatus: null, instructions: { kind: "bank-transfer", rail: "CVU", accountNumber: "1234567890", amount: "1000", currency: "ARS" } } };
         throw new Error("unexpected request");
       },
     };
@@ -164,10 +168,54 @@ describe("FundingExperience", () => {
     fireEvent.click(provider);
     expect(page().getByRole("dialog", { name: "Deposit ARS" })).toBeTruthy();
     for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
-    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+    await page().findByRole("heading", { name: "Review quote" });
+    expect(page().getByText("Receive: 1000 wARS")).toBeTruthy();
+    expect(page().getByText("Rail: 10 ARS")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
     await page().findByText("Deposit pending");
     expect(page().getByText("1234567890")).toBeTruthy();
     expect(requests.find((item) => item.path === "/api/funding/orders")?.body).toEqual({ quoteToken: "signed-token" });
+  });
+
+  test("retries a lost order response with the exact original quote token", async () => {
+    let quoteCalls = 0;
+    const orderBodies: unknown[] = [];
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string, options?: { body?: unknown }) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path === "/api/funding/quotes") { quoteCalls += 1; return { quoteToken: "original-signed-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } }; }
+      if (path === "/api/funding/orders") { orderBodies.push(options?.body); if (orderBodies.length === 1) throw new Error("lost response"); return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "dispatch-ambiguous", fiatAmount: "1000", providerStatus: null, instructions: null } }; }
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToHostedOnramp={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS Use Ripio/ }));
+    for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
+    fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+    await page().findByRole("heading", { name: "Review quote" });
+    fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
+    await page().findByRole("alert");
+    expect(page().getByRole("button", { name: "Back" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
+    await page().findByText("Check Activity before trying again");
+    expect(quoteCalls).toBe(1);
+    expect(orderBodies).toEqual([{ quoteToken: "original-signed-token" }, { quoteToken: "original-signed-token" }]);
+  });
+
+  test("late ambiguous resume never overrides an explicit Receive selection", async () => {
+    let resolveOrder!: (value: unknown) => void;
+    const pendingOrder = new Promise<unknown>((resolve) => { resolveOrder = resolve; });
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return pendingOrder;
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToHostedOnramp={() => {}} regionId="AR" />);
+    fireEvent.click(page().getByRole("button", { name: /Receive crypto/ }));
+    expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
+    await act(async () => { resolveOrder({ order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "dispatch-ambiguous", fiatAmount: "1000", providerStatus: null, instructions: null } }); await pendingOrder; });
+    expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
+    expect(page().queryByText("Check Activity before trying again")).toBeNull();
   });
 
   test("shows only server-configured bindings and leaves the US Coinbase row working", async () => {

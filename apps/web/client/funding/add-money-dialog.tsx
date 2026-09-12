@@ -87,7 +87,7 @@ export function AddMoneyDialog({
       <MoneyModalHeader
         title={title}
         titleId="add-money-title"
-        onBack={step === "method" ? undefined : onBack}
+        onBack={step === "method" || step === "order" ? undefined : onBack}
         onClose={onClose}
         closeLabel="Close add money"
       />

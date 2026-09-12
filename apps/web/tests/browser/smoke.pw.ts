@@ -86,7 +86,7 @@ async function installApiFixtures(page: Page) {
     if (path === `/api/actions/${ACTION_ID}/submission`) { status = "submitted"; return json(route, { operation: operation(status) }); }
     if (path === `/api/actions/${ACTION_ID}`) return json(route, { operation: operation(status) });
     if (path === "/api/activity") return json(route, { version: 1, walletAddress: OWNER, chainId: 8453, from: "2026-09-01T00:00:00.000Z", to: new Date().toISOString(), transfers: [], nextCursor: null, source: { provider: "Playwright", method: "fixture", fetchedAt: new Date().toISOString() } });
-    if (path === "/api/funding/providers") return json(route, url.searchParams.get("region") === "ID" ? { providers: [{ providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx", assetSymbol: "IDRX", currency: "IDR", paymentMethods: [{ id: "bank-va-mandiri", label: "Bank transfer · Mandiri" }], quotes: false, kyc: null }] } : { providers: [] });
+    if (path === "/api/funding/providers") return json(route, url.searchParams.get("region") === "ID" ? { providers: [{ providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx", assetSymbol: "IDRX", assetDecimals: 2, currency: "IDR", paymentMethods: [{ id: "bank-va-mandiri", label: "Bank transfer · Mandiri" }], quotes: false, kyc: null }] } : { providers: [] });
     if (path === "/api/funding/quotes") return json(route, { quoteToken: "fixture-signed-quote", quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: EXPIRES_AT } });
     if (path === "/api/funding/orders" && request.method() === "POST") return json(route, { order: { id: ACTION_ID, providerId: "idrx", region: "ID", assetId: "base:idrx", paymentMethod: "bank-va-mandiri", fiatAmount: "20000", state: "awaiting-payment", instructions: { kind: "bank-transfer", rail: "Mandiri virtual account", accountNumber: "123456789012", accountName: "Home Fixture", amount: "20000", currency: "IDR" }, providerStatus: "pending" } });
     if (path === "/api/funding/orders" && request.method() === "GET") return json(route, { order: null });
@@ -539,7 +539,10 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
   await expect(method).toBeVisible();
   await method.click();
   await typeAmount(page, "20000");
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Review quote", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Review quote" })).toBeVisible();
+  await expect(page.getByText("Receive: 20000 IDRX")).toBeVisible();
+  await page.getByRole("button", { name: "Confirm deposit", exact: true }).click();
   await expect(page.getByText("Deposit pending")).toBeVisible();
   await expect(page.getByText("123456789012")).toBeVisible();
   await expect(page.getByText("Money received")).toBeVisible({ timeout: 7_000 });

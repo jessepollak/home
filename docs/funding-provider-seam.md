@@ -197,3 +197,11 @@ Cut after review to keep the first version small. Each is a follow-up if a real 
 - Ripio keeps its existing per-country client credentials and uses one shared `RIPIO_WEBHOOK_SECRET`, declared by each enabled binding, because the v1 manifest has one webhook environment name per provider.
 - `GET /api/funding/orders?region=` is added as the owner-scoped resume endpoint used when Add money opens. It has the same private/no-store response contract as the specified status route.
 - The existing Coinbase hosted route and all legacy Ripio store/reconciliation files remain unchanged. Their removal is #293 after replacement parity review.
+
+### Astra fix round (September 12, 2026)
+
+The signed quote token is now retained with the reservation and reused after a lost client response; retries correlate to the same owner-scoped intent digest and cannot redispatch. Add money presents a separate quote review (receive amount, fees, expiry) before confirmation. Ambiguous orders remain resumable, while late resume reads cannot replace an explicit user-selected screen.
+
+Funding-order writes now carry a monotonic version. Provider observations and receipt claims use compare-and-swap; terminal states cannot reopen, verified receipt `(transaction_hash, log_index)` is immutable and uniquely claimed, and the provider-reported hash is stored separately from verified evidence. The production PostgreSQL store contract is exercised against disposable local PostgreSQL through the same store implementation.
+
+Ripio now fails closed when terms cannot be identified, treats uncertain create statuses as ambiguous without retry, validates the selected rail and redirect origin, requires all immutable status echoes, gives completed refunds terminal priority, and bounds provider response headers and bodies. No provider, live, or funded validation is claimed.
