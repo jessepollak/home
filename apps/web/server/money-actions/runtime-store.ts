@@ -6,8 +6,9 @@ import type { MoneyActionStore } from "./store";
 type RuntimeResourceFactory = (connectionString: string) => Promise<AttemptStoreResource>;
 
 const defaultRuntimeResourceFactory: RuntimeResourceFactory = async (connectionString) => {
-  const { createNeonSqlExecutor, createPostgresAttemptStoreResourceWithExecutor } = await import("./postgres-store");
-  return createPostgresAttemptStoreResourceWithExecutor(createNeonSqlExecutor(connectionString));
+  const { createPostgresAttemptStoreResourceWithExecutor } = await import("./postgres-store");
+  const { createPostgresSqlExecutor } = await import("./postgres-executor");
+  return createPostgresAttemptStoreResourceWithExecutor(createPostgresSqlExecutor(connectionString));
 };
 
 let injectedStore: MoneyActionStore | null = null;

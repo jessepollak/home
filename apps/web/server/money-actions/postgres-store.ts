@@ -14,9 +14,9 @@ import {
   type PersistedAttemptState,
 } from "./attempt-store-core";
 import type { AttemptStoreResource, AttemptStoreResourceFactory } from "./attempt-store";
+import { createPostgresSqlExecutor } from "./postgres-executor";
 import {
   applyMoneyActionPostgresSchema,
-  createNeonSqlExecutor,
   isUniqueViolation,
   MONEY_ACTION_DATA_MIGRATION_ID,
   moneyActionQueries,
@@ -181,7 +181,7 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
     if (!url) {
       throw new Error("DATABASE_URL is required for PostgresMoneyActionStore");
     }
-    this.executor = createNeonSqlExecutor(url);
+    this.executor = createPostgresSqlExecutor(url);
   }
 
   async ensureSchema(): Promise<void> {
@@ -705,7 +705,7 @@ export const createPostgresAttemptStoreResource: AttemptStoreResourceFactory = (
     throw new Error("PostgreSQL attempt-store resources require an explicit nonempty schema");
   }
   return createPostgresAttemptStoreResourceWithExecutor(
-    createNeonSqlExecutor(options.connectionString, { schema: options.schema }),
+    createPostgresSqlExecutor(options.connectionString, { schema: options.schema }),
   );
 };
 

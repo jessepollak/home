@@ -41,6 +41,7 @@ bun install --frozen-lockfile
 
 - **Bun 1.3.12**, pinned by `packageManager`.
 - **Node.js 22.13+** for local SQLite persistence (`node:sqlite`); Node 24 was used for local validation.
+- **Docker with Compose v2** for the optional local Postgres (`bun run db:up`).
 
 ### Environment
 
@@ -68,7 +69,7 @@ bun dev
 
 Open `http://localhost:3000`. Development navigation from `127.0.0.1` redirects to the canonical `localhost` origin.
 
-Local `bun dev` uses a private SQLite money-action store under `.local/` when `DATABASE_URL` is unset. Hosted persistence uses server-only `DATABASE_URL` with Neon/Postgres instead; no hosted database is required to browse locally. Read [wallet runtime](docs/wallet-runtime-spike.md) and [Vercel deploy](docs/vercel-deploy.md) before deploying money actions.
+Local `bun dev` uses a private SQLite money-action store under `.local/` when `DATABASE_URL` is unset. For the real Postgres store without Neon, run `bun run db:up` (local Docker Postgres) and set `DATABASE_URL=postgresql://home:home@localhost:5432/home`, then `bun run money-actions:migrate`. Hosted persistence uses server-only `DATABASE_URL` with Neon/Postgres; no hosted database is required to browse locally. Read [wallet runtime](docs/wallet-runtime-spike.md) and [Vercel deploy](docs/vercel-deploy.md) before deploying money actions.
 
 ### Useful commands
 
@@ -78,6 +79,10 @@ bun lint       # ESLint
 bun typecheck  # Next route types and strict TypeScript
 bun build      # production build
 bun check      # test, lint, typecheck, and build
+
+bun run db:up   # optional local Postgres in Docker (waits for health)
+bun run db:down # stop Postgres (keeps the data volume)
+bun run money-actions:migrate # apply the schema to DATABASE_URL
 ```
 
 ## Repository map
