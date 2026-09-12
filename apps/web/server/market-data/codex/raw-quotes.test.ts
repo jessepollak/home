@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
-import { createCodexRawQuotesReader } from "./raw-quotes";
+import {
+  CODEX_SHARED_READER_MAX,
+  codexSharedReaderCountForTests,
+  createCodexRawQuotesReader,
+  getCodexRawQuotes,
+  resetCodexSharedReadersForTests,
+} from "./raw-quotes";
 
 const ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
 const NOW = "2026-09-08T12:00:00.000Z";
@@ -12,6 +18,27 @@ const input = {
 };
 
 describe("Codex raw quotes", () => {
+  test("bounds shared readers with least-recently-used eviction", async () => {
+    const previousKey = process.env.CODEX_API_KEY;
+    delete process.env.CODEX_API_KEY;
+    resetCodexSharedReadersForTests();
+    try {
+      for (let index = 1; index <= CODEX_SHARED_READER_MAX + 1; index += 1) {
+        const address = `0x${index.toString(16).padStart(40, "0")}` as const;
+        await getCodexRawQuotes([{
+          assetKey: `eip155:8453/erc20:${address}`,
+          address,
+          networkId: 8453,
+        }]);
+      }
+      expect(codexSharedReaderCountForTests()).toBe(CODEX_SHARED_READER_MAX);
+    } finally {
+      if (previousKey === undefined) delete process.env.CODEX_API_KEY;
+      else process.env.CODEX_API_KEY = previousKey;
+      resetCodexSharedReadersForTests();
+    }
+  });
+
   test("retains the exact raw decimal and exact contract/time provenance", async () => {
     const reader = createCodexRawQuotesReader({
       apiKey: "fixture-key",
