@@ -18,10 +18,13 @@ import {
 } from "./cdp-client-test-harness";
 import { ProviderHandleJournal } from "@/client/money-actions/provider-handle-journal";
 
+const originalFetch = globalThis.fetch;
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
   window.sessionStorage.clear();
+  globalThis.fetch = originalFetch;
 });
 
 describe("cdp client facade", () => {
@@ -83,6 +86,37 @@ describe("cdp client facade", () => {
     ).toEqual([]);
     expect(window.localStorage.getItem("home.country.v1")).toBe("US");
     expect(window.localStorage.getItem(journalKey!)).not.toBeNull();
+  });
+
+  test("keeps failed native restoration private, unavailable, and retryable", async () => {
+    let restoreCalls = 0;
+    globalThis.fetch = (async () => {
+      restoreCalls += 1;
+      return Response.json({ error: { code: "AUTH_UNAVAILABLE" } }, { status: 503 });
+    }) as unknown as typeof fetch;
+
+    render(
+      <CdpAccountProvider projectId={null} nativeBaseAccountEnabled>
+        <AccountProbe />
+      </CdpAccountProvider>,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("unavailable"),
+    );
+    expect(page().getByTestId("address").textContent).toBe(
+      "private-details-hidden",
+    );
+    expect(page().getByTestId("message").textContent).toContain(
+      "private details remain hidden",
+    );
+    expect(restoreCalls).toBe(1);
+
+    fireEvent.click(page().getByRole("button", { name: "Probe retry validation" }));
+    await waitFor(() => expect(restoreCalls).toBe(2));
+    await waitFor(() =>
+      expect(page().getByTestId("status").textContent).toBe("unavailable"),
+    );
   });
 
   test("keeps a configured-but-down provider distinct from missing project ID", () => {

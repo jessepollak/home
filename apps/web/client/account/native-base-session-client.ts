@@ -62,8 +62,8 @@ export async function restoreNativeBaseSession(
       credentials: "same-origin",
       signal,
     });
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error("Native Base authentication failed.", { cause: error });
   }
   if (response.status === 401) return null;
   return readSessionResponse(response);

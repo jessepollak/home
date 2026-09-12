@@ -139,6 +139,8 @@ export function AccountWalletSessionOwner({
 }) {
   const {
     authentication = "cdp",
+    initializationError,
+    retryInitialization,
     isInitialized,
     isSignedIn: sdkIsSignedIn,
     ownerKey,
@@ -907,6 +909,18 @@ export function AccountWalletSessionOwner({
       return;
     }
 
+    if (initializationError === "provider-unavailable") {
+      validationRequest.current?.abort();
+      const timer = window.setTimeout(() => {
+        clearPrivateState();
+        setStatus("unavailable");
+        setMessage(
+          "Base Account verification is unavailable. Your private details remain hidden.",
+        );
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+
     if (!sdkIsSignedIn || !ownerKey) {
       const timer = window.setTimeout(() => {
         clearPrivateState();
@@ -947,12 +961,21 @@ export function AccountWalletSessionOwner({
     clearBaseConnection,
     clearPrivateState,
     getCurrentFailedCleanup,
+    initializationError,
     isInitialized,
     isSessionSuppressed,
     ownerKey,
     sdkIsSignedIn,
     validateSession,
   ]);
+
+  const retrySessionValidation = useCallback(async () => {
+    if (retryInitialization) {
+      await retryInitialization();
+      return;
+    }
+    await validateSession();
+  }, [retryInitialization, validateSession]);
 
   const beginSignInAttempt = useCallback(
     (provider: "cdp-embedded" | "base-account") => {
@@ -1380,7 +1403,7 @@ export function AccountWalletSessionOwner({
       sendTransfer,
       checkPendingTransfer,
       startNewTransfer,
-      retrySessionValidation: validateSession,
+      retrySessionValidation,
       signTypedData,
       signOut,
     }),
@@ -1404,6 +1427,7 @@ export function AccountWalletSessionOwner({
       prepareMoneyAction,
       projectConfigured,
       requestEmailCode,
+      retrySessionValidation,
       sdkIsSignedIn,
       session,
       sendTransfer,

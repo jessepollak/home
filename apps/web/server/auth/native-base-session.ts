@@ -65,6 +65,8 @@ const NONCE_SCHEMA = `CREATE TABLE IF NOT EXISTS home_auth_nonces (
   message TEXT NOT NULL,
   expires_at TEXT NOT NULL
 )`;
+const LOCK_NONCE_SCHEMA = "SELECT pg_advisory_xact_lock($1)";
+const NONCE_SCHEMA_LOCK_ID = "5210468254237152596";
 const INSERT_NONCE = `INSERT INTO home_auth_nonces (id, address, origin, message, expires_at)
   VALUES ($1, $2, $3, $4, $5)`;
 const CONSUME_NONCE = `DELETE FROM home_auth_nonces
@@ -94,9 +96,21 @@ export class PostgresNativeBaseNonceStore implements NativeBaseNonceStore {
     this.executor = createNeonSqlExecutor(url);
   }
 
+  private initializeSchema(): Promise<void> {
+    return this.executor.transaction(async (tx) => {
+      await tx.query(LOCK_NONCE_SCHEMA, [NONCE_SCHEMA_LOCK_ID]);
+      await tx.query(NONCE_SCHEMA);
+    });
+  }
+
   private async ensureSchema(): Promise<void> {
-    this.schemaReady ??= this.executor.query(NONCE_SCHEMA).then(() => undefined);
-    await this.schemaReady;
+    const attempt = this.schemaReady ??= this.initializeSchema();
+    try {
+      await attempt;
+    } catch (error) {
+      if (this.schemaReady === attempt) this.schemaReady = null;
+      throw error;
+    }
   }
 
   async issue(nonce: NativeBaseNonce): Promise<void> {
@@ -143,14 +157,37 @@ class UnavailableNativeBaseNonceStore implements NativeBaseNonceStore {
 
 type NativeBaseRuntimeEnv = {
   DATABASE_URL?: string;
+  NODE_ENV?: string;
   VERCEL?: string;
+  AWS_EXECUTION_ENV?: string;
+  AWS_LAMBDA_FUNCTION_NAME?: string;
+  NETLIFY?: string;
+  CF_PAGES?: string;
+  K_SERVICE?: string;
+  FUNCTION_TARGET?: string;
+  WEBSITE_INSTANCE_ID?: string;
 };
+
+function isHostedOrServerlessRuntime(env: NativeBaseRuntimeEnv): boolean {
+  return Boolean(
+    env.VERCEL ||
+      env.AWS_EXECUTION_ENV ||
+      env.AWS_LAMBDA_FUNCTION_NAME ||
+      env.NETLIFY ||
+      env.CF_PAGES ||
+      env.K_SERVICE ||
+      env.FUNCTION_TARGET ||
+      env.WEBSITE_INSTANCE_ID,
+  );
+}
 
 export function resolveNativeBaseNonceStoreBackend(
   env: NativeBaseRuntimeEnv = process.env as NativeBaseRuntimeEnv,
 ): "postgres" | "memory" | "hosted-unavailable" {
   if (env.DATABASE_URL?.trim()) return "postgres";
-  if (env.VERCEL) return "hosted-unavailable";
+  if (env.NODE_ENV === "production" || isHostedOrServerlessRuntime(env)) {
+    return "hosted-unavailable";
+  }
   return "memory";
 }
 
@@ -195,6 +232,21 @@ function requestOrigin(request: Request): URL | null {
   } catch {
     return null;
   }
+}
+
+function isSameOriginPost(request: Request): boolean {
+  if (request.method !== "POST") return false;
+  const expected = requestOrigin(request)?.origin;
+  const rawOrigin = request.headers.get("origin");
+  if (!expected || !rawOrigin || rawOrigin === "null") return false;
+  try {
+    const supplied = new URL(rawOrigin);
+    if (supplied.origin !== rawOrigin || supplied.origin !== expected) return false;
+  } catch {
+    return false;
+  }
+  const fetchSite = request.headers.get("sec-fetch-site");
+  return fetchSite === null || fetchSite === "same-origin";
 }
 
 function hmac(secret: Buffer, value: string): string {
@@ -499,6 +551,9 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
 
 export function createNativeBaseLogoutHandler() {
   return async function POST(request: Request): Promise<Response> {
+    if (!isSameOriginPost(request)) {
+      return json({ error: { code: "INVALID_REQUEST" } }, 403);
+    }
     return json({ signedOut: true }, 200, [
       clearCookie(HOME_CHALLENGE_COOKIE, request),
       clearCookie(HOME_SESSION_COOKIE, request),

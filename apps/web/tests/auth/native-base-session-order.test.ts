@@ -69,7 +69,10 @@ describe("native Base authentication after shared DOM setup", () => {
     expect(sessionCookies.every((value) => value.includes("SameSite=Lax"))).toBe(true);
 
     const logoutResponse = await createNativeBaseLogoutHandler()(
-      request("/api/auth/base/logout", {}),
+      new Request(`${ORIGIN}/api/auth/base/logout`, {
+        method: "POST",
+        headers: { Origin: ORIGIN, "Sec-Fetch-Site": "same-origin" },
+      }),
     );
     const logoutCookies = logoutResponse.headers.getSetCookie();
     expect(logoutCookies).toHaveLength(2);

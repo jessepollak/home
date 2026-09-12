@@ -20,7 +20,16 @@ import {
   useVerifyEmailOTP,
   useVerifySiweSignature,
 } from "@coinbase/cdp-hooks";
-import { Component, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Component,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   signInProviderUnavailableCopy,
   type SignInAvailability,
@@ -211,6 +220,8 @@ class CdpHooksErrorBoundary extends Component<
 
 export type AccountWalletSdkBoundary = {
   authentication?: "cdp" | "native-base";
+  initializationError?: "provider-unavailable";
+  retryInitialization?: () => Promise<void>;
   isInitialized: boolean;
   isSignedIn: boolean;
   ownerKey: string | null;
@@ -241,18 +252,43 @@ export { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
 function NativeBaseAccountBridge({ children }: { children: ReactNode }) {
   const [identity, setIdentity] = useState<VerifiedAccountSession | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [initializationError, setInitializationError] = useState<
+    "provider-unavailable" | undefined
+  >();
+  const restoreSequence = useRef(0);
   const challenges = useRef(new Map<string, { message: string; address: `0x${string}` }>());
+
+  const restore = useCallback(async (signal?: AbortSignal) => {
+    const sequence = ++restoreSequence.current;
+    await Promise.resolve();
+    if (signal?.aborted || sequence !== restoreSequence.current) return;
+    setIsInitialized(false);
+    setInitializationError(undefined);
+    try {
+      const session = await restoreNativeBaseSession(fetch, signal);
+      if (signal?.aborted || sequence !== restoreSequence.current) return;
+      setIdentity(session);
+    } catch {
+      if (signal?.aborted || sequence !== restoreSequence.current) return;
+      setIdentity(null);
+      setInitializationError("provider-unavailable");
+    } finally {
+      if (!signal?.aborted && sequence === restoreSequence.current) {
+        setIsInitialized(true);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    void restoreNativeBaseSession(fetch, controller.signal)
-      .then((session) => { if (!controller.signal.aborted) setIdentity(session); })
-      .finally(() => { if (!controller.signal.aborted) setIsInitialized(true); });
+    queueMicrotask(() => void restore(controller.signal));
     return () => controller.abort();
-  }, []);
+  }, [restore]);
 
   const sdk = useMemo<AccountWalletSdkBoundary>(() => ({
     authentication: "native-base",
+    initializationError,
+    retryInitialization: restore,
     isInitialized,
     isSignedIn: identity !== null,
     ownerKey: identity ? nativeOwnerKey(identity) : null,
@@ -279,7 +315,7 @@ function NativeBaseAccountBridge({ children }: { children: ReactNode }) {
       challenges.current.clear();
       setIdentity(null);
     },
-  }), [identity, isInitialized]);
+  }), [identity, initializationError, isInitialized, restore]);
 
   return <AccountWalletSessionOwner sdk={sdk} baseAccountEnabled projectConfigured={false}>{children}</AccountWalletSessionOwner>;
 }

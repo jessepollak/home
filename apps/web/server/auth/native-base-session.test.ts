@@ -20,15 +20,26 @@ const ORIGIN = "http://127.0.0.1:3103";
 const START = new Date("2026-09-12T12:00:00.000Z");
 const ID = "a".repeat(48);
 
-function post(path: string, body: unknown, cookie?: string, origin = ORIGIN): Request {
+function post(
+  path: string,
+  body: unknown,
+  cookie?: string,
+  origin = ORIGIN,
+  headers: Record<string, string> = {},
+): Request {
   return new Request(`${origin}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(cookie ? { Cookie: cookie } : {}),
+      ...headers,
     },
     body: JSON.stringify(body),
   });
+}
+
+function logoutRequest(headers: Record<string, string> = {}): Request {
+  return post("/api/auth/base/logout", {}, undefined, ORIGIN, headers);
 }
 
 function cookieValue(response: Response, name: string): string {
@@ -63,6 +74,19 @@ async function challenge(
 }
 
 describe("native Base authentication handlers", () => {
+  test("requires HOME_SESSION_SECRET before issuing a local-memory challenge", async () => {
+    const store = new MemoryNativeBaseNonceStore();
+    const nonce = createNativeBaseNonceHandler({
+      sessionSecret: "",
+      store,
+      now: () => START,
+      randomId: () => ID,
+    });
+    const response = await nonce(post("/api/auth/base/nonce", { address: ADDRESS }));
+    expect(response.status).toBe(503);
+    expect(await store.consume(ID, START.toISOString())).toBeNull();
+  });
+
   test("issues one Base-bound proof, establishes a signed HttpOnly session, and rejects replay", async () => {
     const { nonce, verify } = handlers();
     const issued = await challenge(nonce);
@@ -149,11 +173,39 @@ describe("native Base authentication handlers", () => {
     const responses = await Promise.all([verify(request()), verify(request())]);
     expect(responses.map((response) => response.status).sort()).toEqual([200, 401]);
 
-    const logout = await createNativeBaseLogoutHandler()(post("/api/auth/base/logout", {}));
+    const logout = await createNativeBaseLogoutHandler()(logoutRequest({
+      Origin: ORIGIN,
+      "Sec-Fetch-Site": "same-origin",
+    }));
     const cookies = logout.headers.get("set-cookie") ?? "";
+    expect(logout.status).toBe(200);
     expect(cookies).toContain(`${HOME_CHALLENGE_COOKIE}=`);
     expect(cookies).toContain(`${HOME_SESSION_COOKIE}=`);
     expect(cookies).toContain("Max-Age=0");
+  });
+
+  test("rejects logout CSRF without clearing authentication cookies", async () => {
+    const logout = createNativeBaseLogoutHandler();
+    for (const request of [
+      logoutRequest(),
+      logoutRequest({ Origin: "https://evil.example" }),
+      logoutRequest({ Origin: `${ORIGIN}/` }),
+      logoutRequest({ Origin: "null" }),
+      logoutRequest({
+        Origin: ORIGIN,
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+      }),
+    ]) {
+      const response = await logout(request);
+      expect(response.status).toBe(403);
+      expect(response.headers.getSetCookie()).toEqual([]);
+    }
+
+    const withoutFetchMetadata = await logout(logoutRequest({ Origin: ORIGIN }));
+    expect(withoutFetchMetadata.status).toBe(200);
+    expect(withoutFetchMetadata.headers.getSetCookie()).toHaveLength(2);
   });
 
   test("reads only valid signed Base sessions and rejects cookie tampering", async () => {
@@ -179,11 +231,27 @@ describe("native Base authentication handlers", () => {
 
 class FakeNonceExecutor implements SqlExecutor {
   readonly rows = new Map<string, NonceRow>();
+  schemaAttempts = 0;
+  schemaLocks = 0;
+  failSchemaAttempts = 0;
+
   async query<T = Record<string, unknown>>(
     text: string,
     values: unknown[] = [],
   ): Promise<SqlQueryResult<T>> {
-    if (text.startsWith("CREATE TABLE")) return { rows: [], rowCount: 0 };
+    if (text.startsWith("SELECT pg_advisory_xact_lock")) {
+      this.schemaLocks += 1;
+      expect(values).toEqual(["5210468254237152596"]);
+      return { rows: [], rowCount: 1 };
+    }
+    if (text.startsWith("CREATE TABLE")) {
+      this.schemaAttempts += 1;
+      if (this.failSchemaAttempts > 0) {
+        this.failSchemaAttempts -= 1;
+        throw new Error("Transient schema failure");
+      }
+      return { rows: [], rowCount: 0 };
+    }
     if (text.startsWith("DELETE FROM home_auth_nonces WHERE expires_at")) {
       for (const [id, row] of this.rows) {
         if (row.expires_at <= String(values[0])) this.rows.delete(id);
@@ -243,6 +311,30 @@ describe("native Base nonce stores", () => {
     expect(await store.consume(expired.id, START.toISOString())).toBeNull();
   });
 
+  test("Postgres schema readiness is single-flight and retries a transient initialization failure", async () => {
+    const concurrentExecutor = new FakeNonceExecutor();
+    const concurrentStore = new PostgresNativeBaseNonceStore(concurrentExecutor);
+    await Promise.all([
+      concurrentStore.issue(storedNonce("first", "2026-09-12T12:05:00.000Z")),
+      concurrentStore.issue(storedNonce("second", "2026-09-12T12:05:00.000Z")),
+    ]);
+    expect(concurrentExecutor.schemaLocks).toBe(1);
+    expect(concurrentExecutor.schemaAttempts).toBe(1);
+    await concurrentStore.consume("first", START.toISOString());
+    expect(concurrentExecutor.schemaAttempts).toBe(1);
+
+    const retryExecutor = new FakeNonceExecutor();
+    retryExecutor.failSchemaAttempts = 1;
+    const retryStore = new PostgresNativeBaseNonceStore(retryExecutor);
+    await expect(
+      retryStore.issue(storedNonce("retry", "2026-09-12T12:05:00.000Z")),
+    ).rejects.toThrow("Transient schema failure");
+    await retryStore.issue(storedNonce("retry", "2026-09-12T12:05:00.000Z"));
+    expect(retryExecutor.schemaLocks).toBe(2);
+    expect(retryExecutor.schemaAttempts).toBe(2);
+    expect(retryExecutor.rows.has("retry")).toBe(true);
+  });
+
   test("Postgres store uses atomic DELETE RETURNING for replay, concurrency, and expiry", async () => {
     const executor = new FakeNonceExecutor();
     const store = new PostgresNativeBaseNonceStore(executor);
@@ -259,11 +351,23 @@ describe("native Base nonce stores", () => {
     expect(await store.consume("expired", START.toISOString())).toBeNull();
   });
 
-  test("requires durable Postgres on hosted runtimes and permits bounded memory locally", () => {
+  test("requires durable Postgres in production and serverless runtimes but permits memory locally", () => {
     expect(resolveNativeBaseNonceStoreBackend({})).toBe("memory");
-    expect(resolveNativeBaseNonceStoreBackend({ VERCEL: "1" })).toBe("hosted-unavailable");
+    expect(resolveNativeBaseNonceStoreBackend({ NODE_ENV: "development" })).toBe("memory");
+    expect(resolveNativeBaseNonceStoreBackend({ NODE_ENV: "test" })).toBe("memory");
+    expect(resolveNativeBaseNonceStoreBackend({ NODE_ENV: "production" })).toBe(
+      "hosted-unavailable",
+    );
     expect(resolveNativeBaseNonceStoreBackend({
-      VERCEL: "1",
+      NODE_ENV: "production",
+      AWS_EXECUTION_ENV: "AWS_Lambda_nodejs22.x",
+    })).toBe("hosted-unavailable");
+    expect(resolveNativeBaseNonceStoreBackend({
+      NODE_ENV: "test",
+      AWS_LAMBDA_FUNCTION_NAME: "home-auth",
+    })).toBe("hosted-unavailable");
+    expect(resolveNativeBaseNonceStoreBackend({
+      NODE_ENV: "production",
       DATABASE_URL: "postgresql://example/home",
     })).toBe("postgres");
   });
