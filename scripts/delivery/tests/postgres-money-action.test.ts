@@ -7,6 +7,7 @@ import {
   applyMoneyActionPostgresSchema,
   isUniqueViolation,
   moneyActionQueries,
+  MoneyActionSchemaPreflightError,
   moneyActionSchemaStatements,
   type SqlExecutor,
 } from "../../../apps/web/server/money-actions/postgres-sql";
@@ -113,7 +114,8 @@ if (!databaseUrl) {
       } catch (error) {
         failure = error;
       }
-      expect(failure).toBeInstanceOf(Error);
+      expect(failure).toBeInstanceOf(MoneyActionSchemaPreflightError);
+      expect((failure as Error).name).toBe("MoneyActionSchemaPreflightError");
       const message = (failure as Error).message;
       expect(message).toContain("money_action_unique_owner_user_operation_hash");
       expect(message).toContain('"action_id_count":2');
