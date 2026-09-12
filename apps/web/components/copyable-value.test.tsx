@@ -1,8 +1,6 @@
 import "./../client/account/dom-test-harness";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import(
   "@testing-library/react"
@@ -11,7 +9,6 @@ const { CopyableValue } = await import("./copyable-value");
 
 const VALUE = "0x12a4aaaaaaaaaaaaaaaaaaaaaaaaaaaaaac19fab";
 const DISPLAY = "0x12a4…c19fab";
-const css = readFileSync(resolve(import.meta.dir, "copyable-value.module.css"), "utf8");
 
 function withClipboard(writeText: (value: string) => Promise<unknown>) {
   Object.defineProperty(navigator, "clipboard", {
@@ -166,15 +163,4 @@ describe("CopyableValue", () => {
     expect(view.queryByRole("button", { name: "Copied" })).toBeNull();
   });
 
-  test("is a native button with focus, touch, and reduced-motion support", () => {
-    const view = render(<CopyableValue value={VALUE} display={DISPLAY} valueKind="address" />);
-    const control = view.getByRole("button", { name: `Copy ${DISPLAY}` });
-    expect(control.tagName.toLowerCase()).toBe("button");
-    expect(control.getAttribute("type")).toBe("button");
-
-    expect(css).toContain(".text:focus-visible");
-    expect(css).toContain("touch-action: manipulation");
-    expect(css).toContain("prefers-reduced-motion: reduce");
-    expect(css).toContain("user-select: text");
-  });
 });

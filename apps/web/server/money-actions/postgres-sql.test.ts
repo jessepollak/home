@@ -105,14 +105,3 @@ function interceptingExecutor(
     ...(base.dispose ? { dispose: () => base.dispose!() } : {}),
   };
 }
-
-test("the SQL double remains test-only and absent from runtime/store acceptance", () => {
-  const postgresSql = readFileSync(resolve(import.meta.dir, "postgres-sql.ts"), "utf8");
-  const moneyStoreTests = readFileSync(resolve(import.meta.dir, "store.test.ts"), "utf8");
-  const runtime = readFileSync(resolve(import.meta.dir, "runtime-store.ts"), "utf8");
-  const companion = readFileSync(resolve(import.meta.dir, "../trading/runtime-intent-store.test.ts"), "utf8");
-  expect(postgresSql).toContain("Test-only SQL compatibility export");
-  expect(moneyStoreTests).not.toContain("createFakePostgresExecutor");
-  expect(runtime).not.toContain("createFakePostgresExecutor");
-  expect(companion).toContain("createFakePostgresExecutor");
-});

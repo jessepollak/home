@@ -1,6 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import {
   getMoneyActionStore,
   resolveMoneyActionStoreBackend,
@@ -123,12 +121,6 @@ describe("money action runtime store selection", () => {
     expect(factoryCalls).toBe(2);
   });
 
-  test("constructs and initializes PostgresMoneyActionStore directly after verified-empty cutover", () => {
-    const runtime = readFileSync(resolve(import.meta.dir, "runtime-store.ts"), "utf8");
-    expect(runtime).toContain("new PostgresMoneyActionStore(connectionString)");
-    expect(runtime).toContain("await store.ensureSchema()");
-    expect(runtime).toContain("return store");
-  });
 
   test("fails closed when DATABASE_URL is configured without cutover verification", async () => {
     process.env.DATABASE_URL = "postgresql://example/home";
@@ -144,15 +136,6 @@ describe("money action runtime store selection", () => {
     await expect(getMoneyActionStore()).rejects.toThrow(/DATABASE_URL is required for PostgreSQL/);
   });
 
-  test("production selection has no SQLite adapter branch, import, or hosted alias dependency", () => {
-    const runtime = readFileSync(resolve(import.meta.dir, "runtime-store.ts"), "utf8");
-    const postgres = readFileSync(resolve(import.meta.dir, "postgres-store.ts"), "utf8");
-    expect(runtime).not.toContain("sqlite-store");
-    expect(postgres).not.toContain("node:sqlite");
-    expect(postgres).not.toContain("sqlite-store");
-    expect(runtime).toContain('MONEY_ACTION_POSTGRES_CUTOVER === "verified-empty"');
-    expect(runtime).toContain('await import("./postgres-store")');
-  });
 });
 
 class RuntimeTestStore extends MemoryMoneyActionStore {

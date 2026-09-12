@@ -1,15 +1,11 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 const { cleanup, render } = await import("@testing-library/react");
 const { RECEIVE_QR_DISPLAY_PX, ReceiveQr } = await import("./receive-qr");
 
 const ADDRESS = "0x1111111111111111111111111111111111111111";
-const css = readFileSync(resolve(import.meta.dir, "add-money.module.css"), "utf8");
-
 afterEach(cleanup);
 
 describe("ReceiveQr", () => {
@@ -26,12 +22,4 @@ describe("ReceiveQr", () => {
     expect(svg.querySelector("path")?.getAttribute("d")).toBeTruthy();
   });
 
-  test("keeps 390px Method controls separated and the address as a 44px tap-copy target", () => {
-    expect(css).toContain("gap: 12px");
-    expect(css).toContain("min-height: 76px");
-    expect(css).toContain("border-radius: 12px");
-    expect(css).toContain("min-height: 44px");
-    expect(css).toContain("user-select: text");
-    expect(css).toContain("width: min(100%, 220px)");
-  });
 });

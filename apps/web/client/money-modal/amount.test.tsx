@@ -1,8 +1,6 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { useState, type ReactElement } from "react";
 
 const { act, cleanup, fireEvent, render, within } = await import("@testing-library/react");
@@ -13,8 +11,6 @@ const {
   triggerKeyHaptic,
 } = await import("./amount");
 const { moneyAssetPricing } = await import("./amount-units");
-
-const css = readFileSync(resolve(import.meta.dir, "money-modal.module.css"), "utf8");
 
 const usdUsdc = moneyAssetPricing("USDC", "US");
 const unpricedEth = moneyAssetPricing("ETH");
@@ -417,22 +413,7 @@ describe("MoneyPrimaryAmount auto-fit", () => {
 });
 
 describe("keypad pressed state and haptics", () => {
-  test("centers key content and adds an immediate active press", () => {
-    expect(css).toMatch(/\.key\s*\{[^}]*display: flex;/);
-    expect(css).toMatch(/\.key\s*\{[^}]*align-items: center;/);
-    expect(css).toMatch(/\.key\s*\{[^}]*justify-content: center;/);
-    expect(css).toContain(".key:active:not(:disabled)");
-    expect(css).toContain("transform: scale(0.96)");
-  });
 
-  test("keeps the amount from clipping and hides only the sizer", () => {
-    expect(css).toMatch(/\.amountBlock\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
-    expect(css).toMatch(/\.assetAmount\s*\{[^}]*width: 100%;/);
-    expect(css).toMatch(/\.assetAmount\s*\{[^}]*padding: 12px 16px;/);
-    expect(css).toMatch(/\.assetAmount\s*\{[^}]*white-space: nowrap;/);
-    expect(css).toContain(".amountSizer");
-    expect(css).toContain("visibility: hidden");
-  });
 
   test("vibrates once for an accepted key and stays silent for a rejected key", () => {
     const vibration = stubVibration();

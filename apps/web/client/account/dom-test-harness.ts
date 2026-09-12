@@ -3,7 +3,13 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 if (typeof window === "undefined") {
   GlobalRegistrator.register({
     url: "http://localhost:3111/",
+    settings: {
+      disableCSSFileLoading: true,
+      enableImageFileLoading: false,
+      disableJavaScriptFileLoading: true,
+    },
   });
+  globalThis.fetch = (async () => new Response(null, { status: 503 })) as unknown as typeof fetch;
 }
 
 if (!HTMLDialogElement.prototype.showModal) {

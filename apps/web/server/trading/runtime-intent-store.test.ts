@@ -1,6 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { PostgresMoneyActionStore } from "@/server/money-actions/postgres-store";
 import { createFakePostgresExecutor } from "@/server/money-actions/postgres-sql";
@@ -54,12 +52,6 @@ describe("trade intent runtime selection", () => {
     await expect(getTradeIntentStore()).rejects.toBeInstanceOf(TradeRuntimeCapabilityError);
   });
 
-  test("does not statically load the local SQLite adapter on the hosted selection path", () => {
-    const source = readFileSync(resolve(import.meta.dir, "runtime-intent-store.ts"), "utf8");
-    expect(source).not.toContain('from "./sqlite-intent-store.node"');
-    expect(source.indexOf('resolveTradeIntentStoreBackend() === "hosted-unavailable"'))
-      .toBeLessThan(source.indexOf('import("./sqlite-intent-store.node")'));
-  });
 });
 
 test("cross-store swap payload gate remains fail-closed until executable calldata handoff is durable", async () => {

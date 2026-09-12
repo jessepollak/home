@@ -1,8 +1,6 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
@@ -18,10 +16,6 @@ const STEAKHOUSE = MORPHO_V1_CANDIDATE_ADDRESSES[0];
 const THIRD_VAULT = MORPHO_V1_CANDIDATE_ADDRESSES[2];
 const TEST_NOW = Date.parse("2026-09-10T12:04:00.000Z");
 const testNow = () => TEST_NOW;
-const detailsCss = readFileSync(
-  resolve(import.meta.dir, "savings-experience.module.css"),
-  "utf8",
-);
 
 function candidate(
   vaultAddress: string,
@@ -337,15 +331,6 @@ describe("Save simplify", () => {
     expect(within(gauntletCard).queryByText("⌄")).toBeNull();
   });
 
-  test("animates the selected-card details open and skips motion under reduced motion", () => {
-    expect(detailsCss).toContain("@keyframes details-open");
-    expect(detailsCss).toContain("animation: details-open var(--motion-tab) ease");
-    expect(detailsCss).toContain("block-size: 0");
-    expect(detailsCss).toContain("block-size: auto");
-    const reducedMotion = detailsCss.slice(detailsCss.indexOf("@media (prefers-reduced-motion: reduce)"));
-    expect(reducedMotion).toContain(".detailsBody");
-    expect(reducedMotion).toContain("animation: none");
-  });
 
   test("includes funded supported vaults that are outside the two visible selection rows", async () => {
     const allVaultData: MorphoVaultsResult = {

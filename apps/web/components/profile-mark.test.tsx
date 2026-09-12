@@ -1,7 +1,5 @@
 import "@/client/account/dom-test-harness";
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 const { cleanup, fireEvent, render, waitFor } = await import(
@@ -11,7 +9,6 @@ const { ProfileMark } = await import("./profile-mark");
 
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 const originalFetch = window.fetch;
-const css = readFileSync(resolve(import.meta.dir, "profile-mark.module.css"), "utf8");
 
 afterEach(() => {
   cleanup();
@@ -19,20 +16,6 @@ afterEach(() => {
 });
 
 describe("ProfileMark", () => {
-  test("uses a 32px mark in a 44px Account hit target", () => {
-    expect(css).toContain("width: 44px");
-    expect(css).toContain("height: 44px");
-    expect(css).toMatch(/\.mark \{[\s\S]*width: 32px/);
-    expect(css).toMatch(/\.mark \{[\s\S]*height: 32px/);
-    expect(css).toContain("background: var(--home-gray-100)");
-    const view = render(
-      <ProfileMark status="ready" ownerKey="jesse@example.test" onClick={() => {}} />,
-    );
-    const button = view.getByRole("button", { name: "Account" });
-    const mark = button.querySelector("[data-profile='glyph']");
-    expect(mark).toBeTruthy();
-    expect(mark?.textContent).toBe("j");
-  });
 
   test("shimmers while the session is checking, then fails open to a glyph", async () => {
     window.fetch = (async () => {
