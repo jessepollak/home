@@ -18,7 +18,9 @@ import { createBunPostgresExecutor } from "../bun-postgres-executor";
 
 const databaseUrl = process.env.MONEY_ACTION_PG_TEST_URL?.trim();
 const CLEANUP_TIMEOUT_MS = 2_000;
-const TEST_TIMEOUT_MS = 20_000;
+const SETUP_TIMEOUT_MS = 5_000;
+const FIXTURE_BODY_TIMEOUT_MS = 15_000;
+const TEST_TIMEOUT_MS = 30_000;
 
 if (!databaseUrl) {
   test.skip("real PostgreSQL runtime fault gates require MONEY_ACTION_PG_TEST_URL", () => {});
@@ -29,14 +31,36 @@ if (!databaseUrl) {
         const setup = await fixture.openResource();
         const raw = fixture.openExecutor();
 
-        for (const [index, faultPoint] of (["operation-update", "reservation-delete"] as const satisfies readonly FaultPoint[]).entries()) {
+        for (const [index, faultPoint] of (["operation-update", "reservation-insert"] as const satisfies readonly FaultPoint[]).entries()) {
           const item = attemptFixture(401 + index);
           const claimed = await issueAndClaim(setup, item);
+          const targetEvidence = faultPoint === "reservation-insert"
+            ? {
+                kind: "provider-status" as const,
+                handle: item.evidence,
+                observedAt: "2026-09-12T16:00:03.000Z",
+                payload: "pending" as const,
+              }
+            : item.evidence;
+          if (faultPoint === "reservation-insert") {
+            expect(await setup.store.recordProviderEvidence(
+              evidenceCommand(item, claimed.attempt.attemptId, "seed-reservation"),
+              item.evidenceAt,
+            )).toMatchObject({ ok: true, value: { disposition: "recorded" } });
+            expect((await rawAttemptRows(raw, item.action.id)).evidence).toMatchObject({ rowCount: 1 });
+          }
           const before = await rawAttemptRows(raw, item.action.id);
           let armed = true;
           let injected = false;
-          const failing = await fixture.openResource(async (phase, text, run) => {
+          const reservationWrites = { deletes: 0, inserts: 0 };
+          const failing = await fixture.openResource(async (_phase, text, run) => {
             const result = await run();
+            if (text === "DELETE FROM money_action_attempt_evidence WHERE action_id = $1") {
+              reservationWrites.deletes += 1;
+            }
+            if (text.startsWith("INSERT INTO money_action_attempt_evidence")) {
+              reservationWrites.inserts += 1;
+            }
             if (armed && matchesFaultPoint(faultPoint, text)) {
               armed = false;
               injected = true;
@@ -44,7 +68,17 @@ if (!databaseUrl) {
             }
             return result;
           });
-          const command = evidenceCommand(item, claimed.attempt.attemptId, `fault-${faultPoint}`);
+          const command = {
+            ...evidenceCommand(item, claimed.attempt.attemptId, `fault-${faultPoint}`),
+            evidence: targetEvidence,
+            provenance: targetEvidence.kind === "provider-status"
+              ? {
+                  source: "provider-status-lookup" as const,
+                  observedAt: targetEvidence.observedAt,
+                  locator: item.evidence,
+                }
+              : { source: "provider-return" as const, observedAt: item.evidenceAt },
+          };
 
           let fault: unknown;
           try {
@@ -54,6 +88,9 @@ if (!databaseUrl) {
           }
           expect(String(fault)).toContain(`injected runtime fault after ${faultPoint}`);
           expect(injected).toBe(true);
+          if (faultPoint === "reservation-insert") {
+            expect(reservationWrites).toEqual({ deletes: 1, inserts: 1 });
+          }
           expect(await rawAttemptRows(raw, item.action.id)).toEqual(before);
 
           const retry = await fixture.openResource();
@@ -63,8 +100,14 @@ if (!databaseUrl) {
           });
           expect(await retry.store.getAttemptStoreSnapshot(item.owner, item.action.id)).toMatchObject({
             ok: true,
-            value: { attempts: [{ attemptVersion: 2, evidence: [{}] }] },
+            value: {
+              attempts: [{
+                attemptVersion: faultPoint === "reservation-insert" ? 3 : 2,
+                evidence: faultPoint === "reservation-insert" ? [{}, {}] : [{}],
+              }],
+            },
           });
+          expect((await rawAttemptRows(raw, item.action.id)).evidence).toMatchObject({ rowCount: 1 });
           expect(await raw.query<{ attempt_count: number }>(
             "SELECT attempt_count FROM money_action_operations WHERE id = $1",
             [item.action.id],
@@ -109,21 +152,85 @@ if (!databaseUrl) {
         );
         if (!recorded?.ok || recorded.value.disposition !== "recorded") throw new Error("evidence race had no winner");
 
+        const conflictItem = attemptFixture(411);
+        const conflictClaim = await issueAndClaim(setup, conflictItem);
+        const conflictBarrier = new ExplicitBarrier(2, "conflicting evidence contenders");
+        let conflictArmed = false;
+        const conflictContender = async () => fixture.openResource(async (_phase, text, run) => {
+          if (conflictArmed && isAttemptRowLock(text)) await conflictBarrier.reach();
+          return run();
+        });
+        const [conflictFirst, conflictSecond] = await Promise.all([conflictContender(), conflictContender()]);
         const conflictingEvidence = {
-          ...item.evidence,
+          ...conflictItem.evidence,
           value: `0x${"e".repeat(64)}` as `0x${string}`,
         };
-        expect(await second.store.recordProviderEvidence({
-          ...evidenceCommand(item, claimed.attempt.attemptId, "conflicting-upload"),
-          evidence: conflictingEvidence,
-        }, "2026-09-12T16:00:03.000Z")).toMatchObject({
+        const conflictCommands = [
+          evidenceCommand(conflictItem, conflictClaim.attempt.attemptId, "conflict-a"),
+          {
+            ...evidenceCommand(conflictItem, conflictClaim.attempt.attemptId, "conflict-b"),
+            evidence: conflictingEvidence,
+            provenance: {
+              source: "provider-return" as const,
+              observedAt: "2026-09-12T16:00:03.000Z",
+            },
+          },
+        ] as const;
+        conflictArmed = true;
+        const conflictWrites = [
+          conflictFirst.store.recordProviderEvidence(conflictCommands[0], conflictItem.evidenceAt),
+          conflictSecond.store.recordProviderEvidence(conflictCommands[1], "2026-09-12T16:00:03.000Z"),
+        ] as const;
+        try {
+          await conflictBarrier.waitUntilReached();
+        } finally {
+          conflictBarrier.release();
+        }
+        const conflictResults = await Promise.all(conflictWrites);
+        expect(conflictResults.map((result) => result.ok ? result.value.disposition : "error").sort()).toEqual([
+          "conflict",
+          "recorded",
+        ]);
+        const conflictWinnerIndex = conflictResults.findIndex(
+          (result) => result.ok && result.value.disposition === "recorded",
+        );
+        if (conflictWinnerIndex < 0) throw new Error("conflicting evidence race had no winner");
+        const conflictWinner = conflictResults[conflictWinnerIndex]!;
+        if (!conflictWinner.ok || conflictWinner.value.disposition !== "recorded") {
+          throw new Error("conflicting evidence winner was not recorded");
+        }
+        const winningCommand = conflictCommands[conflictWinnerIndex]!;
+        const conflictLoser = conflictResults[conflictWinnerIndex === 0 ? 1 : 0]!;
+        expect(conflictLoser).toMatchObject({
           ok: true,
-          value: { disposition: "conflict" },
+          value: {
+            disposition: "conflict",
+            slot: "user-operation-hash",
+            existing: conflictWinner.value.evidence,
+          },
         });
-        expect(await setup.store.getAttemptStoreSnapshot(item.owner, item.action.id)).toMatchObject({
-          ok: true,
-          value: { attempts: [{ attemptVersion: 2, evidence: [{}] }] },
+        expect(conflictWinner.value.evidence).toEqual({
+          evidence: winningCommand.evidence,
+          provenance: winningCommand.provenance,
+          recordedAt: winningCommand.provenance.observedAt,
         });
+        const conflictSnapshot = await setup.store.getAttemptStoreSnapshot(conflictItem.owner, conflictItem.action.id);
+        if (!conflictSnapshot.ok) throw new Error("conflicting evidence snapshot failed");
+        expect(conflictSnapshot.value.attempts).toHaveLength(1);
+        expect(conflictSnapshot.value.attempts[0]).toMatchObject({
+          attemptVersion: 2,
+          evidence: [conflictWinner.value.evidence],
+          reconciliation: { kind: "authorized-no-evidence" },
+        });
+        const conflictRaw = fixture.openExecutor();
+        expect(await conflictRaw.query(
+          "SELECT status, attempt_count, user_operation_hash FROM money_action_operations WHERE id = $1",
+          [conflictItem.action.id],
+        )).toMatchObject({
+          rows: [{ status: "submitted", attempt_count: 1, user_operation_hash: winningCommand.evidence.value }],
+          rowCount: 1,
+        });
+        expect((await rawAttemptRows(conflictRaw, conflictItem.action.id)).evidence).toMatchObject({ rowCount: 1 });
 
         const staleObservation = createTrustedVerifiedObservation({
           owner: item.owner,
@@ -318,7 +425,7 @@ if (!databaseUrl) {
   });
 }
 
-type FaultPoint = "operation-update" | "reservation-delete";
+type FaultPoint = "operation-update" | "reservation-insert";
 type QueryHook = (
   phase: "query",
   text: string,
@@ -363,7 +470,7 @@ class PostgresFixture {
   async openResource(hook?: QueryHook): Promise<AttemptStoreResource> {
     const resource = createPostgresAttemptStoreResourceWithExecutor(this.openExecutor(hook));
     this.resources.push(resource);
-    await resource.init();
+    await bounded(resource.init(), SETUP_TIMEOUT_MS, `resource ${this.resources.length} setup`);
     return resource;
   }
 
@@ -403,28 +510,35 @@ async function withPostgresFixture<Result>(
   const schema = `delivery_${label}_${process.pid}_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
   const fixture = new PostgresFixture(schema);
   let primaryError: unknown;
+  let hasPrimaryError = false;
   let result: Result | undefined;
-  try {
-    await admin.unsafe(`CREATE SCHEMA "${schema}"`);
-    result = await run(fixture);
-  } catch (error) {
-    primaryError = error;
-  }
   const cleanupErrors: unknown[] = [];
   try {
-    await fixture.dispose(admin);
+    await bounded(admin.unsafe(`CREATE SCHEMA "${schema}"`), SETUP_TIMEOUT_MS, "fixture schema setup");
+    result = await bounded(run(fixture), FIXTURE_BODY_TIMEOUT_MS, "fixture test body");
   } catch (error) {
-    cleanupErrors.push(error);
+    hasPrimaryError = true;
+    primaryError = error;
+  } finally {
+    try {
+      await fixture.dispose(admin);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    try {
+      await bounded(
+        admin.close({ timeout: CLEANUP_TIMEOUT_MS / 1_000 }),
+        CLEANUP_TIMEOUT_MS,
+        "admin client cleanup",
+      );
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
   }
-  try {
-    await bounded(admin.close({ timeout: CLEANUP_TIMEOUT_MS / 1_000 }), CLEANUP_TIMEOUT_MS, "admin client cleanup");
-  } catch (error) {
-    cleanupErrors.push(error);
-  }
-  if (primaryError !== undefined && cleanupErrors.length > 0) {
+  if (hasPrimaryError && cleanupErrors.length > 0) {
     throw new AggregateError([primaryError, ...cleanupErrors], "PostgreSQL runtime-fault test and cleanup failed");
   }
-  if (primaryError !== undefined) throw primaryError;
+  if (hasPrimaryError) throw primaryError;
   if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, "PostgreSQL runtime-fault cleanup failed");
   return result as Result;
 }
@@ -442,7 +556,7 @@ function hookedExecutor(base: SqlExecutor, hook: QueryHook): SqlExecutor {
 
 function matchesFaultPoint(point: FaultPoint, text: string): boolean {
   if (point === "operation-update") return /^UPDATE money_action_operations SET\s+action_json/.test(text);
-  return text === "DELETE FROM money_action_attempt_evidence WHERE action_id = $1";
+  return text.startsWith("INSERT INTO money_action_attempt_evidence");
 }
 
 function isAttemptRowLock(text: string): boolean {
