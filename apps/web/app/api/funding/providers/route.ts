@@ -9,5 +9,5 @@ export async function GET(request: Request): Promise<Response> {
   if ("response" in authorized) return authorized.response;
   const region = new URL(request.url).searchParams.get("region");
   if (!region) return fundingError("INVALID_REGION", "Choose a country first.", 400);
-  return fundingJson({ providers: getFundingCore().listProviders(region) });
+  return fundingJson({ providers: await getFundingCore().listProviders(region, authorized.session) });
 }

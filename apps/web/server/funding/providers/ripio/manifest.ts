@@ -6,6 +6,11 @@ const kyc = {
   terms: { url: "https://www.ripio.com/terms" },
   fields: [
     { name: "email", label: "Email", type: "email" },
+    { name: "firstName", label: "First name", type: "text" },
+    { name: "lastName", label: "Last name", type: "text" },
+    { name: "birthDate", label: "Date of birth", type: "date" },
+    { name: "documentType", label: "Document type", type: "select", options: ["national-id", "passport"] },
+    { name: "documentNumber", label: "Document number", type: "text" },
   ],
 } as const;
 

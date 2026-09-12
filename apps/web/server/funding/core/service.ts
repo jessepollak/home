@@ -29,12 +29,18 @@ export class FundingCore {
     this.now = deps.now ?? (() => new Date());
   }
 
-  listProviders(region: string) {
-    return this.deps.providers.flatMap((provider) => provider.manifest.bindings.flatMap((binding) => {
+  async listProviders(region: string, session: VerifiedAccountSession) {
+    const listed = this.deps.providers.flatMap((provider) => provider.manifest.bindings.flatMap((binding) => {
       if (binding.region !== region || !binding.env.every((name) => Boolean(this.env[name]?.trim()))) return [];
       const asset = getFundingAsset(binding.assetId);
       if (!asset) return [];
-      return [{
+      return [{ provider, binding, asset }];
+    }));
+    return Promise.all(listed.map(async ({ provider, binding, asset }) => {
+      const existingCustomer = provider.manifest.kyc
+        ? await this.deps.store.findCustomerRef(ownerFor(session), provider.manifest.id, binding.region)
+        : null;
+      return {
         providerId: provider.manifest.id,
         displayName: provider.manifest.displayName,
         region: binding.region,
@@ -43,8 +49,8 @@ export class FundingCore {
         currency: asset.fiatCurrency,
         paymentMethods: binding.paymentMethods,
         quotes: provider.manifest.quotes === true,
-        kyc: provider.manifest.kyc ?? null,
-      }];
+        kyc: existingCustomer ? null : provider.manifest.kyc ?? null,
+      };
     }));
   }
 
@@ -57,6 +63,9 @@ export class FundingCore {
     const asset = binding ? getFundingAsset(binding.assetId) : null;
     if (!parsed || !provider || !binding || !asset || !session.smartAccount || !binding.env.every((name) => Boolean(this.env[name]?.trim()))) {
       throw new FundingCoreError("INVALID_QUOTE_REQUEST", 400);
+    }
+    if (parsed.kycFields && !validKycFields(parsed.kycFields, provider.manifest.kyc?.fields ?? [])) {
+      throw new FundingCoreError("INVALID_KYC_FIELDS", 400);
     }
     const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, paymentMethodId: parsed.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation });
     const owner = ownerFor(session);
@@ -181,5 +190,10 @@ function parseQuoteRequest(value: unknown): { providerId: string; region: string
   let kycFields: Record<string, string> | null = null;
   if (value.kycFields !== undefined) { if (!record(value.kycFields) || Object.values(value.kycFields).some((field) => typeof field !== "string" || field.length > 512)) return null; kycFields = value.kycFields as Record<string, string>; }
   return { providerId: value.providerId, region: value.region, paymentMethod: value.paymentMethod, fiatAmount: value.fiatAmount, kycFields };
+}
+function validKycFields(fields: Record<string, string>, definitions: ReadonlyArray<{ name: string }>): boolean {
+  const expected = definitions.map((field) => field.name).sort();
+  const supplied = Object.keys(fields).sort();
+  return expected.length === supplied.length && expected.every((name, index) => name === supplied[index] && fields[name].trim().length > 0);
 }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

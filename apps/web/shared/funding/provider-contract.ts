@@ -21,7 +21,7 @@ export type FundingProviderManifest = {
       name: string;
       label: string;
       type: "text" | "email" | "date" | "select";
-      options?: string[];
+      options?: ReadonlyArray<string>;
     }>;
   };
   webhook?: { signatureHeader: string; env: string };
