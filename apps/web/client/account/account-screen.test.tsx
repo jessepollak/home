@@ -146,13 +146,13 @@ describe("production account sign-in sheet", () => {
     expect(close.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
     expect(close.querySelector("svg")?.getAttribute("width")).toBe("20");
 
-    for (const name of ["Continue with email", "Continue with Base Account"]) {
+    for (const name of ["Continue with email", "Sign in with Base Account"]) {
       const button = await page().findByRole("button", { name });
       expect(button.classList.contains("home-ui-button")).toBe(true);
     }
     expect(
       page()
-        .getByRole("button", { name: "Continue with Base Account" })
+        .getByRole("button", { name: "Sign in with Base Account" })
         .getAttribute("data-variant"),
     ).toBe("secondary");
   });
@@ -272,7 +272,7 @@ describe("production account sign-in sheet", () => {
       await page().findByRole("button", { name: "Continue with email" }),
     ).toBeTruthy();
     expect(
-      page().queryByRole("button", { name: "Continue with Base Account" }),
+      page().queryByRole("button", { name: "Sign in with Base Account" }),
     ).toBeNull();
     disabledView.unmount();
 
@@ -290,7 +290,7 @@ describe("production account sign-in sheet", () => {
       await page().findByRole("button", { name: "Continue with email" }),
     ).toBeTruthy();
     fireEvent.click(
-      page().getByRole("button", { name: "Continue with Base Account" }),
+      page().getByRole("button", { name: "Sign in with Base Account" }),
     );
     expect((await page().findByRole("alert")).textContent).toContain(
       "Base Account sign-in was canceled",
@@ -329,7 +329,7 @@ describe("production account sign-in sheet", () => {
     expect(await page().findByText("Finishing sign-out…")).toBeTruthy();
     expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
     expect(
-      page().queryByRole("button", { name: "Continue with Base Account" }),
+      page().queryByRole("button", { name: "Sign in with Base Account" }),
     ).toBeNull();
 
     await act(async () => {
@@ -383,7 +383,7 @@ describe("production account sign-in sheet", () => {
     );
     expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
     expect(
-      page().queryByRole("button", { name: "Continue with Base Account" }),
+      page().queryByRole("button", { name: "Sign in with Base Account" }),
     ).toBeNull();
 
     await act(async () => {
@@ -411,7 +411,7 @@ describe("production account sign-in sheet", () => {
     fireEvent.click(trigger);
     const dialog = page().getByRole("dialog", { name: "Sign in to Home" });
     fireEvent.click(
-      await page().findByRole("button", { name: "Continue with Base Account" }),
+      await page().findByRole("button", { name: "Sign in with Base Account" }),
     );
     expect(
       await page().findByRole("button", { name: "Cancel sign in" }),

@@ -577,7 +577,7 @@ export function AccountSignInSheet({
                       variant="secondary"
                       onClick={() => void handleBaseAccountSignIn()}
                     >
-                      Continue with Base Account
+                      Sign in with Base Account
                     </Button>
                   </>
                 ) : null}

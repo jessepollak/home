@@ -5,16 +5,37 @@ import { CODEX_GRAPHQL_ENDPOINT } from "./config";
 import {
   CODEX_TRENDING_LIMIT,
   CODEX_TRENDING_MEME_CATEGORY,
+  CODEX_TRENDING_PAGE_SIZE,
   CODEX_TRENDING_QUERY,
+  createCodexTrendingMemeAdmissionReader,
+  createCodexTrendingMemesPageReader,
   createCodexTrendingMemesReader,
+  normalizeTrendingMemeAdmission,
   normalizeTrendingMemes,
+  normalizeTrendingMemesPage,
 } from "./trending";
 
 const NOW = new Date("2026-09-08T20:00:00.000Z");
 const degen = memeAssets[0];
 
-function trendingPayload(results: unknown[]) {
-  return { filterTokens: { results } };
+function trendingPayload(results: unknown[], page = 0) {
+  return { filterTokens: { results, count: results.length, page } };
+}
+
+function memeRow(address: string, name: string) {
+  return {
+    priceUSD: "0.0123",
+    change24: "0.05",
+    lastTransaction: "1757361600",
+    token: {
+      address,
+      name,
+      symbol: name.toUpperCase(),
+      decimals: "18",
+      networkId: "8453",
+      info: { imageSmallUrl: `https://icons.example.test/${name}.png` },
+    },
+  };
 }
 
 describe("Codex trending memes", () => {
@@ -60,6 +81,7 @@ describe("Codex trending memes", () => {
         },
         rankings: [{ attribute: "trendingScore24", direction: "DESC" }],
         limit: CODEX_TRENDING_LIMIT,
+        offset: 0,
         excludeTokens: expect.any(Array),
       },
     });
@@ -129,5 +151,282 @@ describe("Codex trending memes", () => {
     expect(() => normalizeTrendingMemes({ filterTokens: {} }, NOW)).toThrow(
       CodexMarketDataError,
     );
+  });
+});
+
+describe("Codex trending memes pages", () => {
+  test("advances offset by provider-returned rows and reports truthfully", () => {
+    const page = normalizeTrendingMemesPage(
+      trendingPayload(
+        [
+          memeRow("0x1111111111111111111111111111111111111111", "Higher"),
+          memeRow("0x2222222222222222222222222222222222222222", "Lower"),
+        ],
+        0,
+      ),
+      NOW,
+      { offset: 0, limit: 2 },
+    );
+
+    expect(page.status).toBe("ready");
+    expect(page.assets).toHaveLength(2);
+    expect(page.exhausted).toBe(false);
+    expect(page.nextOffset).toBe(2);
+  });
+
+  test("exhausts when provider returns fewer rows than the requested limit", () => {
+    const page = normalizeTrendingMemesPage(
+      trendingPayload(
+        [memeRow("0x1111111111111111111111111111111111111111", "Higher")],
+        48,
+      ),
+      NOW,
+      { offset: 48, limit: CODEX_TRENDING_PAGE_SIZE },
+    );
+
+    expect(page.assets).toHaveLength(1);
+    expect(page.exhausted).toBe(true);
+    expect(page.nextOffset).toBeNull();
+  });
+
+  test("deduplicates duplicate contracts without using them for exhaustion", () => {
+    const page = normalizeTrendingMemesPage(
+      trendingPayload([
+        memeRow("0x1111111111111111111111111111111111111111", "Higher"),
+        memeRow("0x1111111111111111111111111111111111111111", "Higher"),
+        memeRow("0x2222222222222222222222222222222222222222", "Lower"),
+      ]),
+      NOW,
+      { offset: 0, limit: 3 },
+    );
+
+    expect(page.assets.map((asset) => asset.id)).toEqual([
+      "base:0x1111111111111111111111111111111111111111",
+      "base:0x2222222222222222222222222222222222222222",
+    ]);
+    // Provider returned 3 rows, so next offset stays 3 even though one was dropped.
+    expect(page.nextOffset).toBe(3);
+    expect(page.exhausted).toBe(false);
+  });
+
+  test("rejects a repeated page-one result", () => {
+    expect(() =>
+      normalizeTrendingMemesPage(trendingPayload([], 0), NOW, {
+        offset: 24,
+        limit: CODEX_TRENDING_PAGE_SIZE,
+      }),
+    ).toThrow(CodexMarketDataError);
+  });
+
+  test("rejects an inconsistent provider count", () => {
+    const payload = { filterTokens: { results: [memeRow("0x1111111111111111111111111111111111111111", "Higher")], count: 5, page: 0 } };
+    expect(() =>
+      normalizeTrendingMemesPage(payload, NOW, {
+        offset: 0,
+        limit: CODEX_TRENDING_PAGE_SIZE,
+      }),
+    ).toThrow(CodexMarketDataError);
+  });
+
+  test("rejects missing pagination metadata", () => {
+    expect(() =>
+      normalizeTrendingMemesPage({ filterTokens: { results: [] } }, NOW, {
+        offset: 0,
+        limit: CODEX_TRENDING_PAGE_SIZE,
+      }),
+    ).toThrow(CodexMarketDataError);
+  });
+
+  test("coalesces concurrent reads and caches each offset", async () => {
+    let upstreamCalls = 0;
+    const reader = createCodexTrendingMemesPageReader({
+      apiKey: "fixture-key",
+      now: () => NOW,
+      fetchImpl: async () => {
+        upstreamCalls += 1;
+        return new Response(
+          JSON.stringify({
+            data: trendingPayload(
+              [memeRow("0x1111111111111111111111111111111111111111", "Higher")],
+              0,
+            ),
+          }),
+        );
+      },
+    });
+
+    const [first, second, cached] = await Promise.all([
+      reader(0),
+      reader(0),
+      reader(0),
+    ]);
+    expect(upstreamCalls).toBe(1);
+    expect(first.status).toBe("ready");
+    expect(first.assets).toHaveLength(1);
+    expect(second).toEqual(first);
+    expect(cached).toEqual(first);
+  });
+
+  test("does not cache a failed page and refetches the same offset", async () => {
+    let upstreamCalls = 0;
+    const reader = createCodexTrendingMemesPageReader({
+      apiKey: "fixture-key",
+      now: () => NOW,
+      fetchImpl: async () => {
+        upstreamCalls += 1;
+        throw new CodexMarketDataError("fixture envelope failure");
+      },
+    });
+
+    await expect(reader(0)).rejects.toThrow();
+    await expect(reader(0)).rejects.toThrow();
+    expect(upstreamCalls).toBe(2);
+  });
+
+  test("bounds the per-offset cache with least-recently-used eviction", async () => {
+    let upstreamCalls = 0;
+    const reader = createCodexTrendingMemesPageReader({
+      apiKey: "fixture-key",
+      now: () => NOW,
+      cacheMaxEntries: 2,
+      fetchImpl: async (_url, init) => {
+        upstreamCalls += 1;
+        const body = JSON.parse(String(init?.body)) as {
+          variables: { offset: number };
+        };
+        return new Response(
+          JSON.stringify({
+            data: trendingPayload(
+              [memeRow("0x1111111111111111111111111111111111111111", "Higher")],
+              body.variables.offset,
+            ),
+          }),
+        );
+      },
+    });
+
+    await reader(0);
+    await reader(24);
+    await reader(48); // evicts offset 0 (cache capped at 2)
+    expect(upstreamCalls).toBe(3);
+    await reader(0); // refetched after eviction; this evicts offset 24 (now LRU)
+    expect(upstreamCalls).toBe(4);
+    await reader(48); // still cached (most recently used)
+    expect(upstreamCalls).toBe(4);
+    await reader(24); // refetched after being evicted
+    expect(upstreamCalls).toBe(5);
+  });
+
+  test("fails closed when concurrent in-flight pages exceed the cap", async () => {
+    const release = () => new Promise((resolve) => setTimeout(resolve, 20));
+    const reader = createCodexTrendingMemesPageReader({
+      apiKey: "fixture-key",
+      now: () => NOW,
+      maxInFlight: 1,
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          variables: { offset: number };
+        };
+        await release();
+        return new Response(
+          JSON.stringify({
+            data: trendingPayload(
+              [memeRow("0x1111111111111111111111111111111111111111", "Higher")],
+              body.variables.offset,
+            ),
+          }),
+        );
+      },
+    });
+
+    const first = reader(0);
+    await expect(reader(24)).rejects.toThrow(CodexMarketDataError);
+    expect((await first).status).toBe("ready");
+  });
+});
+
+describe("Codex trending meme admission", () => {
+  const address = "0x1111111111111111111111111111111111111111";
+
+  function admissionPayload(results: unknown[]) {
+    return { filterTokens: { results, count: results.length } };
+  }
+
+  test("admits the exact Base meme and rejects non-matching contracts", () => {
+    expect(
+      normalizeTrendingMemeAdmission(
+        admissionPayload([{ token: { address, networkId: "8453" } }]),
+        address,
+        8453,
+      ),
+    ).toBe(true);
+
+    expect(
+      normalizeTrendingMemeAdmission(
+        admissionPayload([
+          { token: { address: "0x2222222222222222222222222222222222222222", networkId: "8453" } },
+        ]),
+        address,
+        8453,
+      ),
+    ).toBe(false);
+
+    expect(
+      normalizeTrendingMemeAdmission(admissionPayload([]), address, 8453),
+    ).toBe(false);
+  });
+
+  test("rejects inconsistent admission metadata and invalid envelopes", () => {
+    expect(() =>
+      normalizeTrendingMemeAdmission(
+        { filterTokens: { results: [{}], count: 5 } },
+        address,
+        8453,
+      ),
+    ).toThrow(CodexMarketDataError);
+    expect(() =>
+      normalizeTrendingMemeAdmission({ filterTokens: {} }, address, 8453),
+    ).toThrow(CodexMarketDataError);
+  });
+
+  test("queries the provider once per contract and fails closed without a key", async () => {
+    const seen: unknown[] = [];
+    const reader = createCodexTrendingMemeAdmissionReader({
+      apiKey: "fixture-key",
+      now: () => NOW,
+      fetchImpl: async (_url, init) => {
+        seen.push(JSON.parse(String(init?.body)));
+        return new Response(
+          JSON.stringify({
+            data: admissionPayload([{ token: { address, networkId: "8453" } }]),
+          }),
+        );
+      },
+    });
+
+    expect(await reader(address, 8453)).toBe(true);
+    expect(await reader(address, 8453)).toBe(true); // cached
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      variables: {
+        tokens: [`${address}:8453`],
+        limit: 1,
+        filters: {
+          network: [8453],
+          potentialScam: false,
+          trendingIgnored: false,
+          categories: { anyOf: [CODEX_TRENDING_MEME_CATEGORY] },
+        },
+      },
+    });
+
+    const noKey = createCodexTrendingMemeAdmissionReader({
+      apiKey: "   ",
+      fetchImpl: async () => {
+        throw new Error("should not contact Codex");
+      },
+    });
+    expect(await noKey(address, 8453)).toBe(false);
+    expect(await noKey(address, 137)).toBe(false); // non-Base network
   });
 });

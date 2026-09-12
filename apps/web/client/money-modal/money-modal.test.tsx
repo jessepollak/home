@@ -37,7 +37,13 @@ function dismissDistance() {
 
 async function flushSheetReturn() {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  });
+}
+
+async function flushSheetOpen() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 750));
   });
 }
 
@@ -107,7 +113,7 @@ afterEach(cleanup);
 
 async function flushSheetExit() {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 750));
   });
 }
 
@@ -124,8 +130,9 @@ describe("MoneyModal shell", () => {
     expect(css).toContain("left: 0");
     expect(css).toContain("right: 0");
     expect(css).toContain("min-height: 0");
-    expect(css).toContain("will-change: height, transform");
-    expect(css).toContain("height: 0");
+    expect(css).toContain("will-change: transform");
+    expect(css).not.toContain("will-change: height, transform");
+    expect(css).not.toContain('.sheet[data-state="open"]:not([data-entered]):not([data-dragging])');
     expect(css).not.toContain("clip-path: inset(100% 0 0 0");
     expect(css).not.toContain("transform: translate3d(0, 100%, 0)");
     expect(css).not.toContain("align-items: end");
@@ -133,6 +140,12 @@ describe("MoneyModal shell", () => {
     expect(css).not.toContain("animation: money-sheet-exit");
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain("animation: none");
+
+    const grabberHit = cssRule(".grabberHit");
+    expect(grabberHit).toContain("width: 64px");
+    expect(grabberHit).toContain("height: 44px");
+    expect(grabberHit).toContain("margin: 0 auto -24px");
+    expect(cssRule(".grabberHit .grabber")).toContain("top: 8px");
   });
 
   test("locks reversible backdrop continuity", () => {
@@ -161,15 +174,16 @@ describe("MoneyModal shell", () => {
     );
   });
 
-  test("enter grows height from the pinned bottom without translating the sheet", () => {
+  test("enter uses one transform spring without a competing height writer", () => {
     const restoreMotion = stubReducedMotion(false);
     try {
       render(<Harness />);
       fireEvent.click(page().getByRole("button", { name: "Open money" }));
-      const sheet = document.querySelector("[data-money-sheet]") as HTMLElement;
-      expect(sheet.style.transform).toBe("translate3d(0, 0px, 0)");
-      expect(sheet.style.height === "0px" || /^\d+(\.\d+)?px$/.test(sheet.style.height)).toBe(true);
+      const sheet = document.querySelector("dialog[open] [data-money-sheet]") as HTMLElement;
+      expect(sheet.style.transform).toBe(`translate3d(0, ${window.innerHeight}px, 0)`);
+      expect(sheet.style.height).toBe("");
       expect(sheet.style.clipPath).toBe("");
+      expect(sheet.dataset.positionOwner).toBe("opening");
     } finally {
       restoreMotion();
     }
@@ -212,6 +226,7 @@ describe("MoneyModal shell", () => {
 
   test("dismisses from a backdrop tap", async () => {
     render(<Harness startOpen />);
+    await flushSheetOpen();
     const dialog = page().getByRole("dialog", { name: "Send" });
     fireEvent.click(dialog);
     await flushSheetExit();
@@ -226,6 +241,7 @@ describe("MoneyModal shell", () => {
 
   test("drag-down past the proportional threshold dismisses", async () => {
     render(<Harness startOpen />);
+    await flushSheetOpen();
     const grabber = document.querySelector("[data-money-sheet-grabber]");
     expect(grabber).toBeTruthy();
     const distance = dismissDistance() + 24;
@@ -242,8 +258,82 @@ describe("MoneyModal shell", () => {
     expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
   });
 
+  test("commits an accepted drag dismissal before the closing spring starts", async () => {
+    const snapshots: Array<{
+      owner: string | undefined;
+      state: string | undefined;
+      transform: string;
+    }> = [];
+
+    function CommitHarness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <MoneyModal
+          open={open}
+          labelledBy="commit-title"
+          onCancel={() => {
+            const sheet = document.getElementById("commit-title")
+              ?.closest<HTMLElement>("[data-money-sheet]");
+            snapshots.push({
+              owner: sheet?.dataset.positionOwner,
+              state: sheet?.dataset.state,
+              transform: sheet?.style.transform ?? "",
+            });
+            setOpen(false);
+          }}
+          onClose={() => {}}
+        >
+          <h2 id="commit-title">Commit</h2>
+        </MoneyModal>
+      );
+    }
+
+    render(<CommitHarness />);
+    await flushSheetOpen();
+    const sheet = document.getElementById("commit-title")
+      ?.closest<HTMLElement>("[data-money-sheet]") as HTMLElement;
+    const grabber = sheet.querySelector("[data-money-sheet-grabber]");
+    const distance = dismissDistance() + 24;
+
+    await act(async () => {
+      fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
+      await sleep(10);
+      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 40 + distance });
+      await sleep(120);
+      fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 40 + distance });
+    });
+
+    expect(snapshots).toEqual([{
+      owner: "pending-close",
+      state: "open",
+      transform: `translate3d(0, ${distance}px, 0)`,
+    }]);
+  });
+
+  test("an upward throw already at the top does not start a rebound writer", async () => {
+    render(<Harness startOpen />);
+    await flushSheetOpen();
+    const sheet = document.querySelector("dialog[open] [data-money-sheet]") as HTMLElement;
+    const grabber = sheet.querySelector("[data-money-sheet-grabber]");
+
+    await act(async () => {
+      fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 80 });
+      await sleep(20);
+      fireEvent.pointerMove(grabber!, { pointerId: 1, clientY: 20 });
+      fireEvent.pointerUp(grabber!, { pointerId: 1, clientY: 20 });
+    });
+
+    expect(sheet.dataset.positionOwner).toBe("idle");
+    expect(sheet.style.transform).toBe("translate3d(0, 0px, 0)");
+    await act(async () => {
+      await sleep(500);
+    });
+    expect(sheet.style.transform).toBe("translate3d(0, 0px, 0)");
+  });
+
   test("a short proportional grabber drag keeps the sheet open", async () => {
     render(<Harness startOpen />);
+    await flushSheetOpen();
     const grabber = document.querySelector("[data-money-sheet-grabber]");
     await act(async () => {
       fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
@@ -256,6 +346,7 @@ describe("MoneyModal shell", () => {
 
   test("a grabber flick dismisses through the projected destination", async () => {
     render(<Harness startOpen />);
+    await flushSheetOpen();
     const grabber = document.querySelector("[data-money-sheet-grabber]");
     await act(async () => {
       fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
@@ -269,6 +360,7 @@ describe("MoneyModal shell", () => {
 
   test("ages out flick velocity while the pointer is held still", async () => {
     render(<Harness startOpen />);
+    await flushSheetOpen();
     const grabber = document.querySelector("[data-money-sheet-grabber]");
     await act(async () => {
       fireEvent.pointerDown(grabber!, { pointerId: 1, button: 0, clientY: 40 });
@@ -282,6 +374,7 @@ describe("MoneyModal shell", () => {
 
   test("down-pause-up reopens even after clearing the proportional threshold", async () => {
     render(<Harness startOpen />);
+    await flushSheetOpen();
     const grabber = document.querySelector("[data-money-sheet-grabber]");
     const downY = 40 + dismissDistance() + 40;
     const upY = 40 + dismissDistance() + 30;
@@ -303,6 +396,7 @@ describe("MoneyModal shell", () => {
 
   test("pointer cancel never dismisses and springs back to open", async () => {
     render(<Harness startOpen />);
+    await flushSheetOpen();
     const grabber = document.querySelector("[data-money-sheet-grabber]");
     const distance = dismissDistance() + 24;
     await act(async () => {
@@ -320,6 +414,7 @@ describe("MoneyModal shell", () => {
 
   test("lost pointer capture never dismisses", async () => {
     render(<Harness startOpen />);
+    await flushSheetOpen();
     const grabber = document.querySelector("[data-money-sheet-grabber]");
     const distance = dismissDistance() + 24;
     await act(async () => {
@@ -341,6 +436,7 @@ describe("MoneyModal shell", () => {
     document.body.style.overflow = "auto";
     try {
       render(<ExternalCloseHarness />);
+      await flushSheetOpen();
       expect(document.body.style.overflow).toBe("hidden");
 
       const grabber = document.querySelector("[data-money-sheet-grabber]");
@@ -354,7 +450,7 @@ describe("MoneyModal shell", () => {
       });
 
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 2600));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       });
       expect(document.querySelector("dialog[open]")).toBeNull();
       expect(document.body.style.overflow).toBe("auto");
@@ -386,6 +482,7 @@ describe("MoneyModal shell", () => {
         <h2 id="blocked-title">Blocked</h2>
       </MoneyModal>,
     );
+    await flushSheetOpen();
     const grabber = document.querySelector("[data-money-sheet-grabber]");
     const distance = dismissDistance() + 24;
     await act(async () => {
@@ -433,6 +530,7 @@ describe("MoneyModal shell", () => {
     }
     try {
       render(<ResettingHarness />);
+      await flushSheetOpen();
       fireEvent.click(page().getByRole("button", { name: "Close" }));
       const dialog = document.querySelector("dialog") as HTMLDialogElement;
       const sheet = document.querySelector("[data-money-sheet]") as HTMLElement;
@@ -477,6 +575,7 @@ describe("MoneyModal shell", () => {
     document.body.style.overflow = "auto";
     try {
       render(<Harness startOpen />);
+      await flushSheetOpen();
       expect(document.body.style.overflow).toBe("hidden");
       fireEvent.click(page().getByRole("button", { name: "Close send dialog" }));
       expect(document.body.style.overflow).toBe("hidden");
@@ -519,6 +618,7 @@ describe("MoneyModal shell", () => {
 
     try {
       render(<KeyedHarness />);
+      await flushSheetOpen();
       expect(document.body.style.overflow).toBe("hidden");
 
       fireEvent.click(page().getByRole("button", { name: "Switch owner" }));

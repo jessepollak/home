@@ -6,6 +6,16 @@ import {
 
 export const OBSERVABILITY_SCHEMA = "home.observability.v2" as const;
 
+export type PortfolioBalanceSourceReason =
+  | "not-configured"
+  | "unauthorized"
+  | "rate-limited"
+  | "timed-out"
+  | "upstream-error"
+  | "invalid-response"
+  | "partial"
+  | "read-failed";
+
 export type ObservabilityEvent =
   | {
       kind: "unhandled-server-error";
@@ -19,19 +29,46 @@ export type ObservabilityEvent =
       route: string;
       errorName: string;
       summary: string;
+    }
+  | {
+      kind: "portfolio-balance-source";
+      route: string;
+      source: "cdp-token-balances" | "configured-base-rpc";
+      stage: "inventory";
+      outcome: "incomplete" | "unavailable";
+      reason: PortfolioBalanceSourceReason;
     };
 
-export type ObservabilityLogLine = {
+type ObservabilityLogBase = {
   schema: typeof OBSERVABILITY_SCHEMA;
   level: "error";
-  kind: ObservabilityEvent["kind"];
   route: string;
-  method?: string;
-  code: "UNHANDLED_SERVER_ERROR" | "CLIENT_ERROR";
-  errorName: string;
-  routeType?: string;
-  summary?: string;
 };
+
+export type ObservabilityLogLine = ObservabilityLogBase &
+  (
+    | {
+        kind: "unhandled-server-error";
+        code: "UNHANDLED_SERVER_ERROR";
+        errorName: string;
+        method?: string;
+        routeType?: string;
+      }
+    | {
+        kind: "client-error";
+        code: "CLIENT_ERROR";
+        errorName: string;
+        summary: string;
+      }
+    | {
+        kind: "portfolio-balance-source";
+        code: "PORTFOLIO_BALANCE_SOURCE";
+        source: "cdp-token-balances" | "configured-base-rpc";
+        stage: "inventory";
+        outcome: "incomplete" | "unavailable";
+        reason: PortfolioBalanceSourceReason;
+      }
+  );
 
 function sanitizeMethod(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -47,18 +84,28 @@ export function normalizeObservabilityEvent(
   const base = {
     schema: OBSERVABILITY_SCHEMA,
     level: "error" as const,
-    kind: event.kind,
     route: sanitizeRoutePath(event.route),
-    code:
-      event.kind === "client-error"
-        ? ("CLIENT_ERROR" as const)
-        : ("UNHANDLED_SERVER_ERROR" as const),
-    errorName: sanitizeIdentifier(event.errorName ?? "Error", "Error"),
   };
 
+  if (event.kind === "portfolio-balance-source") {
+    return {
+      ...base,
+      kind: event.kind,
+      code: "PORTFOLIO_BALANCE_SOURCE",
+      source: event.source,
+      stage: event.stage,
+      outcome: event.outcome,
+      reason: event.reason,
+    };
+  }
+
+  const errorName = sanitizeIdentifier(event.errorName ?? "Error", "Error");
   if (event.kind === "client-error") {
     return {
       ...base,
+      kind: event.kind,
+      code: "CLIENT_ERROR",
+      errorName,
       summary: scrubString(event.summary).trim().slice(0, 256) || "Client error",
     };
   }
@@ -70,6 +117,9 @@ export function normalizeObservabilityEvent(
 
   return {
     ...base,
+    kind: event.kind,
+    code: "UNHANDLED_SERVER_ERROR",
+    errorName,
     ...(method ? { method } : {}),
     ...(routeType ? { routeType } : {}),
   };

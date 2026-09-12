@@ -218,6 +218,37 @@ describe("home balances presentation cache", () => {
       ),
     ).toEqual(cached);
 
+    const liveUnavailable: HomeAssetBalancesPresentation = {
+      status: "ready",
+      displayTotal: "$12.34",
+      totalStatus: "partial",
+      statusLabel: "Unavailable",
+      items: readyPresentation.items,
+      unavailableItemIds: ["asset:fixture-eurc"],
+    };
+    expect(
+      resolvePaintedHomeBalances({
+        ownerKey: OWNER,
+        subject: SUBJECT,
+        smartAccount: ACCOUNT,
+        region: "US",
+        live: liveUnavailable,
+        getStorage: () => storage,
+        now: NOW,
+      }).items,
+    ).toEqual([
+      readyPresentation.items[0],
+      {
+        id: "asset:fixture-eurc",
+        group: "asset",
+        name: "Euro",
+        detail: "EURC",
+        displayBalance: "Unavailable",
+        currencyCode: "EUR",
+        tone: "error",
+      },
+    ]);
+
     const liveReady: HomeAssetBalancesPresentation = {
       status: "ready",
       displayTotal: "$13.34",
@@ -372,6 +403,46 @@ describe("home balances presentation cache", () => {
       ),
     ).toBe(false);
     expect(storage.length).toBe(0);
+  });
+
+  test("invalidates catalog-seeded v4 membership after the authoritative-row change", () => {
+    const key = homeBalancesPresentationCacheKey({
+      subject: SUBJECT,
+      smartAccount: ACCOUNT,
+      region: "US",
+    });
+    const storage = memoryStorage({
+      [key]: JSON.stringify({
+        v: 1,
+        presentationSemantics: "4.0.0",
+        ownerKey: OWNER,
+        subject: SUBJECT,
+        smartAccount: ACCOUNT,
+        region: "US",
+        savedAt: SAVED_AT,
+        presentation: {
+          ...readyPresentation,
+          items: [
+            ...readyPresentation.items,
+            {
+              id: "asset:catalog-only",
+              group: "asset",
+              name: "Catalog only",
+              displayBalance: "Unavailable",
+              tone: "error",
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(
+      readHomeBalancesPresentation(
+        () => storage,
+        { ownerKey: OWNER, subject: SUBJECT, smartAccount: ACCOUNT, region: "US" },
+        NOW,
+      ),
+    ).toBeNull();
   });
 
   test("misses an otherwise valid record with legacy formatted-row semantics", () => {
