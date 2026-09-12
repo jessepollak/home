@@ -2,8 +2,8 @@
   display: grid;
   width: 100%;
   min-width: 0;
-  gap: 28px;
   max-width: 560px;
+  gap: 28px;
   padding: 4px 2px 28px;
   color: var(--fg);
 }
@@ -15,88 +15,28 @@
   gap: 8px;
 }
 
-.back {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  border: 0;
-  border-radius: var(--control-radius);
-  background: transparent;
-  color: var(--fg);
-  cursor: pointer;
-  font-size: 1.25rem;
-}
-
-.title {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 750;
-  letter-spacing: -0.03em;
-  text-align: center;
-}
-
-.hero {
-  align-items: center;
-  padding: 12px 8px 4px;
-  text-align: center;
-}
+.back { width: 44px; height: 44px; padding: 0; color: var(--fg); font-size: 1.25rem; }
+.title { text-align: center; }
+.hero { align-items: center; padding: 12px 8px 4px; text-align: center; }
 
 .heroAmount {
   max-width: 100%;
-  margin: 0;
-  overflow-wrap: anywhere;
   font-size: clamp(2.8rem, 14vw, 3.6rem);
-  font-variant-numeric: tabular-nums;
   font-weight: 750;
   letter-spacing: -0.06em;
   line-height: 0.95;
 }
 
-.heroAmountEmpty {
-  color: #c5c9d1;
-}
-
+.heroAmountEmpty { color: var(--home-ui-color-disabled-text); }
 .heroCaption,
-.heroMeta {
-  margin: 0;
-  color: var(--fg-muted);
-  font-size: 0.95rem;
-}
+.heroMeta { text-align: center; }
+.heroEmpty { padding: 0; }
+.heroEmpty :global(.home-ui-empty-state__title) { color: var(--fg-muted); font-weight: 400; }
 
-.heroMeta {
-  font-size: 0.78rem;
-}
-
-.heroEmpty {
-  padding: 0;
-}
-
-.heroEmpty :global(.home-ui-empty-state__title) {
-  color: var(--fg-muted);
-  font-size: 0.95rem;
-  font-weight: 400;
-}
-
-.heroEmpty :global(.home-ui-empty-state__description) {
-  font-size: 0.78rem;
-}
-
-.vaults {
-  display: grid;
-  gap: 10px;
-}
-
-.vaultList {
-  width: 100%;
-}
-
-.vault {
-  display: grid;
-  width: 100%;
-  border: 1px solid var(--separator);
-  border-radius: var(--panel-radius);
-}
+.vaults,
+.vaultList { width: 100%; }
+.vaults { display: grid; gap: 10px; }
+.vault { display: grid; width: 100%; border: 1px solid var(--separator); border-radius: var(--panel-radius); }
 
 .vaultHeader {
   display: grid;
@@ -114,10 +54,40 @@
   font: inherit;
 }
 
-.vaultSelected {
-  border-color: var(--home-blue);
-  box-shadow: 0 0 0 1px var(--home-blue);
+.vaultSelected { border-color: var(--home-blue); box-shadow: 0 0 0 1px var(--home-blue); }
+.vaultName { display: grid; min-width: 0; gap: 3px; }
+.vaultBalance { min-width: 0; max-width: 100%; }
+
+.detailsBody {
+  border-top: 1px solid var(--separator);
+  min-width: 0;
+  overflow-y: clip;
+  padding: 12px 16px 14px;
+  interpolate-size: allow-keywords;
+  animation: details-open var(--motion-tab) ease;
 }
+
+@keyframes details-open {
+  from { block-size: 0; opacity: 0; }
+  to { block-size: auto; opacity: 1; }
+}
+
+.detailsFacts {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin: 0;
+}
+
+.detailsFact { min-width: 0; }
+.detailsFact:last-child { text-align: right; }
+.detailsFact dt { color: var(--fg-muted); font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; }
+.detailsFact dd { margin: 3px 0 0; color: var(--fg-muted); font-size: 0.8rem; line-height: 1.3; overflow-wrap: anywhere; }
+
+.actions { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.actionsSplit { grid-template-columns: 1fr 1fr; }
+.action { min-height: 48px; }
 
 .vaultSkeletonList {
   display: grid;
@@ -139,193 +109,20 @@
   padding: 14px 16px;
 }
 
-.vaultSkeletonName {
-  width: 42%;
-  min-width: 5rem;
-  height: 12px;
-}
-
-.vaultSkeletonValue {
-  width: 3.25rem;
-  height: 12px;
-}
-
-.vaultName {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.vaultName strong {
-  overflow-wrap: anywhere;
-  font-size: 0.92rem;
-  font-weight: 650;
-}
-
-.vaultApy,
-.vaultMeta {
-  color: var(--fg-muted);
-  font-size: 0.78rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.vaultBalance {
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  font-size: 0.95rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 750;
-}
-
-.actions {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
-
-.actionsSplit {
-  grid-template-columns: 1fr 1fr;
-}
-
-.primary,
-.secondary {
-  min-height: 48px;
-  border-radius: var(--control-radius);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.92rem;
-  font-weight: 720;
-}
-
-.primary {
-  border: 1px solid var(--home-blue);
-  background: var(--home-blue);
-  color: var(--home-white);
-}
-
-.secondary {
-  border: 1px solid var(--separator);
-  background: var(--home-white);
-  color: var(--fg);
-}
-
-.primary:disabled,
-.secondary:disabled,
-.back:disabled,
-.vaultHeader:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.detailsBody {
-  border-top: 1px solid var(--separator);
-  min-width: 0;
-  overflow-y: clip;
-  padding: 12px 16px 14px;
-  interpolate-size: allow-keywords;
-  animation: details-open var(--motion-tab) ease;
-}
-
-@keyframes details-open {
-  from {
-    block-size: 0;
-    opacity: 0;
-  }
-
-  to {
-    block-size: auto;
-    opacity: 1;
-  }
-}
-
-.detailsFacts {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
-  margin: 0;
-}
-
-.detailsFact {
-  min-width: 0;
-}
-
-.detailsFact:last-child {
-  text-align: right;
-}
-
-.detailsFact dt {
-  margin: 0;
-  color: var(--fg-muted);
-  font-size: 0.7rem;
-  font-weight: 450;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.detailsFact dd {
-  margin: 3px 0 0;
-  color: var(--fg-muted);
-  font-size: 0.8rem;
-  font-weight: 450;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
+.vaultSkeletonName { width: 42%; min-width: 5rem; }
+.vaultSkeletonValue { width: 3.25rem; }
 
 @media (max-width: 360px) {
-  .hero {
-    min-width: 0;
-    padding-inline: 0;
-  }
-
-  .heroAmount {
-    padding-bottom: 2px;
-    font-size: clamp(2.4rem, 14vw, 3.2rem);
-    letter-spacing: -0.04em;
-    line-height: 1.1;
-  }
-
+  .hero { min-width: 0; padding-inline: 0; }
+  .heroAmount { padding-bottom: 2px; font-size: clamp(2.4rem, 14vw, 3.2rem); letter-spacing: -0.04em; line-height: 1.1; }
   .vaults,
   .vaultList,
-  .actions {
-    min-width: 0;
-    max-width: 100%;
-  }
-
-  .vaultHeader {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .vaultBalance {
-    justify-self: start;
-    text-align: left;
-  }
-
-  .actionsSplit {
-    grid-template-columns: 1fr;
-  }
+  .actions { min-width: 0; max-width: 100%; }
+  .vaultHeader { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .vaultBalance { justify-self: start; text-align: left; }
+  .actionsSplit { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vaultHeader,
-  .primary,
-  .secondary {
-    transition: none;
-  }
-
-  .detailsBody {
-    animation: none;
-  }
+  .detailsBody { animation: none; }
 }
