@@ -351,13 +351,19 @@ describe("native Base nonce stores", () => {
     expect(await store.consume("expired", START.toISOString())).toBeNull();
   });
 
-  test("requires durable Postgres in production and serverless runtimes but permits memory locally", () => {
-    expect(resolveNativeBaseNonceStoreBackend({})).toBe("memory");
+  test("requires durable Postgres outside exact local development and test environments", () => {
+    for (const env of [
+      {},
+      { NODE_ENV: "" },
+      { NODE_ENV: "unknown" },
+      { NODE_ENV: "staging" },
+      { NODE_ENV: "preview" },
+      { NODE_ENV: "production" },
+    ]) {
+      expect(resolveNativeBaseNonceStoreBackend(env)).toBe("hosted-unavailable");
+    }
     expect(resolveNativeBaseNonceStoreBackend({ NODE_ENV: "development" })).toBe("memory");
     expect(resolveNativeBaseNonceStoreBackend({ NODE_ENV: "test" })).toBe("memory");
-    expect(resolveNativeBaseNonceStoreBackend({ NODE_ENV: "production" })).toBe(
-      "hosted-unavailable",
-    );
     expect(resolveNativeBaseNonceStoreBackend({
       NODE_ENV: "production",
       AWS_EXECUTION_ENV: "AWS_Lambda_nodejs22.x",

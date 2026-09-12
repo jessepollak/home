@@ -188,7 +188,10 @@ export function resolveNativeBaseNonceStoreBackend(
   if (env.NODE_ENV === "production" || isHostedOrServerlessRuntime(env)) {
     return "hosted-unavailable";
   }
-  return "memory";
+  if (env.NODE_ENV === "development" || env.NODE_ENV === "test") {
+    return "memory";
+  }
+  return "hosted-unavailable";
 }
 
 let runtimeStore: NativeBaseNonceStore | null = null;
