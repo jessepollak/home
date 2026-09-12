@@ -1,28 +1,28 @@
 import "server-only";
 
-import type { AttemptStoreResource } from "./attempt-store";
 import type { MoneyActionStore } from "./store";
 
-type RuntimeResourceFactory = (connectionString: string) => Promise<AttemptStoreResource>;
+type RuntimeMoneyActionStore = MoneyActionStore & { ensureSchema(): Promise<void> };
+type RuntimeStoreFactory = (connectionString: string) => Promise<RuntimeMoneyActionStore>;
 
-const defaultRuntimeResourceFactory: RuntimeResourceFactory = async (connectionString) => {
-  const { createNeonSqlExecutor, createPostgresAttemptStoreResourceWithExecutor } = await import("./postgres-store");
-  return createPostgresAttemptStoreResourceWithExecutor(createNeonSqlExecutor(connectionString));
+const defaultRuntimeStoreFactory: RuntimeStoreFactory = async (connectionString) => {
+  const { PostgresMoneyActionStore } = await import("./postgres-store");
+  return new PostgresMoneyActionStore(connectionString);
 };
 
 let injectedStore: MoneyActionStore | null = null;
 let runtimeStore: Promise<MoneyActionStore> | null = null;
-let runtimeResourceFactory = defaultRuntimeResourceFactory;
+let runtimeStoreFactory = defaultRuntimeStoreFactory;
 
 export function setMoneyActionStoreForTests(store: MoneyActionStore | null): void {
   injectedStore = store;
   runtimeStore = null;
 }
 
-export function setMoneyActionRuntimeResourceFactoryForTests(
-  factory: RuntimeResourceFactory | null,
+export function setMoneyActionRuntimeStoreFactoryForTests(
+  factory: RuntimeStoreFactory | null,
 ): void {
-  runtimeResourceFactory = factory ?? defaultRuntimeResourceFactory;
+  runtimeStoreFactory = factory ?? defaultRuntimeStoreFactory;
   runtimeStore = null;
 }
 
@@ -53,14 +53,9 @@ export async function getMoneyActionStore(): Promise<MoneyActionStore> {
 async function loadRuntimeStore(): Promise<MoneyActionStore> {
   const backend = resolveMoneyActionStoreBackend();
   if (backend === "postgres") {
-    const resource = await runtimeResourceFactory(process.env.DATABASE_URL!);
-    try {
-      await resource.init();
-      return resource.store;
-    } catch (error) {
-      try { await resource.dispose(); } catch { /* preserve the readiness failure */ }
-      throw error;
-    }
+    const store = await runtimeStoreFactory(process.env.DATABASE_URL!);
+    await store.ensureSchema();
+    return store;
   }
   if (backend === "cutover-unverified") {
     throw new Error(
