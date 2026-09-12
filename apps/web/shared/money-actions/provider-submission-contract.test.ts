@@ -61,6 +61,21 @@ describe("provider submission contract", () => {
     });
   });
 
+  test("other EIP-5792 provider errors and disconnect or unknown throws remain ambiguous", () => {
+    for (const code of [4100, 4200, -32603, "5730"]) {
+      expect(classifyEip5792SendInvocation({ stage: "provider-error", code })).toEqual({
+        classification: "ambiguous",
+        reason: "wallet-send-calls-entered",
+      });
+    }
+    for (const cause of ["disconnect", "unknown"] as const) {
+      expect(classifyEip5792SendInvocation({ stage: "invoked-then-threw", cause })).toEqual({
+        classification: "ambiguous",
+        reason: "wallet-send-calls-entered",
+      });
+    }
+  });
+
   test("EIP-5792 lookup failures never prove non-submission", () => {
     for (const code of [5720, 5730, 4200, -32602]) {
       expect(classifyEip5792Lookup({ code }).notSubmitted).toBe(false);

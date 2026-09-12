@@ -1558,10 +1558,38 @@ describe("money-action execution and authenticated transport", () => {
     }
   });
 
-  test("classifies EIP-5792 4001 as rejected and 5720 as ambiguous without a second wallet_sendCalls", async () => {
+  test("classifies EIP-5792 provider and transport failures without a second wallet_sendCalls", async () => {
     const cases = [
-      { code: 4001, expectedStatus: "rejected", expectedError: "error:rejected" },
-      { code: 5720, expectedStatus: "unknown", expectedError: "error:submission-unknown" },
+      {
+        name: "user rejection 4001",
+        error: () => new BaseAccountConnectorError("cancelled"),
+        expectedStatus: "rejected",
+        expectedError: "error:rejected",
+      },
+      {
+        name: "duplicate id 5720",
+        error: () => new BaseAccountConnectorError("invalid-provider-response", { code: 5720 }),
+        expectedStatus: "unknown",
+        expectedError: "error:submission-unknown",
+      },
+      {
+        name: "other provider error",
+        error: () => new BaseAccountConnectorError("invalid-provider-response", { code: 4200 }),
+        expectedStatus: "unknown",
+        expectedError: "error:submission-unknown",
+      },
+      {
+        name: "disconnect after invocation",
+        error: () => new BaseAccountConnectorError("disconnected"),
+        expectedStatus: "unknown",
+        expectedError: "error:submission-unknown",
+      },
+      {
+        name: "unknown throw after invocation",
+        error: () => new Error("unknown transport failure"),
+        expectedStatus: "unknown",
+        expectedError: "error:submission-unknown",
+      },
     ] as const;
     for (const [index, testCase] of cases.entries()) {
       window.sessionStorage.setItem("home:account-provider", "base-account");
@@ -1576,10 +1604,7 @@ describe("money-action execution and authenticated transport", () => {
         sendCalls: async (_calls, _requestId, beforeDispatch) => {
           await beforeDispatch?.();
           sends += 1;
-          throw new BaseAccountConnectorError(
-            testCase.code === 4001 ? "cancelled" : "invalid-provider-response",
-            testCase.code === 4001 ? undefined : { code: testCase.code },
-          );
+          throw testCase.error();
         },
         getCallsStatus: async () => {
           throw new Error("failed sends have no lookup handle");
@@ -1609,7 +1634,7 @@ describe("money-action execution and authenticated transport", () => {
           expect(JSON.parse(String(init?.body))).toEqual({ status: testCase.expectedStatus });
           return Response.json({ operation: storedMoneyAction(action, testCase.expectedStatus) });
         }
-        throw new Error(`unexpected EIP-5792 classification request: ${String(input)}`);
+        throw new Error(`unexpected ${testCase.name} classification request: ${String(input)}`);
       };
       render(
         <SessionHarness
@@ -1626,7 +1651,7 @@ describe("money-action execution and authenticated transport", () => {
       fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
       await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe(testCase.expectedStatus));
       expect({ sends, statusWrites }).toEqual({ sends: 1, statusWrites: 1 });
-      expect(claims).toBe(testCase.code === 4001 ? 1 : 2);
+      expect(claims).toBe(testCase.expectedStatus === "rejected" ? 1 : 2);
       cleanup();
       window.sessionStorage.clear();
     }
