@@ -14,6 +14,7 @@
     "test": "bun run --cwd packages/ui test && bun run --cwd apps/design-system test && bun run --cwd apps/web test",
     "check": "bun run test && bun run lint && bun run typecheck && bun run build",
     "money-actions:migrate": "bun run --cwd apps/web money-actions:migrate",
+    "funding:migrate": "bun run --cwd apps/web funding:migrate",
     "dev:design-system": "bun run --cwd apps/design-system dev",
     "test:browser:design-system": "bun run --cwd apps/design-system test:browser"
   },

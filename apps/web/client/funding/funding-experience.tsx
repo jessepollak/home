@@ -7,6 +7,7 @@ import {
   AddMoneyDialog,
   type AddMoneyStep,
 } from "./add-money-dialog";
+import { readFundingOrder, type FundingBinding, type FundingOrderSummary } from "./order-flow";
 import {
   FundingRequestError,
   requestHostedOnrampSession,
@@ -70,9 +71,31 @@ function FundingExperienceBoundary({
   const [step, setStep] = useState<AddMoneyStep>(startStep);
   const [openingOnramp, setOpeningOnramp] = useState(false);
   const [onrampError, setOnrampError] = useState<string | null>(null);
+  const [providerBindings, setProviderBindings] = useState<ReadonlyArray<FundingBinding>>([]);
+  const [selectedBinding, setSelectedBinding] = useState<FundingBinding | null>(null);
+  const [initialOrder, setInitialOrder] = useState<FundingOrderSummary | null>(null);
   const requestEpochRef = useRef(0);
   const requestAbortRef = useRef<AbortController | null>(null);
   const openRef = useRef(open);
+
+  useEffect(() => {
+    if (!open || signedOut || regionId === "GLOBAL") return;
+    const controller = new AbortController();
+    void Promise.all([
+      wallet.fetchAccountResource(`/api/funding/providers?region=${encodeURIComponent(regionId)}`, { signal: controller.signal }),
+      wallet.fetchAccountResource(`/api/funding/orders?region=${encodeURIComponent(regionId)}`, { signal: controller.signal }),
+    ]).then(([providerValue, orderValue]) => {
+      if (controller.signal.aborted) return;
+      const bindings = readProviderBindings(providerValue);
+      setProviderBindings(bindings);
+      const resumed = readFundingOrder(orderValue);
+      if (resumed) {
+        const binding = bindings.find((candidate) => candidate.providerId === readProviderId(orderValue));
+        if (binding) { setSelectedBinding(binding); setInitialOrder(resumed); setStep("order"); }
+      }
+    }).catch(() => { if (!controller.signal.aborted) setProviderBindings([]); });
+    return () => controller.abort();
+  }, [open, regionId, signedOut, wallet]);
 
   useEffect(() => {
     openRef.current = open;
@@ -136,6 +159,8 @@ function FundingExperienceBoundary({
   function close() {
     cancelPendingOnramp();
     setStep("method");
+    setSelectedBinding(null);
+    setInitialOrder(null);
     setOnrampError(null);
     onClose?.();
   }
@@ -144,6 +169,8 @@ function FundingExperienceBoundary({
     cancelPendingOnramp();
     openRef.current = true;
     setStep("method");
+    setSelectedBinding(null);
+    setInitialOrder(null);
     setOnrampError(null);
   }
 
@@ -159,15 +186,19 @@ function FundingExperienceBoundary({
       onClose={close}
       onBack={goBack}
       onSelectReceive={() => setStep("receive")}
+      providerBindings={providerBindings}
+      selectedBinding={selectedBinding}
+      initialOrder={initialOrder}
+      fetchAccountResource={wallet.fetchAccountResource}
+      onSelectBinding={(binding) => {
+        setSelectedBinding(binding);
+        setInitialOrder(null);
+        setStep("order");
+      }}
       onSelectBuy={() => {
         openRef.current = true;
         setOnrampError(null);
         setStep("buy");
-      }}
-      onSelectRipio={() => {
-        openRef.current = true;
-        setOnrampError(null);
-        setStep("ripio");
       }}
       onSelectAnotherOnramp={() => {
         openRef.current = true;
@@ -185,6 +216,13 @@ function fundingBoundary(wallet: FundingWallet): string | null {
     ? `${wallet.ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.accountProvider}`
     : null;
 }
+
+function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {
+  if (!isRecord(value) || !Array.isArray(value.providers)) return [];
+  return value.providers.filter((item): item is FundingBinding => isRecord(item) && typeof item.providerId === "string" && typeof item.displayName === "string" && typeof item.region === "string" && typeof item.assetId === "string" && typeof item.assetSymbol === "string" && typeof item.currency === "string" && Array.isArray(item.paymentMethods));
+}
+function readProviderId(value: unknown): string | null { return isRecord(value) && isRecord(value.order) && typeof value.order.providerId === "string" ? value.order.providerId : null; }
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 
 function messageForOnrampError(error: unknown): string {
   if (error instanceof FundingRequestError) {

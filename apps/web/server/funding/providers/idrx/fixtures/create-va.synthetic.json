@@ -1,0 +1,36 @@
+{
+  "source": "synthetic",
+  "statusCode": 200,
+  "message": "success",
+  "data": {
+    "merchantOrderId": "synthetic-order-1",
+    "providerOrderId": "synthetic-order-1",
+    "orderId": "synthetic-order-1",
+    "reference": "SNAP-synthetic-order-1",
+    "transactionType": "MINT",
+    "txType": "MINT",
+    "requestType": "idrx",
+    "networkChainId": "8453",
+    "chainId": 8453,
+    "tokenAddress": "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
+    "tokenSymbol": "IDRX",
+    "tokenDecimals": 2,
+    "destinationWalletAddress": "0x1111111111111111111111111111111111111111",
+    "destinationAddress": "0x1111111111111111111111111111111111111111",
+    "toBeMinted": "20000.50",
+    "expectedTokenAmountAtomic": "2000050",
+    "paymentMethod": "va",
+    "rail": "bank-va",
+    "channelId": "MANDIRI",
+    "virtualAccountNo": "8680770000001234",
+    "virtualAccountName": "HOME TEST CUSTOMER",
+    "amount": "24000.50",
+    "baseAmount": "20000.50",
+    "fees": [
+      { "name": "VA Mandiri", "amount": "4000.00" }
+    ],
+    "txHash": "0xabababababababababababababababababababababababababababababababab",
+    "transactionHash": "0xabababababababababababababababababababababababababababababababab",
+    "expiredDate": "2026-09-12T13:00:00.000Z"
+  }
+}
