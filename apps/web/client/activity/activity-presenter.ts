@@ -1,10 +1,10 @@
 import {
   formatAddress,
+  formatExactPresentationTokenAmount,
   formatPresentationDate,
   formatPresentationTokenAmount,
 } from "@/shared/formatting";
 import type { RegionId } from "@/config/regions";
-import { formatBaseUnitAmount } from "@/client/portfolio/format";
 import {
   condensedTransactionHash,
   transactionExplorerLink,
@@ -142,10 +142,12 @@ function formatActivityAmount(
     return `${transfer.amountBaseUnits} base units${presentation ? "" : " · unknown token"}`;
   }
   if (!presentation) {
-    return `${formatBaseUnitAmount(
+    return formatExactPresentationTokenAmount(
       transfer.amountBaseUnits,
       transfer.tokenDecimals,
-    )} ${transfer.tokenSymbol}`;
+      transfer.tokenSymbol,
+      { regionId },
+    );
   }
   return formatPresentationTokenAmount(
     BigInt(transfer.amountBaseUnits),

@@ -9,7 +9,11 @@ import { useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { usePortfolio } from "@/client/portfolio";
-import { formatAddress } from "@/shared/formatting";
+import {
+  formatAddress,
+  formatPresentationPercentage,
+  formatUsdStablecoinAmount,
+} from "@/shared/formatting";
 import {
   SavingsMoneyDialog,
   type SavingsActionMode,
@@ -26,8 +30,6 @@ import type {
   MorphoVaultsResult,
 } from "@/shared/savings/types";
 import {
-  formatApy,
-  formatUsdcUsd,
   readUsdcBaseUnits,
   shortVaultLabel,
 } from "./format";
@@ -281,7 +283,7 @@ export function SavingsExperience({
             <p
               className={`${styles.heroAmount} ${funded ? "" : styles.heroAmountEmpty}`.trim()}
             >
-              <MoneyTicker value={formatUsdcUsd(availableBalance.totalBaseUnits)} />
+              <MoneyTicker value={formatUsdStablecoinAmount(availableBalance.totalBaseUnits)} />
             </p>
             {funded && portfolioSummary ? (
               loadState.status === "loading" ? (
@@ -377,7 +379,7 @@ export function SavingsExperience({
                       <span className={styles.vaultBalance}>
                         {balance?.amount === null || balance?.amount === undefined
                           ? "—"
-                          : formatUsdcUsd(balance.amount.toString())}
+                          : formatUsdStablecoinAmount(balance.amount.toString())}
                       </span>
                     ) : (
                       <span className={styles.vaultMeta}>
@@ -392,7 +394,7 @@ export function SavingsExperience({
                       <dl className={styles.detailsFacts}>
                         <div className={styles.detailsFact}>
                           <dt>Fee</dt>
-                          <dd>{formatApy(selected.feeRate)}</dd>
+                          <dd>{formatPresentationPercentage(selected.feeRate)}</dd>
                         </div>
                         <div className={styles.detailsFact}>
                           <dt>Curator</dt>
@@ -450,10 +452,10 @@ export function SavingsExperience({
           availableLabel={
             actionMode === "deposit"
               ? availableUsdcBaseUnits
-                ? `${formatUsdcUsd(availableUsdcBaseUnits)} available`
+                ? `${formatUsdStablecoinAmount(availableUsdcBaseUnits)} available`
                 : undefined
               : selectedAmount !== null
-                ? `${formatUsdcUsd(selectedAmount.toString())} available`
+                ? `${formatUsdStablecoinAmount(selectedAmount.toString())} available`
                 : undefined
           }
           availableBaseUnits={
@@ -480,7 +482,7 @@ function availableVaultApyLabel(
   });
   if (rate.status === "stale") return "APY stale";
   if (rate.status === "unavailable") return "APY unavailable";
-  return `${formatApy(rate.value)} APY`;
+  return `${formatPresentationPercentage(rate.value)} APY`;
 }
 
 function fundedVaultApyLabel(
@@ -495,7 +497,7 @@ function fundedVaultApyLabel(
   });
   if (rate.status === "stale") return "APY stale";
   if (rate.status === "unavailable") return "APY unavailable";
-  return formatApy(rate.value);
+  return formatPresentationPercentage(rate.value);
 }
 
 function FundedApyCaption({ apy }: { apy: SavingsApySummary }) {

@@ -1,5 +1,10 @@
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import {
+  formatExactPresentationTokenAmount,
+  formatUnsignedTokenAmount,
+  formatUsdStablecoinAmount,
+} from "@/shared/formatting";
+import {
   PORTFOLIO_BASE_USDC_ADDRESS,
   type PortfolioAssetBalance,
 } from "@/shared/portfolio/types";
@@ -72,25 +77,27 @@ export function formatSendConfirmAmount(
   amountBaseUnits: string,
   assetId: TransferAssetId,
 ): string {
+  readBaseUnits(amountBaseUnits);
   if (assetId === "usdc") {
-    const exact = formatTransferAmount(amountBaseUnits, TRANSFER_ASSETS.usdc.decimals);
-    const [whole, fraction = ""] = exact.split(".");
-    return fraction.length <= 2
-      ? `$${whole}.${fraction.padEnd(2, "0")}`
-      : `$${exact}`;
+    return formatUsdStablecoinAmount(
+      amountBaseUnits,
+      TRANSFER_ASSETS.usdc.decimals,
+    );
   }
-  return `${formatTransferAmount(amountBaseUnits, TRANSFER_ASSETS.eth.decimals)} ETH`;
+  return formatExactPresentationTokenAmount(
+    amountBaseUnits,
+    TRANSFER_ASSETS.eth.decimals,
+    TRANSFER_ASSETS.eth.symbol,
+    { useNoBreakSpace: true },
+  );
 }
 
 export function formatTransferAmount(
   amountBaseUnits: string,
   decimals: number,
 ): string {
-  const amount = readBaseUnits(amountBaseUnits);
-  const padded = amount.toString(10).padStart(decimals + 1, "0");
-  const whole = decimals === 0 ? padded : padded.slice(0, -decimals);
-  const fraction = decimals === 0 ? "" : padded.slice(-decimals).replace(/0+$/, "");
-  return fraction ? `${whole}.${fraction}` : whole;
+  readBaseUnits(amountBaseUnits);
+  return formatUnsignedTokenAmount(amountBaseUnits, decimals);
 }
 
 export function assertTransferRequest(value: TransferRequest): void {

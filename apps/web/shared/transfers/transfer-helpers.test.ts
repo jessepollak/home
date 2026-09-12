@@ -17,7 +17,8 @@ describe("transfer amount helpers", () => {
     expect(formatTransferAmount("1000001", 6)).toBe("1.000001");
     expect(formatSendConfirmAmount("25000000", "usdc")).toBe("$25.00");
     expect(formatSendConfirmAmount("1000001", "usdc")).toBe("$1.000001");
-    expect(formatSendConfirmAmount("1", "eth")).toBe("0.000000000000000001 ETH");
+    expect(formatSendConfirmAmount("1234560000", "usdc")).toBe("$1,234.56");
+    expect(formatSendConfirmAmount("1", "eth")).toBe("0.000000000000000001\u00A0ETH");
   });
 
   test("rejects exponent notation, excess precision, zero, and malformed addresses", () => {

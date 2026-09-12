@@ -10,10 +10,7 @@ import {
 } from "./add-money-dialog";
 import { readFundingOrder, type FundingBinding, type FundingOrderSummary } from "./order-flow";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
-import {
-  FundingRequestError,
-  requestHostedOnrampSession,
-} from "@/shared/funding/funding-client";
+import { requestHostedOnrampSession } from "@/shared/funding/funding-client";
 
 export type FundingExperienceProps = {
   returnedFromCoinbase?: boolean;
@@ -166,7 +163,7 @@ function FundingExperienceBoundary({
         return;
       }
       navigateToHostedOnramp(hosted.url);
-    } catch (caught) {
+    } catch {
       if (
         controller.signal.aborted ||
         requestEpochRef.current !== requestEpoch ||
@@ -174,7 +171,7 @@ function FundingExperienceBoundary({
       ) {
         return;
       }
-      setOnrampError(messageForOnrampError(caught));
+      setOnrampError(messageForOnrampError());
       setOpeningOnramp(false);
     } finally {
       if (requestEpochRef.current === requestEpoch) {
@@ -258,14 +255,6 @@ function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {
 function readProviderId(value: unknown): string | null { return isRecord(value) && isRecord(value.order) && typeof value.order.providerId === "string" ? value.order.providerId : null; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 
-function messageForOnrampError(error: unknown): string {
-  if (error instanceof FundingRequestError) {
-    if (error.code === "unauthenticated") {
-      return "Your verified session changed before Coinbase opened. Sign in again; no hosted session was used.";
-    }
-    if (error.code === "not-configured") {
-      return "Coinbase Onramp is unavailable because this deployment does not have its existing CDP server credentials configured.";
-    }
-  }
-  return "Coinbase hosted funding is unavailable. The existing CDP project may need Onramp access or this Home return origin allowlisted.";
+function messageForOnrampError(): string {
+  return "Coinbase funding is unavailable. Try again later or choose another deposit method.";
 }

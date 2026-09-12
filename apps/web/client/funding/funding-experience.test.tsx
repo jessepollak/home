@@ -95,11 +95,11 @@ describe("FundingExperience", () => {
     for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
-    expect(page().getByText("Receive: 1000 wARS")).toBeTruthy();
-    expect(page().getByText("Rail: 10 ARS")).toBeTruthy();
+    expect(page().getByText((_, element) => element?.textContent === "Receive: 1.000\u00A0wARS")).toBeTruthy();
+    expect(page().getByText("Rail: $10,00")).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
     await page().findByRole("heading", { name: "Review payment details" });
-    expect(page().getByText("Provider: 12 ARS")).toBeTruthy();
+    expect(page().getByText("Provider: $12,00")).toBeTruthy();
     expect(page().queryByText("1234567890")).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
     await page().findByText("Deposit pending");
@@ -201,6 +201,28 @@ describe("FundingExperience", () => {
 
     expect(page().queryByTitle(ADDRESS_A)).toBeNull();
     expect(page().getByText(/Sign in and verify a Base account/)).toBeTruthy();
+  });
+
+  test("keeps hosted funding failures actionable without operator configuration prose", async () => {
+    render(
+      <FundingExperienceForWallet
+        wallet={{
+          ...verifiedWallet(),
+          fetchAccountResource: async () => {
+            throw new Error("not configured");
+          },
+        }}
+        navigateToHostedOnramp={() => {}}
+        regionId="US"
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Deposit USD with Coinbase" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue to Coinbase" }));
+    expect((await page().findByRole("alert")).textContent).toBe(
+      "Coinbase funding is unavailable. Try again later or choose another deposit method.",
+    );
+    expect(page().queryByText(/credentials|allowlisted|deployment/i)).toBeNull();
   });
 
   test("signed-out empty state offers sign in without exposing funding actions", () => {

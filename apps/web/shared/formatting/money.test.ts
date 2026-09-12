@@ -1,15 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import {
   MONEY_CHANGE_COLOR_TOKENS,
+  formatBasisPoints,
   formatChartPrice,
+  formatExactPresentationTokenAmount,
   formatFiatAmount,
+  formatHealthFactor,
+  formatOracleUsd,
   formatPercentage,
   formatPresentationDate,
   formatPresentationPrice,
   formatPresentationTokenAmount,
   formatSignedPercentChange,
   formatTokenAmount,
+  formatUnsignedTokenAmount,
   formatUsdPrice,
+  formatUsdStablecoinAmount,
+  formatWadPercent,
   moneyChangeTone,
   presentationAssetClass,
   presentationMoneyMetadata,
@@ -164,6 +171,30 @@ describe("presentation money formatting", () => {
     ).toBe("45,690,152 JESSE");
   });
 
+  test("centralizes exact token, fiat, WAD, basis-point, health, and oracle formatting", () => {
+    const cases = [
+      { actual: formatUnsignedTokenAmount("1234560000", 6), expected: "1,234.56" },
+      { actual: formatExactPresentationTokenAmount("1", 18, "ETH", { useNoBreakSpace: true }), expected: "0.000000000000000001\u00A0ETH" },
+      { actual: formatUsdStablecoinAmount("1234560000"), expected: "$1,234.56" },
+      { actual: formatUsdStablecoinAmount("1000001"), expected: "$1.000001" },
+      { actual: formatFiatAmount("1234.565", "USD"), expected: "$1,234.56" },
+      { actual: formatWadPercent("455000000000000"), expected: "0.05%" },
+      { actual: formatBasisPoints("455"), expected: "4.55%" },
+      { actual: formatHealthFactor("1235000000000000000"), expected: "1.24" },
+      { actual: formatHealthFactor(null), expected: "No debt" },
+      { actual: formatOracleUsd("800000000000000000000000000000000000000"), expected: "$80,000.00" },
+    ];
+    for (const entry of cases) expect(entry.actual).toBe(entry.expected);
+
+    expect(formatPresentationTokenAmount("bad", 6, "USDC")).toBe("—");
+    expect(formatFiatAmount("-1", "USD")).toBe("—");
+    expect(() => formatUnsignedTokenAmount("-1", 6)).toThrow(TypeError);
+    expect(() => formatWadPercent("-1")).toThrow(TypeError);
+    expect(() => formatBasisPoints("-1")).toThrow(TypeError);
+    expect(() => formatHealthFactor("-1")).toThrow(TypeError);
+    expect(() => formatOracleUsd("-1")).toThrow(TypeError);
+  });
+
   test("keeps ordinary and tiny market prices exact within display bounds", () => {
     expect(formatUsdPrice("231.708792875")).toBe("$231.71");
     expect(formatUsdPrice("12345678901234567890.1")).toBe(
@@ -202,6 +233,13 @@ describe("presentation money formatting", () => {
       negative: "var(--home-negative)",
       neutral: "var(--home-muted)",
     });
+  });
+
+  test("returns a deterministic unavailable value for malformed dates", () => {
+    expect(formatPresentationDate("not-a-date", {
+      timeZone: "UTC",
+      style: "activity-full",
+    })).toBe("—");
   });
 
   test("keeps valuation wrappers on the shared exact formatter", () => {
