@@ -205,35 +205,23 @@ function presentAssetRows(
   const other: HomeAssetBalanceItem[] = [];
   for (const holding of snapshot.inventory.holdings) {
     if (!isPresentedDirectHolding(holding, cashAssetKeys)) continue;
+    // The registry is a recovery allowlist, not row membership. A fresh row
+    // requires an authoritative positive balance. Nonready IDs still let the
+    // same-owner presentation cache mark a previously observed row Unavailable.
     const item =
-      holding.readStatus !== "ready" || holding.balanceBaseUnits === null
-        ? presentUnavailableDirectAssetRow(holding)
-        : holding.balanceBaseUnits === "0"
-          ? null
-          : presentDirectAssetRow(snapshot, {
-              ...holding,
-              balanceBaseUnits: holding.balanceBaseUnits,
-            });
+      holding.readStatus !== "ready" ||
+      holding.balanceBaseUnits === null ||
+      holding.balanceBaseUnits === "0"
+        ? null
+        : presentDirectAssetRow(snapshot, {
+            ...holding,
+            balanceBaseUnits: holding.balanceBaseUnits,
+          });
     if (!item) continue;
     if (item.currencyCode) fiat.push(item);
     else other.push(item);
   }
   return [...fiat, ...other];
-}
-
-function presentUnavailableDirectAssetRow(
-  holding: DirectPortfolioHolding,
-): HomeAssetBalanceItem {
-  return {
-    id: `asset:${holding.assetKey}`,
-    assetKey: holding.assetKey,
-    group: "asset",
-    name: holding.name,
-    detail: holding.symbol,
-    displayBalance: "Unavailable",
-    currencyCode: holding.cashCurrency,
-    tone: "error",
-  };
 }
 
 function presentDirectAssetRow(

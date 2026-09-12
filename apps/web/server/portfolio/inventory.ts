@@ -19,23 +19,28 @@ import {
   type CdpTokenBalancesClient,
 } from "./cdp-token-balances";
 import {
-  createOmittedCashBalanceReader,
-  type OmittedCashBalanceMap,
-  type OmittedCashBalanceRequest,
-} from "./inventory-cash-rpc";
+  CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT,
+  createConfiguredErc20BalanceReader,
+  type ConfiguredErc20BalanceMap,
+  type ConfiguredErc20BalanceRequest,
+} from "./inventory-erc20-rpc";
 import {
   InventoryVaultRpcError,
   createVaultInventoryReader,
   type VaultInventorySnapshot,
 } from "./inventory-vault-rpc";
 import type { VerifiedPortfolioAccount } from "@/shared/portfolio/types";
+import { writeObservabilityEvent } from "@/server/observability/log";
+import type {
+  ObservabilityEvent,
+  PortfolioBalanceSourceReason,
+} from "@/server/observability/schema";
 
 export const PORTFOLIO_INVENTORY_TIMEOUT_MS = 10_000;
-/** Fresh budget for omitted-cash `balanceOf` — not leftover from CDP + vaults. */
-export const PORTFOLIO_CASH_VERIFY_TIMEOUT_MS = 4_000;
-export const PORTFOLIO_CASH_VERIFY_ATTEMPTS = 2;
-/** Pause before the second cash attempt so public Base `-32016` can clear. */
-export const PORTFOLIO_CASH_VERIFY_RETRY_DELAY_MS = 400;
+/** Fresh budget for configured ERC-20 `balanceOf` recovery. */
+export const PORTFOLIO_ERC20_RECOVERY_TIMEOUT_MS = 4_000;
+export const PORTFOLIO_ERC20_RECOVERY_ATTEMPTS = 2;
+export const PORTFOLIO_ERC20_RECOVERY_RETRY_DELAY_MS = 400;
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 
@@ -65,21 +70,27 @@ export function createPortfolioInventoryReader(options: {
     account: VerifiedPortfolioAccount,
     signal: AbortSignal,
   ) => Promise<VaultInventorySnapshot>;
-  readOmittedCashBalances?: (
-    requests: readonly OmittedCashBalanceRequest[],
+  readConfiguredErc20Balances?: (
+    requests: readonly ConfiguredErc20BalanceRequest[],
     owner: PortfolioAddress,
     signal: AbortSignal,
-  ) => Promise<OmittedCashBalanceMap>;
+  ) => Promise<ConfiguredErc20BalanceMap>;
+  log?: (event: ObservabilityEvent) => unknown;
   now?: () => Date;
   timeoutMs?: number;
-  cashVerifyTimeoutMs?: number;
-  cashVerifyAttempts?: number;
-  cashVerifyRetryDelayMs?: number;
+  erc20RecoveryTimeoutMs?: number;
+  erc20RecoveryAttempts?: number;
+  erc20RecoveryRetryDelayMs?: number;
 } = {}): PortfolioInventoryReader {
+  const env = options.env ?? process.env;
+  const configuredRpcUrl = explicitlyConfiguredRpcUrl(
+    options.rpcUrl,
+    env.BASE_RPC_URL,
+  );
   const listTokenBalances =
     options.listTokenBalances ??
     createCdpTokenBalancesClient({
-      env: options.env,
+      env,
       fetchImpl: options.fetchImpl,
       generateJwtImpl: options.generateJwtImpl,
     }).listBalances;
@@ -87,22 +98,25 @@ export function createPortfolioInventoryReader(options: {
     options.readVaultInventory ??
     createVaultInventoryReader({
       fetchImpl: options.fetchImpl,
-      rpcUrl: options.rpcUrl,
+      rpcUrl: configuredRpcUrl ?? undefined,
     });
-  const readOmittedCashBalances =
-    options.readOmittedCashBalances ??
-    createOmittedCashBalanceReader({
-      fetchImpl: options.fetchImpl,
-      rpcUrl: options.rpcUrl,
-    });
+  const readConfiguredErc20Balances =
+    options.readConfiguredErc20Balances ??
+    (configuredRpcUrl
+      ? createConfiguredErc20BalanceReader({
+          fetchImpl: options.fetchImpl,
+          rpcUrl: configuredRpcUrl,
+        })
+      : null);
+  const log = options.log ?? writeObservabilityEvent;
   const now = options.now ?? (() => new Date());
   const timeoutMs = options.timeoutMs ?? PORTFOLIO_INVENTORY_TIMEOUT_MS;
-  const cashVerifyTimeoutMs =
-    options.cashVerifyTimeoutMs ?? PORTFOLIO_CASH_VERIFY_TIMEOUT_MS;
-  const cashVerifyAttempts =
-    options.cashVerifyAttempts ?? PORTFOLIO_CASH_VERIFY_ATTEMPTS;
-  const cashVerifyRetryDelayMs =
-    options.cashVerifyRetryDelayMs ?? PORTFOLIO_CASH_VERIFY_RETRY_DELAY_MS;
+  const erc20RecoveryTimeoutMs =
+    options.erc20RecoveryTimeoutMs ?? PORTFOLIO_ERC20_RECOVERY_TIMEOUT_MS;
+  const erc20RecoveryAttempts =
+    options.erc20RecoveryAttempts ?? PORTFOLIO_ERC20_RECOVERY_ATTEMPTS;
+  const erc20RecoveryRetryDelayMs =
+    options.erc20RecoveryRetryDelayMs ?? PORTFOLIO_ERC20_RECOVERY_RETRY_DELAY_MS;
 
   return async function readInventory(
     account: VerifiedPortfolioAccount,
@@ -122,26 +136,27 @@ export function createPortfolioInventoryReader(options: {
     const address = account.address.toLowerCase() as PortfolioAddress;
 
     try {
-      // CDP first (Coinbase HTTP, not public Base). Then omitted-cash `latest`
-      // singles, then Morpho vault RPC. Overlapping cash with vault batches on
-      // public Base `-32016`s the cash reads → Unavailable on true zeros
-      // (tip-prod #69 after #107). Isolated singles stay ready-0. Incomplete
-      // CDP still does not invent zeros.
+      // CDP first (Coinbase HTTP, not Base JSON-RPC). A listed quantity is
+      // contract-authoritative, but a catalog-seeded ERC-20 omitted by CDP is
+      // not proof of zero: recover only through the explicitly configured Base
+      // RPC, as bounded latest balanceOf singles, before Morpho vault reads.
       const directs = await withStageTimeout(
         externalSignal,
         timeoutMs,
-        (signal) => readDirectHoldings(listTokenBalances, address, signal),
+        (signal) => readDirectHoldings(listTokenBalances, address, signal, log),
       );
-      const verifiedDirects = await verifyOmittedCashHoldings(
+      const verifiedDirects = await recoverConfiguredErc20Holdings(
         directs.holdings,
-        directs.omittedCashIds,
+        directs.recoveryIds,
         address,
-        readOmittedCashBalances,
+        readConfiguredErc20Balances,
+        log,
         {
           externalSignal,
-          timeoutMs: cashVerifyTimeoutMs,
-          attempts: cashVerifyAttempts,
-          retryDelayMs: cashVerifyRetryDelayMs,
+          timeoutMs: erc20RecoveryTimeoutMs,
+          attempts: erc20RecoveryAttempts,
+          retryDelayMs: erc20RecoveryRetryDelayMs,
+          hosted: env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview",
         },
       );
       // Vault reads get a fresh deadline even when a large CDP inventory used
@@ -185,9 +200,10 @@ async function readDirectHoldings(
   listTokenBalances: CdpTokenBalancesClient["listBalances"],
   address: PortfolioAddress,
   signal: AbortSignal,
+  log: (event: ObservabilityEvent) => unknown,
 ): Promise<{
   holdings: DirectPortfolioHolding[];
-  omittedCashIds: ReadonlySet<string>;
+  recoveryIds: ReadonlySet<string>;
 }> {
   const assets = getDirectPortfolioAssets();
   const needed = new Set(
@@ -207,16 +223,20 @@ async function readDirectHoldings(
     });
   } catch (error) {
     if (error instanceof CdpTokenBalancesError) {
+      emitBalanceSourceEvent(log, "cdp-token-balances", "unavailable", error.code);
       listed = null;
     } else {
       throw error;
     }
   }
+  if (listed && !listed.complete) {
+    emitBalanceSourceEvent(log, "cdp-token-balances", "incomplete", "partial");
+  }
 
   const byContract = new Map(
     (listed?.balances ?? []).map((balance) => [balance.contractAddress, balance] as const),
   );
-  const omittedCashIds = new Set<string>();
+  const recoveryIds = new Set<string>();
 
   const holdings = assets.map((asset) => {
     const key =
@@ -228,21 +248,19 @@ async function readDirectHoldings(
       match !== undefined &&
       (listed?.authoritativeContractAddresses === undefined ||
         listed.authoritativeContractAddresses.has(key));
-    const ready = listed !== null && (authoritativeMatch || listed.complete);
+    const ready =
+      listed !== null &&
+      (authoritativeMatch || (asset.kind === "native" && listed.complete));
     const readStatus: DirectPortfolioHolding["readStatus"] = ready
       ? "ready"
       : listed === null
         ? "unavailable"
         : "incomplete";
-    // Cash omit is not a ready 0 by itself — RPC must agree (or return the
-    // on-chain amount). Vault underlying is never copied into cash.
-    // CDP 429/timeout (listed=null) must still verify cash; do not skip RPC.
-    if (
-      (listed === null || match === undefined) &&
-      asset.cashCurrency &&
-      asset.contractAddress
-    ) {
-      omittedCashIds.add(asset.id);
+    // CDP omission is not authoritative for contracts outside the provider's
+    // supported inventory. Every configured ERC-20 without a fresh CDP match
+    // must be recovered from the explicitly configured Base RPC.
+    if (asset.kind === "erc20" && !authoritativeMatch) {
+      recoveryIds.add(asset.id);
     }
     return {
       kind: "direct" as const,
@@ -260,38 +278,61 @@ async function readDirectHoldings(
       readStatus,
     };
   });
-  return { holdings, omittedCashIds };
+  return { holdings, recoveryIds };
 }
 
-async function verifyOmittedCashHoldings(
+async function recoverConfiguredErc20Holdings(
   holdings: DirectPortfolioHolding[],
-  omittedCashIds: ReadonlySet<string>,
+  recoveryIds: ReadonlySet<string>,
   address: PortfolioAddress,
-  readOmittedCashBalances: (
-    requests: readonly OmittedCashBalanceRequest[],
+  readConfiguredErc20Balances: ((
+    requests: readonly ConfiguredErc20BalanceRequest[],
     owner: PortfolioAddress,
     signal: AbortSignal,
-  ) => Promise<OmittedCashBalanceMap>,
+  ) => Promise<ConfiguredErc20BalanceMap>) | null,
+  log: (event: ObservabilityEvent) => unknown,
   options: {
     externalSignal?: AbortSignal;
     timeoutMs: number;
     attempts: number;
     retryDelayMs: number;
+    hosted: boolean;
   },
 ): Promise<DirectPortfolioHolding[]> {
-  const omitted = holdings.filter(
+  const unresolved = holdings.filter(
     (holding): holding is DirectPortfolioHolding & {
       contractAddress: PortfolioAddress;
-    } =>
-      omittedCashIds.has(holding.id) && holding.contractAddress !== null,
+    } => recoveryIds.has(holding.id) && holding.contractAddress !== null,
   );
-  if (omitted.length === 0) return holdings;
+  // Cash roles consume the same bounded recovery window as Invest contracts,
+  // so partition them first while preserving stable registry order in each set.
+  const recovery = [
+    ...unresolved.filter((holding) => holding.cashCurrency !== null),
+    ...unresolved.filter((holding) => holding.cashCurrency === null),
+  ];
+  if (recovery.length === 0) return holdings;
+  if (!readConfiguredErc20Balances) {
+    if (options.hosted) {
+      emitBalanceSourceEvent(
+        log,
+        "configured-base-rpc",
+        "unavailable",
+        "not-configured",
+      );
+    }
+    return holdings;
+  }
 
   const verified = new Map<string, string | null>(
-    omitted.map(({ id }) => [id, null]),
+    recovery.map(({ id }) => [id, null]),
   );
   const deadline = Date.now() + options.timeoutMs;
-  const maxAttempts = Math.max(1, options.attempts);
+  const maxAttempts = Math.min(
+    PORTFOLIO_ERC20_RECOVERY_ATTEMPTS,
+    Number.isSafeInteger(options.attempts) && options.attempts > 0
+      ? options.attempts
+      : 1,
+  );
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (options.externalSignal?.aborted) {
@@ -299,7 +340,7 @@ async function verifyOmittedCashHoldings(
         "The portfolio inventory request timed out or was aborted.",
       );
     }
-    const pending = omitted.filter(({ id }) => verified.get(id) == null);
+    const pending = recovery.filter(({ id }) => verified.get(id) == null);
     if (pending.length === 0) break;
     if (attempt > 0 && options.retryDelayMs > 0) {
       const delayMs = Math.min(options.retryDelayMs, deadline - Date.now());
@@ -315,11 +356,14 @@ async function verifyOmittedCashHoldings(
     if (remainingMs <= 0) break;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), remainingMs);
-    const abort = () => controller.abort();
+    const timeout = setTimeout(
+      () => controller.abort(CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT),
+      remainingMs,
+    );
+    const abort = () => controller.abort(options.externalSignal?.reason);
     options.externalSignal?.addEventListener("abort", abort, { once: true });
     try {
-      const batch = await readOmittedCashBalances(
+      const batch = await readConfiguredErc20Balances(
         pending.map(({ id, contractAddress }) => ({ id, contractAddress })),
         address,
         controller.signal,
@@ -338,17 +382,25 @@ async function verifyOmittedCashHoldings(
     }
   }
 
+  if ([...verified.values()].some((amount) => amount === null)) {
+    emitBalanceSourceEvent(
+      log,
+      "configured-base-rpc",
+      [...verified.values()].some((amount) => amount !== null)
+        ? "incomplete"
+        : "unavailable",
+      "read-failed",
+    );
+  }
+
   return holdings.map((holding) => {
-    if (!omittedCashIds.has(holding.id)) return holding;
+    if (!recoveryIds.has(holding.id)) return holding;
     const amount = verified.get(holding.id);
     if (amount === undefined || amount === null) {
       return {
         ...holding,
         balanceBaseUnits: null,
-        // Preserve a missing-page distinction. A complete CDP omission still
-        // requires RPC confirmation for cash, so an RPC miss is unavailable.
-        readStatus:
-          holding.readStatus === "incomplete" ? "incomplete" : "unavailable",
+        readStatus: "unavailable",
       };
     }
     return {
@@ -357,6 +409,34 @@ async function verifyOmittedCashHoldings(
       readStatus: "ready",
     };
   });
+}
+
+function explicitlyConfiguredRpcUrl(
+  optionUrl: string | undefined,
+  environmentUrl: string | undefined,
+): string | null {
+  const value = optionUrl?.trim() || environmentUrl?.trim();
+  return value || null;
+}
+
+function emitBalanceSourceEvent(
+  log: (event: ObservabilityEvent) => unknown,
+  source: "cdp-token-balances" | "configured-base-rpc",
+  outcome: "incomplete" | "unavailable",
+  reason: PortfolioBalanceSourceReason,
+): void {
+  try {
+    log({
+      kind: "portfolio-balance-source",
+      route: "/api/portfolio/valuation",
+      source,
+      stage: "inventory",
+      outcome,
+      reason,
+    });
+  } catch {
+    // Observability must not affect balance reads.
+  }
 }
 
 async function withStageTimeout<T>(

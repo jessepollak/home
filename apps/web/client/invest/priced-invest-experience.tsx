@@ -16,7 +16,7 @@ import {
 } from "./presentation-quote";
 import {
   useInvestDiscover,
-  type InvestDiscoverState,
+  type UseInvestDiscoverResult,
 } from "./use-invest-discover";
 import { useMarketPrices } from "./use-market-prices";
 
@@ -36,7 +36,7 @@ export function PricedInvestExperienceWithDiscover({
   initialView,
   discover,
 }: Pick<InvestExperienceProps, "initialView"> & {
-  discover: InvestDiscoverState;
+  discover: UseInvestDiscoverResult;
 }) {
   const persistedRegion = usePersistedPresentationRegion();
   const regionId = usePresentationRegionId(persistedRegion);
@@ -55,6 +55,9 @@ export function PricedInvestExperienceWithDiscover({
         memeAssets={discover.memeAssets}
         memeStatus={discover.memeStatus}
         assetMarkResolution={discover.assetMarkResolution}
+        memePagination={discover.memePagination}
+        onLoadMoreMemes={discover.loadMoreMemes}
+        onRetryLoadMoreMemes={discover.retryLoadMoreMemes}
       />
     </PresentationQuoteProvider>
   );

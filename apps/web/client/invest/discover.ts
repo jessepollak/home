@@ -38,6 +38,17 @@ export const discoverShelves = [
 export type DiscoverShelfId = (typeof discoverShelves)[number]["id"];
 export type MemeShelfStatus = "ready" | "empty" | "error" | "unavailable" | "loading";
 
+export type MemePagination = {
+  nextOffset: number | null;
+  exhausted: boolean;
+  loadingMore: boolean;
+  loadMoreError: boolean;
+  /** True once the consecutive-empty-page guard trips and auto-loading stops. */
+  autoLoadPaused: boolean;
+  /** Consecutive full provider pages that normalized to zero usable assets. */
+  consecutiveEmptyPages: number;
+};
+
 const assetById = new Map<string, InvestAsset>(
   investAssets.map((asset) => [asset.id, asset]),
 );

@@ -5,25 +5,24 @@ import {
 import {
   isDynamicMarketPriceAssetId,
   isMarketPriceRange,
-  matchesMarketPriceAssetIdentity,
   resolveMarketPriceAssetIdentity,
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
 } from "@/shared/invest/history-contract";
-import {
-  getCodexTrendingMemes,
-  type TrendingMemesResult,
-} from "@/server/market-data/codex/trending";
+import { getCodexTrendingMemeAdmission } from "@/server/market-data/codex/trending";
 
 type HistoryReader = (
   assetId: string,
   range: string,
 ) => Promise<MarketPriceHistoryResponse>;
-type DynamicCatalogReader = () => Promise<TrendingMemesResult>;
+type DynamicAdmissionReader = (
+  contractAddress: string,
+  networkId: number,
+) => Promise<boolean>;
 
 export function createMarketPriceHistoryHandler(
   readHistory: HistoryReader = getCodexMarketHistory,
-  readDynamicCatalog: DynamicCatalogReader = getCodexTrendingMemes,
+  readDynamicAdmission: DynamicAdmissionReader = getCodexTrendingMemeAdmission,
 ) {
   return async function GET(request: Request) {
     const url = new URL(request.url);
@@ -48,17 +47,12 @@ export function createMarketPriceHistoryHandler(
 
     if (isDynamicMarketPriceAssetId(identity.assetId)) {
       try {
-        const catalog = await readDynamicCatalog();
-        const admitted =
-          catalog.status === "ready" &&
-          (catalog.assets.some(
-            (asset) =>
-              asset.id === identity.assetId &&
-              matchesMarketPriceAssetIdentity(asset),
-          ) ||
-            catalog.snapshots.some(
-              (snapshot) => snapshot.assetId === identity.assetId,
-            ));
+        // Provider-backed exact admission from the canonical contract/network.
+        // This is independent of the page-zero catalog so page-2+ memes pass.
+        const admitted = await readDynamicAdmission(
+          identity.contractAddress,
+          identity.chainId,
+        );
         if (!admitted) {
           return Response.json(
             createUnavailableQueryResponse(

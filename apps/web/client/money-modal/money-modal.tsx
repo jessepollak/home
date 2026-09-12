@@ -19,6 +19,29 @@ export const MONEY_SHEET_DISMISS_PROJECTION_MS = 240;
 export const MONEY_SHEET_FLICK_MAX_AGE_MS = 100;
 export const MONEY_SHEET_VELOCITY_WINDOW_MS = 160;
 
+type SheetPositionOwner =
+  | "idle"
+  | "opening"
+  | "drag"
+  | "returning"
+  | "pending-close"
+  | "closing";
+
+type SheetAnimation = {
+  owner: Extract<SheetPositionOwner, "opening" | "returning" | "closing">;
+  sheet: HTMLElement;
+  stop: () => void;
+};
+
+type PendingSheetClose = {
+  translateY: number;
+  velocity: number;
+};
+
+function setSheetPositionOwner(sheet: HTMLElement, owner: SheetPositionOwner) {
+  sheet.dataset.positionOwner = owner;
+}
+
 /**
  * Resolves a drag release against the shared proportional threshold. Recent
  * upward velocity always resolves back toward the open position, even when the
@@ -105,7 +128,6 @@ function unlockBodyScroll() {
 
 export function useMoneyModal(
   open: boolean,
-  immediate = false,
 ): {
   dialogRef: RefObject<HTMLDialogElement | null>;
   finishClose: () => void;
@@ -155,15 +177,10 @@ export function useMoneyModal(
       dialog.focus({ preventScroll: true });
     }
 
-    if (prefersReducedMotion() || immediate) {
-      dialog.dataset.state = "closed";
-      finishClose();
-      return;
-    }
-
-    // The sheet spring below owns the exit; it calls finishClose on complete.
+    // MoneyModal owns finalization in every motion mode so the sheet can claim
+    // closing ownership before either an exit spring or an immediate close.
     dialog.dataset.state = "closing";
-  }, [finishClose, immediate, open]);
+  }, [open]);
 
   useEffect(() => {
     return () => {
@@ -194,9 +211,10 @@ export function MoneyModal({
   onClose: () => void;
   children: ReactNode;
 }) {
-  const { dialogRef, finishClose } = useMoneyModal(open, immediate);
+  const { dialogRef, finishClose } = useMoneyModal(open);
   const sheetRef = useRef<HTMLDivElement>(null);
-  const sheetAnimRef = useRef<{ stop: () => void } | null>(null);
+  const sheetAnimRef = useRef<SheetAnimation | null>(null);
+  const pendingCloseRef = useRef<PendingSheetClose | null>(null);
   const closingRef = useRef(false);
   const dragRef = useRef({
     pointerId: -1,
@@ -215,55 +233,92 @@ export function MoneyModal({
   if (open && !contentMounted) setContentMounted(true);
 
   const stopSheetAnim = useCallback(() => {
-    sheetAnimRef.current?.stop();
+    const active = sheetAnimRef.current;
+    if (!active) return;
     sheetAnimRef.current = null;
+    active.stop();
+    if (active.sheet.dataset.positionOwner === active.owner) {
+      setSheetPositionOwner(active.sheet, "idle");
+    }
   }, []);
 
-  const startSheetYSpring = useCallback((sheet: HTMLElement, fromY: number, toY: number, velocity: number, onComplete?: () => void) => {
+  const startSheetYSpring = useCallback((
+    sheet: HTMLElement,
+    owner: SheetAnimation["owner"],
+    fromY: number,
+    toY: number,
+    velocity: number,
+    onComplete?: () => void,
+  ) => {
     stopSheetAnim();
+    const start = Math.max(0, fromY);
+    const target = Math.max(0, toY);
+    let controls: { stop: () => void } | null = null;
+    let completed = false;
+    const writeY = (latest: number) => {
+      sheet.style.transform = `translate3d(0, ${Math.max(0, latest)}px, 0)`;
+    };
+    const animation: SheetAnimation = {
+      owner,
+      sheet,
+      stop: () => controls?.stop(),
+    };
+    const finish = () => {
+      if (completed) return;
+      completed = true;
+      if (sheetAnimRef.current === animation) sheetAnimRef.current = null;
+      writeY(target);
+      if (sheet.dataset.positionOwner === owner) {
+        setSheetPositionOwner(sheet, "idle");
+      }
+      onComplete?.();
+    };
+
     sheet.style.transition = "none";
-    sheet.style.transform = `translate3d(0, ${Math.max(0, fromY)}px, 0)`;
-    sheetAnimRef.current = animate(fromY, toY, {
+    setSheetPositionOwner(sheet, owner);
+    writeY(start);
+
+    const atOpenTarget = owner !== "closing"
+      && start <= target + 0.5
+      && velocity <= 0;
+    if (atOpenTarget) {
+      finish();
+      return;
+    }
+
+    sheetAnimRef.current = animation;
+    controls = animate(start, target, {
       ...MONEY_SHEET_SPRING,
       velocity: velocity * 1000,
       onUpdate: (latest) => {
-        sheet.style.transform = `translate3d(0, ${Math.max(0, latest)}px, 0)`;
+        if (sheetAnimRef.current !== animation) return;
+        const reachedTarget = target < start
+          ? latest <= target
+          : target > start && latest >= target;
+        if (reachedTarget) {
+          controls?.stop();
+          finish();
+          return;
+        }
+        writeY(latest);
       },
-      onComplete: () => {
-        sheetAnimRef.current = null;
-        sheet.style.transform = `translate3d(0, ${Math.max(0, toY)}px, 0)`;
-        onComplete?.();
-      },
+      onComplete: finish,
     });
-  }, [stopSheetAnim]);
-
-  const startSheetHeightSpring = useCallback((sheet: HTMLElement, fromHeight: number, toHeight: number, onComplete?: () => void) => {
-    stopSheetAnim();
-    sheet.style.transition = "none";
-    sheet.style.height = `${Math.max(0, fromHeight)}px`;
-    sheetAnimRef.current = animate(fromHeight, toHeight, {
-      ...MONEY_SHEET_SPRING,
-      onUpdate: (latest) => {
-        sheet.style.height = `${Math.max(0, latest)}px`;
-      },
-      onComplete: () => {
-        sheetAnimRef.current = null;
-        sheet.style.height = `${Math.max(0, toHeight)}px`;
-        onComplete?.();
-      },
-    });
+    if (completed) controls.stop();
   }, [stopSheetAnim]);
 
   const finishSheetReturn = useCallback((sheet: HTMLElement, targetHeight: number, releaseVelocity = 0) => {
     sheet.dataset.entered = "";
     if (prefersReducedMotion()) {
       stopSheetAnim();
+      setSheetPositionOwner(sheet, "returning");
       applySheetShift(sheet, 0);
       clearSheetEnter(sheet);
+      setSheetPositionOwner(sheet, "idle");
       return;
     }
     sheet.style.height = `${Math.max(0, targetHeight)}px`;
-    startSheetYSpring(sheet, Math.max(0, readTranslateY(sheet)), 0, releaseVelocity, () => {
+    startSheetYSpring(sheet, "returning", Math.max(0, readTranslateY(sheet)), 0, releaseVelocity, () => {
       if (dragRef.current.pointerId === -1 && !dragRef.current.dismissing && open) {
         clearSheetEnter(sheet);
         sheet.style.transition = "none";
@@ -276,6 +331,7 @@ export function MoneyModal({
     if (!sheet) return;
 
     if (open) {
+      pendingCloseRef.current = null;
       dragRef.current.dismissing = false;
       const reopening = closingRef.current;
       closingRef.current = false;
@@ -283,9 +339,11 @@ export function MoneyModal({
 
       if (prefersReducedMotion()) {
         stopSheetAnim();
+        setSheetPositionOwner(sheet, "opening");
         applySheetShift(sheet, 0);
         clearSheetEnter(sheet);
         sheet.dataset.entered = "";
+        setSheetPositionOwner(sheet, "idle");
         return;
       }
 
@@ -301,13 +359,17 @@ export function MoneyModal({
         return;
       }
 
-      const target = measureNaturalSheetHeight(sheet);
       stopSheetAnim();
-      applySheetShift(sheet, 0);
+      clearSheetEnter(sheet);
       sheet.dataset.entered = "";
-      startSheetHeightSpring(sheet, 0, target, () => {
+      const openingDistance = sheetHeight(sheet);
+      if (openingDistance <= 0) {
+        setSheetPositionOwner(sheet, "idle");
+        applySheetShift(sheet, 0);
+        return;
+      }
+      startSheetYSpring(sheet, "opening", openingDistance, 0, 0, () => {
         if (dragRef.current.pointerId === -1 && !dragRef.current.dismissing && open) {
-          clearSheetEnter(sheet);
           sheet.style.transition = "none";
         }
       });
@@ -319,17 +381,30 @@ export function MoneyModal({
       return;
     }
     closingRef.current = true;
-    if (dragRef.current.dismissing) return;
-    if (dragRef.current.pointerId !== -1) return;
+    const closesImmediately = prefersReducedMotion() || immediate;
+    if (dragRef.current.pointerId !== -1 && !closesImmediately) return;
+    const pendingClose = pendingCloseRef.current;
+    pendingCloseRef.current = null;
     const currentHeight = sheet.getBoundingClientRect().height;
     sheet.style.height = `${Math.max(0, currentHeight)}px`;
-    if (prefersReducedMotion() || immediate) {
+    const fromY = pendingClose?.translateY ?? Math.max(0, readTranslateY(sheet));
+    const releaseVelocity = pendingClose?.velocity ?? 0;
+    if (closesImmediately) {
       stopSheetAnim();
+      setSheetPositionOwner(sheet, "closing");
       applySheetShift(sheet, currentHeight || sheetHeight(sheet));
+      finishClose();
       return;
     }
-    startSheetYSpring(sheet, Math.max(0, readTranslateY(sheet)), sheetHeight(sheet), 0, finishClose);
-  }, [dialogRef, finishClose, finishSheetReturn, immediate, open, startSheetHeightSpring, startSheetYSpring, stopSheetAnim]);
+    startSheetYSpring(
+      sheet,
+      "closing",
+      fromY,
+      sheetHeight(sheet),
+      releaseVelocity,
+      finishClose,
+    );
+  }, [dialogRef, finishClose, finishSheetReturn, immediate, open, startSheetYSpring, stopSheetAnim]);
 
   useEffect(() => stopSheetAnim, [stopSheetAnim]);
 
@@ -342,6 +417,10 @@ export function MoneyModal({
     clearSheetEnter(sheet);
     delete sheet.dataset.dragging;
     delete sheet.dataset.entered;
+    delete sheet.dataset.positionOwner;
+    pendingCloseRef.current = null;
+    dragRef.current.pointerId = -1;
+    dragRef.current.dismissing = false;
     closingRef.current = false;
   }
 
@@ -356,6 +435,7 @@ export function MoneyModal({
     const sheet = sheetRef.current;
     if (!sheet) return;
     stopSheetAnim();
+    setSheetPositionOwner(sheet, "drag");
     const currentY = Math.max(0, readTranslateY(sheet));
     const currentHeight = sheet.getBoundingClientRect().height;
     const targetHeight = measureNaturalSheetHeight(sheet);
@@ -419,21 +499,19 @@ export function MoneyModal({
         applySheetShift(sheet, sheetHeight(sheet));
         return;
       }
-      startSheetYSpring(sheet, translateY, sheetHeight(sheet), releaseVelocity, finishClose);
+      startSheetYSpring(sheet, "closing", translateY, sheetHeight(sheet), releaseVelocity, finishClose);
       return;
     }
     if (resolveSheetDragDismiss(translateY, releaseVelocity, sheetHeight(sheet))) {
+      drag.dismissing = true;
+      pendingCloseRef.current = { translateY, velocity: releaseVelocity };
+      setSheetPositionOwner(sheet, "pending-close");
       const accepted = onCancel() !== false;
       if (!accepted) {
+        pendingCloseRef.current = null;
+        drag.dismissing = false;
         finishSheetReturn(sheet, drag.targetHeight, releaseVelocity);
-        return;
       }
-      drag.dismissing = true;
-      if (prefersReducedMotion()) {
-        applySheetShift(sheet, sheetHeight(sheet));
-        return;
-      }
-      startSheetYSpring(sheet, translateY, sheetHeight(sheet), releaseVelocity, finishClose);
       return;
     }
     finishSheetReturn(sheet, drag.targetHeight, releaseVelocity);
@@ -457,7 +535,7 @@ export function MoneyModal({
         applySheetShift(sheet, sheetHeight(sheet));
         return;
       }
-      startSheetYSpring(sheet, translateY, sheetHeight(sheet), releaseVelocity, finishClose);
+      startSheetYSpring(sheet, "closing", translateY, sheetHeight(sheet), releaseVelocity, finishClose);
       return;
     }
     finishSheetReturn(sheet, drag.targetHeight);

@@ -11,6 +11,7 @@ import {
   getDiscoverShelf,
   getShelfAssets,
   marketForAsset,
+  type MemePagination,
   type MemeShelfStatus,
 } from "./discover";
 import {
@@ -36,6 +37,9 @@ export type InvestExperienceProps = {
   memeAssets?: readonly InvestAsset[];
   memeStatus?: MemeShelfStatus;
   assetMarkResolution?: AssetMarkResolution;
+  memePagination?: MemePagination;
+  onLoadMoreMemes?: () => void;
+  onRetryLoadMoreMemes?: () => void;
 };
 
 export function InvestExperience({
@@ -46,6 +50,9 @@ export function InvestExperience({
   memeAssets = [],
   memeStatus = "empty",
   assetMarkResolution = {},
+  memePagination,
+  onLoadMoreMemes,
+  onRetryLoadMoreMemes,
 }: InvestExperienceProps = {}) {
   const router = useRouter();
   const [view, setView] = useState<InvestView>(() => {
@@ -159,6 +166,9 @@ export function InvestExperience({
         }
         status={shelf.id === "memes" ? memeStatus : "ready"}
         assetMarkResolution={assetMarkResolution}
+        pagination={shelf.id === "memes" ? memePagination : undefined}
+        onLoadMore={shelf.id === "memes" ? onLoadMoreMemes : undefined}
+        onRetryLoadMore={shelf.id === "memes" ? onRetryLoadMoreMemes : undefined}
         onBack={() => leaveChild({ screen: "hub" })}
         onOpenAsset={(asset, from) =>
           go({ screen: "detail", assetId: asset.id, from })

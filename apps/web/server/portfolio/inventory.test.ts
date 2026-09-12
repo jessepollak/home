@@ -4,6 +4,7 @@ import {
   PORTFOLIO_USDC_ASSET_KEY,
   assetKeyForErc20,
   getDirectPortfolioAssets,
+  investPortfolioAssets,
   portfolioVaults,
   verifiedLocalCashAssets,
 } from "@/config/portfolio-assets";
@@ -60,16 +61,16 @@ function rpcRespond(
     throw new Error("direct native balance must not use RPC");
   }
   const call = request.params[0] as { to: string; data: string };
-  const cash = getDirectPortfolioAssets().find(
+  const direct = getDirectPortfolioAssets().find(
     (asset) =>
-      asset.cashCurrency &&
+      asset.kind === "erc20" &&
       asset.contractAddress?.toLowerCase() === call.to.toLowerCase(),
   );
   const vault = portfolioVaults.find(
     ({ address }) => address.toLowerCase() === call.to.toLowerCase(),
   );
-  if (cash && call.data.startsWith("0x70a08231")) {
-    const amount = cashAmounts.get(cash.id) ?? BigInt(0);
+  if (direct && call.data.startsWith("0x70a08231")) {
+    const amount = cashAmounts.get(direct.id) ?? BigInt(0);
     return { jsonrpc: "2.0", id: request.id, result: dataWord(amount) };
   }
   if (!vault) {
@@ -102,6 +103,23 @@ function omittedZeros(requests: ReadonlyArray<{ id: string }>) {
 
 function omittedNulls(requests: ReadonlyArray<{ id: string }>) {
   return new Map(requests.map(({ id }) => [id, null]));
+}
+
+function configuredErc20Ids(except: readonly string[] = []) {
+  const excluded = new Set(except);
+  return getDirectPortfolioAssets()
+    .filter((asset) => asset.kind === "erc20" && !excluded.has(asset.id))
+    .map(({ id }) => id)
+    .sort();
+}
+
+function cashFirstConfiguredErc20Ids() {
+  return [
+    "usdc",
+    verifiedLocalCashAssets.EUR.id,
+    verifiedLocalCashAssets.IDR.id,
+    ...investPortfolioAssets.map(({ id }) => id),
+  ];
 }
 
 function ethOnlyComplete() {
@@ -235,9 +253,9 @@ describe("Phase A portfolio inventory", () => {
       Array.isArray(body) ? body : [body],
     ) as Array<{ method: string; params: unknown[] }>;
     expect(rpcCalls.some(({ method }) => method === "eth_getBalance")).toBeFalse();
-    const cashContracts = new Set(
+    const directContracts = new Set(
       getDirectPortfolioAssets()
-        .filter((asset) => asset.cashCurrency && asset.contractAddress)
+        .filter((asset) => asset.kind === "erc20" && asset.contractAddress)
         .map((asset) => asset.contractAddress!.toLowerCase()),
     );
     expect(
@@ -246,7 +264,7 @@ describe("Phase A portfolio inventory", () => {
         const to = (call.params[0] as { to?: string }).to?.toLowerCase();
         return (
           portfolioVaults.some(({ address }) => address.toLowerCase() === to) ||
-          (to !== undefined && cashContracts.has(to))
+          (to !== undefined && directContracts.has(to))
         );
       }),
     ).toBeTrue();
@@ -254,7 +272,7 @@ describe("Phase A portfolio inventory", () => {
       rpcCalls.some(
         (call) =>
           call.method === "eth_call" &&
-          cashContracts.has(
+          directContracts.has(
             ((call.params[0] as { to?: string }).to ?? "").toLowerCase(),
           ) &&
           typeof (call.params[0] as { data?: string }).data === "string" &&
@@ -270,6 +288,161 @@ describe("Phase A portfolio inventory", () => {
       ),
     ).toBeTrue();
     expect(CDP_NATIVE_TOKEN_ADDRESS).toBe("0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+  });
+
+  test("recovers CDP-omitted configured tokens from the verified owner and keeps zero assets absent", async () => {
+    const affectedIds = ["toshi", "cbxrp", "cbdoge", "cbltc"];
+    const affected = investPortfolioAssets.filter(({ id }) => affectedIds.includes(id));
+    expect(affected).toHaveLength(4);
+    const owners: string[] = [];
+    const requested: string[] = [];
+
+    const snapshot = await createPortfolioInventoryReader({
+      listTokenBalances: async () => ({
+        complete: true,
+        balances: [
+          {
+            contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
+            amountBaseUnits: "0",
+            native: true,
+          },
+        ],
+      }),
+      readConfiguredErc20Balances: async (requests, owner) => {
+        owners.push(owner);
+        requested.push(...requests.map(({ id }) => id));
+        return new Map(
+          requests.map(({ id }, index) => [
+            id,
+            affectedIds.includes(id) ? String(index + 1) : "0",
+          ]),
+        );
+      },
+      readVaultInventory: async () => ({ block: pinnedBlock(), holdings: [] }),
+      now: () => new Date("2026-09-12T12:00:00.000Z"),
+    })(account, "USD");
+
+    expect(owners).toEqual([ADDRESS.toLowerCase()]);
+    expect(requested).toEqual(cashFirstConfiguredErc20Ids());
+    for (const asset of affected) {
+      expect(snapshot.holdings.find(({ id }) => id === asset.id)).toMatchObject({
+        readStatus: "ready",
+        balanceBaseUnits: expect.not.stringMatching(/^0$/),
+      });
+    }
+    expect(
+      snapshot.holdings
+        .filter(
+          (holding): holding is Extract<
+            (typeof snapshot.holdings)[number],
+            { kind: "direct" }
+          > =>
+            holding.kind === "direct" &&
+            holding.assetKind === "erc20" &&
+            !affectedIds.includes(holding.id),
+        )
+        .every(
+          (holding) =>
+            holding.readStatus === "ready" && holding.balanceBaseUnits === "0",
+        ),
+    ).toBeTrue();
+  });
+
+  test("does not bypass missing BASE_RPC_URL with the public default", async () => {
+    const events: unknown[] = [];
+    const snapshot = await createPortfolioInventoryReader({
+      env: { VERCEL_ENV: "production" },
+      listTokenBalances: async () => ethOnlyComplete(),
+      readVaultInventory: async () => ({ block: pinnedBlock(), holdings: [] }),
+      log: (event) => events.push(event),
+      now: () => new Date("2026-09-12T12:00:00.000Z"),
+    })(account, "USD");
+
+    expect(snapshot.holdings.find(({ id }) => id === "toshi")).toMatchObject({
+      balanceBaseUnits: null,
+      readStatus: "incomplete",
+    });
+    expect(events).toContainEqual({
+      kind: "portfolio-balance-source",
+      route: "/api/portfolio/valuation",
+      source: "configured-base-rpc",
+      stage: "inventory",
+      outcome: "unavailable",
+      reason: "not-configured",
+    });
+  });
+
+  test("retains the first configured single when the second hits the recovery stage deadline", async () => {
+    const targets: string[] = [];
+    const cash = getDirectPortfolioAssets().filter(
+      (asset): asset is typeof asset & { contractAddress: `0x${string}` } =>
+        asset.kind === "erc20" &&
+        asset.contractAddress !== null &&
+        asset.cashCurrency !== null,
+    );
+    const snapshot = await createPortfolioInventoryReader({
+      rpcUrl: "https://rpc.example.test",
+      erc20RecoveryTimeoutMs: 20,
+      erc20RecoveryAttempts: 2,
+      erc20RecoveryRetryDelayMs: 0,
+      listTokenBalances: async () => ethOnlyComplete(),
+      readVaultInventory: async () => ({ block: pinnedBlock(), holdings: [] }),
+      fetchImpl: async (_input, init) => {
+        const request = JSON.parse(String(init?.body)) as {
+          params: Array<{ to: string } | string>;
+        };
+        targets.push((request.params[0] as { to: string }).to);
+        if (targets.length === 1) {
+          return Response.json({ jsonrpc: "2.0", id: 1, result: dataWord(BigInt(7)) });
+        }
+        return await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("stage deadline", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+      log: () => undefined,
+      now: () => new Date("2026-09-12T12:00:00.000Z"),
+    })(account, "USD");
+
+    expect(targets).toEqual([
+      cash[0]!.contractAddress.toLowerCase(),
+      cash[1]!.contractAddress.toLowerCase(),
+    ]);
+    expect(snapshot.holdings.find(({ id }) => id === cash[0]!.id)).toMatchObject({
+      balanceBaseUnits: "7",
+      readStatus: "ready",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === cash[1]!.id)).toMatchObject({
+      balanceBaseUnits: null,
+      readStatus: "unavailable",
+    });
+  });
+
+  test("caps excessive retry configuration at two attempts per 20 contracts", async () => {
+    let rpcCalls = 0;
+    const snapshot = await createPortfolioInventoryReader({
+      rpcUrl: "https://rpc.example.test",
+      erc20RecoveryTimeoutMs: 2_000,
+      erc20RecoveryAttempts: 99,
+      erc20RecoveryRetryDelayMs: 0,
+      listTokenBalances: async () => ethOnlyComplete(),
+      readVaultInventory: async () => ({ block: pinnedBlock(), holdings: [] }),
+      fetchImpl: async () => {
+        rpcCalls += 1;
+        return new Response("unavailable", { status: 503 });
+      },
+      log: () => undefined,
+      now: () => new Date("2026-09-12T12:00:00.000Z"),
+    })(account, "USD");
+
+    expect(rpcCalls).toBe(40);
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      balanceBaseUnits: null,
+      readStatus: "unavailable",
+    });
   });
 
   test("RPC-verifies cash when Token Balances fails so empty USDC/IDRX stay ready-0", async () => {
@@ -307,10 +480,10 @@ describe("Phase A portfolio inventory", () => {
     expect(CdpTokenBalancesError).toBeDefined();
   });
 
-  test("CDP rate-limit throw plus RPC 0 keeps omitted cash ready-0", async () => {
+  test("CDP rate-limit throw plus RPC 0 keeps configured ERC-20 ready-0", async () => {
     const requested: string[] = [];
     const snapshot = await createPortfolioInventoryReader({
-      cashVerifyRetryDelayMs: 0,
+      erc20RecoveryRetryDelayMs: 0,
       listTokenBalances: async () => {
         throw new CdpTokenBalancesError(
           "rate-limited",
@@ -322,14 +495,14 @@ describe("Phase A portfolio inventory", () => {
         block: pinnedBlock(),
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests) => {
+      readConfiguredErc20Balances: async (requests) => {
         requested.push(...requests.map(({ id }) => id));
         return omittedZeros(requests);
       },
       now: () => new Date("2026-09-09T01:00:00.000Z"),
     })(account, "IDR");
 
-    expect(requested.sort()).toEqual(["eurc", "idrx", "usdc"]);
+    expect(requested.sort()).toEqual(configuredErc20Ids());
     expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
       readStatus: "unavailable",
       balanceBaseUnits: null,
@@ -344,9 +517,9 @@ describe("Phase A portfolio inventory", () => {
     });
   });
 
-  test("keeps cash Unavailable when CDP fails and omitted-cash RPC also misses", async () => {
+  test("keeps cash Unavailable when CDP fails and configured ERC-20 RPC also misses", async () => {
     const snapshot = await createPortfolioInventoryReader({
-      cashVerifyRetryDelayMs: 0,
+      erc20RecoveryRetryDelayMs: 0,
       listTokenBalances: async () => {
         throw new CdpTokenBalancesError(
           "rate-limited",
@@ -358,7 +531,7 @@ describe("Phase A portfolio inventory", () => {
         block: pinnedBlock(),
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests) => omittedNulls(requests),
+      readConfiguredErc20Balances: async (requests) => omittedNulls(requests),
       now: () => new Date("2026-09-09T01:00:00.000Z"),
     })(account, "IDR");
 
@@ -393,14 +566,14 @@ describe("Phase A portfolio inventory", () => {
         block: pinnedBlock(),
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests) => {
+      readConfiguredErc20Balances: async (requests) => {
         requested.push(...requests.map(({ id }) => id));
         return omittedZeros(requests);
       },
       now: () => new Date("2026-09-09T01:00:00.000Z"),
     })(account, "IDR");
 
-    expect(requested.sort()).toEqual(["eurc", "idrx", "usdc"]);
+    expect(requested.sort()).toEqual(configuredErc20Ids());
     expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
       readStatus: "ready",
       balanceBaseUnits: "1101012331497033445",
@@ -439,7 +612,7 @@ describe("Phase A portfolio inventory", () => {
         block: pinnedBlock(),
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests) => omittedZeros(requests),
+      readConfiguredErc20Balances: async (requests) => omittedZeros(requests),
       now: () => new Date("2026-09-11T12:00:00.000Z"),
     })(account, "IDR");
 
@@ -455,7 +628,7 @@ describe("Phase A portfolio inventory", () => {
 
   test("does not invent ready zeros when Token Balances pagination is truncated and cash RPC also fails", async () => {
     const snapshot = await createPortfolioInventoryReader({
-      cashVerifyRetryDelayMs: 0,
+      erc20RecoveryRetryDelayMs: 0,
       listTokenBalances: async () => ({
         complete: false,
         balances: [
@@ -470,7 +643,7 @@ describe("Phase A portfolio inventory", () => {
         block: { number: "16", hash: BLOCK_HASH, timestamp: "100" },
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests) =>
+      readConfiguredErc20Balances: async (requests) =>
         new Map(requests.map(({ id }) => [id, null])),
       now: () => new Date("2026-09-09T01:00:00.000Z"),
     })(account, "IDR");
@@ -480,18 +653,19 @@ describe("Phase A portfolio inventory", () => {
       balanceBaseUnits: "42",
     });
     expect(snapshot.holdings.find(({ id }) => id === "idrx")).toMatchObject({
-      readStatus: "incomplete",
+      readStatus: "unavailable",
       balanceBaseUnits: null,
     });
     expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
-      readStatus: "incomplete",
+      readStatus: "unavailable",
       balanceBaseUnits: null,
     });
   });
 
-  test("RPC-verifies omitted cash instead of inventing ready zeros", async () => {
+  test("RPC-verifies configured ERC-20 instead of inventing ready zeros", async () => {
     const requested: string[] = [];
     const snapshot = await createPortfolioInventoryReader({
+      erc20RecoveryRetryDelayMs: 0,
       listTokenBalances: async () => ({
         complete: true,
         balances: [
@@ -506,7 +680,7 @@ describe("Phase A portfolio inventory", () => {
         block: { number: "16", hash: BLOCK_HASH, timestamp: "100" },
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests) => {
+      readConfiguredErc20Balances: async (requests) => {
         requested.push(...requests.map(({ id }) => id));
         return new Map<string, string | null>([
           ["usdc", "10000000"],
@@ -517,7 +691,7 @@ describe("Phase A portfolio inventory", () => {
       now: () => new Date("2026-09-09T01:00:00.000Z"),
     })(account, "IDR");
 
-    expect(requested.sort()).toEqual(["eurc", "idrx", "usdc"]);
+    expect([...new Set(requested)].sort()).toEqual(configuredErc20Ids());
     expect(snapshot.holdings.find(({ id }) => id === "eth")).toMatchObject({
       readStatus: "ready",
       balanceBaseUnits: "1101012331497033445",
@@ -539,7 +713,7 @@ describe("Phase A portfolio inventory", () => {
     });
   });
 
-  test("keeps omitted cash ready 0 only when pinned RPC balanceOf is actually 0", async () => {
+  test("keeps configured ERC-20 ready 0 only when pinned RPC balanceOf is actually 0", async () => {
     const snapshot = await createPortfolioInventoryReader({
       listTokenBalances: async () => ({
         complete: true,
@@ -560,8 +734,10 @@ describe("Phase A portfolio inventory", () => {
         block: { number: "16", hash: BLOCK_HASH, timestamp: "100" },
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests) => {
-        expect(requests.map(({ id }) => id).sort()).toEqual(["eurc", "idrx"]);
+      readConfiguredErc20Balances: async (requests) => {
+        expect(requests.map(({ id }) => id).sort()).toEqual(
+          configuredErc20Ids(["usdc"]),
+        );
         return new Map(requests.map(({ id }) => [id, "0"]));
       },
       now: () => new Date("2026-09-09T01:00:00.000Z"),
@@ -642,7 +818,7 @@ describe("Phase A portfolio inventory", () => {
     ).toBeTrue();
   });
 
-  test("vault-only Morpho USDC does not fill omitted cash rows", async () => {
+  test("vault-only Morpho USDC does not fill configured ERC-20 rows", async () => {
     const snapshot = await createPortfolioInventoryReader({
       listTokenBalances: async () => ({
         complete: true,
@@ -675,7 +851,7 @@ describe("Phase A portfolio inventory", () => {
           },
         ],
       }),
-      readOmittedCashBalances: async (requests) =>
+      readConfiguredErc20Balances: async (requests) =>
         new Map(requests.map(({ id }) => [id, "0"])),
       now: () => new Date("2026-09-09T01:00:00.000Z"),
     })(account, "IDR");
@@ -703,12 +879,12 @@ describe("Phase A portfolio inventory", () => {
     });
   });
 
-  test("keeps omitted cash ready 0 when the inventory AbortSignal is already spent", async () => {
+  test("keeps configured ERC-20 ready 0 when the inventory AbortSignal is already spent", async () => {
     const seenAborted: boolean[] = [];
     const snapshot = await createPortfolioInventoryReader({
       timeoutMs: 25,
-      cashVerifyTimeoutMs: 200,
-      cashVerifyAttempts: 1,
+      erc20RecoveryTimeoutMs: 200,
+      erc20RecoveryAttempts: 1,
       listTokenBalances: async () => {
         await wait(15);
         return ethOnlyComplete();
@@ -717,7 +893,7 @@ describe("Phase A portfolio inventory", () => {
         block: pinnedBlock(),
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests, _owner, signal) => {
+      readConfiguredErc20Balances: async (requests, _owner, signal) => {
         await wait(40);
         seenAborted.push(signal.aborted);
         return omittedZeros(requests);
@@ -744,7 +920,7 @@ describe("Phase A portfolio inventory", () => {
     let vaultSignalWasAborted = true;
     const snapshot = await createPortfolioInventoryReader({
       timeoutMs: 5,
-      cashVerifyRetryDelayMs: 0,
+      erc20RecoveryRetryDelayMs: 0,
       listTokenBalances: async ({ signal }) =>
         new Promise((resolve) => {
           signal?.addEventListener(
@@ -763,7 +939,7 @@ describe("Phase A portfolio inventory", () => {
             { once: true },
           );
         }),
-      readOmittedCashBalances: async (requests) => omittedZeros(requests),
+      readConfiguredErc20Balances: async (requests) => omittedZeros(requests),
       readVaultInventory: async (_account, signal) => {
         vaultSignalWasAborted = signal.aborted;
         return { block: pinnedBlock(), holdings: [] };
@@ -778,18 +954,18 @@ describe("Phase A portfolio inventory", () => {
     });
   });
 
-  test("retries omitted-cash verify after a transport miss and keeps RPC 0 ready", async () => {
+  test("retries configured ERC-20 verify after a transport miss and keeps RPC 0 ready", async () => {
     let attempts = 0;
     const snapshot = await createPortfolioInventoryReader({
-      cashVerifyTimeoutMs: 200,
-      cashVerifyRetryDelayMs: 0,
-      cashVerifyAttempts: 2,
+      erc20RecoveryTimeoutMs: 200,
+      erc20RecoveryRetryDelayMs: 0,
+      erc20RecoveryAttempts: 2,
       listTokenBalances: async () => ethOnlyComplete(),
       readVaultInventory: async () => ({
         block: pinnedBlock(),
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests) => {
+      readConfiguredErc20Balances: async (requests) => {
         attempts += 1;
         if (attempts === 1) return omittedNulls(requests);
         return omittedZeros(requests);
@@ -810,14 +986,14 @@ describe("Phase A portfolio inventory", () => {
 
   test("does not invent ready zeros when dedicated cash-verify time runs out", async () => {
     const snapshot = await createPortfolioInventoryReader({
-      cashVerifyTimeoutMs: 20,
-      cashVerifyAttempts: 1,
+      erc20RecoveryTimeoutMs: 20,
+      erc20RecoveryAttempts: 1,
       listTokenBalances: async () => ethOnlyComplete(),
       readVaultInventory: async () => ({
         block: pinnedBlock(),
         holdings: [],
       }),
-      readOmittedCashBalances: async (requests, _owner, signal) => {
+      readConfiguredErc20Balances: async (requests, _owner, signal) => {
         await wait(60);
         if (signal.aborted) return omittedNulls(requests);
         return omittedZeros(requests);
@@ -839,7 +1015,7 @@ describe("Phase A portfolio inventory", () => {
     });
   });
 
-  test("default cash RPC reader recovers a 429 on omitted cash and keeps RPC 0 ready", async () => {
+  test("default cash RPC reader recovers a 429 on configured ERC-20 and keeps RPC 0 ready", async () => {
     const { fetchImpl } = createFetch({
       tokenBalances: () =>
         Response.json({
@@ -856,7 +1032,7 @@ describe("Phase A portfolio inventory", () => {
     const snapshot = await createPortfolioInventoryReader({
       fetchImpl,
       rpcUrl: "https://rpc.example.test",
-      cashVerifyRetryDelayMs: 0,
+      erc20RecoveryRetryDelayMs: 0,
       env: { CDP_API_KEY_ID: "key-id", CDP_API_KEY_SECRET: "key-secret" },
       generateJwtImpl: async () => "signed-jwt",
       now: () => new Date("2026-09-09T01:00:00.000Z"),
@@ -876,7 +1052,7 @@ describe("Phase A portfolio inventory", () => {
     });
   });
 
-  test("finishes omitted-cash latest verify before Morpho vault RPC", async () => {
+  test("finishes configured ERC-20 latest verify before Morpho vault RPC", async () => {
     const order: string[] = [];
     let cashDone = false;
     const snapshot = await createPortfolioInventoryReader({
@@ -889,7 +1065,7 @@ describe("Phase A portfolio inventory", () => {
         order.push("vaults");
         return { block: pinnedBlock(), holdings: [] };
       },
-      readOmittedCashBalances: async (requests) => {
+      readConfiguredErc20Balances: async (requests) => {
         order.push("cash");
         await wait(20);
         cashDone = true;

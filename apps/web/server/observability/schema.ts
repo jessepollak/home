@@ -32,6 +32,16 @@ export type ActivityReadSource = (typeof ACTIVITY_READ_SOURCES)[number];
 export type ActivityRecordedOperationsState =
   (typeof ACTIVITY_RECORDED_OPERATIONS_STATES)[number];
 
+export type PortfolioBalanceSourceReason =
+  | "not-configured"
+  | "unauthorized"
+  | "rate-limited"
+  | "timed-out"
+  | "upstream-error"
+  | "invalid-response"
+  | "partial"
+  | "read-failed";
+
 export type ObservabilityEvent =
   | {
       kind: "unhandled-server-error";
@@ -47,6 +57,14 @@ export type ObservabilityEvent =
       summary: string;
     }
   | {
+      kind: "portfolio-balance-source";
+      route: string;
+      source: "cdp-token-balances" | "configured-base-rpc";
+      stage: "inventory";
+      outcome: "incomplete" | "unavailable";
+      reason: PortfolioBalanceSourceReason;
+    }
+  | {
       kind: "activity-read";
       route: string;
       outcome: ActivityReadOutcome;
@@ -60,26 +78,52 @@ export type ObservabilityEvent =
       recordedOperations: ActivityRecordedOperationsState;
     };
 
-export type ObservabilityLogLine = {
+type ObservabilityLogBase = {
   schema: typeof OBSERVABILITY_SCHEMA;
-  level: "error" | "info";
-  kind: ObservabilityEvent["kind"];
   route: string;
-  method?: string;
-  code: "UNHANDLED_SERVER_ERROR" | "CLIENT_ERROR" | "ACTIVITY_READ";
-  errorName?: string;
-  routeType?: string;
-  summary?: string;
-  outcome?: ActivityReadOutcome;
-  reason?: ActivityReadReason;
-  source?: ActivityReadSource;
-  durationMs?: number;
-  sourceDurationMs?: number;
-  sourceAttemptCount?: number;
-  pageCount?: number;
-  rowCount?: number;
-  recordedOperations?: ActivityRecordedOperationsState;
 };
+
+export type ObservabilityLogLine = ObservabilityLogBase &
+  (
+    | {
+        level: "error";
+        kind: "unhandled-server-error";
+        code: "UNHANDLED_SERVER_ERROR";
+        errorName: string;
+        method?: string;
+        routeType?: string;
+      }
+    | {
+        level: "error";
+        kind: "client-error";
+        code: "CLIENT_ERROR";
+        errorName: string;
+        summary: string;
+      }
+    | {
+        level: "error";
+        kind: "portfolio-balance-source";
+        code: "PORTFOLIO_BALANCE_SOURCE";
+        source: "cdp-token-balances" | "configured-base-rpc";
+        stage: "inventory";
+        outcome: "incomplete" | "unavailable";
+        reason: PortfolioBalanceSourceReason;
+      }
+    | {
+        level: "error" | "info";
+        kind: "activity-read";
+        code: "ACTIVITY_READ";
+        outcome: ActivityReadOutcome;
+        reason: ActivityReadReason;
+        source: ActivityReadSource;
+        durationMs: number;
+        sourceDurationMs: number;
+        sourceAttemptCount: number;
+        pageCount: number;
+        rowCount: number;
+        recordedOperations: ActivityRecordedOperationsState;
+      }
+  );
 
 function sanitizeMethod(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -92,15 +136,18 @@ function sanitizeMethod(value: string | undefined): string | undefined {
 export function normalizeObservabilityEvent(
   event: ObservabilityEvent,
 ): ObservabilityLogLine {
-  const route = sanitizeRoutePath(event.route);
+  const base = {
+    schema: OBSERVABILITY_SCHEMA,
+    route: sanitizeRoutePath(event.route),
+  };
+
   if (event.kind === "activity-read") {
     const outcome = allowedValue(event.outcome, ACTIVITY_READ_OUTCOMES, "failed");
     return {
-      schema: OBSERVABILITY_SCHEMA,
+      ...base,
       level:
         outcome === "failed" || outcome === "cancelled" ? "error" : "info",
       kind: event.kind,
-      route,
       code: "ACTIVITY_READ",
       outcome,
       reason: allowedValue(event.reason, ACTIVITY_READ_REASONS, "none"),
@@ -118,21 +165,27 @@ export function normalizeObservabilityEvent(
     };
   }
 
-  const base = {
-    schema: OBSERVABILITY_SCHEMA,
-    level: "error" as const,
-    kind: event.kind,
-    route,
-    code:
-      event.kind === "client-error"
-        ? ("CLIENT_ERROR" as const)
-        : ("UNHANDLED_SERVER_ERROR" as const),
-    errorName: sanitizeIdentifier(event.errorName ?? "Error", "Error"),
-  };
+  if (event.kind === "portfolio-balance-source") {
+    return {
+      ...base,
+      level: "error",
+      kind: event.kind,
+      code: "PORTFOLIO_BALANCE_SOURCE",
+      source: event.source,
+      stage: event.stage,
+      outcome: event.outcome,
+      reason: event.reason,
+    };
+  }
 
+  const errorName = sanitizeIdentifier(event.errorName ?? "Error", "Error");
   if (event.kind === "client-error") {
     return {
       ...base,
+      level: "error",
+      kind: event.kind,
+      code: "CLIENT_ERROR",
+      errorName,
       summary: scrubString(event.summary).trim().slice(0, 256) || "Client error",
     };
   }
@@ -144,6 +197,10 @@ export function normalizeObservabilityEvent(
 
   return {
     ...base,
+    level: "error",
+    kind: event.kind,
+    code: "UNHANDLED_SERVER_ERROR",
+    errorName,
     ...(method ? { method } : {}),
     ...(routeType ? { routeType } : {}),
   };

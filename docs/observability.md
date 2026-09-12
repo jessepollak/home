@@ -9,7 +9,7 @@ Home's first observability milestone is deliberately scrub-first. It provides a 
 | Surface | Source | Behavior |
 |---|---|---|
 | Shared scrubber | `apps/web/shared/observability/scrub.ts` | Removes credentials, tokens, email addresses, raw URLs, query/hash data, risky path segments, and high-entropy strings before a value can enter the schema |
-| Closed log schema | `apps/web/server/observability/schema.ts` | Emits only `home.observability.v2` fields; arbitrary objects and provider payloads are not accepted |
+| Closed log schema | `apps/web/server/observability/schema.ts` | Emits only `home.observability.v2` fields; arbitrary objects and provider payloads are not accepted. Portfolio inventory may emit only the fixed source/stage/outcome/reason enums for degraded CDP or configured-RPC reads. |
 | JSON writer | `apps/web/server/observability/log.ts` | Writes one JSON line and swallows sink failures |
 | Server error owner | `apps/web/instrumentation.ts` → `onRequestError` | Uses the route template, method, route type, and sanitized error class only; it never reads the exception message, stack, digest, request URL, or headers |
 | Client reporter | `apps/web/instrumentation-client.ts` | Installs before hydration, sends at most five reports per page, omits credentials and referrer, and never affects application behavior |
@@ -47,7 +47,7 @@ This milestone therefore produces structured runtime error logs, not exported ap
 
 ## Operator use
 
-In Vercel project logs, search for the exact schema identifier `home.observability.v2`, then narrow by `kind`, `code`, `route`, or `errorName`. Treat these lines as error signals, not user or transaction records. Do not add request headers, bodies, wallet addresses, provider responses, or exception objects to the schema.
+In Vercel project logs, search for the exact schema identifier `home.observability.v2`, then narrow by `kind`, `code`, `route`, or `errorName`. Balance diagnosis uses `kind=portfolio-balance-source` plus the closed `source`, `stage`, `outcome`, and `reason` fields; it contains no account, contract, quantity, request, or provider payload. Treat these lines as error signals, not user or transaction records. Do not add request headers, bodies, wallet addresses, provider responses, or exception objects to the schema.
 
 The client endpoint's fixed-window limiter is intentionally per runtime instance. It bounds source-level work but is not a global distributed rate limit. Vercel platform request controls remain the appropriate outer abuse boundary.
 
