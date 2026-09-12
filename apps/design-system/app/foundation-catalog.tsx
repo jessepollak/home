@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Bleed, Button, Heading, IconButton, Inline, Inset, Stack, Text, type TextStyle } from "@home/ui";
+import { Sheet } from "@home/ui/sheet";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { ArrowRightIcon, CheckIcon, PlusIcon, XIcon } from "@home/ui/icons";
 
@@ -15,6 +16,81 @@ const amounts = [
   "$1,234,567,890.12", "€1.234.567,89", "£987,654.32", "¥123,456,789",
   "₹12,34,56,789.00", "₦1,234,567.89", "R$ 1.234.567,89", "₩123,456,789",
 ];
+
+type SheetSpecimenState = "open" | "non-dismissible" | "footer" | "reduced-motion";
+
+function SheetSpecimen() {
+  const [state, setState] = useState<SheetSpecimenState | null>(null);
+  const initialFocusRef = useRef<HTMLButtonElement>(null);
+  const triggerRefs = useRef<Partial<Record<SheetSpecimenState, HTMLButtonElement>>>({});
+  const dismissible = state !== "non-dismissible";
+  const hasFooter = state === "footer";
+
+  const openSheet = (next: SheetSpecimenState) => setState(next);
+  const closeSheet = () => setState(null);
+
+  return (
+    <section className="catalog-section bg-home-ui-surface" aria-labelledby="sheet-title">
+      <Heading id="sheet-title" level={2} textStyle="section-title">Sheet</Heading>
+      <Text textStyle="secondary" tone="muted">Native dialog lifecycle, anchored layout, optional slots, and gesture ownership.</Text>
+      <div className="catalog-sheet-matrix" aria-label="Sheet state matrix">
+        {([
+          ["open", "Open sheet"],
+          ["non-dismissible", "Open non-dismissible sheet"],
+          ["footer", "Open sheet with footer"],
+          ["reduced-motion", "Open reduced-motion sheet"],
+        ] as const).map(([next, label]) => (
+          <Button
+            key={next}
+            ref={(button) => { triggerRefs.current[next] = button ?? undefined; }}
+            variant="secondary"
+            onClick={() => openSheet(next)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      <Sheet
+        open={state !== null}
+        aria-labelledby="sheet-specimen-dialog-title"
+        aria-describedby="sheet-specimen-description"
+        onDismiss={closeSheet}
+        dismissible={dismissible}
+        dragDismiss
+        initialFocusRef={initialFocusRef}
+        header={(
+          <div className="catalog-sheet-header">
+            <Heading id="sheet-specimen-dialog-title" level={3} textStyle="sheet-title">
+              {state === "non-dismissible" ? "Required decision" : "Sheet specimen"}
+            </Heading>
+            {dismissible ? (
+              <IconButton icon={XIcon} variant="secondary" aria-label="Close sheet" onClick={closeSheet} />
+            ) : null}
+          </div>
+        )}
+        footer={hasFooter ? (
+          <Button onClick={closeSheet}>Confirm sheet action</Button>
+        ) : undefined}
+        onClosed={() => {
+          if (state) triggerRefs.current[state]?.focus({ preventScroll: true });
+        }}
+      >
+        <Stack space="3">
+          <Text id="sheet-specimen-description">
+            {state === "non-dismissible"
+              ? "Escape and backdrop dismissal are disabled until the required action is complete."
+              : state === "reduced-motion"
+                ? "This state follows the operating system reduced-motion preference."
+                : "Sheet content stays readable at narrow widths and enlarged text."}
+          </Text>
+          <Button ref={initialFocusRef} variant="secondary" onClick={state === "non-dismissible" ? closeSheet : undefined}>
+            {state === "non-dismissible" ? "Finish required action" : "Sheet action"}
+          </Button>
+        </Stack>
+      </Sheet>
+    </section>
+  );
+}
 
 const tokenSpecimens = [
   { name: "--home-ui-color-focus-halo", kind: "color" },
@@ -201,6 +277,8 @@ export function FoundationCatalog() {
             ))}
           </div>
         </section>
+
+        <SheetSpecimen />
 
         <section className="catalog-section bg-home-ui-surface" aria-labelledby="ticker-title">
           <Heading id="ticker-title" level={2} textStyle="section-title">Balance ticker</Heading>

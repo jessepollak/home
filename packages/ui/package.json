@@ -20,7 +20,8 @@
     "./fonts/dm-sans-italic.woff2": "./fonts/dm-sans-italic.woff2",
     "./fonts/OFL.txt": "./fonts/OFL.txt",
     "./fonts/dm-mono-medium.ttf": "./fonts/dm-mono-medium.ttf",
-    "./fonts/DM-Mono-OFL.txt": "./fonts/DM-Mono-OFL.txt"
+    "./fonts/DM-Mono-OFL.txt": "./fonts/DM-Mono-OFL.txt",
+    "./sheet": "./src/sheet.tsx"
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",
@@ -32,6 +33,7 @@
     "@phosphor-icons/react": "2.1.10"
   },
   "peerDependencies": {
+    "motion": "13.2.0",
     "next": "^16.3.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
@@ -42,6 +44,7 @@
     }
   },
   "devDependencies": {
+    "motion": "13.2.0",
     "@happy-dom/global-registrator": "20.14.0",
     "@testing-library/react": "16.3.3",
     "@types/bun": "^1.4.1",

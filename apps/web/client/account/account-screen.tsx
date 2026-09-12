@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Heading, IconButton, Text } from "@home/ui";
+import { Sheet } from "@home/ui/sheet";
 import { XIcon } from "@home/ui/icons";
 import {
   useEffect,
@@ -8,9 +9,8 @@ import {
   useRef,
   useState,
   type FormEvent,
-  type MouseEvent,
-  type SyntheticEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import { classifyEmailCodeError } from "./auth-errors";
 import {
   BaseAccountLoginError,
@@ -141,8 +141,9 @@ export function AccountSignInSheet({
     useState<number | null>(null);
   const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
   const [resendSeconds, setResendSeconds] = useState(0);
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const otpInputRef = useRef<HTMLInputElement>(null);
+  const baseAccountButtonRef = useRef<HTMLButtonElement>(null);
   const uiAttemptSequence = useRef(0);
   const consumedVerifiedAttempt = useRef<number | null>(null);
   const baseAccountFailed =
@@ -158,59 +159,17 @@ export function AccountSignInSheet({
   const isCleaningUp = !signInBlocked && status === "signing-out";
   const isChecking =
     !signInBlocked && (status === "restoring" || status === "validating");
+  const sheetOpen = open && (!isProviderHandoff || baseAccountFailed);
+  const initialFocusRef = flowId
+    ? otpInputRef
+    : projectConfigured
+      ? emailInputRef
+      : baseAccountButtonRef;
 
   useLayoutEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) {
-      return;
-    }
-
-    if (open && !dialog.open) {
-      restoreFocusRef.current =
-        document.activeElement instanceof HTMLElement
-          ? document.activeElement
-          : null;
-      dialog.showModal();
-      const initialFocus = dialog.querySelector<HTMLElement>(
-        "[data-initial-focus]:not(:disabled), button:not(:disabled)",
-      );
-      initialFocus?.focus();
-      return;
-    }
-
-    if (!open && dialog.open) {
-      dialog.close();
-      restoreFocusRef.current?.focus();
-      restoreFocusRef.current = null;
-    }
-  }, [open]);
-
-  useLayoutEffect(() => {
-    const dialog = dialogRef.current;
-    if (!open || !flowId || !dialog?.open) return;
-    dialog.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)")?.focus();
-  }, [flowId, open]);
-
-  useLayoutEffect(() => {
-    const dialog = dialogRef.current;
-    if (!open || !isProviderHandoff || !baseAccountFailed || !dialog || dialog.open) {
-      return;
-    }
-    dialog.showModal();
-    dialog.querySelector<HTMLElement>("button:not(:disabled)")?.focus();
-  }, [baseAccountFailed, isProviderHandoff, open]);
-
-  useEffect(() => {
-    if (!open || (isProviderHandoff && !baseAccountFailed)) {
-      return;
-    }
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [baseAccountFailed, isProviderHandoff, open]);
+    if (!sheetOpen || !flowId) return;
+    otpInputRef.current?.focus({ preventScroll: true });
+  }, [flowId, sheetOpen]);
 
   useEffect(() => {
     if (
@@ -260,22 +219,7 @@ export function AccountSignInSheet({
       cancelSignInAttempt();
     }
     resetLocalAttempt();
-    if (!dialogRef.current?.open) {
-      restoreFocusRef.current?.focus();
-      restoreFocusRef.current = null;
-    }
     onClose();
-  }
-
-  function handleCancel(event: SyntheticEvent<HTMLDialogElement>) {
-    event.preventDefault();
-    closeAndCancelAttempt();
-  }
-
-  function handleDialogClick(event: MouseEvent<HTMLDialogElement>) {
-    if (event.target === event.currentTarget) {
-      closeAndCancelAttempt();
-    }
   }
 
   async function sendCode(nextEmail: string) {
@@ -346,11 +290,12 @@ export function AccountSignInSheet({
 
   async function handleBaseAccountSignIn() {
     const sequence = ++uiAttemptSequence.current;
-    setCompletedAttemptSequence(null);
-    setAuthError(null);
-    setBaseAccountPhase("connecting");
-    setIsProviderHandoff(true);
-    dialogRef.current?.close();
+    flushSync(() => {
+      setCompletedAttemptSequence(null);
+      setAuthError(null);
+      setBaseAccountPhase("connecting");
+      setIsProviderHandoff(true);
+    });
     try {
       await signInWithBaseAccount((phase) => {
         if (sequence === uiAttemptSequence.current) {
@@ -364,40 +309,36 @@ export function AccountSignInSheet({
       setBaseAccountPhase(null);
       setIsProviderHandoff(false);
       setAuthError(messageForBaseAccountError(error));
-      const dialog = dialogRef.current;
-      if (open && dialog && !dialog.open) {
-        dialog.showModal();
-        dialog.querySelector<HTMLElement>("button:not(:disabled)")?.focus();
-      }
     }
   }
 
   return (
     <>
-      <dialog
-        ref={dialogRef}
-        className={styles.sheet}
+      <Sheet
+        open={sheetOpen}
         aria-labelledby="account-sign-in-title"
-        onCancel={handleCancel}
-        onClick={handleDialogClick}
+        onDismiss={closeAndCancelAttempt}
+        initialFocusRef={initialFocusRef}
+        immediate
+        header={(
+          <div className={styles.sheetHeader}>
+            <Heading
+              level={2}
+              textStyle="sheet-title"
+              id="account-sign-in-title"
+            >
+              {flowId ? "Check your email" : "Sign in to Home"}
+            </Heading>
+            <IconButton
+              className={styles.closeButton}
+              icon={XIcon}
+              variant="secondary"
+              onClick={closeAndCancelAttempt}
+              aria-label="Close sign in"
+            />
+          </div>
+        )}
       >
-        <div className={styles.sheetHeader}>
-          <Heading
-            level={2}
-            textStyle="sheet-title"
-            id="account-sign-in-title"
-          >
-            {flowId ? "Check your email" : "Sign in to Home"}
-          </Heading>
-          <IconButton
-            className={styles.closeButton}
-            icon={XIcon}
-            variant="secondary"
-            onClick={closeAndCancelAttempt}
-            aria-label="Close sign in"
-          />
-        </div>
-
         {signInBlocked ? (
           <SignInBlockedPanel
             reason={
@@ -477,6 +418,7 @@ export function AccountSignInSheet({
             ) : !projectConfigured && baseAccountEnabled ? (
               <div className={styles.form}>
                 <Button
+                  ref={baseAccountButtonRef}
                   className={styles.formAction}
                   variant="secondary"
                   onClick={() => void handleBaseAccountSignIn()}
@@ -500,6 +442,7 @@ export function AccountSignInSheet({
                   </Button>
                 </div>
                 <input
+                  ref={otpInputRef}
                   id="account-otp"
                   className={styles.otpInput}
                   type="text"
@@ -551,6 +494,7 @@ export function AccountSignInSheet({
               <form className={styles.form} onSubmit={handleEmailSubmit}>
                 <label htmlFor="account-email">Email address</label>
                 <input
+                  ref={emailInputRef}
                   id="account-email"
                   className={styles.input}
                   type="email"
@@ -558,7 +502,7 @@ export function AccountSignInSheet({
                   autoComplete="email"
                   placeholder="you@example.com"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onInput={(event) => setEmail(event.currentTarget.value)}
                   disabled={isSendingCode}
                   required
                   autoFocus
@@ -591,7 +535,7 @@ export function AccountSignInSheet({
             ) : null}
           </>
         )}
-      </dialog>
+      </Sheet>
       {open && isProviderHandoff && !baseAccountFailed ? (
         <aside
           className={styles.providerHandoff}

@@ -192,6 +192,74 @@ test("semantic token catalog renders every new token without overflow at 320px",
   await expectNoOverflow(page);
 });
 
+for (const width of [320, 390, 1280]) {
+  test(`Sheet stays anchored and readable at ${width}px with 200% text`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await page.getByRole("combobox", { name: "Text size" }).selectOption("200");
+    await page.getByRole("button", { name: "Open sheet with footer" }).click();
+    const dialog = page.getByRole("dialog", { name: "Sheet specimen" });
+    const panel = dialog.locator("[data-home-ui-sheet-panel]");
+    await expect(dialog).toBeVisible();
+    await expect(page.getByRole("button", { name: "Confirm sheet action" })).toBeVisible();
+    await expect(panel).toHaveAttribute("data-position-owner", "idle");
+    const box = await panel.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(-1);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
+    expect(Math.abs(box!.y + box!.height - 900)).toBeLessThanOrEqual(2);
+    expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    await page.getByRole("button", { name: "Confirm sheet action" }).click();
+    await expect(dialog).toBeHidden();
+  });
+}
+
+test("Sheet traps focus, dismisses with Escape, and restores its trigger", async ({ page }) => {
+  await page.goto("/");
+  const trigger = page.getByRole("button", { name: "Open sheet", exact: true });
+  await trigger.focus();
+  await trigger.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Sheet specimen" });
+  const action = page.getByRole("button", { name: "Sheet action" });
+  await expect(action).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("button", { name: "Close sheet" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(action).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
+test("Sheet blocks Escape and backdrop dismissal when non-dismissible", async ({ page }) => {
+  await page.goto("/");
+  const trigger = page.getByRole("button", { name: "Open non-dismissible sheet" });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Required decision" });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await dialog.click({ position: { x: 8, y: 8 } });
+  await expect(dialog).toBeVisible();
+  await page.getByRole("button", { name: "Finish required action" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
+test("Sheet reduced-motion mode settles immediately and forced colors preserve its boundary", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce", forcedColors: "active" });
+  await page.goto("/");
+  const trigger = page.getByRole("button", { name: "Open reduced-motion sheet" });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Sheet specimen" });
+  const panel = dialog.locator("[data-home-ui-sheet-panel]");
+  await expect(panel).toHaveAttribute("data-position-owner", "idle");
+  await expect(panel).toHaveCSS("border-top-color", "rgb(0, 0, 0)");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
 test("native keyboard activation, focus, pressed presentation, and disabled/loading safety", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
