@@ -1,12 +1,56 @@
-# README UI mockups
+# README product captures
 
-These authored SVG sheets illustrate the current Home interface for the repository README:
+The capture set contains five full-size browser screenshots of the current Home implementation:
 
-- [`overview.svg`](overview.svg) — Home, Save, and Invest mobile views.
-- [`flows.svg`](flows.svg) — Send, Activity, and the bounded USDC-against-cbBTC Borrow view.
+- [`home.png`](home.png) — signed-in Home dashboard;
+- [`save.png`](save.png) — the current Save experience;
+- [`invest.png`](invest.png) — Invest discovery;
+- [`send.png`](send.png) — the Send amount sheet;
+- [`borrow.png`](borrow.png) — the currently supported Borrow market, linked from the root README's current-availability section.
 
-The artwork is source-grounded in `apps/web/client/home/home-experience.tsx`, `apps/web/app/globals.css`, `apps/web/config/navigation.ts`, `apps/web/client/savings/savings-experience.tsx`, `apps/web/client/invest/invest-hub.tsx`, `apps/web/client/invest/asset-detail-screen.tsx`, `apps/web/client/transfers/transfer-actions.tsx`, `apps/web/client/transfers/send-dialog.tsx`, `apps/web/client/money-modal/money-modal.tsx`, `apps/web/client/activity/activity-panel.tsx`, and `apps/web/client/borrowing/borrowing-experience.tsx`, together with their local CSS modules and current asset configuration.
+The root README's inline gallery features Home, Save, Invest, and Send. All captures use sample data; they are not live account records or evidence of production availability. They were rendered at a 390 × 844 CSS-pixel viewport with Chromium at 2× device scale, producing 780 × 1688 PNG files.
 
-All balances, prices, dates, addresses, yields, market readings, and transaction details are illustrative. Home, Save, and Send share illustrative balances; Borrow uses a separate position example. Sample APYs are variable examples, not promised or guaranteed returns. The sheets are documentation artwork, not screenshots or implementation proof. No live accounts, wallets, providers, RPC endpoints, or funded flows were exercised to create or validate them.
+## Provenance and safety boundary
 
-The SVG files are self-contained, use system fonts, contain no scripts, external dependencies, embedded raster images, or `foreignObject` content, and are covered by the repository's MIT license.
+[`capture.ts`](capture.ts) renders the actual application code on the same `HOME_PLAYWRIGHT_SMOKE=1` sample account-provider boundary used by `apps/web/playwright.config.ts` and `apps/web/tests/browser/smoke.pw.ts`. Browser requests to the known local `/api/**` routes are fulfilled with fixed samples, and the exact public Basename resolver request made by `ProfileMark` is fulfilled locally with an empty profile. The browser context blocks service workers, aborts unexpected non-local requests, and fails the capture if one is observed. Unknown local API routes are also aborted and reported rather than reaching the development server.
+
+The browser fixture process does not require provider credentials and does not send real API, auth, wallet, funding, or transaction requests. It does not sign, dispatch, submit, or confirm a transaction. The balances, prices, rates, positions, addresses, and timestamps in the images are illustrative fixture data. Rates are variable examples, not promised returns.
+
+Next.js development mode loads local `.env*` files when they exist. Regenerate only in a disposable clean worktree that contains no `.env*` files other than tracked `.env.example`, and launch both processes with a cleared environment so real secrets are not inherited. The capture script checks filenames in the repository root and `apps/web` and refuses to run when it finds another `.env*` file; it never reads environment-file contents. This filename check and browser routing do not inspect or make claims about an already-running server, so start the server exactly as shown below.
+
+The capture suppresses only the `nextjs-portal` development badge before taking each screenshot and moves the pointer outside the viewport. It does not hide or alter product UI; preserve current in-app labels, including **Save**.
+
+## Regenerate
+
+Create a disposable worktree from the commit being documented, then confirm it is clean before installing pinned dependencies. Do not copy any `.env.local` into it.
+
+```sh
+git worktree add /tmp/home-readme-capture HEAD
+cd /tmp/home-readme-capture
+find . -path './.git' -prune -o -name '.env*' ! -name '.env.example' -print
+bun install --frozen-lockfile
+```
+
+The `find` command must print nothing. In one terminal, run the web app on the smoke-fixture boundary. Port `3199` matches the existing Playwright configuration.
+
+```sh
+env -i \
+  HOME="$HOME" \
+  PATH="$PATH" \
+  NEXT_TELEMETRY_DISABLED=1 \
+  HOME_PLAYWRIGHT_SMOKE=1 \
+  bun --cwd apps/web dev -- --port 3199
+```
+
+In a second terminal, capture the screens with the workspace's pinned Playwright dependency:
+
+```sh
+env -i \
+  HOME="$HOME" \
+  PATH="$PATH" \
+  NODE_PATH="$PWD/apps/web/node_modules" \
+  HOME_CAPTURE_BASE_URL=http://localhost:3199 \
+  bun docs/readme/capture.ts
+```
+
+Visually inspect all five images after regeneration. Captures should show settled screens with no loading state, stale error, developer badge, or hovered row. The script's successful exit confirms that it observed no unexpected browser request during that run.
