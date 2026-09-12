@@ -765,24 +765,31 @@ test.describe("MoneyModal painted motion", () => {
     for (const [phase, samples] of Object.entries(phases)) {
       expect(samples.length, `${phase} should have visible frames`).toBeGreaterThan(0);
       for (const sample of samples) {
-        const anchorTolerance = sample.viewportHeight * 0.001;
         expect.soft(
-          sample.bottom,
+          sample.viewportHeight - sample.bottom,
           `${phase} t=${sample.t.toFixed(1)}ms box bottom must cover viewport bottom`,
-        ).toBeGreaterThanOrEqual(sample.viewportHeight - anchorTolerance);
+        ).toBeLessThanOrEqual(0);
         expect.soft(
-          sample.contentBottom,
+          sample.viewportHeight - sample.contentBottom,
           `${phase} t=${sample.t.toFixed(1)}ms content bottom must cover viewport bottom`,
-        ).toBeGreaterThanOrEqual(sample.viewportHeight - anchorTolerance);
+        ).toBeLessThanOrEqual(0);
       }
     }
 
-    const bottomGapSeries = Object.fromEntries(Object.entries(phases).map(([phase, samples]) => [
-      phase,
-      samples.map(({ bottom, viewportHeight }) => Number(
-        Math.max(0, viewportHeight - bottom).toFixed(2),
-      )),
-    ]));
+    const bottomGapSeries = {
+      sheet: Object.fromEntries(Object.entries(phases).map(([phase, samples]) => [
+        phase,
+        samples.map(({ bottom, viewportHeight }) => Number(
+          Math.max(0, viewportHeight - bottom).toFixed(2),
+        )),
+      ])),
+      content: Object.fromEntries(Object.entries(phases).map(([phase, samples]) => [
+        phase,
+        samples.map(({ contentBottom, viewportHeight }) => Number(
+          Math.max(0, viewportHeight - contentBottom).toFixed(2),
+        )),
+      ])),
+    };
     const measurements = {
       viewport: "390x844",
       openDurationMs: Math.round(openDuration),
@@ -802,8 +809,11 @@ test.describe("MoneyModal painted motion", () => {
       openDurationMs: measurements.openDurationMs,
       closeDurationMs: measurements.closeDurationMs,
       openHeightPx: measurements.openHeightPx,
-      maximumPositiveBottomGapPx: Object.fromEntries(
-        Object.entries(bottomGapSeries).map(([phase, gaps]) => [phase, Math.max(...gaps)]),
+      maximumPositiveSheetBottomGapPx: Object.fromEntries(
+        Object.entries(bottomGapSeries.sheet).map(([phase, gaps]) => [phase, Math.max(...gaps)]),
+      ),
+      maximumPositiveContentBottomGapPx: Object.fromEntries(
+        Object.entries(bottomGapSeries.content).map(([phase, gaps]) => [phase, Math.max(...gaps)]),
       ),
       owners: measurements.owners,
     })}`);
