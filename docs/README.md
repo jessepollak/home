@@ -29,6 +29,7 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | [Vercel deploy](vercel-deploy.md) | Bun monorepo install/build on Vercel; hosted money actions need Neon `DATABASE_URL`; [preview auth / CDP CORS](vercel-deploy.md#preview-auth); preview branch cleanup Actions |
 | [Privacy-safe observability](observability.md) | Scrub-first error schema, bounded client ingestion, operator queries, and the remaining route-wrapper gate |
 | [CDP error reporting](cdp-error-reporting.md) | Privacy decision: keep server SDK error reporting disabled by default |
+| [Issuer integration guide](integrations/README.md) | Seven-step funding-provider walkthrough, with current and in-flight boundaries. Tracking [#282](https://github.com/jessepollak/home/issues/282). |
 
 `apps/web/server/borrowing/README.md` documents the single cbBTC/USDC Morpho market used by the local Borrow spike.
 
