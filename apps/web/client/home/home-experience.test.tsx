@@ -2594,11 +2594,15 @@ describe("balances incremental rendering", () => {
     expect(page().queryByText("Holding 20")).toBeNull();
   }
 
-  async function openBalancesWithInvest() {
+  async function openAssetFromBalances() {
     const { InvestExperience } = await import("@/client/invest/invest-experience");
     const restoreFetch = stubInvestHistory();
     await openManyBalances({ investContent: <InvestExperience /> });
-    return restoreFetch;
+    revealNextBalancesBatch();
+    const main = balancesMain();
+    scrollBalances(main);
+    await openNvidiaAsset();
+    return { main, restoreFetch };
   }
 
   async function openNvidiaAsset() {
@@ -2885,13 +2889,8 @@ describe("balances incremental rendering", () => {
   });
 
   test("restores Balances scroll and revealed batches after opening an asset and using app Back", async () => {
-    const restoreFetch = await openBalancesWithInvest();
+    const { main, restoreFetch } = await openAssetFromBalances();
     try {
-      revealNextBalancesBatch();
-      const main = balancesMain();
-      scrollBalances(main);
-      await openNvidiaAsset();
-
       fireEvent.click(page().getByRole("button", { name: "Back" }));
       await page().findByRole("heading", { name: "Invest" });
       act(() => popHistory());
@@ -2905,13 +2904,8 @@ describe("balances incremental rendering", () => {
   });
 
   test("restores Balances scroll via browser history back after opening an asset", async () => {
-    const restoreFetch = await openBalancesWithInvest();
+    const { main, restoreFetch } = await openAssetFromBalances();
     try {
-      revealNextBalancesBatch();
-      const main = balancesMain();
-      scrollBalances(main);
-      await openNvidiaAsset();
-
       act(() => popHistory()); // asset detail -> Invest hub
       act(() => popHistory()); // Invest hub -> Balances
 
@@ -2921,6 +2915,22 @@ describe("balances incremental rendering", () => {
     } finally {
       restoreFetch();
     }
+  });
+
+  test("keeps a generic Balances→Invest→Back return at the top without restoring", async () => {
+    await openManyBalances();
+    revealNextBalancesBatch();
+    const main = balancesMain();
+    scrollBalances(main);
+
+    fireEvent.click(page().getByRole("button", { name: "Invest" }));
+    await page().findByRole("heading", { name: "Invest" });
+    act(() => popHistory());
+
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(main.scrollTop).toBe(0);
+    expect(page().getByText("Holding 0")).toBeTruthy();
+    expect(page().queryByText("Holding 10")).toBeNull();
   });
 
   const identityFences = [
@@ -2937,6 +2947,58 @@ describe("balances incremental rendering", () => {
                   "cdp-embedded",
                   "subject-home-b",
                 ),
+              )
+            }
+            assetBalances={readyBalances()}
+          />,
+        ),
+    },
+    {
+      name: "account provider",
+      rerender: (view: ReturnType<typeof render>) =>
+        view.rerender(
+          <HomeHarness
+            accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+            sessionFetch={async () =>
+              Response.json(
+                session(
+                  { address: ADDRESS, chainId: BASE_CHAIN_ID },
+                  "base-account",
+                ),
+              )
+            }
+            assetBalances={readyBalances()}
+          />,
+        ),
+    },
+    {
+      name: "subject",
+      rerender: (view: ReturnType<typeof render>) =>
+        view.rerender(
+          <HomeHarness
+            accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+            sessionFetch={async () =>
+              Response.json(
+                session(
+                  { address: ADDRESS, chainId: BASE_CHAIN_ID },
+                  "cdp-embedded",
+                  "subject-home-other",
+                ),
+              )
+            }
+            assetBalances={readyBalances()}
+          />,
+        ),
+    },
+    {
+      name: "smart account",
+      rerender: (view: ReturnType<typeof render>) =>
+        view.rerender(
+          <HomeHarness
+            accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+            sessionFetch={async () =>
+              Response.json(
+                session({ address: ADDRESS_B, chainId: BASE_CHAIN_ID }),
               )
             }
             assetBalances={readyBalances()}
@@ -3022,7 +3084,7 @@ describe("balances incremental rendering", () => {
     act(() => popHistory());
 
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
-    expect(main.scrollTop).toBe(480);
+    expect(main.scrollTop).toBe(0);
     expect(valuationRequests).toHaveLength(1);
   });
 });

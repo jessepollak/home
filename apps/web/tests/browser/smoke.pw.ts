@@ -290,7 +290,7 @@ test("money amount recomputes for text scaling", async ({ page }) => {
   await expect(amount).toHaveText("$5");
 });
 
-test("Balances detail clears forward scroll and restores it on browser Back", async ({ page }) => {
+async function openScrolledBalances(page: Page) {
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
   await installApiFixtures(page);
   await page.route(
@@ -303,26 +303,66 @@ test("Balances detail clears forward scroll and restores it on browser Back", as
       });
     },
   );
+  await page.route(
+    (url) => url.pathname === "/api/market-prices/history",
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          version: 1,
+          provider: "codex",
+          assetId: null,
+          range: null,
+          currency: "USD",
+          fetchedAt: null,
+          status: "empty",
+          points: [],
+        }),
+      });
+    },
+  );
   await page.setViewportSize({ width: 390, height: 440 });
   await signIn(page);
 
   await page.getByRole("button", { name: "Balances" }).click();
   await expect(page.getByRole("heading", { name: "Balances" })).toBeVisible();
 
-  const target = await page.evaluate(() => {
+  const maxTop = await page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>(".app-main-authenticated");
+    return main ? Math.max(0, main.scrollHeight - main.clientHeight) : 0;
+  });
+  expect(maxTop).toBeGreaterThan(0);
+
+  const target = await page.evaluate((max) => {
     const main = document.querySelector<HTMLElement>(".app-main-authenticated");
     if (!main) return 0;
-    const max = main.scrollHeight - main.clientHeight;
-    const next = Math.min(120, max);
+    const next = Math.min(240, max);
     main.scrollTop = next;
     main.dispatchEvent(new Event("scroll", { bubbles: true }));
     return next;
-  });
+  }, maxTop);
   expect(target).toBeGreaterThan(0);
 
+  // The real IntersectionObserver reveals at least one more batch on scroll.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.querySelectorAll(".supplied-asset-list li").length,
+      ),
+    )
+    .toBeGreaterThan(10);
+  const revealedCount = await page.evaluate(
+    () => document.querySelectorAll(".supplied-asset-list li").length,
+  );
+  return { target, revealedCount, maxTop };
+}
+
+async function openInvestAssetDetail(page: Page) {
   await page.getByRole("button", { name: "Invest" }).click();
   await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
   await expect(page).toHaveURL(/[?&]panel=invest/);
+  // Forward Invest entry clears the saved offset before any asset opens.
   await expect
     .poll(() =>
       page.evaluate(
@@ -333,7 +373,15 @@ test("Balances detail clears forward scroll and restores it on browser Back", as
     )
     .toBe(0);
 
-  await page.goBack();
+  await page.getByRole("button", { name: "NVIDIA details" }).click();
+  await expect(page.getByRole("heading", { name: "NVIDIA" })).toBeVisible();
+  await expect(page).toHaveURL(/[?&]asset=nvdac/);
+}
+
+async function expectBalancesRestored(
+  page: Page,
+  expected: { target: number; revealedCount: number; maxTop: number },
+) {
   await expect(page.getByRole("heading", { name: "Balances" })).toBeVisible();
   await expect
     .poll(() =>
@@ -343,5 +391,36 @@ test("Balances detail clears forward scroll and restores it on browser Back", as
             ?.scrollTop ?? 0),
       ),
     )
-    .toBe(target);
+    .toBe(expected.target);
+  // The restored offset stays within the current scrollable range.
+  expect(expected.target).toBeLessThanOrEqual(expected.maxTop);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.querySelectorAll(".supplied-asset-list li").length,
+      ),
+    )
+    .toBe(expected.revealedCount);
+}
+
+test("Balances restores scroll and reveal after app Back from an opened asset", async ({ page }) => {
+  const state = await openScrolledBalances(page);
+  await openInvestAssetDetail(page);
+
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
+  await page.goBack();
+
+  await expectBalancesRestored(page, state);
+});
+
+test("Balances restores scroll and reveal after browser Back from an opened asset", async ({ page }) => {
+  const state = await openScrolledBalances(page);
+  await openInvestAssetDetail(page);
+
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
+  await page.goBack();
+
+  await expectBalancesRestored(page, state);
 });

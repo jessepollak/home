@@ -199,13 +199,17 @@ function HomeExperienceView({
   const [activeNavigation, setActiveNavigation] =
     useState<ShellPanelId>(initialPanel);
   const [navigationRequest, setNavigationRequest] = useState(0);
-  const [balancesForwardEntry, setBalancesForwardEntry] = useState(0);
+  const [balancesRevealReset, setBalancesRevealReset] = useState(0);
   const [forwardRequest, setForwardRequest] = useState(0);
   // Tracks whether the panel change that just happened was a history pop
-  // (browser/app Back) or an explicit forward push. Saved scroll offsets are
-  // only restored for pops; forward entries start fresh. The ref is written
-  // from effects and the popstate listener, never during render.
+  // (browser/app Back) or an explicit forward push. The ref is written from
+  // effects and the popstate listener, never during render.
   const navigationIntentRef = useRef<"push" | "pop">("push");
+  // Balances return provenance. A generic Balances→Invest exit must not
+  // restore the saved offset/reveal on a history-pop back; opening an Invest
+  // asset detail (or leaving via Account settings) re-arms restoration.
+  const balancesGenericInvestExitRef = useRef(false);
+  const previousActiveNavigationRef = useRef<ShellPanelId>(activeNavigation);
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
   const lastBalanceCacheWriteRef = useRef<{
@@ -273,6 +277,12 @@ function HomeExperienceView({
       setIsAccountSettingsOpen(location.account === "settings");
       if (location.account !== "settings") setSettingsOpenedInApp(false);
       setIsAccountOpen(location.account === "signin");
+      if (
+        location.panel === balancesPanelId &&
+        balancesGenericInvestExitRef.current
+      ) {
+        setBalancesRevealReset((resetSignal) => resetSignal + 1);
+      }
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -282,6 +292,24 @@ function HomeExperienceView({
     if (forwardRequest === 0) return;
     navigationIntentRef.current = "push";
   }, [forwardRequest]);
+
+  useEffect(() => {
+    const previous = previousActiveNavigationRef.current;
+    previousActiveNavigationRef.current = activeNavigation;
+    if (previous === activeNavigation) return;
+    if (navigationIntentRef.current === "push") {
+      balancesGenericInvestExitRef.current =
+        previous === balancesPanelId && activeNavigation === "invest";
+    }
+  }, [activeNavigation]);
+
+  useEffect(() => {
+    if (activeNavigation !== "invest") return;
+    // The invest detail chrome uses "Back"; category uses "Back to Invest".
+    if (investChrome?.nested?.backLabel === "Back") {
+      balancesGenericInvestExitRef.current = false;
+    }
+  }, [activeNavigation, investChrome?.nested]);
 
   useEffect(() => {
     const persistedCountry = readAnonymousCountryPreference(
@@ -337,7 +365,7 @@ function HomeExperienceView({
   const balancesReveal = useBalancesRevealWindow(
     balancesScope,
     paintedAssetBalances.items,
-    balancesForwardEntry,
+    balancesRevealReset,
   );
   const balancesListId = balancesListKey(paintedAssetBalances.items);
   const panelScrollIdentity =
@@ -359,13 +387,20 @@ function HomeExperienceView({
 
     panelStage.focus({ preventScroll: true });
     const saved = panelScrollRef.current[panelKey];
-    const shouldRestore = navigationIntentRef.current === "pop";
+    const isBalances = panelKey === balancesPanelId;
+    const shouldRestore = isBalances
+      ? navigationIntentRef.current === "pop" &&
+        !balancesGenericInvestExitRef.current
+      : navigationIntentRef.current === "pop";
     const preservedTop =
       shouldRestore && saved?.identity === panelScrollIdentity
         ? saved.top
         : 0;
     if (!shouldRestore) {
       panelScrollRef.current[panelKey] = undefined;
+    }
+    if (isBalances) {
+      balancesGenericInvestExitRef.current = false;
     }
     const reducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
@@ -464,7 +499,7 @@ function HomeExperienceView({
     if (!skipHistory) {
       setForwardRequest((request) => request + 1);
       if (nextNavigation === balancesPanelId) {
-        setBalancesForwardEntry((entry) => entry + 1);
+        setBalancesRevealReset((resetSignal) => resetSignal + 1);
       }
     }
     setActiveNavigation(nextNavigation);
