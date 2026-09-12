@@ -467,14 +467,14 @@ test("Balances starts at the top after browser Back from generic Invest", async 
 
 test("Balances starts at the top after browser Back from Home", async ({ page }) => {
   await openScrolledBalances(page);
-  await clickForwardAndWaitForUrl(page, "Home", /\/dashboard$/);
+  await clickForwardAndWaitForUrl(page, "Back", /\/dashboard$/);
   await page.goBack();
   await expectBalancesReset(page);
 });
 
 test("Balances starts at the top after Activity and browser Back", async ({ page }) => {
   await openScrolledBalances(page);
-  await clickForwardAndWaitForUrl(page, "Home", /\/dashboard$/);
+  await clickForwardAndWaitForUrl(page, "Back", /\/dashboard$/);
   await clickForwardAndWaitForUrl(page, "Activity", /[?&]panel=activity/);
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await page.goBack();
