@@ -25,6 +25,22 @@ test("embedded Postgres schemas match the applied operator migration files", () 
   }
 });
 
+test("schema apply installs transaction timeouts before taking the advisory lock", async () => {
+  const issued: string[] = [];
+  const base = createFakePostgresExecutor();
+  const executor = interceptingExecutor(base, async (text, values, run) => {
+    issued.push(text);
+    return run(text, values);
+  });
+
+  await new PostgresMoneyActionStore(executor).ensureSchema();
+  expect(issued.slice(0, 3)).toEqual([
+    "SET LOCAL lock_timeout = '5s'",
+    "SET LOCAL statement_timeout = '60s'",
+    "SELECT pg_advisory_xact_lock(hashtext($1))",
+  ]);
+});
+
 test("schema readiness retries a rejected single-flight promise and caches success", async () => {
   const base = createFakePostgresExecutor();
   let schemaStarts = 0;

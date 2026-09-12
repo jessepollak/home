@@ -54,6 +54,8 @@ export function createFakePostgresExecutor(): SqlExecutor {
 
   const run = (text: string, values: unknown[]): SqlQueryResult => {
     if (
+      text === "SET LOCAL lock_timeout = '5s'" ||
+      text === "SET LOCAL statement_timeout = '60s'" ||
       text === "SELECT pg_advisory_xact_lock(hashtext($1))" ||
       text.startsWith("SELECT COUNT(*) AS action_id_count") ||
       moneyActionSchemaStatements.includes(text as typeof moneyActionSchemaStatements[number]) ||

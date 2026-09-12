@@ -332,6 +332,8 @@ const evidenceIndexPreflights = [
 
 export async function applyMoneyActionPostgresSchema(executor: SqlExecutor): Promise<void> {
   await executor.transaction(async (transaction) => {
+    await transaction.query("SET LOCAL lock_timeout = '5s'");
+    await transaction.query("SET LOCAL statement_timeout = '60s'");
     await transaction.query(
       "SELECT pg_advisory_xact_lock(hashtext($1))",
       ["home_money_action_schema_v2"],

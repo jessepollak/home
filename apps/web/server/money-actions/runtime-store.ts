@@ -8,6 +8,8 @@ type RuntimeMoneyActionStore = MoneyActionStore & {
 };
 type RuntimeStoreFactory = (connectionString: string) => Promise<RuntimeMoneyActionStore>;
 
+const RUNTIME_STORE_CLEANUP_TIMEOUT_MS = 5_000;
+
 const defaultRuntimeStoreFactory: RuntimeStoreFactory = async (connectionString) => {
   const { PostgresMoneyActionStore } = await import("./postgres-store");
   return new PostgresMoneyActionStore(connectionString);
@@ -61,7 +63,10 @@ async function loadRuntimeStore(): Promise<MoneyActionStore> {
       await store.ensureSchema();
       return store;
     } catch (error) {
-      try { await store.dispose?.(); } catch { /* preserve the readiness failure */ }
+      try {
+        const disposal = store.dispose?.();
+        if (disposal) await withCleanupTimeout(disposal, RUNTIME_STORE_CLEANUP_TIMEOUT_MS);
+      } catch { /* preserve the readiness failure */ }
       throw error;
     }
   }
@@ -73,4 +78,22 @@ async function loadRuntimeStore(): Promise<MoneyActionStore> {
   throw new Error(
     "DATABASE_URL is required for PostgreSQL money-action persistence in every runtime.",
   );
+}
+
+async function withCleanupTimeout(disposal: Promise<void>, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      disposal,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`PostgreSQL money-action cleanup timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+        (timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

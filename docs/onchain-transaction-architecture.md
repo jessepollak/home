@@ -87,7 +87,7 @@ Current code facts:
 - Home compares returned provider calls to the reviewed calls and verifies the resulting transaction receipt with the expected sender/user-operation relationship.
 - Once a user-operation hash is durable, status checks can reconcile without calling `sendUserOperation` again.
 
-Soft Pass (#175), locked into `attempt-commands.ts`:
+Soft Pass (#175), locked into `provider-submission-contract.ts`:
 
 - Do not authorize a new send after `sendUserOperation` has been invoked and thrown.
 - Do not implement GET-by-idempotency-key recovery. Official GET is by `userOpHash` only; live unfunded GETs by key were 404.
@@ -104,7 +104,7 @@ Current code facts:
 - Home requires matching submission ID, Base chain, atomic execution, and a single consistent receipt transaction hash.
 - Phase 1 preserves the returned ID before any post-request account-state recheck. Pre-dispatch account/chain checks remain in place.
 
-Soft Pass (#176), locked into `attempt-commands.ts`:
+Soft Pass (#176), locked into `provider-submission-contract.ts`:
 
 - Home request `id` is correlation / uniqueness, not CDP-style idempotent replay. Do not treat the action UUID as a replay key.
 - Action UUID ≠ provider evidence. Do not persist it as `submissionId` before `wallet_sendCalls` returns.

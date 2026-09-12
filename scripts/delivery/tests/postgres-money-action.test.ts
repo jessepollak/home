@@ -54,56 +54,44 @@ if (!databaseUrl) {
       return new PostgresMoneyActionStore(executor(schema));
     });
 
-    test("concurrent same user-operation hash writes have exactly one winner", async () => {
+    test("raw concurrent user-operation updates prove the expression index arbitrates after both prechecks miss", async () => {
       const schema = await createSchema("user_op_race");
       const owner = ownerFor(101, "cdp-embedded");
       const first = actionFor(101, owner);
       const second = actionFor(102, owner);
-      const firstStore = new PostgresMoneyActionStore(executor(schema));
-      const secondStore = new PostgresMoneyActionStore(executor(schema));
-      await issueAndClaim(firstStore, first);
-      await issueAndClaim(secondStore, second);
+      const store = new PostgresMoneyActionStore(executor(schema));
+      await issueAndClaim(store, first);
+      await issueAndClaim(store, second);
       const userOperationHash = `0x${"a".repeat(64)}` as const;
-      const [firstResult, secondResult] = await Promise.all([
-        firstStore.recordSubmission(owner, first.id, {
-          userOperationHash,
-          transactionHash: `0x${"1".repeat(64)}`,
-        }, "2026-09-12T16:00:02.000Z"),
-        secondStore.recordSubmission(owner, second.id, {
-          userOperationHash,
-          transactionHash: `0x${"2".repeat(64)}`,
-        }, "2026-09-12T16:00:02.000Z"),
-      ]);
-      expect(Number(firstResult !== null) + Number(secondResult !== null)).toBe(1);
-      const rows = await Promise.all([firstStore.get(owner, first.id), secondStore.get(owner, second.id)]);
-      expect(rows.filter((row) => row?.userOperationHash === userOperationHash)).toHaveLength(1);
-      expect(rows.filter((row) => row?.status === "submitting" && !row.userOperationHash && !row.transactionHash)).toHaveLength(1);
+
+      await proveRawEvidenceIndexRace({
+        databaseUrl,
+        schema,
+        owner,
+        actionIds: [first.id, second.id],
+        reference: { userOperationHash },
+        expectedIndex: "money_action_unique_owner_user_operation_hash",
+      });
     });
 
-    test("concurrent same Base submission ID writes have exactly one winner", async () => {
+    test("raw concurrent Base submission updates prove the exact index arbitrates after both prechecks miss", async () => {
       const schema = await createSchema("submission_race");
       const owner = ownerFor(103, "base-account");
       const first = actionFor(103, owner);
       const second = actionFor(104, owner);
-      const firstStore = new PostgresMoneyActionStore(executor(schema));
-      const secondStore = new PostgresMoneyActionStore(executor(schema));
-      await issueAndClaim(firstStore, first);
-      await issueAndClaim(secondStore, second);
+      const store = new PostgresMoneyActionStore(executor(schema));
+      await issueAndClaim(store, first);
+      await issueAndClaim(store, second);
       const submissionId = "CallBundle-AbC123";
-      const [firstResult, secondResult] = await Promise.all([
-        firstStore.recordSubmission(owner, first.id, {
-          submissionId,
-          transactionHash: `0x${"3".repeat(64)}`,
-        }, "2026-09-12T16:00:02.000Z"),
-        secondStore.recordSubmission(owner, second.id, {
-          submissionId,
-          transactionHash: `0x${"4".repeat(64)}`,
-        }, "2026-09-12T16:00:02.000Z"),
-      ]);
-      expect(Number(firstResult !== null) + Number(secondResult !== null)).toBe(1);
-      const rows = await Promise.all([firstStore.get(owner, first.id), secondStore.get(owner, second.id)]);
-      expect(rows.filter((row) => row?.submissionId === submissionId)).toHaveLength(1);
-      expect(rows.filter((row) => row?.status === "submitting" && !row.submissionId && !row.transactionHash)).toHaveLength(1);
+
+      await proveRawEvidenceIndexRace({
+        databaseUrl,
+        schema,
+        owner,
+        actionIds: [first.id, second.id],
+        reference: { submissionId },
+        expectedIndex: "money_action_unique_owner_submission_id",
+      });
     });
 
     test("pre-004 mixed-case duplicates fail preflight without indexes or row mutation", async () => {
@@ -245,6 +233,138 @@ if (!databaseUrl) {
       if (errors.length > 0) throw new AggregateError(errors, "PostgreSQL fixture cleanup failed");
     }, POSTGRES_AFTER_ALL_TIMEOUT_MS);
   });
+}
+
+type EvidenceRaceReference =
+  | Readonly<{ submissionId: string; userOperationHash?: never }>
+  | Readonly<{ submissionId?: never; userOperationHash: `0x${string}` }>;
+
+async function proveRawEvidenceIndexRace(input: Readonly<{
+  databaseUrl: string;
+  schema: string;
+  owner: MoneyActionOwner;
+  actionIds: readonly [string, string];
+  reference: EvidenceRaceReference;
+  expectedIndex: string;
+}>): Promise<void> {
+  const clients = [new Bun.SQL(input.databaseUrl), new Bun.SQL(input.databaseUrl)] as const;
+  const executors = clients.map((client) => createBunPostgresExecutor(client, input.schema));
+  const inspection = createBunPostgresExecutor(clients[0], input.schema);
+  const before = new Map<string, Record<string, unknown>>();
+  for (const actionId of input.actionIds) {
+    const result = await inspection.query<Record<string, unknown>>(
+      "SELECT * FROM money_action_operations WHERE id = $1",
+      [actionId],
+    );
+    if (!result.rows[0]) throw new Error("race fixture operation was not found");
+    before.set(actionId, result.rows[0]);
+  }
+
+  const barrier = twoPartyBarrier();
+  const prechecked: string[] = [];
+  let outcomes: PromiseSettledResult<string>[];
+  try {
+    outcomes = await Promise.allSettled(input.actionIds.map((actionId, index) =>
+      executors[index]!.transaction(async (transaction) => {
+        const owned = await transaction.query(
+          moneyActionQueries.selectOwnedForUpdate,
+          [actionId, ...ownerParameters(input.owner)],
+        );
+        if (owned.rowCount !== 1 || owned.rows.length !== 1) {
+          throw new Error("race fixture did not lock its owned action");
+        }
+        const pending = await transaction.query(moneyActionQueries.pendingReference, [
+          actionId,
+          ...ownerParameters(input.owner),
+          input.reference.submissionId ?? null,
+          input.reference.userOperationHash ?? null,
+        ]);
+        if (pending.rows.length !== 0) throw new Error("race pre-check unexpectedly found a conflict");
+        prechecked.push(actionId);
+        await barrier.arriveAndWait();
+        const changed = await transaction.query(moneyActionQueries.recordSubmission, [
+          input.reference.submissionId ?? null,
+          null,
+          input.reference.userOperationHash ?? null,
+          "2026-09-12T16:00:02.000Z",
+          actionId,
+          ...ownerParameters(input.owner),
+        ]);
+        if (changed.rowCount !== 1) throw new Error("race update did not change its owned action");
+        return actionId;
+      })
+    ));
+  } finally {
+    await Promise.all(clients.map((client) => client.close({ timeout: 1 })));
+  }
+
+  expect(prechecked.sort()).toEqual([...input.actionIds].sort());
+  const winners = outcomes.filter((outcome): outcome is PromiseFulfilledResult<string> => outcome.status === "fulfilled");
+  const losers = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
+  expect(winners).toHaveLength(1);
+  expect(losers).toHaveLength(1);
+  const failure = losers[0]!.reason;
+  expect(postgresSqlState(failure)).toBe("23505");
+  expect(postgresErrorIdentity(failure)).toContain(input.expectedIndex);
+
+  const winnerId = winners[0]!.value;
+  const loserId = input.actionIds.find((actionId) => actionId !== winnerId)!;
+  const afterClient = new Bun.SQL(input.databaseUrl);
+  try {
+    const afterExecutor = createBunPostgresExecutor(afterClient, input.schema);
+    const afterWinner = await afterExecutor.query<Record<string, unknown>>(
+      "SELECT * FROM money_action_operations WHERE id = $1",
+      [winnerId],
+    );
+    const afterLoser = await afterExecutor.query<Record<string, unknown>>(
+      "SELECT * FROM money_action_operations WHERE id = $1",
+      [loserId],
+    );
+    expect(JSON.stringify(afterLoser.rows[0])).toBe(JSON.stringify(before.get(loserId)));
+    if (input.reference.userOperationHash) {
+      expect(afterWinner.rows[0]?.user_operation_hash).toBe(input.reference.userOperationHash);
+    } else {
+      expect(afterWinner.rows[0]?.submission_id).toBe(input.reference.submissionId);
+    }
+  } finally {
+    await afterClient.close({ timeout: 1 });
+  }
+}
+
+function twoPartyBarrier(): { arriveAndWait(): Promise<void> } {
+  let arrivals = 0;
+  let release!: () => void;
+  const ready = new Promise<void>((resolveReady) => { release = resolveReady; });
+  return {
+    async arriveAndWait() {
+      arrivals += 1;
+      if (arrivals === 2) release();
+      await ready;
+    },
+  };
+}
+
+function postgresSqlState(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const value = error as { errno?: unknown; sqlState?: unknown; code?: unknown };
+  for (const candidate of [value.errno, value.sqlState, value.code]) {
+    if (candidate === "23505") return candidate;
+  }
+  return undefined;
+}
+
+function postgresErrorIdentity(error: unknown): string {
+  if (!error || typeof error !== "object") return String(error);
+  const value = error as {
+    constraint?: unknown;
+    constraint_name?: unknown;
+    message?: unknown;
+  };
+  return [value.constraint, value.constraint_name, value.message, String(error)].join(" ");
+}
+
+function ownerParameters(owner: MoneyActionOwner): [string, string, number, string] {
+  return [owner.subject, owner.address.toLowerCase(), owner.chainId, owner.accountProvider];
 }
 
 function ownerFor(number: number, accountProvider: MoneyActionOwner["accountProvider"]): MoneyActionOwner {

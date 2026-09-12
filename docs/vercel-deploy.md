@@ -128,7 +128,7 @@ PostgreSQL/Neon is the sole production money-action store. There is no SQLite fa
 5. Redeploy. Money-action selection must fail closed rather than choosing another durable adapter.
 6. If PR preview builds fail at Neon’s branch cap, add the GitHub Actions credentials in [Neon preview branch cleanup](#neon-preview-branch-cleanup-github-actions) and prune stale `preview/*` branches.
 
-Schema application checks for duplicate owner-scoped provider handles before creating the indexes. If duplicate groups exist, readiness fails with bounded counts only; it never logs handle values, modifies rows, or deduplicates automatically. Resolve the conflicting rows through a separately reviewed, traffic-stopped process and rerun the schema command.
+Schema application uses a 5-second lock timeout and a 60-second statement timeout. It checks for duplicate owner-scoped provider handles before creating the indexes. If duplicate groups exist, readiness fails with bounded counts only; it never logs handle values, modifies rows, or deduplicates automatically. Resolve the conflicting rows through a separately reviewed, traffic-stopped process and rerun the schema command.
 
 The table stores action plans, immutable review hashes, owner tuples, statuses, admission release timestamps, and public chain/provider refs. It stores no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
 

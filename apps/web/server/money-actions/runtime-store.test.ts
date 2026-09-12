@@ -78,6 +78,28 @@ describe("money action runtime store selection", () => {
     expect(readinessCalls).toBe(2);
   });
 
+  test("bounds failed runtime cleanup without masking the readiness error", async () => {
+    process.env.DATABASE_URL = "postgresql://example/home";
+    process.env.MONEY_ACTION_POSTGRES_CUTOVER = "verified-empty";
+    const store = new RuntimeTestStore();
+    const readinessError = new Error("original readiness failure");
+    store.readiness = async () => { throw readinessError; };
+    store.disposal = () => new Promise<void>(() => {});
+    setMoneyActionRuntimeStoreFactoryForTests(async () => store);
+
+    const startedAt = Date.now();
+    let failure: unknown;
+    try {
+      await getMoneyActionStore();
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBe(readinessError);
+    expect(store.disposeCalls).toBe(1);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(4_500);
+    expect(Date.now() - startedAt).toBeLessThan(6_500);
+  }, 7_000);
+
   test("an older rejected load cannot clear a newer successful runtime promise", async () => {
     process.env.DATABASE_URL = "postgresql://example/home";
     process.env.MONEY_ACTION_POSTGRES_CUTOVER = "verified-empty";
@@ -135,6 +157,7 @@ describe("money action runtime store selection", () => {
 
 class RuntimeTestStore extends MemoryMoneyActionStore {
   readiness: () => Promise<void> = async () => {};
+  disposal: () => Promise<void> = async () => {};
   disposeCalls = 0;
 
   ensureSchema(): Promise<void> {
@@ -143,6 +166,7 @@ class RuntimeTestStore extends MemoryMoneyActionStore {
 
   async dispose(): Promise<void> {
     this.disposeCalls += 1;
+    await this.disposal();
   }
 }
 
