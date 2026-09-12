@@ -53,7 +53,7 @@ export function SmokeFixtureAccountProvider({ children }: { children: ReactNode 
   }), [ownerKey]);
 
   return (
-    <AccountWalletSessionOwner sdk={sdk}>
+    <AccountWalletSessionOwner sdk={sdk} baseAccountEnabled>
       {children}
     </AccountWalletSessionOwner>
   );

@@ -1,5 +1,7 @@
 "use client";
 
+import { Button, Heading, IconButton, Text } from "@home/ui";
+import { XIcon } from "@home/ui/icons";
 import {
   useEffect,
   useLayoutEffect,
@@ -76,23 +78,29 @@ export function SignInBlockedPanel({
   if (reason === "unconfigured") {
     return (
       <div className={styles.statusPanel} role="alert">
-        <strong>{signInUnconfiguredCopy.heading}</strong>
-        <p>
+        <Text as="strong" textStyle="row-label">
+          {signInUnconfiguredCopy.heading}
+        </Text>
+        <Text textStyle="secondary" tone="muted">
           This deployment is missing <code>NEXT_PUBLIC_CDP_PROJECT_ID</code>.
-        </p>
-        <p>
+        </Text>
+        <Text textStyle="secondary" tone="muted">
           Copy <code>.env.example</code> to <code>apps/web/.env.local</code>, then
           follow{" "}
           <a href={CDP_SETUP_DOC_HREF}>{CDP_SETUP_DOC_LABEL}</a>.
-        </p>
+        </Text>
       </div>
     );
   }
 
   return (
     <div className={styles.statusPanel} role="alert">
-      <strong>{signInProviderUnavailableCopy.heading}</strong>
-      <p>{signInProviderUnavailableCopy.body}</p>
+      <Text as="strong" textStyle="row-label">
+        {signInProviderUnavailableCopy.heading}
+      </Text>
+      <Text textStyle="secondary" tone="muted">
+        {signInProviderUnavailableCopy.body}
+      </Text>
     </div>
   );
 }
@@ -366,206 +374,241 @@ export function AccountSignInSheet({
 
   return (
     <>
-    <dialog
-      ref={dialogRef}
-      className={styles.sheet}
-      aria-labelledby="account-sign-in-title"
-      onCancel={handleCancel}
-      onClick={handleDialogClick}
-    >
-      <div className={styles.sheetHeader}>
-        <div>
-          <h2 id="account-sign-in-title">
-            {flowId ? "Check your email" : "Sign in to Home"}
-          </h2>
-        </div>
-        <button
-          className={styles.closeButton}
-          type="button"
-          onClick={closeAndCancelAttempt}
-          aria-label="Close sign in"
-        >
-          ×
-        </button>
-      </div>
-
-      {signInBlocked ? (
-        <SignInBlockedPanel
-          reason={
-            signInAvailability === "provider-unavailable"
-              ? "provider-unavailable"
-              : "unconfigured"
-          }
-        />
-      ) : (
-        <>
-          {message ? (
-            <p className={styles.notice} role="status">
-              {message}
-            </p>
-          ) : null}
-          {authError ? (
-            <p className={styles.error} role="alert">
-              {authError}
-            </p>
-          ) : null}
-
-          {activeBaseAccountPhase && !isProviderHandoff ? (
-            <div className={styles.pendingPanel} aria-live="polite">
-              <span className={styles.spinner} aria-hidden="true" />
-              {baseAccountPhaseMessage(activeBaseAccountPhase)}
-            </div>
-          ) : isCleaningUp ? (
-            <div className={styles.pendingPanel} aria-live="polite">
-              <span className={styles.spinner} aria-hidden="true" />
-              Finishing sign-out…
-            </div>
-          ) : isChecking ? (
-            <div className={styles.pendingPanel} aria-live="polite">
-              <span className={styles.spinner} aria-hidden="true" />
-              Verifying your secure session…
-            </div>
-          ) : status === "signout-error" ? (
-            <div className={styles.statusPanel} role="alert">
-              <strong>Sign-out did not finish.</strong>
-              <p>Your account details remain hidden.</p>
-              <button
-                className={styles.secondaryButton}
-                type="button"
-                onClick={() => void signOut().catch(() => {})}
-              >
-                Retry sign out
-              </button>
-            </div>
-          ) : status === "unavailable" ? (
-            <div className={styles.statusPanel} role="alert">
-              <strong>We could not verify this session.</strong>
-              <p>Your account details remain hidden.</p>
-              <button
-                className={styles.secondaryButton}
-                type="button"
-                onClick={() => void retrySessionValidation()}
-              >
-                Try again
-              </button>
-            </div>
-          ) : projectConfigured && flowId ? (
-            <form className={styles.form} onSubmit={handleOtpSubmit}>
-              <div className={styles.fieldHeader}>
-                <label htmlFor="account-otp">Verification code</label>
-                <button
-                  className={styles.textButton}
-                  type="button"
-                  onClick={changeEmail}
-                  disabled={isVerifyingCode || isSendingCode}
-                >
-                  Change email
-                </button>
-              </div>
-              <input
-                id="account-otp"
-                className={styles.otpInput}
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="[0-9]{6}"
-                maxLength={6}
-                value={otp}
-                onChange={(event) =>
-                  setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))
-                }
-                disabled={isVerifyingCode}
-                aria-describedby="account-otp-help"
-                autoFocus
-                data-initial-focus
-              />
-              <p id="account-otp-help" className={styles.fieldHelp}>
-                Sent to {email}. The code expires for your protection.
-              </p>
-              <button
-                className={styles.primaryButton}
-                type="submit"
-                disabled={isVerifyingCode || otp.length !== 6}
-              >
-                {isVerifyingCode ? "Verifying…" : "Verify and continue"}
-              </button>
-              <button
-                className={styles.secondaryButton}
-                type="button"
-                onClick={() => {
-                  setOtp("");
-                  void sendCode(email);
-                }}
-                disabled={isSendingCode || resendSeconds > 0}
-              >
-                {isSendingCode
-                  ? "Sending…"
-                  : resendSeconds > 0
-                    ? `Resend code in ${resendSeconds}s`
-                    : "Resend code"}
-              </button>
-            </form>
-          ) : projectConfigured ? (
-            <form className={styles.form} onSubmit={handleEmailSubmit}>
-              <label htmlFor="account-email">Email address</label>
-              <input
-                id="account-email"
-                className={styles.input}
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                disabled={isSendingCode}
-                required
-                autoFocus
-                data-initial-focus
-              />
-              <button
-                className={styles.primaryButton}
-                type="submit"
-                disabled={isSendingCode}
-              >
-                {isSendingCode ? "Sending code…" : "Continue with email"}
-              </button>
-              {baseAccountEnabled ? (
-                <>
-                  <div className={styles.signInDivider} role="separator">
-                    <span>or</span>
-                  </div>
-                  <button
-                    className={styles.secondaryButton}
-                    type="button"
-                    onClick={() => void handleBaseAccountSignIn()}
-                  >
-                    Continue with Base Account
-                  </button>
-                </>
-              ) : null}
-            </form>
-          ) : null}
-        </>
-      )}
-
-    </dialog>
-    {open && isProviderHandoff && !baseAccountFailed ? (
-      <aside
-        className={styles.providerHandoff}
-        aria-live="polite"
-        role="status"
+      <dialog
+        ref={dialogRef}
+        className={styles.sheet}
+        aria-labelledby="account-sign-in-title"
+        onCancel={handleCancel}
+        onClick={handleDialogClick}
       >
-        {activeBaseAccountPhase ? (
+        <div className={styles.sheetHeader}>
+          <Heading
+            level={2}
+            textStyle="sheet-title"
+            id="account-sign-in-title"
+          >
+            {flowId ? "Check your email" : "Sign in to Home"}
+          </Heading>
+          <IconButton
+            className={styles.closeButton}
+            icon={XIcon}
+            variant="secondary"
+            onClick={closeAndCancelAttempt}
+            aria-label="Close sign in"
+          />
+        </div>
+
+        {signInBlocked ? (
+          <SignInBlockedPanel
+            reason={
+              signInAvailability === "provider-unavailable"
+                ? "provider-unavailable"
+                : "unconfigured"
+            }
+          />
+        ) : (
           <>
-            <span className={styles.spinner} aria-hidden="true" />
-            <p>{baseAccountPhaseMessage(activeBaseAccountPhase)}</p>
+            {message ? (
+              <Text
+                className={styles.notice}
+                textStyle="secondary"
+                role="status"
+              >
+                {message}
+              </Text>
+            ) : null}
+            {authError ? (
+              <Text
+                className={styles.error}
+                textStyle="secondary"
+                role="alert"
+              >
+                {authError}
+              </Text>
+            ) : null}
+
+            {activeBaseAccountPhase && !isProviderHandoff ? (
+              <div className={styles.pendingPanel} aria-live="polite">
+                <span className={styles.spinner} aria-hidden="true" />
+                <Text as="span" textStyle="secondary" tone="muted">
+                  {baseAccountPhaseMessage(activeBaseAccountPhase)}
+                </Text>
+              </div>
+            ) : isCleaningUp ? (
+              <div className={styles.pendingPanel} aria-live="polite">
+                <span className={styles.spinner} aria-hidden="true" />
+                <Text as="span" textStyle="secondary" tone="muted">
+                  Finishing sign-out…
+                </Text>
+              </div>
+            ) : isChecking ? (
+              <div className={styles.pendingPanel} aria-live="polite">
+                <span className={styles.spinner} aria-hidden="true" />
+                <Text as="span" textStyle="secondary" tone="muted">
+                  Verifying your session…
+                </Text>
+              </div>
+            ) : status === "signout-error" ? (
+              <div className={styles.statusPanel} role="alert">
+                <Text as="strong" textStyle="row-label">
+                  Sign-out did not finish.
+                </Text>
+                <Text textStyle="secondary" tone="muted">
+                  Your account details remain hidden.
+                </Text>
+                <Button
+                  className={styles.statusAction}
+                  variant="secondary"
+                  onClick={() => void signOut().catch(() => {})}
+                >
+                  Retry sign out
+                </Button>
+              </div>
+            ) : status === "unavailable" ? (
+              <div className={styles.statusPanel} role="alert">
+                <Text as="strong" textStyle="row-label">
+                  We could not verify this session.
+                </Text>
+                <Text textStyle="secondary" tone="muted">
+                  Your account details remain hidden.
+                </Text>
+                <Button
+                  className={styles.statusAction}
+                  variant="secondary"
+                  onClick={() => void retrySessionValidation()}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : projectConfigured && flowId ? (
+              <form className={styles.form} onSubmit={handleOtpSubmit}>
+                <div className={styles.fieldHeader}>
+                  <label htmlFor="account-otp">Verification code</label>
+                  <Button
+                    className={styles.changeEmailButton}
+                    variant="quiet"
+                    onClick={changeEmail}
+                    disabled={isVerifyingCode || isSendingCode}
+                  >
+                    Change email
+                  </Button>
+                </div>
+                <input
+                  id="account-otp"
+                  className={styles.otpInput}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(event) =>
+                    setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  disabled={isVerifyingCode}
+                  aria-describedby="account-otp-help"
+                  autoFocus
+                  data-initial-focus
+                />
+                <Text
+                  id="account-otp-help"
+                  className={styles.fieldHelp}
+                  textStyle="metadata"
+                  tone="muted"
+                >
+                  Sent to {email}. Codes expire.
+                </Text>
+                <Button
+                  className={styles.formAction}
+                  type="submit"
+                  disabled={isVerifyingCode || otp.length !== 6}
+                >
+                  {isVerifyingCode ? "Verifying…" : "Verify and continue"}
+                </Button>
+                <Button
+                  className={styles.formAction}
+                  variant="secondary"
+                  onClick={() => {
+                    setOtp("");
+                    void sendCode(email);
+                  }}
+                  disabled={isSendingCode || resendSeconds > 0}
+                >
+                  {isSendingCode
+                    ? "Sending…"
+                    : resendSeconds > 0
+                      ? `Resend code in ${resendSeconds}s`
+                      : "Resend code"}
+                </Button>
+              </form>
+            ) : projectConfigured ? (
+              <form className={styles.form} onSubmit={handleEmailSubmit}>
+                <label htmlFor="account-email">Email address</label>
+                <input
+                  id="account-email"
+                  className={styles.input}
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  disabled={isSendingCode}
+                  required
+                  autoFocus
+                  data-initial-focus
+                />
+                <Button
+                  className={styles.formAction}
+                  type="submit"
+                  disabled={isSendingCode}
+                >
+                  {isSendingCode ? "Sending code…" : "Continue with email"}
+                </Button>
+                {baseAccountEnabled ? (
+                  <>
+                    <div className={styles.signInDivider} role="separator">
+                      <Text as="span" textStyle="metadata" tone="muted">
+                        or
+                      </Text>
+                    </div>
+                    <Button
+                      className={styles.formAction}
+                      variant="secondary"
+                      onClick={() => void handleBaseAccountSignIn()}
+                    >
+                      Sign in with Base Account
+                    </Button>
+                  </>
+                ) : null}
+              </form>
+            ) : null}
           </>
-        ) : null}
-        <button type="button" onClick={closeAndCancelAttempt}>
-          Cancel sign in
-        </button>
-      </aside>
-    ) : null}
+        )}
+      </dialog>
+      {open && isProviderHandoff && !baseAccountFailed ? (
+        <aside
+          className={styles.providerHandoff}
+          aria-live="polite"
+          role="status"
+        >
+          {activeBaseAccountPhase ? (
+            <>
+              <span className={styles.spinner} aria-hidden="true" />
+              <Text textStyle="secondary" tone="muted">
+                {baseAccountPhaseMessage(activeBaseAccountPhase)}
+              </Text>
+            </>
+          ) : null}
+          <Button
+            className={styles.providerAction}
+            variant="secondary"
+            onClick={closeAndCancelAttempt}
+          >
+            Cancel sign in
+          </Button>
+        </aside>
+      ) : null}
     </>
   );
 }
