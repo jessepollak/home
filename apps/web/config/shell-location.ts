@@ -53,6 +53,22 @@ export function firstQueryValue(
   return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * Serializes a server page's `searchParams` so the shell can derive its initial
+ * URL intent identically on the server and on the client (no hydration mismatch).
+ */
+export function searchParamsToString(
+  query: Record<string, string | string[] | undefined>,
+): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) {
+      search.append(key, item);
+    }
+  }
+  return search.toString();
+}
+
 export function parseShellAccount(
   value: string | null | undefined,
 ): ShellAccount | null {

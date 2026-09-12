@@ -80,6 +80,7 @@ export function HomeShell({
   routeMode = "landing",
   initialAddMoney = false,
   returnedFromProvider = false,
+  initialSearch,
   initialSendFlow = false,
   initialSendActionId = null,
   applyInboundUrlIntent = false,
@@ -92,10 +93,12 @@ export function HomeShell({
 }: HomeShellProps) {
   const router = useRouter();
   const account = useAccountWallet();
+  // Prefer the server-supplied query string: reading window.location here made the
+  // server render with empty params and the client with the real ones (hydration mismatch).
   const [initialUrlIntent] = useState(() => readHomeInboundPanelState(
-    typeof window === "undefined"
-      ? new URLSearchParams()
-      : new URLSearchParams(window.location.search),
+    new URLSearchParams(
+      initialSearch ?? (typeof window === "undefined" ? "" : window.location.search),
+    ),
   ));
   const pendingUrlIntentRef = useRef(initialUrlIntent);
   const appliedUrlIntentRef = useRef(false);

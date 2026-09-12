@@ -25,6 +25,8 @@ export type HomeExperienceProps = {
   initialSendFlow?: boolean;
   initialSendActionId?: string | null;
   applyInboundUrlIntent?: boolean;
+  /** The request's query string, from the server page, so SSR and hydration read the same URL intent. */
+  initialSearch?: string;
   selectedRegionId?: RegionId;
   onRegionChange?: (region: RegionId) => void;
 };

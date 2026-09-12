@@ -3,6 +3,7 @@ import {
   flowHref,
   parseInboundUrlIntent,
   parseShellLocation,
+  searchParamsToString,
   shellHref,
   withoutFlowHref,
 } from "./shell-location";
@@ -120,5 +121,13 @@ describe("money flow location", () => {
       "/dashboard",
       new URLSearchParams("panel=balances&flow=send&action=11111111-1111-4111-8111-111111111111"),
     )).toBe("/dashboard?panel=balances");
+  });
+});
+
+describe("searchParamsToString", () => {
+  test("serializes a server page's searchParams, including repeated keys", () => {
+    expect(searchParamsToString({ account: "signin", flow: "send", tags: ["a", "b"], missing: undefined }))
+      .toBe("account=signin&flow=send&tags=a&tags=b");
+    expect(searchParamsToString({})).toBe("");
   });
 });

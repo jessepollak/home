@@ -5,7 +5,7 @@ import { useInvestDiscover } from "@/client/invest/use-invest-discover";
 import { AuthenticatedSavingsExperience } from "@/client/savings/savings-experience";
 import { PortfolioHomeExperience } from "./home-experience";
 
-export function DashboardExperience() {
+export function DashboardExperience({ initialSearch }: { initialSearch?: string } = {}) {
   const discover = useInvestDiscover();
 
   return (
@@ -18,6 +18,7 @@ export function DashboardExperience() {
       savingsContent={<AuthenticatedSavingsExperience />}
       routeMode="dashboard"
       applyInboundUrlIntent
+      initialSearch={initialSearch}
     />
   );
 }
