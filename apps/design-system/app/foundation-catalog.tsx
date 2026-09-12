@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bleed, Button, Field, Heading, IconButton, Inline, Input, Inset, Select, Stack, Text, type TextStyle } from "@home/ui";
+import { Badge, Bleed, Button, Divider, Field, Heading, IconButton, Inline, Input, Inset, ListRow, Select, Stack, Text, type TextStyle } from "@home/ui";
 import { Sheet } from "@home/ui/sheet";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { ArrowRightIcon, CheckIcon, PlusIcon, XIcon } from "@home/ui/icons";
@@ -122,6 +122,7 @@ export function FoundationCatalog() {
   const [textScale, setTextScale] = useState("100");
   const [width, setWidth] = useState("fluid");
   const [activations, setActivations] = useState(0);
+  const [rowActivations, setRowActivations] = useState(0);
   const [tickerValue, setTickerValue] = useState("$1,234.56");
   const primaryRef = useRef<HTMLButtonElement>(null);
 
@@ -234,6 +235,54 @@ export function FoundationCatalog() {
                 <option value="ID">Indonesia</option>
               </Select>
             </Field>
+          </div>
+        </section>
+
+        <section className="catalog-section bg-home-ui-surface" aria-labelledby="list-row-title">
+          <Heading id="list-row-title" level={2} textStyle="section-title">List rows, badges, and dividers</Heading>
+          <Text textStyle="secondary" tone="muted">Static, pressable, and linked rows share readable wrapping, separators, and a 44px minimum target.</Text>
+          <ul className="catalog-list-rows" aria-label="List row state matrix">
+            <ListRow
+              leading={<span className="catalog-row-mark">US</span>}
+              label="USD Coin"
+              description="Available balance"
+              value="$12,345.67"
+              valueDescription="10,250.42 USDC"
+            />
+            <ListRow
+              leading={<span className="catalog-row-mark">↓</span>}
+              label="Received from a wallet with a long and detailed display name"
+              description="September 12, 2026 at 10:42 AM"
+              value="+$1,234,567.89"
+              valueDescription="Confirmed"
+              tone="success"
+              onPress={() => setRowActivations((count) => count + 1)}
+              aria-label="Open received transaction"
+            />
+            <ListRow
+              leading={<span className="catalog-row-mark">ETH</span>}
+              label="Ethereum"
+              description="Linked row"
+              value="$4,321.09"
+              valueDescription="−1.2% today"
+              tone="error"
+              href="#list-row-title"
+              aria-label="View Ethereum details"
+            />
+          </ul>
+          <Text as="span" textStyle="secondary" data-row-activations>Row activations: {rowActivations}</Text>
+          <div className="catalog-badge-matrix" aria-label="Badge tone matrix">
+            <Badge>Neutral</Badge>
+            <Badge tone="accent">Accent</Badge>
+            <Badge tone="success" icon={<CheckIcon />}>Success</Badge>
+            <Badge tone="warning">Warning</Badge>
+            <Badge tone="error">Error</Badge>
+          </div>
+          <Divider />
+          <div className="catalog-divider-matrix">
+            <Text as="span" textStyle="secondary">Before</Text>
+            <Divider orientation="vertical" decorative={false} aria-label="Before and after" />
+            <Text as="span" textStyle="secondary">After</Text>
           </div>
         </section>
 

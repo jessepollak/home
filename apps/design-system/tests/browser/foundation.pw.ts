@@ -49,7 +49,7 @@ async function expectWholeAsciiWords(locator: Locator) {
 async function expectNoOverflow(page: Page) {
   await page.evaluate(() => document.fonts.ready);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  const clipped = await page.locator(".home-ui-text, .home-ui-money-ticker, .home-ui-button, .home-ui-field, .home-ui-control, .catalog-section, .catalog-controls, .catalog-control-grid, .catalog-control-grid label").evaluateAll((elements) =>
+  const clipped = await page.locator(".home-ui-text, .home-ui-money-ticker, .home-ui-button, .home-ui-field, .home-ui-control, .home-ui-list-row, .home-ui-list-row__content, .home-ui-badge, .home-ui-divider, .catalog-section, .catalog-controls, .catalog-control-grid, .catalog-control-grid label").evaluateAll((elements) =>
     elements.filter((element) => {
       // Tight display line boxes can have visible font ink outside their height;
       // that is not clipping. Still reject horizontal overflow and any vertical
@@ -167,6 +167,43 @@ test("Field controls follow native keyboard order and expose the shared focus ha
   await expect(country).toBeFocused();
   await country.press("ArrowDown");
   await expect(country).toBeFocused();
+});
+
+for (const width of [320, 390, 1280]) {
+  test(`ListRow, Badge, and Divider stay readable at ${width}px / 200% text`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await page.getByRole("combobox", { name: "Text size" }).selectOption("200");
+
+    const rows = page.locator(".home-ui-list-row");
+    await expect(rows).toHaveCount(3);
+    await expect(page.getByText("Received from a wallet with a long and detailed display name", { exact: true })).toBeVisible();
+    await expect(page.getByText("+$1,234,567.89", { exact: true })).toBeVisible();
+    await expect(page.locator(".home-ui-badge")).toHaveCount(5);
+    await expect(page.getByRole("separator", { name: "Before and after" })).toHaveAttribute("aria-orientation", "vertical");
+    for (const control of await rows.locator(".home-ui-list-row__control").all()) {
+      const box = await control.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+    await expectNoOverflow(page);
+  });
+}
+
+test("interactive ListRows follow keyboard order and native activation", async ({ page }) => {
+  await page.goto("/");
+  const pressable = page.getByRole("button", { name: "Open received transaction" });
+  const linked = page.getByRole("link", { name: "View Ethereum details" });
+  const count = page.locator("[data-row-activations]");
+  await pressable.focus();
+  await expect(pressable).toBeFocused();
+  await expect(pressable).toHaveCSS("outline-style", "solid");
+  await pressable.press("Enter");
+  await pressable.press("Space");
+  await expect(count).toHaveText("Row activations: 2");
+  await page.keyboard.press("Tab");
+  await expect(linked).toBeFocused();
+  await expect(linked).toHaveAttribute("href", "#list-row-title");
 });
 
 test("narrow normal-size icon buttons retain shared 44px geometry", async ({ page }) => {

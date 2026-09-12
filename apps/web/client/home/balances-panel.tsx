@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Text } from "@home/ui";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { CurrencyMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
@@ -118,12 +119,13 @@ export function BalancesPage({
   return (
     <section className="balances-panel nested-home-panel" aria-label="Balances">
       {showBalanceStatus ? (
-        <p
+        <Text
+          textStyle="metadata"
           className="balance-status balance-status-panel"
           data-total-status={assetBalances?.totalStatus}
         >
           {balanceStatusLabel}
-        </p>
+        </Text>
       ) : null}
       <IncrementalBalancesList
         active={active}
@@ -164,7 +166,7 @@ export function HomeBalancesList({
   }
   if (isLoading) return <ShimmerRows count={2} />;
   if (isUnavailable) return null;
-  return <p className="balances-empty">No balances yet</p>;
+  return <Text textStyle="metadata" className="balances-empty">No balances yet</Text>;
 }
 
 function IncrementalBalancesList({
@@ -205,7 +207,7 @@ function IncrementalBalancesList({
   if (items.length === 0) {
     if (isLoading) return <ShimmerRows count={2} />;
     if (isUnavailable) return null;
-    return <p className="balances-empty">No balances yet</p>;
+    return <Text textStyle="metadata" className="balances-empty">No balances yet</Text>;
   }
 
   return (

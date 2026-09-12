@@ -1,5 +1,6 @@
 "use client";
 
+import { ListRow } from "@home/ui";
 import type { InvestAsset } from "@/config/invest-assets";
 import {
   presentInvestAssetMark,
@@ -28,25 +29,16 @@ export function DiscoverAssetRow({
   const changeTone = moneyChangeTone(change);
 
   return (
-    <li>
-      <button
-        type="button"
-        className={styles.row}
-        onClick={onOpen}
-        aria-label={`${asset.displayName} details`}
-      >
-        <AssetIcon mark={mark} />
-        <span className={styles.identity}>
-          <strong>{asset.displayName}</strong>
-          <small>{asset.displaySymbol}</small>
-        </span>
-        <span className={styles.quote}>
-          <strong>{price.value}</strong>
-          {change !== "—" ? (
-            <small className={styles.change} data-money-change={changeTone}>{change}</small>
-          ) : null}
-        </span>
-      </button>
-    </li>
+    <ListRow
+      leading={<AssetIcon mark={mark} />}
+      label={asset.displayName}
+      description={asset.displaySymbol}
+      value={price.value}
+      valueDescription={change !== "—" ? (
+        <span className={styles.change} data-money-change={changeTone}>{change}</span>
+      ) : undefined}
+      onPress={onOpen}
+      aria-label={`${asset.displayName} details`}
+    />
   );
 }

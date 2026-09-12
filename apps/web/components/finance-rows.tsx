@@ -1,3 +1,4 @@
+import { ListRow, type ListRowTone } from "@home/ui";
 import type { ReactNode } from "react";
 import styles from "./finance-rows.module.css";
 
@@ -11,7 +12,7 @@ type FinanceRowProps = {
   value: ReactNode;
   valueContext?: ReactNode;
   valueContextTitle?: string;
-  valueTone?: "default" | "accent" | "error" | "muted";
+  valueTone?: ListRowTone;
   onActivate?: () => void;
   activateLabel?: string;
 };
@@ -46,37 +47,43 @@ function FinanceRow({
   onActivate,
   activateLabel,
 }: FinanceRowProps) {
-  const interactive = Boolean(onActivate);
+  const leading = (
+    <span className={styles.icon} data-tone={iconTone} aria-hidden="true">
+      {icon}
+    </span>
+  );
+  const description = context === undefined
+    ? undefined
+    : <span title={contextTitle}>{context}</span>;
+  const valueDescription = valueContext === undefined
+    ? undefined
+    : <span title={valueContextTitle}>{valueContext}</span>;
+
+  if (onActivate) {
+    return (
+      <ListRow
+        data-kind={kind}
+        leading={leading}
+        label={label}
+        description={description}
+        value={value}
+        valueDescription={valueDescription}
+        tone={valueTone}
+        onPress={onActivate}
+        aria-label={activateLabel ?? "View details"}
+      />
+    );
+  }
+
   return (
-    <li
-      className={styles.row}
+    <ListRow
       data-kind={kind}
-      data-interactive={interactive ? "true" : "false"}
-    >
-      <span className={styles.icon} data-tone={iconTone} aria-hidden="true">
-        {icon}
-      </span>
-      <span className={styles.identity}>
-        <strong>{label}</strong>
-        {context ? <small title={contextTitle}>{context}</small> : null}
-      </span>
-      <span className={styles.value} data-tone={valueTone}>
-        <strong>{value}</strong>
-        {valueContext ? (
-          <small title={valueContextTitle}>{valueContext}</small>
-        ) : null}
-      </span>
-      {interactive ? (
-        <>
-          <span className={styles.action} aria-hidden="true">›</span>
-          <button
-            className={styles.rowAction}
-            type="button"
-            onClick={onActivate}
-            aria-label={activateLabel ?? "View details"}
-          />
-        </>
-      ) : null}
-    </li>
+      leading={leading}
+      label={label}
+      description={description}
+      value={value}
+      valueDescription={valueDescription}
+      tone={valueTone}
+    />
   );
 }

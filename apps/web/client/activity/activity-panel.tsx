@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Heading, Text } from "@home/ui";
 import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
 import {
@@ -60,7 +61,7 @@ export function ActivityPanel({
       >
         {heading}
         {leading}
-        {suppressEmpty ? null : <p className={styles.empty}>No activity yet</p>}
+        {suppressEmpty ? null : <Text textStyle="secondary" className={styles.empty}>No activity yet</Text>}
       </section>
     );
   }
@@ -122,7 +123,7 @@ export function ActivityPanel({
       {heading}
       {leading}
       {isEmpty ? (
-        suppressEmpty ? null : <p className={styles.empty}>No activity yet</p>
+        suppressEmpty ? null : <Text textStyle="secondary" className={styles.empty}>No activity yet</Text>
       ) : (
         <ol className={styles.list}>
           {visibleTransfers.map((transfer) => (
@@ -206,9 +207,9 @@ function ActivityPagination({
 
   if (!nextCursor) {
     return hasTransfers ? (
-      <p className={styles.end} role="status">
+      <Text textStyle="metadata" className={styles.end} role="status">
         End of activity
-      </p>
+      </Text>
     ) : null;
   }
 
@@ -221,13 +222,13 @@ function ActivityPagination({
         </div>
       ) : null}
       {failed ? (
-        <p className={styles.loadMoreError} role="alert">
+        <Text textStyle="metadata" className={styles.loadMoreError} role="alert">
           More activity could not be loaded. Your current results are unchanged.
-        </p>
+        </Text>
       ) : autoLoadPaused ? (
-        <p className={styles.loadMoreNotice} role="status">
+        <Text textStyle="metadata" className={styles.loadMoreNotice} role="status">
           No additional activity was found on that page. Continue to check older activity.
-        </p>
+        </Text>
       ) : null}
       {loading ? null : (
         <button
@@ -256,7 +257,7 @@ function ActivityPagination({
 function DefaultActivityHeader() {
   return (
     <div className={styles.header}>
-      <h2 id="activity-title">Activity</h2>
+      <Heading id="activity-title" level={2} textStyle="metadata">Activity</Heading>
     </div>
   );
 }
