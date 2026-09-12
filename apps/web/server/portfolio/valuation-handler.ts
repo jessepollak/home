@@ -1,15 +1,15 @@
 import { isRegionId, type RegionId } from "@/config/regions";
+import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import {
-  ACCOUNT_PROVIDER_HEADER,
-  type AccountProvider,
-} from "@/shared/account/session-types";
+  authorizeSession,
+  type SessionAuthorizer,
+} from "@/server/auth/authorize";
 import type { PortfolioValuationSnapshot } from "@/shared/portfolio/valuation-types";
 import {
   BASE_CHAIN_ID,
   type Address,
   type VerifiedPortfolioAccount,
 } from "@/shared/portfolio/types";
-import type { SessionAuthorizer } from "./handler";
 import {
   createPortfolioFreshReadLimiter,
   type PortfolioFreshReadLimiter,
@@ -46,23 +46,8 @@ export function createPortfolioValuationHandler(dependencies: {
       );
     }
 
-    const boundaryResponse = await dependencies.authorize(request);
-    if (!boundaryResponse.ok) return boundaryResponse;
-    const session = await parseAuthorizedSession(
-      boundaryResponse,
-      readRequestedProvider(request),
-    );
-    if (!session) {
-      return privateJson(
-        {
-          error: {
-            code: "AUTH_UNAVAILABLE",
-            message: "Authentication is temporarily unavailable.",
-          },
-        },
-        503,
-      );
-    }
+    const session = await authorizeSession(request, dependencies.authorize);
+    if (session instanceof Response) return session;
     if (!session.smartAccount) {
       return privateJson(
         {
@@ -85,7 +70,7 @@ export function createPortfolioValuationHandler(dependencies: {
         },
         region,
         request.signal,
-        { fresh: wantsFresh && freshReadLimiter.take(session.ownerKey) },
+        { fresh: wantsFresh && freshReadLimiter.take(ownerKey(session)) },
       );
       return privateJson(snapshot, 200);
     } catch {
@@ -107,63 +92,10 @@ function readRegion(request: Request): RegionId | null {
   return values.length === 1 && isRegionId(values[0]) ? values[0] : null;
 }
 
-async function parseAuthorizedSession(
-  response: Response,
-  expectedProvider: AccountProvider | null,
-): Promise<{
-  smartAccount: { address: Address; chainId: typeof BASE_CHAIN_ID } | null;
-  ownerKey: string;
-} | null> {
-  let value: unknown;
-  try {
-    value = await response.json();
-  } catch {
-    return null;
-  }
-  if (
-    !isRecord(value) ||
-    !isRecord(value.user) ||
-    typeof value.user.subject !== "string" ||
-    value.user.subject.trim().length === 0 ||
-    !expectedProvider ||
-    value.accountProvider !== expectedProvider
-  ) {
-    return null;
-  }
-  if (value.smartAccount === null) {
-    return {
-      smartAccount: null,
-      ownerKey: `${value.user.subject}\u0000none\u0000${expectedProvider}`,
-    };
-  }
-  if (!isRecord(value.smartAccount)) return null;
-  if (
-    typeof value.smartAccount.address !== "string" ||
-    !/^0x[0-9a-fA-F]{40}$/.test(value.smartAccount.address) ||
-    value.smartAccount.chainId !== BASE_CHAIN_ID
-  ) {
-    return null;
-  }
-  const address = value.smartAccount.address.toLowerCase() as Address;
-  return {
-    ownerKey: `${value.user.subject}\u0000${address}\u0000${expectedProvider}`,
-    smartAccount: {
-      address,
-      chainId: BASE_CHAIN_ID,
-    },
-  };
-}
-
-function readRequestedProvider(request: Request): AccountProvider | null {
-  const requested = request.headers.get(ACCOUNT_PROVIDER_HEADER);
-  if (requested === null || requested === "cdp-embedded") return "cdp-embedded";
-  return requested === "base-account" ? "base-account" : null;
+function ownerKey(session: { user: { subject: string }; smartAccount: { address: Address } | null; accountProvider: string }): string {
+  return `${session.user.subject}\u0000${session.smartAccount?.address ?? "none"}\u0000${session.accountProvider}`;
 }
 
 function privateJson(body: unknown, status: number): Response {
   return Response.json(body, { status, headers: privateResponseHeaders });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

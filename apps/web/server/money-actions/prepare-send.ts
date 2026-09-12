@@ -8,8 +8,7 @@ import type { TransferRequest } from "@/shared/transfers/types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { PORTFOLIO_BASE_USDC_ADDRESS } from "@/shared/portfolio/types";
 import { issueMoneyAction } from "./issue";
-import { readAuthorizedMoneyActionSession } from "./session";
-type SessionAuthorizer = (request: Request) => Promise<Response>;
+import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 
 export function createPrepareSendMoneyActionHandler(dependencies: {
   authorize: SessionAuthorizer;
@@ -17,10 +16,9 @@ export function createPrepareSendMoneyActionHandler(dependencies: {
   now?: () => Date;
 }) {
   return async function POST(request: Request): Promise<Response> {
-    const boundary = await dependencies.authorize(request);
-    if (!boundary.ok) return boundary;
-    const session = await readAuthorizedMoneyActionSession(request, boundary);
-    if (!session?.smartAccount) {
+    const session = await authorizeSession(request, dependencies.authorize);
+    if (session instanceof Response) return session;
+    if (!session.smartAccount) {
       return privateError("SMART_ACCOUNT_UNAVAILABLE", "A verified Base account is required.", 503);
     }
     const body = await readJson(request);

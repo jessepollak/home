@@ -1,12 +1,11 @@
+import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import {
-  ACCOUNT_PROVIDER_HEADER,
-  type AccountProvider,
-} from "@/shared/account/session-types";
+  authorizeSession,
+  type SessionAuthorizer,
+} from "@/server/auth/authorize";
 import { ChainDataError } from "@/server/chain-data/errors";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import type { ActivityReader } from "./types";
-
-export type SessionAuthorizer = (request: Request) => Promise<Response>;
 
 type ActivityReadObservation = Extract<
   ObservabilityEvent,
@@ -35,8 +34,8 @@ export function createActivityHandler(dependencies: {
 
   return async function GET(request: Request): Promise<Response> {
     const requestStartedAt = clock();
-    const boundaryResponse = await dependencies.authorize(request);
-    if (!boundaryResponse.ok) {
+    const session = await authorizeSession(request, dependencies.authorize);
+    if (session instanceof Response) {
       emitActivityObservation(
         observe,
         finalObservation({
@@ -47,29 +46,7 @@ export function createActivityHandler(dependencies: {
           finishedAt: clock(),
         }),
       );
-      return boundaryResponse;
-    }
-
-    const session = await parseAuthorizedSession(
-      boundaryResponse,
-      readRequestedProvider(request),
-    );
-    if (!session) {
-      emitActivityObservation(
-        observe,
-        finalObservation({
-          outcome: "rejected",
-          reason: "authorization",
-          source: "none",
-          requestStartedAt,
-          finishedAt: clock(),
-        }),
-      );
-      return privateError(
-        "AUTH_UNAVAILABLE",
-        "Authentication is temporarily unavailable.",
-        503,
-      );
+      return session;
     }
     if (!session.smartAccount) {
       emitActivityObservation(
@@ -245,64 +222,6 @@ function parseActivityRequest(
   return { to, cursor };
 }
 
-async function parseAuthorizedSession(
-  response: Response,
-  expectedProvider: AccountProvider | null,
-): Promise<{
-  smartAccount: { address: `0x${string}`; chainId: 8453 } | null;
-  subject: string;
-  accountProvider: AccountProvider;
-} | null> {
-  let value: unknown;
-  try {
-    value = await response.json();
-  } catch {
-    return null;
-  }
-  if (
-    !isRecord(value) ||
-    !isRecord(value.user) ||
-    typeof value.user.subject !== "string" ||
-    value.user.subject.trim().length === 0 ||
-    !expectedProvider ||
-    value.accountProvider !== expectedProvider
-  ) {
-    return null;
-  }
-  if (value.smartAccount === null) {
-    return {
-      smartAccount: null,
-      subject: value.user.subject,
-      accountProvider: expectedProvider,
-    };
-  }
-  if (!isRecord(value.smartAccount)) return null;
-  const { address, chainId } = value.smartAccount;
-  if (
-    typeof address !== "string" ||
-    !/^0x[0-9a-fA-F]{40}$/.test(address) ||
-    chainId !== 8453
-  ) {
-    return null;
-  }
-  return {
-    smartAccount: {
-      address: address.toLowerCase() as `0x${string}`,
-      chainId: 8453,
-    },
-    subject: value.user.subject,
-    accountProvider: expectedProvider,
-  };
-}
-
-function readRequestedProvider(request: Request): AccountProvider | null {
-  const requested = request.headers.get(ACCOUNT_PROVIDER_HEADER);
-  if (requested === null || requested === "cdp-embedded") {
-    return "cdp-embedded";
-  }
-  return requested === "base-account" ? "base-account" : null;
-}
-
 function activityReadError(error: unknown): Response {
   if (error instanceof ChainDataError) {
     switch (error.code) {
@@ -371,8 +290,4 @@ function privateError(code: string, message: string, status: number): Response {
 
 function privateJson(body: unknown, status: number): Response {
   return Response.json(body, { status, headers: privateResponseHeaders });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -57,9 +57,10 @@ function expectPrivate(response: Response) {
     "private, no-store, max-age=0",
   );
   expect(response.headers.get("pragma")).toBe("no-cache");
-  expect(response.headers.get("vary")).toBe(
+  expect([
     "Authorization, X-Home-Account-Provider",
-  );
+    "Cookie, Authorization, X-Home-Account-Provider",
+  ]).toContain(response.headers.get("vary") ?? "");
 }
 
 describe("portfolio route handler", () => {

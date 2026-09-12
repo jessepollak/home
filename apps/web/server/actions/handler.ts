@@ -1,7 +1,8 @@
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
+import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { createTransferReceiptReader, type TransferReceiptStatus } from "./receipt";
-import { readAuthorizedMoneyActionSession, moneyActionOwner } from "@/server/money-actions/session";
+import { moneyActionOwner } from "@/server/money-actions/session";
 import { getActionsStore, type ActionRow, type ActionsStore, type PendingAction } from "./store";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
@@ -9,7 +10,7 @@ import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
 import { emitServerEvent } from "@/server/observability/log";
 
-export type ActionAuthorizer = (request: Request) => Promise<Response>;
+export type ActionAuthorizer = SessionAuthorizer;
 
 const privateHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
@@ -20,10 +21,9 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 
 async function authorizeOwner(request: Request, authorize: ActionAuthorizer): Promise<MoneyActionOwner | Response> {
-  const boundary = await authorize(request);
-  if (!boundary.ok) return boundary;
-  const session = await readAuthorizedMoneyActionSession(request, boundary);
-  const owner = session && moneyActionOwner(session);
+  const boundary = await authorizeSession(request, authorize);
+  if (boundary instanceof Response) return boundary;
+  const owner = moneyActionOwner(boundary);
   return owner ?? privateError("AUTH_UNAVAILABLE", "Authentication is temporarily unavailable.", 503);
 }
 

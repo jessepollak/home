@@ -4,7 +4,7 @@ import type { BorrowPreviewRequest } from "@/shared/borrowing/types";
 import type { SavingsActionInput } from "@/server/savings/types";
 import type { TransferRequest } from "@/shared/transfers/types";
 import { isActionKind, type ActionKind } from "@/shared/money-actions/types";
-import { readAuthorizedMoneyActionSession } from "@/server/money-actions/session";
+import { authorizeSession } from "@/server/auth/authorize";
 import { issueSendMoneyAction } from "@/server/money-actions/prepare-send";
 import { issueMoneyAction } from "@/server/money-actions/issue";
 import { prepareSavingsAction, SavingsActionError } from "@/server/savings/prepare";
@@ -23,10 +23,9 @@ export function createPrepareActionHandler(dependencies: {
   prepareSavings?: typeof prepareSavingsAction;
 }) {
   return async function POST(request: Request): Promise<Response> {
-    const boundary = await dependencies.authorize(request);
-    if (!boundary.ok) return boundary;
-    const session = await readAuthorizedMoneyActionSession(request, boundary);
-    if (!session?.smartAccount) return privateError("AUTH_UNAVAILABLE", "A verified Base account is required.", 503);
+    const session = await authorizeSession(request, dependencies.authorize);
+    if (session instanceof Response) return session;
+    if (!session.smartAccount) return privateError("AUTH_UNAVAILABLE", "A verified Base account is required.", 503);
     const body = await readJson(request);
     if (!isRecord(body) || !isActionKind(body.kind) || !isRecord(body.params)) {
       return privateError("INVALID_ACTION", "A valid action kind and parameters are required.", 400);
