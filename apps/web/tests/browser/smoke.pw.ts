@@ -1251,9 +1251,9 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
   await page.getByRole("button", { name: "Confirm deposit", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Review payment details" })).toBeVisible();
   await expect(page.getByText("Network: Rp\u00A0100,00")).toBeVisible();
-  await expect(page.getByText("123456789012")).not.toBeVisible();
+  await expect(page.getByText("123456789012", { exact: true })).not.toBeVisible();
   await page.getByRole("button", { name: "View payment instructions" }).click();
   await expect(page.getByText("Deposit pending")).toBeVisible();
-  await expect(page.getByText("123456789012")).toBeVisible();
+  await expect(page.getByText("123456789012", { exact: true })).toBeVisible();
   await expect(page.getByText("Money received")).toBeVisible({ timeout: 7_000 });
 });

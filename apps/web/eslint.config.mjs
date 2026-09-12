@@ -21,9 +21,6 @@ const nodeBuiltins = "assert|async_hooks|buffer|child_process|cluster|crypto|dgr
 // as files adopt @home/ui; do not add new files to make a lint failure pass.
 const rawButtonAllowlist = [
   "client/activity/activity-panel.tsx",
-  "client/funding/add-money-dialog.tsx",
-  "client/funding/funding-actions.tsx",
-  "client/funding/order-flow.tsx",
   "client/home/home-panel.tsx",
   "client/home/shell-chrome.tsx",
   "client/home/shell-panels.tsx",
@@ -47,14 +44,11 @@ const rawButtonAllowlist = [
 
 const rawFieldAllowlist = [
   "client/account/account-screen.tsx",
-  "client/funding/add-money-dialog.tsx",
   "client/money-modal/amount.tsx",
 ];
 
 const rawHeadingAllowlist = [
   "client/activity/activity-panel.tsx",
-  "client/funding/add-money-dialog.tsx",
-  "client/funding/order-flow.tsx",
   "client/home/home-panel.tsx",
   "client/home/shell-chrome.tsx",
   "client/invest/asset-detail-screen.tsx",
@@ -64,7 +58,6 @@ const rawHeadingAllowlist = [
   "client/actions/recent-operations.tsx",
   "client/actions/review.tsx",
   "client/money-modal/money-modal.tsx",
-  "client/savings/savings-experience.tsx",
   "client/trading/trade-actions.tsx",
 ];
 
