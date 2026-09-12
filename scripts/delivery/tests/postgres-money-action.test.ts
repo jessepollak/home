@@ -10,6 +10,7 @@ import {
   preflightMoneyActionLegacyTableCleanup,
   type MoneyActionLegacyCleanupCounts,
   type MoneyActionLegacyCleanupEvidence,
+  type MoneyActionLegacyCleanupIdentity,
 } from "../../../apps/web/server/money-actions/legacy-table-cleanup";
 import {
   applyMoneyActionPostgresSchema,
@@ -25,10 +26,10 @@ import { createBunPostgresExecutor } from "../bun-postgres-executor";
 const databaseUrl = process.env.MONEY_ACTION_PG_TEST_URL?.trim();
 const POSTGRES_CLEANUP_TIMEOUT_SECONDS = 2;
 const POSTGRES_CLEANUP_TIMEOUT_MS = POSTGRES_CLEANUP_TIMEOUT_SECONDS * 1_000;
-const POSTGRES_FIXTURE_SCHEMA_COUNT = 24;
+const POSTGRES_FIXTURE_SCHEMA_COUNT = 28;
 const POSTGRES_FIXTURE_POOL_COUNT = 2;
 const POSTGRES_CLEANUP_SCHEDULING_MARGIN_MS = 5_000;
-// Keep the schema count aligned with createSchema call sites: 24×2s drops + 2×2s closes + 5s margin = 57s.
+// Keep the schema count aligned with createSchema call sites: 28×2s drops + 2×2s closes + 5s margin = 65s.
 const POSTGRES_AFTER_ALL_TIMEOUT_MS =
   (POSTGRES_FIXTURE_SCHEMA_COUNT + POSTGRES_FIXTURE_POOL_COUNT) * POSTGRES_CLEANUP_TIMEOUT_MS
   + POSTGRES_CLEANUP_SCHEDULING_MARGIN_MS;
@@ -183,10 +184,29 @@ if (!databaseUrl) {
       expect(result.rows[1]?.indexdef).toContain("lower(user_operation_hash)");
     });
 
-    test("reviewed cleanup drops only legacy tables and preserves operation rows and index definitions", async () => {
-      const schema = await createSchema("legacy_cleanup");
+    test("schema apply preserves historical legacy rows before an authorized cleanup", async () => {
+      const schema = await createSchema("historical_preservation");
       const raw = executor(schema);
       const action = actionFor(109, ownerFor(109, "cdp-embedded"));
+      await applyStatements(raw, moneyActionSchemaStatements);
+      await applySqlFile(raw, "002_money_action_attempts.sql");
+      await applySqlFile(raw, "003_money_action_data_migrations.sql");
+      await insertRawOperation(raw, action);
+      await insertLegacyRows(raw, action.id);
+
+      await applyMoneyActionPostgresSchema(raw);
+      expect(await raw.query("SELECT action_id, state_json FROM money_action_attempt_states"))
+        .toMatchObject({ rows: [{ action_id: action.id, state_json: '{"historical":true}' }] });
+      expect(await raw.query("SELECT evidence_key, action_id FROM money_action_attempt_evidence"))
+        .toMatchObject({ rows: [{ evidence_key: "historical-evidence", action_id: action.id }] });
+      expect(await raw.query("SELECT migration_id FROM money_action_data_migrations"))
+        .toMatchObject({ rows: [{ migration_id: "historical-marker" }] });
+    });
+
+    test("reviewed cleanup drops only exact qualified legacy tables and preserves operation rows", async () => {
+      const schema = await createSchema("legacy_cleanup");
+      const raw = executor(schema);
+      const action = actionFor(110, ownerFor(110, "cdp-embedded"));
       await applyMoneyActionPostgresSchema(raw);
       await applySqlFile(raw, "002_money_action_attempts.sql");
       await applySqlFile(raw, "003_money_action_data_migrations.sql");
@@ -199,11 +219,12 @@ if (!databaseUrl) {
         "ALTER INDEX money_action_unique_owner_user_operation_hash RENAME TO cleanup_user_op_definition",
       );
       const operationBefore = await raw.query("SELECT * FROM money_action_operations");
-      const evidence = cleanupEvidence();
+      const evidence = await cleanupEvidence(raw, schema);
 
       const preflight = await preflightMoneyActionLegacyTableCleanup(raw, evidence);
       expect(preflight).toMatchObject({
         status: "ready",
+        identity: { databaseName: evidence.databaseName, schemaName: schema },
         counts: {
           operationRows: "1",
           attemptStateRows: "1",
@@ -211,66 +232,161 @@ if (!databaseUrl) {
           dataMigrationRows: "1",
         },
       });
-      const dropped = await dropMoneyActionLegacyTables(raw, evidence, cleanupApproval(preflight.counts));
+      const dropped = await dropMoneyActionLegacyTables(
+        raw,
+        evidence,
+        cleanupApproval(preflight.identity, preflight.counts),
+      );
 
       expect(dropped.status).toBe("dropped");
       expect(await raw.query("SELECT * FROM money_action_operations")).toEqual(operationBefore);
-      expect(await raw.query(`
-        SELECT to_regclass('money_action_attempt_states') AS states,
-               to_regclass('money_action_attempt_evidence') AS evidence,
-               to_regclass('money_action_data_migrations') AS migrations
-      `.trim())).toMatchObject({ rows: [{ states: null, evidence: null, migrations: null }] });
+      expect(await raw.query<{ tablename: string }>(`
+        SELECT tablename FROM pg_catalog.pg_tables
+        WHERE schemaname = $1 ORDER BY tablename
+      `.trim(), [schema])).toMatchObject({ rows: [{ tablename: "money_action_operations" }] });
       expect(await raw.query(`
         SELECT COUNT(*)::text AS count
-        FROM pg_index i
-        JOIN pg_class c ON c.oid = i.indrelid
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = current_schema()
-          AND c.relname = 'money_action_operations'
+        FROM pg_catalog.pg_index i
+        WHERE i.indrelid = $1::oid
           AND i.indisunique AND i.indisvalid AND i.indisready
-      `.trim())).toMatchObject({ rows: [{ count: "4" }] });
+      `.trim(), [preflight.identity.tableOids.moneyActionOperations]))
+        .toMatchObject({ rows: [{ count: "4" }] });
     });
 
-    test("legacy cleanup fails closed when a #313 evidence index definition is missing", async () => {
-      const schema = await createSchema("cleanup_missing_index");
+    test("schema-qualified cleanup ignores same-name cross-schema decoys", async () => {
+      const targetSchema = await createSchema("cleanup_target");
+      const decoySchema = await createSchema("cleanup_decoy");
+      const target = executor(targetSchema);
+      const decoy = executor(decoySchema);
+      await installLegacySchema(target);
+      await installLegacySchema(decoy);
+      const targetEvidence = await cleanupEvidence(target, targetSchema);
+      const targetPreflight = await preflightMoneyActionLegacyTableCleanup(target, targetEvidence);
+
+      await dropMoneyActionLegacyTables(
+        target,
+        targetEvidence,
+        cleanupApproval(targetPreflight.identity, targetPreflight.counts),
+      );
+
+      expect(await target.query<{ tablename: string }>(`
+        SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = $1 ORDER BY tablename
+      `.trim(), [targetSchema])).toMatchObject({ rows: [{ tablename: "money_action_operations" }] });
+      expect(await decoy.query<{ tablename: string }>(`
+        SELECT tablename FROM pg_catalog.pg_tables
+        WHERE schemaname = $1 AND tablename LIKE 'money_action_%' ORDER BY tablename
+      `.trim(), [decoySchema])).toMatchObject({
+        rows: [
+          { tablename: "money_action_attempt_evidence" },
+          { tablename: "money_action_attempt_states" },
+          { tablename: "money_action_data_migrations" },
+          { tablename: "money_action_operations" },
+        ],
+      });
+    });
+
+    test("legacy cleanup fails closed for missing index definitions and mismatched approval identity", async () => {
+      const schema = await createSchema("cleanup_prerequisites");
       const raw = executor(schema);
-      await applyMoneyActionPostgresSchema(raw);
-      await applySqlFile(raw, "002_money_action_attempts.sql");
+      await installLegacySchema(raw);
+      const evidence = await cleanupEvidence(raw, schema);
+      await raw.query("DROP TABLE money_action_data_migrations");
+      await raw.query("CREATE VIEW money_action_data_migrations AS SELECT 'decoy'::text AS migration_id");
+      await expect(preflightMoneyActionLegacyTableCleanup(raw, evidence)).rejects.toThrow(
+        "required ordinary table mismatch: money_action_data_migrations",
+      );
+      await raw.query("DROP VIEW money_action_data_migrations");
       await applySqlFile(raw, "003_money_action_data_migrations.sql");
+      const preflight = await preflightMoneyActionLegacyTableCleanup(raw, evidence);
+      await expect(dropMoneyActionLegacyTables(raw, evidence, {
+        ...cleanupApproval(preflight.identity, preflight.counts),
+        approvalReference: "",
+      })).rejects.toThrow("canonical GitHub comment URL");
       await raw.query("DROP INDEX money_action_unique_owner_user_operation_hash");
 
-      await expect(preflightMoneyActionLegacyTableCleanup(raw, cleanupEvidence())).rejects.toThrow(
+      await expect(preflightMoneyActionLegacyTableCleanup(raw, evidence)).rejects.toThrow(
         "missing required unique index definitions: user_operation_hash",
       );
-      expect(await raw.query("SELECT to_regclass('money_action_attempt_states')::text AS table_name"))
-        .toMatchObject({ rows: [{ table_name: "money_action_attempt_states" }] });
+      await raw.query(`CREATE UNIQUE INDEX money_action_unique_owner_user_operation_hash
+        ON money_action_operations (subject, address, chain_id, account_provider, LOWER(user_operation_hash))
+        WHERE user_operation_hash IS NOT NULL`);
+      await expect(dropMoneyActionLegacyTables(raw, evidence, {
+        ...cleanupApproval(preflight.identity, preflight.counts),
+        expectedIdentity: { ...preflight.identity, schemaOid: String(Number(preflight.identity.schemaOid) + 1) },
+      })).rejects.toThrow("identity changed since reviewed preflight");
+      expect(await raw.query<{ count: string }>(`
+        SELECT COUNT(*)::text AS count FROM pg_catalog.pg_tables
+        WHERE schemaname = $1 AND tablename LIKE 'money_action_%'
+      `.trim(), [schema])).toMatchObject({ rows: [{ count: "4" }] });
     });
 
-    test("a mid-drop dependency failure rolls the entire legacy cleanup transaction back", async () => {
+    test("concurrent mutation blocks DROP and committed count drift rejects the old approval", async () => {
+      const schema = await createSchema("cleanup_concurrency");
+      const raw = executor(schema);
+      await installLegacySchema(raw);
+      const evidence = await cleanupEvidence(raw, schema);
+      const preflight = await preflightMoneyActionLegacyTableCleanup(raw, evidence);
+      const approval = cleanupApproval(preflight.identity, preflight.counts);
+      const blockerClient = new Bun.SQL(databaseUrl);
+      const blocker = createBunPostgresExecutor(blockerClient, schema);
+      let release!: () => void;
+      let notifyLocked!: () => void;
+      const lockAcquired = new Promise<void>((resolveLocked) => { notifyLocked = resolveLocked; });
+      const hold = new Promise<void>((resolveRelease) => { release = resolveRelease; });
+      const mutation = blocker.transaction(async (transaction) => {
+        await transaction.query(
+          "INSERT INTO money_action_data_migrations (migration_id) VALUES ($1)",
+          ["concurrent-marker"],
+        );
+        notifyLocked();
+        await hold;
+      });
+      await lockAcquired;
+      try {
+        await expect(dropMoneyActionLegacyTables(raw, evidence, approval)).rejects.toThrow();
+      } finally {
+        release();
+        await mutation;
+        await blockerClient.close({ timeout: POSTGRES_CLEANUP_TIMEOUT_SECONDS });
+      }
+
+      await expect(dropMoneyActionLegacyTables(raw, evidence, approval)).rejects.toThrow(
+        "counts changed since reviewed preflight: dataMigrationRows",
+      );
+      expect(await raw.query("SELECT migration_id FROM money_action_data_migrations"))
+        .toMatchObject({ rows: [{ migration_id: "concurrent-marker" }] });
+      expect(await raw.query<{ count: string }>(`
+        SELECT COUNT(*)::text AS count FROM pg_catalog.pg_tables
+        WHERE schemaname = $1 AND tablename LIKE 'money_action_%'
+      `.trim(), [schema])).toMatchObject({ rows: [{ count: "4" }] });
+    }, 10_000);
+
+    test("a mid-drop dependency failure rolls the entire qualified cleanup transaction back", async () => {
       const schema = await createSchema("cleanup_rollback");
       const raw = executor(schema);
-      const action = actionFor(110, ownerFor(110, "base-account"));
-      await applyMoneyActionPostgresSchema(raw);
-      await applySqlFile(raw, "002_money_action_attempts.sql");
-      await applySqlFile(raw, "003_money_action_data_migrations.sql");
+      const action = actionFor(111, ownerFor(111, "base-account"));
+      await installLegacySchema(raw);
       await insertRawOperation(raw, action);
       await insertLegacyRows(raw, action.id);
       await raw.query("CREATE VIEW retained_cleanup_dependency AS SELECT action_id FROM money_action_attempt_states");
-      const preflight = await preflightMoneyActionLegacyTableCleanup(raw, cleanupEvidence());
+      const evidence = await cleanupEvidence(raw, schema);
+      const preflight = await preflightMoneyActionLegacyTableCleanup(raw, evidence);
 
-      await expect(
-        dropMoneyActionLegacyTables(raw, cleanupEvidence(), cleanupApproval(preflight.counts)),
-      ).rejects.toThrow();
-      expect(await raw.query(`
-        SELECT to_regclass('money_action_attempt_states')::text AS states,
-               to_regclass('money_action_attempt_evidence')::text AS evidence,
-               to_regclass('money_action_data_migrations')::text AS migrations
-      `.trim())).toMatchObject({
-        rows: [{
-          states: "money_action_attempt_states",
-          evidence: "money_action_attempt_evidence",
-          migrations: "money_action_data_migrations",
-        }],
+      await expect(dropMoneyActionLegacyTables(
+        raw,
+        evidence,
+        cleanupApproval(preflight.identity, preflight.counts),
+      )).rejects.toThrow();
+      expect(await raw.query<{ tablename: string }>(`
+        SELECT tablename FROM pg_catalog.pg_tables
+        WHERE schemaname = $1 AND tablename LIKE 'money_action_%' ORDER BY tablename
+      `.trim(), [schema])).toMatchObject({
+        rows: [
+          { tablename: "money_action_attempt_evidence" },
+          { tablename: "money_action_attempt_states" },
+          { tablename: "money_action_data_migrations" },
+          { tablename: "money_action_operations" },
+        ],
       });
       expect(await raw.query("SELECT evidence_key FROM money_action_attempt_evidence"))
         .toMatchObject({ rows: [{ evidence_key: "historical-evidence" }] });
@@ -310,10 +426,19 @@ type EvidenceRaceReference =
   | Readonly<{ submissionId: string; userOperationHash?: never }>
   | Readonly<{ submissionId?: never; userOperationHash: `0x${string}` }>;
 
-function cleanupEvidence(): MoneyActionLegacyCleanupEvidence {
+async function cleanupEvidence(
+  raw: SqlExecutor,
+  schemaName: string,
+): Promise<MoneyActionLegacyCleanupEvidence> {
+  const database = await raw.query<{ database_name: string }>(
+    "SELECT pg_catalog.current_database() AS database_name",
+  );
+  if (!database.rows[0]) throw new Error("cleanup fixture database identity is unavailable");
   return {
+    databaseName: database.rows[0].database_name,
+    schemaName,
     deploymentRevision: "315b9e43204de64303586231bf58e3b508949abf",
-    deploymentReference: "https://github.com/jessepollak/home/issues/314#issuecomment-314001",
+    deploymentReference: "https://api.github.com/repos/jessepollak/home/issues/comments/314001",
     deployedAt: "2026-09-12T05:00:00.000Z",
     observedThrough: "2026-09-12T06:00:00.000Z",
     legacyReadCount: 0,
@@ -322,13 +447,23 @@ function cleanupEvidence(): MoneyActionLegacyCleanupEvidence {
   };
 }
 
-function cleanupApproval(expectedCounts: MoneyActionLegacyCleanupCounts) {
+function cleanupApproval(
+  expectedIdentity: MoneyActionLegacyCleanupIdentity,
+  expectedCounts: MoneyActionLegacyCleanupCounts,
+) {
   return {
-    approvalReference: "https://github.com/jessepollak/home/issues/314#issuecomment-314002",
-    backupReference: "https://github.com/jessepollak/home/issues/314#issuecomment-314003",
+    approvalReference: "https://api.github.com/repos/jessepollak/home/issues/comments/314002",
+    backupReference: "https://api.github.com/repos/jessepollak/home/issues/comments/314003",
     confirmation: MONEY_ACTION_LEGACY_DROP_CONFIRMATION,
+    expectedIdentity,
     expectedCounts,
   } as const;
+}
+
+async function installLegacySchema(raw: SqlExecutor): Promise<void> {
+  await applyMoneyActionPostgresSchema(raw);
+  await applySqlFile(raw, "002_money_action_attempts.sql");
+  await applySqlFile(raw, "003_money_action_data_migrations.sql");
 }
 
 async function insertLegacyRows(raw: SqlExecutor, actionId: string): Promise<void> {

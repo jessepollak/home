@@ -132,36 +132,39 @@ Schema application uses a 5-second lock timeout and a 60-second statement timeou
 
 ### Operator-only legacy table cleanup
 
-Migration 005 is intentionally excluded from schema readiness and `money-actions:migrate`. Do not run it merely because it exists. After the #313 single-row runtime is merged and deployed, attach immutable deployment evidence to #314 showing the exact revision, observation window, and zero legacy reads/writes. Then run the non-destructive preflight against the intended database:
+Migration 005 is intentionally excluded from schema readiness and `money-actions:migrate`. Do not run it merely because it exists. After the #313 single-row runtime is merged and deployed, attach immutable deployment evidence to #314 showing the exact revision, observation window, reviewed database/schema names, and zero legacy reads/writes. Inject `DATABASE_URL` into the process environment through the operator's secret manager; never paste, echo, or store database credentials in the shell command, issue, screenshot, or evidence URL. With that secret already injected, run the non-destructive preflight:
 
 ```sh
-DATABASE_URL='postgresql://…' bun run money-actions:cleanup-legacy \
-  --mode=preflight \
+bun run money-actions:cleanup-legacy \
+  --mode=preflight --database-name='<reviewed database>' --schema-name='<reviewed schema>' \
   --deployed-revision='<40-character deployed revision>' \
-  --deployment-evidence='https://github.com/jessepollak/home/issues/314#issuecomment-…' \
+  --deployment-evidence='https://api.github.com/repos/jessepollak/home/issues/comments/<id>' \
   --deployed-at='<UTC ISO-8601>' --observed-through='<UTC ISO-8601>' \
   --legacy-read-count=0 --legacy-write-count=0 \
   --runtime-contract=money_action_operations-only-v1
 ```
 
-The output contains only evidence metadata and aggregate counts. Review and retain it with the database-backup reference. **Only after Jesse separately approves that exact operator action**, rerun with the same evidence, the approval comment, the exact confirmation, and all four preflight counts:
+The output contains only sanitized evidence metadata, catalog database/schema/table OIDs, and aggregate counts. Review and retain it with the database-backup reference. **Only after Jesse separately approves that exact database, schema, identity, counts, and operator action**, rerun with the same evidence, the approval comment, the exact confirmation, and every identity/count field copied from preflight:
 
 ```sh
-DATABASE_URL='postgresql://…' bun run money-actions:cleanup-legacy \
-  --mode=drop \
+bun run money-actions:cleanup-legacy \
+  --mode=drop --database-name='<same database>' --schema-name='<same schema>' \
   --deployed-revision='<same revision>' \
-  --deployment-evidence='https://github.com/jessepollak/home/issues/314#issuecomment-…' \
+  --deployment-evidence='https://api.github.com/repos/jessepollak/home/issues/comments/<id>' \
   --deployed-at='<same timestamp>' --observed-through='<same timestamp>' \
   --legacy-read-count=0 --legacy-write-count=0 \
   --runtime-contract=money_action_operations-only-v1 \
-  --jesse-approval='https://github.com/jessepollak/home/issues/314#issuecomment-…' \
-  --backup-evidence='https://github.com/jessepollak/home/issues/314#issuecomment-…' \
+  --jesse-approval='https://api.github.com/repos/jessepollak/home/issues/comments/<id>' \
+  --backup-evidence='https://api.github.com/repos/jessepollak/home/issues/comments/<id>' \
   --confirm=DROP_LEGACY_MONEY_ACTION_TABLES_ISSUE_314 \
+  --expect-database-oid='<oid>' --expect-schema-oid='<oid>' \
+  --expect-operation-table-oid='<oid>' --expect-attempt-state-table-oid='<oid>' \
+  --expect-attempt-evidence-table-oid='<oid>' --expect-data-migration-table-oid='<oid>' \
   --expect-operation-rows='<count>' --expect-attempt-state-rows='<count>' \
   --expect-attempt-evidence-rows='<count>' --expect-data-migration-rows='<count>'
 ```
 
-The drop is one bounded transaction without `IF EXISTS`, `CASCADE`, or deduplication. Changed counts, missing tables, schema drift, invalid/missing index definitions, lock contention, dependencies, or failed verification roll it back. After commit, rollback requires restoring the approved database backup and matching old application; the repository cannot reconstruct deleted legacy rows.
+The driver clears `search_path` to `pg_catalog`, resolves and locks only the exact schema-qualified operation table and three drop targets, validates each target as an ordinary table, and rechecks locked catalog identity plus counts immediately before `DROP`. The drop is one bounded transaction without `IF EXISTS`, `CASCADE`, unqualified names, or deduplication. Identity/count drift, cross-schema decoys, missing tables, schema/index drift, lock contention, dependencies, or failed verification roll it back. CLI failures are bounded reason codes and never include arbitrary provider text. After commit, rollback requires restoring the approved database backup and matching old application; the repository cannot reconstruct deleted legacy rows.
 
 The table stores action plans, immutable review hashes, owner tuples, statuses, admission release timestamps, and public chain/provider refs. It stores no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
 
