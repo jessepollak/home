@@ -27,7 +27,7 @@ Nothing is live today. The database is disposable. We choose the smallest thing 
 
 ## Data model
 
-Neon Postgres stays. Ours is two tables; funding's tables are unchanged. One shared executor `server/db/sql.ts` serves both (funding's `ripio-store.ts` currently imports `SqlExecutor` from `money-actions/postgres-sql.ts`; the executor lands first).
+Neon Postgres stays. Deliberate durable state is `actions`, funding's provider tables, and `schema_migrations`, which exists only to make the single `bun run db:migrate` command idempotent. One shared executor `server/db/sql.ts` serves both. Native Base SIWE challenges are stateless: the signed HttpOnly challenge cookie carries the address, origin, message hash, nonce, issue time, and five-minute expiry, so authentication creates no database row.
 
 ```sql
 create table actions (
@@ -45,12 +45,6 @@ create table actions (
 );
 create index actions_owner_recent on actions (owner_key, confirmed_at desc) where confirmed_at is not null;
 
-create table user_settings (
-  owner_key        text primary key,
-  country          text,
-  display_currency text,
-  updated_at       timestamptz not null default now()
-);
 ```
 
 - No `status` column and no `plan_hash` (the server never observes the dispatch, so a hash enforces nothing). Status is derived at read time:

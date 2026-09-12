@@ -17,7 +17,7 @@ The seam contract is [`apps/web/shared/funding/provider-contract.ts`](../../apps
 The local sign-in and database commands in steps 2–3 land with #288/#289; until those merge, use an isolated operator database and the existing verified account flow. Never infer that candidate code is deployed.
 
 1. **Clone and install.** Clone Home and run `bun install --frozen-lockfile`. Start from [Get started](../../README.md#get-started); keep credentials in gitignored `apps/web/.env.local`.
-2. **Start local Postgres and Home.** Apply `apps/web/server/db/migrations/001_actions.sql` and `002_user_settings.sql`, run `bun run funding:migrate`, then `bun dev`. #289 supplies local-only database commands; never substitute a shared or production database.
+2. **Start local Postgres and Home.** Run `bun run db:migrate`, then `bun dev`. #289 supplies local-only database commands; never substitute a shared or production database.
 3. **Sign in locally.** Use the native Base Account session from #288. The verified server session, not a browser address, region, or provider customer ID, supplies the destination address.
 4. **Copy and register a reference adapter.** Copy `apps/web/server/funding/providers/idrx/` (polling) or `providers/ripio/` (quotes, KYC, webhooks) to `providers/<your-provider>/`, then register it in `providers/index.ts`. The checked-in manifest, asset registry, and adapter types delivered by #301 are authoritative.
 5. **Configure declared credentials only.** Put `FUNDING_QUOTE_SECRET` and only the adapter manifest’s variables in `.env.local`; never commit them or use `NEXT_PUBLIC_`. Configuration makes a binding appear in `GET /api/funding/providers?region=`, but grants neither production nor funded-test authority.
