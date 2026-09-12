@@ -1759,7 +1759,7 @@ describe("login-state home experience", () => {
       within(page().getByRole("main")).getByRole("button", { name: "Sign in" }),
     );
     fireEvent.click(
-      await page().findByRole("button", { name: "Continue with Base Account" }),
+      await page().findByRole("button", { name: "Sign in with Base Account" }),
     );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
