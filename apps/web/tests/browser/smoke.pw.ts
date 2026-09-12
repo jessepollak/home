@@ -64,6 +64,32 @@ function valuation() {
   };
 }
 
+function scrollableValuation() {
+  const base = valuation();
+  const extras = Array.from({ length: 24 }, (_, index) => ({
+    kind: "direct" as const,
+    id: `zero-holding-${index}`,
+    assetKey: `eip155:8453/erc20:0x${index
+      .toString(16)
+      .padStart(40, "0")}`,
+    name: `Zero holding ${index}`,
+    symbol: `Z${index}`,
+    decimals: 18,
+    assetKind: "erc20" as const,
+    contractAddress: null,
+    cashCurrency: null,
+    balanceBaseUnits: "1",
+    readStatus: "ready" as const,
+  }));
+  return {
+    ...base,
+    inventory: {
+      ...base.inventory,
+      holdings: [...base.inventory.holdings, ...extras],
+    },
+  };
+}
+
 async function json(route: Route, body: unknown) {
   await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 }
@@ -262,4 +288,60 @@ test("money amount recomputes for text scaling", async ({ page }) => {
   });
   await expect.poll(async () => (await amountMetrics(page))?.fontSize).toBeGreaterThan((before?.fontSize ?? 0) + 5);
   await expect(amount).toHaveText("$5");
+});
+
+test("Balances detail clears forward scroll and restores it on browser Back", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await page.route(
+    (url) => url.pathname === "/api/portfolio/valuation",
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(scrollableValuation()),
+      });
+    },
+  );
+  await page.setViewportSize({ width: 390, height: 440 });
+  await signIn(page);
+
+  await page.getByRole("button", { name: "Balances" }).click();
+  await expect(page.getByRole("heading", { name: "Balances" })).toBeVisible();
+
+  const target = await page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>(".app-main-authenticated");
+    if (!main) return 0;
+    const max = main.scrollHeight - main.clientHeight;
+    const next = Math.min(120, max);
+    main.scrollTop = next;
+    main.dispatchEvent(new Event("scroll", { bubbles: true }));
+    return next;
+  });
+  expect(target).toBeGreaterThan(0);
+
+  await page.getByRole("button", { name: "Invest" }).click();
+  await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
+  await expect(page).toHaveURL(/[?&]panel=invest/);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (document.querySelector<HTMLElement>(".app-main-authenticated")
+            ?.scrollTop ?? 0),
+      ),
+    )
+    .toBe(0);
+
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "Balances" })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (document.querySelector<HTMLElement>(".app-main-authenticated")
+            ?.scrollTop ?? 0),
+      ),
+    )
+    .toBe(target);
 });

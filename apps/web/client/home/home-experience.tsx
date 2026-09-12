@@ -199,6 +199,13 @@ function HomeExperienceView({
   const [activeNavigation, setActiveNavigation] =
     useState<ShellPanelId>(initialPanel);
   const [navigationRequest, setNavigationRequest] = useState(0);
+  const [balancesForwardEntry, setBalancesForwardEntry] = useState(0);
+  const [forwardRequest, setForwardRequest] = useState(0);
+  // Tracks whether the panel change that just happened was a history pop
+  // (browser/app Back) or an explicit forward push. Saved scroll offsets are
+  // only restored for pops; forward entries start fresh. The ref is written
+  // from effects and the popstate listener, never during render.
+  const navigationIntentRef = useRef<"push" | "pop">("push");
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
   const lastBalanceCacheWriteRef = useRef<{
@@ -214,13 +221,38 @@ function HomeExperienceView({
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
   const panelScrollRef = useRef<
-    Partial<Record<ShellPanelId | "account", number>>
+    Partial<
+      Record<
+        ShellPanelId | "account",
+        { top: number; identity: string | null }
+      >
+    >
   >({});
   const shellPath = routeMode === "landing" ? "/" : "/dashboard";
   const investChrome = useOptionalAppChrome();
   const panelKey: ShellPanelId | "account" = isAccountSettingsOpen
     ? "account"
     : activeNavigation;
+  // Ephemeral identity for the current owner/provider/region. It fences any
+  // saved scroll offset so a different account or presentation scope never
+  // restores someone else's position. The Balances panel additionally fences
+  // by the current list identity below. No raw account or private data is stored.
+  const scrollContextId =
+    account.ownerKey && account.session?.user.subject
+      ? [
+          account.ownerKey,
+          account.session.accountProvider,
+          account.session.user.subject,
+          account.session.smartAccount?.address.toLowerCase() ?? "none",
+          regionId,
+        ].join("\u0000")
+      : null;
+  const previousScrollContextRef = useRef(scrollContextId);
+  useEffect(() => {
+    if (previousScrollContextRef.current === scrollContextId) return;
+    previousScrollContextRef.current = scrollContextId;
+    panelScrollRef.current = {};
+  }, [scrollContextId]);
 
   const closeAccount = useCallback(() => {
     setIsAccountOpen(false);
@@ -233,6 +265,7 @@ function HomeExperienceView({
 
   useEffect(() => {
     const onPopState = () => {
+      navigationIntentRef.current = "pop";
       const location = parseShellLocation(
         new URLSearchParams(window.location.search),
       );
@@ -244,6 +277,11 @@ function HomeExperienceView({
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    if (forwardRequest === 0) return;
+    navigationIntentRef.current = "push";
+  }, [forwardRequest]);
 
   useEffect(() => {
     const persistedCountry = readAnonymousCountryPreference(
@@ -262,23 +300,6 @@ function HomeExperienceView({
 
     return () => window.cancelAnimationFrame(hydrationFrame);
   }, [detectedCountry, onRegionChange]);
-
-  useEffect(() => {
-    if (navigationRequest === 0) return;
-
-    const panelStage = panelStageRef.current;
-    if (!panelStage) return;
-
-    panelStage.focus({ preventScroll: true });
-    const preservedTop = panelScrollRef.current[panelKey] ?? 0;
-    const reducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
-    mainRef.current?.scrollTo({
-      top: preservedTop,
-      behavior: reducedMotion || preservedTop > 0 ? "auto" : "smooth",
-    });
-  }, [panelKey, navigationRequest]);
 
   const region = presentationRegions[regionId];
   const regionStyle: RegionStyle = {
@@ -305,14 +326,56 @@ function HomeExperienceView({
   const balancesOwnerKey = account.ownerKey;
   const balancesSubject = account.session?.user.subject ?? null;
   const balancesSmartAccount = account.session?.smartAccount?.address ?? null;
-  const balancesScope =
-    balancesOwnerKey && balancesSubject && balancesSmartAccount
-      ? `${balancesOwnerKey}\u0000${balancesSubject}\u0000${balancesSmartAccount.toLowerCase()}\u0000${regionId}`
-      : null;
+  const balancesProvider = account.session?.accountProvider ?? null;
+  const balancesScope = homeBalancesRestoreScope({
+    ownerKey: balancesOwnerKey,
+    provider: balancesProvider,
+    subject: balancesSubject,
+    smartAccount: balancesSmartAccount,
+    region: regionId,
+  });
   const balancesReveal = useBalancesRevealWindow(
     balancesScope,
     paintedAssetBalances.items,
+    balancesForwardEntry,
   );
+  const balancesListId = balancesListKey(paintedAssetBalances.items);
+  const panelScrollIdentity =
+    panelKey === balancesPanelId && scrollContextId
+      ? `${scrollContextId}\u0000${balancesListId}`
+      : scrollContextId;
+  const previousBalancesListIdRef = useRef(balancesListId);
+  useEffect(() => {
+    if (previousBalancesListIdRef.current === balancesListId) return;
+    previousBalancesListIdRef.current = balancesListId;
+    delete panelScrollRef.current[balancesPanelId];
+  }, [balancesListId]);
+
+  useEffect(() => {
+    if (navigationRequest === 0) return;
+
+    const panelStage = panelStageRef.current;
+    if (!panelStage) return;
+
+    panelStage.focus({ preventScroll: true });
+    const saved = panelScrollRef.current[panelKey];
+    const shouldRestore = navigationIntentRef.current === "pop";
+    const preservedTop =
+      shouldRestore && saved?.identity === panelScrollIdentity
+        ? saved.top
+        : 0;
+    if (!shouldRestore) {
+      panelScrollRef.current[panelKey] = undefined;
+    }
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    mainRef.current?.scrollTo({
+      top: clampHomeScrollTop(mainRef.current, preservedTop),
+      behavior: reducedMotion || preservedTop > 0 ? "auto" : "smooth",
+    });
+  }, [panelKey, panelScrollIdentity, navigationRequest]);
+
   const activitySession: VerifiedAccountSession | null =
     isVerified && account.session?.smartAccount ? account.session : null;
   const fetchAccountResource = account.fetchAccountResource;
@@ -398,6 +461,12 @@ function HomeExperienceView({
       activeNavigation === nextNavigation && !isAccountSettingsOpen;
     setIsAccountSettingsOpen(false);
     setSettingsOpenedInApp(false);
+    if (!skipHistory) {
+      setForwardRequest((request) => request + 1);
+      if (nextNavigation === balancesPanelId) {
+        setBalancesForwardEntry((entry) => entry + 1);
+      }
+    }
     setActiveNavigation(nextNavigation);
     setNavigationRequest((request) => request + 1);
     if (skipHistory) return;
@@ -407,6 +476,7 @@ function HomeExperienceView({
   }
 
   function openAccountSettings() {
+    setForwardRequest((request) => request + 1);
     setIsAccountSettingsOpen(true);
     setSettingsOpenedInApp(true);
     const current = parseShellLocation(
@@ -445,6 +515,7 @@ function HomeExperienceView({
       router.back();
       return;
     }
+    setForwardRequest((request) => request + 1);
     const current = parseShellLocation(
       new URLSearchParams(window.location.search),
     );
@@ -460,6 +531,7 @@ function HomeExperienceView({
 
   function signOut() {
     setIsAccountSettingsOpen(false);
+    setForwardRequest((request) => request + 1);
     if (routeMode === "dashboard") {
       explicitLogoutRef.current = true;
       router.replace("/", { scroll: false });
@@ -537,7 +609,10 @@ function HomeExperienceView({
             ref={mainRef}
             className="app-main app-main-authenticated"
             onScroll={(event) => {
-              panelScrollRef.current[panelKey] = event.currentTarget.scrollTop;
+              panelScrollRef.current[panelKey] = {
+                top: event.currentTarget.scrollTop,
+                identity: panelScrollIdentity,
+              };
             }}
           >
             {isUnavailable ? (
@@ -680,6 +755,17 @@ function HomeExperienceView({
       />
     </div>
   );
+}
+
+export function clampHomeScrollTop(
+  main: HTMLElement | null,
+  top: number,
+): number {
+  if (!main || top <= 0) return Math.max(0, top);
+  const maxTop = Math.max(0, main.scrollHeight - main.clientHeight);
+  // When the environment cannot measure a scrollable range (maxTop is zero),
+  // defer to the browser's native clamp rather than forcing the offset to zero.
+  return maxTop > 0 ? Math.min(top, maxTop) : top;
 }
 
 function HeaderAccountAction({
@@ -1204,8 +1290,21 @@ const BALANCES_BATCH_SIZE = 10;
 
 type BalancesRevealWindow = {
   key: string;
+  resetSignal: number;
   count: number;
 };
+
+export function homeBalancesRestoreScope(input: {
+  ownerKey: string | null;
+  provider: string | null;
+  subject: string | null;
+  smartAccount: string | null;
+  region: RegionId;
+}): string | null {
+  const { ownerKey, provider, subject, smartAccount, region } = input;
+  if (!ownerKey || !provider || !subject || !smartAccount) return null;
+  return `${ownerKey}\u0000${provider}\u0000${subject}\u0000${smartAccount.toLowerCase()}\u0000${region}`;
+}
 
 function balancesListKey(items: readonly HomeAssetBalanceItem[]): string {
   return JSON.stringify(
@@ -1226,14 +1325,15 @@ function balancesListKey(items: readonly HomeAssetBalanceItem[]): string {
 function useBalancesRevealWindow(
   scope: string | null,
   items: readonly HomeAssetBalanceItem[],
+  resetSignal: number,
 ) {
   const [revealWindow, setRevealWindow] = useState<BalancesRevealWindow>(() => {
     const key = `${scope ?? ""}\u0000${balancesListKey(items)}`;
-    return { key, count: BALANCES_BATCH_SIZE };
+    return { key, resetSignal, count: BALANCES_BATCH_SIZE };
   });
   const key = `${scope ?? ""}\u0000${balancesListKey(items)}`;
-  if (revealWindow.key !== key) {
-    setRevealWindow({ key, count: BALANCES_BATCH_SIZE });
+  if (revealWindow.key !== key || revealWindow.resetSignal !== resetSignal) {
+    setRevealWindow({ key, resetSignal, count: BALANCES_BATCH_SIZE });
   }
 
   const count = Math.min(revealWindow.count, items.length);
@@ -1242,6 +1342,7 @@ function useBalancesRevealWindow(
       current.key === key
         ? {
             key,
+            resetSignal: current.resetSignal,
             count: Math.min(
               current.count + BALANCES_BATCH_SIZE,
               items.length,
