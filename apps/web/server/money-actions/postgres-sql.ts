@@ -303,6 +303,18 @@ export const moneyActionEvidenceIndexStatements = MONEY_ACTION_EVIDENCE_INDEX_SQ
   .map((statement) => statement.trim())
   .filter((statement) => statement.length > 0);
 
+/**
+ * Duplicate owner-scoped provider handles block the unique evidence indexes.
+ * The message carries only the index name, handle kind, and group counts — never
+ * action IDs, owners, or handle values — so operators may print it verbatim.
+ */
+export class MoneyActionSchemaPreflightError extends Error {
+  constructor(indexName: string, counts: ReadonlyArray<{ action_id_count: number; kind: string }>) {
+    super(`money-action schema preflight failed for ${indexName}: duplicate groups ${JSON.stringify(counts)}`);
+    this.name = "MoneyActionSchemaPreflightError";
+  }
+}
+
 const evidenceIndexPreflights = [
   {
     indexName: "money_action_unique_owner_submission_id",
@@ -348,9 +360,7 @@ export async function applyMoneyActionPostgresSchema(executor: SqlExecutor): Pro
           action_id_count: Number(row.action_id_count),
           kind: preflight.kind,
         }));
-        throw new Error(
-          `money-action schema preflight failed for ${preflight.indexName}: duplicate groups ${JSON.stringify(counts)}`,
-        );
+        throw new MoneyActionSchemaPreflightError(preflight.indexName, counts);
       }
     }
     for (const statement of moneyActionEvidenceIndexStatements) {
