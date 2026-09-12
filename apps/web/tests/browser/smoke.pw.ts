@@ -406,7 +406,9 @@ async function expectBalancesRestored(
 
 async function clickForwardAndWaitForHistory(page: Page, name: string) {
   const previousLength = await page.evaluate(() => window.history.length);
-  await page.getByRole("button", { name }).click();
+  // A pre-existing Next dev hydration overlay can intercept pointer hit-testing
+  // in CI; force still dispatches the real button click and history push.
+  await page.getByRole("button", { name }).click({ force: true });
   await expect
     .poll(() => page.evaluate(() => window.history.length))
     .toBeGreaterThan(previousLength);
