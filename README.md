@@ -86,9 +86,18 @@ bun dev
 
 Open `http://localhost:3000`. Use the canonical `localhost` origin rather than `127.0.0.1`.
 
-You can browse public product surfaces without credentials. Email sign-in, authenticated balances, and money actions require your own CDP project and allowed local origin; follow [CDP setup](docs/cdp-setup.md). Never commit secrets or expose server keys with a `NEXT_PUBLIC_` prefix.
+You can browse public product surfaces without credentials. Signing in takes one of two paths, and only one of them needs a CDP project.
 
-Money actions require PostgreSQL via `DATABASE_URL` and `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty` after unresolved legacy SQLite actions and references are verified empty. Apply the migrations and read [Vercel deploy](docs/vercel-deploy.md). Trading intents use a separate persistence boundary documented in [build status](docs/build-status.md).
+| Sign in with | Set | Notes |
+| --- | --- | --- |
+| Base Account | `HOME_SESSION_SECRET`, at least 32 characters | No CDP project. In development the sign-in challenge is held in memory, so no database either. See [Base Account](docs/base-account.md). |
+| Email | Your own CDP project and an allowed local origin | Follow [CDP setup](docs/cdp-setup.md). |
+
+A value shorter than 32 characters leaves the Base Account path disabled without an error, so check the length if the button does not appear.
+
+Authenticated balances and money actions still depend on provider configuration and eligibility; signing in is not the same as a funded, executable account. Never commit secrets or expose server keys with a `NEXT_PUBLIC_` prefix.
+
+Money actions require PostgreSQL via `DATABASE_URL` and `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty` after unresolved legacy SQLite actions and references are verified empty. Apply the migrations and read [Vercel deploy](docs/vercel-deploy.md). Trading intents use a separate persistence boundary documented in [build status](docs/build-status.md), and it runs the other way round: trade intents fall back to local SQLite only while `DATABASE_URL` and `VERCEL` are both unset, so configuring money actions locally turns local trading off.
 
 ### Useful commands
 
