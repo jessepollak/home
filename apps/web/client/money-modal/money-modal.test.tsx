@@ -5,12 +5,6 @@ import { useState } from "react";
 
 const { act, cleanup, createEvent, fireEvent, render, within } = await import("@testing-library/react");
 
-const animationFrames: FrameRequestCallback[] = [];
-const realRequestAnimationFrame = globalThis.requestAnimationFrame;
-globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
-  animationFrames.push(callback);
-  return animationFrames.length;
-}) as typeof requestAnimationFrame;
 const { MotionGlobalConfig } = await import("motion/react");
 const {
   MONEY_SHEET_DISMISS_FRACTION,
@@ -20,7 +14,6 @@ const {
   MoneyModalHeader,
   resolveSheetDragDismiss,
 } = await import("./money-modal");
-globalThis.requestAnimationFrame = realRequestAnimationFrame;
 
 function page() {
   return within(document.body);
@@ -34,12 +27,7 @@ function dismissDistance() {
 }
 
 async function flushSheetAnimation() {
-  await act(async () => {
-    while (animationFrames.length > 0) {
-      const callbacks = animationFrames.splice(0);
-      for (const callback of callbacks) callback(performance.now());
-    }
-  });
+  await act(async () => {});
 }
 
 type TimedPointerEvent =
