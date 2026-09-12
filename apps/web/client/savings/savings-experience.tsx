@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Stack } from "@home/ui";
+import { EmptyState, Skeleton, Stack, StatusMessage } from "@home/ui";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
 import { useOptionalAppChrome } from "@/components/app-chrome";
@@ -312,12 +312,13 @@ export function SavingsExperience({
       >
         {coldLoading ? (
           <>
-            <span
-              className={`shimmer ${styles.heroShimmer}`}
+            <Skeleton
+              shape="rectangle"
+              width="min(48%, 11.5rem)"
+              height="3.4rem"
               data-shimmer="savings-hero"
-              aria-hidden="true"
             />
-            <p className="sr-status" role="status">Updating…</p>
+            <StatusMessage visuallyHidden>Updating…</StatusMessage>
           </>
         ) : availableBalance ? (
           <>
@@ -329,26 +330,25 @@ export function SavingsExperience({
             {funded && portfolioSummary ? (
               loadState.status === "loading" ? (
                 <>
-                  <span
-                    className={`shimmer ${styles.apyShimmer}`}
+                  <Skeleton
+                    shape="text"
+                    width="7rem"
+                    height="0.9rem"
                     data-shimmer="savings-apy"
-                    aria-hidden="true"
                   />
-                  <span className="sr-status" role="status">Loading APY…</span>
+                  <StatusMessage visuallyHidden>Loading APY…</StatusMessage>
                 </>
               ) : (
                 <FundedApyCaption apy={portfolioSummary.apy} />
               )
             ) : (
-              <>
-                <p className={styles.heroCaption}>Nothing saved yet</p>
-                {selected && loadState.status === "ready" ? (
-                  <p className={styles.heroMeta}>
-                    Available vault · {shortVaultLabel(selected.name)} ·{" "}
-                    {availableVaultApyLabel(selected, loadState.data, rateNowMs)}
-                  </p>
-                ) : null}
-              </>
+              <EmptyState
+                className={styles.heroEmpty}
+                title="Nothing saved yet"
+                description={selected && loadState.status === "ready"
+                  ? `Available vault · ${shortVaultLabel(selected.name)} · ${availableVaultApyLabel(selected, loadState.data, rateNowMs)}`
+                  : undefined}
+              />
             )}
             {refreshing ? (
               <p className={styles.heroMeta} role="status">Refreshing…</p>
@@ -361,13 +361,13 @@ export function SavingsExperience({
             <p className={`${styles.heroAmount} ${styles.heroAmountEmpty}`}>
               <MoneyTicker value="$0.00" />
             </p>
-            <p className={styles.heroCaption}>Nothing saved yet</p>
-            {selected && loadState.status === "ready" ? (
-              <p className={styles.heroMeta}>
-                Available vault · {shortVaultLabel(selected.name)} ·{" "}
-                {availableVaultApyLabel(selected, loadState.data, rateNowMs)}
-              </p>
-            ) : null}
+            <EmptyState
+              className={styles.heroEmpty}
+              title="Nothing saved yet"
+              description={selected && loadState.status === "ready"
+                ? `Available vault · ${shortVaultLabel(selected.name)} · ${availableVaultApyLabel(selected, loadState.data, rateNowMs)}`
+                : undefined}
+            />
           </>
         ) : (
           <>
@@ -384,10 +384,10 @@ export function SavingsExperience({
           aria-busy="true"
         >
           <VaultListSkeleton />
-          <span className="sr-status" role="status">Loading vaults…</span>
+          <StatusMessage visuallyHidden>Loading vaults…</StatusMessage>
         </section>
       ) : loadState.status === "error" ? (
-        <p className={styles.status} role="alert">Vaults are temporarily unavailable.</p>
+        <StatusMessage tone="error" role="alert">Vaults are temporarily unavailable.</StatusMessage>
       ) : !coldLoading && !positionFailed && candidates.length > 0 ? (
         <section className={styles.vaults} aria-label="Vaults">
           <Stack className={styles.vaultList} space={{ custom: "10px" }} role="radiogroup" aria-label="Vault">
@@ -565,8 +565,8 @@ function VaultListSkeleton() {
     <ul className={styles.vaultSkeletonList} aria-hidden="true">
       {[0, 1].map((index) => (
         <li key={index} className={styles.vaultSkeleton} data-shimmer="vault-row">
-          <span className={`shimmer ${styles.vaultSkeletonName}`} />
-          <span className={`shimmer ${styles.vaultSkeletonValue}`} />
+          <Skeleton shape="text" className={styles.vaultSkeletonName} />
+          <Skeleton shape="text" className={styles.vaultSkeletonValue} />
         </li>
       ))}
     </ul>

@@ -592,33 +592,6 @@ body:has(.app-frame-shell) {
   margin: 0 2px 8px;
 }
 
-.shimmer {
-  display: block;
-  position: relative;
-  overflow: hidden;
-  background: var(--home-gray-100);
-}
-
-.shimmer::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgb(255 255 255 / 0.65) 50%,
-    transparent 100%
-  );
-  animation: home-shimmer 1.2s ease-in-out infinite;
-}
-
-@keyframes home-shimmer {
-  to {
-    transform: translateX(100%);
-  }
-}
-
 .balance-hero-shimmer {
   width: 48%;
   max-width: 11.5rem;
@@ -1117,15 +1090,6 @@ body:has(.app-frame-shell) {
   padding-top: 16px;
 }
 
-.empty-activity {
-  margin: 27px 0 0;
-  border-top: 1px solid var(--line);
-  padding-top: 13px;
-  color: var(--muted);
-  font-size: 0.72rem;
-  line-height: 1.45;
-}
-
 .activity-list {
   display: grid;
   margin: 18px 0 0;
@@ -1384,8 +1348,4 @@ body:has(.app-frame-shell) {
     transform: none;
   }
 
-  .shimmer::after {
-    display: none;
-    animation: none;
-  }
 }

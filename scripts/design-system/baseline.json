@@ -1,15 +1,1 @@
-{
-  "maximums": {
-    "rawButtons": 52,
-    "rawHeadings": 23,
-    "rawProse": 100,
-    "colorLiterals": 54,
-    "radiusLiterals": 15
-  },
-  "informational": {
-    "sharedButtons": 16,
-    "sharedHeadings": 8,
-    "sharedProse": 38,
-    "homeUiImports": 14
-  }
-}
+{"maximums":{"rawButtons":51,"rawHeadings":23,"rawProse":91,"colorLiterals":50,"radiusLiterals":12},"informational":{"sharedButtons":16,"sharedHeadings":8,"sharedProse":37,"homeUiImports":15}}

@@ -1,16 +1,21 @@
 "use client";
 
-import { Button, Text } from "@home/ui";
+import { Toast, ToastViewport, type ToastTone } from "@home/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { formatAddress, formatFiatAmount, formatPresentationTokenAmount } from "@/shared/formatting";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import { activityOwnerKey } from "@/client/activity/use-activity";
 import { actionFailureEvent } from "./action-toast-events";
-import styles from "./action-toasts.module.css";
+
 const defaultDismissAfterMs = 5_000;
 
-type Toast = { id: number; message: string };
+type ActionToast = {
+  id: number;
+  message: string;
+  tone: ToastTone;
+  role: "status" | "alert";
+};
 type ToastAction = {
   id: string;
   kind: string;
@@ -27,31 +32,18 @@ type ToastAction = {
   };
 };
 
-export type ActionToastClock = {
-  setTimer: (callback: () => void, delayMs: number) => unknown;
-  clearTimer: (timer: unknown) => void;
-};
-
-const browserClock: ActionToastClock = {
-  setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
-  clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
-};
-
 export function ActionToasts({
   session,
   fetchOperations,
-  clock = browserClock,
   dismissAfterMs = defaultDismissAfterMs,
 }: {
   session: VerifiedAccountSession | null;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
-  clock?: ActionToastClock;
   dismissAfterMs?: number;
 }) {
   const ownerKey = session?.smartAccount ? activityOwnerKey(session) : null;
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [toasts, setToasts] = useState<ActionToast[]>([]);
   const nextId = useRef(0);
-  const timers = useRef(new Map<number, unknown>());
   const seenStatuses = useRef(new Map<string, ToastAction["status"]>());
   const actions = useHomeQuery({
     queryKey: ownerKey ? ownerQueryKey(ownerKey, "actions") : ["unauthenticated", "action-toasts-disabled"],
@@ -65,22 +57,17 @@ export function ActionToasts({
   });
 
   const dismiss = useCallback((id: number) => {
-    const timer = timers.current.get(id);
-    if (timer !== undefined) clock.clearTimer(timer);
-    timers.current.delete(id);
     setToasts((current) => current.filter((toast) => toast.id !== id));
-  }, [clock, setToasts]);
+  }, [setToasts]);
 
-  const addToast = useCallback((message: string) => {
+  const addToast = useCallback((
+    message: string,
+    tone: ToastTone = "neutral",
+    role: "status" | "alert" = "status",
+  ) => {
     const id = ++nextId.current;
-    setToasts((current) => [...current, { id, message }]);
-    timers.current.set(id, clock.setTimer(() => dismiss(id), dismissAfterMs));
-  }, [clock, dismiss, dismissAfterMs, setToasts]);
-
-  useEffect(() => () => {
-    for (const timer of timers.current.values()) clock.clearTimer(timer);
-    timers.current.clear();
-  }, [clock]);
+    setToasts((current) => [...current, { id, message, tone, role }]);
+  }, [setToasts]);
 
   useEffect(() => {
     if (!actions.data) return;
@@ -92,7 +79,7 @@ export function ActionToasts({
         if (message) addToast(message);
       } else if (action.status === "confirmed" && previous && previous !== "confirmed") {
         const message = actionToastMessage(action, "confirmed");
-        if (message) addToast(message);
+        if (message) addToast(message, "success");
       }
       seenStatuses.current.set(statusKey, action.status);
     }
@@ -102,23 +89,27 @@ export function ActionToasts({
     const onFailure = (event: Event) => {
       const detail = (event as CustomEvent<unknown>).detail;
       if (!isRecord(detail) || typeof detail.kind !== "string" || typeof detail.reason !== "string") return;
-      addToast(`${failedVerb(detail.kind)} failed: ${detail.reason}`);
+      addToast(`${failedVerb(detail.kind)} failed: ${detail.reason}`, "error", "alert");
     };
     window.addEventListener(actionFailureEvent, onFailure);
     return () => window.removeEventListener(actionFailureEvent, onFailure);
   }, [addToast]);
 
   return (
-    <div className={styles.region} aria-live="polite" aria-relevant="additions">
+    <ToastViewport>
       {toasts.map((toast) => (
-        <div className={`${styles.toast} surface-primary`} key={toast.id}>
-          <Text as="span" textStyle="body" className={styles.message}>{toast.message}</Text>
-          <Button variant="quiet" className={styles.dismiss} onClick={() => dismiss(toast.id)} aria-label={`Dismiss ${toast.message}`}>
-            Dismiss
-          </Button>
-        </div>
+        <Toast
+          key={toast.id}
+          tone={toast.tone}
+          role={toast.role}
+          duration={dismissAfterMs}
+          onDismiss={() => dismiss(toast.id)}
+          dismissLabel={`Dismiss ${toast.message}`}
+        >
+          {toast.message}
+        </Toast>
       ))}
-    </div>
+    </ToastViewport>
   );
 }
 
