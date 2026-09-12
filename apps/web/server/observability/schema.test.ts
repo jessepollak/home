@@ -31,6 +31,30 @@ describe("observability schema", () => {
     }
   });
 
+  test("balance source events identify only the degraded stage and provider class", () => {
+    const line = normalizeObservabilityEvent({
+      kind: "portfolio-balance-source",
+      route: "/api/portfolio/valuation?wallet=private#fragment",
+      source: "configured-base-rpc",
+      stage: "inventory",
+      outcome: "incomplete",
+      reason: "read-failed",
+    });
+
+    expect(line).toEqual({
+      schema: OBSERVABILITY_SCHEMA,
+      level: "error",
+      kind: "portfolio-balance-source",
+      route: "/api/portfolio/valuation",
+      code: "PORTFOLIO_BALANCE_SOURCE",
+      source: "configured-base-rpc",
+      stage: "inventory",
+      outcome: "incomplete",
+      reason: "read-failed",
+    });
+    expect(JSON.stringify(line)).not.toContain("private");
+  });
+
   test("unhandled server events contain no exception message, stack, digest, headers, or request URL", () => {
     const line = normalizeObservabilityEvent({
       kind: "unhandled-server-error",
