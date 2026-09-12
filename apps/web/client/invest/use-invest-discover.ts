@@ -13,6 +13,8 @@ import type { MemePagination, MemeShelfStatus } from "./discover";
 
 const DISCOVER_ENDPOINT = "/api/invest/discover";
 const VISIBILITY_REFRESH_COOLDOWN_MS = 60_000;
+/** Bound consecutive provider pages that normalize away before we stop. */
+const MAX_CONSECUTIVE_EMPTY_PAGES = 3;
 
 type FetchLike = (
   input: RequestInfo | URL,
@@ -53,6 +55,7 @@ const emptyPagination: MemePagination = {
   loadingMore: false,
   loadMoreError: false,
   autoLoadPaused: false,
+  consecutiveEmptyPages: 0,
 };
 
 const initialDiscoverState: InvestDiscoverState = {
@@ -159,8 +162,15 @@ export function useInvestDiscover({
         return;
       }
 
+      // Claim ownership before any fetch: abort a background visibility
+      // refresh and advance the sequence so a late refresh result cannot
+      // overwrite appended rows or strand this attempted offset.
+      hasLoadedMore.current = true;
+      requestController.current?.abort();
+      requestController.current = null;
+      const requestSequence = ++sequence.current;
+
       const controller = new AbortController();
-      const requestSequence = sequence.current;
       const request: LoadMoreRequest = { sequence: requestSequence, offset, controller };
       loadMoreRequest.current = request;
       attemptedOffsets.current.add(offset);
@@ -207,7 +217,6 @@ export function useInvestDiscover({
           if (next.memePagination.nextOffset === offset) {
             throw new Error("Discover offset did not advance.");
           }
-          hasLoadedMore.current = true;
           setState((current) => {
             if (
               current.memePagination.nextOffset !== offset ||
@@ -378,6 +387,7 @@ function mergeDiscoverPages(
     newAssets.push(asset);
   }
   const assets = [...previous.memeAssets, ...newAssets];
+  const emptyFullPage = !next.memePagination.exhausted && newAssets.length === 0;
 
   const seenSnapshots = new Set(
     previous.memeMarket.status === "ready"
@@ -411,7 +421,13 @@ function mergeDiscoverPages(
       exhausted: next.memePagination.exhausted,
       loadingMore: false,
       loadMoreError: false,
-      autoLoadPaused: !next.memePagination.exhausted && newAssets.length === 0,
+      consecutiveEmptyPages: emptyFullPage
+        ? previous.memePagination.consecutiveEmptyPages + 1
+        : 0,
+      autoLoadPaused:
+        emptyFullPage &&
+        previous.memePagination.consecutiveEmptyPages + 1 >=
+          MAX_CONSECUTIVE_EMPTY_PAGES,
     },
   };
 }

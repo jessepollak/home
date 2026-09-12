@@ -565,6 +565,7 @@ describe("Memes detail incremental loading", () => {
           loadingMore: false,
           loadMoreError: false,
           autoLoadPaused: false,
+          consecutiveEmptyPages: 0,
         }}
         onLoadMoreMemes={onLoadMoreMemes}
       />,
@@ -572,8 +573,13 @@ describe("Memes detail incremental loading", () => {
 
     fireEvent.click(seeAllInShelf("Memes"));
     await waitFor(() =>
-      expect(page().getByRole("button", { name: "Load more memes" })).toBeTruthy(),
+      expect(page().getByText("Higher")).toBeTruthy(),
     );
+    // No manual load button in the healthy auto-load state.
+    expect(page().queryByRole("button", { name: "Load more memes" })).toBeNull();
+    expect(
+      page().queryByRole("button", { name: "Continue loading memes" }),
+    ).toBeNull();
 
     const observer = activeIntersectionObserver();
     expect(observer).toBeTruthy();
@@ -593,6 +599,7 @@ describe("Memes detail incremental loading", () => {
           loadingMore: false,
           loadMoreError: false,
           autoLoadPaused: false,
+          consecutiveEmptyPages: 0,
         }}
       />,
     );
@@ -602,6 +609,7 @@ describe("Memes detail incremental loading", () => {
       expect(page().getByText("End of trending memes")).toBeTruthy(),
     );
     expect(page().queryByRole("button", { name: "Load more memes" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Retry loading memes" })).toBeNull();
   });
 
   test("offers a manual retry when a page fails", async () => {
@@ -617,6 +625,7 @@ describe("Memes detail incremental loading", () => {
           loadingMore: false,
           loadMoreError: true,
           autoLoadPaused: false,
+          consecutiveEmptyPages: 0,
         }}
         onRetryLoadMoreMemes={onRetryLoadMoreMemes}
       />,
@@ -630,5 +639,33 @@ describe("Memes detail incremental loading", () => {
     expect(retry).toBeTruthy();
     fireEvent.click(retry);
     expect(onRetryLoadMoreMemes).toHaveBeenCalledTimes(1);
+  });
+
+  test("shows a paused status without a button when the empty-page guard trips", async () => {
+    renderInvestInShell(
+      <InvestExperience
+        memeStatus="ready"
+        memeMarket={{ status: "ready", snapshots: [] }}
+        memeAssets={[higher]}
+        memePagination={{
+          nextOffset: 24,
+          exhausted: false,
+          loadingMore: false,
+          loadMoreError: false,
+          autoLoadPaused: true,
+          consecutiveEmptyPages: 3,
+        }}
+      />,
+    );
+
+    fireEvent.click(seeAllInShelf("Memes"));
+    await waitFor(() =>
+      expect(page().getByText("No additional memes were found.")).toBeTruthy(),
+    );
+    expect(page().queryByRole("button", { name: "Load more memes" })).toBeNull();
+    expect(
+      page().queryByRole("button", { name: "Continue loading memes" }),
+    ).toBeNull();
+    expect(page().queryByRole("button", { name: "Retry loading memes" })).toBeNull();
   });
 });

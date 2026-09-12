@@ -114,6 +114,9 @@ function HookProbe({ options }: { options: UseInvestDiscoverOptions }) {
       <output data-testid="auto-load-paused">
         {pagination.autoLoadPaused ? "yes" : "no"}
       </output>
+      <output data-testid="consecutive-empty">
+        {String(pagination.consecutiveEmptyPages)}
+      </output>
       <button type="button" onClick={state.loadMoreMemes}>
         load-more
       </button>
@@ -481,7 +484,7 @@ describe("useInvestDiscover pagination", () => {
     expect(page().getByTestId("exhausted").textContent).toBe("yes");
   });
 
-  test("pauses auto-loading when a page returns no new assets", async () => {
+  test("auto-continues through a page that returns no new assets", async () => {
     render(
       <HookProbe
         options={{
@@ -513,16 +516,132 @@ describe("useInvestDiscover pagination", () => {
     fireEvent.click(page().getByRole("button", { name: "load-more" }));
 
     await waitFor(() =>
-      expect(page().getByTestId("auto-load-paused").textContent).toBe("yes"),
+      expect(page().getByTestId("next-offset").textContent).toBe("48"),
     );
+    expect(page().getByTestId("auto-load-paused").textContent).toBe("no");
+    expect(page().getByTestId("consecutive-empty").textContent).toBe("1");
     expect(page().getByTestId("meme-names").textContent).toBe("Degen");
 
-    fireEvent.click(page().getByRole("button", { name: "retry-load-more" }));
+    fireEvent.click(page().getByRole("button", { name: "load-more" }));
     await waitFor(() =>
       expect(page().getByTestId("meme-names").textContent).toBe(
         "Degen,Higher",
       ),
     );
+    expect(page().getByTestId("exhausted").textContent).toBe("yes");
+  });
+
+  test("pauses auto-loading only after the consecutive empty-page bound", async () => {
+    let offset96Calls = 0;
+    render(
+      <HookProbe
+        options={{
+          fetchImpl: async (input) => {
+            const url = String(input);
+            if (url.includes("offset=24")) {
+              return discoverResponse([], { nextOffset: 48, exhausted: false });
+            }
+            if (url.includes("offset=48")) {
+              return discoverResponse([], { nextOffset: 72, exhausted: false });
+            }
+            if (url.includes("offset=72")) {
+              return discoverResponse([], { nextOffset: 96, exhausted: false });
+            }
+            if (url.includes("offset=96")) {
+              offset96Calls += 1;
+              return discoverResponse(
+                [higherAsset],
+                { nextOffset: null, exhausted: true },
+              );
+            }
+            return discoverResponse(
+              [degenAsset],
+              { nextOffset: 24, exhausted: false },
+            );
+          },
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("meme-status").textContent).toBe("ready"),
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "load-more" }));
+    await waitFor(() =>
+      expect(page().getByTestId("consecutive-empty").textContent).toBe("1"),
+    );
+    expect(page().getByTestId("auto-load-paused").textContent).toBe("no");
+
+    fireEvent.click(page().getByRole("button", { name: "load-more" }));
+    await waitFor(() =>
+      expect(page().getByTestId("consecutive-empty").textContent).toBe("2"),
+    );
+    expect(page().getByTestId("auto-load-paused").textContent).toBe("no");
+
+    fireEvent.click(page().getByRole("button", { name: "load-more" }));
+    await waitFor(() =>
+      expect(page().getByTestId("auto-load-paused").textContent).toBe("yes"),
+    );
+    expect(page().getByTestId("consecutive-empty").textContent).toBe("3");
+    expect(page().getByTestId("next-offset").textContent).toBe("96");
+
+    // Paused auto-loading never advances to offset 96 on its own.
+    fireEvent.click(page().getByRole("button", { name: "load-more" }));
+    expect(offset96Calls).toBe(0);
+    expect(page().getByTestId("auto-load-paused").textContent).toBe("yes");
+  });
+
+  test("a late background refresh cannot overwrite appended rows", async () => {
+    const releaseRefresh: Array<() => void> = [];
+    let pageZeroCalls = 0;
+    render(
+      <HookProbe
+        options={{
+          refreshCooldownMs: 0,
+          fetchImpl: async (input) => {
+            const url = String(input);
+            if (!url.includes("offset=")) {
+              pageZeroCalls += 1;
+              if (pageZeroCalls > 1) {
+                // A background visibility refresh stays in-flight.
+                await new Promise<void>((resolve) => {
+                  releaseRefresh.push(resolve);
+                });
+              }
+              return discoverResponse(
+                [degenAsset],
+                { nextOffset: 24, exhausted: false },
+              );
+            }
+            return discoverResponse(
+              [higherAsset],
+              { nextOffset: null, exhausted: true },
+            );
+          },
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(page().getByTestId("meme-status").textContent).toBe("ready"),
+    );
+
+    // Start a background visibility refresh and wait until it is in-flight.
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(releaseRefresh.length).toBe(1));
+
+    // Start pagination while that refresh is still in-flight.
+    fireEvent.click(page().getByRole("button", { name: "load-more" }));
+    await waitFor(() =>
+      expect(page().getByTestId("meme-names").textContent).toBe(
+        "Degen,Higher",
+      ),
+    );
+
+    // Let the stale refresh resolve; it must not clobber the appended rows.
+    releaseRefresh.forEach((resolve) => resolve());
+    expect(page().getByTestId("meme-names").textContent).toBe("Degen,Higher");
     expect(page().getByTestId("exhausted").textContent).toBe("yes");
   });
 });

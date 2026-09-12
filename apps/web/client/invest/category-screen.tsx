@@ -147,25 +147,20 @@ function MemePaginationFooter({
           More memes could not be loaded. Your current results are unchanged.
         </p>
       ) : null}
+      {loadMoreError ? (
+        <button
+          className={styles.loadMoreButton}
+          type="button"
+          onClick={onRetryLoadMore}
+        >
+          Retry loading memes
+        </button>
+      ) : null}
       {autoLoadPaused ? (
         <p className={styles.loadMoreNotice} role="status">
-          No additional memes were found on that page. Continue to check for more.
+          No additional memes were found.
         </p>
       ) : null}
-      <button
-        className={styles.loadMoreButton}
-        type="button"
-        onClick={loadMoreError || autoLoadPaused ? onRetryLoadMore : onLoadMore}
-        disabled={loadingMore}
-      >
-        {loadingMore
-          ? "Loading…"
-          : loadMoreError
-            ? "Retry loading memes"
-            : autoLoadPaused
-              ? "Continue loading memes"
-              : "Load more memes"}
-      </button>
       <div
         key={nextOffset}
         ref={sentinelRef}
