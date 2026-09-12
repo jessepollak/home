@@ -63,6 +63,7 @@ export type Quote = {
   fiatAmount: string;
   tokenAmountAtomic: string;
   fees: Array<{ label: string; amount: string; currency: string }>;
+  feesKnown?: boolean;
   expiresAt: string;
 };
 

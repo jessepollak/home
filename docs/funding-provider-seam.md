@@ -205,3 +205,9 @@ The signed quote token is now retained with the reservation and reused after a l
 Funding-order writes now carry a monotonic version. Provider observations and receipt claims use compare-and-swap; terminal states cannot reopen, verified receipt `(transaction_hash, log_index)` is immutable and uniquely claimed, and the provider-reported hash is stored separately from verified evidence. The production PostgreSQL store contract is exercised against disposable local PostgreSQL through the same store implementation.
 
 Ripio now fails closed when terms cannot be identified, treats uncertain create statuses as ambiguous without retry, validates the selected rail and redirect origin, requires all immutable status echoes, gives completed refunds terminal priority, and bounds provider response headers and bodies. No provider, live, or funded validation is claimed.
+
+### Final review corrections (September 12, 2026)
+
+Quote tokens now require one canonical unpadded base64url encoding. Existing owner-bound reservations are recovered from the authenticated canonical token even after quote expiry; expiry gates only a new reservation. Unknown fee economics are labeled unknown, and provider-returned receive/fee details are reviewed before payment instructions appear. Webhook bodies use capped timed streaming reads and treat `Content-Length` as advisory.
+
+Migration `002_funding_provider_seam.sql` remains candidate-only: it is absent from `origin/main` history and has never been published or deployed. It therefore remains a clean-install migration for #301; any future deployed predecessor requires a new additive migration instead of editing `002`.

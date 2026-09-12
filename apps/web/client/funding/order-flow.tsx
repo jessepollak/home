@@ -23,6 +23,7 @@ type FundingQuote = {
   fiatAmount: string;
   tokenAmountAtomic: string;
   fees: ReadonlyArray<{ label: string; amount: string; currency: string }>;
+  feesKnown?: boolean;
   expiresAt: string;
 };
 type QuoteDraft = { quote: FundingQuote; quoteToken: string };
@@ -33,6 +34,8 @@ export type FundingOrderSummary = {
   fiatAmount: string;
   quote?: FundingQuote;
   quoteToken?: string;
+  expectedTokenAmountAtomic?: string | null;
+  fees?: ReadonlyArray<{ label: string; amount: string; currency: string }>;
   providerStatus: string | null;
   instructions: Instruction | null;
 };
@@ -50,6 +53,7 @@ export function FundingOrderFlow({ binding, fetchAccountResource, onBack, initia
   const [fields, setFields] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState<QuoteDraft | null>(null);
   const [order, setOrder] = useState<FundingOrderSummary | null>(initialOrder ?? null);
+  const [showInstructions, setShowInstructions] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmationAttempted, setConfirmationAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +97,9 @@ export function FundingOrderFlow({ binding, fetchAccountResource, onBack, initia
     finally { setBusy(false); }
   }
 
+  if (order?.instructions && order.expectedTokenAmountAtomic && !showInstructions) {
+    return <ProviderEconomicsReview binding={binding} order={order} onContinue={() => setShowInstructions(true)} />;
+  }
   if (order) return <OrderStatus order={order} onBack={onBack} />;
   if (draft) return <QuoteReview binding={binding} draft={draft} busy={busy} confirmationAttempted={confirmationAttempted} error={error} onConfirm={() => void confirmOrder()} onBack={() => setDraft(null)} />;
 
@@ -113,7 +120,11 @@ export function FundingOrderFlow({ binding, fetchAccountResource, onBack, initia
 }
 
 function QuoteReview({ binding, draft, busy, confirmationAttempted, error, onConfirm, onBack }: { binding: FundingBinding; draft: QuoteDraft; busy: boolean; confirmationAttempted: boolean; error: string | null; onConfirm: () => void; onBack: () => void }) {
-  return <><div className={`${modal.body} ${styles.statusStack}`}><h3>Review quote</h3><p>Deposit: {draft.quote.fiatAmount} {binding.currency}</p><p>Receive: {atomicToDecimal(draft.quote.tokenAmountAtomic, binding.assetDecimals)} {binding.assetSymbol}</p>{draft.quote.fees.length ? <section aria-label="Fees"><h4>Fees</h4>{draft.quote.fees.map((fee, index) => <p key={`${fee.label}:${index}`}>{fee.label}: {fee.amount} {fee.currency}</p>)}</section> : <p>Fees: None</p>}<p>Expires: {new Date(draft.quote.expiresAt).toLocaleString()}</p>{error ? <p className={modal.error} role="alert">{error}</p> : null}</div><MoneyModalFooter primaryLabel={busy ? "Confirming same order…" : "Confirm deposit"} primaryDisabled={busy} onPrimary={onConfirm} secondaryLabel="Back" secondaryDisabled={confirmationAttempted} onSecondary={onBack} /></>;
+  return <><div className={`${modal.body} ${styles.statusStack}`}><h3>Review quote</h3><p>Deposit: {draft.quote.fiatAmount} {binding.currency}</p><p>Receive: {atomicToDecimal(draft.quote.tokenAmountAtomic, binding.assetDecimals)} {binding.assetSymbol}</p>{draft.quote.fees.length ? <section aria-label="Fees"><h4>Fees</h4>{draft.quote.fees.map((fee, index) => <p key={`${fee.label}:${index}`}>{fee.label}: {fee.amount} {fee.currency}</p>)}</section> : draft.quote.feesKnown ? <p>Fees: None</p> : <p>Fees: Not yet available</p>}<p>Expires: {new Date(draft.quote.expiresAt).toLocaleString()}</p>{error ? <p className={modal.error} role="alert">{error}</p> : null}</div><MoneyModalFooter primaryLabel={busy ? "Confirming same order…" : "Confirm deposit"} primaryDisabled={busy} onPrimary={onConfirm} secondaryLabel="Back" secondaryDisabled={confirmationAttempted} onSecondary={onBack} /></>;
+}
+function ProviderEconomicsReview({ binding, order, onContinue }: { binding: FundingBinding; order: FundingOrderSummary; onContinue: () => void }) {
+  const fees = order.fees ?? [];
+  return <><div className={`${modal.body} ${styles.statusStack}`}><h3>Review payment details</h3><p>Receive: {atomicToDecimal(order.expectedTokenAmountAtomic!, binding.assetDecimals)} {binding.assetSymbol}</p>{fees.length ? <section aria-label="Provider fees"><h4>Fees</h4>{fees.map((fee, index) => <p key={`${fee.label}:${index}`}>{fee.label}: {fee.amount} {fee.currency}</p>)}</section> : <p>Fees: None</p>}<p>These details came from {binding.displayName}. Review them before using the payment instructions.</p></div><MoneyModalFooter primaryLabel="View payment instructions" onPrimary={onContinue} /></>;
 }
 function OrderStatus({ order, onBack }: { order: FundingOrderSummary; onBack: () => void }) {
   const copy = stateCopy(order.state);

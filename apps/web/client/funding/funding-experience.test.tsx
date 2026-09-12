@@ -159,7 +159,7 @@ describe("FundingExperience", () => {
         if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
         if (path.startsWith("/api/funding/orders?")) return { order: null };
         if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [{ label: "Rail", amount: "10", currency: "ARS" }], expiresAt: "2099-01-01T00:00:00.000Z" } };
-        if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "awaiting-payment", fiatAmount: "1000", providerStatus: null, instructions: { kind: "bank-transfer", rail: "CVU", accountNumber: "1234567890", amount: "1000", currency: "ARS" } } };
+        if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "awaiting-payment", fiatAmount: "1000", expectedTokenAmountAtomic: "1000000000000000000000", fees: [{ label: "Provider", amount: "12", currency: "ARS" }], providerStatus: null, instructions: { kind: "bank-transfer", rail: "CVU", accountNumber: "1234567890", amount: "1000", currency: "ARS" } } };
         throw new Error("unexpected request");
       },
     };
@@ -173,6 +173,10 @@ describe("FundingExperience", () => {
     expect(page().getByText("Receive: 1000 wARS")).toBeTruthy();
     expect(page().getByText("Rail: 10 ARS")).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
+    await page().findByRole("heading", { name: "Review payment details" });
+    expect(page().getByText("Provider: 12 ARS")).toBeTruthy();
+    expect(page().queryByText("1234567890")).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
     await page().findByText("Deposit pending");
     expect(page().getByText("1234567890")).toBeTruthy();
     expect(requests.find((item) => item.path === "/api/funding/orders")?.body).toEqual({ quoteToken: "signed-token" });
