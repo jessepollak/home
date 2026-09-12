@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Stack } from "@home/ui";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
@@ -43,6 +43,8 @@ import {
 import styles from "./savings-experience.module.css";
 import { ownerQueryKey, ownerQueryMeta, publicQueryKey, useHomeQuery } from "@/client/query/query-client";
 import { activityOwnerKey } from "@/client/activity/use-activity";
+import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
+import { markHomePerformance } from "@/client/observability/perf-marks";
 
 type SavingsExperienceProps = {
   initialData?: MorphoVaultsResult | null;
@@ -120,6 +122,14 @@ export function SavingsExperience({
   const [rateNowMs, setRateNowMs] = useState(() => now());
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [actionMode, setActionMode] = useState<SavingsActionMode | null>(null);
+  const routing = useOptionalHomeShellRouting();
+  const openedActionInAppRef = useRef(false);
+  const routedActionMode: SavingsActionMode | null = routing?.state.flow === "save-deposit"
+    ? "deposit"
+    : routing?.state.flow === "save-withdraw"
+      ? "withdraw"
+      : null;
+  const visibleActionMode = routing ? routedActionMode : actionMode;
   const hosted = Boolean(useOptionalAppChrome());
   const sessionAddress = session?.smartAccount?.address ?? null;
   const sessionKey = session?.smartAccount ? activityOwnerKey(session) : null;
@@ -196,6 +206,15 @@ export function SavingsExperience({
     return positionsQuery.isError ? { status: "error" } : { status: "loading" };
   }, [positionsQuery.data, positionsQuery.isError, positionsQuery.isFetching, sessionKey]);
 
+  useEffect(() => {
+    if (
+      loadState.status === "ready" &&
+      (positionState.status === "ready" || positionState.status === "idle")
+    ) {
+      markHomePerformance("save:ready");
+    }
+  }, [loadState.status, positionState.status]);
+
   const allCandidates = useMemo(() => {
     if (loadState.status !== "ready") return [];
     return [...loadState.data.candidates]
@@ -242,6 +261,28 @@ export function SavingsExperience({
       prepareMoneyAction &&
       executeMoneyAction,
   );
+
+  function openAction(mode: SavingsActionMode) {
+    if (!routing) {
+      setActionMode(mode);
+      return;
+    }
+    openedActionInAppRef.current = true;
+    routing.setFlow(mode === "deposit" ? "save-deposit" : "save-withdraw");
+  }
+
+  function closeAction() {
+    if (!routing) {
+      setActionMode(null);
+      return;
+    }
+    if (openedActionInAppRef.current) {
+      openedActionInAppRef.current = false;
+      window.history.back();
+      return;
+    }
+    routing.clearFlow({ mode: "replace" });
+  }
 
   return (
     <section
@@ -426,7 +467,7 @@ export function SavingsExperience({
             className={styles.primary}
             type="button"
             disabled={!actionsReady}
-            onClick={() => setActionMode("deposit")}
+            onClick={() => openAction("deposit")}
           >
             {funded ? "Deposit" : "Get started"}
           </button>
@@ -435,7 +476,7 @@ export function SavingsExperience({
               className={styles.secondary}
               type="button"
               disabled={!actionsReady || !canWithdraw}
-              onClick={() => setActionMode("withdraw")}
+              onClick={() => openAction("withdraw")}
             >
               Withdraw
             </button>
@@ -445,12 +486,12 @@ export function SavingsExperience({
 
       {session && selected && prepareMoneyAction && executeMoneyAction ? (
         <SavingsMoneyDialog
-          open={actionMode !== null}
-          mode={actionMode ?? "deposit"}
+          open={visibleActionMode !== null}
+          mode={visibleActionMode ?? "deposit"}
           session={session}
           candidate={selected}
           availableLabel={
-            actionMode === "deposit"
+            visibleActionMode === "deposit"
               ? availableUsdcBaseUnits
                 ? `${formatUsdStablecoinAmount(availableUsdcBaseUnits)} available`
                 : undefined
@@ -459,11 +500,13 @@ export function SavingsExperience({
                 : undefined
           }
           availableBaseUnits={
-            actionMode === "deposit" ? availableUsdcBaseUnits : selectedAmount?.toString() ?? null
+            visibleActionMode === "deposit"
+              ? availableUsdcBaseUnits
+              : selectedAmount?.toString() ?? null
           }
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
-          onClose={() => setActionMode(null)}
+          onClose={closeAction}
         />
       ) : null}
     </section>

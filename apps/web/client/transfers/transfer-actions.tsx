@@ -16,10 +16,11 @@ import {
 } from "@/client/account/cdp-client";
 import {
   commitClientUrl,
-  moneyFlowHref,
-  withoutMoneyFlowHref,
+  flowHref,
+  withoutFlowHref,
 } from "@/config/shell-location";
 import { markHomePerformance } from "@/client/observability/perf-marks";
+import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { SendDialog } from "./send-dialog";
 import { TRANSFER_ASSETS, formatSendConfirmAmount } from "@/shared/transfers/transfer-helpers";
 import type { ConfirmedTransfer } from "@/shared/transfers/types";
@@ -56,6 +57,7 @@ export function TransferActionsForWallet({
   initialActionId = null,
   availableByAsset,
 }: TransferActionsProps & { wallet: TransferWallet }) {
+  const routing = useOptionalHomeShellRouting();
   const [sendOpen, setSendOpen] = useState(false);
   const [modalOwner, setModalOwner] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
@@ -71,7 +73,8 @@ export function TransferActionsForWallet({
   const boundary = walletBoundary(wallet);
   const verifiedAddress =
     wallet.status === "verified" ? wallet.session?.smartAccount?.address ?? null : null;
-  const visibleSend = modalOwner === boundary && sendOpen;
+  const routeOpen = routing ? routing.state.flow === "send" : initialOpen;
+  const visibleSend = modalOwner === boundary && (routing ? routeOpen : sendOpen);
   const dropPrivate = modalOwner !== null && modalOwner !== boundary;
   const visibleSuccess = success && success.owner === boundary ? success.transfer : null;
 
@@ -80,23 +83,14 @@ export function TransferActionsForWallet({
   }, [boundary]);
 
   useEffect(() => {
-    if (!initialOpen || !boundary) return;
+    if (!routeOpen || !boundary) return;
     const frame = window.requestAnimationFrame(() => {
       setSuccess(null);
       setModalOwner(boundary);
       setSendOpen(true);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [boundary, initialOpen]);
-
-  useEffect(() => {
-    const onPopState = () => {
-      const flow = new URLSearchParams(window.location.search).get("flow");
-      if (flow !== "send") setSendOpen(false);
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+  }, [boundary, routeOpen]);
 
   const openSend = () => {
     if (!boundary) return;
@@ -104,15 +98,18 @@ export function TransferActionsForWallet({
     setSuccess(null);
     setModalOwner(boundary);
     setSendOpen(true);
-    commitClientUrl(moneyFlowHref("/dashboard"));
+    if (routing) routing.setFlow("send");
+    else commitClientUrl(flowHref("/dashboard", "send"));
   };
   const close = () => {
     setSendOpen(false);
     if (openedInAppRef.current) {
       openedInAppRef.current = false;
       window.history.back();
+    } else if (routing) {
+      routing.clearFlow({ mode: "replace" });
     } else {
-      commitClientUrl(withoutMoneyFlowHref("/dashboard"), "replace");
+      commitClientUrl(withoutFlowHref("/dashboard"), "replace");
     }
   };
   const finishClose = () => {
@@ -120,11 +117,13 @@ export function TransferActionsForWallet({
     setModalOwner(null);
   };
   const showReview = useCallback((actionId: string) => {
-    commitClientUrl(moneyFlowHref("/dashboard", actionId), "replace");
-  }, []);
+    if (routing) routing.setFlow("send", { actionId, mode: "replace" });
+    else commitClientUrl(flowHref("/dashboard", "send", actionId), "replace");
+  }, [routing]);
   const showFirstStep = useCallback(() => {
-    commitClientUrl(moneyFlowHref("/dashboard"), "replace");
-  }, []);
+    if (routing) routing.setFlow("send", { mode: "replace" });
+    else commitClientUrl(flowHref("/dashboard", "send"), "replace");
+  }, [routing]);
 
   useEffect(() => {
     if (!success) return;

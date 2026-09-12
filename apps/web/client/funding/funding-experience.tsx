@@ -17,6 +17,7 @@ export type FundingExperienceProps = {
   open?: boolean;
   onClose?: () => void;
   initialStep?: AddMoneyStep;
+  onStepChange?: (step: AddMoneyStep) => void;
   regionId?: RegionId;
 };
 
@@ -59,6 +60,7 @@ function FundingExperienceBoundary({
   open = true,
   onClose,
   initialStep,
+  onStepChange,
   regionId = "GLOBAL",
 }: FundingExperienceForWalletProps) {
   const boundary = fundingBoundary(wallet);
@@ -78,6 +80,9 @@ function FundingExperienceBoundary({
   const requestEpochRef = useRef(0);
   const requestAbortRef = useRef<AbortController | null>(null);
   const openRef = useRef(open);
+  const wasOpenRef = useRef(open);
+  const onStepChangeRef = useRef(onStepChange);
+  onStepChangeRef.current = onStepChange;
 
   const fundingQuery = useHomeQuery({
     queryKey: queryOwnerKey
@@ -98,6 +103,18 @@ function FundingExperienceBoundary({
     () => fundingQuery.data ? readProviderBindings(fundingQuery.data[0]) : [],
     [fundingQuery.data],
   );
+
+  useEffect(() => {
+    onStepChangeRef.current?.(step);
+  }, [step]);
+
+  useEffect(() => {
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (open && !wasOpen && stepRef.current !== startStep) {
+      queueMicrotask(() => navigateTo(startStep, false));
+    }
+  }, [open, startStep]);
 
   useEffect(() => {
     const values = fundingQuery.data;

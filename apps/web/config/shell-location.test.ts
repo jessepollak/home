@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  moneyFlowHref,
+  flowHref,
   parseInboundUrlIntent,
   parseShellLocation,
   shellHref,
-  withoutMoneyFlowHref,
+  withoutFlowHref,
 } from "./shell-location";
 
 describe("shell location", () => {
@@ -51,6 +51,21 @@ describe("shell location", () => {
     });
   });
 
+  test("allowlists every addressable money flow and opens Save flows on Save", () => {
+    const cases = [
+      ["send", "home"],
+      ["add-money", "home"],
+      ["receive", "home"],
+      ["save-deposit", "save"],
+      ["save-withdraw", "save"],
+    ] as const;
+    for (const [flow, panel] of cases) {
+      const intent = parseInboundUrlIntent(new URLSearchParams(`flow=${flow}`));
+      expect(intent.flow).toBe(flow);
+      expect(intent.location.panel).toBe(panel);
+    }
+  });
+
   test("ignores malformed or unknown inbound values", () => {
     expect(parseInboundUrlIntent({
       panel: "explore",
@@ -71,6 +86,12 @@ describe("shell location", () => {
     });
   });
 
+  test("accepts action ids only for Send", () => {
+    expect(parseInboundUrlIntent(new URLSearchParams(
+      "flow=receive&action=11111111-1111-4111-8111-111111111111",
+    )).actionId).toBeNull();
+  });
+
   test("ignores invest params unless the panel is Invest", () => {
     expect(parseShellLocation({ panel: "save", shelf: "crypto", asset: "cbbtc" }))
       .toEqual({ panel: "save", account: null, shelf: null, asset: null });
@@ -80,14 +101,24 @@ describe("shell location", () => {
 describe("money flow location", () => {
   test("adds and removes only allowlisted flow state without URL payloads", () => {
     const balances = new URLSearchParams("panel=balances");
-    expect(moneyFlowHref("/dashboard", null, balances)).toBe(
+    expect(flowHref("/dashboard", "send", null, balances)).toBe(
       "/dashboard?panel=balances&flow=send",
     );
-    expect(moneyFlowHref("/dashboard", "11111111-1111-4111-8111-111111111111", balances))
-      .toBe("/dashboard?panel=balances&flow=send&action=11111111-1111-4111-8111-111111111111");
-    expect(withoutMoneyFlowHref(
+    expect(flowHref(
       "/dashboard",
-      new URLSearchParams("flow=send&action=11111111-1111-4111-8111-111111111111"),
-    )).toBe("/dashboard");
+      "send",
+      "11111111-1111-4111-8111-111111111111",
+      balances,
+    )).toBe("/dashboard?panel=balances&flow=send&action=11111111-1111-4111-8111-111111111111");
+    expect(flowHref(
+      "/dashboard",
+      "receive",
+      "11111111-1111-4111-8111-111111111111",
+      balances,
+    )).toBe("/dashboard?panel=balances&flow=receive");
+    expect(withoutFlowHref(
+      "/dashboard",
+      new URLSearchParams("panel=balances&flow=send&action=11111111-1111-4111-8111-111111111111"),
+    )).toBe("/dashboard?panel=balances");
   });
 });

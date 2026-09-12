@@ -9,7 +9,12 @@ export const SHELL_FLOW_PARAM = "flow";
 export const SHELL_ACTION_PARAM = "action";
 
 export type ShellAccount = "signin" | "settings";
-export type ShellFlow = "send";
+export type ShellFlow =
+  | "send"
+  | "add-money"
+  | "receive"
+  | "save-deposit"
+  | "save-withdraw";
 
 export type ShellLocation = {
   panel: ShellPanelId;
@@ -33,6 +38,13 @@ export type ShellSearchInput = URLSearchParams | Record<
 >;
 
 const discoverShelfIds = new Set(["stocks", "crypto", "memes"]);
+const shellFlows = new Set<ShellFlow>([
+  "send",
+  "add-money",
+  "receive",
+  "save-deposit",
+  "save-withdraw",
+]);
 const actionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function firstQueryValue(
@@ -66,13 +78,20 @@ function parseAsset(value: string | undefined): string | null {
   return value && resolveMarketPriceAssetIdentity(value) ? value : null;
 }
 
+function parseShellFlow(value: string | undefined): ShellFlow | null {
+  return value && shellFlows.has(value as ShellFlow) ? value as ShellFlow : null;
+}
+
 export function parseInboundUrlIntent(
   search: ShellSearchInput,
 ): InboundUrlIntent {
-  const panel = parseShellPanel(readSearchValue(search, SHELL_PANEL_PARAM));
-  const flow = readSearchValue(search, SHELL_FLOW_PARAM) === "send"
-    ? "send"
-    : null;
+  const flow = parseShellFlow(readSearchValue(search, SHELL_FLOW_PARAM));
+  const requestedPanel = readSearchValue(search, SHELL_PANEL_PARAM);
+  const panel = requestedPanel === undefined && (
+    flow === "save-deposit" || flow === "save-withdraw"
+  )
+    ? "save"
+    : parseShellPanel(requestedPanel);
   const action = readSearchValue(search, SHELL_ACTION_PARAM);
   return {
     kind: "inbound-url-intent",
@@ -91,7 +110,7 @@ export function parseInboundUrlIntent(
       : null,
     addMoney: readSearchValue(search, "add-money") === "1",
     flow,
-    actionId: flow && action && actionIdPattern.test(action) ? action : null,
+    actionId: flow === "send" && action && actionIdPattern.test(action) ? action : null,
   };
 }
 
@@ -119,8 +138,9 @@ export function shellHref(
   return query ? `${path}?${query}` : path;
 }
 
-export function moneyFlowHref(
+export function flowHref(
   path: string,
+  flow: ShellFlow,
   actionId: string | null = null,
   search?: URLSearchParams,
 ): string {
@@ -130,8 +150,8 @@ export function moneyFlowHref(
       ? new URL(path, "https://home.invalid")
       : new URL(window.location.href);
   current.pathname = path;
-  current.searchParams.set(SHELL_FLOW_PARAM, "send");
-  if (actionId && actionIdPattern.test(actionId)) {
+  current.searchParams.set(SHELL_FLOW_PARAM, flow);
+  if (flow === "send" && actionId && actionIdPattern.test(actionId)) {
     current.searchParams.set(SHELL_ACTION_PARAM, actionId);
   } else {
     current.searchParams.delete(SHELL_ACTION_PARAM);
@@ -139,7 +159,7 @@ export function moneyFlowHref(
   return `${current.pathname}${current.search}`;
 }
 
-export function withoutMoneyFlowHref(
+export function withoutFlowHref(
   path: string,
   search?: URLSearchParams,
 ): string {
