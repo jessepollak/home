@@ -12,7 +12,6 @@ const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
 );
 const { ActivityPanel } = await import("./activity-panel");
-const { RecentMoneyActions } = await import("@/client/money-actions/recent-operations");
 
 class ControlledIntersectionObserver implements IntersectionObserver {
   static instances: ControlledIntersectionObserver[] = [];
@@ -111,6 +110,7 @@ function pageFor(
   return {
     walletAddress,
     chainId: 8453,
+    recordedOperations: "available",
     window: { from, to },
     transfers: options.empty
       ? []
@@ -198,29 +198,21 @@ describe("ActivityPanel", () => {
     expect(within(dialog).getByText("Confirmed")).toBeTruthy();
   });
 
-  test("keeps onchain transfers available when recorded operations fail", async () => {
-    const verifiedSession = session("subject-a", WALLET_A);
+  test("keeps onchain rows readable with a small recorded-actions notice", async () => {
     const view = render(
       <ActivityPanel
-        session={verifiedSession}
-        fetchActivity={async (query) => pageFor(query, WALLET_A)}
-        leading={
-          <RecentMoneyActions
-            session={verifiedSession}
-            fetchOperations={async () => {
-              throw new Error("secondary source unavailable");
-            }}
-            readOperation={async () => ({})}
-            embedded
-          />
-        }
+        session={session("subject-a", WALLET_A)}
+        fetchActivity={async (query) => ({
+          ...pageFor(query, WALLET_A),
+          recordedOperations: "unavailable",
+        })}
       />,
     );
 
     await waitFor(() => expect(view.getByText("Received")).toBeTruthy());
     expect(
-      await view.findByText(
-        "Recorded Home actions are unavailable. Onchain transfers are still shown.",
+      view.getByText(
+        "Pending Home actions are temporarily unavailable. Onchain activity is still shown.",
       ),
     ).toBeTruthy();
     expect(view.queryByText("Activity is temporarily unavailable.")).toBeNull();
@@ -262,6 +254,7 @@ describe("ActivityPanel", () => {
         id: "event-2",
         blockNumber: "19",
       });
+      second.recordedOperations = "unavailable";
       second.source.stale = false;
       second.source.executionTimestamp = new Date(
         new Date(second.window.to).getTime() - 1_000,
@@ -294,6 +287,7 @@ describe("ActivityPanel", () => {
     expect(secondQuery.get("to")).toBe(firstQuery.get("to"));
     expect(secondQuery.get("cursor")).toBe("cursor-1");
     expect(view.queryByText(/Updated /)).toBeNull();
+    expect(view.getByText(/Pending Home actions are temporarily unavailable/)).toBeTruthy();
     expect(initialExecutionTimestamp).not.toBe("");
   });
 

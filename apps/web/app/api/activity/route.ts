@@ -3,6 +3,7 @@ import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
 import { createSessionHandler } from "@/server/cdp/session";
 import { createActivityHandler } from "@/server/activity/handler";
 import { getRecentBaseActivity } from "@/server/activity/reader";
+import { getMoneyActionStore } from "@/server/money-actions/runtime-store";
 import { writeObservabilityEvent } from "@/server/observability/log";
 
 export const runtime = "nodejs";
@@ -19,5 +20,9 @@ const authorizeSession = createSessionHandler({
 export const GET = createActivityHandler({
   authorize: authorizeSession,
   readActivity: getRecentBaseActivity,
+  readRecordedOperations: async (owner, signal) => {
+    const store = await getMoneyActionStore();
+    await store.list(owner, 50, signal);
+  },
   observe: writeObservabilityEvent,
 });

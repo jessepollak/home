@@ -459,6 +459,7 @@ function activityPage(
   return {
     walletAddress,
     chainId: BASE_CHAIN_ID,
+    recordedOperations: "available",
     window: {
       from: new Date(toTime - 31 * 24 * 60 * 60 * 1000).toISOString(),
       to,

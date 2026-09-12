@@ -3,8 +3,9 @@ import {
   type AccountProvider,
 } from "@/shared/account/session-types";
 import { ChainDataError } from "@/server/chain-data/errors";
-import type { ObservabilityEvent } from "@/server/observability/schema";
-import type { ActivityReader } from "./types";
+import { writeObservabilityEvent } from "@/server/observability/log";
+import type { MoneyActionOwner } from "@/shared/money-actions/types";
+import type { ActivityReader, RecordedOperationsReader } from "./types";
 
 export type SessionAuthorizer = (request: Request) => Promise<Response>;
 
@@ -14,24 +15,17 @@ const privateResponseHeaders = {
   Vary: `Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
 } as const;
 
-type ActivityReadObservation = Extract<
-  ObservabilityEvent,
-  { kind: "activity-read" }
->;
-
 export function createActivityHandler(dependencies: {
   authorize: SessionAuthorizer;
   readActivity: ActivityReader;
+  readRecordedOperations?: RecordedOperationsReader;
+  recordedOperationsTimeoutMs?: number;
+  reportRecordedOperationsFailure?: () => void;
   now?: () => Date;
-  clock?: () => number;
-  observe?: (event: ActivityReadObservation) => unknown;
 }) {
   const now = dependencies.now ?? (() => new Date());
-  const clock = dependencies.clock ?? (() => Date.now());
-  const observe = dependencies.observe ?? (() => undefined);
 
   return async function GET(request: Request): Promise<Response> {
-    const requestStartedAt = clock();
     const boundaryResponse = await dependencies.authorize(request);
     if (!boundaryResponse.ok) {
       return boundaryResponse;
@@ -65,7 +59,17 @@ export function createActivityHandler(dependencies: {
       );
     }
 
-    const sourceStartedAt = clock();
+    const recordedOperations = readRecordedOperationsAvailability(
+      dependencies,
+      {
+        subject: session.subject,
+        address: session.smartAccount.address,
+        chainId: 8453,
+        accountProvider: session.accountProvider,
+      },
+      request.signal,
+    );
+
     try {
       const page = await dependencies.readActivity(
         {
@@ -76,44 +80,68 @@ export function createActivityHandler(dependencies: {
         activityRequest,
         request.signal,
       );
-      emitActivityObservation(observe, {
-        kind: "activity-read",
-        route: "/api/activity",
-        outcome: "succeeded",
-        source: "cdp-sql",
-        durationMs: elapsedMs(clock, requestStartedAt),
-        sourceDurationMs: elapsedMs(clock, sourceStartedAt),
-        rowCount: page.transfers.length,
-      });
-      return privateJson(page, 200);
+      return privateJson(
+        { ...page, recordedOperations: await recordedOperations },
+        200,
+      );
     } catch (error) {
-      emitActivityObservation(observe, {
-        kind: "activity-read",
-        route: "/api/activity",
-        outcome: "failed",
-        source: "cdp-sql",
-        durationMs: elapsedMs(clock, requestStartedAt),
-        sourceDurationMs: elapsedMs(clock, sourceStartedAt),
-        rowCount: 0,
-      });
       return activityReadError(error);
     }
   };
 }
 
-function emitActivityObservation(
-  observe: (event: ActivityReadObservation) => unknown,
-  event: ActivityReadObservation,
-): void {
-  try {
-    observe(event);
-  } catch {
-    // Observability must never alter activity response behavior.
-  }
-}
+async function readRecordedOperationsAvailability(
+  dependencies: {
+    readRecordedOperations?: RecordedOperationsReader;
+    recordedOperationsTimeoutMs?: number;
+    reportRecordedOperationsFailure?: () => void;
+  },
+  owner: MoneyActionOwner,
+  requestSignal: AbortSignal,
+): Promise<"available" | "unavailable"> {
+  if (!dependencies.readRecordedOperations) return "available";
 
-function elapsedMs(clock: () => number, startedAt: number): number {
-  return Math.max(0, Math.round(clock() - startedAt));
+  const controller = new AbortController();
+  const abort = () => controller.abort(requestSignal.reason);
+  requestSignal.addEventListener("abort", abort, { once: true });
+  const timeout = setTimeout(
+    () => controller.abort(new DOMException("Recorded operations timed out.", "TimeoutError")),
+    dependencies.recordedOperationsTimeoutMs ?? 2_000,
+  );
+
+  try {
+    await Promise.race([
+      dependencies.readRecordedOperations(owner, controller.signal),
+      new Promise<never>((_resolve, reject) => {
+        controller.signal.addEventListener(
+          "abort",
+          () => reject(controller.signal.reason ?? new DOMException("Aborted", "AbortError")),
+          { once: true },
+        );
+      }),
+    ]);
+    return "available";
+  } catch {
+    try {
+      if (dependencies.reportRecordedOperationsFailure) {
+        dependencies.reportRecordedOperationsFailure();
+      } else {
+        writeObservabilityEvent({
+          kind: "unhandled-server-error",
+          route: "/api/activity/recorded-operations",
+          method: "GET",
+          errorName: "RecordedOperationsUnavailable",
+          routeType: "secondary-source",
+        });
+      }
+    } catch {
+      // A reporting sink must never change the readable onchain response.
+    }
+    return "unavailable";
+  } finally {
+    clearTimeout(timeout);
+    requestSignal.removeEventListener("abort", abort);
+  }
 }
 
 function parseActivityRequest(
@@ -149,6 +177,8 @@ async function parseAuthorizedSession(
   expectedProvider: AccountProvider | null,
 ): Promise<{
   smartAccount: { address: `0x${string}`; chainId: 8453 } | null;
+  subject: string;
+  accountProvider: AccountProvider;
 } | null> {
   let value: unknown;
   try {
@@ -166,7 +196,13 @@ async function parseAuthorizedSession(
   ) {
     return null;
   }
-  if (value.smartAccount === null) return { smartAccount: null };
+  if (value.smartAccount === null) {
+    return {
+      smartAccount: null,
+      subject: value.user.subject,
+      accountProvider: expectedProvider,
+    };
+  }
   if (!isRecord(value.smartAccount)) return null;
   const { address, chainId } = value.smartAccount;
   if (
@@ -181,6 +217,8 @@ async function parseAuthorizedSession(
       address: address.toLowerCase() as `0x${string}`,
       chainId: 8453,
     },
+    subject: value.user.subject,
+    accountProvider: expectedProvider,
   };
 }
 

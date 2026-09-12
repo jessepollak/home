@@ -57,9 +57,18 @@ export type ActivitySource = {
   fetchedAt: string;
 };
 
+export type RecordedOperationsAvailability = "available" | "unavailable";
+
+export function isRecordedOperationsAvailability(
+  value: unknown,
+): value is RecordedOperationsAvailability {
+  return value === "available" || value === "unavailable";
+}
+
 export type ActivityPage = {
   walletAddress: `0x${string}`;
   chainId: typeof ACTIVITY_BASE_CHAIN_ID;
+  recordedOperations: RecordedOperationsAvailability;
   window: {
     from: string;
     to: string;
