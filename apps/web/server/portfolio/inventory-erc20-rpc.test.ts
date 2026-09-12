@@ -72,15 +72,17 @@ describe("configured ERC-20 RPC recovery", () => {
         { id: "usdc-a", contractAddress: PORTFOLIO_USDC_ADDRESS },
         { id: "usdc-b", contractAddress: PORTFOLIO_USDC_ADDRESS.toLowerCase() as `0x${string}` },
         { id: "idrx", contractAddress: verifiedLocalCashAssets.IDR.contractAddress },
+        { id: "eurc", contractAddress: verifiedLocalCashAssets.EUR.contractAddress },
       ],
       OWNER,
       new AbortController().signal,
     );
-    expect(bodies).toHaveLength(2);
+    expect(bodies).toHaveLength(3);
     expect(bodies.every((body) => !Array.isArray(body))).toBeTrue();
     expect(amounts.get("usdc-a")).toBe("5");
     expect(amounts.get("usdc-b")).toBe("5");
     expect(amounts.get("idrx")).toBeNull();
+    expect(amounts.get("eurc")).toBe("5");
   });
 
   test("keeps completed singles when the helper stage deadline aborts a later call", async () => {
@@ -125,24 +127,31 @@ describe("configured ERC-20 RPC recovery", () => {
     );
   });
 
-  test("covers the fixed configured Base ERC-20 set within the 20-contract bound", async () => {
+  test("attempts all 20 configured contracts sequentially and resolves a needed token last", async () => {
     const configured = getDirectPortfolioAssets().filter(
       (asset): asset is typeof asset & { contractAddress: `0x${string}` } =>
         asset.kind === "erc20" && asset.contractAddress !== null,
     );
     expect(configured).toHaveLength(CONFIGURED_ERC20_RECOVERY_MAX_CONTRACTS);
 
-    let calls = 0;
+    const targets: string[] = [];
     const reader = createConfiguredErc20BalanceReader({
       rpcUrl: "https://rpc.example.test",
-      fetchImpl: async () => {
-        calls += 1;
-        return Response.json({ jsonrpc: "2.0", id: 1, result: dataWord(BigInt(calls)) });
+      fetchImpl: async (_input, init) => {
+        const request = JSON.parse(String(init?.body)) as {
+          params: Array<{ to: string } | string>;
+        };
+        targets.push((request.params[0] as { to: string }).to);
+        const amount = targets.length === configured.length ? BigInt(9) : BigInt(0);
+        return Response.json({ jsonrpc: "2.0", id: 1, result: dataWord(amount) });
       },
     });
     const amounts = await reader(configured, OWNER, new AbortController().signal);
-    expect(calls).toBe(CONFIGURED_ERC20_RECOVERY_MAX_CONTRACTS);
+    expect(targets).toEqual(
+      configured.map(({ contractAddress }) => contractAddress.toLowerCase()),
+    );
     expect(amounts.size).toBe(CONFIGURED_ERC20_RECOVERY_MAX_CONTRACTS);
+    expect(amounts.get(configured.at(-1)!.id)).toBe("9");
   });
 
   test("fails closed before transport when the deduped request exceeds the bound", async () => {
