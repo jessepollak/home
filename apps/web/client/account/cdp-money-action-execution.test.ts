@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { MfaError } from "@coinbase/cdp-core";
+import { executeActionOnce } from "./action-dispatch";
 import {
-  executeActionOnce,
   normalizeResolutionState,
   pollTransactionResolution,
   type ResolutionClock,
-} from "./cdp-money-action-execution";
+} from "./action-resolution";
 import { BaseAccountConnectorError } from "./base-account-connector";
 import { TransferExecutionError } from "@/shared/transfers/types";
 

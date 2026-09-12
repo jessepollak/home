@@ -8,7 +8,8 @@ import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 
 const { act, cleanup, render, waitFor } = await import("@testing-library/react");
 const { useEffect } = await import("react");
-const { AccountWalletSessionOwner, useAccountWallet } = await import("./cdp-client");
+const { useAccountWallet } = await import("./cdp-client");
+const { AccountWalletSessionOwner } = await import("./cdp-session-lifecycle");
 const { connectWithBaseProvider, restoreWithBaseProvider } = await import("./base-account-connector");
 
 const OWNER_A = "owner-a";

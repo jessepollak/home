@@ -10,6 +10,12 @@ const { usePriceHistory } = await import("./use-price-history");
 
 const originalFetch = window.fetch;
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
+  return { promise, resolve };
+}
+
 function historyPayload(
   assetId: string,
   range: MarketPriceRange,
@@ -52,12 +58,11 @@ afterEach(() => {
 
 describe("usePriceHistory", () => {
   test("keeps the last ready series while a new range for the same asset loads", async () => {
+    const nextRange = deferred<void>();
     window.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
       const range = url.includes("range=1D") ? "1D" : "1W";
-      if (range === "1D") {
-        await new Promise((resolve) => setTimeout(resolve, 30));
-      }
+      if (range === "1D") await nextRange.promise;
       return Response.json(
         historyPayload("cbbtc", range, [
           {
@@ -77,6 +82,7 @@ describe("usePriceHistory", () => {
     expect(page().getByTestId("count").textContent).toBe("1");
     expect(page().getByTestId("first").textContent).toBe("62000");
 
+    nextRange.resolve();
     await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
     expect(page().getByTestId("first").textContent).toBe("64100");
   });
@@ -136,12 +142,11 @@ describe("usePriceHistory", () => {
   });
 
   test("does not keep another asset’s series while the next history loads", async () => {
+    const nextAsset = deferred<void>();
     window.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
       const assetId = url.includes("assetId=cbltc") ? "cbltc" : "cbbtc";
-      if (assetId === "cbltc") {
-        await new Promise((resolve) => setTimeout(resolve, 30));
-      }
+      if (assetId === "cbltc") await nextAsset.promise;
       return Response.json(
         historyPayload(assetId, "1W", [
           {

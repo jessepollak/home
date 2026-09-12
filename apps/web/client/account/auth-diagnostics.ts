@@ -84,14 +84,6 @@ export function recordAuthDiagnostic(event: AuthDiagnosticInput): void {
   }
 }
 
-export function classifyAuthDiagnosticError(
-  error: unknown,
-): "abort" | "sdk-error" | "unknown" {
-  if (error instanceof DOMException && error.name === "AbortError") return "abort";
-  if (error instanceof Error) return "sdk-error";
-  return "unknown";
-}
-
 function readStoredEvents(): AuthDiagnosticEvent[] {
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);

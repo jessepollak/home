@@ -17,7 +17,8 @@ import {
 
 const { act, cleanup, render, waitFor } = await import("@testing-library/react");
 const { useEffect } = await import("react");
-const { AccountWalletSessionOwner, useAccountWallet } = await import("./cdp-client");
+const { useAccountWallet } = await import("./cdp-client");
+const { AccountWalletSessionOwner } = await import("./cdp-session-lifecycle");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111" as const;
 const ADDRESS_B = "0x2222222222222222222222222222222222222222" as const;

@@ -1,68 +1,24 @@
 "use client";
 
-import { useCallback, useRef } from "react";
 import {
   BaseAccountConnectorError,
   type BaseAccountInvalidation,
   type ConnectedBaseAccount,
 } from "./base-account-connector";
-import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
-import type { VerifiedAccountSession } from "./session-client";
 import type { AccountProvider } from "@/shared/account/session-types";
-
-export type AuthenticationIdentity = {
-  ownerKey: string | null;
-  generation: number;
-};
-
-export type AccountSelection =
-  | { provider: "restoring"; hint: AccountProvider | null }
-  | {
-      provider: "pending-authentication";
-      attemptedProvider: AccountProvider;
-      authentication: AuthenticationIdentity;
-    }
-  | {
-      provider: "blocked-authentication";
-      authentication: AuthenticationIdentity | null;
-      restoredPendingHint?: true;
-    }
-  | { provider: "cdp-embedded" }
-  | {
-      provider: "base-account";
-      expectedAddress: `0x${string}`;
-      ownerKey: string | null;
-      admissionReady: boolean;
-    };
 
 type AccountProviderHint = AccountProvider | `pending:${AccountProvider}`;
 
-const ACCOUNT_PROVIDER_HINT_KEY = "home:account-provider";
+export const ACCOUNT_PROVIDER_HINT_KEY = "home:account-provider";
 
-export function embeddedSelection(): AccountSelection {
-  return { provider: "cdp-embedded" };
-}
-
-export function initialAccountSelection(): AccountSelection {
+export function hasAccountProviderHint(): boolean {
   try {
     const hint = window.sessionStorage.getItem(ACCOUNT_PROVIDER_HINT_KEY);
-    if (hint === "cdp-embedded" || hint === "base-account") {
-      return { provider: "restoring", hint };
-    }
-    if (hint === "pending:cdp-embedded" || hint === "pending:base-account") {
-      return {
-        provider: "blocked-authentication",
-        authentication: null,
-        restoredPendingHint: true,
-      };
-    }
-    if (hint !== null) {
-      return { provider: "blocked-authentication", authentication: null };
-    }
+    return hint === "cdp-embedded" || hint === "base-account" ||
+      hint === "pending:cdp-embedded" || hint === "pending:base-account";
   } catch {
-    // The restored SDK identity can still select one unambiguous provider.
+    return false;
   }
-  return { provider: "restoring", hint: null };
 }
 
 export function writeAccountProviderHint(provider: AccountProviderHint | null) {
@@ -130,62 +86,3 @@ export function invalidationMessage(reason: BaseAccountInvalidation): string {
       return "The Base Account disconnected. Sign in again to continue.";
   }
 }
-
-export function useWalletProviderCapabilities({
-  ownerFence,
-}: {
-  ownerFence: OwnerGenerationFence;
-}) {
-  const accountSelectionRef = useRef<AccountSelection>(initialAccountSelection());
-  const baseConnectionRef = useRef<ConnectedBaseAccount | null>(null);
-  const baseLoginInProgressRef = useRef(false);
-  const clearBaseConnection = useCallback(() => {
-    baseLoginInProgressRef.current = false;
-    const connection = baseConnectionRef.current;
-    baseConnectionRef.current = null;
-    if (connection) {
-      void connection.disconnect();
-    }
-  }, []);
-
-  const signTypedData = useCallback(
-    async (
-      typedData: unknown,
-      session: VerifiedAccountSession | null,
-      status: string,
-      ownerKey: string | null,
-      authorizationBoundary: string | null,
-    ) => {
-      if (
-        status !== "verified" ||
-        !session?.smartAccount ||
-        session.accountProvider !== "base-account"
-      ) {
-        throw new BaseAccountConnectorError("invalid-provider-response");
-      }
-      const identity = ownerFence.capture(ownerKey, authorizationBoundary);
-      const connection = baseConnectionRef.current;
-      if (
-        !ownerFence.isCurrent(identity) ||
-        !connection ||
-        connection.address.toLowerCase() !== session.smartAccount.address.toLowerCase()
-      ) {
-        throw new BaseAccountConnectorError("invalid-provider-response");
-      }
-      return connection.signTypedData(typedData);
-    },
-    [ownerFence],
-  );
-
-  return {
-    accountSelectionRef,
-    baseConnectionRef,
-    baseLoginInProgressRef,
-    clearBaseConnection,
-    signTypedData,
-  };
-}
-
-export type WalletProviderCapabilities = ReturnType<
-  typeof useWalletProviderCapabilities
->;

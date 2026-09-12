@@ -19,10 +19,10 @@ const { useMemo, useState } = await import("react");
 const { AccountSignInSheet } = await import("./account-screen");
 const {
   AccountWalletClientProvider,
-  AccountWalletSessionOwner,
   createBlockedAccountWalletClient,
   useAccountWallet,
 } = await import("./cdp-client");
+const { AccountWalletSessionOwner } = await import("./cdp-session-lifecycle");
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

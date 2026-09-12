@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { VerifiedAccountSession } from "@/client/account/session-client";
+import { dataOwnerKey as dataOwnerKeyForSession } from "@/client/account/owner-keys";
 import { freshUntilMoved, type BalanceSnapshot } from "./fresh-until-moved";
 import { ownerQueryKey, ownerQueryMeta } from "./query-client";
 import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/parse-valuation";
@@ -95,7 +96,7 @@ export async function startBalanceFreshness(input: {
   const start = (state.starts.get(actionId) ?? 0) + 1;
   state.starts.set(actionId, start);
   const isLatestStart = () => state.starts.get(actionId) === start && !state.moved.has(actionId);
-  const dataOwnerKey = `${session.user.subject}\u0000${session.smartAccount.address.toLowerCase()}\u00008453\u0000${session.accountProvider}`;
+  const dataOwnerKey = dataOwnerKeyForSession(session);
   let actionsValue: unknown;
   try {
     actionsValue = await fetchVerifiedResource("/api/actions");
