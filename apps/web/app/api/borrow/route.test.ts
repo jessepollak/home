@@ -16,7 +16,7 @@ describe("/api/borrow route composition", () => {
     ]) {
       expect(response.status).toBe(401);
       expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
-      expect(response.headers.get("vary")).toBe("Authorization, X-Home-Account-Provider");
+      expect(response.headers.get("vary")).toBe("Cookie, Authorization, X-Home-Account-Provider");
       expect(await response.json()).toEqual({
         error: { code: "UNAUTHENTICATED", message: "A valid access token is required." },
       });

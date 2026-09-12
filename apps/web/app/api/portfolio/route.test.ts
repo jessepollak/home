@@ -16,7 +16,7 @@ describe("GET /api/portfolio route composition", () => {
     );
     expect(response.headers.get("pragma")).toBe("no-cache");
     expect(response.headers.get("vary")).toBe(
-      "Authorization, X-Home-Account-Provider",
+      "Cookie, Authorization, X-Home-Account-Provider",
     );
     expect(await response.json()).toEqual({
       error: {

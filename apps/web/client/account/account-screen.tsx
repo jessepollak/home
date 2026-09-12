@@ -480,6 +480,18 @@ export function AccountSignInSheet({
                   Try again
                 </Button>
               </div>
+            ) : !projectConfigured && baseAccountEnabled ? (
+              <div className={styles.form}>
+                <Button
+                  className={styles.formAction}
+                  variant="secondary"
+                  onClick={() => void handleBaseAccountSignIn()}
+                  autoFocus
+                  data-initial-focus
+                >
+                  Sign in with Base Account
+                </Button>
+              </div>
             ) : projectConfigured && flowId ? (
               <form className={styles.form} onSubmit={handleOtpSubmit}>
                 <div className={styles.fieldHeader}>

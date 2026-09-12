@@ -16,7 +16,7 @@ export type TransferReceiptReader = (
 const privateResponseHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
   Pragma: "no-cache",
-  Vary: "Authorization, X-Home-Account-Provider",
+  Vary: "Cookie, Authorization, X-Home-Account-Provider",
 } as const;
 
 export function createTransferReceiptHandler(dependencies: {

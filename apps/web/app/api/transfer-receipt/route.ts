@@ -12,6 +12,8 @@ const authorizeSession = createSessionHandler({
   baseAccountEnabled: isBaseAccountEnabled(
     process.env.NEXT_PUBLIC_ENABLE_BASE_ACCOUNT,
   ),
+  homeSessionSecret: process.env.HOME_SESSION_SECRET,
+  nativeBaseAccountEnabled: !process.env.NEXT_PUBLIC_CDP_PROJECT_ID?.trim(),
 });
 
 export const GET = createTransferReceiptHandler({

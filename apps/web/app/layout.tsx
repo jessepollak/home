@@ -5,6 +5,7 @@ import { CdpAccountProvider } from "@/client/account/cdp-client";
 import { SmokeFixtureAccountProvider } from "@/client/account/smoke-fixture-provider";
 import { normalizeProjectId } from "@/client/account/session-client";
 import { isBaseAccountEnabled } from "@/shared/account/session-types";
+import { isHomeSessionConfigured } from "@/server/auth/native-base-session";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,6 +21,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       projectId={normalizeProjectId(process.env.NEXT_PUBLIC_CDP_PROJECT_ID)}
       baseAccountEnabled={isBaseAccountEnabled(
         process.env.NEXT_PUBLIC_ENABLE_BASE_ACCOUNT,
+      )}
+      nativeBaseAccountEnabled={isHomeSessionConfigured(
+        process.env.HOME_SESSION_SECRET,
       )}
     >
       {children}

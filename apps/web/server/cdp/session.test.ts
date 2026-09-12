@@ -46,7 +46,7 @@ async function expectPrivateJson(
   );
   expect(response.headers.get("pragma")).toBe("no-cache");
   expect(response.headers.get("vary")).toBe(
-    `Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
+    `Cookie, Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
   );
   expect(await response.json()).toEqual(body);
 }

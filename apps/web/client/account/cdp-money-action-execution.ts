@@ -283,6 +283,7 @@ async function waitForEmbeddedReceipt(
   smartAccount: `0x${string}`,
   getOperation: NonNullable<AccountWalletSdkBoundary["getUserOperation"]>,
   accountProvider: VerifiedAccountSession["accountProvider"],
+  authentication: "cdp" | "native-base",
   getAccessToken: () => Promise<string | null>,
   sessionFetch: SessionFetch | undefined,
   assertActive: () => void,
@@ -298,6 +299,7 @@ async function waitForEmbeddedReceipt(
   return waitForBaseReceipt(
     candidate.transactionHash,
     accountProvider,
+    authentication,
     getAccessToken,
     sessionFetch,
     assertActive,
@@ -357,6 +359,7 @@ function errorStatus(error: unknown): number | null {
 async function waitForBaseReceipt(
   transactionHash: `0x${string}`,
   accountProvider: VerifiedAccountSession["accountProvider"],
+  authentication: "cdp" | "native-base",
   getAccessToken: () => Promise<string | null>,
   sessionFetch: SessionFetch | undefined,
   assertActive: () => void,
@@ -371,10 +374,13 @@ async function waitForBaseReceipt(
   }
   while (Date.now() < deadline) {
     assertActive();
-    const accessToken = await getAccessToken();
-    assertActive();
-    if (!accessToken) {
-      throw new TransferExecutionError("stale-session");
+    let accessToken: string | null = null;
+    if (authentication === "cdp") {
+      accessToken = await getAccessToken();
+      assertActive();
+      if (!accessToken) {
+        throw new TransferExecutionError("stale-session");
+      }
     }
 
     let response: Response;
@@ -385,7 +391,9 @@ async function waitForBaseReceipt(
           method: "GET",
           headers: {
             Accept: "application/json",
-            Authorization: `Bearer ${accessToken}`,
+            ...(authentication === "cdp"
+              ? { Authorization: `Bearer ${accessToken}` }
+              : {}),
             [ACCOUNT_PROVIDER_HEADER]: accountProvider,
           },
           cache: "no-store",
@@ -397,6 +405,9 @@ async function waitForBaseReceipt(
       continue;
     }
     assertActive();
+    if (response.status === 401) {
+      throw new TransferExecutionError("stale-session");
+    }
     if (!response.ok) {
       await waitForPoll();
       continue;
@@ -442,6 +453,7 @@ export function useMoneyActionExecution({
   sdkGetUserOperation,
   getAccessToken,
   sessionFetch,
+  authentication = "cdp",
   baseConnection,
   providerHandleJournal,
   transport,
@@ -454,6 +466,7 @@ export function useMoneyActionExecution({
   sdkGetUserOperation: AccountWalletSdkBoundary["getUserOperation"];
   getAccessToken: () => Promise<string | null>;
   sessionFetch?: SessionFetch;
+  authentication?: "cdp" | "native-base";
   baseConnection: MutableRefObject<ConnectedBaseAccount | null>;
   providerHandleJournal: ProviderHandleJournal;
   transport: AuthenticatedTransport;
@@ -564,6 +577,7 @@ export function useMoneyActionExecution({
           await waitForBaseReceipt(
             result.transactionHash,
             "base-account",
+            authentication,
             getAccessToken,
             sessionFetch,
             assertStillActive,
@@ -577,7 +591,7 @@ export function useMoneyActionExecution({
       }
       throw new TransferExecutionError("confirmation-timeout");
     },
-    [fetchMoneyActionApi, getAccessToken, sessionFetch],
+    [authentication, fetchMoneyActionApi, getAccessToken, sessionFetch],
   );
 
   const reconcileRecordedMoneyAction = useCallback(
@@ -594,6 +608,7 @@ export function useMoneyActionExecution({
         await waitForBaseReceipt(
           operation.transactionHash,
           prepared.owner.accountProvider,
+          authentication,
           getAccessToken,
           sessionFetch,
           assertStillActive,
@@ -641,6 +656,7 @@ export function useMoneyActionExecution({
         await waitForBaseReceipt(
           candidate.transactionHash,
           prepared.owner.accountProvider,
+          authentication,
           getAccessToken,
           sessionFetch,
           assertStillActive,
@@ -667,6 +683,7 @@ export function useMoneyActionExecution({
       return operationResult(operation);
     },
     [
+      authentication,
       fetchMoneyActionApi,
       getAccessToken,
       recoverBaseMoneyAction,
@@ -983,6 +1000,7 @@ export function useMoneyActionExecution({
             session.smartAccount.address,
             sdkGetUserOperation,
             handle.provider,
+            authentication,
             getAccessToken,
             sessionFetch,
             assertActive,
@@ -991,6 +1009,7 @@ export function useMoneyActionExecution({
           transactionHash = await waitForBaseReceipt(
             handle.transactionHash,
             handle.provider,
+            authentication,
             getAccessToken,
             sessionFetch,
             assertActive,
@@ -1015,7 +1034,14 @@ export function useMoneyActionExecution({
         throw normalized;
       }
     },
-    [getAccessToken, sdkGetUserOperation, session, sessionFetch, updatePendingTransfer],
+    [
+      authentication,
+      getAccessToken,
+      sdkGetUserOperation,
+      session,
+      sessionFetch,
+      updatePendingTransfer,
+    ],
   );
 
   const sendTransfer = useCallback(

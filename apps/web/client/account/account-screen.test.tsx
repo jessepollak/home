@@ -261,7 +261,7 @@ describe("production account sign-in sheet", () => {
     expect((dialog as HTMLDialogElement).open).toBe(true);
   });
 
-  test("shows email and Base Account side by side only when the deployment flag is enabled", async () => {
+  test("keeps configured CDP email and Base Account actions together when enabled", async () => {
     const disabledView = render(
       <SheetHarness
         requestEmailCode={async () => ({ flowId: "unused-flow" })}
@@ -457,7 +457,33 @@ describe("production account sign-in sheet", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  test("missing public project ID shows setup guidance instead of an outage", async () => {
+  test("shows only Base Account when native auth is enabled without CDP email configuration", async () => {
+    let baseSignInCalls = 0;
+    const client: AccountWalletClient = {
+      ...createBlockedAccountWalletClient("unconfigured"),
+      projectConfigured: false,
+      signInAvailability: "ready",
+      baseAccountEnabled: true,
+      signInWithBaseAccount: async () => {
+        baseSignInCalls += 1;
+      },
+    };
+
+    render(
+      <AccountWalletClientProvider client={client}>
+        <AccountSignInSheet open onClose={() => {}} />
+      </AccountWalletClientProvider>,
+    );
+
+    expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Continue with email" })).toBeNull();
+    fireEvent.click(
+      await page().findByRole("button", { name: "Sign in with Base Account" }),
+    );
+    await waitFor(() => expect(baseSignInCalls).toBe(1));
+  });
+
+  test("fails closed when neither CDP nor native Base Account is configured", async () => {
     render(
       <CdpAccountProvider projectId={null}>
         <button type="button" onClick={() => {}}>
@@ -476,6 +502,9 @@ describe("production account sign-in sheet", () => {
     const setupLink = page().getByRole("link", { name: "docs/cdp-setup.md" });
     expect((setupLink as HTMLAnchorElement).href).toContain("docs/cdp-setup.md");
     expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
+    expect(
+      page().queryByRole("button", { name: "Sign in with Base Account" }),
+    ).toBeNull();
     expect(page().queryByText("Sign-in is unavailable")).toBeNull();
     expect(page().queryByText("Try again later.")).toBeNull();
     expect(page().queryByText("Sign-in is not configured for this deployment.")).toBeNull();
