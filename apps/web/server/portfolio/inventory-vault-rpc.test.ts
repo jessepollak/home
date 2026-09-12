@@ -45,4 +45,30 @@ describe("vault positions RPC reader", () => {
     expect(methods.filter((method) => method === "eth_chainId")).toHaveLength(1);
     expect(methods).not.toContain("graphql");
   });
+  test("a failed vault read rejects instead of reporting a zero position", async () => {
+    type FixtureRequest = { id: number; method: string; params: Array<{ data?: string } | string | boolean> };
+    let ethCalls = 0;
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as FixtureRequest | FixtureRequest[];
+      const respond = (entry: FixtureRequest) => {
+        if (entry.method === "eth_chainId") return { jsonrpc: "2.0", id: entry.id, result: "0x2105" };
+        if (entry.method === "eth_getBlockByNumber") {
+          return { jsonrpc: "2.0", id: entry.id, result: { number: "0x10", hash: HASH, timestamp: "0x64" } };
+        }
+        ethCalls += 1;
+        // One vault's calls fail with an RPC error envelope (rate limit); the others succeed.
+        if (ethCalls <= 2) return { jsonrpc: "2.0", id: entry.id, error: { code: -32016, message: "rate limited" } };
+        const firstParam = entry.params[0];
+        const data = typeof firstParam === "object" && firstParam ? firstParam.data ?? "" : "";
+        return { jsonrpc: "2.0", id: entry.id, result: data.startsWith("0x38d52e0f") ? addressWord(BASE_USDC.address) : word(BigInt(0)) };
+      };
+      return Response.json(Array.isArray(body) ? body.map(respond) : respond(body));
+    }) as typeof fetch;
+
+    await expect(createVaultPositionsReader({
+      fetchImpl,
+      rpcUrl: "https://rpc.example.test",
+      now: () => new Date("2026-09-12T12:00:00.000Z"),
+    })(OWNER)).rejects.toThrow(/could not read/);
+  });
 });

@@ -296,7 +296,7 @@ export function FoundationCatalog() {
               valueDescription="Confirmed"
               tone="success"
               onPress={() => setRowActivations((count) => count + 1)}
-              aria-label="Open received transaction"
+              actionHint="Open received transaction"
             />
             <ListRow
               leading={<span className="catalog-row-mark">ETH</span>}
@@ -306,7 +306,7 @@ export function FoundationCatalog() {
               valueDescription="−1.2% today"
               tone="error"
               href="#list-row-title"
-              aria-label="View Ethereum details"
+              actionHint="View Ethereum details"
             />
           </ul>
           <Text as="span" textStyle="secondary" data-row-activations>Row activations: {rowActivations}</Text>

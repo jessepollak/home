@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type {
   AnchorHTMLAttributes,
   ButtonHTMLAttributes,
@@ -12,6 +13,8 @@ type ListRowBaseProps = Omit<HTMLAttributes<HTMLLIElement>, "children" | "onClic
   leading: ReactNode;
   label: ReactNode;
   description?: ReactNode;
+  /** Interactive rows only: announced as a description after the row content ("View details"). */
+  actionHint?: string;
   value: ReactNode;
   valueDescription?: ReactNode;
   tone?: ListRowTone;
@@ -62,8 +65,12 @@ export function ListRow({
   download,
   className,
   "aria-label": ariaLabel,
+  actionHint,
   ...rowProps
 }: ListRowProps) {
+  // Interactive rows keep their content as the accessible name; the action hint is a description.
+  const hintId = useId();
+  const describedBy = actionHint ? hintId : undefined;
   const content = (
     <>
       <span className="home-ui-list-row__leading">{leading}</span>
@@ -93,9 +100,10 @@ export function ListRow({
         type="button"
         onClick={onPress}
         disabled={disabled}
-        aria-label={ariaLabel}
+        aria-describedby={describedBy}
       >
         {content}
+        {actionHint ? <span id={hintId} hidden>{actionHint}</span> : null}
       </button>
     );
   } else if (href !== undefined) {
@@ -106,9 +114,10 @@ export function ListRow({
         target={target}
         rel={rel}
         download={download}
-        aria-label={ariaLabel}
+        aria-describedby={describedBy}
       >
         {content}
+        {actionHint ? <span id={hintId} hidden>{actionHint}</span> : null}
       </a>
     );
   } else {

@@ -184,7 +184,6 @@ async function installApiFixtures(
       if (delayedValuation) await delayedValuation;
       return json(route, options.portfolioValuation ?? valuation());
     }
-    if (path === "/api/portfolio") return json(route, { walletAddress: OWNER, chainId: 8453, blockNumber: "16", blockHash: `0x${"cd".repeat(32)}`, blockTimestamp: "100", fetchedAt: new Date().toISOString(), assets: [{ id: "usdc", symbol: "USDC", decimals: 6, kind: "erc20", tokenAddress: USDC, balanceBaseUnits: "12340000" }, { id: "eth", symbol: "ETH", decimals: 18, kind: "native", balanceBaseUnits: "0" }] });
     if (path === "/api/actions/prepare" && request.method() === "POST") { status = "unconfirmed"; return json(route, action()); }
     if (path === `/api/actions/${ACTION_ID}/confirm`) { status = "pending"; return json(route, { id: ACTION_ID, calls: action().calls, summary: { title: "Send USDC", amounts: action().amounts, warnings: action().warnings, expiresAt: EXPIRES_AT }, expiresAt: EXPIRES_AT }); }
     if (path === `/api/actions/${ACTION_ID}/handle`) {
@@ -682,7 +681,7 @@ async function openInvestAssetDetail(page: Page) {
     )
     .toBe(0);
 
-  await page.getByRole("button", { name: "NVIDIA details" }).click();
+  await page.getByRole("button", { name: /^NVIDIA/ }).click();
   await expect(page.getByRole("heading", { name: "NVIDIA" })).toBeVisible();
   await expect(page).toHaveURL(/[?&]asset=nvdac/);
 }

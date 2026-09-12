@@ -70,7 +70,7 @@ function FinanceRow({
         valueDescription={valueDescription}
         tone={valueTone}
         onPress={onActivate}
-        aria-label={activateLabel ?? "View details"}
+        actionHint={activateLabel ?? "View details"}
       />
     );
   }

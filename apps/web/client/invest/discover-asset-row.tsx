@@ -38,7 +38,7 @@ export function DiscoverAssetRow({
         <span className={styles.change} data-money-change={changeTone}>{change}</span>
       ) : undefined}
       onPress={onOpen}
-      aria-label={`${asset.displayName} details`}
+      actionHint={`View ${asset.displayName} details`}
     />
   );
 }

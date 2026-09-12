@@ -49,7 +49,7 @@ describe("RecentMoneyActions", () => {
       />,
     );
 
-    const row = await within(document.body).findByRole("button", { name: "View Send USDC transaction details" });
+    const row = await within(document.body).findByRole("button", { description: "View Send USDC transaction details" });
     expect(row.closest("li")?.textContent).toContain("Confirmed");
     fireEvent.click(row);
     expect(await within(document.body).findByRole("dialog", { name: "Send USDC" })).toBeTruthy();

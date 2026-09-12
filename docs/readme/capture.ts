@@ -87,16 +87,6 @@ function valuation() {
   };
 }
 
-function portfolio() {
-  return {
-    walletAddress: OWNER, chainId: 8453, blockNumber: "35123456",
-    blockHash: `0x${"cd".repeat(32)}`, blockTimestamp: String(Math.floor(Date.now() / 1000)), fetchedAt: now(),
-    assets: [
-      { id: "usdc", symbol: "USDC", decimals: 6, kind: "erc20", tokenAddress: USDC, balanceBaseUnits: "1284000000" },
-      { id: "eth", symbol: "ETH", decimals: 18, kind: "native", balanceBaseUnits: "850000000000000000" },
-    ],
-  };
-}
 
 function vaultCandidate(vaultAddress: string, name: string, netApy: number) {
   const fetchedAt = now();
@@ -238,7 +228,6 @@ async function installFixtures(context: BrowserContext) {
 
     if (path === "/api/session") return json(route, { user: { subject: "readme-sample-subject" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" });
     if (path === "/api/portfolio/valuation") return json(route, valuation());
-    if (path === "/api/portfolio") return json(route, portfolio());
     if (path === "/api/activity") {
       const to = requestUrl.searchParams.get("to") ?? now();
       const from = new Date(Date.parse(to) - 31 * 24 * 60 * 60 * 1_000).toISOString();

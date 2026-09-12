@@ -213,7 +213,7 @@ describe("ActivityPanel", () => {
     fireEvent.click(view.getByText("Load more activity"));
     await waitFor(() => expect(queries).toHaveLength(2));
     await waitFor(() =>
-      expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(2),
+      expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(2),
     );
     const firstQuery = new URLSearchParams(queries[0]);
     const secondQuery = new URLSearchParams(queries[1]);
@@ -248,7 +248,7 @@ describe("ActivityPanel", () => {
     });
 
     const detailsButton = await waitFor(() =>
-      view.getByRole("button", { name: "View received USDC transaction details" }),
+      view.getByRole("button", { description: "View received USDC transaction details" }),
     );
     fireEvent.click(detailsButton);
     expect(view.getByRole("dialog", { name: "Received USDC" })).toBeTruthy();
@@ -396,11 +396,11 @@ describe("ActivityPanel", () => {
     await waitFor(() =>
       expect(view.getByText("Continue loading activity")).toBeTruthy(),
     );
-    expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(1);
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
 
     fireEvent.click(view.getByText("Continue loading activity"));
     await waitFor(() => expect(view.getByText("End of activity")).toBeTruthy());
-    expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(2);
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(2);
     expect(queries.map((query) => new URLSearchParams(query).get("cursor"))).toEqual([
       null,
       "cursor-1",

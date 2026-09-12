@@ -192,8 +192,8 @@ for (const width of [320, 390, 1280]) {
 
 test("interactive ListRows follow keyboard order and native activation", async ({ page }) => {
   await page.goto("/");
-  const pressable = page.getByRole("button", { name: "Open received transaction" });
-  const linked = page.getByRole("link", { name: "View Ethereum details" });
+  const pressable = page.getByRole("button", { name: /Received from a wallet/ });
+  const linked = page.getByRole("link", { name: /Ethereum/ });
   const count = page.locator("[data-row-activations]");
   await pressable.focus();
   await expect(pressable).toBeFocused();
@@ -357,7 +357,8 @@ test("feedback primitives expose live semantics, dismiss on schedule, and fit at
   await expect(feedback.getByText("No activity yet", { exact: true })).toBeVisible();
   await expect(feedback.getByRole("alert")).toContainText("Activity unavailable");
   const viewport = page.getByRole("region", { name: "Notifications" });
-  await expect(viewport).toHaveAttribute("aria-live", "polite");
+  await expect(viewport).not.toHaveAttribute("aria-live", /.+/);
+  await expect(viewport).toHaveAttribute("role", "region");
 
   await feedback.getByRole("button", { name: "Show toast" }).click();
   const toast = page.locator(".home-ui-toast", { hasText: "Action confirmed" });

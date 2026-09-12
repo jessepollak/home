@@ -361,7 +361,6 @@ export function AccountWalletSessionOwner({
     verifyEmailCode,
     signInWithBaseAccount,
     cancelSignInAttempt,
-    fetchPortfolio: transport.fetchPortfolio,
     fetchPortfolioValuation: transport.fetchPortfolioValuation,
     fetchActivity: transport.fetchActivity,
     fetchSavingsPositions: transport.fetchSavingsPositions,

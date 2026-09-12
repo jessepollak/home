@@ -64,7 +64,6 @@ export type AccountWalletClient = {
   verifyEmailCode: (flowId: string, otp: string) => Promise<void>;
   signInWithBaseAccount: (onPhase: (phase: BaseAccountLoginPhase) => void) => Promise<void>;
   cancelSignInAttempt: () => void;
-  fetchPortfolio: (signal?: AbortSignal) => Promise<unknown>;
   fetchPortfolioValuation: (
     region: import("@/config/regions").RegionId,
     signal?: AbortSignal,
@@ -109,7 +108,6 @@ export function createBlockedAccountWalletClient(
     verifyEmailCode: async () => { throw new Error(blockedError); },
     signInWithBaseAccount: async () => { throw new BaseAccountLoginError("disabled"); },
     cancelSignInAttempt: () => {},
-    fetchPortfolio: async () => { throw new Error("Portfolio is unavailable."); },
     fetchPortfolioValuation: async () => { throw new Error("Portfolio valuation is unavailable."); },
     fetchActivity: async () => { throw new Error("Activity is unavailable."); },
     fetchSavingsPositions: async () => { throw new Error("Savings positions are unavailable."); },
@@ -171,6 +169,37 @@ function AccountClientCapture({ onClient }: { onClient: (client: AccountWalletCl
   return null;
 }
 
+/**
+ * When to mount the deferred SDK chunk. Always eventually: a provider hint (this
+ * tab signed in before) mounts on the next microtask so restore is not delayed;
+ * without one it mounts after first paint settles — never gated on the hint alone,
+ * or a returning user in a new tab would sit in "restoring" forever.
+ */
+export function scheduleSdkActivation(
+  activate: () => void,
+  options: {
+    hasHint: boolean;
+    requestIdle: ((callback: () => void) => () => void) | null;
+    fallbackDelayMs?: number;
+  },
+): () => void {
+  let cancelled = false;
+  const start = () => { if (!cancelled) activate(); };
+  let cancelScheduled: (() => void) | undefined;
+  if (options.hasHint) {
+    queueMicrotask(start);
+  } else if (options.requestIdle) {
+    cancelScheduled = options.requestIdle(start);
+  } else {
+    const timer = setTimeout(start, options.fallbackDelayMs ?? 250);
+    cancelScheduled = () => clearTimeout(timer);
+  }
+  return () => {
+    cancelled = true;
+    cancelScheduled?.();
+  };
+}
+
 function LazyConfiguredAccountProvider({
   projectId,
   baseAccountEnabled,
@@ -192,14 +221,19 @@ function LazyConfiguredAccountProvider({
     });
   }, []);
 
-  useEffect(() => {
-    if (!hasAccountProviderHint()) return;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) setActive(true);
-    });
-    return () => { cancelled = true; };
-  }, []);
+  // The SDK chunk is deferred, never omitted: with a provider hint (this tab
+  // signed in before) it mounts immediately so session restore is not delayed;
+  // otherwise it mounts once the first paint has settled, so a returning user in
+  // a new tab is still restored and an anonymous visitor gets a live Sign in.
+  useEffect(() => scheduleSdkActivation(() => setActive(true), {
+    hasHint: hasAccountProviderHint(),
+    requestIdle: typeof window.requestIdleCallback === "function"
+      ? (callback) => {
+          const id = window.requestIdleCallback(callback, { timeout: 1_500 });
+          return () => window.cancelIdleCallback?.(id);
+        }
+      : null,
+  }), []);
 
   const onClient = useMemo(() => (client: AccountWalletClient) => {
     activeClientRef.current = client;

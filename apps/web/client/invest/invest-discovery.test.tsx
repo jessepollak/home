@@ -133,7 +133,7 @@ describe("invest discovery flow", () => {
     await waitFor(() =>
       expect(page().getByRole("heading", { name: "Crypto" })).toBeTruthy(),
     );
-    fireEvent.click(page().getByRole("button", { name: "Bitcoin details" }));
+    fireEvent.click(page().getByRole("button", { name: /^Bitcoin/ }));
     await waitFor(() =>
       expect(page().getByRole("heading", { name: "Bitcoin" })).toBeTruthy(),
     );

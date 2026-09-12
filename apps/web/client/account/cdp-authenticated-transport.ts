@@ -255,10 +255,6 @@ export function useAuthenticatedTransport({
     [fetchAccountResource],
   );
 
-  const fetchPortfolio = useCallback(
-    (signal?: AbortSignal) => fetchVerifiedResource("/api/portfolio", signal),
-    [fetchVerifiedResource],
-  );
   const fetchPortfolioValuation = useCallback(
     (region: import("@/config/regions").RegionId, signal?: AbortSignal) =>
       fetchVerifiedResource(
@@ -280,7 +276,6 @@ export function useAuthenticatedTransport({
   );
 
   return {
-    fetchPortfolio,
     fetchPortfolioValuation,
     fetchActivity,
     fetchSavingsPositions,

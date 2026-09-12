@@ -41,8 +41,28 @@ describe("feedback primitives", () => {
     );
 
     const viewport = view.getByRole("region", { name: "Notifications" });
-    expect(viewport.getAttribute("aria-live")).toBe("polite");
+    // Each toast is its own live region (role=status|alert); the viewport must not double-announce.
+    expect(viewport.getAttribute("aria-live")).toBeNull();
+    expect(viewport.getAttribute("role")).toBe("region");
     fireEvent.click(view.getByRole("button", { name: "Dismiss notification" }));
     expect(dismissals).toBe(1);
+  });
+  test("Toast auto-dismisses once after its duration and keeps the latest onDismiss", async () => {
+    const calls: string[] = [];
+    const view = render(
+      <ToastViewport>
+        <Toast duration={20} onDismiss={() => { calls.push("first"); }}>Saved</Toast>
+      </ToastViewport>,
+    );
+    // A re-render with a new closure must not restart the timer; it must be the one called.
+    view.rerender(
+      <ToastViewport>
+        <Toast duration={20} onDismiss={() => { calls.push("second"); }}>Saved</Toast>
+      </ToastViewport>,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(calls).toEqual(["second"]);
   });
 });

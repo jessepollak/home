@@ -104,12 +104,22 @@ export function createVaultPositionsReader(options: { fetchImpl?: FetchLike; rpc
       signal ?? new AbortController().signal,
     );
     const fetchedAt = now().toISOString();
+    // With RPC there is no "no position": zero shares is a `ready` read of "0". Any
+    // failed vault read must surface as unavailable, never as a zero balance.
+    const failed = snapshot.holdings.filter((holding) =>
+      holding.readStatus !== "ready" || holding.sharesBaseUnits === null || holding.underlyingBaseUnits === null,
+    );
+    if (failed.length > 0) {
+      throw new InventoryVaultRpcError(
+        `Base RPC could not read ${failed.length} vault position(s) at the pinned block.`,
+      );
+    }
     return {
       accountAddress: account,
       fetchedAt,
       vaults: snapshot.holdings.map((holding) => ({
         vaultAddress: holding.vaultAddress as Address,
-        position: holding.readStatus !== "ready" || holding.sharesBaseUnits === null || holding.underlyingBaseUnits === null
+        position: holding.sharesBaseUnits === null || holding.underlyingBaseUnits === null
           ? null
           : {
               version: "v1",
@@ -152,7 +162,7 @@ function parseBlock(value: unknown): InventoryBlock {
   }
   return {
     number: parseRpcQuantity(value.number, "block number").toString(10),
-    hash: value.hash as `0x${string}`,
+    hash: value.hash.toLowerCase() as `0x${string}`,
     timestamp: parseRpcQuantity(value.timestamp, "block timestamp").toString(10),
   };
 }

@@ -18,8 +18,6 @@ export function ToastViewport({
     <div
       {...props}
       aria-label={label}
-      aria-live="polite"
-      aria-relevant="additions"
       role="region"
       className={["home-ui-toast-viewport", className].filter(Boolean).join(" ")}
     >

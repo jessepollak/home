@@ -33,7 +33,7 @@ test("core bundle has no React copy, Next/font/CSS, client directive, or feature
   expect(code).not.toMatch(/next\/font|use client|\.css|@font-face|createContext|ReactCurrentDispatcher|react\.production|apps\/web|coinbase|wallet|fetch\(/);
   // Root bundle of dependency-free primitives only (MoneyTicker/Sheet-style
   // dependency carriers stay on subpaths). History: 9,953 bytes (Sept 12 a.m.);
-  // 20,181 after ListRow/Badge/Divider + Skeleton/EmptyState/StatusMessage/Toast.
+  // ~20,000 after ListRow/Badge/Divider + Skeleton/EmptyState/StatusMessage/Toast.
   // Raise deliberately with a new primitive; never to absorb a dependency.
   expect(code.length).toBeLessThan(24_000);
   expect(uiPackage.exports["./next-font"]).toBe("./src/next-font.ts");

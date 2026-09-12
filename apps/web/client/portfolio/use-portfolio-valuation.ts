@@ -11,7 +11,7 @@ import type {
   PortfolioValuationState,
   VerifiedPortfolioValuationSession,
 } from "@/shared/portfolio/valuation-state";
-import { portfolioOwnerKey } from "./use-portfolio";
+import { dataOwnerKey as portfolioOwnerKey } from "@/client/account/owner-keys";
 
 type PortfolioValuationQuerySession = VerifiedPortfolioValuationSession & {
   accountProvider?: string;

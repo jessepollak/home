@@ -1,6 +1,6 @@
 # Base wallet balances and supported valuation
 
-Status: the original `/api/portfolio` USDC/native-ETH quantity contract remains unchanged for transfer compatibility. A separate authenticated `/api/portfolio/valuation?region=...` read and Home presentation are integrated locally with deterministic fixtures. No private-wallet live read was performed during implementation.
+Status: `GET /api/portfolio` was retired on Sept 12, 2026 (audit A-15); the authenticated `/api/portfolio/valuation?region=...` read carries USDC and ETH balances and is the only portfolio read. Home presentation is integrated locally with deterministic fixtures. No private-wallet live read was performed during implementation.
 Updated: 2026-09-10
 
 ## What this reads
@@ -16,7 +16,7 @@ These identities were rechecked on 2026-09-07. Home does not include ticker-matc
 
 ## Server configuration and behavior
 
-`GET /api/portfolio` runs on the Node runtime and remains dynamic. It passes the original `Request` directly to the existing `createSessionHandler` in process, preserving request headers and query parameters for the shared Base Account authentication boundary. It does not call `/api/session` over loopback and does not accept a wallet address from the browser as authority.
+`GET /api/portfolio/valuation` runs on the Node runtime and is dynamic. It authorizes through the shared `authorizeSession` boundary in process, preserving request headers and query parameters. It does not call `/api/session` over loopback and does not accept a wallet address from the browser as authority.
 
 A successful session response is parsed again at the feature boundary. Only the verified `smartAccount.address` on chain 8453 reaches the RPC reader. A session with no smart account returns `SMART_ACCOUNT_UNAVAILABLE`; it never falls back to an EOA. Session 401/503 responses are relayed directly. Portfolio failures return an unavailable error, never synthetic zero balances. Every private response uses:
 
