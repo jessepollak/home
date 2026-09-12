@@ -26,7 +26,7 @@ const action: PreparedMoneyAction = {
 afterEach(cleanup);
 
 describe("MoneyActionReview", () => {
-  test("shows the shared presentation amount and confirms the server-authored action", async () => {
+  test("shows the exact amount and confirms the server-authored action", async () => {
     let executions = 0;
     let confirmed = 0;
     render(
@@ -41,7 +41,7 @@ describe("MoneyActionReview", () => {
       />,
     );
 
-    expect(screen.getByText("0.1000 ETH")).toBeTruthy();
+    expect(screen.getByText("0.100000000000000001 ETH")).toBeTruthy();
     expect(screen.getByText("Base network fees apply and are finalized at submission.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Confirm action" }));
     await waitFor(() => expect(confirmed).toBe(1));

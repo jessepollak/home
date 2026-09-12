@@ -65,11 +65,6 @@ const rawHeadingAllowlist = [
 ];
 
 const formattingSyntaxAllowlist = [
-  // C2 owns these remaining money/date presentation migrations.
-  "client/money-actions/operation-details.ts",
-  "client/money-actions/recent-operations.tsx",
-  "client/money-actions/review.tsx",
-  "client/trading/trade-actions.tsx",
   // These calls format geometry or discover the browser time zone, not money.
   "client/activity/activity-panel.tsx",
   "client/landing/globe-geometry.ts",

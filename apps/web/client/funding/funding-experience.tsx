@@ -10,7 +10,7 @@ import {
 } from "./add-money-dialog";
 import { readFundingOrder, type FundingBinding, type FundingOrderSummary } from "./order-flow";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
-import { requestHostedOnrampSession } from "@/shared/funding/funding-client";
+import { requestHostedOnrampSession, FundingRequestError } from "@/shared/funding/funding-client";
 
 export type FundingExperienceProps = {
   returnedFromCoinbase?: boolean;
@@ -163,7 +163,7 @@ function FundingExperienceBoundary({
         return;
       }
       navigateToHostedOnramp(hosted.url);
-    } catch {
+    } catch (error) {
       if (
         controller.signal.aborted ||
         requestEpochRef.current !== requestEpoch ||
@@ -171,7 +171,7 @@ function FundingExperienceBoundary({
       ) {
         return;
       }
-      setOnrampError(messageForOnrampError());
+      setOnrampError(messageForOnrampError(error));
       setOpeningOnramp(false);
     } finally {
       if (requestEpochRef.current === requestEpoch) {
@@ -255,6 +255,9 @@ function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {
 function readProviderId(value: unknown): string | null { return isRecord(value) && isRecord(value.order) && typeof value.order.providerId === "string" ? value.order.providerId : null; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 
-function messageForOnrampError(): string {
+function messageForOnrampError(error: unknown): string {
+  if (error instanceof FundingRequestError && error.code === "unauthenticated") {
+    return "Your session changed. Sign in again to continue.";
+  }
   return "Coinbase funding is unavailable. Try again later or choose another deposit method.";
 }

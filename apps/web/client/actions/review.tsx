@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import {
   formatPresentationDate,
-  formatPresentationTokenAmount,
+  formatExactPresentationTokenAmount,
 } from "@/shared/formatting";
 import { useReactiveExpiry } from "./expiry";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
@@ -74,11 +74,10 @@ function MoneyActionReviewContent({
             <dt>{amount.maximum ? "Up to" : amount.direction === "spend" ? "You spend" : "You receive"}</dt>
             <dd>
               {amount.estimated ? "Estimated " : ""}
-              {formatPresentationTokenAmount(
+              {formatExactPresentationTokenAmount(
                 amount.amountBaseUnits,
                 amount.decimals,
                 amount.symbol,
-                { cashCurrency: amount.symbol === "USDC" ? "USD" : null },
               )}
             </dd>
           </div>

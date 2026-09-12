@@ -502,7 +502,7 @@ export function AccountSignInSheet({
                   autoComplete="email"
                   placeholder="you@example.com"
                   value={email}
-                  onInput={(event) => setEmail(event.currentTarget.value)}
+                  onChange={(event) => setEmail(event.currentTarget.value)}
                   disabled={isSendingCode}
                   required
                   autoFocus

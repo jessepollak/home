@@ -1,6 +1,6 @@
 import {
   formatPresentationDate,
-  formatPresentationTokenAmount,
+  formatExactPresentationTokenAmount,
 } from "@/shared/formatting";
 import {
   condensedTransactionHash,
@@ -62,11 +62,10 @@ export function presentOperationDetails(
         : amount.direction === "spend"
           ? "You spend"
           : "You receive",
-      value: `${amount.estimated ? "Estimated " : ""}${formatPresentationTokenAmount(
+      value: `${amount.estimated ? "Estimated " : ""}${formatExactPresentationTokenAmount(
         amount.amountBaseUnits,
         amount.decimals,
         amount.symbol,
-        { cashCurrency: amount.symbol === "USDC" ? "USD" : null },
       )}`,
     });
   }

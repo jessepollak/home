@@ -70,7 +70,7 @@ describe("operation transaction details", () => {
     expect(details.title).toBe("Trade USDC for ETH");
     expect(details.rows).toContainEqual({ label: "Status", value: "Confirmed" });
     expect(details.rows).toContainEqual({ label: "Type", value: "Trade" });
-    expect(details.rows).toContainEqual({ label: "You spend", value: "1.23 USDC" });
+    expect(details.rows).toContainEqual({ label: "You spend", value: "1.234567 USDC" });
     expect(details.rows).toContainEqual({ label: "Network", value: "Base (8453)" });
     expect(details.explorer).toEqual({
       href: `https://basescan.org/tx/${HASH}`,
@@ -105,10 +105,10 @@ describe("operation transaction details", () => {
       }),
     );
 
-    expect(details.rows).toContainEqual({ label: "You spend", value: "0.50 USDC" });
+    expect(details.rows).toContainEqual({ label: "You spend", value: "0.5 USDC" });
     expect(details.rows).toContainEqual({
       label: "You receive",
-      value: "Estimated <0.000001 ETH",
+      value: "Estimated 0.000000000000000001 ETH",
     });
   });
 
@@ -116,10 +116,10 @@ describe("operation transaction details", () => {
     const details = presentOperationDetails(withdrawalOperation());
 
     const receiveIndex = details.rows.findIndex(
-      (row) => row.label === "You receive" && row.value === "1.23 USDC",
+      (row) => row.label === "You receive" && row.value === "1.234567 USDC",
     );
     const spendIndex = details.rows.findIndex(
-      (row) => row.label === "You spend" && row.value === "Estimated <0.000001 vault shares",
+      (row) => row.label === "You spend" && row.value === "Estimated 0.000000000000999999 vault shares",
     );
     expect(receiveIndex).toBeGreaterThan(-1);
     expect(spendIndex).toBeGreaterThan(receiveIndex);

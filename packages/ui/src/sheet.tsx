@@ -253,14 +253,17 @@ export const Sheet = forwardRef<HTMLDialogElement, SheetProps>(function Sheet({
     dismissing: false,
     samples: [] as Array<{ y: number; t: number }>,
   });
-  const [contentMounted, setContentMounted] = useState(true);
+  // Content mounts when the sheet first opens (no hidden render at startup) and,
+  // while the exit spring runs, keeps rendering the snapshot taken while open so
+  // a parent that resets its state on close cannot flip the closing sheet's content.
+  const [contentMounted, setContentMounted] = useState(open);
+  const [presented, setPresented] = useState<{ children: ReactNode; header: ReactNode; footer: ReactNode }>(
+    { children, header, footer },
+  );
+  if (open && (presented.children !== children || presented.header !== header || presented.footer !== footer)) {
+    setPresented({ children, header, footer });
+  }
   if (open && !contentMounted) setContentMounted(true);
-  useEffect(() => {
-    if (open || dialogRef.current?.open) return;
-    queueMicrotask(() => {
-      if (!dialogRef.current?.open) setContentMounted(false);
-    });
-  }, [dialogRef, open]);
 
   const stopSheetAnim = useCallback(() => {
     const active = sheetAnimRef.current;
@@ -580,9 +583,10 @@ export const Sheet = forwardRef<HTMLDialogElement, SheetProps>(function Sheet({
     return onDismiss() !== false;
   }
 
-  const visibleChildren = contentMounted ? children : null;
-  const visibleHeader = contentMounted ? header : null;
-  const visibleFooter = contentMounted ? footer : null;
+  const showSnapshot = !open && contentMounted && !immediate;
+  const visibleChildren = open ? children : showSnapshot ? presented.children : null;
+  const visibleHeader = open ? header : showSnapshot ? presented.header : null;
+  const visibleFooter = open ? footer : showSnapshot ? presented.footer : null;
   const usesSlots = header !== undefined || footer !== undefined;
 
   return (

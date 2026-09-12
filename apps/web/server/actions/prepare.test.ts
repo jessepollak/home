@@ -50,6 +50,26 @@ describe("prepare action handler", () => {
     });
   });
 
+  test.each([
+    ["invalid-input", 400, "SAVINGS_ACTION_INVALID"],
+    ["unsupported-asset", 422, "SAVINGS_ACTION_UNSUPPORTED"],
+    ["limit-exceeded", 409, "SAVINGS_ACTION_LIMIT_EXCEEDED"],
+    ["rate-limited", 429, "SAVINGS_ACTION_RATE_LIMITED"],
+    ["rpc", 502, "SAVINGS_ACTION_RPC"],
+  ] as const)("maps savings %s to %i %s", async (reason, status, code) => {
+    const handler = createPrepareActionHandler({
+      authorize: async () => authorized(),
+      prepareSavings: async () => {
+        throw new SavingsActionError(reason, `savings ${reason}`);
+      },
+    });
+
+    const response = await handler(request());
+
+    expect(response.status).toBe(status);
+    expect((await response.json() as { error: { code: string } }).error.code).toBe(code);
+  });
+
   test("rejects action kinds outside the stored vocabulary", async () => {
     const handler = createPrepareActionHandler({ authorize: async () => authorized() });
 

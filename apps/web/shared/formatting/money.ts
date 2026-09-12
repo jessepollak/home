@@ -888,13 +888,19 @@ function formatCurrencyDecimal(
   regionId: RegionId,
 ): string {
   const localizedAmount = localizeCanonicalDecimal(amount, regionId);
-  const parts = new Intl.NumberFormat(presentationLocale(regionId), {
-    style: "currency",
-    currency,
-    currencyDisplay: "narrowSymbol",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).formatToParts(BigInt(0));
+  let parts: Intl.NumberFormatPart[];
+  try {
+    parts = new Intl.NumberFormat(presentationLocale(regionId), {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).formatToParts(BigInt(0));
+  } catch {
+    // Provider-supplied codes (USDC, IDRX, wARS) are not ISO 4217: render as a suffix label.
+    return joinAmountAndSymbol(localizedAmount, currency.trim().toUpperCase(), true);
+  }
   const numericTypes = new Set<Intl.NumberFormatPartTypes>([
     "integer", "group", "decimal", "fraction",
   ]);

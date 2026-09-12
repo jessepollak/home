@@ -6,6 +6,8 @@ import { getRecentBaseActivity } from "@/server/activity/reader";
 import { writeObservabilityEvent } from "@/server/observability/log";
 
 export const runtime = "nodejs";
+/** Activity reads wait up to 20s on the CDP SQL transport (#300). */
+export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
 const authorizeSession = createSessionHandler({

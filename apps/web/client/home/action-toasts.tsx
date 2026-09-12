@@ -183,12 +183,17 @@ function operationKind(kind: string): "send" | "deposit" | "withdraw" | "supply-
 }
 
 function failedVerb(kind: string): string {
-  const operation = operationKind(kind);
-  if (operation === "deposit") return "Deposit";
-  if (operation === "withdraw") return "Withdrawal";
-  if (operation === "supply-collateral") return "Adding collateral";
-  if (operation === "withdraw-collateral") return "Withdrawing collateral";
-  return "Send";
+  switch (kind) {
+    case "send": return "Send";
+    case "savings-deposit": return "Deposit";
+    case "savings-withdraw": return "Withdrawal";
+    case "supply-collateral": return "Adding collateral";
+    case "withdraw-collateral": return "Withdrawing collateral";
+    case "borrow": return "Borrow";
+    case "repay": return "Repayment";
+    case "trade": return "Trade";
+    default: return "Action";
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

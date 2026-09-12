@@ -15,7 +15,7 @@ const publicRoutes = new Set([
 ]);
 const privateRoutes = routePaths.filter((path) => !publicRoutes.has(path));
 const httpVerbs = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] as const;
-const allowedRouteExports = new Set(["runtime", "dynamic", ...httpVerbs]);
+const allowedRouteExports = new Set(["runtime", "dynamic", "maxDuration", ...httpVerbs]);
 
 type RouteModule = Record<string, unknown>;
 
@@ -32,6 +32,15 @@ describe("API route composition", () => {
       expect(Object.keys(route).sort(), path).toEqual(
         Object.keys(route).filter((name) => allowedRouteExports.has(name)).sort(),
       );
+    }
+  });
+
+  test("keeps every public route dynamic and Node-only", async () => {
+    for (const path of publicRoutes) {
+      if (path === "savings/vaults/route.ts") continue; // pre-existing: static vault catalog
+      const route = await loadRoute(path);
+      expect(route.runtime, path).toBe("nodejs");
+      expect(route.dynamic, path).toBe("force-dynamic");
     }
   });
 

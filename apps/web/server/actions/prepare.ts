@@ -1,3 +1,4 @@
+import { emitServerEvent } from "@/server/observability/log";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowPreviewRequest } from "@/shared/borrowing/types";
 import type { SavingsActionInput } from "@/server/savings/types";
@@ -30,6 +31,18 @@ export function createPrepareActionHandler(dependencies: {
     if (!isRecord(body) || !isActionKind(body.kind) || !isRecord(body.params)) {
       return privateError("INVALID_ACTION", "A valid action kind and parameters are required.", 400);
     }
+    const startedAt = Date.now();
+    const fail = (code: string, message: string, status: number) => {
+      emitServerEvent("action-prepare", {
+        route: "/api/actions/prepare",
+        code,
+        outcome: "failed",
+        provider: session.accountProvider,
+        owner: { subject: session.user.subject, accountProvider: session.accountProvider },
+        durationMs: Date.now() - startedAt,
+      });
+      return privateError(code, message, status);
+    };
     try {
       const action = await prepare(session, body.kind, body.params, request.signal, dependencies);
       return privateJson(action, 201);
@@ -37,24 +50,24 @@ export function createPrepareActionHandler(dependencies: {
       if (error instanceof SavingsActionError) {
         switch (error.reason) {
           case "invalid-input":
-            return privateError("SAVINGS_ACTION_INVALID", error.message, 400);
+            return fail("SAVINGS_ACTION_INVALID", error.message, 400);
           case "unsupported-vault":
           case "unsupported-asset":
-            return privateError("SAVINGS_ACTION_UNSUPPORTED", error.message, 422);
+            return fail("SAVINGS_ACTION_UNSUPPORTED", error.message, 422);
           case "limit-exceeded":
-            return privateError("SAVINGS_ACTION_LIMIT_EXCEEDED", error.message, 409);
+            return fail("SAVINGS_ACTION_LIMIT_EXCEEDED", error.message, 409);
           case "rate-limited":
-            return privateError("SAVINGS_ACTION_RATE_LIMITED", error.message, 429);
+            return fail("SAVINGS_ACTION_RATE_LIMITED", error.message, 429);
           case "rpc":
-            return privateError("SAVINGS_ACTION_RPC", error.message, 502);
+            return fail("SAVINGS_ACTION_RPC", error.message, 502);
           default:
-            return privateError("SAVINGS_ACTION_UNAVAILABLE", error.message, 502);
+            return fail("SAVINGS_ACTION_UNAVAILABLE", error.message, 502);
         }
       }
       if (error instanceof BorrowPreparationError) {
-        return privateError(error.code.toUpperCase().replaceAll("-", "_"), error.message, error.code === "stale-state" ? 409 : 400);
+        return fail(error.code.toUpperCase().replaceAll("-", "_"), error.message, error.code === "stale-state" ? 409 : 400);
       }
-      return privateError("ACTION_PREPARE_UNAVAILABLE", "The action could not be prepared safely.", 502);
+      return fail("ACTION_PREPARE_UNAVAILABLE", "The action could not be prepared safely.", 502);
     }
   };
 }
