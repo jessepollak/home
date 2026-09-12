@@ -12,10 +12,19 @@ export const HOME_PERFORMANCE_MARKS = [
 ] as const;
 
 export type HomePerformanceMark = (typeof HOME_PERFORMANCE_MARKS)[number];
+/** Marks every session produces; the panel marks below are optional in the shipped event. */
+export const HOME_STARTUP_MARKS = [
+  "shell:paint",
+  "session:verified",
+  "wallet:ready",
+  "balances:painted",
+  "action:first-interactive",
+] as const satisfies readonly HomePerformanceMark[];
 export type HomePerformanceEvent = {
   kind: "performance-marks";
   route: string;
-  marksFromTimeOriginMs: Record<HomePerformanceMark, number>;
+  marksFromTimeOriginMs: Partial<Record<HomePerformanceMark, number>> &
+    Record<(typeof HOME_STARTUP_MARKS)[number], number>;
 };
 
 const sentKey = "home:observability:performance-marks:v1";
@@ -36,11 +45,14 @@ export function readHomePerformanceEvent(): HomePerformanceEvent | null {
       return [name, entry ? Math.round(entry.startTime) : null];
     }),
   ) as Record<HomePerformanceMark, number | null>;
-  if (HOME_PERFORMANCE_MARKS.some((name) => marks[name] === null)) return null;
+  if (HOME_STARTUP_MARKS.some((name) => marks[name] === null)) return null;
+  const present = Object.fromEntries(
+    Object.entries(marks).filter(([, value]) => value !== null),
+  ) as HomePerformanceEvent["marksFromTimeOriginMs"];
   return {
     kind: "performance-marks",
     route: window.location.pathname,
-    marksFromTimeOriginMs: marks as Record<HomePerformanceMark, number>,
+    marksFromTimeOriginMs: present,
   };
 }
 

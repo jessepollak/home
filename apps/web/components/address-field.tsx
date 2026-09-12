@@ -8,6 +8,7 @@ import styles from "./address-field.module.css";
 
 export function AddressField({
   id,
+  label = "Address",
   value,
   onChange,
   placeholder = "0x…",
@@ -15,6 +16,7 @@ export function AddressField({
   "aria-describedby": describedBy,
 }: {
   id: string;
+  label?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -37,7 +39,7 @@ export function AddressField({
   return (
     <Field
       className={styles.field}
-      label="Address"
+      label={label}
       htmlFor={id}
       action={(
         <Button

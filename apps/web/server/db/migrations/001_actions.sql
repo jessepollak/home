@@ -1,4 +1,4 @@
-create table actions (
+create table if not exists actions (
   id                 uuid primary key,
   owner_key          text not null,
   provider           text not null,
@@ -11,4 +11,4 @@ create table actions (
   transaction_hash   text,
   handle_recorded_at timestamptz
 );
-create index actions_owner_recent on actions (owner_key, confirmed_at desc) where confirmed_at is not null;
+create index if not exists actions_owner_recent on actions (owner_key, confirmed_at desc) where confirmed_at is not null;

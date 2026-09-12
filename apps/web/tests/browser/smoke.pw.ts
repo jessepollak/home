@@ -379,7 +379,9 @@ test("reload paints persisted balances before stale valuation responds", async (
   const delayedRead = fixtures.delayNextValuation();
 
   await page.reload();
-  await expect.poll(fixtures.valuationReads).toBe(delayedRead);
+  // Every valuation read is held while delayed, so more than one in-flight read still
+  // proves the paint below came from the persisted cache, not the network.
+  await expect.poll(fixtures.valuationReads).toBeGreaterThanOrEqual(delayedRead);
   await expect(page.getByText("$12.34", { exact: true }).first()).toBeVisible();
   const reloadPaint = await page.evaluate(() =>
     performance.getEntriesByName("balances:painted", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,

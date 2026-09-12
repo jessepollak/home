@@ -168,8 +168,7 @@ export function SendDialog({
           <MoneyNumpad value={amount} maxDecimals={TRANSFER_ASSETS[assetId].decimals} onChange={setAmount} />
         </> : null}
         {step === "address" ? <div className={modal.fieldBlock}>
-          <label className={modal.fieldLabel} htmlFor="send-recipient">To</label>
-          <AddressField id="send-recipient" value={recipient} onChange={setRecipient} aria-describedby="send-recipient-hint" />
+          <AddressField id="send-recipient" label="To" value={recipient} onChange={setRecipient} aria-describedby="send-recipient-hint" />
           <p id="send-recipient-hint" className={modal.fieldHint}>Base address</p>
         </div> : null}
         {request && (step === "confirm" || step === "pending" || step === "error") ? <>

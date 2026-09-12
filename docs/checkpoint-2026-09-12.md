@@ -6,7 +6,7 @@ State of `main` after the reset program. Read `home-is-thin.md` for the architec
 
 - `origin/main` is green on all CI jobs (bun check, Chromium + WebKit smoke, real-Postgres contracts, delivery tests). Tag: `checkpoint/2026-09-12-home-is-thin`.
 - `apps/web` unit suite: 676 tests, ~2.8s wall (Sept 11 morning: 1,221 tests, 37.5s). Test code ~22k LOC (was 40k).
-- Product: the money-action and trading ledgers are gone (~20k LOC). One `actions` table plus `user_settings`; funding's tables unchanged. `home-experience.tsx` is 15 modules, none over 500 LOC.
+- Product: the money-action and trading ledgers are gone (~20k LOC). One `actions` table (the unused `user_settings` was dropped later that day, decision D2); funding's tables unchanged. `home-experience.tsx` is 15 modules, none over 500 LOC.
 - Delivery mode for this program: lanes on short branches, the coordinator merges fast-forwards to `main` after `bun check` and browser smoke pass on the integrated tree. No issues, labels, or PR rounds. Jesse reviews on `main`.
 
 ## Landed today (in order)

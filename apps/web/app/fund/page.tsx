@@ -12,8 +12,8 @@ export default async function FundPage({
 }: PageProps<"/fund">) {
   const query = await searchParams;
   const params = new URLSearchParams({ "add-money": "1" });
-  if (firstQueryValue(query.return) === "coinbase") {
-    params.set("return", "coinbase");
+  if (firstQueryValue(query.return) === "funding") {
+    params.set("return", "funding");
   }
   redirect(`/dashboard?${params.toString()}`);
 }

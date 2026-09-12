@@ -29,7 +29,7 @@ const inboundCases = [
     },
   },
   {
-    search: "return=coinbase",
+    search: "return=funding",
     expected: {
       panel: "home",
       account: null,

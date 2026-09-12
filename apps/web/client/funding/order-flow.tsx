@@ -65,7 +65,9 @@ export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey,
   const [busy, setBusy] = useState(false);
   const [confirmationAttempted, setConfirmationAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const openedRedirectOrderRef = useRef<string | null>(null);
+  // Only redirect orders created in this dialog session auto-open; a resumed open
+  // order keeps its explicit "Continue to payment" link.
+  const openedRedirectOrderRef = useRef<string | null>(initialOrder?.id ?? null);
 
   const orderQuery = useHomeQuery({
     queryKey: order

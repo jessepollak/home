@@ -20,7 +20,7 @@ Country selection changes presentation only. Asset identity is chain ID plus add
 
 ## Actions and hosting
 
-Actions require `DATABASE_URL` and use the disposable `actions` and `user_settings` schema. Their contract is [Home is thin](home-is-thin.md): server-authored calldata, verified scope, one owner-generation fence, and provider/chain-derived status. Do not point a fork at another operator’s database or provider project.
+Actions require `DATABASE_URL` and use the disposable `actions` schema applied by `bun run db:migrate`. Their contract is [Home is thin](home-is-thin.md): server-authored calldata, verified scope, one owner-generation fence, and provider/chain-derived status. Do not point a fork at another operator’s database or provider project.
 
 For Vercel settings, see [Vercel deploy](vercel-deploy.md). For CDP configuration, see [CDP setup](cdp-setup.md). For funding adapters, see the [issuer integration guide](integrations/README.md).
 

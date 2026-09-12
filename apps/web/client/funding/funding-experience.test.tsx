@@ -169,6 +169,31 @@ describe("FundingExperience", () => {
     expect(page().getByRole("link", { name: "Continue to payment" }).getAttribute("href")).toBe(HOSTED_URL);
   });
 
+  test("a resumed open redirect order never auto-navigates; it keeps the explicit link", async () => {
+    const navigations: string[] = [];
+    const openOrder = { id: "11111111-1111-4111-8111-111111111111", providerId: "coinbase", state: "awaiting-payment", fiatAmount: "25", expectedTokenAmountAtomic: "25000000", fees: [], providerStatus: null, instructions: { kind: "redirect", url: HOSTED_URL } };
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [redirectBinding()] };
+        if (path.startsWith("/api/funding/orders")) return { order: openOrder };
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(
+      <FundingExperienceForWallet
+        wallet={wallet}
+        navigateToRedirect={(url) => navigations.push(url)}
+        regionId="US"
+      />,
+    );
+
+    expect(await page().findByRole("link", { name: "Continue to payment" })).toBeTruthy();
+    await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    expect(navigations).toEqual([]);
+  });
+
   test("hides the prior verified address as soon as the account boundary changes", () => {
     const view = render(
       <FundingExperienceForWallet

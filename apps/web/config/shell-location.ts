@@ -26,7 +26,7 @@ export type ShellLocation = {
 export type InboundUrlIntent = {
   kind: "inbound-url-intent";
   location: ShellLocation;
-  returnTo: "coinbase" | null;
+  returnedFromFunding: boolean;
   addMoney: boolean;
   flow: ShellFlow | null;
   actionId: string | null;
@@ -87,9 +87,9 @@ export function parseInboundUrlIntent(
 ): InboundUrlIntent {
   const flow = parseShellFlow(readSearchValue(search, SHELL_FLOW_PARAM));
   const requestedPanel = readSearchValue(search, SHELL_PANEL_PARAM);
-  const panel = requestedPanel === undefined && (
-    flow === "save-deposit" || flow === "save-withdraw"
-  )
+  // Save flows always live on the Save panel: the dialog renders in place, so it
+  // must not open inside another (hidden, inert) panel.
+  const panel = flow === "save-deposit" || flow === "save-withdraw"
     ? "save"
     : parseShellPanel(requestedPanel);
   const action = readSearchValue(search, SHELL_ACTION_PARAM);
@@ -105,9 +105,7 @@ export function parseInboundUrlIntent(
         ? parseAsset(readSearchValue(search, SHELL_ASSET_PARAM))
         : null,
     },
-    returnTo: readSearchValue(search, "return") === "coinbase"
-      ? "coinbase"
-      : null,
+    returnedFromFunding: readSearchValue(search, "return") === "funding",
     addMoney: readSearchValue(search, "add-money") === "1",
     flow,
     actionId: flow === "send" && action && actionIdPattern.test(action) ? action : null,

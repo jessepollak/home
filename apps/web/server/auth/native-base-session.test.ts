@@ -103,7 +103,10 @@ describe("native Base authentication handlers", () => {
     });
   });
 
-  test("rejects replay after the successful verification clears the challenge cookie", async () => {
+  // Stateless challenge (audit A-02, decision D1): single-use is enforced by the browser dropping the
+  // cookie plus the 5-minute TTL, not by server-side consumption. A replay WITH the cookie inside
+  // the TTL is accepted by design; the attacker would already hold the HttpOnly cookie.
+  test("rejects a replayed verify once the browser has dropped the challenge cookie", async () => {
     const { nonce, verify } = handlers();
     const issued = await challenge(nonce);
     expect((await verify(post(

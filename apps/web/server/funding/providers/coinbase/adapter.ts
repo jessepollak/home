@@ -133,7 +133,7 @@ async function createHostedSession(
 function coinbaseReturnUrl(value: string): string {
   const url = new URL(value);
   url.pathname = "/fund";
-  url.search = "?return=coinbase";
+  url.search = "?return=funding";
   url.hash = "";
   return url.toString();
 }

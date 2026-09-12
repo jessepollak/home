@@ -65,6 +65,7 @@ type PreviewState =
   | { status: "preview-only"; response: Extract<BorrowPreviewResponse, { status: "preview-only" }> }
   | { status: "prepared"; action: PreparedMoneyAction };
 
+/** Not routed today (D4: `/borrow` deleted); retained for a future Borrow shell panel. */
 export function AuthenticatedBorrowExperience() {
   const account = useAccountWallet();
   const regionId = usePersistedPresentationRegion();

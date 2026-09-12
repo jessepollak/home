@@ -35,7 +35,7 @@ describe("shell location", () => {
 
   test("parses the allowed inbound intents through one schema", () => {
     expect(parseInboundUrlIntent(new URLSearchParams(
-      "panel=invest&shelf=crypto&asset=cbbtc&return=coinbase&add-money=1&flow=send&action=11111111-1111-4111-8111-111111111111",
+      "panel=invest&shelf=crypto&asset=cbbtc&return=funding&add-money=1&flow=send&action=11111111-1111-4111-8111-111111111111",
     ))).toEqual({
       kind: "inbound-url-intent",
       location: {
@@ -44,7 +44,7 @@ describe("shell location", () => {
         shelf: "crypto",
         asset: "cbbtc",
       },
-      returnTo: "coinbase",
+      returnedFromFunding: true,
       addMoney: true,
       flow: "send",
       actionId: "11111111-1111-4111-8111-111111111111",
@@ -79,7 +79,7 @@ describe("shell location", () => {
     })).toEqual({
       kind: "inbound-url-intent",
       location: { panel: "home", account: null, shelf: null, asset: null },
-      returnTo: null,
+      returnedFromFunding: false,
       addMoney: false,
       flow: null,
       actionId: null,

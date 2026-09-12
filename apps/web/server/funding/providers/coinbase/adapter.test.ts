@@ -104,7 +104,7 @@ describe("Coinbase funding adapter", () => {
       purchaseCurrency: "USDC",
       destinationNetwork: "base",
       destinationAddress: DESTINATION,
-      redirectUrl: "https://home.example/fund?return=coinbase",
+      redirectUrl: "https://home.example/fund?return=funding",
     });
     expect(result).toEqual({
       outcome: "created",

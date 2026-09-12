@@ -52,7 +52,7 @@ async function discoverMigrations(): Promise<Migration[]> {
     .sort()
     .map((name) => ({ id: `db/${name}`, path: resolve(dbDirectory, name) }));
   const funding = (await readdir(fundingDirectory))
-    .filter((name) => /^002_.*\.sql$/.test(name))
+    .filter((name) => /^\d+_.*\.sql$/.test(name))
     .sort()
     .map((name) => ({
       id: `funding/${name}`,

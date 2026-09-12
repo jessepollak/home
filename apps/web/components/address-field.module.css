@@ -1,8 +1,3 @@
-/* AddressField is the reusable control inside an already-labelled product field. */
-.field :global(.home-ui-field__label-row) {
-  display: none;
-}
-
 .input {
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-size: 0.95rem;

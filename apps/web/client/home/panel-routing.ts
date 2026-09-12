@@ -63,9 +63,9 @@ export function readHomeInboundPanelState(
     panel: intent.location.panel,
     account: intent.location.account,
     location: intent.location,
-    addMoney: intent.addMoney || intent.returnTo === "coinbase" ||
+    addMoney: intent.addMoney || intent.returnedFromFunding ||
       intent.flow === "add-money" || intent.flow === "receive",
-    returnedFromProvider: intent.returnTo === "coinbase",
+    returnedFromProvider: intent.returnedFromFunding,
     flow: intent.flow,
     sendFlow: intent.flow === "send",
     actionId: intent.actionId,
