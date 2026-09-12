@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
-import { GET, dynamic, maxDuration, runtime } from "./route";
+import { MemoryMoneyActionStore } from "@/server/money-actions/store";
+import {
+  GET,
+  createRecordedOperationsReader,
+  dynamic,
+  maxDuration,
+  runtime,
+} from "./route";
 
 afterEach(() => setObservabilityLogWriterForTests());
 
@@ -34,5 +41,36 @@ describe("GET /api/activity route composition", () => {
         source: "none",
       }),
     ]);
+  });
+
+  test("an abort during delayed store acquisition never starts the list", async () => {
+    let resolveStore!: (store: MemoryMoneyActionStore) => void;
+    const acquisition = new Promise<MemoryMoneyActionStore>((resolve) => {
+      resolveStore = resolve;
+    });
+    let listCalls = 0;
+    class InstrumentedStore extends MemoryMoneyActionStore {
+      override async list(...args: Parameters<MemoryMoneyActionStore["list"]>) {
+        listCalls += 1;
+        return super.list(...args);
+      }
+    }
+    const reader = createRecordedOperationsReader(async () => acquisition);
+    const controller = new AbortController();
+    const reading = reader(
+      {
+        subject: "fixture-subject",
+        address: "0x1111111111111111111111111111111111111111",
+        chainId: 8453,
+        accountProvider: "cdp-embedded",
+      },
+      controller.signal,
+    );
+
+    controller.abort(new DOMException("fixture abort", "AbortError"));
+    await expect(reading).rejects.toHaveProperty("name", "AbortError");
+    resolveStore(new InstrumentedStore());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(listCalls).toBe(0);
   });
 });

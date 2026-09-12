@@ -25,6 +25,11 @@ export type MoneyActionIssueStoreOptions = {
 
 export type MoneyActionListScope = "unresolved-send";
 
+export type MoneyActionListOptions = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+};
+
 export interface MoneyActionStore {
   issue(action: PreparedMoneyAction, options?: MoneyActionIssueStoreOptions): Promise<"issued" | "existing">;
   claim(
@@ -38,6 +43,7 @@ export interface MoneyActionStore {
     owner: MoneyActionOwner,
     limit: number,
     scope?: MoneyActionListScope,
+    options?: MoneyActionListOptions,
   ): Promise<StoredMoneyActionOperation[]>;
   recordSubmission(
     owner: MoneyActionOwner,
@@ -144,13 +150,17 @@ export class MemoryMoneyActionStore implements MoneyActionStore {
     owner: MoneyActionOwner,
     limit: number,
     scope?: MoneyActionListScope,
+    options?: MoneyActionListOptions,
   ): Promise<StoredMoneyActionOperation[]> {
-    return [...this.records.values()]
+    throwIfListAborted(options?.signal);
+    const operations = [...this.records.values()]
       .filter((record) => sameMoneyActionOwner(owner, record.action.owner))
       .filter((record) => scope !== "unresolved-send" || isUnresolvedSend(record))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, limit)
       .map((record) => structuredClone(record));
+    throwIfListAborted(options?.signal);
+    return operations;
   }
 
   async recordSubmission(
@@ -285,6 +295,12 @@ const unresolvedSendStatuses = new Set<MoneyActionOperationStatus>([
   "included",
   "unknown",
 ]);
+
+function throwIfListAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("Money-action list aborted.", "AbortError");
+  }
+}
 
 function isUnresolvedSend(record: StoredMoneyActionOperation): boolean {
   return record.action.kind === "send" && unresolvedSendStatuses.has(record.status) && !record.abandonedAt;

@@ -1162,6 +1162,7 @@ function ConnectedActivityPanel({
           refreshTrigger={activityRefreshTrigger}
           excludeTransactionHashes={indexedTransactionHashes}
           embedded
+          showUnavailableNotice={false}
           onVisibleCountChange={setLocalActionCount}
         />
       }

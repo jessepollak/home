@@ -254,12 +254,9 @@ async function readRecordedOperationsAvailability(
       ),
     recordedOperationsTimeoutMs(dependencies.recordedOperationsTimeoutMs),
   );
-  const read = Promise.resolve().then(() =>
-    dependencies.readRecordedOperations!(owner, controller.signal),
-  );
-
   try {
-    await Promise.race([read, rejectWhenAborted(controller.signal)]);
+    await dependencies.readRecordedOperations(owner, controller.signal);
+    throwIfAborted(controller.signal);
     return "available";
   } catch (error) {
     if (requestSignal.aborted) throw error;
@@ -274,20 +271,6 @@ async function readRecordedOperationsAvailability(
       );
     }
   }
-}
-
-function rejectWhenAborted(signal: AbortSignal): Promise<never> {
-  return new Promise((_, reject) => {
-    if (signal.aborted) {
-      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
-      return;
-    }
-    signal.addEventListener(
-      "abort",
-      () => reject(signal.reason ?? new DOMException("Aborted", "AbortError")),
-      { once: true },
-    );
-  });
 }
 
 function recordedOperationsTimeoutMs(value: number | undefined): number {
