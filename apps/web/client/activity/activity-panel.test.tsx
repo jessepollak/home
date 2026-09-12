@@ -12,6 +12,7 @@ const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
 );
 const { ActivityPanel } = await import("./activity-panel");
+const { RecentMoneyActions } = await import("@/client/money-actions/recent-operations");
 
 class ControlledIntersectionObserver implements IntersectionObserver {
   static instances: ControlledIntersectionObserver[] = [];
@@ -195,6 +196,34 @@ describe("ActivityPanel", () => {
     );
     expect(within(dialog).getByText("+1234567.89 USDC")).toBeTruthy();
     expect(within(dialog).getByText("Confirmed")).toBeTruthy();
+  });
+
+  test("keeps onchain transfers available when recorded operations fail", async () => {
+    const verifiedSession = session("subject-a", WALLET_A);
+    const view = render(
+      <ActivityPanel
+        session={verifiedSession}
+        fetchActivity={async (query) => pageFor(query, WALLET_A)}
+        leading={
+          <RecentMoneyActions
+            session={verifiedSession}
+            fetchOperations={async () => {
+              throw new Error("secondary source unavailable");
+            }}
+            readOperation={async () => ({})}
+            embedded
+          />
+        }
+      />,
+    );
+
+    await waitFor(() => expect(view.getByText("Received")).toBeTruthy());
+    expect(
+      await view.findByText(
+        "Recorded Home actions are unavailable. Onchain transfers are still shown.",
+      ),
+    ).toBeTruthy();
+    expect(view.queryByText("Activity is temporarily unavailable.")).toBeNull();
   });
 
   test("renders Base Account session transfers the same as email CDP", async () => {

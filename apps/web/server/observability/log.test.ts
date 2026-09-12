@@ -24,6 +24,24 @@ describe("observability logging", () => {
     expect(writes[0]?.line).not.toContain("raw-access-value");
   });
 
+  test("writes successful activity reads at info level", () => {
+    const writes: Array<{ line: string; level: string }> = [];
+    setObservabilityLogWriterForTests((line, level) => writes.push({ line, level }));
+
+    writeObservabilityEvent({
+      kind: "activity-read",
+      route: "/api/activity",
+      outcome: "succeeded",
+      source: "cdp-sql",
+      durationMs: 100,
+      sourceDurationMs: 90,
+      rowCount: 25,
+    });
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.level).toBe("info");
+  });
+
   test("swallows writer failures so reporting cannot affect application behavior", () => {
     setObservabilityLogWriterForTests(() => {
       throw new Error("log sink unavailable");

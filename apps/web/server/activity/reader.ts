@@ -46,7 +46,6 @@ export function createActivityReader(listTransfers: TransferLister): ActivityRea
     const page = await listTransfers({
       verifiedWalletAddress: account.address,
       assetIds: activityAssets.map((asset) => asset.id),
-      includeUnknownAssets: true,
       from,
       to: request.to,
       limit: ACTIVITY_PAGE_SIZE,

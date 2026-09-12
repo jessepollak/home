@@ -129,7 +129,9 @@ export function RecentMoneyActions({
     >
       {embedded ? null : <h3 id="home-operations-title">Home actions</h3>}
       {visibleState?.unavailable ? (
-        <p className={styles.message}>Recent Home actions are temporarily unavailable.</p>
+        <p className={styles.message} role="status">
+          Recorded Home actions are unavailable. Onchain transfers are still shown.
+        </p>
       ) : (
         <ol className={styles.list}>
           {visible.map((operation) => (

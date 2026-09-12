@@ -7,7 +7,7 @@ const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const TO = "2026-09-07T12:00:00.000Z";
 
 describe("recent activity reader", () => {
-  test("requests a stable bounded wallet-scoped page including unknown contracts", async () => {
+  test("requests one stable bounded page for the reviewed asset contracts", async () => {
     let received: Parameters<Parameters<typeof createActivityReader>[0]>[0] | undefined;
     const signal = new AbortController().signal;
     const result: BaseErc20TransferPage = {
@@ -36,7 +36,6 @@ describe("recent activity reader", () => {
     expect(received).toEqual({
       verifiedWalletAddress: WALLET,
       assetIds: activityAssets.map((asset) => asset.id),
-      includeUnknownAssets: true,
       from: "2026-08-07T12:00:00.000Z",
       to: TO,
       limit: 25,

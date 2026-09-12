@@ -19,18 +19,32 @@ export type ObservabilityEvent =
       route: string;
       errorName: string;
       summary: string;
+    }
+  | {
+      kind: "activity-read";
+      route: string;
+      outcome: "succeeded" | "failed";
+      source: "cdp-sql";
+      durationMs: number;
+      sourceDurationMs: number;
+      rowCount: number;
     };
 
 export type ObservabilityLogLine = {
   schema: typeof OBSERVABILITY_SCHEMA;
-  level: "error";
+  level: "error" | "info";
   kind: ObservabilityEvent["kind"];
   route: string;
   method?: string;
-  code: "UNHANDLED_SERVER_ERROR" | "CLIENT_ERROR";
-  errorName: string;
+  code: "UNHANDLED_SERVER_ERROR" | "CLIENT_ERROR" | "ACTIVITY_READ";
+  errorName?: string;
   routeType?: string;
   summary?: string;
+  outcome?: "succeeded" | "failed";
+  source?: "cdp-sql";
+  durationMs?: number;
+  sourceDurationMs?: number;
+  rowCount?: number;
 };
 
 function sanitizeMethod(value: string | undefined): string | undefined {
@@ -44,11 +58,27 @@ function sanitizeMethod(value: string | undefined): string | undefined {
 export function normalizeObservabilityEvent(
   event: ObservabilityEvent,
 ): ObservabilityLogLine {
+  const route = sanitizeRoutePath(event.route);
+  if (event.kind === "activity-read") {
+    return {
+      schema: OBSERVABILITY_SCHEMA,
+      level: event.outcome === "succeeded" ? "info" : "error",
+      kind: event.kind,
+      route,
+      code: "ACTIVITY_READ",
+      outcome: event.outcome,
+      source: event.source,
+      durationMs: boundedInteger(event.durationMs, 60_000),
+      sourceDurationMs: boundedInteger(event.sourceDurationMs, 60_000),
+      rowCount: boundedInteger(event.rowCount, 10_000),
+    };
+  }
+
   const base = {
     schema: OBSERVABILITY_SCHEMA,
     level: "error" as const,
     kind: event.kind,
-    route: sanitizeRoutePath(event.route),
+    route,
     code:
       event.kind === "client-error"
         ? ("CLIENT_ERROR" as const)
@@ -73,4 +103,9 @@ export function normalizeObservabilityEvent(
     ...(method ? { method } : {}),
     ...(routeType ? { routeType } : {}),
   };
+}
+
+function boundedInteger(value: number, maximum: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(maximum, Math.max(0, Math.round(value)));
 }

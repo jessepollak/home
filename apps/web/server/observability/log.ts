@@ -9,7 +9,14 @@ export type ObservabilityLogWriter = (
   level: ObservabilityLogLine["level"],
 ) => void;
 
-function defaultWriter(serializedLine: string): void {
+function defaultWriter(
+  serializedLine: string,
+  level: ObservabilityLogLine["level"],
+): void {
+  if (level === "info") {
+    console.info(serializedLine);
+    return;
+  }
   console.error(serializedLine);
 }
 

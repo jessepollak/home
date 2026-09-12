@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { GET, dynamic, runtime } from "./route";
+import { GET, dynamic, maxDuration, runtime } from "./route";
 
 describe("GET /api/activity route composition", () => {
   test("uses the Node runtime, stays dynamic, and rejects unauthenticated reads before CDP SQL", async () => {
     expect(runtime).toBe("nodejs");
     expect(dynamic).toBe("force-dynamic");
+    expect(maxDuration).toBe(30);
 
     const response = await GET(
       new Request(

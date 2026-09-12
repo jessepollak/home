@@ -3,6 +3,7 @@ import {
   type AccountProvider,
 } from "@/shared/account/session-types";
 import { ChainDataError } from "@/server/chain-data/errors";
+import type { ObservabilityEvent } from "@/server/observability/schema";
 import type { ActivityReader } from "./types";
 
 export type SessionAuthorizer = (request: Request) => Promise<Response>;
@@ -13,14 +14,24 @@ const privateResponseHeaders = {
   Vary: `Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
 } as const;
 
+type ActivityReadObservation = Extract<
+  ObservabilityEvent,
+  { kind: "activity-read" }
+>;
+
 export function createActivityHandler(dependencies: {
   authorize: SessionAuthorizer;
   readActivity: ActivityReader;
   now?: () => Date;
+  clock?: () => number;
+  observe?: (event: ActivityReadObservation) => unknown;
 }) {
   const now = dependencies.now ?? (() => new Date());
+  const clock = dependencies.clock ?? (() => Date.now());
+  const observe = dependencies.observe ?? (() => undefined);
 
   return async function GET(request: Request): Promise<Response> {
+    const requestStartedAt = clock();
     const boundaryResponse = await dependencies.authorize(request);
     if (!boundaryResponse.ok) {
       return boundaryResponse;
@@ -54,6 +65,7 @@ export function createActivityHandler(dependencies: {
       );
     }
 
+    const sourceStartedAt = clock();
     try {
       const page = await dependencies.readActivity(
         {
@@ -64,11 +76,44 @@ export function createActivityHandler(dependencies: {
         activityRequest,
         request.signal,
       );
+      emitActivityObservation(observe, {
+        kind: "activity-read",
+        route: "/api/activity",
+        outcome: "succeeded",
+        source: "cdp-sql",
+        durationMs: elapsedMs(clock, requestStartedAt),
+        sourceDurationMs: elapsedMs(clock, sourceStartedAt),
+        rowCount: page.transfers.length,
+      });
       return privateJson(page, 200);
     } catch (error) {
+      emitActivityObservation(observe, {
+        kind: "activity-read",
+        route: "/api/activity",
+        outcome: "failed",
+        source: "cdp-sql",
+        durationMs: elapsedMs(clock, requestStartedAt),
+        sourceDurationMs: elapsedMs(clock, sourceStartedAt),
+        rowCount: 0,
+      });
       return activityReadError(error);
     }
   };
+}
+
+function emitActivityObservation(
+  observe: (event: ActivityReadObservation) => unknown,
+  event: ActivityReadObservation,
+): void {
+  try {
+    observe(event);
+  } catch {
+    // Observability must never alter activity response behavior.
+  }
+}
+
+function elapsedMs(clock: () => number, startedAt: number): number {
+  return Math.max(0, Math.round(clock() - startedAt));
 }
 
 function parseActivityRequest(

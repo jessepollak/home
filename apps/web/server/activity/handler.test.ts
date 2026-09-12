@@ -78,6 +78,53 @@ describe("activity route handler", () => {
     });
   });
 
+  test("emits bounded privacy-safe duration and source observations", async () => {
+    const observations: unknown[] = [];
+    let tick = 0;
+    const handler = createActivityHandler({
+      authorize: async () => sessionResponse(),
+      readActivity: async () => page(),
+      now: () => new Date(TO),
+      clock: () => tick += 10,
+      observe: (event) => observations.push(event),
+    });
+
+    const response = await handler(
+      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
+    );
+
+    expect(response.status).toBe(200);
+    expect(observations).toEqual([
+      {
+        kind: "activity-read",
+        route: "/api/activity",
+        outcome: "succeeded",
+        source: "cdp-sql",
+        durationMs: 20,
+        sourceDurationMs: 20,
+        rowCount: 0,
+      },
+    ]);
+    expect(JSON.stringify(observations)).not.toContain(VERIFIED);
+    expect(JSON.stringify(observations)).not.toContain("subject-a");
+  });
+
+  test("observability failures cannot change an activity response", async () => {
+    const handler = createActivityHandler({
+      authorize: async () => sessionResponse(),
+      readActivity: async () => page(),
+      now: () => new Date(TO),
+      observe: () => {
+        throw new Error("log sink unavailable");
+      },
+    });
+
+    const response = await handler(
+      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
+    );
+    expect(response.status).toBe(200);
+  });
+
   test("rejects browser wallet scope and unknown query inputs without calling chain data", async () => {
     for (const query of [
       `to=${encodeURIComponent(TO)}&wallet=${ATTACKER}`,

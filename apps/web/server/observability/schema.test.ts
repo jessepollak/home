@@ -31,6 +31,32 @@ describe("observability schema", () => {
     }
   });
 
+  test("normalizes bounded activity duration and source events without identifiers", () => {
+    const line = normalizeObservabilityEvent({
+      kind: "activity-read",
+      route: "/api/activity?wallet=0x1111111111111111111111111111111111111111",
+      outcome: "succeeded",
+      source: "cdp-sql",
+      durationMs: 6_964.4,
+      sourceDurationMs: 6_900.6,
+      rowCount: 25,
+    });
+
+    expect(line).toEqual({
+      schema: OBSERVABILITY_SCHEMA,
+      level: "info",
+      kind: "activity-read",
+      route: "/api/activity",
+      code: "ACTIVITY_READ",
+      outcome: "succeeded",
+      source: "cdp-sql",
+      durationMs: 6_964,
+      sourceDurationMs: 6_901,
+      rowCount: 25,
+    });
+    expect(JSON.stringify(line)).not.toContain("0x1111111111111111111111111111111111111111");
+  });
+
   test("unhandled server events contain no exception message, stack, digest, headers, or request URL", () => {
     const line = normalizeObservabilityEvent({
       kind: "unhandled-server-error",
