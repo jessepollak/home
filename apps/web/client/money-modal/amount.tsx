@@ -81,6 +81,7 @@ export function useAutoFitAmountText(text: string) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sizerRef = useRef<HTMLSpanElement>(null);
   const [fontSize, setFontSize] = useState<number | undefined>(undefined);
+  const [scaleX, setScaleX] = useState(1);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -93,26 +94,30 @@ export function useAutoFitAmountText(text: string) {
         (Number.parseFloat(computed.paddingLeft) || 0)
         + (Number.parseFloat(computed.paddingRight) || 0);
       const available = container.clientWidth - horizontalPadding;
-      const natural = sizer.getBoundingClientRect().width;
-      if (available <= 0 || natural <= 0) return;
-
       const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
-      if (!Number.isFinite(base) || base <= 0) return;
+      const currentSize = Number.parseFloat(computed.fontSize);
+      const ticker = container.querySelector<HTMLElement>(".home-ui-money-ticker");
+      const renderedNatural = ticker?.offsetWidth || sizer.getBoundingClientRect().width;
+      if (available <= 0 || renderedNatural <= 0 || !Number.isFinite(base) || base <= 0) return;
 
+      const natural = Number.isFinite(currentSize) && currentSize > 0
+        ? renderedNatural * (base / currentSize)
+        : renderedNatural;
       const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
       const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
-      // Round down and reserve headroom so the rendered amount never exceeds
-      // the container by a subpixel rounding error; the exact decimal string
-      // is never altered.
-      const target =
-        Math.floor(
-          fitAmountFontSize(available * AMOUNT_FIT_SAFETY_FACTOR, natural, base, min) * 10,
-        ) / 10;
+      const scaled = (base * available * AMOUNT_FIT_SAFETY_FACTOR) / natural;
+      // Keep the minimum vertical type size while compacting only the inline
+      // axis when DM Mono's fixed glyph widths need a little more room.
+      const target = Math.floor(Math.min(base, Math.max(min, scaled)) * 10) / 10;
+      const targetScaleX = Math.min(1, scaled / target);
 
       setFontSize((current) =>
         current !== undefined && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
           ? current
           : target,
+      );
+      setScaleX((current) =>
+        Math.abs(current - targetScaleX) < 0.005 ? current : targetScaleX,
       );
     };
 
@@ -137,7 +142,7 @@ export function useAutoFitAmountText(text: string) {
     };
   }, [text]);
 
-  return { containerRef, sizerRef, fontSize };
+  return { containerRef, sizerRef, fontSize, scaleX };
 }
 
 export function useMoneyAssetPricing(assetSymbol: string): MoneyAssetPricing {
@@ -238,7 +243,7 @@ export function MoneyPrimaryAmount({
   pricing: MoneyAssetPricing;
 }) {
   const text = formatPrimaryAmount(amount, unit, pricing);
-  const { containerRef, sizerRef, fontSize } = useAutoFitAmountText(text);
+  const { containerRef, sizerRef, fontSize, scaleX } = useAutoFitAmountText(text);
 
   return (
     <>
@@ -248,7 +253,10 @@ export function MoneyPrimaryAmount({
         data-primary-amount
         style={fontSize === undefined ? undefined : { fontSize }}
       >
-        <MoneyTicker value={text} />
+        <MoneyTicker
+          value={text}
+          style={scaleX < 1 ? { transform: `scaleX(${scaleX})` } : undefined}
+        />
       </div>
       <span
         ref={sizerRef}

@@ -272,9 +272,7 @@ async function amountMetrics(page: Page) {
     const ticker = node?.querySelector<HTMLElement>("[role='img']");
     if (!node || !ticker) return null;
     const style = getComputedStyle(node);
-    const range = document.createRange();
-    range.selectNodeContents(ticker.querySelector(".home-ui-money-ticker__track") ?? ticker);
-    const textWidth = range.getBoundingClientRect().width;
+    const textWidth = ticker.getBoundingClientRect().width;
     const padding = (name: "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft") =>
       Number.parseFloat(style[name]) || 0;
     return {

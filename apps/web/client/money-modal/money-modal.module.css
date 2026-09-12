@@ -50,7 +50,7 @@
   border-radius: var(--home-ui-radius-control);
   cursor: pointer;
   font: inherit;
-  font-size: var(--home-ui-type-control-size);
+  font-size: 0.92rem;
   font-weight: var(--home-ui-type-weight-strong);
   text-align: center;
   text-decoration: none;
@@ -72,6 +72,12 @@
 .quiet:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.primary:disabled {
+  border-color: var(--home-ui-color-action);
+  background: var(--home-ui-color-action);
+  color: var(--home-ui-color-on-action);
 }
 
 .amountBlock {
@@ -180,6 +186,7 @@
   visibility: hidden;
   pointer-events: none;
   white-space: nowrap;
+  font-family: var(--home-ui-font-numeric);
   font-size: var(--money-amount-base-size);
   font-variant-numeric: tabular-nums;
   font-weight: var(--home-ui-type-weight-strong);
