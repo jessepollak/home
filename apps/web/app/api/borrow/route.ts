@@ -1,9 +1,8 @@
 import { isBaseAccountEnabled } from "@/shared/account/session-types";
 import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
 import { createSessionHandler } from "@/server/cdp/session";
-import { createBorrowHandlers } from "@/server/borrowing/handler";
+import { createBorrowHandler } from "@/server/borrowing/handler";
 import { getBaseBorrowing } from "@/server/borrowing/rpc";
-import { issueMoneyAction } from "@/server/money-actions/issue";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,11 +14,7 @@ const authorize = createSessionHandler({
   ),
 });
 
-const handlers = createBorrowHandlers({
+export const GET = createBorrowHandler({
   authorize,
   rpc: getBaseBorrowing,
-  issueAction: issueMoneyAction,
 });
-
-export const GET = handlers.GET;
-export const POST = handlers.POST;

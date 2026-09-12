@@ -33,25 +33,6 @@ const protectedRoutes: ReadonlyArray<{
     },
   },
   {
-    name: "POST /api/borrow",
-    invoke: async () => {
-      const route = await import("./borrow/route");
-      return {
-        runtime: route.runtime,
-        dynamic: route.dynamic,
-        response: await route.POST(new Request("http://home.test/api/borrow", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            operation: "borrow",
-            amount: "1",
-            snapshotBlockHash: `0x${"00".repeat(32)}`,
-          }),
-        })),
-      };
-    },
-  },
-  {
     name: "POST /api/funding/onramp-session",
     invoke: async () => {
       const route = await import("./funding/onramp-session/route");
@@ -88,25 +69,6 @@ const protectedRoutes: ReadonlyArray<{
         runtime: route.runtime,
         dynamic: route.dynamic,
         response: await route.GET(new Request("http://home.test/api/portfolio?mode=base-account")),
-      };
-    },
-  },
-  {
-    name: "POST /api/savings/actions",
-    invoke: async () => {
-      const route = await import("./savings/actions/route");
-      return {
-        runtime: route.runtime,
-        dynamic: route.dynamic,
-        response: await route.POST(new Request("http://home.test/api/savings/actions", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            kind: "deposit",
-            vaultAddress: "0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61",
-            amountBaseUnits: "1000000",
-          }),
-        })),
       };
     },
   },

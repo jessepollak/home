@@ -118,12 +118,11 @@ function positions(
   };
 }
 
-function preparedAction(kind: "save-deposit" | "save-withdraw"): PreparedMoneyAction {
+function preparedAction(kind: "savings-deposit" | "savings-withdraw"): PreparedMoneyAction {
   return {
     id: "action-1",
     kind,
-    title: kind === "save-deposit" ? "Deposit" : "Withdraw",
-    reviewHash: "hash",
+    title: kind === "savings-deposit" ? "Deposit" : "Withdraw",
     createdAt: "2026-09-09T00:00:00.000Z",
     expiresAt: "2099-09-09T00:00:00.000Z",
     calls: [],
@@ -159,7 +158,7 @@ describe("Save simplify", () => {
         availableUsdcBaseUnits="128400000"
         prepareMoneyAction={async (_endpoint, input) => {
           prepares.push(input);
-          return preparedAction("save-deposit");
+          return preparedAction("savings-deposit");
         }}
         executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
       />,
@@ -195,7 +194,7 @@ describe("Save simplify", () => {
           return initialData;
         }}
         availableUsdcBaseUnits="50000000"
-        prepareMoneyAction={async () => preparedAction("save-deposit")}
+        prepareMoneyAction={async () => preparedAction("savings-deposit")}
         executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
       />,
     );
@@ -225,7 +224,7 @@ describe("Save simplify", () => {
           [STEAKHOUSE]: "420000000",
         })}
         availableUsdcBaseUnits="50000000"
-        prepareMoneyAction={async () => preparedAction("save-withdraw")}
+        prepareMoneyAction={async () => preparedAction("savings-withdraw")}
         executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
       />,
     );

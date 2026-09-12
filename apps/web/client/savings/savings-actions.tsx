@@ -121,7 +121,7 @@ export function SavingsMoneyDialog({
         amountBaseUnits: nextAmount,
       });
       if (
-        action.kind !== (mode === "deposit" ? "save-deposit" : "save-withdraw") ||
+        action.kind !== (mode === "deposit" ? "savings-deposit" : "savings-withdraw") ||
         action.owner.subject !== session.user.subject ||
         action.owner.accountProvider !== session.accountProvider ||
         action.owner.address.toLowerCase() !== session.smartAccount.address.toLowerCase()
@@ -147,7 +147,7 @@ export function SavingsMoneyDialog({
     try {
       const result = await executeMoneyAction(preparedAction);
       setAttemptedAction(true);
-      if (result.status === "rejected" || result.status === "expired" || result.status === "failed") {
+      if (result.status === "rejected" || result.status === "failed") {
         setError(messageForActionStatus(result.status, mode));
         setStep(result.status === "failed" ? "failed" : "error");
         return;
@@ -290,8 +290,6 @@ function messageForActionStatus(status: string, mode: SavingsActionMode): string
   switch (status) {
     case "rejected":
       return "The wallet request was rejected.";
-    case "expired":
-      return `This ${mode} expired. Go back and continue again.`;
     case "failed":
       return `The ${mode} did not succeed onchain.`;
     default:

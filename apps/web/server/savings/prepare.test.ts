@@ -68,7 +68,7 @@ describe("Morpho savings action preparation", () => {
       vaultAddress: VAULT,
       amount: BigInt("1500000"),
     });
-    expect(action.kind).toBe("save-deposit");
+    expect(action.kind).toBe("savings-deposit");
     expect(action.expiresAt).toBe("2026-09-08T10:05:00.000Z");
     expect(action.calls).toEqual([
       {
@@ -191,7 +191,7 @@ describe("Morpho savings action preparation", () => {
     });
 
     expect(attempts).toBe(2);
-    expect(action.kind).toBe("save-deposit");
+    expect(action.kind).toBe("savings-deposit");
     expect(action.amounts[0]).toEqual(expect.objectContaining({
       symbol: "USDC",
       amountBaseUnits: "5000000",
@@ -237,7 +237,7 @@ describe("Morpho savings action preparation", () => {
 
     expect(attempts).toBe(2);
     expect(delays).toEqual([400]);
-    expect(action.kind).toBe("save-deposit");
+    expect(action.kind).toBe("savings-deposit");
   });
 
   test("keeps a persistent rate limit typed instead of wrapping it as unavailable", async () => {

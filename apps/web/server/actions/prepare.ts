@@ -2,6 +2,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowPreviewRequest } from "@/shared/borrowing/types";
 import type { SavingsActionInput } from "@/server/savings/types";
 import type { TransferRequest } from "@/shared/transfers/types";
+import { isActionKind, type ActionKind } from "@/shared/money-actions/types";
 import { readAuthorizedMoneyActionSession } from "@/server/money-actions/session";
 import { issueSendMoneyAction } from "@/server/money-actions/prepare-send";
 import { issueMoneyAction } from "@/server/money-actions/issue";
@@ -26,7 +27,7 @@ export function createPrepareActionHandler(dependencies: {
     const session = await readAuthorizedMoneyActionSession(request, boundary);
     if (!session?.smartAccount) return privateError("AUTH_UNAVAILABLE", "A verified Base account is required.", 503);
     const body = await readJson(request);
-    if (!isRecord(body) || typeof body.kind !== "string" || !isRecord(body.params)) {
+    if (!isRecord(body) || !isActionKind(body.kind) || !isRecord(body.params)) {
       return privateError("INVALID_ACTION", "A valid action kind and parameters are required.", 400);
     }
     try {
@@ -34,8 +35,21 @@ export function createPrepareActionHandler(dependencies: {
       return privateJson(action, 201);
     } catch (error) {
       if (error instanceof SavingsActionError) {
-        const status = error.reason === "limit-exceeded" ? 409 : error.reason === "rate-limited" ? 429 : error.reason === "invalid-input" ? 400 : 502;
-        return privateError("SAVINGS_ACTION_UNAVAILABLE", error.message, status);
+        switch (error.reason) {
+          case "invalid-input":
+            return privateError("SAVINGS_ACTION_INVALID", error.message, 400);
+          case "unsupported-vault":
+          case "unsupported-asset":
+            return privateError("SAVINGS_ACTION_UNSUPPORTED", error.message, 422);
+          case "limit-exceeded":
+            return privateError("SAVINGS_ACTION_LIMIT_EXCEEDED", error.message, 409);
+          case "rate-limited":
+            return privateError("SAVINGS_ACTION_RATE_LIMITED", error.message, 429);
+          case "rpc":
+            return privateError("SAVINGS_ACTION_RPC", error.message, 502);
+          default:
+            return privateError("SAVINGS_ACTION_UNAVAILABLE", error.message, 502);
+        }
       }
       if (error instanceof BorrowPreparationError) {
         return privateError(error.code.toUpperCase().replaceAll("-", "_"), error.message, error.code === "stale-state" ? 409 : 400);
@@ -47,7 +61,7 @@ export function createPrepareActionHandler(dependencies: {
 
 async function prepare(
   session: VerifiedAccountSession,
-  kind: string,
+  kind: ActionKind,
   params: Record<string, unknown>,
   signal: AbortSignal,
   dependencies: { prepareSavings?: typeof prepareSavingsAction },
@@ -64,9 +78,13 @@ async function prepare(
     const draft = await (dependencies.prepareSavings ?? prepareSavingsAction)({ session, action: input, signal });
     return issueMoneyAction(session, draft);
   }
-  if (kind === "borrow") {
+  if (kind === "supply-collateral" || kind === "borrow" || kind === "repay" || kind === "withdraw-collateral") {
     if (!session.smartAccount) throw new BorrowPreparationError("invalid-input", "A verified Base account is required.");
     const request = params as unknown as BorrowPreviewRequest;
+    const requestedKind = request.operation === "repay-all" ? "repay" : request.operation;
+    if (requestedKind !== kind) {
+      throw new BorrowPreparationError("invalid-input", "The borrowing operation does not match the action kind.");
+    }
     const rpc = getBaseBorrowing;
     const snapshot = await rpc.readSnapshot(session.smartAccount.address, signal);
     const preparation = await prepareBorrowAction({

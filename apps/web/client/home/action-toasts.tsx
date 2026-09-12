@@ -168,13 +168,17 @@ function actionToastMessage(action: ToastAction, status: ToastAction["status"]):
   }
   if (operation === "deposit") return `${status === "pending" ? "Depositing" : "Deposited"} ${formatted}`;
   if (operation === "withdraw") return `${status === "pending" ? "Withdrawing" : "Withdrawn"} ${formatted}`;
+  if (operation === "supply-collateral") return `${status === "pending" ? "Adding collateral" : "Added collateral"} ${formatted}`;
+  if (operation === "withdraw-collateral") return `${status === "pending" ? "Withdrawing collateral" : "Withdrew collateral"} ${formatted}`;
   return null;
 }
 
-function operationKind(kind: string): "send" | "deposit" | "withdraw" | null {
+function operationKind(kind: string): "send" | "deposit" | "withdraw" | "supply-collateral" | "withdraw-collateral" | null {
   if (kind === "send") return "send";
-  if (kind === "savings-deposit" || kind === "save-deposit") return "deposit";
-  if (kind === "savings-withdraw" || kind === "save-withdraw") return "withdraw";
+  if (kind === "savings-deposit") return "deposit";
+  if (kind === "savings-withdraw") return "withdraw";
+  if (kind === "supply-collateral") return "supply-collateral";
+  if (kind === "withdraw-collateral") return "withdraw-collateral";
   return null;
 }
 
@@ -182,6 +186,8 @@ function failedVerb(kind: string): string {
   const operation = operationKind(kind);
   if (operation === "deposit") return "Deposit";
   if (operation === "withdraw") return "Withdrawal";
+  if (operation === "supply-collateral") return "Adding collateral";
+  if (operation === "withdraw-collateral") return "Withdrawing collateral";
   return "Send";
 }
 

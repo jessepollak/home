@@ -37,12 +37,11 @@ const candidate: MorphoVaultCandidate = {
   source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: "2026-09-12T12:00:01.000Z" },
 };
 
-function prepared(kind: "save-deposit" | "save-withdraw" = "save-deposit"): PreparedMoneyAction {
+function prepared(kind: "savings-deposit" | "savings-withdraw" = "savings-deposit"): PreparedMoneyAction {
   return {
     id: "action-1",
     kind,
     title: "Deposit USDC",
-    reviewHash: "hash",
     createdAt: "2026-09-12T00:00:00.000Z",
     expiresAt: "2099-09-12T00:00:00.000Z",
     calls: [],

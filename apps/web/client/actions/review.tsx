@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
-import { formatBaseUnitAmount } from "@/client/portfolio";
-import { decodeMoneyActionApproval } from "@/shared/money-actions/approval";
+import {
+  formatPresentationDate,
+  formatPresentationTokenAmount,
+} from "@/shared/formatting";
 import { useReactiveExpiry } from "./expiry";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import styles from "./review.module.css";
@@ -72,33 +74,22 @@ function MoneyActionReviewContent({
             <dt>{amount.maximum ? "Up to" : amount.direction === "spend" ? "You spend" : "You receive"}</dt>
             <dd>
               {amount.estimated ? "Estimated " : ""}
-              {formatBaseUnitAmount(amount.amountBaseUnits, amount.decimals)} {amount.symbol}
+              {formatPresentationTokenAmount(
+                amount.amountBaseUnits,
+                amount.decimals,
+                amount.symbol,
+                { cashCurrency: amount.symbol === "USDC" ? "USD" : null },
+              )}
             </dd>
           </div>
         ))}
-        {action.calls.map((call, index) => {
-          const approval = decodeMoneyActionApproval(call);
-          return approval ? (
-            <div className={styles.row} key={`${call.to}-${index}`}>
-              <dt>Exact approval</dt>
-              <dd>
-                Token {approval.token}; spender {approval.spender}; cap {approval.amountBaseUnits} base units ({approval.assetId})
-              </dd>
-            </div>
-          ) : (
-            <div className={styles.row} key={`${call.to}-${index}`}>
-              <dt>{action.calls.length === 1 ? "Target" : `Target ${index + 1}`}</dt>
-              <dd>{call.to}</dd>
-            </div>
-          );
-        })}
         <div className={styles.row}>
           <dt>Network</dt>
           <dd>Base (8453)</dd>
         </div>
         <div className={styles.row}>
           <dt>Valid until</dt>
-          <dd>{new Date(action.expiresAt).toLocaleTimeString()}</dd>
+          <dd>{formatPresentationDate(action.expiresAt, { style: "date-time-zone" })}</dd>
         </div>
       </dl>
       {action.warnings.map((warning) => (
@@ -109,7 +100,7 @@ function MoneyActionReviewContent({
       <div className={styles.actions}>
         <button type="button" disabled={pending} onClick={onClose}>Back</button>
         <button type="button" disabled={pending || (expired && !attempted)} onClick={() => void confirm()}>
-          {pending ? "Submitting…" : attempted ? "Retry" : action.kind === "swap" ? "Confirm swap" : "Confirm action"}
+          {pending ? "Submitting…" : attempted ? "Retry" : action.kind === "trade" ? "Confirm trade" : "Confirm action"}
         </button>
       </div>
     </section>
@@ -124,13 +115,12 @@ function presentReviewWarning(warning: string): string {
 }
 
 function isTerminalStatus(status: OperationResult["status"]): boolean {
-  return status === "rejected" || status === "expired" || status === "failed";
+  return status === "rejected" || status === "failed";
 }
 
 function messageForStatus(status: OperationResult["status"]): string {
   switch (status) {
     case "rejected": return "The wallet request was rejected.";
-    case "expired": return "This prepared action expired. Prepare a fresh action.";
     case "failed": return "The verified onchain receipt reported failure.";
     default: return "The action is pending.";
   }

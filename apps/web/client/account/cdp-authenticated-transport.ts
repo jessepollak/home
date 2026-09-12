@@ -30,7 +30,6 @@ export function accountAuthorizationBoundary(
 
 const accountResourcePrefixes = [
   "/api/actions",
-  "/api/savings/actions",
   "/api/trades",
   "/api/borrow",
   "/api/funding",

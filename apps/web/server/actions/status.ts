@@ -1,5 +1,7 @@
+import type { DerivedActionStatus } from "@/shared/money-actions/types";
+
 export type ActionReceiptState = "pending" | "confirmed" | "failed" | "unavailable";
-export type DerivedActionStatus = "pending" | "unknown" | "confirmed" | "failed";
+export type { DerivedActionStatus } from "@/shared/money-actions/types";
 
 const UNKNOWN_AFTER_MS = 15 * 60_000;
 

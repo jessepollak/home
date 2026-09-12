@@ -8,7 +8,6 @@ const { MoneyActionReview } = await import("./review");
 
 const action: PreparedMoneyAction = {
   id: "11111111-1111-4111-8111-111111111111",
-  reviewHash: "a".repeat(64),
   owner: {
     subject: "subject-a",
     address: "0x1111111111111111111111111111111111111111",
@@ -27,7 +26,7 @@ const action: PreparedMoneyAction = {
 afterEach(cleanup);
 
 describe("MoneyActionReview", () => {
-  test("shows exact amounts and confirms the server-authored action", async () => {
+  test("shows the shared presentation amount and confirms the server-authored action", async () => {
     let executions = 0;
     let confirmed = 0;
     render(
@@ -42,7 +41,7 @@ describe("MoneyActionReview", () => {
       />,
     );
 
-    expect(screen.getByText("0.100000000000000001 ETH")).toBeTruthy();
+    expect(screen.getByText("0.1000 ETH")).toBeTruthy();
     expect(screen.getByText("Base network fees apply and are finalized at submission.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Confirm action" }));
     await waitFor(() => expect(confirmed).toBe(1));
@@ -88,27 +87,18 @@ describe("MoneyActionReview", () => {
     expect(executions).toBe(0);
   });
 
-  test("shows decoded approval token, spender, and exact base-unit cap", () => {
-    const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
-    const spender = "0x3333333333333333333333333333333333333333" as const;
-    const cap = BigInt(1_000_000);
+  test("keeps raw call targets and base-unit approval caps off the confirm step", () => {
     render(
       <MoneyActionReview
-        action={{
-          ...action,
-          calls: [{
-            to: token,
-            value: "0",
-            data: `0x095ea7b3${spender.slice(2).padStart(64, "0")}${cap.toString(16).padStart(64, "0")}`,
-            approval: { assetId: "usdc", spender },
-          }],
-        }}
+        action={action}
         onClose={() => {}}
         execute={async () => ({ id: action.id, status: "submitted" })}
         onConfirmed={() => {}}
       />,
     );
 
-    expect(screen.getByText(new RegExp(`Token ${token}; spender ${spender}; cap 1000000 base units`))).toBeTruthy();
+    expect(screen.queryByText(/0x2222/i)).toBeNull();
+    expect(screen.queryByText(/base units/i)).toBeNull();
+    expect(screen.getByText("Base (8453)")).toBeTruthy();
   });
 });

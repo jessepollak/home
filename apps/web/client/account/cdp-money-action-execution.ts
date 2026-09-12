@@ -182,7 +182,7 @@ export async function executeActionOnce(input: {
 
 function validPrepared(value: unknown, session: VerifiedAccountSession): value is PreparedMoneyAction {
   return Boolean(
-    isRecord(value) && typeof value.id === "string" && typeof value.reviewHash === "string" &&
+    isRecord(value) && typeof value.id === "string" &&
     isRecord(value.owner) && session.smartAccount &&
     value.owner.subject === session.user.subject &&
     typeof value.owner.address === "string" &&
@@ -264,7 +264,6 @@ export function useMoneyActionExecution({
     }
     const resumed: PreparedMoneyAction = {
       id,
-      reviewHash: "resumed-owner-scoped-action",
       owner: {
         subject: active.user.subject,
         address: active.smartAccount.address,

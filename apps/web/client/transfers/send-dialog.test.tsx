@@ -19,7 +19,6 @@ function resumedAction(kind: PreparedMoneyAction["kind"] = "send"): PreparedMone
     id: ACTION_ID,
     kind,
     title: "Send USDC",
-    reviewHash: "resumed-owner-scoped-action",
     createdAt: "2026-09-12T12:00:00.000Z",
     expiresAt: "2026-09-12T12:10:00.000Z",
     calls: [{ to: TOKEN, data: encodeUsdcTransfer(RECIPIENT, BigInt(1_000_000)), value: "0" }],
@@ -72,7 +71,7 @@ describe("SendDialog resume", () => {
         ownerBoundary="owner-a"
         resumeActionId="22222222-2222-4222-8222-222222222222"
         prepareMoneyAction={async () => resumedAction()}
-        resumeMoneyAction={async () => resumedAction("save-deposit")}
+        resumeMoneyAction={async () => resumedAction("savings-deposit")}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
         onInvalidResume={() => { invalidResumes += 1; }}
         onClose={() => {}}

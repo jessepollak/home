@@ -80,7 +80,6 @@ describe("BorrowExperience", () => {
       prepared.push({ kind, params });
       return {
         id: "11111111-1111-4111-8111-111111111111",
-        reviewHash: "a".repeat(64),
         owner: { subject: session.user.subject, address: OWNER, chainId: 8453 as const, accountProvider: "cdp-embedded" as const },
         kind: "borrow" as const,
         title: "Borrow USDC",

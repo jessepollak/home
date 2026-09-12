@@ -11,7 +11,7 @@ import {
   RecentMoneyActions,
   dedupeRecentMoneyActions,
   parseRecentMoneyActions,
-} from "@/client/money-actions";
+} from "@/client/actions";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";

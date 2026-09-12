@@ -5,7 +5,7 @@ import { Button, Heading, Text } from "@home/ui";
 import { useMemo, useState } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { MoneyActionReview } from "@/client/money-actions/review";
+import { MoneyActionReview } from "@/client/actions/review";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { formatPresentationDate } from "@/shared/formatting";
 import {
@@ -139,7 +139,7 @@ function BorrowExperienceInner({
     if (!snapshot || !prepareMoneyAction) return;
     setPreview({ status: "loading" });
     try {
-      const action = await prepareMoneyAction("borrow", {
+      const action = await prepareMoneyAction(operation === "repay-all" ? "repay" : operation, {
         operation,
         amount,
         snapshotBlockHash: snapshot.source.blockHash,

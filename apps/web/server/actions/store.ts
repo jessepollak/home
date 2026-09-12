@@ -1,7 +1,12 @@
 import "server-only";
 
 import { createNeonSqlExecutor, type SqlExecutor } from "@/server/db/sql";
-import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
+import {
+  isActionKind,
+  type ActionKind,
+  type MoneyActionCall,
+  type MoneyActionOwner,
+} from "@/shared/money-actions/types";
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
 
@@ -50,7 +55,7 @@ export type ActionRow = {
   id: string;
   owner_key: string;
   provider: AccountProvider;
-  kind: string;
+  kind: ActionKind;
   summary: ActionSummary;
   pending: PendingAction | null;
   created_at: string | Date;
@@ -70,12 +75,35 @@ function parseJsonColumn<T>(value: unknown): T | null {
   return value as T;
 }
 
-function normalizeActionRow(row: ActionRow): ActionRow {
+type RawActionRow = Omit<ActionRow, "kind"> & { kind: unknown };
+
+class InvalidStoredActionKindError extends Error {
+  readonly code = "ACTION_KIND_UNSUPPORTED";
+
+  constructor() {
+    super("The stored action kind is unsupported.");
+    this.name = "InvalidStoredActionKindError";
+  }
+}
+
+function normalizeActionRow(row: RawActionRow): ActionRow {
+  if (!isActionKind(row.kind)) throw new InvalidStoredActionKindError();
   return {
     ...row,
+    kind: row.kind,
     summary: parseJsonColumn<ActionSummary>(row.summary) as ActionSummary,
     pending: parseJsonColumn<PendingAction>(row.pending),
   };
+}
+
+function normalizeActionRowOrNull(row: RawActionRow | undefined): ActionRow | null {
+  if (!row) return null;
+  try {
+    return normalizeActionRow(row);
+  } catch (error) {
+    if (error instanceof InvalidStoredActionKindError) return null;
+    throw error;
+  }
 }
 
 let runtimeStore: ActionsStore | null = null;
@@ -97,7 +125,7 @@ export class ActionsStore {
   async insert(input: {
     id: string;
     owner: MoneyActionOwner;
-    kind: string;
+    kind: ActionKind;
     summary: ActionSummary;
     pending: PendingAction;
     createdAt: string;
@@ -113,24 +141,24 @@ export class ActionsStore {
 
   async get(owner: MoneyActionOwner, id: string): Promise<ActionRow | null> {
     await this.ensureSchema();
-    const result = await this.sql.query<ActionRow>(
+    const result = await this.sql.query<RawActionRow>(
       `SELECT * FROM actions WHERE id = $1 AND owner_key = $2`,
       [id, actionOwnerKey(owner)],
     );
-    return result.rows[0] ? normalizeActionRow(result.rows[0]) : null;
+    return normalizeActionRowOrNull(result.rows[0]);
   }
 
   async confirm(owner: MoneyActionOwner, id: string, finalCalls?: MoneyActionCall[]): Promise<ActionRow | null> {
     await this.ensureSchema();
     return this.sql.transaction(async (tx) => {
-      const selected = await tx.query<ActionRow>(
+      const selected = await tx.query<RawActionRow>(
         `SELECT * FROM actions WHERE id = $1 AND owner_key = $2 FOR UPDATE`,
         [id, actionOwnerKey(owner)],
       );
-      const row = selected.rows[0] ? normalizeActionRow(selected.rows[0]) : undefined;
+      const row = normalizeActionRowOrNull(selected.rows[0]);
       if (!row) return null;
       if (row.confirmed_at) return row;
-      const updated = await tx.query<ActionRow>(
+      const updated = await tx.query<RawActionRow>(
         `UPDATE actions
          SET confirmed_at = now(),
              provider_handle = CASE WHEN provider = 'base-account' THEN id::text ELSE provider_handle END,
@@ -154,7 +182,7 @@ export class ActionsStore {
     input: { providerHandle?: string; transactionHash?: string },
   ): Promise<ActionRow | null> {
     await this.ensureSchema();
-    const result = await this.sql.query<ActionRow>(
+    const result = await this.sql.query<RawActionRow>(
       `UPDATE actions SET
          provider_handle = COALESCE(provider_handle, $3),
          transaction_hash = COALESCE(transaction_hash, $4),
@@ -165,7 +193,7 @@ export class ActionsStore {
        RETURNING *`,
       [id, actionOwnerKey(owner), input.providerHandle ?? null, input.transactionHash ?? null],
     );
-    return result.rows[0] ? normalizeActionRow(result.rows[0]) : null;
+    return normalizeActionRowOrNull(result.rows[0]);
   }
 
   async list(owner: MoneyActionOwner): Promise<ActionRow[]> {
@@ -175,14 +203,17 @@ export class ActionsStore {
       `DELETE FROM actions WHERE owner_key = $1 AND confirmed_at IS NULL AND created_at < now() - interval '1 hour'`,
       [key],
     );
-    const result = await this.sql.query<ActionRow>(
+    const result = await this.sql.query<RawActionRow>(
       `SELECT * FROM actions
        WHERE owner_key = $1 AND confirmed_at IS NOT NULL AND confirmed_at >= now() - interval '24 hours'
        ORDER BY confirmed_at DESC LIMIT 100`,
       [key],
       { timeoutMs: 5_000 },
     );
-    return result.rows.map(normalizeActionRow);
+    return result.rows.flatMap((row) => {
+      const normalized = normalizeActionRowOrNull(row);
+      return normalized ? [normalized] : [];
+    });
   }
 
   async dispose(): Promise<void> {

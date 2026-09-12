@@ -1,19 +1,25 @@
 import type { AccountProvider } from "@/shared/account/session-types";
 
-export type MoneyActionKind =
-  | "send"
-  | "save-deposit"
-  | "save-withdraw"
-  | "swap"
-  | "supply-collateral"
-  | "borrow"
-  | "repay"
-  | "withdraw-collateral";
+export const ACTION_KINDS = [
+  "send",
+  "savings-deposit",
+  "savings-withdraw",
+  "borrow",
+  "repay",
+  "trade",
+  "supply-collateral",
+  "withdraw-collateral",
+] as const;
+
+export type ActionKind = (typeof ACTION_KINDS)[number];
+
+export function isActionKind(value: unknown): value is ActionKind {
+  return typeof value === "string" && (ACTION_KINDS as readonly string[]).includes(value);
+}
 
 export type MoneyActionCall = {
   to: `0x${string}`;
   data: `0x${string}`;
-  dataHash?: string;
   value: string;
   approval?: {
     assetId: string;
@@ -32,7 +38,7 @@ export type MoneyActionAmount = {
 };
 
 export type MoneyActionDraft = {
-  kind: MoneyActionKind;
+  kind: ActionKind;
   title: string;
   calls: MoneyActionCall[];
   amounts: MoneyActionAmount[];
@@ -50,40 +56,15 @@ export type MoneyActionOwner = {
 
 export type PreparedMoneyAction = MoneyActionDraft & {
   id: string;
-  sensitivePayload?: true;
-  reviewHash: string;
   owner: MoneyActionOwner;
   createdAt: string;
 };
 
-export type MoneyActionOperationStatus =
-  | "pending"
-  | "prepared"
-  | "submitting"
-  | "submitted"
-  | "included"
-  | "confirmed"
-  | "rejected"
-  | "expired"
-  | "failed"
-  | "unknown";
+export type DerivedActionStatus = "pending" | "unknown" | "confirmed" | "failed";
 
 export type OperationResult = {
   id: string;
-  status: MoneyActionOperationStatus;
+  status: DerivedActionStatus | "rejected" | "submitted";
   transactionHash?: `0x${string}`;
   userOperationHash?: `0x${string}`;
-};
-
-export type StoredMoneyActionOperation = {
-  action: PreparedMoneyAction;
-  status: MoneyActionOperationStatus;
-  attemptCount: number;
-  claimedAt?: string;
-  abandonedAt?: string;
-  submissionId?: string;
-  transactionHash?: `0x${string}`;
-  userOperationHash?: `0x${string}`;
-  createdAt: string;
-  updatedAt: string;
 };

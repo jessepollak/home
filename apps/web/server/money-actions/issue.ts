@@ -1,11 +1,12 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { decodeMoneyActionApproval } from "@/shared/money-actions/approval";
-import type {
-  MoneyActionAmount,
-  MoneyActionCall,
-  MoneyActionDraft,
-  PreparedMoneyAction,
+import {
+  isActionKind,
+  type MoneyActionAmount,
+  type MoneyActionCall,
+  type MoneyActionDraft,
+  type PreparedMoneyAction,
 } from "@/shared/money-actions/types";
 import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
 import { getActionsStore } from "@/server/actions/store";
@@ -19,7 +20,6 @@ const MAX_ACTION_LIFETIME_MS = 30 * 60 * 1000;
 const actionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type MoneyActionIssueOptions = {
-  sensitivePayloadExpiresAt?: string;
   actionId?: string;
   createdAt?: string;
 };
@@ -56,43 +56,16 @@ export async function issueMoneyAction(
   ) {
     throw new MoneyActionIssueError("invalid-draft");
   }
-  const sensitivePayloadExpiry = options.sensitivePayloadExpiresAt
-    ? Date.parse(options.sensitivePayloadExpiresAt)
-    : null;
-  if (
-    sensitivePayloadExpiry !== null &&
-    (!Number.isFinite(sensitivePayloadExpiry) ||
-      sensitivePayloadExpiry <= nowMs ||
-      sensitivePayloadExpiry > expiry)
-  ) {
-    throw new MoneyActionIssueError("invalid-draft");
-  }
-  const reviewDraft = sensitivePayloadExpiry === null
-    ? normalizedDraft
-    : {
-        ...normalizedDraft,
-        calls: normalizedDraft.calls.map((call) => ({
-          ...call,
-          dataHash: createHash("sha256").update(call.data).digest("hex"),
-        })),
-      };
-  const withoutHash = {
-    ...reviewDraft,
+  const action: PreparedMoneyAction = {
+    ...normalizedDraft,
     id: options.actionId ?? randomUUID(),
     owner,
     createdAt,
-    ...(sensitivePayloadExpiry === null ? {} : { sensitivePayload: true as const }),
-  };
-  const action: PreparedMoneyAction = {
-    ...withoutHash,
-    reviewHash: createHash("sha256")
-      .update(stableStringify(withoutHash))
-      .digest("hex"),
   };
   await getActionsStore().insert({
     id: action.id,
     owner,
-    kind: storedActionKind(action.kind),
+    kind: action.kind,
     summary: {
       title: action.title,
       amounts: action.amounts,
@@ -116,7 +89,7 @@ export class MoneyActionIssueError extends Error {
 function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
   if (
     !draft ||
-    !isKind(draft.kind) ||
+    !isActionKind(draft.kind) ||
     typeof draft.title !== "string" ||
     draft.title.trim().length === 0 ||
     draft.title.length > 120 ||
@@ -265,35 +238,4 @@ function approvalTokenMatchesCanonicalAsset(token: string, assetId: string): boo
   if (canonical) return canonical[1].toLowerCase() === token;
   const registered = getDirectPortfolioAssets().find((asset) => asset.id === assetId);
   return registered?.kind === "erc20" && registered.contractAddress?.toLowerCase() === token;
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function storedActionKind(kind: MoneyActionDraft["kind"]): string {
-  if (kind === "save-deposit") return "savings-deposit";
-  if (kind === "save-withdraw") return "savings-withdraw";
-  if (kind === "swap") return "trade";
-  return kind;
-}
-
-function isKind(value: unknown): value is MoneyActionDraft["kind"] {
-  return [
-    "send",
-    "save-deposit",
-    "save-withdraw",
-    "swap",
-    "supply-collateral",
-    "borrow",
-    "repay",
-    "withdraw-collateral",
-  ].includes(value as string);
 }

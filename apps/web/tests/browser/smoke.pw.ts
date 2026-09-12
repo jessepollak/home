@@ -19,7 +19,6 @@ function action() {
   const amount = "1000000";
   return {
     id: ACTION_ID,
-    reviewHash: "a".repeat(64),
     owner: { subject: "playwright-smoke-subject", address: OWNER, chainId: 8453, accountProvider: "cdp-embedded" },
     kind: "send",
     title: "Send USDC",

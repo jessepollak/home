@@ -155,7 +155,7 @@ function prepareDeposit(
   calls.push(encodeDepositCall(action.vaultAddress, amount, account));
 
   return {
-    kind: "save-deposit",
+    kind: "savings-deposit",
     title: "Deposit USDC into Morpho",
     calls,
     amounts: [
@@ -201,7 +201,7 @@ function prepareWithdrawal(
   }
 
   return {
-    kind: "save-withdraw",
+    kind: "savings-withdraw",
     title: "Withdraw USDC from Morpho",
     calls: [
       encodeWithdrawCall(action.vaultAddress, amount, account, account),

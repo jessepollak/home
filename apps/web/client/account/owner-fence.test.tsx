@@ -72,7 +72,6 @@ function prepared(active: VerifiedAccountSession): PreparedMoneyAction {
   if (!active.smartAccount) throw new Error("Fixture session requires an account.");
   return {
     id: ACTION_ID,
-    reviewHash: "a".repeat(64),
     owner: {
       subject: active.user.subject,
       address: active.smartAccount.address,
