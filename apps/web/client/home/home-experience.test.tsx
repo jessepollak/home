@@ -1512,9 +1512,9 @@ describe("login-state home experience", () => {
 
     await page().findByText("Indonesian rupiah");
     expect(page().getByText("$4.343,85")).toBeTruthy();
-    expect(page().getByText("Rp234.090,41")).toBeTruthy();
+    expect(page().getByText("Rp 234.090,41")).toBeTruthy();
     expect(page().getByText("€131,32")).toBeTruthy();
-    expect(document.body.textContent).not.toContain("Rp131,32");
+    expect(document.body.textContent).not.toContain("Rp 131,32");
     const euroRow = page().getByText("Euro").closest("li");
     expect(euroRow?.querySelector("img")?.getAttribute("src")).toBe(
       "/currency-flags/eu.svg",

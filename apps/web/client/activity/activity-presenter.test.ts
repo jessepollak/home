@@ -91,12 +91,12 @@ describe("presentActivityTransferRow", () => {
 
     expect(utc).toMatchObject({
       dateTime: timestamp,
-      fullDate: "Sep 7, 2026 at 11:05 AM",
-      shortDate: "Sep 7 at 11:05 AM",
+      fullDate: "Sep 7, 2026, 11:05 AM",
+      shortDate: "Sep 7, 11:05 AM",
     });
     expect(pacific).toMatchObject({
-      fullDate: "Sep 7, 2026 at 4:05 AM",
-      shortDate: "Sep 7 at 4:05 AM",
+      fullDate: "Sep 7, 2026, 4:05 AM",
+      shortDate: "Sep 7, 4:05 AM",
     });
   });
 

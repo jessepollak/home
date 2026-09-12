@@ -141,7 +141,7 @@ describe("dynamic Invest detail", () => {
       </PresentationRegionProvider>,
     );
 
-    expect(page().getByText("Rp16.425,00")).toBeTruthy();
+    expect(page().getByText("Rp 16.425,00")).toBeTruthy();
     expect(page().getByText("Price history")).toBeTruthy();
     expect(page().getByText("USD")).toBeTruthy();
     expect(page().queryByText("$1.00")).toBeNull();
