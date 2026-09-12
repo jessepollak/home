@@ -14,11 +14,11 @@ Home’s Balances path used request-time multi-call `eth_call` / `eth_getBalance
 2. **Q2 Phase C** — budget Alchemy/QuickNode when CDP multi-address / rate limits are exceeded.
 3. **Q3 Ponder** — out unless Jesse later accepts a second runtime.
 
-Fail-closed stays: true provider failure → `unavailable`; successful zero stays ready `0`; never invent balances. Session boundary unchanged.
+Fail-closed stays: true provider failure → `unavailable`; successful zero stays ready `0`; never invent balances. A CDP omission is not contract authority for configured ERC-20s: the current Phase A path uses cash-first bounded `balanceOf` recovery only through configured `BASE_RPC_URL` (maximum 20 deduped contracts and two attempts each), retains completed singles across its own stage timeout, propagates caller cancellation, and never falls through to the public default. Session boundary unchanged.
 
 ## Phases
 
-- **A** — Kill public-RPC fragility: Token Balances for allowlisted directs + narrow Morpho convert RPC. **Shipped** in #80.
+- **A** — Kill public-RPC fragility: Token Balances for authoritative listed directs + bounded configured-RPC recovery for omitted ERC-20s + narrow Morpho convert RPC. **Shipped** in #80; authority recovery corrected in #259.
 - **B** — Near-real-time after money actions: Neon inventory snapshot; invalidate + refetch on send/trade/fund/Morpho reconcile.
 - **C** — Live updates: CDP webhooks first; Alchemy/QuickNode as scale-out. Same inventory snapshot contract.
 

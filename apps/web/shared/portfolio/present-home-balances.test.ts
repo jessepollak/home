@@ -864,7 +864,7 @@ describe("presentPortfolioValuation", () => {
     );
   });
 
-  test("shows unread supported asset rows without inventing balances", () => {
+  test("does not seed unread catalog rows but marks prior same-owner rows unavailable", () => {
     const presented = presentPortfolioValuation({
       status: "ready",
       snapshot: snapshot({
@@ -933,8 +933,6 @@ describe("presentPortfolioValuation", () => {
       })),
     ).toEqual([
       { name: "US dollar", displayBalance: "$10.00", tone: undefined },
-      { name: "Euro", displayBalance: "Unavailable", tone: "error" },
-      { name: "Ethereum", displayBalance: "Unavailable", tone: "error" },
     ]);
     expect(presented.unavailableItemIds).toEqual([
       `asset:${PORTFOLIO_NATIVE_ASSET_KEY}`,
@@ -1095,7 +1093,7 @@ describe("presentPortfolioValuation", () => {
     expect(JSON.stringify(presented.items)).not.toContain("USDC");
   });
 
-  test("shows unread invest holdings in the full presentation", () => {
+  test("does not create an unread invest row without prior owner-scoped membership", () => {
     const nvidia = investPortfolioAssets.find((asset) => asset.id === "nvdac");
     if (!nvidia) throw new Error("Expected tokenized stock fixtures.");
 
@@ -1139,14 +1137,7 @@ describe("presentPortfolioValuation", () => {
       error: null,
     });
 
-    expect(presented.items.map((item) => item.name)).toEqual([
-      "US dollar",
-      "NVIDIA",
-    ]);
-    expect(presented.items[1]).toMatchObject({
-      displayBalance: "Unavailable",
-      tone: "error",
-    });
+    expect(presented.items.map((item) => item.name)).toEqual(["US dollar"]);
     expect(presented.unavailableItemIds).toEqual([`asset:${nvidia.assetKey}`]);
   });
 
