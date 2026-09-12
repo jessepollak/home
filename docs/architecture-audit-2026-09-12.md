@@ -11,16 +11,16 @@ Audit of `main` at `b9ecca1` against `home-is-thin.md` (five invariants, deliber
 - **Invalidation and formatting are fragmented**: three invalidation sites with two different scope lists and a prop-drilled `onTransferConfirmed`; Activity's query key embeds a mount-time timestamp so invalidation refetches a stale window and the Home teaser never shares cache with the Activity page; five feature-local base-unit formatters and five `Intl`/`toLocale*` calls bypass `shared/formatting` (the Send toast and the balance row format the same amount differently).
 - **Observability is inverted**: reads (portfolio, activity) emit structured events; the paths that move money (`server/actions/*`, `server/funding/core/*`) emit nothing and swallow causes into generic 5xx codes.
 
-## Decisions for Jesse
+## Decisions (Jesse, Sept 12: aligned to the recommendations)
 
-| # | Decision | Recommendation |
+| # | Decision | Recommendation → decided |
 |---|---|---|
-| D1 | `home_auth_nonces` (A-02): add to the deliberate list with a migration and CI coverage, or make the SIWE challenge stateless (HMAC in the signed cookie, 5-minute TTL). | Stateless. Removes a table and a pool; the cookie already carries a signed `{id, expiresAt}`. |
-| D2 | `user_settings` (A-03): wire `GET/PUT /api/settings` now, or drop the table until a feature needs it. | Drop until needed; country preference already lives in localStorage. |
-| D3 | Coinbase onramp as a manifest provider (A-07): fold `coinbase-onramp.ts` + `/api/funding/onramp-session` into `providers/coinbase/` so Add money renders only manifest bindings and the client stops hard-coding `regionId === "US"`. | Yes; it completes the seam. Same request to CDP, one fewer route and handler. |
-| D4 | Borrow (F5): make it a shell panel with a `?flow=` or delete the orphaned `/borrow` route until it is. | Delete the route now; re-add as a panel when Borrow is a product decision. |
-| D5 | Vault positions (A-15): keep Morpho GraphQL or read positions via RPC only (already done for valuation and prepare). | RPC only; one fewer third-party dependency for data the chain gives directly. |
-| D6 | Schema management (A-05): one `bun run db:migrate` applying `server/db/migrations/*` + funding `002_*`, or runtime DDL everywhere. | One migrate command; delete runtime `ensureSchema`. |
+| D1 | `home_auth_nonces` (A-02): add to the deliberate list with a migration and CI coverage, or make the SIWE challenge stateless (HMAC in the signed cookie, 5-minute TTL). | **Decided.** Stateless. Removes a table and a pool; the cookie already carries a signed `{id, expiresAt}`. |
+| D2 | `user_settings` (A-03): wire `GET/PUT /api/settings` now, or drop the table until a feature needs it. | **Decided.** Drop until needed; country preference already lives in localStorage. |
+| D3 | Coinbase onramp as a manifest provider (A-07): fold `coinbase-onramp.ts` + `/api/funding/onramp-session` into `providers/coinbase/` so Add money renders only manifest bindings and the client stops hard-coding `regionId === "US"`. | **Decided.** Yes; it completes the seam. Same request to CDP, one fewer route and handler. |
+| D4 | Borrow (F5): make it a shell panel with a `?flow=` or delete the orphaned `/borrow` route until it is. | **Decided.** Delete the route now; re-add as a panel when Borrow is a product decision. |
+| D5 | Vault positions (A-15): keep Morpho GraphQL or read positions via RPC only (already done for valuation and prepare). | **Decided.** RPC only; one fewer third-party dependency for data the chain gives directly. |
+| D6 | Schema management (A-05): one `bun run db:migrate` applying `server/db/migrations/*` + funding `002_*`, or runtime DDL everywhere. | **Decided.** One migrate command; delete runtime `ensureSchema`. |
 
 ## Lanes
 
