@@ -69,7 +69,7 @@ bun dev
 
 Open `http://localhost:3000`. Development navigation from `127.0.0.1` redirects to the canonical `localhost` origin.
 
-Local `bun dev` uses a private SQLite money-action store under `.local/` when `DATABASE_URL` is unset. For the real Postgres store without Neon, run `bun run db:up` (local Docker Postgres) and set `DATABASE_URL=postgresql://home:home@localhost:5432/home`, then `bun run money-actions:migrate`. Hosted persistence uses server-only `DATABASE_URL` with Neon/Postgres; no hosted database is required to browse locally. Read [wallet runtime](docs/wallet-runtime-spike.md) and [Vercel deploy](docs/vercel-deploy.md) before deploying money actions.
+Money-action persistence is Postgres-only via server-only `DATABASE_URL`; without it money-action routes fail closed, so no hosted database is required only to browse locally. For a real local Postgres store without Neon, run `bun run db:up` (local Docker Postgres) and set `DATABASE_URL=postgresql://home:home@localhost:5432/home`, then `bun run money-actions:migrate`. Exact loopback hosts use Bun's SQL client and any other URL keeps the hosted Neon path. Read [wallet runtime](docs/wallet-runtime-spike.md) and [Vercel deploy](docs/vercel-deploy.md) before deploying money actions.
 
 ### Useful commands
 
@@ -96,7 +96,7 @@ bun run money-actions:migrate # apply the schema to DATABASE_URL
 | `apps/web/config/` | Brand, regions, navigation, asset, and presentation configuration |
 | `docs/` | Setup, runtime, product intent, deployment, and extension notes |
 
-**Stack:** Next.js, TypeScript, Tailwind, and Bun; SQLite for local money actions and Neon/Postgres for hosted persistence. CDP supplies account and wallet capabilities, Base RPC supplies chain reads, and Morpho supplies savings and the supported borrowing market.
+**Stack:** Next.js, TypeScript, Tailwind, and Bun; Neon/Postgres for money-action persistence. CDP supplies account and wallet capabilities, Base RPC supplies chain reads, and Morpho supplies savings and the supported borrowing market.
 
 
 ## Forking

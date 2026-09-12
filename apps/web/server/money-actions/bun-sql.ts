@@ -35,33 +35,54 @@ export function createBunSqlExecutor(
 ): SqlExecutor {
   const inTransaction = options.inTransaction ?? false;
   const schema = options.schema === undefined ? null : postgresIdentifier(options.schema);
+  const schemaName = options.schema;
   let disposed = false;
+
+  const runQuery = async <Row = Record<string, unknown>>(
+    text: string,
+    values: unknown[] = [],
+  ): Promise<SqlQueryResult<Row>> => {
+    const result = await client.unsafe(text, values);
+    const rows = Array.from(result) as Row[];
+    return { rows, rowCount: result.count ?? rows.length };
+  };
+
+  const applySchema = async (transaction: BunSqlClient): Promise<void> => {
+    if (!schema || schemaName === undefined) return;
+    const existing = await transaction.unsafe(
+      "SELECT 1 FROM pg_namespace WHERE nspname = $1",
+      [schemaName],
+    );
+    if (Array.from(existing).length !== 1) {
+      throw new Error(`PostgreSQL schema ${schemaName} does not exist`);
+    }
+    // Bun.SQL pools connections, so a session-level SET would not reliably
+    // stick to later queries. Set it transaction-locally exactly like the
+    // hosted Neon executor does.
+    await transaction.unsafe(`SET LOCAL search_path TO ${schema}`);
+  };
+
+  const runTransaction = async <T>(run: (transaction: SqlExecutor) => Promise<T>): Promise<T> => {
+    if (inTransaction) throw new Error("nested money-action transactions are not supported");
+    return client.begin(async (transaction) => {
+      await applySchema(transaction);
+      return run(createBunSqlExecutor(transaction, { inTransaction: true }));
+    });
+  };
 
   return {
     async query<Row = Record<string, unknown>>(
       text: string,
       values: unknown[] = [],
     ): Promise<SqlQueryResult<Row>> {
-      const result = await client.unsafe(text, values);
-      const rows = Array.from(result) as Row[];
-      return { rows, rowCount: result.count ?? rows.length };
+      // A schema-bearing executor must still scope top-level queries to the
+      // explicit search path, matching the Neon executor's per-query scope.
+      if (schema) {
+        return runTransaction(async (transaction) => transaction.query<Row>(text, values));
+      }
+      return runQuery<Row>(text, values);
     },
-    async transaction<T>(run: (transaction: SqlExecutor) => Promise<T>): Promise<T> {
-      if (inTransaction) throw new Error("nested money-action transactions are not supported");
-      return client.begin(async (transaction) => {
-        if (schema) {
-          const existing = await transaction.unsafe(
-            "SELECT 1 FROM pg_namespace WHERE nspname = $1",
-            [options.schema],
-          );
-          if (Array.from(existing).length !== 1) {
-            throw new Error(`PostgreSQL schema ${options.schema} does not exist`);
-          }
-          await transaction.unsafe(`SET LOCAL search_path TO ${schema}`);
-        }
-        return run(createBunSqlExecutor(transaction, { inTransaction: true }));
-      });
-    },
+    transaction: runTransaction,
     ...(inTransaction
       ? {}
       : {

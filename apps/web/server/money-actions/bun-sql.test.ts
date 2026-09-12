@@ -122,6 +122,34 @@ describe("local Postgres SQL executor", () => {
     ]);
   });
 
+  test("scopes a schema-bearing top-level query through a transaction-local search path", async () => {
+    const calls: string[] = [];
+    const client: BunSqlClient = {
+      unsafe: async (text: string, values: unknown[] = []) => {
+        calls.push(`${text}:${JSON.stringify(values)}`);
+        if (text.startsWith("SELECT 1 FROM pg_namespace")) {
+          return rowsWithCount([{ "?column?": 1 }], 1);
+        }
+        return rowsWithCount([{ id: 1 }], 1);
+      },
+      begin: async <T>(callback: (transaction: BunSqlClient) => Promise<T>) => {
+        calls.push("begin");
+        return callback(client);
+      },
+      close: async () => { calls.push("close"); },
+    };
+
+    const executor = createBunSqlExecutor(client, { schema: "audit" });
+    const result = await executor.query("SELECT id FROM operations");
+    expect(result.rows).toEqual([{ id: 1 }]);
+    expect(calls).toEqual([
+      "begin",
+      'SELECT 1 FROM pg_namespace WHERE nspname = $1:["audit"]',
+      'SET LOCAL search_path TO "audit":[]',
+      "SELECT id FROM operations:[]",
+    ]);
+  });
+
   test("rejects empty or unsafe explicit schemas before opening a transaction", () => {
     const client: BunSqlClient = {
       unsafe: async () => rowsWithCount([], 0),

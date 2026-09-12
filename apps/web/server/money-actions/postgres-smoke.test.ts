@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { isLoopbackPostgresUrl } from "./bun-sql";
@@ -59,18 +60,27 @@ describe("local PostgreSQL migration and store smoke", () => {
       const store = new PostgresMoneyActionStore(executor);
       await store.ensureSchema();
 
-      const id = `smoke-${Date.now().toString(36)}`;
+      // Unique per run so repeated smoke runs against the persistent
+      // docker-compose volume never collide or trip over stale rows.
+      const id = `smoke-${randomUUID()}`;
       const reviewHash = "a".repeat(64);
       const issued = await store.issue(action(id, reviewHash));
       expect(issued).toBe("issued");
-      expect((await store.get(OWNER, id))?.status).toBe("prepared");
+
+      const prepared = await store.get(OWNER, id);
+      expect(prepared).toMatchObject({ status: "prepared", attemptCount: 0 });
+      expect(prepared?.action.id).toBe(id);
 
       const claimed = await store.claim(OWNER, id, reviewHash, "2026-09-12T05:01:00.000Z");
       expect(claimed).toMatchObject({
         disposition: "dispatch",
         operation: { status: "submitting", attemptCount: 1 },
       });
-      expect(await store.list(OWNER, 10)).toHaveLength(1);
+
+      // Targeted reload by the exact issued id instead of counting all rows.
+      const reloaded = await store.get(OWNER, id);
+      expect(reloaded).toMatchObject({ status: "submitting", attemptCount: 1 });
+      expect(reloaded?.action.id).toBe(id);
     } finally {
       await executor.dispose?.();
     }
