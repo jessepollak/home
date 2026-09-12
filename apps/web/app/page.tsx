@@ -1,4 +1,4 @@
-import { SupportedGlobe } from "@/client/landing/supported-globe";
+import { SupportedGlobeDynamic } from "@/client/landing/supported-globe-dynamic";
 import { PortfolioHomeExperience } from "@/client/home/home-experience";
 
 export default function HomePage() {
@@ -7,7 +7,7 @@ export default function HomePage() {
   return (
     <PortfolioHomeExperience
       detectedCountry={null}
-      landingVisual={<SupportedGlobe />}
+      landingVisual={<SupportedGlobeDynamic />}
       routeMode="landing"
     />
   );

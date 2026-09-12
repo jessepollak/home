@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { dmMono, dmSans } from "@home/ui/next-font";
 import { brand } from "@/config/brand";
 import { CdpAccountProvider } from "@/client/account/cdp-client";
-import { SmokeFixtureAccountProvider } from "@/client/account/smoke-fixture-provider";
 import { normalizeProjectId } from "@/client/account/session-client";
 import { isBaseAccountEnabled } from "@/shared/account/session-types";
 import { isHomeSessionConfigured } from "@/server/auth/native-base-session";
@@ -15,9 +14,7 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
-  const accountProvider = process.env.HOME_PLAYWRIGHT_SMOKE === "1" && !process.env.VERCEL ? (
-    <SmokeFixtureAccountProvider>{children}</SmokeFixtureAccountProvider>
-  ) : (
+  const accountProvider = (
     <CdpAccountProvider
       projectId={normalizeProjectId(process.env.NEXT_PUBLIC_CDP_PROJECT_ID)}
       baseAccountEnabled={isBaseAccountEnabled(
@@ -26,6 +23,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       nativeBaseAccountEnabled={isHomeSessionConfigured(
         process.env.HOME_SESSION_SECRET,
       )}
+      smokeFixture={process.env.HOME_PLAYWRIGHT_SMOKE === "1" && !process.env.VERCEL}
     >
       {children}
     </CdpAccountProvider>
