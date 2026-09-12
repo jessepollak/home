@@ -3,14 +3,12 @@ import {
   clearMorphoCacheForTests,
   createMorphoVaultCandidatesReader,
   getMorphoVaultCandidates,
-  getMorphoVaultPosition,
   MorphoUpstreamError,
 } from "./client";
 import {
   BASE_USDC_ADDRESS,
   MORPHO_V1_CANDIDATE_ADDRESSES,
 } from "@/shared/savings/config";
-import type { Address } from "@/shared/savings/types";
 
 afterEach(() => clearMorphoCacheForTests());
 
@@ -185,112 +183,5 @@ describe("getMorphoVaultCandidates", () => {
     expect(calls).toBe(2);
     expect(retried.stale).toBeFalse();
     expect(retried.source.fetchedAt).toBe("2026-09-07T20:30:00.000Z");
-  });
-});
-
-describe("getMorphoVaultPosition", () => {
-  const account = {
-    address: "0x2222222222222222222222222222222222222222" as Address,
-    verification: "caller-verified-session-smart-account" as const,
-  };
-
-  test("requires a configured vault", async () => {
-    await expect(
-      getMorphoVaultPosition({
-        account,
-        vaultAddress: "0x1111111111111111111111111111111111111111",
-        fetchImpl: responseFetch({ data: { vaultPosition: null } }),
-      }),
-    ).rejects.toThrow("configured vaults");
-  });
-
-  test("keeps indexed assets separate from current withdrawable amount", async () => {
-    const vaultAddress = MORPHO_V1_CANDIDATE_ADDRESSES[0];
-    const result = await getMorphoVaultPosition({
-      account,
-      vaultAddress,
-      fetchImpl: responseFetch({
-        data: {
-          vaultPosition: {
-            vault: {
-              address: vaultAddress,
-              chain: { id: 8453 },
-              asset: { address: BASE_USDC_ADDRESS, decimals: 6 },
-            },
-            state: {
-              timestamp: 1788811200,
-              assets: 123456789,
-              shares: 120000000,
-            },
-          },
-        },
-      }),
-      now,
-    });
-
-    expect(result?.assetsRaw).toBe("123456789");
-    expect(result?.sharesRaw).toBe("120000000");
-    expect(result?.withdrawableRaw).toBeNull();
-    expect(result?.withdrawableNote).toContain("maxWithdraw");
-  });
-
-  test("returns null when the index has no position instead of zero", async () => {
-    const result = await getMorphoVaultPosition({
-      account,
-      vaultAddress: MORPHO_V1_CANDIDATE_ADDRESSES[0],
-      fetchImpl: responseFetch({ data: { vaultPosition: null } }),
-      now,
-    });
-
-    expect(result).toBeNull();
-  });
-
-  test("treats Morpho NOT_FOUND as no indexed position instead of failing the Save read", async () => {
-    const result = await getMorphoVaultPosition({
-      account,
-      vaultAddress: MORPHO_V1_CANDIDATE_ADDRESSES[0],
-      fetchImpl: responseFetch({
-        data: null,
-        errors: [{
-          message: "No results matching given parameters",
-          status: "NOT_FOUND",
-          extensions: {},
-        }],
-      }),
-      now,
-    });
-
-    expect(result).toBeNull();
-  });
-
-  test("still fails closed on a non-NOT_FOUND GraphQL error", async () => {
-    await expect(
-      getMorphoVaultPosition({
-        account,
-        vaultAddress: MORPHO_V1_CANDIDATE_ADDRESSES[0],
-        fetchImpl: responseFetch({
-          data: null,
-          errors: [{ message: "schema changed", status: "BAD_REQUEST" }],
-        }),
-        now,
-      }),
-    ).rejects.toBeInstanceOf(MorphoUpstreamError);
-  });
-
-  test("does not treat a mixed NOT_FOUND envelope as an empty position", async () => {
-    await expect(
-      getMorphoVaultPosition({
-        account,
-        vaultAddress: MORPHO_V1_CANDIDATE_ADDRESSES[0],
-        fetchImpl: responseFetch({
-          data: null,
-          errors: [
-            { message: "No results matching given parameters", status: "NOT_FOUND" },
-            { message: "rate limited", status: "TOO_MANY_REQUESTS" },
-          ],
-        }),
-        now,
-      }),
-    ).rejects.toBeInstanceOf(MorphoUpstreamError);
   });
 });

@@ -1,7 +1,6 @@
 export {
   clearMorphoCacheForTests,
   getMorphoVaultCandidates,
-  getMorphoVaultPosition,
   MorphoUpstreamError,
 } from "./client";
 export {

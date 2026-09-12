@@ -1,6 +1,6 @@
 import { decodeFunctionResult, encodeFunctionData } from "viem";
 import { cryptoAssets, stockAssets } from "@/config/invest-assets";
-import { resolveBaseRpcUrl } from "@/server/portfolio/rpc";
+import { baseRpcBatch, resolveBaseRpcUrl } from "@/server/chain/rpc";
 import { sanitizeImageUrl } from "./image-url";
 
 export const CONTRACT_URI_ABI = [
@@ -21,7 +21,6 @@ export const ONCHAIN_ICON_RPC_BATCH_MAX = 10;
 const configuredIconAssets = [...stockAssets, ...cryptoAssets];
 
 export type OnchainIconRpcRequest = {
-  jsonrpc: "2.0";
   id: number;
   method: "eth_call";
   params: [{ to: `0x${string}`; data: `0x${string}` }, "latest"];
@@ -51,7 +50,6 @@ export async function readOnchainIconImages({
   try {
     const requests = configuredIconAssets.map(
       (asset, index): OnchainIconRpcRequest => ({
-        jsonrpc: "2.0",
         id: index + 1,
         method: "eth_call",
         params: [{ to: asset.contractAddress, data: callData }, "latest"],
@@ -132,50 +130,23 @@ async function readContractUriBatch(
   signal: AbortSignal,
 ): Promise<Map<number, string>> {
   try {
-    const response = await fetchImpl(rpcUrl, {
-      method: "POST",
-      headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify(batch),
-      cache: "no-store",
+    const payload = await baseRpcBatch(batch, {
+      fetchImpl,
+      rpcUrl,
       signal,
+      allowPartial: true,
     });
-    if (!response.ok) return new Map();
-    const payload = (await response.json()) as unknown;
-    if (!Array.isArray(payload)) return new Map();
-    return collectContractUris(payload, new Set(batch.map(({ id }) => id)));
+    const byId = new Map<number, string>();
+    for (let index = 0; index < batch.length; index += 1) {
+      const result = payload[index];
+      if (typeof result !== "string") continue;
+      const uri = decodeContractUri(result);
+      if (uri) byId.set(batch[index]!.id, uri);
+    }
+    return byId;
   } catch {
     return new Map();
   }
-}
-
-function collectContractUris(
-  payload: readonly unknown[],
-  requestedIds: ReadonlySet<number>,
-): Map<number, string> {
-  const byId = new Map<number, string>();
-  const seen = new Set<number>();
-  for (const item of payload) {
-    if (
-      typeof item !== "object" ||
-      item === null ||
-      Array.isArray(item) ||
-      !("id" in item) ||
-      typeof item.id !== "number" ||
-      !Number.isSafeInteger(item.id) ||
-      !requestedIds.has(item.id)
-    ) {
-      continue;
-    }
-    if (seen.has(item.id)) {
-      byId.delete(item.id);
-      continue;
-    }
-    seen.add(item.id);
-    if (!("result" in item) || typeof item.result !== "string") continue;
-    const uri = decodeContractUri(item.result);
-    if (uri) byId.set(item.id, uri);
-  }
-  return byId;
 }
 
 export function decodeContractUri(data: string): string | null {

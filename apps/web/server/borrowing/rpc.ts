@@ -35,19 +35,22 @@ import {
   toAssetsUp,
 } from "./math";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/types";
-import { resolveBaseRpcUrl } from "@/server/portfolio/rpc";
+import {
+  createBaseRpcClient,
+  parseRpcQuantity,
+  resolveBaseRpcUrl,
+} from "@/server/chain/rpc";
 
 const RPC_TIMEOUT_MS = 8_000;
 const UINT128_MAX = (BigInt("1") << BigInt("128")) - BigInt("1");
 const UINT256_MAX = (BigInt("1") << BigInt("256")) - BigInt("1");
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
-const quantityPattern = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 const hexDataPattern = /^0x(?:[0-9a-fA-F]{2})*$/;
 
 type FetchLike = typeof fetch;
-type RpcRequest = { jsonrpc: "2.0"; id: number; method: string; params: unknown[] };
-type RpcEnvelope = { jsonrpc: "2.0"; id: number; result: unknown };
+type RpcRequest = { id: number; method: string; params: unknown[] };
+type RpcEnvelope = { id: number; result: unknown };
 type SourceBlock = {
   numberHex: string;
   number: bigint;
@@ -350,58 +353,29 @@ function verifyMarketParams(words: bigint[]) {
 }
 
 function request(id: number, method: string, params: unknown[]): RpcRequest {
-  return { jsonrpc: "2.0", id, method, params };
+  return { id, method, params };
 }
 
 function callRequest(id: number, to: BorrowAddress, data: `0x${string}`, block: string): RpcRequest {
   return request(id, "eth_call", [{ to, data }, block]);
 }
 
-async function rpc(fetchImpl: FetchLike, rpcUrl: string, body: RpcRequest, signal: AbortSignal) {
-  const value = await transport(fetchImpl, rpcUrl, body, signal);
-  if (Array.isArray(value)) throw new BorrowRpcError("Base RPC returned an unexpected batch response.");
-  return envelope(value, body.id);
-}
-
-async function rpcBatch(fetchImpl: FetchLike, rpcUrl: string, body: RpcRequest[], signal: AbortSignal) {
-  const value = await transport(fetchImpl, rpcUrl, body, signal);
-  if (!Array.isArray(value) || value.length !== body.length) throw new BorrowRpcError("Base RPC returned an invalid batch response.");
-  const parsed = value.map((entry) => envelope(entry));
-  for (const item of body) {
-    if (parsed.filter((entry) => entry.id === item.id).length !== 1) throw new BorrowRpcError("Base RPC returned mismatched batch response IDs.");
-  }
-  return parsed;
-}
-
-async function transport(fetchImpl: FetchLike, rpcUrl: string, body: RpcRequest | RpcRequest[], signal: AbortSignal): Promise<unknown> {
-  let response: Response;
+async function rpc(fetchImpl: FetchLike, rpcUrl: string, body: RpcRequest, signal: AbortSignal): Promise<RpcEnvelope> {
   try {
-    response = await fetchImpl(rpcUrl, {
-      method: "POST",
-      headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify(body),
-      cache: "no-store",
-      signal,
-    });
+    const result = await createBaseRpcClient({ fetchImpl, rpcUrl }).request(body.method, body.params, signal, body.id);
+    return { id: body.id, result };
   } catch (error) {
-    throw new BorrowRpcError("The Base RPC transport failed.", { cause: error });
-  }
-  if (!response.ok) throw new BorrowRpcError(`Base RPC returned HTTP ${response.status}.`);
-  try {
-    return JSON.parse(await response.text()) as unknown;
-  } catch (error) {
-    throw new BorrowRpcError("Base RPC returned malformed JSON.", { cause: error });
+    throw new BorrowRpcError("Base RPC rejected a borrowing call or simulation.", { cause: error });
   }
 }
 
-function envelope(value: unknown, expectedId?: number): RpcEnvelope {
-  if (!isRecord(value) || value.jsonrpc !== "2.0" || typeof value.id !== "number" || !Number.isInteger(value.id)) {
-    throw new BorrowRpcError("Base RPC returned an invalid response envelope.");
+async function rpcBatch(fetchImpl: FetchLike, rpcUrl: string, body: RpcRequest[], signal: AbortSignal): Promise<RpcEnvelope[]> {
+  try {
+    const results = await createBaseRpcClient({ fetchImpl, rpcUrl }).batch(body, signal);
+    return body.map(({ id }, index) => ({ id, result: results[index] }));
+  } catch (error) {
+    throw new BorrowRpcError("Base RPC returned an invalid batch response.", { cause: error });
   }
-  if ("error" in value || !("result" in value) || (expectedId !== undefined && value.id !== expectedId)) {
-    throw new BorrowRpcError("Base RPC rejected a borrowing call or simulation.");
-  }
-  return value as RpcEnvelope;
 }
 
 function resultById(responses: RpcEnvelope[], id: number) {
@@ -437,10 +411,8 @@ function readBlock(value: unknown): SourceBlock {
 }
 
 function readQuantity(value: unknown, label: string, maximum: bigint) {
-  if (typeof value !== "string" || !quantityPattern.test(value)) throw new BorrowRpcError(`Base RPC returned malformed ${label}.`);
-  const parsed = BigInt(value);
-  assertMaximum(parsed, maximum, label);
-  return parsed;
+  try { return parseRpcQuantity(value, label, maximum); }
+  catch (error) { throw new BorrowRpcError(`Base RPC returned malformed ${label}.`, { cause: error }); }
 }
 
 function assertMaximum(value: bigint, maximum: bigint, label: string) {

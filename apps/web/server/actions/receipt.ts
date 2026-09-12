@@ -1,10 +1,12 @@
-import { resolveBaseRpcUrl } from "@/server/portfolio/rpc";
+import {
+  BaseRpcError,
+  createBaseRpcClient,
+  parseRpcQuantity,
+} from "@/server/chain/rpc";
 
 export const TRANSFER_RECEIPT_TIMEOUT_MS = 6_000;
 
 const transactionHashPattern = /^0x[0-9a-fA-F]{64}$/;
-const quantityPattern = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
-
 type FetchLike = (
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -40,9 +42,12 @@ export function createTransferReceiptReader(
     timeoutMs?: number;
   } = {},
 ) {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const rpcUrl = resolveBaseRpcUrl(options.rpcUrl);
   const timeoutMs = options.timeoutMs ?? TRANSFER_RECEIPT_TIMEOUT_MS;
+  const rpc = createBaseRpcClient({
+    fetchImpl: options.fetchImpl ?? fetch,
+    rpcUrl: options.rpcUrl,
+    timeoutMs,
+  });
 
   if (
     !Number.isSafeInteger(timeoutMs) ||
@@ -66,20 +71,11 @@ export function createTransferReceiptReader(
 
     try {
       const [chainResponse, receiptResponse] = await Promise.all([
-        rpc(fetchImpl, rpcUrl, 1, "eth_chainId", [], controller.signal),
-        rpc(
-          fetchImpl,
-          rpcUrl,
-          2,
-          "eth_getTransactionReceipt",
-          [normalizedHash],
-          controller.signal,
-        ),
+        rpc.request("eth_chainId", [], controller.signal, 1),
+        rpc.request("eth_getTransactionReceipt", [normalizedHash], controller.signal, 2),
       ]);
       if (readQuantity(chainResponse, "chain id") !== BigInt(8453)) {
-        throw new TransferReceiptRpcError(
-          "The configured RPC is not Base mainnet.",
-        );
+        throw new TransferReceiptRpcError("The configured RPC is not Base mainnet.");
       }
       if (receiptResponse === null) {
         return { status: "pending", transactionHash: normalizedHash };
@@ -131,61 +127,14 @@ export function createTransferReceiptReader(
   };
 }
 
-async function rpc(
-  fetchImpl: FetchLike,
-  rpcUrl: string,
-  id: number,
-  method: string,
-  params: unknown[],
-  signal: AbortSignal,
-): Promise<unknown> {
-  let response: Response;
-  try {
-    response = await fetchImpl(rpcUrl, {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-      cache: "no-store",
-      signal,
-    });
-  } catch (error) {
-    throw new TransferReceiptRpcError("Base RPC transport failed.", {
-      cause: error,
-    });
-  }
-  if (!response.ok) {
-    throw new TransferReceiptRpcError(
-      `Base RPC returned HTTP ${response.status}.`,
-    );
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(await response.text()) as unknown;
-  } catch (error) {
-    throw new TransferReceiptRpcError("Base RPC returned malformed JSON.", {
-      cause: error,
-    });
-  }
-  if (
-    !isRecord(value) ||
-    value.jsonrpc !== "2.0" ||
-    value.id !== id ||
-    !("result" in value) ||
-    "error" in value
-  ) {
-    throw new TransferReceiptRpcError("Base RPC returned an invalid response.");
-  }
-  return value.result;
-}
-
 function readQuantity(value: unknown, label: string): bigint {
-  if (typeof value !== "string" || !quantityPattern.test(value)) {
-    throw new TransferReceiptRpcError(`Base RPC returned an invalid ${label}.`);
+  try {
+    return parseRpcQuantity(value, label);
+  } catch (error) {
+    throw new TransferReceiptRpcError(`Base RPC returned an invalid ${label}.`, {
+      cause: error instanceof BaseRpcError ? error : undefined,
+    });
   }
-  return BigInt(value);
 }
 
 function readString(value: unknown): string {

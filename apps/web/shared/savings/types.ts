@@ -3,12 +3,18 @@ export type Address = `0x${string}`;
 export const MORPHO_API_VERSION = "v1" as const;
 export type MorphoApiVersion = typeof MORPHO_API_VERSION;
 
-export type MorphoSource = {
-  provider: "Morpho GraphQL";
-  endpoint: "https://api.morpho.org/graphql";
-  query: "vaults" | "vaultPosition";
-  fetchedAt: string;
-};
+export type MorphoSource =
+  | {
+      provider: "Morpho GraphQL";
+      endpoint: "https://api.morpho.org/graphql";
+      query: "vaults" | "vaultPosition";
+      fetchedAt: string;
+    }
+  | {
+      provider: "Base JSON-RPC";
+      blockNumber: string;
+      fetchedAt: string;
+    };
 
 export type MorphoVaultCandidate = {
   version: MorphoApiVersion;

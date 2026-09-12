@@ -1,6 +1,11 @@
 import { BASE_CHAIN_ID, BASE_USDC_ADDRESS } from "@/shared/savings/config";
 import type { Address } from "@/shared/savings/types";
-import { resolveBaseRpcUrl } from "@/server/portfolio/rpc";
+import {
+  BaseRpcError,
+  baseRpc,
+  parseRpcQuantity,
+  resolveBaseRpcUrl,
+} from "@/server/chain/rpc";
 import {
   SELECTOR,
   SavingsActionAbiError,
@@ -30,17 +35,11 @@ const RATE_LIMITED_RPC_CODE = -32016;
 
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const blockHashPattern = /^0x[0-9a-fA-F]{64}$/;
-const quantityPattern = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
 const rateLimitMessagePattern = /rate\s*limit/i;
 
 type FetchLike = typeof fetch;
-type RpcRequest = {
-  jsonrpc: "2.0";
-  id: number;
-  method: string;
-  params: unknown[];
-};
-type RpcSuccess = { jsonrpc: "2.0"; id: number; result: unknown };
+type RpcRequest = { id: number; method: string; params: unknown[] };
+type RpcSuccess = { id: number; result: unknown };
 
 type BlockMetadata = {
   number: string;
@@ -268,12 +267,8 @@ async function executeRequired(
   signal: AbortSignal,
   retry: RpcRetry,
 ): Promise<RpcSuccess> {
-  const value = await transport(fetchImpl, rpcUrl, rpcRequest, signal, retry);
-  const response = parseSuccess(value);
-  if (!response || response.id !== rpcRequest.id) {
-    throw new SavingsActionRpcError("Base RPC returned an invalid response.");
-  }
-  return response;
+  const result = await transport(fetchImpl, rpcUrl, rpcRequest, signal, retry);
+  return { id: rpcRequest.id, result };
 }
 
 async function transport(
@@ -294,9 +289,7 @@ async function transport(
     try {
       return await transportOnce(fetchImpl, rpcUrl, body, signal);
     } catch (error) {
-      if (!(error instanceof SavingsActionRpcError) || error.code !== "rate-limited") {
-        throw error;
-      }
+      if (!(error instanceof SavingsActionRpcError) || error.code !== "rate-limited") throw error;
       lastError = error;
     }
   }
@@ -312,69 +305,29 @@ async function transportOnce(
   body: RpcRequest,
   signal: AbortSignal,
 ): Promise<unknown> {
-  let response: Response;
   try {
-    response = await fetchImpl(rpcUrl, {
-      method: "POST",
-      headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify(body),
-      cache: "no-store",
+    return await baseRpc(body.method, body.params, {
+      fetchImpl,
+      rpcUrl,
       signal,
+      id: body.id,
+      timeoutMs: SAVINGS_ACTION_RPC_TIMEOUT_MS,
     });
   } catch (error) {
+    const rateLimited = error instanceof BaseRpcError &&
+      (error.rpcCode === RATE_LIMITED_RPC_CODE || rateLimitMessagePattern.test(error.message) || /HTTP 429/.test(error.message));
+    const message = error instanceof BaseRpcError && error.code === "rpc"
+      ? `Base RPC rejected a savings state read: ${error.message.replace(/^Base RPC rejected the request:\s*/, "")}`
+      : error instanceof Error ? error.message : "The Base savings RPC transport failed.";
     throw new SavingsActionRpcError(
-      signal.aborted ? "The Base savings RPC request was aborted." : "The Base savings RPC transport failed.",
-      { cause: error },
+      rateLimited ? "Base RPC rejected a savings state read: over rate limit" : message,
+      { code: rateLimited ? "rate-limited" : "rpc", cause: error },
     );
   }
-  if (response.status === 429) {
-    throw new SavingsActionRpcError(
-      "Base RPC rejected a savings state read: over rate limit",
-      { code: "rate-limited" },
-    );
-  }
-  if (!response.ok) {
-    throw new SavingsActionRpcError(`Base RPC returned HTTP ${response.status}.`);
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(await response.text()) as unknown;
-  } catch (error) {
-    throw new SavingsActionRpcError("Base RPC returned malformed JSON.", { cause: error });
-  }
-  if (isRecord(parsed) && "error" in parsed && isRateLimitedRpcError(parsed.error)) {
-    throw new SavingsActionRpcError(rpcErrorMessage(parsed.error), { code: "rate-limited" });
-  }
-  return parsed;
 }
 
 function request(id: number, method: string, params: unknown[]): RpcRequest {
-  return { jsonrpc: "2.0", id, method, params };
-}
-
-function parseSuccess(value: unknown): RpcSuccess | null {
-  if (!isRecord(value) || value.jsonrpc !== "2.0") return null;
-  if ("error" in value) {
-    throw new SavingsActionRpcError(rpcErrorMessage(value.error), {
-      code: isRateLimitedRpcError(value.error) ? "rate-limited" : "rpc",
-    });
-  }
-  if (
-    typeof value.id !== "number" ||
-    !Number.isSafeInteger(value.id) ||
-    !("result" in value)
-  ) return null;
-  return value as RpcSuccess;
-}
-
-function rpcErrorMessage(value: unknown): string {
-  if (!isRecord(value) || typeof value.message !== "string") {
-    return "Base RPC rejected a savings state read.";
-  }
-  const message = value.message.trim();
-  if (!message) return "Base RPC rejected a savings state read.";
-  const clipped = message.length > 160 ? `${message.slice(0, 157)}...` : message;
-  return `Base RPC rejected a savings state read: ${clipped}`;
+  return { id, method, params };
 }
 
 function chunkReads<T>(values: T[], size: number): T[][] {
@@ -383,12 +336,6 @@ function chunkReads<T>(values: T[], size: number): T[][] {
     chunks.push(values.slice(index, index + size));
   }
   return chunks;
-}
-
-function isRateLimitedRpcError(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  if (value.code === RATE_LIMITED_RPC_CODE) return true;
-  return typeof value.message === "string" && rateLimitMessagePattern.test(value.message);
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -431,14 +378,8 @@ function parseBlock(value: unknown): BlockMetadata {
 }
 
 function parseQuantity(value: unknown, label: string): bigint {
-  if (typeof value !== "string" || !quantityPattern.test(value)) {
-    throw new SavingsActionRpcError(`Base RPC returned malformed ${label}.`);
-  }
-  const parsed = BigInt(value);
-  if (parsed > UINT256_MAX) {
-    throw new SavingsActionRpcError(`Base RPC returned out-of-range ${label}.`);
-  }
-  return parsed;
+  try { return parseRpcQuantity(value, label, UINT256_MAX); }
+  catch (error) { throw new SavingsActionRpcError(`Base RPC returned malformed ${label}.`, { cause: error }); }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

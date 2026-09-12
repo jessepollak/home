@@ -8,7 +8,7 @@ import { useOptionalAppChrome } from "@/components/app-chrome";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
-import { usePortfolio } from "@/client/portfolio";
+import { usePortfolioValuation } from "@/client/portfolio";
 import {
   formatAddress,
   formatPresentationPercentage,
@@ -94,14 +94,19 @@ export function AuthenticatedSavingsExperience() {
         accountProvider: session.accountProvider,
       }
     : null;
-  const portfolio = usePortfolio(portfolioSession, account.fetchPortfolio);
-  const usdc = portfolio.snapshot?.assets.find((asset) => asset.id === "usdc");
+  const portfolio = usePortfolioValuation(portfolioSession, "US", account.fetchPortfolioValuation);
+  const usdc = portfolio.snapshot?.inventory.holdings.find(
+    (holding) => holding.kind === "direct" && holding.id === "usdc",
+  );
+  const availableUsdcBaseUnits = usdc?.kind === "direct"
+    ? usdc.balanceBaseUnits
+    : null;
 
   return (
     <SavingsExperience
       session={session}
       fetchPositions={account.fetchSavingsPositions}
-      availableUsdcBaseUnits={usdc?.balanceBaseUnits ?? null}
+      availableUsdcBaseUnits={availableUsdcBaseUnits}
       prepareMoneyAction={account.prepareMoneyAction}
       executeMoneyAction={account.executeMoneyAction}
     />
@@ -706,12 +711,15 @@ function isSavingsAsset(value: unknown): boolean {
 }
 
 function isMorphoSource(value: unknown, query: "vaults" | "vaultPosition"): boolean {
-  return isRecord(value) &&
-    value.provider === "Morpho GraphQL" &&
+  if (!isRecord(value) || typeof value.fetchedAt !== "string" || !Number.isFinite(Date.parse(value.fetchedAt))) {
+    return false;
+  }
+  if (query === "vaultPosition" && value.provider === "Base JSON-RPC") {
+    return typeof value.blockNumber === "string" && /^\d+$/.test(value.blockNumber);
+  }
+  return value.provider === "Morpho GraphQL" &&
     value.endpoint === "https://api.morpho.org/graphql" &&
-    value.query === query &&
-    typeof value.fetchedAt === "string" &&
-    Number.isFinite(Date.parse(value.fetchedAt));
+    value.query === query;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

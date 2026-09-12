@@ -1,6 +1,6 @@
 import "server-only";
 
-import { resolveBaseRpcUrl } from "@/server/portfolio/rpc";
+import { baseRpc, parseRpcQuantity } from "@/server/chain/rpc";
 import { getFundingAsset } from "@/shared/funding/assets";
 import type { FundingOrder } from "./store";
 import type { ReceiptMatch } from "./service";
@@ -10,8 +10,8 @@ const HASH = /^0x[0-9a-fA-F]{64}$/;
 
 export async function readCurrentBaseBlock(env: Readonly<Record<string, string | undefined>> = process.env, fetchImplementation: typeof fetch = fetch): Promise<string> {
   const value = await rpc("eth_blockNumber", [], env, fetchImplementation);
-  if (typeof value !== "string" || !/^0x[0-9a-fA-F]+$/.test(value)) throw new Error("invalid-base-block");
-  return BigInt(value).toString(10);
+  try { return parseRpcQuantity(value, "block number").toString(10); }
+  catch { throw new Error("invalid-base-block"); }
 }
 
 export async function verifyBaseFundingReceipt(order: FundingOrder, hash: `0x${string}`, env: Readonly<Record<string, string | undefined>> = process.env, fetchImplementation: typeof fetch = fetch): Promise<ReceiptMatch> {
@@ -33,12 +33,14 @@ export async function verifyBaseFundingReceipt(order: FundingOrder, hash: `0x${s
 }
 
 async function rpc(method: string, params: unknown[], env: Readonly<Record<string, string | undefined>>, fetchImplementation: typeof fetch): Promise<unknown> {
-  const endpoint = resolveBaseRpcUrl(env.BASE_RPC_URL);
-  const response = await fetchImplementation(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), cache: "no-store", signal: AbortSignal.timeout(6_000) });
-  if (!response.ok) throw new Error("base-rpc-unavailable");
-  const body = await response.json() as unknown;
-  if (!record(body) || body.error || !("result" in body)) throw new Error("base-rpc-invalid-response");
-  return body.result;
+  try {
+    return await baseRpc(method, params, {
+      rpcUrl: env.BASE_RPC_URL,
+      fetchImpl: fetchImplementation,
+      timeoutMs: 6_000,
+      id: 1,
+    });
+  } catch { throw new Error("base-rpc-unavailable"); }
 }
 function lower(value: unknown): string | null { return typeof value === "string" ? value.toLowerCase() : null; }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

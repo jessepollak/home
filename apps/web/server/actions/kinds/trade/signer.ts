@@ -6,7 +6,12 @@ import {
 } from "viem";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { AccessTokenValidator } from "@/server/cdp/session";
-import { resolveBaseRpcUrl, PORTFOLIO_RPC_TIMEOUT_MS } from "@/server/portfolio/rpc";
+import {
+  BASE_RPC_TIMEOUT_MS,
+  createBaseRpcClient,
+  parseRpcQuantity,
+  resolveBaseRpcUrl,
+} from "@/server/chain/rpc";
 import { nonceBitmapPosition, PERMIT2_ADDRESS, TradePreparationError } from "./permit2";
 import type {
   Address,
@@ -20,7 +25,6 @@ const FACTORY_ADDRESS = "0xba5ed110efdba3d005bfc882d75358acbbb85842" as const;
 const ERC1271_MAGIC = "0x1626ba7e";
 const compactJwtPattern = /^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/;
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
-const quantityPattern = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
 const hexPattern = /^0x(?:[0-9a-fA-F]{2})*$/;
 
 const smartWalletAbi = [
@@ -35,7 +39,7 @@ export function createTradeSignerResolver({
   getValidator,
   fetchImpl = fetch,
   rpcUrl = resolveBaseRpcUrl(),
-  timeoutMs = PORTFOLIO_RPC_TIMEOUT_MS,
+  timeoutMs = BASE_RPC_TIMEOUT_MS,
 }: {
   getValidator: () => Promise<AccessTokenValidator>;
   fetchImpl?: typeof fetch;
@@ -80,7 +84,7 @@ export function createTradeSignerResolver({
 export function createPermit2StateReader({
   fetchImpl = fetch,
   rpcUrl = resolveBaseRpcUrl(),
-  timeoutMs = PORTFOLIO_RPC_TIMEOUT_MS,
+  timeoutMs = BASE_RPC_TIMEOUT_MS,
 }: { fetchImpl?: typeof fetch; rpcUrl?: string; timeoutMs?: number } = {}): Permit2StateReader {
   const rpc = createRpc(fetchImpl, rpcUrl, timeoutMs);
   return async (owner, nonce, signal) => {
@@ -100,7 +104,7 @@ export function createPermit2StateReader({
 export function createSmartAccountSignatureVerifier({
   fetchImpl = fetch,
   rpcUrl = resolveBaseRpcUrl(),
-  timeoutMs = PORTFOLIO_RPC_TIMEOUT_MS,
+  timeoutMs = BASE_RPC_TIMEOUT_MS,
 }: { fetchImpl?: typeof fetch; rpcUrl?: string; timeoutMs?: number } = {}): SmartAccountSignatureVerifier {
   const rpc = createRpc(fetchImpl, rpcUrl, timeoutMs);
   return async ({ smartAccount, permitHash, wrapper, signal }) => {
@@ -202,36 +206,19 @@ function parseFreshIdentity(value: unknown, session: VerifiedAccountSession): Fr
 }
 
 function createRpc(fetchImpl: typeof fetch, rpcUrl: string, timeoutMs: number) {
+  const client = createBaseRpcClient({ fetchImpl, rpcUrl, timeoutMs });
   async function request(method: string, params: unknown[], signal?: AbortSignal): Promise<unknown> {
-    const controller = new AbortController();
-    const abort = () => controller.abort();
-    signal?.addEventListener("abort", abort, { once: true });
-    const timeout = setTimeout(abort, timeoutMs);
     try {
-      const response = await fetchImpl(rpcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      if (!response.ok) unavailable();
-      const payload: unknown = await response.json();
-      if (!isRecord(payload) || !("result" in payload) || "error" in payload) unavailable();
-      return payload.result;
+      return await client.request(method, params, signal, 1);
     } catch (error) {
       if (error instanceof TradePreparationError) throw error;
       unavailable(error);
-    } finally {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", abort);
     }
   }
   return {
     async quantity(method: string, params: unknown[], signal?: AbortSignal) {
-      const value = await request(method, params, signal);
-      if (typeof value !== "string" || !quantityPattern.test(value)) unavailable();
-      return BigInt(value);
+      try { return parseRpcQuantity(await request(method, params, signal), method); }
+      catch (error) { unavailable(error); }
     },
     async hex(method: string, params: unknown[], signal?: AbortSignal) {
       const value = await request(method, params, signal);

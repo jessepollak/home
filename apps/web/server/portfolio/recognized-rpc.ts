@@ -2,7 +2,7 @@ import "server-only";
 
 import type { PortfolioAddress } from "@/config/portfolio-assets";
 import type { RecognizedTokenCatalogEntry } from "@/server/market-data/codex/recognized-catalog";
-import { resolveBaseRpcUrl } from "./rpc";
+import { createBaseRpcClient } from "@/server/chain/rpc";
 import {
   decodeFunctionResult,
   encodeFunctionData,
@@ -91,7 +91,7 @@ export function createRecognizedTokenBalanceReader(options: {
     options.executeMulticall ??
     createRpcMulticallExecutor({
       fetchImpl: options.fetchImpl ?? fetch,
-      rpcUrl: resolveBaseRpcUrl(options.rpcUrl),
+      rpcUrl: options.rpcUrl,
     });
 
   return async function readRecognizedTokenBalances(
@@ -193,9 +193,9 @@ function createRpcMulticallExecutor({
   rpcUrl,
 }: {
   fetchImpl: typeof fetch;
-  rpcUrl: string;
+  rpcUrl?: string;
 }) {
-  let nextId = 1;
+  const rpc = createBaseRpcClient({ fetchImpl, rpcUrl });
   return async function executeMulticall(
     calls: readonly MulticallRequest[],
     signal: AbortSignal,
@@ -208,27 +208,18 @@ function createRpcMulticallExecutor({
       functionName: "aggregate3",
       args: [calls.map((call) => ({ ...call, allowFailure: true }))],
     });
-    const response = await fetchImpl(rpcUrl, {
-      method: "POST",
-      headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: nextId++,
-        method: "eth_call",
-        params: [{ to: RECOGNIZED_MULTICALL_ADDRESS, data }, "latest"],
-      }),
-      cache: "no-store",
+    const envelope = await rpc.request(
+      "eth_call",
+      [{ to: RECOGNIZED_MULTICALL_ADDRESS, data }, "latest"],
       signal,
-    });
-    if (!response.ok) throw new Error(`Base RPC returned HTTP ${response.status}.`);
-    const envelope = JSON.parse(await response.text()) as unknown;
-    if (!isRecord(envelope) || typeof envelope.result !== "string" || !/^0x[0-9a-fA-F]*$/.test(envelope.result)) {
+    );
+    if (typeof envelope !== "string" || !/^0x[0-9a-fA-F]*$/.test(envelope)) {
       throw new Error("Base RPC returned an invalid multicall response.");
     }
     const decoded = decodeFunctionResult({
       abi: multicallAbi,
       functionName: "aggregate3",
-      data: envelope.result as Hex,
+      data: envelope as Hex,
     });
     return decoded.map(({ success, returnData }) => ({ success, returnData }));
   };
@@ -256,8 +247,4 @@ function decodeDecimals(data: Hex): number | null {
   } catch {
     return null;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

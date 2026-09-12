@@ -3,7 +3,7 @@ import { createPublicClient, getAddress, http } from "viem";
 import { base } from "viem/chains";
 import { createSiweMessage, parseSiweMessage } from "viem/siwe";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
-import { resolveBaseRpcUrl } from "@/server/portfolio/rpc";
+import { resolveBaseRpcUrl } from "@/server/chain/rpc";
 
 export const HOME_SESSION_COOKIE = "home-session";
 export const HOME_CHALLENGE_COOKIE = "home-auth-challenge";

@@ -3,21 +3,16 @@ import {
   BASE_USDC_ADDRESS,
   BASE_USDC_DECIMALS,
   MORPHO_GRAPHQL_ENDPOINT,
-  isConfiguredMorphoVault,
 } from "@/shared/savings/config";
 import { parseLosslessJson } from "./lossless-json";
 import {
   MorphoSchemaError,
   normalizeVaultCandidate,
-  normalizeVaultPosition,
 } from "./normalize";
 import {
   MORPHO_API_VERSION,
-  type Address,
   type MorphoSource,
-  type MorphoVaultPosition,
   type MorphoVaultsResult,
-  type VerifiedMorphoAccount,
 } from "@/shared/savings/types";
 
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -51,28 +46,6 @@ const VAULTS_QUERY = `query HomeBaseUsdcVaultsV1 {
         totalAssets
       }
       liquidity { underlying }
-    }
-  }
-}`;
-
-const POSITION_QUERY = `query HomeBaseUsdcVaultPositionV1(
-  $userAddress: String!
-  $vaultAddress: String!
-) {
-  vaultPosition(
-    userAddress: $userAddress
-    vaultAddress: $vaultAddress
-    chainId: 8453
-  ) {
-    vault {
-      address
-      chain { id }
-      asset { address decimals }
-    }
-    state {
-      timestamp
-      assets
-      shares
     }
   }
 }`;
@@ -159,45 +132,6 @@ export async function getMorphoVaultCandidates(options?: {
   return reader({ signal: options?.signal, now: options?.now });
 }
 
-export async function getMorphoVaultPosition(input: {
-  account: VerifiedMorphoAccount;
-  vaultAddress: Address;
-  fetchImpl?: FetchLike;
-  signal?: AbortSignal;
-  now?: () => Date;
-}): Promise<MorphoVaultPosition | null> {
-  if (input.account.verification !== "caller-verified-session-smart-account") {
-    throw new TypeError("Morpho position reads require a caller-verified account.");
-  }
-  assertAddress(input.account.address, "account.address");
-  assertAddress(input.vaultAddress, "vaultAddress");
-  if (!isConfiguredMorphoVault(input.vaultAddress)) {
-    throw new TypeError("Morpho position reads are limited to configured vaults.");
-  }
-
-  const now = input.now ?? (() => new Date());
-  const source = createSource("vaultPosition", now());
-  const payload = await executeGraphql(
-    POSITION_QUERY,
-    {
-      userAddress: input.account.address,
-      vaultAddress: input.vaultAddress,
-    },
-    input.fetchImpl ?? fetch,
-    input.signal,
-    { missingAsNull: true },
-  );
-  if (payload === null) return null;
-  const data = readRecord(payload, "response.data");
-
-  return normalizeVaultPosition(
-    data.vaultPosition,
-    input.account.address,
-    input.vaultAddress,
-    source,
-  );
-}
-
 async function fetchVaultCandidates(
   fetchImpl: FetchLike,
   signal: AbortSignal | undefined,
@@ -245,7 +179,6 @@ async function executeGraphql(
   variables: Record<string, string> | undefined,
   fetchImpl: FetchLike,
   externalSignal: AbortSignal | undefined,
-  options?: { missingAsNull?: boolean },
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -272,9 +205,6 @@ async function executeGraphql(
 
     const parsed = parseLosslessJson(await response.text());
     const envelope = readRecord(parsed, "response");
-    if (options?.missingAsNull && isMorphoNotFoundEnvelope(envelope)) {
-      return null;
-    }
     if (Array.isArray(envelope.errors) && envelope.errors.length > 0) {
       throw new MorphoUpstreamError("Morpho GraphQL returned an error response.");
     }
@@ -297,7 +227,7 @@ async function executeGraphql(
 }
 
 function createSource(
-  query: MorphoSource["query"],
+  query: "vaults",
   fetchedAt: Date,
 ): MorphoSource {
   return {
@@ -313,28 +243,6 @@ function readRecord(value: unknown, label: string): Record<string, unknown> {
     throw new MorphoSchemaError(`${label} must be an object.`);
   }
   return value as Record<string, unknown>;
-}
-
-function isMorphoNotFoundEnvelope(envelope: Record<string, unknown>): boolean {
-  if (envelope.data !== null && envelope.data !== undefined) return false;
-  const errors = envelope.errors;
-  return Array.isArray(errors) &&
-    errors.length > 0 &&
-    errors.every(isMorphoNotFoundError);
-}
-
-function isMorphoNotFoundError(value: unknown): boolean {
-  return isRecord(value) && value.status === "NOT_FOUND";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function assertAddress(value: string, label: string): asserts value is Address {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new TypeError(`${label} must be an EVM address.`);
-  }
 }
 
 export function clearMorphoCacheForTests() {

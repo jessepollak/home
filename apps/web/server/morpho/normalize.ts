@@ -9,7 +9,6 @@ import {
   type Address,
   type MorphoSource,
   type MorphoVaultCandidate,
-  type MorphoVaultPosition,
 } from "@/shared/savings/types";
 
 export class MorphoSchemaError extends Error {
@@ -87,56 +86,6 @@ export function normalizeVaultCandidate(
       ? readNullableUnsignedInteger(state.blockNumber, "vault.state.blockNumber")
       : null,
     source,
-  };
-}
-
-export function normalizeVaultPosition(
-  value: unknown,
-  accountAddress: Address,
-  expectedVaultAddress: Address,
-  source: MorphoSource,
-): MorphoVaultPosition | null {
-  if (value === null) return null;
-
-  const position = asRecord(value, "vaultPosition");
-  const vault = asRecord(position.vault, "vaultPosition.vault");
-  const vaultAddress = readAddress(vault.address, "vaultPosition.vault.address");
-  const chain = asRecord(vault.chain, "vaultPosition.vault.chain");
-  const asset = asRecord(vault.asset, "vaultPosition.vault.asset");
-
-  if (
-    vaultAddress.toLowerCase() !== expectedVaultAddress.toLowerCase() ||
-    readSafeInteger(chain.id, "vaultPosition.vault.chain.id") !== BASE_CHAIN_ID ||
-    readAddress(asset.address, "vaultPosition.vault.asset.address").toLowerCase() !==
-      BASE_USDC_ADDRESS.toLowerCase() ||
-    readSafeInteger(asset.decimals, "vaultPosition.vault.asset.decimals") !==
-      BASE_USDC_DECIMALS
-  ) {
-    throw new MorphoSchemaError(
-      "Morpho position did not match the configured vault, chain, and underlying asset.",
-    );
-  }
-
-  if (position.state === null || position.state === undefined) return null;
-  const state = asRecord(position.state, "vaultPosition.state");
-
-  return {
-    version: MORPHO_API_VERSION,
-    accountAddress,
-    vaultAddress: expectedVaultAddress,
-    assetsRaw: readNullableUnsignedInteger(
-      state.assets,
-      "vaultPosition.state.assets",
-    ),
-    sharesRaw: readUnsignedInteger(state.shares, "vaultPosition.state.shares"),
-    indexedAt: readUnixTimestamp(
-      state.timestamp,
-      "vaultPosition.state.timestamp",
-    ),
-    source,
-    withdrawableRaw: null,
-    withdrawableNote:
-      "Indexed position assets and vault liquidity do not establish the account's current max withdrawal. Read maxWithdraw onchain before enabling withdrawal.",
   };
 }
 
