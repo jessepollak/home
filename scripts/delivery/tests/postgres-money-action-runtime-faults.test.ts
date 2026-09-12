@@ -147,10 +147,51 @@ if (!databaseUrl) {
           "duplicate",
           "recorded",
         ]);
-        const recorded = duplicateResults.find(
+        const duplicateWinnerIndex = duplicateResults.findIndex(
           (result) => result.ok && result.value.disposition === "recorded",
         );
-        if (!recorded?.ok || recorded.value.disposition !== "recorded") throw new Error("evidence race had no winner");
+        if (duplicateWinnerIndex < 0) throw new Error("duplicate evidence race had no winner");
+        const recorded = duplicateResults[duplicateWinnerIndex]!;
+        if (!recorded.ok || recorded.value.disposition !== "recorded") {
+          throw new Error("duplicate evidence winner was not recorded");
+        }
+        const expectedDuplicateEvidence = {
+          evidence: item.evidence,
+          provenance: { source: "provider-return" as const, observedAt: item.evidenceAt },
+          recordedAt: item.evidenceAt,
+        };
+        expect(recorded.value.evidence).toEqual(expectedDuplicateEvidence);
+        const duplicateLoser = duplicateResults[duplicateWinnerIndex === 0 ? 1 : 0]!;
+        if (!duplicateLoser.ok) throw new Error("duplicate evidence loser failed unexpectedly");
+        expect(duplicateLoser.value).toEqual({
+          disposition: "duplicate",
+          evidence: expectedDuplicateEvidence,
+        });
+        const duplicateImmediate = await setup.store.getAttemptStoreSnapshot(item.owner, item.action.id);
+        if (!duplicateImmediate.ok) throw new Error("duplicate evidence snapshot failed");
+        expect(duplicateImmediate.value.attempts).toHaveLength(1);
+        expect(duplicateImmediate.value.attempts[0]).toMatchObject({
+          attemptId: claimed.attempt.attemptId,
+          attemptVersion: 2,
+          dispatch: { phase: "evidence-recorded", version: 1 },
+          evidence: [expectedDuplicateEvidence],
+          reconciliation: { kind: "authorized-no-evidence" },
+        });
+        expect(duplicateImmediate.value.attempts[0]?.evidence).toEqual([expectedDuplicateEvidence]);
+        const duplicateRaw = fixture.openExecutor();
+        const duplicateImmediateRaw = await rawAttemptRows(duplicateRaw, item.action.id);
+        expect(duplicateImmediateRaw.operation).toMatchObject({
+          rows: [{
+            status: "submitted",
+            attempt_count: 1,
+            user_operation_hash: item.evidence.value,
+            submission_id: null,
+            transaction_hash: null,
+            verified_execution_key: null,
+          }],
+          rowCount: 1,
+        });
+        expect(duplicateImmediateRaw.evidence).toMatchObject({ rowCount: 1 });
 
         const conflictItem = attemptFixture(411);
         const conflictClaim = await issueAndClaim(setup, conflictItem);
@@ -231,6 +272,8 @@ if (!databaseUrl) {
           rowCount: 1,
         });
         expect((await rawAttemptRows(conflictRaw, conflictItem.action.id)).evidence).toMatchObject({ rowCount: 1 });
+        expect(await second.store.getAttemptStoreSnapshot(item.owner, item.action.id)).toEqual(duplicateImmediate);
+        expect(await rawAttemptRows(duplicateRaw, item.action.id)).toEqual(duplicateImmediateRaw);
 
         const staleObservation = createTrustedVerifiedObservation({
           owner: item.owner,
@@ -422,6 +465,51 @@ if (!databaseUrl) {
         )).toMatchObject({ rows: [{ status: "submitting", attempt_count: 1 }], rowCount: 1 });
       });
     }, TEST_TIMEOUT_MS);
+
+    test("timed-out fixture bodies cannot create late clients and settle before complete cleanup", async () => {
+      let diagnostics: FixtureDiagnostics | undefined;
+      let schema = "";
+      let resumedAfterTimeout = false;
+      await expect(withPostgresFixture(databaseUrl, "timeout_probe", async (fixture, signal) => {
+        schema = fixture.schema;
+        await fixture.openResource();
+        await waitForAbort(signal);
+        resumedAfterTimeout = true;
+        expect(() => fixture.openExecutor()).toThrow("fixture test body timed out");
+        await Promise.resolve();
+        expect(() => fixture.openExecutor()).toThrow("fixture test body timed out");
+      }, {
+        bodyTimeoutMs: 1_000,
+        bodySettlementTimeoutMs: 1_000,
+        onDisposed: (value) => { diagnostics = value; },
+      })).rejects.toThrow("fixture test body timed out after 1000ms");
+      expect(resumedAfterTimeout).toBe(true);
+      expect(diagnostics).toEqual({
+        state: "disposed",
+        createdClients: 1,
+        closedClients: 1,
+        unclosedClients: 0,
+        resources: 1,
+        lateOpenAttempts: 2,
+        schemaDropped: true,
+      });
+
+      const verifier = new Bun.SQL(databaseUrl);
+      try {
+        const remaining = await bounded(
+          verifier.unsafe("SELECT nspname FROM pg_namespace WHERE nspname = $1", [schema]),
+          CLEANUP_TIMEOUT_MS,
+          "timeout-probe schema verification",
+        );
+        expect(Array.from(remaining)).toEqual([]);
+      } finally {
+        await bounded(
+          verifier.close({ timeout: CLEANUP_TIMEOUT_MS / 1_000 }),
+          CLEANUP_TIMEOUT_MS,
+          "timeout-probe verifier cleanup",
+        );
+      }
+    }, TEST_TIMEOUT_MS);
   });
 }
 
@@ -454,72 +542,169 @@ class ExplicitBarrier {
   }
 }
 
+type FixtureDiagnostics = Readonly<{
+  state: "disposed";
+  createdClients: number;
+  closedClients: number;
+  unclosedClients: number;
+  resources: number;
+  lateOpenAttempts: number;
+  schemaDropped: boolean;
+}>;
+
+type FixtureOptions = Readonly<{
+  bodyTimeoutMs?: number;
+  bodySettlementTimeoutMs?: number;
+  onDisposed?: (diagnostics: FixtureDiagnostics) => void;
+}>;
+
 class PostgresFixture {
   private readonly clients: Bun.SQL[] = [];
   private readonly resources: AttemptStoreResource[] = [];
+  private state: "active" | "terminal" | "disposing" | "disposed" = "active";
+  private terminalReason: unknown = new Error("PostgreSQL fixture is terminal");
+  private createdClients = 0;
+  private closedClients = 0;
+  private lateOpenAttempts = 0;
+  private schemaDropped = false;
 
-  constructor(readonly schema: string) {}
+  constructor(readonly schema: string, private readonly url: string) {}
+
+  markTerminal(reason: unknown = this.terminalReason): void {
+    if (this.state !== "active") return;
+    this.terminalReason = reason;
+    this.state = "terminal";
+  }
 
   openExecutor(hook?: QueryHook): SqlExecutor {
-    const client = new Bun.SQL(databaseUrl!);
+    this.assertActive();
+    const client = new Bun.SQL(this.url);
     this.clients.push(client);
+    this.createdClients += 1;
+    this.assertActive();
     const executor = createBunPostgresExecutor(client, this.schema);
     return hook ? hookedExecutor(executor, hook) : executor;
   }
 
   async openResource(hook?: QueryHook): Promise<AttemptStoreResource> {
+    this.assertActive();
     const resource = createPostgresAttemptStoreResourceWithExecutor(this.openExecutor(hook));
     this.resources.push(resource);
-    await bounded(resource.init(), SETUP_TIMEOUT_MS, `resource ${this.resources.length} setup`);
+    await bounded(resource.init(), SETUP_TIMEOUT_MS, `resource ${this.resources.length} setup`, () => {
+      this.markTerminal(new Error(`resource ${this.resources.length} setup timed out`));
+    });
+    this.assertActive();
     return resource;
   }
 
   async dispose(admin: Bun.SQL): Promise<void> {
+    if (this.state === "disposed") return;
+    this.state = "disposing";
+    const resources = [...this.resources];
+    const clients = [...this.clients];
     const errors: unknown[] = [];
-    const resourceResults = await Promise.allSettled(this.resources.map((resource, index) => bounded(
-      Promise.resolve().then(() => resource.dispose()),
-      CLEANUP_TIMEOUT_MS,
-      `resource ${index + 1} cleanup`,
-    )));
-    for (const result of resourceResults) if (result.status === "rejected") errors.push(result.reason);
-    const closeResults = await Promise.allSettled(this.clients.map((client, index) => bounded(
-      client.close({ timeout: CLEANUP_TIMEOUT_MS / 1_000 }),
-      CLEANUP_TIMEOUT_MS,
-      `client ${index + 1} cleanup`,
-    )));
-    for (const result of closeResults) if (result.status === "rejected") errors.push(result.reason);
     try {
-      await bounded(admin.begin(async (transaction) => {
-        await transaction.unsafe(`SET LOCAL lock_timeout = '${CLEANUP_TIMEOUT_MS}ms'`);
-        await transaction.unsafe(`SET LOCAL statement_timeout = '${CLEANUP_TIMEOUT_MS}ms'`);
-        await transaction.unsafe(`DROP SCHEMA IF EXISTS "${this.schema}" CASCADE`);
-      }), CLEANUP_TIMEOUT_MS, "fixture schema cleanup");
-    } catch (error) {
-      errors.push(error);
+      const resourceResults = await Promise.allSettled(resources.map((resource, index) => bounded(
+        Promise.resolve().then(() => resource.dispose()),
+        CLEANUP_TIMEOUT_MS,
+        `resource ${index + 1} cleanup`,
+      )));
+      for (const result of resourceResults) if (result.status === "rejected") errors.push(result.reason);
+      const closeResults = await Promise.allSettled(clients.map((client, index) => bounded(
+        client.close({ timeout: CLEANUP_TIMEOUT_MS / 1_000 }),
+        CLEANUP_TIMEOUT_MS,
+        `client ${index + 1} cleanup`,
+      )));
+      for (const result of closeResults) {
+        if (result.status === "rejected") errors.push(result.reason);
+        else this.closedClients += 1;
+      }
+      try {
+        await bounded(admin.begin(async (transaction) => {
+          await transaction.unsafe(`SET LOCAL lock_timeout = '${CLEANUP_TIMEOUT_MS}ms'`);
+          await transaction.unsafe(`SET LOCAL statement_timeout = '${CLEANUP_TIMEOUT_MS}ms'`);
+          await transaction.unsafe(`DROP SCHEMA IF EXISTS "${this.schema}" CASCADE`);
+        }), CLEANUP_TIMEOUT_MS, "fixture schema cleanup");
+        this.schemaDropped = true;
+      } catch (error) {
+        errors.push(error);
+      }
+    } finally {
+      this.state = "disposed";
     }
     if (errors.length > 0) throw new AggregateError(errors, "PostgreSQL runtime-fault fixture cleanup failed");
+  }
+
+  diagnostics(): FixtureDiagnostics {
+    if (this.state !== "disposed") throw new Error("fixture diagnostics require completed disposal");
+    return {
+      state: "disposed",
+      createdClients: this.createdClients,
+      closedClients: this.closedClients,
+      unclosedClients: this.createdClients - this.closedClients,
+      resources: this.resources.length,
+      lateOpenAttempts: this.lateOpenAttempts,
+      schemaDropped: this.schemaDropped,
+    };
+  }
+
+  private assertActive(): void {
+    if (this.state === "active") return;
+    this.lateOpenAttempts += 1;
+    throw this.terminalReason;
   }
 }
 
 async function withPostgresFixture<Result>(
   url: string,
   label: string,
-  run: (fixture: PostgresFixture) => Promise<Result>,
+  run: (fixture: PostgresFixture, signal: AbortSignal) => Promise<Result>,
+  options: FixtureOptions = {},
 ): Promise<Result> {
   const admin = new Bun.SQL(url);
   const schema = `delivery_${label}_${process.pid}_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
-  const fixture = new PostgresFixture(schema);
+  const fixture = new PostgresFixture(schema, url);
+  const cancellation = new AbortController();
+  let body: Promise<Result> | undefined;
+  let bodyTimedOut = false;
   let primaryError: unknown;
   let hasPrimaryError = false;
   let result: Result | undefined;
   const cleanupErrors: unknown[] = [];
   try {
-    await bounded(admin.unsafe(`CREATE SCHEMA "${schema}"`), SETUP_TIMEOUT_MS, "fixture schema setup");
-    result = await bounded(run(fixture), FIXTURE_BODY_TIMEOUT_MS, "fixture test body");
+    await bounded(admin.unsafe(`CREATE SCHEMA "${schema}"`), SETUP_TIMEOUT_MS, "fixture schema setup", () => {
+      fixture.markTerminal(new Error("fixture schema setup timed out"));
+      cancellation.abort(new Error("fixture schema setup timed out"));
+    });
+    body = Promise.resolve().then(() => run(fixture, cancellation.signal));
+    result = await bounded(
+      body,
+      options.bodyTimeoutMs ?? FIXTURE_BODY_TIMEOUT_MS,
+      "fixture test body",
+      () => {
+        bodyTimedOut = true;
+        const reason = new Error("fixture test body timed out");
+        fixture.markTerminal(reason);
+        cancellation.abort(reason);
+      },
+    );
   } catch (error) {
     hasPrimaryError = true;
     primaryError = error;
   } finally {
+    fixture.markTerminal(primaryError);
+    if (!cancellation.signal.aborted) cancellation.abort(primaryError);
+    if (bodyTimedOut && body) {
+      try {
+        await bounded(
+          body.then(() => undefined, () => undefined),
+          options.bodySettlementTimeoutMs ?? CLEANUP_TIMEOUT_MS,
+          "timed-out fixture body settlement",
+        );
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
     try {
       await fixture.dispose(admin);
     } catch (error) {
@@ -535,6 +720,7 @@ async function withPostgresFixture<Result>(
       cleanupErrors.push(error);
     }
   }
+  options.onDisposed?.(fixture.diagnostics());
   if (hasPrimaryError && cleanupErrors.length > 0) {
     throw new AggregateError([primaryError, ...cleanupErrors], "PostgreSQL runtime-fault test and cleanup failed");
   }
@@ -665,11 +851,16 @@ function evidenceCommand(
 
 async function rawAttemptRows(executor: SqlExecutor, actionId: string) {
   const [operation, state, evidence] = await Promise.all([
+    executor.query(`
+      SELECT id, review_hash, subject, address, chain_id, account_provider, action_json, status,
+             attempt_count, claimed_at, submission_id, transaction_hash, user_operation_hash,
+             verified_execution_key, abandoned_at, created_at, updated_at
+      FROM money_action_operations WHERE id = $1
+    `.trim(), [actionId]),
     executor.query(
-      "SELECT status, attempt_count, submission_id, transaction_hash, user_operation_hash, verified_execution_key, updated_at FROM money_action_operations WHERE id = $1",
+      "SELECT action_id, state_json, verified_execution_key, updated_at FROM money_action_attempt_states WHERE action_id = $1",
       [actionId],
     ),
-    executor.query("SELECT state_json, verified_execution_key FROM money_action_attempt_states WHERE action_id = $1", [actionId]),
     executor.query("SELECT evidence_key, action_id FROM money_action_attempt_evidence WHERE action_id = $1 ORDER BY evidence_key", [actionId]),
   ]);
   return { operation, state, evidence };
@@ -691,18 +882,31 @@ async function expectPreparedWithoutCalldata(
   expect(result.rows[0]?.state_json).not.toContain(calldata);
 }
 
-async function bounded<Result>(promise: Promise<Result>, timeoutMs: number, label: string): Promise<Result> {
+async function bounded<Result>(
+  promise: Promise<Result>,
+  timeoutMs: number,
+  label: string,
+  onTimeout: () => void = () => {},
+): Promise<Result> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+        timer = setTimeout(() => {
+          onTimeout();
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
       }),
     ]);
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function waitForAbort(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
 }
 
 function deferred<Value>() {
