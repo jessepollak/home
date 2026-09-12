@@ -7,6 +7,7 @@ import { fundingProviders } from "@/server/funding/providers";
 import { readCurrentBaseBlock, verifyBaseFundingReceipt } from "./base-receipt";
 import { createRuntimeFundingOrderStore } from "./postgres-store";
 import { FundingCore } from "./service";
+import { emitServerEvent } from "@/server/observability/log";
 
 export const authorizeFundingSession = createSessionHandler({
   getValidator: getCdpAccessTokenValidator,
@@ -21,7 +22,12 @@ export function getFundingCore(): FundingCore {
     currentBaseBlock: () => readCurrentBaseBlock(),
     verifyReceipt: (order, hash) => verifyBaseFundingReceipt(order, hash),
     logUnmatchedWebhook: ({ providerId, reason }) => {
-      console.info(JSON.stringify({ event: "funding-webhook-unmatched", providerId, reason }));
+      emitServerEvent("funding-webhook", {
+        route: "/api/funding/webhooks/:provider",
+        code: reason === "invalid" ? "WEBHOOK_INVALID" : "WEBHOOK_UNMATCHED",
+        outcome: reason,
+        provider: providerId,
+      });
     },
   });
   return core;

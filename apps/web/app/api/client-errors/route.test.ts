@@ -12,7 +12,7 @@ import {
   CLIENT_ERROR_MAX_BODY_BYTES,
   createClientErrorHandler,
   parseClientErrorReport,
-} from "./route";
+} from "@/server/observability/client-errors";
 
 const endpoint = "https://home.example/api/client-errors";
 const safeHeaders = {

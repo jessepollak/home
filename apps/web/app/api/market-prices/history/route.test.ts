@@ -4,7 +4,7 @@ import {
   createErrorMarketHistoryResponse,
 } from "@/server/market-data/codex/history";
 import type { MarketPriceHistoryResponse } from "@/shared/invest/history-contract";
-import { createMarketPriceHistoryHandler } from "./handler";
+import { createMarketPriceHistoryHandler } from "@/server/market-data/handlers/market-price-history";
 
 const dynamicId = "base:0x1111111111111111111111111111111111111111";
 const dynamicAddress = "0x1111111111111111111111111111111111111111";

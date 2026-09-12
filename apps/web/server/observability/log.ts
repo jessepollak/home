@@ -1,7 +1,10 @@
+import { createHash } from "node:crypto";
 import {
   normalizeObservabilityEvent,
   type ObservabilityEvent,
   type ObservabilityLogLine,
+  type ServerEventKind,
+  type ServerEventOutcome,
 } from "./schema";
 
 export type ObservabilityLogWriter = (
@@ -26,6 +29,34 @@ export function setObservabilityLogWriterForTests(
   nextWriter?: ObservabilityLogWriter,
 ): void {
   writer = nextWriter ?? defaultWriter;
+}
+
+export function emitServerEvent(
+  kind: ServerEventKind,
+  fields: {
+    route: string;
+    code: string;
+    outcome: ServerEventOutcome;
+    provider?: string;
+    owner?: { subject: string; accountProvider: string };
+    durationMs?: number;
+  },
+): ObservabilityLogLine {
+  const ownerHash = fields.owner
+    ? createHash("sha256")
+        .update(`${fields.owner.accountProvider}\0${fields.owner.subject}`)
+        .digest("hex")
+        .slice(0, 32)
+    : undefined;
+  return writeObservabilityEvent({
+    kind,
+    route: fields.route,
+    code: fields.code,
+    outcome: fields.outcome,
+    ...(fields.provider ? { provider: fields.provider } : {}),
+    ...(ownerHash ? { ownerHash } : {}),
+    durationMs: fields.durationMs ?? 0,
+  });
 }
 
 export function writeObservabilityEvent(
