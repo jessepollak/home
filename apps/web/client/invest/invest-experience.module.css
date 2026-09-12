@@ -121,63 +121,10 @@
   list-style: none;
 }
 
-.row {
-  display: grid;
-  width: 100%;
-  min-height: 50px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  border: 0;
-  border-bottom: 1px solid var(--separator);
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  padding: 8px 4px;
-  text-align: left;
-}
-
-.rows li:last-child .row {
-  border-bottom: 0;
-}
-
-.row:hover {
-  background: var(--home-canvas);
-}
-
-.identity,
-.quote {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.identity strong,
-.quote strong {
-  color: var(--fg);
-  font-size: 0.92rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.identity small,
-.quote small,
 .change {
   color: var(--fg-muted);
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-
-.quote {
-  justify-items: end;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.quote strong,
-.change {
-  white-space: nowrap;
+  font-size: var(--home-ui-type-metadata-size);
+  font-weight: var(--home-ui-type-weight-strong);
 }
 
 .change[data-money-change="positive"] {
@@ -512,7 +459,6 @@
   .cta button:active:not(:disabled),
   .ranges button,
   .seeAll,
-  .row,
   .plotCover {
     transition: none;
   }

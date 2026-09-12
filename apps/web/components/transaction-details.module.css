@@ -1,3 +1,7 @@
+.divider {
+  margin-top: var(--home-ui-space-1);
+}
+
 .explorerWrap {
   display: flex;
   justify-content: center;
