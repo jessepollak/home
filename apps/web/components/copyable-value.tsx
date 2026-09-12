@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@home/ui";
 import styles from "./copyable-value.module.css";
 
 type CopyStatus = "idle" | "copied" | "unavailable" | "denied";
@@ -99,15 +100,15 @@ function CopyableValueControl({
 
   return (
     <>
-      <button
-        type="button"
+      <Button
+        variant="quiet"
         className={controlClassName}
         title={value}
         aria-label={controlLabel}
         onClick={() => void copy()}
       >
         {status === "copied" ? copiedLabel : shown}
-      </button>
+      </Button>
       <span className={styles.srOnly} aria-live="polite" aria-atomic="true">
         {status === "copied" ? copiedLabel : ""}
       </span>

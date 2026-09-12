@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Text } from "@home/ui";
+import { Skeleton, Text } from "@home/ui";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { CurrencyMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
@@ -240,10 +240,10 @@ function HomeBalanceRowView({
       <li className="shimmer-row" data-shimmer="row">
         <CurrencyMark pending />
         <span className="shimmer-identity">
-          <span className="shimmer shimmer-line shimmer-line-wide" aria-hidden="true" />
-          <span className="shimmer shimmer-line shimmer-line-narrow" aria-hidden="true" />
+          <Skeleton shape="text" className="shimmer-line shimmer-line-wide" />
+          <Skeleton shape="text" className="shimmer-line shimmer-line-narrow" />
         </span>
-        <span className="shimmer shimmer-pill" aria-hidden="true" />
+        <Skeleton shape="text" className="shimmer-pill" />
         <span className="sr-status">Updating…</span>
       </li>
     );

@@ -24,9 +24,6 @@ const rawButtonAllowlist = [
   "client/funding/add-money-dialog.tsx",
   "client/funding/funding-actions.tsx",
   "client/funding/order-flow.tsx",
-  "client/home/home-panel.tsx",
-  "client/home/shell-chrome.tsx",
-  "client/home/shell-panels.tsx",
   "client/invest/asset-detail-screen.tsx",
   "client/invest/category-screen.tsx",
   "client/invest/discover-shelf.tsx",
@@ -39,10 +36,6 @@ const rawButtonAllowlist = [
   "client/trading/trade-actions.tsx",
   "client/transfers/transfer-actions.tsx",
   "components/address-field.tsx",
-  "components/copyable-value.tsx",
-  "components/home-mark.tsx",
-  "components/primary-navigation.tsx",
-  "components/profile-mark.tsx",
 ];
 
 const rawFieldAllowlist = [
@@ -55,8 +48,6 @@ const rawHeadingAllowlist = [
   "client/activity/activity-panel.tsx",
   "client/funding/add-money-dialog.tsx",
   "client/funding/order-flow.tsx",
-  "client/home/home-panel.tsx",
-  "client/home/shell-chrome.tsx",
   "client/invest/asset-detail-screen.tsx",
   "client/invest/category-screen.tsx",
   "client/invest/discover-shelf.tsx",

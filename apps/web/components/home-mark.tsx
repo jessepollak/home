@@ -7,6 +7,7 @@ import {
   type MouseEventHandler,
 } from "react";
 import { useAnimate, stagger, type AnimationSequence } from "motion/react";
+import { Button } from "@home/ui";
 import styles from "./home-mark.module.css";
 
 type SharedHomeMarkProps = {
@@ -240,14 +241,15 @@ export function HomeMark(props: HomeMarkProps) {
           {artwork}
         </a>
       ) : (
-        <button
+        <Button
           {...controlProps}
           type={controlProps.type ?? "button"}
+          variant="quiet"
           className={controlClass}
           aria-label="Home"
         >
           {artwork}
-        </button>
+        </Button>
       )}
     </span>
   );

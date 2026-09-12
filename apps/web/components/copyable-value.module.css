@@ -5,13 +5,20 @@
   padding: 0;
   background: transparent;
   color: inherit;
-  cursor: pointer;
+  min-width: 0;
+  min-height: 0;
   font: inherit;
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   text-align: inherit;
   text-decoration: none;
   touch-action: manipulation;
   transition: color var(--home-ui-motion-chip) ease;
+}
+
+.text:enabled:hover,
+.text:enabled:active {
+  background: transparent;
+  transform: none;
 }
 
 .text:focus-visible {

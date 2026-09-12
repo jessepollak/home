@@ -185,30 +185,16 @@ body:has(.app-frame-shell) {
 }
 
 .header-done-link {
-  display: inline-flex;
   min-height: 42px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line);
-  border-radius: var(--control-radius);
   background: var(--surface);
-  color: var(--foreground);
   font-size: 0.76rem;
-  font-weight: 700;
   padding: 0 13px;
 }
 
 .header-back-link {
-  display: inline-flex;
   min-width: 44px;
   min-height: 44px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--control-radius);
-  background: transparent;
   color: var(--home-ink);
-  cursor: pointer;
   font-size: 1.25rem;
   line-height: 1;
   padding: 0;
@@ -263,26 +249,10 @@ body:has(.app-frame-shell) {
 }
 
 .header-account-link {
-  display: inline-flex;
   min-height: 42px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--base-blue);
-  border-radius: var(--control-radius);
-  background: var(--base-blue);
-  color: #ffffff;
   font-size: 0.76rem;
-  font-weight: 700;
   padding: 0 13px;
   white-space: nowrap;
-  transition:
-    transform var(--motion-press) ease,
-    background-color var(--motion-press) ease,
-    color var(--motion-press) ease;
-}
-
-.header-account-link:active:not(:disabled) {
-  transform: scale(0.98);
 }
 
 .header-account-quiet {
@@ -392,27 +362,14 @@ body:has(.app-frame-shell) {
 
 .landing-primary,
 .landing-secondary {
-  display: inline-flex;
   min-height: 48px;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--control-radius);
-  cursor: pointer;
   font-size: 0.82rem;
   font-weight: 750;
   padding: 0 20px;
 }
 
-.landing-primary {
-  border: 1px solid var(--base-blue);
-  background: var(--base-blue);
-  color: #ffffff;
-}
-
 .landing-secondary {
-  border: 1px solid var(--foreground);
-  background: #ffffff;
-  color: var(--foreground);
+  border-color: var(--foreground);
 }
 
 .landing-status {
@@ -433,10 +390,7 @@ body:has(.app-frame-shell) {
 
 .landing-status button {
   margin-top: 9px;
-  border: 0;
-  background: transparent;
   color: var(--foreground);
-  cursor: pointer;
   font-size: 0.72rem;
   font-weight: 750;
   padding: 0;
@@ -530,11 +484,9 @@ body:has(.app-frame-shell) {
 
 .dashboard-notice button {
   flex: 0 0 auto;
-  border: 0;
-  background: transparent;
   color: var(--foreground);
-  cursor: pointer;
   font-weight: 750;
+  padding: 0;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -572,13 +524,11 @@ body:has(.app-frame-shell) {
 }
 
 .balance-hero-total {
-  margin: 0;
   color: var(--home-ink);
   font-size: clamp(2.5rem, 10vw, 3rem);
   font-weight: 700;
   letter-spacing: -0.06em;
   line-height: 0.95;
-  font-variant-numeric: tabular-nums;
 }
 
 .balance-status {
@@ -596,7 +546,6 @@ body:has(.app-frame-shell) {
   width: 48%;
   max-width: 11.5rem;
   height: 2.4rem;
-  border-radius: var(--control-radius);
 }
 
 .shimmer-list {
@@ -633,7 +582,6 @@ body:has(.app-frame-shell) {
 
 .shimmer-line {
   height: 10px;
-  border-radius: 4px;
 }
 
 .shimmer-line-wide {
@@ -650,13 +598,11 @@ body:has(.app-frame-shell) {
 .shimmer-pill {
   width: 3.25rem;
   height: 12px;
-  border-radius: 999px;
 }
 
 .shimmer-save-icon {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
 }
 
 .shimmer-line-save {
@@ -665,7 +611,6 @@ body:has(.app-frame-shell) {
 }
 
 .balances-panel,
-.save-teaser,
 .activity-panel {
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
@@ -693,14 +638,14 @@ body:has(.app-frame-shell) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 0;
-  border: 0;
-  background: transparent;
   color: inherit;
-  cursor: pointer;
-  font: inherit;
   padding: 0;
   text-align: left;
+}
+
+.section-tap-in > .home-ui-button__label,
+.save-teaser > .home-ui-button__label {
+  display: contents;
 }
 
 .section-tap-in-affordance {
@@ -733,14 +678,9 @@ body:has(.app-frame-shell) {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  border: 1px solid var(--home-hairline);
-  background: var(--home-white);
   color: var(--home-ink);
-  cursor: pointer;
-  font: inherit;
   padding: 12px 14px;
   text-align: left;
-  transition: transform var(--motion-press) ease;
 }
 
 .save-teaser-icon {
@@ -762,10 +702,6 @@ body:has(.app-frame-shell) {
   color: var(--home-blue);
   font-size: 0.86rem;
   font-weight: 700;
-}
-
-.save-teaser:active {
-  transform: scale(0.99);
 }
 
 .balance-panel,

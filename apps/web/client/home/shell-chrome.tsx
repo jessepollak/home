@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { Button, Heading, Text } from "@home/ui";
 import { HomeMark } from "@/components/home-mark";
 import { ProfileMark } from "@/components/profile-mark";
 import { useAccountWallet } from "@/client/account/cdp-client";
@@ -40,7 +41,7 @@ export function ShellHeader({
     <header className="app-header">
       <div className="app-header-start">
         {isAccountSettingsOpen ? (
-          <h1 className="app-header-lead-title">Account</h1>
+          <Heading level={1} textStyle="section-title" className="app-header-lead-title">Account</Heading>
         ) : nestedChromeTitle ? (
           <NestedHomeHeader
             title={nestedChromeTitle}
@@ -48,7 +49,7 @@ export function ShellHeader({
             onBack={onNestedChromeBack}
           />
         ) : routeMode === "dashboard" && activeNavigation === "invest" ? (
-          <h1 className="app-header-lead-title">Invest</h1>
+          <Heading level={1} textStyle="section-title" className="app-header-lead-title">Invest</Heading>
         ) : (
           <HomeMark onClick={() => { if (isVerified) onHome(); }} />
         )}
@@ -56,9 +57,9 @@ export function ShellHeader({
       <span className="app-header-title-slot" aria-hidden="true" />
       <div className="app-header-end">
         {isAccountSettingsOpen ? (
-          <button className="header-done-link" type="button" onClick={onCloseSettings}>
+          <Button className="header-done-link" variant="secondary" onClick={onCloseSettings}>
             Done
-          </button>
+          </Button>
         ) : (
           <HeaderAccountAction
             status={account.status}
@@ -99,7 +100,7 @@ function HeaderAccountAction({
   onOpenSettings: () => void;
 }) {
   if (status === "signout-error") {
-    return <button className="header-account-link" type="button" onClick={onSignOut}>Retry sign out</button>;
+    return <Button className="header-account-link" onClick={onSignOut}>Retry sign out</Button>;
   }
   if (routeMode === "dashboard") {
     const checking = status === "restoring" || status === "validating";
@@ -117,12 +118,12 @@ function HeaderAccountAction({
     }
   }
   if (status === "restoring" || status === "validating") {
-    return <button className="header-account-link header-account-quiet" type="button" disabled>Account</button>;
+    return <Button className="header-account-link header-account-quiet" variant="secondary" disabled>Account</Button>;
   }
   if (status === "verified" || (status === "unavailable" && isSignedIn)) {
-    return <button className="header-account-link" type="button" onClick={onDashboard}>Dashboard</button>;
+    return <Button className="header-account-link" onClick={onDashboard}>Dashboard</Button>;
   }
-  return <button className="header-account-link" type="button" onClick={onSignIn}>Sign in</button>;
+  return <Button className="header-account-link" onClick={onSignIn}>Sign in</Button>;
 }
 
 function NestedHomeHeader({
@@ -136,11 +137,10 @@ function NestedHomeHeader({
 }) {
   return (
     <div className="header-leading">
-      <button className="header-back-link" type="button" onClick={onBack}>
+      <Button className="header-back-link" variant="quiet" onClick={onBack} aria-label={backLabel}>
         <span aria-hidden="true">←</span>
-        <span className="sr-only">{backLabel}</span>
-      </button>
-      <h1 className="header-panel-title app-header-title">{title}</h1>
+      </Button>
+      <Heading level={1} textStyle="section-title" className="header-panel-title app-header-title">{title}</Heading>
     </div>
   );
 }
@@ -166,24 +166,24 @@ export function SignedOutLanding({
     <main className={`landing-main${landingVisual ? " landing-main-with-visual" : ""}`}>
       {landingVisual ? <div className="landing-visual">{landingVisual}</div> : null}
       <section className="landing-hero" aria-labelledby="landing-title">
-        <h1 id="landing-title">One home for your money.</h1>
-        <p className="landing-copy">Invest in any asset, earn more on your savings, and grow your wealth.</p>
+        <Heading level={1} textStyle="page-title" id="landing-title">One home for your money.</Heading>
+        <Text className="landing-copy">Invest in any asset, earn more on your savings, and grow your wealth.</Text>
         <div className="landing-actions">
           {isVerified ? (
-            <button className="landing-primary" type="button" onClick={onDashboard}>Open dashboard</button>
+            <Button className="landing-primary" onClick={onDashboard}>Open dashboard</Button>
           ) : (
             <>
-              <button className="landing-primary" type="button" onClick={onSignIn}>Sign in</button>
+              <Button className="landing-primary" onClick={onSignIn}>Sign in</Button>
               {showCreateAccount ? (
-                <button className="landing-secondary" type="button" onClick={onSignIn}>Create account</button>
+                <Button className="landing-secondary" variant="secondary" onClick={onSignIn}>Create account</Button>
               ) : null}
             </>
           )}
         </div>
         {signOutError ? (
           <div className="landing-status" role="alert">
-            <p>{signOutError}</p>
-            <button type="button" onClick={onRetrySignOut}>Retry sign out</button>
+            <Text textStyle="metadata" tone="muted">{signOutError}</Text>
+            <Button variant="quiet" onClick={onRetrySignOut}>Retry sign out</Button>
           </div>
         ) : null}
       </section>

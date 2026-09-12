@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { EmptyState, Skeleton } from "@home/ui";
 import { CurrencyMark } from "@/components/currency-mark";
 
 export function MountedShellPanel({
@@ -27,10 +28,10 @@ export function ShimmerRows({ count }: { count: number }) {
         <li key={index} className="shimmer-row" data-shimmer="row">
           <CurrencyMark pending />
           <span className="shimmer-identity">
-            <span className="shimmer shimmer-line shimmer-line-wide" aria-hidden="true" />
-            <span className="shimmer shimmer-line shimmer-line-narrow" aria-hidden="true" />
+            <Skeleton shape="text" className="shimmer-line shimmer-line-wide" />
+            <Skeleton shape="text" className="shimmer-line shimmer-line-narrow" />
           </span>
-          <span className="shimmer shimmer-pill" aria-hidden="true" />
+          <Skeleton shape="text" className="shimmer-pill" />
         </li>
       ))}
     </ul>
@@ -40,7 +41,7 @@ export function ShimmerRows({ count }: { count: number }) {
 export function EmptyPanel({ label }: { label: string }) {
   return (
     <section className="empty-panel" aria-label={label}>
-      <strong>{label} unavailable</strong>
+      <EmptyState title={`${label} unavailable`} />
     </section>
   );
 }

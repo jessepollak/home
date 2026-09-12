@@ -1,6 +1,7 @@
 "use client";
 
 import { ChartNoAxesCombined, House } from "lucide-react";
+import { Button } from "@home/ui";
 import {
   isHomeNestedPanelId,
   navigationItems,
@@ -32,10 +33,10 @@ export function PrimaryNavigation({
           (item.id === "home" && isHomeNestedPanelId(activeNavigation));
 
         return (
-          <button
+          <Button
             key={item.id}
             id={`${item.id}-nav`}
-            type="button"
+            variant="quiet"
             className={`${styles.item} ${isActive ? styles.active : ""}`}
             onClick={() => onNavigate(item.id)}
             aria-current={isActive ? "page" : undefined}
@@ -45,7 +46,7 @@ export function PrimaryNavigation({
               <Icon size={21} strokeWidth={isActive ? 2.25 : 1.9} />
             </span>
             <span className={styles.label}>{item.label}</span>
-          </button>
+          </Button>
         );
       })}
     </nav>

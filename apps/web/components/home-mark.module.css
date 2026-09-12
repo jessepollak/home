@@ -43,9 +43,14 @@
   border-radius: 0;
   background: transparent;
   color: var(--mark-blue);
-  cursor: pointer;
   overflow: visible;
   text-decoration: none;
+}
+
+.control:enabled:hover,
+.control:enabled:active {
+  background: transparent;
+  transform: none;
 }
 
 .control:hover {

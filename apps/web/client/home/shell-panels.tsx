@@ -1,6 +1,7 @@
 "use client";
 
 import type { RefObject, ReactNode } from "react";
+import { Button } from "@home/ui";
 import type { FetchActivity } from "@/client/activity";
 import { AccountSettings } from "@/client/account/account-settings";
 import { PrimaryNavigation } from "@/components/primary-navigation";
@@ -96,9 +97,9 @@ export function DashboardShell({
         {isUnavailable ? (
           <div className="dashboard-notice" role="alert">
             <span>{unavailableMessage ?? "Account check unavailable."}</span>
-            <button type="button" onClick={() => void retrySessionValidation()}>
+            <Button variant="quiet" onClick={() => void retrySessionValidation()}>
               Retry account check
-            </button>
+            </Button>
           </div>
         ) : null}
 

@@ -29,9 +29,12 @@
   border-radius: 0;
   background: transparent;
   color: var(--fg-muted);
-  cursor: pointer;
   padding: var(--home-ui-space-2) 0;
   transition: color var(--home-ui-motion-tab) ease;
+}
+
+.item :global(.home-ui-button__label) {
+  display: contents;
 }
 
 .iconFrame {

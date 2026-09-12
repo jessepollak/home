@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Skeleton } from "@home/ui";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import type { RegionId } from "@/config/regions";
 import { EmptyPanel, ShimmerRows } from "./panel-shared";
@@ -38,10 +39,10 @@ function SavePanelShell() {
   return (
     <section className="save-panel-shell" aria-busy="true">
       <div className="save-panel-shell-hero">
-        <span
-          className="shimmer balance-hero-shimmer"
+        <Skeleton
+          shape="text"
+          className="balance-hero-shimmer"
           data-shimmer="hero"
-          aria-hidden="true"
         />
         <span className="sr-status">Updating…</span>
       </div>

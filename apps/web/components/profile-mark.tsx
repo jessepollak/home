@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@home/ui";
 import { publicQueryKey, useHomeQuery } from "@/client/query/query-client";
 import {
   fetchBasenameProfile,
@@ -72,9 +73,9 @@ function ProfileMarkButton({
   const showPhoto = Boolean(photoUrl && photoStatus !== "failed");
 
   return (
-    <button
+    <Button
       className={styles.hit}
-      type="button"
+      variant="quiet"
       aria-label="Account"
       disabled={disabled}
       onClick={onClick}
@@ -104,6 +105,6 @@ function ProfileMarkButton({
           <span className={styles.glyph}>{glyph}</span>
         ) : null}
       </span>
-    </button>
+    </Button>
   );
 }
