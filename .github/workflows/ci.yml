@@ -105,7 +105,7 @@ jobs:
         run: node --test scripts/delivery/tests/*.test.mjs
 
   postgres-store-contract:
-    name: real PostgreSQL money/attempt contract (PostgreSQL 14)
+    name: real PostgreSQL money-action contract (PostgreSQL 14)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
