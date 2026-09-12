@@ -12,6 +12,7 @@ Home is a local finance spike, not a production-approved money app. Read this be
 4. [Architecture review (2026-09)](docs/architecture-review-2026-09.md) — patterns to keep, risks, **contribution contract**, and first-week slices.
 5. [Docs index](docs/README.md) — operate, product intent, and demoted target/archive docs.
 6. [Operating manual](docs/operating-manual.md) — agent-team labels, proof bar, Jesse-only merge.
+7. [Issuer integration guide](docs/integrations/README.md) — the current/in-flight boundary and the seven-step funding-provider walkthrough.
 
 Later, if you are working on hosting: [Vercel deploy](docs/vercel-deploy.md) (bun settings + Neon `DATABASE_URL`). Broader webhooks/`packages/*` ideas stay in [target architecture](docs/target-architecture.md), which is **not** a map of the current tree. The 2026-09-07 two-hour chunk plan is [archived](docs/archive/implementation-plan-2026-09-07.md).
 
