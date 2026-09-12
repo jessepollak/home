@@ -5,6 +5,7 @@ import {
   type AccountProviderRequest,
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
+import { readNativeBaseSession } from "@/server/auth/native-base-session";
 
 export { BASE_CHAIN_ID } from "@/shared/account/session-types";
 export type SessionPayload = VerifiedAccountSession;
@@ -166,12 +167,14 @@ function normalizeVerifiedEndUser(
 export type SessionHandlerDependencies = {
   getValidator: () => Promise<AccessTokenValidator>;
   baseAccountEnabled?: boolean;
+  homeSessionSecret?: string;
+  nativeBaseAccountEnabled?: boolean;
 };
 
 const privateResponseHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
   Pragma: "no-cache",
-  Vary: `Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
+  Vary: `Cookie, Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
 } as const;
 
 function jsonResponse(body: unknown, status: number): Response {
@@ -229,6 +232,13 @@ function invalidProviderResponse(): Response {
   );
 }
 
+function ambiguousAuthenticationResponse(): Response {
+  return jsonResponse(
+    { error: { code: "AMBIGUOUS_AUTHENTICATION", message: "Use exactly one account authentication provider." } },
+    400,
+  );
+}
+
 function readBearerToken(request: Request): string | null {
   const authorization = request.headers.get("Authorization");
 
@@ -260,17 +270,31 @@ function readAccountProvider(request: Request): AccountProviderRequest | null {
 export function createSessionHandler({
   getValidator,
   baseAccountEnabled = false,
+  homeSessionSecret,
+  nativeBaseAccountEnabled = !process.env.NEXT_PUBLIC_CDP_PROJECT_ID?.trim(),
 }: SessionHandlerDependencies) {
   return async function GET(request: Request): Promise<Response> {
-    const accessToken = readBearerToken(request);
-    if (!accessToken) {
-      return unauthenticatedResponse();
-    }
-
     const accountProvider = readAccountProvider(request);
     if (!accountProvider) {
       return invalidProviderResponse();
     }
+
+    const authorizationPresent = request.headers.has("Authorization");
+    const accessToken = readBearerToken(request);
+    const nativeSession = nativeBaseAccountEnabled
+      ? readNativeBaseSession(request, homeSessionSecret)
+      : { kind: "absent" as const };
+    if (authorizationPresent && nativeSession.kind !== "absent") {
+      return ambiguousAuthenticationResponse();
+    }
+    if (nativeSession.kind === "invalid") {
+      return unauthenticatedResponse();
+    }
+    if (nativeSession.kind === "valid") {
+      if (accountProvider === "cdp-embedded") return invalidProviderResponse();
+      return jsonResponse(nativeSession.session, 200);
+    }
+    if (!accessToken) return unauthenticatedResponse();
     if (accountProvider === "base-account" && !baseAccountEnabled) {
       return baseAccountDisabledResponse();
     }

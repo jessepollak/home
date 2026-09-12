@@ -8,6 +8,6 @@ describe("GET /api/savings/positions route composition", () => {
     const response = await GET(new Request("http://127.0.0.1:3122/api/savings/positions"));
     expect(response.status).toBe(401);
     expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
-    expect(response.headers.get("vary")).toBe("Authorization, X-Home-Account-Provider");
+    expect(response.headers.get("vary")).toBe("Cookie, Authorization, X-Home-Account-Provider");
   });
 });

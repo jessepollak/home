@@ -115,16 +115,21 @@ export type SessionFetch = (
 export type SessionValidationOptions = {
   accountProvider?: AccountProviderRequest;
   expectedAddress?: `0x${string}`;
+  authentication?: "cdp" | "native-base";
 };
 
 export async function validateAccountSession(
-  accessToken: string,
+  accessToken: string | null,
   signal?: AbortSignal,
   fetchImplementation: SessionFetch = fetch,
   options: SessionValidationOptions = {},
 ): Promise<VerifiedAccountSession> {
-  if (!accessToken.trim()) {
+  const authentication = options.authentication ?? "cdp";
+  if (authentication === "cdp" && !accessToken?.trim()) {
     throw new SessionValidationError("unauthenticated");
+  }
+  if (authentication === "native-base" && options.accountProvider === "cdp-embedded") {
+    throw new SessionValidationError("invalid-response");
   }
 
   const accountProvider = options.accountProvider ?? "cdp-embedded";
@@ -134,7 +139,9 @@ export async function validateAccountSession(
       method: "GET",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        ...(authentication === "cdp"
+          ? { Authorization: `Bearer ${accessToken}` }
+          : {}),
         [ACCOUNT_PROVIDER_HEADER]: accountProvider,
       },
       cache: "no-store",

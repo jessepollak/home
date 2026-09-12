@@ -121,6 +121,7 @@ export function AccountWalletSessionOwner({
   sdk,
   sessionFetch,
   baseAccountEnabled = false,
+  projectConfigured = true,
   baseAccountConnector = connectBaseAccount,
   baseAccountRestorer = restoreBaseAccount,
   providerHandleJournalStorage,
@@ -130,12 +131,14 @@ export function AccountWalletSessionOwner({
   sdk: AccountWalletSdkBoundary;
   sessionFetch?: SessionFetch;
   baseAccountEnabled?: boolean;
+  projectConfigured?: boolean;
   baseAccountConnector?: BaseAccountConnector;
   baseAccountRestorer?: BaseAccountRestorer;
   providerHandleJournalStorage?: ProviderHandleJournalStorage | null;
   providerHandleJournalLock?: ProviderHandleJournalLock | null;
 }) {
   const {
+    authentication = "cdp",
     isInitialized,
     isSignedIn: sdkIsSignedIn,
     ownerKey,
@@ -210,6 +213,7 @@ export function AccountWalletSessionOwner({
     ownerFence,
     getAccessToken,
     sessionFetch,
+    authentication,
   });
   const moneyActions = useMoneyActionExecution({
     session,
@@ -718,7 +722,7 @@ export function AccountWalletSessionOwner({
         });
         throw error;
       }
-      if (!accessToken) {
+      if (authentication === "cdp" && !accessToken) {
         throw new SessionValidationError("unauthenticated");
       }
 
@@ -732,6 +736,7 @@ export function AccountWalletSessionOwner({
             selection.provider === "base-account"
               ? selection.expectedAddress
               : undefined,
+          authentication,
         },
       );
       validatedProvider = session.accountProvider;
@@ -880,6 +885,7 @@ export function AccountWalletSessionOwner({
       );
     }
   }, [
+    authentication,
     baseAccountEnabled,
     baseAccountRestorer,
     clearBaseConnection,
@@ -1348,7 +1354,7 @@ export function AccountWalletSessionOwner({
 
   const client = useMemo<AccountWalletClient>(
     () => ({
-      projectConfigured: true,
+      projectConfigured,
       signInAvailability: "ready",
       baseAccountEnabled,
       isInitialized,
@@ -1396,6 +1402,7 @@ export function AccountWalletSessionOwner({
       ownerKey,
       pendingTransfer,
       prepareMoneyAction,
+      projectConfigured,
       requestEmailCode,
       sdkIsSignedIn,
       session,

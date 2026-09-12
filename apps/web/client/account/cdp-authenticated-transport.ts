@@ -85,6 +85,7 @@ export function useAuthenticatedTransport({
   ownerFence,
   getAccessToken,
   sessionFetch,
+  authentication = "cdp",
 }: {
   session: VerifiedAccountSession | null;
   status: AccountSessionStatus;
@@ -92,6 +93,7 @@ export function useAuthenticatedTransport({
   ownerFence: OwnerGenerationFence;
   getAccessToken: () => Promise<string | null>;
   sessionFetch?: SessionFetch;
+  authentication?: "cdp" | "native-base";
 }) {
   const fetchVerifiedResource = useCallback(
     async (
@@ -107,7 +109,7 @@ export function useAuthenticatedTransport({
         throw new Error("Authenticated resource is unavailable.");
       }
       const accessToken = await getAccessToken();
-      if (!accessToken) {
+      if (authentication === "cdp" && !accessToken) {
         throw new Error("Authenticated resource is unavailable.");
       }
 
@@ -119,7 +121,7 @@ export function useAuthenticatedTransport({
             method: "GET",
             headers: {
               Accept: "application/json",
-              Authorization: `Bearer ${accessToken}`,
+              ...(authentication === "cdp" ? { Authorization: `Bearer ${accessToken}` } : {}),
               [ACCOUNT_PROVIDER_HEADER]: session.accountProvider,
             },
             cache: "no-store",
@@ -148,7 +150,7 @@ export function useAuthenticatedTransport({
         throw new Error("Authenticated resource is unavailable.");
       }
     },
-    [getAccessToken, ownerKey, session, sessionFetch, status],
+    [authentication, getAccessToken, ownerKey, session, sessionFetch, status],
   );
 
   const fetchAccountResource = useCallback(
@@ -167,7 +169,7 @@ export function useAuthenticatedTransport({
       assertActive();
       const accessToken = await getAccessToken();
       assertActive();
-      if (!accessToken) throw new TransferExecutionError("stale-session");
+      if (authentication === "cdp" && !accessToken) throw new TransferExecutionError("stale-session");
       const method = options.method ?? "GET";
       if (method === "GET" && options.body !== undefined) {
         throw new TransferExecutionError("invalid-request");
@@ -179,7 +181,7 @@ export function useAuthenticatedTransport({
           headers: {
             Accept: "application/json",
             ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
-            Authorization: `Bearer ${accessToken}`,
+            ...(authentication === "cdp" ? { Authorization: `Bearer ${accessToken}` } : {}),
             [ACCOUNT_PROVIDER_HEADER]: session.accountProvider,
           },
           ...(method === "POST" ? { body: JSON.stringify(options.body ?? {}) } : {}),
@@ -216,7 +218,7 @@ export function useAuthenticatedTransport({
         throw new TransferExecutionError("unavailable", error);
       }
     },
-    [getAccessToken, ownerFence, ownerKey, session, sessionFetch, status],
+    [authentication, getAccessToken, ownerFence, ownerKey, session, sessionFetch, status],
   );
 
   const fetchMoneyActionApi = useCallback<MoneyActionApiFetch>(
