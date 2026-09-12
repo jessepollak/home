@@ -4,13 +4,14 @@ import {
   type InvestAsset,
   type InvestAssetId,
 } from "@/config/invest-assets";
+import { BASE_USDC as CATALOG_BASE_USDC } from "@/shared/assets/base";
 
 export const BASE_USDC = {
-  id: "usdc",
-  symbol: "USDC",
-  decimals: 6,
-  chainId: BASE_CHAIN_ID,
-  contractAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  id: CATALOG_BASE_USDC.id,
+  symbol: CATALOG_BASE_USDC.symbol,
+  decimals: CATALOG_BASE_USDC.decimals,
+  chainId: CATALOG_BASE_USDC.chainId,
+  contractAddress: CATALOG_BASE_USDC.address,
 } as const;
 
 export type TradeSide = "buy" | "sell";

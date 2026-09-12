@@ -1,12 +1,17 @@
 import { investAssets } from "./invest-assets";
 import type { FiatCurrencyCode } from "./regions";
+import {
+  BASE_CHAIN_ID,
+  BASE_ETH,
+  BASE_MORPHO_USDC_VAULTS,
+  BASE_USDC,
+} from "@/shared/assets/base";
 
-export const PORTFOLIO_BASE_CHAIN_ID = 8453 as const;
-export const PORTFOLIO_NATIVE_ASSET_KEY = "eip155:8453/native" as const;
-export const PORTFOLIO_USDC_ADDRESS =
-  "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
+export const PORTFOLIO_BASE_CHAIN_ID = BASE_CHAIN_ID;
+export const PORTFOLIO_NATIVE_ASSET_KEY = `eip155:${BASE_CHAIN_ID}/native` as const;
+export const PORTFOLIO_USDC_ADDRESS = BASE_USDC.address;
 export const PORTFOLIO_USDC_ASSET_KEY =
-  "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
+  `eip155:${BASE_CHAIN_ID}/erc20:${BASE_USDC.address.toLowerCase()}` as const;
 
 export type PortfolioAddress = `0x${string}`;
 export type PortfolioAssetKey =
@@ -49,7 +54,7 @@ export const canonicalUsdcAsset = {
   assetKey: PORTFOLIO_USDC_ASSET_KEY,
   name: "US dollar",
   symbol: "USDC",
-  decimals: 6,
+  decimals: BASE_USDC.decimals,
   kind: "erc20",
   contractAddress: PORTFOLIO_USDC_ADDRESS,
   cashCurrency: "USD",
@@ -60,7 +65,7 @@ export const nativeEthAsset = {
   assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
   name: "Ethereum",
   symbol: "ETH",
-  decimals: 18,
+  decimals: BASE_ETH.decimals,
   kind: "native",
   contractAddress: null,
   cashCurrency: null,
@@ -108,29 +113,7 @@ export const verifiedLocalCashAssets = {
   },
 } as const satisfies Partial<Record<FiatCurrencyCode, DirectPortfolioAsset>>;
 
-export const portfolioVaults = [
-  {
-    id: "morpho-steakhouse-usdc",
-    name: "Steakhouse USDC vault",
-    symbol: "USDC vault",
-    address: "0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61",
-    decimals: 18,
-  },
-  {
-    id: "morpho-gauntlet-usdc",
-    name: "Gauntlet USDC Core vault",
-    symbol: "USDC vault",
-    address: "0x7BfA7C4f149E7415b73bdeDfe609237e29CBF34A",
-    decimals: 18,
-  },
-  {
-    id: "morpho-re7-usdc",
-    name: "Re7 USDC vault",
-    symbol: "USDC vault",
-    address: "0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183",
-    decimals: 18,
-  },
-] as const;
+export const portfolioVaults = BASE_MORPHO_USDC_VAULTS;
 
 export function assetKeyForErc20(address: string): `eip155:8453/erc20:${string}` {
   return `eip155:8453/erc20:${address.toLowerCase()}`;

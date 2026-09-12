@@ -1,21 +1,23 @@
+import { BASE_CBBTC, BASE_USDC } from "@/shared/assets/base";
+
 export type BorrowAddress = `0x${string}`;
 
-export const BASE_CHAIN_ID = 8453 as const;
+export { BASE_CHAIN_ID } from "@/shared/assets/base";
 export const MORPHO_BLUE_ADDRESS =
   "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb" as const satisfies BorrowAddress;
 export const BORROW_MARKET_ID =
   "0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836" as const;
 export const BORROW_LOAN_TOKEN = {
-  id: "usdc",
-  address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as BorrowAddress,
-  symbol: "USDC",
-  decimals: 6,
+  id: BASE_USDC.id,
+  address: BASE_USDC.address as BorrowAddress,
+  symbol: BASE_USDC.symbol,
+  decimals: BASE_USDC.decimals,
 } as const;
 export const BORROW_COLLATERAL_TOKEN = {
-  id: "cbbtc",
-  address: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as BorrowAddress,
-  symbol: "cbBTC",
-  decimals: 8,
+  id: BASE_CBBTC.id,
+  address: BASE_CBBTC.address as BorrowAddress,
+  symbol: BASE_CBBTC.symbol,
+  decimals: BASE_CBBTC.decimals,
 } as const;
 export const BORROW_ORACLE_ADDRESS =
   "0x663BECd10daE6C4A3Dcd89F1d76c1174199639B9" as const satisfies BorrowAddress;

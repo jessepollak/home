@@ -1,6 +1,7 @@
 import { cryptoAssets } from "@/config/invest-assets";
+import { BASE_CHAIN_ID, BASE_USDC } from "@/shared/assets/base";
 
-export const ACTIVITY_BASE_CHAIN_ID = 8453 as const;
+export const ACTIVITY_BASE_CHAIN_ID = BASE_CHAIN_ID;
 export const ACTIVITY_PAGE_SIZE = 25 as const;
 export const ACTIVITY_WINDOW_DAYS = 31 as const;
 export const ACTIVITY_TEASER_LIMIT = 5 as const;
@@ -11,8 +12,8 @@ export const activityAssets = [
   {
     id: "usdc" as const,
     symbol: "USDC" as const,
-    decimals: 6 as const,
-    tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const,
+    decimals: BASE_USDC.decimals,
+    tokenAddress: BASE_USDC.address,
   },
   ...cryptoAssets.map((asset) => ({
     id: asset.id,
