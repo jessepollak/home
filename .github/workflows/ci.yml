@@ -136,5 +136,5 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
-      - name: Test production money and attempt stores against disposable PostgreSQL
+      - name: Test the production money-action store against disposable PostgreSQL
         run: bun test scripts/delivery/tests/postgres-money-action*.test.ts
