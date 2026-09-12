@@ -47,6 +47,12 @@ const rawButtonAllowlist = [
   "components/profile-mark.tsx",
 ];
 
+const rawFieldAllowlist = [
+  "client/account/account-screen.tsx",
+  "client/funding/add-money-dialog.tsx",
+  "client/money-modal/amount.tsx",
+];
+
 const rawHeadingAllowlist = [
   "client/activity/activity-panel.tsx",
   "client/funding/add-money-dialog.tsx",
@@ -358,6 +364,24 @@ const eslintConfig = defineConfig([
         {
           selector: "JSXOpeningElement[name.name=/^h[1-4]$/]",
           message: "Use Heading from @home/ui. The raw-heading allowlist only shrinks.",
+        },
+      ],
+    },
+  },
+  {
+    files: [
+      "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+    ],
+    ignores: [...new Set([...rawFieldAllowlist, ...formattingSyntaxAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
+        ...formattingSyntaxRestrictions,
+        {
+          selector: "JSXOpeningElement[name.name=/^(?:input|select)$/]",
+          message: "Use Input or Select from @home/ui. The raw-field allowlist only shrinks.",
         },
       ],
     },

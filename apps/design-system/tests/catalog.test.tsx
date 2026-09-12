@@ -23,6 +23,14 @@ test("catalog renders real package exports and deterministic specimen controls",
   expect(container.querySelector("[data-layout='inset']")?.classList.contains("home-ui-inset")).toBe(true);
   expect(container.querySelector("[data-layout='bleed']")?.classList.contains("home-ui-bleed")).toBe(true);
   expect(container.querySelector("[data-layout='custom']")?.getAttribute("data-space")).toBe("custom");
+  const email = page.getByRole("textbox", { name: /Email address/ });
+  const address = page.getByRole("textbox", { name: "Wallet address" });
+  expect(email.getAttribute("aria-describedby")).toBe("catalog-email-hint");
+  expect(email.hasAttribute("required")).toBe(true);
+  expect(address.getAttribute("aria-invalid")).toBe("true");
+  expect(address.getAttribute("aria-describedby")).toBe("catalog-address-error");
+  expect(page.getByRole("combobox", { name: "Country" }).classList.contains("home-ui-select__control")).toBe(true);
+  expect(page.getByRole("button", { name: "Paste" }).parentElement?.classList.contains("home-ui-field__action")).toBe(true);
   expect(container.querySelectorAll("[data-surface]")).toHaveLength(4);
   expect(container.querySelector("[data-surface='tinted-accent']")?.classList.contains("surface-tinted")).toBe(true);
   expect(container.querySelectorAll("[data-token]")).toHaveLength(19);

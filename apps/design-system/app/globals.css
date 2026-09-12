@@ -66,6 +66,12 @@ body {
 .catalog-number-probe { display: grid; justify-items: start; min-inline-size: 0; }
 .catalog-number-probe > * { max-inline-size: 100%; }
 .catalog-buttons { display: flex; flex-wrap: wrap; align-items: start; gap: var(--home-ui-space-3); }
+.catalog-field-matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: var(--home-ui-space-4);
+  min-inline-size: 0;
+}
 .catalog-layout-frame { border: 1px solid var(--home-ui-color-border); }
 .catalog-layout-bleed { background: var(--home-ui-color-canvas); }
 .catalog-surfaces { align-items: stretch; }

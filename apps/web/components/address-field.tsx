@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Inline } from "@home/ui";
+import { Button, Field, Input } from "@home/ui";
 import { ClipboardPaste } from "lucide-react";
 import { formatAddress, isAddress } from "@/shared/formatting";
 import styles from "./address-field.module.css";
@@ -35,8 +35,24 @@ export function AddressField({
   }
 
   return (
-    <Inline className={`${styles.field} surface-primary`} space="2">
-      <input
+    <Field
+      className={styles.field}
+      label="Address"
+      htmlFor={id}
+      action={(
+        <Button
+          className={styles.paste}
+          variant="quiet"
+          type="button"
+          disabled={disabled}
+          aria-label="Paste address"
+          onClick={() => void paste()}
+        >
+          <ClipboardPaste size={18} strokeWidth={1.9} aria-hidden="true" />
+        </Button>
+      )}
+    >
+      <Input
         id={id}
         className={styles.input}
         value={display}
@@ -49,15 +65,6 @@ export function AddressField({
         disabled={disabled}
         aria-describedby={describedBy}
       />
-      <button
-        className={styles.paste}
-        type="button"
-        disabled={disabled}
-        aria-label="Paste address"
-        onClick={() => void paste()}
-      >
-        <ClipboardPaste size={18} strokeWidth={1.9} />
-      </button>
-    </Inline>
+    </Field>
   );
 }

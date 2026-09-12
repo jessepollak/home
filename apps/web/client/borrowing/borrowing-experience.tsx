@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Button, Heading, Text } from "@home/ui";
+import { Button, Field, Heading, Input, Select, Text } from "@home/ui";
 import { useMemo, useState } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -230,26 +230,29 @@ function BorrowExperienceInner({
               <div className={styles.sectionHeading}>
                 <Heading level={2} textStyle="section-title">Preview action</Heading>
               </div>
-              <label>
-                Action
-                <select value={operation} onChange={(event) => { setOperation(event.target.value as BorrowOperation); setAmount(""); setPreview({ status: "idle" }); }}>
+              <Field label="Action" htmlFor="borrow-operation" required>
+                <Select id="borrow-operation" value={operation} onChange={(event) => { setOperation(event.target.value as BorrowOperation); setAmount(""); setPreview({ status: "idle" }); }}>
                   <option value="supply-collateral">Supply cbBTC collateral</option>
                   <option value="borrow">Borrow USDC</option>
                   <option value="repay">Repay USDC (partial)</option>
                   <option value="repay-all">Repay all USDC debt</option>
                   <option value="withdraw-collateral">Withdraw cbBTC collateral</option>
-                </select>
-              </label>
-              <label>
-                {operation === "repay-all" ? "Maximum debit" : "Amount"} ({actionAsset.symbol})
-                <input
+                </Select>
+              </Field>
+              <Field
+                label={`${operation === "repay-all" ? "Maximum debit" : "Amount"} (${actionAsset.symbol})`}
+                htmlFor="borrow-amount"
+                required
+              >
+                <Input
+                  id="borrow-amount"
                   inputMode="decimal"
                   autoComplete="off"
                   value={amount}
                   onChange={(event) => { setAmount(event.target.value); setPreview({ status: "idle" }); }}
                   placeholder={actionAsset.decimals === 8 ? "0.00000000" : "0.00"}
                 />
-              </label>
+              </Field>
               <Text as="p" textStyle="metadata" tone="muted" className={styles.limit}>{selectedLimit}</Text>
               <Button type="submit" disabled={!amount.trim() || preview.status === "loading"}>
                 {preview.status === "loading" ? "Checking RPC simulation…" : "Review current preview"}
