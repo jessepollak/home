@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Badge, Bleed, Button, Divider, Field, Heading, IconButton, Inline, Input, Inset, ListRow, Select, Stack, Text, type TextStyle } from "@home/ui";
+import { Badge, Bleed, Button, Divider, EmptyState, Field, Heading, IconButton, Inline, Input, Inset, ListRow, Select, Skeleton, Stack, StatusMessage, Text, Toast, ToastViewport, type TextStyle } from "@home/ui";
 import { Sheet } from "@home/ui/sheet";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { ArrowRightIcon, CheckIcon, PlusIcon, XIcon } from "@home/ui/icons";
@@ -88,6 +88,45 @@ function SheetSpecimen() {
           </Button>
         </Stack>
       </Sheet>
+    </section>
+  );
+}
+
+function FeedbackSpecimens() {
+  const [toastVisible, setToastVisible] = useState(false);
+
+  return (
+    <section className="catalog-section bg-home-ui-surface" aria-labelledby="feedback-title">
+      <Heading id="feedback-title" level={2} textStyle="section-title">Feedback</Heading>
+      <Text textStyle="secondary" tone="muted">Loading, empty, status, and transient notification shells without product-state decisions.</Text>
+      <div className="catalog-feedback-matrix">
+        <div className="catalog-feedback-card" data-feedback="skeleton">
+          <Text textStyle="metadata" tone="muted">Skeleton rows</Text>
+          <Skeleton shape="text" width="75%" height="0.75rem" rows={3} />
+          <Skeleton shape="circle" width="2.5rem" height="2.5rem" />
+        </div>
+        <div className="catalog-feedback-card" data-feedback="empty-state">
+          <EmptyState
+            title="No activity yet"
+            description="Completed actions will appear here."
+            action={<Button variant="secondary">Review balances</Button>}
+          />
+        </div>
+        <div className="catalog-feedback-card" data-feedback="status-message">
+          <StatusMessage title="Portfolio refreshed">Balances are up to date.</StatusMessage>
+          <StatusMessage tone="error" role="alert" title="Activity unavailable">
+            Try again when the connection recovers.
+          </StatusMessage>
+        </div>
+      </div>
+      <Button variant="secondary" onClick={() => setToastVisible(true)}>Show toast</Button>
+      <ToastViewport>
+        {toastVisible ? (
+          <Toast tone="success" duration={5_000} onDismiss={() => setToastVisible(false)}>
+            Action confirmed
+          </Toast>
+        ) : null}
+      </ToastViewport>
     </section>
   );
 }
@@ -356,6 +395,7 @@ export function FoundationCatalog() {
         </section>
 
         <SheetSpecimen />
+        <FeedbackSpecimens />
 
         <section className="catalog-section bg-home-ui-surface" aria-labelledby="ticker-title">
           <Heading id="ticker-title" level={2} textStyle="section-title">Balance ticker</Heading>

@@ -49,7 +49,7 @@ async function expectWholeAsciiWords(locator: Locator) {
 async function expectNoOverflow(page: Page) {
   await page.evaluate(() => document.fonts.ready);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  const clipped = await page.locator(".home-ui-text, .home-ui-money-ticker, .home-ui-button, .home-ui-field, .home-ui-control, .home-ui-list-row, .home-ui-list-row__content, .home-ui-badge, .home-ui-divider, .catalog-section, .catalog-controls, .catalog-control-grid, .catalog-control-grid label").evaluateAll((elements) =>
+  const clipped = await page.locator(".home-ui-text, .home-ui-money-ticker, .home-ui-button, .home-ui-field, .home-ui-control, .home-ui-list-row, .home-ui-list-row__content, .home-ui-badge, .home-ui-divider, .catalog-section, .catalog-controls, .catalog-control-grid, .catalog-control-grid label, .home-ui-empty-state, .home-ui-status-message, .home-ui-toast").evaluateAll((elements) =>
     elements.filter((element) => {
       // Tight display line boxes can have visible font ink outside their height;
       // that is not clipping. Still reject horizontal overflow and any vertical
@@ -347,12 +347,41 @@ test("Sheet reduced-motion mode settles immediately and forced colors preserve i
   await expect(trigger).toBeFocused();
 });
 
+test("feedback primitives expose live semantics, dismiss on schedule, and fit at 320px", async ({ page }) => {
+  await page.clock.install();
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto("/");
+
+  const feedback = page.getByRole("region", { name: "Feedback" });
+  await expect(feedback.locator('[data-feedback="skeleton"] [data-rows="3"] > *')).toHaveCount(3);
+  await expect(feedback.getByText("No activity yet", { exact: true })).toBeVisible();
+  await expect(feedback.getByRole("alert")).toContainText("Activity unavailable");
+  const viewport = page.getByRole("region", { name: "Notifications" });
+  await expect(viewport).toHaveAttribute("aria-live", "polite");
+
+  await feedback.getByRole("button", { name: "Show toast" }).click();
+  const toast = page.locator(".home-ui-toast", { hasText: "Action confirmed" });
+  await expect(toast).toBeVisible();
+  await page.clock.fastForward(5_000);
+  await expect(toast).toBeHidden();
+  await expectNoOverflow(page);
+});
+
+test("reduced motion makes skeletons static and toast entry immediate", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  const skeleton = page.locator('[data-feedback="skeleton"] .home-ui-skeleton').first();
+  expect(await skeleton.evaluate((element) => getComputedStyle(element, "::after").animationName)).toBe("none");
+  await page.getByRole("button", { name: "Show toast" }).click();
+  await expect(page.getByText("Action confirmed", { exact: true }).locator("xpath=..")).toHaveCSS("animation-name", "none");
+});
+
 test("native keyboard activation, focus, pressed presentation, and disabled/loading safety", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   const primary = page.getByRole("button", { name: "Primary", exact: true });
-  const status = page.getByRole("status");
+  const status = page.locator("output");
   const focusControl = page.getByRole("button", { name: "Focus primary" });
   await focusControl.focus();
   await focusControl.press("Enter");

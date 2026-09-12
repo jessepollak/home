@@ -573,16 +573,103 @@
   color: var(--home-ui-color-accent-tint-text);
 }
 .home-ui-badge[data-tone="success"] {
+/* Feedback primitives: Skeleton, EmptyState, StatusMessage, and Toast. */
+.home-ui-skeleton,
+/* Temporary compatibility while remaining web loading surfaces adopt Skeleton. */
+.shimmer {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  overflow: hidden;
+  max-inline-size: 100%;
+  background: var(--home-ui-color-subtle-hover);
+}
+.home-ui-skeleton::after,
+.shimmer::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--home-ui-color-surface) 72%, transparent) 50%,
+    transparent 100%
+  );
+  content: "";
+  transform: translateX(-100%);
+  animation: home-ui-skeleton-shimmer 1.2s var(--home-ui-easing-standard) infinite;
+}
+.home-ui-skeleton[data-shape="text"] { block-size: 0.75em; border-radius: var(--home-ui-radius-control); }
+.home-ui-skeleton[data-shape="rectangle"] { border-radius: var(--home-ui-radius-surface); }
+.home-ui-skeleton[data-shape="circle"] { aspect-ratio: 1; border-radius: 50%; }
+.home-ui-skeleton-group {
+  display: grid;
+  gap: var(--home-ui-space-2);
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+@keyframes home-ui-skeleton-shimmer { to { transform: translateX(100%); } }
+
+.home-ui-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: var(--home-ui-space-2);
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  padding: var(--home-ui-space-4);
+  color: var(--fg, var(--home-ui-color-text));
+  font-family: var(--home-ui-font-family);
+  text-align: center;
+}
+.home-ui-empty-state__icon {
+  display: grid;
+  place-items: center;
+  color: var(--fg-muted, var(--home-ui-color-muted));
+}
+.home-ui-empty-state__title {
+  font-size: var(--home-ui-type-row-label-size);
+  font-weight: var(--home-ui-type-weight-strong);
+  line-height: var(--home-ui-type-body-leading);
+  overflow-wrap: anywhere;
+}
+.home-ui-empty-state__description {
+  max-inline-size: 36rem;
+  color: var(--fg-muted, var(--home-ui-color-muted));
+  font-size: var(--home-ui-type-secondary-size);
+  line-height: var(--home-ui-type-body-leading);
+  overflow-wrap: anywhere;
+}
+.home-ui-empty-state__action { margin-block-start: var(--home-ui-space-1); }
+
+.home-ui-status-message {
+  display: flex;
+  box-sizing: border-box;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--home-ui-space-3);
+  border: 1px solid var(--home-ui-color-border);
+  border-radius: var(--home-ui-radius-control);
+  padding: var(--home-ui-space-3);
+  background: var(--home-ui-color-canvas);
+  color: var(--home-ui-color-text);
+  font-family: var(--home-ui-font-family);
+  font-size: var(--home-ui-type-secondary-size);
+  line-height: var(--home-ui-type-body-leading);
+}
+.home-ui-status-message[data-tone="success"] {
   border-color: var(--home-ui-color-status-success-border);
   background: var(--home-ui-color-status-success-background);
   color: var(--home-ui-color-status-success-text);
 }
 .home-ui-badge[data-tone="warning"] {
+.home-ui-status-message[data-tone="warning"] {
   border-color: var(--home-ui-color-status-warning-border);
   background: var(--home-ui-color-status-warning-background);
   color: var(--home-ui-color-status-warning-text);
 }
 .home-ui-badge[data-tone="error"] {
+.home-ui-status-message[data-tone="error"] {
   border-color: var(--home-ui-color-status-error-border);
   background: var(--home-ui-color-status-error-background);
   color: var(--home-ui-color-status-error-text);
@@ -646,4 +733,80 @@
   .home-ui-list-row__control:focus-visible { outline-color: Highlight; }
   .home-ui-badge { border-color: CanvasText; }
   .home-ui-divider { background: CanvasText; }
+.home-ui-status-message__content { display: grid; gap: var(--home-ui-space-1); min-inline-size: 0; }
+.home-ui-status-message__title,
+.home-ui-status-message__body { overflow-wrap: anywhere; }
+.home-ui-status-message__title { font-weight: var(--home-ui-type-weight-strong); }
+.home-ui-status-message__action { flex: 0 0 auto; }
+.home-ui-status-message[data-visually-hidden] {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.home-ui-toast-viewport {
+  position: fixed;
+  z-index: var(--home-ui-layer-toast);
+  inset-inline-start: 50%;
+  inset-block-end: calc(82px + env(safe-area-inset-bottom, 0px));
+  display: grid;
+  inline-size: min(calc(100vw - 32px), 420px);
+  max-inline-size: calc(100vw - 32px);
+  gap: var(--home-ui-space-2);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+.home-ui-toast {
+  display: flex;
+  box-sizing: border-box;
+  min-block-size: 48px;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--home-ui-space-3);
+  border: 1px solid var(--separator, var(--home-ui-color-border));
+  border-radius: var(--home-ui-radius-control);
+  padding: 10px var(--home-ui-space-3) 10px var(--home-ui-space-4);
+  box-shadow: var(--home-ui-shadow-popover);
+  color: var(--fg, var(--home-ui-color-text));
+  font-family: var(--home-ui-font-family);
+  pointer-events: auto;
+  animation: home-ui-toast-enter var(--home-ui-motion-release) var(--home-ui-easing-enter);
+}
+.home-ui-toast[data-tone="success"] { border-color: var(--home-ui-color-status-success-border); }
+.home-ui-toast[data-tone="warning"] { border-color: var(--home-ui-color-status-warning-border); }
+.home-ui-toast[data-tone="error"] { border-color: var(--home-ui-color-status-error-border); }
+.home-ui-toast__message {
+  min-inline-size: 0;
+  flex: 1 1 auto;
+  font-size: var(--home-ui-type-secondary-size);
+  line-height: var(--home-ui-type-body-leading);
+  overflow-wrap: anywhere;
+}
+.home-ui-toast__action,
+.home-ui-toast__dismiss { flex: 0 0 auto; }
+.home-ui-toast__dismiss {
+  min-block-size: 36px;
+  min-inline-size: 0;
+  padding: 0 var(--home-ui-space-1);
+}
+@keyframes home-ui-toast-enter {
+  from { opacity: 0; transform: translateY(var(--home-ui-space-2)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-ui-skeleton::after,
+  .shimmer::after { display: none; animation: none; }
+  .home-ui-toast { animation: none; }
+}
+@media (forced-colors: active) {
+  .home-ui-skeleton,
+  .shimmer { background: GrayText; }
+  .home-ui-status-message,
+  .home-ui-toast { border-color: CanvasText; }
 }

@@ -51,12 +51,13 @@ test("catalog renders real package exports and deterministic specimen controls",
   fireEvent.click(page.getByRole("button", { name: "Update balance ticker" }));
   expect(ticker?.getAttribute("aria-label")).toBe("$9,876.54");
   expect(page.getByRole("button", { name: "Confirm" }).hasAttribute("hapticfeedback")).toBe(false);
+  const activationStatus = container.querySelector("output");
   fireEvent.click(button);
-  expect(page.getByRole("status").textContent).toBe("Activations: 1");
+  expect(activationStatus?.textContent).toBe("Activations: 1");
   fireEvent.click(page.getByRole("checkbox", { name: "Disabled" }));
   expect(button.disabled).toBe(true);
   fireEvent.click(button);
-  expect(page.getByRole("status").textContent).toBe("Activations: 1");
+  expect(activationStatus?.textContent).toBe("Activations: 1");
   fireEvent.click(page.getByRole("checkbox", { name: "Disabled" }));
   fireEvent.click(page.getByRole("checkbox", { name: "Pressed" }));
   expect(button.getAttribute("aria-pressed")).toBe("true");

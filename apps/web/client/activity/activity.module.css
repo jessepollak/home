@@ -23,8 +23,7 @@
   text-transform: uppercase;
 }
 
-.loadMoreButton,
-.error button {
+.loadMoreButton {
   border: 1px solid var(--home-hairline);
   border-radius: var(--control-radius);
   background: var(--home-white);
@@ -62,28 +61,18 @@
 }
 
 .empty {
+  justify-items: start;
   margin: 18px 0 0;
-  color: var(--home-muted);
-  font-size: 0.84rem;
+  padding: 0;
+  text-align: start;
 }
-
 
 .error {
-  display: grid;
-  gap: 7px;
   margin-top: 20px;
-  background: #fff1f0;
-  color: #84251f;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  padding: 15px;
 }
 
-.error button {
+.error :global(.home-ui-button) {
   width: max-content;
-  min-height: 44px;
-  margin-top: 4px;
-  padding: 0 12px;
 }
 
 .pagination {

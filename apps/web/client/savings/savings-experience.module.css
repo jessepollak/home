@@ -57,28 +57,28 @@
   color: #c5c9d1;
 }
 
-.heroShimmer {
-  width: min(48%, 11.5rem);
-  height: 3.4rem;
-  border-radius: var(--control-radius);
-}
-
-.apyShimmer {
-  width: 7rem;
-  height: 0.9rem;
-  border-radius: 4px;
-}
-
 .heroCaption,
-.heroMeta,
-.status {
+.heroMeta {
   margin: 0;
   color: var(--fg-muted);
   font-size: 0.95rem;
 }
 
-.heroMeta,
-.status {
+.heroMeta {
+  font-size: 0.78rem;
+}
+
+.heroEmpty {
+  padding: 0;
+}
+
+.heroEmpty :global(.home-ui-empty-state__title) {
+  color: var(--fg-muted);
+  font-size: 0.95rem;
+  font-weight: 400;
+}
+
+.heroEmpty :global(.home-ui-empty-state__description) {
   font-size: 0.78rem;
 }
 
@@ -143,13 +143,11 @@
   width: 42%;
   min-width: 5rem;
   height: 12px;
-  border-radius: 4px;
 }
 
 .vaultSkeletonValue {
   width: 3.25rem;
   height: 12px;
-  border-radius: 999px;
 }
 
 .vaultName {

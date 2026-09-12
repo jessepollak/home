@@ -4,9 +4,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { activityOwnerKey } from "@/client/activity/use-activity";
-import type { ActionToastClock } from "./action-toasts";
+import { announceActionFailure } from "./action-toast-events";
 
-const { act, cleanup, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { ActionToasts } = await import("./action-toasts");
 
 const session: VerifiedAccountSession = {
@@ -35,46 +35,23 @@ const row = {
   },
 };
 
-function fakeClock() {
-  let id = 0;
-  const timers = new Map<number, () => void>();
-  const clock: ActionToastClock = {
-    setTimer: (callback) => {
-      const timerId = ++id;
-      timers.set(timerId, callback);
-      return timerId;
-    },
-    clearTimer: (timer) => { timers.delete(timer as number); },
-  };
-  return {
-    clock,
-    advance() {
-      const callbacks = [...timers.values()];
-      timers.clear();
-      for (const callback of callbacks) callback();
-    },
-  };
-}
-
 afterEach(() => {
   cleanup();
   getHomeQueryClient().clear();
 });
 
 describe("action toasts", () => {
-  test("announces pending then confirmed actions and auto-dismisses both", async () => {
-    const fake = fakeClock();
+  test("maps pending and confirmed actions to messages while the package owns dismissal", async () => {
     const view = render(
       <ActionToasts
         session={session}
         fetchOperations={async () => ({ actions: [row] })}
-        clock={fake.clock}
+        dismissAfterMs={0}
       />,
     );
 
-    const region = view.container.querySelector('[aria-live="polite"]');
-    expect(region).toBeTruthy();
     await waitFor(() => expect(view.getByText("Sending $1.00 to 0x2222…222222")).toBeTruthy());
+    expect(view.getByRole("region", { name: "Notifications" })).toBeTruthy();
 
     act(() => {
       getHomeQueryClient().setQueryData(
@@ -85,10 +62,22 @@ describe("action toasts", () => {
     await waitFor(() => expect(view.getByText("Sent $1.00 to 0x2222…222222")).toBeTruthy());
     expect(view.getByText("Sending $1.00 to 0x2222…222222")).toBeTruthy();
 
-    act(() => fake.advance());
-    await waitFor(() => {
-      expect(view.queryByText("Sending $1.00 to 0x2222…222222")).toBeNull();
-      expect(view.queryByText("Sent $1.00 to 0x2222…222222")).toBeNull();
-    });
+    fireEvent.click(view.getByRole("button", { name: "Dismiss Sending $1.00 to 0x2222…222222" }));
+    expect(view.queryByText("Sending $1.00 to 0x2222…222222")).toBeNull();
+    expect(view.getByText("Sent $1.00 to 0x2222…222222")).toBeTruthy();
+  });
+
+  test("maps action failure events to alert toasts", async () => {
+    const view = render(
+      <ActionToasts
+        session={session}
+        fetchOperations={async () => ({ actions: [] })}
+        dismissAfterMs={0}
+      />,
+    );
+
+    act(() => announceActionFailure("send", "Wallet unavailable"));
+    const alert = await waitFor(() => view.getByRole("alert"));
+    expect(alert.textContent).toContain("Send failed: Wallet unavailable");
   });
 });

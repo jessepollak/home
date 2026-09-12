@@ -1,5 +1,6 @@
 "use client";
 
+import { Button, EmptyState, StatusMessage } from "@home/ui";
 import { useEffect, useRef, useState } from "react";
 import { Heading, Text } from "@home/ui";
 import { ActivityRow } from "@/components/finance-rows";
@@ -61,7 +62,7 @@ export function ActivityPanel({
       >
         {heading}
         {leading}
-        {suppressEmpty ? null : <Text textStyle="secondary" className={styles.empty}>No activity yet</Text>}
+        {suppressEmpty ? null : <EmptyState className={styles.empty} title="No activity yet" />}
       </section>
     );
   }
@@ -93,17 +94,15 @@ export function ActivityPanel({
       >
         {heading}
         {leading}
-        <div className={styles.error} role="alert">
-          <strong>Activity is temporarily unavailable.</strong>
-          {activity.error.message ? (
-            <span>{activity.error.message}</span>
-          ) : activity.error.code ? (
-            <span>{activity.error.code}</span>
-          ) : null}
-          <button type="button" onClick={activity.retry}>
-            Try again
-          </button>
-        </div>
+        <StatusMessage
+          className={styles.error}
+          tone="error"
+          role="alert"
+          title="Activity is temporarily unavailable."
+          action={<Button variant="secondary" onClick={activity.retry}>Try again</Button>}
+        >
+          {activity.error.message || activity.error.code || undefined}
+        </StatusMessage>
       </section>
     );
   }
@@ -123,7 +122,7 @@ export function ActivityPanel({
       {heading}
       {leading}
       {isEmpty ? (
-        suppressEmpty ? null : <Text textStyle="secondary" className={styles.empty}>No activity yet</Text>
+        suppressEmpty ? null : <EmptyState className={styles.empty} title="No activity yet" />
       ) : (
         <ol className={styles.list}>
           {visibleTransfers.map((transfer) => (

@@ -31,9 +31,11 @@ test("core bundle has no React copy, Next/font/CSS, client directive, or feature
   const code = await result.outputs[0].text();
   expect(code).toMatch(/from "react\/jsx(?:-dev)?-runtime"/);
   expect(code).not.toMatch(/next\/font|use client|\.css|@font-face|createContext|ReactCurrentDispatcher|react\.production|apps\/web|coinbase|wallet|fetch\(/);
-  // Initial L3 measurement moved the root bundle from 9,953 to 13,865 bytes;
-  // the final L3 bundle is 13,999, with room for sibling dependency-free primitives.
-  expect(code.length).toBeLessThan(20_000);
+  // Root bundle of dependency-free primitives only (MoneyTicker/Sheet-style
+  // dependency carriers stay on subpaths). History: 9,953 bytes (Sept 12 a.m.);
+  // 20,181 after ListRow/Badge/Divider + Skeleton/EmptyState/StatusMessage/Toast.
+  // Raise deliberately with a new primitive; never to absorb a dependency.
+  expect(code.length).toBeLessThan(24_000);
   expect(uiPackage.exports["./next-font"]).toBe("./src/next-font.ts");
   expect(Object.keys(uiPackage.exports).some((key) => key.includes("*"))).toBe(false);
 });
