@@ -137,6 +137,22 @@ body {
   gap: var(--home-ui-space-3);
   min-inline-size: 0;
 }
+.catalog-feedback-matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: var(--home-ui-space-3);
+  min-inline-size: 0;
+}
+.catalog-feedback-card {
+  display: grid;
+  align-content: start;
+  gap: var(--home-ui-space-3);
+  min-inline-size: 0;
+  padding: var(--home-ui-space-3);
+  border: 1px solid var(--home-ui-color-border);
+  border-radius: var(--home-ui-radius-control);
+}
+.catalog-feedback-card .home-ui-empty-state { padding: 0; }
 .home-ui-sheet__footer > .home-ui-button { width: 100%; }
 .catalog-motion-reduced { display: none; }
 @media (max-width: 480px) {

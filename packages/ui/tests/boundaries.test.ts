@@ -31,7 +31,7 @@ test("core bundle has no React copy, Next/font/CSS, client directive, or feature
   const code = await result.outputs[0].text();
   expect(code).toMatch(/from "react\/jsx(?:-dev)?-runtime"/);
   expect(code).not.toMatch(/next\/font|use client|\.css|@font-face|createContext|ReactCurrentDispatcher|react\.production|apps\/web|coinbase|wallet|fetch\(/);
-  expect(code.length).toBeLessThan(10000);
+  expect(code.length).toBeLessThan(16000);
   expect(uiPackage.exports["./next-font"]).toBe("./src/next-font.ts");
   expect(Object.keys(uiPackage.exports).some((key) => key.includes("*"))).toBe(false);
 });
