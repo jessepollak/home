@@ -14,7 +14,7 @@ Home’s Balances path used request-time multi-call `eth_call` / `eth_getBalance
 2. **Q2 Phase C** — budget Alchemy/QuickNode when CDP multi-address / rate limits are exceeded.
 3. **Q3 Ponder** — out unless Jesse later accepts a second runtime.
 
-Fail-closed stays: true provider failure → `unavailable`; successful zero stays ready `0`; never invent balances. A CDP omission is not contract authority for configured ERC-20s: the current Phase A path uses bounded `balanceOf` recovery only through configured `BASE_RPC_URL` (maximum 20 deduped contracts), preserves partial successes, and never falls through to the public default. Session boundary unchanged.
+Fail-closed stays: true provider failure → `unavailable`; successful zero stays ready `0`; never invent balances. A CDP omission is not contract authority for configured ERC-20s: the current Phase A path uses cash-first bounded `balanceOf` recovery only through configured `BASE_RPC_URL` (maximum 20 deduped contracts and two attempts each), retains completed singles across its own stage timeout, propagates caller cancellation, and never falls through to the public default. Session boundary unchanged.
 
 ## Phases
 

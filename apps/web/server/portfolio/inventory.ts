@@ -19,6 +19,7 @@ import {
   type CdpTokenBalancesClient,
 } from "./cdp-token-balances";
 import {
+  CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT,
   createConfiguredErc20BalanceReader,
   type ConfiguredErc20BalanceMap,
   type ConfiguredErc20BalanceRequest,
@@ -298,11 +299,17 @@ async function recoverConfiguredErc20Holdings(
     hosted: boolean;
   },
 ): Promise<DirectPortfolioHolding[]> {
-  const recovery = holdings.filter(
+  const unresolved = holdings.filter(
     (holding): holding is DirectPortfolioHolding & {
       contractAddress: PortfolioAddress;
     } => recoveryIds.has(holding.id) && holding.contractAddress !== null,
   );
+  // Cash roles consume the same bounded recovery window as Invest contracts,
+  // so partition them first while preserving stable registry order in each set.
+  const recovery = [
+    ...unresolved.filter((holding) => holding.cashCurrency !== null),
+    ...unresolved.filter((holding) => holding.cashCurrency === null),
+  ];
   if (recovery.length === 0) return holdings;
   if (!readConfiguredErc20Balances) {
     if (options.hosted) {
@@ -320,7 +327,12 @@ async function recoverConfiguredErc20Holdings(
     recovery.map(({ id }) => [id, null]),
   );
   const deadline = Date.now() + options.timeoutMs;
-  const maxAttempts = Math.max(1, options.attempts);
+  const maxAttempts = Math.min(
+    PORTFOLIO_ERC20_RECOVERY_ATTEMPTS,
+    Number.isSafeInteger(options.attempts) && options.attempts > 0
+      ? options.attempts
+      : 1,
+  );
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (options.externalSignal?.aborted) {
@@ -344,8 +356,11 @@ async function recoverConfiguredErc20Holdings(
     if (remainingMs <= 0) break;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), remainingMs);
-    const abort = () => controller.abort();
+    const timeout = setTimeout(
+      () => controller.abort(CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT),
+      remainingMs,
+    );
+    const abort = () => controller.abort(options.externalSignal?.reason);
     options.externalSignal?.addEventListener("abort", abort, { once: true });
     try {
       const batch = await readConfiguredErc20Balances(

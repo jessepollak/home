@@ -6,6 +6,7 @@ import {
 } from "@/config/portfolio-assets";
 import {
   CONFIGURED_ERC20_RECOVERY_MAX_CONTRACTS,
+  CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT,
   createConfiguredErc20BalanceReader,
 } from "./inventory-erc20-rpc";
 
@@ -82,6 +83,48 @@ describe("configured ERC-20 RPC recovery", () => {
     expect(amounts.get("idrx")).toBeNull();
   });
 
+  test("keeps completed singles when the helper stage deadline aborts a later call", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const reader = createConfiguredErc20BalanceReader({
+      rpcUrl: "https://rpc.example.test",
+      fetchImpl: async (_input, init) => {
+        calls += 1;
+        if (calls === 1) {
+          return Response.json({ jsonrpc: "2.0", id: 1, result: "0x5" });
+        }
+        queueMicrotask(() =>
+          controller.abort(CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT),
+        );
+        return await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("stage deadline", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+    });
+
+    const amounts = await reader(
+      [
+        { id: "usdc", contractAddress: PORTFOLIO_USDC_ADDRESS },
+        { id: "idrx", contractAddress: verifiedLocalCashAssets.IDR.contractAddress },
+        { id: "eurc", contractAddress: verifiedLocalCashAssets.EUR.contractAddress },
+      ],
+      OWNER,
+      controller.signal,
+    );
+    expect(calls).toBe(2);
+    expect(amounts).toEqual(
+      new Map<string, string | null>([
+        ["usdc", "5"],
+        ["idrx", null],
+        ["eurc", null],
+      ]),
+    );
+  });
+
   test("covers the fixed configured Base ERC-20 set within the 20-contract bound", async () => {
     const configured = getDirectPortfolioAssets().filter(
       (asset): asset is typeof asset & { contractAddress: `0x${string}` } =>
@@ -141,6 +184,28 @@ describe("configured ERC-20 RPC recovery", () => {
         controller.signal,
       ),
     ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  test("rejects an already-aborted external caller before transport", async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException("request canceled", "AbortError"));
+    let calls = 0;
+    const reader = createConfiguredErc20BalanceReader({
+      rpcUrl: "https://rpc.example.test",
+      fetchImpl: async () => {
+        calls += 1;
+        return Response.json({ jsonrpc: "2.0", id: 1, result: "0x0" });
+      },
+    });
+
+    await expect(
+      reader(
+        [{ id: "usdc", contractAddress: PORTFOLIO_USDC_ADDRESS }],
+        OWNER,
+        controller.signal,
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(calls).toBe(0);
   });
 
   test("rejects an implicit public-default recovery URL", () => {

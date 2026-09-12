@@ -113,6 +113,15 @@ function configuredErc20Ids(except: readonly string[] = []) {
     .sort();
 }
 
+function cashFirstConfiguredErc20Ids() {
+  return [
+    "usdc",
+    verifiedLocalCashAssets.EUR.id,
+    verifiedLocalCashAssets.IDR.id,
+    ...investPortfolioAssets.map(({ id }) => id),
+  ];
+}
+
 function ethOnlyComplete() {
   return {
     complete: true,
@@ -314,7 +323,7 @@ describe("Phase A portfolio inventory", () => {
     })(account, "USD");
 
     expect(owners).toEqual([ADDRESS.toLowerCase()]);
-    expect(requested.sort()).toEqual(configuredErc20Ids());
+    expect(requested).toEqual(cashFirstConfiguredErc20Ids());
     for (const asset of affected) {
       expect(snapshot.holdings.find(({ id }) => id === asset.id)).toMatchObject({
         readStatus: "ready",
@@ -360,6 +369,79 @@ describe("Phase A portfolio inventory", () => {
       stage: "inventory",
       outcome: "unavailable",
       reason: "not-configured",
+    });
+  });
+
+  test("retains the first configured single when the second hits the recovery stage deadline", async () => {
+    const targets: string[] = [];
+    const cash = getDirectPortfolioAssets().filter(
+      (asset): asset is typeof asset & { contractAddress: `0x${string}` } =>
+        asset.kind === "erc20" &&
+        asset.contractAddress !== null &&
+        asset.cashCurrency !== null,
+    );
+    const snapshot = await createPortfolioInventoryReader({
+      rpcUrl: "https://rpc.example.test",
+      erc20RecoveryTimeoutMs: 20,
+      erc20RecoveryAttempts: 2,
+      erc20RecoveryRetryDelayMs: 0,
+      listTokenBalances: async () => ethOnlyComplete(),
+      readVaultInventory: async () => ({ block: pinnedBlock(), holdings: [] }),
+      fetchImpl: async (_input, init) => {
+        const request = JSON.parse(String(init?.body)) as {
+          params: Array<{ to: string } | string>;
+        };
+        targets.push((request.params[0] as { to: string }).to);
+        if (targets.length === 1) {
+          return Response.json({ jsonrpc: "2.0", id: 1, result: dataWord(BigInt(7)) });
+        }
+        return await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("stage deadline", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+      log: () => undefined,
+      now: () => new Date("2026-09-12T12:00:00.000Z"),
+    })(account, "USD");
+
+    expect(targets).toEqual([
+      cash[0]!.contractAddress.toLowerCase(),
+      cash[1]!.contractAddress.toLowerCase(),
+    ]);
+    expect(snapshot.holdings.find(({ id }) => id === cash[0]!.id)).toMatchObject({
+      balanceBaseUnits: "7",
+      readStatus: "ready",
+    });
+    expect(snapshot.holdings.find(({ id }) => id === cash[1]!.id)).toMatchObject({
+      balanceBaseUnits: null,
+      readStatus: "unavailable",
+    });
+  });
+
+  test("caps excessive retry configuration at two attempts per 20 contracts", async () => {
+    let rpcCalls = 0;
+    const snapshot = await createPortfolioInventoryReader({
+      rpcUrl: "https://rpc.example.test",
+      erc20RecoveryTimeoutMs: 2_000,
+      erc20RecoveryAttempts: 99,
+      erc20RecoveryRetryDelayMs: 0,
+      listTokenBalances: async () => ethOnlyComplete(),
+      readVaultInventory: async () => ({ block: pinnedBlock(), holdings: [] }),
+      fetchImpl: async () => {
+        rpcCalls += 1;
+        return new Response("unavailable", { status: 503 });
+      },
+      log: () => undefined,
+      now: () => new Date("2026-09-12T12:00:00.000Z"),
+    })(account, "USD");
+
+    expect(rpcCalls).toBe(40);
+    expect(snapshot.holdings.find(({ id }) => id === "usdc")).toMatchObject({
+      balanceBaseUnits: null,
+      readStatus: "unavailable",
     });
   });
 

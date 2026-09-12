@@ -2,6 +2,10 @@ import type { PortfolioAddress } from "@/config/portfolio-assets";
 import { resolveBaseRpcUrl } from "./rpc";
 
 export const CONFIGURED_ERC20_RECOVERY_MAX_CONTRACTS = 20;
+/** Internal reason used only when inventory's own bounded recovery window expires. */
+export const CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT = Symbol(
+  "configured-erc20-recovery-stage-timeout",
+);
 
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -44,7 +48,15 @@ export function createConfiguredErc20BalanceReader(options: {
     owner: PortfolioAddress,
     signal: AbortSignal,
   ): Promise<ConfiguredErc20BalanceMap> {
-    const results = new Map<string, string | null>();
+    const results = new Map<string, string | null>(
+      requests.map(({ id }) => [id, null]),
+    );
+    if (signal.aborted) {
+      if (signal.reason === CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT) {
+        return results;
+      }
+      throw abortReason(signal);
+    }
     if (requests.length === 0) return results;
     if (!addressPattern.test(owner)) {
       for (const request of requests) results.set(request.id, null);
@@ -78,13 +90,28 @@ export function createConfiguredErc20BalanceReader(options: {
     // Keep calls as bounded singles so one provider/RPC error cannot discard
     // successful sibling balances. The caller owns the shared deadline.
     for (const { contractAddress, ids } of uniqueByContract.values()) {
-      const amount = await readLatestBalanceOf(
-        fetchImpl,
-        rpcUrl,
-        contractAddress,
-        ownerAddress,
-        signal,
-      );
+      if (signal.aborted) {
+        if (signal.reason === CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT) break;
+        throw abortReason(signal);
+      }
+      let amount: string | null;
+      try {
+        amount = await readLatestBalanceOf(
+          fetchImpl,
+          rpcUrl,
+          contractAddress,
+          ownerAddress,
+          signal,
+        );
+      } catch (error) {
+        if (
+          signal.aborted &&
+          signal.reason === CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT
+        ) {
+          break;
+        }
+        throw error;
+      }
       for (const id of ids) results.set(id, amount);
     }
     return results;
@@ -180,6 +207,12 @@ function encodeBalanceOf(address: PortfolioAddress): `0x${string}` {
 
 function isAbortError(error: unknown, signal: AbortSignal): boolean {
   return signal.aborted || (error instanceof Error && error.name === "AbortError");
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("The operation was aborted.", "AbortError");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
