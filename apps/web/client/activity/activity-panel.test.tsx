@@ -110,6 +110,7 @@ function pageFor(
   return {
     walletAddress,
     chainId: 8453,
+    recordedOperations: "available",
     window: { from, to },
     transfers: options.empty
       ? []
@@ -197,6 +198,26 @@ describe("ActivityPanel", () => {
     expect(within(dialog).getByText("Confirmed")).toBeTruthy();
   });
 
+  test("keeps onchain rows readable with a small recorded-actions notice", async () => {
+    const view = render(
+      <ActivityPanel
+        session={session("subject-a", WALLET_A)}
+        fetchActivity={async (query) => ({
+          ...pageFor(query, WALLET_A),
+          recordedOperations: "unavailable",
+        })}
+      />,
+    );
+
+    await waitFor(() => expect(view.getByText("Received")).toBeTruthy());
+    expect(
+      view.getByText(
+        "Pending Home actions are temporarily unavailable. Onchain activity is still shown.",
+      ),
+    ).toBeTruthy();
+    expect(view.queryByText("Activity is temporarily unavailable.")).toBeNull();
+  });
+
   test("renders Base Account session transfers the same as email CDP", async () => {
     const view = render(
       <ActivityPanel
@@ -233,6 +254,7 @@ describe("ActivityPanel", () => {
         id: "event-2",
         blockNumber: "19",
       });
+      second.recordedOperations = "unavailable";
       second.source.stale = false;
       second.source.executionTimestamp = new Date(
         new Date(second.window.to).getTime() - 1_000,
@@ -265,6 +287,7 @@ describe("ActivityPanel", () => {
     expect(secondQuery.get("to")).toBe(firstQuery.get("to"));
     expect(secondQuery.get("cursor")).toBe("cursor-1");
     expect(view.queryByText(/Updated /)).toBeNull();
+    expect(view.getByText(/Pending Home actions are temporarily unavailable/)).toBeTruthy();
     expect(initialExecutionTimestamp).not.toBe("");
   });
 

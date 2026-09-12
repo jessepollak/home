@@ -274,6 +274,11 @@ export function useActivity(
               status: "ready",
               page: {
                 ...current.page,
+                recordedOperations:
+                  current.page.recordedOperations === "unavailable" ||
+                  nextPage.recordedOperations === "unavailable"
+                    ? "unavailable"
+                    : "available",
                 transfers: [...current.page.transfers, ...uniqueTransfers],
                 nextCursor: nextPage.nextCursor,
               },

@@ -1,6 +1,13 @@
 /**
- * Shared sheet-motion token. `type: "spring"` with no stiffness/damping/mass
- * intentionally keeps Motion's native spring defaults (100 / 10 / 1); surfaces
- * must reuse this token instead of re-deriving per-flow easing.
+ * Shared sheet spring. The stiffness targets a roughly 350 ms critical settle
+ * across a full-height sheet; damping is the matching near-critical value for
+ * mass 1, avoiding endpoint overshoot while preserving release velocity.
  */
-export const MONEY_SHEET_SPRING = { type: "spring" } as const;
+export const MONEY_SHEET_SPRING = {
+  type: "spring",
+  stiffness: 750,
+  damping: 55,
+  mass: 1,
+  restDelta: 0.5,
+  restSpeed: 10,
+} as const;

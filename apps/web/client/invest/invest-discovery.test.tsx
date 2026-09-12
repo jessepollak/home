@@ -27,6 +27,46 @@ const {
 } = await import("@/client/account/cdp-client");
 const { InvestExperience } = await import("./invest-experience");
 
+type TestIntersectionEntry = { isIntersecting: boolean };
+type TestIntersectionCallback = (
+  entries: TestIntersectionEntry[],
+  observer: unknown,
+) => void;
+
+const intersectionObserverInstances: TestIntersectionObserver[] = [];
+
+class TestIntersectionObserver {
+  connected = true;
+  callback: TestIntersectionCallback;
+
+  constructor(callback: TestIntersectionCallback) {
+    this.callback = callback;
+    intersectionObserverInstances.push(this);
+  }
+
+  observe() {}
+  unobserve() {}
+  disconnect() {
+    this.connected = false;
+  }
+
+  trigger(entries: TestIntersectionEntry[] = [{ isIntersecting: true }]) {
+    this.callback(entries, this);
+  }
+}
+
+Object.defineProperty(window, "IntersectionObserver", {
+  configurable: true,
+  writable: true,
+  value: TestIntersectionObserver,
+});
+
+function activeIntersectionObserver(): TestIntersectionObserver | undefined {
+  return [...intersectionObserverInstances]
+    .reverse()
+    .find((observer) => observer.connected);
+}
+
 function renderInvest(ui: ReactElement) {
   return render(
     <AccountWalletClientProvider
@@ -80,6 +120,7 @@ afterEach(() => {
   pushCalls.length = 0;
   replaceCalls.length = 0;
   backCalls = 0;
+  intersectionObserverInstances.length = 0;
 });
 
 const originalFetch = window.fetch;
@@ -488,5 +529,143 @@ describe("invest discovery flow", () => {
     renderInvest(<InvestExperience memeStatus="error" />);
     expect(page().getAllByText("Unavailable").length).toBeGreaterThan(0);
     expect(page().queryByText("Degen")).toBeNull();
+  });
+});
+
+describe("Memes detail incremental loading", () => {
+  const higher = {
+    id: "base:0x1111111111111111111111111111111111111111",
+    category: "meme" as const,
+    displayName: "Higher",
+    displaySymbol: "HIGHER",
+    initials: "HI",
+    chainId: 8453 as const,
+    contractAddress: "0x1111111111111111111111111111111111111111" as `0x${string}`,
+    availability: "informational" as const,
+    descriptor: "Trending on Base",
+    representation: {
+      tokenSymbol: "HIGHER",
+      decimals: 18,
+      relationship: "Base ERC-20 token.",
+    },
+    contractUrl:
+      "https://basescan.org/token/0x1111111111111111111111111111111111111111",
+  };
+
+  test("auto-loads the next page from the Memes category sentinel", async () => {
+    const onLoadMoreMemes = mock(() => {});
+    renderInvestInShell(
+      <InvestExperience
+        memeStatus="ready"
+        memeMarket={{ status: "ready", snapshots: [] }}
+        memeAssets={[higher]}
+        memePagination={{
+          nextOffset: 24,
+          exhausted: false,
+          loadingMore: false,
+          loadMoreError: false,
+          autoLoadPaused: false,
+          consecutiveEmptyPages: 0,
+        }}
+        onLoadMoreMemes={onLoadMoreMemes}
+      />,
+    );
+
+    fireEvent.click(seeAllInShelf("Memes"));
+    await waitFor(() =>
+      expect(page().getByText("Higher")).toBeTruthy(),
+    );
+    // No manual load button in the healthy auto-load state.
+    expect(page().queryByRole("button", { name: "Load more memes" })).toBeNull();
+    expect(
+      page().queryByRole("button", { name: "Continue loading memes" }),
+    ).toBeNull();
+
+    const observer = activeIntersectionObserver();
+    expect(observer).toBeTruthy();
+    observer!.trigger();
+    expect(onLoadMoreMemes).toHaveBeenCalledTimes(1);
+  });
+
+  test("shows an end state instead of a load button when exhausted", async () => {
+    renderInvestInShell(
+      <InvestExperience
+        memeStatus="ready"
+        memeMarket={{ status: "ready", snapshots: [] }}
+        memeAssets={[higher]}
+        memePagination={{
+          nextOffset: null,
+          exhausted: true,
+          loadingMore: false,
+          loadMoreError: false,
+          autoLoadPaused: false,
+          consecutiveEmptyPages: 0,
+        }}
+      />,
+    );
+
+    fireEvent.click(seeAllInShelf("Memes"));
+    await waitFor(() =>
+      expect(page().getByText("End of trending memes")).toBeTruthy(),
+    );
+    expect(page().queryByRole("button", { name: "Load more memes" })).toBeNull();
+    expect(page().queryByRole("button", { name: "Retry loading memes" })).toBeNull();
+  });
+
+  test("offers a manual retry when a page fails", async () => {
+    const onRetryLoadMoreMemes = mock(() => {});
+    renderInvestInShell(
+      <InvestExperience
+        memeStatus="ready"
+        memeMarket={{ status: "ready", snapshots: [] }}
+        memeAssets={[higher]}
+        memePagination={{
+          nextOffset: 24,
+          exhausted: false,
+          loadingMore: false,
+          loadMoreError: true,
+          autoLoadPaused: false,
+          consecutiveEmptyPages: 0,
+        }}
+        onRetryLoadMoreMemes={onRetryLoadMoreMemes}
+      />,
+    );
+
+    fireEvent.click(seeAllInShelf("Memes"));
+    await waitFor(() =>
+      expect(page().getByText(/More memes could not be loaded/)).toBeTruthy(),
+    );
+    const retry = page().getByRole("button", { name: "Retry loading memes" });
+    expect(retry).toBeTruthy();
+    fireEvent.click(retry);
+    expect(onRetryLoadMoreMemes).toHaveBeenCalledTimes(1);
+  });
+
+  test("shows a paused status without a button when the empty-page guard trips", async () => {
+    renderInvestInShell(
+      <InvestExperience
+        memeStatus="ready"
+        memeMarket={{ status: "ready", snapshots: [] }}
+        memeAssets={[higher]}
+        memePagination={{
+          nextOffset: 24,
+          exhausted: false,
+          loadingMore: false,
+          loadMoreError: false,
+          autoLoadPaused: true,
+          consecutiveEmptyPages: 3,
+        }}
+      />,
+    );
+
+    fireEvent.click(seeAllInShelf("Memes"));
+    await waitFor(() =>
+      expect(page().getByText("No additional memes were found.")).toBeTruthy(),
+    );
+    expect(page().queryByRole("button", { name: "Load more memes" })).toBeNull();
+    expect(
+      page().queryByRole("button", { name: "Continue loading memes" }),
+    ).toBeNull();
+    expect(page().queryByRole("button", { name: "Retry loading memes" })).toBeNull();
   });
 });

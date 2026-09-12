@@ -40,6 +40,7 @@ export function RecentMoneyActions({
   refreshTrigger,
   excludeTransactionHashes = [],
   embedded = false,
+  showUnavailableNotice = true,
   onVisibleCountChange,
 }: {
   session: VerifiedAccountSession | null;
@@ -49,6 +50,7 @@ export function RecentMoneyActions({
   refreshTrigger?: string | number;
   excludeTransactionHashes?: Iterable<string>;
   embedded?: boolean;
+  showUnavailableNotice?: boolean;
   onVisibleCountChange?: (count: number) => void;
 }) {
   const ownerKey = session?.smartAccount
@@ -107,7 +109,8 @@ export function RecentMoneyActions({
   const visible = visibleActivityMoneyActions(
     dedupeRecentMoneyActions(visibleState?.operations ?? [], excluded),
   ); // stale-payload guard; ordinary list API already omits pre-chain Rejected
-  const visibleCount = visible.length + (visibleState?.unavailable ? 1 : 0);
+  const visibleCount =
+    visible.length + (visibleState?.unavailable && showUnavailableNotice ? 1 : 0);
   const selectedOperation = selectedOperationId
     ? visible.find((operation) => operation.action.id === selectedOperationId) ?? null
     : null;
@@ -120,7 +123,12 @@ export function RecentMoneyActions({
     onVisibleCountChange?.(visibleCount);
   }, [onVisibleCountChange, visibleCount]);
 
-  if (visible.length === 0 && !visibleState?.unavailable) return null;
+  if (
+    visible.length === 0 &&
+    (!visibleState?.unavailable || !showUnavailableNotice)
+  ) {
+    return null;
+  }
 
   return (
     <section
@@ -129,7 +137,9 @@ export function RecentMoneyActions({
     >
       {embedded ? null : <h3 id="home-operations-title">Home actions</h3>}
       {visibleState?.unavailable ? (
-        <p className={styles.message}>Recent Home actions are temporarily unavailable.</p>
+        <p className={styles.message} role="status">
+          Recorded Home actions are unavailable. Onchain transfers are still shown.
+        </p>
       ) : (
         <ol className={styles.list}>
           {visible.map((operation) => (

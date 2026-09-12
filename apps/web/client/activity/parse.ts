@@ -4,6 +4,7 @@ import {
   ACTIVITY_PAGE_SIZE,
   ACTIVITY_WINDOW_DAYS,
   activityAssets,
+  isRecordedOperationsAvailability,
   type ActivityAsset,
   type ActivityPage,
   type ActivityTransfer,
@@ -82,6 +83,10 @@ export function parseActivityPage(
     throw new ActivityResponseError();
   }
 
+  if (!isRecordedOperationsAvailability(value.recordedOperations)) {
+    throw new ActivityResponseError();
+  }
+
   const transfers = value.transfers.map((transfer) =>
     parseTransfer(transfer, walletAddress, from, to),
   );
@@ -90,6 +95,7 @@ export function parseActivityPage(
   return {
     walletAddress: walletAddress.toLowerCase() as `0x${string}`,
     chainId: ACTIVITY_BASE_CHAIN_ID,
+    recordedOperations: value.recordedOperations,
     window: { from, to },
     transfers,
     nextCursor: value.nextCursor,

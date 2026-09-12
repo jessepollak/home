@@ -411,6 +411,85 @@
   font-size: 0.78rem;
 }
 
+.pagination {
+  margin-top: 14px;
+}
+
+.loadMoreButton {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--home-hairline);
+  border-radius: var(--control-radius);
+  background: var(--home-white);
+  color: var(--home-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.loadMoreButton:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.loadMoreButton:focus-visible {
+  outline: 2px solid var(--home-blue);
+  outline-offset: 3px;
+}
+
+.loadingMore {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--home-muted);
+  font-size: 0.78rem;
+}
+
+.spinner {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(0, 82, 255, 0.2);
+  border-top-color: #0052ff;
+  border-radius: 8px;
+  animation: spin 0.8s linear infinite;
+}
+
+.loadMoreError,
+.loadMoreNotice {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+}
+
+.loadMoreError {
+  color: #84251f;
+}
+
+.loadMoreNotice {
+  color: var(--home-muted);
+}
+
+.sentinel {
+  width: 100%;
+  height: 1px;
+}
+
+.end {
+  margin: 16px 0 0;
+  color: var(--home-muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 719px) {
   .detailExperience {
     min-height: calc(100% - 1rem);
@@ -450,6 +529,10 @@
 
   .plotCoverChip::after {
     display: none;
+    animation: none;
+  }
+
+  .spinner {
     animation: none;
   }
 }

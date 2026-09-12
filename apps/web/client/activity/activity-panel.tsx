@@ -121,6 +121,11 @@ export function ActivityPanel({
     >
       {heading}
       {leading}
+      {page.recordedOperations === "unavailable" ? (
+        <p className={styles.secondaryNotice} role="status">
+          Pending Home actions are temporarily unavailable. Onchain activity is still shown.
+        </p>
+      ) : null}
       {isEmpty ? (
         suppressEmpty ? null : <p className={styles.empty}>No activity yet</p>
       ) : (
