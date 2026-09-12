@@ -1,12 +1,12 @@
 /* eslint-disable @typescript-eslint/no-unused-vars -- split suites share the centralized account harness imports. */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import type { GetUserOperationResult } from "@coinbase/cdp-core";
 import {
   ADDRESS_A, ADDRESS_B, ADDRESS_C, OWNER_A, OWNER_B, OWNER_C,
   AccountWalletSessionOwner, CdpAccountProvider, StrictMode, TestJournalLock, TestJournalStorage,
   act, baseSdk, cleanup, connectedBaseAccount, createBlockedAccountWalletClient, deferred,
   embeddedObservation, fireEvent, page, portfolioResponse, preparedMoneyAction, render,
-  sdkObservation, sessionFor, sessionResponse, storedMoneyAction, waitFor, SessionHarness,
+  sdkObservation, sessionFor, sessionResponse, storedMoneyAction, waitFor as testingLibraryWaitFor, SessionHarness,
   BASE_CHAIN_ID,
   type AccountWalletClient, type AccountWalletSdkBoundary, type PreparedMoneyAction, type SessionFetch, type VerifiedAccountSession,
 } from "./cdp-client-test-harness";
@@ -14,7 +14,13 @@ import { BaseAccountConnectorError, type BaseAccountConnector, type BaseAccountR
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { ProviderHandleJournal } from "@/client/money-actions/provider-handle-journal";
 
+const waitFor = <T,>(
+  callback: () => T | Promise<T>,
+  options?: Parameters<typeof testingLibraryWaitFor>[1],
+) => testingLibraryWaitFor(callback, { interval: 1, ...options });
+
 afterEach(() => {
+  jest.useRealTimers();
   cleanup();
   window.localStorage.clear();
   window.sessionStorage.clear();
@@ -141,7 +147,7 @@ describe("money-action execution and authenticated transport", () => {
     );
     fireEvent.click(page().getByRole("button", { name: "Probe Base sign in" }));
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
     view.rerender(
       <SessionHarness
@@ -234,7 +240,7 @@ describe("money-action execution and authenticated transport", () => {
     expect(new Headers(action?.init?.headers).get(ACCOUNT_PROVIDER_HEADER)).toBe("cdp-embedded");
 
     fireEvent.click(page().getByRole("button", { name: "Probe rejected account path" }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.resolve();
     expect(requests).toHaveLength(2);
   });
 
@@ -639,10 +645,17 @@ describe("money-action execution and authenticated transport", () => {
       />,
     );
     await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+    jest.useFakeTimers();
     fireEvent.click(page().getByRole("button", { name: "Check money action" }));
-    await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("confirmed"), {
-      timeout: 3_000,
+    await act(async () => {
+      await Promise.resolve();
     });
+    expect(providerReads).toBe(1);
+    await act(async () => {
+      jest.advanceTimersByTime(1_500);
+      await Promise.resolve();
+    });
+    expect(page().getByTestId("money-action-status").textContent).toBe("confirmed");
     expect(events).toEqual([
       "read-1",
       "provider-broadcast",
@@ -1403,7 +1416,7 @@ describe("money-action execution and authenticated transport", () => {
       );
       await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
       fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
       expect(embeddedClaims).toBe(0);
       now = Date.parse("2026-09-08T05:10:01.000Z");
       await act(async () => {
@@ -1488,7 +1501,7 @@ describe("money-action execution and authenticated transport", () => {
       );
       await waitFor(() => expect(page().getByTestId("provider").textContent).toBe("base-account"));
       fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
       now = Date.parse("2026-09-08T05:10:01.000Z");
       await act(async () => {
         connectorBarrier.resolve();
@@ -2122,11 +2135,23 @@ describe("money-action execution and authenticated transport", () => {
     await waitFor(() =>
       expect(page().getByTestId("address").textContent).toBe(ADDRESS_A),
     );
+    jest.useFakeTimers();
     fireEvent.click(page().getByRole("button", { name: "Probe transfer" }));
-    await waitFor(() => expect(polls).toBe(3), { timeout: 6_000 });
-    await waitFor(() =>
-      expect(page().getByTestId("pending-transfer").textContent).toBe("none"),
-    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(polls).toBe(1);
+    await act(async () => {
+      jest.advanceTimersByTime(1_500);
+      await Promise.resolve();
+    });
+    expect(polls).toBe(2);
+    await act(async () => {
+      jest.advanceTimersByTime(1_500);
+      await Promise.resolve();
+    });
+    expect(polls).toBe(3);
+    expect(page().getByTestId("pending-transfer").textContent).toBe("none");
     expect(sends).toBe(1);
   });
 
@@ -2203,7 +2228,7 @@ describe("money-action execution and authenticated transport", () => {
     );
     fireEvent.click(page().getByRole("button", { name: "Probe Base sign in" }));
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
     view.rerender(
       <SessionHarness
@@ -2217,8 +2242,17 @@ describe("money-action execution and authenticated transport", () => {
       expect(page().getByTestId("address").textContent).toBe(ADDRESS_A),
     );
 
+    jest.useFakeTimers();
     fireEvent.click(page().getByRole("button", { name: "Probe transfer" }));
-    await waitFor(() => expect(receiptRequests).toHaveLength(2), { timeout: 4_000 });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(receiptRequests).toHaveLength(1);
+    await act(async () => {
+      jest.advanceTimersByTime(1_500);
+      await Promise.resolve();
+    });
+    expect(receiptRequests).toHaveLength(2);
     expect(sentCalls).toEqual([
       {
         to: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -2261,7 +2295,7 @@ describe("money-action execution and authenticated transport", () => {
     );
     fireEvent.click(page().getByRole("button", { name: "Probe Base sign in" }));
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
     view.rerender(
       <SessionHarness
@@ -2327,7 +2361,7 @@ describe("money-action execution and authenticated transport", () => {
     await act(async () => {
       pendingPortfolio.resolve(portfolioResponse(ADDRESS_A));
       await pendingPortfolio.promise;
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await Promise.resolve();
     });
     expect(sendCalls).toBe(0);
   });

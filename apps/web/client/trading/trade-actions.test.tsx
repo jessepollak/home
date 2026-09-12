@@ -1,10 +1,10 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { cryptoAssets } from "@/config/invest-assets";
 
-const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const {
   AccountWalletClientProvider,
   createBlockedAccountWalletClient,
@@ -37,7 +37,10 @@ function verifiedClient(
   };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  jest.useRealTimers();
+  cleanup();
+});
 
 describe("TradeActions canTrade", () => {
   test("enables Buy and Sell for verified email CDP and Base Account sessions", () => {
@@ -159,15 +162,18 @@ describe("TradeActions private amount dismissal", () => {
         },
       });
       composeThirteen();
+      jest.useFakeTimers();
       fireEvent.click(page().getByRole("button", { name: "Continue" }));
 
-      await waitFor(() =>
-        expect(page().getByRole("button", { name: "Authorize exact spend" })).toBeTruthy(),
-      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(page().getByRole("button", { name: "Authorize exact spend" })).toBeTruthy();
       expect(requestSignal).toBeDefined();
 
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 2400));
+        jest.advanceTimersByTime(2_400);
+        await Promise.resolve();
       });
 
       expect(document.querySelector("[data-primary-amount]")).toBeNull();

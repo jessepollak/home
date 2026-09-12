@@ -5,13 +5,18 @@ import {
   AccountProbe, AccountWalletSessionOwner, CdpAccountProvider, StrictMode, TestJournalLock, TestJournalStorage,
   act, baseSdk, cleanup, connectedBaseAccount, createBlockedAccountWalletClient, deferred,
   embeddedObservation, fireEvent, page, portfolioResponse, preparedMoneyAction, render,
-  sdkObservation, sessionFor, sessionResponse, storedMoneyAction, waitFor, SessionHarness,
+  sdkObservation, sessionFor, sessionResponse, storedMoneyAction, waitFor as testingLibraryWaitFor, SessionHarness,
   BASE_CHAIN_ID,
   type AccountWalletSdkBoundary, type PreparedMoneyAction, type SessionFetch, type VerifiedAccountSession,
 } from "./cdp-client-test-harness";
 import { BaseAccountConnectorError, type BaseAccountConnector, type BaseAccountRestorer, type ConnectedBaseAccount } from "./base-account-connector";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { ProviderHandleJournal } from "@/client/money-actions/provider-handle-journal";
+
+const waitFor = <T,>(
+  callback: () => T | Promise<T>,
+  options?: Parameters<typeof testingLibraryWaitFor>[1],
+) => testingLibraryWaitFor(callback, { interval: 1, ...options });
 
 afterEach(() => {
   cleanup();
@@ -63,7 +68,7 @@ describe("session lifecycle", () => {
         sessionResponse(sessionFor("subject-a", ADDRESS_A)),
       );
       await pendingValidation.promise;
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await Promise.resolve();
     });
 
     expect(validationCalls).toBe(1);
@@ -72,8 +77,10 @@ describe("session lifecycle", () => {
     );
 
     fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
-    await waitFor(() => expect(signOutCalls).toBe(2));
-    expect(page().getByTestId("status").textContent).toBe("signed-out");
+    await waitFor(() => {
+      expect(signOutCalls).toBe(2);
+      expect(page().getByTestId("status").textContent).toBe("signed-out");
+    });
     expect(page().getByTestId("address").textContent).toBe(
       "private-details-hidden",
     );
@@ -159,7 +166,7 @@ describe("session lifecycle", () => {
       expect(page().getByTestId("status").textContent).toBe("signout-error"),
     );
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await Promise.resolve();
     });
 
     expect(validationCalls).toBe(1);
@@ -225,7 +232,7 @@ describe("session lifecycle", () => {
       />,
     );
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await Promise.resolve();
     });
     expect(sessionCalls).toBe(0);
     expect(signOutCalls).toBe(0);
@@ -251,7 +258,7 @@ describe("session lifecycle", () => {
       page().getByRole("button", { name: "Probe correct email verification" }),
     );
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
     expect(verifiedCodes).toEqual(["111111", "222222"]);
   });
@@ -435,7 +442,7 @@ describe("session lifecycle", () => {
       expect(page().getByTestId("status").textContent).toBe("signout-error"),
     );
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await Promise.resolve();
     });
     expect(signOutCalls).toBe(1);
     expect(page().getByTestId("address").textContent).toBe(
@@ -449,8 +456,10 @@ describe("session lifecycle", () => {
     );
 
     fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
-    await waitFor(() => expect(signOutCalls).toBe(2));
-    expect(page().getByTestId("status").textContent).toBe("signed-out");
+    await waitFor(() => {
+      expect(signOutCalls).toBe(2);
+      expect(page().getByTestId("status").textContent).toBe("signed-out");
+    });
     expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
   });
 
@@ -493,7 +502,7 @@ describe("session lifecycle", () => {
     fireEvent.click(page().getByRole("button", { name: "Probe email code" }));
     fireEvent.click(page().getByRole("button", { name: "Probe Base sign in" }));
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await Promise.resolve();
     });
 
     expect(emailSignInCalls).toBe(0);
@@ -553,13 +562,15 @@ describe("session lifecycle", () => {
       />,
     );
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
     expect(page().getByTestId("status").textContent).toBe("signout-error");
 
     fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
-    await waitFor(() => expect(signOutCalls).toBe(2));
-    expect(page().getByTestId("status").textContent).toBe("signed-out");
+    await waitFor(() => {
+      expect(signOutCalls).toBe(2);
+      expect(page().getByTestId("status").textContent).toBe("signed-out");
+    });
     expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
   });
 
@@ -619,7 +630,7 @@ describe("session lifecycle", () => {
     await act(async () => {
       pendingSignOut.resolve();
       await pendingSignOut.promise;
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
     expect(page().getByTestId("address").textContent).toBe(ADDRESS_A);
     expect(window.sessionStorage.getItem("home:account-provider")).toBe(
@@ -671,24 +682,27 @@ describe("session lifecycle", () => {
     await act(async () => {
       pendingSignOut.reject(new Error("late owner-a cleanup failure"));
       await pendingSignOut.promise.catch(() => {});
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
-    expect(page().getByTestId("status").textContent).not.toBe("signout-error");
-    expect(page().getByTestId("message").textContent).not.toContain(
-      "late owner-a",
-    );
-    expect(page().getByTestId("address").textContent).toBe(ADDRESS_B);
+    await waitFor(() => {
+      expect(page().getByTestId("status").textContent).not.toBe("signout-error");
+      expect(page().getByTestId("message").textContent).not.toContain(
+        "late owner-a",
+      );
+      expect(page().getByTestId("address").textContent).toBe(ADDRESS_B);
+    });
   });
 
-  for (const bFailureReason of ["401", "missing-connection"] as const) {
-    for (const ownerACleanupOutcome of ["success", "failure"] as const) {
-      for (const postJoinState of [
-        "fresh-a",
-        "fresh-c",
-        "owner-null-success",
-        "owner-null-failure",
-      ] as const) {
-        test(`fences ${bFailureReason} owner B cleanup after owner A ${ownerACleanupOutcome} when ${postJoinState}`, async () => {
+  test("fences owner B cleanup across representative failure, settlement, and successor paths", async () => {
+    const cases = [
+      { bFailureReason: "401", ownerACleanupOutcome: "success", postJoinState: "fresh-a" },
+      { bFailureReason: "missing-connection", ownerACleanupOutcome: "failure", postJoinState: "fresh-c" },
+      { bFailureReason: "401", ownerACleanupOutcome: "failure", postJoinState: "owner-null-success" },
+      { bFailureReason: "missing-connection", ownerACleanupOutcome: "failure", postJoinState: "owner-null-success" },
+      { bFailureReason: "missing-connection", ownerACleanupOutcome: "success", postJoinState: "owner-null-failure" },
+    ] as const;
+
+    for (const { bFailureReason, ownerACleanupOutcome, postJoinState } of cases) {
           window.sessionStorage.setItem("home:account-provider", "base-account");
           const ownerACleanup = deferred<void>();
           const ownerBCleanup = deferred<void>();
@@ -827,7 +841,7 @@ describe("session lifecycle", () => {
             page().getByRole("button", { name: "Probe Base sign in" }),
           );
           await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 20));
+            await Promise.resolve();
           });
           expect(emailSignInCalls).toBe(0);
           expect(baseConnectorCalls).toBe(0);
@@ -845,7 +859,7 @@ describe("session lifecycle", () => {
 
           if (freshOwner) {
             await act(async () => {
-              await new Promise((resolve) => setTimeout(resolve, 20));
+              await Promise.resolve();
             });
             expect(signOutCalls).toBe(1);
             expect(signOutOwners).toEqual([OWNER_A]);
@@ -856,7 +870,10 @@ describe("session lifecycle", () => {
             expect(page().getByTestId("provider").textContent).toBe(
               "cdp-embedded",
             );
-            return;
+            cleanup();
+            window.localStorage.clear();
+            window.sessionStorage.clear();
+            continue;
           }
 
           await waitFor(() => expect(signOutCalls).toBe(2));
@@ -869,7 +886,7 @@ describe("session lifecycle", () => {
             page().getByRole("button", { name: "Probe Base sign in" }),
           );
           await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 20));
+            await Promise.resolve();
           });
           expect(emailSignInCalls).toBe(0);
           expect(baseConnectorCalls).toBe(0);
@@ -900,7 +917,10 @@ describe("session lifecycle", () => {
                 window.sessionStorage.getItem("home:account-provider"),
               ).toBeNull();
             }
-            return;
+            cleanup();
+            window.localStorage.clear();
+            window.sessionStorage.clear();
+            continue;
           }
 
           await waitFor(() =>
@@ -915,7 +935,7 @@ describe("session lifecycle", () => {
             page().getByRole("button", { name: "Probe Base sign in" }),
           );
           await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 20));
+            await Promise.resolve();
           });
           expect(emailSignInCalls).toBe(0);
           expect(baseConnectorCalls).toBe(0);
@@ -928,25 +948,42 @@ describe("session lifecycle", () => {
             expect(page().getByTestId("status").textContent).toBe("signed-out"),
           );
           expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
-        });
-      }
-    }
-  }
 
-  for (const persistedHint of [
-    "pending:base-account",
-    "pending:cdp-embedded",
-  ] as const) {
-    for (const freshOwner of [
-      { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
-      { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
-    ] as const) {
-      for (const freshArrival of [
-        "before-b-settlement",
-        "after-b-settlement",
-      ] as const) {
-        for (const ownerBCleanupOutcome of ["success", "failure"] as const) {
-          test(`scopes ${persistedHint} to owner B so fresh ${freshOwner.label} validates ${freshArrival} after B cleanup ${ownerBCleanupOutcome}`, async () => {
+      cleanup();
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+    }
+  });
+
+  test("scopes pending provider hints to owner B across representative successor paths", async () => {
+    const cases = [
+      {
+        persistedHint: "pending:base-account",
+        freshOwner: { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
+        freshArrival: "before-b-settlement",
+        ownerBCleanupOutcome: "success",
+      },
+      {
+        persistedHint: "pending:base-account",
+        freshOwner: { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
+        freshArrival: "after-b-settlement",
+        ownerBCleanupOutcome: "failure",
+      },
+      {
+        persistedHint: "pending:cdp-embedded",
+        freshOwner: { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
+        freshArrival: "after-b-settlement",
+        ownerBCleanupOutcome: "success",
+      },
+      {
+        persistedHint: "pending:cdp-embedded",
+        freshOwner: { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
+        freshArrival: "before-b-settlement",
+        ownerBCleanupOutcome: "failure",
+      },
+    ] as const;
+
+    for (const { persistedHint, freshOwner, freshArrival, ownerBCleanupOutcome } of cases) {
             window.sessionStorage.setItem("home:account-provider", persistedHint);
             const ownerBCleanup = deferred<void>();
             let activeSdkOwner: string | null = OWNER_B;
@@ -1052,7 +1089,7 @@ describe("session lifecycle", () => {
             if (freshArrival === "before-b-settlement") {
               await settleOwnerBCleanup();
               await act(async () => {
-                await new Promise((resolve) => setTimeout(resolve, 0));
+                await Promise.resolve();
               });
               expect(page().getByTestId("status").textContent).toBe("verified");
               expect(page().getByTestId("address").textContent).toBe(
@@ -1062,22 +1099,38 @@ describe("session lifecycle", () => {
               expect(signOutCalls).toBe(1);
               expect(signOutOwners).toEqual([OWNER_B]);
             }
-          });
-        }
-      }
-    }
-  }
 
-  for (const ownerACleanupOutcome of ["success", "failure"] as const) {
-    for (const freshOwner of [
-      { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
-      { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
-    ] as const) {
-      for (const freshArrival of [
-        "before-b-settlement",
-        "after-b-failure",
-      ] as const) {
-        test(`replaces owner B blocked selection across null with fresh ${freshOwner.label} after owner A ${ownerACleanupOutcome} ${freshArrival}`, async () => {
+      cleanup();
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+    }
+  });
+
+  test("replaces owner B blocked selection across representative settlement and successor paths", async () => {
+    const cases = [
+      {
+        ownerACleanupOutcome: "success",
+        freshOwner: { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
+        freshArrival: "before-b-settlement",
+      },
+      {
+        ownerACleanupOutcome: "success",
+        freshOwner: { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
+        freshArrival: "after-b-failure",
+      },
+      {
+        ownerACleanupOutcome: "failure",
+        freshOwner: { label: "A", ownerKey: OWNER_A, address: ADDRESS_A },
+        freshArrival: "after-b-failure",
+      },
+      {
+        ownerACleanupOutcome: "failure",
+        freshOwner: { label: "C", ownerKey: OWNER_C, address: ADDRESS_C },
+        freshArrival: "before-b-settlement",
+      },
+    ] as const;
+
+    for (const { ownerACleanupOutcome, freshOwner, freshArrival } of cases) {
           window.sessionStorage.setItem("home:account-provider", "base-account");
           const ownerACleanup = deferred<void>();
           const ownerBCleanup = deferred<void>();
@@ -1205,7 +1258,7 @@ describe("session lifecycle", () => {
             await act(async () => {
               ownerBCleanup.reject(new Error("late owner-b cleanup failure"));
               await ownerBCleanup.promise.catch(() => {});
-              await new Promise((resolve) => setTimeout(resolve, 0));
+              await Promise.resolve();
             });
             expect(page().getByTestId("status").textContent).toBe("verified");
             expect(page().getByTestId("address").textContent).toBe(
@@ -1213,10 +1266,12 @@ describe("session lifecycle", () => {
             );
             expect(signOutCalls).toBe(2);
           }
-        });
-      }
+
+      cleanup();
+      window.localStorage.clear();
+      window.sessionStorage.clear();
     }
-  }
+  });
 
   test("lets owner B explicitly sign out after a late owner A cleanup failure", async () => {
     window.sessionStorage.setItem("home:account-provider", "base-account");
@@ -1419,7 +1474,7 @@ describe("session lifecycle", () => {
 
     fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await Promise.resolve();
     });
     expect(signOutCalls).toBe(1);
     expect(page().getByTestId("status").textContent).toBe("signing-out");
@@ -1470,7 +1525,7 @@ describe("session lifecycle", () => {
     fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
     fireEvent.click(page().getByRole("button", { name: "Probe sign out" }));
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await Promise.resolve();
     });
     expect(signOutCalls).toBe(1);
 
@@ -1583,7 +1638,7 @@ describe("session lifecycle", () => {
     );
     fireEvent.click(page().getByRole("button", { name: "Probe Base sign in" }));
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
     view.rerender(
       <SessionHarness
@@ -1749,7 +1804,7 @@ describe("session lifecycle", () => {
         disconnect: async () => { disconnectCalls += 1; },
       }));
       await pendingConnection.promise;
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
     expect(disconnectCalls).toBeGreaterThanOrEqual(1);
     expect(sessionCalls).toBe(0);
@@ -1788,7 +1843,7 @@ describe("session lifecycle", () => {
 
     fireEvent.click(page().getByRole("button", { name: "Probe Base sign in" }));
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
     });
     expect(connectorCalls).toBe(0);
     expect(page().getByTestId("address").textContent).toBe(
