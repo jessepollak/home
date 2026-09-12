@@ -404,14 +404,15 @@ async function expectBalancesRestored(
     .toBe(expected.revealedCount);
 }
 
-async function clickForwardAndWaitForHistory(page: Page, name: string) {
-  const previousLength = await page.evaluate(() => window.history.length);
+async function clickForwardAndWaitForUrl(
+  page: Page,
+  name: string,
+  expectedUrl: RegExp,
+) {
   // A pre-existing Next dev hydration overlay can intercept pointer hit-testing
-  // in CI; force still dispatches the real button click and history push.
+  // in CI; force still dispatches the real button click and route transition.
   await page.getByRole("button", { name }).click({ force: true });
-  await expect
-    .poll(() => page.evaluate(() => window.history.length))
-    .toBeGreaterThan(previousLength);
+  await expect(page).toHaveURL(expectedUrl);
 }
 
 async function expectBalancesReset(page: Page) {
@@ -458,7 +459,7 @@ test("Balances restores scroll and reveal after browser Back from an opened asse
 
 test("Balances starts at the top after browser Back from generic Invest", async ({ page }) => {
   await openScrolledBalances(page);
-  await clickForwardAndWaitForHistory(page, "Invest");
+  await clickForwardAndWaitForUrl(page, "Invest", /[?&]panel=invest/);
   await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
   await page.goBack();
   await expectBalancesReset(page);
@@ -466,16 +467,15 @@ test("Balances starts at the top after browser Back from generic Invest", async 
 
 test("Balances starts at the top after browser Back from Home", async ({ page }) => {
   await openScrolledBalances(page);
-  await clickForwardAndWaitForHistory(page, "Home");
-  await expect(page).not.toHaveURL(/[?&]panel=balances/);
+  await clickForwardAndWaitForUrl(page, "Home", /\/dashboard$/);
   await page.goBack();
   await expectBalancesReset(page);
 });
 
 test("Balances starts at the top after Activity and browser Back", async ({ page }) => {
   await openScrolledBalances(page);
-  await clickForwardAndWaitForHistory(page, "Home");
-  await clickForwardAndWaitForHistory(page, "Activity");
+  await clickForwardAndWaitForUrl(page, "Home", /\/dashboard$/);
+  await clickForwardAndWaitForUrl(page, "Activity", /[?&]panel=activity/);
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await page.goBack();
   await expect(page).not.toHaveURL(/[?&]panel=activity/);
