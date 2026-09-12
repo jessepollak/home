@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Home delivery reconciler tick. LaunchAgent (gui domain) so gh can read its
+     keyring token; no 1Password dependency. Entry point is a shell script
+     (see reconcile-tick.sh for why). Install on the Studio:
+       cp scripts/delivery/launchd/ai.home.reconcile.plist ~/Library/LaunchAgents/
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.home.reconcile.plist -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>ai.home.reconcile</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/sh</string>
+    <string>/Users/jessepollak/src/home/scripts/delivery/reconcile-tick.sh</string>
+    <string>--target</string><string>6</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/jessepollak/src/home</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>HOME</key><string>/Users/jessepollak</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartInterval</key><integer>600</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/jessepollak/.local/state/home-coordinator/launchd.out.log</string>
+  <key>StandardErrorPath</key><string>/Users/jessepollak/.local/state/home-coordinator/launchd.err.log</string>
+</dict></plist>
