@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { presentationRegions } from "@/config/regions";
 import { FUNDING_CHAIN_ID, fundingAssets, getFundingAsset } from "./assets";
+
+const regionByAsset = {
+  "base:usdc": "US",
+  "base:wars": "AR",
+  "base:wcop": "CO",
+  "base:idrx": "ID",
+} as const;
 
 describe("funding asset registry", () => {
   test("locks canonical Base addresses, decimals, symbols, and issuer docs", () => {
@@ -41,4 +49,12 @@ describe("funding asset registry", () => {
     expect(getFundingAsset("__proto__")).toBeUndefined();
   });
 
+  test("agrees with regional fiat and candidate-asset defaults", () => {
+    for (const [assetId, regionId] of Object.entries(regionByAsset)) {
+      const asset = fundingAssets[assetId as keyof typeof fundingAssets];
+      const region = presentationRegions[regionId];
+      expect(region.currency.code).toBe(asset.fiatCurrency);
+      expect(region.candidateAsset?.symbol).toBe(asset.symbol);
+    }
+  });
 });

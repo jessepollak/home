@@ -163,4 +163,10 @@ describe("CopyableValue", () => {
     expect(view.queryByRole("button", { name: "Copied" })).toBeNull();
   });
 
+  test("is a native type=button control", () => {
+    const view = render(<CopyableValue value={VALUE} display={DISPLAY} valueKind="address" />);
+    const control = view.getByRole("button", { name: `Copy ${DISPLAY}` });
+    expect(control.tagName.toLowerCase()).toBe("button");
+    expect(control.getAttribute("type")).toBe("button");
+  });
 });

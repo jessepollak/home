@@ -27,7 +27,11 @@ if (typeof window === "undefined") {
 
   // Fail closed: no unit test may reach the network. Tests that need a
   // response stub `window.fetch` themselves.
-  globalThis.fetch = (async () => new Response(null, { status: 503 })) as unknown as typeof fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) =>
+    new Response(null, {
+      status: 503,
+      statusText: `Unit tests cannot reach the network: ${String(input)}`,
+    })) as unknown as typeof fetch;
 }
 
 if (!HTMLDialogElement.prototype.showModal) {
