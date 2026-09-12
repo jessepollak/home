@@ -12,7 +12,8 @@ const RUNTIME_STORE_CLEANUP_TIMEOUT_MS = 5_000;
 
 const defaultRuntimeStoreFactory: RuntimeStoreFactory = async (connectionString) => {
   const { PostgresMoneyActionStore } = await import("./postgres-store");
-  return new PostgresMoneyActionStore(connectionString);
+  const { createPostgresSqlExecutor } = await import("./postgres-executor");
+  return new PostgresMoneyActionStore(createPostgresSqlExecutor(connectionString));
 };
 
 let injectedStore: MoneyActionStore | null = null;

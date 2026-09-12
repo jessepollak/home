@@ -125,9 +125,11 @@ describe("money action runtime store selection", () => {
 
   test("constructs and initializes PostgresMoneyActionStore directly after verified-empty cutover", () => {
     const runtime = readFileSync(resolve(import.meta.dir, "runtime-store.ts"), "utf8");
-    expect(runtime).toContain("new PostgresMoneyActionStore(connectionString)");
+    expect(runtime).toContain("new PostgresMoneyActionStore(createPostgresSqlExecutor(connectionString))");
     expect(runtime).toContain("await store.ensureSchema()");
     expect(runtime).toContain("return store");
+    expect(runtime).not.toContain("AttemptStore");
+    expect(runtime).not.toContain("attempt-store");
   });
 
   test("fails closed when DATABASE_URL is configured without cutover verification", async () => {

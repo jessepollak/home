@@ -1,7 +1,8 @@
 import "server-only";
 
 import { PostgresMoneyActionStore } from "./postgres-store";
-import { createNeonSqlExecutor, MoneyActionSchemaPreflightError } from "./postgres-sql";
+import { createPostgresSqlExecutor } from "./postgres-executor";
+import { MoneyActionSchemaPreflightError } from "./postgres-sql";
 
 const url = process.env.DATABASE_URL?.trim();
 if (!url) {
@@ -9,7 +10,7 @@ if (!url) {
   process.exit(1);
 }
 
-const executor = createNeonSqlExecutor(url);
+const executor = createPostgresSqlExecutor(url);
 const startedAt = performance.now();
 try {
   await new PostgresMoneyActionStore(executor).ensureSchema();

@@ -269,13 +269,13 @@ export function createNeonSqlExecutor(
   };
 }
 
-function throwIfSqlAborted(signal: AbortSignal | undefined): void {
+export function throwIfSqlAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
     throw signal.reason ?? new DOMException("PostgreSQL query aborted.", "AbortError");
   }
 }
 
-function boundedSqlTimeoutMs(value: number | undefined): number | null {
+export function boundedSqlTimeoutMs(value: number | undefined): number | null {
   if (value === undefined) return null;
   if (!Number.isSafeInteger(value) || value <= 0 || value > 5_000) {
     throw new Error("PostgreSQL query timeout must be between 1 and 5000 milliseconds");
@@ -283,7 +283,7 @@ function boundedSqlTimeoutMs(value: number | undefined): number | null {
   return value;
 }
 
-function postgresIdentifier(value: string): string {
+export function postgresIdentifier(value: string): string {
   if (!/^[a-z][a-z0-9_]{0,62}$/.test(value)) throw new Error("unsafe PostgreSQL schema identifier");
   return `"${value}"`;
 }

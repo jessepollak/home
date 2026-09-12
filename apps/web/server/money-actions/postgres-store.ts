@@ -1,10 +1,10 @@
 import "server-only";
 
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
+import { createPostgresSqlExecutor } from "./postgres-executor";
 import { canTransitionMoneyActionStatus } from "./status-transitions.js";
 import {
   applyMoneyActionPostgresSchema,
-  createNeonSqlExecutor,
   isUniqueViolation,
   moneyActionQueries,
   type OperationRow,
@@ -35,7 +35,7 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
     if (!url) {
       throw new Error("DATABASE_URL is required for PostgresMoneyActionStore");
     }
-    this.executor = createNeonSqlExecutor(url);
+    this.executor = createPostgresSqlExecutor(url);
   }
 
   async ensureSchema(): Promise<void> {

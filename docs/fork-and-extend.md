@@ -6,7 +6,7 @@ Home is meant to be forked. Brand, regions, asset selection, and providers are c
 
 ## Start from a running clone
 
-Follow [Get started](../README.md#get-started) first: `bun install --frozen-lockfile`, copy `.env.example` to `apps/web/.env.local` without overwriting an existing file, then `bun dev`. Browsing works without credentials. Email sign-in and authenticated money actions need your own CDP project; money actions also require the PostgreSQL configuration below.
+Follow [Get started](../README.md#get-started) first: `bun install --frozen-lockfile`, copy `.env.example` to `apps/web/.env.local` without overwriting an existing file, then `bun dev`. For the real Postgres money-action store without Neon, run `bun run db:up` and set `DATABASE_URL` (see [Get started](../README.md#get-started)). Browsing works without credentials. Email sign-in and authenticated money actions need your own CDP project; money actions also require the PostgreSQL configuration below.
 
 Then change configuration in place. Typed registries live under `apps/web/config/`. Provider seams live under `apps/web/server/` and the matching setup docs below. Keep one root `bun.lock`.
 

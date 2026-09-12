@@ -88,7 +88,7 @@ Open `http://localhost:3000`. Use the canonical `localhost` origin rather than `
 
 You can browse public product surfaces without credentials. Email sign-in, authenticated balances, and money actions require your own CDP project and allowed local origin; follow [CDP setup](docs/cdp-setup.md). Never commit secrets or expose server keys with a `NEXT_PUBLIC_` prefix.
 
-Money actions require PostgreSQL via `DATABASE_URL` and `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty` after unresolved legacy SQLite actions and references are verified empty. Apply the migrations and read [Vercel deploy](docs/vercel-deploy.md). Trading intents use a separate persistence boundary documented in [build status](docs/build-status.md).
+Money-action persistence is Postgres-only via server-only `DATABASE_URL`; without it money-action routes fail closed, so no hosted database is required only to browse locally. For a real local Postgres store without Neon, run `bun run db:up` (local Docker Postgres) and set `DATABASE_URL=postgresql://home:home@localhost:5432/home`, then `bun run money-actions:migrate`. Exact loopback hosts use Bun's SQL client and any other URL keeps the hosted Neon path. Read [money-action persistence](docs/money-action-persistence.md) and [Vercel deploy](docs/vercel-deploy.md) before deploying money actions.
 
 ### Useful commands
 
@@ -98,6 +98,10 @@ bun lint       # ESLint
 bun typecheck  # generated route types and strict TypeScript
 bun build      # production builds
 bun check      # test, lint, typecheck, and build
+
+bun run db:up   # optional local Postgres in Docker (waits for health)
+bun run db:down # stop Postgres (keeps the data volume)
+bun run money-actions:migrate # apply the schema to DATABASE_URL
 ```
 
 ## Current availability
