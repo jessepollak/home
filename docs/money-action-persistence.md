@@ -46,7 +46,7 @@ Before index creation, schema application groups existing rows by the same tuple
 
 ## Retained provider facts
 
-`apps/web/server/money-actions/provider-submission-contract.ts` keeps the pure CDP and EIP-5792 submission-certainty classifications established by the provider Soft Pass work. The client does not yet import the module; a follow-up should wire it into client execution or delete it.
+`apps/web/shared/money-actions/provider-submission-contract.ts` keeps the pure CDP and EIP-5792 submission-certainty classifications established by the provider Soft Pass work. Client execution imports that shared contract so provider outcomes have one classifier.
 
 ## Rollback and follow-ups
 

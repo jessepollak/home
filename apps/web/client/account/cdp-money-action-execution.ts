@@ -22,6 +22,13 @@ import type { OperationResult, PreparedMoneyAction } from "@/shared/money-action
 import type { ProviderHandleJournal } from "@/client/money-actions/provider-handle-journal";
 import { recoverJournaledProviderHandle } from "@/client/money-actions/provider-handle-recovery";
 import type { StoredMoneyActionOperation } from "@/shared/money-actions/types";
+import {
+  classifyCdpSendInvocation,
+  classifyEip5792Lookup,
+  classifyEip5792SendInvocation,
+  type CdpSendInvocationEvent,
+  type Eip5792SendInvocationEvent,
+} from "@/shared/money-actions/provider-submission-contract";
 import { assertTransferRequest, buildTransferCall, findTransferBalance } from "@/shared/transfers/transfer-helpers";
 import { TransferExecutionError, type ConfirmedTransfer, type PendingTransfer, type TransferRequest } from "@/shared/transfers/types";
 
@@ -181,6 +188,41 @@ async function parseEmbeddedMoneyActionObservation(
   if (value.status === "dropped") return { status: "dropped", ...(transactionHash ? { transactionHash } : {}) };
   if (value.status === "complete" && transactionHash) return { status: "complete", transactionHash };
   return { status: "pending", ...(transactionHash ? { transactionHash } : {}) };
+}
+
+function providerErrorField(error: unknown, field: "code" | "errorType"): unknown {
+  let current = error;
+  for (let depth = 0; depth < 3 && isRecord(current); depth += 1) {
+    if (field in current) return current[field];
+    current = current.cause;
+  }
+  return undefined;
+}
+
+function providerErrorCode(error: unknown): number | string {
+  const code = providerErrorField(error, "code");
+  return typeof code === "number" || typeof code === "string" ? code : "unknown";
+}
+
+function eip5792SendErrorEvent(
+  error: unknown,
+): Extract<Eip5792SendInvocationEvent, { stage: "provider-error" | "invoked-then-threw" }> {
+  if (error instanceof BaseAccountConnectorError && error.reason === "cancelled") {
+    return { stage: "provider-error", code: 4001 };
+  }
+  const code = providerErrorField(error, "code");
+  return typeof code === "number" || typeof code === "string"
+    ? { stage: "provider-error", code }
+    : { stage: "invoked-then-threw", cause: "unknown" };
+}
+
+function cdpSendErrorType(
+  error: unknown,
+): Extract<CdpSendInvocationEvent, { stage: "invoked-then-threw" }>["errorType"] {
+  const errorType = providerErrorField(error, "errorType");
+  return errorType === "already_exists" || errorType === "idempotency_error"
+    ? errorType
+    : "unknown";
 }
 
 function transferError(error: unknown): TransferExecutionError {
@@ -536,13 +578,17 @@ export function useMoneyActionExecution({
         let result: Awaited<ReturnType<NonNullable<ConnectedBaseAccount["getCallsStatus"]>>>;
         try {
           result = await connection.getCallsStatus(submissionId);
-        } catch {
-          if (operation.status === "included") {
-            assertStillActive();
-            return operationResult(operation);
+        } catch (error) {
+          const lookup = classifyEip5792Lookup({ code: providerErrorCode(error) });
+          if (!lookup.notSubmitted) {
+            if (operation.status === "included") {
+              assertStillActive();
+              return operationResult(operation);
+            }
+            await waitForPoll();
+            continue;
           }
-          await waitForPoll();
-          continue;
+          throw new TransferExecutionError("failed", error);
         }
         assertStillActive();
         if (result.status === "failed") {
@@ -840,13 +886,20 @@ export function useMoneyActionExecution({
             throw new TransferExecutionError("stale-session");
           }
           let submissionId: string;
+          let dispatchEntered = false;
           try {
             submissionId = await connection.sendCalls(
               calls,
               canonicalAction.id,
-              async () => assertMoneyActionDispatchable(canonicalAction, assertActive),
+              async () => {
+                assertMoneyActionDispatchable(canonicalAction, assertActive);
+                dispatchEntered = true;
+              },
             );
           } catch (error) {
+            const certainty = dispatchEntered
+              ? classifyEip5792SendInvocation(eip5792SendErrorEvent(error))
+              : classifyEip5792SendInvocation({ stage: "not-invoked", cause: "before-dispatch-throw" });
             if (error instanceof MoneyActionExpiredBeforeDispatchError) {
               return operationResult(
                 await recordMoneyActionStatus(fetchMoneyActionApi, canonicalAction.id, "expired"),
@@ -855,18 +908,18 @@ export function useMoneyActionExecution({
             if (error instanceof TransferExecutionError) {
               throw error;
             }
-            if (error instanceof BaseAccountConnectorError && error.reason === "cancelled") {
+            if (certainty.classification === "not-submitted" && certainty.reason === "user-reject-4001") {
               await recordMoneyActionStatus(fetchMoneyActionApi, canonicalAction.id, "rejected");
               throw new TransferExecutionError("rejected", error);
             }
             await recordMoneyActionStatus(fetchMoneyActionApi, canonicalAction.id, "unknown");
             throw new TransferExecutionError("submission-unknown", error);
           }
-          const retained = providerHandleJournal.retain(providerHandleBinding, {
-            kind: "submission-id",
-            provider: "base-account",
-            value: submissionId,
-          });
+          const certainty = classifyEip5792SendInvocation({ stage: "returned", submissionId });
+          if (certainty.classification !== "submitted") {
+            throw new TransferExecutionError("submission-unknown");
+          }
+          const retained = providerHandleJournal.retain(providerHandleBinding, certainty.handle);
           if (!retained.retained) {
             throw new TransferExecutionError("submission-unknown");
           }
@@ -917,14 +970,21 @@ export function useMoneyActionExecution({
           });
           userOperationHash = normalizeTransactionHash(submission.userOperationHash);
         } catch (error) {
+          const certainty = classifyCdpSendInvocation({
+            stage: "invoked-then-threw",
+            errorType: cdpSendErrorType(error),
+          });
+          if (certainty.classification !== "ambiguous") {
+            throw new TransferExecutionError("failed", error);
+          }
           await recordMoneyActionStatus(fetchMoneyActionApi, canonicalAction.id, "unknown");
           throw new TransferExecutionError("submission-unknown", error);
         }
-        const retained = providerHandleJournal.retain(providerHandleBinding, {
-          kind: "user-operation-hash",
-          provider: "cdp-embedded",
-          value: userOperationHash,
-        });
+        const certainty = classifyCdpSendInvocation({ stage: "returned", userOperationHash });
+        if (certainty.classification !== "submitted") {
+          throw new TransferExecutionError("submission-unknown");
+        }
+        const retained = providerHandleJournal.retain(providerHandleBinding, certainty.handle);
         if (!retained.retained) {
           throw new TransferExecutionError("submission-unknown");
         }

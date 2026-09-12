@@ -1502,6 +1502,136 @@ describe("money-action execution and authenticated transport", () => {
     }
   });
 
+  test("classifies CDP idempotency errors as ambiguous and never invokes the provider twice", async () => {
+    for (const [index, errorType] of ["already_exists", "idempotency_error"].entries()) {
+      const action = {
+        ...preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z"),
+        id: `123e4567-e89b-42d3-a456-4266141741${index}0`,
+      };
+      let claims = 0;
+      let sends = 0;
+      let statusWrites = 0;
+      const sessionFetch: SessionFetch = async (input, init) => {
+        if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A));
+        if (input === "/api/portfolio") return portfolioResponse(ADDRESS_A);
+        if (input === `/api/actions/${action.id}`) {
+          return Response.json({ operation: storedMoneyAction(action, statusWrites ? "unknown" : "prepared") });
+        }
+        if (input === `/api/actions/${action.id}/claim`) {
+          claims += 1;
+          return Response.json({
+            action,
+            disposition: claims === 1 ? "dispatch" : "recover",
+            operation: storedMoneyAction(action, claims === 1 ? "submitting" : "unknown"),
+          });
+        }
+        if (input === `/api/actions/${action.id}/status`) {
+          statusWrites += 1;
+          expect(JSON.parse(String(init?.body))).toEqual({ status: "unknown" });
+          return Response.json({ operation: storedMoneyAction(action, "unknown") });
+        }
+        throw new Error(`unexpected CDP classification request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk({
+            sendUserOperation: async () => {
+              sends += 1;
+              throw Object.assign(new Error(errorType), { errorType });
+            },
+            getUserOperation: async () => {
+              throw new Error("ambiguous sends have no lookup handle");
+            },
+          })}
+          sessionFetch={sessionFetch}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("address").textContent).toBe(ADDRESS_A));
+      fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("error:submission-unknown"));
+      fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe("unknown"));
+      expect({ sends, claims, statusWrites }).toEqual({ sends: 1, claims: 2, statusWrites: 1 });
+      cleanup();
+      window.sessionStorage.clear();
+    }
+  });
+
+  test("classifies EIP-5792 4001 as rejected and 5720 as ambiguous without a second wallet_sendCalls", async () => {
+    const cases = [
+      { code: 4001, expectedStatus: "rejected", expectedError: "error:rejected" },
+      { code: 5720, expectedStatus: "unknown", expectedError: "error:submission-unknown" },
+    ] as const;
+    for (const [index, testCase] of cases.entries()) {
+      window.sessionStorage.setItem("home:account-provider", "base-account");
+      const action = {
+        ...preparedMoneyAction("base-account", "2026-12-08T05:20:00.000Z"),
+        id: `123e4567-e89b-42d3-a456-4266141742${index}0`,
+      };
+      let claims = 0;
+      let sends = 0;
+      let statusWrites = 0;
+      const connection = connectedBaseAccount({
+        sendCalls: async (_calls, _requestId, beforeDispatch) => {
+          await beforeDispatch?.();
+          sends += 1;
+          throw new BaseAccountConnectorError(
+            testCase.code === 4001 ? "cancelled" : "invalid-provider-response",
+            testCase.code === 4001 ? undefined : { code: testCase.code },
+          );
+        },
+        getCallsStatus: async () => {
+          throw new Error("failed sends have no lookup handle");
+        },
+      });
+      const sessionFetch: SessionFetch = async (input, init) => {
+        if (input === "/api/session") return sessionResponse(sessionFor("subject-a", ADDRESS_A, "base-account"));
+        if (input === "/api/portfolio") return portfolioResponse(ADDRESS_A);
+        if (input === `/api/actions/${action.id}`) {
+          return Response.json({
+            operation: storedMoneyAction(action, statusWrites ? testCase.expectedStatus : "prepared"),
+          });
+        }
+        if (input === `/api/actions/${action.id}/claim`) {
+          claims += 1;
+          return Response.json({
+            action,
+            disposition: claims === 1 ? "dispatch" : "recover",
+            operation: storedMoneyAction(
+              action,
+              claims === 1 ? "submitting" : testCase.expectedStatus,
+            ),
+          });
+        }
+        if (input === `/api/actions/${action.id}/status`) {
+          statusWrites += 1;
+          expect(JSON.parse(String(init?.body))).toEqual({ status: testCase.expectedStatus });
+          return Response.json({ operation: storedMoneyAction(action, testCase.expectedStatus) });
+        }
+        throw new Error(`unexpected EIP-5792 classification request: ${String(input)}`);
+      };
+      render(
+        <SessionHarness
+          sdk={baseSdk()}
+          sessionFetch={sessionFetch}
+          baseAccountEnabled
+          baseAccountRestorer={async () => connection}
+          moneyAction={action}
+        />,
+      );
+      await waitFor(() => expect(page().getByTestId("provider").textContent).toBe("base-account"));
+      fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe(testCase.expectedError));
+      fireEvent.click(page().getByRole("button", { name: "Probe money action" }));
+      await waitFor(() => expect(page().getByTestId("money-action-status").textContent).toBe(testCase.expectedStatus));
+      expect({ sends, statusWrites }).toEqual({ sends: 1, statusWrites: 1 });
+      expect(claims).toBe(testCase.code === 4001 ? 1 : 2);
+      cleanup();
+      window.sessionStorage.clear();
+    }
+  });
+
   test("recovers a claimed send with no submission refs without calling sendUserOperation", async () => {
     const action = preparedMoneyAction("cdp-embedded", "2026-12-08T05:20:00.000Z");
     let claims = 0;
