@@ -465,6 +465,30 @@ test("Add money close preserves the active panel", async ({ page }) => {
   await expect(page).toHaveURL(/\/dashboard\?panel=balances$/);
 });
 
+test("Invest discovery navigation preserves category and asset Back behavior", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+
+  await page.getByRole("button", { name: "Invest", exact: true }).click();
+  const stocksHeading = page.getByRole("heading", { name: "Stocks" });
+  await stocksHeading.locator("..").getByRole("button", { name: "See all ›" }).click();
+  await expect(page).toHaveURL(/[?&]panel=invest/);
+  await expect(page).toHaveURL(/[?&]shelf=stocks/);
+  await page.getByRole("button", { name: /^NVIDIA/ }).click();
+  await expect(page.getByRole("heading", { name: "NVIDIA" })).toBeVisible();
+  await expect(page).toHaveURL(/[?&]asset=nvdac/);
+  await expect(page).toHaveURL(/[?&]shelf=stocks/);
+  await expect(page.getByRole("note")).toHaveText("Stocks aren't available yet.");
+
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Stocks" })).toBeVisible();
+  await expect(page).not.toHaveURL(/[?&]asset=/);
+  await page.getByRole("button", { name: "Back to Invest", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
+  await expect(page).not.toHaveURL(/[?&](?:shelf|asset)=/);
+});
+
 test("visited Invest and Activity panels stay mounted across tab changes", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
   const fixtures = await installApiFixtures(page);
