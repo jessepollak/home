@@ -573,6 +573,81 @@
   color: var(--home-ui-color-accent-tint-text);
 }
 .home-ui-badge[data-tone="success"] {
+  border-color: var(--home-ui-color-status-success-border);
+  background: var(--home-ui-color-status-success-background);
+  color: var(--home-ui-color-status-success-text);
+}
+.home-ui-badge[data-tone="warning"] {
+  border-color: var(--home-ui-color-status-warning-border);
+  background: var(--home-ui-color-status-warning-background);
+  color: var(--home-ui-color-status-warning-text);
+}
+.home-ui-badge[data-tone="error"] {
+  border-color: var(--home-ui-color-status-error-border);
+  background: var(--home-ui-color-status-error-background);
+  color: var(--home-ui-color-status-error-text);
+}
+.home-ui-badge__icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+}
+.home-ui-badge__icon svg {
+  display: block;
+  inline-size: 1em;
+  block-size: 1em;
+}
+.home-ui-badge__label {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.home-ui-divider {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 0;
+  background: var(--separator, var(--home-ui-color-border));
+}
+.home-ui-divider[data-orientation="horizontal"] {
+  inline-size: 100%;
+  block-size: 1px;
+}
+.home-ui-divider[data-orientation="vertical"] {
+  inline-size: 1px;
+  block-size: 100%;
+  min-block-size: var(--home-ui-target-min);
+}
+
+@container (max-width: 18em) {
+  .home-ui-list-row__content {
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: var(--home-ui-space-2);
+  }
+  .home-ui-list-row[data-interactive="true"] .home-ui-list-row__content {
+    grid-template-columns: auto minmax(0, 1fr) var(--home-ui-icon-size);
+  }
+  .home-ui-list-row__value {
+    grid-column: 2;
+    justify-items: start;
+    text-align: start;
+  }
+  .home-ui-list-row__indicator {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-ui-list-row__control { transition: none; }
+}
+@media (forced-colors: active) {
+  .home-ui-list-row { border-color: CanvasText; }
+  .home-ui-list-row__control:focus-visible { outline-color: Highlight; }
+  .home-ui-badge { border-color: CanvasText; }
+  .home-ui-divider { background: CanvasText; }
+}
+
 /* Feedback primitives: Skeleton, EmptyState, StatusMessage, and Toast. */
 .home-ui-skeleton,
 /* Temporary compatibility while remaining web loading surfaces adopt Skeleton. */
@@ -662,77 +737,16 @@
   background: var(--home-ui-color-status-success-background);
   color: var(--home-ui-color-status-success-text);
 }
-.home-ui-badge[data-tone="warning"] {
 .home-ui-status-message[data-tone="warning"] {
   border-color: var(--home-ui-color-status-warning-border);
   background: var(--home-ui-color-status-warning-background);
   color: var(--home-ui-color-status-warning-text);
 }
-.home-ui-badge[data-tone="error"] {
 .home-ui-status-message[data-tone="error"] {
   border-color: var(--home-ui-color-status-error-border);
   background: var(--home-ui-color-status-error-background);
   color: var(--home-ui-color-status-error-text);
 }
-.home-ui-badge__icon {
-  display: inline-grid;
-  flex: 0 0 auto;
-  place-items: center;
-}
-.home-ui-badge__icon svg {
-  display: block;
-  inline-size: 1em;
-  block-size: 1em;
-}
-.home-ui-badge__label {
-  min-inline-size: 0;
-  overflow-wrap: anywhere;
-}
-
-.home-ui-divider {
-  box-sizing: border-box;
-  flex: 0 0 auto;
-  margin: 0;
-  border: 0;
-  background: var(--separator, var(--home-ui-color-border));
-}
-.home-ui-divider[data-orientation="horizontal"] {
-  inline-size: 100%;
-  block-size: 1px;
-}
-.home-ui-divider[data-orientation="vertical"] {
-  inline-size: 1px;
-  block-size: 100%;
-  min-block-size: var(--home-ui-target-min);
-}
-
-@container (max-width: 18em) {
-  .home-ui-list-row__content {
-    grid-template-columns: auto minmax(0, 1fr);
-    column-gap: var(--home-ui-space-2);
-  }
-  .home-ui-list-row[data-interactive="true"] .home-ui-list-row__content {
-    grid-template-columns: auto minmax(0, 1fr) var(--home-ui-icon-size);
-  }
-  .home-ui-list-row__value {
-    grid-column: 2;
-    justify-items: start;
-    text-align: start;
-  }
-  .home-ui-list-row__indicator {
-    grid-column: 3;
-    grid-row: 1 / span 2;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .home-ui-list-row__control { transition: none; }
-}
-@media (forced-colors: active) {
-  .home-ui-list-row { border-color: CanvasText; }
-  .home-ui-list-row__control:focus-visible { outline-color: Highlight; }
-  .home-ui-badge { border-color: CanvasText; }
-  .home-ui-divider { background: CanvasText; }
 .home-ui-status-message__content { display: grid; gap: var(--home-ui-space-1); min-inline-size: 0; }
 .home-ui-status-message__title,
 .home-ui-status-message__body { overflow-wrap: anywhere; }
