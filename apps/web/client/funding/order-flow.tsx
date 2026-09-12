@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Field, Input, Select, Stack } from "@home/ui";
+import { Button, Field, Heading, Input, Select, Stack, StatusMessage, Text } from "@home/ui";
+import { MoneyTicker } from "@home/ui/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
 import {
   formatFiatAmount,
@@ -109,31 +110,49 @@ export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey,
 
   async function requestQuote() {
     if (busy || draft || !method || !positiveDecimal(amount)) return;
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
       const value = await fetchAccountResource("/api/funding/quotes", {
         method: "POST",
-        body: { providerId: binding.providerId, region: binding.region, paymentMethod: method, fiatAmount: amount, ...(binding.kyc ? { kycFields: fields } : {}) },
+        body: {
+          providerId: binding.providerId,
+          region: binding.region,
+          paymentMethod: method,
+          fiatAmount: amount,
+          ...(binding.kyc ? { kycFields: fields } : {}),
+        },
       });
       const parsed = readQuoteDraft(value);
       if (!parsed) throw new Error("quote");
       setDraft(parsed);
-    } catch { setError("This quote could not be created. Check your details and try again."); }
-    finally { setBusy(false); }
+    } catch {
+      setError("This quote could not be created. Check your details and try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirmOrder() {
     if (busy || !draft) return;
-    setBusy(true); setConfirmationAttempted(true); setError(null);
+    setBusy(true);
+    setConfirmationAttempted(true);
+    setError(null);
     try {
       // Keep and retry this exact signed token if the response is lost. The
       // server correlates it to one durable reservation and never redispatches.
-      const value = await fetchAccountResource("/api/funding/orders", { method: "POST", body: { quoteToken: draft.quoteToken } });
+      const value = await fetchAccountResource("/api/funding/orders", {
+        method: "POST",
+        body: { quoteToken: draft.quoteToken },
+      });
       const next = readFundingOrder(value);
       if (!next) throw new Error("order");
       setOrder(next);
-    } catch { setError("Home could not confirm the order response. Retry to recover this same order; no new quote or provider request will be created."); }
-    finally { setBusy(false); }
+    } catch {
+      setError("Home could not confirm the order response. Retry to recover this same order; no new quote or provider request will be created.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (currentOrder?.instructions?.kind === "redirect") {
@@ -143,7 +162,19 @@ export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey,
     return <ProviderEconomicsReview binding={binding} order={currentOrder} onContinue={() => setShowInstructions(true)} />;
   }
   if (currentOrder) return <OrderStatus order={currentOrder} onBack={onBack} />;
-  if (draft) return <QuoteReview binding={binding} draft={draft} busy={busy} confirmationAttempted={confirmationAttempted} error={error} onConfirm={() => void confirmOrder()} onBack={() => setDraft(null)} />;
+  if (draft) {
+    return (
+      <QuoteReview
+        binding={binding}
+        draft={draft}
+        busy={busy}
+        confirmationAttempted={confirmationAttempted}
+        error={error}
+        onConfirm={() => void confirmOrder()}
+        onBack={() => setDraft(null)}
+      />
+    );
+  }
 
   const fieldsComplete = !binding.kyc?.fields?.some((field) => !fields[field.name]?.trim());
   return (
@@ -175,7 +206,7 @@ export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey,
         })}
         <MoneyAmountDisplay amount={amount} onAmountChange={setAmount} assetId={binding.assetId} assetLabel={binding.currency} assetCurrency={binding.currency} assetLocked pricing={{ status: "unpriced" }} nativeSymbol={binding.currency} />
         <MoneyNumpad value={amount} maxDecimals={2} onChange={setAmount} disabled={busy} />
-        {error ? <p className={modal.error} role="alert">{error}</p> : null}
+        {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
       </Stack>
       <MoneyModalFooter primaryLabel={busy ? "Getting quote…" : "Review quote"} primaryDisabled={busy || !fieldsComplete || !positiveDecimal(amount)} onPrimary={() => void requestQuote()} secondaryLabel="Back" onSecondary={onBack} />
     </>
@@ -184,23 +215,132 @@ export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey,
 
 function QuoteReview({ binding, draft, busy, confirmationAttempted, error, onConfirm, onBack }: { binding: FundingBinding; draft: QuoteDraft; busy: boolean; confirmationAttempted: boolean; error: string | null; onConfirm: () => void; onBack: () => void }) {
   const regionId = presentationCurrencyMetadata(binding.currency).defaultRegionId;
-  return <><Stack className={`${modal.body} ${styles.statusStack}`} space="2"><h3>Review quote</h3><p>Deposit: {formatFiatAmount(draft.quote.fiatAmount, binding.currency, { regionId })}</p><p>Receive: {formatPresentationTokenAmount(draft.quote.tokenAmountAtomic, binding.assetDecimals, binding.assetSymbol, { regionId, useNoBreakSpace: true })}</p>{draft.quote.fees.length ? <section aria-label="Fees"><h4>Fees</h4>{draft.quote.fees.map((fee, index) => <p key={`${fee.label}:${index}`}>{fee.label}: {formatFiatAmount(fee.amount, fee.currency)}</p>)}</section> : draft.quote.feesKnown ? <p>Fees: None</p> : <p>Fees: Not yet available</p>}<p>Expires: {formatPresentationDate(draft.quote.expiresAt, { regionId, style: "date-time-zone" })}</p>{error ? <p className={modal.error} role="alert">{error}</p> : null}</Stack><MoneyModalFooter primaryLabel={busy ? "Confirming same order…" : "Confirm deposit"} primaryDisabled={busy} onPrimary={onConfirm} secondaryLabel="Back" secondaryDisabled={confirmationAttempted} onSecondary={onBack} /></>;
+  const deposit = formatFiatAmount(draft.quote.fiatAmount, binding.currency, { regionId });
+  const receive = formatPresentationTokenAmount(draft.quote.tokenAmountAtomic, binding.assetDecimals, binding.assetSymbol, { regionId, useNoBreakSpace: true });
+  return (
+    <>
+      <Stack className={`${modal.body} ${styles.statusStack}`} space="2">
+        <Heading level={3} textStyle="section-title">Review quote</Heading>
+        <MoneyLine value={`Deposit: ${deposit}`} />
+        <MoneyLine value={`Receive: ${receive}`} />
+        {draft.quote.fees.length ? (
+          <section aria-label="Fees">
+            <Stack space="2">
+              <Heading level={4} textStyle="row-label">Fees</Heading>
+              {draft.quote.fees.map((fee, index) => (
+                <MoneyLine key={`${fee.label}:${index}`} value={`${fee.label}: ${formatFiatAmount(fee.amount, fee.currency)}`} />
+              ))}
+            </Stack>
+          </section>
+        ) : draft.quote.feesKnown ? (
+          <Text>Fees: None</Text>
+        ) : (
+          <Text>Fees: Not yet available</Text>
+        )}
+        <Text textStyle="secondary" tone="muted">
+          Expires: {formatPresentationDate(draft.quote.expiresAt, { regionId, style: "date-time-zone" })}
+        </Text>
+        {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
+      </Stack>
+      <MoneyModalFooter primaryLabel={busy ? "Confirming same order…" : "Confirm deposit"} primaryDisabled={busy} onPrimary={onConfirm} secondaryLabel="Back" secondaryDisabled={confirmationAttempted} onSecondary={onBack} />
+    </>
+  );
 }
+
 function ProviderEconomicsReview({ binding, order, onContinue }: { binding: FundingBinding; order: FundingOrderSummary; onContinue: () => void }) {
   const fees = order.fees ?? [];
   const regionId = presentationCurrencyMetadata(binding.currency).defaultRegionId;
-  return <><Stack className={`${modal.body} ${styles.statusStack}`} space="2"><h3>Review payment details</h3><p>Receive: {formatPresentationTokenAmount(order.expectedTokenAmountAtomic!, binding.assetDecimals, binding.assetSymbol, { regionId, useNoBreakSpace: true })}</p>{fees.length ? <section aria-label="Provider fees"><h4>Fees</h4>{fees.map((fee, index) => <p key={`${fee.label}:${index}`}>{fee.label}: {formatFiatAmount(fee.amount, fee.currency)}</p>)}</section> : <p>Fees: None</p>}</Stack><MoneyModalFooter primaryLabel="View payment instructions" onPrimary={onContinue} /></>;
+  const receive = formatPresentationTokenAmount(order.expectedTokenAmountAtomic!, binding.assetDecimals, binding.assetSymbol, { regionId, useNoBreakSpace: true });
+  return (
+    <>
+      <Stack className={`${modal.body} ${styles.statusStack}`} space="2">
+        <Heading level={3} textStyle="section-title">Review payment details</Heading>
+        <MoneyLine value={`Receive: ${receive}`} />
+        {fees.length ? (
+          <section aria-label="Provider fees">
+            <Stack space="2">
+              <Heading level={4} textStyle="row-label">Fees</Heading>
+              {fees.map((fee, index) => (
+                <MoneyLine key={`${fee.label}:${index}`} value={`${fee.label}: ${formatFiatAmount(fee.amount, fee.currency)}`} />
+              ))}
+            </Stack>
+          </section>
+        ) : (
+          <Text>Fees: None</Text>
+        )}
+      </Stack>
+      <MoneyModalFooter primaryLabel="View payment instructions" onPrimary={onContinue} />
+    </>
+  );
 }
+
 function OrderStatus({ order, onBack }: { order: FundingOrderSummary; onBack: () => void }) {
   const copy = stateCopy(order.state);
-  return <><Stack className={`${modal.body} ${styles.statusStack}`} space="2"><h3>{copy.title}</h3><p>{copy.body}</p>{order.instructions ? <InstructionView instruction={order.instructions} /> : null}{order.providerStatus ? <p>Status: {order.providerStatus}</p> : null}</Stack>{order.state !== "dispatch-ambiguous" ? <div className={modal.footer}><button className={modal.quiet} type="button" onClick={onBack}>Back</button></div> : null}</>;
+  return (
+    <>
+      <Stack className={`${modal.body} ${styles.statusStack}`} space="2">
+        <StatusMessage title={copy.title}>{copy.body}</StatusMessage>
+        {order.instructions ? <InstructionView instruction={order.instructions} /> : null}
+        {order.providerStatus ? <Text textStyle="secondary" tone="muted">Status: {order.providerStatus}</Text> : null}
+      </Stack>
+      {order.state !== "dispatch-ambiguous" ? (
+        <div className={modal.footer}>
+          <Button className={modal.quiet} variant="quiet" onClick={onBack}>Back</Button>
+        </div>
+      ) : null}
+    </>
+  );
 }
+
 function InstructionView({ instruction }: { instruction: Instruction }) {
-  if (instruction.kind === "redirect") return <a className={modal.primary} href={instruction.url} rel="noreferrer">Continue to payment</a>;
-  if (instruction.kind === "bank-transfer") return <section><h4>{instruction.rail} transfer</h4>{instruction.bank ? <p>Bank: {instruction.bank}</p> : null}{instruction.accountName ? <p>Name: {instruction.accountName}</p> : null}<p>Account: <CopyableValue value={instruction.accountNumber} valueKind="account number" /></p>{instruction.alias ? <p>Alias: <CopyableValue value={instruction.alias} valueKind="alias" /></p> : null}{instruction.reference ? <p>Reference: <CopyableValue value={instruction.reference} valueKind="reference" /></p> : null}<p>Send exactly {formatFiatAmount(instruction.amount, instruction.currency)}</p></section>;
-  if (instruction.kind === "qr") return <section><h4>{instruction.scheme.toUpperCase()} payment</h4><CopyableValue value={instruction.payload} display="Copy payment code" valueKind="payment code" /><p>Pay exactly {formatFiatAmount(instruction.amount, instruction.currency)}</p></section>;
-  return <section><h4>{instruction.scheme}</h4><CopyableValue value={instruction.key} valueKind="payment key" /><p>Pay exactly {formatFiatAmount(instruction.amount, instruction.currency)}</p></section>;
+  if (instruction.kind === "redirect") {
+    return <a className={modal.primary} href={instruction.url} rel="noreferrer">Continue to payment</a>;
+  }
+  if (instruction.kind === "bank-transfer") {
+    return (
+      <section>
+        <Stack space="2">
+          <Heading level={4} textStyle="row-label">{instruction.rail} transfer</Heading>
+          {instruction.bank ? <Text>Bank: {instruction.bank}</Text> : null}
+          {instruction.accountName ? <Text>Name: {instruction.accountName}</Text> : null}
+          <Text as="div">Account: <CopyableValue value={instruction.accountNumber} valueKind="account number" /></Text>
+          {instruction.alias ? <Text as="div">Alias: <CopyableValue value={instruction.alias} valueKind="alias" /></Text> : null}
+          {instruction.reference ? <Text as="div">Reference: <CopyableValue value={instruction.reference} valueKind="reference" /></Text> : null}
+          <MoneyLine value={`Send exactly ${formatFiatAmount(instruction.amount, instruction.currency)}`} />
+        </Stack>
+      </section>
+    );
+  }
+  if (instruction.kind === "qr") {
+    return (
+      <section>
+        <Stack space="2">
+          <Heading level={4} textStyle="row-label">{instruction.scheme.toUpperCase()} payment</Heading>
+          <CopyableValue value={instruction.payload} display="Copy payment code" valueKind="payment code" />
+          <MoneyLine value={`Pay exactly ${formatFiatAmount(instruction.amount, instruction.currency)}`} />
+        </Stack>
+      </section>
+    );
+  }
+  return (
+    <section>
+      <Stack space="2">
+        <Heading level={4} textStyle="row-label">{instruction.scheme}</Heading>
+        <CopyableValue value={instruction.key} valueKind="payment key" />
+        <MoneyLine value={`Pay exactly ${formatFiatAmount(instruction.amount, instruction.currency)}`} />
+      </Stack>
+    </section>
+  );
 }
+
+function MoneyLine({ value }: { value: string }) {
+  return (
+    <Text textStyle="body">
+      <MoneyTicker value={value} />
+    </Text>
+  );
+}
+
 function stateCopy(state: string) {
   if (state === "received") return { title: "Money received", body: "The matching Base transfer was verified." };
   if (state === "dispatch-ambiguous") return { title: "Check Activity before trying again", body: "The provider may have received this request. Home retained the original order and will not send it twice." };

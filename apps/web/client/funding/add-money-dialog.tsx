@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Inline, Stack } from "@home/ui";
+import { Badge, Button, Inline, ListRow, Skeleton, StatusMessage, Text } from "@home/ui";
 import { ArrowDownToLine } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
@@ -128,37 +128,37 @@ export function MethodBody({
 }) {
   return (
     <div className={modal.body}>
-      <Stack className={styles.methods} space="3">
-        <button className={`${styles.method} surface-primary`} type="button" onClick={onSelectReceive}>
-          <span className={styles.methodIcon} aria-hidden="true">
-            <ArrowDownToLine size={18} strokeWidth={2.1} />
-          </span>
-          <span className={styles.methodCopy}>
-            <span className={styles.methodTitle}>Receive crypto</span>
-            <span className={styles.methodHint}>USDC and supported tokens on Base</span>
-          </span>
-          <span className={styles.methodChevron} aria-hidden="true">›</span>
-        </button>
-        {providerBindings.map((binding) => (
-          <button
-            className={`${styles.method} surface-primary`}
-            type="button"
-            onClick={() => onSelectBinding(binding)}
-            key={`${binding.providerId}:${binding.assetId}`}
-          >
-            <CurrencyMark
-              currency={binding.currency as FiatCurrencyCode}
-              symbol={presentationRegions[regionId].currency.symbol ?? "$"}
-            />
-            <span className={styles.methodCopy}>
-              <span className={styles.methodTitle}>
-                Deposit {binding.currency} with {binding.displayName}
-              </span>
+      <ul className={styles.methods}>
+        <ListRow
+          className="surface-primary"
+          leading={(
+            <span className={styles.methodIcon} aria-hidden="true">
+              <ArrowDownToLine size={18} strokeWidth={2.1} />
             </span>
-            <span className={styles.methodChevron} aria-hidden="true">›</span>
-          </button>
+          )}
+          label="Receive crypto"
+          description="USDC and supported tokens on Base"
+          value=""
+          actionHint="Open receive options"
+          onPress={onSelectReceive}
+        />
+        {providerBindings.map((binding) => (
+          <ListRow
+            className="surface-primary"
+            key={`${binding.providerId}:${binding.assetId}`}
+            leading={(
+              <CurrencyMark
+                currency={binding.currency as FiatCurrencyCode}
+                symbol={presentationRegions[regionId].currency.symbol ?? "$"}
+              />
+            )}
+            label={`Deposit ${binding.currency} with ${binding.displayName}`}
+            value=""
+            actionHint="Open deposit flow"
+            onPress={() => onSelectBinding(binding)}
+          />
         ))}
-      </Stack>
+      </ul>
     </div>
   );
 }
@@ -172,12 +172,12 @@ export function ReceiveBody({
 }) {
   return (
     <div className={`${modal.body} ${styles.receive}`}>
-      <p className={styles.network}>Receive on Base</p>
+      <Badge className={styles.network} tone="accent">Receive on Base</Badge>
       <div className={styles.qrFrame}>
         {address ? (
           <ReceiveQr value={address} label={`QR code for Base address ${address}`} />
         ) : (
-          <span className={`shimmer ${styles.qrShimmer}`} data-shimmer="qr" aria-hidden="true" />
+          <Skeleton className={styles.qrShimmer} shape="rectangle" data-shimmer="qr" aria-hidden="true" />
         )}
       </div>
       <div className={styles.addressBlock}>
@@ -185,12 +185,13 @@ export function ReceiveBody({
           <ReceiveAddress address={address} />
         ) : (
           <>
-            <span
-              className={`shimmer ${styles.addressShimmer}`}
+            <Skeleton
+              className={styles.addressShimmer}
+              shape="text"
               data-shimmer="address"
               aria-hidden="true"
             />
-            <p className={styles.addressHint}>Preparing your Base address</p>
+            <Text className={styles.addressHint} textStyle="metadata" tone="muted">Preparing your Base address</Text>
           </>
         )}
       </div>
@@ -218,8 +219,8 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
 
   return (
     <>
-      <button
-        type="button"
+      <Button
+        variant="quiet"
         className={styles.addressText}
         title={address}
         aria-label={copyStatus === "copied" ? "Copied" : `Copy ${condensed}`}
@@ -227,12 +228,12 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
         onClick={() => void copyAddress()}
       >
         {copyStatus === "copied" ? "Copied" : condensed}
-      </button>
+      </Button>
       {copyStatus === "error" ? (
         <div className={styles.copyFallback}>
-          <p id="receive-address-help" className={styles.copyError} role="alert">
+          <StatusMessage id="receive-address-help" tone="error" role="alert">
             Clipboard access is unavailable. Select and copy the full address below.
-          </p>
+          </StatusMessage>
           <code
             className={styles.fullAddress}
             aria-label={`Full Base address ${address}`}
@@ -242,9 +243,9 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
           </code>
         </div>
       ) : (
-        <p id="receive-address-help" className={styles.addressHint}>
+        <Text id="receive-address-help" className={styles.addressHint} textStyle="metadata" tone="muted">
           Tap the address to copy
-        </p>
+        </Text>
       )}
     </>
   );
@@ -256,7 +257,7 @@ export function SupportedAssets({ regionId }: { regionId: RegionId }) {
 
   return (
     <section className={styles.supported} aria-label="Supported receive assets on Base">
-      <p className={styles.supportedLabel}>Supported on Base</p>
+      <Text className={styles.supportedLabel} textStyle="metadata" tone="muted">Supported on Base</Text>
       <Inline className={styles.supportedMarks} space={{ custom: "14px" }}>
         <span className={styles.supportedAsset}>
           <CurrencyMark currency="USD" symbol="$" />
@@ -269,7 +270,7 @@ export function SupportedAssets({ regionId }: { regionId: RegionId }) {
           </span>
         ) : null}
       </Inline>
-      <p className={styles.supportedMore}>Plus other tokens in Home&apos;s supported Base inventory</p>
+      <Text className={styles.supportedMore} textStyle="metadata" tone="muted">Plus other tokens in Home&apos;s supported Base inventory</Text>
     </section>
   );
 }
@@ -287,9 +288,9 @@ function supportedRegionalAsset(
 function SignedOutBody() {
   return (
     <div className={modal.body}>
-      <p className={styles.subtitle}>
+      <Text className={styles.subtitle} textStyle="secondary" tone="muted">
         Sign in and verify a Base account before showing a funding address.
-      </p>
+      </Text>
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
+import { Button } from "@home/ui";
 import type { RegionId } from "@/config/regions";
 import {
   commitClientUrl,
@@ -128,10 +129,10 @@ export function FundingActionsForWallet({
 
   return (
     <>
-      <button
+      <Button
         className="add-money"
         data-action-trigger=""
-        type="button"
+        variant="secondary"
         onClick={() => {
           openedInAppRef.current = true;
           setDismissed(false);
@@ -141,7 +142,7 @@ export function FundingActionsForWallet({
       >
         <PlusIcon />
         <span>Add money</span>
-      </button>
+      </Button>
       {mounted ? createPortal(modal, document.body) : null}
     </>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { EmptyState, Skeleton, Stack, StatusMessage } from "@home/ui";
+import { Button, EmptyState, Heading, Skeleton, Stack, StatusMessage, Text } from "@home/ui";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
 import { useOptionalAppChrome } from "@/components/app-chrome";
@@ -298,14 +298,13 @@ export function SavingsExperience({
       {hosted ? null : (
         <header className={styles.header}>
           {onBack ? (
-            <button className={styles.back} type="button" onClick={onBack}>
+            <Button className={styles.back} variant="quiet" onClick={onBack} aria-label="Back">
               <span aria-hidden="true">←</span>
-              <span className={styles.srOnly}>Back</span>
-            </button>
+            </Button>
           ) : (
             <span />
           )}
-          <h2 id="savings-title" className={styles.title}>Save</h2>
+          <Heading level={2} textStyle="sheet-title" id="savings-title" className={styles.title}>Save</Heading>
           <span />
         </header>
       )}
@@ -327,11 +326,12 @@ export function SavingsExperience({
           </>
         ) : availableBalance ? (
           <>
-            <p
+            <Text
+              textStyle="amount"
               className={`${styles.heroAmount} ${funded ? "" : styles.heroAmountEmpty}`.trim()}
             >
               <MoneyTicker value={formatUsdStablecoinAmount(availableBalance.totalBaseUnits)} />
-            </p>
+            </Text>
             {funded && portfolioSummary ? (
               loadState.status === "loading" ? (
                 <>
@@ -356,16 +356,16 @@ export function SavingsExperience({
               />
             )}
             {refreshing ? (
-              <p className={styles.heroMeta} role="status">Refreshing…</p>
+              <Text className={styles.heroMeta} textStyle="metadata" tone="muted" role="status">Refreshing…</Text>
             ) : refreshError ? (
-              <p className={styles.heroMeta} role="status">Refresh unavailable</p>
+              <Text className={styles.heroMeta} textStyle="metadata" tone="muted" role="status">Refresh unavailable</Text>
             ) : null}
           </>
         ) : !sessionKey ? (
           <>
-            <p className={`${styles.heroAmount} ${styles.heroAmountEmpty}`}>
+            <Text textStyle="amount" className={`${styles.heroAmount} ${styles.heroAmountEmpty}`}>
               <MoneyTicker value="$0.00" />
-            </p>
+            </Text>
             <EmptyState
               className={styles.heroEmpty}
               title="Nothing saved yet"
@@ -376,8 +376,8 @@ export function SavingsExperience({
           </>
         ) : (
           <>
-            <p className={styles.heroAmount}><MoneyTicker value="—" /></p>
-            <p className={styles.heroCaption} role="status">Balance unavailable</p>
+            <Text textStyle="amount" className={styles.heroAmount}><MoneyTicker value="—" /></Text>
+            <Text className={styles.heroCaption} textStyle="secondary" tone="muted" role="status">Balance unavailable</Text>
           </>
         )}
       </Stack>
@@ -414,25 +414,27 @@ export function SavingsExperience({
                     onClick={() => setSelectedAddress(candidate.vaultAddress)}
                   >
                     <span className={styles.vaultName}>
-                      <strong>{candidate.name}</strong>
+                      <Text as="strong" textStyle="row-label">{candidate.name}</Text>
                       {funded && loadState.status === "ready" ? (
-                        <span className={styles.vaultApy}>
+                        <Text as="span" className={styles.vaultApy} textStyle="metadata" tone="muted">
                           {fundedVaultApyLabel(candidate, loadState.data, rateNowMs)}
-                        </span>
+                        </Text>
                       ) : null}
                     </span>
                     {showBalanceRows ? (
-                      <span className={styles.vaultBalance}>
-                        {balance?.amount === null || balance?.amount === undefined
-                          ? "—"
-                          : formatUsdStablecoinAmount(balance.amount.toString())}
-                      </span>
+                      <Text as="span" className={styles.vaultBalance} textStyle="row-value">
+                        <MoneyTicker
+                          value={balance?.amount === null || balance?.amount === undefined
+                            ? "—"
+                            : formatUsdStablecoinAmount(balance.amount.toString())}
+                        />
+                      </Text>
                     ) : (
-                      <span className={styles.vaultMeta}>
+                      <Text as="span" className={styles.vaultMeta} textStyle="metadata" tone="muted">
                         {loadState.status === "ready"
                           ? availableVaultApyLabel(candidate, loadState.data, rateNowMs)
                           : "APY unavailable"}
-                      </span>
+                      </Text>
                     )}
                   </button>
                   {isSelected ? (
@@ -468,23 +470,22 @@ export function SavingsExperience({
 
       {loadState.status !== "error" && (availableBalance || !sessionKey) ? (
         <div className={`${styles.actions} ${funded ? styles.actionsSplit : ""}`.trim()}>
-          <button
-            className={styles.primary}
-            type="button"
+          <Button
+            className={styles.action}
             disabled={!actionsReady}
             onClick={() => openAction("deposit")}
           >
             {funded ? "Deposit" : "Get started"}
-          </button>
+          </Button>
           {funded ? (
-            <button
-              className={styles.secondary}
-              type="button"
+            <Button
+              className={styles.action}
+              variant="secondary"
               disabled={!actionsReady || !canWithdraw}
               onClick={() => openAction("withdraw")}
             >
               Withdraw
-            </button>
+            </Button>
           ) : null}
         </div>
       ) : null}
@@ -551,18 +552,18 @@ function fundedVaultApyLabel(
 function FundedApyCaption({ apy }: { apy: SavingsApySummary }) {
   if (apy.status === "available") {
     return (
-      <p className={styles.heroCaption}>
+      <Text className={styles.heroCaption} textStyle="secondary" tone="muted">
         Earning ~{formatExactSavingsApy(apy.value)}
-      </p>
+      </Text>
     );
   }
   if (apy.status === "partial") {
-    return <p className={styles.heroCaption} role="status">APY partially unavailable</p>;
+    return <Text className={styles.heroCaption} textStyle="secondary" tone="muted" role="status">APY partially unavailable</Text>;
   }
   if (apy.status === "stale") {
-    return <p className={styles.heroCaption} role="status">APY data stale</p>;
+    return <Text className={styles.heroCaption} textStyle="secondary" tone="muted" role="status">APY data stale</Text>;
   }
-  return <p className={styles.heroCaption} role="status">APY unavailable</p>;
+  return <Text className={styles.heroCaption} textStyle="secondary" tone="muted" role="status">APY unavailable</Text>;
 }
 
 function VaultListSkeleton() {

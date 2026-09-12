@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { StatusMessage, Text, Toast, ToastViewport } from "@home/ui";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
@@ -21,7 +22,6 @@ import type {
 import { formatApy, formatUsdcUsd, parseUsdcAmount } from "@/client/savings/format";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import modal from "@/client/money-modal/money-modal.module.css";
-import styles from "./savings-actions.module.css";
 
 export type SavingsActionMode = "deposit" | "withdraw";
 
@@ -70,12 +70,6 @@ export function SavingsMoneyDialog({
     : mode === "deposit"
       ? "Deposit"
       : "Withdraw";
-
-  useEffect(() => {
-    if (!success) return;
-    const timer = window.setTimeout(() => setSuccess(null), 6000);
-    return () => window.clearTimeout(timer);
-  }, [success]);
 
   function reset() {
     setAmount("");
@@ -220,19 +214,19 @@ export function SavingsMoneyDialog({
                 ]}
               />
               {step === "pending" ? (
-                <div id="savings-action-pending" className={modal.pending} role="status">
+                <StatusMessage id="savings-action-pending">
                   <span className={modal.spinner} aria-hidden="true" />
                   Waiting for your wallet…
-                </div>
+                </StatusMessage>
               ) : null}
             </>
           ) : null}
 
-          {error ? <p className={modal.error} role="alert">{error}</p> : null}
+          {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
           {expiredPrepared && !attemptedAction && step === "confirm" ? (
-            <p className={modal.error} role="alert">
+            <StatusMessage tone="error" role="alert">
               This {mode} expired. Go back and continue again.
-            </p>
+            </StatusMessage>
           ) : null}
         </div>
 
@@ -272,15 +266,14 @@ export function SavingsMoneyDialog({
       </MoneyModal>
 
       {success ? (
-        <div className={styles.toast} role="status">
-          <span className={styles.toastMark} aria-hidden="true">✓</span>
-          <div>
-            <strong>
+        <ToastViewport>
+          <Toast tone="success" duration={6000} onDismiss={() => setSuccess(null)}>
+            <Text as="strong" textStyle="row-label">
               {success.mode === "deposit" ? "Deposited" : "Withdrew"} {success.amount}
-            </strong>
-            <p>Save · {candidate.name}</p>
-          </div>
-        </div>
+            </Text>
+            <Text textStyle="metadata" tone="muted">Save · {candidate.name}</Text>
+          </Toast>
+        </ToastViewport>
       ) : null}
     </>
   );
