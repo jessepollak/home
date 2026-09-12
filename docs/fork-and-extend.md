@@ -62,6 +62,7 @@ Operators bring their own projects. Nothing in this repo is a shared CDP, Morpho
 | Morpho USDC vault shortlist | `apps/web/shared/savings/config.ts` (keep in sync with `portfolioVaults`) | [Morpho setup](morpho-setup.md) |
 | One cbBTC/USDC borrow market | `apps/web/shared/borrowing/config.ts` | `apps/web/server/borrowing/README.md` |
 | Invest USD indications | `CODEX_API_KEY` | [Codex prices](codex-prices.md) |
+| Funding providers | `apps/web/server/funding/providers/` plus manifest-declared server env | [Issuer integration guide](integrations/README.md) |
 | Base RPC | server-only `BASE_RPC_URL` (CDP Node HTTPS; required on Vercel Production/Preview, optional locally) | [Portfolio](portfolio.md) |
 | Issuer-contributed funding provider (in flight) | Adapter manifest credentials | [Issuer integration guide](integrations/README.md) |
 
@@ -79,7 +80,7 @@ Money actions have no local SQLite fallback: in local and hosted runtimes, they 
 
 This is limited to money actions. The separate trading intent runtime uses local SQLite only when neither `VERCEL` nor `DATABASE_URL` is set; it fails closed for hosted or database-configured trading and does not provide multi-instance swap readiness. Public Base RPC remains the local default; operators should configure `BASE_RPC_URL`. Do not point a fork at someone else's database or CDP project. Bun monorepo Vercel settings are in [Vercel deploy](vercel-deploy.md).
 
-Venice/agent inference, Rain cards, additional funding providers, unrestricted assets, and broader borrow markets are not implemented. Stock trading and external Base-account trading remain gated.
+Venice/agent inference, Rain cards, unrestricted assets, and broader borrow markets are not implemented; additional funding providers use the checked-in provider seam. Stock trading and external Base-account trading remain gated.
 
 ## After you customize
 

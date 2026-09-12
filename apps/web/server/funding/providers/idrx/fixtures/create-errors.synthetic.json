@@ -1,0 +1,16 @@
+{
+  "source": "synthetic",
+  "cases": [
+    { "name": "redirect", "status": 302, "message": "Temporary redirect", "outcome": "ambiguous" },
+    { "name": "timeout", "status": 408, "message": "Request timeout", "outcome": "ambiguous" },
+    { "name": "conflict", "status": 409, "message": "Conflict", "outcome": "ambiguous" },
+    { "name": "undocumented validation", "status": 422, "message": "Unable to process channel", "outcome": "ambiguous" },
+    { "name": "rate limit", "status": 429, "message": "Rate limit", "outcome": "ambiguous" },
+    { "name": "server error", "status": 503, "message": "Unavailable", "outcome": "ambiguous" },
+    { "name": "documented bad authentication", "status": 401, "message": "Unauthorized", "outcome": "rejected" },
+    { "name": "documented blocked user agent", "status": 403, "message": "Forbidden", "outcome": "rejected" },
+    { "name": "documented unsupported channel", "status": 422, "message": "Unsupported VA channel: BCA", "outcome": "rejected" },
+    { "name": "documented missing channel", "status": 400, "message": "channelId is required when paymentMethod is set", "outcome": "rejected" },
+    { "name": "documented invalid precision", "status": 400, "message": "invalid toBeMinted: IDRX on chainId 8453 supports 2 decimal place(s), got 20000.501", "outcome": "rejected" }
+  ]
+}

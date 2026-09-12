@@ -1,0 +1,19 @@
+{
+  "source": "synthetic",
+  "statusCode": 200,
+  "message": "success",
+  "records": [
+    {
+      "merchantOrderId": "synthetic-order-1",
+      "transactionType": "MINT",
+      "requestType": "idrx",
+      "chainId": 8453,
+      "tokenAddress": "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
+      "tokenDecimals": 2,
+      "destinationWalletAddress": "0x1111111111111111111111111111111111111111",
+      "toBeMinted": "20000.50",
+      "userMintStatus": "SYNTHETIC_NEW_STATUS",
+      "paymentStatus": "SYNTHETIC_PAYMENT_STATUS"
+    }
+  ]
+}

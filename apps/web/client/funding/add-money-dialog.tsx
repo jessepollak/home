@@ -14,7 +14,6 @@ import {
   type RegionId,
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
-import { ripioAvailability } from "@/shared/funding/ripio-contract";
 import {
   MoneyModal,
   MoneyModalFooter,
@@ -23,8 +22,9 @@ import {
 import modal from "@/client/money-modal/money-modal.module.css";
 import styles from "./add-money.module.css";
 import { ReceiveQr } from "./receive-qr";
+import { FundingOrderFlow, type FundingBinding, type FundingOrderSummary } from "./order-flow";
 
-export type AddMoneyStep = "method" | "receive" | "buy" | "ripio" | "onramps";
+export type AddMoneyStep = "method" | "receive" | "buy" | "order" | "onramps";
 
 export function AddMoneyDialog({
   open,
@@ -38,7 +38,11 @@ export function AddMoneyDialog({
   onBack,
   onSelectReceive,
   onSelectBuy,
-  onSelectRipio,
+  providerBindings,
+  selectedBinding,
+  initialOrder,
+  fetchAccountResource,
+  onSelectBinding,
   onSelectAnotherOnramp,
   onContinueToCoinbase,
 }: {
@@ -53,7 +57,11 @@ export function AddMoneyDialog({
   onBack: () => void;
   onSelectReceive: () => void;
   onSelectBuy: () => void;
-  onSelectRipio: () => void;
+  providerBindings: ReadonlyArray<FundingBinding>;
+  selectedBinding: FundingBinding | null;
+  initialOrder: FundingOrderSummary | null;
+  fetchAccountResource: (path: string, options?: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal }) => Promise<unknown>;
+  onSelectBinding: (binding: FundingBinding) => void;
   onSelectAnotherOnramp: () => void;
   onContinueToCoinbase: () => void;
 }) {
@@ -63,8 +71,8 @@ export function AddMoneyDialog({
       ? "Receive"
       : step === "buy"
         ? "Deposit USD"
-        : step === "ripio"
-          ? `Deposit ${currency}`
+        : step === "order"
+          ? `Deposit ${selectedBinding?.currency ?? currency}`
           : step === "onramps"
             ? "Choose another onramp"
             : "Add money";
@@ -79,7 +87,7 @@ export function AddMoneyDialog({
       <MoneyModalHeader
         title={title}
         titleId="add-money-title"
-        onBack={step === "method" ? undefined : onBack}
+        onBack={step === "method" || step === "order" ? undefined : onBack}
         onClose={onClose}
         closeLabel="Close add money"
       />
@@ -90,7 +98,8 @@ export function AddMoneyDialog({
           regionId={regionId}
           onSelectReceive={onSelectReceive}
           onSelectBuy={onSelectBuy}
-          onSelectRipio={onSelectRipio}
+          providerBindings={providerBindings}
+          onSelectBinding={onSelectBinding}
           onSelectAnotherOnramp={onSelectAnotherOnramp}
         />
       ) : null}
@@ -98,7 +107,9 @@ export function AddMoneyDialog({
         <ReceiveBody address={address} regionId={regionId} />
       ) : null}
       {!signedOut && step === "buy" ? <BuyBody /> : null}
-      {!signedOut && step === "ripio" ? <RipioBody regionId={regionId} /> : null}
+      {!signedOut && step === "order" && selectedBinding ? (
+        <FundingOrderFlow binding={selectedBinding} fetchAccountResource={fetchAccountResource} onBack={onBack} initialOrder={initialOrder} />
+      ) : null}
       {!signedOut && step === "onramps" ? (
         <OtherOnrampsBody
           regionId={regionId}
@@ -131,7 +142,7 @@ export function AddMoneyDialog({
           onSecondary={onBack}
         />
       ) : null}
-      {!signedOut && (step === "ripio" || step === "onramps") ? (
+      {!signedOut && step === "onramps" ? (
         <div className={modal.footer}>
           <button className={modal.quiet} type="button" onClick={onBack}>Back</button>
         </div>
@@ -144,18 +155,17 @@ export function MethodBody({
   regionId,
   onSelectReceive,
   onSelectBuy,
-  onSelectRipio,
+  providerBindings,
+  onSelectBinding,
   onSelectAnotherOnramp,
 }: {
   regionId: RegionId;
   onSelectReceive: () => void;
   onSelectBuy: () => void;
-  onSelectRipio: () => void;
+  providerBindings: ReadonlyArray<FundingBinding>;
+  onSelectBinding: (binding: FundingBinding) => void;
   onSelectAnotherOnramp: () => void;
 }) {
-  const ripio = ripioAvailability(regionId);
-  const localCurrency = presentationRegions[regionId].currency.code ?? "USD";
-  const showRipio = regionId === "AR" || regionId === "CO" || regionId === "BR";
   const showCoinbase = regionId === "US";
   return (
     <div className={modal.body}>
@@ -170,29 +180,16 @@ export function MethodBody({
           </span>
           <span className={styles.methodChevron} aria-hidden="true">›</span>
         </button>
-        {ripio && showRipio ? (
-          <button
-            className={styles.method}
-            type="button"
-            onClick={onSelectRipio}
-          >
-            <CurrencyMark
-              currency={localCurrency}
-              symbol={presentationRegions[regionId].currency.symbol ?? "$"}
-            />
+        {providerBindings.map((binding) => (
+          <button className={styles.method} type="button" onClick={() => onSelectBinding(binding)} key={`${binding.providerId}:${binding.assetId}`}>
+            <CurrencyMark currency={binding.currency as FiatCurrencyCode} symbol={presentationRegions[regionId].currency.symbol ?? "$"} />
             <span className={styles.methodCopy}>
-              <span className={styles.methodTitle}>
-                {ripio.available ? `Deposit ${localCurrency}` : "Ripio unavailable"}
-              </span>
-              <span className={styles.methodHint}>
-                {ripio.available
-                  ? "Use Ripio to deposit from your local bank"
-                  : "Brazil route unavailable until the supported asset is selected"}
-              </span>
+              <span className={styles.methodTitle}>Deposit {binding.currency}</span>
+              <span className={styles.methodHint}>Use {binding.displayName} to deposit from your local bank</span>
             </span>
             <span className={styles.methodChevron} aria-hidden="true">›</span>
           </button>
-        ) : null}
+        ))}
         {showCoinbase ? (
           <button className={styles.method} type="button" onClick={onSelectBuy}>
             <CurrencyMark currency="USD" symbol="$" />
@@ -312,187 +309,6 @@ export function BuyBody() {
       </p>
     </div>
   );
-}
-
-type RipioPreviewStage =
-  | "requirements"
-  | "quote"
-  | "rail"
-  | "pending"
-  | "recovery"
-  | "refund"
-  | "error";
-
-const ripioPreviewStages: readonly RipioPreviewStage[] = [
-  "requirements",
-  "quote",
-  "rail",
-  "pending",
-  "recovery",
-  "refund",
-  "error",
-];
-
-export function RipioBody({ regionId }: { regionId: RegionId }) {
-  const availability = ripioAvailability(regionId);
-  const [stage, setStage] = useState<RipioPreviewStage>("requirements");
-  if (!availability) return null;
-  const region = presentationRegions[regionId];
-  const localCurrency = region.currency.code ?? "USD";
-
-  if (!availability.available) {
-    return (
-      <div className={`${modal.body} ${styles.buy}`}>
-        <CurrencyMark currency={localCurrency} symbol={region.currency.symbol ?? "$"} />
-        <h3 className={styles.buyTitle}>Use Ripio to deposit from your local bank</h3>
-        <p className={styles.buyLead}>
-          Ripio does not currently expose Home&apos;s selected BRZ asset on Base. No Brazil
-          order can be created until the Brazil asset decision is resolved.
-        </p>
-      </div>
-    );
-  }
-
-  const index = ripioPreviewStages.indexOf(stage);
-  const previous = index > 0 ? ripioPreviewStages[index - 1] : null;
-  const next = index < ripioPreviewStages.length - 1
-    ? ripioPreviewStages[index + 1]
-    : null;
-
-  return (
-    <div className={`${modal.body} ${styles.ripioFlow}`}>
-      <div className={styles.ripioIntro}>
-        <CurrencyMark currency={localCurrency} symbol={region.currency.symbol ?? "$"} />
-        <div>
-          <h3 className={styles.ripioTitle}>Use Ripio to deposit from your local bank</h3>
-          <p className={styles.previewNote}>Synthetic preview · no order or funds</p>
-        </div>
-      </div>
-      <p className={styles.previewProgress} aria-live="polite">
-        Step {index + 1} of {ripioPreviewStages.length}
-      </p>
-      <RipioPreviewStageBody stage={stage} currency={localCurrency} regionId={regionId} />
-      <div className={styles.previewActions}>
-        {next ? (
-          <button className={modal.primary} type="button" onClick={() => setStage(next)}>
-            {ripioPreviewNextLabel(next)}
-          </button>
-        ) : (
-          <button
-            className={modal.primary}
-            type="button"
-            onClick={() => setStage("requirements")}
-          >
-            Restart preview
-          </button>
-        )}
-        {previous ? (
-          <button className={modal.quiet} type="button" onClick={() => setStage(previous)}>
-            Previous preview step
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function RipioPreviewStageBody({
-  stage,
-  currency,
-  regionId,
-}: {
-  stage: RipioPreviewStage;
-  currency: FiatCurrencyCode;
-  regionId: RegionId;
-}) {
-  if (stage === "requirements") {
-    return (
-      <section className={styles.previewCard} aria-label="Requirements and verification">
-        <h4 className={styles.previewTitle}>Requirements</h4>
-        <PreviewRow label="Ripio terms and consent" value="Required; not accepted in preview" />
-        <PreviewRow label="Identity verification" value="Required; not checked in preview" />
-        <PreviewRow label="Base destination" value="Locked to this verified account" />
-      </section>
-    );
-  }
-  if (stage === "quote") {
-    return (
-      <section className={styles.previewCard} aria-label="Quote review">
-        <h4 className={styles.previewTitle}>Review quote</h4>
-        <PreviewRow label="Deposit" value={`Entered in ${currency}`} />
-        <PreviewRow label="Fees and amount received" value="Locked from Ripio's quote" />
-        <PreviewRow label="Quote expiry" value="Checked again before order creation" />
-      </section>
-    );
-  }
-  if (stage === "rail") {
-    return (
-      <section className={styles.previewCard} aria-label="Bank rail instructions">
-        <h4 className={styles.previewTitle}>Bank instructions</h4>
-        <PreviewRow
-          label="Payment rail"
-          value={regionId === "AR" ? "ARS bank transfer" : "COP bank transfer or approved rail"}
-        />
-        <PreviewRow label="Account and reference" value="Shown only from the bound Ripio order" />
-        <p className={styles.previewHelp}>Never send funds using preview instructions.</p>
-      </section>
-    );
-  }
-  if (stage === "pending") {
-    return (
-      <section className={styles.previewCard} aria-label="Pending deposit">
-        <h4 className={styles.previewTitle}>Waiting for your bank transfer</h4>
-        <PreviewRow label="Order state" value="Awaiting payment" />
-        <PreviewRow label="Delivery" value="Not complete until exact Base receipt evidence matches" />
-      </section>
-    );
-  }
-  if (stage === "recovery") {
-    return (
-      <section className={styles.previewCard} aria-label="Deposit recovery">
-        <h4 className={styles.previewTitle}>Recovering a delayed update</h4>
-        <PreviewRow label="Provider lookup" value="Retrying the exact country-scoped order" />
-        <PreviewRow label="Safety" value="Ambiguous matches stay pending for review" />
-      </section>
-    );
-  }
-  if (stage === "refund") {
-    return (
-      <section className={styles.previewCard} aria-label="Refund status">
-        <h4 className={styles.previewTitle}>Refund status</h4>
-        <PreviewRow label="Refund" value="Pending until Ripio confirms the outcome" />
-        <PreviewRow label="Deposit" value="Never marked received from a refund event" />
-      </section>
-    );
-  }
-  return (
-    <section className={styles.previewCard} aria-label="Provider error">
-      <h4 className={styles.previewTitle}>Deposit unavailable</h4>
-      <PreviewRow label="Order" value="Not created or left pending safely" />
-      <PreviewRow label="Next step" value="Retry later; no duplicate request is sent" />
-      <p className={styles.previewError} role="alert">
-        Ripio could not confirm this synthetic request.
-      </p>
-    </section>
-  );
-}
-
-function PreviewRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className={styles.previewRow}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function ripioPreviewNextLabel(stage: RipioPreviewStage): string {
-  if (stage === "quote") return "Preview quote";
-  if (stage === "rail") return "Preview bank instructions";
-  if (stage === "pending") return "Preview pending deposit";
-  if (stage === "recovery") return "Preview recovery";
-  if (stage === "refund") return "Preview refund";
-  return "Preview error state";
 }
 
 type OtherOnramp = {
