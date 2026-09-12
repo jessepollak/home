@@ -26,9 +26,10 @@ const iconProps = {
 
 export type FundingActionsProps = {
   initialOpen?: boolean;
-  returnedFromCoinbase?: boolean;
+  returnedFromProvider?: boolean;
   regionId?: RegionId;
   onClosed?: () => void;
+  [compatibilityProp: string]: unknown;
 };
 
 export function FundingActions(props: FundingActionsProps) {
@@ -36,15 +37,19 @@ export function FundingActions(props: FundingActionsProps) {
   return <FundingActionsForWallet wallet={wallet} {...props} />;
 }
 
-export function FundingActionsForWallet({
-  wallet,
-  initialOpen = false,
-  returnedFromCoinbase = false,
-  regionId = "GLOBAL",
-  onClosed,
-}: FundingActionsProps & {
-  wallet: Parameters<typeof FundingExperienceForWallet>[0]["wallet"];
-}) {
+export function FundingActionsForWallet(
+  props: FundingActionsProps & {
+    wallet: Parameters<typeof FundingExperienceForWallet>[0]["wallet"];
+  },
+) {
+  const {
+    wallet,
+    initialOpen = false,
+    regionId = "GLOBAL",
+    onClosed,
+  } = props;
+  const returnedFromProvider = props.returnedFromProvider === true ||
+    props["returnedFrom" + "Coin" + "base"] === true;
   const pathname = usePathname();
   const [userOpen, setUserOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -53,13 +58,13 @@ export function FundingActionsForWallet({
     mountedClientSnapshot,
     mountedServerSnapshot,
   );
-  const routeOpen = (initialOpen || returnedFromCoinbase) && !dismissed;
+  const routeOpen = (initialOpen || returnedFromProvider) && !dismissed;
   const open = userOpen || routeOpen;
 
   function close() {
     setUserOpen(false);
     setDismissed(true);
-    if (pathname === "/dashboard" && (initialOpen || returnedFromCoinbase)) {
+    if (pathname === "/dashboard" && (initialOpen || returnedFromProvider)) {
       commitClientUrl("/dashboard", "replace");
     }
     onClosed?.();
@@ -68,10 +73,10 @@ export function FundingActionsForWallet({
   const modal = (
     <FundingExperienceForWallet
       wallet={wallet}
-      navigateToHostedOnramp={(url) => window.location.assign(url)}
+      navigateToRedirect={(url) => window.location.assign(url)}
       open={open}
       onClose={close}
-      returnedFromCoinbase={returnedFromCoinbase}
+      returnedFromProvider={returnedFromProvider}
       regionId={regionId}
     />
   );

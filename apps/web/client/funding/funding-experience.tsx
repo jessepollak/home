@@ -10,10 +10,9 @@ import {
 } from "./add-money-dialog";
 import { readFundingOrder, type FundingBinding, type FundingOrderSummary } from "./order-flow";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
-import { requestHostedOnrampSession, FundingRequestError } from "@/shared/funding/funding-client";
 
 export type FundingExperienceProps = {
-  returnedFromCoinbase?: boolean;
+  returnedFromProvider?: boolean;
   open?: boolean;
   onClose?: () => void;
   initialStep?: AddMoneyStep;
@@ -31,14 +30,14 @@ export function FundingExperience(props: FundingExperienceProps) {
     <FundingExperienceForWallet
       {...props}
       wallet={wallet}
-      navigateToHostedOnramp={(url) => window.location.assign(url)}
+      navigateToRedirect={(url) => window.location.assign(url)}
     />
   );
 }
 
 type FundingExperienceForWalletProps = FundingExperienceProps & {
   wallet: FundingWallet;
-  navigateToHostedOnramp: (url: string) => void;
+  navigateToRedirect: (url: string) => void;
 };
 
 export function FundingExperienceForWallet(
@@ -54,8 +53,8 @@ export function FundingExperienceForWallet(
 
 function FundingExperienceBoundary({
   wallet,
-  navigateToHostedOnramp,
-  returnedFromCoinbase = false,
+  navigateToRedirect,
+  returnedFromProvider = false,
   open = true,
   onClose,
   initialStep,
@@ -67,17 +66,12 @@ function FundingExperienceBoundary({
   const queryOwnerKey = session?.smartAccount ? activityOwnerKey(session) : null;
   const signedOut = !boundary || !session?.smartAccount || !address;
   const startStep: AddMoneyStep =
-    initialStep ?? (returnedFromCoinbase && !signedOut ? "receive" : "method");
+    initialStep ?? (returnedFromProvider && !signedOut ? "receive" : "method");
   const [step, setStep] = useState<AddMoneyStep>(startStep);
-  const [openingOnramp, setOpeningOnramp] = useState(false);
-  const [onrampError, setOnrampError] = useState<string | null>(null);
   const [selectedBinding, setSelectedBinding] = useState<FundingBinding | null>(null);
   const [initialOrder, setInitialOrder] = useState<FundingOrderSummary | null>(null);
   const stepRef = useRef<AddMoneyStep>(startStep);
   const navigationEpochRef = useRef(0);
-  const requestEpochRef = useRef(0);
-  const requestAbortRef = useRef<AbortController | null>(null);
-  const openRef = useRef(open);
 
   const fundingQuery = useHomeQuery({
     queryKey: queryOwnerKey
@@ -121,65 +115,6 @@ function FundingExperienceBoundary({
     });
   }, [fundingQuery.data, providerBindings]);
 
-  useEffect(() => {
-    openRef.current = open;
-    return () => {
-      openRef.current = false;
-      requestEpochRef.current += 1;
-      requestAbortRef.current?.abort();
-      requestAbortRef.current = null;
-    };
-  }, [open]);
-
-  function cancelPendingOnramp() {
-    openRef.current = false;
-    requestEpochRef.current += 1;
-    requestAbortRef.current?.abort();
-    requestAbortRef.current = null;
-    setOpeningOnramp(false);
-  }
-
-  async function openCoinbase() {
-    if (!session?.smartAccount || !boundary || openingOnramp || !openRef.current) return;
-
-    requestAbortRef.current?.abort();
-    const controller = new AbortController();
-    const requestEpoch = requestEpochRef.current + 1;
-    requestEpochRef.current = requestEpoch;
-    requestAbortRef.current = controller;
-    setOpeningOnramp(true);
-    setOnrampError(null);
-
-    try {
-      const hosted = await requestHostedOnrampSession({
-        fetchAccountResource: wallet.fetchAccountResource,
-        signal: controller.signal,
-      });
-      if (
-        controller.signal.aborted ||
-        requestEpochRef.current !== requestEpoch ||
-        !openRef.current
-      ) {
-        return;
-      }
-      navigateToHostedOnramp(hosted.url);
-    } catch (error) {
-      if (
-        controller.signal.aborted ||
-        requestEpochRef.current !== requestEpoch ||
-        !openRef.current
-      ) {
-        return;
-      }
-      setOnrampError(messageForOnrampError(error));
-      setOpeningOnramp(false);
-    } finally {
-      if (requestEpochRef.current === requestEpoch) {
-        requestAbortRef.current = null;
-      }
-    }
-  }
-
   function navigateTo(next: AddMoneyStep, explicit = true) {
     if (explicit) navigationEpochRef.current += 1;
     stepRef.current = next;
@@ -187,21 +122,16 @@ function FundingExperienceBoundary({
   }
 
   function close() {
-    cancelPendingOnramp();
     navigateTo("method");
     setSelectedBinding(null);
     setInitialOrder(null);
-    setOnrampError(null);
     onClose?.();
   }
 
   function goBack() {
-    cancelPendingOnramp();
-    openRef.current = true;
     navigateTo("method");
     setSelectedBinding(null);
     setInitialOrder(null);
-    setOnrampError(null);
   }
 
   return (
@@ -209,8 +139,6 @@ function FundingExperienceBoundary({
       open={open}
       step={signedOut ? "method" : step}
       address={address}
-      openingOnramp={openingOnramp}
-      onrampError={onrampError}
       signedOut={signedOut}
       regionId={regionId}
       onClose={close}
@@ -226,17 +154,7 @@ function FundingExperienceBoundary({
         setInitialOrder(null);
         navigateTo("order");
       }}
-      onSelectBuy={() => {
-        openRef.current = true;
-        setOnrampError(null);
-        navigateTo("buy");
-      }}
-      onSelectAnotherOnramp={() => {
-        openRef.current = true;
-        setOnrampError(null);
-        navigateTo("onramps");
-      }}
-      onContinueToCoinbase={() => void openCoinbase()}
+      onOpenRedirect={navigateToRedirect}
     />
   );
 }
@@ -250,14 +168,25 @@ function fundingBoundary(wallet: FundingWallet): string | null {
 
 function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {
   if (!isRecord(value) || !Array.isArray(value.providers)) return [];
-  return value.providers.filter((item): item is FundingBinding => isRecord(item) && typeof item.providerId === "string" && typeof item.displayName === "string" && typeof item.region === "string" && typeof item.assetId === "string" && typeof item.assetSymbol === "string" && Number.isSafeInteger(item.assetDecimals) && typeof item.currency === "string" && Array.isArray(item.paymentMethods));
+  return value.providers.filter((item): item is FundingBinding =>
+    isRecord(item) &&
+    typeof item.providerId === "string" &&
+    typeof item.displayName === "string" &&
+    typeof item.region === "string" &&
+    typeof item.assetId === "string" &&
+    typeof item.assetSymbol === "string" &&
+    Number.isSafeInteger(item.assetDecimals) &&
+    typeof item.currency === "string" &&
+    Array.isArray(item.paymentMethods)
+  );
 }
-function readProviderId(value: unknown): string | null { return isRecord(value) && isRecord(value.order) && typeof value.order.providerId === "string" ? value.order.providerId : null; }
-function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 
-function messageForOnrampError(error: unknown): string {
-  if (error instanceof FundingRequestError && error.code === "unauthenticated") {
-    return "Your session changed. Sign in again to continue.";
-  }
-  return "Coinbase funding is unavailable. Try again later or choose another deposit method.";
+function readProviderId(value: unknown): string | null {
+  return isRecord(value) && isRecord(value.order) && typeof value.order.providerId === "string"
+    ? value.order.providerId
+    : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

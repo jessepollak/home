@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Stack } from "@home/ui";
 import { CopyableValue } from "@/components/copyable-value";
 import {
@@ -55,7 +55,7 @@ type Instruction =
 
 type AccountFetch = (path: string, options?: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal }) => Promise<unknown>;
 
-export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey, onBack, initialOrder }: { binding: FundingBinding; fetchAccountResource: AccountFetch; queryOwnerKey?: string | null; onBack: () => void; initialOrder?: FundingOrderSummary | null }) {
+export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey, onBack, onOpenRedirect, initialOrder }: { binding: FundingBinding; fetchAccountResource: AccountFetch; queryOwnerKey?: string | null; onBack: () => void; onOpenRedirect: (url: string) => void; initialOrder?: FundingOrderSummary | null }) {
   const [method, setMethod] = useState(binding.paymentMethods[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -65,6 +65,7 @@ export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey,
   const [busy, setBusy] = useState(false);
   const [confirmationAttempted, setConfirmationAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const openedRedirectOrderRef = useRef<string | null>(null);
 
   const orderQuery = useHomeQuery({
     queryKey: order
@@ -93,6 +94,16 @@ export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey,
     },
   });
   const currentOrder = orderQuery.data ?? order;
+
+  useEffect(() => {
+    if (
+      !currentOrder ||
+      currentOrder.instructions?.kind !== "redirect" ||
+      openedRedirectOrderRef.current === currentOrder.id
+    ) return;
+    openedRedirectOrderRef.current = currentOrder.id;
+    onOpenRedirect(currentOrder.instructions.url);
+  }, [currentOrder, onOpenRedirect]);
 
   async function requestQuote() {
     if (busy || draft || !method || !positiveDecimal(amount)) return;
@@ -123,6 +134,9 @@ export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey,
     finally { setBusy(false); }
   }
 
+  if (currentOrder?.instructions?.kind === "redirect") {
+    return <OrderStatus order={currentOrder} onBack={onBack} />;
+  }
   if (currentOrder?.instructions && currentOrder.expectedTokenAmountAtomic && !showInstructions) {
     return <ProviderEconomicsReview binding={binding} order={currentOrder} onContinue={() => setShowInstructions(true)} />;
   }
