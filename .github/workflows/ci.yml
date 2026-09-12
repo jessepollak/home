@@ -124,6 +124,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
       ACTION_PG_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
       FUNDING_PG_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
     steps:
@@ -137,6 +138,9 @@ jobs:
 
       - name: Install
         run: bun install --frozen-lockfile
+
+      - name: Apply the Home database schema
+        run: bun run --cwd apps/web db:migrate
 
       - name: Test actions schema and funding stores against disposable PostgreSQL
         run: bun test apps/web/server/actions/store.postgres.test.ts apps/web/server/funding/core/postgres-store.integration.test.ts

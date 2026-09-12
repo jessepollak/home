@@ -11,7 +11,7 @@
     "test": "bun test --max-concurrency 1",
     "test:browser-smoke": "playwright test --config playwright.config.ts",
     "test:browser-install": "playwright install --with-deps chromium webkit",
-    "funding:migrate": "bun --conditions=react-server ./server/funding/migrate.ts"
+    "db:migrate": "bun --conditions=react-server ./server/db/migrate.ts"
   },
   "dependencies": {
     "@base-org/account": "2.5.10",

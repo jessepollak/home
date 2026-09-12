@@ -16,19 +16,17 @@ const calls = [{ to: owner.address, data: "0x1234" as const, value: "0" }];
 describePostgres("actions schema and store", () => {
   beforeAll(async () => {
     client = new Bun.SQL(connectionString!) as unknown as BunSqlClient;
-    await client.unsafe("DROP TABLE IF EXISTS actions; DROP TABLE IF EXISTS user_settings");
     store = new ActionsStore(bunExecutor(client));
-    await store.ensureSchema();
   });
-  beforeEach(async () => { await client.unsafe("TRUNCATE actions, user_settings"); });
+  beforeEach(async () => { await client.unsafe("TRUNCATE actions"); });
   afterAll(async () => {
-    await client?.unsafe("DROP TABLE IF EXISTS actions; DROP TABLE IF EXISTS user_settings");
+    await client?.unsafe("TRUNCATE actions");
     await client?.close();
   });
 
-  test("creates only the reset tables and exact actions columns", async () => {
-    const tables = Array.from(await client.unsafe("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('actions','user_settings') ORDER BY table_name")) as Array<{ table_name: string }>;
-    expect(tables.map(({ table_name }) => table_name)).toEqual(["actions", "user_settings"]);
+  test("uses the migrate-first actions schema with migration tracking", async () => {
+    const tables = Array.from(await client.unsafe("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('actions','schema_migrations') ORDER BY table_name")) as Array<{ table_name: string }>;
+    expect(tables.map(({ table_name }) => table_name)).toEqual(["actions", "schema_migrations"]);
     const columns = Array.from(await client.unsafe("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'actions' ORDER BY ordinal_position")) as Array<{ column_name: string }>;
     expect(columns.map(({ column_name }) => column_name)).toEqual([
       "id", "owner_key", "provider", "kind", "summary", "pending", "created_at",

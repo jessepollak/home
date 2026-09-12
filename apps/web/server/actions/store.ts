@@ -10,28 +10,6 @@ import {
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
 
-export const ACTIONS_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS actions (
-  id uuid primary key,
-  owner_key text not null,
-  provider text not null,
-  kind text not null,
-  summary jsonb not null,
-  pending jsonb,
-  created_at timestamptz not null default now(),
-  confirmed_at timestamptz,
-  provider_handle text,
-  transaction_hash text,
-  handle_recorded_at timestamptz
-);
-CREATE INDEX IF NOT EXISTS actions_owner_recent
-  ON actions (owner_key, confirmed_at desc) WHERE confirmed_at IS NOT NULL;
-CREATE TABLE IF NOT EXISTS user_settings (
-  owner_key text primary key,
-  country text,
-  display_currency text,
-  updated_at timestamptz not null default now()
-);`;
-
 export type ActionSummary = {
   title: string;
   amounts: unknown[];
@@ -109,18 +87,7 @@ function normalizeActionRowOrNull(row: RawActionRow | undefined): ActionRow | nu
 let runtimeStore: ActionsStore | null = null;
 
 export class ActionsStore {
-  private schemaReady: Promise<void> | null = null;
-
   constructor(private readonly sql: SqlExecutor) {}
-
-  async ensureSchema(): Promise<void> {
-    this.schemaReady ??= this.sql.transaction(async (tx) => {
-      for (const statement of ACTIONS_SCHEMA_SQL.split(";").map((value) => value.trim()).filter(Boolean)) {
-        await tx.query(statement);
-      }
-    });
-    return this.schemaReady;
-  }
 
   async insert(input: {
     id: string;
@@ -130,7 +97,6 @@ export class ActionsStore {
     pending: PendingAction;
     createdAt: string;
   }): Promise<void> {
-    await this.ensureSchema();
     await this.sql.query(
       `INSERT INTO actions (id, owner_key, provider, kind, summary, pending, created_at)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::timestamptz)`,
@@ -140,7 +106,6 @@ export class ActionsStore {
   }
 
   async get(owner: MoneyActionOwner, id: string): Promise<ActionRow | null> {
-    await this.ensureSchema();
     const result = await this.sql.query<RawActionRow>(
       `SELECT * FROM actions WHERE id = $1 AND owner_key = $2`,
       [id, actionOwnerKey(owner)],
@@ -149,7 +114,6 @@ export class ActionsStore {
   }
 
   async confirm(owner: MoneyActionOwner, id: string, finalCalls?: MoneyActionCall[]): Promise<ActionRow | null> {
-    await this.ensureSchema();
     return this.sql.transaction(async (tx) => {
       const selected = await tx.query<RawActionRow>(
         `SELECT * FROM actions WHERE id = $1 AND owner_key = $2 FOR UPDATE`,
@@ -181,7 +145,6 @@ export class ActionsStore {
     id: string,
     input: { providerHandle?: string; transactionHash?: string },
   ): Promise<ActionRow | null> {
-    await this.ensureSchema();
     const result = await this.sql.query<RawActionRow>(
       `UPDATE actions SET
          provider_handle = COALESCE(provider_handle, $3),
@@ -197,7 +160,6 @@ export class ActionsStore {
   }
 
   async list(owner: MoneyActionOwner): Promise<ActionRow[]> {
-    await this.ensureSchema();
     const key = actionOwnerKey(owner);
     await this.sql.query(
       `DELETE FROM actions WHERE owner_key = $1 AND confirmed_at IS NULL AND created_at < now() - interval '1 hour'`,
