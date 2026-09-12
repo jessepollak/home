@@ -55,6 +55,7 @@ export const ripioProvider: FundingProvider = {
         amount: fee.amount,
         currency: fee.currency,
       })),
+      feesKnown: true,
       expiresAt: quote.expiration,
     };
   },

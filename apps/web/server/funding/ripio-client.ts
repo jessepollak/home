@@ -173,13 +173,10 @@ export function createRipioClient(country: RipioCountry, options: {
       throw new RipioProviderError("unauthorized", response.status);
     }
     if (!response.ok) {
-      const uncertainCreate = create && (
-        response.status >= 500
-        || response.status === 408
-        || response.status === 409
-        || response.status === 425
-        || response.status === 429
-      );
+      // Only Ripio's documented 400 validation rejection proves no order was
+      // accepted. Redirects, conflicts, rate limits, undocumented 422s, and
+      // server failures may follow a committed create and are ambiguous.
+      const uncertainCreate = create && response.status !== 400;
       throw new RipioProviderError(
         uncertainCreate ? "ambiguous-create" : response.status < 500 ? "invalid-request" : "unavailable",
         response.status,

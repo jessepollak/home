@@ -193,26 +193,31 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
           name: "transport loss",
           response: async () => { throw new TypeError("connection lost"); },
         },
-        ...[302, 408, 409, 422, 503].map((status) => ({
+        ...[302, 408, 409, 422, 429, 503].map((status) => ({
           name: `HTTP ${status}`,
           response: async () => new Response("uncertain", { status }),
         })),
       ];
       for (const failure of failures) {
         let calls = 0;
+        let createCalls = 0;
         const ctx = createProviderContext({
           manifest: options.provider.manifest,
           region: options.region,
           paymentMethodId: options.paymentMethodId,
           env: options.env,
-          fetchImplementation: (async () => {
+          fetchImplementation: (async (input: RequestInfo | URL) => {
             calls += 1;
+            const url = input instanceof Request ? input.url : String(input);
+            const isCreate = !options.createRequestPath || new URL(url).pathname === options.createRequestPath;
+            if (!isCreate) return options.successResponse(calls, url);
+            createCalls += 1;
             return failure.response();
           }) as unknown as typeof fetch,
         });
         const result = await options.provider.createOrder(options.intent, ctx);
         expect(result, failure.name).toEqual({ outcome: "ambiguous" });
-        expect(calls, failure.name).toBe(1);
+        expect(createCalls, failure.name).toBe(1);
       }
     });
 

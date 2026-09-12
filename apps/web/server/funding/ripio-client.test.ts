@@ -186,7 +186,7 @@ describe("Ripio production REST client", () => {
   });
 
   test("classifies uncertain create HTTP statuses as ambiguous after one create call", async () => {
-    for (const status of [408, 409, 425, 429, 500, 503]) {
+    for (const status of [302, 408, 409, 422, 425, 429, 500, 503]) {
       let createCalls = 0;
       const client = createRipioClient("AR", { env, fetchImplementation: async (input) => {
         if (new URL(String(input)).pathname === "/oauth2/token/") return token();
@@ -196,6 +196,17 @@ describe("Ripio production REST client", () => {
       await expect(client.createCustomer({ email: "person@example.com" })).rejects.toMatchObject({ code: "ambiguous-create", status });
       expect(createCalls).toBe(1);
     }
+  });
+
+  test("keeps the documented 400 validation response definitive", async () => {
+    let createCalls = 0;
+    const client = createRipioClient("AR", { env, fetchImplementation: async (input) => {
+      if (new URL(String(input)).pathname === "/oauth2/token/") return token();
+      createCalls += 1;
+      return new Response("validation rejected", { status: 400 });
+    } });
+    await expect(client.createCustomer({ email: "person@example.com" })).rejects.toMatchObject({ code: "invalid-request", status: 400 });
+    expect(createCalls).toBe(1);
   });
 
   test("classifies disconnected creates as ambiguous and never retries", async () => {
