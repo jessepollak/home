@@ -1,3 +1,6 @@
+-- Candidate-only #301 clean-install migration. As of 2026-09-12 this schema has
+-- never shipped on origin/main or to a deployment. If that changes, replace edits
+-- to this file with a new additive migration before applying further revisions.
 CREATE TABLE IF NOT EXISTS funding_orders (
   id uuid PRIMARY KEY,
   owner_subject text NOT NULL,

@@ -16,24 +16,43 @@ export type FundingQuoteClaims = {
   customerRef: string | null;
 };
 
+export type AuthenticatedFundingQuote = {
+  claims: FundingQuoteClaims;
+  canonicalToken: string;
+};
+
 export function signFundingQuote(claims: FundingQuoteClaims, secret: string): string {
   requireSecret(secret);
   const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
   return `${payload}.${createHmac("sha256", secret).update(payload).digest("base64url")}`;
 }
 
-export function verifyFundingQuote(token: string, secret: string, now = Date.now()): FundingQuoteClaims | null {
+export function authenticateFundingQuote(token: string, secret: string): AuthenticatedFundingQuote | null {
   try {
     requireSecret(secret);
     const [payload, signature, extra] = token.split(".");
     if (!payload || !signature || extra || payload.length > 16_384) return null;
-    const expected = createHmac("sha256", secret).update(payload).digest();
+    if (!/^[A-Za-z0-9_-]+$/.test(payload) || !/^[A-Za-z0-9_-]{43}$/.test(signature)) return null;
+    const payloadBytes = Buffer.from(payload, "base64url");
     const supplied = Buffer.from(signature, "base64url");
+    if (payloadBytes.toString("base64url") !== payload || supplied.toString("base64url") !== signature) return null;
+    const expected = createHmac("sha256", secret).update(payload).digest();
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return null;
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as unknown;
-    if (!validClaims(claims) || Date.parse(claims.quote.expiresAt) <= now) return null;
-    return claims;
+    const claims = JSON.parse(payloadBytes.toString("utf8")) as unknown;
+    if (!validClaims(claims)) return null;
+    return { claims, canonicalToken: `${payload}.${signature}` };
   } catch { return null; }
+}
+
+export function verifyFundingQuote(token: string, secret: string, now = Date.now()): FundingQuoteClaims | null {
+  const authenticated = authenticateFundingQuote(token, secret);
+  return authenticated && !isFundingQuoteExpired(authenticated.claims, now)
+    ? authenticated.claims
+    : null;
+}
+
+export function isFundingQuoteExpired(claims: FundingQuoteClaims, now = Date.now()): boolean {
+  return Date.parse(claims.quote.expiresAt) <= now;
 }
 
 function validClaims(value: unknown): value is FundingQuoteClaims {

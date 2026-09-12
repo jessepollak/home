@@ -23,7 +23,7 @@ function setup(outcome: "created" | "ambiguous" = "created") {
     async getOrder() { return { state: observation, providerStatus: observation, transactionHash: observation === "sent" ? `0x${"2".repeat(64)}` : null }; },
   };
   const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32) }, currentBaseBlock: async () => { blockReads += 1; return "500"; }, verifyReceipt: async (_order, hash) => ({ transactionHash: hash, logIndex: 4 }), now: () => date });
-  return { core, dispatches: () => dispatches, blockReads: () => blockReads, sent() { observation = "sent"; date = new Date("2026-09-12T00:00:10.000Z"); } };
+  return { core, dispatches: () => dispatches, blockReads: () => blockReads, advance(minutes: number) { date = new Date(date.getTime() + minutes * 60_000); }, sent() { observation = "sent"; date = new Date("2026-09-12T00:00:10.000Z"); } };
 }
 
 describe("FundingCore", () => {
@@ -38,6 +38,33 @@ describe("FundingCore", () => {
     expect(fixture.dispatches()).toBe(1);
     expect(fixture.blockReads()).toBe(1);
     expect(first.state).toBe("awaiting-payment");
+  });
+
+  test("rejects noncanonical token aliases without a second block read or dispatch", async () => {
+    const fixture = setup();
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" });
+    await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    await expect(fixture.core.createOrder(session, { quoteToken: `${quote.quoteToken}=` }, "https://home.example")).rejects.toMatchObject({ code: "INVALID_QUOTE_TOKEN" });
+    expect(fixture.blockReads()).toBe(1);
+    expect(fixture.dispatches()).toBe(1);
+  });
+
+  test("recovers an existing reservation after token expiry but refuses a new expired intent", async () => {
+    const fixture = setup();
+    const existingQuote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" });
+    const created = await fixture.core.createOrder(session, { quoteToken: existingQuote.quoteToken }, "https://home.example");
+    fixture.advance(6);
+    const recovered = await fixture.core.createOrder(session, { quoteToken: existingQuote.quoteToken }, "https://home.example");
+    expect(recovered.id).toBe(created.id);
+    expect(fixture.blockReads()).toBe(1);
+    expect(fixture.dispatches()).toBe(1);
+
+    const fresh = setup();
+    const expiredNew = await fresh.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" });
+    fresh.advance(6);
+    await expect(fresh.core.createOrder(session, { quoteToken: expiredNew.quoteToken }, "https://home.example")).rejects.toMatchObject({ code: "INVALID_QUOTE_TOKEN" });
+    expect(fresh.blockReads()).toBe(0);
+    expect(fresh.dispatches()).toBe(0);
   });
 
   test("never retries an ambiguous create", async () => {
@@ -73,6 +100,9 @@ describe("FundingCore", () => {
     const fixture = setup();
     const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" });
     await expect(fixture.core.createOrder(session, { quoteToken: `${quote.quoteToken}x` }, "https://home.example")).rejects.toEqual(expect.objectContaining({ code: "INVALID_QUOTE_TOKEN" }));
+    const otherOwner = { ...session, user: { subject: "other-user" } };
+    await expect(fixture.core.createOrder(otherOwner, { quoteToken: quote.quoteToken }, "https://home.example")).rejects.toMatchObject({ code: "INVALID_QUOTE_TOKEN" });
+    expect(fixture.blockReads()).toBe(0);
     expect(fixture.dispatches()).toBe(0);
   });
 });

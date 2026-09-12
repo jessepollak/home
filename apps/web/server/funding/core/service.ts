@@ -5,7 +5,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { getFundingAsset } from "@/shared/funding/assets";
 import type { FundingProvider, Observation, Quote } from "@/shared/funding/provider-contract";
 import { createProviderContext } from "./provider-context";
-import { signFundingQuote, verifyFundingQuote } from "./quote-token";
+import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
 
 export type ReceiptMatch = { transactionHash: `0x${string}`; logIndex: number } | null;
@@ -93,22 +93,28 @@ export class FundingCore {
 
   async createOrder(session: VerifiedAccountSession, body: unknown, returnOrigin: string) {
     if (!record(body) || Object.keys(body).length !== 1 || typeof body.quoteToken !== "string" || !session.smartAccount) throw new FundingCoreError("INVALID_ORDER_REQUEST", 400);
-    const claims = verifyFundingQuote(body.quoteToken, this.quoteSecret(), this.now().getTime());
-    if (!claims || claims.subject !== session.user.subject || claims.accountProvider !== session.accountProvider || claims.destination !== session.smartAccount.address) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
+    const authenticated = authenticateFundingQuote(body.quoteToken, this.quoteSecret());
+    const claims = authenticated?.claims;
+    if (!authenticated || !claims || claims.subject !== session.user.subject || claims.accountProvider !== session.accountProvider || claims.destination !== session.smartAccount.address) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
     const provider = this.provider(claims.providerId);
     const binding = provider?.manifest.bindings.find((candidate) => candidate.region === claims.region && candidate.assetId === claims.assetId && candidate.paymentMethods.some((method) => method.id === claims.paymentMethod));
-    if (!provider || !binding || !binding.env.every((name) => Boolean(this.env[name]?.trim()))) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
+    if (!provider || !binding || !getFundingAsset(claims.assetId)) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
     const owner = ownerFor(session);
-    const intentDigest = createHash("sha256").update(body.quoteToken).digest("hex");
+    const intentDigest = createHash("sha256").update(authenticated.canonicalToken).digest("hex");
     const existing = await this.deps.store.getByIntent(owner, intentDigest);
-    if (existing) return publicOrder(existing);
+    if (existing) {
+      if (existing.quoteToken !== authenticated.canonicalToken) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
+      return publicOrder(existing);
+    }
+    if (isFundingQuoteExpired(claims, this.now().getTime())) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
+    if (!binding.env.every((name) => Boolean(this.env[name]?.trim()))) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
     const id = randomUUID();
     const timestamp = this.now().toISOString();
     const reserved = await this.deps.store.reserve({
       id, owner, destination: session.smartAccount.address, providerId: claims.providerId,
       region: claims.region, assetId: claims.assetId, paymentMethod: claims.paymentMethod,
       fiatAmount: claims.fiatAmount, intentDigest,
-      quote: claims.quote, quoteToken: body.quoteToken, customerRef: claims.customerRef,
+      quote: claims.quote, quoteToken: authenticated.canonicalToken, customerRef: claims.customerRef,
       creationBlock: await this.deps.currentBaseBlock(), createdAt: timestamp,
     });
     if (!reserved.created) return publicOrder(reserved.order);
@@ -219,7 +225,7 @@ export function publicOrder(order: FundingOrder) {
   return { id: order.id, providerId: order.providerId, region: order.region, assetId: order.assetId, paymentMethod: order.paymentMethod, fiatAmount: order.fiatAmount, quote: order.quote, quoteToken: order.quoteToken, state: order.state, expectedTokenAmountAtomic: order.expectedTokenAmountAtomic, fees: order.fees, expiresAt: order.expiresAt, instructions: order.instructions, providerStatus: order.providerStatus, transactionHash: order.transactionHash, createdAt: order.createdAt, updatedAt: order.updatedAt };
 }
 function ownerFor(session: VerifiedAccountSession): FundingOrderOwner { return { subject: session.user.subject, accountProvider: session.accountProvider }; }
-function localOneToOneQuote(fiatAmount: string, decimals: number, now: Date): Quote { return { fiatAmount, tokenAmountAtomic: decimalToAtomic(fiatAmount, decimals), fees: [], expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString() }; }
+function localOneToOneQuote(fiatAmount: string, decimals: number, now: Date): Quote { return { fiatAmount, tokenAmountAtomic: decimalToAtomic(fiatAmount, decimals), fees: [], feesKnown: false, expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString() }; }
 function decimalToAtomic(value: string, decimals: number): string { const match = /^(0|[1-9][0-9]*)(?:\.([0-9]+))?$/.exec(value); if (!match || (match[2]?.length ?? 0) > decimals || !/[1-9]/.test(value)) throw new FundingCoreError("INVALID_AMOUNT", 400); return `${match[1]}${(match[2] ?? "").padEnd(decimals, "0")}`.replace(/^0+(?=\d)/, ""); }
 function validAtomic(value: string) { return /^(0|[1-9][0-9]*)$/.test(value); }
 function parseQuoteRequest(value: unknown): { providerId: string; region: string; paymentMethod: string; fiatAmount: string; kycFields: Record<string, string> | null } | null {

@@ -57,6 +57,31 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     expect((await store.getOwned(input.id, input.owner))?.state).toBe("refunded");
   });
 
+  test("simultaneous observation, refund and receipt contenders keep one monotonic terminal winner", async () => {
+    const input = reservation();
+    await store.reserve(input);
+    const dispatched = await store.completeDispatch(input.id, dispatch);
+    const contenders = await Promise.all([
+      store.applyObservation(input.id, { state: "settling", providerStatus: "processing", expectedVersion: dispatched.version, updatedAt: "2026-09-12T00:00:02.000Z" }),
+      store.applyObservation(input.id, { state: "refunded", providerStatus: "refund-completed", expectedVersion: dispatched.version, updatedAt: "2026-09-12T00:00:02.000Z" }),
+      store.claimReceipt(input.id, { transactionHash: `0x${"4".repeat(64)}`, logIndex: 9, expectedVersion: dispatched.version, updatedAt: "2026-09-12T00:00:02.000Z" }),
+    ]);
+    expect(contenders.filter(Boolean)).toHaveLength(1);
+    let current = (await store.getOwned(input.id, input.owner))!;
+    if (current.state === "settling") {
+      const terminals = await Promise.all([
+        store.applyObservation(input.id, { state: "refunded", providerStatus: "refund-completed", expectedVersion: current.version, updatedAt: "2026-09-12T00:00:03.000Z" }),
+        store.claimReceipt(input.id, { transactionHash: `0x${"4".repeat(64)}`, logIndex: 9, expectedVersion: current.version, updatedAt: "2026-09-12T00:00:03.000Z" }),
+      ]);
+      expect(terminals.filter(Boolean)).toHaveLength(1);
+      current = (await store.getOwned(input.id, input.owner))!;
+    }
+    expect(["refunded", "received"]).toContain(current.state);
+    expect(current.instructions).toBeNull();
+    expect(await store.applyObservation(input.id, { state: "sent-unverified", providerStatus: "late", expectedVersion: current.version, updatedAt: "2026-09-12T00:00:04.000Z" })).toBeNull();
+    expect((await store.getOwned(input.id, input.owner))?.state).toBe(current.state);
+  });
+
   test("receipt claims are unique, immutable and atomic with received", async () => {
     const first = reservation();
     const second = reservation();
