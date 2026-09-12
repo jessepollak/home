@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { Button, Heading, IconButton, Text } from "@home/ui";
+import { ArrowRightIcon } from "@home/ui/icons";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
@@ -47,10 +49,15 @@ export function CategoryScreen({
     >
       {hosted ? null : (
         <header className={styles.screenHeader}>
-          <button type="button" className={styles.back} onClick={onBack} aria-label="Back to Invest">
-            <BackIcon />
-          </button>
-          <h2 id="invest-category-title">{title}</h2>
+          <IconButton
+            icon={ArrowRightIcon}
+            className={styles.back}
+            onClick={onBack}
+            aria-label="Back to Invest"
+          />
+          <Heading level={2} textStyle="section-title" id="invest-category-title">
+            {title}
+          </Heading>
         </header>
       )}
       {assets.length > 0 ? (
@@ -66,13 +73,13 @@ export function CategoryScreen({
           ))}
         </ul>
       ) : (
-        <p className={styles.shelfStatus}>
+        <Text className={styles.shelfStatus} textStyle="metadata" tone="muted">
           {status === "error" || status === "unavailable"
             ? "Unavailable"
             : status === "loading"
               ? "Loading"
               : "None trending"}
-        </p>
+        </Text>
       )}
       {showPagination && pagination ? (
         <MemePaginationFooter
@@ -128,9 +135,9 @@ function MemePaginationFooter({
 
   if (exhausted) {
     return (
-      <p className={styles.end} role="status">
+      <Text className={styles.end} textStyle="metadata" tone="muted" role="status">
         End of trending memes
-      </p>
+      </Text>
     );
   }
 
@@ -143,23 +150,23 @@ function MemePaginationFooter({
         </div>
       ) : null}
       {loadMoreError ? (
-        <p className={styles.loadMoreError} role="alert">
+        <Text className={styles.loadMoreError} textStyle="metadata" role="alert">
           More memes could not be loaded. Your current results are unchanged.
-        </p>
+        </Text>
       ) : null}
       {loadMoreError ? (
-        <button
+        <Button
           className={styles.loadMoreButton}
-          type="button"
+          variant="secondary"
           onClick={onRetryLoadMore}
         >
           Retry loading memes
-        </button>
+        </Button>
       ) : null}
       {autoLoadPaused ? (
-        <p className={styles.loadMoreNotice} role="status">
+        <Text className={styles.loadMoreNotice} textStyle="metadata" tone="muted" role="status">
           No additional memes were found.
-        </p>
+        </Text>
       ) : null}
       <div
         key={nextOffset}
@@ -169,19 +176,5 @@ function MemePaginationFooter({
         aria-hidden="true"
       />
     </div>
-  );
-}
-
-export function BackIcon() {
-  return (
-    <svg viewBox="0 0 18 18" fill="none" aria-hidden="true">
-      <path
-        d="M11.5 3.5 6 9l5.5 5.5"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }

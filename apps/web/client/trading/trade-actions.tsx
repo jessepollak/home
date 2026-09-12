@@ -1,5 +1,6 @@
 "use client";
 
+import { Button, Text } from "@home/ui";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { InvestAsset } from "@/config/invest-assets";
 import { getTradeAssetStatus } from "@/shared/trading/assets";
@@ -17,9 +18,15 @@ export function TradeActions({
   if (!status) return null;
   if (status.status === "eligibility-required") {
     return (
-      <div className={layout === "sticky" ? styles.lockedSticky : styles.locked} role="note">
+      <Text
+        as="div"
+        className={layout === "sticky" ? styles.lockedSticky : styles.locked}
+        textStyle="metadata"
+        tone="muted"
+        role="note"
+      >
         Stocks aren&apos;t available yet.
-      </div>
+      </Text>
     );
   }
 
@@ -29,10 +36,12 @@ export function TradeActions({
         className={layout === "sticky" ? styles.stickyActions : styles.rowActions}
         aria-label={`Trade ${asset.displayName}`}
       >
-        <button type="button" disabled>Buy</button>
-        <button type="button" disabled>Sell</button>
+        <Button disabled>Buy</Button>
+        <Button variant="secondary" disabled>Sell</Button>
       </div>
-      <p role="note">Swaps aren&apos;t available right now.</p>
+      <Text as="div" textStyle="metadata" tone="muted" role="note">
+        Swaps aren&apos;t available right now.
+      </Text>
     </div>
   );
 }

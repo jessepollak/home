@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Text } from "@home/ui";
 import { Liveline, type LivelinePoint } from "liveline";
 import {
   MARKET_PRICE_RANGES,
@@ -50,8 +51,8 @@ export function PriceChart({
   return (
     <div className={styles.chartBlock}>
       <div className={styles.chartCaption}>
-        <span>Price history</span>
-        <strong>USD</strong>
+        <Text as="span" textStyle="metadata" tone="muted">Price history</Text>
+        <Text as="strong" textStyle="metadata">USD</Text>
       </div>
       <div className={styles.ranges} role="group" aria-label="Price range">
         {MARKET_PRICE_RANGES.map((option) => (
@@ -134,11 +135,11 @@ function ChartBody({
         />
       ) : null}
       {unavailable ? (
-        <p className={styles.chartMessage} role="status">
+        <Text className={styles.chartMessage} textStyle="metadata" tone="muted" role="status">
           {history.status === "error"
             ? "Price history unavailable."
             : "No price history for this range."}
-        </p>
+        </Text>
       ) : null}
     </div>
   );
