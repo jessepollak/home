@@ -1,14 +1,11 @@
 .tradeUnavailable,
 .tradeUnavailableSticky {
   display: grid;
-  gap: 8px;
+  gap: var(--home-ui-space-2);
 }
 
-.tradeUnavailable > p,
-.tradeUnavailableSticky > p {
-  margin: 0;
-  color: #686f7b;
-  font-size: 0.68rem;
+.tradeUnavailable > [role="note"],
+.tradeUnavailableSticky > [role="note"] {
   text-align: right;
 }
 
@@ -16,42 +13,18 @@
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-  border-bottom: 1px solid rgba(10, 11, 13, 0.11);
-  padding: 0 2px 8px 43px;
-}
-
-.rowActions button {
-  min-height: 44px;
-  border: 1px solid rgba(10, 11, 13, 0.18);
-  border-radius: 8px;
-  background: var(--home-ui-color-surface);
-  color: var(--home-ui-color-text);
-  cursor: not-allowed;
-  font: inherit;
-  font-size: 0.68rem;
-  font-weight: 720;
-  opacity: 0.48;
-  padding: 0 12px;
-}
-
-.rowActions button:first-child {
-  border-color: var(--home-ui-color-action);
-  background: var(--home-ui-color-action);
-  color: var(--home-ui-color-on-action);
+  border-bottom: 1px solid var(--separator);
+  padding: 0 2px var(--home-ui-space-2) 43px;
 }
 
 .locked {
-  border-bottom: 1px solid rgba(10, 11, 13, 0.11);
+  border-bottom: 1px solid var(--separator);
   padding: 0 2px 9px 43px;
-  color: #686f7b;
-  font-size: 0.62rem;
   text-align: right;
 }
 
 .lockedSticky {
   margin-top: 22px;
-  color: #686f7b;
-  font-size: 0.78rem;
 }
 
 .stickyActions {
@@ -61,29 +34,10 @@
   display: grid;
   flex-shrink: 0;
   grid-template-columns: 1.15fr 1fr;
-  gap: 8px;
-  margin-top: 12px;
-  background: var(--home-canvas);
-  padding: 12px 0 4px;
-}
-
-.stickyActions button {
-  min-height: 54px;
-  border: 1px solid var(--home-hairline);
-  border-radius: var(--control-radius);
-  background: var(--home-white);
-  color: var(--home-ink);
-  cursor: not-allowed;
-  font: inherit;
-  font-size: 0.92rem;
-  font-weight: 720;
-  opacity: 0.48;
-}
-
-.stickyActions button:first-child {
-  border-color: var(--home-blue);
-  background: var(--home-blue);
-  color: var(--home-white);
+  gap: var(--home-ui-space-2);
+  margin-top: var(--home-ui-space-3);
+  padding: var(--home-ui-space-3) 0 var(--home-ui-space-1);
+  background: var(--home-ui-color-canvas);
 }
 
 @media (max-width: 719px) {

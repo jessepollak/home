@@ -1,4 +1,4 @@
-import { Stack } from "@home/ui";
+import { Heading, Stack } from "@home/ui";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
@@ -48,7 +48,9 @@ export function InvestHub({
     >
       {hosted ? null : (
         <header className={styles.header}>
-          <h2 id="invest-title">Invest</h2>
+          <Heading level={2} textStyle="page-title" id="invest-title">
+            Invest
+          </Heading>
         </header>
       )}
       <Stack className={styles.shelves} space="3">

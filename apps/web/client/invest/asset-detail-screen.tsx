@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { Heading, IconButton, Text } from "@home/ui";
+import { ArrowRightIcon } from "@home/ui/icons";
+import { MoneyTicker } from "@home/ui/money-ticker";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import {
@@ -12,7 +15,6 @@ import type { MarketDataState } from "@/shared/invest/invest-market";
 import { moneyChangeTone } from "@/shared/formatting";
 import { useMarketDisplay } from "./use-market-display";
 import { AssetIcon } from "./asset-icon";
-import { BackIcon } from "./category-screen";
 import { PriceChart } from "./price-chart";
 import { usePriceHistory } from "./use-price-history";
 import type { MarketPriceRange } from "@/shared/invest/history-contract";
@@ -34,17 +36,22 @@ export function AssetDetailStatusScreen({
     >
       {hosted ? null : (
         <header className={styles.screenHeader}>
-          <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
-            <BackIcon />
-          </button>
-          <h2 id="invest-asset-status-title">Asset details</h2>
+          <IconButton
+            icon={ArrowRightIcon}
+            className={styles.back}
+            onClick={onBack}
+            aria-label="Back"
+          />
+          <Heading level={2} textStyle="section-title" id="invest-asset-status-title">
+            Asset details
+          </Heading>
         </header>
       )}
-      <p className={styles.shelfStatus} role="status">
+      <Text className={styles.shelfStatus} textStyle="metadata" tone="muted" role="status">
         {status === "loading"
           ? "Loading asset details."
           : "This Base asset is currently unavailable."}
-      </p>
+      </Text>
     </section>
   );
 }
@@ -75,26 +82,44 @@ export function AssetDetailScreen({
     >
       {hosted ? null : (
         <header className={styles.screenHeader}>
-          <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
-            <BackIcon />
-          </button>
+          <IconButton
+            icon={ArrowRightIcon}
+            className={styles.back}
+            onClick={onBack}
+            aria-label="Back"
+          />
           <span className={styles.detailIdentity}>
             <AssetIcon mark={mark} />
-            <h2 id="invest-asset-title">{asset.displayName}</h2>
+            <Heading level={2} textStyle="section-title" id="invest-asset-title">
+              {asset.displayName}
+            </Heading>
           </span>
         </header>
       )}
 
       <div className={styles.priceHeader}>
-        <strong data-tone={price.tone}>
-          {price.tone === "ready" ? price.value : price.detail}
-        </strong>
+        <Text
+          as="strong"
+          textStyle={price.tone === "ready" ? "amount" : "section-title"}
+          tone={price.tone === "ready" ? "default" : "muted"}
+          className={styles.price}
+          data-tone={price.tone}
+        >
+          {price.tone === "ready" ? <MoneyTicker value={price.value} /> : price.detail}
+        </Text>
         {change !== "—" ? (
-          <small className={styles.change} data-money-change={changeTone}>{change}</small>
+          <Text
+            as="small"
+            textStyle="secondary"
+            className={styles.change}
+            data-money-change={changeTone}
+          >
+            {change}
+          </Text>
         ) : null}
-        <span>
+        <Text as="span" textStyle="secondary" tone="muted">
           {asset.representation.tokenSymbol} · Base
-        </span>
+        </Text>
       </div>
 
       <PriceChart range={range} history={history} onRangeChange={setRange} />

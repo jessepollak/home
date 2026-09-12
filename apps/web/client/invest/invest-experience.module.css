@@ -4,31 +4,17 @@
   background: transparent;
 }
 
-.experience a:focus-visible,
-.experience button:focus-visible {
-  outline: 2px solid var(--home-blue);
-  outline-offset: 3px;
-}
-
 .header {
   display: grid;
-  gap: 4px;
-  padding: 2px 2px 12px;
-}
-
-.header h2 {
-  margin: 0;
-  font-size: clamp(1.25rem, 5vw, 1.625rem);
-  font-weight: 720;
-  letter-spacing: -0.045em;
-  line-height: 1.05;
+  gap: var(--home-ui-space-1);
+  padding: 2px 2px var(--home-ui-space-3);
 }
 
 .screenHeader {
   display: flex;
-  align-items: center;
-  gap: 10px;
   min-height: 48px;
+  align-items: center;
+  gap: var(--home-ui-space-2);
   padding: 2px 0 10px;
 }
 
@@ -37,37 +23,20 @@
   padding: 0 0 6px;
 }
 
-.screenHeader h2,
-.screenHeader h3 {
-  margin: 0;
-  font-size: 1.35rem;
-  font-weight: 720;
-  letter-spacing: -0.035em;
-}
-
-.back {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  place-items: center;
-  border: 0;
-  border-radius: var(--control-radius);
-  background: transparent;
+.back.back {
+  flex: 0 0 auto;
   color: var(--fg);
-  cursor: pointer;
-  padding: 0;
 }
 
 .back svg {
-  width: 18px;
-  height: 18px;
+  transform: rotate(180deg);
 }
 
 .detailIdentity {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: var(--home-ui-space-2);
 }
 
 .shelves {
@@ -78,40 +47,19 @@
   display: grid;
   gap: 2px;
   border: 1px solid var(--separator);
-  border-radius: var(--panel-radius);
-  padding: 10px 12px 8px;
+  border-radius: var(--home-ui-radius-surface);
+  padding: 10px var(--home-ui-space-3) var(--home-ui-space-2);
 }
 
 .shelfHeading {
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  padding: 2px 4px 6px;
-}
-
-.shelfHeading h3 {
-  margin: 0;
-  font-size: 0.98rem;
-  font-weight: 720;
-  letter-spacing: -0.03em;
-}
-
-.seeAll {
-  border: 0;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-  font-size: 0.78rem;
-  font-weight: 650;
-  padding: 8px 0;
-  transition: color var(--motion-chip) ease;
+  padding: 2px var(--home-ui-space-1);
 }
 
 .shelfStatus {
-  margin: 0;
-  padding: 10px 4px 8px;
-  color: var(--fg-muted);
-  font-size: 0.78rem;
-  font-weight: 600;
+  padding: 10px var(--home-ui-space-1) var(--home-ui-space-2);
+  font-weight: var(--home-ui-type-weight-strong);
 }
 
 .rows {
@@ -123,22 +71,21 @@
 
 .change {
   color: var(--fg-muted);
-  font-size: var(--home-ui-type-metadata-size);
   font-weight: var(--home-ui-type-weight-strong);
 }
 
 .change[data-money-change="positive"] {
-  color: var(--home-positive);
+  color: var(--home-ui-color-market-gain);
 }
 
 .change[data-money-change="negative"] {
-  color: var(--home-negative);
+  color: var(--home-ui-color-market-loss);
 }
 
 .detailExperience {
   display: flex;
-  flex-direction: column;
   min-height: calc(100svh - 12.5rem);
+  flex-direction: column;
   overflow-x: clip;
 }
 
@@ -150,60 +97,29 @@
 .priceHeader {
   display: grid;
   gap: 6px;
-  padding: 4px 2px 12px;
+  padding: var(--home-ui-space-1) 2px var(--home-ui-space-3);
 }
 
-.priceHeader strong {
-  color: var(--fg);
-  font-size: clamp(2.5rem, 10vw, 3rem);
-  font-weight: 700;
-  letter-spacing: -0.06em;
-  line-height: 0.92;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.priceHeader strong[data-tone="muted"],
-.priceHeader strong[data-tone="error"] {
-  color: var(--fg-muted);
-  font-size: 1.05rem;
-  font-weight: 650;
-  letter-spacing: -0.03em;
-  line-height: 1.2;
-}
-
-.priceHeader span {
-  color: var(--fg-muted);
-  font-size: 0.86rem;
-}
-
-.priceHeader .change {
-  font-size: 0.86rem;
-  font-weight: 650;
+.price {
   white-space: nowrap;
 }
 
 .chartBlock {
   display: flex;
+  min-height: 304px;
   flex: 1;
   flex-direction: column;
   gap: 10px;
-  min-height: 304px;
 }
 
 .chartCaption {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 0 4px;
-  color: var(--fg-muted);
-  font-size: 0.76rem;
-  font-weight: 650;
+  padding: 0 var(--home-ui-space-1);
 }
 
 .chartCaption strong {
-  color: var(--fg);
-  font-size: inherit;
   letter-spacing: 0.04em;
 }
 
@@ -217,46 +133,46 @@
 .ranges button {
   min-height: 34px;
   border: 1px solid transparent;
-  border-radius: var(--control-radius);
+  border-radius: var(--home-ui-radius-control);
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
-  font-size: 0.74rem;
-  font-weight: 700;
+  font-size: var(--home-ui-type-metadata-size);
+  font-weight: var(--home-ui-type-weight-strong);
   transition:
-    background-color var(--motion-chip) ease,
-    border-color var(--motion-chip) ease,
-    color var(--motion-chip) ease;
+    background-color var(--home-ui-motion-chip) var(--home-ui-easing-standard),
+    border-color var(--home-ui-motion-chip) var(--home-ui-easing-standard),
+    color var(--home-ui-motion-chip) var(--home-ui-easing-standard);
 }
 
 .ranges button[aria-pressed="true"] {
   border-color: var(--separator);
-  background: var(--home-canvas);
+  background: var(--home-ui-color-canvas);
   color: var(--fg);
 }
 
 .chartStage {
   position: relative;
   display: flex;
-  flex: 1 1 auto;
   width: calc(100% + 32px);
   min-height: 260px;
+  flex: 1 1 auto;
   margin-inline: -16px;
   overflow: hidden;
-  background: var(--home-canvas);
+  background: var(--home-ui-color-canvas);
 }
 
 .chartStage > div,
 .plotFrame > div {
-  flex: 1;
   min-width: 0;
   min-height: 260px;
+  flex: 1;
 }
 
 .plotFrame {
   position: absolute;
-  inset: 0;
   z-index: 1;
+  inset: 0;
   display: flex;
   min-height: 260px;
   overflow: hidden;
@@ -264,10 +180,10 @@
 
 .plotCover {
   position: absolute;
-  inset: 0;
   z-index: 3;
+  inset: 0;
   pointer-events: none;
-  transition: opacity var(--motion-tab) ease;
+  transition: opacity var(--home-ui-motion-tab) var(--home-ui-easing-standard);
 }
 
 .plotCover[data-fading="true"] {
@@ -276,21 +192,21 @@
 
 .plotCoverChip {
   overflow: hidden;
-  background: color-mix(in srgb, var(--home-gray-100) 38%, transparent);
+  background: color-mix(in srgb, var(--home-ui-color-border) 38%, transparent);
 }
 
 .plotCoverChip::after {
-  content: "";
   position: absolute;
   inset: 0;
-  transform: translateX(-100%);
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgb(255 255 255 / 0.55) 50%,
+    color-mix(in srgb, var(--home-ui-color-surface) 55%, transparent) 50%,
     transparent 100%
   );
-  animation: home-shimmer 1.2s ease-in-out infinite;
+  content: "";
+  transform: translateX(-100%);
+  animation: home-ui-skeleton-shimmer 1.2s var(--home-ui-easing-standard) infinite;
 }
 
 .chartMessage {
@@ -298,58 +214,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  margin: 0;
-  color: var(--fg-muted);
-  font-size: 0.8rem;
   pointer-events: none;
-}
-
-.cta {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: 1.15fr 1fr;
-  gap: 8px;
-  margin-top: 12px;
-  background: var(--home-canvas);
-  padding: 12px 0 4px;
-}
-
-.cta button {
-  min-height: 54px;
-  border-radius: var(--control-radius);
-  cursor: pointer;
-  font-size: 0.92rem;
-  font-weight: 720;
-  transition: transform var(--motion-press) ease;
-}
-
-.cta button:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.cta button:first-child {
-  border: 1px solid var(--home-blue);
-  background: var(--home-blue);
-  color: var(--home-ui-color-on-action);
-}
-
-.cta button:last-child {
-  border: 1px solid var(--separator);
-  background: var(--home-white);
-  color: var(--fg);
-}
-
-.cta button:disabled {
-  cursor: not-allowed;
-  opacity: 0.48;
-}
-
-.locked {
-  margin-top: 22px;
-  color: var(--fg-muted);
-  font-size: 0.78rem;
 }
 
 .pagination {
@@ -358,59 +223,35 @@
 
 .loadMoreButton {
   width: 100%;
-  min-height: 42px;
-  border: 1px solid var(--separator);
-  border-radius: var(--control-radius);
-  background: var(--home-white);
-  color: var(--fg);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.loadMoreButton:disabled {
-  cursor: wait;
-  opacity: 0.58;
-}
-
-.loadMoreButton:focus-visible {
-  outline: 2px solid var(--home-blue);
-  outline-offset: 3px;
 }
 
 .loadingMore {
   display: flex;
-  min-height: 42px;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
   gap: 10px;
   color: var(--fg-muted);
-  font-size: 0.78rem;
+  font-size: var(--home-ui-type-metadata-size);
 }
 
 .spinner {
   width: 17px;
   height: 17px;
   flex: 0 0 auto;
-  border: 2px solid rgba(0, 82, 255, 0.2);
+  border: 2px solid var(--home-ui-color-focus-halo);
   border-top-color: var(--home-ui-color-action);
-  border-radius: 8px;
+  border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
 .loadMoreError,
 .loadMoreNotice {
-  margin: 0 0 10px;
-  font-size: 0.75rem;
+  margin-bottom: 10px;
 }
 
 .loadMoreError {
-  color: #84251f;
-}
-
-.loadMoreNotice {
-  color: var(--fg-muted);
+  color: var(--home-ui-color-status-error-text);
 }
 
 .sentinel {
@@ -419,9 +260,7 @@
 }
 
 .end {
-  margin: 16px 0 0;
-  color: var(--fg-muted);
-  font-size: 0.75rem;
+  margin-top: var(--home-ui-space-4);
   text-align: center;
 }
 
@@ -434,10 +273,6 @@
 @media (max-width: 719px) {
   .detailExperience {
     min-height: calc(100% - 1rem);
-  }
-
-  .cta {
-    bottom: 0;
   }
 }
 
@@ -456,22 +291,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cta button:active:not(:disabled),
   .ranges button,
-  .seeAll,
   .plotCover {
     transition: none;
   }
 
-  .cta button:active:not(:disabled) {
-    transform: none;
-  }
-
-  .plotCoverChip::after {
-    display: none;
-    animation: none;
-  }
-
+  .plotCoverChip::after,
   .spinner {
     animation: none;
   }
