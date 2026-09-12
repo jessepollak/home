@@ -8,10 +8,10 @@ import {
   type AssetIconMap,
 } from "./asset-icons/resolve";
 import {
-  createCodexTrendingMemesReader,
-  createErrorTrendingMemes,
-  createUnavailableTrendingMemes,
-  type TrendingMemesResult,
+  createCodexTrendingMemesPageReader,
+  createErrorTrendingMemesPage,
+  createUnavailableTrendingMemesPage,
+  type TrendingMemesStatus,
 } from "./codex/trending";
 import { INVEST_DISCOVER_VERSION } from "@/shared/invest/invest-discover-contract";
 
@@ -23,10 +23,14 @@ export type InvestDiscoverResponse = {
   fetchedAt: string | null;
   icons: AssetIconMap;
   memes: {
-    status: TrendingMemesResult["status"];
+    status: TrendingMemesStatus;
     message?: string;
     assets: InvestAsset[];
     snapshots: MarketSnapshot[];
+    /** Truthful offset for the next page, or null when the catalog is exhausted. */
+    nextOffset: number | null;
+    /** True once the provider returned fewer rows than the bounded page size. */
+    exhausted: boolean;
   };
 };
 
@@ -47,14 +51,20 @@ export function createInvestDiscoverReader({
   now?: Clock;
 }) {
   const readIcons = createAssetIconResolver({ apiKey, fetchImpl, now });
-  const readMemes = createCodexTrendingMemesReader({ apiKey, fetchImpl, now });
+  const readMemesPage = createCodexTrendingMemesPageReader({
+    apiKey,
+    fetchImpl,
+    now,
+  });
 
-  return async function readInvestDiscover(): Promise<InvestDiscoverResponse> {
+  return async function readInvestDiscover(
+    offset = 0,
+  ): Promise<InvestDiscoverResponse> {
     const fetchedAt = now().toISOString();
     const [icons, memes] = await Promise.all([
       readIcons().catch(() => emptyAssetIconMap()),
-      readMemes().catch(() =>
-        createErrorTrendingMemes("Trending memes are unavailable."),
+      readMemesPage(offset).catch(() =>
+        createErrorTrendingMemesPage("Trending memes are unavailable."),
       ),
     ]);
 
@@ -68,6 +78,8 @@ export function createInvestDiscoverReader({
         ...(memes.message ? { message: memes.message } : {}),
         assets: memes.assets,
         snapshots: memes.snapshots,
+        nextOffset: memes.nextOffset,
+        exhausted: memes.exhausted,
       },
     };
   };
@@ -76,13 +88,15 @@ export function createInvestDiscoverReader({
 let sharedReader: ReturnType<typeof createInvestDiscoverReader> | null = null;
 let sharedKey: string | undefined;
 
-export function getInvestDiscover(): Promise<InvestDiscoverResponse> {
+export function getInvestDiscover(
+  offset = 0,
+): Promise<InvestDiscoverResponse> {
   const apiKey = process.env.CODEX_API_KEY;
   if (!sharedReader || sharedKey !== apiKey) {
     sharedKey = apiKey;
     sharedReader = createInvestDiscoverReader({ apiKey });
   }
-  return sharedReader();
+  return sharedReader(offset);
 }
 
 export function createUnavailableInvestDiscover(): InvestDiscoverResponse {
@@ -91,7 +105,7 @@ export function createUnavailableInvestDiscover(): InvestDiscoverResponse {
     provider: "codex",
     fetchedAt: null,
     icons: emptyAssetIconMap(),
-    memes: createUnavailableTrendingMemes(),
+    memes: createUnavailableTrendingMemesPage(),
   };
 }
 
@@ -101,6 +115,6 @@ export function createErrorInvestDiscover(): InvestDiscoverResponse {
     provider: "codex",
     fetchedAt: null,
     icons: emptyAssetIconMap(),
-    memes: createErrorTrendingMemes(),
+    memes: createErrorTrendingMemesPage(),
   };
 }

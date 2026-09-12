@@ -26,6 +26,7 @@ import {
 import type {
   MoneyActionClaim,
   MoneyActionIssueStoreOptions,
+  MoneyActionListOptions,
   MoneyActionListScope,
   MoneyActionStatusConstraints,
   MoneyActionStore,
@@ -279,15 +280,23 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
     owner: MoneyActionOwner,
     limit: number,
     scope?: MoneyActionListScope,
+    options?: MoneyActionListOptions,
   ): Promise<StoredMoneyActionOperation[]> {
+    throwIfListAborted(options?.signal);
     await this.ensureSchema();
+    throwIfListAborted(options?.signal);
     const query = scope === "unresolved-send"
       ? moneyActionQueries.listOwnedUnresolvedSends
       : moneyActionQueries.listOwned;
-    const result = await this.executor.query<OperationRow>(query, [
-      ...ownerParameters(owner),
-      limit,
-    ]);
+    const result = await this.executor.query<OperationRow>(
+      query,
+      [...ownerParameters(owner), limit],
+      {
+        signal: options?.signal,
+        timeoutMs: boundedListTimeoutMs(options?.timeoutMs),
+      },
+    );
+    throwIfListAborted(options?.signal);
     return result.rows.map((row) => fromRow(normalizeRow(row)));
   }
 
@@ -484,6 +493,17 @@ export class PostgresMoneyActionStore implements MoneyActionStore {
 
 function verifiedExecutionKey(execution: VerifiedMoneyActionExecution): string {
   return `${execution.chainId}:${execution.kind}:${execution.hash.toLowerCase()}`;
+}
+
+function throwIfListAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("Money-action list aborted.", "AbortError");
+  }
+}
+
+function boundedListTimeoutMs(value: number | undefined): number {
+  if (!Number.isSafeInteger(value) || (value ?? 0) <= 0) return 2_000;
+  return Math.min(value!, 5_000);
 }
 
 function ownerParameters(owner: MoneyActionOwner): [string, string, number, string] {

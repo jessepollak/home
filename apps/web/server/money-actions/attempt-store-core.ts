@@ -41,6 +41,7 @@ import {
 import type {
   MoneyActionClaim,
   MoneyActionIssueStoreOptions,
+  MoneyActionListOptions,
   MoneyActionListScope,
   MoneyActionStatusConstraints,
   MoneyActionStore,
@@ -132,9 +133,14 @@ export class PersistentMoneyActionAttemptStore implements MoneyActionAttemptStor
     return this.legacy.get(owner, id);
   }
 
-  async list(owner: MoneyActionOwner, limit: number, scope?: MoneyActionListScope): Promise<StoredMoneyActionOperation[]> {
+  async list(
+    owner: MoneyActionOwner,
+    limit: number,
+    scope?: MoneyActionListScope,
+    options?: MoneyActionListOptions,
+  ): Promise<StoredMoneyActionOperation[]> {
     this.assertLegacyAvailable();
-    return this.legacy.list(owner, limit, scope);
+    return this.legacy.list(owner, limit, scope, options);
   }
 
   async recordSubmission(

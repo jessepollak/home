@@ -40,13 +40,12 @@ export function createActivityReader(listTransfers: TransferLister): ActivityRea
     account: VerifiedActivityAccount,
     request: ActivityReadRequest,
     signal?: AbortSignal,
-  ): Promise<ActivityPage> {
+  ): Promise<Omit<ActivityPage, "recordedOperations">> {
     const to = new Date(request.to);
     const from = new Date(to.getTime() - windowMs).toISOString();
     const page = await listTransfers({
       verifiedWalletAddress: account.address,
       assetIds: activityAssets.map((asset) => asset.id),
-      includeUnknownAssets: true,
       from,
       to: request.to,
       limit: ACTIVITY_PAGE_SIZE,

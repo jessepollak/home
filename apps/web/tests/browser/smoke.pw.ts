@@ -263,3 +263,168 @@ test("money amount recomputes for text scaling", async ({ page }) => {
   await expect.poll(async () => (await amountMetrics(page))?.fontSize).toBeGreaterThan((before?.fontSize ?? 0) + 5);
   await expect(amount).toHaveText("$5");
 });
+
+
+type MoneySheetMotionSample = {
+  t: number;
+  y: number;
+  height: number;
+  owner: string;
+  state: string;
+};
+
+function compactMotionOwners(samples: MoneySheetMotionSample[]) {
+  return samples.reduce<string[]>((owners, sample) => {
+    if (owners.at(-1) !== sample.owner) owners.push(sample.owner);
+    return owners;
+  }, []);
+}
+
+function expectMonotonic(values: number[], direction: "up" | "down") {
+  for (let index = 1; index < values.length; index += 1) {
+    const delta = values[index] - values[index - 1];
+    if (direction === "up") expect(delta).toBeLessThanOrEqual(0.75);
+    else expect(delta).toBeGreaterThanOrEqual(-0.75);
+  }
+}
+
+test.describe("MoneyModal painted motion", () => {
+  test("opens, throws up, reverses, and closes with one position owner", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+    await installApiFixtures(page);
+    await signIn(page);
+
+    const beginTrace = async () => page.evaluate(() => {
+      const debug = globalThis as typeof globalThis & {
+        moneySheetDebug?: { samples: MoneySheetMotionSample[]; stop: boolean };
+      };
+      const trace = { samples: [] as MoneySheetMotionSample[], stop: false };
+      debug.moneySheetDebug = trace;
+      const started = performance.now();
+      const sample = () => {
+        const sheet = document.querySelector<HTMLElement>("dialog[open] [data-money-sheet]");
+        if (sheet) {
+          const rect = sheet.getBoundingClientRect();
+          trace.samples.push({
+            t: performance.now() - started,
+            y: rect.y,
+            height: rect.height,
+            owner: sheet.dataset.positionOwner ?? "missing",
+            state: sheet.dataset.state ?? "missing",
+          });
+        }
+        if (!trace.stop) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    const endTrace = async () => page.evaluate(() => {
+      const debug = globalThis as typeof globalThis & {
+        moneySheetDebug?: { samples: MoneySheetMotionSample[]; stop: boolean };
+      };
+      if (!debug.moneySheetDebug) return [];
+      debug.moneySheetDebug.stop = true;
+      return debug.moneySheetDebug.samples;
+    });
+    const waitForIdle = async () => expect.poll(() => page.locator(
+      "dialog[open] [data-money-sheet]",
+    ).getAttribute("data-position-owner")).toBe("idle");
+    const gesture = async (moves: Array<{ distance: number; pause: number }>) => {
+      const box = await page.locator("dialog[open] [data-money-sheet-grabber]").boundingBox();
+      if (!box) throw new Error("MoneyModal grabber is not measurable");
+      const x = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
+      await page.mouse.move(x, startY);
+      await page.mouse.down();
+      for (const move of moves) {
+        await page.mouse.move(x, startY + move.distance, { steps: 3 });
+        if (move.pause) await page.waitForTimeout(move.pause);
+      }
+      await page.mouse.up();
+    };
+
+    await beginTrace();
+    await page.getByRole("button", { name: "Send" }).click();
+    await waitForIdle();
+    await page.waitForTimeout(200);
+    const openSamples = await endTrace();
+
+    const openGrabber = page.locator("dialog[open] [data-money-sheet-grabber]");
+    const hitBox = await openGrabber.boundingBox();
+    const visibleGrabberBox = await openGrabber.locator(":scope > span").boundingBox();
+    expect(hitBox?.width).toBeGreaterThanOrEqual(44);
+    expect(hitBox?.height).toBeGreaterThanOrEqual(44);
+    expect(visibleGrabberBox?.height).toBe(4);
+    expect((visibleGrabberBox?.y ?? 0) - (hitBox?.y ?? 0)).toBeCloseTo(8, 1);
+
+    await beginTrace();
+    await gesture([{ distance: 120, pause: 40 }, { distance: -20, pause: 0 }]);
+    await waitForIdle();
+    await page.waitForTimeout(200);
+    const throwSamples = await endTrace();
+
+    await beginTrace();
+    await gesture([{ distance: 220, pause: 160 }, { distance: 190, pause: 0 }]);
+    await waitForIdle();
+    await page.waitForTimeout(200);
+    const reverseSamples = await endTrace();
+    await expect(page.getByRole("dialog", { name: "Send" })).toBeVisible();
+
+    await beginTrace();
+    await page.getByRole("button", { name: "Close send dialog" }).click();
+    await expect(page.locator("dialog[open]")).toHaveCount(0);
+    const closeSamples = await endTrace();
+
+    expect(compactMotionOwners(openSamples)).toEqual(["opening", "idle"]);
+    expect(compactMotionOwners(throwSamples)).toEqual(["idle", "drag", "idle"]);
+    expect(compactMotionOwners(reverseSamples)).toEqual(["idle", "drag", "returning", "idle"]);
+    expect(compactMotionOwners(closeSamples)).toEqual(["idle", "closing"]);
+
+    const openStart = openSamples.find(({ owner }) => owner === "opening")!;
+    const openEnd = openSamples.find(({ owner }) => owner === "idle")!;
+    const openDuration = openEnd.t - openStart.t;
+    expect(openDuration).toBeGreaterThanOrEqual(300);
+    expect(openDuration).toBeLessThanOrEqual(450);
+    const visibleOpen = openSamples.filter(({ t, y }) => t >= openStart.t && y < 843);
+    expectMonotonic(visibleOpen.map(({ y }) => y), "up");
+    expect(
+      Math.max(...visibleOpen.map(({ height }) => height))
+      - Math.min(...visibleOpen.map(({ height }) => height)),
+    ).toBeLessThanOrEqual(1);
+
+    const throwDragEnd = throwSamples.findLast(({ owner }) => owner === "drag")!.t;
+    const throwSettled = throwSamples.filter(({ t }) => t > throwDragEnd);
+    const openY = throwSettled.at(-1)!.y;
+    expect(Math.max(...throwSettled.map(({ y }) => Math.abs(y - openY))))
+      .toBeLessThanOrEqual(0.75);
+
+    const returning = reverseSamples.filter(({ owner }) => owner === "returning");
+    expectMonotonic(returning.map(({ y }) => y), "up");
+    expect(Math.min(...returning.map(({ y }) => y))).toBeGreaterThanOrEqual(openY - 0.75);
+
+    const closing = closeSamples.filter(({ owner }) => owner === "closing");
+    const closeDuration = closing.at(-1)!.t - closing[0].t + 16;
+    expectMonotonic(closing.map(({ y }) => y), "down");
+    expect(Math.max(...closing.map(({ y }) => y))).toBeLessThanOrEqual(844.5);
+    expect(closeDuration).toBeGreaterThanOrEqual(300);
+    expect(closeDuration).toBeLessThanOrEqual(450);
+
+    const measurements = {
+      viewport: "390x844",
+      openDurationMs: Math.round(openDuration),
+      closeDurationMs: Math.round(closeDuration),
+      openHeightPx: Math.round(openSamples.at(-1)!.height),
+      owners: {
+        open: compactMotionOwners(openSamples),
+        throwUp: compactMotionOwners(throwSamples),
+        dragPauseReverse: compactMotionOwners(reverseSamples),
+        close: compactMotionOwners(closeSamples),
+      },
+    };
+    console.log(`MONEY_MODAL_MOTION ${JSON.stringify(measurements)}`);
+    await testInfo.attach("money-modal-motion-measurements", {
+      body: JSON.stringify(measurements, null, 2),
+      contentType: "application/json",
+    });
+  });
+});

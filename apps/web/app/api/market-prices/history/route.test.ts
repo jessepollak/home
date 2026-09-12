@@ -4,30 +4,11 @@ import {
   createErrorMarketHistoryResponse,
 } from "@/server/market-data/codex/history";
 import type { MarketPriceHistoryResponse } from "@/shared/invest/history-contract";
-import { normalizeTrendingMemes } from "@/server/market-data/codex/trending";
 import { createMarketPriceHistoryHandler } from "./handler";
 import { dynamic, runtime } from "./route";
 
 const dynamicId = "base:0x1111111111111111111111111111111111111111";
-const admittedDynamicCatalog = normalizeTrendingMemes(
-  {
-    filterTokens: {
-      results: [
-        {
-          priceUSD: "0.0123",
-          token: {
-            address: "0x1111111111111111111111111111111111111111",
-            name: "Higher",
-            symbol: "HIGHER",
-            decimals: "18",
-            networkId: "8453",
-          },
-        },
-      ],
-    },
-  },
-  new Date("2026-09-09T12:00:00.000Z"),
-);
+const dynamicAddress = "0x1111111111111111111111111111111111111111";
 
 const ready: MarketPriceHistoryResponse = {
   version: 1,
@@ -65,8 +46,9 @@ describe("GET /api/market-prices/history", () => {
     expect(catalogCalls).toBe(0);
   });
 
-  test("serves only server-discovered dynamic Base assets through the bounded reader", async () => {
+  test("serves page-2 dynamic memes through provider-backed exact admission", async () => {
     let requestedSymbol = "";
+    let admissionInput: { address: string; networkId: number } | null = null;
     const reader = createCodexMarketHistoryReader({
       apiKey: "fixture-key",
       now: () => new Date("2026-09-09T12:00:00.000Z"),
@@ -85,7 +67,10 @@ describe("GET /api/market-prices/history", () => {
     });
     const GET = createMarketPriceHistoryHandler(
       reader,
-      async () => admittedDynamicCatalog,
+      async (address, networkId) => {
+        admissionInput = { address, networkId };
+        return true;
+      },
     );
     const response = await GET(
       new Request(
@@ -94,12 +79,11 @@ describe("GET /api/market-prices/history", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(admissionInput!).toEqual({ address: dynamicAddress, networkId: 8453 });
     expect(response.headers.get("cache-control")).toBe(
       "public, max-age=30, stale-while-revalidate=30",
     );
-    expect(requestedSymbol).toBe(
-      "0x1111111111111111111111111111111111111111:8453",
-    );
+    expect(requestedSymbol).toBe(`${dynamicAddress}:8453`);
     expect(await response.json()).toMatchObject({
       assetId: dynamicId,
       range: "1D",
@@ -109,22 +93,24 @@ describe("GET /api/market-prices/history", () => {
     });
   });
 
-  test("rejects valid but unlisted dynamic IDs without touching history", async () => {
+  test("rejects a non-meme contract without touching history", async () => {
     let historyCalls = 0;
-    let catalogCalls = 0;
+    let admissionCalls = 0;
+    let admissionInput: { address: string; networkId: number } | null = null;
     const GET = createMarketPriceHistoryHandler(
       async () => {
         historyCalls += 1;
         return ready;
       },
-      async () => {
-        catalogCalls += 1;
-        return { status: "ready", assets: [], snapshots: [] };
+      async (address, networkId) => {
+        admissionCalls += 1;
+        admissionInput = { address, networkId };
+        return false;
       },
     );
     const response = await GET(
       new Request(
-        `http://home.test/api/market-prices/history?assetId=${encodeURIComponent(dynamicId)}&range=1D&catalog=${encodeURIComponent(dynamicId)}`,
+        `http://home.test/api/market-prices/history?assetId=${encodeURIComponent(dynamicId)}&range=1D`,
       ),
     );
 
@@ -137,11 +123,12 @@ describe("GET /api/market-prices/history", () => {
       unavailableReason: "unknown-asset",
       points: [],
     });
-    expect(catalogCalls).toBe(1);
+    expect(admissionCalls).toBe(1);
+    expect(admissionInput!).toEqual({ address: dynamicAddress, networkId: 8453 });
     expect(historyCalls).toBe(0);
   });
 
-  test("fails dynamic admission closed when server discovery is unavailable", async () => {
+  test("fails dynamic admission closed when the provider read fails", async () => {
     let historyCalls = 0;
     const GET = createMarketPriceHistoryHandler(
       async () => {
@@ -149,7 +136,7 @@ describe("GET /api/market-prices/history", () => {
         return ready;
       },
       async () => {
-        throw new Error("discovery unavailable");
+        throw new Error("admission unavailable");
       },
     );
     const response = await GET(

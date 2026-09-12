@@ -16,6 +16,7 @@ function validPage(): ActivityPage {
   return {
     walletAddress: WALLET,
     chainId: 8453,
+    recordedOperations: "available",
     window: { from: "2026-08-07T12:00:00.000Z", to: TO },
     transfers: [
       {
@@ -80,6 +81,23 @@ describe("activity response parser", () => {
       "incoming",
       "outgoing",
     ]);
+  });
+
+  test("accepts the explicit recorded-operations degradation marker", () => {
+    const parsed = parseActivityPage(
+      { ...validPage(), recordedOperations: "unavailable" },
+      session,
+      TO,
+    );
+    expect(parsed.recordedOperations).toBe("unavailable");
+
+    expect(() =>
+      parseActivityPage(
+        { ...validPage(), recordedOperations: "failed" },
+        session,
+        TO,
+      ),
+    ).toThrow(ActivityResponseError);
   });
 
   test("accepts an unknown contract with honest null metadata", () => {

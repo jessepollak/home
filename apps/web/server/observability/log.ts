@@ -7,9 +7,16 @@ import {
 export type ObservabilityLogWriter = (
   serializedLine: string,
   level: ObservabilityLogLine["level"],
-) => void;
+) => unknown | PromiseLike<unknown>;
 
-function defaultWriter(serializedLine: string): void {
+function defaultWriter(
+  serializedLine: string,
+  level: ObservabilityLogLine["level"],
+): void {
+  if (level === "info") {
+    console.info(serializedLine);
+    return;
+  }
   console.error(serializedLine);
 }
 
@@ -26,9 +33,12 @@ export function writeObservabilityEvent(
 ): ObservabilityLogLine {
   const line = normalizeObservabilityEvent(event);
   try {
-    writer(JSON.stringify(line), line.level);
+    const result = writer(JSON.stringify(line), line.level);
+    void Promise.resolve(result).catch(() => {
+      // Asynchronous sink rejection must never escape application work.
+    });
   } catch {
-    // Observability is never allowed to change application behavior.
+    // Synchronous sink failure must never change application behavior.
   }
   return line;
 }

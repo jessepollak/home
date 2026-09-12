@@ -1,6 +1,12 @@
 import type { PortfolioAddress } from "@/config/portfolio-assets";
 import { resolveBaseRpcUrl } from "./rpc";
 
+export const CONFIGURED_ERC20_RECOVERY_MAX_CONTRACTS = 20;
+/** Internal reason used only when inventory's own bounded recovery window expires. */
+export const CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT = Symbol(
+  "configured-erc20-recovery-stage-timeout",
+);
+
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const dataWordPattern = /^0x[0-9a-fA-F]{64}$/;
@@ -18,48 +24,95 @@ type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
-export type OmittedCashBalanceRequest = {
+export type ConfiguredErc20BalanceRequest = {
   id: string;
   contractAddress: PortfolioAddress;
 };
 
-/** `null` means the `balanceOf` was unavailable — never invent 0. */
-export type OmittedCashBalanceMap = ReadonlyMap<string, string | null>;
+/** `null` means the authoritative `balanceOf` was unavailable — never invent 0. */
+export type ConfiguredErc20BalanceMap = ReadonlyMap<string, string | null>;
 
-export function createOmittedCashBalanceReader(options: {
+export function createConfiguredErc20BalanceReader(options: {
   fetchImpl?: FetchLike;
-  rpcUrl?: string;
-} = {}) {
+  /** Must be explicitly configured by the caller; the public default is not recovery. */
+  rpcUrl: string;
+}) {
   const fetchImpl = options.fetchImpl ?? fetch;
+  if (!options.rpcUrl.trim()) {
+    throw new Error("Configured ERC-20 recovery requires BASE_RPC_URL.");
+  }
   const rpcUrl = resolveBaseRpcUrl(options.rpcUrl);
 
-  return async function readOmittedCashBalances(
-    requests: readonly OmittedCashBalanceRequest[],
+  return async function readConfiguredErc20Balances(
+    requests: readonly ConfiguredErc20BalanceRequest[],
     owner: PortfolioAddress,
     signal: AbortSignal,
-  ): Promise<OmittedCashBalanceMap> {
-    const results = new Map<string, string | null>();
+  ): Promise<ConfiguredErc20BalanceMap> {
+    const results = new Map<string, string | null>(
+      requests.map(({ id }) => [id, null]),
+    );
+    if (signal.aborted) {
+      if (signal.reason === CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT) {
+        return results;
+      }
+      throw abortReason(signal);
+    }
     if (requests.length === 0) return results;
     if (!addressPattern.test(owner)) {
       for (const request of requests) results.set(request.id, null);
       return results;
     }
 
+    const uniqueByContract = new Map<
+      string,
+      { contractAddress: PortfolioAddress; ids: string[] }
+    >();
+    for (const request of requests) {
+      const key = request.contractAddress.toLowerCase();
+      if (!addressPattern.test(request.contractAddress)) {
+        results.set(request.id, null);
+        continue;
+      }
+      const existing = uniqueByContract.get(key);
+      if (existing) existing.ids.push(request.id);
+      else {
+        uniqueByContract.set(key, {
+          contractAddress: key as PortfolioAddress,
+          ids: [request.id],
+        });
+      }
+    }
+    if (uniqueByContract.size > CONFIGURED_ERC20_RECOVERY_MAX_CONTRACTS) {
+      throw new Error("Configured ERC-20 recovery exceeded its fixed contract bound.");
+    }
+
     const ownerAddress = owner.toLowerCase() as PortfolioAddress;
-    // Singles at `latest`: public Base `-32016`s later JSON-RPC batch items
-    // after vault pin/confirm, and a pinned height can `-32001` on a lagging
-    // replica. Do not invent 0 when the read still misses.
-    for (const item of requests) {
-      results.set(
-        item.id,
-        await readLatestBalanceOf(
+    // Keep calls as bounded singles so one provider/RPC error cannot discard
+    // successful sibling balances. The caller owns the shared deadline.
+    for (const { contractAddress, ids } of uniqueByContract.values()) {
+      if (signal.aborted) {
+        if (signal.reason === CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT) break;
+        throw abortReason(signal);
+      }
+      let amount: string | null;
+      try {
+        amount = await readLatestBalanceOf(
           fetchImpl,
           rpcUrl,
-          item.contractAddress,
+          contractAddress,
           ownerAddress,
           signal,
-        ),
-      );
+        );
+      } catch (error) {
+        if (
+          signal.aborted &&
+          signal.reason === CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT
+        ) {
+          break;
+        }
+        throw error;
+      }
+      for (const id of ids) results.set(id, amount);
     }
     return results;
   };
@@ -76,10 +129,7 @@ async function readLatestBalanceOf(
     jsonrpc: "2.0",
     id: 1,
     method: "eth_call",
-    params: [
-      { to: token, data: encodeBalanceOf(owner) },
-      "latest",
-    ],
+    params: [{ to: token, data: encodeBalanceOf(owner) }, "latest"],
   };
   try {
     const parsed = await transport(fetchImpl, rpcUrl, request, signal);
@@ -144,12 +194,7 @@ function parseRpcId(value: unknown): number | null {
 
 function tryParseDataWord(value: unknown): bigint | null {
   if (typeof value !== "string") return null;
-  if (dataWordPattern.test(value)) {
-    const parsed = BigInt(value);
-    return parsed > UINT256_MAX ? null : parsed;
-  }
-  // Quantity hex such as `0x0` is a confirmed numeric result. Empty `0x` is not.
-  if (quantityPattern.test(value)) {
+  if (dataWordPattern.test(value) || quantityPattern.test(value)) {
     const parsed = BigInt(value);
     return parsed > UINT256_MAX ? null : parsed;
   }
@@ -161,10 +206,13 @@ function encodeBalanceOf(address: PortfolioAddress): `0x${string}` {
 }
 
 function isAbortError(error: unknown, signal: AbortSignal): boolean {
-  return (
-    signal.aborted ||
-    (error instanceof Error && error.name === "AbortError")
-  );
+  return signal.aborted || (error instanceof Error && error.name === "AbortError");
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("The operation was aborted.", "AbortError");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -459,6 +459,7 @@ function activityPage(
   return {
     walletAddress,
     chainId: BASE_CHAIN_ID,
+    recordedOperations: "available",
     window: {
       from: new Date(toTime - 31 * 24 * 60 * 60 * 1000).toISOString(),
       to,
@@ -2229,6 +2230,43 @@ describe("login-state home experience", () => {
     expect(page().getByRole("region", { name: "Savings module" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
     expect(page().getByRole("heading", { level: 1, name: "Save" })).toBeTruthy();
+  });
+
+  test("composes one recorded-operations outage notice with onchain Activity", async () => {
+    const notice =
+      "Pending Home actions are temporarily unavailable. Onchain activity is still shown.";
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        initialPanel="activity"
+        sessionFetch={async (input) => {
+          const path = String(input);
+          if (path === "/api/session") return Response.json(session());
+          if (path.startsWith("/api/activity?")) {
+            return Response.json({
+              ...activityPage(input),
+              recordedOperations: "unavailable",
+            });
+          }
+          if (path === "/api/actions/operations") {
+            return Response.json(
+              { error: { code: "OPERATIONS_UNAVAILABLE" } },
+              { status: 503 },
+            );
+          }
+          return Response.json({});
+        }}
+      />,
+    );
+
+    await enabledAccountButton();
+    expect(await page().findByText(notice)).toBeTruthy();
+    expect(page().getAllByText(notice)).toHaveLength(1);
+    expect(
+      page().queryByText(
+        "Recorded Home actions are unavailable. Onchain transfers are still shown.",
+      ),
+    ).toBeNull();
   });
 
   test("Home hub previews four balance rows and the nested panel lists every holding", async () => {

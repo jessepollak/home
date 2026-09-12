@@ -11,7 +11,7 @@ import type {
 export const homeBalancesPresentationCachePrefix = "home.balances.v1:";
 export const homeBalancesPresentationCacheTtlMs = 24 * 60 * 60 * 1000;
 /** Rows include authoritative native-cash values, asset mark keys, and total completeness. */
-export const homeBalancesPresentationSemanticVersion = "4.0.0";
+export const homeBalancesPresentationSemanticVersion = "5.0.0";
 
 export type CacheStorage = Pick<
   Storage,

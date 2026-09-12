@@ -1,8 +1,11 @@
 import "server-only";
 
 import {
+  boundedSqlTimeoutMs,
   postgresIdentifier,
+  throwIfSqlAborted,
   type SqlExecutor,
+  type SqlQueryOptions,
   type SqlQueryResult,
 } from "./postgres-sql";
 
@@ -38,11 +41,17 @@ export function createBunSqlExecutor(
   const schemaName = options.schema;
   let disposed = false;
 
+  // Mirror the Neon executor's cooperative abort contract: check the signal
+  // before and after the raw query and surface AbortError without swallowing
+  // the query's own outcome.
   const runQuery = async <Row = Record<string, unknown>>(
     text: string,
     values: unknown[] = [],
+    options: SqlQueryOptions = {},
   ): Promise<SqlQueryResult<Row>> => {
+    throwIfSqlAborted(options.signal);
     const result = await client.unsafe(text, values);
+    throwIfSqlAborted(options.signal);
     const rows = Array.from(result) as Row[];
     return { rows, rowCount: result.count ?? rows.length };
   };
@@ -62,11 +71,21 @@ export function createBunSqlExecutor(
     await transaction.unsafe(`SET LOCAL search_path TO ${schema}`);
   };
 
-  const runTransaction = async <T>(run: (transaction: SqlExecutor) => Promise<T>): Promise<T> => {
+  // Bun.SQL.begin performs BEGIN/COMMIT and, on a throwing callback, rolls
+  // back while preserving the original error — the same primary-error
+  // preservation the Neon executor does explicitly.
+  const runTransaction = async <T>(
+    run: (transaction: SqlExecutor) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> => {
     if (inTransaction) throw new Error("nested money-action transactions are not supported");
+    throwIfSqlAborted(signal);
     return client.begin(async (transaction) => {
+      throwIfSqlAborted(signal);
       await applySchema(transaction);
-      return run(createBunSqlExecutor(transaction, { inTransaction: true }));
+      const result = await run(createBunSqlExecutor(transaction, { inTransaction: true }));
+      throwIfSqlAborted(signal);
+      return result;
     });
   };
 
@@ -74,15 +93,26 @@ export function createBunSqlExecutor(
     async query<Row = Record<string, unknown>>(
       text: string,
       values: unknown[] = [],
+      options: SqlQueryOptions = {},
     ): Promise<SqlQueryResult<Row>> {
-      // A schema-bearing executor must still scope top-level queries to the
-      // explicit search path, matching the Neon executor's per-query scope.
-      if (schema) {
-        return runTransaction(async (transaction) => transaction.query<Row>(text, values));
+      if (inTransaction) {
+        return runQuery<Row>(text, values, options);
       }
-      return runQuery<Row>(text, values);
+      return runTransaction(async (transaction) => {
+        // Transaction-local statement timeout, configured identically to the
+        // Neon executor before the bounded read runs.
+        const timeoutMs = boundedSqlTimeoutMs(options.timeoutMs);
+        if (timeoutMs !== null) {
+          await transaction.query(
+            "SELECT set_config('statement_timeout', $1, true)",
+            [`${timeoutMs}ms`],
+            { signal: options.signal },
+          );
+        }
+        return transaction.query<Row>(text, values, options);
+      }, options.signal);
     },
-    transaction: runTransaction,
+    transaction: (run) => runTransaction(run),
     ...(inTransaction
       ? {}
       : {
