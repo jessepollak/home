@@ -16,6 +16,18 @@ Home is a local finance spike, not a production-approved money app. Read this be
 
 Later, if you are working on hosting: [Vercel deploy](docs/vercel-deploy.md) (bun settings + Neon `DATABASE_URL`). Broader webhooks/`packages/*` ideas stay in [target architecture](docs/target-architecture.md), which is **not** a map of the current tree. The 2026-09-07 two-hour chunk plan is [archived](docs/archive/implementation-plan-2026-09-07.md).
 
+## Reporting something without a pull request
+
+Issue creation on `jessepollak/home` is currently limited to accounts with repository access. A contributor outside the crew who tries gets `does not have the correct permissions to execute CreateIssue`, and Discussions are off. So while [AGENTS.md](AGENTS.md) names GitHub Issues the sole intake board for all Home feedback, that path is not reachable from outside.
+
+Until that changes, a pull request is the only inbound channel. For something you cannot fix yourself, open a small PR anyway and describe the finding in the body, or comment on a related open PR. If your report is a security issue, do not put it in a PR: see [reporting a vulnerability](#reporting-a-vulnerability).
+
+If the restriction is deliberate, this section is the honest version of the rule and the AGENTS.md wording is the part to soften. If it is not, opening issues to outside accounts would make the stated intake path work as written.
+
+## Reporting a vulnerability
+
+There is no `SECURITY.md` and no private disclosure path in the repository today. Home handles provider credentials, session secrets, and funded-wallet flows, so this gap is worth closing. Until it is, do not open a public pull request or comment describing an exploitable defect; contact the repository owner directly and wait for a reply.
+
 ## Local checks
 
 ```sh
