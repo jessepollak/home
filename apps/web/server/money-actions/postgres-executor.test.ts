@@ -64,11 +64,13 @@ describe("Postgres executor selector", () => {
     const migrate = readFileSync(resolve(import.meta.dir, "migrate.ts"), "utf8");
 
     expect(runtime).toContain('await import("./postgres-executor")');
-    expect(runtime).toContain("createPostgresSqlExecutor(connectionString)");
+    expect(runtime).toContain("new PostgresMoneyActionStore(createPostgresSqlExecutor(connectionString))");
     expect(store).toContain("this.executor = createPostgresSqlExecutor(url);");
-    expect(store).toContain(
-      "createPostgresSqlExecutor(options.connectionString, { schema: options.schema })",
-    );
     expect(migrate).toContain("const executor = createPostgresSqlExecutor(url);");
+
+    for (const source of [runtime, store, migrate]) {
+      expect(source).not.toContain("AttemptStore");
+      expect(source).not.toContain("attempt-store");
+    }
   });
 });

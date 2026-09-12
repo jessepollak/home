@@ -1,5 +1,5 @@
--- Additive durable state for the v1 attempt-store contract.
--- The legacy operation row remains the compatibility lock and projection.
+-- Historical migration retained for rollback context.
+-- No longer applied to fresh schemas as of #309.
 
 CREATE TABLE IF NOT EXISTS money_action_attempt_states (
   action_id TEXT PRIMARY KEY REFERENCES money_action_operations(id) ON DELETE CASCADE,

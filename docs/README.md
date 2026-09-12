@@ -9,8 +9,9 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | Doc | Use it for |
 |---|---|
 | [Build status](build-status.md) | What is integrated, validation evidence, remaining gates |
-| [Wallet runtime spike](wallet-runtime-spike.md) | Prepare → claim → sign → reconcile; SQLite locally, Neon/Postgres when `DATABASE_URL` is set |
-| [Attempt-aware onchain transactions](onchain-transaction-architecture.md) | Decision, failure windows, pure status checks, attempt/evidence target, migration and staged implementation |
+| [Wallet runtime spike](wallet-runtime-spike.md) | Prepare → claim → sign → reconcile; PostgreSQL runtime selection and provider-handle recovery |
+| [Money-action persistence](money-action-persistence.md) | Shipped one-row PostgreSQL model, evidence indexes, readiness preflight, and safety invariants |
+| [Attempt-aware onchain transactions](onchain-transaction-architecture.md) | Retained decision, failure windows, provider facts, and the withdrawn Phase 2–5 direction |
 | [Architecture review](architecture-review-2026-09.md) | Current-tree patterns, risks, contribution contract, first-week slices |
 
 ## Run & operate

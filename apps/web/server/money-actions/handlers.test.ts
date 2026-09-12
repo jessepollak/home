@@ -255,67 +255,6 @@ describe("money action HTTP lifecycle", () => {
     });
   });
 
-  test("routes owner release through versioned attempt persistence when available", async () => {
-    class AttemptBackedTestStore extends MemoryMoneyActionStore {
-      releaseCommands: unknown[] = [];
-
-      async getAttemptStoreSnapshot(owner: typeof OWNER, actionId: string) {
-        const operation = await this.get(owner, actionId);
-        return operation
-          ? {
-              ok: true as const,
-              value: {
-                action: { action: { ...operation.action, revision: 1 as const }, sensitivePayloadStorage: "not-sensitive" as const },
-                attempts: [{ attemptId: "attempt-1", attemptVersion: 1 }],
-              },
-            }
-          : { ok: false as const, dispatchAuthority: "none" as const, error: { code: "not-found" as const, retryable: false } };
-      }
-
-      async releaseAttemptAdmission(command: { owner: typeof OWNER; actionId: string }, now: string) {
-        this.releaseCommands.push(command);
-        const operation = await super.releaseAdmission(command.owner, command.actionId, now);
-        return operation
-          ? {
-              ok: true as const,
-              value: {
-                admission: { state: "released" as const, at: now, policyVersion: "owner-release-v1" },
-                ownerResolution: { kind: "abandoned" as const, at: now, reason: "owner-request" as const },
-                execution: { kind: "ambiguous" as const },
-                lateEvidence: "accepted" as const,
-              },
-            }
-          : { ok: false as const, dispatchAuthority: "none" as const, error: { code: "not-found" as const, retryable: false } };
-      }
-    }
-
-    const store = new AttemptBackedTestStore();
-    await store.issue(action());
-    await store.claim(OWNER, ID, REVIEW_HASH, "2026-09-08T05:01:00.000Z");
-    const release = createMoneyActionAdmissionReleaseHandler({
-      authorize,
-      store,
-      now: () => new Date("2026-09-08T05:01:30.000Z"),
-    });
-
-    const response = await release(
-      request(`/api/actions/${ID}/admission-release`, { reason: "owner-request" }),
-      context,
-    );
-    expect(response.status).toBe(200);
-    expect(store.releaseCommands).toEqual([{
-      owner: OWNER,
-      actionId: ID,
-      attemptId: "attempt-1",
-      policyVersion: "owner-release-v1",
-      reason: "owner-request",
-    }]);
-    expect((await response.json()).operation).toMatchObject({
-      status: "submitting",
-      abandonedAt: "2026-09-08T05:01:30.000Z",
-    });
-  });
-
   test("does not let another owner release admission or see the abandoned send", async () => {
     const store = new MemoryMoneyActionStore();
     await store.issue(action());

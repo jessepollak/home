@@ -3,7 +3,6 @@ import type { MoneyActionOperationStatus } from "@/shared/money-actions/types";
 import type { MoneyActionExecutionProof, TransferReceiptStatus } from "@/server/money-actions/receipt";
 import { getMoneyActionStore } from "./runtime-store";
 import { moneyActionOwner, readAuthorizedMoneyActionSession } from "./session";
-import type { MoneyActionAttemptStore } from "./attempt-store";
 import type { MoneyActionStore, StoredMoneyActionOperation } from "./store";
 
 export type SessionAuthorizer = (request: Request) => Promise<Response>;
@@ -169,30 +168,6 @@ export function createMoneyActionAdmissionReleaseHandler(dependencies: {
     }
     const store = dependencies.store ?? await getMoneyActionStore();
     const now = (dependencies.now ?? (() => new Date()))().toISOString();
-    if (isAttemptStore(store)) {
-      const snapshot = await store.getAttemptStoreSnapshot(owner, id);
-      if (!snapshot.ok) {
-        return error("ACTION_NOT_FOUND", "The action was not found or cannot release admission.", 404);
-      }
-      const attempt = snapshot.value.attempts.at(-1);
-      if (!attempt) {
-        return error("ACTION_NOT_FOUND", "The action was not found or cannot release admission.", 404);
-      }
-      const released = await store.releaseAttemptAdmission({
-        owner,
-        actionId: id,
-        attemptId: attempt.attemptId,
-        policyVersion: "owner-release-v1",
-        reason: "owner-request",
-      }, now);
-      if (!released.ok) {
-        return error("ACTION_NOT_FOUND", "The action was not found or cannot release admission.", 404);
-      }
-      const record = await store.get(owner, id);
-      return record
-        ? json({ operation: record }, 200)
-        : error("ACTION_NOT_FOUND", "The action was not found or cannot release admission.", 404);
-    }
     const record = await store.releaseAdmission(owner, id, now);
     return record
       ? json({ operation: record }, 200)
@@ -327,10 +302,6 @@ function json(body: unknown, status: number): Response {
 
 function error(code: string, message: string, status: number): Response {
   return json({ error: { code, message } }, status);
-}
-
-function isAttemptStore(store: MoneyActionStore): store is MoneyActionAttemptStore {
-  return "getAttemptStoreSnapshot" in store && "releaseAttemptAdmission" in store;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

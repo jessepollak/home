@@ -2,7 +2,7 @@ import "server-only";
 
 import { PostgresMoneyActionStore } from "./postgres-store";
 import { createPostgresSqlExecutor } from "./postgres-executor";
-import { MONEY_ACTION_DATA_MIGRATION_ID } from "./postgres-sql";
+import { MoneyActionSchemaPreflightError } from "./postgres-sql";
 
 const url = process.env.DATABASE_URL?.trim();
 if (!url) {
@@ -13,16 +13,13 @@ if (!url) {
 const executor = createPostgresSqlExecutor(url);
 const startedAt = performance.now();
 try {
-  const result = await new PostgresMoneyActionStore(executor).ensureReady();
-  console.log(
-    `money-action data migration migration_id=${result.migrationId} status=${result.disposition} ` +
-      `elapsed_ms=${Math.round(performance.now() - startedAt)} aggregate_count=${result.aggregateCount}`,
-  );
-} catch {
-  console.error(
-    `money-action data migration migration_id=${MONEY_ACTION_DATA_MIGRATION_ID} status=failed ` +
-      `elapsed_ms=${Math.round(performance.now() - startedAt)} aggregate_count=unavailable`,
-  );
+  await new PostgresMoneyActionStore(executor).ensureSchema();
+  console.log(`money-action schema status=applied elapsed_ms=${Math.round(performance.now() - startedAt)}`);
+} catch (error) {
+  // Only the preflight diagnostic is printed: it is count-only by construction.
+  // Every other failure stays redacted to status=failed.
+  if (error instanceof MoneyActionSchemaPreflightError) console.error(error.message);
+  console.error(`money-action schema status=failed elapsed_ms=${Math.round(performance.now() - startedAt)}`);
   process.exitCode = 1;
 } finally {
   await executor.dispose?.();

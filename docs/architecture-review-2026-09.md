@@ -47,11 +47,11 @@ There is **no** `apps/web/lib/`. Cross-cutting auth is `apps/web/server/cdp/` pl
 
 - Interface: `apps/web/server/money-actions/store.ts` (`issue`, `claim`, `get`, `list`, `recordSubmission`, `updateStatus`).
 - Test implementation: `MemoryMoneyActionStore` in the same file.
-- Runtime selection: `apps/web/server/money-actions/runtime-store.ts` — `DATABASE_URL` → `PostgresMoneyActionStore`; else local `SqliteMoneyActionStore`. Vercel without `DATABASE_URL` fails closed and does not load `node:sqlite`.
+- Runtime selection: `apps/web/server/money-actions/runtime-store.ts` constructs `PostgresMoneyActionStore` directly when `DATABASE_URL` and the verified-empty cutover assertion are present; otherwise it fails closed.
 - Test override: `setMoneyActionStoreForTests`.
 - Both adapters implement this interface without changing feature plan contracts (`docs/wallet-runtime-spike.md`). Never dual-write.
 
-Any new store method must land in **memory + SQLite (+ future Postgres)** in the same PR, with `store.test.ts` updated.
+Any new store method must land in **Memory + Postgres** in the same PR, with the shared `store-contract.ts` updated.
 
 ### 3. Server-issued plans; client never authors calldata
 

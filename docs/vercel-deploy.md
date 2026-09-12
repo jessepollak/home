@@ -113,37 +113,34 @@ PostgreSQL/Neon is the sole production money-action store. There is no SQLite fa
 | `DATABASE_URL` set without verified-empty cutover | Fail closed | Prevents stranding unresolved legacy SQLite actions |
 | Local or hosted without `DATABASE_URL` | Fail closed | No durable money-action adapter is constructed |
 
-`apps/web/server/money-actions/runtime-store.ts` enforces this selection. `verified-empty` is an explicit operator assertion that the retired SQLite store contains no unresolved action, attempt, or reference requiring migration; setting `DATABASE_URL` alone never activates the new store. Tests may inject the small in-memory store through `setMoneyActionStoreForTests`. Feature plan contracts and browser execution are unchanged.
+`apps/web/server/money-actions/runtime-store.ts` enforces this selection and constructs `PostgresMoneyActionStore` directly. `verified-empty` is an explicit operator assertion that the retired SQLite store contains no unresolved action or reference requiring migration; setting `DATABASE_URL` alone never activates the store. Tests may inject the small in-memory store through `setMoneyActionStoreForTests`. Feature plan contracts and browser execution are unchanged.
 
 ### Operator setup (Neon on Vercel)
 
 1. Provision Neon in your Vercel project (Marketplace → Neon). That injects server-only `DATABASE_URL` (use the **pooled** connection for runtime).
-2. Stop every reservation-unaware old writer and raw importer before migration. They must stay stopped through cutover; otherwise they can add history that the completed migration marker will intentionally not rescan.
-3. Apply the schema and guarded data migration once per database. Run `bun run money-actions:migrate` from local (or CI) with `DATABASE_URL` set — it is **not** part of the default Vercel build:
+2. Apply the schema once per database. Run `bun run money-actions:migrate` from local (or CI) with `DATABASE_URL` set — it is **not** part of the default Vercel build:
    ```sh
    bun run money-actions:migrate
    ```
-   Operator SQL lives in `apps/web/server/money-actions/migrations/001_money_action_operations.sql`, `002_money_action_attempts.sql`, and `003_money_action_data_migrations.sql`. Schema installation only creates the marker table. The command and hosted readiness path share migration `canonical-evidence-reservations-v1`: under a schema-namespaced transaction advisory lock, it canonicalizes existing hashes, creates reference-free legacy attempt state, rebuilds evidence reservations, and records completion atomically. Output contains only the migration ID, `applied` or `already-complete`, elapsed milliseconds, and an aggregate operation count.
-4. Before cutover, inspect the retired SQLite data and resolve or migrate every unresolved action/reference. Only a verified-empty legacy store authorizes setting `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty`.
-5. Confirm `DATABASE_URL` and the verified-empty cutover variable are set for local development, Production, and Preview when money actions are exercised.
-6. Redeploy. Money-action selection must fail closed rather than choosing another durable adapter.
-7. If PR preview builds fail at Neon’s branch cap, add the GitHub Actions credentials in [Neon preview branch cleanup](#neon-preview-branch-cleanup-github-actions) and prune stale `preview/*` branches.
+   Fresh schemas apply `apps/web/server/money-actions/migrations/001_money_action_operations.sql` plus `004_money_action_evidence_indexes.sql`. The latter adds owner-scoped unique indexes for exact Base submission IDs and case-insensitive user-operation hashes. Historical 002/003 tables, when present, are left untouched.
+3. Before cutover, inspect the retired SQLite data and resolve or migrate every unresolved action/reference. Only a verified-empty legacy store authorizes setting `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty`.
+4. Confirm `DATABASE_URL` and the verified-empty cutover variable are set for local development, Production, and Preview when money actions are exercised.
+5. Redeploy. Money-action selection must fail closed rather than choosing another durable adapter.
+6. If PR preview builds fail at Neon’s branch cap, add the GitHub Actions credentials in [Neon preview branch cleanup](#neon-preview-branch-cleanup-github-actions) and prune stale `preview/*` branches.
 
-The guarded transaction uses a 5-second lock timeout and a 60-second statement timeout. A conflict, timeout, connection loss, or other failure rolls back hash normalization, attempt state, reservations, and the completion marker, so runtime readiness fails closed. Keep incompatible writers stopped, resolve any conflicting pre-existing reservation without overwriting its current action owner, and rerun the command; a fresh run is the recovery path after a transient timeout or failure.
+Schema application uses a 5-second lock timeout and a 60-second statement timeout. It checks for duplicate owner-scoped provider handles before creating the indexes. If duplicate groups exist, readiness fails with bounded counts only; it never logs handle values, modifies rows, or deduplicates automatically. Resolve the conflicting rows through a separately reviewed, traffic-stopped process and rerun the schema command.
 
-After completion, each new process performs a constant number of readiness queries and reads the marker without running normalization or a money-action history scan. This is a query-count guarantee, not a constant-latency guarantee: connection setup, DDL locking, and marker reads can still wait or fail within the configured timeouts. The marker assumes append-only use through reservation-aware application writes. It does not support unrestricted rollback, restoring older table contents, or raw history imports after completion; those operations require a separately reviewed, traffic-stopped forward-migration plan rather than deleting or bypassing the marker.
-
-The table stores action plans, immutable review hashes, owner tuples, statuses, attempts, and public chain/provider refs. It stores no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
+The table stores action plans, immutable review hashes, owner tuples, statuses, admission release timestamps, and public chain/provider refs. It stores no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
 
 This adapter is **not** production authorization. Do not enable authenticated money actions on a public deploy without `DATABASE_URL`, and do not treat a green build as a funded-wallet approval. CDP webhooks, Drizzle, and the rest of [target architecture](target-architecture.md) are still later work.
 
 Optional live adapter tests (throwaway PostgreSQL 14 database or Neon branch only):
 
 ```sh
-MONEY_ACTION_PG_TEST_URL=postgresql://… bun test scripts/delivery/tests/postgres-money-action*.test.ts
+MONEY_ACTION_PG_TEST_URL=postgresql://… bun test scripts/delivery/tests/postgres-money-action.test.ts
 ```
 
-CI uses the in-process Postgres test double plus SQLite and Memory. It does not require `DATABASE_URL`.
+CI runs this contract against disposable PostgreSQL 14 schemas.
 
 ## Neon preview branch cleanup (GitHub Actions)
 

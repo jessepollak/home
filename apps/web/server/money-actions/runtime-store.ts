@@ -1,29 +1,34 @@
 import "server-only";
 
-import type { AttemptStoreResource } from "./attempt-store";
 import type { MoneyActionStore } from "./store";
 
-type RuntimeResourceFactory = (connectionString: string) => Promise<AttemptStoreResource>;
+type RuntimeMoneyActionStore = MoneyActionStore & {
+  ensureSchema(): Promise<void>;
+  dispose?(): Promise<void>;
+};
+type RuntimeStoreFactory = (connectionString: string) => Promise<RuntimeMoneyActionStore>;
 
-const defaultRuntimeResourceFactory: RuntimeResourceFactory = async (connectionString) => {
-  const { createPostgresAttemptStoreResourceWithExecutor } = await import("./postgres-store");
+const RUNTIME_STORE_CLEANUP_TIMEOUT_MS = 5_000;
+
+const defaultRuntimeStoreFactory: RuntimeStoreFactory = async (connectionString) => {
+  const { PostgresMoneyActionStore } = await import("./postgres-store");
   const { createPostgresSqlExecutor } = await import("./postgres-executor");
-  return createPostgresAttemptStoreResourceWithExecutor(createPostgresSqlExecutor(connectionString));
+  return new PostgresMoneyActionStore(createPostgresSqlExecutor(connectionString));
 };
 
 let injectedStore: MoneyActionStore | null = null;
 let runtimeStore: Promise<MoneyActionStore> | null = null;
-let runtimeResourceFactory = defaultRuntimeResourceFactory;
+let runtimeStoreFactory = defaultRuntimeStoreFactory;
 
 export function setMoneyActionStoreForTests(store: MoneyActionStore | null): void {
   injectedStore = store;
   runtimeStore = null;
 }
 
-export function setMoneyActionRuntimeResourceFactoryForTests(
-  factory: RuntimeResourceFactory | null,
+export function setMoneyActionRuntimeStoreFactoryForTests(
+  factory: RuntimeStoreFactory | null,
 ): void {
-  runtimeResourceFactory = factory ?? defaultRuntimeResourceFactory;
+  runtimeStoreFactory = factory ?? defaultRuntimeStoreFactory;
   runtimeStore = null;
 }
 
@@ -54,12 +59,15 @@ export async function getMoneyActionStore(): Promise<MoneyActionStore> {
 async function loadRuntimeStore(): Promise<MoneyActionStore> {
   const backend = resolveMoneyActionStoreBackend();
   if (backend === "postgres") {
-    const resource = await runtimeResourceFactory(process.env.DATABASE_URL!);
+    const store = await runtimeStoreFactory(process.env.DATABASE_URL!);
     try {
-      await resource.init();
-      return resource.store;
+      await store.ensureSchema();
+      return store;
     } catch (error) {
-      try { await resource.dispose(); } catch { /* preserve the readiness failure */ }
+      try {
+        const disposal = store.dispose?.();
+        if (disposal) await withCleanupTimeout(disposal, RUNTIME_STORE_CLEANUP_TIMEOUT_MS);
+      } catch { /* preserve the readiness failure */ }
       throw error;
     }
   }
@@ -71,4 +79,22 @@ async function loadRuntimeStore(): Promise<MoneyActionStore> {
   throw new Error(
     "DATABASE_URL is required for PostgreSQL money-action persistence in every runtime.",
   );
+}
+
+async function withCleanupTimeout(disposal: Promise<void>, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      disposal,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`PostgreSQL money-action cleanup timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+        (timer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

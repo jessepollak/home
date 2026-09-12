@@ -88,7 +88,7 @@ Open `http://localhost:3000`. Use the canonical `localhost` origin rather than `
 
 You can browse public product surfaces without credentials. Email sign-in, authenticated balances, and money actions require your own CDP project and allowed local origin; follow [CDP setup](docs/cdp-setup.md). Never commit secrets or expose server keys with a `NEXT_PUBLIC_` prefix.
 
-Money-action persistence is Postgres-only via server-only `DATABASE_URL`; without it money-action routes fail closed, so no hosted database is required only to browse locally. For a real local Postgres store without Neon, run `bun run db:up` (local Docker Postgres) and set `DATABASE_URL=postgresql://home:home@localhost:5432/home`, then `bun run money-actions:migrate`. Exact loopback hosts use Bun's SQL client and any other URL keeps the hosted Neon path. Read [wallet runtime](docs/wallet-runtime-spike.md) and [Vercel deploy](docs/vercel-deploy.md) before deploying money actions.
+Money-action persistence is Postgres-only via server-only `DATABASE_URL`; without it money-action routes fail closed, so no hosted database is required only to browse locally. For a real local Postgres store without Neon, run `bun run db:up` (local Docker Postgres) and set `DATABASE_URL=postgresql://home:home@localhost:5432/home`, then `bun run money-actions:migrate`. Exact loopback hosts use Bun's SQL client and any other URL keeps the hosted Neon path. Read [money-action persistence](docs/money-action-persistence.md) and [Vercel deploy](docs/vercel-deploy.md) before deploying money actions.
 
 ### Useful commands
 

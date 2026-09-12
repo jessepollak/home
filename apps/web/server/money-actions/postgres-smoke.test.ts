@@ -44,10 +44,21 @@ describe("local PostgreSQL migration and store smoke", () => {
         "SELECT current_schema() AS schema_name",
       );
       expect(schema.rows[0]?.schema_name).toBe("public");
-      const operations = await executor.query<{ to_regclass: string | null }>(
-        "SELECT to_regclass('public.money_action_operations') AS to_regclass",
-      );
-      expect(operations.rows[0]?.to_regclass).toBe("money_action_operations");
+      const schemaObjects = await executor.query<{
+        operations: string | null;
+        submission_index: string | null;
+        user_operation_index: string | null;
+      }>(`
+        SELECT
+          to_regclass('public.money_action_operations') AS operations,
+          to_regclass('public.money_action_unique_owner_submission_id') AS submission_index,
+          to_regclass('public.money_action_unique_owner_user_operation_hash') AS user_operation_index
+      `.trim());
+      expect(schemaObjects.rows[0]).toEqual({
+        operations: "money_action_operations",
+        submission_index: "money_action_unique_owner_submission_id",
+        user_operation_index: "money_action_unique_owner_user_operation_hash",
+      });
     } finally {
       await executor.dispose?.();
     }
@@ -55,9 +66,8 @@ describe("local PostgreSQL migration and store smoke", () => {
 
   smoke("issues, claims, and reloads a money action through the runtime store constructor", async () => {
     expect(isLoopbackPostgresUrl(databaseUrl), "DATABASE_URL must be an exact loopback host").toBe(true);
-    const executor = createPostgresSqlExecutor(databaseUrl);
+    const store = new PostgresMoneyActionStore(databaseUrl);
     try {
-      const store = new PostgresMoneyActionStore(executor);
       await store.ensureSchema();
 
       // Unique per run so repeated smoke runs against the persistent
@@ -82,7 +92,7 @@ describe("local PostgreSQL migration and store smoke", () => {
       expect(reloaded).toMatchObject({ status: "submitting", attemptCount: 1 });
       expect(reloaded?.action.id).toBe(id);
     } finally {
-      await executor.dispose?.();
+      await store.dispose();
     }
   }, 30_000);
 });
