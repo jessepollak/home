@@ -113,6 +113,38 @@ describe("activity route handler", () => {
     });
   });
 
+  test("swallows an async reporting rejection without delaying or changing the degraded response", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const expected = page();
+      const handler = createActivityHandler({
+        authorize: async () => sessionResponse(),
+        readActivity: async () => expected,
+        readRecordedOperations: async () => {
+          throw new Error("private database detail");
+        },
+        reportRecordedOperationsFailure: () =>
+          Promise.reject(new Error("async log sink unavailable")),
+        now: () => new Date(TO),
+      });
+
+      const response = await handler(
+        new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        ...expected,
+        recordedOperations: "unavailable",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   test("bounds a hanging recorded-operation query and still returns the onchain page", async () => {
     const expected = page();
     const handler = createActivityHandler({

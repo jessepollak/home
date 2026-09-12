@@ -8,6 +8,7 @@ import type { MoneyActionOwner } from "@/shared/money-actions/types";
 import type { ActivityReader, RecordedOperationsReader } from "./types";
 
 export type SessionAuthorizer = (request: Request) => Promise<Response>;
+export type RecordedOperationsFailureReporter = () => void | PromiseLike<void>;
 
 const privateResponseHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
@@ -20,7 +21,7 @@ export function createActivityHandler(dependencies: {
   readActivity: ActivityReader;
   readRecordedOperations?: RecordedOperationsReader;
   recordedOperationsTimeoutMs?: number;
-  reportRecordedOperationsFailure?: () => void;
+  reportRecordedOperationsFailure?: RecordedOperationsFailureReporter;
   now?: () => Date;
 }) {
   const now = dependencies.now ?? (() => new Date());
@@ -94,7 +95,7 @@ async function readRecordedOperationsAvailability(
   dependencies: {
     readRecordedOperations?: RecordedOperationsReader;
     recordedOperationsTimeoutMs?: number;
-    reportRecordedOperationsFailure?: () => void;
+    reportRecordedOperationsFailure?: RecordedOperationsFailureReporter;
   },
   owner: MoneyActionOwner,
   requestSignal: AbortSignal,
@@ -122,25 +123,33 @@ async function readRecordedOperationsAvailability(
     ]);
     return "available";
   } catch {
-    try {
-      if (dependencies.reportRecordedOperationsFailure) {
-        dependencies.reportRecordedOperationsFailure();
-      } else {
-        writeObservabilityEvent({
-          kind: "unhandled-server-error",
-          route: "/api/activity/recorded-operations",
-          method: "GET",
-          errorName: "RecordedOperationsUnavailable",
-          routeType: "secondary-source",
-        });
-      }
-    } catch {
-      // A reporting sink must never change the readable onchain response.
-    }
+    reportRecordedOperationsFailure(dependencies.reportRecordedOperationsFailure);
     return "unavailable";
   } finally {
     clearTimeout(timeout);
     requestSignal.removeEventListener("abort", abort);
+  }
+}
+
+function reportRecordedOperationsFailure(
+  reporter: RecordedOperationsFailureReporter | undefined,
+): void {
+  try {
+    if (reporter) {
+      void Promise.resolve(reporter()).catch(() => {
+        // An asynchronous reporting rejection must not escape the request.
+      });
+      return;
+    }
+    writeObservabilityEvent({
+      kind: "unhandled-server-error",
+      route: "/api/activity/recorded-operations",
+      method: "GET",
+      errorName: "RecordedOperationsUnavailable",
+      routeType: "secondary-source",
+    });
+  } catch {
+    // A synchronous reporting failure must not change the readable onchain response.
   }
 }
 
