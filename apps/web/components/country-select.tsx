@@ -1,6 +1,6 @@
 "use client";
 
-import * as Select from "@radix-ui/react-select";
+import * as RadixSelect from "@radix-ui/react-select";
 import {
   isRegionId,
   presentationRegions,
@@ -22,30 +22,30 @@ export function CountrySelect({
   variant = "default",
 }: CountrySelectProps) {
   return (
-    <Select.Root
+    <RadixSelect.Root
       value={value}
       onValueChange={(nextValue) => {
         if (isRegionId(nextValue)) onValueChange(nextValue);
       }}
     >
-      <Select.Trigger
+      <RadixSelect.Trigger
         id="country"
         aria-label="Country"
         aria-describedby={describedBy}
         className={
           variant === "settings"
             ? "flex min-h-11 items-center justify-end gap-1 border-0 bg-transparent p-0 text-right text-[0.92rem] font-semibold text-[var(--fg)] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[var(--home-ui-color-focus)]"
-            : "surface-primary flex min-h-[47px] w-full items-center justify-between rounded-home-ui-control border border-[var(--separator)] px-[13px] text-left text-[0.9rem] font-semibold text-[var(--fg)] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[var(--home-ui-color-focus)] data-[state=open]:border-[var(--home-ui-color-action)]"
+            : "home-ui-select-trigger surface-primary font-semibold data-[state=open]:border-[var(--home-ui-color-action)]"
         }
       >
-        <Select.Value />
-        <Select.Icon aria-hidden="true" className="ml-3 shrink-0 text-[var(--fg-muted)]">
+        <RadixSelect.Value />
+        <RadixSelect.Icon aria-hidden="true" className="ml-3 shrink-0 text-[var(--fg-muted)]">
           <ChevronIcon />
-        </Select.Icon>
-      </Select.Trigger>
+        </RadixSelect.Icon>
+      </RadixSelect.Trigger>
 
-      <Select.Portal>
-        <Select.Content
+      <RadixSelect.Portal>
+        <RadixSelect.Content
           position="popper"
           sideOffset={6}
           onKeyDownCapture={(event) => {
@@ -65,34 +65,34 @@ export function CountrySelect({
           }}
           className="surface-primary z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-home-ui-control border border-[var(--separator)] p-1 text-[var(--fg)] shadow-[0_12px_32px_rgba(10,11,13,0.16)]"
         >
-          <Select.ScrollUpButton className="flex h-8 cursor-default items-center justify-center text-[var(--fg-muted)]">
+          <RadixSelect.ScrollUpButton className="flex h-8 cursor-default items-center justify-center text-[var(--fg-muted)]">
             <ScrollChevronIcon direction="up" />
             <span className="sr-only">Scroll to earlier countries</span>
-          </Select.ScrollUpButton>
-          <Select.Viewport className="max-h-[min(20rem,var(--radix-select-content-available-height))] overscroll-contain">
+          </RadixSelect.ScrollUpButton>
+          <RadixSelect.Viewport className="max-h-[min(20rem,var(--radix-select-content-available-height))] overscroll-contain">
             {regionIds.map((id) => (
-              <Select.Item
+              <RadixSelect.Item
                 key={id}
                 value={id}
                 className="relative flex min-h-10 w-full cursor-default select-none items-center rounded-home-ui-control py-2 pl-3 pr-9 text-left text-sm font-semibold outline-none data-[highlighted]:bg-[var(--home-ui-color-subtle-hover)] data-[state=checked]:bg-[var(--home-ui-color-subtle-hover)]"
               >
-                <Select.ItemText>
+                <RadixSelect.ItemText>
                   {presentationRegions[id].selectorLabel}
-                </Select.ItemText>
-                <Select.ItemIndicator className="absolute right-3 inline-flex items-center text-[var(--home-ui-color-action)]">
+                </RadixSelect.ItemText>
+                <RadixSelect.ItemIndicator className="absolute right-3 inline-flex items-center text-[var(--home-ui-color-action)]">
                   <CheckIcon />
                   <span className="sr-only">Selected</span>
-                </Select.ItemIndicator>
-              </Select.Item>
+                </RadixSelect.ItemIndicator>
+              </RadixSelect.Item>
             ))}
-          </Select.Viewport>
-          <Select.ScrollDownButton className="flex h-8 cursor-default items-center justify-center text-[var(--fg-muted)]">
+          </RadixSelect.Viewport>
+          <RadixSelect.ScrollDownButton className="flex h-8 cursor-default items-center justify-center text-[var(--fg-muted)]">
             <ScrollChevronIcon direction="down" />
             <span className="sr-only">Scroll to later countries</span>
-          </Select.ScrollDownButton>
-        </Select.Content>
-      </Select.Portal>
-    </Select.Root>
+          </RadixSelect.ScrollDownButton>
+        </RadixSelect.Content>
+      </RadixSelect.Portal>
+    </RadixSelect.Root>
   );
 }
 

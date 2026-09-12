@@ -3,7 +3,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Bleed, Button, Heading, IconButton, Inline, Inset, Stack, Text, haptic } from "@home/ui";
+import { Bleed, Button, Field, Heading, IconButton, Inline, Input, Inset, Select, Stack, Text, haptic } from "@home/ui";
 import { PlusIcon } from "@home/ui/icons";
 
 afterEach(() => {
@@ -74,6 +74,55 @@ describe("native controls", () => {
     expect((button as HTMLButtonElement).disabled).toBe(true);
   });
 
+  test("input and select forward native props, refs, events, and adornment slots", () => {
+    const inputRef = createRef<HTMLInputElement>();
+    const selectRef = createRef<HTMLSelectElement>();
+    const inputChange = mock(() => {});
+    const selectChange = mock(() => {});
+    render(<>
+      <Input ref={inputRef} name="amount" inputMode="decimal" prefix="$" suffix={<button type="button">Clear</button>} onInput={inputChange} />
+      <Select ref={selectRef} name="country" defaultValue="US" prefix="Region" suffix="⌄" onChange={selectChange}>
+        <option value="US">United States</option>
+        <option value="GB">United Kingdom</option>
+      </Select>
+    </>);
+    const input = page().getByRole("textbox") as HTMLInputElement;
+    const select = page().getByRole("combobox") as HTMLSelectElement;
+    expect(inputRef.current).toBe(input);
+    expect(selectRef.current).toBe(select);
+    expect(input.name).toBe("amount");
+    expect(input.inputMode).toBe("decimal");
+    expect(select.name).toBe("country");
+    expect(page().getByText("$").classList.contains("home-ui-control__prefix")).toBe(true);
+    expect(page().getByRole("button", { name: "Clear" })).not.toBeNull();
+    fireEvent.input(input, { target: { value: "12" } });
+    fireEvent.change(select, { target: { value: "GB" } });
+    expect(inputChange).toHaveBeenCalledTimes(1);
+    expect(selectChange).toHaveBeenCalledTimes(1);
+  });
+
+  test("field wires labels, required state, help, errors, existing descriptions, and its action slot", () => {
+    render(
+      <Field
+        label="Wallet address"
+        htmlFor="wallet"
+        hint="Base address"
+        error="Enter a valid address"
+        required
+        action={<button type="button">Paste</button>}
+      >
+        <Input id="wallet" aria-describedby="external-help" />
+      </Field>,
+    );
+    const input = page().getByRole("textbox", { name: /Wallet address/ }) as HTMLInputElement;
+    expect(input.required).toBe(true);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby")).toBe("external-help wallet-hint wallet-error");
+    expect(page().getByText("Base address").id).toBe("wallet-hint");
+    expect(page().getByRole("alert").id).toBe("wallet-error");
+    expect(page().getByRole("button", { name: "Paste" }).parentElement?.classList.contains("home-ui-field__action")).toBe(true);
+  });
+
   test("blank labels fail rather than rendering an unnamed icon control", () => {
     expect(() => renderToStaticMarkup(<IconButton icon={PlusIcon} aria-label=" " />)).toThrow("non-empty aria-label");
   });
@@ -131,7 +180,7 @@ test("layout primitives forward native props and own token or custom spacing", (
 });
 
 test("all core exports render to static HTML without a provider", () => {
-  const html = renderToStaticMarkup(<><Heading level={2}>Server heading</Heading><Text textStyle="amount">€1.234.567,89</Text><Button loading>Keep name</Button><IconButton icon={PlusIcon} aria-label="Add example" /><Stack><Inline><Inset><Bleed>Layout</Bleed></Inset></Inline></Stack></>);
+  const html = renderToStaticMarkup(<><Heading level={2}>Server heading</Heading><Text textStyle="amount">€1.234.567,89</Text><Button loading>Keep name</Button><IconButton icon={PlusIcon} aria-label="Add example" /><Field label="Email" htmlFor="email" hint="Work email"><Input id="email" type="email" /></Field><Select aria-label="Country"><option>United States</option></Select><Stack><Inline><Inset><Bleed>Layout</Bleed></Inset></Inline></Stack></>);
   expect(html).toContain("<h2");
   expect(html).toContain("€1.234.567,89");
   expect(html).toContain('aria-label="Add example"');

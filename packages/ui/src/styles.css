@@ -200,6 +200,108 @@
 .home-ui-icon-button { padding: var(--home-ui-space-2); }
 .home-ui-icon-button svg { display: block; }
 
+.home-ui-field {
+  display: grid;
+  gap: var(--home-ui-space-2);
+  min-inline-size: 0;
+  color: var(--fg, var(--home-ui-color-text));
+  font-family: var(--home-ui-font-family);
+}
+.home-ui-field__label-row,
+.home-ui-field__control-row {
+  display: flex;
+  align-items: center;
+  gap: var(--home-ui-space-2);
+  min-inline-size: 0;
+}
+.home-ui-field__label {
+  color: inherit;
+  font-size: var(--home-ui-type-secondary-size);
+  font-weight: var(--home-ui-type-weight-medium);
+  line-height: var(--home-ui-type-body-leading);
+}
+.home-ui-field__required,
+.home-ui-field__error { color: var(--home-ui-color-error); }
+.home-ui-field__required::before { margin-inline-start: 0.2em; content: "*"; }
+.home-ui-field__control-row > :first-child { flex: 1 1 auto; min-inline-size: 0; }
+.home-ui-field__action { flex: 0 0 auto; }
+.home-ui-field__hint,
+.home-ui-field__error {
+  font-size: var(--home-ui-type-metadata-size);
+  line-height: var(--home-ui-type-body-leading);
+  overflow-wrap: anywhere;
+}
+.home-ui-field__hint { color: var(--fg-muted, var(--home-ui-color-muted)); }
+
+.home-ui-control,
+.home-ui-select-trigger {
+  box-sizing: border-box;
+  min-inline-size: 0;
+  min-block-size: var(--home-ui-target-min);
+  border: 1px solid var(--separator, var(--home-ui-color-border));
+  border-radius: var(--home-ui-radius-control);
+  background: var(--home-ui-color-surface);
+  color: var(--fg, var(--home-ui-color-text));
+  font-family: var(--home-ui-font-family);
+  font-size: var(--home-ui-type-input-size);
+  font-weight: var(--home-ui-type-weight-regular);
+  line-height: var(--home-ui-type-body-leading);
+}
+.home-ui-control {
+  display: flex;
+  align-items: stretch;
+  inline-size: 100%;
+}
+.home-ui-input__control,
+.home-ui-select__control {
+  box-sizing: border-box;
+  min-inline-size: 0;
+  min-block-size: calc(var(--home-ui-target-min) - 2px);
+  flex: 1 1 auto;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: var(--home-ui-space-2) var(--home-ui-space-3);
+}
+.home-ui-select__control { cursor: pointer; }
+.home-ui-control__prefix,
+.home-ui-control__suffix {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  color: var(--fg-muted, var(--home-ui-color-muted));
+}
+.home-ui-control__prefix { padding-inline-start: var(--home-ui-space-3); }
+.home-ui-control__suffix { padding-inline-end: var(--home-ui-space-2); }
+.home-ui-control__prefix + :is(.home-ui-input__control, .home-ui-select__control) { padding-inline-start: var(--home-ui-space-2); }
+:is(.home-ui-input__control, .home-ui-select__control):has(+ .home-ui-control__suffix) { padding-inline-end: var(--home-ui-space-2); }
+.home-ui-select-trigger {
+  display: flex;
+  inline-size: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--home-ui-space-2);
+  padding: var(--home-ui-space-2) var(--home-ui-space-3);
+  text-align: start;
+  cursor: pointer;
+}
+.home-ui-control:has(:focus-visible),
+.home-ui-select-trigger:focus-visible {
+  border-color: var(--home-ui-color-focus);
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--home-ui-color-focus-halo);
+}
+.home-ui-control[data-invalid],
+.home-ui-select-trigger[aria-invalid="true"] { border-color: var(--home-ui-color-error); }
+.home-ui-control[data-disabled] {
+  background: var(--home-ui-color-disabled-surface);
+  color: var(--home-ui-color-disabled-text);
+  cursor: not-allowed;
+}
+.home-ui-control[data-disabled] :is(input, select) { cursor: not-allowed; }
+
 .home-ui-stack,
 .home-ui-inline,
 .home-ui-inset,
@@ -231,6 +333,13 @@
   .home-ui-button:disabled { color: GrayText; border-color: GrayText; }
   .home-ui-button:focus-visible { outline-color: Highlight; }
   .home-ui-button[aria-pressed="true"]:enabled { outline: 2px solid ButtonText; outline-offset: -4px; }
+  .home-ui-control,
+  .home-ui-select-trigger { border-color: ButtonText; }
+  .home-ui-control:has(:focus-visible),
+  .home-ui-select-trigger:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; box-shadow: none; }
+  .home-ui-control[data-disabled] { color: GrayText; border-color: GrayText; }
+  .home-ui-field__error,
+  .home-ui-field__required { color: Mark; }
 }
 
 .home-ui-sheet {

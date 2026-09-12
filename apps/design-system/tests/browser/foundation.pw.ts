@@ -49,7 +49,7 @@ async function expectWholeAsciiWords(locator: Locator) {
 async function expectNoOverflow(page: Page) {
   await page.evaluate(() => document.fonts.ready);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  const clipped = await page.locator(".home-ui-text, .home-ui-money-ticker, .home-ui-button, .catalog-section, .catalog-controls, .catalog-control-grid, .catalog-control-grid label").evaluateAll((elements) =>
+  const clipped = await page.locator(".home-ui-text, .home-ui-money-ticker, .home-ui-button, .home-ui-field, .home-ui-control, .catalog-section, .catalog-controls, .catalog-control-grid, .catalog-control-grid label").evaluateAll((elements) =>
     elements.filter((element) => {
       // Tight display line boxes can have visible font ink outside their height;
       // that is not clipping. Still reject horizontal overflow and any vertical
@@ -117,6 +117,56 @@ test("320px / 200% text keeps all catalog words whole in loaded, fallback, and f
   } finally {
     await failedFontContext.close();
   }
+});
+
+for (const width of [320, 390]) {
+  test(`Field, Input, and Select remain associated and usable at ${width}px / 200% text`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await page.getByRole("combobox", { name: "Text size" }).selectOption("200");
+
+    const email = page.getByRole("textbox", { name: /Email address/ });
+    const amount = page.getByRole("textbox", { name: "Deposit amount" });
+    const address = page.getByRole("textbox", { name: "Wallet address" });
+    const country = page.getByRole("combobox", { name: "Country" });
+    await expect(email).toHaveAttribute("required", "");
+    await expect(email).toHaveAttribute("aria-describedby", "catalog-email-hint");
+    await expect(address).toHaveAttribute("aria-invalid", "true");
+    await expect(address).toHaveAttribute("aria-describedby", "catalog-address-error");
+    await expect(page.locator("#catalog-address-error")).toHaveText("Enter a valid Base address");
+    await expect(country).toHaveAttribute("aria-describedby", "catalog-country-hint");
+    await expect(amount.locator("xpath=..")).toContainText("$USD");
+
+    for (const control of [email, amount, address, country]) {
+      const box = await control.locator("xpath=..").boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+    await expectNoOverflow(page);
+  });
+}
+
+test("Field controls follow native keyboard order and expose the shared focus halo", async ({ page }) => {
+  await page.goto("/");
+  const email = page.getByRole("textbox", { name: /Email address/ });
+  const amount = page.getByRole("textbox", { name: "Deposit amount" });
+  const address = page.getByRole("textbox", { name: "Wallet address" });
+  const paste = page.getByRole("button", { name: "Paste", exact: true });
+  const country = page.getByRole("combobox", { name: "Country" });
+
+  await email.focus();
+  await expect(email).toBeFocused();
+  await expect(email.locator("xpath=..")).toHaveCSS("box-shadow", "rgba(0, 82, 255, 0.18) 0px 0px 0px 3px");
+  await page.keyboard.press("Tab");
+  await expect(amount).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(address).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(paste).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(country).toBeFocused();
+  await country.press("ArrowDown");
+  await expect(country).toBeFocused();
 });
 
 test("narrow normal-size icon buttons retain shared 44px geometry", async ({ page }) => {

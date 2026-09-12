@@ -1,52 +1,14 @@
-.field {
-  min-height: 48px;
-  border: 1px solid var(--separator);
-  border-radius: var(--home-ui-radius-control);
-  padding: 0 6px 0 14px;
-}
-
-.field:focus-within {
-  border-color: color-mix(in srgb, var(--home-ui-color-focus) 45%, transparent);
-  outline: 3px solid color-mix(in srgb, var(--home-ui-color-focus) 18%, transparent);
-  outline-offset: 2px;
+/* AddressField is the reusable control inside an already-labelled product field. */
+.field :global(.home-ui-field__label-row) {
+  display: none;
 }
 
 .input {
-  width: 100%;
-  min-width: 0;
-  min-height: 46px;
-  border: 0;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-size: 0.95rem;
-  padding: 0;
-}
-
-.input:focus {
-  outline: none;
 }
 
 .paste {
-  display: grid;
-  width: 40px;
-  height: 40px;
   flex: 0 0 auto;
-  place-items: center;
-  border: 0;
-  border-radius: var(--home-ui-radius-control);
-  background: transparent;
-  color: var(--home-ui-color-action);
-  cursor: pointer;
-}
-
-.paste:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.paste:focus-visible {
-  outline: 2px solid var(--home-ui-color-focus);
-  outline-offset: 2px;
+  padding: var(--home-ui-space-2);
 }

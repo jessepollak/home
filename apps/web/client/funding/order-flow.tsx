@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Stack } from "@home/ui";
+import { Field, Input, Select, Stack } from "@home/ui";
 import { CopyableValue } from "@/components/copyable-value";
 import {
   formatFiatAmount,
@@ -133,8 +133,30 @@ export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey,
   return (
     <>
       <Stack className={`${modal.body} ${styles.statusStack}`} space="2">
-        {binding.paymentMethods.length > 1 ? <label>Payment method<select value={method} onChange={(event) => setMethod(event.currentTarget.value)}>{binding.paymentMethods.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label> : null}
-        {binding.kyc?.fields?.map((field) => <label key={field.name}>{field.label}{field.type === "select" ? <select value={fields[field.name] ?? ""} onChange={(event) => setFields((current) => ({ ...current, [field.name]: event.currentTarget.value }))}><option value="">Choose</option>{field.options?.map((option) => <option key={option}>{option}</option>)}</select> : <input type={field.type} value={fields[field.name] ?? ""} onChange={(event) => setFields((current) => ({ ...current, [field.name]: event.currentTarget.value }))} />}</label>)}
+        {binding.paymentMethods.length > 1 ? (
+          <Field label="Payment method" htmlFor="funding-payment-method" required>
+            <Select id="funding-payment-method" value={method} onChange={(event) => setMethod(event.currentTarget.value)}>
+              {binding.paymentMethods.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}
+            </Select>
+          </Field>
+        ) : null}
+        {binding.kyc?.fields?.map((field) => {
+          const id = `funding-kyc-${field.name}`;
+          const value = fields[field.name] ?? "";
+          const onChange = (nextValue: string) => setFields((current) => ({ ...current, [field.name]: nextValue }));
+          return (
+            <Field key={field.name} label={field.label} htmlFor={id} required>
+              {field.type === "select" ? (
+                <Select id={id} value={value} onChange={(event) => onChange(event.currentTarget.value)}>
+                  <option value="">Choose</option>
+                  {field.options?.map((option) => <option key={option}>{option}</option>)}
+                </Select>
+              ) : (
+                <Input id={id} type={field.type} value={value} onChange={(event) => onChange(event.currentTarget.value)} />
+              )}
+            </Field>
+          );
+        })}
         <MoneyAmountDisplay amount={amount} onAmountChange={setAmount} assetId={binding.assetId} assetLabel={binding.currency} assetCurrency={binding.currency} assetLocked pricing={{ status: "unpriced" }} nativeSymbol={binding.currency} />
         <MoneyNumpad value={amount} maxDecimals={2} onChange={setAmount} disabled={busy} />
         {error ? <p className={modal.error} role="alert">{error}</p> : null}

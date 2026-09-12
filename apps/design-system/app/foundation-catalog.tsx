@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bleed, Button, Heading, IconButton, Inline, Inset, Stack, Text, type TextStyle } from "@home/ui";
+import { Bleed, Button, Field, Heading, IconButton, Inline, Input, Inset, Select, Stack, Text, type TextStyle } from "@home/ui";
 import { Sheet } from "@home/ui/sheet";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { ArrowRightIcon, CheckIcon, PlusIcon, XIcon } from "@home/ui/icons";
@@ -206,6 +206,34 @@ export function FoundationCatalog() {
             <IconButton {...state} icon={XIcon} aria-label="Close example" onClick={activate} />
             <IconButton {...state} icon={ArrowRightIcon} iconSize={24} variant="secondary" aria-label="Next example" onClick={activate} />
             <IconButton {...state} icon={CheckIcon} iconSize={24} variant="primary" aria-label="Select example" onClick={activate} />
+          </div>
+        </section>
+
+        <section className="catalog-section bg-home-ui-surface" aria-labelledby="fields-title">
+          <Heading id="fields-title" level={2} textStyle="section-title">Fields</Heading>
+          <Text textStyle="secondary" tone="muted">Native controls with shared labels, help, errors, adornments, and action layout.</Text>
+          <div className="catalog-field-matrix">
+            <Field label="Email address" htmlFor="catalog-email" hint="Used for receipt delivery" required>
+              <Input id="catalog-email" type="email" placeholder="name@example.com" disabled={disabled} />
+            </Field>
+            <Field label="Deposit amount" htmlFor="catalog-amount" hint="Enter the exact fiat amount">
+              <Input id="catalog-amount" inputMode="decimal" prefix="$" suffix="USD" placeholder="0.00" disabled={disabled} />
+            </Field>
+            <Field
+              label="Wallet address"
+              htmlFor="catalog-address"
+              error="Enter a valid Base address"
+              action={<Button variant="quiet" disabled={disabled}>Paste</Button>}
+            >
+              <Input id="catalog-address" defaultValue="not-an-address" disabled={disabled} />
+            </Field>
+            <Field label="Country" htmlFor="catalog-country" hint="Sets how money is shown">
+              <Select id="catalog-country" defaultValue="US" disabled={disabled}>
+                <option value="US">United States</option>
+                <option value="GB">United Kingdom</option>
+                <option value="ID">Indonesia</option>
+              </Select>
+            </Field>
           </div>
         </section>
 
