@@ -19,7 +19,7 @@ Home is building toward a complete money app:
 - **Hold, send, and receive** money across currencies and assets.
 - **Earn** across currencies and assets.
 - **Invest** across asset classes.
-- **Borrow** against assets in the currency you need.
+- **Borrow** against your assets, in the asset or currency you need.
 
 ## Product
 
