@@ -6,6 +6,32 @@ import {
 
 export const OBSERVABILITY_SCHEMA = "home.observability.v2" as const;
 
+export const ACTIVITY_READ_OUTCOMES = [
+  "started",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "rejected",
+] as const;
+export const ACTIVITY_READ_REASONS = [
+  "none",
+  "authorization",
+  "request",
+  "primary-source",
+] as const;
+export const ACTIVITY_READ_SOURCES = ["none", "cdp-sql"] as const;
+export const ACTIVITY_RECORDED_OPERATIONS_STATES = [
+  "not-started",
+  "available",
+  "unavailable",
+] as const;
+
+export type ActivityReadOutcome = (typeof ACTIVITY_READ_OUTCOMES)[number];
+export type ActivityReadReason = (typeof ACTIVITY_READ_REASONS)[number];
+export type ActivityReadSource = (typeof ACTIVITY_READ_SOURCES)[number];
+export type ActivityRecordedOperationsState =
+  (typeof ACTIVITY_RECORDED_OPERATIONS_STATES)[number];
+
 export type ObservabilityEvent =
   | {
       kind: "unhandled-server-error";
@@ -23,11 +49,15 @@ export type ObservabilityEvent =
   | {
       kind: "activity-read";
       route: string;
-      outcome: "succeeded" | "failed";
-      source: "cdp-sql";
+      outcome: ActivityReadOutcome;
+      reason: ActivityReadReason;
+      source: ActivityReadSource;
       durationMs: number;
       sourceDurationMs: number;
+      sourceAttemptCount: number;
+      pageCount: number;
       rowCount: number;
+      recordedOperations: ActivityRecordedOperationsState;
     };
 
 export type ObservabilityLogLine = {
@@ -40,11 +70,15 @@ export type ObservabilityLogLine = {
   errorName?: string;
   routeType?: string;
   summary?: string;
-  outcome?: "succeeded" | "failed";
-  source?: "cdp-sql";
+  outcome?: ActivityReadOutcome;
+  reason?: ActivityReadReason;
+  source?: ActivityReadSource;
   durationMs?: number;
   sourceDurationMs?: number;
+  sourceAttemptCount?: number;
+  pageCount?: number;
   rowCount?: number;
+  recordedOperations?: ActivityRecordedOperationsState;
 };
 
 function sanitizeMethod(value: string | undefined): string | undefined {
@@ -60,17 +94,27 @@ export function normalizeObservabilityEvent(
 ): ObservabilityLogLine {
   const route = sanitizeRoutePath(event.route);
   if (event.kind === "activity-read") {
+    const outcome = allowedValue(event.outcome, ACTIVITY_READ_OUTCOMES, "failed");
     return {
       schema: OBSERVABILITY_SCHEMA,
-      level: event.outcome === "succeeded" ? "info" : "error",
+      level:
+        outcome === "failed" || outcome === "cancelled" ? "error" : "info",
       kind: event.kind,
       route,
       code: "ACTIVITY_READ",
-      outcome: event.outcome,
-      source: event.source,
+      outcome,
+      reason: allowedValue(event.reason, ACTIVITY_READ_REASONS, "none"),
+      source: allowedValue(event.source, ACTIVITY_READ_SOURCES, "none"),
       durationMs: boundedInteger(event.durationMs, 60_000),
       sourceDurationMs: boundedInteger(event.sourceDurationMs, 60_000),
+      sourceAttemptCount: boundedInteger(event.sourceAttemptCount, 10),
+      pageCount: boundedInteger(event.pageCount, 10),
       rowCount: boundedInteger(event.rowCount, 10_000),
+      recordedOperations: allowedValue(
+        event.recordedOperations,
+        ACTIVITY_RECORDED_OPERATIONS_STATES,
+        "not-started",
+      ),
     };
   }
 
@@ -108,4 +152,14 @@ export function normalizeObservabilityEvent(
 function boundedInteger(value: number, maximum: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(maximum, Math.max(0, Math.round(value)));
+}
+
+function allowedValue<const T extends readonly string[]>(
+  value: unknown,
+  allowed: T,
+  fallback: T[number],
+): T[number] {
+  return typeof value === "string" && allowed.includes(value)
+    ? (value as T[number])
+    : fallback;
 }

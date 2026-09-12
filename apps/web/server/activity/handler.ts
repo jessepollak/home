@@ -2,19 +2,30 @@ import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
 } from "@/shared/account/session-types";
+import type { MoneyActionOwner } from "@/shared/money-actions/types";
 import { ChainDataError } from "@/server/chain-data/errors";
 import { writeObservabilityEvent } from "@/server/observability/log";
-import type { MoneyActionOwner } from "@/shared/money-actions/types";
+import type { ObservabilityEvent } from "@/server/observability/schema";
 import type { ActivityReader, RecordedOperationsReader } from "./types";
 
 export type SessionAuthorizer = (request: Request) => Promise<Response>;
-export type RecordedOperationsFailureReporter = () => void | PromiseLike<void>;
+export type RecordedOperationsFailureReporter = () => unknown | PromiseLike<unknown>;
+
+type ActivityReadObservation = Extract<
+  ObservabilityEvent,
+  { kind: "activity-read" }
+>;
+export type ActivityObservationSink = (
+  event: ActivityReadObservation,
+) => unknown | PromiseLike<unknown>;
 
 const privateResponseHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
   Pragma: "no-cache",
   Vary: `Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
 } as const;
+const DEFAULT_RECORDED_OPERATIONS_TIMEOUT_MS = 2_000;
+const MAX_RECORDED_OPERATIONS_TIMEOUT_MS = 5_000;
 
 export function createActivityHandler(dependencies: {
   authorize: SessionAuthorizer;
@@ -23,12 +34,27 @@ export function createActivityHandler(dependencies: {
   recordedOperationsTimeoutMs?: number;
   reportRecordedOperationsFailure?: RecordedOperationsFailureReporter;
   now?: () => Date;
+  clock?: () => number;
+  observe?: ActivityObservationSink;
 }) {
   const now = dependencies.now ?? (() => new Date());
+  const clock = dependencies.clock ?? (() => Date.now());
+  const observe = dependencies.observe ?? (() => undefined);
 
   return async function GET(request: Request): Promise<Response> {
+    const requestStartedAt = clock();
     const boundaryResponse = await dependencies.authorize(request);
     if (!boundaryResponse.ok) {
+      emitActivityObservation(
+        observe,
+        finalObservation({
+          outcome: "rejected",
+          reason: "authorization",
+          source: "none",
+          requestStartedAt,
+          finishedAt: clock(),
+        }),
+      );
       return boundaryResponse;
     }
 
@@ -37,6 +63,16 @@ export function createActivityHandler(dependencies: {
       readRequestedProvider(request),
     );
     if (!session) {
+      emitActivityObservation(
+        observe,
+        finalObservation({
+          outcome: "rejected",
+          reason: "authorization",
+          source: "none",
+          requestStartedAt,
+          finishedAt: clock(),
+        }),
+      );
       return privateError(
         "AUTH_UNAVAILABLE",
         "Authentication is temporarily unavailable.",
@@ -44,6 +80,16 @@ export function createActivityHandler(dependencies: {
       );
     }
     if (!session.smartAccount) {
+      emitActivityObservation(
+        observe,
+        finalObservation({
+          outcome: "rejected",
+          reason: "authorization",
+          source: "none",
+          requestStartedAt,
+          finishedAt: clock(),
+        }),
+      );
       return privateError(
         "SMART_ACCOUNT_UNAVAILABLE",
         "A verified Base smart account is not available yet.",
@@ -53,6 +99,16 @@ export function createActivityHandler(dependencies: {
 
     const activityRequest = parseActivityRequest(request, now());
     if (!activityRequest) {
+      emitActivityObservation(
+        observe,
+        finalObservation({
+          outcome: "rejected",
+          reason: "request",
+          source: "none",
+          requestStartedAt,
+          finishedAt: clock(),
+        }),
+      );
       return privateError(
         "INVALID_ACTIVITY_REQUEST",
         "Use a valid activity window and pagination cursor.",
@@ -60,17 +116,22 @@ export function createActivityHandler(dependencies: {
       );
     }
 
-    const recordedOperations = readRecordedOperationsAvailability(
-      dependencies,
-      {
-        subject: session.subject,
-        address: session.smartAccount.address,
-        chainId: 8453,
-        accountProvider: session.accountProvider,
-      },
-      request.signal,
-    );
+    const sourceStartedAt = clock();
+    emitActivityObservation(observe, {
+      kind: "activity-read",
+      route: "/api/activity",
+      outcome: "started",
+      reason: "primary-source",
+      source: "cdp-sql",
+      durationMs: elapsedMs(sourceStartedAt, requestStartedAt),
+      sourceDurationMs: 0,
+      sourceAttemptCount: 1,
+      pageCount: 0,
+      rowCount: 0,
+      recordedOperations: "not-started",
+    });
 
+    let primaryFinishedAt: number | null = null;
     try {
       const page = await dependencies.readActivity(
         {
@@ -81,14 +142,93 @@ export function createActivityHandler(dependencies: {
         activityRequest,
         request.signal,
       );
-      return privateJson(
-        { ...page, recordedOperations: await recordedOperations },
-        200,
+      primaryFinishedAt = clock();
+      throwIfAborted(request.signal);
+
+      const recordedOperations = await readRecordedOperationsAvailability(
+        dependencies,
+        {
+          subject: session.subject,
+          address: session.smartAccount.address,
+          chainId: 8453,
+          accountProvider: session.accountProvider,
+        },
+        request.signal,
       );
+      throwIfAborted(request.signal);
+
+      const finishedAt = clock();
+      emitActivityObservation(observe, {
+        kind: "activity-read",
+        route: "/api/activity",
+        outcome: "succeeded",
+        reason: "primary-source",
+        source: "cdp-sql",
+        durationMs: elapsedMs(finishedAt, requestStartedAt),
+        sourceDurationMs: elapsedMs(primaryFinishedAt, sourceStartedAt),
+        sourceAttemptCount: 1,
+        pageCount: 1,
+        rowCount: page.transfers.length,
+        recordedOperations,
+      });
+      return privateJson({ ...page, recordedOperations }, 200);
     } catch (error) {
+      const finishedAt = clock();
+      emitActivityObservation(observe, {
+        kind: "activity-read",
+        route: "/api/activity",
+        outcome: request.signal.aborted ? "cancelled" : "failed",
+        reason: request.signal.aborted ? "request" : "primary-source",
+        source: "cdp-sql",
+        durationMs: elapsedMs(finishedAt, requestStartedAt),
+        sourceDurationMs: elapsedMs(
+          primaryFinishedAt ?? finishedAt,
+          sourceStartedAt,
+        ),
+        sourceAttemptCount: 1,
+        pageCount: 0,
+        rowCount: 0,
+        recordedOperations: "not-started",
+      });
       return activityReadError(error);
     }
   };
+}
+
+function finalObservation(input: {
+  outcome: "rejected";
+  reason: "authorization" | "request";
+  source: "none";
+  requestStartedAt: number;
+  finishedAt: number;
+}): ActivityReadObservation {
+  return {
+    kind: "activity-read",
+    route: "/api/activity",
+    outcome: input.outcome,
+    reason: input.reason,
+    source: input.source,
+    durationMs: elapsedMs(input.finishedAt, input.requestStartedAt),
+    sourceDurationMs: 0,
+    sourceAttemptCount: 0,
+    pageCount: 0,
+    rowCount: 0,
+    recordedOperations: "not-started",
+  };
+}
+
+function emitActivityObservation(
+  observe: ActivityObservationSink,
+  event: ActivityReadObservation,
+): void {
+  try {
+    const result = observe(event);
+    void Promise.resolve(result).catch(() => {
+      // Asynchronous observation rejection must never escape the request.
+    });
+  } catch {
+    // Synchronous observation failure must never change response behavior.
+  }
 }
 
 async function readRecordedOperationsAvailability(
@@ -101,56 +241,91 @@ async function readRecordedOperationsAvailability(
   requestSignal: AbortSignal,
 ): Promise<"available" | "unavailable"> {
   if (!dependencies.readRecordedOperations) return "available";
+  throwIfAborted(requestSignal);
 
   const controller = new AbortController();
-  const abort = () => controller.abort(requestSignal.reason);
-  requestSignal.addEventListener("abort", abort, { once: true });
+  const abortFromRequest = () => controller.abort(requestSignal.reason);
+  requestSignal.addEventListener("abort", abortFromRequest, { once: true });
+  if (requestSignal.aborted) abortFromRequest();
   const timeout = setTimeout(
-    () => controller.abort(new DOMException("Recorded operations timed out.", "TimeoutError")),
-    dependencies.recordedOperationsTimeoutMs ?? 2_000,
+    () =>
+      controller.abort(
+        new DOMException("Recorded operations timed out.", "TimeoutError"),
+      ),
+    recordedOperationsTimeoutMs(dependencies.recordedOperationsTimeoutMs),
+  );
+  const read = Promise.resolve().then(() =>
+    dependencies.readRecordedOperations!(owner, controller.signal),
   );
 
   try {
-    await Promise.race([
-      dependencies.readRecordedOperations(owner, controller.signal),
-      new Promise<never>((_resolve, reject) => {
-        controller.signal.addEventListener(
-          "abort",
-          () => reject(controller.signal.reason ?? new DOMException("Aborted", "AbortError")),
-          { once: true },
-        );
-      }),
-    ]);
+    await Promise.race([read, rejectWhenAborted(controller.signal)]);
     return "available";
-  } catch {
+  } catch (error) {
+    if (requestSignal.aborted) throw error;
     reportRecordedOperationsFailure(dependencies.reportRecordedOperationsFailure);
     return "unavailable";
   } finally {
     clearTimeout(timeout);
-    requestSignal.removeEventListener("abort", abort);
+    requestSignal.removeEventListener("abort", abortFromRequest);
+    if (!controller.signal.aborted) {
+      controller.abort(
+        new DOMException("Recorded operations read settled.", "AbortError"),
+      );
+    }
   }
+}
+
+function rejectWhenAborted(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    signal.addEventListener(
+      "abort",
+      () => reject(signal.reason ?? new DOMException("Aborted", "AbortError")),
+      { once: true },
+    );
+  });
+}
+
+function recordedOperationsTimeoutMs(value: number | undefined): number {
+  if (!Number.isSafeInteger(value) || (value ?? 0) <= 0) {
+    return DEFAULT_RECORDED_OPERATIONS_TIMEOUT_MS;
+  }
+  return Math.min(value!, MAX_RECORDED_OPERATIONS_TIMEOUT_MS);
 }
 
 function reportRecordedOperationsFailure(
   reporter: RecordedOperationsFailureReporter | undefined,
 ): void {
   try {
-    if (reporter) {
-      void Promise.resolve(reporter()).catch(() => {
-        // An asynchronous reporting rejection must not escape the request.
-      });
-      return;
-    }
-    writeObservabilityEvent({
-      kind: "unhandled-server-error",
-      route: "/api/activity/recorded-operations",
-      method: "GET",
-      errorName: "RecordedOperationsUnavailable",
-      routeType: "secondary-source",
+    const result = reporter
+      ? reporter()
+      : writeObservabilityEvent({
+          kind: "unhandled-server-error",
+          route: "/api/activity/recorded-operations",
+          method: "GET",
+          errorName: "RecordedOperationsUnavailable",
+          routeType: "secondary-source",
+        });
+    void Promise.resolve(result).catch(() => {
+      // Asynchronous reporting rejection must not escape the request.
     });
   } catch {
-    // A synchronous reporting failure must not change the readable onchain response.
+    // Synchronous reporting failure must not change the readable onchain response.
   }
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw signal.reason ?? new DOMException("Aborted", "AbortError");
+  }
+}
+
+function elapsedMs(finishedAt: number, startedAt: number): number {
+  return Math.max(0, Math.round(finishedAt - startedAt));
 }
 
 function parseActivityRequest(

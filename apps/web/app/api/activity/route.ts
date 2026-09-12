@@ -21,8 +21,10 @@ export const GET = createActivityHandler({
   authorize: authorizeSession,
   readActivity: getRecentBaseActivity,
   readRecordedOperations: async (owner, signal) => {
+    if (signal?.aborted) throw signal.reason;
     const store = await getMoneyActionStore();
-    await store.list(owner, 50, signal);
+    await store.list(owner, 50);
+    if (signal?.aborted) throw signal.reason;
   },
   observe: writeObservabilityEvent,
 });
