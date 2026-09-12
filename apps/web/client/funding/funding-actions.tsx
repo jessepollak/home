@@ -116,7 +116,7 @@ export function FundingActionsForWallet({
   const modal = (
     <FundingExperienceForWallet
       wallet={wallet}
-      navigateToHostedOnramp={(url) => window.location.assign(url)}
+      navigateToRedirect={(url) => window.location.assign(url)}
       open={open}
       onClose={close}
       returnedFromProvider={returnedFromProvider}
