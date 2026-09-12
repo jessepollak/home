@@ -36,14 +36,16 @@ function joinCurrencySuffix(amount: string, symbol: string): string {
   return compact ? `${amount}${NBSP}${compact}` : amount;
 }
 
+/** Token symbols keep their internal spacing ("vault shares"); only currency glyphs are compacted. */
 function joinAmountAndSymbol(
   amount: string,
   symbol: string,
   useNoBreakSpace = false,
 ): string {
-  const compact = collapseSpaces(symbol, "");
-  if (!compact) return amount;
-  return `${amount}${useNoBreakSpace ? NBSP : " "}${compact}`;
+  const separator = useNoBreakSpace ? NBSP : " ";
+  const label = collapseSpaces(symbol, separator);
+  if (!label) return amount;
+  return `${amount}${separator}${label}`;
 }
 
 const regionLocales = {

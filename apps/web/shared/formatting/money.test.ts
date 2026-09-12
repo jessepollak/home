@@ -78,6 +78,12 @@ const localeCases = [
 ];
 
 describe("presentation money formatting", () => {
+  test("keeps internal spaces in multi-word token labels", () => {
+    expect(formatPresentationTokenAmount("999999", 18, "vault shares")).toBe("<0.000001 vault shares");
+    expect(formatPresentationTokenAmount("1500000000000000000", 18, "vault shares", { useNoBreakSpace: true }))
+      .toMatch(/^\S+\u00a0vault\u00a0shares$/);
+  });
+
   test("formats amounts, signs, percentages, prices, and dates for every locale", () => {
     for (const entry of localeCases) {
       expect(
