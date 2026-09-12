@@ -1,8 +1,8 @@
 "use client";
 
-import { Button, EmptyState, StatusMessage } from "@home/ui";
+import { Button, EmptyState, Heading, StatusMessage, Text } from "@home/ui";
+import { MoneyTicker } from "@home/ui/money-ticker";
 import { useEffect, useRef, useState } from "react";
-import { Heading, Text } from "@home/ui";
 import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
 import {
@@ -47,16 +47,15 @@ export function ActivityPanel({
   const heading = header === undefined ? <DefaultActivityHeader /> : header;
   const labelledBy = header === null ? undefined : "activity-title";
   const labelled = header === null ? "Activity" : undefined;
-  const timeZone = runtimeTimeZone();
   const details = selectedTransfer
-    ? presentActivityTransferDetails(selectedTransfer, { regionId, timeZone })
+    ? presentActivityTransferDetails(selectedTransfer, { regionId })
     : null;
   const detailsTitleId = "activity-transfer-details-title";
 
   if (activity.status === "unavailable") {
     return (
       <section
-        className={styles.panel}
+        className={`${styles.panel} surface-primary`}
         aria-labelledby={labelledBy}
         aria-label={labelled}
       >
@@ -70,17 +69,17 @@ export function ActivityPanel({
   if (activity.status === "loading") {
     return (
       <section
-        className={styles.panel}
+        className={`${styles.panel} surface-primary`}
         aria-labelledby={labelledBy}
         aria-label={labelled}
         aria-busy="true"
       >
         {heading}
         {leading}
-        <div className={styles.loading} role="status">
+        <StatusMessage className={styles.loading}>
           <span className={styles.spinner} aria-hidden="true" />
           Loading recent activity…
-        </div>
+        </StatusMessage>
       </section>
     );
   }
@@ -88,7 +87,7 @@ export function ActivityPanel({
   if (activity.status === "error") {
     return (
       <section
-        className={styles.panel}
+        className={`${styles.panel} surface-primary`}
         aria-labelledby={labelledBy}
         aria-label={labelled}
       >
@@ -115,7 +114,7 @@ export function ActivityPanel({
   const isEmpty = visibleTransfers.length === 0;
   return (
     <section
-      className={styles.panel}
+      className={`${styles.panel} surface-primary`}
       aria-labelledby={labelledBy}
       aria-label={labelled}
     >
@@ -130,7 +129,6 @@ export function ActivityPanel({
               key={transfer.id}
               transfer={transfer}
               regionId={regionId}
-              timeZone={timeZone}
               onActivate={() => setSelectedTransfer(transfer)}
             />
           ))}
@@ -215,10 +213,10 @@ function ActivityPagination({
   return (
     <div className={styles.pagination}>
       {loading ? (
-        <div className={styles.loadingMore} role="status" aria-live="polite">
+        <StatusMessage className={styles.loadingMore} aria-live="polite">
           <span className={styles.spinner} aria-hidden="true" />
           Loading more activity…
-        </div>
+        </StatusMessage>
       ) : null}
       {failed ? (
         <Text textStyle="metadata" className={styles.loadMoreError} role="alert">
@@ -230,9 +228,9 @@ function ActivityPagination({
         </Text>
       ) : null}
       {loading ? null : (
-        <button
+        <Button
           className={styles.loadMoreButton}
-          type="button"
+          variant="secondary"
           onClick={failed || autoLoadPaused ? continueManually : loadMore}
         >
           {failed
@@ -240,7 +238,7 @@ function ActivityPagination({
             : autoLoadPaused
               ? "Continue loading activity"
               : "Load more activity"}
-        </button>
+        </Button>
       )}
       <div
         key={nextCursor}
@@ -264,15 +262,13 @@ function DefaultActivityHeader() {
 function TransferActivityRow({
   transfer,
   regionId,
-  timeZone,
   onActivate,
 }: {
   transfer: ActivityTransfer;
   regionId: NonNullable<ActivityPanelProps["regionId"]>;
-  timeZone: string;
   onActivate: () => void;
 }) {
-  const model = presentActivityTransferRow(transfer, { regionId, timeZone });
+  const model = presentActivityTransferRow(transfer, { regionId });
   return (
     <ActivityRow
       icon={iconForDirection(transfer.direction)}
@@ -284,7 +280,7 @@ function TransferActivityRow({
         </time>
       }
       contextTitle={model.fullDate}
-      value={model.value}
+      value={<MoneyTicker value={model.value} />}
       onActivate={onActivate}
       activateLabel={`View ${model.directionLabel.toLowerCase()} ${transfer.tokenSymbol ?? "unknown token"} transaction details`}
     />
@@ -295,12 +291,4 @@ function iconForDirection(direction: ActivityDirection): string {
   if (direction === "incoming") return "↓";
   if (direction === "outgoing") return "↑";
   return "↔";
-}
-
-function runtimeTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
 }

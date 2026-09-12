@@ -1011,47 +1011,6 @@ body:has(.app-frame-shell) {
   padding-top: 16px;
 }
 
-.activity-list {
-  display: grid;
-  margin: 18px 0 0;
-  border-top: 1px solid var(--line);
-  padding: 0;
-  list-style: none;
-}
-
-.activity-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid var(--line);
-  padding: 12px 0;
-}
-
-.activity-list li > span {
-  display: grid;
-  gap: 3px;
-}
-
-.activity-list li > span:last-child {
-  justify-items: end;
-  text-align: right;
-}
-
-.activity-list strong {
-  font-size: 0.76rem;
-}
-
-.activity-list small,
-.activity-source {
-  color: var(--muted);
-  font-size: 0.64rem;
-}
-
-.activity-source {
-  margin: 10px 0 0;
-}
-
 .empty-panel {
   min-height: 180px;
   padding: 20px;

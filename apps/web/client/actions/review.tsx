@@ -1,5 +1,7 @@
 "use client";
 
+import { Button, Heading, StatusMessage } from "@home/ui";
+import { MoneyTicker } from "@home/ui/money-ticker";
 import { useState } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import {
@@ -66,22 +68,27 @@ function MoneyActionReviewContent({
   }
 
   return (
-    <section className={styles.review} aria-labelledby={`money-action-${action.id}`}>
-      <h3 id={`money-action-${action.id}`}>{action.title}</h3>
+    <section className={`${styles.review} surface-primary`} aria-labelledby={`money-action-${action.id}`}>
+      <Heading id={`money-action-${action.id}`} level={3} textStyle="section-title" className={styles.title}>
+        {action.title}
+      </Heading>
       <dl className={styles.rows}>
-        {action.amounts.map((amount, index) => (
-          <div className={styles.row} key={`${amount.assetId}-${amount.direction}-${index}`}>
-            <dt>{amount.maximum ? "Up to" : amount.direction === "spend" ? "You spend" : "You receive"}</dt>
-            <dd>
-              {amount.estimated ? "Estimated " : ""}
-              {formatExactPresentationTokenAmount(
-                amount.amountBaseUnits,
-                amount.decimals,
-                amount.symbol,
-              )}
-            </dd>
-          </div>
-        ))}
+        {action.amounts.map((amount, index) => {
+          const formattedAmount = formatExactPresentationTokenAmount(
+            amount.amountBaseUnits,
+            amount.decimals,
+            amount.symbol,
+          );
+          return (
+            <div className={styles.row} key={`${amount.assetId}-${amount.direction}-${index}`}>
+              <dt>{amount.maximum ? "Up to" : amount.direction === "spend" ? "You spend" : "You receive"}</dt>
+              <dd>
+                {amount.estimated ? "Estimated " : ""}
+                <MoneyTicker value={formattedAmount} />
+              </dd>
+            </div>
+          );
+        })}
         <div className={styles.row}>
           <dt>Network</dt>
           <dd>Base (8453)</dd>
@@ -92,15 +99,25 @@ function MoneyActionReviewContent({
         </div>
       </dl>
       {action.warnings.map((warning) => (
-        <p className={styles.warning} key={warning}>{presentReviewWarning(warning)}</p>
+        <StatusMessage className={styles.warning} tone="warning" key={warning}>
+          {presentReviewWarning(warning)}
+        </StatusMessage>
       ))}
-      {expired && !attempted ? <p className={styles.error} role="alert">This prepared action expired. Prepare and review a fresh action.</p> : null}
-      {error ? <p className={styles.error} role="alert">{error}</p> : null}
+      {expired && !attempted ? (
+        <StatusMessage className={styles.error} tone="error" role="alert">
+          This prepared action expired. Prepare and review a fresh action.
+        </StatusMessage>
+      ) : null}
+      {error ? <StatusMessage className={styles.error} tone="error" role="alert">{error}</StatusMessage> : null}
       <div className={styles.actions}>
-        <button type="button" disabled={pending} onClick={onClose}>Back</button>
-        <button type="button" disabled={pending || (expired && !attempted)} onClick={() => void confirm()}>
+        <Button variant="secondary" disabled={pending} onClick={onClose}>Back</Button>
+        <Button
+          disabled={pending || (expired && !attempted)}
+          loading={pending}
+          onClick={() => void confirm()}
+        >
           {pending ? "Submitting…" : attempted ? "Retry" : action.kind === "trade" ? "Confirm trade" : "Confirm action"}
-        </button>
+        </Button>
       </div>
     </section>
   );
