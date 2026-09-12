@@ -1,102 +1,79 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { evidenceUniquenessKey } from "./attempt-store-core";
-import { createPostgresAttemptStoreResource, PostgresMoneyActionStore } from "./postgres-store";
+import { PostgresMoneyActionStore } from "./postgres-store";
 import {
   createFakePostgresExecutor,
   createNeonSqlExecutor,
   isUniqueViolation,
-  MONEY_ACTION_ATTEMPT_SCHEMA_SQL,
-  MONEY_ACTION_DATA_MIGRATION_ID,
-  MONEY_ACTION_DATA_MIGRATION_SCHEMA_SQL,
+  MONEY_ACTION_EVIDENCE_INDEX_SQL,
   MONEY_ACTION_SCHEMA_SQL,
-  moneyActionQueries,
   type SqlExecutor,
   type SqlQueryResult,
 } from "./postgres-sql";
 
-test("embedded Postgres schemas match the operator migration files", () => {
+test("embedded Postgres schemas match the applied operator migration files", () => {
   const cases = [
     ["001_money_action_operations.sql", MONEY_ACTION_SCHEMA_SQL],
-    ["002_money_action_attempts.sql", MONEY_ACTION_ATTEMPT_SCHEMA_SQL],
-    ["003_money_action_data_migrations.sql", MONEY_ACTION_DATA_MIGRATION_SCHEMA_SQL],
+    ["004_money_action_evidence_indexes.sql", MONEY_ACTION_EVIDENCE_INDEX_SQL],
   ] as const;
   for (const [filename, embedded] of cases) {
     const file = readFileSync(resolve(import.meta.dir, "migrations", filename), "utf8");
     const sqlFromFile = file.replace(/^--.*$/gm, "").trim();
-    expect(sqlFromFile).toBe(embedded.trim());
+    const embeddedSql = embedded.replace(/^--.*$/gm, "").trim();
+    expect(sqlFromFile).toBe(embeddedSql);
   }
-  expect(MONEY_ACTION_DATA_MIGRATION_SCHEMA_SQL).not.toContain("INSERT INTO");
-  expect(MONEY_ACTION_DATA_MIGRATION_ID).toBe("canonical-evidence-reservations-v1");
 });
 
-test("store readiness retries a rejected single-flight promise and caches success", async () => {
+test("schema apply installs transaction timeouts before taking the advisory lock", async () => {
+  const issued: string[] = [];
   const base = createFakePostgresExecutor();
-  let migrationStarts = 0;
+  const executor = interceptingExecutor(base, async (text, values, run) => {
+    issued.push(text);
+    return run(text, values);
+  });
+
+  await new PostgresMoneyActionStore(executor).ensureSchema();
+  expect(issued.slice(0, 3)).toEqual([
+    "SET LOCAL lock_timeout = '5s'",
+    "SET LOCAL statement_timeout = '60s'",
+    "SELECT pg_advisory_xact_lock(hashtext($1))",
+  ]);
+});
+
+test("schema readiness retries a rejected single-flight promise and caches success", async () => {
+  const base = createFakePostgresExecutor();
+  let schemaStarts = 0;
   let failFirst = true;
   const executor = interceptingExecutor(base, async (text, values, run) => {
-    if (text === moneyActionQueries.selectEffectiveSchema) {
-      migrationStarts += 1;
+    if (text.startsWith("SELECT COUNT(*) AS action_id_count")) {
+      schemaStarts += 1;
       if (failFirst) {
         failFirst = false;
-        throw new Error("transient migration contention");
+        throw new Error("transient schema contention");
       }
     }
     return run(text, values);
   });
   const store = new PostgresMoneyActionStore(executor);
 
-  const failedReadiness = Promise.allSettled([store.ensureReady(), store.ensureReady()]);
-  const outcomes = await failedReadiness;
-  expect(outcomes).toHaveLength(2);
-  for (const outcome of outcomes) {
-    expect(outcome.status).toBe("rejected");
-    if (outcome.status === "rejected") {
-      expect(outcome.reason).toBeInstanceOf(Error);
-      expect((outcome.reason as Error).message).toBe("transient migration contention");
-    }
-  }
-  expect(migrationStarts).toBe(1);
+  const outcomes = await Promise.allSettled([store.ensureSchema(), store.ensureSchema()]);
+  expect(outcomes).toMatchObject([
+    { status: "rejected", reason: { message: "transient schema contention" } },
+    { status: "rejected", reason: { message: "transient schema contention" } },
+  ]);
+  expect(schemaStarts).toBe(1);
 
-  const retried = await store.ensureReady();
-  expect(retried).toMatchObject({ disposition: "applied" });
-  expect(migrationStarts).toBe(2);
-  expect(await store.ensureReady()).toBe(retried);
-  expect(migrationStarts).toBe(2);
+  await store.ensureSchema();
+  expect(schemaStarts).toBe(3);
+  await store.ensureSchema();
+  expect(schemaStarts).toBe(3);
 });
 
-test("explicit PostgreSQL schemas fail closed when empty or missing", () => {
+test("explicit PostgreSQL schemas fail closed when empty", () => {
   expect(() => createNeonSqlExecutor("postgresql://example/home", { schema: "" })).toThrow(
     "unsafe PostgreSQL schema identifier",
   );
-  expect(() => createPostgresAttemptStoreResource({
-    backend: "postgres",
-    connectionString: "postgresql://example/home",
-  } as never)).toThrow("explicit nonempty schema");
-});
-
-test("evidence reservation keys are canonical PostgreSQL-safe tuples", () => {
-  const key = evidenceUniquenessKey({
-    subject: "subject-a",
-    address: "0x1111111111111111111111111111111111111111",
-    chainId: 8453,
-    accountProvider: "cdp-embedded",
-  }, {
-    kind: "user-operation-hash",
-    provider: "cdp-embedded",
-    value: `0x${"A".repeat(64)}`,
-  });
-  expect(key).not.toContain("\u0000");
-  expect(JSON.parse(key!)).toEqual([
-    "subject-a",
-    "0x1111111111111111111111111111111111111111",
-    8453,
-    "cdp-embedded",
-    "cdp-embedded",
-    "user-operation-hash",
-    `0x${"a".repeat(64)}`,
-  ]);
 });
 
 test("recognizes node-postgres and Bun.SQL unique-violation shapes", () => {

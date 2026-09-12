@@ -2,8 +2,6 @@ import "server-only";
 
 import { Pool, type PoolClient } from "@neondatabase/serverless";
 
-export const MONEY_ACTION_DATA_MIGRATION_ID = "canonical-evidence-reservations-v1" as const;
-
 export const MONEY_ACTION_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS money_action_operations (
   id TEXT PRIMARY KEY,
   review_hash TEXT NOT NULL,
@@ -116,28 +114,6 @@ export const moneyActionQueries = {
       ($7::text IS NOT NULL AND LOWER(user_operation_hash) = LOWER($7))
     ) LIMIT 1
   `.trim(),
-  selectLegacyEvidenceForReservation: `
-    SELECT id, action_json, submission_id, user_operation_hash
-    FROM money_action_operations
-    WHERE submission_id IS NOT NULL OR user_operation_hash IS NOT NULL
-    ORDER BY id
-    FOR UPDATE
-  `.trim(),
-  normalizeLegacyHashes: `
-    UPDATE money_action_operations
-    SET transaction_hash = LOWER(transaction_hash),
-        user_operation_hash = LOWER(user_operation_hash)
-    WHERE (transaction_hash IS NOT NULL AND transaction_hash <> LOWER(transaction_hash))
-       OR (user_operation_hash IS NOT NULL AND user_operation_hash <> LOWER(user_operation_hash))
-  `.trim(),
-  reserveEvidence: `
-    INSERT INTO money_action_attempt_evidence (evidence_key, action_id)
-    VALUES ($1, $2)
-    ON CONFLICT (evidence_key) DO UPDATE
-      SET action_id = money_action_attempt_evidence.action_id
-      WHERE money_action_attempt_evidence.action_id = EXCLUDED.action_id
-    RETURNING action_id
-  `.trim(),
   verifiedExecutionOther: `
     SELECT id FROM money_action_operations
     WHERE id <> $1 AND verified_execution_key = $2
@@ -154,18 +130,6 @@ export const moneyActionQueries = {
     SET abandoned_at = COALESCE(abandoned_at, $1), updated_at = $2
     WHERE id = $3 AND subject = $4 AND address = $5 AND chain_id = $6 AND account_provider = $7
       AND status IN ('submitting', 'submitted', 'included', 'unknown')
-  `.trim(),
-  setMigrationLockTimeout: "SET LOCAL lock_timeout = '5s'",
-  setMigrationStatementTimeout: "SET LOCAL statement_timeout = '60s'",
-  selectEffectiveSchema: "SELECT current_schema() AS schema_name",
-  acquireDataMigrationLock: "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
-  selectDataMigration: `
-    SELECT migration_id FROM money_action_data_migrations WHERE migration_id = $1
-  `.trim(),
-  selectOperationIdsForDataMigration: "SELECT id FROM money_action_operations ORDER BY id",
-  insertDataMigration: `
-    INSERT INTO money_action_data_migrations (migration_id) VALUES ($1)
-    RETURNING migration_id
   `.trim(),
 } as const;
 
@@ -324,55 +288,72 @@ function postgresIdentifier(value: string): string {
   return `"${value}"`;
 }
 
-export const MONEY_ACTION_ATTEMPT_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS money_action_attempt_states (
-  action_id TEXT PRIMARY KEY REFERENCES money_action_operations(id) ON DELETE CASCADE,
-  state_json TEXT NOT NULL,
-  verified_execution_key TEXT,
-  updated_at TEXT NOT NULL
-);
+export const MONEY_ACTION_EVIDENCE_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT EXISTS money_action_unique_owner_submission_id
+  ON money_action_operations (subject, address, chain_id, account_provider, submission_id)
+  WHERE submission_id IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS money_action_attempt_unique_verified_execution
-  ON money_action_attempt_states (verified_execution_key)
-  WHERE verified_execution_key IS NOT NULL;
-
-CREATE TABLE IF NOT EXISTS money_action_attempt_evidence (
-  evidence_key TEXT PRIMARY KEY,
-  action_id TEXT NOT NULL REFERENCES money_action_operations(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS money_action_attempt_evidence_action
-  ON money_action_attempt_evidence (action_id);
+CREATE UNIQUE INDEX IF NOT EXISTS money_action_unique_owner_user_operation_hash
+  ON money_action_operations (subject, address, chain_id, account_provider, LOWER(user_operation_hash))
+  WHERE user_operation_hash IS NOT NULL;
 `;
 
-export const moneyActionAttemptSchemaStatements = MONEY_ACTION_ATTEMPT_SCHEMA_SQL
+export const moneyActionEvidenceIndexStatements = MONEY_ACTION_EVIDENCE_INDEX_SQL
+  .replace(/^--.*$/gm, "")
   .split(";")
   .map((statement) => statement.trim())
   .filter((statement) => statement.length > 0);
 
-export const MONEY_ACTION_DATA_MIGRATION_SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS money_action_data_migrations (
-  migration_id TEXT PRIMARY KEY,
-  completed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-`;
-
-export const moneyActionDataMigrationSchemaStatements = MONEY_ACTION_DATA_MIGRATION_SCHEMA_SQL
-  .split(";")
-  .map((statement) => statement.trim())
-  .filter((statement) => statement.length > 0);
+const evidenceIndexPreflights = [
+  {
+    indexName: "money_action_unique_owner_submission_id",
+    kind: "submission_id",
+    query: `
+      SELECT COUNT(*) AS action_id_count
+      FROM money_action_operations
+      WHERE submission_id IS NOT NULL
+      GROUP BY subject, address, chain_id, account_provider, submission_id
+      HAVING COUNT(*) > 1
+      LIMIT 10
+    `.trim(),
+  },
+  {
+    indexName: "money_action_unique_owner_user_operation_hash",
+    kind: "user_operation_hash",
+    query: `
+      SELECT COUNT(*) AS action_id_count
+      FROM money_action_operations
+      WHERE user_operation_hash IS NOT NULL
+      GROUP BY subject, address, chain_id, account_provider, LOWER(user_operation_hash)
+      HAVING COUNT(*) > 1
+      LIMIT 10
+    `.trim(),
+  },
+] as const;
 
 export async function applyMoneyActionPostgresSchema(executor: SqlExecutor): Promise<void> {
   await executor.transaction(async (transaction) => {
-    await transaction.query(moneyActionQueries.setMigrationLockTimeout);
-    await transaction.query(moneyActionQueries.setMigrationStatementTimeout);
+    await transaction.query("SET LOCAL lock_timeout = '5s'");
+    await transaction.query("SET LOCAL statement_timeout = '60s'");
     await transaction.query(
       "SELECT pg_advisory_xact_lock(hashtext($1))",
       ["home_money_action_schema_v2"],
     );
-    for (const statement of [
-      ...moneyActionSchemaStatements,
-      ...moneyActionAttemptSchemaStatements,
-      ...moneyActionDataMigrationSchemaStatements,
-    ]) {
+    for (const statement of moneyActionSchemaStatements) {
+      await transaction.query(statement);
+    }
+    for (const preflight of evidenceIndexPreflights) {
+      const duplicates = await transaction.query<{ action_id_count: number | string }>(preflight.query);
+      if (duplicates.rows.length > 0) {
+        const counts = duplicates.rows.slice(0, 10).map((row) => ({
+          action_id_count: Number(row.action_id_count),
+          kind: preflight.kind,
+        }));
+        throw new Error(
+          `money-action schema preflight failed for ${preflight.indexName}: duplicate groups ${JSON.stringify(counts)}`,
+        );
+      }
+    }
+    for (const statement of moneyActionEvidenceIndexStatements) {
       await transaction.query(statement);
     }
   });

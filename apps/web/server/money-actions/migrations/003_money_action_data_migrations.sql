@@ -1,5 +1,5 @@
--- Additive schema-local completion markers for guarded money-action data migrations.
--- Schema installation creates this table but never records migration completion.
+-- Historical migration retained for rollback context.
+-- No longer applied to fresh schemas as of #309.
 
 CREATE TABLE IF NOT EXISTS money_action_data_migrations (
   migration_id TEXT PRIMARY KEY,
