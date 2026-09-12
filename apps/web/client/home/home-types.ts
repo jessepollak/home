@@ -21,7 +21,7 @@ export type HomeExperienceProps = {
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";
   initialAddMoney?: boolean;
-  returnedFromCoinbase?: boolean;
+  returnedFromProvider?: boolean;
   initialSendFlow?: boolean;
   initialSendActionId?: string | null;
   applyInboundUrlIntent?: boolean;

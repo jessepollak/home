@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   readAnonymousCountryPreference,
 } from "@/config/country-preference";
@@ -19,6 +19,7 @@ import {
   type UseInvestDiscoverResult,
 } from "./use-invest-discover";
 import { useMarketPrices } from "./use-market-prices";
+import { markHomePerformance } from "@/client/observability/perf-marks";
 
 export function PricedInvestExperience({
   initialView,
@@ -45,6 +46,14 @@ export function PricedInvestExperienceWithDiscover({
     () => presentationQuoteForRegion(regionId, fx),
     [fx, regionId],
   );
+  const hasReadyMarket = marketProps.stockMarket.status === "ready" ||
+    marketProps.cryptoMarket?.status === "ready" ||
+    discover.memeStatus === "ready" ||
+    discover.memeStatus === "empty";
+
+  useEffect(() => {
+    if (hasReadyMarket) markHomePerformance("invest:ready");
+  }, [hasReadyMarket]);
 
   return (
     <PresentationQuoteProvider value={quote}>

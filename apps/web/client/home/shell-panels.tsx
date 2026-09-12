@@ -47,9 +47,10 @@ export function DashboardShell({
   fetchOperations,
   navigateTo,
   urlAddMoney,
-  urlReturnedFromCoinbase,
+  urlReturnedFromProvider,
   urlSendFlow,
   urlSendActionId,
+  mountedPanels,
   balancesMounted,
   balancesReveal,
   savingsContent,
@@ -80,9 +81,10 @@ export function DashboardShell({
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   navigateTo: (panel: ShellPanelId) => void;
   urlAddMoney: boolean;
-  urlReturnedFromCoinbase: boolean;
+  urlReturnedFromProvider: boolean;
   urlSendFlow: boolean;
   urlSendActionId: string | null;
+  mountedPanels: ReadonlySet<ShellPanelId>;
   balancesMounted: boolean;
   balancesReveal: { count: number; extend: () => void };
   savingsContent?: ReactNode;
@@ -133,22 +135,24 @@ export function DashboardShell({
             aria-busy={isChecking}
           >
             <div className="panel-fade">
-              {activeNavigation === "home" ? (
-                <HomePanel
-                  assetBalances={paintedAssetBalances}
-                  assetMarkResolution={assetMarkResolution}
-                  activitySession={activitySession}
-                  fetchActivity={fetchActivity}
-                  fetchOperations={fetchOperations}
-                  onOpenSave={() => navigateTo(savePanelId)}
-                  onOpenBalances={() => navigateTo(balancesPanelId)}
-                  onOpenActivity={() => navigateTo(activityPanelId)}
-                  initialAddMoney={urlAddMoney}
-                  returnedFromCoinbase={urlReturnedFromCoinbase}
-                  initialSendFlow={urlSendFlow}
-                  initialSendActionId={urlSendActionId}
-                  regionId={regionId}
-                />
+              {mountedPanels.has("home") ? (
+                <MountedShellPanel active={activeNavigation === "home"}>
+                  <HomePanel
+                    assetBalances={paintedAssetBalances}
+                    assetMarkResolution={assetMarkResolution}
+                    activitySession={activitySession}
+                    fetchActivity={fetchActivity}
+                    fetchOperations={fetchOperations}
+                    onOpenSave={() => navigateTo(savePanelId)}
+                    onOpenBalances={() => navigateTo(balancesPanelId)}
+                    onOpenActivity={() => navigateTo(activityPanelId)}
+                    initialAddMoney={urlAddMoney}
+                    returnedFromProvider={urlReturnedFromProvider}
+                    initialSendFlow={urlSendFlow}
+                    initialSendActionId={urlSendActionId}
+                    regionId={regionId}
+                  />
+                </MountedShellPanel>
               ) : null}
               {balancesMounted ? (
                 <MountedShellPanel active={activeNavigation === balancesPanelId}>
@@ -162,27 +166,33 @@ export function DashboardShell({
                   />
                 </MountedShellPanel>
               ) : null}
-              {activeNavigation === activityPanelId ? (
-                <ActivityPage
-                  activitySession={activitySession}
-                  fetchActivity={fetchActivity}
-                  fetchOperations={fetchOperations}
-                  regionId={regionId}
-                  showSessionShimmer={!activitySession && (
-                    paintedAssetBalances.status === "loading" ||
-                    paintedAssetBalances.revalidating === true
-                  )}
-                />
+              {mountedPanels.has(activityPanelId) ? (
+                <MountedShellPanel active={activeNavigation === activityPanelId}>
+                  <ActivityPage
+                    activitySession={activitySession}
+                    fetchActivity={fetchActivity}
+                    fetchOperations={fetchOperations}
+                    regionId={regionId}
+                    showSessionShimmer={!activitySession && (
+                      paintedAssetBalances.status === "loading" ||
+                      paintedAssetBalances.revalidating === true
+                    )}
+                  />
+                </MountedShellPanel>
               ) : null}
-              {activeNavigation === savePanelId ? (
-                <SavingsPanel
-                  isVerified={isVerified}
-                  isChecking={isChecking}
-                  content={savingsContent}
-                />
+              {mountedPanels.has(savePanelId) ? (
+                <MountedShellPanel active={activeNavigation === savePanelId}>
+                  <SavingsPanel
+                    isVerified={isVerified}
+                    isChecking={isChecking}
+                    content={savingsContent}
+                  />
+                </MountedShellPanel>
               ) : null}
-              {activeNavigation === "invest" ? (
-                <InvestPanel regionId={regionId} content={investContent} />
+              {mountedPanels.has("invest") ? (
+                <MountedShellPanel active={activeNavigation === "invest"}>
+                  <InvestPanel regionId={regionId} content={investContent} />
+                </MountedShellPanel>
               ) : null}
             </div>
           </section>

@@ -47,7 +47,7 @@ export function HomePanel({
   onOpenBalances,
   onOpenActivity,
   initialAddMoney = false,
-  returnedFromCoinbase = false,
+  returnedFromProvider = false,
   initialSendFlow = false,
   initialSendActionId = null,
   regionId,
@@ -61,7 +61,7 @@ export function HomePanel({
   onOpenBalances: () => void;
   onOpenActivity: () => void;
   initialAddMoney?: boolean;
-  returnedFromCoinbase?: boolean;
+  returnedFromProvider?: boolean;
   initialSendFlow?: boolean;
   initialSendActionId?: string | null;
   regionId: RegionId;
@@ -111,7 +111,7 @@ export function HomePanel({
       <div className="action-row" aria-label="Money actions">
         <FundingActions
           initialOpen={initialAddMoney}
-          returnedFromCoinbase={returnedFromCoinbase}
+          returnedFromProvider={returnedFromProvider}
           regionId={regionId}
         />
         <TransferActions

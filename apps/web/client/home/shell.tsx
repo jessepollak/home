@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -19,8 +20,11 @@ import {
 } from "@/config/navigation";
 import {
   commitClientUrl,
+  flowHref,
   parseShellLocation,
   shellHref,
+  withoutFlowHref,
+  type ShellFlow,
 } from "@/config/shell-location";
 import { presentationRegions } from "@/config/regions";
 import { useOptionalAppChrome } from "@/components/app-chrome";
@@ -32,7 +36,12 @@ import {
   useBalancesRevealWindow,
 } from "./balances-panel";
 import type { HomeExperienceProps, HomeAssetBalancesPresentation } from "./home-types";
-import { homePanelHref, readHomeInboundPanelState } from "./panel-routing";
+import {
+  HomeShellRoutingProvider,
+  homePanelHref,
+  readHomeInboundPanelState,
+  type HomeInboundPanelState,
+} from "./panel-routing";
 import { ShellHeader, SignedOutLanding } from "./shell-chrome";
 import { DashboardShell } from "./shell-panels";
 import { ActionToasts } from "./action-toasts";
@@ -70,7 +79,7 @@ export function HomeShell({
   landingVisual,
   routeMode = "landing",
   initialAddMoney = false,
-  returnedFromCoinbase = false,
+  returnedFromProvider = false,
   initialSendFlow = false,
   initialSendActionId = null,
   applyInboundUrlIntent = false,
@@ -100,6 +109,9 @@ export function HomeShell({
   const [activeNavigation, setActiveNavigation] = useState<ShellPanelId>(initialPanel);
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [balancesRevealReset, setBalancesRevealReset] = useState(0);
+  const [mountedPanels, setMountedPanels] = useState<ReadonlySet<ShellPanelId>>(
+    () => new Set<ShellPanelId>(["home", initialPanel]),
+  );
   const [balancesMounted, setBalancesMounted] = useState(initialPanel === balancesPanelId);
   const [forwardRequest, setForwardRequest] = useState(0);
   const pendingBalancesRestoreRef = useRef(false);
@@ -111,9 +123,11 @@ export function HomeShell({
   );
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(initialAccountSettingsOpen);
   const [urlAddMoney, setUrlAddMoney] = useState(initialAddMoney);
-  const [urlReturnedFromCoinbase, setUrlReturnedFromCoinbase] = useState(returnedFromCoinbase);
+  const [urlReturnedFromProvider, setUrlReturnedFromProvider] = useState(returnedFromProvider);
   const [urlSendFlow, setUrlSendFlow] = useState(initialSendFlow);
   const [urlSendActionId, setUrlSendActionId] = useState<string | null>(initialSendActionId);
+  const [urlIntent, setUrlIntent] = useState<HomeInboundPanelState>(initialUrlIntent);
+  const [popRevision, setPopRevision] = useState(0);
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
   const shellPath = routeMode === "landing" ? "/" : "/dashboard";
@@ -147,15 +161,49 @@ export function HomeShell({
 
   const applyUrlState = useCallback((intent: ReturnType<typeof readHomeInboundPanelState>) => {
     setActiveNavigation(intent.panel);
+    setMountedPanels((current) => current.has(intent.panel)
+      ? current
+      : new Set([...current, intent.panel]));
     if (intent.panel === balancesPanelId) setBalancesMounted(true);
     setIsAccountSettingsOpen(intent.account === "settings");
     if (intent.account !== "settings") setSettingsOpenedInApp(false);
     setIsAccountOpen(intent.account === "signin");
     setUrlAddMoney(intent.addMoney);
-    setUrlReturnedFromCoinbase(intent.returnedFromCoinbase);
+    setUrlReturnedFromProvider(intent.returnedFromProvider);
     setUrlSendFlow(intent.sendFlow);
     setUrlSendActionId(intent.actionId);
+    setUrlIntent(intent);
   }, []);
+
+  const setFlow = useCallback((
+    flow: ShellFlow,
+    options: { actionId?: string | null; mode?: "push" | "replace" } = {},
+  ) => {
+    const href = flowHref(
+      shellPath,
+      flow,
+      options.actionId ?? null,
+      new URLSearchParams(window.location.search),
+    );
+    commitClientUrl(href, options.mode ?? "push");
+    applyUrlState(readHomeInboundPanelState(new URLSearchParams(window.location.search)));
+  }, [applyUrlState, shellPath]);
+
+  const clearFlow = useCallback((options: {
+    mode?: "push" | "replace";
+    fundingReturn?: boolean;
+  } = {}) => {
+    const next = new URL(
+      withoutFlowHref(shellPath, new URLSearchParams(window.location.search)),
+      window.location.origin,
+    );
+    if (options.fundingReturn) {
+      next.searchParams.delete("return");
+      next.searchParams.delete("add-money");
+    }
+    commitClientUrl(`${next.pathname}${next.search}`, options.mode ?? "replace");
+    applyUrlState(readHomeInboundPanelState(new URLSearchParams(window.location.search)));
+  }, [applyUrlState, shellPath]);
 
   const closeAccount = useCallback(() => {
     setIsAccountOpen(false);
@@ -173,6 +221,7 @@ export function HomeShell({
       const restoresBalances = intent.panel === balancesPanelId && isBalancesRestoreArmed();
       pendingBalancesRestoreRef.current = restoresBalances;
       applyUrlState(intent);
+      setPopRevision((revision) => revision + 1);
       if (intent.panel === balancesPanelId && !restoresBalances) {
         mainRef.current?.scrollTo({ top: 0, behavior: "auto" });
         setBalancesRevealReset((resetSignal) => resetSignal + 1);
@@ -218,7 +267,7 @@ export function HomeShell({
     ? (assetBalances ?? loadingAssetBalances)
     : loadingAssetBalances;
   useEffect(() => {
-    if (isVerified && paintedAssetBalances.status !== "loading") {
+    if (isVerified && paintedAssetBalances.status === "ready") {
       markHomePerformance("balances:painted");
     }
   }, [isVerified, paintedAssetBalances.status]);
@@ -302,9 +351,15 @@ export function HomeShell({
       }
     }
     setActiveNavigation(nextNavigation);
+    setMountedPanels((current) => current.has(nextNavigation)
+      ? current
+      : new Set([...current, nextNavigation]));
     if (nextNavigation === balancesPanelId) setBalancesMounted(true);
     setNavigationRequest((request) => request + 1);
-    if (!skipHistory) commitClientUrl(homePanelHref(shellPath, nextNavigation));
+    if (!skipHistory) {
+      commitClientUrl(homePanelHref(shellPath, nextNavigation));
+      setUrlIntent(readHomeInboundPanelState(new URLSearchParams(window.location.search)));
+    }
   }
 
   function openAccountSettings() {
@@ -381,8 +436,16 @@ export function HomeShell({
     ? () => navigateTo("home")
     : investChrome?.nested?.onBack ?? (() => {});
 
+  const routingValue = useMemo(() => ({
+    state: urlIntent,
+    popRevision,
+    setFlow,
+    clearFlow,
+  }), [clearFlow, popRevision, setFlow, urlIntent]);
+
   return (
-    <div className={`app-frame${routeMode === "dashboard" ? " app-frame-shell" : ""}`} style={regionStyle}>
+    <HomeShellRoutingProvider value={routingValue}>
+      <div className={`app-frame${routeMode === "dashboard" ? " app-frame-shell" : ""}`} style={regionStyle}>
       <ShellHeader
         isAccountSettingsOpen={isAccountSettingsOpen}
         nestedChromeTitle={nestedChromeTitle}
@@ -426,9 +489,10 @@ export function HomeShell({
           fetchOperations={account.fetchOperations}
           navigateTo={navigateTo}
           urlAddMoney={urlAddMoney}
-          urlReturnedFromCoinbase={urlReturnedFromCoinbase}
+          urlReturnedFromProvider={urlReturnedFromProvider}
           urlSendFlow={urlSendFlow}
           urlSendActionId={urlSendActionId}
+          mountedPanels={mountedPanels}
           balancesMounted={balancesMounted}
           balancesReveal={balancesReveal}
           savingsContent={savingsContent}
@@ -448,11 +512,12 @@ export function HomeShell({
       {routeMode === "dashboard" && isVerified ? (
         <ActionToasts session={account.session} fetchOperations={account.fetchOperations} />
       ) : null}
-      <AccountSignInSheet
-        open={isAccountOpen}
-        onClose={closeAccount}
-        onVerified={() => router.replace("/dashboard")}
-      />
-    </div>
+        <AccountSignInSheet
+          open={isAccountOpen}
+          onClose={closeAccount}
+          onVerified={() => router.replace("/dashboard")}
+        />
+      </div>
+    </HomeShellRoutingProvider>
   );
 }

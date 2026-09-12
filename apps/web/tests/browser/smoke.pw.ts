@@ -1,5 +1,9 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { parsePortfolioValuationSnapshot } from "../../shared/portfolio/parse-valuation";
+import {
+  BASE_USDC_ADDRESS,
+  MORPHO_V1_CANDIDATE_ADDRESSES,
+} from "../../shared/savings/config";
 
 // Local laptops paint balances in ~350-620ms; hosted CI runners measure 1.0-2.2s. Regressions show as multiples, not tens of ms.
 const BALANCES_PAINTED_BUDGET_MS = process.env.CI ? 3_500 : 1_000;
@@ -51,6 +55,56 @@ function valuation() {
     lines: holdings.map(({ assetKey }) => ({ holdingAssetKey: assetKey, valueCurrency: "USD", value: { atoms: assetKey === usdcKey ? "1234" : "0", scale: assetKey === usdcKey ? 2 : 0 }, status: "priced", reason: null })),
     cashBuckets: [{ id: `cash:${usdcKey}`, roles: ["canonical-usd", "selected-local"], assetKey: usdcKey, symbol: "USDC", denominationCurrency: "USD", tokenAmountBaseUnits: "12340000", tokenDecimals: 6, indicativeValue: { atoms: "1234", scale: 2 }, valuationStatus: "priced" }],
     total: { label: "supported-portfolio-value", status: "all-supported-read-holdings-priced", value: { atoms: "1234", scale: 2 }, currency: "USD", unpricedAssetKeys: [], unavailableAssetKeys: [] },
+  };
+}
+
+function savingsVaults() {
+  const candidates = MORPHO_V1_CANDIDATE_ADDRESSES.slice(0, 2).map((vaultAddress, index) => ({
+    version: "v1",
+    vaultAddress,
+    name: index === 0 ? "Steakhouse USDC" : "Gauntlet USDC Prime",
+    symbol: "USDC vault",
+    listed: true,
+    chainId: 8453,
+    asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
+    curatorAddress: null,
+    grossApy: index === 0 ? 0.0435 : 0.046,
+    netApy: index === 0 ? 0.0385 : 0.041,
+    feeRate: 0.1,
+    totalAssetsRaw: "100000000",
+    liquidityRaw: "50000000",
+    stateAsOf: "2026-09-12T12:00:00.000Z",
+    blockNumber: "51026404",
+    source: {
+      provider: "Morpho GraphQL",
+      endpoint: "https://api.morpho.org/graphql",
+      query: "vaults",
+      fetchedAt: "2026-09-12T12:00:01.000Z",
+    },
+  }));
+  return {
+    version: "v1",
+    chainId: 8453,
+    asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
+    candidates,
+    source: {
+      provider: "Morpho GraphQL",
+      endpoint: "https://api.morpho.org/graphql",
+      query: "vaults",
+      fetchedAt: "2026-09-12T12:00:01.000Z",
+    },
+    stale: false,
+  };
+}
+
+function savingsPositions() {
+  return {
+    accountAddress: OWNER,
+    fetchedAt: "2026-09-12T12:00:02.000Z",
+    vaults: MORPHO_V1_CANDIDATE_ADDRESSES.map((vaultAddress) => ({
+      vaultAddress,
+      position: null,
+    })),
   };
 }
 
@@ -114,6 +168,7 @@ async function installApiFixtures(
 ) {
   let status: ActionStatus = "unconfirmed";
   let valuationReads = 0;
+  let activityReads = 0;
   let delayedValuation: Promise<void> | null = null;
   let releaseDelayedValuation: (() => void) | null = null;
   let handleRecorded = false;
@@ -147,6 +202,7 @@ async function installApiFixtures(
       : { action: { id: ACTION_ID, status: "pending", providerHandle: handleRecorded ? USER_OPERATION_HASH : undefined } });
     if (path === "/api/actions") return json(route, { actions: status === "pending" || status === "confirmed" ? [{ id: ACTION_ID, provider: "cdp-embedded", kind: "send", summary: { title: "Send USDC", amounts: action().amounts, warnings: action().warnings, expiresAt: EXPIRES_AT }, status, createdAt: CREATED_AT, confirmedAt: CREATED_AT, providerHandle: handleRecorded ? USER_OPERATION_HASH : undefined, transactionHash: status === "confirmed" ? TRANSACTION_HASH : undefined, owner: action().owner }] : [] });
     if (path === "/api/activity") {
+      activityReads += 1;
       const to = url.searchParams.get("to") ?? new Date().toISOString();
       const from = new Date(new Date(to).getTime() - 31 * 24 * 60 * 60 * 1000).toISOString();
       const transfers = status === "confirmed" ? [{
@@ -170,6 +226,8 @@ async function installApiFixtures(
       }] : [];
       return json(route, { walletAddress: OWNER, chainId: 8453, window: { from, to }, transfers, nextCursor: null, source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to } });
     }
+    if (path === "/api/savings/vaults") return json(route, savingsVaults());
+    if (path === "/api/savings/positions") return json(route, savingsPositions());
     if (path === "/api/funding/providers") return json(route, url.searchParams.get("region") === "ID" ? { providers: [{ providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx", assetSymbol: "IDRX", assetDecimals: 2, currency: "IDR", paymentMethods: [{ id: "bank-va-mandiri", label: "Bank transfer · Mandiri" }], quotes: false, kyc: null }] } : { providers: [] });
     if (path === "/api/funding/quotes") return json(route, { quoteToken: "fixture-signed-quote", quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: EXPIRES_AT } });
     if (path === "/api/funding/orders" && request.method() === "POST") return json(route, { order: { id: ACTION_ID, providerId: "idrx", region: "ID", assetId: "base:idrx", paymentMethod: "bank-va-mandiri", fiatAmount: "20000", state: "awaiting-payment", expectedTokenAmountAtomic: "2000000", fees: [{ label: "Network", amount: "100", currency: "IDR" }], instructions: { kind: "bank-transfer", rail: "Mandiri virtual account", accountNumber: "123456789012", accountName: "Home Fixture", amount: "20000", currency: "IDR" }, providerStatus: "pending" } });
@@ -180,6 +238,7 @@ async function installApiFixtures(
   });
   return {
     valuationReads: () => valuationReads,
+    activityReads: () => activityReads,
     delayNextValuation() {
       delayedValuation = new Promise<void>((resolve) => { releaseDelayedValuation = resolve; });
       return valuationReads + 1;
@@ -287,7 +346,11 @@ test("ambiguous handle response retries without a second wallet dispatch", async
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem("home:playwright-smoke:dispatch-count"))).toBe("1");
   await expect(page.getByText("Sent $1.00 to 0x2222…222222", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Activity" }).click();
-  await expect(page.getByText("Sent", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .locator('[data-shell-panel]:not([hidden])')
+      .getByText("Sent", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText("Send USDC", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/Pending/)).toHaveCount(0);
 });
@@ -338,6 +401,90 @@ test("reload resumes an unconfirmed send review from its URL action", async ({ p
   await expect(review.getByText("You're sending USDC")).toBeVisible();
   await expect(review.getByRole("button", { name: "Send $1.00" })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`flow=send.*action=${ACTION_ID}`));
+});
+
+test("shallow-routed money flows open from URLs and Back closes them", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+
+  const cases = [
+    { flow: "add-money", dialog: "Add money" },
+    { flow: "receive", dialog: "Receive" },
+    { flow: "save-deposit", dialog: "Deposit" },
+  ] as const;
+
+  for (const entry of cases) {
+    await page.goto(`/dashboard?flow=${entry.flow}`);
+    await expect(page.getByRole("dialog", { name: entry.dialog })).toBeVisible();
+    await page.goBack();
+    await expect(page.locator("dialog[open]")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/dashboard$/);
+  }
+});
+
+test("Add money routes Receive, handles the Back state, and reopens the method list", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+
+  await page.getByRole("button", { name: "Add money", exact: true }).click();
+  await expect(page).toHaveURL(/[?&]flow=add-money/);
+  await page.getByRole("button", { name: /^Receive crypto/ }).click();
+  await expect(page.getByRole("dialog", { name: "Receive" })).toBeVisible();
+  await expect(page).toHaveURL(/[?&]flow=receive/);
+  await page.evaluate(() => {
+    window.history.replaceState(window.history.state, "", "/dashboard");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/dashboard$/);
+
+  await page.getByRole("button", { name: "Add money", exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard\?flow=add-money$/);
+  await expect(page.getByRole("dialog", { name: "Add money" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Receive crypto/ })).toBeVisible();
+});
+
+test("Add money close preserves the active panel", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+
+  await page.getByRole("button", { name: "Balances", exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard\?panel=balances$/);
+  await page.evaluate(() => {
+    window.history.pushState(null, "", "/dashboard?panel=balances&flow=add-money");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page).toHaveURL(/\/dashboard\?panel=balances&flow=add-money$/);
+  await expect(page.getByRole("dialog", { name: "Add money" })).toBeVisible();
+  await page.getByRole("button", { name: "Close add money" }).click();
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/dashboard\?panel=balances$/);
+});
+
+test("visited Invest and Activity panels stay mounted across tab changes", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  const fixtures = await installApiFixtures(page);
+  await signIn(page);
+
+  await openInvestAssetDetail(page);
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Add money", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Invest", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "NVIDIA" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
+  await expect.poll(fixtures.activityReads).toBeGreaterThan(0);
+  const readsAfterFirstVisit = fixtures.activityReads();
+
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
+  expect(fixtures.activityReads()).toBe(readsAfterFirstVisit);
 });
 
 test("send modal leaves action-row trigger styling at 390px", async ({ page }) => {
@@ -502,12 +649,18 @@ async function openScrolledBalances(page: Page) {
   await expect
     .poll(() =>
       page.evaluate(
-        () => document.querySelectorAll(".supplied-asset-list li").length,
+        () =>
+          document.querySelectorAll(
+            '[data-shell-panel]:not([hidden]) .supplied-asset-list li',
+          ).length,
       ),
     )
     .toBeGreaterThan(10);
   const revealedCount = await page.evaluate(
-    () => document.querySelectorAll(".supplied-asset-list li").length,
+    () =>
+      document.querySelectorAll(
+        '[data-shell-panel]:not([hidden]) .supplied-asset-list li',
+      ).length,
   );
   return { target, revealedCount, maxTop };
 }
@@ -551,7 +704,10 @@ async function expectBalancesRestored(
   await expect
     .poll(() =>
       page.evaluate(
-        () => document.querySelectorAll(".supplied-asset-list li").length,
+        () =>
+          document.querySelectorAll(
+            '[data-shell-panel]:not([hidden]) .supplied-asset-list li',
+          ).length,
       ),
     )
     .toBe(expected.revealedCount);
@@ -582,7 +738,10 @@ async function expectBalancesReset(page: Page) {
   await expect
     .poll(() =>
       page.evaluate(
-        () => document.querySelectorAll(".supplied-asset-list li").length,
+        () =>
+          document.querySelectorAll(
+            '[data-shell-panel]:not([hidden]) .supplied-asset-list li',
+          ).length,
       ),
     )
     .toBe(10);

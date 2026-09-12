@@ -4,19 +4,68 @@ import { homePanelHref, readHomeInboundPanelState } from "./panel-routing";
 const inboundCases = [
   {
     search: "panel=balances",
-    expected: { panel: "balances", account: null, addMoney: false, returnedFromCoinbase: false, sendFlow: false, actionId: null },
+    expected: {
+      panel: "balances",
+      account: null,
+      location: { panel: "balances", account: null, shelf: null, asset: null },
+      addMoney: false,
+      returnedFromProvider: false,
+      flow: null,
+      sendFlow: false,
+      actionId: null,
+    },
   },
   {
     search: "panel=activity&account=settings",
-    expected: { panel: "activity", account: "settings", addMoney: false, returnedFromCoinbase: false, sendFlow: false, actionId: null },
+    expected: {
+      panel: "activity",
+      account: "settings",
+      location: { panel: "activity", account: "settings", shelf: null, asset: null },
+      addMoney: false,
+      returnedFromProvider: false,
+      flow: null,
+      sendFlow: false,
+      actionId: null,
+    },
   },
   {
     search: "return=coinbase",
-    expected: { panel: "home", account: null, addMoney: true, returnedFromCoinbase: true, sendFlow: false, actionId: null },
+    expected: {
+      panel: "home",
+      account: null,
+      location: { panel: "home", account: null, shelf: null, asset: null },
+      addMoney: true,
+      returnedFromProvider: true,
+      flow: null,
+      sendFlow: false,
+      actionId: null,
+    },
   },
   {
     search: "flow=send&action=11111111-1111-4111-8111-111111111111",
-    expected: { panel: "home", account: null, addMoney: false, returnedFromCoinbase: false, sendFlow: true, actionId: "11111111-1111-4111-8111-111111111111" },
+    expected: {
+      panel: "home",
+      account: null,
+      location: { panel: "home", account: null, shelf: null, asset: null },
+      addMoney: false,
+      returnedFromProvider: false,
+      flow: "send",
+      sendFlow: true,
+      actionId: "11111111-1111-4111-8111-111111111111",
+    },
+  },
+  {
+    search: "flow=save-deposit",
+    expected: {
+      panel: "save",
+      account: null,
+      location: { panel: "save", account: null, shelf: null, asset: null },
+      addMoney: false,
+      returnedFromProvider: false,
+      flow: "save-deposit",
+      sendFlow: false,
+      actionId: null,
+    },
   },
 ] as const;
 

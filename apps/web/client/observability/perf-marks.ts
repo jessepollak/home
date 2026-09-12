@@ -6,6 +6,9 @@ export const HOME_PERFORMANCE_MARKS = [
   "wallet:ready",
   "balances:painted",
   "action:first-interactive",
+  "activity:first-row",
+  "save:ready",
+  "invest:ready",
 ] as const;
 
 export type HomePerformanceMark = (typeof HOME_PERFORMANCE_MARKS)[number];

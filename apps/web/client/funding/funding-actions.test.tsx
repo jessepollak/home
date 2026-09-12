@@ -73,7 +73,7 @@ afterEach(() => {
 describe("FundingActions hydration", () => {
   test("hydrates a Coinbase return and settles on the Receive portal", async () => {
     const fixture = await hydrateFundingActions(
-      <FundingActionsForWallet wallet={verifiedWallet()} returnedFromCoinbase />,
+      <FundingActionsForWallet wallet={verifiedWallet()} returnedFromProvider />,
     );
 
     try {

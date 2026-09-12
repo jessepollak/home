@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import {
   ActivityPanel,
   type ActivityPanelDensity,
@@ -15,6 +15,7 @@ import {
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
+import { markHomePerformance } from "@/client/observability/perf-marks";
 import { ShimmerRows } from "./panel-shared";
 
 export function ActivityPage({
@@ -93,6 +94,13 @@ export function ConnectedActivityPanel({
     actions.data ?? [],
     indexedTransactionHashes,
   ), [actions.data, indexedTransactionHashes]);
+  const indexedRowCount = activity.status === "ready" ? activity.page.transfers.length : 0;
+
+  useEffect(() => {
+    if (visibleActions.length > 0 || indexedRowCount > 0) {
+      markHomePerformance("activity:first-row");
+    }
+  }, [indexedRowCount, visibleActions.length]);
 
   return (
     <ActivityPanel
