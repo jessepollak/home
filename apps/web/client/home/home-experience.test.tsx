@@ -2814,6 +2814,7 @@ describe("balances incremental rendering", () => {
 
     await enabledAccountButton();
     fireEvent.click(page().getByRole("button", { name: "Balances" }));
+    revealNextBalancesBatch();
     const main = document.querySelector(".app-main-authenticated") as HTMLElement;
     expect(main).toBeTruthy();
     main.scrollTop = 480;
@@ -2827,6 +2828,7 @@ describe("balances incremental rendering", () => {
     fireEvent.click(page().getByRole("button", { name: "Done" }));
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
     expect(main.scrollTop).toBe(480);
+    expectRevealWindowAtSecondBatch();
   });
 
   test("resets the reveal window when rows change materially with unchanged IDs", async () => {
@@ -2968,6 +2970,40 @@ describe("balances incremental rendering", () => {
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
     expect(main.scrollTop).toBe(0);
     expect(page().getByText("Holding 0")).toBeTruthy();
+    expect(page().queryByText("Holding 10")).toBeNull();
+  });
+
+  test("keeps a direct Balances→Home→Back return at the top without restoring", async () => {
+    await openManyBalances();
+    revealNextBalancesBatch();
+    const main = balancesMain();
+    scrollBalances(main);
+
+    fireEvent.click(page().getByRole("button", { name: "Home" }));
+    expect(page().queryByRole("button", { name: "Back" })).toBeNull();
+    act(() => popHistory());
+
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(main.scrollTop).toBe(0);
+    expect(page().getByText("Holding 9")).toBeTruthy();
+    expect(page().queryByText("Holding 10")).toBeNull();
+  });
+
+  test("keeps a Balances→Home→Activity→Back return at the top without restoring", async () => {
+    await openManyBalances();
+    revealNextBalancesBatch();
+    const main = balancesMain();
+    scrollBalances(main);
+
+    fireEvent.click(page().getByRole("button", { name: "Home" }));
+    fireEvent.click(page().getByRole("button", { name: "Activity" }));
+    await page().findByRole("heading", { name: "Activity" });
+    act(() => popHistory()); // Activity -> Home
+    act(() => popHistory()); // Home -> Balances
+
+    expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
+    expect(main.scrollTop).toBe(0);
+    expect(page().getByText("Holding 9")).toBeTruthy();
     expect(page().queryByText("Holding 10")).toBeNull();
   });
 

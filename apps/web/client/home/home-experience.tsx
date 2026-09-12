@@ -161,10 +161,65 @@ type RegionStyle = CSSProperties & {
   "--region-surface": string;
 };
 
+type BalancesRestoreProvenance =
+  | "disarmed"
+  | "awaiting-asset-detail"
+  | "asset-detail"
+  | "account-overlay";
+
+function BalancesRestoreChromeObserver({
+  onChrome,
+}: {
+  onChrome: (backLabel: string) => void;
+}) {
+  const chrome = useOptionalAppChrome();
+  const backLabel = chrome?.nested?.backLabel ?? null;
+  useEffect(() => {
+    if (backLabel) onChrome(backLabel);
+  }, [backLabel, onChrome]);
+  return null;
+}
+
 export function HomeExperience(props: HomeExperienceProps) {
+  const provenanceRef = useRef<BalancesRestoreProvenance>("disarmed");
+  const disarmBalancesRestore = useCallback(() => {
+    provenanceRef.current = "disarmed";
+  }, []);
+  const awaitBalancesAssetDetail = useCallback(() => {
+    provenanceRef.current = "awaiting-asset-detail";
+  }, []);
+  const armBalancesAccountOverlay = useCallback(() => {
+    provenanceRef.current = "account-overlay";
+  }, []);
+  const isBalancesRestoreArmed = useCallback(
+    () =>
+      provenanceRef.current === "asset-detail" ||
+      provenanceRef.current === "account-overlay",
+    [],
+  );
+  const observeBalancesChrome = useCallback((backLabel: string) => {
+    // Only actual asset-detail chrome may promote the pending candidate.
+    // Category chrome is a different forward push and permanently disarms it.
+    if (
+      backLabel === "Back" &&
+      provenanceRef.current === "awaiting-asset-detail"
+    ) {
+      provenanceRef.current = "asset-detail";
+      return;
+    }
+    if (backLabel !== "Back") provenanceRef.current = "disarmed";
+  }, []);
+
   return (
     <AppChromeProvider>
-      <HomeExperienceView {...props} />
+      <BalancesRestoreChromeObserver onChrome={observeBalancesChrome} />
+      <HomeExperienceView
+        {...props}
+        disarmBalancesRestore={disarmBalancesRestore}
+        awaitBalancesAssetDetail={awaitBalancesAssetDetail}
+        armBalancesAccountOverlay={armBalancesAccountOverlay}
+        isBalancesRestoreArmed={isBalancesRestoreArmed}
+      />
     </AppChromeProvider>
   );
 }
@@ -186,7 +241,16 @@ function HomeExperienceView({
   onTransferConfirmed,
   selectedRegionId,
   onRegionChange,
-}: HomeExperienceProps) {
+  disarmBalancesRestore,
+  awaitBalancesAssetDetail,
+  armBalancesAccountOverlay,
+  isBalancesRestoreArmed,
+}: HomeExperienceProps & {
+  disarmBalancesRestore: () => void;
+  awaitBalancesAssetDetail: () => void;
+  armBalancesAccountOverlay: () => void;
+  isBalancesRestoreArmed: () => boolean;
+}) {
   const router = useRouter();
   const account = useAccountWallet();
   const initial = resolvePresentation({ detectedCountry });
@@ -205,11 +269,9 @@ function HomeExperienceView({
   // (browser/app Back) or an explicit forward push. The ref is written from
   // effects and the popstate listener, never during render.
   const navigationIntentRef = useRef<"push" | "pop">("push");
-  // Balances return provenance. A generic Balances→Invest exit must not
-  // restore the saved offset/reveal on a history-pop back; opening an Invest
-  // asset detail (or leaving via Account settings) re-arms restoration.
-  const balancesGenericInvestExitRef = useRef(false);
-  const previousActiveNavigationRef = useRef<ShellPanelId>(activeNavigation);
+  // Balances restoration is denied by default. A direct Invest entry may hold
+  // a candidate only until actual asset-detail chrome proves the return path;
+  // the explicitly supported Account overlay path arms independently.
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
   const lastBalanceCacheWriteRef = useRef<{
@@ -277,39 +339,19 @@ function HomeExperienceView({
       setIsAccountSettingsOpen(location.account === "settings");
       if (location.account !== "settings") setSettingsOpenedInApp(false);
       setIsAccountOpen(location.account === "signin");
-      if (
-        location.panel === balancesPanelId &&
-        balancesGenericInvestExitRef.current
-      ) {
+      if (location.panel === balancesPanelId && !isBalancesRestoreArmed()) {
+        delete panelScrollRef.current[balancesPanelId];
         setBalancesRevealReset((resetSignal) => resetSignal + 1);
       }
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+  }, [isBalancesRestoreArmed]);
 
   useEffect(() => {
     if (forwardRequest === 0) return;
     navigationIntentRef.current = "push";
   }, [forwardRequest]);
-
-  useEffect(() => {
-    const previous = previousActiveNavigationRef.current;
-    previousActiveNavigationRef.current = activeNavigation;
-    if (previous === activeNavigation) return;
-    if (navigationIntentRef.current === "push") {
-      balancesGenericInvestExitRef.current =
-        previous === balancesPanelId && activeNavigation === "invest";
-    }
-  }, [activeNavigation]);
-
-  useEffect(() => {
-    if (activeNavigation !== "invest") return;
-    // The invest detail chrome uses "Back"; category uses "Back to Invest".
-    if (investChrome?.nested?.backLabel === "Back") {
-      balancesGenericInvestExitRef.current = false;
-    }
-  }, [activeNavigation, investChrome?.nested]);
 
   useEffect(() => {
     const persistedCountry = readAnonymousCountryPreference(
@@ -389,8 +431,7 @@ function HomeExperienceView({
     const saved = panelScrollRef.current[panelKey];
     const isBalances = panelKey === balancesPanelId;
     const shouldRestore = isBalances
-      ? navigationIntentRef.current === "pop" &&
-        !balancesGenericInvestExitRef.current
+      ? navigationIntentRef.current === "pop" && isBalancesRestoreArmed()
       : navigationIntentRef.current === "pop";
     const preservedTop =
       shouldRestore && saved?.identity === panelScrollIdentity
@@ -400,7 +441,7 @@ function HomeExperienceView({
       panelScrollRef.current[panelKey] = undefined;
     }
     if (isBalances) {
-      balancesGenericInvestExitRef.current = false;
+      disarmBalancesRestore();
     }
     const reducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
@@ -409,7 +450,13 @@ function HomeExperienceView({
       top: clampHomeScrollTop(mainRef.current, preservedTop),
       behavior: reducedMotion || preservedTop > 0 ? "auto" : "smooth",
     });
-  }, [panelKey, panelScrollIdentity, navigationRequest]);
+  }, [
+    disarmBalancesRestore,
+    isBalancesRestoreArmed,
+    panelKey,
+    panelScrollIdentity,
+    navigationRequest,
+  ]);
 
   const activitySession: VerifiedAccountSession | null =
     isVerified && account.session?.smartAccount ? account.session : null;
@@ -498,7 +545,17 @@ function HomeExperienceView({
     setSettingsOpenedInApp(false);
     if (!skipHistory) {
       setForwardRequest((request) => request + 1);
-      if (nextNavigation === balancesPanelId) {
+      const mayOpenAssetDetail =
+        activeNavigation === balancesPanelId && nextNavigation === "invest";
+      if (mayOpenAssetDetail) {
+        awaitBalancesAssetDetail();
+      } else {
+        disarmBalancesRestore();
+      }
+      if (!mayOpenAssetDetail) {
+        delete panelScrollRef.current[balancesPanelId];
+      }
+      if (nextNavigation === balancesPanelId || !mayOpenAssetDetail) {
         setBalancesRevealReset((resetSignal) => resetSignal + 1);
       }
     }
@@ -512,6 +569,13 @@ function HomeExperienceView({
 
   function openAccountSettings() {
     setForwardRequest((request) => request + 1);
+    if (activeNavigation === balancesPanelId && !isAccountSettingsOpen) {
+      armBalancesAccountOverlay();
+    } else {
+      disarmBalancesRestore();
+      delete panelScrollRef.current[balancesPanelId];
+      setBalancesRevealReset((resetSignal) => resetSignal + 1);
+    }
     setIsAccountSettingsOpen(true);
     setSettingsOpenedInApp(true);
     const current = parseShellLocation(
@@ -551,6 +615,9 @@ function HomeExperienceView({
       return;
     }
     setForwardRequest((request) => request + 1);
+    disarmBalancesRestore();
+    delete panelScrollRef.current[balancesPanelId];
+    setBalancesRevealReset((resetSignal) => resetSignal + 1);
     const current = parseShellLocation(
       new URLSearchParams(window.location.search),
     );
@@ -567,6 +634,9 @@ function HomeExperienceView({
   function signOut() {
     setIsAccountSettingsOpen(false);
     setForwardRequest((request) => request + 1);
+    disarmBalancesRestore();
+    delete panelScrollRef.current[balancesPanelId];
+    setBalancesRevealReset((resetSignal) => resetSignal + 1);
     if (routeMode === "dashboard") {
       explicitLogoutRef.current = true;
       router.replace("/", { scroll: false });
@@ -574,18 +644,19 @@ function HomeExperienceView({
     void account.signOut().catch(() => {});
   }
 
-  const nestedChrome =
-    isAccountSettingsOpen
-      ? null
-      : isHomeNestedPanelId(activeNavigation)
-        ? {
-            title: nestedHomePanelTitle(activeNavigation) ?? "Save",
-            onBack: () => navigateTo("home"),
-            backLabel: "Back",
-          }
-        : activeNavigation === "invest"
-          ? investChrome?.nested ?? null
-          : null;
+  const nestedChromeTitle = isAccountSettingsOpen
+    ? null
+    : isHomeNestedPanelId(activeNavigation)
+      ? nestedHomePanelTitle(activeNavigation) ?? "Save"
+      : activeNavigation === "invest"
+        ? investChrome?.nested?.title ?? null
+        : null;
+  const nestedChromeBackLabel = isHomeNestedPanelId(activeNavigation)
+    ? "Back"
+    : investChrome?.nested?.backLabel ?? "Back";
+  const onNestedChromeBack = isHomeNestedPanelId(activeNavigation)
+    ? () => navigateTo("home")
+    : investChrome?.nested?.onBack ?? (() => {});
 
   return (
     <div
@@ -596,11 +667,11 @@ function HomeExperienceView({
         <div className="app-header-start">
           {isAccountSettingsOpen ? (
             <h1 className="app-header-lead-title">Account</h1>
-          ) : nestedChrome ? (
+          ) : nestedChromeTitle ? (
             <NestedHomeHeader
-              title={nestedChrome.title}
-              backLabel={nestedChrome.backLabel}
-              onBack={nestedChrome.onBack}
+              title={nestedChromeTitle}
+              backLabel={nestedChromeBackLabel}
+              onBack={onNestedChromeBack}
             />
           ) : routeMode === "dashboard" && activeNavigation === "invest" ? (
             <h1 className="app-header-lead-title">Invest</h1>
@@ -688,16 +759,14 @@ function HomeExperienceView({
                 id="navigation-panel"
                 tabIndex={-1}
                 aria-labelledby={
-                  isHomeNestedPanelId(activeNavigation) || nestedChrome
+                  isHomeNestedPanelId(activeNavigation) || nestedChromeTitle
                     ? undefined
                     : `${activeNavigation}-nav`
                 }
                 aria-label={
                   activeNavigation === savePanelId
                     ? "Savings"
-                    : nestedChrome
-                      ? nestedChrome.title
-                      : undefined
+                    : nestedChromeTitle ?? undefined
                 }
                 aria-busy={isChecking}
               >

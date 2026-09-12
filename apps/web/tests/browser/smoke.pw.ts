@@ -326,7 +326,8 @@ async function openScrolledBalances(page: Page) {
   await signIn(page);
 
   await page.getByRole("button", { name: "Balances" }).click();
-  await expect(page.getByRole("heading", { name: "Balances" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Balances" })).toBeVisible();
+  await expect(page).toHaveURL(/[?&]panel=balances/);
 
   const maxTop = await page.evaluate(() => {
     const main = document.querySelector<HTMLElement>(".app-main-authenticated");
@@ -403,6 +404,34 @@ async function expectBalancesRestored(
     .toBe(expected.revealedCount);
 }
 
+async function clickForwardAndWaitForHistory(page: Page, name: string) {
+  const previousLength = await page.evaluate(() => window.history.length);
+  await page.getByRole("button", { name }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.history.length))
+    .toBeGreaterThan(previousLength);
+}
+
+async function expectBalancesReset(page: Page) {
+  await expect(page.getByRole("heading", { level: 1, name: "Balances" })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (document.querySelector<HTMLElement>(".app-main-authenticated")
+            ?.scrollTop ?? 0),
+      ),
+    )
+    .toBe(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.querySelectorAll(".supplied-asset-list li").length,
+      ),
+    )
+    .toBe(10);
+}
+
 test("Balances restores scroll and reveal after app Back from an opened asset", async ({ page }) => {
   const state = await openScrolledBalances(page);
   await openInvestAssetDetail(page);
@@ -423,6 +452,33 @@ test("Balances restores scroll and reveal after browser Back from an opened asse
   await page.goBack();
 
   await expectBalancesRestored(page, state);
+});
+
+test("Balances starts at the top after browser Back from generic Invest", async ({ page }) => {
+  await openScrolledBalances(page);
+  await clickForwardAndWaitForHistory(page, "Invest");
+  await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
+  await page.goBack();
+  await expectBalancesReset(page);
+});
+
+test("Balances starts at the top after browser Back from Home", async ({ page }) => {
+  await openScrolledBalances(page);
+  await clickForwardAndWaitForHistory(page, "Home");
+  await expect(page).not.toHaveURL(/[?&]panel=balances/);
+  await page.goBack();
+  await expectBalancesReset(page);
+});
+
+test("Balances starts at the top after Activity and browser Back", async ({ page }) => {
+  await openScrolledBalances(page);
+  await clickForwardAndWaitForHistory(page, "Home");
+  await clickForwardAndWaitForHistory(page, "Activity");
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
+  await page.goBack();
+  await expect(page).not.toHaveURL(/[?&]panel=activity/);
+  await page.goBack();
+  await expectBalancesReset(page);
 });
 
 test("account sign-in and settings stay reachable at 390px, 320px, and 200% text", async ({ page }) => {
