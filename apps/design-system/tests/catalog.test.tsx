@@ -38,6 +38,14 @@ test("catalog renders real package exports and deterministic specimen controls",
   expect(container.querySelectorAll("[data-token-kind='shadow']")).toHaveLength(2);
   expect(container.querySelectorAll("[data-token-kind='layer']")).toHaveLength(3);
   expect(container.querySelectorAll("[data-token-kind='easing']")).toHaveLength(3);
+  expect(container.querySelectorAll(".home-ui-list-row")).toHaveLength(3);
+  expect(container.querySelectorAll(".home-ui-badge")).toHaveLength(5);
+  expect(container.querySelectorAll(".home-ui-divider")).toHaveLength(2);
+  expect(page.getByRole("button", { name: "Open received transaction" }).closest("li")?.classList.contains("home-ui-list-row")).toBe(true);
+  expect(page.getByRole("link", { name: "View Ethereum details" }).getAttribute("href")).toBe("#list-row-title");
+  expect(page.getByRole("separator", { name: "Before and after" }).getAttribute("aria-orientation")).toBe("vertical");
+  fireEvent.click(page.getByRole("button", { name: "Open received transaction" }));
+  expect(container.querySelector("[data-row-activations]")?.textContent).toBe("Row activations: 1");
   const ticker = container.querySelector<HTMLElement>("[data-ticker-specimen]");
   expect(ticker?.getAttribute("aria-label")).toBe("$1,234.56");
   fireEvent.click(page.getByRole("button", { name: "Update balance ticker" }));

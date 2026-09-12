@@ -72,6 +72,34 @@ body {
   gap: var(--home-ui-space-4);
   min-inline-size: 0;
 }
+.catalog-list-rows {
+  display: grid;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border-block: 1px solid var(--home-ui-color-border);
+  list-style: none;
+}
+.catalog-row-mark {
+  display: grid;
+  inline-size: 32px;
+  block-size: 32px;
+  place-items: center;
+  border-radius: var(--home-ui-radius-control);
+  background: var(--home-ui-color-action);
+  color: var(--home-ui-color-on-action);
+  font-size: var(--home-ui-type-metadata-size);
+  font-weight: var(--home-ui-type-weight-strong);
+}
+.catalog-badge-matrix,
+.catalog-divider-matrix {
+  display: flex;
+  min-inline-size: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--home-ui-space-3);
+}
+.catalog-divider-matrix { min-block-size: var(--home-ui-target-min); }
 .catalog-layout-frame { border: 1px solid var(--home-ui-color-border); }
 .catalog-layout-bleed { background: var(--home-ui-color-canvas); }
 .catalog-surfaces { align-items: stretch; }
