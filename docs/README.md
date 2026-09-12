@@ -20,6 +20,7 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 |---|---|
 | [Operating manual](operating-manual.md) | Agent-team roles, GitHub issue labels, proof bar, Jesse-only merge |
 | [Fork and extend](fork-and-extend.md) | Brand, regions, assets, provider seams, local-spike vs production persistence |
+| [Issuer integration guide](integrations/README.md) | Seven-step funding-provider adapter walkthrough and core safety guarantees |
 | [UI PR previews](ui-pr-previews.md) | Vercel preview link plus one inline screenshot or short video per user-visible PR |
 | [CDP setup](cdp-setup.md) | Your CDP project, `localhost` origin, email login, server validation, privacy defaults; [preview vs production auth](cdp-setup.md#preview-auth) |
 | [CDP SQL](cdp-sql.md) | Indexed Base history adapter, auth modes, bounded smoke tests. Not balances. |
@@ -30,7 +31,6 @@ If you want to run or fork Home, start with the root [Get started](../README.md#
 | [Vercel deploy](vercel-deploy.md) | Bun monorepo install/build on Vercel; hosted money actions need Neon `DATABASE_URL`; [preview auth / CDP CORS](vercel-deploy.md#preview-auth); preview branch cleanup Actions |
 | [Privacy-safe observability](observability.md) | Scrub-first error schema, bounded client ingestion, operator queries, and the remaining route-wrapper gate |
 | [CDP error reporting](cdp-error-reporting.md) | Privacy decision: keep server SDK error reporting disabled by default |
-| [Issuer integration guide](integrations/README.md) | Seven-step funding-provider walkthrough, with current and in-flight boundaries. Tracking [#282](https://github.com/jessepollak/home/issues/282). |
 
 `apps/web/server/borrowing/README.md` documents the single cbBTC/USDC Morpho market used by the local Borrow spike.
 
@@ -51,6 +51,7 @@ Do not start a clone or a PR from these. Webhooks, Drizzle, and `packages/*` rem
 
 | Doc | Use it for |
 |---|---|
+| [Funding provider seam](funding-provider-seam.md) | Implemented contract and safety design for issuer-contributed funding adapters. |
 | [Target architecture](target-architecture.md) | Proposed Vercel + Neon/Postgres + webhook design. Formerly `docs/technical-design.md`. |
 | [Balances inventory](balances-inventory-architecture.md) | Locked inventory direction (Phase A shipped in #80; B/C not in tree). Full research on [#76](https://github.com/jessepollak/home/issues/76). |
 | [Archived implementation plan](archive/implementation-plan-2026-09-07.md) | 2026-09-07 two-hour chunk plan. [build status](build-status.md) is the scoreboard. |

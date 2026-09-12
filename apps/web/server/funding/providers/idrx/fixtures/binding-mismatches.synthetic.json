@@ -1,0 +1,419 @@
+{
+  "source": "synthetic",
+  "createVa": [
+    {
+      "name": "wrong chain",
+      "echoes": {
+        "networkChainId": "1"
+      }
+    },
+    {
+      "name": "wrong token address",
+      "echoes": {
+        "tokenAddress": "0x2222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "name": "wrong token symbol",
+      "echoes": {
+        "tokenSymbol": "USDC"
+      }
+    },
+    {
+      "name": "malformed token",
+      "echoes": {
+        "tokenAddress": null
+      }
+    },
+    {
+      "name": "wrong merchant reference",
+      "echoes": {
+        "reference": "SNAP-different-order"
+      }
+    },
+    {
+      "name": "alternate order ID mismatch",
+      "echoes": {
+        "providerOrderId": "different-order"
+      }
+    },
+    {
+      "name": "wrong destination",
+      "echoes": {
+        "destinationWalletAddress": "0x2222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "name": "wrong base amount",
+      "echoes": {
+        "baseAmount": "20000.51"
+      }
+    },
+    {
+      "name": "wrong payment amount",
+      "echoes": {
+        "amount": "24000.51"
+      }
+    },
+    {
+      "name": "wrong fee semantics",
+      "echoes": {
+        "fees": [
+          {
+            "name": "VA Mandiri",
+            "amount": "3999.99"
+          }
+        ]
+      }
+    },
+    {
+      "name": "wrong rail",
+      "echoes": {
+        "paymentMethod": "qris"
+      }
+    },
+    {
+      "name": "wrong channel",
+      "echoes": {
+        "channelId": "BRI"
+      }
+    },
+    {
+      "name": "conflicting transaction hashes",
+      "echoes": {
+        "txHash": "0xabababababababababababababababababababababababababababababababab",
+        "transactionHash": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
+    },
+    {
+      "name": "null/hash contradiction",
+      "echoes": {
+        "txHash": null
+      }
+    },
+    {
+      "name": "wrong fee currency",
+      "echoes": {
+        "fees": [
+          {
+            "name": "VA Mandiri",
+            "amount": "4000.00",
+            "currency": "USD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "evil optional VA checkout URL",
+      "echoes": {
+        "checkoutUrl": "https://evil.example/?token=leak"
+      }
+    },
+    {
+      "name": "conflicting optional VA URL aliases",
+      "echoes": {
+        "checkoutUrl": "https://checkout.idrx.co/?token=synthetic-fixture-token",
+        "instructionUrl": "https://checkout.idrx.co/?token=different"
+      }
+    }
+  ],
+  "createQris": [
+    {
+      "name": "wrong chain",
+      "echoes": {
+        "networkChainId": "1"
+      }
+    },
+    {
+      "name": "wrong token address",
+      "echoes": {
+        "tokenAddress": "0x2222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "name": "wrong token symbol",
+      "echoes": {
+        "tokenSymbol": "USDC"
+      }
+    },
+    {
+      "name": "malformed token",
+      "echoes": {
+        "tokenAddress": null
+      }
+    },
+    {
+      "name": "wrong merchant reference",
+      "echoes": {
+        "reference": "SNAP-different-order"
+      }
+    },
+    {
+      "name": "alternate order ID mismatch",
+      "echoes": {
+        "orderId": "different-order"
+      }
+    },
+    {
+      "name": "wrong destination",
+      "echoes": {
+        "destinationWalletAddress": "0x2222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "name": "wrong base amount",
+      "echoes": {
+        "baseAmount": "20000.51",
+        "amount": "20000.51",
+        "fees": []
+      }
+    },
+    {
+      "name": "wrong payment/fee semantics",
+      "echoes": {
+        "baseAmount": "20000.50",
+        "amount": "20001.50",
+        "fees": [
+          {
+            "name": "QRIS",
+            "amount": "0.50"
+          }
+        ]
+      }
+    },
+    {
+      "name": "incomplete payment echoes",
+      "echoes": {
+        "amount": "20000.50"
+      }
+    },
+    {
+      "name": "VA rail against QRIS",
+      "echoes": {
+        "paymentMethod": "va",
+        "channelId": "MANDIRI"
+      }
+    },
+    {
+      "name": "conflicting URL",
+      "echoes": {
+        "paymentUrl": "https://checkout.idrx.co/?token=different"
+      }
+    },
+    {
+      "name": "conflicting transaction hashes",
+      "echoes": {
+        "txHash": "0xabababababababababababababababababababababababababababababababab",
+        "transactionHash": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
+    },
+    {
+      "name": "null/hash contradiction",
+      "echoes": {
+        "txHash": null
+      }
+    },
+    {
+      "name": "wrong fee currency",
+      "echoes": {
+        "baseAmount": "20000.50",
+        "amount": "20001.00",
+        "fees": [
+          {
+            "name": "QRIS",
+            "amount": "0.50",
+            "currency": "USD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "evil instruction URL alias",
+      "echoes": {
+        "instructionUrl": "https://evil.example/?token=leak"
+      }
+    }
+  ],
+  "history": [
+    {
+      "name": "REDEEM transaction",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "transactionType": "REDEEM",
+        "userMintStatus": "REFUND"
+      }
+    },
+    {
+      "name": "wrong chain",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "chainId": 1
+      }
+    },
+    {
+      "name": "wrong token address",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "tokenAddress": "0x2222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "name": "wrong token symbol",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "tokenSymbol": "USDC"
+      }
+    },
+    {
+      "name": "wrong destination",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "destinationWalletAddress": "0x2222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "name": "wrong decimal amount",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "baseAmount": "20000.51",
+        "userMintStatus": "REFUND"
+      }
+    },
+    {
+      "name": "wrong atomic amount",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "tokenAmountAtomic": "2000051"
+      }
+    },
+    {
+      "name": "wrong decimals",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "tokenDecimals": 6
+      }
+    },
+    {
+      "name": "wrong request token",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "requestType": "usdt"
+      }
+    },
+    {
+      "name": "alternate order ID mismatch",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "providerOrderId": "different-order"
+      }
+    },
+    {
+      "name": "contradictory order aliases",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "orderId": "synthetic-order-1",
+        "providerOrderId": "different-order"
+      }
+    },
+    {
+      "name": "VA payment method against QRIS",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "paymentMethod": "va"
+      }
+    },
+    {
+      "name": "VA channel against QRIS",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "channelId": "MANDIRI"
+      }
+    },
+    {
+      "name": "wrong rail",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "rail": "bank-va"
+      }
+    },
+    {
+      "name": "wrong VA channel",
+      "paymentMethodId": "bank-va-mandiri",
+      "overrides": {
+        "paymentMethod": "va",
+        "channelId": "BRI"
+      }
+    },
+    {
+      "name": "conflicting transaction hashes",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "transactionHash": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
+    },
+    {
+      "name": "null/hash contradiction",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "txHash": null
+      }
+    },
+    {
+      "name": "duplicate contradictory records",
+      "paymentMethodId": "qris",
+      "duplicate": true,
+      "overrides": {
+        "userMintStatus": "REFUND",
+        "txHash": null
+      }
+    },
+    {
+      "name": "wrong merchant reference",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "reference": "SNAP-different-order"
+      }
+    },
+    {
+      "name": "wrong history payment amount",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "amount": "20001.01"
+      }
+    },
+    {
+      "name": "inconsistent history fee amount",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "amount": "20001.00",
+        "fees": [
+          {
+            "name": "QRIS",
+            "amount": "0.49",
+            "currency": "IDR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "wrong history fee currency",
+      "paymentMethodId": "qris",
+      "overrides": {
+        "fees": [
+          {
+            "name": "QRIS",
+            "amount": "0.50",
+            "currency": "USD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "evil history URL echo",
+      "paymentMethodId": "bank-va-mandiri",
+      "overrides": {
+        "instructionUrl": "https://evil.example/?token=leak"
+      }
+    }
+  ]
+}
