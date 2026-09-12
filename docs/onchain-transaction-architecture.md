@@ -1,8 +1,8 @@
 # Attempt-aware onchain transactions
 
-Status: **approved direction, Phase 1 in tree, Phase 2 §3 command contracts locked**. This document is specific to Home's current MoneyAction flow in `apps/web`; it is not a proposal for a general event-sourcing platform.
+Status: Phase 1 in tree. Phases 2–5 withdrawn 2026-09-12; see money-action-persistence.md.
 
-Phase 2 §3 TypeScript commands live in [`apps/web/server/money-actions/attempt-commands.ts`](../apps/web/server/money-actions/attempt-commands.ts) (`ATTEMPT_COMMAND_CONTRACT_VERSION = 1`). Soft Pass inputs: [#175](https://github.com/jessepollak/home/issues/175) (CDP) and [#176](https://github.com/jessepollak/home/issues/176) (EIP-5792). Contract issue: [#181](https://github.com/jessepollak/home/issues/181). The Phase 3 production persistence boundary is [`apps/web/server/money-actions/attempt-store.ts`](../apps/web/server/money-actions/attempt-store.ts) (`ATTEMPT_STORE_CONTRACT_VERSION = 1`). No additive attempt schema or runtime activation is included in the contract-first milestone.
+This document records the noncustodial boundary, failure windows, and provider-specific facts that remain relevant to Home's current MoneyAction flow.
 
 ## Decision
 
@@ -53,133 +53,9 @@ That prevents two tabs from both receiving first-dispatch permission, but one op
 
 Phase 1 deliberately reduces the first two avoidable claim windows: status checks no longer claim, and send capability plus fresh balance validation happen before claim when a durable GET establishes that the row is still prepared. Expiry and account fencing are still rechecked immediately before wallet dispatch using the canonical server-returned action.
 
-## Target concepts
+## Withdrawn
 
-### Immutable action / intent
-
-The action is the owner-bound thing the user reviewed. It contains the intent identity, immutable revision, exact normalized calls or sensitive call digests, amounts, warnings, policy/configuration binding, `reviewHash`, and expiry. A changed plan is a new reviewed revision, never an in-place mutation of an authorized payload.
-
-Home may eventually distinguish a stable intent ID from action revision ID, but the current `PreparedMoneyAction.id` remains the compatibility identity during migration.
-
-### Execution attempt
-
-An attempt is one effort to execute one immutable action revision. It has its own ID, sequence number, provider, account, creation time, dispatch phase/version, provider request key, evidence set, reconciliation state, and owner-resolution state.
-
-An attempt does not imply that a provider was called. Conversely, an ambiguous attempt is never converted back into “no attempt.” A later attempt is allowed only by explicit action/provider policy after the earlier attempt is resolved or admission is consciously released.
-
-### Dispatch authorization phase and version
-
-The atomic claim grants first-dispatch permission to exactly one attempt. Model it as a versioned phase, not as a broad operation status:
-
-- `unclaimed`: no attempt may invoke a wallet.
-- `authorized(v)`: attempt `A` owns dispatch authorization version `v`.
-- `request-entered(v)`: the client reports it is crossing the wallet invocation boundary. This improves diagnostics but cannot be made perfectly atomic with the provider call.
-- `evidence-recorded(v)`: at least one provider reference is durable.
-- `closed(v)`: reconciliation or explicit policy closed dispatch for that attempt.
-
-Only an atomic `ClaimDispatch` command can produce `authorized(v)`. Reads, checks, reconciliation, owner abandonment, and UI refreshes can never produce dispatch authorization.
-
-### Provider evidence
-
-Evidence is append-only, typed, provenance-bearing data:
-
-- transaction hash;
-- ERC-4337 user-operation hash;
-- Base `wallet_sendCalls` submission ID;
-- provider status observation tied to one of those references;
-- verified receipt/call match, block data, success, and confirmation policy result.
-
-Evidence recording is idempotent. Repeating the same fact succeeds; a conflicting transaction hash or handle for the same evidence slot fails closed. Provider-status payloads are observations of an immutable handle, so the same handle may advance monotonically (for example `pending` → `confirmed`) without changing its identity. Opaque provider submission IDs compare exactly and case-sensitively; chain hashes use their canonical hexadecimal comparison. Client reports are leads until the server verifies owner, chain, sender, calls/effects, and provider relationship.
-
-### Reconciliation
-
-Reconciliation reads only existing attempt evidence or a provider-supported stable request key. It does not claim and cannot invoke a wallet submission API. It may append stronger evidence and advance the projected result monotonically. Weak or out-of-order observations cannot overwrite stronger verified facts. When several recorded references are available, a transaction hash is preferred over a user-operation hash or provider submission handle.
-
-### Owner abandonment and admission release
-
-Owner abandonment means “the owner no longer wants this unresolved attempt to block a new Home flow.” Admission release is a product-policy result used by the send gate. Neither means “the transaction did not happen,” “the provider dropped it,” or “funds are safe to spend twice.”
-
-Store these independently from reconciliation:
-
-```ts
-type OwnerResolution =
-  | { kind: "active" }
-  | { kind: "abandoned"; at: string; reason: "owner-request" | "policy-timeout" };
-
-type Admission =
-  | { state: "blocking" }
-  | { state: "released"; at: string; policyVersion: string };
-```
-
-Late evidence remains attachable after abandonment or admission release. If it proves execution, Home reconciles and surfaces the result; admission policy then decides how to warn about or constrain any newer attempt.
-
-## Typed command and API direction
-
-Keep feature-specific prepare endpoints. Do not add a generic browser-authored calls endpoint. The kernel exposes versioned commands in `attempt-commands.ts` (`ClaimDispatch`, `RecordProviderEvidence`, `ReconcileAttempt`, `ReleaseAdmission`). Phase 3 persists them; this slice only locks the types.
-
-Locked answers that the types encode:
-
-- `providerRequestKey` is Home correlation (`action.id` as CDP idempotency header or EIP-5792 request `id`). It is not a GET locator and not provider evidence.
-- Only `ClaimDispatch` with `disposition: "dispatch"` grants first wallet send. Recover / reconcile / admission-release never do.
-- Provider evidence starts at provider return (or a later status lookup that actually finds a handle). No preallocated `submissionId`.
-- `ReconcileAttempt` is read-only. Missing evidence after invoke-then-throw is `ambiguous`, not `not-submitted`.
-- `ReleaseAdmission` is independent of execution. Ordinary recover must not write `unknown → expired` (#110 / #134).
-- Same provider key + different payload fails closed where the provider reports it (`idempotency_error`, `5720`). Untested live replay stays `unknown`. Never invent recovery.
-
-Likely HTTP projection, retaining current routes during migration:
-
-- `POST /api/actions/:id/claim` → typed `ClaimDispatch` compatibility route.
-- `GET /api/actions/:id` → pure durable read plus bounded server reconciliation of already-recorded transaction hashes.
-- `POST /api/actions/:id/attempts/:attemptId/evidence` → idempotent evidence append.
-- `POST /api/actions/:id/attempts/:attemptId/reconcile` or an authenticated GET/check projection → no dispatch capability.
-- `POST /api/actions/:id/attempts/:attemptId/admission-release` → explicit owner/policy command, never a generic status write.
-
-The browser `checkMoneyAction(action)` implemented in Phase 1 is the client contract precursor: it performs an owner-fenced GET first and only calls receipt/provider status helpers when the returned durable row already contains a transaction hash, user-operation hash, or Base submission ID.
-
-## State diagrams
-
-### Action and attempt
-
-```mermaid
-stateDiagram-v2
-  [*] --> Prepared: prepare immutable revision
-  Prepared --> Prepared: pure read / status check
-  Prepared --> AttemptAuthorized: atomic ClaimDispatch
-  Prepared --> ClosedUnexecuted: rejected or expires before dispatch authorization
-
-  state AttemptAuthorized {
-    [*] --> Authorized
-    Authorized --> RequestEntered: cross wallet boundary
-    Authorized --> Ambiguous: client lost before durable request evidence
-    RequestEntered --> EvidenceRecorded: provider handle returned and stored
-    RequestEntered --> Ambiguous: error/timeout/no durable handle
-    EvidenceRecorded --> Reconciling
-    Reconciling --> EvidenceRecorded: pending/unavailable
-    Reconciling --> Confirmed: verified success
-    Reconciling --> Failed: verified failure
-    Ambiguous --> Reconciling: late/recovered evidence
-  }
-
-  AttemptAuthorized --> OwnerAbandoned: independent owner resolution
-  OwnerAbandoned --> AttemptAuthorized: late evidence still reconciles
-```
-
-### Dispatch authority versus status checking
-
-```mermaid
-flowchart LR
-  P[Prepared action] --> C[ClaimDispatch transaction]
-  C -->|dispatch + version| W[Client wallet submit]
-  C -->|recover/terminal| R[Reconcile/read only]
-  W --> E[Record provider evidence]
-  E --> R
-  S[Check status UI] --> G[GET durable operation first]
-  G -->|prepared or terminal| O[Return without mutation]
-  G -->|recorded handle| R
-  G -->|reference-free unresolved| U[Return unresolved; no claim, no wallet]
-  S -. cannot reach .-> C
-  R -. cannot reach .-> W
-```
+The additive attempt-state, evidence-reservation, migration-marker, typed-command, and staged Phase 2–5 design was removed in #309 because `money_action_operations` already carries the durable claim, provider handles, verified execution identity, and admission release needed at runtime. The retained pure provider classification facts live in `apps/web/server/money-actions/provider-submission-contract.ts`; the client does not yet import that module.
 
 ## Invariants
 
@@ -189,10 +65,10 @@ flowchart LR
 4. The client submits only the canonical server-returned action after claim. Reviewed-plan comparison remains exact, including sensitive call digests.
 5. A provider request occurs outside the database transaction. Home does not promise exactly-once execution across browser, provider, and chain boundaries.
 6. Missing evidence is not negative evidence after a wallet request may have begun.
-7. Evidence is immutable/idempotent; conflicting references fail closed and are auditable.
+7. Evidence is immutable/idempotent; conflicting references fail closed and are auditable through durable handle columns plus owner-scoped unique indexes, rather than a separate provenance log.
 8. Confirmation requires server-verified receipt/provider facts and expected sender/calls/effects. A client success response is not confirmation.
 9. Ambiguous attempts are never generically rolled back to prepared and replayed with a new execution identity.
-10. Admission release and owner abandonment do not terminalize reconciliation and do not block late evidence.
+10. Admission release and owner abandonment do not terminalize reconciliation and do not block late evidence. Release is stored as `abandoned_at` only; the former reason and policy version were constants and are not persisted.
 11. Fresh spendability checks happen before first claim where they can establish non-submission, then expiry and owner/account fencing are checked again immediately before dispatch.
 12. Account switching invalidates in-flight client work before claim, provider polling, or evidence mutation can cross owners.
 13. No SQL transaction remains open during provider calls.
@@ -211,7 +87,7 @@ Current code facts:
 - Home compares returned provider calls to the reviewed calls and verifies the resulting transaction receipt with the expected sender/user-operation relationship.
 - Once a user-operation hash is durable, status checks can reconcile without calling `sendUserOperation` again.
 
-Soft Pass (#175), locked into `attempt-commands.ts`:
+Soft Pass (#175), locked into `provider-submission-contract.ts`:
 
 - Do not authorize a new send after `sendUserOperation` has been invoked and thrown.
 - Do not implement GET-by-idempotency-key recovery. Official GET is by `userOpHash` only; live unfunded GETs by key were 404.
@@ -228,7 +104,7 @@ Current code facts:
 - Home requires matching submission ID, Base chain, atomic execution, and a single consistent receipt transaction hash.
 - Phase 1 preserves the returned ID before any post-request account-state recheck. Pre-dispatch account/chain checks remain in place.
 
-Soft Pass (#176), locked into `attempt-commands.ts`:
+Soft Pass (#176), locked into `provider-submission-contract.ts`:
 
 - Home request `id` is correlation / uniqueness, not CDP-style idempotent replay. Do not treat the action UUID as a replay key.
 - Action UUID ≠ provider evidence. Do not persist it as `submissionId` before `wallet_sendCalls` returns.
@@ -238,100 +114,6 @@ Soft Pass (#176), locked into `attempt-commands.ts`:
 - Live Base popup `5720` / `4001` / retention remain **unknown**. Do not invent them.
 
 `atomicRequired` describes atomicity of the call bundle as executed by the wallet; it does not make the database claim and wallet request atomic.
-
-## Migration compatibility
-
-The attempt schema should be additive and support a rolling deployment:
-
-1. Add action revision, attempt, evidence, reconciliation, and admission fields/tables without changing current route behavior.
-2. Backfill each legacy row deterministically:
-   - `prepared` → immutable action revision, no attempt;
-   - claimed row with any reference → attempt 1 with authorization plus typed evidence;
-   - claimed reference-free `submitting`/`unknown` → attempt 1 marked ambiguous, admission state copied from existing policy;
-   - terminal row → action plus attempt/result when dispatch occurred, preserving original timestamps and status.
-3. Never backfill a reference-free claimed row as unsubmitted, rolled back, or newly prepared.
-4. Continue accepting legacy evidence endpoints while translating them into `RecordProviderEvidence` commands. While compatibility writers coexist, inspect and reconcile the latest legacy state under the common operation-row authority, then update the legacy and attempt projections atomically. Treat new-first reads as authoritative only after migration completeness and writer compatibility are established.
-5. Keep legacy action IDs as public IDs. Generate deterministic attempt IDs for backfill or store an explicit legacy mapping.
-6. Make evidence uniqueness owner/provider-aware and preserve the existing verified execution uniqueness contract.
-7. Use PostgreSQL/Neon as the sole production store. Keep a small in-memory logic double, while concurrency, restart, migration, and cleanup acceptance run only against real PostgreSQL.
-8. Remove legacy status mutation only after all clients use typed commands and rollback has been rehearsed against a database snapshot.
-
-## Fault-injection and real-store test strategy
-
-### Client/component faults
-
-Inject a failure or account change at every await boundary:
-
-- durable GET before any claim;
-- capability and fresh portfolio preflight;
-- claim response;
-- immediately before wallet invocation;
-- provider request accepted/response lost;
-- provider handle returned/evidence upload fails;
-- evidence stored/receipt polling unavailable;
-- owner/account changes during read, preflight, dispatch, polling, and evidence recording;
-- remount with prepared, reference-free ambiguous, user-op-hash, submission-ID, and transaction-hash rows.
-
-Assertions must count calls, not rely only on UI copy: prepared and reference-free checks make zero claim calls and zero wallet submission calls; recovery polls only stored handles; preflight failure occurs before claim; Base handle capture survives the removed post-request recheck.
-
-### Store contracts
-
-For the in-memory logic double and real PostgreSQL, with persistence/concurrency claims reserved for PostgreSQL:
-
-- concurrent claim grants one dispatch authorization/version;
-- repeated claim returns the same attempt as recover;
-- same evidence is idempotent; conflicting evidence is rejected;
-- owner/provider/address/chain isolation applies to read, claim, evidence, reconcile, and admission release;
-- out-of-order reconciliation cannot overwrite stronger evidence;
-- admission release does not prevent late evidence or confirmation;
-- migration fixtures preserve reference-free claimed rows as ambiguous;
-- process restart/remount retains attempts and evidence.
-
-Use the repository's disposable-schema real PostgreSQL contract harness for persistence, concurrency, restart, migration, and cleanup. Keep funded/live-provider tests opt-in and out of CI. Provider contract spikes should use documented sandboxes or controlled unfunded requests where possible; no replay guarantee is accepted from mocks alone.
-
-## Staged implementation plan
-
-### Phase 1 — pure checks and avoidable window reduction (this slice)
-
-- Add `AccountWalletClient.checkMoneyAction`.
-- GET the durable operation first; return prepared/terminal/reference-free unresolved rows without claim or dispatch.
-- Reconcile only recorded transaction hashes, embedded user-operation hashes, and Base submission IDs.
-- Route Home/Recent MoneyActions and Send recovery “Check status” through the pure method; keep fresh confirmation on `executeMoneyAction`.
-- Read the durable row before execution. If it is still prepared, check send provider capability and a fresh exact-integer portfolio balance before claim.
-- Keep canonical claim response, expiry check, account fencing, and reviewed-call comparison at dispatch.
-- Parse/return a Base `wallet_sendCalls` ID immediately after provider return.
-- Add focused fault-injection tests.
-- Compatibility follow-up delivered: retain a returned provider handle across an initial submission POST failure and retry the identical evidence after an owner-fenced GET. Opaque Base IDs remain byte-for-byte case-sensitive; hash references are canonicalized.
-
-### Phase 2 — provider contract spikes and command types
-
-- CDP and Base matrices: [#175](https://github.com/jessepollak/home/issues/175), [#176](https://github.com/jessepollak/home/issues/176). Soft Pass locked; draft fixtures #178 / #179 stay draft until scoped.
-- Versioned commands: `attempt-commands.ts` v1 (#181). `not-submitted` vs `ambiguous` is typed; do not infer from generic error strings.
-- Implementation tickets are enumerated on the module as `ATTEMPT_IMPLEMENTATION_TICKETS` for the #159 §4 split. Coord #110 / #134.
-
-### Phase 3 — additive attempt persistence
-
-The canonical store contract keeps the legacy `MoneyActionStore` facade and common operation-row CAS authority during rollout while adding separately named typed attempt commands. It fixes owner-scoped immutable snapshots; store-generated production attempt IDs and deterministic legacy IDs; action/attempt/dispatch version fencing; exact-fact evidence idempotence; a server-internal verified-observation apply input that rechecks versions plus the provider-kind-aware evidence-lookup/execution/result binding transactionally; and uniform Memory/SQLite/Postgres resource lifecycle signatures. A verified user-operation `U` may be acquired from exact user-operation, containing transaction `T`, or Base submission-handle evidence while preserving `U`—not `T`—as the unique execution identity; direct transaction execution still binds evidence, execution, and result to the same `T`. Sensitive dispatch calldata remains a transient overlay and is never part of the durable attempt snapshot; its durable recipients and values stay exact and its substituted calldata is verified against the issuance digest. Legacy import is lossless and preserves status, references, timestamps, attempt count, abandonment, any existing verified execution key, and unknown provenance; abandonment or a verified key is historical attempt evidence, and reference-free claimed or contradictory rows remain non-dispatchable and never imply non-submission. Every store error explicitly grants no dispatch authority.
-
-- Under one store owner, add action revisions, attempts, evidence, reconciliation, and admission fields/tables.
-- Implement atomic typed commands in PostgreSQL, with only a small in-memory logic double for fast tests.
-- Backfill and reconcile compatibility rows under the common operation-row authority as described above.
-- Keep current client routes as compatibility projections until all callers migrate.
-
-### Phase 4 — owner abandonment and admission release
-
-- Coordinate with issue #110's immediate user-unblock policy.
-- Bounded store/API (PR #134): `abandonedAt` plus owner-scoped `POST /api/actions/:id/admission-release`. Recover/Check status does not write `unknown → expired`. Late evidence and reconciliation stay open. Send-dialog UI language remains a Hugo follow-up.
-- Preserve late evidence attachment, warning/reconciliation behavior, and cross-attempt conflict checks.
-- Do not implement a blanket `unknown → expired` status transition.
-
-### Phase 5 — verified reconciliation operations
-
-- Add bounded request/webhook reconciliation using the same typed command.
-- Persist observations, backoff/last-check metadata, and monotonic projections.
-- Add operational diagnostics for reference-free ambiguous attempts, evidence-upload retries, and released admissions that later confirm.
-
-Each phase should be an issue-sized PR with a single kernel writer, focused tests, `bun check`, and independent money-safety review.
 
 ## Relationship of #110, #131, and #132
 

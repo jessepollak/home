@@ -124,6 +124,91 @@ export function describeMoneyActionStore(
     expect((await store.get(owner, baseAction.id))?.submissionId).toBe(mixedCase);
   });
 
+  test(`${name} rejects an exact cross-action Base submission ID collision without changing either row`, async () => {
+    const store = await createStore();
+    const owner = { ...OWNER, accountProvider: "base-account" as const };
+    const first = { ...action(), owner };
+    const second = { ...action(), owner, id: "22222222-2222-4222-8222-222222222222" };
+    await Promise.all([store.issue(first), store.issue(second)]);
+    await Promise.all([
+      store.claim(owner, first.id, first.reviewHash, "2026-09-08T05:01:00.000Z"),
+      store.claim(owner, second.id, second.reviewHash, "2026-09-08T05:01:00.000Z"),
+    ]);
+    const submissionId = "CallBundle-AbC123";
+    await expect(store.recordSubmission(
+      owner,
+      first.id,
+      { submissionId },
+      "2026-09-08T05:01:01.000Z",
+    )).resolves.toMatchObject({ submissionId, status: "submitted" });
+    const firstBefore = await store.get(owner, first.id);
+    const secondBefore = await store.get(owner, second.id);
+
+    await expect(store.recordSubmission(
+      owner,
+      second.id,
+      { submissionId },
+      "2026-09-08T05:01:02.000Z",
+    )).resolves.toBeNull();
+    expect(await store.get(owner, first.id)).toEqual(firstBefore);
+    expect(await store.get(owner, second.id)).toEqual(secondBefore);
+  });
+
+  test(`${name} treats case-distinct Base submission IDs as distinct opaque handles`, async () => {
+    const store = await createStore();
+    const owner = { ...OWNER, accountProvider: "base-account" as const };
+    const first = { ...action(), owner };
+    const second = { ...action(), owner, id: "22222222-2222-4222-8222-222222222222" };
+    await Promise.all([store.issue(first), store.issue(second)]);
+    await Promise.all([
+      store.claim(owner, first.id, first.reviewHash, "2026-09-08T05:01:00.000Z"),
+      store.claim(owner, second.id, second.reviewHash, "2026-09-08T05:01:00.000Z"),
+    ]);
+
+    await expect(store.recordSubmission(
+      owner,
+      first.id,
+      { submissionId: "CallBundle-AbC123" },
+      "2026-09-08T05:01:01.000Z",
+    )).resolves.not.toBeNull();
+    await expect(store.recordSubmission(
+      owner,
+      second.id,
+      { submissionId: "callbundle-abc123" },
+      "2026-09-08T05:01:02.000Z",
+    )).resolves.not.toBeNull();
+  });
+
+  test(`${name} rejects cross-action user-operation hash collisions case-insensitively`, async () => {
+    const store = await createStore();
+    const first = action();
+    const second = { ...action(), id: "22222222-2222-4222-8222-222222222222" };
+    await Promise.all([store.issue(first), store.issue(second)]);
+    await Promise.all([
+      store.claim(OWNER, first.id, first.reviewHash, "2026-09-08T05:01:00.000Z"),
+      store.claim(OWNER, second.id, second.reviewHash, "2026-09-08T05:01:00.000Z"),
+    ]);
+    const uppercase = `0x${"A".repeat(64)}` as const;
+    const lowercase = uppercase.toLowerCase() as `0x${string}`;
+    await expect(store.recordSubmission(
+      OWNER,
+      first.id,
+      { userOperationHash: uppercase },
+      "2026-09-08T05:01:01.000Z",
+    )).resolves.toMatchObject({ userOperationHash: lowercase });
+    const firstBefore = await store.get(OWNER, first.id);
+    const secondBefore = await store.get(OWNER, second.id);
+
+    await expect(store.recordSubmission(
+      OWNER,
+      second.id,
+      { userOperationHash: lowercase },
+      "2026-09-08T05:01:02.000Z",
+    )).resolves.toBeNull();
+    expect(await store.get(OWNER, first.id)).toEqual(firstBefore);
+    expect(await store.get(OWNER, second.id)).toEqual(secondBefore);
+  });
+
   test(`${name} does not downgrade included evidence on an exact submission retry`, async () => {
     const store = await createStore();
     await store.issue(action());

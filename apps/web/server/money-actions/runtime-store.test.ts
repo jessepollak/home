@@ -1,20 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { AttemptStoreResource } from "./attempt-store";
 import {
   getMoneyActionStore,
   resolveMoneyActionStoreBackend,
-  setMoneyActionRuntimeResourceFactoryForTests,
+  setMoneyActionRuntimeStoreFactoryForTests,
   setMoneyActionStoreForTests,
 } from "./runtime-store";
-import { MemoryMoneyActionStore, type MoneyActionStore } from "./store";
+import { MemoryMoneyActionStore } from "./store";
 
 const originalUrl = process.env.DATABASE_URL;
 const originalCutover = process.env.MONEY_ACTION_POSTGRES_CUTOVER;
 
 afterEach(() => {
-  setMoneyActionRuntimeResourceFactoryForTests(null);
+  setMoneyActionRuntimeStoreFactoryForTests(null);
   setMoneyActionStoreForTests(null);
   if (originalUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = originalUrl;
@@ -44,97 +43,91 @@ describe("money action runtime store selection", () => {
     await expect(getMoneyActionStore()).resolves.toBe(store);
   });
 
-  test("retries a rejected runtime single-flight only after disposing the failed resource", async () => {
+  test("retries a rejected runtime readiness single-flight", async () => {
     process.env.DATABASE_URL = "postgresql://example/home";
     process.env.MONEY_ACTION_POSTGRES_CUTOVER = "verified-empty";
-    const firstStore = new MemoryMoneyActionStore();
-    const recoveredStore = new MemoryMoneyActionStore();
+    const first = new RuntimeTestStore();
+    const recovered = new RuntimeTestStore();
     const failure = deferred<void>();
-    const disposeStarted = deferred<void>();
-    const finishDispose = deferred<void>();
     let factoryCalls = 0;
-    let initCalls = 0;
-    let disposeCalls = 0;
-    setMoneyActionRuntimeResourceFactoryForTests(async () => {
+    let readinessCalls = 0;
+    setMoneyActionRuntimeStoreFactoryForTests(async () => {
       factoryCalls += 1;
-      if (factoryCalls === 1) {
-        return runtimeResource(firstStore, async () => {
-          initCalls += 1;
-          await failure.promise;
-        }, async () => {
-          disposeCalls += 1;
-          disposeStarted.resolve();
-          await finishDispose.promise;
-        });
-      }
-      return runtimeResource(recoveredStore, async () => {
-        initCalls += 1;
-      }, async () => {
-        disposeCalls += 1;
-      });
+      const store = factoryCalls === 1 ? first : recovered;
+      store.readiness = async () => {
+        readinessCalls += 1;
+        if (store === first) await failure.promise;
+      };
+      return store;
     });
 
     const failures = Promise.allSettled([getMoneyActionStore(), getMoneyActionStore()]);
     await Promise.resolve();
     expect(factoryCalls).toBe(1);
-    let failuresSettled = false;
-    void failures.then(() => { failuresSettled = true; });
     failure.reject(new Error("transient runtime readiness failure"));
-    await disposeStarted.promise;
-    await Promise.resolve();
-    expect(failuresSettled).toBe(false);
-    finishDispose.resolve();
     const outcomes = await failures;
-    expect(outcomes).toHaveLength(2);
-    for (const outcome of outcomes) {
-      expect(outcome.status).toBe("rejected");
-      if (outcome.status === "rejected") {
-        expect((outcome.reason as Error).message).toBe("transient runtime readiness failure");
-      }
-    }
-    expect(disposeCalls).toBe(1);
+    expect(outcomes).toMatchObject([
+      { status: "rejected", reason: { message: "transient runtime readiness failure" } },
+      { status: "rejected", reason: { message: "transient runtime readiness failure" } },
+    ]);
+    expect(first.disposeCalls).toBe(1);
 
-    await expect(getMoneyActionStore()).resolves.toBe(recoveredStore);
-    await expect(getMoneyActionStore()).resolves.toBe(recoveredStore);
+    await expect(getMoneyActionStore()).resolves.toBe(recovered);
+    await expect(getMoneyActionStore()).resolves.toBe(recovered);
     expect(factoryCalls).toBe(2);
-    expect(initCalls).toBe(2);
-    expect(disposeCalls).toBe(1);
+    expect(readinessCalls).toBe(2);
   });
+
+  test("bounds failed runtime cleanup without masking the readiness error", async () => {
+    process.env.DATABASE_URL = "postgresql://example/home";
+    process.env.MONEY_ACTION_POSTGRES_CUTOVER = "verified-empty";
+    const store = new RuntimeTestStore();
+    const readinessError = new Error("original readiness failure");
+    store.readiness = async () => { throw readinessError; };
+    store.disposal = () => new Promise<void>(() => {});
+    setMoneyActionRuntimeStoreFactoryForTests(async () => store);
+
+    const startedAt = Date.now();
+    let failure: unknown;
+    try {
+      await getMoneyActionStore();
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBe(readinessError);
+    expect(store.disposeCalls).toBe(1);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(4_500);
+    expect(Date.now() - startedAt).toBeLessThan(6_500);
+  }, 7_000);
 
   test("an older rejected load cannot clear a newer successful runtime promise", async () => {
     process.env.DATABASE_URL = "postgresql://example/home";
     process.env.MONEY_ACTION_POSTGRES_CUTOVER = "verified-empty";
-    const staleStore = new MemoryMoneyActionStore();
-    const currentStore = new MemoryMoneyActionStore();
+    const stale = new RuntimeTestStore();
+    const current = new RuntimeTestStore();
     const staleFailure = deferred<void>();
+    stale.readiness = () => staleFailure.promise;
     let factoryCalls = 0;
-    let staleDisposals = 0;
-    setMoneyActionRuntimeResourceFactoryForTests(async () => {
+    setMoneyActionRuntimeStoreFactoryForTests(async () => {
       factoryCalls += 1;
-      return factoryCalls === 1
-        ? runtimeResource(staleStore, () => staleFailure.promise, async () => {
-            staleDisposals += 1;
-          })
-        : runtimeResource(currentStore);
+      return factoryCalls === 1 ? stale : current;
     });
 
-    const stale = getMoneyActionStore();
-    const staleOutcome = Promise.allSettled([stale]);
+    const staleLoad = Promise.allSettled([getMoneyActionStore()]);
     await Promise.resolve();
     setMoneyActionStoreForTests(null);
-    await expect(getMoneyActionStore()).resolves.toBe(currentStore);
+    await expect(getMoneyActionStore()).resolves.toBe(current);
     staleFailure.reject(new Error("stale readiness failure"));
-    expect(await staleOutcome).toMatchObject([{ status: "rejected", reason: { message: "stale readiness failure" } }]);
-    await expect(getMoneyActionStore()).resolves.toBe(currentStore);
+    expect(await staleLoad).toMatchObject([{ status: "rejected", reason: { message: "stale readiness failure" } }]);
+    await expect(getMoneyActionStore()).resolves.toBe(current);
     expect(factoryCalls).toBe(2);
-    expect(staleDisposals).toBe(1);
   });
 
-  test("loads and initializes the PostgreSQL attempt adapter only after verified-empty cutover", () => {
+  test("constructs and initializes PostgresMoneyActionStore directly after verified-empty cutover", () => {
     const runtime = readFileSync(resolve(import.meta.dir, "runtime-store.ts"), "utf8");
-    expect(runtime).toContain("createPostgresAttemptStoreResourceWithExecutor");
-    expect(runtime).toContain("await resource.init()");
-    expect(runtime).toContain("return resource.store");
+    expect(runtime).toContain("new PostgresMoneyActionStore(connectionString)");
+    expect(runtime).toContain("await store.ensureSchema()");
+    expect(runtime).toContain("return store");
   });
 
   test("fails closed when DATABASE_URL is configured without cutover verification", async () => {
@@ -162,16 +155,19 @@ describe("money action runtime store selection", () => {
   });
 });
 
-function runtimeResource(
-  store: MoneyActionStore,
-  init: () => Promise<void> = async () => {},
-  dispose: () => Promise<void> = async () => {},
-): AttemptStoreResource {
-  return {
-    store: store as AttemptStoreResource["store"],
-    init,
-    dispose,
-  };
+class RuntimeTestStore extends MemoryMoneyActionStore {
+  readiness: () => Promise<void> = async () => {};
+  disposal: () => Promise<void> = async () => {};
+  disposeCalls = 0;
+
+  ensureSchema(): Promise<void> {
+    return this.readiness();
+  }
+
+  async dispose(): Promise<void> {
+    this.disposeCalls += 1;
+    await this.disposal();
+  }
 }
 
 function deferred<Value>() {
