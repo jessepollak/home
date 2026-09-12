@@ -37,10 +37,8 @@ import type {
 } from "@/server/observability/schema";
 
 export const PORTFOLIO_INVENTORY_TIMEOUT_MS = 10_000;
-/** Fresh budget for configured ERC-20 `balanceOf` recovery. */
+/** One shared stage budget for at most one `balanceOf` per configured ERC-20. */
 export const PORTFOLIO_ERC20_RECOVERY_TIMEOUT_MS = 4_000;
-export const PORTFOLIO_ERC20_RECOVERY_ATTEMPTS = 2;
-export const PORTFOLIO_ERC20_RECOVERY_RETRY_DELAY_MS = 400;
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 
@@ -79,8 +77,6 @@ export function createPortfolioInventoryReader(options: {
   now?: () => Date;
   timeoutMs?: number;
   erc20RecoveryTimeoutMs?: number;
-  erc20RecoveryAttempts?: number;
-  erc20RecoveryRetryDelayMs?: number;
 } = {}): PortfolioInventoryReader {
   const env = options.env ?? process.env;
   const configuredRpcUrl = explicitlyConfiguredRpcUrl(
@@ -113,10 +109,6 @@ export function createPortfolioInventoryReader(options: {
   const timeoutMs = options.timeoutMs ?? PORTFOLIO_INVENTORY_TIMEOUT_MS;
   const erc20RecoveryTimeoutMs =
     options.erc20RecoveryTimeoutMs ?? PORTFOLIO_ERC20_RECOVERY_TIMEOUT_MS;
-  const erc20RecoveryAttempts =
-    options.erc20RecoveryAttempts ?? PORTFOLIO_ERC20_RECOVERY_ATTEMPTS;
-  const erc20RecoveryRetryDelayMs =
-    options.erc20RecoveryRetryDelayMs ?? PORTFOLIO_ERC20_RECOVERY_RETRY_DELAY_MS;
 
   return async function readInventory(
     account: VerifiedPortfolioAccount,
@@ -154,8 +146,6 @@ export function createPortfolioInventoryReader(options: {
         {
           externalSignal,
           timeoutMs: erc20RecoveryTimeoutMs,
-          attempts: erc20RecoveryAttempts,
-          retryDelayMs: erc20RecoveryRetryDelayMs,
           hosted: env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview",
         },
       );
@@ -294,22 +284,19 @@ async function recoverConfiguredErc20Holdings(
   options: {
     externalSignal?: AbortSignal;
     timeoutMs: number;
-    attempts: number;
-    retryDelayMs: number;
     hosted: boolean;
   },
 ): Promise<DirectPortfolioHolding[]> {
-  const unresolved = holdings.filter(
+  if (options.externalSignal?.aborted) {
+    throw new PortfolioInventoryError(
+      "The portfolio inventory request timed out or was aborted.",
+    );
+  }
+  const recovery = holdings.filter(
     (holding): holding is DirectPortfolioHolding & {
       contractAddress: PortfolioAddress;
     } => recoveryIds.has(holding.id) && holding.contractAddress !== null,
   );
-  // Cash roles consume the same bounded recovery window as Invest contracts,
-  // so partition them first while preserving stable registry order in each set.
-  const recovery = [
-    ...unresolved.filter((holding) => holding.cashCurrency !== null),
-    ...unresolved.filter((holding) => holding.cashCurrency === null),
-  ];
   if (recovery.length === 0) return holdings;
   if (!readConfiguredErc20Balances) {
     if (options.hosted) {
@@ -326,60 +313,35 @@ async function recoverConfiguredErc20Holdings(
   const verified = new Map<string, string | null>(
     recovery.map(({ id }) => [id, null]),
   );
-  const deadline = Date.now() + options.timeoutMs;
-  const maxAttempts = Math.min(
-    PORTFOLIO_ERC20_RECOVERY_ATTEMPTS,
-    Number.isSafeInteger(options.attempts) && options.attempts > 0
-      ? options.attempts
-      : 1,
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT),
+    options.timeoutMs,
   );
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+  const abort = () => controller.abort(options.externalSignal?.reason);
+  options.externalSignal?.addEventListener("abort", abort, { once: true });
+  try {
+    // The configured reader is sequential. Every single receives this same
+    // stage signal, so later calls inherit only the stage budget still left.
+    const batch = await readConfiguredErc20Balances(
+      recovery.map(({ id, contractAddress }) => ({ id, contractAddress })),
+      address,
+      controller.signal,
+    );
     if (options.externalSignal?.aborted) {
       throw new PortfolioInventoryError(
         "The portfolio inventory request timed out or was aborted.",
       );
     }
-    const pending = recovery.filter(({ id }) => verified.get(id) == null);
-    if (pending.length === 0) break;
-    if (attempt > 0 && options.retryDelayMs > 0) {
-      const delayMs = Math.min(options.retryDelayMs, deadline - Date.now());
-      if (delayMs <= 0) break;
-      await wait(delayMs, options.externalSignal);
-      if (options.externalSignal?.aborted) {
-        throw new PortfolioInventoryError(
-          "The portfolio inventory request timed out or was aborted.",
-        );
-      }
+    for (const { id } of recovery) {
+      const amount = batch.get(id);
+      if (amount !== undefined && amount !== null) verified.set(id, amount);
     }
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) break;
-
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT),
-      remainingMs,
-    );
-    const abort = () => controller.abort(options.externalSignal?.reason);
-    options.externalSignal?.addEventListener("abort", abort, { once: true });
-    try {
-      const batch = await readConfiguredErc20Balances(
-        pending.map(({ id, contractAddress }) => ({ id, contractAddress })),
-        address,
-        controller.signal,
-      );
-      for (const { id } of pending) {
-        const amount = batch.get(id);
-        if (amount !== undefined && amount !== null) {
-          verified.set(id, amount);
-        }
-      }
-    } catch (error) {
-      if (options.externalSignal?.aborted) throw error;
-    } finally {
-      clearTimeout(timeout);
-      options.externalSignal?.removeEventListener("abort", abort);
-    }
+  } catch (error) {
+    if (options.externalSignal?.aborted) throw error;
+  } finally {
+    clearTimeout(timeout);
+    options.externalSignal?.removeEventListener("abort", abort);
   }
 
   if ([...verified.values()].some((amount) => amount === null)) {
@@ -389,20 +351,16 @@ async function recoverConfiguredErc20Holdings(
       [...verified.values()].some((amount) => amount !== null)
         ? "incomplete"
         : "unavailable",
-      "read-failed",
+      controller.signal.reason === CONFIGURED_ERC20_RECOVERY_STAGE_TIMEOUT
+        ? "timed-out"
+        : "read-failed",
     );
   }
 
   return holdings.map((holding) => {
     if (!recoveryIds.has(holding.id)) return holding;
     const amount = verified.get(holding.id);
-    if (amount === undefined || amount === null) {
-      return {
-        ...holding,
-        balanceBaseUnits: null,
-        readStatus: "unavailable",
-      };
-    }
+    if (amount === undefined || amount === null) return holding;
     return {
       ...holding,
       balanceBaseUnits: amount,
@@ -455,22 +413,4 @@ async function withStageTimeout<T>(
     clearTimeout(timeout);
     externalSignal?.removeEventListener("abort", abort);
   }
-}
-
-function wait(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (!Number.isFinite(ms) || ms <= 0 || signal?.aborted) {
-      resolve();
-      return;
-    }
-    const timeout = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timeout);
-      resolve();
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
 }
