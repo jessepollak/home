@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Run a heavy command (bun check, playwright) holding one of N machine-wide slots.
+
+Usage: heavy-slot <command...>   e.g.  heavy-slot bun check
+Slots: $HOME_HEAVY_SLOTS (default 4). Waits until a slot is free, then execs.
+"""
+import fcntl, os, subprocess, sys, time
+n = int(os.environ.get("HOME_HEAVY_SLOTS", "4"))
+lockdir = "/private/tmp/home-heavy-slots"
+os.makedirs(lockdir, exist_ok=True)
+if len(sys.argv) < 2:
+    sys.exit(__doc__)
+start = time.time()
+while True:
+    for i in range(n):
+        fh = open(f"{lockdir}/slot-{i}.lock", "w")
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            fh.close(); continue
+        waited = time.time() - start
+        if waited > 5:
+            print(f"[heavy-slot] waited {waited:.0f}s for slot {i}", file=sys.stderr)
+        rc = subprocess.call(sys.argv[1:])
+        fh.close()  # releases the lock
+        sys.exit(rc)
+    time.sleep(3)
