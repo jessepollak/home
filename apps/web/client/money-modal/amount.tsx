@@ -1,5 +1,7 @@
 "use client";
 
+import { Button, Select, Text } from "@home/ui";
+import { MoneyTicker } from "@home/ui/money-ticker";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDownUp, ChevronDown, Delete } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -76,9 +78,10 @@ export function triggerKeyHaptic(durationMs = 12): void {
 }
 
 export function useAutoFitAmountText(text: string) {
-  const containerRef = useRef<HTMLParagraphElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const sizerRef = useRef<HTMLSpanElement>(null);
   const [fontSize, setFontSize] = useState<number | undefined>(undefined);
+  const [scaleX, setScaleX] = useState(1);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -91,26 +94,30 @@ export function useAutoFitAmountText(text: string) {
         (Number.parseFloat(computed.paddingLeft) || 0)
         + (Number.parseFloat(computed.paddingRight) || 0);
       const available = container.clientWidth - horizontalPadding;
-      const natural = sizer.getBoundingClientRect().width;
-      if (available <= 0 || natural <= 0) return;
-
       const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
-      if (!Number.isFinite(base) || base <= 0) return;
+      const currentSize = Number.parseFloat(computed.fontSize);
+      const ticker = container.querySelector<HTMLElement>(".home-ui-money-ticker");
+      const renderedNatural = ticker?.offsetWidth || sizer.getBoundingClientRect().width;
+      if (available <= 0 || renderedNatural <= 0 || !Number.isFinite(base) || base <= 0) return;
 
+      const natural = Number.isFinite(currentSize) && currentSize > 0
+        ? renderedNatural * (base / currentSize)
+        : renderedNatural;
       const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
       const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
-      // Round down and reserve headroom so the rendered amount never exceeds
-      // the container by a subpixel rounding error; the exact decimal string
-      // is never altered.
-      const target =
-        Math.floor(
-          fitAmountFontSize(available * AMOUNT_FIT_SAFETY_FACTOR, natural, base, min) * 10,
-        ) / 10;
+      const scaled = (base * available * AMOUNT_FIT_SAFETY_FACTOR) / natural;
+      // Keep the minimum vertical type size while compacting only the inline
+      // axis when DM Mono's fixed glyph widths need a little more room.
+      const target = Math.floor(Math.min(base, Math.max(min, scaled)) * 10) / 10;
+      const targetScaleX = Math.min(1, scaled / target);
 
       setFontSize((current) =>
         current !== undefined && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
           ? current
           : target,
+      );
+      setScaleX((current) =>
+        Math.abs(current - targetScaleX) < 0.005 ? current : targetScaleX,
       );
     };
 
@@ -135,7 +142,7 @@ export function useAutoFitAmountText(text: string) {
     };
   }, [text]);
 
-  return { containerRef, sizerRef, fontSize };
+  return { containerRef, sizerRef, fontSize, scaleX };
 }
 
 export function useMoneyAssetPricing(assetSymbol: string): MoneyAssetPricing {
@@ -221,7 +228,7 @@ export function MoneyAmountDisplay({
           }
         />
       ) : null}
-      {availableLine ? <p className={styles.available}>{availableLine}</p> : null}
+      {availableLine ? <Text as="div" textStyle="secondary" tone="muted" className={styles.available}><MoneyTicker value={availableLine} /></Text> : null}
     </div>
   );
 }
@@ -236,18 +243,21 @@ export function MoneyPrimaryAmount({
   pricing: MoneyAssetPricing;
 }) {
   const text = formatPrimaryAmount(amount, unit, pricing);
-  const { containerRef, sizerRef, fontSize } = useAutoFitAmountText(text);
+  const { containerRef, sizerRef, fontSize, scaleX } = useAutoFitAmountText(text);
 
   return (
     <>
-      <p
+      <div
         ref={containerRef}
         className={styles.assetAmount}
         data-primary-amount
         style={fontSize === undefined ? undefined : { fontSize }}
       >
-        {text}
-      </p>
+        <MoneyTicker
+          value={text}
+          style={scaleX < 1 ? { transform: `scaleX(${scaleX})` } : undefined}
+        />
+      </div>
       <span
         ref={sizerRef}
         className={styles.amountSizer}
@@ -289,21 +299,22 @@ export function MoneyAssetPicker({
   }
 
   return (
-    <label className={styles.assetPill}>
+    <div className={styles.assetPicker}>
       <CurrencyMark currency={markCurrency} symbol={assetLabel} />
-      <select
+      <Select
+        className={styles.assetSelect}
         aria-label="Asset"
         value={assetId}
         onChange={(event) => onAssetChange?.(event.target.value)}
+        suffix={<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />}
       >
         {assetOptions?.map((option) => (
           <option key={option.id} value={option.id}>
             {option.label}
           </option>
         ))}
-      </select>
-      <ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
-    </label>
+      </Select>
+    </div>
   );
 }
 
@@ -328,34 +339,34 @@ export function MoneyQuickChips({
     <div className={styles.chips} role="group" aria-label="Quick amounts">
       {chipSet === "quick-local" ? (
         <>
-          <button
+          <Button
             className={styles.chip}
-            type="button"
+            variant="secondary"
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("10", availableAmount))}
           >
-            {formatChipLabel(10, localCurrency)}
-          </button>
-          <button
+            <MoneyTicker value={formatChipLabel(10, localCurrency)} />
+          </Button>
+          <Button
             className={styles.chip}
-            type="button"
+            variant="secondary"
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("25", availableAmount))}
           >
-            {formatChipLabel(25, localCurrency)}
-          </button>
+            <MoneyTicker value={formatChipLabel(25, localCurrency)} />
+          </Button>
         </>
       ) : null}
-      <button
+      <Button
         className={`${styles.chip} ${styles.chipMax}`}
-        type="button"
+        variant="secondary"
         disabled={!maxEnabled}
         onClick={() => {
           if (availableAmount) onSelect(availableAmount);
         }}
       >
         Max
-      </button>
+      </Button>
     </div>
   );
 }
@@ -368,15 +379,15 @@ export function MoneyUnitToggle({
   onToggle: () => void;
 }) {
   return (
-    <button
+    <Button
       className={styles.unitToggle}
-      type="button"
+      variant="quiet"
       onClick={onToggle}
       aria-label={`Show ${secondaryLabel} as the primary amount`}
     >
       <ArrowDownUp size={16} strokeWidth={2} aria-hidden="true" />
-      <span>{secondaryLabel}</span>
-    </button>
+      <MoneyTicker value={secondaryLabel} />
+    </Button>
   );
 }
 
@@ -396,10 +407,10 @@ export function MoneyNumpad({
   return (
     <div className={styles.numpad} role="group" aria-label="Amount keypad">
       {KEYS.map((key) => (
-        <button
+        <Button
           key={key}
           className={styles.key}
-          type="button"
+          variant="secondary"
           disabled={disabled}
           aria-label={key === "backspace" ? "Delete last digit" : key === "." ? "Decimal point" : key}
           onClick={() => {
@@ -414,7 +425,7 @@ export function MoneyNumpad({
           ) : (
             key
           )}
-        </button>
+        </Button>
       ))}
     </div>
   );

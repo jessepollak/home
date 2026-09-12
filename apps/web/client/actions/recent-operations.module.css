@@ -1,6 +1,3 @@
-.section { display: grid; gap: .75rem; }
-.section h3 { margin: 0; font-size: .9rem; }
-.list { display: grid; gap: .25rem; list-style: none; margin: 0; padding: 0; }
-.message { margin: 0; color: var(--muted); font-size: .85rem; }
-.check { position: relative; z-index: 1; border: 0; padding: 0; background: transparent; color: var(--base-blue); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.check:disabled { cursor: wait; opacity: .65; }
+.section { display: grid; gap: var(--home-ui-space-3); }
+.list { display: grid; gap: var(--home-ui-space-1); list-style: none; margin: 0; padding: 0; }
+.message { font-size: var(--home-ui-type-secondary-size); }

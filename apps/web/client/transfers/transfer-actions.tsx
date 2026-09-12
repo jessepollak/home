@@ -1,5 +1,7 @@
 "use client";
 
+import { Button, Text, Toast, ToastViewport } from "@home/ui";
+import { MoneyTicker } from "@home/ui/money-ticker";
 import {
   useCallback,
   useEffect,
@@ -126,23 +128,17 @@ export function TransferActionsForWallet({
     else commitClientUrl(flowHref("/dashboard", "send"), "replace");
   }, [routing]);
 
-  useEffect(() => {
-    if (!success) return;
-    const timer = window.setTimeout(() => setSuccess(null), 6000);
-    return () => window.clearTimeout(timer);
-  }, [success]);
-
   return (
     <div className={styles.actions} aria-label="Transfer actions">
-      <button
+      <Button
         className={styles.secondaryAction}
         data-action-trigger=""
-        type="button"
+        variant="secondary"
         disabled={!boundary}
         onClick={openSend}
       >
         Send
-      </button>
+      </Button>
 
       {mounted
         ? createPortal(
@@ -169,20 +165,26 @@ export function TransferActionsForWallet({
         : null}
 
       {visibleSuccess ? (
-        <div className={styles.successToast} role="status">
-          <span className={styles.successMark} aria-hidden="true">✓</span>
-          <div>
-            <strong>Sent {formatSendConfirmAmount(visibleSuccess.amountBaseUnits, visibleSuccess.assetId)}</strong>
-            <p>
-              {TRANSFER_ASSETS[visibleSuccess.assetId].symbol} · Base ·{" "}
-              <CopyableValue
-                value={visibleSuccess.recipient}
-                display={formatAddress(visibleSuccess.recipient)}
-                valueKind="address"
-              />
-            </p>
-          </div>
-        </div>
+        <ToastViewport>
+          <Toast tone="success" duration={6000} onDismiss={() => setSuccess(null)}>
+            <div className={styles.successContent}>
+              <span className={styles.successMark} aria-hidden="true">✓</span>
+              <div>
+                <Text as="strong" textStyle="row-label">
+                  Sent <MoneyTicker value={formatSendConfirmAmount(visibleSuccess.amountBaseUnits, visibleSuccess.assetId)} />
+                </Text>
+                <Text textStyle="metadata" tone="muted" className={styles.successDetail}>
+                  {TRANSFER_ASSETS[visibleSuccess.assetId].symbol} · Base ·{" "}
+                  <CopyableValue
+                    value={visibleSuccess.recipient}
+                    display={formatAddress(visibleSuccess.recipient)}
+                    valueKind="address"
+                  />
+                </Text>
+              </div>
+            </div>
+          </Toast>
+        </ToastViewport>
       ) : null}
     </div>
   );

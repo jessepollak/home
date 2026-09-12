@@ -1,5 +1,7 @@
 "use client";
 
+import { Heading, StatusMessage } from "@home/ui";
+import { MoneyTicker } from "@home/ui/money-ticker";
 import { useEffect, useState } from "react";
 import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
@@ -76,8 +78,8 @@ export function RecentMoneyActions({
   if (operations.length === 0 && (!unavailable || !showUnavailableNotice)) return null;
 
   return <section className={styles.section} aria-labelledby={embedded ? undefined : "home-operations-title"}>
-    {embedded ? null : <h3 id="home-operations-title">Home actions</h3>}
-    {unavailable ? <p className={styles.message} role="status">Recorded Home actions are unavailable. Onchain transfers are still shown.</p> : <ol className={styles.list}>
+    {embedded ? null : <Heading id="home-operations-title" level={3} textStyle="section-title">Home actions</Heading>}
+    {unavailable ? <StatusMessage className={styles.message}>Recorded Home actions are unavailable. Onchain transfers are still shown.</StatusMessage> : <ol className={styles.list}>
       {operations.map((operation) => <OperationRow key={operation.action.id} operation={operation} onActivate={() => setSelected(operation)} />)}
     </ol>}
     <TransactionDetailsModal open={selected !== null} titleId="home-operation-details-title" details={selected ? presentOperationDetails(selected) : null} onClose={() => setSelected(null)} />
@@ -123,8 +125,8 @@ function OperationRow({ operation, onActivate }: { operation: RecentMoneyActionO
   const amount = primaryOperationAmount(operation);
   const status = labelForOperationStatus(operation.status);
   const date = formatPresentationDate(operation.updatedAt, { style: "activity-short" });
-  const value = amount ? `${amount.direction === "spend" ? "−" : "+"}${amount.estimated ? "~" : ""}${formatPresentationTokenAmount(amount.amountBaseUnits, amount.decimals, amount.symbol, { cashCurrency: amount.symbol === "USDC" ? "USD" : null })}` : status;
-  return <ActivityRow icon={operation.status === "confirmed" ? "✓" : operation.status === "failed" ? "×" : operation.status === "unknown" ? "?" : "↑"} iconTone={operation.status === "failed" ? "outlined" : amount?.direction === "receive" ? "incoming" : "outgoing"} label={operation.action.title} context={<><time dateTime={operation.updatedAt}>{date}</time> · {status}</>} value={value} valueTone={operation.status === "failed" ? "error" : operation.status === "unknown" ? "muted" : "default"} onActivate={onActivate} activateLabel={`View ${operation.action.title} transaction details`} />;
+  const value = amount ? `${amount.direction === "spend" ? "−" : "+"}${amount.estimated ? "~" : ""}${formatPresentationTokenAmount(amount.amountBaseUnits, amount.decimals, amount.symbol, { cashCurrency: amount.symbol === "USDC" ? "USD" : null })}` : null;
+  return <ActivityRow icon={operation.status === "confirmed" ? "✓" : operation.status === "failed" ? "×" : operation.status === "unknown" ? "?" : "↑"} iconTone={operation.status === "failed" ? "outlined" : amount?.direction === "receive" ? "incoming" : "outgoing"} label={operation.action.title} context={<><time dateTime={operation.updatedAt}>{date}</time> · {status}</>} value={value ? <MoneyTicker value={value} /> : status} valueTone={operation.status === "failed" ? "error" : operation.status === "unknown" ? "muted" : "default"} onActivate={onActivate} activateLabel={`View ${operation.action.title} transaction details`} />;
 }
 
 function isDerivedStatus(value: unknown): value is DerivedActionStatus {

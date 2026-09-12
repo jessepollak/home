@@ -1,6 +1,9 @@
 "use client";
 
+import { Button, Heading, IconButton } from "@home/ui";
+import { XIcon } from "@home/ui/icons";
 import { Sheet, useSheetLifecycle } from "@home/ui/sheet";
+import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import styles from "./money-modal.module.css";
 
@@ -57,25 +60,22 @@ export function MoneyModalHeader({
   return (
     <header className={styles.header}>
       {onBack ? (
-        <button className={styles.backButton} type="button" onClick={onBack}>
-          <span aria-hidden="true">←</span>
-          <span className={styles.srOnly}>Back</span>
-        </button>
+        <Button className={styles.backButton} variant="quiet" aria-label="Back" onClick={onBack}>
+          <ArrowLeft size={20} strokeWidth={2} aria-hidden="true" />
+        </Button>
       ) : (
         <span />
       )}
-      <h2 id={titleId} className={styles.title}>
+      <Heading id={titleId} level={2} textStyle="sheet-title" className={styles.title}>
         {title}
-      </h2>
-      <button
+      </Heading>
+      <IconButton
         className={styles.closeButton}
-        type="button"
+        aria-label={closeLabel}
+        icon={XIcon}
         disabled={closeDisabled}
         onClick={onClose}
-      >
-        <span aria-hidden="true">×</span>
-        <span className={styles.srOnly}>{closeLabel}</span>
-      </button>
+      />
     </header>
   );
 }
@@ -89,33 +89,33 @@ export function MoneyModalFooter({
   onSecondary,
   secondaryDisabled = false,
 }: {
-  primaryLabel: string;
+  primaryLabel: ReactNode;
   onPrimary?: () => void;
   primaryDisabled?: boolean;
   primaryType?: "button" | "submit";
-  secondaryLabel?: string;
+  secondaryLabel?: ReactNode;
   onSecondary?: () => void;
   secondaryDisabled?: boolean;
 }) {
   return (
     <div className={styles.footer}>
-      <button
+      <Button
         className={styles.primary}
         type={primaryType}
         disabled={primaryDisabled}
         onClick={onPrimary}
       >
         {primaryLabel}
-      </button>
+      </Button>
       {secondaryLabel && onSecondary ? (
-        <button
+        <Button
           className={styles.quiet}
-          type="button"
+          variant="quiet"
           disabled={secondaryDisabled}
           onClick={onSecondary}
         >
           {secondaryLabel}
-        </button>
+        </Button>
       ) : null}
     </div>
   );

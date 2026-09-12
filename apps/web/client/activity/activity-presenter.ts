@@ -29,7 +29,7 @@ export type ActivityRowViewModel = {
 
 export type ActivityPresenterOptions = {
   regionId?: RegionId;
-  timeZone: string;
+  timeZone?: string;
 };
 
 const directionPresentation = {

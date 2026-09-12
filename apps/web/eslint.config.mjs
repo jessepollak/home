@@ -20,7 +20,6 @@ const nodeBuiltins = "assert|async_hooks|buffer|child_process|cluster|crypto|dgr
 // Baseline allowlists contain today's production violators. Entries only shrink
 // as files adopt @home/ui; do not add new files to make a lint failure pass.
 const rawButtonAllowlist = [
-  "client/activity/activity-panel.tsx",
   "client/funding/add-money-dialog.tsx",
   "client/funding/funding-actions.tsx",
   "client/funding/order-flow.tsx",
@@ -29,39 +28,29 @@ const rawButtonAllowlist = [
   "client/invest/discover-shelf.tsx",
   "client/invest/price-chart.tsx",
   "client/landing/supported-globe.tsx",
-  "client/actions/review.tsx",
-  "client/money-modal/amount.tsx",
-  "client/money-modal/money-modal.tsx",
   "client/savings/savings-experience.tsx",
   "client/trading/trade-actions.tsx",
-  "client/transfers/transfer-actions.tsx",
   "components/address-field.tsx",
 ];
 
 const rawFieldAllowlist = [
   "client/account/account-screen.tsx",
   "client/funding/add-money-dialog.tsx",
-  "client/money-modal/amount.tsx",
 ];
 
 const rawHeadingAllowlist = [
-  "client/activity/activity-panel.tsx",
   "client/funding/add-money-dialog.tsx",
   "client/funding/order-flow.tsx",
   "client/invest/asset-detail-screen.tsx",
   "client/invest/category-screen.tsx",
   "client/invest/discover-shelf.tsx",
   "client/invest/invest-hub.tsx",
-  "client/actions/recent-operations.tsx",
-  "client/actions/review.tsx",
-  "client/money-modal/money-modal.tsx",
   "client/savings/savings-experience.tsx",
   "client/trading/trade-actions.tsx",
 ];
 
 const formattingSyntaxAllowlist = [
-  // These calls format geometry or discover the browser time zone, not money.
-  "client/activity/activity-panel.tsx",
+  // These calls format geometry, not money.
   "client/landing/globe-geometry.ts",
   "client/landing/supported-globe.tsx",
 ];
