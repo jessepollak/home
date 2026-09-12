@@ -4,214 +4,14 @@ import { base } from "viem/chains";
 import { createSiweMessage, parseSiweMessage } from "viem/siwe";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { resolveBaseRpcUrl } from "@/server/portfolio/rpc";
-import {
-  createNeonSqlExecutor,
-  type SqlExecutor,
-} from "@/server/db/sql";
 
 export const HOME_SESSION_COOKIE = "home-session";
 export const HOME_CHALLENGE_COOKIE = "home-auth-challenge";
 export const NATIVE_BASE_NONCE_TTL_MS = 5 * 60 * 1000;
 export const NATIVE_BASE_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_NONCES = 1_000;
 const MAX_BODY_BYTES = 96 * 1024;
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const signaturePattern = /^0x(?:[0-9a-fA-F]{2})+$/;
-
-export type NativeBaseNonce = {
-  id: string;
-  address: `0x${string}`;
-  origin: string;
-  message: string;
-  expiresAt: string;
-};
-
-export interface NativeBaseNonceStore {
-  issue(nonce: NativeBaseNonce): Promise<void>;
-  consume(id: string, now: string): Promise<NativeBaseNonce | null>;
-}
-
-export class MemoryNativeBaseNonceStore implements NativeBaseNonceStore {
-  private readonly values = new Map<string, NativeBaseNonce>();
-
-  async issue(nonce: NativeBaseNonce): Promise<void> {
-    this.purge(Date.parse(nonce.expiresAt) - NATIVE_BASE_NONCE_TTL_MS);
-    while (this.values.size >= MAX_NONCES) {
-      const oldest = this.values.keys().next().value;
-      if (typeof oldest !== "string") break;
-      this.values.delete(oldest);
-    }
-    this.values.set(nonce.id, structuredClone(nonce));
-  }
-
-  async consume(id: string, now: string): Promise<NativeBaseNonce | null> {
-    const value = this.values.get(id);
-    this.values.delete(id);
-    if (!value || Date.parse(value.expiresAt) <= Date.parse(now)) return null;
-    return structuredClone(value);
-  }
-
-  private purge(nowMs: number): void {
-    for (const [id, value] of this.values) {
-      if (Date.parse(value.expiresAt) <= nowMs) this.values.delete(id);
-    }
-  }
-}
-
-const NONCE_SCHEMA = `CREATE TABLE IF NOT EXISTS home_auth_nonces (
-  id TEXT PRIMARY KEY,
-  address TEXT NOT NULL,
-  origin TEXT NOT NULL,
-  message TEXT NOT NULL,
-  expires_at TEXT NOT NULL
-)`;
-const LOCK_NONCE_SCHEMA = "SELECT pg_advisory_xact_lock($1)";
-const NONCE_SCHEMA_LOCK_ID = "5210468254237152596";
-const INSERT_NONCE = `INSERT INTO home_auth_nonces (id, address, origin, message, expires_at)
-  VALUES ($1, $2, $3, $4, $5)`;
-const CONSUME_NONCE = `DELETE FROM home_auth_nonces
-  WHERE id = $1
-  RETURNING id, address, origin, message, expires_at`;
-const DELETE_EXPIRED_NONCES = `DELETE FROM home_auth_nonces WHERE expires_at <= $1`;
-
-type NonceRow = {
-  id: string;
-  address: string;
-  origin: string;
-  message: string;
-  expires_at: string;
-};
-
-export class PostgresNativeBaseNonceStore implements NativeBaseNonceStore {
-  private readonly executor: SqlExecutor;
-  private schemaReady: Promise<void> | null = null;
-
-  constructor(executorOrUrl?: SqlExecutor | string) {
-    if (typeof executorOrUrl === "object") {
-      this.executor = executorOrUrl;
-      return;
-    }
-    const url = executorOrUrl?.trim() || process.env.DATABASE_URL?.trim();
-    if (!url) throw new Error("DATABASE_URL is required for native Base nonce storage");
-    this.executor = createNeonSqlExecutor(url);
-  }
-
-  private initializeSchema(): Promise<void> {
-    return this.executor.transaction(async (tx) => {
-      await tx.query(LOCK_NONCE_SCHEMA, [NONCE_SCHEMA_LOCK_ID]);
-      await tx.query(NONCE_SCHEMA);
-    });
-  }
-
-  private async ensureSchema(): Promise<void> {
-    const attempt = this.schemaReady ??= this.initializeSchema();
-    try {
-      await attempt;
-    } catch (error) {
-      if (this.schemaReady === attempt) this.schemaReady = null;
-      throw error;
-    }
-  }
-
-  async issue(nonce: NativeBaseNonce): Promise<void> {
-    await this.ensureSchema();
-    await this.executor.transaction(async (tx) => {
-      await tx.query(DELETE_EXPIRED_NONCES, [new Date().toISOString()]);
-      await tx.query(INSERT_NONCE, [
-        nonce.id,
-        nonce.address,
-        nonce.origin,
-        nonce.message,
-        nonce.expiresAt,
-      ]);
-    });
-  }
-
-  async consume(id: string, now: string): Promise<NativeBaseNonce | null> {
-    await this.ensureSchema();
-    const result = await this.executor.query<NonceRow>(CONSUME_NONCE, [id]);
-    const row = result.rows[0];
-    if (
-      !row ||
-      row.expires_at <= now ||
-      !addressPattern.test(row.address)
-    ) return null;
-    return {
-      id: row.id,
-      address: row.address.toLowerCase() as `0x${string}`,
-      origin: row.origin,
-      message: row.message,
-      expiresAt: row.expires_at,
-    };
-  }
-}
-
-class UnavailableNativeBaseNonceStore implements NativeBaseNonceStore {
-  async issue(): Promise<void> {
-    throw new Error("Durable native Base nonce storage is unavailable.");
-  }
-  async consume(): Promise<null> {
-    throw new Error("Durable native Base nonce storage is unavailable.");
-  }
-}
-
-type NativeBaseRuntimeEnv = {
-  DATABASE_URL?: string;
-  NODE_ENV?: string;
-  VERCEL?: string;
-  AWS_EXECUTION_ENV?: string;
-  AWS_LAMBDA_FUNCTION_NAME?: string;
-  NETLIFY?: string;
-  CF_PAGES?: string;
-  K_SERVICE?: string;
-  FUNCTION_TARGET?: string;
-  WEBSITE_INSTANCE_ID?: string;
-};
-
-function isHostedOrServerlessRuntime(env: NativeBaseRuntimeEnv): boolean {
-  return Boolean(
-    env.VERCEL ||
-      env.AWS_EXECUTION_ENV ||
-      env.AWS_LAMBDA_FUNCTION_NAME ||
-      env.NETLIFY ||
-      env.CF_PAGES ||
-      env.K_SERVICE ||
-      env.FUNCTION_TARGET ||
-      env.WEBSITE_INSTANCE_ID,
-  );
-}
-
-export function resolveNativeBaseNonceStoreBackend(
-  env: NativeBaseRuntimeEnv = process.env as NativeBaseRuntimeEnv,
-): "postgres" | "memory" | "hosted-unavailable" {
-  if (env.DATABASE_URL?.trim()) return "postgres";
-  if (env.NODE_ENV === "production" || isHostedOrServerlessRuntime(env)) {
-    return "hosted-unavailable";
-  }
-  if (env.NODE_ENV === "development" || env.NODE_ENV === "test") {
-    return "memory";
-  }
-  return "hosted-unavailable";
-}
-
-let runtimeStore: NativeBaseNonceStore | null = null;
-export function getNativeBaseNonceStore(): NativeBaseNonceStore {
-  runtimeStore ??= (() => {
-    switch (resolveNativeBaseNonceStoreBackend()) {
-      case "postgres":
-        return new PostgresNativeBaseNonceStore();
-      case "hosted-unavailable":
-        return new UnavailableNativeBaseNonceStore();
-      default:
-        return new MemoryNativeBaseNonceStore();
-    }
-  })();
-  return runtimeStore;
-}
-
-export function setNativeBaseNonceStoreForTests(store: NativeBaseNonceStore | null): void {
-  runtimeStore = store;
-}
 
 function normalizeSecret(secret: string | undefined | null): Buffer | null {
   const value = secret?.trim();
@@ -406,7 +206,6 @@ export function readNativeBaseSession(
 
 export type NativeBaseAuthDependencies = {
   sessionSecret?: string;
-  store?: NativeBaseNonceStore;
   now?: () => Date;
   randomId?: () => string;
   verify?: (input: {
@@ -422,7 +221,6 @@ function dependencies(input: NativeBaseAuthDependencies) {
   const now = input.now ?? (() => new Date());
   return {
     secret: normalizeSecret(input.sessionSecret ?? process.env.HOME_SESSION_SECRET),
-    store: input.store ?? getNativeBaseNonceStore(),
     now,
     randomId: input.randomId ?? (() => randomBytes(24).toString("hex")),
     verify: input.verify ?? (async (value) => {
@@ -446,9 +244,8 @@ export function createNativeBaseNonceHandler(input: NativeBaseAuthDependencies =
 
     const issuedAt = deps.now();
     const expiresAt = new Date(issuedAt.getTime() + NATIVE_BASE_NONCE_TTL_MS);
-    const id = deps.randomId();
-    if (!/^[0-9a-f]{48}$/.test(id)) return json({ error: { code: "AUTH_UNAVAILABLE" } }, 503);
-    const nonce = randomBytes(16).toString("hex");
+    const nonce = deps.randomId();
+    if (!/^[0-9a-f]{48}$/.test(nonce)) return json({ error: { code: "AUTH_UNAVAILABLE" } }, 503);
     const message = createSiweMessage({
       address,
       chainId: BASE_CHAIN_ID,
@@ -460,18 +257,15 @@ export function createNativeBaseNonceHandler(input: NativeBaseAuthDependencies =
       expirationTime: expiresAt,
       statement: "Sign in to Home.",
     });
-    try {
-      await deps.store.issue({
-        id,
-        address,
-        origin: origin.origin,
-        message,
-        expiresAt: expiresAt.toISOString(),
-      });
-    } catch {
-      return json({ error: { code: "AUTH_UNAVAILABLE" } }, 503);
-    }
-    const challenge = signedValue(deps.secret, JSON.stringify({ id, expiresAt: expiresAt.toISOString() }));
+    const challenge = signedValue(deps.secret, JSON.stringify({
+      version: 1,
+      address,
+      origin: origin.origin,
+      messageHash: createHash("sha256").update(message).digest("base64url"),
+      nonce,
+      issuedAt: issuedAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    }));
     return json(
       { message, expiresAt: expiresAt.toISOString() },
       200,
@@ -499,41 +293,60 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
       return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
     }
     const rawChallenge = readSignedValue(deps.secret, challengeCookie.value);
-    let challenge: { id: string; expiresAt: string } | null = null;
+    let challenge: {
+      address: `0x${string}`;
+      origin: string;
+      messageHash: string;
+      nonce: string;
+      issuedAt: string;
+      expiresAt: string;
+    } | null = null;
     try {
-      const parsed = JSON.parse(rawChallenge ?? "null") as { id?: unknown; expiresAt?: unknown } | null;
+      const parsed = JSON.parse(rawChallenge ?? "null") as Record<string, unknown> | null;
+      const address = normalizeAddress(parsed?.address);
+      const issuedAt = typeof parsed?.issuedAt === "string" ? Date.parse(parsed.issuedAt) : Number.NaN;
+      const expiresAt = typeof parsed?.expiresAt === "string" ? Date.parse(parsed.expiresAt) : Number.NaN;
       if (
-        parsed && typeof parsed.id === "string" && /^[0-9a-f]{48}$/.test(parsed.id) &&
-        typeof parsed.expiresAt === "string" && Date.parse(parsed.expiresAt) > deps.now().getTime()
-      ) challenge = { id: parsed.id, expiresAt: parsed.expiresAt };
+        parsed?.version === 1 &&
+        address &&
+        parsed.origin === origin.origin &&
+        typeof parsed.messageHash === "string" &&
+        typeof parsed.nonce === "string" && /^[0-9a-f]{48}$/.test(parsed.nonce) &&
+        Number.isFinite(issuedAt) &&
+        Number.isFinite(expiresAt) &&
+        expiresAt > deps.now().getTime() &&
+        expiresAt - issuedAt === NATIVE_BASE_NONCE_TTL_MS &&
+        equalText(parsed.messageHash, createHash("sha256").update(message).digest("base64url"))
+      ) {
+        challenge = {
+          address,
+          origin: parsed.origin,
+          messageHash: parsed.messageHash,
+          nonce: parsed.nonce,
+          issuedAt: parsed.issuedAt as string,
+          expiresAt: parsed.expiresAt as string,
+        };
+      }
     } catch {
       challenge = null;
     }
     if (!challenge) return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
 
-    let nonce: NativeBaseNonce | null;
-    try {
-      nonce = await deps.store.consume(challenge.id, deps.now().toISOString());
-    } catch {
-      return json({ error: { code: "AUTH_UNAVAILABLE" } }, 503, [clearChallenge]);
-    }
-    if (!nonce || nonce.message !== message || nonce.origin !== origin.origin) {
-      return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
-    }
-
     const parsed = parseSiweMessage(message);
     if (
-      parsed.address?.toLowerCase() !== nonce.address ||
+      parsed.address?.toLowerCase() !== challenge.address ||
       parsed.chainId !== BASE_CHAIN_ID ||
       parsed.domain !== origin.host ||
-      parsed.uri !== origin.origin ||
-      parsed.nonce === undefined
+      parsed.uri !== challenge.origin ||
+      parsed.nonce !== challenge.nonce ||
+      parsed.issuedAt?.toISOString() !== challenge.issuedAt ||
+      parsed.expirationTime?.toISOString() !== challenge.expiresAt
     ) return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
 
     let verified = false;
     try {
       verified = await deps.verify({
-        address: nonce.address,
+        address: challenge.address,
         domain: origin.host,
         message,
         nonce: parsed.nonce,
@@ -544,7 +357,7 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
     }
     if (!verified) return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
 
-    const issued = issueSessionToken(deps.secret, nonce.address, deps.now());
+    const issued = issueSessionToken(deps.secret, challenge.address, deps.now());
     return json(issued.session, 200, [
       clearChallenge,
       cookie(HOME_SESSION_COOKIE, issued.token, request, NATIVE_BASE_SESSION_TTL_MS / 1000),

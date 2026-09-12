@@ -4,7 +4,6 @@ import { describe, expect, test } from "bun:test";
 import {
   HOME_CHALLENGE_COOKIE,
   HOME_SESSION_COOKIE,
-  MemoryNativeBaseNonceStore,
   createNativeBaseLogoutHandler,
   createNativeBaseNonceHandler,
   createNativeBaseVerifyHandler,
@@ -34,10 +33,8 @@ describe("native Base authentication after shared DOM setup", () => {
   test("preserves separate secure server cookies in the contaminated-process order", async () => {
     expect(typeof document).toBe("object");
 
-    const store = new MemoryNativeBaseNonceStore();
     const dependencies = {
       sessionSecret: SECRET,
-      store,
       now: () => NOW,
       randomId: () => "b".repeat(48),
       verify: async () => true,
