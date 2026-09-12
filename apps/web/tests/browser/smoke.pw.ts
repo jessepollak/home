@@ -457,6 +457,14 @@ test("Balances restores scroll and reveal after browser Back from an opened asse
   await expectBalancesRestored(page, state);
 });
 
+test("Balances restores scroll and reveal after Account Done", async ({ page }) => {
+  const state = await openScrolledBalances(page);
+  await page.getByRole("button", { name: "Account" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Account" })).toBeVisible();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expectBalancesRestored(page, state);
+});
+
 test("Balances starts at the top after browser Back from generic Invest", async ({ page }) => {
   await openScrolledBalances(page);
   await clickForwardAndWaitForUrl(page, "Invest", /[?&]panel=invest/);

@@ -23,6 +23,7 @@ import type { HomeAssetBalancesPresentation } from "@/client/portfolio";
 const replaceCalls: string[] = [];
 const pushCalls: string[] = [];
 let backCalls = 0;
+let autoPopRouterBack = true;
 
 // History-aware App Router double. `push`/`replace` keep a real call ledger
 // AND advance an in-test history stack, syncing `window.location` so the
@@ -61,6 +62,7 @@ function resetHistory() {
   replaceCalls.length = 0;
   pushCalls.length = 0;
   backCalls = 0;
+  autoPopRouterBack = true;
   historyEntries = ["/"];
   historyCursor = 0;
   syncHistoryLocation("/");
@@ -72,7 +74,7 @@ mock.module("next/navigation", () => ({
     push: (href: string) => pushHistory(href),
     back: () => {
       backCalls += 1;
-      popHistory();
+      if (autoPopRouterBack) popHistory();
     },
   }),
   usePathname: () => "/",
@@ -2800,7 +2802,7 @@ describe("balances incremental rendering", () => {
     }
   });
 
-  test("keeps Account settings scroll separate from the Balances slot", async () => {
+  test("restores Balances after an asynchronous Account settings Back pop", async () => {
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
@@ -2825,7 +2827,12 @@ describe("balances incremental rendering", () => {
     main.scrollTop = 120;
     fireEvent.scroll(main);
 
+    autoPopRouterBack = false;
     fireEvent.click(page().getByRole("button", { name: "Done" }));
+    expect(page().getByRole("heading", { level: 1, name: "Account" })).toBeTruthy();
+    expect(backCalls).toBe(1);
+
+    act(() => popHistory());
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
     expect(main.scrollTop).toBe(480);
     expectRevealWindowAtSecondBatch();

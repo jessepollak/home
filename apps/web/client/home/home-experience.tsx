@@ -608,12 +608,12 @@ function HomeExperienceView({
   }
 
   function closeAccountSettings() {
-    setIsAccountSettingsOpen(false);
     if (settingsOpenedInApp) {
-      setSettingsOpenedInApp(false);
+      navigationIntentRef.current = "pop";
       router.back();
       return;
     }
+    setIsAccountSettingsOpen(false);
     setForwardRequest((request) => request + 1);
     disarmBalancesRestore();
     delete panelScrollRef.current[balancesPanelId];
