@@ -15,7 +15,7 @@ Fresh schemas apply:
 1. `apps/web/server/money-actions/migrations/001_money_action_operations.sql`
 2. `apps/web/server/money-actions/migrations/004_money_action_evidence_indexes.sql`
 
-Migrations 002 and 003 are retained as history but are no longer applied to fresh schemas. Existing `money_action_attempt_states`, `money_action_attempt_evidence`, and `money_action_data_migrations` tables are left untouched and are not read or written at runtime.
+Migrations 002 and 003 are retained as history but are no longer applied to fresh schemas. Existing `money_action_attempt_states`, `money_action_attempt_evidence`, and `money_action_data_migrations` tables are not read or written at runtime. Migration 005 is an operator-only, irreversible retention action; schema readiness and `money-actions:migrate` never apply it.
 
 ## Provider-handle uniqueness
 
@@ -48,6 +48,14 @@ Before index creation, schema application groups existing rows by the same tuple
 
 `apps/web/server/money-actions/provider-submission-contract.ts` keeps the pure CDP and EIP-5792 submission-certainty classifications established by the provider Soft Pass work. The client does not yet import the module; a follow-up should wire it into client execution or delete it.
 
+## Legacy-table retention action
+
+`bun run money-actions:cleanup-legacy` defaults to a read-only preflight. It requires immutable evidence identifying the deployed revision and observation window, zero observed legacy reads and writes, and the `money_action_operations-only-v1` runtime contract. Database preflight requires the full operation schema, all three legacy tables, and valid unique-index **definitions** for verified execution, exact Base submission IDs, and case-insensitive user-operation hashes. It reports aggregate row counts only.
+
+The drop mode additionally requires separate Jesse-approval and database-backup evidence references, the exact confirmation `DROP_LEGACY_MONEY_ACTION_TABLES_ISSUE_314`, and all four counts copied from the reviewed preflight. It reruns every prerequisite after taking access-exclusive locks, refuses changed counts, executes migration 005 without `IF EXISTS` or `CASCADE`, and verifies that operation row count and evidence index definitions are unchanged before commit. Any preflight, lock, dependency, drop, or verification failure rolls the transaction back. After a successful commit the deleted legacy rows are not reconstructible by this repository; post-commit rollback requires restoring the operator-approved database backup.
+
+This tooling is not authorization to run the drop. #313 must first be merged and deployed, its exact deployed runtime must have an attached zero-use observation, and Jesse must separately authorize the exact drop invocation. Retain the preflight output, approval reference, database backup reference, and verification output with #314.
+
 ## Rollback and follow-ups
 
-The change is additive at the database layer. Reverting the application code leaves the two indexes harmless and the historical tables available. Separate follow-ups own removal of those tables, the operator decision about retaining the cutover flag, and client use of the provider classification module.
+Before migration 005 is executed, reverting the application code leaves the two indexes harmless and the historical tables available. After it commits, old code that reads the legacy tables is deliberately incompatible and rollback requires a database restore plus the matching old application. The operator decision about retaining the cutover flag and client use of the provider classification module remain separate follow-ups.

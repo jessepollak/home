@@ -10,7 +10,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "bun test",
     "test:browser-smoke": "playwright test --config playwright.config.ts",
-    "money-actions:migrate": "bun --conditions=react-server ./server/money-actions/migrate.ts"
+    "money-actions:migrate": "bun --conditions=react-server ./server/money-actions/migrate.ts",
+    "money-actions:cleanup-legacy": "bun --conditions=react-server ./server/money-actions/cleanup-legacy-tables.ts"
   },
   "dependencies": {
     "@base-org/account": "2.5.10",

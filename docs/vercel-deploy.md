@@ -130,6 +130,39 @@ PostgreSQL/Neon is the sole production money-action store. There is no SQLite fa
 
 Schema application uses a 5-second lock timeout and a 60-second statement timeout. It checks for duplicate owner-scoped provider handles before creating the indexes. If duplicate groups exist, readiness fails with bounded counts only; it never logs handle values, modifies rows, or deduplicates automatically. Resolve the conflicting rows through a separately reviewed, traffic-stopped process and rerun the schema command.
 
+### Operator-only legacy table cleanup
+
+Migration 005 is intentionally excluded from schema readiness and `money-actions:migrate`. Do not run it merely because it exists. After the #313 single-row runtime is merged and deployed, attach immutable deployment evidence to #314 showing the exact revision, observation window, and zero legacy reads/writes. Then run the non-destructive preflight against the intended database:
+
+```sh
+DATABASE_URL='postgresql://…' bun run money-actions:cleanup-legacy \
+  --mode=preflight \
+  --deployed-revision='<40-character deployed revision>' \
+  --deployment-evidence='https://github.com/jessepollak/home/issues/314#issuecomment-…' \
+  --deployed-at='<UTC ISO-8601>' --observed-through='<UTC ISO-8601>' \
+  --legacy-read-count=0 --legacy-write-count=0 \
+  --runtime-contract=money_action_operations-only-v1
+```
+
+The output contains only evidence metadata and aggregate counts. Review and retain it with the database-backup reference. **Only after Jesse separately approves that exact operator action**, rerun with the same evidence, the approval comment, the exact confirmation, and all four preflight counts:
+
+```sh
+DATABASE_URL='postgresql://…' bun run money-actions:cleanup-legacy \
+  --mode=drop \
+  --deployed-revision='<same revision>' \
+  --deployment-evidence='https://github.com/jessepollak/home/issues/314#issuecomment-…' \
+  --deployed-at='<same timestamp>' --observed-through='<same timestamp>' \
+  --legacy-read-count=0 --legacy-write-count=0 \
+  --runtime-contract=money_action_operations-only-v1 \
+  --jesse-approval='https://github.com/jessepollak/home/issues/314#issuecomment-…' \
+  --backup-evidence='https://github.com/jessepollak/home/issues/314#issuecomment-…' \
+  --confirm=DROP_LEGACY_MONEY_ACTION_TABLES_ISSUE_314 \
+  --expect-operation-rows='<count>' --expect-attempt-state-rows='<count>' \
+  --expect-attempt-evidence-rows='<count>' --expect-data-migration-rows='<count>'
+```
+
+The drop is one bounded transaction without `IF EXISTS`, `CASCADE`, or deduplication. Changed counts, missing tables, schema drift, invalid/missing index definitions, lock contention, dependencies, or failed verification roll it back. After commit, rollback requires restoring the approved database backup and matching old application; the repository cannot reconstruct deleted legacy rows.
+
 The table stores action plans, immutable review hashes, owner tuples, statuses, admission release timestamps, and public chain/provider refs. It stores no access tokens, signatures, emails, OTPs, private keys, or provider credentials. Sensitive call data still expires from process memory.
 
 This adapter is **not** production authorization. Do not enable authenticated money actions on a public deploy without `DATABASE_URL`, and do not treat a green build as a funded-wallet approval. CDP webhooks, Drizzle, and the rest of [target architecture](target-architecture.md) are still later work.

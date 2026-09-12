@@ -4,6 +4,14 @@ import { resolve } from "node:path";
 import type { MoneyActionOwner, PreparedMoneyAction } from "../../../apps/web/shared/money-actions/types";
 import { PostgresMoneyActionStore } from "../../../apps/web/server/money-actions/postgres-store";
 import {
+  dropMoneyActionLegacyTables,
+  MONEY_ACTION_LEGACY_DROP_CONFIRMATION,
+  MONEY_ACTION_SINGLE_ROW_RUNTIME_CONTRACT,
+  preflightMoneyActionLegacyTableCleanup,
+  type MoneyActionLegacyCleanupCounts,
+  type MoneyActionLegacyCleanupEvidence,
+} from "../../../apps/web/server/money-actions/legacy-table-cleanup";
+import {
   applyMoneyActionPostgresSchema,
   isUniqueViolation,
   moneyActionQueries,
@@ -17,10 +25,10 @@ import { createBunPostgresExecutor } from "../bun-postgres-executor";
 const databaseUrl = process.env.MONEY_ACTION_PG_TEST_URL?.trim();
 const POSTGRES_CLEANUP_TIMEOUT_SECONDS = 2;
 const POSTGRES_CLEANUP_TIMEOUT_MS = POSTGRES_CLEANUP_TIMEOUT_SECONDS * 1_000;
-const POSTGRES_FIXTURE_SCHEMA_COUNT = 22;
+const POSTGRES_FIXTURE_SCHEMA_COUNT = 24;
 const POSTGRES_FIXTURE_POOL_COUNT = 2;
 const POSTGRES_CLEANUP_SCHEDULING_MARGIN_MS = 5_000;
-// Keep the schema count aligned with createSchema call sites: 22×2s drops + 2×2s closes + 5s margin = 53s.
+// Keep the schema count aligned with createSchema call sites: 24×2s drops + 2×2s closes + 5s margin = 57s.
 const POSTGRES_AFTER_ALL_TIMEOUT_MS =
   (POSTGRES_FIXTURE_SCHEMA_COUNT + POSTGRES_FIXTURE_POOL_COUNT) * POSTGRES_CLEANUP_TIMEOUT_MS
   + POSTGRES_CLEANUP_SCHEDULING_MARGIN_MS;
@@ -175,38 +183,99 @@ if (!databaseUrl) {
       expect(result.rows[1]?.indexdef).toContain("lower(user_operation_hash)");
     });
 
-    test("schema apply leaves historical 002/003 tables and their rows untouched", async () => {
-      const schema = await createSchema("historical_tables");
+    test("reviewed cleanup drops only legacy tables and preserves operation rows and index definitions", async () => {
+      const schema = await createSchema("legacy_cleanup");
       const raw = executor(schema);
-      await applyStatements(raw, moneyActionSchemaStatements);
+      const action = actionFor(109, ownerFor(109, "cdp-embedded"));
+      await applyMoneyActionPostgresSchema(raw);
       await applySqlFile(raw, "002_money_action_attempts.sql");
       await applySqlFile(raw, "003_money_action_data_migrations.sql");
-      const owner = ownerFor(109, "cdp-embedded");
-      const action = actionFor(109, owner);
-      await insertRawOperation(raw, action);
+      await insertRawOperation(raw, action, `0x${"c".repeat(64)}`);
+      await insertLegacyRows(raw, action.id);
       await raw.query(
-        "INSERT INTO money_action_attempt_states (action_id, state_json, updated_at) VALUES ($1, $2, $3)",
-        [action.id, '{"historical":true}', "2026-09-12T16:00:00.000Z"],
+        "ALTER INDEX money_action_unique_owner_submission_id RENAME TO cleanup_submission_definition",
       );
       await raw.query(
-        "INSERT INTO money_action_attempt_evidence (evidence_key, action_id) VALUES ($1, $2)",
-        ["historical-evidence", action.id],
+        "ALTER INDEX money_action_unique_owner_user_operation_hash RENAME TO cleanup_user_op_definition",
       );
-      await raw.query(
-        "INSERT INTO money_action_data_migrations (migration_id) VALUES ($1)",
-        ["historical-marker"],
-      );
+      const operationBefore = await raw.query("SELECT * FROM money_action_operations");
+      const evidence = cleanupEvidence();
 
+      const preflight = await preflightMoneyActionLegacyTableCleanup(raw, evidence);
+      expect(preflight).toMatchObject({
+        status: "ready",
+        counts: {
+          operationRows: "1",
+          attemptStateRows: "1",
+          attemptEvidenceRows: "1",
+          dataMigrationRows: "1",
+        },
+      });
+      const dropped = await dropMoneyActionLegacyTables(raw, evidence, cleanupApproval(preflight.counts));
+
+      expect(dropped.status).toBe("dropped");
+      expect(await raw.query("SELECT * FROM money_action_operations")).toEqual(operationBefore);
+      expect(await raw.query(`
+        SELECT to_regclass('money_action_attempt_states') AS states,
+               to_regclass('money_action_attempt_evidence') AS evidence,
+               to_regclass('money_action_data_migrations') AS migrations
+      `.trim())).toMatchObject({ rows: [{ states: null, evidence: null, migrations: null }] });
+      expect(await raw.query(`
+        SELECT COUNT(*)::text AS count
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = current_schema()
+          AND c.relname = 'money_action_operations'
+          AND i.indisunique AND i.indisvalid AND i.indisready
+      `.trim())).toMatchObject({ rows: [{ count: "4" }] });
+    });
+
+    test("legacy cleanup fails closed when a #313 evidence index definition is missing", async () => {
+      const schema = await createSchema("cleanup_missing_index");
+      const raw = executor(schema);
       await applyMoneyActionPostgresSchema(raw);
-      expect(await raw.query("SELECT action_id, state_json FROM money_action_attempt_states")).toMatchObject({
-        rows: [{ action_id: action.id, state_json: '{"historical":true}' }],
+      await applySqlFile(raw, "002_money_action_attempts.sql");
+      await applySqlFile(raw, "003_money_action_data_migrations.sql");
+      await raw.query("DROP INDEX money_action_unique_owner_user_operation_hash");
+
+      await expect(preflightMoneyActionLegacyTableCleanup(raw, cleanupEvidence())).rejects.toThrow(
+        "missing required unique index definitions: user_operation_hash",
+      );
+      expect(await raw.query("SELECT to_regclass('money_action_attempt_states')::text AS table_name"))
+        .toMatchObject({ rows: [{ table_name: "money_action_attempt_states" }] });
+    });
+
+    test("a mid-drop dependency failure rolls the entire legacy cleanup transaction back", async () => {
+      const schema = await createSchema("cleanup_rollback");
+      const raw = executor(schema);
+      const action = actionFor(110, ownerFor(110, "base-account"));
+      await applyMoneyActionPostgresSchema(raw);
+      await applySqlFile(raw, "002_money_action_attempts.sql");
+      await applySqlFile(raw, "003_money_action_data_migrations.sql");
+      await insertRawOperation(raw, action);
+      await insertLegacyRows(raw, action.id);
+      await raw.query("CREATE VIEW retained_cleanup_dependency AS SELECT action_id FROM money_action_attempt_states");
+      const preflight = await preflightMoneyActionLegacyTableCleanup(raw, cleanupEvidence());
+
+      await expect(
+        dropMoneyActionLegacyTables(raw, cleanupEvidence(), cleanupApproval(preflight.counts)),
+      ).rejects.toThrow();
+      expect(await raw.query(`
+        SELECT to_regclass('money_action_attempt_states')::text AS states,
+               to_regclass('money_action_attempt_evidence')::text AS evidence,
+               to_regclass('money_action_data_migrations')::text AS migrations
+      `.trim())).toMatchObject({
+        rows: [{
+          states: "money_action_attempt_states",
+          evidence: "money_action_attempt_evidence",
+          migrations: "money_action_data_migrations",
+        }],
       });
-      expect(await raw.query("SELECT evidence_key, action_id FROM money_action_attempt_evidence")).toMatchObject({
-        rows: [{ evidence_key: "historical-evidence", action_id: action.id }],
-      });
-      expect(await raw.query("SELECT migration_id FROM money_action_data_migrations")).toMatchObject({
-        rows: [{ migration_id: "historical-marker" }],
-      });
+      expect(await raw.query("SELECT evidence_key FROM money_action_attempt_evidence"))
+        .toMatchObject({ rows: [{ evidence_key: "historical-evidence" }] });
+      expect(await raw.query("SELECT id FROM money_action_operations"))
+        .toMatchObject({ rows: [{ id: action.id }] });
     });
 
     afterAll(async () => {
@@ -240,6 +309,42 @@ if (!databaseUrl) {
 type EvidenceRaceReference =
   | Readonly<{ submissionId: string; userOperationHash?: never }>
   | Readonly<{ submissionId?: never; userOperationHash: `0x${string}` }>;
+
+function cleanupEvidence(): MoneyActionLegacyCleanupEvidence {
+  return {
+    deploymentRevision: "315b9e43204de64303586231bf58e3b508949abf",
+    deploymentReference: "https://github.com/jessepollak/home/issues/314#issuecomment-314001",
+    deployedAt: "2026-09-12T05:00:00.000Z",
+    observedThrough: "2026-09-12T06:00:00.000Z",
+    legacyReadCount: 0,
+    legacyWriteCount: 0,
+    runtimeContract: MONEY_ACTION_SINGLE_ROW_RUNTIME_CONTRACT,
+  };
+}
+
+function cleanupApproval(expectedCounts: MoneyActionLegacyCleanupCounts) {
+  return {
+    approvalReference: "https://github.com/jessepollak/home/issues/314#issuecomment-314002",
+    backupReference: "https://github.com/jessepollak/home/issues/314#issuecomment-314003",
+    confirmation: MONEY_ACTION_LEGACY_DROP_CONFIRMATION,
+    expectedCounts,
+  } as const;
+}
+
+async function insertLegacyRows(raw: SqlExecutor, actionId: string): Promise<void> {
+  await raw.query(
+    "INSERT INTO money_action_attempt_states (action_id, state_json, updated_at) VALUES ($1, $2, $3)",
+    [actionId, '{"historical":true}', "2026-09-12T16:00:00.000Z"],
+  );
+  await raw.query(
+    "INSERT INTO money_action_attempt_evidence (evidence_key, action_id) VALUES ($1, $2)",
+    ["historical-evidence", actionId],
+  );
+  await raw.query(
+    "INSERT INTO money_action_data_migrations (migration_id) VALUES ($1)",
+    ["historical-marker"],
+  );
+}
 
 async function proveRawEvidenceIndexRace(input: Readonly<{
   databaseUrl: string;
