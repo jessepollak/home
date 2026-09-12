@@ -555,6 +555,10 @@ describe("money-action execution and authenticated transport", () => {
       if (String(input).startsWith("/api/transfer-receipt?")) {
         events.push("receipt");
         expect(events).toContain("candidate-upload");
+        const headers = new Headers(init?.headers);
+        expect(headers.get("Authorization")).toBe("Bearer token-a");
+        expect(headers.get(ACCOUNT_PROVIDER_HEADER)).toBe("cdp-embedded");
+        expect(init?.credentials).toBe("same-origin");
         return Response.json({ status: "confirmed", transactionHash, blockNumber: "18", success: true });
       }
       if (input === `/api/actions/${action.id}/claim`) claims += 1;
@@ -742,6 +746,7 @@ describe("money-action execution and authenticated transport", () => {
     let claims = 0;
     let actionReads = 0;
     const events: string[] = [];
+    let receiptRequest: RequestInit | undefined;
     const connection = connectedBaseAccount({
       sendCalls: async () => {
         walletSubmissions += 1;
@@ -768,6 +773,7 @@ describe("money-action execution and authenticated transport", () => {
       }
       if (String(input).startsWith("/api/transfer-receipt?")) {
         events.push("receipt");
+        receiptRequest = init;
         expect(events).toContain("candidate-upload");
         return Response.json({
           status: "confirmed",
@@ -794,7 +800,10 @@ describe("money-action execution and authenticated transport", () => {
     };
     render(
       <SessionHarness
-        sdk={baseSdk()}
+        sdk={baseSdk({
+          authentication: "native-base",
+          getAccessToken: async () => null,
+        })}
         sessionFetch={sessionFetch}
         baseAccountEnabled
         baseAccountRestorer={async () => connection}
@@ -807,6 +816,10 @@ describe("money-action execution and authenticated transport", () => {
     expect(claims).toBe(0);
     expect(walletSubmissions).toBe(0);
     expect(events).toEqual(["read-1", "candidate-upload", "receipt", "read-2"]);
+    const receiptHeaders = new Headers(receiptRequest?.headers);
+    expect(receiptHeaders.get("Authorization")).toBeNull();
+    expect(receiptHeaders.get(ACCOUNT_PROVIDER_HEADER)).toBe("base-account");
+    expect(receiptRequest?.credentials).toBe("same-origin");
   });
 
   test("preserves included and terminal durable progress across failed or unavailable provider observations", async () => {
@@ -2169,7 +2182,12 @@ describe("money-action execution and authenticated transport", () => {
         return transactionHash;
       },
     });
-    const signedOutSdk = baseSdk({ isSignedIn: false, ownerKey: null });
+    const signedOutSdk = baseSdk({
+      authentication: "native-base",
+      isSignedIn: false,
+      ownerKey: null,
+      getAccessToken: async () => null,
+    });
     const sessionFetch: SessionFetch = async (input, init) => {
       if (input === "/api/session") {
         return sessionResponse(
@@ -2231,11 +2249,145 @@ describe("money-action execution and authenticated transport", () => {
     expect(receiptRequests[0]?.input).toBe(
       `/api/transfer-receipt?hash=${transactionHash}`,
     );
-    expect(
-      new Headers(receiptRequests[0]?.init?.headers).get(
-        ACCOUNT_PROVIDER_HEADER,
-      ),
-    ).toBe("base-account");
+    const receiptHeaders = new Headers(receiptRequests[0]?.init?.headers);
+    expect(receiptHeaders.get(ACCOUNT_PROVIDER_HEADER)).toBe("base-account");
+    expect(receiptHeaders.get("Authorization")).toBeNull();
+    expect(receiptRequests[0]?.init?.credentials).toBe("same-origin");
+    expect(receiptRequests[0]?.init?.method).toBe("GET");
+  });
+
+  test("treats native receipt 401 as stale without adding bearer authorization", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const action = preparedMoneyAction("base-account", "2026-12-08T05:20:00.000Z");
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    const receiptRequests: RequestInit[] = [];
+    let client: AccountWalletClient | null = null;
+    const sessionFetch: SessionFetch = async (input, init) => {
+      if (input === "/api/session") {
+        return sessionResponse(sessionFor("subject-a", ADDRESS_A, "base-account"));
+      }
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({
+          operation: storedMoneyAction(action, "submitted", { transactionHash }),
+        });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) {
+        receiptRequests.push(init ?? {});
+        return Response.json({ error: { code: "UNAUTHENTICATED" } }, { status: 401 });
+      }
+      throw new Error(`unexpected native 401 request: ${String(input)}`);
+    };
+    render(
+      <SessionHarness
+        sdk={baseSdk({
+          authentication: "native-base",
+          getAccessToken: async () => null,
+        })}
+        sessionFetch={sessionFetch}
+        baseAccountEnabled
+        baseAccountRestorer={async () => connectedBaseAccount()}
+        moneyAction={action}
+        onClient={(value) => { client = value; }}
+      />,
+    );
+    await waitFor(() => expect(client?.session?.smartAccount?.address).toBe(ADDRESS_A));
+
+    await expect(client!.checkMoneyAction(action)).rejects.toMatchObject({
+      reason: "stale-session",
+    });
+    expect(receiptRequests).toHaveLength(1);
+    const headers = new Headers(receiptRequests[0]?.headers);
+    expect(headers.get("Authorization")).toBeNull();
+    expect(headers.get(ACCOUNT_PROVIDER_HEADER)).toBe("base-account");
+    expect(receiptRequests[0]?.credentials).toBe("same-origin");
+  });
+
+  test("fences a native receipt response after the verified owner changes", async () => {
+    window.sessionStorage.setItem("home:account-provider", "base-account");
+    const action = preparedMoneyAction("base-account", "2026-12-08T05:20:00.000Z");
+    const transactionHash = `0x${"ef".repeat(32)}` as `0x${string}`;
+    const receiptEntered = deferred<void>();
+    const pendingReceipt = deferred<Response>();
+    let activeSubject = "subject-a";
+    let activeAddress: typeof ADDRESS_A | typeof ADDRESS_B = ADDRESS_A;
+    let ownerAClient: AccountWalletClient | null = null;
+    const sessionFetch: SessionFetch = async (input) => {
+      if (input === "/api/session") {
+        return sessionResponse(sessionFor(activeSubject, activeAddress, "base-account"));
+      }
+      if (input === `/api/actions/${action.id}`) {
+        return Response.json({
+          operation: storedMoneyAction(action, "submitted", { transactionHash }),
+        });
+      }
+      if (String(input).startsWith("/api/transfer-receipt?")) {
+        receiptEntered.resolve();
+        return pendingReceipt.promise;
+      }
+      throw new Error(`unexpected native owner-fence request: ${String(input)}`);
+    };
+    const nativeSdk = (ownerKey: string) => baseSdk({
+      authentication: "native-base",
+      ownerKey,
+      getAccessToken: async () => null,
+    });
+    const view = render(
+      <SessionHarness
+        sdk={nativeSdk(OWNER_A)}
+        sessionFetch={sessionFetch}
+        baseAccountEnabled
+        baseAccountRestorer={async () => connectedBaseAccount()}
+        moneyAction={action}
+        onClient={(value) => {
+          if (value.session?.smartAccount?.address === ADDRESS_A) ownerAClient = value;
+        }}
+      />,
+    );
+    await waitFor(() => expect(ownerAClient).not.toBeNull());
+    const receiptCheck = ownerAClient!.checkMoneyAction(action);
+    const receiptOutcome = receiptCheck.then(
+      (value) => ({ value, error: null }),
+      (error: unknown) => ({ value: null, error }),
+    );
+    await receiptEntered.promise;
+
+    await act(async () => {
+      await ownerAClient!.signOut();
+    });
+    await waitFor(() =>
+      expect(page().getByTestId("address").textContent).toBe("private-details-hidden"),
+    );
+    act(() => {
+      activeSubject = "subject-b";
+      activeAddress = ADDRESS_B;
+      view.rerender(
+        <SessionHarness
+          sdk={nativeSdk(OWNER_B)}
+          sessionFetch={sessionFetch}
+          baseAccountEnabled
+          baseAccountRestorer={async () => connectedBaseAccount({ address: ADDRESS_B })}
+          moneyAction={action}
+        />,
+      );
+    });
+    await waitFor(() =>
+      expect(page().getByTestId("address").textContent).toBe(ADDRESS_B),
+    );
+    act(() => {
+      pendingReceipt.resolve(Response.json({
+        status: "confirmed",
+        transactionHash,
+        blockNumber: "18",
+        success: true,
+      }));
+    });
+
+    const outcome = await receiptOutcome;
+    expect(outcome.value).toBeNull();
+    expect(outcome.error).toMatchObject({ reason: "stale-session" });
+    await act(async () => Promise.resolve());
+    expect(page().getByTestId("address").textContent).not.toBe(ADDRESS_A);
+    expect(page().getByTestId("money-action-status").textContent).not.toBe("confirmed");
   });
 
   test("retains an ambiguous Base Account submission without a hash and never reopens eth_sendTransaction", async () => {

@@ -226,6 +226,7 @@ export function AccountWalletSessionOwner({
     sdkGetUserOperation,
     getAccessToken,
     sessionFetch,
+    authentication,
     baseConnection: baseConnectionRef,
     providerHandleJournal,
     transport,
