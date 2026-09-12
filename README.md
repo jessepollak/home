@@ -1,107 +1,147 @@
-# home
+# Home
 
-An open-source home for your money on Base.
+**The WordPress for neobanks.**
 
-Home is a mobile-first financial app built around local currencies. See your balances, send and receive money, save in USDC, explore investments, and borrow against bitcoin collateral—with the asset, amount, and network made explicit before you confirm.
+Open-source software for building your own global money app.
 
-> **Status:** Home is under active development, not a production-approved money app. Real-money use requires your own provider configuration, verified account and route eligibility, and end-to-end acceptance. See [build status](docs/build-status.md) for implementation and validation details.
+Home gives builders a mobile-first money app on Base that they can fork and make their own. Customize the brand, local currencies, assets, and providers for your community, your customers, or your country—without starting the product and wallet experience from zero.
 
-## UI mockups
+> **Development status:** Home is under active development, not a production-approved money app. A real-money deployment requires your own provider configuration, verified account and route eligibility, and end-to-end acceptance. See [current availability](#current-availability) and [build status](docs/build-status.md).
 
-These mockups follow the current UI. Balances, prices, and rates are illustrative—not live account data or proof of production availability. Open either image to inspect the full-size screens.
+## Why Home
 
-[![Home, Save, and Invest UI mockups](docs/readme/overview.svg)](docs/readme/overview.svg)
+People experience money locally: the currency they earn, the assets they can access, and the providers available where they live. Most financial apps are built as closed products for one market. Home is built as a starting point for builders.
 
-*Home brings balances and everyday actions together; Save shows USDC vaults; Invest makes assets discoverable.*
+Fork the repository, keep the mobile product foundation, and replace the parts that make a money app local:
 
-[![Send, Activity, and Borrow UI mockups](docs/readme/flows.svg)](docs/readme/flows.svg)
+- your name, identity, colors, and product language;
+- the countries and currencies you present;
+- the assets and financial products you support;
+- the account, funding, data, and protocol providers you operate.
 
-*Send uses a stepped amount-and-review flow; Activity tracks transfers; Borrow is limited to USDC against cbBTC.*
+Home is software, not a bank-in-a-box. It does not supply licenses, custody, universal provider access, or a one-click production launch.
 
-## What is here
+## Vision
 
-- **Home:** local-currency valuation for the configured wallet and savings inventory, plus funding, USDC/ETH send and receive, and indexed activity.
-- **Save:** public Morpho vault information and authenticated USDC deposit/withdrawal flows.
-- **Invest:** crypto discovery and email-controlled trade preparation/execution. The Stocks interface is informational; stock trading is not enabled.
-- **Borrow:** one bounded cbBTC/USDC Morpho market with collateral, borrow, repay, and withdrawal flows. It requires a compatible deployed account; counterfactual simulation and live funded execution have not been accepted.
+**This is the product direction, not a claim about everything supported today.** Home is building toward a global money app where people can:
 
-Country selection changes presentation and formatting; it is not an eligibility, residency, or funding decision. The Ripio funding integration is in progress and is not enabled in this checkout. Documented assets and provider support are not proof of an executable route.
+- **HOLD, SEND, and RECEIVE** money in their currency;
+- **EARN** on their money across currencies;
+- **INVEST** across asset classes;
+- **BORROW** against their assets, in the asset or currency they need.
+
+The current implementation is narrower and intentionally explicit about what is available.
+
+## Product
+
+These are real 390px browser captures of the current app, rendered with the repository's Playwright smoke account boundary and local sample API data. They contain no live account, wallet, credentials, funds, external provider requests, signatures, or submissions. Select any image for the full-size capture.
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="docs/readme/home.png"><img src="docs/readme/home.png" width="250" alt="Sample-data capture of the Home mobile dashboard with balance, send, save, and activity actions"></a><br>
+      <strong>Home</strong><br><sub>Sample data</sub>
+    </td>
+    <td align="center">
+      <a href="docs/readme/save.png"><img src="docs/readme/save.png" width="250" alt="Sample-data capture of the current Save screen with USDC vault choices"></a><br>
+      <strong>Save</strong><br><sub>Sample data</sub>
+    </td>
+    <td align="center">
+      <a href="docs/readme/invest.png"><img src="docs/readme/invest.png" width="250" alt="Sample-data capture of the Invest screen with stock and crypto discovery shelves"></a><br>
+      <strong>Invest</strong><br><sub>Sample data</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="docs/readme/send.png"><img src="docs/readme/send.png" width="250" alt="Sample-data capture of the Send money amount sheet"></a><br>
+      <strong>Send</strong><br><sub>Sample data</sub>
+    </td>
+    <td align="center">
+      <a href="docs/readme/borrow.png"><img src="docs/readme/borrow.png" width="250" alt="Sample-data capture of the currently supported USDC against cbBTC Borrow market"></a><br>
+      <strong>Borrow</strong><br><sub>Sample data</sub>
+    </td>
+  </tr>
+</table>
+
+Capture provenance and regeneration instructions are in [`docs/readme/`](docs/readme/README.md).
+
+## Customize it
+
+Home keeps the main operator seams in typed configuration and server boundaries:
+
+| Customize | Start here |
+| --- | --- |
+| Brand, metadata, colors, and navigation | `apps/web/config/brand.ts`, `apps/web/app/globals.css`, `apps/web/config/navigation.ts` |
+| Countries and local-currency presentation | `apps/web/config/regions.ts` |
+| Wallet, savings, and Invest asset catalogs | `apps/web/config/portfolio-assets.ts`, `apps/web/shared/savings/config.ts`, `apps/web/config/invest-assets.ts` |
+| Account, data, funding, and protocol providers | `apps/web/server/` and the matching setup guides in `docs/` |
+
+Read [Fork and extend](docs/fork-and-extend.md) before publishing a customized deployment. Country selection in the app changes presentation and formatting; it does not establish eligibility, residency, or an executable funding route.
 
 ## Get started
 
-Clone the repository and install the pinned dependencies:
+### Prerequisites
+
+- [Bun](https://bun.sh/) **1.3.12**, pinned by `packageManager`.
+- Node.js **22 or newer**.
+
+### Install and run
 
 ```sh
 git clone https://github.com/jessepollak/home.git
 cd home
 bun install --frozen-lockfile
-```
 
-### Prerequisites
-
-- **Bun 1.3.12**, pinned by `packageManager`.
-- **Node.js 22.13+** for local SQLite persistence (`node:sqlite`); Node 24 was used for local validation.
-
-### Environment
-
-Create the gitignored local environment file only when it does not already exist:
-
-```sh
 if [ ! -e apps/web/.env.local ]; then
   cp .env.example apps/web/.env.local
 fi
-```
 
-Never commit secrets. Server keys stay server-only—do not give them a `NEXT_PUBLIC_` prefix.
-
-| You can browse without CDP credentials | You need your own CDP project and configured origin |
-| --- | --- |
-| Landing, public Morpho vault reads, and informational Invest | Email sign-in, session validation, authenticated balances, and money actions |
-
-For CDP-backed flows, set `NEXT_PUBLIC_CDP_PROJECT_ID`, `CDP_API_KEY_ID`, and `CDP_API_KEY_SECRET` from your project, then allow the exact local origin `http://localhost:3000`. See [CDP setup](docs/cdp-setup.md) for the complete configuration, including preview origins.
-
-### Run locally
-
-```sh
 bun dev
 ```
 
-Open `http://localhost:3000`. Development navigation from `127.0.0.1` redirects to the canonical `localhost` origin.
+Open `http://localhost:3000`. Use the canonical `localhost` origin rather than `127.0.0.1`.
 
-Local `bun dev` uses a private SQLite money-action store under `.local/` when `DATABASE_URL` is unset. Hosted persistence uses server-only `DATABASE_URL` with Neon/Postgres instead; no hosted database is required to browse locally. Read [wallet runtime](docs/wallet-runtime-spike.md) and [Vercel deploy](docs/vercel-deploy.md) before deploying money actions.
+You can browse the public product surfaces without credentials. Email sign-in, authenticated balances, and money actions require your own CDP project and allowed local origin; follow [CDP setup](docs/cdp-setup.md). Never commit secrets or expose server keys with a `NEXT_PUBLIC_` prefix.
+
+Money actions fail closed unless PostgreSQL is configured with `DATABASE_URL` and `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty` after unresolved legacy SQLite actions and references have been verified empty. Apply the migrations and read [Vercel deploy](docs/vercel-deploy.md) before exercising those flows. The trading-intent runtime has a separate persistence boundary; [build status](docs/build-status.md) is the current source of truth.
 
 ### Useful commands
 
 ```sh
 bun test       # deterministic unit and contract tests
 bun lint       # ESLint
-bun typecheck  # Next route types and strict TypeScript
-bun build      # production build
+bun typecheck  # generated route types and strict TypeScript
+bun build      # production builds
 bun check      # test, lint, typecheck, and build
 ```
+
+## Current availability
+
+Today, the repository includes local-currency portfolio presentation; USDC and ETH send/receive flows; indexed activity; public Morpho USDC vault data and authenticated Save actions; multi-asset Invest discovery with an email-controlled crypto trade flow; and one bounded USDC-against-cbBTC Borrow market.
+
+That is not universal product support. Stock trading is not enabled, broader borrow markets and currencies are not implemented, provider availability is operator-specific, and no live funded end-to-end or production acceptance is implied. See [build status](docs/build-status.md) for the exact implemented scope and remaining gates.
 
 ## Repository map
 
 | Place | Purpose |
 | --- | --- |
-| `apps/web/app/` | Thin Next.js route entrypoints and global styles |
-| `apps/web/client/` | Home, account, activity, funding, savings, invest, and borrowing UI |
-| `apps/web/shared/` | Runtime-agnostic contracts, validation, formatting, and pure presenters |
-| `apps/web/server/` | Server-side provider, money-action, and protocol boundaries |
-| `apps/web/config/` | Brand, regions, navigation, asset, and presentation configuration |
-| `docs/` | Setup, runtime, product intent, deployment, and extension notes |
+| `apps/web/app/` | Next.js routes, metadata, and global styles |
+| `apps/web/client/` | Product experiences for Home, account, activity, funding, Save, Invest, transfers, and Borrow |
+| `apps/web/shared/` | Runtime-independent contracts, validation, math, formatting, and presenters |
+| `apps/web/server/` | Authenticated provider, protocol, persistence, and money-action boundaries |
+| `apps/web/config/` | Brand, region, navigation, asset, and presentation configuration |
+| `packages/ui/` | Shared UI primitives and tokens |
+| `apps/design-system/` | UI package documentation and browser examples |
+| `docs/` | Setup, deployment, runtime boundaries, product status, and extension guides |
 
-**Stack:** Next.js, TypeScript, Tailwind, and Bun; SQLite for local money actions and Neon/Postgres for hosted persistence. CDP supplies account and wallet capabilities, Base RPC supplies chain reads, and Morpho supplies savings and the supported borrowing market.
-
-
-## Forking
-
-Home is intended to be cloned and adapted. Replace the brand, regions, asset selection, and providers with your own configuration. Each operator supplies their own provider projects, credentials, persistence, and deployment. [Fork and extend](docs/fork-and-extend.md) maps the supported seams; [the docs index](docs/README.md) collects setup and runtime guides.
+**Stack:** Next.js, React, TypeScript, Tailwind CSS, Bun, Base, CDP, Morpho, and PostgreSQL for money-action persistence. Provider and protocol integrations remain bounded by their setup, eligibility, and validation requirements.
 
 ## Contributing
 
-Focused upstream changes are welcome. Read [CONTRIBUTING](CONTRIBUTING.md) and run `bun check` before opening a pull request. Keep credentials and funded-wallet secrets out of Git.
+Focused upstream changes are welcome. Read [CONTRIBUTING](CONTRIBUTING.md), keep credentials and funded-wallet secrets out of Git, and run `bun check` before opening a pull request.
 
 ## License
 
-Original repository content is licensed under [MIT](LICENSE). Third-party materials, provider SDKs, fonts, and trademarks keep their own terms. In particular, the Home mark’s font provenance and reuse constraints are documented in [`apps/web/public/home-mark/PROVENANCE.md`](apps/web/public/home-mark/PROVENANCE.md); do not assume those assets or Base-related marks are covered by MIT.
+Original repository content is licensed under [MIT](LICENSE). Third-party materials, provider SDKs, fonts, and trademarks keep their own terms.
+
+The Home mark's font provenance and reuse constraints are documented in [`apps/web/public/home-mark/PROVENANCE.md`](apps/web/public/home-mark/PROVENANCE.md). Do not assume the Home mark, its fonts, or Base-related marks are covered by the MIT license.
