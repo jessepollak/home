@@ -7,7 +7,13 @@ import { useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MoneyActionReview } from "@/client/actions/review";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
-import { formatPresentationDate } from "@/shared/formatting";
+import {
+  formatHealthFactor,
+  formatOracleUsd,
+  formatPresentationDate,
+  formatPresentationTokenAmount,
+  formatWadPercent,
+} from "@/shared/formatting";
 import {
   readAnonymousCountryPreference,
 } from "@/config/country-preference";
@@ -156,13 +162,13 @@ function BorrowExperienceInner({
   const selectedLimit = useMemo(() => {
     if (!snapshot) return null;
     switch (operation) {
-      case "supply-collateral": return `${formatUnits(snapshot.wallet.collateralBalanceRaw, 8)} cbBTC wallet balance`;
-      case "borrow": return `${formatUnits(snapshot.position.borrowCapacityAssetsRaw, 6)} USDC current capacity`;
-      case "repay": return `${formatUnits(snapshot.position.debtAssetsRaw, 6)} USDC current debt; enter less for an exact partial repayment`;
-      case "repay-all": return `${formatUnits(snapshot.position.debtAssetsRaw, 6)} USDC current debt estimate; maximum cannot exceed ${formatUnits(snapshot.wallet.loanBalanceRaw, 6)} USDC wallet balance`;
-      case "withdraw-collateral": return `${formatUnits(snapshot.position.withdrawableCollateralRaw, 8)} cbBTC currently withdrawable`;
+      case "supply-collateral": return `${formatPresentationTokenAmount(snapshot.wallet.collateralBalanceRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} wallet balance`;
+      case "borrow": return `${formatPresentationTokenAmount(snapshot.position.borrowCapacityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} current capacity`;
+      case "repay": return `${formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} current debt; enter less for an exact partial repayment`;
+      case "repay-all": return `${formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} current debt estimate; maximum cannot exceed ${formatPresentationTokenAmount(snapshot.wallet.loanBalanceRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} wallet balance`;
+      case "withdraw-collateral": return `${formatPresentationTokenAmount(snapshot.position.withdrawableCollateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} currently withdrawable`;
     }
-  }, [operation, snapshot]);
+  }, [operation, snapshot, regionId]);
 
   return (
     <main className={styles.page}>
@@ -205,17 +211,17 @@ function BorrowExperienceInner({
               </div>
               {emptyWallet ? <Text as="p" textStyle="secondary" tone="muted" className={styles.empty}>This wallet has no cbBTC, USDC, or borrow position.</Text> : null}
               <dl className={styles.metricGrid}>
-                <Metric label="cbBTC wallet" value={`${formatUnits(snapshot.wallet.collateralBalanceRaw, 8)} cbBTC`} />
-                <Metric label="USDC wallet" value={`${formatUnits(snapshot.wallet.loanBalanceRaw, 6)} USDC`} />
-                <Metric label="Collateral supplied" value={`${formatUnits(snapshot.position.collateralRaw, 8)} cbBTC`} />
-                <Metric label="Current debt" value={`${formatUnits(snapshot.position.debtAssetsRaw, 6)} USDC`} note="Rounded up from Morpho borrow shares" />
-                <Metric label="Current borrow capacity" value={`${formatUnits(snapshot.position.borrowCapacityAssetsRaw, 6)} USDC`} note="Lower of collateral limit and indexed liquidity" />
-                <Metric label="Currently withdrawable" value={`${formatUnits(snapshot.position.withdrawableCollateralRaw, 8)} cbBTC`} note="At the displayed oracle price" />
-                <Metric label="Health factor" value={formatHealth(snapshot.position.healthFactorWad)} note={healthNote(snapshot.position.healthFactorWad)} />
-                <Metric label="Liquidation price" value={snapshot.position.liquidationPriceRaw ? `${formatOracleUsd(snapshot.position.liquidationPriceRaw)} USDC / cbBTC` : "No debt"} />
-                <Metric label="Oracle price" value={`${formatOracleUsd(snapshot.state.oraclePriceRaw)} USDC / cbBTC`} />
-                <Metric label="Variable borrow APR" value={`${formatWadPercent(snapshot.state.borrowAprWad)}%`} note="Current per-second rate annualized; not fixed" />
-                <Metric label="Indexed liquidity" value={`${formatUnits(snapshot.state.liquidityAssetsRaw, 6)} USDC`} />
+                <Metric label="cbBTC wallet" value={formatPresentationTokenAmount(snapshot.wallet.collateralBalanceRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} />
+                <Metric label="USDC wallet" value={formatPresentationTokenAmount(snapshot.wallet.loanBalanceRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} />
+                <Metric label="Collateral supplied" value={formatPresentationTokenAmount(snapshot.position.collateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} />
+                <Metric label="Current debt" value={formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} note="Rounded up from Morpho borrow shares" />
+                <Metric label="Current borrow capacity" value={formatPresentationTokenAmount(snapshot.position.borrowCapacityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} note="Lower of collateral limit and indexed liquidity" />
+                <Metric label="Currently withdrawable" value={formatPresentationTokenAmount(snapshot.position.withdrawableCollateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} note="At the displayed oracle price" />
+                <Metric label="Health factor" value={formatHealthFactor(snapshot.position.healthFactorWad, regionId)} note={healthNote(snapshot.position.healthFactorWad)} />
+                <Metric label="Liquidation price" value={snapshot.position.liquidationPriceRaw ? `${formatOracleUsd(snapshot.position.liquidationPriceRaw, regionId)} / cbBTC` : "No debt"} />
+                <Metric label="Oracle price" value={`${formatOracleUsd(snapshot.state.oraclePriceRaw, regionId)} / cbBTC`} />
+                <Metric label="Variable borrow APR" value={formatWadPercent(snapshot.state.borrowAprWad, regionId)} note="Current per-second rate annualized; not fixed" />
+                <Metric label="Indexed liquidity" value={formatPresentationTokenAmount(snapshot.state.liquidityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} />
                 <Metric label="Market state updated" value={formatTime(blockTime(snapshot.state.lastUpdateTimestamp), regionId)} />
               </dl>
             </section>
@@ -262,7 +268,7 @@ function BorrowExperienceInner({
           <section className={styles.previewOnly} aria-labelledby="preview-only-title">
             <Heading level={2} textStyle="section-title" id="preview-only-title">Read-only preview</Heading>
             <Text as="strong" textStyle="row-label">{preview.response.preview.title}</Text>
-            <Text as="span" textStyle="row-value">{formatUnits(preview.response.preview.amount.amountBaseUnits, preview.response.preview.amount.decimals)} {preview.response.preview.amount.symbol}</Text>
+            <Text as="span" textStyle="row-value">{formatPresentationTokenAmount(preview.response.preview.amount.amountBaseUnits, preview.response.preview.amount.decimals, preview.response.preview.amount.symbol, { regionId, useNoBreakSpace: true })}</Text>
             <ul>{preview.response.preview.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
             <Text as="p" textStyle="secondary" tone="muted">{preview.response.preview.disabledReason}</Text>
           </section>
@@ -315,32 +321,6 @@ function parseSnapshot(value: unknown, expectedOwner: `0x${string}`): BorrowMark
   if (value.position.healthFactorWad !== null && (typeof value.position.healthFactorWad !== "string" || !/^\d+$/.test(value.position.healthFactorWad))) return null;
   if (value.position.liquidationPriceRaw !== null && (typeof value.position.liquidationPriceRaw !== "string" || !/^\d+$/.test(value.position.liquidationPriceRaw))) return null;
   return value as BorrowMarketSnapshot;
-}
-
-function formatUnits(raw: string, decimals: number) {
-  const value = BigInt(raw);
-  const scale = BigInt("10") ** BigInt(decimals);
-  const whole = value / scale;
-  const fraction = (value % scale).toString().padStart(decimals, "0").replace(/0+$/, "");
-  return fraction ? `${whole}.${fraction}` : whole.toString();
-}
-
-function formatWadPercent(raw: string) {
-  const basisPoints = (BigInt(raw) * BigInt("10000")) / BigInt("1000000000000000000");
-  return `${basisPoints / BigInt("100")}.${(basisPoints % BigInt("100")).toString().padStart(2, "0")}`;
-}
-
-function formatOracleUsd(raw: string) {
-  const cents = (BigInt(raw) * (BigInt("10") ** BigInt("8")) * BigInt("100")) /
-    ((BigInt("10") ** BigInt("6")) * (BigInt("10") ** BigInt("36")));
-  const whole = (cents / BigInt("100")).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return `${whole}.${(cents % BigInt("100")).toString().padStart(2, "0")}`;
-}
-
-function formatHealth(raw: string | null) {
-  if (raw === null) return "No debt";
-  const hundredths = (BigInt(raw) * BigInt("100")) / BigInt("1000000000000000000");
-  return `${hundredths / BigInt("100")}.${(hundredths % BigInt("100")).toString().padStart(2, "0")}`;
 }
 
 function healthNote(raw: string | null) {

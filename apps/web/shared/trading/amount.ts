@@ -1,3 +1,5 @@
+import { formatUnsignedTokenAmount } from "@/shared/formatting";
+
 const canonicalBaseUnitsPattern = /^(?:0|[1-9]\d*)$/;
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 
@@ -38,9 +40,5 @@ export function assertCanonicalTradeBaseUnits(value: unknown): asserts value is 
 export function formatTradeBaseUnits(value: string | bigint, decimals: number): string {
   const digits = typeof value === "bigint" ? value.toString() : value;
   assertCanonicalTradeBaseUnits(digits);
-  if (decimals === 0) return digits;
-  const padded = digits.padStart(decimals + 1, "0");
-  const whole = padded.slice(0, -decimals);
-  const fraction = padded.slice(-decimals).replace(/0+$/, "");
-  return fraction ? `${whole}.${fraction}` : whole;
+  return formatUnsignedTokenAmount(digits, decimals);
 }

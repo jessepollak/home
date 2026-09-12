@@ -1086,11 +1086,11 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
   await typeAmount(page, "20000");
   await page.getByRole("button", { name: "Review quote", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Review quote" })).toBeVisible();
-  await expect(page.getByText("Receive: 20000 IDRX")).toBeVisible();
+  await expect(page.getByText("Receive: 20.000,00\u00A0IDRX")).toBeVisible();
   await expect(page.getByText("Fees: Not yet available")).toBeVisible();
   await page.getByRole("button", { name: "Confirm deposit", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Review payment details" })).toBeVisible();
-  await expect(page.getByText("Network: 100 IDR")).toBeVisible();
+  await expect(page.getByText("Network: Rp\u00A0100,00")).toBeVisible();
   await expect(page.getByText("123456789012")).not.toBeVisible();
   await page.getByRole("button", { name: "View payment instructions" }).click();
   await expect(page.getByText("Deposit pending")).toBeVisible();

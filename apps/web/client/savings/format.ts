@@ -1,23 +1,11 @@
-import { formatPercentage } from "@/shared/formatting";
 import { BASE_USDC_DECIMALS } from "@/shared/savings/config";
 
+export {
+  formatPresentationPercentage as formatApy,
+  formatUsdStablecoinAmount as formatUsdcUsd,
+} from "@/shared/formatting";
+
 const canonicalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
-
-export function formatUsdcUsd(amountBaseUnits: string): string {
-  if (!canonicalIntegerPattern.test(amountBaseUnits)) return "—";
-  const padded = amountBaseUnits.padStart(BASE_USDC_DECIMALS + 1, "0");
-  const whole = padded.slice(0, -BASE_USDC_DECIMALS) || "0";
-  const fraction = padded.slice(-BASE_USDC_DECIMALS).replace(/0+$/, "");
-  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  if (!fraction) return `$${grouped}.00`;
-  if (fraction.length <= 2) return `$${grouped}.${fraction.padEnd(2, "0")}`;
-  return `$${grouped}.${fraction}`;
-}
-
-export function formatApy(value: number | null | undefined): string {
-  const formatted = formatPercentage(value);
-  return formatted === "Unavailable" ? "—" : formatted;
-}
 
 export function shortVaultLabel(name: string): string {
   return name.trim().split(/\s+/)[0] || name;

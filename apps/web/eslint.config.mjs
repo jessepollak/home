@@ -64,6 +64,33 @@ const rawHeadingAllowlist = [
   "client/trading/trade-actions.tsx",
 ];
 
+const formattingSyntaxAllowlist = [
+  // C2 owns these remaining money/date presentation migrations.
+  "client/money-actions/operation-details.ts",
+  "client/money-actions/recent-operations.tsx",
+  "client/money-actions/review.tsx",
+  "client/trading/trade-actions.tsx",
+  // These calls format geometry or discover the browser time zone, not money.
+  "client/activity/activity-panel.tsx",
+  "client/landing/globe-geometry.ts",
+  "client/landing/supported-globe.tsx",
+];
+
+const formattingSyntaxRestrictions = [
+  {
+    selector: "NewExpression[callee.object.name='Intl'][callee.property.name=/^(?:NumberFormat|DateTimeFormat)$/]",
+    message: "Use shared/formatting for locale-aware number and date presentation.",
+  },
+  {
+    selector: "CallExpression[callee.property.name=/^toLocale(?:String|DateString|TimeString)$/]",
+    message: "Use shared/formatting for locale-aware number and date presentation.",
+  },
+  {
+    selector: "CallExpression[callee.property.name='toFixed']",
+    message: "Use shared/formatting for numeric presentation.",
+  },
+];
+
 function restrictedDynamicImports(pattern, message) {
   return [
     {
@@ -295,11 +322,12 @@ const eslintConfig = defineConfig([
       "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
       "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
     ],
-    ignores: ["**/*.test.{ts,tsx}", "**/tests/**"],
+    ignores: [...formattingSyntaxAllowlist, "**/*.test.{ts,tsx}", "**/tests/**"],
     rules: {
       "no-restricted-syntax": [
         "error",
         ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
+        ...formattingSyntaxRestrictions,
       ],
     },
   },
@@ -308,11 +336,12 @@ const eslintConfig = defineConfig([
       "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
       "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
     ],
-    ignores: [...rawButtonAllowlist, "**/*.test.{ts,tsx}", "**/tests/**"],
+    ignores: [...new Set([...rawButtonAllowlist, ...formattingSyntaxAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**"],
     rules: {
       "no-restricted-syntax": [
         "error",
         ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
+        ...formattingSyntaxRestrictions,
         {
           selector: "JSXOpeningElement[name.name='button']",
           message: "Use Button or IconButton from @home/ui. The raw-button allowlist only shrinks.",
@@ -325,11 +354,12 @@ const eslintConfig = defineConfig([
       "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
       "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
     ],
-    ignores: [...rawHeadingAllowlist, "**/*.test.{ts,tsx}", "**/tests/**"],
+    ignores: [...new Set([...rawHeadingAllowlist, ...formattingSyntaxAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**"],
     rules: {
       "no-restricted-syntax": [
         "error",
         ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
+        ...formattingSyntaxRestrictions,
         {
           selector: "JSXOpeningElement[name.name=/^h[1-4]$/]",
           message: "Use Heading from @home/ui. The raw-heading allowlist only shrinks.",
@@ -342,11 +372,12 @@ const eslintConfig = defineConfig([
       "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
       "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
     ],
-    ignores: [...new Set([...rawButtonAllowlist, ...rawHeadingAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**"],
+    ignores: [...new Set([...rawButtonAllowlist, ...rawHeadingAllowlist, ...formattingSyntaxAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**"],
     rules: {
       "no-restricted-syntax": [
         "error",
         ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
+        ...formattingSyntaxRestrictions,
         {
           selector: "JSXOpeningElement[name.name='button']",
           message: "Use Button or IconButton from @home/ui. The raw-button allowlist only shrinks.",
@@ -355,6 +386,17 @@ const eslintConfig = defineConfig([
           selector: "JSXOpeningElement[name.name=/^h[1-4]$/]",
           message: "Use Heading from @home/ui. The raw-heading allowlist only shrinks.",
         },
+      ],
+    },
+  },
+  {
+    files: ["shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+    ignores: ["shared/formatting/**", "**/*.test.{ts,tsx}", "**/tests/**"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...restrictedDynamicImports(sharedForbiddenPattern, sharedLayerMessage),
+        ...formattingSyntaxRestrictions,
       ],
     },
   },
@@ -364,6 +406,7 @@ const eslintConfig = defineConfig([
     rules: {
       "no-restricted-syntax": [
         "error",
+        ...formattingSyntaxRestrictions,
         {
           selector: "JSXOpeningElement[name.name='button']",
           message: "Use Button or IconButton from @home/ui. The raw-button allowlist only shrinks.",
