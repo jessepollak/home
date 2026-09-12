@@ -269,15 +269,16 @@ async function typeAmount(page: Page, value: string) {
 async function amountMetrics(page: Page) {
   return page.evaluate(() => {
     const node = document.querySelector<HTMLElement>("[data-primary-amount]");
-    if (!node) return null;
+    const ticker = node?.querySelector<HTMLElement>("[role='img']");
+    if (!node || !ticker) return null;
     const style = getComputedStyle(node);
     const range = document.createRange();
-    range.selectNodeContents(node);
+    range.selectNodeContents(ticker.querySelector(".home-ui-money-ticker__track") ?? ticker);
     const textWidth = range.getBoundingClientRect().width;
     const padding = (name: "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft") =>
       Number.parseFloat(style[name]) || 0;
     return {
-      text: node.textContent,
+      text: ticker.getAttribute("aria-label"),
       clientWidth: node.clientWidth,
       scrollWidth: node.scrollWidth,
       fontSize: Number.parseFloat(style.fontSize),
@@ -526,7 +527,7 @@ test("money amount auto-fits the longest local and native values at 320px and 39
 
   const amount = page.locator("[data-primary-amount]");
   await typeAmount(page, "123456789012.123456");
-  await expect(amount).toHaveText("$123456789012.123456");
+  await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$123456789012.123456");
 
   const at320 = await amountMetrics(page);
   expect(at320?.text).toBe("$123456789012.123456");
@@ -544,7 +545,7 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   );
 
   await page.getByRole("button", { name: /as the primary amount/ }).click();
-  await expect(amount).toHaveText("123456789012.123456");
+  await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "123456789012.123456");
   const native = await amountMetrics(page);
   expect(native?.text).toBe("123456789012.123456");
   expect(native?.scrollWidth).toBeLessThanOrEqual((native?.clientWidth ?? 0) + 2);
@@ -579,7 +580,7 @@ test("money amount recomputes for text scaling", async ({ page }) => {
 
   const amount = page.locator("[data-primary-amount]");
   await typeAmount(page, "5");
-  await expect(amount).toHaveText("$5");
+  await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$5");
 
   const before = await amountMetrics(page);
   expect(before?.fontSize).toBeGreaterThanOrEqual(44);
@@ -588,7 +589,7 @@ test("money amount recomputes for text scaling", async ({ page }) => {
     document.documentElement.style.fontSize = "200%";
   });
   await expect.poll(async () => (await amountMetrics(page))?.fontSize).toBeGreaterThan((before?.fontSize ?? 0) + 5);
-  await expect(amount).toHaveText("$5");
+  await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$5");
 });
 
 async function openScrolledBalances(page: Page) {
