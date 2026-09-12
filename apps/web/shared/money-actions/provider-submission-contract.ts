@@ -4,8 +4,6 @@
 // - #176: Home action UUID ≠ provider evidence
 // - #176: no preallocated `submissionId` before the provider returns a handle
 // - #176: EIP-5792 `5720` ≠ `rejected` and is not proof of non-submission
-// The client does not yet import this module; follow-up C will wire
-// `cdp-money-action-execution.ts` to these classifications or delete the module.
 
 import type { ProviderHandle } from "@/shared/money-actions/provider-handle";
 

@@ -55,7 +55,7 @@ Phase 1 deliberately reduces the first two avoidable claim windows: status check
 
 ## Withdrawn
 
-The additive attempt-state, evidence-reservation, migration-marker, typed-command, and staged Phase 2–5 design was removed in #309 because `money_action_operations` already carries the durable claim, provider handles, verified execution identity, and admission release needed at runtime. The retained pure provider classification facts live in `apps/web/server/money-actions/provider-submission-contract.ts`; the client does not yet import that module.
+The additive attempt-state, evidence-reservation, migration-marker, typed-command, and staged Phase 2–5 design was removed in #309 because `money_action_operations` already carries the durable claim, provider handles, verified execution identity, and admission release needed at runtime. The retained pure provider classification facts live in `apps/web/shared/money-actions/provider-submission-contract.ts` and are consumed by client execution.
 
 ## Invariants
 
