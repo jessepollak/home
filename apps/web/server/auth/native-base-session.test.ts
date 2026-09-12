@@ -201,6 +201,7 @@ class FakeNonceExecutor implements SqlExecutor {
       return { rows: [], rowCount: 1 };
     }
     if (text.startsWith("DELETE FROM home_auth_nonces\n  WHERE id")) {
+      if (values.length !== 1) throw new Error("Unexpected nonce consume parameters");
       const id = String(values[0]);
       const row = this.rows.get(id);
       if (!row) return { rows: [], rowCount: 0 };

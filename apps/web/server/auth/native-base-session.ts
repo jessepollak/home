@@ -115,7 +115,7 @@ export class PostgresNativeBaseNonceStore implements NativeBaseNonceStore {
 
   async consume(id: string, now: string): Promise<NativeBaseNonce | null> {
     await this.ensureSchema();
-    const result = await this.executor.query<NonceRow>(CONSUME_NONCE, [id, now]);
+    const result = await this.executor.query<NonceRow>(CONSUME_NONCE, [id]);
     const row = result.rows[0];
     if (
       !row ||
