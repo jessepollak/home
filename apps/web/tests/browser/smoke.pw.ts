@@ -465,6 +465,44 @@ test("Balances restores scroll and reveal after Account Done", async ({ page }) 
   await expectBalancesRestored(page, state);
 });
 
+test("Balances restores when Account Done precedes the delayed route commit", async ({ page }) => {
+  const state = await openScrolledBalances(page);
+  let releaseAccountRoute = () => {};
+  let markAccountRouteRequested = () => {};
+  const accountRouteRequested = new Promise<void>((resolve) => {
+    markAccountRouteRequested = resolve;
+  });
+  const accountRouteRelease = new Promise<void>((resolve) => {
+    releaseAccountRoute = resolve;
+  });
+  await page.route(
+    (url) =>
+      url.pathname === "/dashboard" &&
+      url.searchParams.get("account") === "settings",
+    async (route) => {
+      markAccountRouteRequested();
+      await accountRouteRelease;
+      await route.continue();
+    },
+  );
+
+  // Issue #273 regression marker: local Account paint wins the race while the
+  // real App Router history push is blocked on its RSC response.
+  await page
+    .getByRole("button", { name: "Account" })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.getByRole("heading", { level: 1, name: "Account" })).toBeVisible();
+  await accountRouteRequested;
+  await expect(page).not.toHaveURL(/[?&]account=settings/);
+  await page
+    .getByRole("button", { name: "Done" })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.getByRole("heading", { level: 1, name: "Account" })).toBeVisible();
+
+  releaseAccountRoute();
+  await expectBalancesRestored(page, state);
+});
+
 test("Balances starts at the top after browser Back from generic Invest", async ({ page }) => {
   await openScrolledBalances(page);
   await clickForwardAndWaitForUrl(page, "Invest", /[?&]panel=invest/);

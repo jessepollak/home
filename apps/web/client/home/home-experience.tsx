@@ -9,7 +9,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   readAnonymousCountryPreference,
   writeAnonymousCountryPreference,
@@ -252,6 +252,8 @@ function HomeExperienceView({
   isBalancesRestoreArmed: () => boolean;
 }) {
   const router = useRouter();
+  const committedSearchParams = useSearchParams();
+  const committedSearchKey = committedSearchParams.toString();
   const account = useAccountWallet();
   const initial = resolvePresentation({ detectedCountry });
   const [internalRegionId, setInternalRegionId] = useState<RegionId>(
@@ -269,6 +271,14 @@ function HomeExperienceView({
   // (browser/app Back) or an explicit forward push. The ref is written from
   // effects and the popstate listener, never during render.
   const navigationIntentRef = useRef<"push" | "pop">("push");
+  // A pop captures the restore entitlement before React/App Router work can
+  // mutate provenance. Balances consumes this marker exactly once.
+  const pendingBalancesRestoreRef = useRef(false);
+  // Account may paint before App Router commits its history entry. A Done click
+  // in that window is queued until useSearchParams observes the committed URL;
+  // only the ensuing pop is allowed to close the overlay.
+  const pendingAccountCloseRef = useRef(false);
+  const accountCloseInFlightRef = useRef(false);
   // Balances restoration is denied by default. A direct Invest entry may hold
   // a candidate only until actual asset-detail chrome proves the return path;
   // the explicitly supported Account overlay path arms independently.
@@ -335,11 +345,16 @@ function HomeExperienceView({
       const location = parseShellLocation(
         new URLSearchParams(window.location.search),
       );
+      const restoresBalances =
+        location.panel === balancesPanelId && isBalancesRestoreArmed();
+      pendingBalancesRestoreRef.current = restoresBalances;
+      pendingAccountCloseRef.current = false;
+      accountCloseInFlightRef.current = false;
       setActiveNavigation(location.panel);
       setIsAccountSettingsOpen(location.account === "settings");
       if (location.account !== "settings") setSettingsOpenedInApp(false);
       setIsAccountOpen(location.account === "signin");
-      if (location.panel === balancesPanelId && !isBalancesRestoreArmed()) {
+      if (location.panel === balancesPanelId && !restoresBalances) {
         delete panelScrollRef.current[balancesPanelId];
         setBalancesRevealReset((resetSignal) => resetSignal + 1);
       }
@@ -351,7 +366,19 @@ function HomeExperienceView({
   useEffect(() => {
     if (forwardRequest === 0) return;
     navigationIntentRef.current = "push";
+    pendingBalancesRestoreRef.current = false;
   }, [forwardRequest]);
+
+  useEffect(() => {
+    if (!pendingAccountCloseRef.current) return;
+    const location = parseShellLocation(
+      new URLSearchParams(window.location.search),
+    );
+    if (location.account !== "settings") return;
+    pendingAccountCloseRef.current = false;
+    accountCloseInFlightRef.current = true;
+    router.back();
+  }, [committedSearchKey, router]);
 
   useEffect(() => {
     const persistedCountry = readAnonymousCountryPreference(
@@ -431,7 +458,7 @@ function HomeExperienceView({
     const saved = panelScrollRef.current[panelKey];
     const isBalances = panelKey === balancesPanelId;
     const shouldRestore = isBalances
-      ? navigationIntentRef.current === "pop" && isBalancesRestoreArmed()
+      ? pendingBalancesRestoreRef.current
       : navigationIntentRef.current === "pop";
     const preservedTop =
       shouldRestore && saved?.identity === panelScrollIdentity
@@ -441,6 +468,7 @@ function HomeExperienceView({
       panelScrollRef.current[panelKey] = undefined;
     }
     if (isBalances) {
+      pendingBalancesRestoreRef.current = false;
       disarmBalancesRestore();
     }
     const reducedMotion = window.matchMedia(
@@ -452,7 +480,6 @@ function HomeExperienceView({
     });
   }, [
     disarmBalancesRestore,
-    isBalancesRestoreArmed,
     panelKey,
     panelScrollIdentity,
     navigationRequest,
@@ -539,6 +566,8 @@ function HomeExperienceView({
   }
 
   function navigateTo(nextNavigation: ShellPanelId) {
+    pendingAccountCloseRef.current = false;
+    accountCloseInFlightRef.current = false;
     const skipHistory =
       activeNavigation === nextNavigation && !isAccountSettingsOpen;
     setIsAccountSettingsOpen(false);
@@ -568,6 +597,8 @@ function HomeExperienceView({
   }
 
   function openAccountSettings() {
+    pendingAccountCloseRef.current = false;
+    accountCloseInFlightRef.current = false;
     setForwardRequest((request) => request + 1);
     if (activeNavigation === balancesPanelId && !isAccountSettingsOpen) {
       armBalancesAccountOverlay();
@@ -609,7 +640,15 @@ function HomeExperienceView({
 
   function closeAccountSettings() {
     if (settingsOpenedInApp) {
-      navigationIntentRef.current = "pop";
+      if (accountCloseInFlightRef.current) return;
+      const location = parseShellLocation(
+        new URLSearchParams(window.location.search),
+      );
+      if (location.account !== "settings") {
+        pendingAccountCloseRef.current = true;
+        return;
+      }
+      accountCloseInFlightRef.current = true;
       router.back();
       return;
     }
@@ -632,6 +671,8 @@ function HomeExperienceView({
   }
 
   function signOut() {
+    pendingAccountCloseRef.current = false;
+    accountCloseInFlightRef.current = false;
     setIsAccountSettingsOpen(false);
     setForwardRequest((request) => request + 1);
     disarmBalancesRestore();

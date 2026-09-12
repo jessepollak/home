@@ -24,6 +24,8 @@ const replaceCalls: string[] = [];
 const pushCalls: string[] = [];
 let backCalls = 0;
 let autoPopRouterBack = true;
+let autoCommitRouterPush = true;
+let pendingRouterPush: string | null = null;
 
 // History-aware App Router double. `push`/`replace` keep a real call ledger
 // AND advance an in-test history stack, syncing `window.location` so the
@@ -36,12 +38,26 @@ function syncHistoryLocation(href: string) {
   window.history.replaceState({}, "", href);
 }
 
-function pushHistory(href: string) {
-  pushCalls.push(href);
+function commitHistoryPush(href: string) {
   historyEntries = historyEntries.slice(0, historyCursor + 1);
   historyEntries.push(href);
   historyCursor = historyEntries.length - 1;
   syncHistoryLocation(href);
+}
+
+function pushHistory(href: string) {
+  pushCalls.push(href);
+  if (autoCommitRouterPush) {
+    commitHistoryPush(href);
+  } else {
+    pendingRouterPush = href;
+  }
+}
+
+function commitPendingRouterPush() {
+  expect(pendingRouterPush).toBeTruthy();
+  commitHistoryPush(pendingRouterPush as string);
+  pendingRouterPush = null;
 }
 
 function replaceHistory(href: string) {
@@ -63,6 +79,8 @@ function resetHistory() {
   pushCalls.length = 0;
   backCalls = 0;
   autoPopRouterBack = true;
+  autoCommitRouterPush = true;
+  pendingRouterPush = null;
   historyEntries = ["/"];
   historyCursor = 0;
   syncHistoryLocation("/");
@@ -78,6 +96,7 @@ mock.module("next/navigation", () => ({
     },
   }),
   usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
@@ -2802,17 +2821,22 @@ describe("balances incremental rendering", () => {
     }
   });
 
-  test("restores Balances after an asynchronous Account settings Back pop", async () => {
-    render(
+  test("queues Account Done until its history push commits, then restores on the delayed pop", async () => {
+    const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
+    const sessionFetch: SessionFetch = async () => Response.json(session());
+    const assetBalances = {
+      status: "ready" as const,
+      displayTotal: "$99.99",
+      items: manyBalances(25),
+    };
+    const fixture = () => (
       <HomeHarness
-        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
-        assetBalances={{
-          status: "ready",
-          displayTotal: "$99.99",
-          items: manyBalances(25),
-        }}
-      />,
+        accountSdk={accountSdk}
+        sessionFetch={sessionFetch}
+        assetBalances={assetBalances}
+      />
     );
+    const view = render(fixture());
 
     await enabledAccountButton();
     fireEvent.click(page().getByRole("button", { name: "Balances" }));
@@ -2822,6 +2846,7 @@ describe("balances incremental rendering", () => {
     main.scrollTop = 480;
     fireEvent.scroll(main);
 
+    autoCommitRouterPush = false;
     fireEvent.click(page().getByRole("button", { name: "Account" }));
     expect(await page().findByRole("combobox", { name: "Country" })).toBeTruthy();
     main.scrollTop = 120;
@@ -2830,7 +2855,14 @@ describe("balances incremental rendering", () => {
     autoPopRouterBack = false;
     fireEvent.click(page().getByRole("button", { name: "Done" }));
     expect(page().getByRole("heading", { level: 1, name: "Account" })).toBeTruthy();
-    expect(backCalls).toBe(1);
+    expect(backCalls).toBe(0);
+
+    // Issue #273 regression marker: App Router commits the Account push after
+    // the local overlay paints; Done must wait for that entry before going back.
+    act(() => commitPendingRouterPush());
+    view.rerender(fixture());
+    await waitFor(() => expect(backCalls).toBe(1));
+    expect(page().getByRole("heading", { level: 1, name: "Account" })).toBeTruthy();
 
     act(() => popHistory());
     expect(page().getByRole("heading", { name: "Balances" })).toBeTruthy();
