@@ -65,11 +65,11 @@ describe("MoneyAmountDisplay", () => {
     render(<AmountHarness />);
 
     fireEvent.click(page().getByRole("button", { name: "$25" }));
-    expect(document.querySelector("[data-primary-amount]")?.textContent).toBe("$25");
+    expect(document.querySelector("[data-primary-amount] [role='img']")?.getAttribute("aria-label")).toBe("$25");
     expect(page().getByLabelText("Native amount").textContent).toBe("25");
 
     fireEvent.click(page().getByRole("button", { name: "Show 25.00 USDC as the primary amount" }));
-    expect(document.querySelector("[data-primary-amount]")?.textContent).toBe("25");
+    expect(document.querySelector("[data-primary-amount] [role='img']")?.getAttribute("aria-label")).toBe("25");
     expect(page().getByLabelText("Native amount").textContent).toBe("25");
   });
 

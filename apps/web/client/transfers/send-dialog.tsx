@@ -1,5 +1,7 @@
 "use client";
 
+import { StatusMessage, Text } from "@home/ui";
+import { MoneyTicker } from "@home/ui/money-ticker";
 import { useEffect, useRef, useState } from "react";
 import { AddressField } from "@/components/address";
 import { CopyableValue } from "@/components/copyable-value";
@@ -169,7 +171,7 @@ export function SendDialog({
         </> : null}
         {step === "address" ? <div className={modal.fieldBlock}>
           <AddressField id="send-recipient" label="To" value={recipient} onChange={setRecipient} aria-describedby="send-recipient-hint" />
-          <p id="send-recipient-hint" className={modal.fieldHint}>Base address</p>
+          <Text id="send-recipient-hint" textStyle="metadata" tone="muted" className={modal.fieldHint}>Base address</Text>
         </div> : null}
         {request && (step === "confirm" || step === "pending" || step === "error") ? <>
           <MoneyConfirmSummary amount={confirmAmount} lead={`You're sending ${TRANSFER_ASSETS[request.assetId].symbol}`} rows={[
@@ -177,13 +179,13 @@ export function SendDialog({
             { label: "Asset", value: TRANSFER_ASSETS[request.assetId].symbol },
             { label: "Network", value: "Base" },
           ]} />
-          {step === "pending" ? <div className={modal.pending} role="status"><span className={modal.spinner} aria-hidden="true" />Waiting for your wallet…</div> : null}
+          {step === "pending" ? <StatusMessage className={modal.pending}><span className={modal.spinner} aria-hidden="true" />Waiting for your wallet…</StatusMessage> : null}
         </> : null}
-        {error ? <p className={modal.error} role="alert">{error}</p> : null}
+        {error ? <StatusMessage className={modal.error} tone="error" role="alert">{error}</StatusMessage> : null}
       </div>
       {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!isPositiveDecimalAmount(amount)} onPrimary={() => { setError(null); setStep("address"); }} /> : null}
       {step === "address" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!isTransferRecipient(recipient)} onPrimary={() => void prepare()} /> : null}
-      {step === "confirm" ? <MoneyModalFooter primaryLabel={`Send ${confirmAmount}`} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}
+      {step === "confirm" ? <MoneyModalFooter primaryLabel={<>Send <MoneyTicker value={confirmAmount} /></>} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}
       {step === "error" ? <MoneyModalFooter primaryLabel="Try again" onPrimary={() => { setError(null); setStep("confirm"); }} secondaryLabel="Back" onSecondary={back} /> : null}
     </MoneyModal>
   );

@@ -1,5 +1,7 @@
 "use client";
 
+import { Button, Select, Text } from "@home/ui";
+import { MoneyTicker } from "@home/ui/money-ticker";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDownUp, ChevronDown, Delete } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -76,7 +78,7 @@ export function triggerKeyHaptic(durationMs = 12): void {
 }
 
 export function useAutoFitAmountText(text: string) {
-  const containerRef = useRef<HTMLParagraphElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const sizerRef = useRef<HTMLSpanElement>(null);
   const [fontSize, setFontSize] = useState<number | undefined>(undefined);
 
@@ -221,7 +223,7 @@ export function MoneyAmountDisplay({
           }
         />
       ) : null}
-      {availableLine ? <p className={styles.available}>{availableLine}</p> : null}
+      {availableLine ? <Text as="div" textStyle="secondary" tone="muted" className={styles.available}><MoneyTicker value={availableLine} /></Text> : null}
     </div>
   );
 }
@@ -240,14 +242,14 @@ export function MoneyPrimaryAmount({
 
   return (
     <>
-      <p
+      <div
         ref={containerRef}
         className={styles.assetAmount}
         data-primary-amount
         style={fontSize === undefined ? undefined : { fontSize }}
       >
-        {text}
-      </p>
+        <MoneyTicker value={text} />
+      </div>
       <span
         ref={sizerRef}
         className={styles.amountSizer}
@@ -289,21 +291,22 @@ export function MoneyAssetPicker({
   }
 
   return (
-    <label className={styles.assetPill}>
+    <div className={styles.assetPicker}>
       <CurrencyMark currency={markCurrency} symbol={assetLabel} />
-      <select
+      <Select
+        className={styles.assetSelect}
         aria-label="Asset"
         value={assetId}
         onChange={(event) => onAssetChange?.(event.target.value)}
+        suffix={<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />}
       >
         {assetOptions?.map((option) => (
           <option key={option.id} value={option.id}>
             {option.label}
           </option>
         ))}
-      </select>
-      <ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
-    </label>
+      </Select>
+    </div>
   );
 }
 
@@ -328,34 +331,34 @@ export function MoneyQuickChips({
     <div className={styles.chips} role="group" aria-label="Quick amounts">
       {chipSet === "quick-local" ? (
         <>
-          <button
+          <Button
             className={styles.chip}
-            type="button"
+            variant="secondary"
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("10", availableAmount))}
           >
-            {formatChipLabel(10, localCurrency)}
-          </button>
-          <button
+            <MoneyTicker value={formatChipLabel(10, localCurrency)} />
+          </Button>
+          <Button
             className={styles.chip}
-            type="button"
+            variant="secondary"
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("25", availableAmount))}
           >
-            {formatChipLabel(25, localCurrency)}
-          </button>
+            <MoneyTicker value={formatChipLabel(25, localCurrency)} />
+          </Button>
         </>
       ) : null}
-      <button
+      <Button
         className={`${styles.chip} ${styles.chipMax}`}
-        type="button"
+        variant="secondary"
         disabled={!maxEnabled}
         onClick={() => {
           if (availableAmount) onSelect(availableAmount);
         }}
       >
         Max
-      </button>
+      </Button>
     </div>
   );
 }
@@ -368,15 +371,15 @@ export function MoneyUnitToggle({
   onToggle: () => void;
 }) {
   return (
-    <button
+    <Button
       className={styles.unitToggle}
-      type="button"
+      variant="quiet"
       onClick={onToggle}
       aria-label={`Show ${secondaryLabel} as the primary amount`}
     >
       <ArrowDownUp size={16} strokeWidth={2} aria-hidden="true" />
-      <span>{secondaryLabel}</span>
-    </button>
+      <MoneyTicker value={secondaryLabel} />
+    </Button>
   );
 }
 
@@ -396,10 +399,10 @@ export function MoneyNumpad({
   return (
     <div className={styles.numpad} role="group" aria-label="Amount keypad">
       {KEYS.map((key) => (
-        <button
+        <Button
           key={key}
           className={styles.key}
-          type="button"
+          variant="secondary"
           disabled={disabled}
           aria-label={key === "backspace" ? "Delete last digit" : key === "." ? "Decimal point" : key}
           onClick={() => {
@@ -414,7 +417,7 @@ export function MoneyNumpad({
           ) : (
             key
           )}
-        </button>
+        </Button>
       ))}
     </div>
   );
