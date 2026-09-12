@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
-  getVisibleVerifiedSession,
   normalizeProjectId,
   validateAccountSession,
   type SessionFetch,
-  type VerifiedSessionOwner,
 } from "./session-client";
 import {
   ACCOUNT_PROVIDER_HEADER,
@@ -165,25 +163,5 @@ describe("session validation boundary", () => {
     expect(
       validateAccountSession("test-access-token", undefined, malformedFetch),
     ).rejects.toMatchObject({ reason: "invalid-response" });
-  });
-});
-
-describe("private account cleanup", () => {
-  const verified: VerifiedSessionOwner = {
-    ownerKey: "sdk-user-a",
-    session: {
-      user: { subject: "cdp:test-subject" },
-      smartAccount: { address: TEST_ADDRESS, chainId: 8453 },
-      accountProvider: "cdp-embedded",
-    },
-  };
-
-  test("hides verified details immediately on logout or SDK user switch", () => {
-    expect(getVisibleVerifiedSession(verified, "sdk-user-a", false)).toEqual(
-      verified.session,
-    );
-    expect(getVisibleVerifiedSession(verified, "sdk-user-b", false)).toBeNull();
-    expect(getVisibleVerifiedSession(verified, "sdk-user-a", true)).toBeNull();
-    expect(getVisibleVerifiedSession(verified, null, false)).toBeNull();
   });
 });

@@ -16,17 +16,9 @@ import {
   resetBalanceFreshness,
   startBalanceFreshness,
 } from "@/client/query/after-action";
+import { dataOwnerKey } from "./owner-keys";
 
 type MoneyActionApiFetch = (path: string, init?: RequestInit) => Promise<unknown>;
-
-export function accountAuthorizationBoundary(
-  ownerKey: string,
-  session: VerifiedAccountSession,
-): string | null {
-  return session.smartAccount
-    ? `${ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.accountProvider}`
-    : null;
-}
 
 const accountResourcePrefixes = [
   "/api/actions",
@@ -182,8 +174,7 @@ export function useAuthenticatedTransport({
       if (!session?.smartAccount || status !== "verified" || !ownerKey) {
         throw new TransferExecutionError("stale-session");
       }
-      const boundary = accountAuthorizationBoundary(ownerKey, session);
-      const identity = ownerFence.capture(ownerKey, boundary);
+      const identity = ownerFence.capture();
       const assertActive = () => {
         if (!ownerFence.isCurrent(identity)) {
           throw new TransferExecutionError("stale-session");
@@ -236,11 +227,11 @@ export function useAuthenticatedTransport({
         const value = await response.json();
         assertActive();
         if (/^\/api\/actions\/[^/]+\/handle$/.test(new URL(safePath, "https://home.invalid").pathname)) {
-          const dataOwnerKey = `${session.user.subject}\u0000${session.smartAccount.address.toLowerCase()}\u00008453\u0000${session.accountProvider}`;
+          const ownerDataKey = dataOwnerKey(session);
           void applyActionHandleEffects({
             path: safePath,
             body: options.body,
-            dataOwnerKey,
+            dataOwnerKey: ownerDataKey,
             queryClient,
             startBalanceFreshness: startActionBalanceFreshness,
           });

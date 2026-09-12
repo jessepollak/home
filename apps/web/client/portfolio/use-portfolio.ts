@@ -2,6 +2,7 @@
 
 import { isVerifiedPortfolioSession, parsePortfolioSnapshot } from "./parse";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 import type {
   FetchPortfolio,
   PortfolioState,
@@ -12,10 +13,7 @@ export const portfolioStaleTimeMs = 15_000;
 
 export type PortfolioQuerySession = VerifiedPortfolioSession & { accountProvider?: string };
 
-export function portfolioOwnerKey(session: PortfolioQuerySession): string {
-  const baseOwner = `${session.subject}\u0000${session.smartAccountAddress.toLowerCase()}\u0000${session.chainId}`;
-  return session.accountProvider ? `${baseOwner}\u0000${session.accountProvider}` : baseOwner;
-}
+export const portfolioOwnerKey = dataOwnerKey;
 
 export function usePortfolio(
   session: PortfolioQuerySession | null,

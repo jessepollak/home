@@ -1,10 +1,8 @@
 "use client";
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import {
-  AccountWalletSessionOwner,
-  type AccountWalletSdkBoundary,
-} from "./cdp-client";
+import type { AccountWalletSdkBoundary } from "./cdp-client";
+import { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
 
 const SIGNED_IN_KEY = "home:playwright-smoke:signed-in";
 const DISPATCH_COUNT_KEY = "home:playwright-smoke:dispatch-count";

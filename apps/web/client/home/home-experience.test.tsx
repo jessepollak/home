@@ -67,10 +67,8 @@ mock.module("next/navigation", () => ({
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
 );
-const {
-  AccountWalletSessionOwner,
-  CdpAccountProvider,
-} = await import("@/client/account/cdp-client");
+const { CdpAccountProvider } = await import("@/client/account/cdp-client");
+const { AccountWalletSessionOwner } = await import("@/client/account/cdp-session-lifecycle");
 const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
 const { HomeExperience } = await import("./home-experience");
 

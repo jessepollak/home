@@ -26,6 +26,7 @@ import {
   advanceActivityWindowEnd,
   initialActivityWindowEnd,
 } from "@/client/query/after-action";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 
 export const activityStaleTimeMs = 10_000;
 
@@ -36,9 +37,7 @@ export type UseActivityResult = ActivityState & {
   retryLoadMore: () => void;
 };
 
-export function activityOwnerKey(session: VerifiedAccountSession): string {
-  return `${session.user.subject}\u0000${session.smartAccount?.address.toLowerCase()}\u00008453\u0000${session.accountProvider}`;
-}
+export const activityOwnerKey = dataOwnerKey;
 
 export function useActivity(
   session: VerifiedAccountSession | null,

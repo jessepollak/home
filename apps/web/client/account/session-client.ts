@@ -25,11 +25,6 @@ export class SessionValidationError extends Error {
   }
 }
 
-export type VerifiedSessionOwner = {
-  ownerKey: string;
-  session: VerifiedAccountSession;
-};
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -93,18 +88,6 @@ function parseSession(value: unknown): VerifiedAccountSession | null {
 export function normalizeProjectId(value: string | undefined): string | null {
   const projectId = value?.trim();
   return projectId ? projectId : null;
-}
-
-export function getVisibleVerifiedSession(
-  verified: VerifiedSessionOwner | null,
-  currentOwnerKey: string | null,
-  isSigningOut: boolean,
-): VerifiedAccountSession | null {
-  if (isSigningOut || !verified || verified.ownerKey !== currentOwnerKey) {
-    return null;
-  }
-
-  return verified.session;
 }
 
 export type SessionFetch = (

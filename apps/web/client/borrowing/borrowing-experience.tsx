@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Button, Field, Heading, Input, Select, Text } from "@home/ui";
 import { useMemo, useState } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
+import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MoneyActionReview } from "@/client/actions/review";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
@@ -34,7 +35,6 @@ import type {
 } from "@/shared/borrowing/types";
 import styles from "./borrowing-experience.module.css";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
-import { activityOwnerKey } from "@/client/activity/use-activity";
 
 type FetchAccountResource = (
   path: string,
@@ -81,9 +81,8 @@ export function AuthenticatedBorrowExperience() {
 }
 
 export function BorrowExperience(props: BorrowExperienceProps) {
-  const owner = props.session?.smartAccount?.address ?? null;
-  const sessionKey = props.session && owner
-    ? `${props.session.user.subject}:${props.session.accountProvider}:${owner}`
+  const sessionKey = props.session?.smartAccount
+    ? ownerDataKey(props.session)
     : "signed-out";
   return <BorrowExperienceInner key={sessionKey} {...props} />;
 }
@@ -96,10 +95,8 @@ function BorrowExperienceInner({
   regionId = "GLOBAL",
 }: BorrowExperienceProps) {
   const owner = session?.smartAccount?.address ?? null;
-  const sessionKey = session && owner
-    ? `${session.user.subject}:${session.accountProvider}:${owner}`
-    : null;
-  const dataOwnerKey = session?.smartAccount ? activityOwnerKey(session) : null;
+  const sessionKey = session?.smartAccount ? ownerDataKey(session) : null;
+  const dataOwnerKey = sessionKey;
   const snapshotQuery = useHomeQuery({
     queryKey: dataOwnerKey ? ownerQueryKey(dataOwnerKey, "borrow") : ["unauthenticated", "borrow-disabled"],
     enabled: Boolean(sessionKey && fetchAccountResource && owner),

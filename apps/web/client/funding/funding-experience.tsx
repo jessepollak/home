@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RegionId } from "@/config/regions";
 import { useAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
-import { activityOwnerKey } from "@/client/activity/use-activity";
+import { dataOwnerKey, uiBoundary } from "@/client/account/owner-keys";
 import {
   AddMoneyDialog,
   type AddMoneyStep,
@@ -46,7 +46,7 @@ export function FundingExperienceForWallet(
 ) {
   return (
     <FundingExperienceBoundary
-      key={fundingBoundary(props.wallet) ?? "signed-out"}
+      key={uiBoundary(props.wallet) ?? "signed-out"}
       {...props}
     />
   );
@@ -62,10 +62,10 @@ function FundingExperienceBoundary({
   onStepChange,
   regionId = "GLOBAL",
 }: FundingExperienceForWalletProps) {
-  const boundary = fundingBoundary(wallet);
+  const boundary = uiBoundary(wallet);
   const session = wallet.status === "verified" ? wallet.session : null;
   const address = session?.smartAccount?.address ?? null;
-  const queryOwnerKey = session?.smartAccount ? activityOwnerKey(session) : null;
+  const queryOwnerKey = session?.smartAccount ? dataOwnerKey(session) : null;
   const signedOut = !boundary || !session?.smartAccount || !address;
   const startStep: AddMoneyStep =
     initialStep ?? (returnedFromProvider && !signedOut ? "receive" : "method");
@@ -174,13 +174,6 @@ function FundingExperienceBoundary({
       onOpenRedirect={navigateToRedirect}
     />
   );
-}
-
-function fundingBoundary(wallet: FundingWallet): string | null {
-  const session = wallet.status === "verified" ? wallet.session : null;
-  return wallet.ownerKey && session?.smartAccount
-    ? `${wallet.ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.accountProvider}`
-    : null;
 }
 
 function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {

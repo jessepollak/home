@@ -1,59 +1,33 @@
 "use client";
 
-import {
-  getUserOperation,
-  sendUserOperation,
-  type GetUserOperationOptions,
-  type GetUserOperationResult,
-  type SendUserOperationOptions,
-  type SendUserOperationResult,
+import type {
+  GetUserOperationOptions,
+  GetUserOperationResult,
+  SendUserOperationOptions,
+  SendUserOperationResult,
 } from "@coinbase/cdp-core";
 import {
-  CDPHooksProvider,
-  useCurrentUser,
-  useGetAccessToken,
-  useIsInitialized,
-  useIsSignedIn,
-  useSignInWithEmail,
-  useSignInWithSiwe,
-  useSignOut,
-  useVerifyEmailOTP,
-  useVerifySiweSignature,
-} from "@coinbase/cdp-hooks";
-import {
-  Component,
-  useCallback,
+  createContext,
+  lazy,
+  Suspense,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import {
-  signInProviderUnavailableCopy,
-  type SignInAvailability,
-} from "./sign-in-copy";
+import { signInProviderUnavailableCopy, type SignInAvailability } from "./sign-in-copy";
 import { BaseAccountConnectorError } from "./base-account-connector";
 import type { VerifiedAccountSession } from "./session-client";
-import {
-  clearNativeBaseSession,
-  nativeOwnerKey,
-  requestNativeBaseChallenge,
-  restoreNativeBaseSession,
-  verifyNativeBaseChallenge,
-} from "./native-base-session-client";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
-import type {
-  OperationResult,
-  PreparedMoneyAction,
-} from "@/shared/money-actions/types";
+import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import {
-  AccountWalletContext,
-  AccountWalletSessionOwner,
-} from "./cdp-session-lifecycle";
-import { BaseAccountLoginError } from "./cdp-wallet-provider-capabilities";
+  BaseAccountLoginError,
+  hasAccountProviderHint,
+} from "./cdp-wallet-provider-capabilities";
 export {
   BaseAccountLoginError,
   type BaseAccountLoginFailure,
@@ -68,10 +42,7 @@ export type AccountSessionStatus =
   | "signing-out"
   | "signout-error";
 
-export type BaseAccountLoginPhase =
-  | "connecting"
-  | "signing"
-  | "verifying";
+export type BaseAccountLoginPhase = "connecting" | "signing" | "verifying";
 
 export type AccountResourceOptions = {
   method?: "GET" | "POST";
@@ -91,9 +62,7 @@ export type AccountWalletClient = {
   message: string | null;
   requestEmailCode: (email: string) => Promise<{ flowId: string }>;
   verifyEmailCode: (flowId: string, otp: string) => Promise<void>;
-  signInWithBaseAccount: (
-    onPhase: (phase: BaseAccountLoginPhase) => void,
-  ) => Promise<void>;
+  signInWithBaseAccount: (onPhase: (phase: BaseAccountLoginPhase) => void) => Promise<void>;
   cancelSignInAttempt: () => void;
   fetchPortfolio: (signal?: AbortSignal) => Promise<unknown>;
   fetchPortfolioValuation: (
@@ -115,13 +84,13 @@ export type AccountWalletClient = {
   signOut: () => Promise<void>;
 };
 
+export const AccountWalletContext = createContext<AccountWalletClient | null>(null);
+
 export function createBlockedAccountWalletClient(
   reason: Exclude<SignInAvailability, "ready">,
 ): AccountWalletClient {
   const projectConfigured = reason !== "unconfigured";
-  const blockedMessage = projectConfigured
-    ? signInProviderUnavailableCopy.body
-    : null;
+  const blockedMessage = projectConfigured ? signInProviderUnavailableCopy.body : null;
   const blockedError = projectConfigured
     ? "Sign-in is unavailable."
     : "CDP project is not configured.";
@@ -136,72 +105,23 @@ export function createBlockedAccountWalletClient(
     status: "signed-out",
     session: null,
     message: blockedMessage,
-    requestEmailCode: async () => {
-      throw new Error(blockedError);
-    },
-    verifyEmailCode: async () => {
-      throw new Error(blockedError);
-    },
-    signInWithBaseAccount: async () => {
-      throw new BaseAccountLoginError("disabled");
-    },
+    requestEmailCode: async () => { throw new Error(blockedError); },
+    verifyEmailCode: async () => { throw new Error(blockedError); },
+    signInWithBaseAccount: async () => { throw new BaseAccountLoginError("disabled"); },
     cancelSignInAttempt: () => {},
-    fetchPortfolio: async () => {
-      throw new Error("Portfolio is unavailable.");
-    },
-    fetchPortfolioValuation: async () => {
-      throw new Error("Portfolio valuation is unavailable.");
-    },
-    fetchActivity: async () => {
-      throw new Error("Activity is unavailable.");
-    },
-    fetchSavingsPositions: async () => {
-      throw new Error("Savings positions are unavailable.");
-    },
-    fetchAccountResource: async () => {
-      throw new Error("Authenticated resource is unavailable.");
-    },
-    prepareMoneyAction: async () => {
-      throw new TransferExecutionError("unavailable");
-    },
-    resumeMoneyAction: async () => {
-      throw new TransferExecutionError("unavailable");
-    },
-    executeMoneyAction: async () => {
-      throw new TransferExecutionError("unavailable");
-    },
-    fetchOperations: async () => {
-      throw new Error("Operations are unavailable.");
-    },
+    fetchPortfolio: async () => { throw new Error("Portfolio is unavailable."); },
+    fetchPortfolioValuation: async () => { throw new Error("Portfolio valuation is unavailable."); },
+    fetchActivity: async () => { throw new Error("Activity is unavailable."); },
+    fetchSavingsPositions: async () => { throw new Error("Savings positions are unavailable."); },
+    fetchAccountResource: async () => { throw new Error("Authenticated resource is unavailable."); },
+    prepareMoneyAction: async () => { throw new TransferExecutionError("unavailable"); },
+    resumeMoneyAction: async () => { throw new TransferExecutionError("unavailable"); },
+    executeMoneyAction: async () => { throw new TransferExecutionError("unavailable"); },
+    fetchOperations: async () => { throw new Error("Operations are unavailable."); },
     retrySessionValidation: async () => {},
-    signTypedData: async () => {
-      throw new BaseAccountConnectorError("invalid-provider-response");
-    },
+    signTypedData: async () => { throw new BaseAccountConnectorError("invalid-provider-response"); },
     signOut: async () => {},
   };
-}
-
-const unconfiguredClient = createBlockedAccountWalletClient("unconfigured");
-const providerUnavailableClient = createBlockedAccountWalletClient(
-  "provider-unavailable",
-);
-
-class CdpHooksErrorBoundary extends Component<
-  { children: ReactNode; fallback: ReactNode },
-  { failed: boolean }
-> {
-  state = { failed: false };
-
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-
-  render() {
-    if (this.state.failed) {
-      return this.props.fallback;
-    }
-    return this.props.children;
-  }
 }
 
 export type AccountWalletSdkBoundary = {
@@ -219,149 +139,21 @@ export type AccountWalletSdkBoundary = {
     domain: string;
     uri: string;
   }) => Promise<{ flowId: string; message: string }>;
-  verifySiweSignature: (
-    flowId: string,
-    signature: `0x${string}`,
-  ) => Promise<void>;
+  verifySiweSignature: (flowId: string, signature: `0x${string}`) => Promise<void>;
   getAccessToken: () => Promise<string | null>;
-  sendUserOperation?: (
-    options: SendUserOperationOptions,
-  ) => Promise<SendUserOperationResult>;
-  getUserOperation?: (
-    options: GetUserOperationOptions,
-  ) => Promise<GetUserOperationResult>;
+  sendUserOperation?: (options: SendUserOperationOptions) => Promise<SendUserOperationResult>;
+  getUserOperation?: (options: GetUserOperationOptions) => Promise<GetUserOperationResult>;
   signOut: () => Promise<void>;
 };
 
-export { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
-
-function NativeBaseAccountBridge({ children }: { children: ReactNode }) {
-  const [identity, setIdentity] = useState<VerifiedAccountSession | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [initializationError, setInitializationError] = useState<
-    "provider-unavailable" | undefined
-  >();
-  const restoreSequence = useRef(0);
-  const challenges = useRef(new Map<string, { message: string; address: `0x${string}` }>());
-
-  const restore = useCallback(async (signal?: AbortSignal) => {
-    const sequence = ++restoreSequence.current;
-    await Promise.resolve();
-    if (signal?.aborted || sequence !== restoreSequence.current) return;
-    setIsInitialized(false);
-    setInitializationError(undefined);
-    try {
-      const session = await restoreNativeBaseSession(fetch, signal);
-      if (signal?.aborted || sequence !== restoreSequence.current) return;
-      setIdentity(session);
-    } catch {
-      if (signal?.aborted || sequence !== restoreSequence.current) return;
-      setIdentity(null);
-      setInitializationError("provider-unavailable");
-    } finally {
-      if (!signal?.aborted && sequence === restoreSequence.current) {
-        setIsInitialized(true);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    queueMicrotask(() => void restore(controller.signal));
-    return () => controller.abort();
-  }, [restore]);
-
-  const sdk = useMemo<AccountWalletSdkBoundary>(() => ({
-    authentication: "native-base",
-    initializationError,
-    retryInitialization: restore,
-    isInitialized,
-    isSignedIn: identity !== null,
-    ownerKey: identity ? nativeOwnerKey(identity) : null,
-    signInWithEmail: async () => { throw new Error("Email authentication requires a CDP project."); },
-    verifyEmailOTP: async () => { throw new Error("Email authentication requires a CDP project."); },
-    signInWithSiwe: async (options) => {
-      const current = new URL(window.location.href);
-      if (options.chainId !== BASE_CHAIN_ID || options.domain !== current.host || options.uri !== current.origin) {
-        throw new Error("Native Base authentication request was invalid.");
-      }
-      const challenge = await requestNativeBaseChallenge(options.address);
-      challenges.current.set(challenge.flowId, { message: challenge.message, address: options.address });
-      return challenge;
-    },
-    verifySiweSignature: async (flowId, signature) => {
-      const challenge = challenges.current.get(flowId);
-      challenges.current.delete(flowId);
-      if (!challenge) throw new Error("Native Base authentication request expired.");
-      setIdentity(await verifyNativeBaseChallenge(challenge.message, signature, challenge.address));
-    },
-    getAccessToken: async () => null,
-    signOut: async () => {
-      await clearNativeBaseSession();
-      challenges.current.clear();
-      setIdentity(null);
-    },
-  }), [identity, initializationError, isInitialized, restore]);
-
-  return <AccountWalletSessionOwner sdk={sdk} baseAccountEnabled projectConfigured={false}>{children}</AccountWalletSessionOwner>;
-}
-
-function AccountWalletBridge({
-  children,
-  baseAccountEnabled,
-}: {
-  children: ReactNode;
-  baseAccountEnabled: boolean;
-}) {
-  const { isInitialized } = useIsInitialized();
-  const { isSignedIn } = useIsSignedIn();
-  const { currentUser } = useCurrentUser();
-  const { signInWithEmail } = useSignInWithEmail();
-  const { verifyEmailOTP } = useVerifyEmailOTP();
-  const { signInWithSiwe } = useSignInWithSiwe();
-  const { verifySiweSignature } = useVerifySiweSignature();
-  const { getAccessToken } = useGetAccessToken();
-  const { signOut } = useSignOut();
-  const sdk = useMemo<AccountWalletSdkBoundary>(
-    () => ({
-      isInitialized,
-      isSignedIn,
-      ownerKey: currentUser?.userId ?? null,
-      signInWithEmail: async (email) => signInWithEmail({ email }),
-      verifyEmailOTP: async (flowId, otp) => {
-        await verifyEmailOTP({ flowId, otp });
-      },
-      signInWithSiwe: async (options) => signInWithSiwe(options),
-      verifySiweSignature: async (flowId, signature) => {
-        await verifySiweSignature({ flowId, signature });
-      },
-      getAccessToken,
-      sendUserOperation,
-      getUserOperation,
-      signOut,
-    }),
-    [
-      currentUser?.userId,
-      getAccessToken,
-      isInitialized,
-      isSignedIn,
-      signInWithEmail,
-      signInWithSiwe,
-      signOut,
-      verifyEmailOTP,
-      verifySiweSignature,
-    ],
-  );
-
-  return (
-    <AccountWalletSessionOwner
-      sdk={sdk}
-      baseAccountEnabled={baseAccountEnabled}
-    >
-      {children}
-    </AccountWalletSessionOwner>
-  );
-}
+const unconfiguredClient = createBlockedAccountWalletClient("unconfigured");
+const LazyCdpSdkProvider = lazy(() => import("./cdp-sdk-provider"));
+const LazyNativeBaseAccountBridge = lazy(() => import("./native-base-bridge"));
+const LazySmokeFixtureAccountProvider = lazy(() =>
+  import("./smoke-fixture-provider").then((module) => ({
+    default: module.SmokeFixtureAccountProvider,
+  })),
+);
 
 export function AccountWalletClientProvider({
   client,
@@ -370,10 +162,81 @@ export function AccountWalletClientProvider({
   client: AccountWalletClient;
   children: ReactNode;
 }) {
+  return <AccountWalletContext.Provider value={client}>{children}</AccountWalletContext.Provider>;
+}
+
+function AccountClientCapture({ onClient }: { onClient: (client: AccountWalletClient) => void }) {
+  const client = useAccountWallet();
+  useLayoutEffect(() => onClient(client), [client, onClient]);
+  return null;
+}
+
+function LazyConfiguredAccountProvider({
+  projectId,
+  baseAccountEnabled,
+  children,
+}: {
+  projectId: string;
+  baseAccountEnabled: boolean;
+  children: ReactNode;
+}) {
+  const [active, setActive] = useState(false);
+  const activeClientRef = useRef<AccountWalletClient | null>(null);
+  const readyResolversRef = useRef<Array<(client: AccountWalletClient) => void>>([]);
+
+  const activate = useMemo(() => () => {
+    if (activeClientRef.current) return Promise.resolve(activeClientRef.current);
+    setActive(true);
+    return new Promise<AccountWalletClient>((resolve) => {
+      readyResolversRef.current.push(resolve);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!hasAccountProviderHint()) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setActive(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const onClient = useMemo(() => (client: AccountWalletClient) => {
+    activeClientRef.current = client;
+    for (const resolve of readyResolversRef.current.splice(0)) resolve(client);
+  }, []);
+
+  const bootstrapClient = useMemo<AccountWalletClient>(() => ({
+    ...createBlockedAccountWalletClient("provider-unavailable"),
+    projectConfigured: true,
+    signInAvailability: "ready",
+    baseAccountEnabled,
+    isInitialized: false,
+    status: "restoring",
+    message: null,
+    requestEmailCode: async (email) => (await activate()).requestEmailCode(email),
+    verifyEmailCode: async (flowId, otp) => (await activate()).verifyEmailCode(flowId, otp),
+    signInWithBaseAccount: async (onPhase) => (await activate()).signInWithBaseAccount(onPhase),
+    retrySessionValidation: async () => {
+      const current = activeClientRef.current;
+      if (current) await current.retrySessionValidation();
+      else await activate();
+    },
+  }), [activate, baseAccountEnabled]);
+
+  if (!active) {
+    return <AccountWalletClientProvider client={bootstrapClient}>{children}</AccountWalletClientProvider>;
+  }
+
   return (
-    <AccountWalletContext.Provider value={client}>
-      {children}
-    </AccountWalletContext.Provider>
+    <Suspense fallback={(
+      <AccountWalletClientProvider client={bootstrapClient}>{children}</AccountWalletClientProvider>
+    )}>
+      <LazyCdpSdkProvider projectId={projectId} baseAccountEnabled={baseAccountEnabled}>
+        <AccountClientCapture onClient={onClient} />
+        {children}
+      </LazyCdpSdkProvider>
+    </Suspense>
   );
 }
 
@@ -381,57 +244,45 @@ export function CdpAccountProvider({
   projectId,
   baseAccountEnabled = false,
   nativeBaseAccountEnabled = false,
+  smokeFixture = false,
   children,
 }: {
   projectId: string | null;
   baseAccountEnabled?: boolean;
   nativeBaseAccountEnabled?: boolean;
+  smokeFixture?: boolean;
   children: ReactNode;
 }) {
-  const config = useMemo(
-    () =>
-      projectId
-        ? {
-            projectId,
-            ethereum: { createOnLogin: "smart" as const },
-            disableAnalytics: true,
-          }
-        : null,
-    [projectId],
-  );
-
-  if (!config) {
-    if (nativeBaseAccountEnabled) {
-      return <NativeBaseAccountBridge>{children}</NativeBaseAccountBridge>;
-    }
+  if (smokeFixture) {
     return (
-      <AccountWalletClientProvider client={unconfiguredClient}>
-        {children}
-      </AccountWalletClientProvider>
+      <Suspense fallback={(
+        <AccountWalletClientProvider client={unconfiguredClient}>{children}</AccountWalletClientProvider>
+      )}>
+        <LazySmokeFixtureAccountProvider>{children}</LazySmokeFixtureAccountProvider>
+      </Suspense>
     );
   }
-
-  return (
-    <CdpHooksErrorBoundary
-      fallback={
-        <AccountWalletClientProvider client={providerUnavailableClient}>
-          {children}
-        </AccountWalletClientProvider>
-      }
-    >
-      <CDPHooksProvider config={config}>
-        <AccountWalletBridge baseAccountEnabled={baseAccountEnabled}>
-          {children}
-        </AccountWalletBridge>
-      </CDPHooksProvider>
-    </CdpHooksErrorBoundary>
-  );
+  if (projectId) {
+    return (
+      <LazyConfiguredAccountProvider projectId={projectId} baseAccountEnabled={baseAccountEnabled}>
+        {children}
+      </LazyConfiguredAccountProvider>
+    );
+  }
+  if (nativeBaseAccountEnabled) {
+    return (
+      <Suspense fallback={(
+        <AccountWalletClientProvider client={unconfiguredClient}>{children}</AccountWalletClientProvider>
+      )}>
+        <LazyNativeBaseAccountBridge>{children}</LazyNativeBaseAccountBridge>
+      </Suspense>
+    );
+  }
+  return <AccountWalletClientProvider client={unconfiguredClient}>{children}</AccountWalletClientProvider>;
 }
 
 export function useAccountWallet(): AccountWalletClient {
   const client = useContext(AccountWalletContext);
-  if (!client) {
-    throw new Error("Account wallet client is unavailable outside its provider.");
-  }
+  if (!client) throw new Error("Account wallet client is unavailable outside its provider.");
   return client;
 }

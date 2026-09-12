@@ -1,185 +1,21 @@
 "use client";
 
-import { MfaError } from "@coinbase/cdp-core";
 import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import type { AccountSessionStatus, AccountWalletSdkBoundary } from "./cdp-client";
 import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
 import type { AuthenticatedTransport } from "./cdp-authenticated-transport";
-import type { SessionFetch, VerifiedAccountSession } from "./session-client";
-import { BaseAccountConnectorError, type ConnectedBaseAccount } from "./base-account-connector";
+import type { VerifiedAccountSession } from "./session-client";
+import type { ConnectedBaseAccount } from "./base-account-connector";
+import { executeActionOnce, type ConfirmedPlan } from "./action-dispatch";
+import {
+  normalizeResolutionState,
+  pollTransactionResolution,
+} from "./action-resolution";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { announceActionFailure } from "@/client/home/action-toast-events";
 
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
-const resolutionInitialDelayMs = 1_500;
-const resolutionPollIntervalMs = 2_500;
-const resolutionTimeoutMs = 3 * 60_000;
-
-type ConfirmedPlan = {
-  calls: Array<{ to: `0x${string}`; data: `0x${string}`; value: string }>;
-};
-
-type GenerationGuard = Pick<OwnerGenerationFence, "assertCurrent">;
-
-/**
- * Provider operation status folded to what Home acts on. `unavailable` means the
- * status could not be read at all: stop polling, never announce a failure.
- */
-export type ResolutionState = {
-  status: "pending" | "complete" | "failed" | "unavailable";
-  transactionHash?: string;
-  reason?: string;
-};
-
-const CDP_STATUS_MAP: Record<string, ResolutionState["status"]> = {
-  pending: "pending",
-  signed: "pending",
-  broadcast: "pending",
-  complete: "complete",
-  failed: "failed",
-  dropped: "failed",
-};
-
-export type ResolutionClock = {
-  now: () => number;
-  setTimer: (callback: () => void, delayMs: number) => unknown;
-  clearTimer: (timer: unknown) => void;
-};
-
-const browserResolutionClock: ResolutionClock = {
-  now: Date.now,
-  setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
-  clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
-};
-
-export function pollTransactionResolution(input: {
-  generation: number;
-  fence: GenerationGuard;
-  check: () => Promise<ResolutionState>;
-  recordTransactionHash: (transactionHash: string) => Promise<void>;
-  onFailedWithoutHash: (reason: string) => void;
-  clock?: ResolutionClock;
-  initialDelayMs?: number;
-  intervalMs?: number;
-  timeoutMs?: number;
-}): { result: Promise<void>; cancel: () => void } {
-  const clock = input.clock ?? browserResolutionClock;
-  const startedAt = clock.now();
-  const intervalMs = input.intervalMs ?? resolutionPollIntervalMs;
-  const timeoutMs = input.timeoutMs ?? resolutionTimeoutMs;
-  let timer: unknown;
-  let settled = false;
-  let resolveResult!: () => void;
-  const result = new Promise<void>((resolve) => { resolveResult = resolve; });
-  const finish = () => {
-    if (settled) return;
-    settled = true;
-    if (timer !== undefined) clock.clearTimer(timer);
-    resolveResult();
-  };
-  const schedule = (delayMs: number) => {
-    if (!settled) timer = clock.setTimer(() => void poll(), delayMs);
-  };
-  const poll = async () => {
-    if (settled || clock.now() - startedAt >= timeoutMs) {
-      finish();
-      return;
-    }
-    try {
-      input.fence.assertCurrent(input.generation);
-    } catch {
-      finish();
-      return;
-    }
-    let state: ResolutionState;
-    try {
-      state = await input.check();
-    } catch {
-      schedule(intervalMs);
-      return;
-    }
-    if (settled) return;
-    try {
-      input.fence.assertCurrent(input.generation);
-    } catch {
-      finish();
-      return;
-    }
-    if ((state.status === "complete" || state.status === "failed") && state.transactionHash) {
-      try {
-        await input.recordTransactionHash(state.transactionHash);
-      } catch {
-        schedule(intervalMs);
-        return;
-      }
-      finish();
-      return;
-    }
-    if (state.status === "failed") {
-      input.onFailedWithoutHash(state.reason ?? "The wallet operation failed.");
-      finish();
-      return;
-    }
-    if (state.status === "unavailable") {
-      finish();
-      return;
-    }
-    schedule(intervalMs);
-  };
-  schedule(input.initialDelayMs ?? resolutionInitialDelayMs);
-  return { result, cancel: finish };
-}
-
-function isUserRejectedDispatch(error: unknown): boolean {
-  return (
-    error instanceof BaseAccountConnectorError && error.reason === "cancelled"
-  ) || (
-    error instanceof MfaError && error.code === "CANCELLED"
-  );
-}
-
-export async function executeActionOnce(input: {
-  id: string;
-  generation: number;
-  fence: GenerationGuard;
-  confirmedPlans: Map<string, ConfirmedPlan>;
-  providerDispatches: Map<string, Promise<string>>;
-  confirm: () => Promise<ConfirmedPlan>;
-  dispatch: (plan: ConfirmedPlan) => Promise<string>;
-  recordHandle: (providerHandle: string) => Promise<void>;
-}): Promise<string> {
-  input.fence.assertCurrent(input.generation);
-  let plan = input.confirmedPlans.get(input.id);
-  if (!plan) {
-    input.fence.assertCurrent(input.generation);
-    plan = await input.confirm();
-    input.fence.assertCurrent(input.generation);
-    input.confirmedPlans.set(input.id, plan);
-  }
-
-  let dispatch = input.providerDispatches.get(input.id);
-  if (!dispatch) {
-    input.fence.assertCurrent(input.generation);
-    dispatch = input.dispatch(plan);
-    input.providerDispatches.set(input.id, dispatch);
-  }
-  let providerHandle: string;
-  try {
-    providerHandle = await dispatch;
-  } catch (error) {
-    if (isUserRejectedDispatch(error)) {
-      if (input.providerDispatches.get(input.id) === dispatch) input.providerDispatches.delete(input.id);
-      throw new TransferExecutionError("rejected", error);
-    }
-    throw error;
-  }
-  input.fence.assertCurrent(input.generation);
-  await input.recordHandle(providerHandle);
-  input.fence.assertCurrent(input.generation);
-  return providerHandle;
-}
-
 function validPrepared(value: unknown, session: VerifiedAccountSession): value is PreparedMoneyAction {
   return Boolean(
     isRecord(value) && typeof value.id === "string" &&
@@ -208,9 +44,6 @@ export function useMoneyActionExecution({
   ownerFence: OwnerGenerationFence;
   sdkSendUserOperation: AccountWalletSdkBoundary["sendUserOperation"];
   sdkGetUserOperation: AccountWalletSdkBoundary["getUserOperation"];
-  getAccessToken: () => Promise<string | null>;
-  sessionFetch?: SessionFetch;
-  authentication?: "cdp" | "native-base";
   baseConnection: MutableRefObject<ConnectedBaseAccount | null>;
   transport: AuthenticatedTransport;
 }) {
@@ -408,34 +241,8 @@ export function useMoneyActionExecution({
     prepareMoneyAction,
     resumeMoneyAction,
     executeMoneyAction,
-    pendingTransfer: null,
     reset,
   };
-}
-
-export function normalizeResolutionState(value: unknown): ResolutionState {
-  const status = isRecord(value) ? CDP_STATUS_MAP[String(value.status)] : undefined;
-  if (!isRecord(value) || !status) throw new Error("Invalid operation status.");
-  const reason = failureReason(value)
-    ?? (value.status === "dropped" ? "The operation was dropped before it was included." : null);
-  return {
-    status,
-    ...(typeof value.transactionHash === "string" && hashPattern.test(value.transactionHash)
-      ? { transactionHash: value.transactionHash }
-      : {}),
-    ...(reason ? { reason } : {}),
-  };
-}
-
-function failureReason(value: Record<string, unknown>): string | null {
-  for (const key of ["failureReason", "error", "message"]) {
-    const candidate = value[key];
-    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
-    if (isRecord(candidate) && typeof candidate.message === "string" && candidate.message.trim()) {
-      return candidate.message.trim();
-    }
-  }
-  return null;
 }
 
 function shortFailureReason(reason: string): string {

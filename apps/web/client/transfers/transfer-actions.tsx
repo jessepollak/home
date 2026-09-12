@@ -14,6 +14,7 @@ import {
   useAccountWallet,
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
+import { uiBoundary } from "@/client/account/owner-keys";
 import {
   commitClientUrl,
   flowHref,
@@ -70,7 +71,7 @@ export function TransferActionsForWallet({
     mountedClientSnapshot,
     mountedServerSnapshot,
   );
-  const boundary = walletBoundary(wallet);
+  const boundary = uiBoundary(wallet);
   const verifiedAddress =
     wallet.status === "verified" ? wallet.session?.smartAccount?.address ?? null : null;
   const routeOpen = routing ? routing.state.flow === "send" : initialOpen;
@@ -185,11 +186,4 @@ export function TransferActionsForWallet({
       ) : null}
     </div>
   );
-}
-
-function walletBoundary(wallet: TransferWallet): string | null {
-  const session = wallet.status === "verified" ? wallet.session : null;
-  return wallet.ownerKey && session?.smartAccount
-    ? `${wallet.ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.accountProvider}`
-    : null;
 }
