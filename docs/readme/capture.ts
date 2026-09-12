@@ -1,9 +1,9 @@
 // Capture the current UI against the same sample-only account boundary used by
-// apps/web/tests/browser/smoke.pw.ts. This script intercepts every /api request;
-// it does not read .env.local, contact providers, sign, submit, or use live funds.
-import { chromium, type Page, type Route } from "@playwright/test";
-import { mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+// apps/web/tests/browser/smoke.pw.ts. Browser API requests are locally fulfilled,
+// while unexpected non-local requests are aborted and reported.
+import { chromium, type BrowserContext, type Page, type Route } from "@playwright/test";
+import { mkdir, readdir } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const captureUrl = new URL(process.env.HOME_CAPTURE_BASE_URL ?? "http://localhost:3199");
@@ -11,7 +11,9 @@ if (captureUrl.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(capt
   throw new Error("HOME_CAPTURE_BASE_URL must be a local HTTP origin.");
 }
 const BASE_URL = captureUrl.origin;
+const LOCAL_WEBSOCKET_ORIGIN = BASE_URL.replace(/^http:/, "ws:");
 const OUTPUT_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(OUTPUT_DIR, "../..");
 const OWNER = "0x1111111111111111111111111111111111111111";
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const VAULTS = [
@@ -44,7 +46,7 @@ function valuation() {
       name: index === 0 ? "Steakhouse USDC" : index === 1 ? "Gauntlet USDC Prime" : "Re7 USDC",
       symbol: "USDC vault", vaultAddress: address, decimals: 18,
       underlyingAssetKey: usdcKey, underlyingSymbol: "USDC", underlyingDecimals: 6,
-      sharesBaseUnits: index === 1 ? "320000000000000000000" : "0",
+      sharesBaseUnits: index === 1 ? "312000000000000000000" : "0",
       underlyingBaseUnits: index === 1 ? "320000000" : "0", readStatus: "ready",
       conversionMethod: "erc4626-convertToAssets",
     })),
@@ -54,7 +56,7 @@ function valuation() {
     timeBasis: "retrieved-at",
   };
   const values = new Map([
-    ["eip155:8453/native", { atoms: "2676", scale: 2 }],
+    ["eip155:8453/native", { atoms: "267632", scale: 2 }],
     [usdcKey, { atoms: "1284", scale: 0 }],
     [`eip155:8453/erc20:${VAULTS[1]!.toLowerCase()}`, { atoms: "320", scale: 0 }],
   ]);
@@ -80,7 +82,7 @@ function valuation() {
     }],
     total: {
       label: "supported-portfolio-value", status: "all-supported-read-holdings-priced",
-      value: { atoms: "163076", scale: 2 }, currency: "USD", unpricedAssetKeys: [], unavailableAssetKeys: [],
+      value: { atoms: "428032", scale: 2 }, currency: "USD", unpricedAssetKeys: [], unavailableAssetKeys: [],
     },
   };
 }
@@ -207,14 +209,37 @@ async function json(route: Route, body: unknown) {
   await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 }
 
-async function installFixtures(page: Page) {
-  await page.route("**/api/**", async (route) => {
-    const path = new URL(route.request().url()).pathname;
+const unexpectedRequests: string[] = [];
+let basenameResolverFixtureCount = 0;
+
+async function installFixtures(context: BrowserContext) {
+  await context.route("**/*", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const path = requestUrl.pathname;
+
+    if (
+      requestUrl.origin === "https://api.ensideas.com" &&
+      path === `/ens/resolve/${OWNER}`
+    ) {
+      basenameResolverFixtureCount += 1;
+      return json(route, { name: null, avatar: null });
+    }
+
+    if (requestUrl.origin !== BASE_URL) {
+      unexpectedRequests.push(`external ${route.request().method()} ${requestUrl.href}`);
+      await route.abort("blockedbyclient");
+      return;
+    }
+
+    if (!path.startsWith("/api/")) {
+      await route.continue();
+      return;
+    }
+
     if (path === "/api/session") return json(route, { user: { subject: "readme-sample-subject" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" });
     if (path === "/api/portfolio/valuation") return json(route, valuation());
     if (path === "/api/portfolio") return json(route, portfolio());
     if (path === "/api/activity") {
-      const requestUrl = new URL(route.request().url());
       const to = requestUrl.searchParams.get("to") ?? now();
       const from = new Date(Date.parse(to) - 31 * 24 * 60 * 60 * 1_000).toISOString();
       return json(route, {
@@ -228,15 +253,42 @@ async function installFixtures(page: Page) {
     if (path === "/api/market-prices") return json(route, marketPrices());
     if (path === "/api/invest/discover") return json(route, investDiscover());
     if (path === "/api/borrow") return json(route, borrowSnapshot());
-    if (path === "/api/basename-profile") return json(route, { profile: null });
     if (path === "/api/actions/operations") {
-      const scope = new URL(route.request().url()).searchParams.get("scope");
+      const scope = requestUrl.searchParams.get("scope");
       return json(route, scope === "unresolved-send"
         ? { scope: "unresolved-send", operations: [] }
         : { operations: [] });
     }
-    return json(route, {});
+
+    unexpectedRequests.push(`local API ${route.request().method()} ${requestUrl.href}`);
+    await route.abort("blockedbyclient");
   });
+
+  await context.routeWebSocket(/.*/, async (webSocket) => {
+    const requestUrl = new URL(webSocket.url());
+    if (requestUrl.origin === LOCAL_WEBSOCKET_ORIGIN) {
+      webSocket.connectToServer();
+      return;
+    }
+    unexpectedRequests.push(`external websocket ${requestUrl.href}`);
+    await webSocket.close({ code: 1008, reason: "README capture blocks external sockets" });
+  });
+}
+
+async function assertNoLocalEnvFiles() {
+  const forbidden: string[] = [];
+  for (const directory of [REPO_ROOT, join(REPO_ROOT, "apps/web")]) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.name.startsWith(".env") && entry.name !== ".env.example") {
+        forbidden.push(join(directory, entry.name));
+      }
+    }
+  }
+  if (forbidden.length > 0) {
+    throw new Error(
+      `Refusing to capture with local environment files present:\n${forbidden.join("\n")}`,
+    );
+  }
 }
 
 async function signIn(page: Page) {
@@ -249,9 +301,12 @@ async function signIn(page: Page) {
 }
 
 async function capture(page: Page, name: string) {
+  await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
+  await page.mouse.move(-10, -10);
   await page.screenshot({ path: join(OUTPUT_DIR, name), animations: "disabled" });
 }
 
+await assertNoLocalEnvFiles();
 await mkdir(OUTPUT_DIR, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
@@ -259,16 +314,18 @@ const context = await browser.newContext({
   deviceScaleFactor: 2,
   reducedMotion: "no-preference",
   colorScheme: "light",
+  serviceWorkers: "block",
 });
 const page = await context.newPage();
 await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
-await installFixtures(page);
+await installFixtures(context);
 
 try {
   await signIn(page);
 
   await page.goto(`${BASE_URL}/dashboard`);
-  await page.getByText("$1,630.76", { exact: true }).waitFor();
+  await page.getByText("$4,280.32", { exact: true }).waitFor();
+  await page.getByText("$2,676.32", { exact: true }).waitFor();
   await page.waitForTimeout(1_000);
   await capture(page, "home.png");
 
@@ -289,15 +346,26 @@ try {
   await capture(page, "borrow.png");
 
   await page.goto(`${BASE_URL}/dashboard`);
-  await page.getByText("$1,630.76", { exact: true }).waitFor();
+  await page.getByText("$4,280.32", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("dialog", { name: "Send" }).waitFor();
   await page.getByRole("button", { name: "2", exact: true }).click();
   await page.getByRole("button", { name: "5", exact: true }).click();
   await page.getByRole("button", { name: "Continue" }).waitFor();
   await capture(page, "send.png");
+
+  if (basenameResolverFixtureCount === 0) {
+    throw new Error("The expected Basename resolver request was not observed.");
+  }
+  if (unexpectedRequests.length > 0) {
+    throw new Error(`Unexpected browser requests were blocked:\n${unexpectedRequests.join("\n")}`);
+  }
 } finally {
   await browser.close();
 }
 
-console.log(`Captured README screenshots from ${BASE_URL} into ${OUTPUT_DIR}`);
+console.log(
+  `Captured README screenshots from ${BASE_URL} into ${OUTPUT_DIR}; ` +
+  `fulfilled ${basenameResolverFixtureCount} Basename resolver request(s); ` +
+  "observed 0 unexpected browser requests.",
+);

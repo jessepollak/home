@@ -4,61 +4,46 @@
 
 Open-source software for building your own global money app.
 
-Home gives builders a mobile-first money app on Base that they can fork and make their own. Customize the brand, local currencies, assets, and providers for your community, your customers, or your country—without starting the product and wallet experience from zero.
+Build for your community, customers, or country. Start with a mobile-first app on Base, then make it yours with your brand, local currencies, assets, and providers.
 
-> **Development status:** Home is under active development, not a production-approved money app. A real-money deployment requires your own provider configuration, verified account and route eligibility, and end-to-end acceptance. See [current availability](#current-availability) and [build status](docs/build-status.md).
+> **Development status:** Home is under active development. See [build status](docs/build-status.md) before considering a real-money deployment.
 
-## Why Home
+## Start with Home. Make it yours.
 
-People experience money locally: the currency they earn, the assets they can access, and the providers available where they live. Most financial apps are built as closed products for one market. Home is built as a starting point for builders.
-
-Fork the repository, keep the mobile product foundation, and replace the parts that make a money app local:
-
-- your name, identity, colors, and product language;
-- the countries and currencies you present;
-- the assets and financial products you support;
-- the account, funding, data, and protocol providers you operate.
-
-Home is software, not a bank-in-a-box. It does not supply licenses, custody, universal provider access, or a one-click production launch.
+Fork the repository, customize the product and provider seams, and deploy with your own provider accounts.
 
 ## Vision
 
-**This is the product direction, not a claim about everything supported today.** Home is building toward a global money app where people can:
+Home is building toward a complete money app:
 
-- **HOLD, SEND, and RECEIVE** money in their currency;
-- **EARN** on their money across currencies;
-- **INVEST** across asset classes;
-- **BORROW** against their assets, in the asset or currency they need.
-
-The current implementation is narrower and intentionally explicit about what is available.
+- **Hold, send, and receive** money across currencies and assets.
+- **Earn** across currencies and assets.
+- **Invest** across asset classes.
+- **Borrow** against assets in the currency you need.
 
 ## Product
 
-These are real 390px browser captures of the current app, rendered with the repository's Playwright smoke account boundary and local sample API data. They contain no live account, wallet, credentials, funds, external provider requests, signatures, or submissions. Select any image for the full-size capture.
+Real browser captures of the current app with sample data. Select an image for full size.
 
 <table>
   <tr>
     <td align="center">
       <a href="docs/readme/home.png"><img src="docs/readme/home.png" width="250" alt="Sample-data capture of the Home mobile dashboard with balance, send, save, and activity actions"></a><br>
-      <strong>Home</strong><br><sub>Sample data</sub>
+      <strong>Home</strong>
     </td>
     <td align="center">
       <a href="docs/readme/save.png"><img src="docs/readme/save.png" width="250" alt="Sample-data capture of the current Save screen with USDC vault choices"></a><br>
-      <strong>Save</strong><br><sub>Sample data</sub>
-    </td>
-    <td align="center">
-      <a href="docs/readme/invest.png"><img src="docs/readme/invest.png" width="250" alt="Sample-data capture of the Invest screen with stock and crypto discovery shelves"></a><br>
-      <strong>Invest</strong><br><sub>Sample data</sub>
+      <strong>Save</strong>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <a href="docs/readme/send.png"><img src="docs/readme/send.png" width="250" alt="Sample-data capture of the Send money amount sheet"></a><br>
-      <strong>Send</strong><br><sub>Sample data</sub>
+      <a href="docs/readme/invest.png"><img src="docs/readme/invest.png" width="250" alt="Sample-data capture of the Invest screen with stock and crypto discovery shelves"></a><br>
+      <strong>Invest</strong>
     </td>
     <td align="center">
-      <a href="docs/readme/borrow.png"><img src="docs/readme/borrow.png" width="250" alt="Sample-data capture of the currently supported USDC against cbBTC Borrow market"></a><br>
-      <strong>Borrow</strong><br><sub>Sample data</sub>
+      <a href="docs/readme/send.png"><img src="docs/readme/send.png" width="250" alt="Sample-data capture of the Send money amount sheet"></a><br>
+      <strong>Send</strong>
     </td>
   </tr>
 </table>
@@ -76,14 +61,14 @@ Home keeps the main operator seams in typed configuration and server boundaries:
 | Wallet, savings, and Invest asset catalogs | `apps/web/config/portfolio-assets.ts`, `apps/web/shared/savings/config.ts`, `apps/web/config/invest-assets.ts` |
 | Account, data, funding, and protocol providers | `apps/web/server/` and the matching setup guides in `docs/` |
 
-Read [Fork and extend](docs/fork-and-extend.md) before publishing a customized deployment. Country selection in the app changes presentation and formatting; it does not establish eligibility, residency, or an executable funding route.
+Read [Fork and extend](docs/fork-and-extend.md) before publishing a customized deployment. Country selection changes presentation and formatting; executable routes still depend on your provider configuration and eligibility.
 
 ## Get started
 
 ### Prerequisites
 
 - [Bun](https://bun.sh/) **1.3.12**, pinned by `packageManager`.
-- Node.js **22 or newer**.
+- Node.js **22.13 or newer**.
 
 ### Install and run
 
@@ -101,9 +86,9 @@ bun dev
 
 Open `http://localhost:3000`. Use the canonical `localhost` origin rather than `127.0.0.1`.
 
-You can browse the public product surfaces without credentials. Email sign-in, authenticated balances, and money actions require your own CDP project and allowed local origin; follow [CDP setup](docs/cdp-setup.md). Never commit secrets or expose server keys with a `NEXT_PUBLIC_` prefix.
+You can browse public product surfaces without credentials. Email sign-in, authenticated balances, and money actions require your own CDP project and allowed local origin; follow [CDP setup](docs/cdp-setup.md). Never commit secrets or expose server keys with a `NEXT_PUBLIC_` prefix.
 
-Money actions fail closed unless PostgreSQL is configured with `DATABASE_URL` and `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty` after unresolved legacy SQLite actions and references have been verified empty. Apply the migrations and read [Vercel deploy](docs/vercel-deploy.md) before exercising those flows. The trading-intent runtime has a separate persistence boundary; [build status](docs/build-status.md) is the current source of truth.
+Money actions require PostgreSQL via `DATABASE_URL` and `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty` after unresolved legacy SQLite actions and references are verified empty. Apply the migrations and read [Vercel deploy](docs/vercel-deploy.md). Trading intents use a separate persistence boundary documented in [build status](docs/build-status.md).
 
 ### Useful commands
 
@@ -117,9 +102,7 @@ bun check      # test, lint, typecheck, and build
 
 ## Current availability
 
-Today, the repository includes local-currency portfolio presentation; USDC and ETH send/receive flows; indexed activity; public Morpho USDC vault data and authenticated Save actions; multi-asset Invest discovery with an email-controlled crypto trade flow; and one bounded USDC-against-cbBTC Borrow market.
-
-That is not universal product support. Stock trading is not enabled, broader borrow markets and currencies are not implemented, provider availability is operator-specific, and no live funded end-to-end or production acceptance is implied. See [build status](docs/build-status.md) for the exact implemented scope and remaining gates.
+The repository currently includes local-currency portfolio presentation; USDC and ETH send/receive flows; indexed activity; public Morpho USDC vault data and authenticated Save actions; multi-asset Invest discovery with an email-controlled crypto trade flow; and one bounded USDC-against-cbBTC Borrow market ([full-size capture](docs/readme/borrow.png)). Stock trading and broader borrow or currency support are not yet implemented. See [build status](docs/build-status.md) for the exact scope.
 
 ## Repository map
 
@@ -134,7 +117,7 @@ That is not universal product support. Stock trading is not enabled, broader bor
 | `apps/design-system/` | UI package documentation and browser examples |
 | `docs/` | Setup, deployment, runtime boundaries, product status, and extension guides |
 
-**Stack:** Next.js, React, TypeScript, Tailwind CSS, Bun, Base, CDP, Morpho, and PostgreSQL for money-action persistence. Provider and protocol integrations remain bounded by their setup, eligibility, and validation requirements.
+**Stack:** Next.js, React, TypeScript, Tailwind CSS, Bun, Base, CDP, Morpho, and PostgreSQL for money-action persistence.
 
 ## Contributing
 
