@@ -6,14 +6,15 @@
   max-height: calc(100svh - 32px);
   overflow: auto;
   margin: 0 auto;
-  border: 1px solid rgba(10, 11, 13, 0.16);
-  border-radius: 14px 14px 8px 8px;
-  background: #ffffff;
+  border: 1px solid color-mix(in srgb, var(--home-ui-color-text) 16%, transparent);
+  border-top: 3px solid var(--home-ui-color-action);
+  border-radius: var(--home-ui-radius-surface) var(--home-ui-radius-surface) var(--home-ui-radius-control) var(--home-ui-radius-control);
+  background: var(--home-ui-color-surface);
   box-shadow: 0 24px 80px rgba(10, 11, 13, 0.24);
-  color: #0a0b0d;
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  padding: 24px;
-  border-top: 3px solid #0052ff;
+  color: var(--home-ui-color-text);
+  font-family: var(--home-ui-font-family);
+  overflow-wrap: anywhere;
+  padding: var(--home-ui-space-6);
 }
 
 .sheet::backdrop {
@@ -25,154 +26,105 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: var(--home-ui-space-3);
 }
 
 .sheetHeader {
-  align-items: flex-start;
+  align-items: center;
 }
 
-.kicker {
-  margin: 0;
-  color: #0052ff;
-  font-size: 0.7rem;
-  font-weight: 750;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-}
-
-.sheet h2 {
-  margin: 0;
-  font-size: clamp(1.75rem, 8vw, 2.5rem);
-  font-weight: 600;
-  letter-spacing: -0.05em;
-  line-height: 1;
+.fieldHeader {
+  flex-wrap: wrap;
 }
 
 .closeButton {
-  display: grid;
-  width: 44px;
-  height: 44px;
   flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid rgba(10, 11, 13, 0.14);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #0a0b0d;
-  cursor: pointer;
-  font-size: 1.5rem;
-  line-height: 1;
 }
 
 .form {
   display: grid;
-  gap: 12px;
-  margin-top: 26px;
+  gap: var(--home-ui-space-3);
+  margin-top: var(--home-ui-space-6);
 }
 
 .form label,
 .fieldHeader label {
-  font-size: 0.78rem;
-  font-weight: 700;
+  color: var(--home-ui-color-text);
+  font-size: var(--home-ui-type-secondary-size);
+  font-weight: var(--home-ui-type-weight-strong);
+  line-height: var(--home-ui-type-body-leading);
 }
 
 .signInDivider {
   display: flex;
   align-items: center;
-  gap: 10px;
-  color: #717886;
-  font-size: 0.72rem;
-  text-transform: uppercase;
+  gap: var(--home-ui-space-3);
 }
 
 .signInDivider::before,
 .signInDivider::after {
   height: 1px;
   flex: 1;
-  background: rgba(10, 11, 13, 0.14);
+  background: var(--home-ui-color-border);
   content: "";
 }
 
 .input,
 .otpInput {
   width: 100%;
-  min-height: 54px;
-  border: 1px solid rgba(10, 11, 13, 0.22);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #0a0b0d;
-  font: inherit;
-  font-size: 1rem;
-  padding: 0 15px;
+  min-height: max(54px, 3rem);
+  border: 1px solid color-mix(in srgb, var(--home-ui-color-text) 22%, transparent);
+  border-radius: var(--home-ui-radius-control);
+  background: var(--home-ui-color-surface);
+  color: var(--home-ui-color-text);
+  font-family: var(--home-ui-font-family);
+  font-size: var(--home-ui-type-input-size);
+  line-height: var(--home-ui-type-body-leading);
+  padding: var(--home-ui-space-2) var(--home-ui-space-4);
 }
 
 .otpInput {
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--home-ui-font-numeric);
   font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: 0.32em;
+  font-weight: var(--home-ui-type-weight-medium);
+  letter-spacing: 0.24em;
   text-align: center;
 }
 
 .input:focus,
 .otpInput:focus {
-  border-color: #0052ff;
-  outline: 3px solid rgba(0, 82, 255, 0.14);
+  border-color: var(--home-ui-color-focus);
+  outline: 3px solid color-mix(in srgb, var(--home-ui-color-focus) 14%, transparent);
 }
 
-.primaryButton,
-.secondaryButton {
-  min-height: 52px;
-  border-radius: 8px;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.84rem;
-  font-weight: 700;
-  padding: 0 17px;
-}
-
-.primaryButton {
-  border: 1px solid #0052ff;
-  background: #0052ff;
-  color: #ffffff;
-}
-
-.secondaryButton {
-  border: 1px solid rgba(10, 11, 13, 0.18);
-  background: #ffffff;
-  color: #0a0b0d;
-}
-
-.textButton {
-  border: 0;
-  background: transparent;
-  color: #0052ff;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
-  padding: 5px 0;
-}
-
-.closeButton:disabled,
 .input:disabled,
-.otpInput:disabled,
-.primaryButton:disabled,
-.secondaryButton:disabled,
-.textButton:disabled {
+.otpInput:disabled {
+  background: var(--home-ui-color-disabled-surface);
+  color: var(--home-ui-color-disabled-text);
   cursor: not-allowed;
-  opacity: 0.52;
+}
+
+.formAction,
+.statusAction {
+  width: 100%;
+}
+
+.formAction {
+  min-height: 52px;
+}
+
+.changeEmailButton {
+  flex: 0 0 auto;
+  padding-inline: var(--home-ui-space-2);
 }
 
 .notice,
 .error,
 .pendingPanel,
 .statusPanel {
-  margin: 20px 0 0;
-  border-radius: 8px;
-  font-size: 0.84rem;
-  line-height: 1.5;
-  padding: 13px 15px;
+  margin: var(--home-ui-space-6) 0 0;
+  border-radius: var(--home-ui-radius-control);
+  padding: var(--home-ui-space-3) var(--home-ui-space-4);
 }
 
 .notice {
@@ -188,67 +140,43 @@
 .pendingPanel {
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: #eef0f3;
-  color: #454950;
+  gap: var(--home-ui-space-3);
+  background: var(--home-ui-color-subtle-hover);
 }
 
 .statusPanel {
-  border: 1px solid rgba(10, 11, 13, 0.14);
-  background: #eef0f3;
-}
-
-.statusPanel strong {
-  display: block;
-}
-
-.statusPanel p {
-  margin: 7px 0 0;
-  color: #5b616e;
-}
-
-.statusPanel p + p {
-  margin-top: 8px;
+  display: grid;
+  gap: var(--home-ui-space-2);
+  border: 1px solid var(--home-ui-color-border);
+  background: var(--home-ui-color-canvas);
 }
 
 .statusPanel a {
-  color: #0052ff;
-  font-weight: 700;
+  color: var(--home-ui-color-action);
+  font-weight: var(--home-ui-type-weight-strong);
 }
 
 .statusPanel code {
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--home-ui-font-numeric);
   font-size: 0.9em;
 }
 
-.statusPanel .secondaryButton {
-  width: 100%;
-  margin-top: 13px;
+.statusAction {
+  margin-top: var(--home-ui-space-1);
 }
 
 .spinner {
   width: 17px;
   height: 17px;
   flex: 0 0 auto;
-  border: 2px solid rgba(0, 82, 255, 0.2);
-  border-top-color: #0052ff;
+  border: 2px solid color-mix(in srgb, var(--home-ui-color-action) 20%, transparent);
+  border-top-color: var(--home-ui-color-action);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
-.fieldHelp,
-.privacyNote {
-  color: #717886;
-  font-size: 0.74rem;
-  line-height: 1.5;
-}
-
 .fieldHelp {
-  margin: -2px 0 3px;
-}
-
-.privacyNote {
-  margin: 22px 0 0;
+  margin-top: calc(-1 * var(--home-ui-space-1));
 }
 
 .providerHandoff {
@@ -260,33 +188,21 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: var(--home-ui-space-3);
   width: min(calc(100% - 32px), 620px);
   margin: 0 auto;
-  border: 1px solid rgba(10, 11, 13, 0.16);
-  border-radius: 10px;
-  background: #ffffff;
+  border: 1px solid var(--home-ui-color-border);
+  border-radius: var(--home-ui-radius-control);
+  background: var(--home-ui-color-surface);
   box-shadow: 0 14px 44px rgba(10, 11, 13, 0.18);
-  padding: 12px 14px;
+  color: var(--home-ui-color-text);
+  font-family: var(--home-ui-font-family);
+  overflow-wrap: anywhere;
+  padding: var(--home-ui-space-3) var(--home-ui-space-4);
 }
 
-.providerHandoff p {
-  margin: 0;
-  color: #454950;
-  font-size: 0.78rem;
-  line-height: 1.4;
-}
-
-.providerHandoff button {
-  min-height: 36px;
-  border: 1px solid rgba(10, 11, 13, 0.18);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #0a0b0d;
-  cursor: pointer;
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 0 12px;
+.providerAction {
+  min-width: max-content;
 }
 
 @keyframes spin {
@@ -295,11 +211,23 @@
   }
 }
 
+@media (max-width: 480px) {
+  .providerHandoff {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .providerAction {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+}
+
 @media (min-width: 640px) {
   .sheet {
     inset: 50% auto auto 50%;
-    border-radius: 10px;
-    padding: 30px;
+    border-radius: var(--home-ui-radius-surface);
+    padding: var(--home-ui-space-8);
     transform: translate(-50%, -50%);
   }
 
@@ -314,5 +242,13 @@
 @media (prefers-reduced-motion: reduce) {
   .spinner {
     animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .sheet,
+  .statusPanel,
+  .providerHandoff {
+    border-color: CanvasText;
   }
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { Button, Heading, Text } from "@home/ui";
+import { ArrowRightIcon } from "@home/ui/icons";
 import { CopyableValue } from "@/components/copyable-value";
 import { CountrySelect } from "@/components/country-select";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -40,9 +42,13 @@ export function AccountSettings({
   return (
     <div className={styles.page}>
       <section className={styles.section} aria-labelledby="preferences-heading">
-        <h2 id="preferences-heading" className={styles.kicker}>
+        <Heading
+          id="preferences-heading"
+          level={2}
+          textStyle="section-title"
+        >
           Preferences
-        </h2>
+        </Heading>
         <div className={styles.card}>
           <div className={styles.countryRow}>
             <CurrencyMark
@@ -50,8 +56,16 @@ export function AccountSettings({
               symbol={region.currency.symbol}
             />
             <div className={styles.countryCopy}>
-              <span>Country</span>
-              <p id="country-help">Sets how money is shown</p>
+              <Text as="span" textStyle="row-label">
+                Country
+              </Text>
+              <Text
+                id="country-help"
+                textStyle="metadata"
+                tone="muted"
+              >
+                Sets how money is shown
+              </Text>
             </div>
             <CountrySelect
               value={regionId}
@@ -70,14 +84,16 @@ export function AccountSettings({
       </section>
 
       <section className={styles.section} aria-labelledby="account-heading">
-        <h2 id="account-heading" className={styles.kicker}>
+        <Heading id="account-heading" level={2} textStyle="section-title">
           Account
-        </h2>
+        </Heading>
         <div className={styles.card}>
           <div className={styles.row}>
             <div>
-              <strong>Base account</strong>
-              <small>
+              <Text as="strong" textStyle="row-label">
+                Base account
+              </Text>
+              <Text as="small" textStyle="metadata" tone="muted">
                 {accountAddress ? (
                   <CopyableValue
                     value={accountAddress}
@@ -87,33 +103,28 @@ export function AccountSettings({
                 ) : (
                   "Setup in progress"
                 )}
-              </small>
+              </Text>
             </div>
           </div>
-          <button className={styles.rowButton} type="button" onClick={onSignOut}>
-            <span>Sign out</span>
-            <ChevronIcon />
-          </button>
+          <Button
+            className={styles.rowButton}
+            variant="quiet"
+            onClick={onSignOut}
+          >
+            <span className={styles.rowButtonContent}>
+              <Text as="span" textStyle="row-label">
+                Sign out
+              </Text>
+              <ArrowRightIcon
+                size={20}
+                weight="regular"
+                aria-hidden="true"
+                focusable="false"
+              />
+            </span>
+          </Button>
         </div>
       </section>
     </div>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m9 6 6 6-6 6" />
-    </svg>
   );
 }
