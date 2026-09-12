@@ -7,7 +7,6 @@ import { writeObservabilityEvent } from "@/server/observability/log";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
 
 const authorizeSession = createSessionHandler({
   getValidator: getCdpAccessTokenValidator,

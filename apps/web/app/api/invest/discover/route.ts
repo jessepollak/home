@@ -1,4 +1,4 @@
-import { createInvestDiscoverHandler } from "./handler";
+import { createInvestDiscoverHandler } from "@/server/market-data/handlers/invest-discover";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

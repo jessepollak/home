@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createErrorInvestDiscover } from "@/server/market-data/invest-discover";
 import type { InvestDiscoverResponse } from "@/server/market-data/invest-discover";
-import { createInvestDiscoverHandler } from "./handler";
+import { createInvestDiscoverHandler } from "@/server/market-data/handlers/invest-discover";
 
 const payload: InvestDiscoverResponse = {
   version: 1,

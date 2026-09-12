@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { ActionRow } from "./store";
 import { createConfirmActionHandler, createGetActionHandler } from "./handler";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
@@ -30,6 +31,8 @@ function authorize(subject = "owner-a", accountProvider: "cdp-embedded" | "base-
 function context() {
   return { params: Promise.resolve({ id: ID }) };
 }
+
+afterEach(() => setObservabilityLogWriterForTests());
 
 function request(path: string, init?: RequestInit) {
   return new Request(`https://home.test${path}`, {
@@ -88,6 +91,47 @@ describe("actions HTTP handlers", () => {
     expect(response.status).toBe(200);
     expect(confirmedCalls).toEqual([CALL]);
     expect((await response.json()).calls).toEqual([CALL]);
+  });
+
+  test("a failed confirm emits exactly one bounded event without money or call fields", async () => {
+    const writes: string[] = [];
+    setObservabilityLogWriterForTests((line) => writes.push(line));
+    const trade = { ...row, kind: "trade" } satisfies ActionRow;
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store: {
+        get: async () => trade,
+        confirm: async () => null,
+      },
+    });
+
+    const response = await handler(
+      request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }),
+      context(),
+    );
+
+    expect(response.status).toBe(400);
+    expect(writes).toHaveLength(1);
+    const event = JSON.parse(writes[0] ?? "{}") as Record<string, unknown>;
+    expect(event).toMatchObject({
+      kind: "action-confirm",
+      code: "INVALID_TRADE_SIGNATURE",
+      outcome: "failed",
+      provider: "cdp-embedded",
+      route: "/api/actions/:redacted/confirm",
+    });
+    expect(Object.keys(event).sort()).toEqual([
+      "code",
+      "durationMs",
+      "kind",
+      "level",
+      "outcome",
+      "ownerHash",
+      "provider",
+      "route",
+      "schema",
+    ]);
   });
 
   test("confirms a trade using the moved Permit2 finalizer", async () => {

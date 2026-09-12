@@ -7,6 +7,7 @@ import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
 import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
+import { emitServerEvent } from "@/server/observability/log";
 
 export type ActionAuthorizer = (request: Request) => Promise<Response>;
 
@@ -68,17 +69,29 @@ export function createConfirmActionHandler(dependencies: {
   now?: () => Date;
 }) {
   return async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
+    const startedAt = Date.now();
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
+    const fail = (code: string, message: string, status: number) => {
+      emitServerEvent("action-confirm", {
+        route: "/api/actions/:id/confirm",
+        code,
+        outcome: "failed",
+        provider: owner.accountProvider,
+        owner,
+        durationMs: Date.now() - startedAt,
+      });
+      return privateError(code, message, status);
+    };
     const { id } = await context.params;
-    if (!uuidPattern.test(id)) return privateError("INVALID_ACTION", "A valid action id is required.", 400);
+    if (!uuidPattern.test(id)) return fail("INVALID_ACTION", "A valid action id is required.", 400);
     const store = dependencies.store ?? getActionsStore();
     const draft = await store.get(owner, id);
     if (!draft || draft.confirmed_at || !draft.pending?.calls?.length) {
-      return privateError("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
+      return fail("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
     }
     if (Date.parse(draft.summary.expiresAt) <= (dependencies.now?.() ?? new Date()).getTime()) {
-      return privateError("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);
+      return fail("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);
     }
 
     let calls = draft.pending.calls;
@@ -88,7 +101,7 @@ export function createConfirmActionHandler(dependencies: {
         ? body.signature.toLowerCase() as `0x${string}`
         : null;
       if (!signature || !isPendingTradeConfirmation(draft.pending)) {
-        return privateError("INVALID_TRADE_SIGNATURE", "A valid reviewed Permit2 signature is required.", 400);
+        return fail("INVALID_TRADE_SIGNATURE", "A valid reviewed Permit2 signature is required.", 400);
       }
       try {
         calls = await finalizeTradeCalls({
@@ -100,12 +113,12 @@ export function createConfirmActionHandler(dependencies: {
           signal: request.signal,
         });
       } catch {
-        return privateError("INVALID_TRADE_SIGNATURE", "The Permit2 signature does not match the verified owner.", 400);
+        return fail("INVALID_TRADE_SIGNATURE", "The Permit2 signature does not match the verified owner.", 400);
       }
     }
 
     const row = await store.confirm(owner, id, calls);
-    if (!row || !row.pending?.calls?.length) return privateError("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
+    if (!row || !row.pending?.calls?.length) return fail("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
     return privateJson({ id: row.id, calls: row.pending.calls, summary: row.summary, expiresAt: row.summary.expiresAt }, 200);
   };
 }
@@ -115,21 +128,33 @@ export function createHandleActionHandler(dependencies: {
   store?: Pick<ActionsStore, "recordHandle">;
 }) {
   return async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
+    const startedAt = Date.now();
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
+    const fail = (code: string, message: string, status: number) => {
+      emitServerEvent("action-handle", {
+        route: "/api/actions/:id/handle",
+        code,
+        outcome: "failed",
+        provider: owner.accountProvider,
+        owner,
+        durationMs: Date.now() - startedAt,
+      });
+      return privateError(code, message, status);
+    };
     const { id } = await context.params;
     const body = await readJson(request);
-    if (!uuidPattern.test(id) || !isRecord(body)) return privateError("INVALID_ACTION_HANDLE", "A valid action handle is required.", 400);
+    if (!uuidPattern.test(id) || !isRecord(body)) return fail("INVALID_ACTION_HANDLE", "A valid action handle is required.", 400);
     const providerHandle = typeof body.providerHandle === "string" && /^[\x21-\x7e]{1,512}$/.test(body.providerHandle)
       ? body.providerHandle : undefined;
     const transactionHash = typeof body.transactionHash === "string" && hashPattern.test(body.transactionHash)
       ? body.transactionHash.toLowerCase() : undefined;
     if ((!providerHandle && !transactionHash) || Object.keys(body).some((key) => key !== "providerHandle" && key !== "transactionHash")) {
-      return privateError("INVALID_ACTION_HANDLE", "A provider handle or transaction hash is required.", 400);
+      return fail("INVALID_ACTION_HANDLE", "A provider handle or transaction hash is required.", 400);
     }
     const row = await (dependencies.store ?? getActionsStore()).recordHandle(owner, id, { providerHandle, transactionHash });
     return row ? privateJson({ action: await presentAction(row, owner) }, 200)
-      : privateError("ACTION_NOT_FOUND", "The action is unavailable or the handle conflicts.", 404);
+      : fail("ACTION_NOT_FOUND", "The action is unavailable or the handle conflicts.", 404);
   };
 }
 

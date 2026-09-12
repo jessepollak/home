@@ -3,7 +3,8 @@ import { GET as providers } from "./providers/route";
 import { POST as quotes } from "./quotes/route";
 import { GET as openOrders, POST as createOrder } from "./orders/route";
 import { GET as orderStatus } from "./orders/[id]/route";
-import { POST as webhook, readBoundedWebhookBody } from "./webhooks/[provider]/route";
+import { POST as webhook } from "./webhooks/[provider]/route";
+import { readBoundedWebhookBody } from "@/server/funding/core/webhook-body";
 
 function assertPrivate(response: Response) {
   expect(response.headers.get("cache-control")).toContain("private");
