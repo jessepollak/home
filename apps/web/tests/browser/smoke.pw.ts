@@ -587,10 +587,17 @@ test("account sign-in and settings stay reachable at 390px, 320px, and 200% text
 
 type MoneySheetMotionSample = {
   t: number;
-  y: number;
+  top: number;
+  bottom: number;
   height: number;
+  viewportHeight: number;
+  transform: string;
   owner: string;
   state: string;
+  dialogState: string;
+  overlayBackground: string;
+  contentBottom: number;
+  contentVisible: boolean;
 };
 
 function compactMotionOwners(samples: MoneySheetMotionSample[]) {
@@ -626,12 +633,29 @@ test.describe("MoneyModal painted motion", () => {
         const sheet = document.querySelector<HTMLElement>("dialog[open] [data-money-sheet]");
         if (sheet) {
           const rect = sheet.getBoundingClientRect();
+          const dialog = sheet.closest<HTMLDialogElement>("dialog");
+          const contentElement = sheet.lastElementChild;
+          const content = contentElement?.getBoundingClientRect();
+          const contentStyle = contentElement ? getComputedStyle(contentElement) : null;
           trace.samples.push({
             t: performance.now() - started,
-            y: rect.y,
+            top: rect.top,
+            bottom: rect.bottom,
             height: rect.height,
+            viewportHeight: innerHeight,
+            transform: getComputedStyle(sheet).transform,
             owner: sheet.dataset.positionOwner ?? "missing",
             state: sheet.dataset.state ?? "missing",
+            dialogState: dialog?.dataset.state ?? "missing",
+            overlayBackground: dialog ? getComputedStyle(dialog).backgroundColor : "missing",
+            contentBottom: content?.bottom ?? rect.bottom,
+            contentVisible: Boolean(
+              content
+              && content.top < innerHeight
+              && content.bottom > 0
+              && contentStyle?.visibility !== "hidden"
+              && contentStyle?.display !== "none",
+            ),
           });
         }
         if (!trace.stop) requestAnimationFrame(sample);
@@ -705,8 +729,11 @@ test.describe("MoneyModal painted motion", () => {
     const openDuration = openEnd.t - openStart.t;
     expect(openDuration).toBeGreaterThanOrEqual(300);
     expect(openDuration).toBeLessThanOrEqual(450);
-    const visibleOpen = openSamples.filter(({ t, y }) => t >= openStart.t && y < 843);
-    expectMonotonic(visibleOpen.map(({ y }) => y), "up");
+    const visible = (samples: MoneySheetMotionSample[]) => samples.filter(
+      ({ top, bottom, viewportHeight }) => top < viewportHeight && bottom > 0,
+    );
+    const visibleOpen = visible(openSamples).filter(({ t }) => t >= openStart.t);
+    expectMonotonic(visibleOpen.map(({ top }) => top), "up");
     expect(
       Math.max(...visibleOpen.map(({ height }) => height))
       - Math.min(...visibleOpen.map(({ height }) => height)),
@@ -714,26 +741,62 @@ test.describe("MoneyModal painted motion", () => {
 
     const throwDragEnd = throwSamples.findLast(({ owner }) => owner === "drag")!.t;
     const throwSettled = throwSamples.filter(({ t }) => t > throwDragEnd);
-    const openY = throwSettled.at(-1)!.y;
-    expect(Math.max(...throwSettled.map(({ y }) => Math.abs(y - openY))))
+    const openY = throwSettled.at(-1)!.top;
+    expect(Math.max(...throwSettled.map(({ top }) => Math.abs(top - openY))))
       .toBeLessThanOrEqual(0.75);
 
     const returning = reverseSamples.filter(({ owner }) => owner === "returning");
-    expectMonotonic(returning.map(({ y }) => y), "up");
-    expect(Math.min(...returning.map(({ y }) => y))).toBeGreaterThanOrEqual(openY - 0.75);
+    expectMonotonic(returning.map(({ top }) => top), "up");
+    expect(Math.min(...returning.map(({ top }) => top))).toBeGreaterThanOrEqual(openY - 0.75);
 
     const closing = closeSamples.filter(({ owner }) => owner === "closing");
     const closeDuration = closing.at(-1)!.t - closing[0].t + 16;
-    expectMonotonic(closing.map(({ y }) => y), "down");
-    expect(Math.max(...closing.map(({ y }) => y))).toBeLessThanOrEqual(844.5);
+    expectMonotonic(closing.map(({ top }) => top), "down");
+    expect(Math.max(...closing.map(({ top }) => top))).toBeLessThanOrEqual(844.5);
     expect(closeDuration).toBeGreaterThanOrEqual(300);
     expect(closeDuration).toBeLessThanOrEqual(450);
 
+    const phases = {
+      open: visibleOpen,
+      throwUp: visible(throwSamples),
+      dragPauseReverse: visible(reverseSamples),
+      close: visible(closeSamples),
+    };
+    for (const [phase, samples] of Object.entries(phases)) {
+      expect(samples.length, `${phase} should have visible frames`).toBeGreaterThan(0);
+      for (const sample of samples) {
+        expect.soft(
+          sample.viewportHeight - sample.bottom,
+          `${phase} t=${sample.t.toFixed(1)}ms box bottom must cover viewport bottom`,
+        ).toBeLessThanOrEqual(0);
+        expect.soft(
+          sample.viewportHeight - sample.contentBottom,
+          `${phase} t=${sample.t.toFixed(1)}ms content bottom must cover viewport bottom`,
+        ).toBeLessThanOrEqual(0);
+      }
+    }
+
+    const bottomGapSeries = {
+      sheet: Object.fromEntries(Object.entries(phases).map(([phase, samples]) => [
+        phase,
+        samples.map(({ bottom, viewportHeight }) => Number(
+          Math.max(0, viewportHeight - bottom).toFixed(2),
+        )),
+      ])),
+      content: Object.fromEntries(Object.entries(phases).map(([phase, samples]) => [
+        phase,
+        samples.map(({ contentBottom, viewportHeight }) => Number(
+          Math.max(0, viewportHeight - contentBottom).toFixed(2),
+        )),
+      ])),
+    };
     const measurements = {
       viewport: "390x844",
       openDurationMs: Math.round(openDuration),
       closeDurationMs: Math.round(closeDuration),
       openHeightPx: Math.round(openSamples.at(-1)!.height),
+      bottomGapSeries,
+      frames: phases,
       owners: {
         open: compactMotionOwners(openSamples),
         throwUp: compactMotionOwners(throwSamples),
@@ -741,7 +804,19 @@ test.describe("MoneyModal painted motion", () => {
         close: compactMotionOwners(closeSamples),
       },
     };
-    console.log(`MONEY_MODAL_MOTION ${JSON.stringify(measurements)}`);
+    console.log(`MONEY_MODAL_MOTION ${JSON.stringify({
+      viewport: measurements.viewport,
+      openDurationMs: measurements.openDurationMs,
+      closeDurationMs: measurements.closeDurationMs,
+      openHeightPx: measurements.openHeightPx,
+      maximumPositiveSheetBottomGapPx: Object.fromEntries(
+        Object.entries(bottomGapSeries.sheet).map(([phase, gaps]) => [phase, Math.max(...gaps)]),
+      ),
+      maximumPositiveContentBottomGapPx: Object.fromEntries(
+        Object.entries(bottomGapSeries.content).map(([phase, gaps]) => [phase, Math.max(...gaps)]),
+      ),
+      owners: measurements.owners,
+    })}`);
     await testInfo.attach("money-modal-motion-measurements", {
       body: JSON.stringify(measurements, null, 2),
       contentType: "application/json",
