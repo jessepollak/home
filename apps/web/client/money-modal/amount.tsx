@@ -88,7 +88,12 @@ export function useAutoFitAmountText(text: string) {
     const sizer = sizerRef.current;
     if (!container || !sizer) return;
 
+    // Re-measure only when the text changes (effect deps), fonts settle, or the
+    // container's inline width changes. Our own font-size change alters the
+    // container's height and the ticker's box; feeding those back would oscillate.
+    let lastWidth = -1;
     const measure = () => {
+      lastWidth = container.clientWidth;
       const computed = window.getComputedStyle(container);
       const horizontalPadding =
         (Number.parseFloat(computed.paddingLeft) || 0)
@@ -128,9 +133,10 @@ export function useAutoFitAmountText(text: string) {
 
     let observer: ResizeObserver | undefined;
     if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(measure);
+      observer = new ResizeObserver(() => {
+        if (container.clientWidth !== lastWidth) measure();
+      });
       observer.observe(container);
-      observer.observe(sizer);
     }
 
     let active = true;
