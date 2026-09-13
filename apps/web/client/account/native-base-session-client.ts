@@ -1,37 +1,15 @@
 import {
   ACCOUNT_PROVIDER_HEADER,
-  BASE_CHAIN_ID,
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
-
-const addressPattern = /^0x[0-9a-fA-F]{40}$/;
+import { parseNativeBaseNonceResponse } from "@/shared/account/contracts/base-nonce";
+import { parseNativeBaseSession } from "@/shared/account/contracts/base-verify";
 const flowIdPattern = /^[0-9a-f-]{16,64}$/;
 
 export type NativeBaseFetch = (
   input: RequestInfo | URL,
   init?: RequestInit,
 ) => Promise<Response>;
-
-export function parseNativeBaseSession(value: unknown): VerifiedAccountSession | null {
-  if (!value || typeof value !== "object") return null;
-  const session = value as Partial<VerifiedAccountSession>;
-  if (
-    session.accountProvider !== "base-account" ||
-    !session.user || typeof session.user.subject !== "string" || !session.user.subject ||
-    !session.smartAccount ||
-    typeof session.smartAccount.address !== "string" ||
-    !addressPattern.test(session.smartAccount.address) ||
-    session.smartAccount.chainId !== BASE_CHAIN_ID
-  ) return null;
-  return {
-    user: { subject: session.user.subject },
-    smartAccount: {
-      address: session.smartAccount.address.toLowerCase() as `0x${string}`,
-      chainId: BASE_CHAIN_ID,
-    },
-    accountProvider: "base-account",
-  };
-}
 
 async function readSessionResponse(response: Response): Promise<VerifiedAccountSession> {
   if (!response.ok) throw new Error("Native Base authentication failed.");
@@ -82,12 +60,8 @@ export async function requestNativeBaseChallenge(
     redirect: "error",
   });
   if (!response.ok) throw new Error("Native Base authentication failed.");
-  const value: unknown = await response.json().catch(() => null);
-  if (
-    !value || typeof value !== "object" ||
-    !("message" in value) || typeof value.message !== "string" ||
-    value.message.length === 0 || value.message.length > 16_384
-  ) throw new Error("Native Base authentication failed.");
+  const value = parseNativeBaseNonceResponse(await response.json().catch(() => null));
+  if (!value) throw new Error("Native Base authentication failed.");
   const flowId = crypto.randomUUID();
   if (!flowIdPattern.test(flowId)) throw new Error("Native Base authentication failed.");
   return { flowId, message: value.message };
