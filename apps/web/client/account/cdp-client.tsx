@@ -69,6 +69,10 @@ export type AccountWalletClient = {
     region: import("@/config/regions").RegionId,
     signal?: AbortSignal,
   ) => Promise<unknown>;
+  fetchBalances: (
+    region: import("@/config/regions").RegionId,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
   fetchActivity: (query: string, signal?: AbortSignal) => Promise<unknown>;
   fetchSavingsPositions: (signal?: AbortSignal) => Promise<unknown>;
   fetchAccountResource: (path: string, options?: AccountResourceOptions) => Promise<unknown>;
@@ -111,6 +115,7 @@ export function createBlockedAccountWalletClient(
     signInWithBaseAccount: async () => { throw new BaseAccountLoginError("disabled"); },
     cancelSignInAttempt: () => {},
     fetchPortfolioValuation: async () => { throw new Error("Portfolio valuation is unavailable."); },
+    fetchBalances: async () => { throw new Error("Balances are unavailable."); },
     fetchActivity: async () => { throw new Error("Activity is unavailable."); },
     fetchSavingsPositions: async () => { throw new Error("Savings positions are unavailable."); },
     fetchAccountResource: async () => { throw new Error("Authenticated resource is unavailable."); },

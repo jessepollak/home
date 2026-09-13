@@ -183,7 +183,7 @@ export function restoreOwnerQueries(
   const persister = createOwnerQueryPersister(storage, ownerKey);
   const persisted = persister?.restoreClient();
   persister?.cancel();
-  if (!persisted || persisted.buster !== "home-query-v1" || now - persisted.timestamp > ownerQueryCacheTtlMs) {
+  if (!persisted || persisted.buster !== "home-query-v2" || now - persisted.timestamp > ownerQueryCacheTtlMs) {
     if (persisted) persister?.removeClient();
     return false;
   }
@@ -210,7 +210,7 @@ export function OwnerQueryPersistence({ ownerKey }: { ownerKey: string | null })
     if (!persister) return;
     const persist = () => persister.persistClient({
       timestamp: Date.now(),
-      buster: "home-query-v1",
+      buster: "home-query-v2",
       clientState: dehydrateOwnerQueries(queryClient, ownerKey),
     });
     const unsubscribe = queryClient.getQueryCache().subscribe(persist);

@@ -12,6 +12,7 @@ export type TransferAsset = {
 };
 
 export type TransferAssetAvailability = TransferAsset & {
+  balanceBaseUnits: string;
   balanceLabel: string;
 };
 

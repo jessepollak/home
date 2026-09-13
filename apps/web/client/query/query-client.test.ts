@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { dehydrate } from "@tanstack/react-query";
+import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
 import {
   clearOwnerQueryBoundary,
   createHomeQueryClient,
@@ -61,25 +62,31 @@ describe("owner query cache boundary", () => {
     expect(storage.getItem(ownerBStorageKey)).toBeNull();
   });
 
-  test("persists a valuation snapshot without recognized wallet catalog rows", () => {
+  test("persists the whole balances snapshot including catalog rows", () => {
     const ownerKey = "owner-a";
     const client = createHomeQueryClient();
-    client.setQueryDefaults(ownerQueryKey(ownerKey, "valuation", "US"), {
-      meta: ownerQueryMeta(ownerKey, "memory"),
+    client.setQueryDefaults(ownerQueryKey(ownerKey, "balances", "US"), {
+      meta: ownerQueryMeta(ownerKey, "owner"),
     });
-    client.setQueryData(ownerQueryKey(ownerKey, "valuation", "US"), {
-      version: 2,
-      total: { atoms: "1234", scale: 2 },
-      recognized: { holdings: [{ id: "recognized-secret" }] },
-    });
+    const snapshot = balancesSnapshotFixture;
+    client.setQueryData(ownerQueryKey(ownerKey, "balances", "US"), snapshot);
 
     const state = dehydrateOwnerQueries(client, ownerKey);
+    const storage = memoryStorage();
+    const persister = createOwnerQueryPersister(storage, ownerKey);
+    persister?.persistClient({ timestamp: Date.now(), buster: "home-query-v2", clientState: state });
+    persister?.flush();
+    const restored = createHomeQueryClient();
 
     expect(state.queries).toHaveLength(1);
-    expect(state.queries[0]?.state.data).toEqual({
-      version: 2,
-      total: { atoms: "1234", scale: 2 },
-    });
+    expect(state.queries[0]?.state.data).toEqual(snapshot);
+    expect(restoreOwnerQueries(restored, storage, ownerKey)).toBe(true);
+    const restoredSnapshot = restored.getQueryData<typeof snapshot>(
+      ownerQueryKey(ownerKey, "balances", "US"),
+    );
+    expect(restoredSnapshot).toEqual(snapshot);
+    expect(restoredSnapshot?.holdings.filter((holding) => holding.source === "catalog"))
+      .toHaveLength(3);
   });
 
   test("persister restores synchronously and dehydration rejects non-owner keys", async () => {
@@ -108,7 +115,7 @@ describe("owner query cache boundary", () => {
     const persister = createOwnerQueryPersister(storage, ownerKey);
     persister?.persistClient({
       timestamp: Date.now(),
-      buster: "home-query-v1",
+      buster: "home-query-v2",
       clientState: dehydrated,
     });
     persister?.flush();

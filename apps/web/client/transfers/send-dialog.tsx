@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from
 import { AddressField } from "@/components/address";
 import { CopyableValue } from "@/components/copyable-value";
 import { formatAddress } from "@/shared/formatting";
+import { atomicToDecimal } from "@/shared/formatting/atomic";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import {
   MoneyAmountDisplay,
@@ -192,7 +193,7 @@ export function SendDialog({
       <MoneyModalHeader title={step === "confirm" || step === "pending" || step === "error" ? "Confirm" : "Send"} titleId="send-title" onBack={step === "amount" || step === "pending" ? undefined : back} onClose={close} closeDisabled={step === "pending"} closeLabel="Close send dialog" />
       <div className={modal.body}>
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetCurrency={selectedAsset?.cashCurrency} assetOptions={assetOptions} onAssetChange={(next) => { setAssetId(next); changeAmount("", "programmatic"); }} chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
+          <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(selectedAvailability.balanceBaseUnits, selectedAvailability.decimals) : null} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetCurrency={selectedAsset?.cashCurrency} assetOptions={assetOptions} onAssetChange={(next) => { setAssetId(next); changeAmount("", "programmatic"); }} chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
           {selectedAsset ? <MoneyNumpad value={amount} maxDecimals={selectedAsset.decimals} onChange={changeAmount} /> : <StatusMessage>No catalog balance is available to send.</StatusMessage>}
         </> : null}
         {step === "address" ? <div className={modal.fieldBlock}>

@@ -59,9 +59,9 @@ function input(
     candidates: supportedVaultAddresses.map((address) => candidate(address, rates[address] ?? null)),
     positions: supportedVaultAddresses.map((vaultAddress) => ({
       vaultAddress,
-      position: balances[vaultAddress] === undefined
+      position: balances[vaultAddress] === null
         ? null
-        : { assetsRaw: balances[vaultAddress] ?? null },
+        : { assetsRaw: balances[vaultAddress] ?? "0" },
     })),
     metadataFetchedAt: "2026-09-10T12:00:00.000Z",
     nowMs: TEST_NOW,

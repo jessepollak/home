@@ -13,8 +13,8 @@ import {
   type ShellPanelId,
 } from "@/config/navigation";
 import type { RegionId, ResolutionSource } from "@/config/regions";
-import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import { ActivityPage } from "./activity-panel";
 import { BalancesPage } from "./balances-panel";
 import { SavingsPanel, InvestPanel } from "./feature-panels";
@@ -42,7 +42,7 @@ export function DashboardShell({
   selectRegion,
   signOut,
   paintedAssetBalances,
-  assetMarkResolution,
+  sendAvailability,
   activitySession,
   fetchActivity,
   fetchOperations,
@@ -76,7 +76,7 @@ export function DashboardShell({
   selectRegion: (region: RegionId) => void;
   signOut: () => void;
   paintedAssetBalances: HomeAssetBalancesPresentation;
-  assetMarkResolution?: AssetMarkResolution;
+  sendAvailability: readonly TransferAssetAvailability[];
   activitySession: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
@@ -140,8 +140,8 @@ export function DashboardShell({
                 <MountedShellPanel active={activeNavigation === "home"}>
                   <HomePanel
                     assetBalances={paintedAssetBalances}
-                    assetMarkResolution={assetMarkResolution}
                     activitySession={activitySession}
+                    sendAvailability={sendAvailability}
                     fetchActivity={fetchActivity}
                     fetchOperations={fetchOperations}
                     onOpenSave={() => navigateTo(savePanelId)}
@@ -160,7 +160,6 @@ export function DashboardShell({
                   <BalancesPage
                     active={activeNavigation === balancesPanelId}
                     assetBalances={paintedAssetBalances}
-                    assetMarkResolution={assetMarkResolution}
                     isChecking={isChecking}
                     revealedCount={balancesReveal.count}
                     onRevealMore={balancesReveal.extend}
@@ -184,6 +183,7 @@ export function DashboardShell({
               {mountedPanels.has(savePanelId) ? (
                 <MountedShellPanel active={activeNavigation === savePanelId}>
                   <SavingsPanel
+                    regionId={regionId}
                     isVerified={isVerified}
                     isChecking={isChecking}
                     content={savingsContent}

@@ -5,15 +5,21 @@ import type { RegionId } from "@/config/regions";
 import { EmptyPanel, ShimmerRows } from "./panel-shared";
 
 export function SavingsPanel({
+  regionId,
   isVerified,
   isChecking,
   content,
 }: {
+  regionId: RegionId;
   isVerified: boolean;
   isChecking: boolean;
   content?: ReactNode;
 }) {
-  if (isVerified) return <div id="save-panel">{content ?? <EmptyPanel label="Savings" />}</div>;
+  if (isVerified) return (
+    <PresentationRegionProvider regionId={regionId}>
+      <div id="save-panel">{content ?? <EmptyPanel label="Savings" />}</div>
+    </PresentationRegionProvider>
+  );
   return (
     <div id="save-panel">
       {isChecking ? <SavePanelShell /> : <EmptyPanel label="Savings" />}

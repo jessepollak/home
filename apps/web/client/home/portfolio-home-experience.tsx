@@ -1,17 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  presentPortfolioValuation,
-  usePortfolioValuation,
-} from "@/client/portfolio";
+import { useBalances } from "@/client/balances";
 import { useAccountWallet } from "@/client/account/cdp-client";
+import { presentBalances } from "@/shared/balances/present";
 import { resolvePresentation, type RegionId } from "@/config/regions";
 import { HomeExperience } from "./home-shell-provider";
+import { deriveSendAvailability } from "./send-availability";
 import type { HomeExperienceProps } from "./home-types";
 
 export function PortfolioHomeExperience(
-  props: Omit<HomeExperienceProps, "assetBalances">,
+  props: Omit<HomeExperienceProps, "assetBalances" | "sendAvailability">,
 ) {
   const account = useAccountWallet();
   const [selectedRegion, setSelectedRegion] = useState<RegionId>(
@@ -25,25 +24,22 @@ export function PortfolioHomeExperience(
         accountProvider: account.session.accountProvider,
       }
     : null;
-  const valuation = usePortfolioValuation(
-    session,
-    selectedRegion,
-    account.fetchPortfolioValuation,
-    { enabled: account.verification === "server" },
+  const balances = useBalances(session, selectedRegion, account.fetchBalances, {
+    enabled: account.verification === "server",
+  });
+  const presentation = useMemo(() => presentBalances(balances), [balances]);
+  const sendAvailability = useMemo(
+    () => balances.snapshot ? deriveSendAvailability(balances.snapshot) : [],
+    [balances.snapshot],
   );
-  const presentedValuation = useMemo(() => {
-    const presented = presentPortfolioValuation(valuation);
-    return valuation.revalidating && presented.status === "ready"
-      ? { ...presented, revalidating: true as const, statusLabel: "Updating…" }
-      : presented;
-  }, [valuation]);
 
   return (
-      <HomeExperience
-        {...props}
-        assetBalances={presentedValuation}
-        selectedRegionId={selectedRegion}
-        onRegionChange={setSelectedRegion}
-      />
+    <HomeExperience
+      {...props}
+      assetBalances={presentation}
+      sendAvailability={sendAvailability}
+      selectedRegionId={selectedRegion}
+      onRegionChange={setSelectedRegion}
+    />
   );
 }

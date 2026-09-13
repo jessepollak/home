@@ -297,7 +297,7 @@ describe("owner generation fence", () => {
         if (path === "/api/actions") {
           return Response.json({ actions: [{ id: ACTION_ID, summary: { amounts: prepared(activeSession).amounts } }] });
         }
-        if (path.startsWith("/api/portfolio/valuation?")) {
+        if (path.startsWith("/api/balances?")) {
           freshFetches += 1;
           return new Response(null, { status: 500 });
         }
@@ -311,11 +311,9 @@ describe("owner generation fence", () => {
       );
       const view = render(owner(activeSdk));
       await waitFor(() => expect(currentClient().status).toBe("verified"));
-      queryClient.setQueryData(ownerQueryKey(dataOwnerKey, "valuation", "US"), {
-        version: 2,
-        inventory: {
-          holdings: [{ kind: "direct", id: "usdc", balanceBaseUnits: "1000000" }],
-        },
+      queryClient.setQueryData(ownerQueryKey(dataOwnerKey, "balances", "US"), {
+        version: 3,
+        holdings: [{ id: "usdc", balance: { status: "ready", baseUnits: "1000000" } }],
       });
       const action = await currentClient().prepareMoneyAction("send", { amountBaseUnits: "1000000" });
       await currentClient().executeMoneyAction(action);
