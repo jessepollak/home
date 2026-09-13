@@ -1,7 +1,7 @@
 "use client";
 
-import { Button, Text, Toast, ToastViewport } from "@home/ui";
-import { MoneyTicker } from "@home/ui/money-ticker";
+import { Button } from "@/components/ui/button";
+import { MoneyTicker } from "@/components/money-ticker";
 import {
   useCallback,
   useEffect,
@@ -24,6 +24,7 @@ import {
 } from "@/config/shell-location";
 import { markHomePerformance } from "@/client/observability/perf-marks";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
+import { useHomeToast } from "@/client/home/use-home-toast";
 import { SendDialog } from "./send-dialog";
 import { formatSendConfirmAmount, getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import type { ConfirmedTransfer, TransferAssetAvailability } from "@/shared/transfers/types";
@@ -80,6 +81,7 @@ export function TransferActionsForWallet({
   const visibleSend = modalOwner === boundary && (routing ? routeOpen : sendOpen);
   const dropPrivate = modalOwner !== null && modalOwner !== boundary;
   const visibleSuccess = success && success.owner === boundary ? success.transfer : null;
+  const { add: addToast } = useHomeToast(boundary);
 
   useEffect(() => {
     if (boundary) markHomePerformance("action:first-interactive");
@@ -94,6 +96,35 @@ export function TransferActionsForWallet({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [boundary, routeOpen]);
+
+  useEffect(() => {
+    if (!visibleSuccess) return;
+    addToast({
+      id: `send:${visibleSuccess.transactionHash}`,
+      tone: "success",
+      role: "status",
+      duration: 6_000,
+      onClose: () => setSuccess(null),
+      message: (
+        <div className={styles.successContent}>
+          <span className={styles.successMark} aria-hidden="true">✓</span>
+          <div>
+            <strong className="text-row-label font-semibold">
+              Sent <MoneyTicker value={formatSendConfirmAmount(visibleSuccess.amountBaseUnits, visibleSuccess.assetId)} />
+            </strong>
+            <p className={`${styles.successDetail} text-metadata text-muted-foreground`}>
+              {getTransferAsset(visibleSuccess.assetId)?.symbol ?? visibleSuccess.assetId} · Base ·{" "}
+              <CopyableValue
+                value={visibleSuccess.recipient}
+                display={formatAddress(visibleSuccess.recipient)}
+                valueKind="address"
+              />
+            </p>
+          </div>
+        </div>
+      ),
+    });
+  }, [addToast, visibleSuccess]);
 
   const openSend = () => {
     if (!boundary) return;
@@ -164,28 +195,6 @@ export function TransferActionsForWallet({
           )
         : null}
 
-      {visibleSuccess ? (
-        <ToastViewport>
-          <Toast key={visibleSuccess.transactionHash} tone="success" duration={6000} onDismiss={() => setSuccess(null)}>
-            <div className={styles.successContent}>
-              <span className={styles.successMark} aria-hidden="true">✓</span>
-              <div>
-                <Text as="strong" textStyle="row-label">
-                  Sent <MoneyTicker value={formatSendConfirmAmount(visibleSuccess.amountBaseUnits, visibleSuccess.assetId)} />
-                </Text>
-                <Text textStyle="metadata" tone="muted" className={styles.successDetail}>
-                  {getTransferAsset(visibleSuccess.assetId)?.symbol ?? visibleSuccess.assetId} · Base ·{" "}
-                  <CopyableValue
-                    value={visibleSuccess.recipient}
-                    display={formatAddress(visibleSuccess.recipient)}
-                    valueKind="address"
-                  />
-                </Text>
-              </div>
-            </div>
-          </Toast>
-        </ToastViewport>
-      ) : null}
     </div>
   );
 }

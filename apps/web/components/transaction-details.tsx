@@ -1,6 +1,6 @@
 "use client";
 
-import { Divider, Text } from "@home/ui";
+import { Separator } from "@/components/ui/separator";
 import { MoneyModal, MoneyModalHeader } from "@/client/money-modal";
 import modal from "@/client/money-modal/money-modal.module.css";
 import type { TransactionDetails } from "./transaction-explorer";
@@ -48,8 +48,8 @@ export function TransactionDetailsModal({
         </dl>
         {details?.explorer ? (
           <>
-            <Divider className={styles.divider} />
-            <Text as="div" className={styles.explorerWrap}>
+            <Separator className={styles.divider} />
+            <div className={styles.explorerWrap}>
               <a
                 className={styles.explorer}
                 href={details.explorer.href}
@@ -60,7 +60,7 @@ export function TransactionDetailsModal({
                 {details.explorer.label}
                 <span aria-hidden="true"> ↗</span>
               </a>
-            </Text>
+            </div>
           </>
         ) : null}
       </div>

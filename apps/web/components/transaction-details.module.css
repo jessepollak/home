@@ -1,17 +1,17 @@
 .divider {
-  margin-top: var(--home-ui-space-1);
+  margin-top: 4px;
 }
 
 .explorerWrap {
   display: flex;
   justify-content: flex-end;
-  margin: var(--home-ui-space-1) 0 0;
+  margin: 4px 0 0;
 }
 
 .explorer {
-  color: var(--home-ui-color-muted);
-  font-size: var(--home-ui-type-secondary-size);
-  font-weight: var(--home-ui-type-weight-medium);
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
   text-decoration: none;
 }
 
@@ -20,6 +20,6 @@
 }
 
 .explorer:focus-visible {
-  outline: 2px solid var(--home-ui-color-focus);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }

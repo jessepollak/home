@@ -1,8 +1,8 @@
 export {
+  AppDrawer,
   MoneyModal,
   MoneyModalFooter,
   MoneyModalHeader,
-  useMoneyModal,
 } from "./money-modal";
 export {
   MoneyAmountDisplay,

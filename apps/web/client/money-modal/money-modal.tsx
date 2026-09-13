@@ -1,13 +1,67 @@
 "use client";
 
-import { Button, Heading, IconButton } from "@home/ui";
-import { XIcon } from "@home/ui/icons";
-import { Sheet, useSheetLifecycle } from "@home/ui/sheet";
-import { ArrowLeft } from "lucide-react";
-import type { ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerSwipeHandle,
+  DrawerTitle,
+} from "@/components/ui/drawer";
+import { ArrowLeft, X } from "lucide-react";
+import { useRef, type ReactNode, type RefObject } from "react";
 import styles from "./money-modal.module.css";
 
-export const useMoneyModal = useSheetLifecycle;
+export function AppDrawer({
+  open,
+  labelledBy,
+  describedBy,
+  immediate = false,
+  initialFocusRef,
+  onCancel,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  labelledBy: string;
+  describedBy?: string;
+  immediate?: boolean;
+  initialFocusRef?: RefObject<HTMLElement | null>;
+  onCancel: () => boolean | void;
+  onClose?: () => void;
+  children: ReactNode;
+}) {
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <Drawer
+      open={open}
+      modal
+      swipeDirection="down"
+      onOpenChange={(nextOpen, eventDetails) => {
+        if (nextOpen) return;
+        if (onCancel() === false) eventDetails.cancel();
+      }}
+      onOpenChangeComplete={(nextOpen) => {
+        if (!nextOpen) onClose?.();
+      }}
+    >
+      <DrawerContent
+        ref={popupRef}
+        aria-labelledby={labelledBy}
+        aria-describedby={describedBy}
+        initialFocus={initialFocusRef ?? (() => (
+          popupRef.current?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)") ?? true
+        ))}
+        data-money-sheet=""
+        data-immediate={immediate ? "" : undefined}
+        className={`${styles.drawer} bg-background text-foreground shadow-lg`}
+      >
+        <DrawerSwipeHandle data-money-sheet-grabber="" />
+        {children}
+      </DrawerContent>
+    </Drawer>
+  );
+}
 
 export function MoneyModal({
   open,
@@ -27,18 +81,16 @@ export function MoneyModal({
   children: ReactNode;
 }) {
   return (
-    <Sheet
+    <AppDrawer
       open={open}
-      className={styles.typography}
-      aria-labelledby={labelledBy}
-      aria-describedby={describedBy}
-      onDismiss={onCancel}
-      onClosed={onClose}
+      labelledBy={labelledBy}
+      describedBy={describedBy}
       immediate={immediate}
-      dragDismiss
+      onCancel={onCancel}
+      onClose={onClose}
     >
       {children}
-    </Sheet>
+    </AppDrawer>
   );
 }
 
@@ -58,24 +110,27 @@ export function MoneyModalHeader({
   closeLabel?: string;
 }) {
   return (
-    <header className={styles.header}>
+    <header className="grid shrink-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 px-4 pt-1 pb-2">
       {onBack ? (
-        <Button className={styles.backButton} variant="quiet" aria-label="Back" onClick={onBack}>
+        <Button className="min-h-11 min-w-11 p-0" variant="ghost" size="icon" aria-label="Back" onClick={onBack}>
           <ArrowLeft size={20} strokeWidth={2} aria-hidden="true" />
         </Button>
       ) : (
         <span />
       )}
-      <Heading id={titleId} level={2} textStyle="sheet-title" className={styles.title}>
+      <DrawerTitle id={titleId} className="text-center text-sheet-title font-semibold">
         {title}
-      </Heading>
-      <IconButton
-        className={styles.closeButton}
+      </DrawerTitle>
+      <Button
+        className="min-h-11 min-w-11 p-0"
+        variant="ghost"
+        size="icon"
         aria-label={closeLabel}
-        icon={XIcon}
         disabled={closeDisabled}
         onClick={onClose}
-      />
+      >
+        <X aria-hidden="true" />
+      </Button>
     </header>
   );
 }
@@ -100,7 +155,7 @@ export function MoneyModalFooter({
   return (
     <div className={styles.footer}>
       <Button
-        className={styles.primary}
+        className="min-h-12 text-control font-semibold"
         type={primaryType}
         disabled={primaryDisabled}
         onClick={onPrimary}
@@ -109,8 +164,8 @@ export function MoneyModalFooter({
       </Button>
       {secondaryLabel && onSecondary ? (
         <Button
-          className={styles.quiet}
-          variant="quiet"
+          className="min-h-12 text-control font-semibold text-muted-foreground"
+          variant="ghost"
           disabled={secondaryDisabled}
           onClick={onSecondary}
         >

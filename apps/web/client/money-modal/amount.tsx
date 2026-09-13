@@ -1,7 +1,8 @@
 "use client";
 
-import { Button, Select, Text } from "@home/ui";
-import { MoneyTicker } from "@home/ui/money-ticker";
+import { Button } from "@/components/ui/button";
+import { MoneyTicker } from "@/components/money-ticker";
+import { NativeSelect } from "@/components/ui/native-select";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDownUp, Delete } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -104,7 +105,7 @@ export function useAutoFitAmountText(text: string) {
       // Measure the ticker box itself (what is laid out). The primary ticker opts
       // out of grow-only digit reservation, so deleting digits shrinks this box and
       // lets the amount return to its full type size without remounting the ticker.
-      const ticker = container.querySelector<HTMLElement>(".home-ui-money-ticker");
+      const ticker = container.querySelector<HTMLElement>("[data-slot=\"money-ticker\"]");
       const renderedNatural = ticker?.offsetWidth || sizer.getBoundingClientRect().width;
       if (available <= 0 || renderedNatural <= 0 || !Number.isFinite(base) || base <= 0) return;
 
@@ -138,6 +139,13 @@ export function useAutoFitAmountText(text: string) {
       });
       observer.observe(container);
     }
+    const rootStyleObserver = typeof MutationObserver === "undefined"
+      ? undefined
+      : new MutationObserver(measure);
+    rootStyleObserver?.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
 
     let active = true;
     const fonts = (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts;
@@ -148,6 +156,7 @@ export function useAutoFitAmountText(text: string) {
     return () => {
       active = false;
       observer?.disconnect();
+      rootStyleObserver?.disconnect();
     };
   }, [text]);
 
@@ -237,7 +246,7 @@ export function MoneyAmountDisplay({
           }
         />
       ) : null}
-      {availableLine ? <Text as="div" textStyle="secondary" tone="muted" className={styles.available}><MoneyTicker value={availableLine} /></Text> : null}
+      {availableLine ? <div className={`${styles.available} text-caption text-muted-foreground`}><MoneyTicker value={availableLine} /></div> : null}
     </div>
   );
 }
@@ -311,7 +320,7 @@ export function MoneyAssetPicker({
   return (
     <div className={styles.assetPicker}>
       <CurrencyMark currency={markCurrency} symbol={assetLabel} />
-      <Select
+      <NativeSelect
         className={styles.assetSelect}
         aria-label="Asset"
         value={assetId}
@@ -322,7 +331,7 @@ export function MoneyAssetPicker({
             {option.label}
           </option>
         ))}
-      </Select>
+      </NativeSelect>
     </div>
   );
 }
@@ -390,7 +399,7 @@ export function MoneyUnitToggle({
   return (
     <Button
       className={styles.unitToggle}
-      variant="quiet"
+      variant="ghost"
       onClick={onToggle}
       aria-label={`Show ${secondaryLabel} as the primary amount`}
     >

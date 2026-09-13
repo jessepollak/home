@@ -1,9 +1,11 @@
 "use client";
 
-import { Heading, IconButton, StatusMessage } from "@home/ui";
-import { Sheet } from "@home/ui/sheet";
-import { XIcon } from "@home/ui/icons";
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { DrawerTitle } from "@/components/ui/drawer";
+import { AppDrawer } from "@/client/money-modal";
+import { X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { classifyEmailCodeError } from "./auth-errors";
 import {
@@ -45,6 +47,22 @@ function messageForBaseAccountError(error: unknown): string {
 }
 
 export { SignInBlockedPanel } from "./sign-in-shell";
+
+function StatusMessage({
+  children,
+  tone = "neutral",
+  role,
+  ...props
+}: Omit<ComponentProps<typeof Alert>, "children"> & {
+  children: ReactNode;
+  tone?: "neutral" | "error";
+}) {
+  return (
+    <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}>
+      <AlertDescription>{children}</AlertDescription>
+    </Alert>
+  );
+}
 
 export function AccountSignInSheet({
   open,
@@ -241,71 +259,73 @@ export function AccountSignInSheet({
 
   return (
     <>
-      <Sheet
-        open={sheetOpen}
-        aria-labelledby="account-sign-in-title"
-        onDismiss={closeAndCancelAttempt}
+      {sheetOpen ? <AppDrawer
+        open
+        labelledBy="account-sign-in-title"
+        onCancel={closeAndCancelAttempt}
         initialFocusRef={initialFocusRef}
         immediate
-        header={(
-          <div className={styles.sheetHeader}>
-            <Heading level={2} textStyle="sheet-title" id="account-sign-in-title">
-              {flowId ? "Check your email" : "Sign in to Home"}
-            </Heading>
-            <IconButton
-              className={styles.closeButton}
-              icon={XIcon}
-              variant="secondary"
-              onClick={closeAndCancelAttempt}
-              aria-label="Close sign in"
-            />
-          </div>
-        )}
       >
-        {signInBlocked ? (
-          <SignInBlockedPanel reason={signInAvailability === "provider-unavailable" ? "provider-unavailable" : "unconfigured"} />
-        ) : (
-          <>
-            {message ? <StatusMessage className={styles.message}>{message}</StatusMessage> : null}
-            {authError ? <StatusMessage className={styles.message} tone="error" role="alert">{authError}</StatusMessage> : null}
-            <SignInStatus
-              phase={isProviderHandoff ? null : activeBaseAccountPhase}
-              cleaningUp={isCleaningUp}
-              checking={isChecking}
-              signOutError={status === "signout-error"}
-              unavailable={status === "unavailable"}
-              onRetrySignOut={() => void signOut().catch(() => {})}
-              onRetryValidation={() => void retrySessionValidation()}
-            />
-            {!hasStatus && !projectConfigured && baseAccountEnabled ? (
-              <BaseAccountOnlySignIn buttonRef={baseAccountButtonRef} onSignIn={() => void handleBaseAccountSignIn()} />
-            ) : !hasStatus && projectConfigured && flowId ? (
-              <SignInOtp
-                email={email}
-                otp={otp}
-                isSendingCode={isSendingCode}
-                isVerifyingCode={isVerifyingCode}
-                resendSeconds={resendSeconds}
-                inputRef={otpInputRef}
-                onOtpChange={setOtp}
-                onSubmit={handleOtpSubmit}
-                onChangeEmail={changeEmail}
-                onResend={() => { setOtp(""); void sendCode(email); }}
+        <div className="flex shrink-0 items-center justify-between gap-3 px-4 pt-1 pb-2">
+          <DrawerTitle className="text-sheet-title font-semibold" id="account-sign-in-title">
+            {flowId ? "Check your email" : "Sign in to Home"}
+          </DrawerTitle>
+          <Button
+            className="min-h-11 min-w-11 shrink-0"
+            size="icon"
+            variant="secondary"
+            onClick={closeAndCancelAttempt}
+            aria-label="Close sign in"
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
+          {signInBlocked ? (
+            <SignInBlockedPanel reason={signInAvailability === "provider-unavailable" ? "provider-unavailable" : "unconfigured"} />
+          ) : (
+            <>
+              {message ? <StatusMessage className={styles.message}>{message}</StatusMessage> : null}
+              {authError ? <StatusMessage className={styles.message} tone="error" role="alert">{authError}</StatusMessage> : null}
+              <SignInStatus
+                phase={isProviderHandoff ? null : activeBaseAccountPhase}
+                cleaningUp={isCleaningUp}
+                checking={isChecking}
+                signOutError={status === "signout-error"}
+                unavailable={status === "unavailable"}
+                onRetrySignOut={() => void signOut().catch(() => {})}
+                onRetryValidation={() => void retrySessionValidation()}
               />
-            ) : !hasStatus && projectConfigured ? (
-              <SignInEmail
-                email={email}
-                isSendingCode={isSendingCode}
-                baseAccountEnabled={baseAccountEnabled}
-                inputRef={emailInputRef}
-                onEmailChange={setEmail}
-                onSubmit={handleEmailSubmit}
-                onBaseAccountSignIn={() => void handleBaseAccountSignIn()}
-              />
-            ) : null}
-          </>
-        )}
-      </Sheet>
+              {!hasStatus && !projectConfigured && baseAccountEnabled ? (
+                <BaseAccountOnlySignIn buttonRef={baseAccountButtonRef} onSignIn={() => void handleBaseAccountSignIn()} />
+              ) : !hasStatus && projectConfigured && flowId ? (
+                <SignInOtp
+                  email={email}
+                  otp={otp}
+                  isSendingCode={isSendingCode}
+                  isVerifyingCode={isVerifyingCode}
+                  resendSeconds={resendSeconds}
+                  inputRef={otpInputRef}
+                  onOtpChange={setOtp}
+                  onSubmit={handleOtpSubmit}
+                  onChangeEmail={changeEmail}
+                  onResend={() => { setOtp(""); void sendCode(email); }}
+                />
+              ) : !hasStatus && projectConfigured ? (
+                <SignInEmail
+                  email={email}
+                  isSendingCode={isSendingCode}
+                  baseAccountEnabled={baseAccountEnabled}
+                  inputRef={emailInputRef}
+                  onEmailChange={setEmail}
+                  onSubmit={handleEmailSubmit}
+                  onBaseAccountSignIn={() => void handleBaseAccountSignIn()}
+                />
+              ) : null}
+            </>
+          )}
+        </div>
+      </AppDrawer> : null}
       {open && isProviderHandoff && !baseAccountFailed ? (
         <BaseAccountHandoff phase={activeBaseAccountPhase} onCancel={closeAndCancelAttempt} />
       ) : null}

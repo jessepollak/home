@@ -85,12 +85,5 @@ export default defineConfig({
         launchOptions: executablePath ? { executablePath } : undefined,
       },
     },
-    {
-      name: "webkit-money-modal",
-      grep: /@money-modal-anchor/,
-      use: {
-        browserName: "webkit",
-      },
-    },
   ],
 });

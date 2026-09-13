@@ -80,8 +80,8 @@ describe("FundingActions hydration", () => {
       expect(fixture.serverMarkup).toContain("Add money");
       expect(fixture.serverMarkup).not.toContain("<dialog");
       expect(fixture.hydrationErrors).toEqual([]);
-      const dialog = document.body.querySelector("dialog");
-      expect(dialog?.hasAttribute("open")).toBe(true);
+      const dialog = document.body.querySelector('[role="dialog"][data-open]');
+      expect(dialog).not.toBeNull();
       expect(dialog?.textContent).toContain("Receive on Base");
       expect(dialog?.textContent).toContain("0x1111…111111");
       expect(dialog?.closest(".action-row")).toBeNull();
