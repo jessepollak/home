@@ -3,7 +3,7 @@ import { investAssets } from "@/config/invest-assets";
 import {
   matchesMarketPriceAssetIdentity,
   resolveMarketPriceAssetIdentity,
-} from "@/shared/invest/history-contract";
+} from "@/shared/invest/contracts/market-price-history";
 
 const dynamicId = "base:0x1111111111111111111111111111111111111111";
 

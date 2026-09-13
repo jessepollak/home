@@ -3,7 +3,7 @@ import type { VerifiedAccountSession } from "@/client/account/session-client";
 import { dataOwnerKey as dataOwnerKeyForSession } from "@/client/account/owner-keys";
 import { freshUntilMoved, type BalanceSnapshot } from "./fresh-until-moved";
 import { ownerQueryKey, ownerQueryMeta } from "./query-client";
-import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/parse-valuation";
+import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/contract";
 import type { PortfolioValuationSnapshot } from "@/shared/portfolio/valuation-types";
 
 export const afterActionScopes = [

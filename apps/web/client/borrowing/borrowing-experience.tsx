@@ -37,14 +37,12 @@ import {
 import {
   BORROW_COLLATERAL_TOKEN,
   BORROW_LOAN_TOKEN,
-  BORROW_MARKET_ID,
-  MORPHO_BLUE_ADDRESS,
 } from "@/shared/borrowing/config";
 import type {
-  BorrowMarketSnapshot,
   BorrowOperation,
   BorrowPreviewResponse,
 } from "@/shared/borrowing/types";
+import { parseSnapshot, type BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import styles from "./borrowing-experience.module.css";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 
@@ -375,27 +373,6 @@ function Metric({
   );
 }
 
-function parseSnapshot(value: unknown, expectedOwner: `0x${string}`): BorrowMarketSnapshot | null {
-  if (!isRecord(value) || value.chainId !== 8453 || typeof value.walletAddress !== "string" || value.walletAddress.toLowerCase() !== expectedOwner.toLowerCase()) return null;
-  if (!isRecord(value.market) || value.market.id !== BORROW_MARKET_ID || typeof value.market.morpho !== "string" || value.market.morpho.toLowerCase() !== MORPHO_BLUE_ADDRESS.toLowerCase()) return null;
-  if (!isRecord(value.source) || typeof value.source.blockNumber !== "string" || typeof value.source.blockHash !== "string" || typeof value.source.blockTimestamp !== "string" || !/^0x[0-9a-f]{64}$/.test(value.source.blockHash)) return null;
-  if (!isRecord(value.state) || !isRecord(value.wallet) || !isRecord(value.position)) return null;
-  const decimalFields = [
-    value.source.blockNumber, value.source.blockTimestamp,
-    value.state.oraclePriceRaw, value.state.borrowRatePerSecondWad, value.state.borrowAprWad,
-    value.state.totalSupplyAssetsRaw, value.state.totalBorrowAssetsRaw, value.state.totalBorrowSharesRaw,
-    value.state.liquidityAssetsRaw, value.state.lastUpdateTimestamp,
-    value.wallet.collateralBalanceRaw, value.wallet.loanBalanceRaw,
-    value.wallet.collateralAllowanceRaw, value.wallet.loanAllowanceRaw,
-    value.position.collateralRaw, value.position.borrowSharesRaw, value.position.debtAssetsRaw,
-    value.position.borrowCapacityAssetsRaw, value.position.withdrawableCollateralRaw,
-  ];
-  if (decimalFields.some((field) => typeof field !== "string" || !/^\d+$/.test(field))) return null;
-  if (value.position.healthFactorWad !== null && (typeof value.position.healthFactorWad !== "string" || !/^\d+$/.test(value.position.healthFactorWad))) return null;
-  if (value.position.liquidationPriceRaw !== null && (typeof value.position.liquidationPriceRaw !== "string" || !/^\d+$/.test(value.position.liquidationPriceRaw))) return null;
-  return value as BorrowMarketSnapshot;
-}
-
 function healthNote(raw: string | null) {
   if (raw === null) return "No active liquidation threshold";
   const health = BigInt(raw);
@@ -425,7 +402,6 @@ function usePersistedPresentationRegion(): RegionId {
   return regionId;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function readableResourceError(error: unknown) {
   if (error instanceof Error && error.message && error.message !== "Authenticated resource is unavailable.") return error.message;
   return "The current limit or RPC simulation could not be verified. Refresh and try again.";

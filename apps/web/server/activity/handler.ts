@@ -1,4 +1,7 @@
+import "server-only";
+
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
+import type { ActivityResponse } from "@/shared/activity/contract";
 import {
   authorizeSession,
   type SessionAuthorizer,
@@ -126,7 +129,7 @@ export function createActivityHandler(dependencies: {
         pageCount: 1,
         rowCount: page.transfers.length,
       });
-      return privateJson(page, 200);
+      return privateJson(page satisfies ActivityResponse, 200);
     } catch (error) {
       const finishedAt = clock();
       emitActivityObservation(observe, {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createErrorMarketPricesResponse } from "@/server/market-data/codex/client";
-import type { MarketPricesResponse } from "@/shared/invest/public-contract";
+import type { MarketPricesResponse } from "@/shared/invest/contracts/market-prices";
 import { createMarketPricesHandler } from "@/server/market-data/handlers/market-prices";
 
 const publicPayload: MarketPricesResponse = {

@@ -1,3 +1,6 @@
+// Route contract.
+// GET /api/activity
+
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   ACTIVITY_BASE_CHAIN_ID,
@@ -7,7 +10,10 @@ import {
   type ActivityAsset,
   type ActivityPage,
   type ActivityTransfer,
-} from "./types";
+} from "@/shared/activity/types";
+
+export type ActivityResponse = ActivityPage;
+export type ActivityRequestQuery = { to: string; cursor?: string };
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;

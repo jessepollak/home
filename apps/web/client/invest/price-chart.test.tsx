@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { page } from "@/tests/helpers/dom";
 import { afterEach, expect, test } from "bun:test";
 import { useState } from "react";
-import type { MarketPriceRange } from "@/shared/invest/history-contract";
+import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 
 const { cleanup, fireEvent, render } = await import("@testing-library/react");
 const { PriceChart } = await import("./price-chart");

@@ -1,5 +1,5 @@
 import type { RegionId } from "@/config/regions";
-import type { PortfolioValuationSnapshot } from "@/shared/portfolio/valuation-types";
+import type { PortfolioValuationSnapshot } from "@/shared/portfolio/contract";
 import type { VerifiedPortfolioSession } from "@/shared/portfolio/types";
 
 export type { PortfolioValuationSnapshot };

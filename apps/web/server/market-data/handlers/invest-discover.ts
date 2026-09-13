@@ -1,8 +1,10 @@
+import "server-only";
+
 import {
   createErrorInvestDiscover,
   getInvestDiscover,
-  type InvestDiscoverResponse,
 } from "@/server/market-data/invest-discover";
+import type { InvestDiscoverResponse } from "@/shared/invest/contracts/discover";
 
 type DiscoverReader = (offset: number) => Promise<InvestDiscoverResponse>;
 
@@ -28,11 +30,11 @@ export function createInvestDiscoverHandler(
           : payload.memes.status === "unavailable"
             ? "public, max-age=30"
             : "no-store";
-      return Response.json(payload, {
+      return Response.json(payload satisfies InvestDiscoverResponse, {
         headers: { "Cache-Control": cacheControl },
       });
     } catch {
-      return Response.json(createErrorInvestDiscover(), {
+      return Response.json(createErrorInvestDiscover() satisfies InvestDiscoverResponse, {
         status: 502,
         headers: { "Cache-Control": "no-store" },
       });

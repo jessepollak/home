@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { parsePortfolioValuationSnapshot } from "../../shared/portfolio/parse-valuation";
+import { parsePortfolioValuationSnapshot } from "../../shared/portfolio/contract";
 import {
   BASE_USDC_ADDRESS,
   MORPHO_V1_CANDIDATE_ADDRESSES,

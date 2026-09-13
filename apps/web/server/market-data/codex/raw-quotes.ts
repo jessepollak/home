@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { PortfolioAddress } from "@/config/portfolio-assets";
 import { parseExactDecimal } from "@/shared/portfolio/valuation-math";
 import type { PriceQuote, ValuationSource } from "@/shared/portfolio/valuation-types";
@@ -11,7 +13,7 @@ import {
   CODEX_TOKEN_PRICES_QUERY,
 } from "./config";
 import { parseJsonWithNumberLexemes } from "./lossless-json";
-import { MARKET_PRICE_FRESHNESS_MS } from "@/shared/invest/public-contract";
+import { MARKET_PRICE_FRESHNESS_MS } from "@/shared/invest/contracts/market-prices";
 
 export type CodexRawQuoteInput = {
   assetKey: `eip155:8453/erc20:${string}`;

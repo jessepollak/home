@@ -17,7 +17,7 @@ import { useMarketDisplay } from "./use-market-display";
 import { AssetIcon } from "./asset-icon";
 import { PriceChart } from "./price-chart";
 import { usePriceHistory } from "./use-price-history";
-import type { MarketPriceRange } from "@/shared/invest/history-contract";
+import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import styles from "./invest-experience.module.css";
 
 export function AssetDetailStatusScreen({

@@ -1,5 +1,5 @@
 import { isShellPanelId, type ShellPanelId } from "./navigation";
-import { resolveMarketPriceAssetIdentity } from "@/shared/invest/history-contract";
+import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 
 export const SHELL_PANEL_PARAM = "panel";
 export const SHELL_ACCOUNT_PARAM = "account";

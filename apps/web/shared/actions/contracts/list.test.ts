@@ -4,7 +4,7 @@ import {
   dedupeRecentMoneyActions,
   parseRecentMoneyActions,
   type RecentMoneyActionOperation,
-} from "./recent-operations";
+} from "./list";
 
 const session: VerifiedAccountSession = {
   user: { subject: "subject-a" },

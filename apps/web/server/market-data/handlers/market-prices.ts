@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   createErrorMarketPricesResponse,
   getCodexMarketPrices,
@@ -5,7 +7,7 @@ import {
 import type {
   MarketPricesFxQuote,
   MarketPricesResponse,
-} from "@/shared/invest/public-contract";
+} from "@/shared/invest/contracts/market-prices";
 import type { FxQuote } from "@/shared/portfolio/valuation-types";
 
 type MarketPricesReader = () => Promise<MarketPricesResponse>;
@@ -28,11 +30,11 @@ export function createMarketPricesHandler(
       const cacheControl = payload.unavailableReason
         ? "public, max-age=30"
         : "public, max-age=30, stale-while-revalidate=30";
-      return Response.json(body, {
+      return Response.json(body satisfies MarketPricesResponse, {
         headers: { "Cache-Control": cacheControl },
       });
     } catch {
-      return Response.json(createErrorMarketPricesResponse(), {
+      return Response.json(createErrorMarketPricesResponse() satisfies MarketPricesResponse, {
         status: 502,
         headers: { "Cache-Control": "no-store" },
       });

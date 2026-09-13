@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import {
   decodeAddressWord,
@@ -34,7 +36,7 @@ import {
   minimumCollateralForDebt,
   toAssetsUp,
 } from "./math";
-import type { BorrowMarketSnapshot } from "@/shared/borrowing/types";
+import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import {
   createBaseRpcClient,
   parseRpcQuantity,

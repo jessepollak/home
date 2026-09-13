@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { ActivityResponseError, parseActivityPage } from "./parse";
+import { ActivityResponseError, parseActivityPage } from "./contract";
 import type { ActivityPage } from "./types";
 
 const WALLET = "0x1111111111111111111111111111111111111111" as const;
