@@ -47,7 +47,7 @@ describe("authenticated action handle effects", () => {
     expect(fixture.invalidations).toEqual([[ownerKey, "actions"]]);
   });
 
-  test("one transaction hash post advances Activity and invalidates all six scopes once", async () => {
+  test("one transaction hash post advances Activity and invalidates the four action scopes once", async () => {
     const fixture = queryClientFixture();
     const freshness: string[] = [];
     const initialWindow = initialActivityWindowEnd(Date.parse("2026-09-12T12:00:00.000Z"));
@@ -64,7 +64,7 @@ describe("authenticated action handle effects", () => {
     expect(fixture.invalidations).toEqual(
       afterActionScopes.map((scope) => [ownerKey, scope]),
     );
-    expect(new Set(fixture.invalidations.map((key) => key.join("\u0000"))).size).toBe(6);
+    expect(new Set(fixture.invalidations.map((key) => key.join("\u0000"))).size).toBe(4);
     expect(fixture.client.getQueryData([ownerKey, "activity-window"]))
       .not.toBe(initialWindow);
     expect(freshness).toEqual([actionId]);
@@ -83,6 +83,6 @@ describe("authenticated action handle effects", () => {
 
     expect(state.moved.has(actionId)).toBe(true);
     expect(fixture.invalidations).toEqual(indexedScopes.map((scope) => [ownerKey, scope]));
-    expect(fixture.invalidations.some(([, scope]) => scope === "valuation")).toBe(false);
+    expect(fixture.invalidations.some(([, scope]) => scope === "balances")).toBe(false);
   });
 });

@@ -7,20 +7,18 @@ import {
   type FreshUntilMovedClock,
 } from "./fresh-until-moved";
 import { ownerQueryKey, ownerQueryMeta } from "./query-client";
-import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/contract";
-import type { PortfolioValuationSnapshot } from "@/shared/portfolio/valuation-types";
+import { parseBalancesSnapshot } from "@/shared/balances/contract";
+import type { BalancesSnapshot } from "@/shared/balances/types";
 
 export const afterActionScopes = [
-  "valuation",
-  "portfolio",
+  "balances",
   "activity",
-  "savings-positions",
   "borrow",
   "actions",
 ] as const;
 
 /** Indexer-backed scopes: refreshed again once balances have visibly moved. */
-export const indexedScopes = ["activity", "savings-positions", "borrow", "actions"] as const;
+export const indexedScopes = ["activity", "borrow", "actions"] as const;
 
 export const activityWindowScope = "activity-window";
 const activityWindowQuantumMs = 60_000;
@@ -66,7 +64,7 @@ export async function invalidateAfterAction(
 }
 
 type FetchVerifiedResource = (
-  endpoint: "/api/actions" | "/api/portfolio/valuation",
+  endpoint: "/api/actions" | "/api/balances",
   signal?: AbortSignal,
   query?: string,
 ) => Promise<unknown>;
@@ -111,21 +109,21 @@ export async function startBalanceFreshness(input: {
   if (!isLatestStart()) return;
   const assetIds = affectedAssetIds(actionsValue, actionId);
   if (assetIds.length === 0) return;
-  const valuationQueries = queryClient.getQueryCache().findAll({
-    queryKey: [dataOwnerKey, "valuation"],
+  const balanceQueries = queryClient.getQueryCache().findAll({
+    queryKey: [dataOwnerKey, "balances"],
   });
-  const hasSnapshot = valuationQueries.some((q) => isPortfolioValuationSnapshot(q.state.data));
+  const hasSnapshot = balanceQueries.some((q) => isBalancesSnapshot(q.state.data));
   if (!hasSnapshot || !isLatestStart()) return;
   const initial: Record<string, string | null> = Object.fromEntries(assetIds.map((id) => [id, null]));
   // Regions refresh independently; an inactive region's snapshot can be hours
   // old. Merge oldest → newest so the freshest non-null balance wins and older
   // snapshots only fill gaps, otherwise a stale region reports a false move.
-  const byFreshness = [...valuationQueries].sort(
+  const byFreshness = [...balanceQueries].sort(
     (a, b) => a.state.dataUpdatedAt - b.state.dataUpdatedAt,
   );
   for (const q of byFreshness) {
     const data = q.state.data;
-    if (!isPortfolioValuationSnapshot(data)) continue;
+    if (!isBalancesSnapshot(data)) continue;
     const found = selectAffectedBalances(data, assetIds);
     for (const [key, value] of Object.entries(found)) {
       if (value !== null) initial[key] = value;
@@ -136,19 +134,19 @@ export async function startBalanceFreshness(input: {
     clock: input.clock,
     readFresh: async () => {
       const merged: Record<string, string | null> = Object.fromEntries(assetIds.map((id) => [id, null]));
-      for (const valuationQuery of valuationQueries) {
-        const region = valuationQuery.queryKey[2];
+      for (const balanceQuery of balanceQueries) {
+        const region = balanceQuery.queryKey[2];
         if (typeof region !== "string") continue;
         const snapshot = await queryClient.fetchQuery({
-          queryKey: valuationQuery.queryKey,
+          queryKey: balanceQuery.queryKey,
           staleTime: 0,
           retry: false,
-          meta: ownerQueryMeta(dataOwnerKey, "memory"),
-          queryFn: async ({ signal }) => parsePortfolioValuationSnapshot(
+          meta: ownerQueryMeta(dataOwnerKey, "owner"),
+          queryFn: async ({ signal }) => parseBalancesSnapshot(
             await fetchVerifiedResource(
-              "/api/portfolio/valuation",
+              "/api/balances",
               signal,
-              new URLSearchParams({ region, fresh: "1" }).toString(),
+              new URLSearchParams({ region }).toString(),
             ),
             {
               subject: session.user.subject,
@@ -221,25 +219,22 @@ function affectedAssetIds(value: unknown, actionId: string): string[] {
 }
 
 function selectAffectedBalances(
-  snapshot: PortfolioValuationSnapshot,
+  snapshot: BalancesSnapshot,
   assetIds: readonly string[],
 ): BalanceSnapshot {
   const requested = new Set(assetIds);
   const result: Record<string, string | null> = Object.fromEntries(
     assetIds.map((assetId) => [assetId, null]),
   );
-  for (const holding of snapshot.inventory.holdings) {
+  for (const holding of snapshot.holdings) {
     if (!requested.has(holding.id)) continue;
-    result[holding.id] = holding.kind === "direct"
-      ? holding.balanceBaseUnits
-      : holding.sharesBaseUnits;
+    result[holding.id] = holding.balance.baseUnits;
   }
   return result;
 }
 
-function isPortfolioValuationSnapshot(value: unknown): value is PortfolioValuationSnapshot {
-  return isRecord(value) && value.version === 2 && isRecord(value.inventory) &&
-    Array.isArray(value.inventory.holdings);
+function isBalancesSnapshot(value: unknown): value is BalancesSnapshot {
+  return isRecord(value) && value.version === 3 && Array.isArray(value.holdings);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

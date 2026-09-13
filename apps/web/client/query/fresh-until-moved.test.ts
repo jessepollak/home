@@ -55,14 +55,12 @@ const session: VerifiedAccountSession = {
   accountProvider: "cdp-embedded",
 };
 
-function valuationSnapshot(balance: string | null) {
+function balancesSnapshot(balance: string | null) {
   return {
-    version: 2,
-    inventory: {
-      holdings: balance === null
-        ? []
-        : [{ kind: "direct", id: "usdc", balanceBaseUnits: balance }],
-    },
+    version: 3,
+    holdings: balance === null
+      ? []
+      : [{ id: "usdc", balance: { status: "ready", baseUnits: balance } }],
   };
 }
 
@@ -125,20 +123,25 @@ describe("balance freshness across cached regions", () => {
       const queryClient = createHomeQueryClient();
       const ownerKey = dataOwnerKey(session);
       const state = createBalanceFreshnessState();
+      const fetchMetas: unknown[] = [];
       let freshReads = 0;
       let invalidations = 0;
 
       for (const region of scenario.regions) {
         queryClient.setQueryData(
-          ownerQueryKey(ownerKey, "valuation", region.id),
-          valuationSnapshot(region.initial),
+          ownerQueryKey(ownerKey, "balances", region.id),
+          balancesSnapshot(region.initial),
           "updatedAt" in region ? { updatedAt: region.updatedAt } : undefined,
         );
       }
-      queryClient.fetchQuery = (async (options: { queryKey: readonly unknown[] }) => {
+      queryClient.fetchQuery = (async (options: {
+        queryKey: readonly unknown[];
+        meta?: unknown;
+      }) => {
         freshReads += 1;
+        fetchMetas.push(options.meta);
         const region = scenario.regions.find((item) => item.id === options.queryKey[2]);
-        return valuationSnapshot(region?.fresh ?? null);
+        return balancesSnapshot(region?.fresh ?? null);
       }) as QueryClient["fetchQuery"];
       queryClient.invalidateQueries = (async () => {
         invalidations += 1;
@@ -151,7 +154,7 @@ describe("balance freshness across cached regions", () => {
         state,
         clock: fake.clock,
         fetchVerifiedResource: async (endpoint) => {
-          if (endpoint !== "/api/actions") throw new Error("unexpected valuation fetch");
+          if (endpoint !== "/api/actions") throw new Error("unexpected balances fetch");
           return {
             actions: [{
               id: "action-1",
@@ -166,13 +169,16 @@ describe("balance freshness across cached regions", () => {
 
       expect(state.moved.has("action-1")).toBe(scenario.expectedMoved);
       expect(freshReads).toBe(scenario.regions.length);
-      expect(invalidations).toBe(scenario.expectedMoved ? 4 : 0);
+      expect(fetchMetas).toEqual(
+        scenario.regions.map(() => ({ persistence: "owner", ownerKey })),
+      );
+      expect(invalidations).toBe(scenario.expectedMoved ? 3 : 0);
 
       if (scenario.expectedMoved) {
         await fake.advance(6_000);
         await flushMicrotasks();
         expect(freshReads).toBe(scenario.regions.length);
-        expect(invalidations).toBe(4);
+        expect(invalidations).toBe(3);
       }
     });
   }
