@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Button, Heading, IconButton, Text } from "@home/ui";
-import { ArrowRightIcon } from "@home/ui/icons";
+import { ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
@@ -49,15 +49,18 @@ export function CategoryScreen({
     >
       {hosted ? null : (
         <header className={styles.screenHeader}>
-          <IconButton
-            icon={ArrowRightIcon}
-            className={styles.back}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`${styles.back} min-h-11 min-w-11`}
             onClick={onBack}
             aria-label="Back to Invest"
-          />
-          <Heading level={2} textStyle="section-title" id="invest-category-title">
+          >
+            <ArrowRight />
+          </Button>
+          <h2 id="invest-category-title" className="text-section-title font-semibold">
             {title}
-          </Heading>
+          </h2>
         </header>
       )}
       {assets.length > 0 ? (
@@ -73,13 +76,13 @@ export function CategoryScreen({
           ))}
         </ul>
       ) : (
-        <Text className={styles.shelfStatus} textStyle="metadata" tone="muted">
+        <p className={`${styles.shelfStatus} text-metadata text-muted-foreground`}>
           {status === "error" || status === "unavailable"
             ? "Unavailable"
             : status === "loading"
               ? "Loading"
               : "None trending"}
-        </Text>
+        </p>
       )}
       {showPagination && pagination ? (
         <MemePaginationFooter
@@ -135,9 +138,9 @@ function MemePaginationFooter({
 
   if (exhausted) {
     return (
-      <Text className={styles.end} textStyle="metadata" tone="muted" role="status">
+      <p className={`${styles.end} text-metadata text-muted-foreground`} role="status">
         End of trending memes
-      </Text>
+      </p>
     );
   }
 
@@ -150,9 +153,9 @@ function MemePaginationFooter({
         </div>
       ) : null}
       {loadMoreError ? (
-        <Text className={styles.loadMoreError} textStyle="metadata" role="alert">
+        <p className={`${styles.loadMoreError} text-metadata`} role="alert">
           More memes could not be loaded. Your current results are unchanged.
-        </Text>
+        </p>
       ) : null}
       {loadMoreError ? (
         <Button
@@ -164,9 +167,9 @@ function MemePaginationFooter({
         </Button>
       ) : null}
       {autoLoadPaused ? (
-        <Text className={styles.loadMoreNotice} textStyle="metadata" tone="muted" role="status">
+        <p className={`${styles.loadMoreNotice} text-metadata text-muted-foreground`} role="status">
           No additional memes were found.
-        </Text>
+        </p>
       ) : null}
       <div
         key={nextOffset}

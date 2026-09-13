@@ -6,15 +6,15 @@
 
 .header {
   display: grid;
-  gap: var(--home-ui-space-1);
-  padding: 2px 2px var(--home-ui-space-3);
+  gap: 0.25rem;
+  padding: 2px 2px 0.75rem;
 }
 
 .screenHeader {
   display: flex;
   min-height: 48px;
   align-items: center;
-  gap: var(--home-ui-space-2);
+  gap: 0.5rem;
   padding: 2px 0 10px;
 }
 
@@ -36,30 +36,35 @@
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: var(--home-ui-space-2);
+  gap: 0.5rem;
 }
 
 .shelves {
+  display: flex;
   width: 100%;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .shelf {
   display: grid;
   gap: 2px;
   border: 1px solid var(--separator);
-  border-radius: var(--home-ui-radius-surface);
-  padding: 10px var(--home-ui-space-3) var(--home-ui-space-2);
+  border-radius: calc(var(--radius) * 2);
+  padding: 10px 0.75rem 0.5rem;
 }
 
 .shelfHeading {
+  display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px var(--home-ui-space-1);
+  gap: 0.75rem;
+  padding: 2px 0.25rem;
 }
 
 .shelfStatus {
-  padding: 10px var(--home-ui-space-1) var(--home-ui-space-2);
-  font-weight: var(--home-ui-type-weight-strong);
+  padding: 10px 0.25rem 0.5rem;
+  font-weight: 600;
 }
 
 .rows {
@@ -69,17 +74,26 @@
   list-style: none;
 }
 
+.assetRow {
+  min-width: 0;
+  border-bottom: 1px solid var(--separator);
+}
+
+.assetRow:last-child {
+  border-bottom: 0;
+}
+
 .change {
   color: var(--fg-muted);
-  font-weight: var(--home-ui-type-weight-strong);
+  font-weight: 600;
 }
 
 .change[data-money-change="positive"] {
-  color: var(--home-ui-color-market-gain);
+  color: var(--market-gain);
 }
 
 .change[data-money-change="negative"] {
-  color: var(--home-ui-color-market-loss);
+  color: var(--market-loss);
 }
 
 .detailExperience {
@@ -97,7 +111,7 @@
 .priceHeader {
   display: grid;
   gap: 6px;
-  padding: var(--home-ui-space-1) 2px var(--home-ui-space-3);
+  padding: 0.25rem 2px 0.75rem;
 }
 
 .price {
@@ -116,7 +130,7 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 0 var(--home-ui-space-1);
+  padding: 0 0.25rem;
 }
 
 .chartCaption strong {
@@ -131,7 +145,7 @@
   flex: 1 1 auto;
   margin-inline: -16px;
   overflow: hidden;
-  background: var(--home-ui-color-canvas);
+  background: var(--muted);
 }
 
 .chartStage > div,
@@ -155,7 +169,7 @@
   z-index: 3;
   inset: 0;
   pointer-events: none;
-  transition: opacity var(--home-ui-motion-tab) var(--home-ui-easing-standard);
+  transition: opacity var(--motion-tab) ease;
 }
 
 .plotCover[data-fading="true"] {
@@ -164,7 +178,7 @@
 
 .plotCoverChip {
   overflow: hidden;
-  background: color-mix(in srgb, var(--home-ui-color-border) 38%, transparent);
+  background: color-mix(in srgb, var(--border) 38%, transparent);
 }
 
 .plotCoverChip::after {
@@ -173,12 +187,12 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in srgb, var(--home-ui-color-surface) 55%, transparent) 50%,
+    color-mix(in srgb, var(--background) 55%, transparent) 50%,
     transparent 100%
   );
   content: "";
   transform: translateX(-100%);
-  animation: home-ui-skeleton-shimmer 1.2s var(--home-ui-easing-standard) infinite;
+  animation: invest-skeleton-shimmer 1.2s ease infinite;
 }
 
 .chartMessage {
@@ -204,15 +218,15 @@
   justify-content: center;
   gap: 10px;
   color: var(--fg-muted);
-  font-size: var(--home-ui-type-metadata-size);
+  font-size: var(--text-metadata);
 }
 
 .spinner {
   width: 17px;
   height: 17px;
   flex: 0 0 auto;
-  border: 2px solid var(--home-ui-color-focus-halo);
-  border-top-color: var(--home-ui-color-action);
+  border: 2px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -223,7 +237,7 @@
 }
 
 .loadMoreError {
-  color: var(--home-ui-color-status-error-text);
+  color: var(--destructive);
 }
 
 .sentinel {
@@ -232,8 +246,14 @@
 }
 
 .end {
-  margin-top: var(--home-ui-space-4);
+  margin-top: 1rem;
   text-align: center;
+}
+
+@keyframes invest-skeleton-shimmer {
+  to {
+    transform: translateX(100%);
+  }
 }
 
 @keyframes spin {

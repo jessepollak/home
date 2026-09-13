@@ -21,13 +21,12 @@ function PriceChartProbe() {
   );
 }
 
-test("price ranges use shared radio semantics and preserve controlled selection", () => {
+test("price ranges preserve controlled single selection", () => {
   render(<PriceChartProbe />);
-  const group = page().getByRole("radiogroup", { name: "Price range" });
-  const day = page().getByRole("radio", { name: "1D", checked: true });
-  const month = page().getByRole("radio", { name: "1M" });
-  expect(group.classList.contains("home-ui-segmented-control")).toBe(true);
+  expect(page().getByRole("group", { name: "Price range" })).toBeTruthy();
+  const day = page().getByRole("button", { name: "1D", pressed: true });
+  const month = page().getByRole("button", { name: "1M", pressed: false });
   fireEvent.click(month);
-  expect(month.getAttribute("aria-checked")).toBe("true");
-  expect(day.getAttribute("aria-checked")).toBe("false");
+  expect(month.getAttribute("aria-pressed")).toBe("true");
+  expect(day.getAttribute("aria-pressed")).toBe("false");
 });
