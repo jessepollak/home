@@ -53,7 +53,9 @@ describe("RecentMoneyActions", () => {
     expect(row.closest("li")?.textContent).toContain("Confirmed");
     fireEvent.click(row);
     expect(await within(document.body).findByRole("dialog", { name: "Send USDC" })).toBeTruthy();
-    expect(within(document.body).getByRole("link", { name: /BaseScan/i })).toHaveProperty("href", `https://basescan.org/tx/${HASH}`);
+    const explorer = within(document.body).getByRole("link", { name: "View on explorer" });
+    expect(explorer).toHaveProperty("href", `https://basescan.org/tx/${HASH}`);
+    expect(explorer.getAttribute("rel")).toBe("noopener noreferrer");
   });
 
   test("deduplicates a local action once indexed activity has its transaction hash", async () => {

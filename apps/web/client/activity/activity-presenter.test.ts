@@ -143,7 +143,7 @@ describe("presentActivityTransferRow", () => {
     expect(details.rows).toContainEqual({ label: "Block", value: "20" });
     expect(details.explorer).toEqual({
       href: `https://basescan.org/tx/${TRANSACTION_HASH}`,
-      label: "View on BaseScan",
+      label: "View on explorer",
       title: "View the transaction on BaseScan",
     });
   });

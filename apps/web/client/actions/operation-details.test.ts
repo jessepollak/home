@@ -74,7 +74,7 @@ describe("operation transaction details", () => {
     expect(details.rows).toContainEqual({ label: "Network", value: "Base (8453)" });
     expect(details.explorer).toEqual({
       href: `https://basescan.org/tx/${HASH}`,
-      label: "View on BaseScan",
+      label: "View on explorer",
       title: "View the transaction on BaseScan",
     });
   });

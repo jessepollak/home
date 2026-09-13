@@ -164,9 +164,13 @@ async function json(route: Route, body: unknown) {
 
 async function installApiFixtures(
   page: Page,
-  options: { portfolioValuation?: ReturnType<typeof valuation> } = {},
+  options: {
+    portfolioValuation?: ReturnType<typeof valuation>;
+    initialActionStatus?: ActionStatus;
+    activityTransfers?: boolean;
+  } = {},
 ) {
-  let status: ActionStatus = "unconfirmed";
+  let status: ActionStatus = options.initialActionStatus ?? "unconfirmed";
   let valuationReads = 0;
   let activityReads = 0;
   let delayedValuation: Promise<void> | null = null;
@@ -204,7 +208,7 @@ async function installApiFixtures(
       activityReads += 1;
       const to = url.searchParams.get("to") ?? new Date().toISOString();
       const from = new Date(new Date(to).getTime() - 31 * 24 * 60 * 60 * 1000).toISOString();
-      const transfers = status === "confirmed" ? [{
+      const transfers = (options.activityTransfers ?? status === "confirmed") ? [{
         id: `8453:${USDC}:${ACTION_ID}`,
         logId: ACTION_ID,
         chainId: 8453,
@@ -313,6 +317,46 @@ test("recognized token is nested-Balances-only and never enters Send availabilit
   await expect(send.getByText("Recognized Coin", { exact: true })).toHaveCount(0);
   await expect(send.getByText("RCG", { exact: true })).toHaveCount(0);
   await expect(send.getByText(/12\.34 available/)).toBeVisible();
+});
+
+test("Activity transaction details keep labels on one line and link to the explorer", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page, { activityTransfers: true });
+  await page.setViewportSize({ width: 390, height: 720 });
+  await signIn(page);
+
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await page.getByRole("button", { name: /^Sent / }).click();
+  const dialog = page.getByRole("dialog", { name: "Sent USDC" });
+  const explorer = dialog.getByRole("link", { name: "View on explorer" });
+  await expect(explorer).toBeVisible();
+  await expect(explorer).toHaveAttribute("href", `https://basescan.org/tx/${TRANSACTION_HASH}`);
+  await expect(explorer).toHaveAttribute("rel", "noopener noreferrer");
+
+  expect(await dialog.locator("dt").evaluateAll((labels) => {
+    const oneLineHeight = labels.find((label) => label.textContent === "Status")
+      ?.getBoundingClientRect().height;
+    return oneLineHeight !== undefined && labels.every(
+      (label) => label.getBoundingClientRect().height <= oneLineHeight + 0.5,
+    );
+  })).toBe(true);
+
+  for (const width of [320, 390, 1280]) {
+    await page.setViewportSize({ width, height: 720 });
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  }
+});
+
+test("recent operations open transaction details", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page, { initialActionStatus: "confirmed", activityTransfers: false });
+  await signIn(page);
+
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await page.getByRole("button", { name: /^Send USDC / }).click();
+  const dialog = page.getByRole("dialog", { name: "Send USDC" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("link", { name: "View on explorer" })).toBeVisible();
 });
 
 test("ambiguous handle response retries without a second wallet dispatch", async ({ page }) => {
