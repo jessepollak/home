@@ -1,5 +1,4 @@
-// Route contract.
-// GET /api/savings/positions
+// Shared Morpho position contract used by balances selectors and savings presentation.
 
 import { MORPHO_API_VERSION, type Address, type MorphoSource } from "./vaults";
 import { MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";

@@ -28,9 +28,8 @@ globalThis.fetch = Object.assign(
   { preconnect: previousFetch.preconnect },
 );
 
-const [valuation, savings, activity, borrow, trades] = await Promise.all([
-  import("./portfolio/valuation/route"),
-  import("./savings/positions/route"),
+const [balances, activity, borrow, trades] = await Promise.all([
+  import("./balances/route"),
   import("./activity/route"),
   import("./borrow/route"),
   import("./trades/route"),
@@ -48,12 +47,8 @@ describe("consolidated route authorization", () => {
     const invalidCookie = tamper(validCookie);
     const routes = [
       {
-        name: "portfolio valuation",
-        invoke: (cookie: string) => valuation.GET(request("/api/portfolio/valuation?region=US", "GET", cookie)),
-      },
-      {
-        name: "savings positions",
-        invoke: (cookie: string) => savings.GET(request("/api/savings/positions", "GET", cookie)),
+        name: "balances",
+        invoke: (cookie: string) => balances.GET(request("/api/balances?region=US", "GET", cookie)),
       },
       {
         name: "activity",

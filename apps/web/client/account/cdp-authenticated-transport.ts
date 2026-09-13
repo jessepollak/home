@@ -112,10 +112,8 @@ export function useAuthenticatedTransport({
     async (
       endpoint:
         | "/api/portfolio"
-        | "/api/portfolio/valuation"
         | "/api/balances"
         | "/api/activity"
-        | "/api/savings/positions"
         | "/api/actions",
       signal?: AbortSignal,
       query?: string,
@@ -269,15 +267,6 @@ export function useAuthenticatedTransport({
     [fetchAccountResource],
   );
 
-  const fetchPortfolioValuation = useCallback(
-    (region: import("@/config/regions").RegionId, signal?: AbortSignal) =>
-      fetchVerifiedResource(
-        "/api/portfolio/valuation",
-        signal,
-        new URLSearchParams({ region }).toString(),
-      ),
-    [fetchVerifiedResource],
-  );
   const fetchBalances = useCallback(
     (region: import("@/config/regions").RegionId, signal?: AbortSignal) =>
       fetchVerifiedResource(
@@ -292,17 +281,9 @@ export function useAuthenticatedTransport({
       fetchVerifiedResource("/api/activity", signal, query),
     [fetchVerifiedResource],
   );
-  const fetchSavingsPositions = useCallback(
-    (signal?: AbortSignal) =>
-      fetchVerifiedResource("/api/savings/positions", signal),
-    [fetchVerifiedResource],
-  );
-
   return {
-    fetchPortfolioValuation,
     fetchBalances,
     fetchActivity,
-    fetchSavingsPositions,
     fetchAccountResource,
     fetchMoneyActionApi,
     reset,

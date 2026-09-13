@@ -28,7 +28,7 @@ import type {
   FxQuote,
   NativeEthQuote,
   PriceQuote,
-} from "@/shared/portfolio/valuation-types";
+} from "@/shared/balances/quotes";
 import type { BalancesRead, ReadHolding } from "./types";
 
 const PRICE_BATCH_SIZE = 25;

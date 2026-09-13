@@ -4,7 +4,7 @@ import {
   formatFiatAmount,
   presentationCurrencyMetadata,
 } from "@/shared/formatting/money";
-import type { ExactDecimal } from "@/shared/portfolio/valuation-types";
+import type { ExactDecimal } from "@/shared/balances/types";
 
 const integerPattern = /^-?(?:0|[1-9]\d*)$/;
 

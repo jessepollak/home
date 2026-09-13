@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { PriceQuote } from "@/shared/portfolio/valuation-types";
+import type { PriceQuote } from "@/shared/balances/quotes";
 import { createBalancesPricer } from "./price";
 import type { BalancesRead, ReadHolding } from "./types";
 

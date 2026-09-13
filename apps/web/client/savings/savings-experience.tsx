@@ -68,7 +68,6 @@ import { markHomePerformance } from "@/client/observability/perf-marks";
 type SavingsExperienceProps = {
   initialData?: MorphoVaultsResult | null;
   session?: VerifiedAccountSession | null;
-  fetchPositions?: (signal?: AbortSignal) => Promise<unknown>;
   fetchVaults?: (signal?: AbortSignal) => Promise<unknown>;
   now?: () => number;
   availableUsdcBaseUnits?: string | null;

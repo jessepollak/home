@@ -2,7 +2,7 @@ import "server-only";
 
 import type { PortfolioAddress } from "@/config/portfolio-assets";
 import { parseExactDecimal } from "@/shared/portfolio/valuation-math";
-import type { PriceQuote, ValuationSource } from "@/shared/portfolio/valuation-types";
+import type { PriceQuote, ValuationSource } from "@/shared/balances/quotes";
 import {
   CODEX_CACHE_TTL_MS,
   CODEX_GRAPHQL_ENDPOINT,

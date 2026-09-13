@@ -5,11 +5,11 @@ import {
   formatUnsignedTokenAmount,
   formatUsdStablecoinAmount,
 } from "@/shared/formatting";
-import type { PortfolioAssetBalance } from "@/shared/portfolio/types";
 import {
   TransferExecutionError,
   type TransferAsset,
   type TransferAssetId,
+  type TransferBalance,
   type TransferRequest,
 } from "./types";
 
@@ -143,7 +143,7 @@ export function assertTransferRequest(value: TransferRequest): void {
 }
 
 export function findTransferBalance(
-  assets: PortfolioAssetBalance[],
+  assets: readonly TransferBalance[],
   assetId: TransferAssetId,
 ): bigint {
   const asset = assets.find((candidate) => candidate.id === assetId);

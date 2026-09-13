@@ -84,7 +84,7 @@ async function invokeRoute(
   verb: (typeof httpVerbs)[number],
 ): Promise<Response> {
   const handler = route[verb] as (request: Request, context: { params: Promise<Record<string, string>> }) => Promise<Response>;
-  const query = path === "portfolio/valuation/route.ts" || path === "balances/route.ts" ? "?region=US" : "";
+  const query = path === "balances/route.ts" ? "?region=US" : "";
   const request = new Request(`https://home.test/api/${routeUrlPath(path)}${query}`, {
     method: verb,
     ...(verb === "GET" || verb === "HEAD"
