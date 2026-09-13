@@ -58,6 +58,7 @@ export type AccountWalletClient = {
   isSignedIn: boolean;
   ownerKey: string | null;
   status: AccountSessionStatus;
+  verification: "provisional" | "server" | null;
   session: VerifiedAccountSession | null;
   message: string | null;
   requestEmailCode: (email: string) => Promise<{ flowId: string }>;
@@ -102,6 +103,7 @@ export function createBlockedAccountWalletClient(
     isSignedIn: false,
     ownerKey: null,
     status: "signed-out",
+    verification: null,
     session: null,
     message: blockedMessage,
     requestEmailCode: async () => { throw new Error(blockedError); },
@@ -129,6 +131,7 @@ export type AccountWalletSdkBoundary = {
   isInitialized: boolean;
   isSignedIn: boolean;
   ownerKey: string | null;
+  provisionalSession?: VerifiedAccountSession | null;
   signInWithEmail: (email: string) => Promise<{ flowId: string }>;
   verifyEmailOTP: (flowId: string, otp: string) => Promise<void>;
   signInWithSiwe: (options: {

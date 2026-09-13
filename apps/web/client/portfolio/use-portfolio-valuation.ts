@@ -23,6 +23,7 @@ export function usePortfolioValuation(
   session: PortfolioValuationQuerySession | null,
   region: RegionId,
   fetchValuation: FetchPortfolioValuation,
+  options: { enabled?: boolean } = {},
 ): PortfolioValuationState & { revalidating?: true } {
   const validSession = isVerifiedPortfolioSession(session) ? session : null;
   const ownerKey = validSession ? portfolioOwnerKey(validSession) : null;
@@ -30,7 +31,7 @@ export function usePortfolioValuation(
     queryKey: ownerKey
       ? ownerQueryKey(ownerKey, "valuation", region)
       : ["unauthenticated", "valuation-disabled", region],
-    enabled: ownerKey !== null,
+    enabled: ownerKey !== null && options.enabled !== false,
     staleTime: valuationStaleTimeMs,
     retry: false,
     refetchOnWindowFocus: true,

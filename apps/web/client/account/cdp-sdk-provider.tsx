@@ -23,6 +23,7 @@ import {
   type AccountWalletSdkBoundary,
 } from "./cdp-client";
 import { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
+import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 
 const providerUnavailableClient = createBlockedAccountWalletClient(
   "provider-unavailable",
@@ -59,11 +60,25 @@ function AccountWalletBridge({
   const { verifySiweSignature } = useVerifySiweSignature();
   const { getAccessToken } = useGetAccessToken();
   const { signOut } = useSignOut();
+  const currentUserId = currentUser?.userId ?? null;
+  const sdkSmartAccountAddress = currentUser?.evmSmartAccountObjects?.[0]?.address ??
+    currentUser?.evmSmartAccounts?.[0] ?? null;
+  const smartAccountAddress = typeof sdkSmartAccountAddress === "string" &&
+    /^0x[0-9a-fA-F]{40}$/.test(sdkSmartAccountAddress)
+    ? sdkSmartAccountAddress as `0x${string}`
+    : null;
   const sdk = useMemo<AccountWalletSdkBoundary>(
     () => ({
       isInitialized,
       isSignedIn,
-      ownerKey: currentUser?.userId ?? null,
+      ownerKey: currentUserId,
+      provisionalSession: currentUserId && smartAccountAddress
+        ? {
+            user: { subject: currentUserId },
+            smartAccount: { address: smartAccountAddress, chainId: BASE_CHAIN_ID },
+            accountProvider: "cdp-embedded",
+          }
+        : null,
       signInWithEmail: async (email) => signInWithEmail({ email }),
       verifyEmailOTP: async (flowId, otp) => {
         await verifyEmailOTP({ flowId, otp });
@@ -78,7 +93,8 @@ function AccountWalletBridge({
       signOut,
     }),
     [
-      currentUser?.userId,
+      currentUserId,
+      smartAccountAddress,
       getAccessToken,
       isInitialized,
       isSignedIn,

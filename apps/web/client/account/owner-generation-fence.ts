@@ -13,7 +13,11 @@ export type OwnerGenerationFence = {
     boundary: string | null,
     persistedOwnerKey: string | null,
   ) => void;
-  updateOwnerKey: (ownerKey: string | null) => void;
+  updateOwnerKey: (
+    ownerKey: string | null,
+    boundary: string | null,
+    preserveOwnerKey?: string | null,
+  ) => boolean;
 };
 
 export function useOwnerGenerationFence(
@@ -21,6 +25,7 @@ export function useOwnerGenerationFence(
 ): OwnerGenerationFence {
   const generationRef = useRef(0);
   const boundaryRef = useRef<string | null>(null);
+  const ownerKeyRef = useRef<string | null>(null);
   const advance = useCallback((preserveOwnerKey?: string | null) => {
     generationRef.current += 1;
     onAdvance(preserveOwnerKey);
@@ -45,7 +50,21 @@ export function useOwnerGenerationFence(
       throw new TransferExecutionError("stale-session");
     }
   }, []);
-  const updateOwnerKey = useCallback(() => {}, []);
+  const updateOwnerKey = useCallback((
+    ownerKey: string | null,
+    boundary: string | null,
+    preserveOwnerKey?: string | null,
+  ) => {
+    if (ownerKeyRef.current === ownerKey) return false;
+    const preserveMatchingOwner = ownerKeyRef.current === null && ownerKey !== null
+      ? preserveOwnerKey
+      : undefined;
+    ownerKeyRef.current = ownerKey;
+    boundaryRef.current = boundary;
+    generationRef.current += 1;
+    onAdvance(preserveMatchingOwner);
+    return true;
+  }, [onAdvance]);
 
   return useMemo(() => ({
     advance,

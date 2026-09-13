@@ -35,11 +35,15 @@ function dataOwnerKey(session: VerifiedAccountSession): string {
   return `${session.user.subject}\u0000${session.smartAccount!.address.toLowerCase()}\u00008453\u0000${session.accountProvider}`;
 }
 
-function sdk(ownerKey: string | null): AccountWalletSdkBoundary {
+function sdk(
+  ownerKey: string | null,
+  provisionalSession: VerifiedAccountSession | null = null,
+): AccountWalletSdkBoundary {
   return {
     isInitialized: true,
     isSignedIn: ownerKey !== null,
     ownerKey,
+    provisionalSession,
     signInWithEmail: async () => ({ flowId: "flow" }),
     verifyEmailOTP: async () => {},
     signInWithSiwe: async () => ({ flowId: "flow", message: "message" }),
@@ -70,14 +74,14 @@ let observedClient: AccountWalletClient | null = null;
 function HydrationProbe({ fetchValuation }: { fetchValuation: () => Promise<unknown> }) {
   const account = useAccountWallet();
   useEffect(() => { observedClient = account; }, [account]);
-  const ownerKey = account.status === "verified" && account.session?.smartAccount
+  const ownerKey = account.verification && account.session?.smartAccount
     ? dataOwnerKey(account.session)
     : null;
   const valuation = useHomeQuery({
     queryKey: ownerKey
       ? ownerQueryKey(ownerKey, "valuation", "US")
       : ["unauthenticated", "valuation-disabled"],
-    enabled: ownerKey !== null,
+    enabled: ownerKey !== null && account.verification === "server",
     staleTime: 0,
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
     queryFn: fetchValuation,
@@ -97,6 +101,78 @@ afterEach(() => {
 });
 
 describe("owner query hydration lifecycle", () => {
+  test("provisional identity preserves only its own cache and cannot use authenticated transport", async () => {
+    const rows = [
+      { name: "matching", cached: verifiedSession("subject-a", ADDRESS_A), incoming: verifiedSession("subject-a", ADDRESS_A), expected: "12340000" },
+      { name: "different", cached: verifiedSession("subject-a", ADDRESS_A), incoming: verifiedSession("subject-b", ADDRESS_B), expected: "none" },
+    ] as const;
+
+    for (const row of rows) {
+      const cachedOwnerKey = dataOwnerKey(row.cached);
+      persistValuation(cachedOwnerKey, "12340000");
+      let valuationFetches = 0;
+      const sessionPending = new Promise<Response>(() => {});
+      const owner = (ownerSdk: AccountWalletSdkBoundary) => (
+        <AccountWalletSessionOwner
+          sdk={ownerSdk}
+          sessionFetch={async (input) => String(input) === "/api/session" ? sessionPending : Response.json({})}
+        >
+          <HydrationProbe fetchValuation={async () => { valuationFetches += 1; return {}; }} />
+        </AccountWalletSessionOwner>
+      );
+      const view = render(owner({ ...sdk(null), isInitialized: false }));
+      await act(async () => { view.rerender(owner(sdk(`sdk-${row.name}`, row.incoming))); });
+
+      await waitFor(() => expect(observedClient?.verification).toBe("provisional"));
+      await waitFor(() => expect(view.getByTestId("valuation").textContent).toBe(row.expected));
+      expect(valuationFetches).toBe(0);
+      await expect(observedClient!.fetchAccountResource("/api/actions")).rejects.toMatchObject({ reason: "stale-session" });
+      await expect(observedClient!.prepareMoneyAction("send", { amountBaseUnits: "1" })).rejects.toMatchObject({ reason: "stale-session" });
+      expect(getHomeQueryClient().getQueryData(ownerQueryKey(cachedOwnerKey, "valuation", "US")))
+        [row.name === "matching" ? "toBeDefined" : "toBeUndefined"]();
+
+      cleanup();
+      observedClient = null;
+      getHomeQueryClient().clear();
+      window.localStorage.clear();
+    }
+  });
+
+  test("server verification preserves matching provisional data and clears mismatches", async () => {
+    const rows = [
+      { name: "matching", server: verifiedSession("subject-a", ADDRESS_A), survives: true },
+      { name: "different", server: verifiedSession("subject-b", ADDRESS_B), survives: false },
+    ] as const;
+
+    for (const row of rows) {
+      const provisional = verifiedSession("subject-a", ADDRESS_A);
+      const provisionalOwnerKey = dataOwnerKey(provisional);
+      persistValuation(provisionalOwnerKey, "12340000");
+      let resolveSession!: (response: Response) => void;
+      const sessionResponse = new Promise<Response>((resolve) => { resolveSession = resolve; });
+      const view = render(
+        <AccountWalletSessionOwner
+          sdk={sdk("sdk-owner-a", provisional)}
+          sessionFetch={async () => sessionResponse}
+        >
+          <HydrationProbe fetchValuation={async () => new Promise<unknown>(() => {})} />
+        </AccountWalletSessionOwner>,
+      );
+
+      await waitFor(() => expect(observedClient?.verification).toBe("provisional"));
+      expect(view.getByTestId("valuation").textContent).toBe("12340000");
+      resolveSession(Response.json(row.server));
+      await waitFor(() => expect(observedClient?.verification).toBe("server"));
+      expect(getHomeQueryClient().getQueryData(ownerQueryKey(provisionalOwnerKey, "valuation", "US")))
+        [row.survives ? "toBeDefined" : "toBeUndefined"]();
+
+      cleanup();
+      observedClient = null;
+      getHomeQueryClient().clear();
+      window.localStorage.clear();
+    }
+  });
+
   test("same owner paints persisted data before its first fetch resolves", async () => {
     const activeSession = verifiedSession("subject-a", ADDRESS_A);
     const ownerKey = dataOwnerKey(activeSession);

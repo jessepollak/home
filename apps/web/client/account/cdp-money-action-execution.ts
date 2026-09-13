@@ -31,6 +31,7 @@ function validPrepared(value: unknown, session: VerifiedAccountSession): value i
 export function useMoneyActionExecution({
   session,
   status,
+  verification,
   ownerKey,
   ownerFence,
   sdkSendUserOperation,
@@ -40,6 +41,7 @@ export function useMoneyActionExecution({
 }: {
   session: VerifiedAccountSession | null;
   status: AccountSessionStatus;
+  verification: "provisional" | "server" | null;
   ownerKey: string | null;
   ownerFence: OwnerGenerationFence;
   sdkSendUserOperation: AccountWalletSdkBoundary["sendUserOperation"];
@@ -54,11 +56,11 @@ export function useMoneyActionExecution({
   const { fetchAccountResource } = transport;
 
   const assertReady = useCallback(() => {
-    if (!session?.smartAccount || !ownerKey || status !== "verified") {
+    if (!session?.smartAccount || !ownerKey || status !== "verified" || verification !== "server") {
       throw new TransferExecutionError("stale-session");
     }
     return session;
-  }, [ownerKey, session, status]);
+  }, [ownerKey, session, status, verification]);
 
   const prepareMoneyAction = useCallback(async (kind: string, params: unknown) => {
     const active = assertReady();
