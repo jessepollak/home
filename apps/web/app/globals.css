@@ -5,12 +5,12 @@
 @source "../../../packages/ui/src";
 
 :root {
-  --home-ink: #0a0b0d;
-  --home-muted: #5b6270;
-  --home-white: #ffffff;
-  --home-canvas: #f7f8fa;
-  --home-hairline: #e6e8ec;
-  --home-blue: #0052ff;
+  --home-ink: var(--home-ui-color-text);
+  --home-muted: var(--home-ui-color-muted);
+  --home-white: var(--home-ui-color-surface);
+  --home-canvas: var(--home-ui-color-canvas);
+  --home-hairline: var(--home-ui-color-border);
+  --home-blue: var(--home-ui-color-action);
   --home-positive: #0f8a4b;
   --home-negative: #c3372a;
   --home-gray-50: var(--home-canvas);
@@ -26,7 +26,7 @@
   --surface: var(--home-canvas);
   --base-blue: var(--home-blue);
   --control-radius: var(--home-ui-radius-control);
-  --panel-radius: 12px;
+  --panel-radius: var(--home-ui-radius-surface);
   --motion-tab: 180ms;
   --motion-chip: 120ms;
   --motion-press: 100ms;
@@ -79,7 +79,7 @@ a:focus-visible {
 
 ::selection {
   background: var(--base-blue);
-  color: #ffffff;
+  color: var(--home-ui-color-on-action);
 }
 
 .app-frame {
@@ -538,7 +538,7 @@ body:has(.app-frame-shell) {
 .activity-panel {
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
-  background: #ffffff;
+  background: var(--home-ui-color-surface);
 }
 
 .balances-panel,
@@ -613,9 +613,9 @@ body:has(.app-frame-shell) {
   width: 40px;
   height: 40px;
   place-items: center;
-  border-radius: 10px;
-  background: #e7f6ec;
-  color: #1b7a3d;
+  border-radius: var(--home-ui-radius-surface);
+  background: var(--home-ui-color-status-success-background);
+  color: var(--home-ui-color-status-success-text);
 }
 
 .save-teaser-label {
@@ -635,7 +635,7 @@ body:has(.app-frame-shell) {
 .empty-panel {
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
-  background: #ffffff;
+  background: var(--home-ui-color-surface);
 }
 
 .balance-panel,
@@ -646,7 +646,7 @@ body:has(.app-frame-shell) {
 
 .balance-panel {
   border-top: 3px solid var(--base-blue);
-  background: #ffffff;
+  background: var(--home-ui-color-surface);
 }
 
 .balance-heading-row,
@@ -745,7 +745,7 @@ body:has(.app-frame-shell) {
 .action-row > a {
   border-color: var(--base-blue);
   background: var(--base-blue);
-  color: #ffffff;
+  color: var(--home-ui-color-on-action);
 }
 
 .action-row [data-action-trigger]:disabled {
@@ -768,7 +768,7 @@ body:has(.app-frame-shell) {
   border: 1px solid var(--foreground);
   border-radius: var(--control-radius);
   background: var(--foreground);
-  color: #ffffff;
+  color: var(--home-ui-color-on-action);
   font-size: 0.76rem;
   font-weight: 700;
   padding: 0 13px;
