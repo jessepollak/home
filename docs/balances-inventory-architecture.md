@@ -2,13 +2,16 @@
 
 Status: **locked summary** (2026-09-09). Phase A is in the tree via [#77](https://github.com/jessepollak/home/issues/77) / [#80](https://github.com/jessepollak/home/pull/80). Full research (options tables, risks, evidence) stays on [#76](https://github.com/jessepollak/home/issues/76#issuecomment-5594452047) — do not copy it here.
 
-Current tree: [portfolio](portfolio.md) · [CDP SQL](cdp-sql.md) (history only) · [build status](build-status.md). Destination: [target architecture](target-architecture.md).
+Current tree: [balances](balances.md) · [CDP SQL](cdp-sql.md) (history only) · [build status](build-status.md). Destination: [target architecture](target-architecture.md).
 
 ## Problem
 
 Home’s Balances path used request-time multi-call `eth_call` / `eth_getBalance` against rate-limited public Base RPC. Later batch items hit `-32016` and rendered **Unavailable** on cash rows ([#69](https://github.com/jessepollak/home/issues/69) / [#75](https://github.com/jessepollak/home/pull/75)). CoinbaSeQL cannot replace balances — the public CDP SQL schema has no balances table. Inventory stays separate from pricing/FX and from presentation.
 
 ## Locked decisions (2026-09-09)
+
+**Superseded 2026-09-13:** Q1 Phase A is replaced by the CDP-first pipeline in [balances.md](balances.md): CDP Token Balances enumerates, and one pinned registry multicall reads configured assets.
+The Neon observation row restores Phase B/C with event-driven invalidation and a backstop refresh.
 
 1. **Q1 Phase A** — CDP Token Balances for allowlisted directs (not Alchemy on the hot path). Impl [#77](https://github.com/jessepollak/home/issues/77) / [#80](https://github.com/jessepollak/home/pull/80). Narrow pinned-block RPC remains for Morpho `asset()` + `convertToAssets`.
 2. **Q2 Phase C** — budget Alchemy/QuickNode when CDP multi-address / rate limits are exceeded.

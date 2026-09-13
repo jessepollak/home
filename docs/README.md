@@ -31,7 +31,6 @@ Start with [Architecture](architecture.md), the one normative design document; [
 | [Morpho setup](morpho-setup.md) | Morpho vault configuration and verification. |
 | [Observability](observability.md) | Privacy-safe application observability. |
 | [Operating manual](operating-manual.md) | Team workflow, labels, and proof bar. |
-| [Portfolio](portfolio.md) | Balance, valuation, and portfolio data paths. |
 | [PR previews](pr-previews/README.md) | Preview capture conventions. |
 | [Product scope](product-scope.md) | Product intent, not delivery status. |
 | [Public transfer feed spec](public-transfer-feed-spec.md) | Proposed public ERC-20 transfer feed. |

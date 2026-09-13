@@ -1,6 +1,6 @@
 # Balances: one snapshot, every row, cached on the device
 
-Status: **G1 CDP-first server shipped; server observation row (G3) and dust default (G4) locked, not yet built** (2026-09-13). Subsystem design under [architecture.md](architecture.md) (principles 2 and 5; the balances snapshot is an *observation*). Restores Phase B/C of the [balances inventory](balances-inventory-architecture.md) summary (Neon snapshot, CDP webhooks, locked Sept 9) and supersedes its Q1 Phase A and Q1 Phase A of the [balances inventory](balances-inventory-architecture.md) summary and [portfolio.md](portfolio.md) once the deletion step lands. Home now enumerates the wallet through CDP, resolves against registry ∪ Codex 512 ∪ wallet metadata, reads the registry at one pinned block, and prices resolved rows.
+Status: **G1 CDP-first server shipped; server observation row (G3) and dust default (G4) locked, not yet built** (2026-09-13). Subsystem design under [architecture.md](architecture.md) (principles 2 and 5; the balances snapshot is an *observation*). Restores Phase B/C of the [balances inventory](balances-inventory-architecture.md) summary (Neon snapshot, CDP webhooks, locked Sept 9) and supersedes its Q1 Phase A and Q1 Phase A of the [balances inventory](balances-inventory-architecture.md) summary and [balances.md](balances.md) once the deletion step lands. Home now enumerates the wallet through CDP, resolves against registry ∪ Codex 512 ∪ wallet metadata, reads the registry at one pinned block, and prices resolved rows.
 
 ## What Jesse asked for
 
