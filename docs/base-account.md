@@ -29,15 +29,15 @@ Reached when `NEXT_PUBLIC_CDP_PROJECT_ID` is set. This route does not create a H
 Reached when no CDP project ID is set. Home issues and verifies its own challenge, and touches no CDP service. It:
 
 1. connects through the same `@base-org/account` connector on Base mainnet (`8453`);
-2. requests a challenge from `POST /api/auth/base/nonce`, which builds an EIP-4361 message with the connected address, chain `8453`, the request host as `domain`, the request origin as `uri`, a fresh 16-byte nonce, and a five-minute expiry, stores it single-use, and returns it alongside a `home-auth-challenge` cookie signed with `HOME_SESSION_SECRET`;
+2. requests a challenge from `POST /api/auth/base/nonce`, which builds an EIP-4361 message with the connected address, chain `8453`, the request host as `domain`, the request origin as `uri`, a fresh 16-byte nonce, and a five-minute expiry; it returns the message alongside a signed, HttpOnly `home-auth-challenge` cookie carrying the address, origin, message hash, nonce, issue time, and expiry. That cookie is the only challenge state;
 3. signs that exact message with `personal_sign`;
 4. posts the message and signature to `POST /api/auth/base/verify`;
-5. on the server, re-reads the signed challenge cookie, consumes the stored nonce single-use, requires the submitted message and origin to equal the stored ones, re-parses the message and requires address, chain `8453`, `domain`, and `uri` to match, then verifies the signature with viem's `verifySiweMessage` against Base; and
+5. on the server, re-reads and verifies the signed challenge cookie, requires the submitted message hash and origin to match its contents, re-parses the message and requires address, chain `8453`, `domain`, `uri`, nonce, issue time, and expiry to match, then verifies the signature with viem's `verifySiweMessage` against Base; `POST /api/auth/base/verify` clears the challenge cookie on every verification response; and
 6. on success issues a `home-session` cookie, HMAC-signed with `HOME_SESSION_SECRET`, `HttpOnly`, `SameSite=Lax`, `Secure` over https, lasting seven days. The session subject derives from the verified lowercased address, never from anything the client sent.
 
 `POST /api/auth/base/logout` accepts same-origin posts only and clears both cookies.
 
-The nonce store follows the runtime: PostgreSQL when `DATABASE_URL` is set, in-memory in local development, and deliberately unavailable on a hosted or serverless runtime with no database, so a multi-instance deployment cannot fall back to a per-instance nonce.
+The signed `home-auth-challenge` cookie is the only Home-native challenge state. It is verified and cleared by `POST /api/auth/base/verify`, and Home creates no database row for authentication.
 
 Verification here resolves smart-account signatures through ERC-1271 and ERC-6492 in viem, which is the compatibility unknown recorded below for the CDP route. It still fails closed: a signature viem cannot verify leaves the account signed out.
 
@@ -62,7 +62,7 @@ On the CDP route, an initial Base sign-in may create a separate CDP user from an
 3. Set `HOME_SESSION_SECRET` to at least 32 characters. It signs the challenge and session cookies on the Home-native route. `normalizeSecret` returns null below 32 bytes, so a short value disables that route with no error rather than weakening it. Server-only; never expose it with a `NEXT_PUBLIC_` prefix.
 4. For the CDP route, keep the existing `NEXT_PUBLIC_CDP_PROJECT_ID`, `CDP_API_KEY_ID`, and `CDP_API_KEY_SECRET` configuration from `docs/cdp-setup.md`, and set `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT=1`. For a local test, add it to the existing gitignored `apps/web/.env.local`; do not overwrite that file or record its values.
 5. For the Home-native route, leave `NEXT_PUBLIC_CDP_PROJECT_ID` unset. Step 2 does not apply: there is no CDP origin allowlist in that path.
-6. For a hosted Home-native deployment, set `DATABASE_URL`. The nonce store is in-memory only in local development and is deliberately unavailable on a hosted runtime without a database, so sign-in fails closed there until one is configured.
+6. The Home-native route does not require `DATABASE_URL`: its signed `home-auth-challenge` cookie is the only challenge state, so authentication creates no database row.
 7. With a CDP project configured, leave `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT` unset to deploy email-only sign-in. The server rejects requests that select Base Account mode when the matching flag is off.
 
 ## Exact manual user smoke

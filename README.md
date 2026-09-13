@@ -56,7 +56,14 @@ fi
 bun dev
 ```
 
-Open `http://localhost:3000`. Public surfaces work without credentials. Email sign-in and authenticated wallet features require your own CDP project and allowed local origin; see [CDP setup](docs/cdp-setup.md). Keep secrets server-side and out of Git.
+Open `http://localhost:3000`. Public surfaces work without credentials.
+
+| Sign-in method | Requirements | Guide |
+| --- | --- | --- |
+| Base Account | `HOME_SESSION_SECRET` (at least 32 characters); no CDP project and no database | [Base Account](docs/base-account.md) |
+| Email | Your own CDP project and an allowed local origin | [CDP setup](docs/cdp-setup.md) |
+
+A secret shorter than 32 characters silently disables the Base Account button. Keep secrets server-side and out of Git.
 
 Actions require PostgreSQL through `DATABASE_URL`. The current action contract is [Home is thin](docs/home-is-thin.md): Home keeps one confirmed action record; the server authors calldata; the client dispatches through CDP or Base; provider and chain data determine status.
 
