@@ -1,6 +1,6 @@
 # Balances: one snapshot, every row, cached on the device
 
-Status: **G1 CDP-first server shipped; server observation row (G3) and dust default (G4) locked, not yet built** (2026-09-13). Subsystem design under [architecture.md](architecture.md) (principles 2 and 5; the balances snapshot is an *observation*). Restores Phase B/C of the [balances inventory](balances-inventory-architecture.md) summary (Neon snapshot, CDP webhooks, locked Sept 9) and supersedes its Q1 Phase A and Q1 Phase A of the [balances inventory](balances-inventory-architecture.md) summary and [balances.md](balances.md) once the deletion step lands. Home now enumerates the wallet through CDP, resolves against registry ∪ Codex 512 ∪ wallet metadata, reads the registry at one pinned block, and prices resolved rows.
+Status: **G1 CDP-first server shipped; server observation row (G3) and dust default (G4) locked, not yet built** (2026-09-13). Subsystem design under [architecture.md](architecture.md) (principles 2 and 5; the balances snapshot is an *observation*). Restores Phase B/C of the [balances inventory](balances-inventory-architecture.md) summary (Neon snapshot, CDP webhooks, locked Sept 9) and supersedes its Q1 Phase A (the deletion step landed 2026-09-13). Home now enumerates the wallet through CDP, resolves against registry ∪ Codex 512 ∪ wallet metadata, reads the registry at one pinned block, and prices resolved rows.
 
 ## What Jesse asked for
 
@@ -26,7 +26,7 @@ Status: **G1 CDP-first server shipped; server observation row (G3) and dust defa
 
 ## Boundary: display snapshot vs action-time reads
 
-`GET /api/balances` is the **display and client-availability** source: what rows to paint, what a user *can* start (Send max, Save deposit max). It is not action authority. Each money action's server `prepare` reads its own pinned-block balances and validates amounts against them (`server/borrowing/prepare.ts:96,119,144` via `/api/borrow` `wallet.*Raw`; `server/savings/prepare.ts:135,201` via `savings/rpc.ts`). Those reads stay exactly as they are. This is two responsibilities, not two sources of truth.
+`GET /api/balances` is the **display and client-availability** source: what rows to paint, what a user *can* start (Send max, Save deposit max). It is not action authority. Where calldata depends on chain state, the action's server `prepare` reads it at a pinned block and validates the amount (`server/borrowing/prepare.ts:96,119,144` via `/api/borrow` `wallet.*Raw`; `server/savings/prepare.ts:135,201` via `savings/rpc.ts`); a plain Send is checked by the chain at execution. Those reads stay exactly as they are. This is two responsibilities, not two sources of truth.
 
 ## Design
 
@@ -48,7 +48,7 @@ CDP supplies display-grade quantities only for positive non-registry rows. Regis
 3. One batch converts positive vault shares with `convertToAssets(shares)` and re-reads the pinned block. A changed hash re-pins and retries the whole read once; a second mismatch fails.
 4. A failed registry call is retried once. A successful zero is `"0"`; a failed read is `unavailable`, never zero. The whole read retains its 4 s deadline.
 
-The hosted public-default guard is unchanged: preview/production never uses an implicit public RPC for registry quantities, marks those rows unavailable, and emits one `portfolio-balance-source` event per read. There is no catalog chunk and no sequential-public-catalog branch. The pinned registry read keeps its separate 2 s per-owner coalescing TTL so post-action polling can refresh configured ids without forcing a new CDP scan.
+The hosted public-default guard is unchanged: preview/production never uses an implicit public RPC for registry quantities, marks those rows unavailable, and emits one `portfolio-balance-source` event per read. There is no catalog chunk and no sequential-public-catalog branch. Until §8 lands, the pinned registry read keeps a separate 2 s per-owner TTL so post-action polling can refresh configured ids without forcing a new CDP scan; §8 replaces that TTL with the snapshot row's hot window and keeps only in-flight dedupe per instance.
 
 ### Resolve
 
@@ -170,7 +170,7 @@ Rules:
 
 Enumeration cost moves from "every 60 s per active user" to "once per activity event", which is what makes the all-tokens phase affordable for dusty wallets.
 
-Webhook subscription lifecycle (per fork/environment): at first sign-in, add the smart account to a `wallet.activity.multi` subscription with room (≤ 100 addresses each); record `(address, subscription_id)` in a small table or read it back from CDP; `POST /api/webhooks/cdp` verifies the HMAC over the raw body, sets `stale_at` for the address, returns 200; if registration fails the owner still works through the 120 s backstop. Payload shape and address-packing behaviour are unverified until preview.
+Webhook subscription lifecycle (per fork/environment): at first sign-in, add the smart account to a `wallet.activity.multi` subscription with room (≤ 100 addresses each); read the address→subscription mapping back from CDP (an observation; thinness Q1) — a table is admitted only if CDP cannot list a subscription's addresses, and then it is a record that must appear in architecture.md's inventory; `POST /api/webhooks/cdp` verifies the HMAC over the raw body, sets `stale_at` for the address, returns 200; if registration fails the owner still works through the 120 s backstop. Payload shape and address-packing behaviour are unverified until preview.
 
 ### 9. Dust hidden by default (G4, decided 2026-09-13, not yet built)
 

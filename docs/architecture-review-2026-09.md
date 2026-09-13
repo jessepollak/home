@@ -1,6 +1,6 @@
 # Architecture review — growing the engineering team
 
-**Date:** September 12, 2026. This is the current-tree engineering guide. The action contract is [Home is thin](home-is-thin.md).
+**Date:** September 12, 2026. This is the current-tree engineering guide. The action contract is [Actions](actions.md) under [Architecture](architecture.md).
 
 ## A. Working model
 
@@ -21,7 +21,7 @@
 | `server/` | Verified sessions, provider calls, action records, receipts |
 | `config/` | Brand, navigation, regions, and asset identities |
 
-Use [Home is thin](home-is-thin.md) for action schema, failure modes, and retry rules. Use [Vercel deploy](vercel-deploy.md) for hosting and [Fork and extend](fork-and-extend.md) for operators.
+Use [Actions](actions.md) for action schema, failure modes, and retry rules, and [Architecture](architecture.md) for principles and seams. Use [Vercel deploy](vercel-deploy.md) for hosting and [Fork and extend](fork-and-extend.md) for operators.
 
 ## C. Risks worth reviewing
 
@@ -33,7 +33,7 @@ Use [Home is thin](home-is-thin.md) for action schema, failure modes, and retry 
 
 ## D. Contribution contract for new engineers
 
-1. Start with [Home is thin](home-is-thin.md), then the route and feature code you will change.
+1. Start with [Architecture](architecture.md) and [Actions](actions.md), then the route and feature code you will change.
 2. Keep one feature lane per change. Treat action execution and session lifecycle as shared boundaries.
 3. Do not accept browser-authored calldata, client identity, or a client-supplied wallet as authorization.
 4. Keep action work to the thin flow: prepare, confirm, dispatch once, then record provider/chain evidence.

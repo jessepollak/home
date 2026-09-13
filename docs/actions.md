@@ -72,6 +72,8 @@ One `ownerGeneration` counter replaces the four-field fence in `cdp-session-life
 
 ## Unverified assumptions (verify on preview, once)
 
+Balances-side assumptions (CDP Token Balances index lag after a send, CDP Node request budget, `wallet.activity.multi` payload and address packing) live in [balances.md](balances.md).
+
 - CDP idempotency window (documented 24h) and same-key-different-body behavior are documented, not observed live.
 - keys.coinbase.com duplicate-id behavior for `wallet_sendCalls` is unverified; mitigated by never auto-retrying.
 - Indexer latency is unmeasured.

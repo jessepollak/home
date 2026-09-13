@@ -14,7 +14,7 @@ Everything in this document serves that. Anything that does not is deliberately 
 
 | Route | State | Problem |
 |---|---|---|
-| Coinbase Onramp (US, USDC) | Live hosted redirect | Wrong shape; the headless API ([#52](https://github.com/jessepollak/home/issues/52)) is the one to build on. Left alone until then. |
+| Coinbase Onramp (US, USDC) | Manifest provider since Sept 12 (`providers/coinbase/`), hosted redirect | Status reconciliation waits on the headless API ([#52](https://github.com/jessepollak/home/issues/52)). |
 | Ripio Ramps (AR wARS, CO wCOP) | Merged ([#253](https://github.com/jessepollak/home/pull/253)), unwired, UI is a synthetic preview | Bespoke store, reconciliation, webhook handler, UI step. |
 | IDRX (ID) | Draft [#120](https://github.com/jessepollak/home/pull/120), blocked on a funded proof | Adapter, handler, and UI candidate. |
 | MXNB, XSGD, TRYB | Blocked ([#56](https://github.com/jessepollak/home/issues/56)–[#58](https://github.com/jessepollak/home/issues/58)) | Nobody on the crew can complete a payment in those countries. |
@@ -196,7 +196,7 @@ Cut after review to keep the first version small. Each is a follow-up if a real 
 - `POST /api/funding/quotes` also accepts ephemeral manifest KYC fields when no stored customer reference exists. The fields go directly to `ensureCustomer` and are not persisted; the returned customer reference is bound into the signed quote token. `POST /api/funding/orders` accepts only that token.
 - Ripio keeps its existing per-country client credentials and uses one shared `RIPIO_WEBHOOK_SECRET`, declared by each enabled binding, because the v1 manifest has one webhook environment name per provider.
 - `GET /api/funding/orders?region=` is added as the owner-scoped resume endpoint used when Add money opens. It has the same private/no-store response contract as the specified status route.
-- The existing Coinbase hosted route and all legacy Ripio store/reconciliation files remain unchanged. Their removal is #293 after replacement parity review.
+- Coinbase moved behind the manifest seam on Sept 12 (`providers/coinbase/{manifest,adapter}.ts`, registered in `providers/index.ts`); the legacy Ripio store/reconciliation files are tracked for removal in #293.
 
 ### Astra fix round (September 12, 2026)
 

@@ -34,4 +34,4 @@ Copy names from [`.env.example`](../.env.example); keep values in Vercel or giti
 
 Actions require server-only `DATABASE_URL`; apply the disposable schema with `bun run db:migrate` (idempotent; safe on a database bootstrapped by the earlier runtime DDL). Configure server-only `BASE_RPC_URL` for hosted Base reads. Email sign-in requires the CDP project ID plus server validation keys. See [CDP setup](cdp-setup.md) for allowed origins.
 
-The action contract is [Home is thin](home-is-thin.md): Home records confirmed actions, while CDP/Base and Base receipts provide execution status. A green deployment does not authorize a real-money launch.
+The action contract is [Actions](actions.md) under [Architecture](architecture.md): Home records confirmed actions, while CDP/Base and Base receipts provide execution status. A green deployment does not authorize a real-money launch.
