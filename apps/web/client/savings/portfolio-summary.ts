@@ -88,10 +88,8 @@ export function summarizeSavingsPortfolio({
 
   const vaults = supportedVaultAddresses.map((vaultAddress) => {
     const entry = positionMap?.get(vaultAddress.toLowerCase());
-    const balanceBaseUnits = entry
-      ? entry.position === null
-        ? "0"
-        : canonicalAmount(entry.position.assetsRaw)
+    const balanceBaseUnits = entry?.position
+      ? canonicalAmount(entry.position.assetsRaw)
       : null;
     return { vaultAddress, balanceBaseUnits };
   });

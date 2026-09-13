@@ -138,12 +138,14 @@ function HomeHarness({
           status: "ready",
           displayTotal: "$12.34",
           totalStatus: "complete",
-          items: [{
-            id: "usdc",
+          rows: [{
+            key: "usdc",
             group: "cash",
             name: "US dollar",
-            displayBalance: "$12.34",
-            currencyCode: "USD",
+            mark: { kind: "flag", currency: "USD" },
+            primary: "$12.34",
+            secondary: null,
+            tone: "default",
           }],
         }}
       />

@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
-import { encodeUsdcTransfer } from "@/shared/transfers/transfer-helpers";
+import { encodeUsdcTransfer, getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
 const { cleanup, fireEvent, render } = await import("@testing-library/react");
@@ -40,6 +40,34 @@ function resumedAction(kind: PreparedMoneyAction["kind"] = "send"): PreparedMone
 }
 
 afterEach(cleanup);
+
+describe("SendDialog availability", () => {
+  test("uses exact base units for Max instead of parsing the display label", () => {
+    const usdc = getTransferAsset("usdc");
+    if (!usdc) throw new Error("missing USDC transfer asset");
+
+    render(
+      <SendDialog
+        open
+        immediate
+        address={ACCOUNT}
+        ownerBoundary="owner-a"
+        availableAssets={[{
+          ...usdc,
+          balanceBaseUnits: "1234567",
+          balanceLabel: "display copy only",
+        }]}
+        prepareMoneyAction={async () => resumedAction()}
+        resumeMoneyAction={async () => resumedAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
 
 describe("SendDialog resume", () => {
   test("resumes only a send action and decodes its recipient from server-authored calldata", async () => {

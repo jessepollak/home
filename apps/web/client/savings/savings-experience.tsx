@@ -26,7 +26,9 @@ import type {
   OperationResult,
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
-import { usePortfolioValuation } from "@/client/portfolio";
+import { useBalances } from "@/client/balances";
+import { selectBalanceBaseUnits, selectVaultPositions } from "@/shared/balances/select";
+import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import {
   formatAddress,
   formatPresentationPercentage,
@@ -44,11 +46,6 @@ import {
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { parseVaultsResult } from "@/shared/savings/contracts/vaults";
 import {
-  isUsablePositionResult,
-  parsePositionResult,
-  type SavingsPositionsResult,
-} from "@/shared/savings/contracts/positions";
-import {
   readUsdcBaseUnits,
   shortVaultLabel,
 } from "./format";
@@ -61,13 +58,10 @@ import {
 } from "./portfolio-summary";
 import styles from "./savings-experience.module.css";
 import {
-  ownerQueryKey,
-  ownerQueryMeta,
   publicQueryKey,
   useHomeQuery,
 } from "@/client/query/query-client";
 import { deploymentHeaders } from "@/client/query/deployment-headers";
-import { activityOwnerKey } from "@/client/activity/use-activity";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { markHomePerformance } from "@/client/observability/perf-marks";
 
@@ -78,6 +72,9 @@ type SavingsExperienceProps = {
   fetchVaults?: (signal?: AbortSignal) => Promise<unknown>;
   now?: () => number;
   availableUsdcBaseUnits?: string | null;
+  balancePositions?: ReturnType<typeof selectVaultPositions> | null;
+  balanceStatus?: "idle" | "loading" | "ready" | "error";
+  balanceRevalidating?: boolean;
   prepareMoneyAction?: (
     endpoint: string,
     input: unknown,
@@ -98,7 +95,7 @@ type PositionState =
   | { status: "loading" }
   | {
       status: "ready";
-      data: SavingsPositionsResult;
+      data: ReturnType<typeof selectVaultPositions>;
       refreshing: boolean;
       refreshError: boolean;
     }
@@ -106,8 +103,9 @@ type PositionState =
 
 export function AuthenticatedSavingsExperience() {
   const account = useAccountWallet();
+  const region = usePresentationRegionId();
   const session = account.status === "verified" ? account.session : null;
-  const portfolioSession = session?.smartAccount
+  const balancesSession = session?.smartAccount
     ? {
         subject: session.user.subject,
         smartAccountAddress: session.smartAccount.address,
@@ -115,22 +113,19 @@ export function AuthenticatedSavingsExperience() {
         accountProvider: session.accountProvider,
       }
     : null;
-  const portfolio = usePortfolioValuation(
-    portfolioSession,
-    "US",
-    account.fetchPortfolioValuation,
-  );
-  const usdc = portfolio.snapshot?.inventory.holdings.find(
-    (holding) => holding.kind === "direct" && holding.id === "usdc",
-  );
-  const availableUsdcBaseUnits =
-    usdc?.kind === "direct" ? usdc.balanceBaseUnits : null;
+  const balances = useBalances(balancesSession, region, account.fetchBalances);
+  const availableUsdcBaseUnits = balances.snapshot
+    ? selectBalanceBaseUnits(balances.snapshot, "usdc")
+    : null;
+  const balancePositions = balances.snapshot ? selectVaultPositions(balances.snapshot) : null;
 
   return (
     <SavingsExperience
       session={session}
-      fetchPositions={account.fetchSavingsPositions}
       availableUsdcBaseUnits={availableUsdcBaseUnits}
+      balancePositions={balancePositions}
+      balanceStatus={balances.status === "unavailable" ? "idle" : balances.status}
+      balanceRevalidating={balances.revalidating === true}
       prepareMoneyAction={account.prepareMoneyAction}
       executeMoneyAction={account.executeMoneyAction}
     />
@@ -140,10 +135,12 @@ export function AuthenticatedSavingsExperience() {
 export function SavingsExperience({
   initialData = null,
   session = null,
-  fetchPositions,
   fetchVaults = fetchSavingsVaults,
   now = Date.now,
   availableUsdcBaseUnits = null,
+  balancePositions = null,
+  balanceStatus,
+  balanceRevalidating = false,
   prepareMoneyAction,
   executeMoneyAction,
   onBack,
@@ -161,8 +158,7 @@ export function SavingsExperience({
         : null;
   const visibleActionMode = routing ? routedActionMode : actionMode;
   const hosted = Boolean(useOptionalAppChrome());
-  const sessionAddress = session?.smartAccount?.address ?? null;
-  const sessionKey = session?.smartAccount ? activityOwnerKey(session) : null;
+  const hasSession = Boolean(session?.smartAccount);
   const metadataQuery = useHomeQuery({
     queryKey: publicQueryKey("savings-vaults"),
     initialData: initialData ?? undefined,
@@ -185,40 +181,12 @@ export function SavingsExperience({
           : { status: "loading", data: null },
     [metadataQuery.data, metadataQuery.isError],
   );
-  const positionsQuery = useHomeQuery({
-    queryKey: sessionKey
-      ? ownerQueryKey(sessionKey, "savings-positions")
-      : ["unauthenticated", "savings-positions-disabled"],
-    enabled: Boolean(sessionKey && fetchPositions && sessionAddress),
-    staleTime: 15_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    meta: sessionKey ? ownerQueryMeta(sessionKey, "owner") : undefined,
-    queryFn: ({ signal }) => {
-      if (!fetchPositions)
-        throw new Error("Savings positions are unavailable.");
-      return fetchPositions(signal);
-    },
-    select: (value) => {
-      if (!sessionAddress)
-        throw new Error("Savings positions are unavailable.");
-      const data = parsePositionResult(value, sessionAddress);
-      if (!data || !isUsablePositionResult(data))
-        throw new Error("Savings positions are invalid.");
-      return data;
-    },
-  });
-
   useEffect(() => {
-    if (positionsQuery.dataUpdatedAt <= 0) return;
+    if (balanceStatus !== "ready" || !balancePositions) return;
     let active = true;
-    queueMicrotask(() => {
-      if (active) setRateNowMs(now());
-    });
-    return () => {
-      active = false;
-    };
-  }, [now, positionsQuery.dataUpdatedAt]);
+    queueMicrotask(() => { if (active) setRateNowMs(now()); });
+    return () => { active = false; };
+  }, [balancePositions, balanceStatus, now]);
 
   useEffect(() => {
     if (loadState.status !== "ready") return;
@@ -236,22 +204,18 @@ export function SavingsExperience({
   }, [loadState, now, rateNowMs]);
 
   const positionState = useMemo<PositionState>(() => {
-    if (!sessionKey) return { status: "idle" };
-    if (positionsQuery.data) {
+    if (!hasSession || balanceStatus === "idle") return { status: "idle" };
+    if (balanceStatus === "ready" && balancePositions) {
       return {
         status: "ready",
-        data: positionsQuery.data,
-        refreshing: positionsQuery.isFetching,
-        refreshError: positionsQuery.isError,
+        data: balancePositions,
+        refreshing: balanceRevalidating,
+        refreshError: false,
       };
     }
-    return positionsQuery.isError ? { status: "error" } : { status: "loading" };
-  }, [
-    positionsQuery.data,
-    positionsQuery.isError,
-    positionsQuery.isFetching,
-    sessionKey,
-  ]);
+    if (balanceStatus === "error") return { status: "error" };
+    return { status: "loading" };
+  }, [balancePositions, balanceRevalidating, balanceStatus, hasSession]);
 
   useEffect(() => {
     if (
@@ -287,7 +251,7 @@ export function SavingsExperience({
       requiredAsset:
         loadState.status === "ready" ? loadState.data.asset : BASE_USDC_ASSET,
       candidates: loadState.status === "ready" ? loadState.data.candidates : [],
-      positions: positionState.data.vaults,
+      positions: positionState.data,
       metadataFetchedAt:
         loadState.status === "ready" ? loadState.data.source.fetchedAt : null,
       metadataStale: loadState.status === "ready" && loadState.data.stale,
@@ -295,10 +259,8 @@ export function SavingsExperience({
     });
   }, [loadState, positionState, rateNowMs]);
   const balances = collectVaultBalances(candidates, positionState);
-  const coldLoading = Boolean(sessionKey && positionState.status === "loading");
-  const positionFailed = Boolean(
-    sessionKey && positionState.status === "error",
-  );
+  const coldLoading = hasSession && positionState.status === "loading";
+  const positionFailed = hasSession && positionState.status === "error";
   const refreshing =
     positionState.status === "ready" && positionState.refreshing;
   const refreshError =
@@ -308,7 +270,7 @@ export function SavingsExperience({
     portfolioSummary?.balance.status === "available"
       ? portfolioSummary.balance
       : null;
-  const showBalanceRows = funded || Boolean(sessionKey && !availableBalance);
+  const showBalanceRows = funded || (hasSession && !availableBalance);
   const selectedBalance = selected
     ? balances.find(
         (entry) =>
@@ -438,7 +400,7 @@ export function SavingsExperience({
               </p>
             ) : null}
           </>
-        ) : !sessionKey ? (
+        ) : !hasSession ? (
           <>
             <p
               className={`${styles.heroAmount} ${styles.heroAmountEmpty} text-amount tabular-nums`}
@@ -580,7 +542,7 @@ export function SavingsExperience({
         </section>
       ) : null}
 
-      {loadState.status !== "error" && (availableBalance || !sessionKey) ? (
+      {loadState.status !== "error" && (availableBalance || !hasSession) ? (
         <div
           className={`${styles.actions} ${funded ? styles.actionsSplit : ""}`.trim()}
         >
@@ -775,7 +737,7 @@ function collectVaultBalances(
   }
 
   return candidates.map((candidate) => {
-    const entry = state.data.vaults.find(
+    const entry = state.data.find(
       (vault) =>
         vault.vaultAddress.toLowerCase() ===
         candidate.vaultAddress.toLowerCase(),

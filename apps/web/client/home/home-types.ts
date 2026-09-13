@@ -2,12 +2,11 @@ import type { ReactNode } from "react";
 import type { ShellPanelId } from "@/config/navigation";
 import type { RegionId } from "@/config/regions";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
-import type {
-  HomeAssetBalanceItem,
-  HomeAssetBalancesPresentation,
-} from "@/client/portfolio";
+import type { TransferAssetAvailability } from "@/shared/transfers/types";
+import type { BalanceRowModel, BalancesPresentation } from "@/shared/balances/present";
 
-export type { HomeAssetBalanceItem, HomeAssetBalancesPresentation };
+export type HomeAssetBalanceItem = BalanceRowModel;
+export type HomeAssetBalancesPresentation = BalancesPresentation;
 
 export type HomeExperienceProps = {
   detectedCountry?: string | null;
@@ -17,6 +16,7 @@ export type HomeExperienceProps = {
   initialPanel?: ShellPanelId;
   initialAccountSettingsOpen?: boolean;
   assetBalances?: HomeAssetBalancesPresentation;
+  sendAvailability?: readonly TransferAssetAvailability[];
   assetMarkResolution?: AssetMarkResolution;
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";

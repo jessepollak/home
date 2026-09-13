@@ -1,20 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyTicker } from "@/components/money-ticker";
 import { CurrencyMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
-import {
-  presentHomeBalanceMark,
-  presentHomeBalanceRow,
-} from "@/client/portfolio";
-import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { RegionId } from "@/config/regions";
-import type {
-  HomeAssetBalanceItem,
-  HomeAssetBalancesPresentation,
-} from "./home-types";
+import type { BalanceRowModel, BalancesPresentation } from "@/shared/balances/present";
 import { ShimmerRows } from "./panel-shared";
 
 const BALANCES_BATCH_SIZE = 10;
@@ -25,10 +16,7 @@ type BalancesRevealWindow = {
   count: number;
 };
 
-export function clampHomeScrollTop(
-  main: HTMLElement | null,
-  top: number,
-): number {
+export function clampHomeScrollTop(main: HTMLElement | null, top: number): number {
   if (!main || top <= 0) return Math.max(0, top);
   const maxTop = Math.max(0, main.scrollHeight - main.clientHeight);
   return maxTop > 0 ? Math.min(top, maxTop) : top;
@@ -46,51 +34,32 @@ export function homeBalancesRestoreScope(input: {
   return `${ownerKey}\u0000${provider}\u0000${subject}\u0000${smartAccount.toLowerCase()}\u0000${region}`;
 }
 
-export function balancesListKey(
-  items: readonly HomeAssetBalanceItem[],
-): string {
-  return JSON.stringify(
-    items.map((item) => ({
-      id: item.id,
-      assetKey: item.assetKey ?? null,
-      group: item.group ?? null,
-      name: item.name,
-      detail: item.detail ?? null,
-      imageUrl: item.imageUrl ?? null,
-      displayBalance: item.displayBalance,
-      displayContext: item.displayContext ?? null,
-      currencyCode: item.currencyCode ?? null,
-      tone: item.tone ?? null,
-    })),
-  );
+export function balancesListKey(rows: readonly BalanceRowModel[]): string {
+  return JSON.stringify(rows);
 }
 
 export function useBalancesRevealWindow(
   scope: string | null,
-  items: readonly HomeAssetBalanceItem[],
+  rows: readonly BalanceRowModel[],
   resetSignal: number,
 ) {
   const [revealWindow, setRevealWindow] = useState<BalancesRevealWindow>(() => {
-    const key = `${scope ?? ""}\u0000${balancesListKey(items)}`;
+    const key = `${scope ?? ""}\u0000${balancesListKey(rows)}`;
     return { key, resetSignal, count: BALANCES_BATCH_SIZE };
   });
-  const key = `${scope ?? ""}\u0000${balancesListKey(items)}`;
+  const key = `${scope ?? ""}\u0000${balancesListKey(rows)}`;
   if (revealWindow.key !== key || revealWindow.resetSignal !== resetSignal) {
     setRevealWindow({ key, resetSignal, count: BALANCES_BATCH_SIZE });
   }
 
-  const count = Math.min(revealWindow.count, items.length);
+  const count = Math.min(revealWindow.count, rows.length);
   const extend = useCallback(() => {
     setRevealWindow((current) =>
       current.key === key && current.resetSignal === resetSignal
-        ? {
-            key,
-            resetSignal: current.resetSignal,
-            count: Math.min(current.count + BALANCES_BATCH_SIZE, items.length),
-          }
+        ? { key, resetSignal, count: Math.min(current.count + BALANCES_BATCH_SIZE, rows.length) }
         : current,
     );
-  }, [key, items.length, resetSignal]);
+  }, [key, resetSignal, rows.length]);
 
   return { count, extend };
 }
@@ -98,41 +67,30 @@ export function useBalancesRevealWindow(
 export function BalancesPage({
   active,
   assetBalances,
-  assetMarkResolution,
   isChecking,
   revealedCount,
   onRevealMore,
 }: {
   active: boolean;
-  assetBalances?: HomeAssetBalancesPresentation;
-  assetMarkResolution?: AssetMarkResolution;
+  assetBalances?: BalancesPresentation;
   isChecking: boolean;
   revealedCount: number;
   onRevealMore: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading" || isChecking;
-  const balanceStatusLabel =
-    assetBalances?.totalStatus === "partial" ? undefined : assetBalances?.statusLabel;
-  const showBalanceStatus =
-    assetBalances?.status !== "loading" &&
-    balanceStatusLabel !== "Updating…" &&
-    Boolean(balanceStatusLabel);
+  const balanceStatusLabel = assetBalances?.totalStatus === "partial" ? undefined : assetBalances?.statusLabel;
   return (
     <section className="balances-panel nested-home-panel" aria-label="Balances">
-      {showBalanceStatus ? (
-        <p
-          className="balance-status balance-status-panel text-metadata"
-          data-total-status={assetBalances?.totalStatus}
-        >
+      {assetBalances?.status !== "loading" && balanceStatusLabel ? (
+        <p className="balance-status balance-status-panel text-metadata" data-total-status={assetBalances?.totalStatus}>
           {balanceStatusLabel}
         </p>
       ) : null}
       <IncrementalBalancesList
         active={active}
-        items={assetBalances?.items ?? []}
+        rows={assetBalances?.rows ?? []}
         isLoading={isLoading}
         isUnavailable={assetBalances?.status === "unavailable"}
-        assetMarkResolution={assetMarkResolution}
         revealedCount={revealedCount}
         onRevealMore={onRevealMore}
       />
@@ -141,28 +99,16 @@ export function BalancesPage({
 }
 
 export function HomeBalancesList({
-  items,
+  rows,
   isLoading,
   isUnavailable = false,
-  assetMarkResolution,
 }: {
-  items: readonly HomeAssetBalanceItem[];
+  rows: readonly BalanceRowModel[];
   isLoading: boolean;
   isUnavailable?: boolean;
-  assetMarkResolution?: AssetMarkResolution;
 }) {
-  if (items.length > 0) {
-    return (
-      <ul className="supplied-asset-list">
-        {items.map((asset) => (
-          <HomeBalanceRowView
-            key={asset.id}
-            asset={asset}
-            assetMarkResolution={assetMarkResolution}
-          />
-        ))}
-      </ul>
-    );
+  if (rows.length > 0) {
+    return <ul className="supplied-asset-list">{rows.map((row) => <HomeBalanceRowView key={row.key} row={row} />)}</ul>;
   }
   if (isLoading) return <ShimmerRows count={2} />;
   if (isUnavailable) return null;
@@ -171,23 +117,21 @@ export function HomeBalancesList({
 
 function IncrementalBalancesList({
   active,
-  items,
+  rows,
   isLoading,
   isUnavailable = false,
-  assetMarkResolution,
   revealedCount,
   onRevealMore,
 }: {
   active: boolean;
-  items: readonly HomeAssetBalanceItem[];
+  rows: readonly BalanceRowModel[];
   isLoading: boolean;
   isUnavailable?: boolean;
-  assetMarkResolution?: AssetMarkResolution;
   revealedCount: number;
   onRevealMore: () => void;
 }) {
-  const count = Math.min(revealedCount, items.length);
-  const hasMore = count < items.length;
+  const count = Math.min(revealedCount, rows.length);
+  const hasMore = count < rows.length;
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -195,16 +139,14 @@ function IncrementalBalancesList({
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) onRevealMore();
-      },
+      (entries) => { if (entries.some((entry) => entry.isIntersecting)) onRevealMore(); },
       { rootMargin: "0px 0px 40% 0px" },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [active, revealedCount, items.length, hasMore, onRevealMore]);
+  }, [active, hasMore, onRevealMore, revealedCount, rows.length]);
 
-  if (items.length === 0) {
+  if (rows.length === 0) {
     if (isLoading) return <ShimmerRows count={2} />;
     if (isUnavailable) return null;
     return <p className="balances-empty text-metadata">No balances yet</p>;
@@ -213,64 +155,28 @@ function IncrementalBalancesList({
   return (
     <>
       <ul className="supplied-asset-list">
-        {items.slice(0, count).map((asset) => (
-          <HomeBalanceRowView
-            key={asset.id}
-            asset={asset}
-            assetMarkResolution={assetMarkResolution}
-          />
-        ))}
+        {rows.slice(0, count).map((row) => <HomeBalanceRowView key={row.key} row={row} />)}
       </ul>
-      {active && hasMore ? (
-        <div ref={sentinelRef} className="balances-sentinel" aria-hidden="true" />
-      ) : null}
+      {active && hasMore ? <div ref={sentinelRef} className="balances-sentinel" aria-hidden="true" /> : null}
     </>
   );
 }
 
-function HomeBalanceRowView({
-  asset,
-  assetMarkResolution,
-}: {
-  asset: HomeAssetBalanceItem;
-  assetMarkResolution?: AssetMarkResolution;
-}) {
-  if (asset.displayContext === "Updating…") {
-    return (
-      <li className="shimmer-row" data-shimmer="row">
-        <CurrencyMark pending />
-        <span className="shimmer-identity">
-          <Skeleton className="shimmer-line shimmer-line-wide" />
-          <Skeleton className="shimmer-line shimmer-line-narrow" />
-        </span>
-        <Skeleton className="shimmer-pill" />
-        <span className="sr-status">Updating…</span>
-      </li>
-    );
-  }
-
-  const row = presentHomeBalanceRow(asset);
-  const mark = presentHomeBalanceMark(asset, assetMarkResolution);
+export function HomeBalanceRowView({ row }: { row: BalanceRowModel }) {
+  const icon = row.mark.kind === "flag"
+    ? <CurrencyMark currency={row.mark.currency} />
+    : row.mark.kind === "image"
+      ? <CurrencyMark src={row.mark.url} symbol={row.mark.fallbackSymbol} />
+      : row.mark.kind === "eth"
+        ? <CurrencyMark symbol="ETH" />
+        : <CurrencyMark symbol={row.mark.symbol} />;
   return (
     <BalanceRow
-      icon={
-        <CurrencyMark
-          currency={mark.currency}
-          symbol={mark.symbol}
-          src={mark.imageUrl}
-          pending={mark.pending}
-        />
-      }
+      icon={icon}
       iconTone="mark"
-      label={asset.name}
-      context={asset.displayContext}
-      value={
-        <MoneyTicker
-          value={row.visualBalance}
-          aria-label={row.accessibleBalance}
-          title={row.accessibleBalance}
-        />
-      }
+      label={row.name}
+      context={row.secondary ?? undefined}
+      value={<MoneyTicker value={row.primary} />}
       valueTone={row.tone}
     />
   );

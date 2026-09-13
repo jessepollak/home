@@ -1,33 +1,22 @@
-import { getTransferAssets } from "@/shared/transfers/transfer-helpers";
+import { selectSendable } from "@/shared/balances/select";
+import type { BalancesSnapshot } from "@/shared/balances/types";
+import { formatPresentationTokenAmount } from "@/shared/formatting";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
-import { parseAvailableDecimal } from "@/client/money-modal";
-import { isAvailablePositive } from "@/client/money-modal/amount-units";
-import type { HomeAssetBalanceItem } from "./home-types";
-
-const transferAssetByKey = new Map(
-  getTransferAssets().map((asset) => [asset.assetKey.toLowerCase(), asset]),
-);
 
 export type SendAvailability = readonly TransferAssetAvailability[];
 
-export function deriveSendAvailability(
-  items: readonly HomeAssetBalanceItem[],
-): SendAvailability {
-  return items.flatMap((item) => {
-    if (
-      item.recognized === true ||
-      item.tone === "error" ||
-      item.displayBalance === "—" ||
-      item.displayBalance === "Unavailable" ||
-      !item.assetKey
-    ) {
-      return [];
-    }
-    const asset = transferAssetByKey.get(item.assetKey.toLowerCase());
-    if (!asset) return [];
-    const balanceLabel = item.displayContext ?? item.displayBalance;
-    const parsedBalance = parseAvailableDecimal(balanceLabel);
-    if (parsedBalance !== null && !isAvailablePositive(parsedBalance)) return [];
-    return [{ ...asset, balanceLabel }];
-  });
+export function deriveSendAvailability(snapshot: BalancesSnapshot): SendAvailability {
+  return selectSendable(snapshot).map((asset) => ({
+    ...asset,
+    balanceLabel: formatPresentationTokenAmount(
+      BigInt(asset.balanceBaseUnits),
+      asset.decimals,
+      asset.symbol,
+      {
+        cashCurrency: asset.cashCurrency,
+        category: asset.kind === "native" ? "crypto" : undefined,
+        regionId: snapshot.region,
+      },
+    ),
+  }));
 }
