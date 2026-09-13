@@ -1,7 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { Button, Field, Heading, Input, Select, Text } from "@home/ui";
+import {
+  Button,
+  EmptyState,
+  Field,
+  Heading,
+  Inline,
+  Input,
+  ListRow,
+  Select,
+  StatusMessage,
+  Text,
+} from "@home/ui";
+import { MoneyTicker } from "@home/ui/money-ticker";
 import { useMemo, useState } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
@@ -64,6 +76,13 @@ type PreviewState =
   | { status: "error"; message: string }
   | { status: "preview-only"; response: Extract<BorrowPreviewResponse, { status: "preview-only" }> }
   | { status: "prepared"; action: PreparedMoneyAction };
+
+type LimitPresentation = {
+  value: string;
+  suffix: string;
+  secondValue?: string;
+  secondSuffix?: string;
+};
 
 /** Not routed today (D4: `/borrow` deleted); retained for a future Borrow shell panel. */
 export function AuthenticatedBorrowExperience() {
@@ -157,14 +176,36 @@ function BorrowExperienceInner({
     }
   }
 
-  const selectedLimit = useMemo(() => {
+  const selectedLimit = useMemo<LimitPresentation | null>(() => {
     if (!snapshot) return null;
     switch (operation) {
-      case "supply-collateral": return `${formatPresentationTokenAmount(snapshot.wallet.collateralBalanceRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} wallet balance`;
-      case "borrow": return `${formatPresentationTokenAmount(snapshot.position.borrowCapacityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} current capacity`;
-      case "repay": return `${formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} current debt; enter less for an exact partial repayment`;
-      case "repay-all": return `${formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} current debt estimate; maximum cannot exceed ${formatPresentationTokenAmount(snapshot.wallet.loanBalanceRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} wallet balance`;
-      case "withdraw-collateral": return `${formatPresentationTokenAmount(snapshot.position.withdrawableCollateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} currently withdrawable`;
+      case "supply-collateral":
+        return {
+          value: formatPresentationTokenAmount(snapshot.wallet.collateralBalanceRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true }),
+          suffix: "wallet balance",
+        };
+      case "borrow":
+        return {
+          value: formatPresentationTokenAmount(snapshot.position.borrowCapacityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true }),
+          suffix: "current capacity",
+        };
+      case "repay":
+        return {
+          value: formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true }),
+          suffix: "current debt; enter less for an exact partial repayment",
+        };
+      case "repay-all":
+        return {
+          value: formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true }),
+          suffix: "current debt estimate; maximum cannot exceed",
+          secondValue: formatPresentationTokenAmount(snapshot.wallet.loanBalanceRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true }),
+          secondSuffix: "wallet balance",
+        };
+      case "withdraw-collateral":
+        return {
+          value: formatPresentationTokenAmount(snapshot.position.withdrawableCollateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true }),
+          suffix: "currently withdrawable",
+        };
     }
   }, [operation, snapshot, regionId]);
 
@@ -180,54 +221,59 @@ function BorrowExperienceInner({
         </header>
 
         {!sessionKey ? (
-          <div className={styles.notice} role="status">
-            <Text as="strong" textStyle="row-label">Sign in to view this wallet’s position</Text>
-          </div>
+          <StatusMessage className={styles.notice} title="Sign in to view this wallet’s position" />
         ) : null}
         {sessionKey && state.status === "loading" ? (
-          <div className={styles.notice} role="status">
-            <Text as="strong" textStyle="row-label">Loading current market state</Text>
-          </div>
+          <StatusMessage className={styles.notice} title="Loading current market state" />
         ) : null}
         {sessionKey && state.status === "error" ? (
-          <div className={styles.notice} role="alert">
-            <Text as="strong" textStyle="row-label">Borrowing state unavailable</Text>
-            <Text as="span" textStyle="secondary" tone="muted">Refresh to try again.</Text>
-            <Button type="button" variant="secondary" onClick={() => void refresh()}>Retry</Button>
-          </div>
+          <StatusMessage
+            className={styles.notice}
+            tone="error"
+            role="alert"
+            title="Borrowing state unavailable"
+            action={<Button type="button" variant="secondary" onClick={() => void refresh()}>Retry</Button>}
+          >
+            Refresh to try again.
+          </StatusMessage>
         ) : null}
 
         {snapshot ? (
           <>
             <div className={styles.asOf}>
-              <time dateTime={blockTime(snapshot.source.blockTimestamp)}>As of {formatTime(blockTime(snapshot.source.blockTimestamp), regionId)}</time>
+              <Text as="span" textStyle="metadata" tone="muted">
+                <time dateTime={blockTime(snapshot.source.blockTimestamp)}>As of {formatTime(blockTime(snapshot.source.blockTimestamp), regionId)}</time>
+              </Text>
             </div>
             <section className={styles.metrics} aria-labelledby="position-title">
-              <div className={styles.sectionHeading}>
+              <Inline className={styles.sectionHeading} space="3">
                 <Heading level={2} textStyle="section-title" id="position-title">Wallet and position</Heading>
                 <Button type="button" variant="secondary" onClick={() => void refresh()}>Refresh</Button>
-              </div>
-              {emptyWallet ? <Text as="p" textStyle="secondary" tone="muted" className={styles.empty}>This wallet has no cbBTC, USDC, or borrow position.</Text> : null}
-              <dl className={styles.metricGrid}>
-                <Metric label="cbBTC wallet" value={formatPresentationTokenAmount(snapshot.wallet.collateralBalanceRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} />
-                <Metric label="USDC wallet" value={formatPresentationTokenAmount(snapshot.wallet.loanBalanceRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} />
-                <Metric label="Collateral supplied" value={formatPresentationTokenAmount(snapshot.position.collateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} />
-                <Metric label="Current debt" value={formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} note="Rounded up from Morpho borrow shares" />
-                <Metric label="Current borrow capacity" value={formatPresentationTokenAmount(snapshot.position.borrowCapacityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} note="Lower of collateral limit and indexed liquidity" />
-                <Metric label="Currently withdrawable" value={formatPresentationTokenAmount(snapshot.position.withdrawableCollateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} note="At the displayed oracle price" />
+              </Inline>
+              {emptyWallet ? (
+                <EmptyState
+                  className={styles.empty}
+                  title="This wallet has no cbBTC, USDC, or borrow position."
+                />
+              ) : null}
+              <ul className={styles.metricGrid}>
+                <Metric label="cbBTC wallet" value={formatPresentationTokenAmount(snapshot.wallet.collateralBalanceRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} money />
+                <Metric label="USDC wallet" value={formatPresentationTokenAmount(snapshot.wallet.loanBalanceRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} money />
+                <Metric label="Collateral supplied" value={formatPresentationTokenAmount(snapshot.position.collateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} money />
+                <Metric label="Current debt" value={formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} note="Rounded up from Morpho borrow shares" money />
+                <Metric label="Current borrow capacity" value={formatPresentationTokenAmount(snapshot.position.borrowCapacityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} note="Lower of collateral limit and indexed liquidity" money />
+                <Metric label="Currently withdrawable" value={formatPresentationTokenAmount(snapshot.position.withdrawableCollateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} note="At the displayed oracle price" money />
                 <Metric label="Health factor" value={formatHealthFactor(snapshot.position.healthFactorWad, regionId)} note={healthNote(snapshot.position.healthFactorWad)} />
-                <Metric label="Liquidation price" value={snapshot.position.liquidationPriceRaw ? `${formatOracleUsd(snapshot.position.liquidationPriceRaw, regionId)} / cbBTC` : "No debt"} />
-                <Metric label="Oracle price" value={`${formatOracleUsd(snapshot.state.oraclePriceRaw, regionId)} / cbBTC`} />
+                <Metric label="Liquidation price" value={snapshot.position.liquidationPriceRaw ? `${formatOracleUsd(snapshot.position.liquidationPriceRaw, regionId)} / cbBTC` : "No debt"} money={snapshot.position.liquidationPriceRaw !== null} />
+                <Metric label="Oracle price" value={`${formatOracleUsd(snapshot.state.oraclePriceRaw, regionId)} / cbBTC`} money />
                 <Metric label="Variable borrow APR" value={formatWadPercent(snapshot.state.borrowAprWad, regionId)} note="Current per-second rate annualized; not fixed" />
-                <Metric label="Indexed liquidity" value={formatPresentationTokenAmount(snapshot.state.liquidityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} />
+                <Metric label="Indexed liquidity" value={formatPresentationTokenAmount(snapshot.state.liquidityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} money />
                 <Metric label="Market state updated" value={formatTime(blockTime(snapshot.state.lastUpdateTimestamp), regionId)} />
-              </dl>
+              </ul>
             </section>
 
             <form className={styles.form} onSubmit={submitPreview}>
-              <div className={styles.sectionHeading}>
-                <Heading level={2} textStyle="section-title">Preview action</Heading>
-              </div>
+              <Heading level={2} textStyle="section-title">Preview action</Heading>
               <Field label="Action" htmlFor="borrow-operation" required>
                 <Select id="borrow-operation" value={operation} onChange={(event) => { setOperation(event.target.value as BorrowOperation); setAmount(""); setPreview({ status: "idle" }); }}>
                   <option value="supply-collateral">Supply cbBTC collateral</option>
@@ -251,7 +297,14 @@ function BorrowExperienceInner({
                   placeholder={actionAsset.decimals === 8 ? "0.00000000" : "0.00"}
                 />
               </Field>
-              <Text as="p" textStyle="metadata" tone="muted" className={styles.limit}>{selectedLimit}</Text>
+              {selectedLimit ? (
+                <Text as="p" textStyle="metadata" tone="muted" className={styles.limit}>
+                  <MoneyTicker value={selectedLimit.value} /> {selectedLimit.suffix}
+                  {selectedLimit.secondValue ? (
+                    <> <MoneyTicker value={selectedLimit.secondValue} /> {selectedLimit.secondSuffix}</>
+                  ) : null}
+                </Text>
+              ) : null}
               <Button type="submit" disabled={!amount.trim() || preview.status === "loading"}>
                 {preview.status === "loading" ? "Checking RPC simulation…" : "Review current preview"}
               </Button>
@@ -260,17 +313,27 @@ function BorrowExperienceInner({
         ) : null}
 
         {preview.status === "error" ? (
-          <div className={styles.notice} role="alert">
-            <Text as="strong" textStyle="row-label">Preview unavailable</Text>
-            <Text as="span" textStyle="secondary" tone="muted">{preview.message}</Text>
-          </div>
+          <StatusMessage
+            className={styles.notice}
+            tone="error"
+            role="alert"
+            title="Preview unavailable"
+          >
+            {preview.message}
+          </StatusMessage>
         ) : null}
         {preview.status === "preview-only" ? (
           <section className={styles.previewOnly} aria-labelledby="preview-only-title">
             <Heading level={2} textStyle="section-title" id="preview-only-title">Read-only preview</Heading>
             <Text as="strong" textStyle="row-label">{preview.response.preview.title}</Text>
-            <Text as="span" textStyle="row-value">{formatPresentationTokenAmount(preview.response.preview.amount.amountBaseUnits, preview.response.preview.amount.decimals, preview.response.preview.amount.symbol, { regionId, useNoBreakSpace: true })}</Text>
-            <ul>{preview.response.preview.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+            <Text as="span" textStyle="row-value">
+              <MoneyTicker value={formatPresentationTokenAmount(preview.response.preview.amount.amountBaseUnits, preview.response.preview.amount.decimals, preview.response.preview.amount.symbol, { regionId, useNoBreakSpace: true })} />
+            </Text>
+            <ul>
+              {preview.response.preview.warnings.map((warning) => (
+                <li key={warning}><Text as="span" textStyle="secondary" tone="muted">{warning}</Text></li>
+              ))}
+            </ul>
             <Text as="p" textStyle="secondary" tone="muted">{preview.response.preview.disabledReason}</Text>
           </section>
         ) : null}
@@ -291,15 +354,24 @@ function BorrowExperienceInner({
   );
 }
 
-function Metric({ label, value, note }: { label: string; value: string; note?: string }) {
+function Metric({
+  label,
+  value,
+  note,
+  money = false,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+  money?: boolean;
+}) {
   return (
-    <div>
-      <dt><Text as="span" textStyle="metadata" tone="muted">{label}</Text></dt>
-      <dd>
-        <Text as="span" textStyle="row-value">{value}</Text>
-        {note ? <Text as="small" textStyle="metadata" tone="muted">{note}</Text> : null}
-      </dd>
-    </div>
+    <ListRow
+      leading={null}
+      label={label}
+      description={note}
+      value={money ? <MoneyTicker value={value} /> : value}
+    />
   );
 }
 
