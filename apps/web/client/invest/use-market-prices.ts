@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { publicQueryKey, useHomeQuery } from "@/client/query/query-client";
+import { deploymentHeaders } from "@/client/query/deployment-headers";
 import { investAssets } from "@/config/invest-assets";
 import {
   presentationRegions,
@@ -69,7 +70,7 @@ export function useMarketPrices({
     refetchOnWindowFocus: false,
     queryFn: async ({ signal }) => {
       const response = await fetchImpl(endpoint, {
-        headers: { accept: "application/json" },
+        headers: { ...deploymentHeaders(), accept: "application/json" },
         cache: "no-store",
         signal,
       });

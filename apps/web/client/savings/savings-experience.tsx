@@ -42,6 +42,7 @@ import {
 } from "./portfolio-summary";
 import styles from "./savings-experience.module.css";
 import { ownerQueryKey, ownerQueryMeta, publicQueryKey, useHomeQuery } from "@/client/query/query-client";
+import { deploymentHeaders } from "@/client/query/deployment-headers";
 import { activityOwnerKey } from "@/client/activity/use-activity";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { markHomePerformance } from "@/client/observability/perf-marks";
@@ -650,7 +651,7 @@ function isUsablePositionResult(data: PositionResult): boolean {
 
 async function fetchSavingsVaults(signal?: AbortSignal): Promise<unknown> {
   const response = await fetch("/api/savings/vaults", {
-    headers: { accept: "application/json" },
+    headers: { ...deploymentHeaders(), accept: "application/json" },
     signal,
   });
   if (!response.ok) throw new Error("Vault request failed");

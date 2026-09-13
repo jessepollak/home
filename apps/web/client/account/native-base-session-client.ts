@@ -1,3 +1,4 @@
+import { deploymentHeaders } from "@/client/query/deployment-headers";
 import {
   ACCOUNT_PROVIDER_HEADER,
   BASE_CHAIN_ID,
@@ -55,6 +56,7 @@ export async function restoreNativeBaseSession(
     response = await fetchImpl("/api/session", {
       method: "GET",
       headers: {
+        ...deploymentHeaders(),
         Accept: "application/json",
         [ACCOUNT_PROVIDER_HEADER]: "base-account",
       },
@@ -75,7 +77,11 @@ export async function requestNativeBaseChallenge(
 ): Promise<{ flowId: string; message: string }> {
   const response = await fetchImpl("/api/auth/base/nonce", {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: {
+      ...deploymentHeaders(),
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({ address }),
     cache: "no-store",
     credentials: "same-origin",
@@ -101,7 +107,11 @@ export async function verifyNativeBaseChallenge(
 ): Promise<VerifiedAccountSession> {
   const response = await fetchImpl("/api/auth/base/verify", {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: {
+      ...deploymentHeaders(),
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({ message, signature }),
     cache: "no-store",
     credentials: "same-origin",
@@ -119,7 +129,7 @@ export async function clearNativeBaseSession(
 ): Promise<void> {
   const response = await fetchImpl("/api/auth/base/logout", {
     method: "POST",
-    headers: { Accept: "application/json" },
+    headers: { ...deploymentHeaders(), Accept: "application/json" },
     cache: "no-store",
     credentials: "same-origin",
     redirect: "error",

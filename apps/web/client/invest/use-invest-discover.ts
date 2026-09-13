@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { InfiniteData } from "@tanstack/react-query";
+import { deploymentHeaders } from "@/client/query/deployment-headers";
 import {
   browserHomeQueryClient,
   publicQueryKey,
@@ -91,7 +92,7 @@ export function useInvestDiscover({
     const queryString = pageParam === null ? "" : new URLSearchParams({ offset: String(pageParam) }).toString();
     const url = !queryString ? endpoint : endpoint.includes("?") ? `${endpoint}&${queryString}` : `${endpoint}?${queryString}`;
     const response = await fetchImpl(url, {
-      headers: { accept: "application/json" },
+      headers: { ...deploymentHeaders(), accept: "application/json" },
       cache: "no-store",
       signal,
     });
