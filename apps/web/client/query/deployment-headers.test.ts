@@ -17,6 +17,7 @@ describe("deployment headers", () => {
 
       process.env.NEXT_DEPLOYMENT_ID = "";
       expect(deploymentHeaders()).toEqual({});
+      expect(deploymentHeaders(false)).toEqual({});
     } finally {
       if (previous === undefined) delete process.env.NEXT_DEPLOYMENT_ID;
       else process.env.NEXT_DEPLOYMENT_ID = previous;
@@ -28,6 +29,7 @@ describe("deployment headers", () => {
       throwIfDeploymentExpired(
         { status: 404 },
         { "x-deployment-id": "dpl_expired" },
+        null,
       )
     ).toThrow(DeploymentExpiredError);
   });

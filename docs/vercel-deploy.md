@@ -16,15 +16,15 @@ Keep **Root Directory** at the repository root so the root lockfile and workspac
 
 ### Skew Protection
 
-For the Vercel project `home-web`, verify **Project Settings → Advanced → Skew Protection** is enabled. Vercel enables it by default only for projects created after November 19, 2024, and this project's creation date is unknown. Keep the default one-day max age unless the client compatibility window changes.
+For the Vercel project `home-web`, **Project Settings → Advanced → Skew Protection** is enabled with a 12-hour max age.
 
-Next inlines the serving deployment ID at build time, and Home adds it as the `x-deployment-id` header on client requests to `/api/*`. No environment variable is required. We use the explicit header rather than the alternative experimental `experimental.useSkewCookie` option.
+Next exposes the serving deployment ID to client code, and Home adds it as the `x-deployment-id` header on client requests to `/api/*`. No environment variable is required. We use the explicit header rather than the alternative experimental `experimental.useSkewCookie` option.
 
 Verify against a preview after an older deployment passes the configured max age:
 
 ```sh
 # Set <old dpl id>, <current dpl id>, and <preview> from the Vercel preview deployments.
-curl -sI -H "x-deployment-id: <old dpl id>" https://<preview>/api/market-prices    # 404
+curl -sI -H "x-deployment-id: <old dpl id>" https://<preview>/api/market-prices    # 404 (expected; verify once on a preview)
 curl -sI -H "x-deployment-id: <current dpl id>" https://<preview>/api/market-prices # 200
 ```
 

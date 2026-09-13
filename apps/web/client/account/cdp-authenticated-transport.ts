@@ -146,7 +146,6 @@ export function useAuthenticatedTransport({
         if (signal?.aborted) throw error;
         throw new Error("Authenticated resource is unavailable.");
       }
-      throwIfDeploymentExpired(response, skewHeaders);
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
         try {
@@ -154,6 +153,7 @@ export function useAuthenticatedTransport({
         } catch {
           // Fixed-endpoint callers only need the bounded status/code seam.
         }
+        throwIfDeploymentExpired(response, skewHeaders, details.code);
         const unavailable = new Error("Authenticated resource is unavailable.");
         Object.assign(unavailable, { status: response.status, ...details });
         throw unavailable;
@@ -219,7 +219,6 @@ export function useAuthenticatedTransport({
         throw new TransferExecutionError("unavailable", error);
       }
       assertActive();
-      throwIfDeploymentExpired(response, skewHeaders);
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
         try {
@@ -227,6 +226,7 @@ export function useAuthenticatedTransport({
         } catch {
           // Money-action callers only need the bounded status/code seam.
         }
+        throwIfDeploymentExpired(response, skewHeaders, details.code);
         const failure = new TransferExecutionError(
           response.status === 409 ? "submission-pending" : "unavailable",
         );
