@@ -23,12 +23,13 @@ import {
   BASE_USDC_DECIMALS,
   MORPHO_V1_CANDIDATE_ADDRESSES,
 } from "@/shared/savings/config";
-import type {
-  Address,
-  MorphoVaultCandidate,
-  MorphoVaultPosition,
-  MorphoVaultsResult,
-} from "@/shared/savings/types";
+import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
+import { parseVaultsResult } from "@/shared/savings/contracts/vaults";
+import {
+  isUsablePositionResult,
+  parsePositionResult,
+  type SavingsPositionsResult,
+} from "@/shared/savings/contracts/positions";
 import {
   readUsdcBaseUnits,
   shortVaultLabel,
@@ -63,21 +64,12 @@ type LoadState =
   | { status: "ready"; data: MorphoVaultsResult }
   | { status: "error"; data: null };
 
-type PositionResult = {
-  accountAddress: Address;
-  fetchedAt: string;
-  vaults: Array<{
-    vaultAddress: Address;
-    position: MorphoVaultPosition | null;
-  }>;
-};
-
 type PositionState =
   | { status: "idle" }
   | { status: "loading" }
   | {
       status: "ready";
-      data: PositionResult;
+      data: SavingsPositionsResult;
       refreshing: boolean;
       refreshError: boolean;
     }
@@ -596,58 +588,6 @@ function collectVaultBalances(
   });
 }
 
-function parsePositionResult(value: unknown, expectedAddress: Address): PositionResult | null {
-  if (
-    !isRecord(value) ||
-    typeof value.accountAddress !== "string" ||
-    value.accountAddress.toLowerCase() !== expectedAddress.toLowerCase() ||
-    typeof value.fetchedAt !== "string" ||
-    !Number.isFinite(Date.parse(value.fetchedAt)) ||
-    !Array.isArray(value.vaults)
-  ) return null;
-
-  const configuredVaults = new Set(
-    MORPHO_V1_CANDIDATE_ADDRESSES.map((address) => address.toLowerCase()),
-  );
-  const seenVaults = new Set<string>();
-  const vaults: PositionResult["vaults"] = [];
-  for (const entry of value.vaults) {
-    if (!isRecord(entry) || typeof entry.vaultAddress !== "string") return null;
-    const normalizedVault = entry.vaultAddress.toLowerCase();
-    if (!configuredVaults.has(normalizedVault) || seenVaults.has(normalizedVault)) return null;
-    seenVaults.add(normalizedVault);
-    if (entry.position !== null && !isPosition(entry.position, expectedAddress, entry.vaultAddress)) return null;
-    vaults.push({
-      vaultAddress: entry.vaultAddress as Address,
-      position: entry.position as MorphoVaultPosition | null,
-    });
-  }
-  if (seenVaults.size !== configuredVaults.size) return null;
-  return { accountAddress: expectedAddress, fetchedAt: value.fetchedAt, vaults };
-}
-
-function isPosition(value: unknown, accountAddress: Address, vaultAddress: string) {
-  return isRecord(value) &&
-    typeof value.accountAddress === "string" &&
-    value.accountAddress.toLowerCase() === accountAddress.toLowerCase() &&
-    typeof value.vaultAddress === "string" &&
-    value.vaultAddress.toLowerCase() === vaultAddress.toLowerCase() &&
-    (typeof value.assetsRaw === "string" || value.assetsRaw === null) &&
-    typeof value.sharesRaw === "string" &&
-    readUsdcBaseUnits(value.sharesRaw) !== null &&
-    typeof value.indexedAt === "string" &&
-    Number.isFinite(Date.parse(value.indexedAt)) &&
-    isMorphoSource(value.source, "vaultPosition") &&
-    value.withdrawableRaw === null &&
-    typeof value.withdrawableNote === "string";
-}
-
-function isUsablePositionResult(data: PositionResult): boolean {
-  return data.vaults.every((entry) =>
-    entry.position === null || readUsdcBaseUnits(entry.position.assetsRaw) !== null
-  );
-}
-
 async function fetchSavingsVaults(signal?: AbortSignal): Promise<unknown> {
   const response = await fetch("/api/savings/vaults", {
     headers: { accept: "application/json" },
@@ -655,65 +595,6 @@ async function fetchSavingsVaults(signal?: AbortSignal): Promise<unknown> {
   });
   if (!response.ok) throw new Error("Vault request failed");
   return response.json();
-}
-
-function parseVaultsResult(value: unknown): MorphoVaultsResult | null {
-  if (
-    !isRecord(value) ||
-    value.version !== "v1" ||
-    value.chainId !== 8453 ||
-    !isSavingsAsset(value.asset) ||
-    !Array.isArray(value.candidates) ||
-    !value.candidates.every(isVaultCandidate) ||
-    !isMorphoSource(value.source, "vaults") ||
-    typeof value.stale !== "boolean"
-  ) return null;
-  const candidateAddresses = value.candidates.map((candidate) =>
-    (candidate as MorphoVaultCandidate).vaultAddress.toLowerCase()
-  );
-  if (new Set(candidateAddresses).size !== candidateAddresses.length) return null;
-  return value as MorphoVaultsResult;
-}
-
-function isVaultCandidate(value: unknown): boolean {
-  if (!isRecord(value) || typeof value.vaultAddress !== "string") return false;
-  const vaultAddress = value.vaultAddress;
-  return value.version === "v1" &&
-    MORPHO_V1_CANDIDATE_ADDRESSES.some(
-      (address) => address.toLowerCase() === vaultAddress.toLowerCase(),
-    ) &&
-    typeof value.name === "string" &&
-    typeof value.symbol === "string" &&
-    typeof value.listed === "boolean" &&
-    value.chainId === 8453 &&
-    isSavingsAsset(value.asset) &&
-    (value.netApy === null || typeof value.netApy === "number") &&
-    (value.stateAsOf === null || typeof value.stateAsOf === "string") &&
-    isMorphoSource(value.source, "vaults");
-}
-
-function isSavingsAsset(value: unknown): boolean {
-  return isRecord(value) &&
-    typeof value.address === "string" &&
-    value.address.toLowerCase() === BASE_USDC_ADDRESS.toLowerCase() &&
-    value.symbol === "USDC" &&
-    value.decimals === BASE_USDC_DECIMALS;
-}
-
-function isMorphoSource(value: unknown, query: "vaults" | "vaultPosition"): boolean {
-  if (!isRecord(value) || typeof value.fetchedAt !== "string" || !Number.isFinite(Date.parse(value.fetchedAt))) {
-    return false;
-  }
-  if (query === "vaultPosition" && value.provider === "Base JSON-RPC") {
-    return typeof value.blockNumber === "string" && /^\d+$/.test(value.blockNumber);
-  }
-  return value.provider === "Morpho GraphQL" &&
-    value.endpoint === "https://api.morpho.org/graphql" &&
-    value.query === query;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const BASE_USDC_ASSET = {

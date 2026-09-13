@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   ACCOUNT_PROVIDER_HEADER,
   type AccountProvider,
@@ -6,21 +8,13 @@ import {
   authorizeSession,
   type SessionAuthorizer,
 } from "@/server/auth/authorize";
-import type { Address, MorphoVaultPosition } from "@/shared/savings/types";
+import type { Address } from "@/shared/savings/types";
+import type { SavingsPositionsResult } from "@/shared/savings/contracts/positions";
 
 export type SavingsPositionAccount = {
   subject: string;
   address: Address;
   accountProvider: AccountProvider;
-};
-
-export type SavingsPositionsResult = {
-  accountAddress: Address;
-  fetchedAt: string;
-  vaults: Array<{
-    vaultAddress: Address;
-    position: MorphoVaultPosition | null;
-  }>;
 };
 
 const privateResponseHeaders = {
@@ -58,7 +52,7 @@ export function createSavingsPositionsHandler(dependencies: {
 
     try {
       return privateJson(
-        await dependencies.readPositions(account, request.signal),
+        await dependencies.readPositions(account, request.signal) satisfies SavingsPositionsResult,
         200,
       );
     } catch {

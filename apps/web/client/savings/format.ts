@@ -1,11 +1,10 @@
 import { BASE_USDC_DECIMALS } from "@/shared/savings/config";
+export { readUsdcBaseUnits } from "@/shared/savings/contracts/positions";
 
 export {
   formatPresentationPercentage as formatApy,
   formatUsdStablecoinAmount as formatUsdcUsd,
 } from "@/shared/formatting";
-
-const canonicalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 
 export function shortVaultLabel(name: string): string {
   return name.trim().split(/\s+/)[0] || name;
@@ -26,11 +25,4 @@ export function parseUsdcAmount(value: string): string {
     throw new Error("Enter a positive USDC amount.");
   }
   return raw.toString(10);
-}
-
-export function readUsdcBaseUnits(value: string | null | undefined): bigint | null {
-  if (value === null || value === undefined || !canonicalIntegerPattern.test(value)) {
-    return null;
-  }
-  return BigInt(value);
 }
