@@ -63,6 +63,7 @@ export default function NativeBaseAccountBridge({ children }: { children: ReactN
     isInitialized,
     isSignedIn: identity !== null,
     ownerKey: identity ? nativeOwnerKey(identity) : null,
+    provisionalSession: identity,
     signInWithEmail: async () => { throw new Error("Email authentication requires a CDP project."); },
     verifyEmailOTP: async () => { throw new Error("Email authentication requires a CDP project."); },
     signInWithSiwe: async (options) => {

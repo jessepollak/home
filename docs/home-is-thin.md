@@ -85,7 +85,7 @@ One `ownerGeneration` counter replaces the four-field fence in `cdp-session-life
 
 ## Performance
 
-- Startup gate: verified session plus wallet address renders the shell with cached balances; every other surface streams in afterward.
+- Startup gate: the shell may provisionally paint the same device's persisted balances for the SDK-identified owner; every request and provider call still requires server verification, and every other surface streams in afterward.
 - Frame budget: never call `setState` for each pointer move or price tick. Use transforms, opacity, motion values, or imperative text writes.
 - Mark `shell:paint`, `session:verified`, `wallet:ready`, `balances:painted`, and `action:first-interactive`; CI budgets `balances:painted`.
 

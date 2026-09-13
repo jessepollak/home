@@ -9,10 +9,13 @@ type DataOwnerSession =
       accountProvider?: string;
     };
 
-type UiBoundaryWallet = {
+type OwnerSessionWallet = {
   ownerKey: string | null;
-  status: string;
   session: VerifiedAccountSession | null;
+};
+
+type UiBoundaryWallet = OwnerSessionWallet & {
+  status: string;
 };
 
 export function dataOwnerKey(session: DataOwnerSession): string {
@@ -31,9 +34,13 @@ export function dataOwnerKey(session: DataOwnerSession): string {
   return provider ? `${base}\u0000${provider}` : base;
 }
 
-export function uiBoundary(wallet: UiBoundaryWallet): string | null {
-  const session = wallet.status === "verified" ? wallet.session : null;
+export function ownerSessionBoundary(wallet: OwnerSessionWallet): string | null {
+  const session = wallet.session;
   return wallet.ownerKey && session?.smartAccount
-    ? `${wallet.ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.accountProvider}`
+    ? `${wallet.ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount.address.toLowerCase()}\u0000${session.accountProvider}`
     : null;
+}
+
+export function uiBoundary(wallet: UiBoundaryWallet): string | null {
+  return wallet.status === "verified" ? ownerSessionBoundary(wallet) : null;
 }

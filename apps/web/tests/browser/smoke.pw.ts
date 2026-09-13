@@ -208,8 +208,11 @@ async function installApiFixtures(
 ) {
   let status: ActionStatus = options.initialActionStatus ?? "unconfirmed";
   let currentAction = action();
+  let sessionReads = 0;
   let valuationReads = 0;
   let activityReads = 0;
+  let delayedSession: Promise<void> | null = null;
+  let releaseDelayedSession: (() => void) | null = null;
   let delayedValuation: Promise<void> | null = null;
   let releaseDelayedValuation: (() => void) | null = null;
   let handleRecorded = false;
@@ -219,7 +222,11 @@ async function installApiFixtures(
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname;
-    if (path === "/api/session") return json(route, { user: { subject: "playwright-smoke-subject" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" });
+    if (path === "/api/session") {
+      sessionReads += 1;
+      if (delayedSession) await delayedSession;
+      return json(route, { user: { subject: "playwright-smoke-subject" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" });
+    }
     if (path === "/api/portfolio/valuation") {
       valuationReads += 1;
       if (delayedValuation) await delayedValuation;
@@ -284,8 +291,18 @@ async function installApiFixtures(
     return json(route, {});
   });
   return {
+    sessionReads: () => sessionReads,
     valuationReads: () => valuationReads,
     activityReads: () => activityReads,
+    delayNextSession() {
+      delayedSession = new Promise<void>((resolve) => { releaseDelayedSession = resolve; });
+      return sessionReads + 1;
+    },
+    releaseSession() {
+      releaseDelayedSession?.();
+      delayedSession = null;
+      releaseDelayedSession = null;
+    },
     delayNextValuation() {
       delayedValuation = new Promise<void>((resolve) => { releaseDelayedValuation = resolve; });
       return valuationReads + 1;
@@ -513,17 +530,30 @@ test("reload paints persisted balances before stale valuation responds", async (
     }
     localStorage.setItem(key, JSON.stringify(persisted));
   });
-  const delayedRead = fixtures.delayNextValuation();
+  const delayedSessionRead = fixtures.delayNextSession();
+  fixtures.delayNextValuation();
+  const valuationReadsBeforeReload = fixtures.valuationReads();
 
   await page.reload();
-  // Every valuation read is held while delayed, so more than one in-flight read still
-  // proves the paint below came from the persisted cache, not the network.
-  await expect.poll(fixtures.valuationReads, { timeout: 15_000 }).toBeGreaterThanOrEqual(delayedRead);
+  await expect.poll(fixtures.sessionReads, { timeout: 15_000 }).toBeGreaterThanOrEqual(delayedSessionRead);
   await expect(page.getByText("$12.34", { exact: true }).first()).toBeVisible();
-  const reloadPaint = await page.evaluate(() =>
-    performance.getEntriesByName("balances:painted", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
+  expect(fixtures.valuationReads()).toBe(valuationReadsBeforeReload);
+  const provisionalPaint = await page.evaluate(() => ({
+    balances: performance.getEntriesByName("balances:painted", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
+    verified: performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
+  }));
+  expect(provisionalPaint.balances).toBeLessThan(coldPaint);
+  expect(provisionalPaint.balances).toBeLessThan(provisionalPaint.verified);
+
+  fixtures.releaseSession();
+  await expect.poll(() => page.evaluate(() =>
+    performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
+  ), { timeout: 15_000 }).toBeLessThan(Number.POSITIVE_INFINITY);
+  const verifiedPaint = await page.evaluate(() =>
+    performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
   );
-  expect(reloadPaint).toBeLessThan(coldPaint);
+  expect(provisionalPaint.balances).toBeLessThan(verifiedPaint);
+  await expect(page.getByText("$12.34", { exact: true }).first()).toBeVisible();
   fixtures.releaseValuation();
 });
 

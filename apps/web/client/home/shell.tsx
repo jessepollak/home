@@ -246,7 +246,8 @@ export function HomeShell({
     "--region-surface": region.theme.surface,
   };
   const isChecking = account.status === "restoring" || account.status === "validating";
-  const isVerified = account.status === "verified";
+  const isVerified = account.status === "verified" && account.verification === "server";
+  const mayPaintBalances = account.verification !== null;
   useEffect(() => {
     if (isVerified) markHomePerformance("session:verified");
     if (isVerified && account.session?.smartAccount) markHomePerformance("wallet:ready");
@@ -266,14 +267,14 @@ export function HomeShell({
   }, [account.session?.smartAccount, applyInboundUrlIntent, applyUrlState, isVerified, routeMode]);
   const isUnavailable = account.status === "unavailable";
   const isSignedOut = account.status === "signed-out" || account.status === "signout-error";
-  const paintedAssetBalances = isVerified
+  const paintedAssetBalances = mayPaintBalances
     ? (assetBalances ?? loadingAssetBalances)
     : loadingAssetBalances;
   useEffect(() => {
-    if (isVerified && paintedAssetBalances.status === "ready") {
+    if (mayPaintBalances && paintedAssetBalances.status === "ready") {
       markHomePerformance("balances:painted");
     }
-  }, [isVerified, paintedAssetBalances.status]);
+  }, [mayPaintBalances, paintedAssetBalances.status]);
 
   const balancesScope = homeBalancesRestoreScope({
     ownerKey: account.ownerKey,

@@ -17,7 +17,7 @@ export function PortfolioHomeExperience(
   const [selectedRegion, setSelectedRegion] = useState<RegionId>(
     () => resolvePresentation({ detectedCountry: props.detectedCountry }).region.id,
   );
-  const session = account.status === "verified" && account.session?.smartAccount
+  const session = account.verification && account.session?.smartAccount
     ? {
         subject: account.session.user.subject,
         smartAccountAddress: account.session.smartAccount.address,
@@ -29,6 +29,7 @@ export function PortfolioHomeExperience(
     session,
     selectedRegion,
     account.fetchPortfolioValuation,
+    { enabled: account.verification === "server" },
   );
   const presentedValuation = useMemo(() => {
     const presented = presentPortfolioValuation(valuation);

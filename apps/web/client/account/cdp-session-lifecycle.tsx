@@ -15,7 +15,7 @@ import {
 import { useAuthenticatedTransport } from "./cdp-authenticated-transport";
 import { useMoneyActionExecution } from "./cdp-money-action-execution";
 import { BaseAccountLoginError, baseLoginFailureFromConnector, invalidationMessage, writeAccountProviderHint } from "./cdp-wallet-provider-capabilities";
-import { dataOwnerKey, uiBoundary } from "./owner-keys";
+import { dataOwnerKey, ownerSessionBoundary } from "./owner-keys";
 import { useOwnerGenerationFence } from "./owner-generation-fence";
 
 export type { OwnerGenerationFence, OwnerGenerationIdentity } from "./owner-generation-fence";
@@ -44,6 +44,7 @@ export function AccountWalletSessionOwner({
     isInitialized,
     isSignedIn,
     ownerKey,
+    provisionalSession,
     signInWithEmail,
     verifyEmailOTP,
     signInWithSiwe,
@@ -73,24 +74,53 @@ export function AccountWalletSessionOwner({
   const cleanupRef = useRef<Promise<void> | null>(null);
   const validationRef = useRef<AbortController | null>(null);
   const previousOwner = useRef(ownerKey);
-  const [session, setSession] = useState<VerifiedAccountSession | null>(null);
-  const [status, setStatus] = useState<AccountSessionStatus>("restoring");
+  const initialProvisionalSession = isInitialized && isSignedIn && ownerKey && provisionalSession?.smartAccount
+    ? provisionalSession
+    : null;
+  const [session, setSession] = useState<VerifiedAccountSession | null>(initialProvisionalSession);
+  const [verification, setVerification] = useState<"provisional" | "server" | null>(
+    initialProvisionalSession ? "provisional" : null,
+  );
+  const [status, setStatus] = useState<AccountSessionStatus>(
+    initialProvisionalSession ? "validating" : "restoring",
+  );
   const [message, setMessage] = useState<string | null>(null);
+  const [validationRequest, requestValidation] = useState(0);
+  const previousProvisionalOwnerKey = useRef(
+    initialProvisionalSession ? dataOwnerKey(initialProvisionalSession) : null,
+  );
 
   useLayoutEffect(() => {
-    fence.updateOwnerKey(ownerKey);
-    if (previousOwner.current !== ownerKey) {
-      fence.advance(previousOwner.current === null && ownerKey !== null ? null : undefined);
+    const nextProvisional = isSignedIn && ownerKey && provisionalSession?.smartAccount
+      ? provisionalSession
+      : null;
+    const provisionalOwnerKey = nextProvisional ? dataOwnerKey(nextProvisional) : null;
+    const ownerChanged = previousOwner.current !== ownerKey;
+    const provisionalChanged = previousProvisionalOwnerKey.current !== provisionalOwnerKey;
+    const nextBoundary = ownerSessionBoundary({ ownerKey, session: nextProvisional });
+    fence.updateOwnerKey(
+      ownerKey,
+      nextBoundary,
+      ownerKey ? provisionalOwnerKey : undefined,
+    );
+    if (!ownerChanged && provisionalChanged) {
+      fence.updateAuthorizationBoundary(nextBoundary, provisionalOwnerKey);
+      requestValidation((request) => request + 1);
+    }
+    if (ownerChanged || provisionalChanged) {
       validationRef.current?.abort();
-      setSession(null);
+      setSession(nextProvisional);
+      setVerification(nextProvisional ? "provisional" : null);
       setStatus(ownerKey ? "validating" : "signed-out");
     }
     previousOwner.current = ownerKey;
-  }, [fence, ownerKey]);
+    previousProvisionalOwnerKey.current = provisionalOwnerKey;
+  }, [fence, isSignedIn, ownerKey, provisionalSession]);
 
   const clearPrivate = useCallback(() => {
     validationRef.current?.abort();
     setSession(null);
+    setVerification(null);
     clearQueryBoundary();
   }, [clearQueryBoundary]);
 
@@ -118,8 +148,10 @@ export function AccountWalletSessionOwner({
     const controller = new AbortController();
     validationRef.current = controller;
     const generation = fence.capture();
+    const nextProvisional = provisionalSession?.smartAccount ? provisionalSession : null;
     setStatus("validating");
-    setSession(null);
+    setSession(nextProvisional);
+    setVerification(nextProvisional ? "provisional" : null);
     try {
       const token = await getAccessToken();
       fence.assertCurrent(generation);
@@ -143,7 +175,13 @@ export function AccountWalletSessionOwner({
         providerRef.current = "cdp-embedded";
         writeAccountProviderHint("cdp-embedded");
       }
+      const verifiedOwnerKey = verified.smartAccount ? dataOwnerKey(verified) : null;
+      fence.updateAuthorizationBoundary(
+        ownerSessionBoundary({ ownerKey, session: verified }),
+        verifiedOwnerKey,
+      );
       setSession(verified);
+      setVerification("server");
       setStatus("verified");
       setMessage(null);
     } catch (error) {
@@ -174,10 +212,11 @@ export function AccountWalletSessionOwner({
       await disconnectBase();
       fence.advance();
       setSession(null);
+      setVerification(null);
       setStatus("unavailable");
       setMessage(error instanceof Error ? error.message : "Account verification is unavailable.");
     }
-  }, [authentication, baseAccountEnabled, baseAccountRestorer, clearPrivate, disconnectBase, fence, getAccessToken, isInitialized, isSignedIn, onBaseInvalidated, ownerKey, sdkSignOut, sessionFetch]);
+  }, [authentication, baseAccountEnabled, baseAccountRestorer, clearPrivate, disconnectBase, fence, getAccessToken, isInitialized, isSignedIn, onBaseInvalidated, ownerKey, provisionalSession, sdkSignOut, sessionFetch]);
 
   const validateRef = useRef(validate);
   useLayoutEffect(() => { validateRef.current = validate; }, [validate]);
@@ -201,7 +240,7 @@ export function AccountWalletSessionOwner({
       cancelled = true;
       validationRef.current?.abort();
     };
-  }, [authentication, baseAccountEnabled, clearPrivate, initializationError, isInitialized, isSignedIn, loseVerification, ownerKey, sessionFetch]);
+  }, [authentication, baseAccountEnabled, clearPrivate, initializationError, isInitialized, isSignedIn, loseVerification, ownerKey, sessionFetch, validationRequest]);
 
   const beginSignIn = useCallback((provider: AccountProvider) => {
     if (cleanupRef.current) throw new Error("Sign-out is still finishing.");
@@ -290,16 +329,13 @@ export function AccountWalletSessionOwner({
     } finally { cleanupRef.current = null; }
   }, [clearPrivate, disconnectBase, fence, sdkSignOut]);
 
-  const authorizationBoundary = uiBoundary({ ownerKey, status, session });
   const persistedOwnerKey = session?.smartAccount ? dataOwnerKey(session) : null;
-  useLayoutEffect(() => {
-    fence.updateAuthorizationBoundary(authorizationBoundary, persistedOwnerKey);
-  }, [authorizationBoundary, fence, persistedOwnerKey]);
 
-  const transport = useAuthenticatedTransport({ session, status, ownerKey, ownerFence: fence, getAccessToken, sessionFetch, authentication });
+  const transport = useAuthenticatedTransport({ session, status, verification, ownerKey, ownerFence: fence, getAccessToken, sessionFetch, authentication });
   const moneyActions = useMoneyActionExecution({
     session,
     status,
+    verification,
     ownerKey,
     ownerFence: fence,
     sdkSendUserOperation: sendUserOperation,
@@ -325,7 +361,9 @@ export function AccountWalletSessionOwner({
   ) => {
     const generation = fence.capture();
     fence.assertCurrent(generation);
-    if (!session?.smartAccount) throw new BaseAccountConnectorError("invalid-provider-response");
+    if (status !== "verified" || verification !== "server" || !session?.smartAccount) {
+      throw new BaseAccountConnectorError("invalid-provider-response");
+    }
     if (session.accountProvider === "base-account") {
       const connection = baseConnectionRef.current;
       if (!connection) throw new BaseAccountConnectorError("invalid-provider-response");
@@ -345,7 +383,7 @@ export function AccountWalletSessionOwner({
     });
     fence.assertCurrent(generation);
     return result.signature;
-  }, [fence, session]);
+  }, [fence, session, status, verification]);
 
   const client = useMemo<AccountWalletClient>(() => ({
     projectConfigured,
@@ -355,7 +393,8 @@ export function AccountWalletSessionOwner({
     isSignedIn,
     ownerKey,
     status,
-    session: status === "verified" ? session : null,
+    verification,
+    session: verification ? session : null,
     message,
     requestEmailCode,
     verifyEmailCode,
@@ -372,7 +411,7 @@ export function AccountWalletSessionOwner({
     retrySessionValidation,
     signTypedData,
     signOut,
-  }), [baseAccountEnabled, cancelSignInAttempt, isInitialized, isSignedIn, message, moneyActions, ownerKey, projectConfigured, requestEmailCode, retrySessionValidation, session, signInWithBaseAccount, signOut, signTypedData, status, transport, verifyEmailCode]);
+  }), [baseAccountEnabled, cancelSignInAttempt, isInitialized, isSignedIn, message, moneyActions, ownerKey, projectConfigured, requestEmailCode, retrySessionValidation, session, signInWithBaseAccount, signOut, signTypedData, status, transport, verification, verifyEmailCode]);
 
   return (
     <AccountWalletContext.Provider value={client}>
