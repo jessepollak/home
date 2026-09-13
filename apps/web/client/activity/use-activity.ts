@@ -5,7 +5,7 @@ import {
   compareActivityTransferKeys,
   isVerifiedActivitySession,
   parseActivityPage,
-} from "./parse";
+} from "@/shared/activity/contract";
 import type {
   ActivityPage,
   ActivityState,
