@@ -4,7 +4,7 @@ import {
   encodeFunctionResult,
   type Hex,
 } from "viem";
-import { erc20Abi, multicallAbi } from "./abi";
+import { erc20Abi, multicallAbi, vaultAbi } from "./abi";
 import {
   clearBalancesChainAssertionsForTests,
   createBalancesReader,
@@ -49,6 +49,15 @@ function token(address: string, id: string): UniverseEntry {
 
 const r1 = token("0x1111111111111111111111111111111111111111", "r1");
 const r2 = token("0x2222222222222222222222222222222222222222", "r2");
+const vault: UniverseEntry = {
+  ...token("0x4444444444444444444444444444444444444444", "vault"),
+  kind: "vault-share",
+  underlying: {
+    key: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+    symbol: "USDC",
+    decimals: 6,
+  },
+};
 
 function aggregate(values: Array<bigint | null>): Hex {
   return encodeFunctionResult({
@@ -78,7 +87,7 @@ function targets(params: readonly unknown[]): string[] {
 function readerFor(
   request: (method: string, params: readonly unknown[]) => Promise<unknown>,
   options: {
-    batch?: () => Promise<Array<unknown | null>>;
+    batch?: (calls: readonly unknown[]) => Promise<Array<unknown | null>>;
     log?: (event: unknown) => void;
     hosted?: boolean;
   } = {},
@@ -147,6 +156,79 @@ describe("balances chain read", () => {
     });
   });
 
+  test("converts positive vault shares into a ready underlying balance", async () => {
+    const conversionCalls: (readonly unknown[])[] = [];
+    const read = readerFor(async (method) => {
+      if (method === "eth_getBlockByNumber") return block;
+      return aggregate([BigInt(12)]);
+    }, {
+      batch: async (calls) => {
+        conversionCalls.push(calls);
+        return [
+          encodeFunctionResult({
+            abi: vaultAbi,
+            functionName: "convertToAssets",
+            result: BigInt(34),
+          }),
+          block,
+        ];
+      },
+    });
+
+    const result = await read({ entries: [vault] }, owner);
+    expect(conversionCalls).toHaveLength(1);
+    const conversion = decodeFunctionData({
+      abi: vaultAbi,
+      data: ((conversionCalls[0]?.[0] as { params: [{ data: Hex }] }).params[0].data),
+    });
+    expect(conversion).toMatchObject({
+      functionName: "convertToAssets",
+      args: [BigInt(12)],
+    });
+    expect(result.holdings[0]?.balance).toEqual({ status: "ready", baseUnits: "12" });
+    expect(result.holdings[0]?.underlyingBalance).toEqual({
+      status: "ready",
+      baseUnits: "34",
+    });
+  });
+
+  test("keeps vault shares ready when conversion reverts and marks underlying unavailable", async () => {
+    const read = readerFor(async (method) => {
+      if (method === "eth_getBlockByNumber") return block;
+      return aggregate([BigInt(12)]);
+    }, {
+      batch: async () => [null, block],
+    });
+
+    const result = await read({ entries: [vault] }, owner);
+    expect(result.holdings[0]?.balance).toEqual({ status: "ready", baseUnits: "12" });
+    expect(result.holdings[0]?.underlyingBalance).toEqual({
+      status: "unavailable",
+      baseUnits: null,
+    });
+  });
+
+  test("returns zero underlying for zero vault shares without a conversion call", async () => {
+    const batches: (readonly unknown[])[] = [];
+    const read = readerFor(async (method) => {
+      if (method === "eth_getBlockByNumber") return block;
+      return aggregate([BigInt(0)]);
+    }, {
+      batch: async (calls) => {
+        batches.push(calls);
+        return [block];
+      },
+    });
+
+    const result = await read({ entries: [vault] }, owner);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveLength(1);
+    expect(result.holdings[0]?.underlyingBalance).toEqual({
+      status: "ready",
+      baseUnits: "0",
+    });
+  });
+
   test("re-pins the whole read after a null confirmation slot", async () => {
     let batchAttempts = 0;
     let latestReads = 0;
@@ -170,9 +252,10 @@ describe("balances chain read", () => {
     expect(latestReads).toBe(2);
   });
 
-  test("hosted public-default guard skips registry RPC and emits once", async () => {
+  test("hosted guard emits exactly once across a whole-read re-pin", async () => {
     const events: unknown[] = [];
     const calls: string[] = [];
+    let batches = 0;
     const read = readerFor(async (method) => {
       calls.push(method);
       if (method === "eth_getBlockByNumber") return block;
@@ -180,13 +263,30 @@ describe("balances chain read", () => {
     }, {
       hosted: true,
       log: (event) => events.push(event),
+      batch: async () => {
+        batches += 1;
+        return [batches === 1 ? changedBlock : block];
+      },
     });
 
     const result = await read({ entries: [native, r1] }, owner);
-    expect(calls).toEqual(["eth_getBlockByNumber"]);
+    expect(calls).toEqual(["eth_getBlockByNumber", "eth_getBlockByNumber"]);
     expect(result.holdings.every(({ balance }) => balance.status === "unavailable"))
       .toBeTrue();
     expect(events).toHaveLength(1);
+  });
+
+  test("reports an unreadable confirmation after the re-pin also cannot confirm", async () => {
+    const read = readerFor(async (method) => {
+      if (method === "eth_getBlockByNumber") return block;
+      return "0x0";
+    }, {
+      batch: async () => [null],
+    });
+
+    await expect(read({ entries: [native] }, owner)).rejects.toThrow(
+      "confirmation could not be read",
+    );
   });
 
   test("retries the whole read once on a changed block then fails", async () => {

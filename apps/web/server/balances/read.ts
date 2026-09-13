@@ -60,7 +60,7 @@ type Dependencies = {
 };
 
 type ReadOnceResult =
-  | { changed: true }
+  | { changed: true; reason: "block-changed" | "confirmation-unavailable" }
   | { changed: false; read: BalancesRead };
 
 export function createBalancesReader(dependencies: Dependencies = {}) {
@@ -101,6 +101,7 @@ export function createBalancesReader(dependencies: Dependencies = {}) {
       await assertion;
 
       let hostedGuardEmitted = false;
+      let lastChangeReason: Extract<ReadOnceResult, { changed: true }>["reason"] = "block-changed";
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const guardRegistry =
           hosted() && inspectRpc().source === "public-default";
@@ -117,10 +118,13 @@ export function createBalancesReader(dependencies: Dependencies = {}) {
           guardRegistry,
         );
         if (!result.changed) return result.read;
+        lastChangeReason = result.reason;
       }
 
       throw new Error(
-        "The Base source block changed twice while balances were fetched.",
+        lastChangeReason === "confirmation-unavailable"
+          ? "The Base source block confirmation could not be read."
+          : "The Base source block changed twice while balances were fetched.",
       );
     });
   };
@@ -152,10 +156,7 @@ async function readOnce(
       ? readNative(rpc, owner, blockTag, signal)
       : Promise.resolve<bigint | null>(null),
     guardRegistry
-      ? Promise.resolve({
-          values: registryContracts.map(() => null),
-          failed: true,
-        })
+      ? Promise.resolve(registryContracts.map(() => null))
       : readContractChunk(
           rpc,
           registryContracts,
@@ -173,7 +174,7 @@ async function readOnce(
     );
   }
   registryContracts.forEach((entry, index) => {
-    const value = registryResult.values[index];
+    const value = registryResult[index];
     balances.set(
       entry.id,
       value === null ? unavailable() : ready(value),
@@ -220,14 +221,16 @@ async function readOnce(
     confirmationIndex,
     signal,
   );
-  if (confirmationBatch === null) return { changed: true };
+  if (confirmationBatch === null) {
+    return { changed: true, reason: "confirmation-unavailable" };
+  }
 
   const confirmedBlock = parseBlock(confirmationBatch[confirmationIndex]);
   if (
     confirmedBlock.number !== block.number ||
     confirmedBlock.hash.toLowerCase() !== block.hash.toLowerCase()
   ) {
-    return { changed: true };
+    return { changed: true, reason: "block-changed" };
   }
 
   const underlying = new Map<string, HoldingBalance>();
@@ -292,10 +295,8 @@ async function readContractChunk(
   owner: PortfolioAddress,
   blockTag: string,
   signal: AbortSignal,
-): Promise<{ values: Array<bigint | null>; failed: boolean }> {
-  if (entries.length === 0) {
-    return { values: [], failed: false };
-  }
+): Promise<Array<bigint | null>> {
+  if (entries.length === 0) return [];
 
   const result = await retryRead(async () => {
     const response = await rpc.request(
@@ -325,9 +326,7 @@ async function readContractChunk(
     );
   }, signal);
 
-  return result === null
-    ? { values: entries.map(() => null), failed: true }
-    : { values: result, failed: false };
+  return result ?? entries.map(() => null);
 }
 
 async function readConfirmationBatch(

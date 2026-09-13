@@ -35,6 +35,11 @@ describe("API route composition", () => {
     }
   });
 
+  test("gives the balances route a 30 second function budget", async () => {
+    const route = await loadRoute("balances/route.ts");
+    expect(route.maxDuration).toBe(30);
+  });
+
   test("keeps every public route dynamic and Node-only", async () => {
     for (const path of publicRoutes) {
       if (path === "savings/vaults/route.ts") continue; // pre-existing: static vault catalog
