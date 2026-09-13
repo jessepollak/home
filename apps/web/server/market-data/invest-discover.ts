@@ -1,38 +1,18 @@
 import "server-only";
 
-import type { InvestAsset } from "@/config/invest-assets";
-import type { MarketSnapshot } from "@/shared/invest/invest-market";
 import {
   createAssetIconResolver,
   emptyAssetIconMap,
-  type AssetIconMap,
 } from "./asset-icons/resolve";
 import {
   createCodexTrendingMemesPageReader,
   createErrorTrendingMemesPage,
   createUnavailableTrendingMemesPage,
-  type TrendingMemesStatus,
 } from "./codex/trending";
-import { INVEST_DISCOVER_VERSION } from "@/shared/invest/invest-discover-contract";
+import { INVEST_DISCOVER_VERSION, type InvestDiscoverResponse } from "@/shared/invest/contracts/discover";
 
 export { INVEST_DISCOVER_VERSION };
-
-export type InvestDiscoverResponse = {
-  version: typeof INVEST_DISCOVER_VERSION;
-  provider: "codex";
-  fetchedAt: string | null;
-  icons: AssetIconMap;
-  memes: {
-    status: TrendingMemesStatus;
-    message?: string;
-    assets: InvestAsset[];
-    snapshots: MarketSnapshot[];
-    /** Truthful offset for the next page, or null when the catalog is exhausted. */
-    nextOffset: number | null;
-    /** True once the provider returned fewer rows than the bounded page size. */
-    exhausted: boolean;
-  };
-};
+export type { InvestDiscoverResponse } from "@/shared/invest/contracts/discover";
 
 type FetchLike = (
   input: RequestInfo | URL,

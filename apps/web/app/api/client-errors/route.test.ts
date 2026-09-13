@@ -11,10 +11,8 @@ import type { ObservabilityEvent } from "@/server/observability/schema";
 import {
   CLIENT_ERROR_MAX_BODY_BYTES,
   createClientErrorHandler,
-  dynamic,
   parseClientErrorReport,
-  runtime,
-} from "./route";
+} from "@/server/observability/client-errors";
 
 const endpoint = "https://home.example/api/client-errors";
 const safeHeaders = {
@@ -52,11 +50,6 @@ function request(
 }
 
 describe("POST /api/client-errors security matrix", () => {
-  test("is a dynamic Node-only endpoint", () => {
-    expect(runtime).toBe("nodejs");
-    expect(dynamic).toBe("force-dynamic");
-  });
-
   test("accepts only exact, bounded schema values", () => {
     expect(parseClientErrorReport({ name: "Error", message: "boom", route: "/activity" })).toEqual({
       name: "Error",

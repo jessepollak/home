@@ -1,3 +1,5 @@
+import "server-only";
+
 import { cryptoAssets, stockAssets } from "@/config/invest-assets";
 import { readCodexTokenImages, contractKey } from "../codex/token-images";
 import type { FetchLike } from "../codex/execute";
@@ -96,7 +98,17 @@ async function loadAssetIcons({
   const icons: AssetIconMap = {};
   for (const asset of configuredIconAssets) {
     const key = contractKey(asset.chainId, asset.contractAddress);
-    icons[asset.id] = onchain.get(key) ?? metadata.get(key) ?? null;
+    icons[asset.id] = preferCodexAssetIcon(
+      metadata.get(key),
+      onchain.get(key),
+    );
   }
   return icons;
+}
+
+export function preferCodexAssetIcon(
+  codexImage: string | undefined,
+  onchainImage: string | undefined,
+): string | null {
+  return codexImage ?? onchainImage ?? null;
 }

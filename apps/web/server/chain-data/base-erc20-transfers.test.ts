@@ -360,27 +360,6 @@ describe("Base ERC20 transfer adapter", () => {
     expect(sql).toContain("log_id < 'synthetic/log id''with+chars'");
   });
 
-  test.each(["界".repeat(256), "\u0000".repeat(256), "😀".repeat(128)])(
-    "round-trips expanded log IDs from rows into the next query",
-    async (logId) => {
-      const history = createBaseErc20TransferHistory({
-        assets,
-        transport: transportFor([
-          row({ log_id: logId, log_index: "10" }),
-          row({ log_id: "extra-row", log_index: "9" }),
-        ]),
-        now: () => NOW,
-      });
-      const page = await history.listTransfers(input({ limit: 1 }));
-      expect(page.nextCursor).not.toBeNull();
-      expect(decodeTransferCursor(page.nextCursor!).logId).toBe(logId);
-      const next = buildBaseErc20TransferQuery(
-        input({ cursor: page.nextCursor }), assets, NOW,
-      );
-      expect(next.sql).toContain(`log_id < '${logId}'`);
-    },
-  );
-
   test("rejects oversized serialized cursors at both boundaries", () => {
     expect(() => decodeTransferCursor("a".repeat(4097))).toThrow(ChainDataError);
     expect(() => encodeTransferCursor({

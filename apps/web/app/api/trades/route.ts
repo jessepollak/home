@@ -1,44 +1,24 @@
-import { isBaseAccountEnabled } from "@/shared/account/session-types";
-import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
-import { createSessionHandler } from "@/server/cdp/session";
-import { getTradeBalance } from "@/server/trading/balance";
-import { getCdpTradeQuoteClient } from "@/server/trading/cdp";
-import { createTradeHandler } from "@/server/trading/handler";
-import { prepareTradeAction } from "@/server/trading/prepare";
-import { getTradeIntentStore } from "@/server/trading/runtime-intent-store";
-import {
-  createPermit2StateReader,
-  createTradeSignerResolver,
-} from "@/server/trading/signer";
+import { sessionHandler } from "@/server/auth/authorize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const authorizeSession = createSessionHandler({
-  getValidator: getCdpAccessTokenValidator,
-  baseAccountEnabled: isBaseAccountEnabled(process.env.NEXT_PUBLIC_ENABLE_BASE_ACCOUNT),
-});
-const resolveSigner = createTradeSignerResolver({
-  getValidator: getCdpAccessTokenValidator,
-});
-const readPermit2State = createPermit2StateReader();
-
-export const POST = createTradeHandler({
-  authorize: authorizeSession,
-  prepare: async (input) =>
-    prepareTradeAction(
-      {
-        quoteClient: {
-          async createSwapQuote(request) {
-            const client = await getCdpTradeQuoteClient();
-            return client.createSwapQuote(request);
-          },
-        },
-        readBalance: getTradeBalance,
-        readPermit2State,
-        resolveSigner,
-        intentStore: await getTradeIntentStore(),
+export async function POST(request: Request): Promise<Response> {
+  const boundary = await sessionHandler(request);
+  if (!boundary.ok) return boundary;
+  return Response.json(
+    {
+      error: {
+        code: "HOSTED_SWAP_UNAVAILABLE",
+        message: "Hosted swaps are unavailable.",
       },
-      input,
-    ),
-});
+    },
+    {
+      status: 503,
+      headers: {
+        "Cache-Control": "private, no-store",
+        Vary: "Authorization, X-Home-Account-Provider",
+      },
+    },
+  );
+}

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { CODEX_GRAPHQL_ENDPOINT, CODEX_REQUEST_TIMEOUT_MS } from "./config";
 import { CodexMarketDataError } from "./client";
 import { parseJsonWithNumberLexemes } from "./lossless-json";
@@ -13,14 +15,19 @@ export async function executeCodexGraphql({
   variables,
   fetchImpl,
   timeoutMs = CODEX_REQUEST_TIMEOUT_MS,
+  signal,
 }: {
   apiKey: string;
   query: string;
   variables?: Record<string, unknown>;
   fetchImpl: FetchLike;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }): Promise<unknown> {
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -59,6 +66,7 @@ export async function executeCodexGraphql({
     throw new CodexMarketDataError(message, { cause: error });
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
   }
 }
 

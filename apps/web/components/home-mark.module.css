@@ -38,14 +38,21 @@
   display: block;
   width: 30.333333px;
   height: 28px;
+  min-width: 0;
+  min-height: 0;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--mark-blue);
-  cursor: pointer;
   overflow: visible;
   text-decoration: none;
+}
+
+.control:enabled:hover,
+.control:enabled:active {
+  background: transparent;
+  transform: none;
 }
 
 .control:hover {

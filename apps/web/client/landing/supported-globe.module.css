@@ -199,14 +199,6 @@
   line-height: 1.2;
 }
 
-.caption {
-  margin: 10px 0 0;
-  color: #6c7480;
-  font-size: 0.68rem;
-  line-height: 1.3;
-  text-align: center;
-}
-
 @media (max-width: 480px) {
   .network g:nth-of-type(n + 9) {
     display: none;
@@ -227,11 +219,6 @@
 
   .popover small {
     font-size: 0.53rem;
-  }
-
-  .caption {
-    margin-top: 8px;
-    font-size: 0.64rem;
   }
 }
 

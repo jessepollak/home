@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { FundingProviderManifest } from "@/shared/funding/provider-contract";
 
 export const RIPIO_API_ORIGIN = "https://skala.ripio.com" as const;

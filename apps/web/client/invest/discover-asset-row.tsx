@@ -1,5 +1,15 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
 import type { InvestAsset } from "@/config/invest-assets";
 import {
   presentInvestAssetMark,
@@ -28,25 +38,34 @@ export function DiscoverAssetRow({
   const changeTone = moneyChangeTone(change);
 
   return (
-    <li>
-      <button
-        type="button"
-        className={styles.row}
+    <li className={styles.assetRow}>
+      <Item
+        render={<Button variant="ghost" />}
+        className="min-h-13 flex-nowrap border-0 text-left"
         onClick={onOpen}
-        aria-label={`${asset.displayName} details`}
+        aria-describedby={`${asset.id}-action-hint`}
       >
-        <AssetIcon mark={mark} />
-        <span className={styles.identity}>
-          <strong>{asset.displayName}</strong>
-          <small>{asset.displaySymbol}</small>
-        </span>
-        <span className={styles.quote}>
-          <strong>{price.value}</strong>
+        <ItemMedia><AssetIcon mark={mark} /></ItemMedia>
+        <ItemContent>
+          <ItemTitle className="text-row-label!">{asset.displayName}</ItemTitle>
+          <ItemDescription className="text-metadata!">{asset.displaySymbol}</ItemDescription>
+        </ItemContent>
+        <ItemContent className="items-end text-right">
+          <ItemTitle className="font-mono text-row-value!">{price.value}</ItemTitle>
           {change !== "—" ? (
-            <small className={styles.change} data-money-change={changeTone}>{change}</small>
+            <ItemDescription
+              className={`${styles.change} text-metadata`}
+              data-money-change={changeTone}
+            >
+              {change}
+            </ItemDescription>
           ) : null}
+        </ItemContent>
+        <ItemActions aria-hidden="true"><ChevronRight /></ItemActions>
+        <span id={`${asset.id}-action-hint`} hidden>
+          View {asset.displayName} details
         </span>
-      </button>
+      </Item>
     </li>
   );
 }

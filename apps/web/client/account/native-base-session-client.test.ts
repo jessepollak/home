@@ -1,15 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { jsonResponse } from "@/tests/helpers/http";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import {
+  clearNativeBaseSession,
   restoreNativeBaseSession,
   type NativeBaseFetch,
 } from "./native-base-session-client";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
-
-function response(body: unknown, status = 200): Response {
-  return Response.json(body, { status });
-}
 
 function session() {
   return {
@@ -26,7 +24,7 @@ describe("native Base session restoration", () => {
     const fetchFixture: NativeBaseFetch = async (nextInput, nextInit) => {
       input = nextInput;
       init = nextInit;
-      return response(session());
+      return jsonResponse(session());
     };
 
     expect(await restoreNativeBaseSession(fetchFixture)).toEqual(session());
@@ -38,16 +36,36 @@ describe("native Base session restoration", () => {
   });
 
   test("distinguishes a confirmed signed-out response from unavailable restoration", async () => {
-    expect(await restoreNativeBaseSession(async () => response({}, 401))).toBeNull();
+    expect(await restoreNativeBaseSession(async () => jsonResponse({}, 401))).toBeNull();
 
     for (const fetchFixture of [
-      async () => response({ error: { code: "AUTH_UNAVAILABLE" } }, 503),
-      async () => response({ malformed: true }),
+      async () => jsonResponse({ error: { code: "AUTH_UNAVAILABLE" } }, 503),
+      async () => jsonResponse({ malformed: true }),
       async () => { throw new Error("fixture transport failure"); },
     ]) {
       await expect(
         restoreNativeBaseSession(fetchFixture),
       ).rejects.toThrow("Native Base authentication failed.");
+    }
+  });
+});
+
+describe("native Base sign-out", () => {
+  test("is never pinned to the serving deployment", async () => {
+    const previous = process.env.NEXT_DEPLOYMENT_ID;
+    process.env.NEXT_DEPLOYMENT_ID = "dpl_stale";
+    try {
+      let captured: RequestInit | undefined;
+      const fetchFixture: NativeBaseFetch = async (_input, init) => {
+        captured = init;
+        return jsonResponse({ signedOut: true }, 200);
+      };
+      await clearNativeBaseSession(fetchFixture);
+      expect(new Headers(captured?.headers).has("x-deployment-id")).toBe(false);
+      expect(captured?.credentials).toBe("same-origin");
+    } finally {
+      if (previous === undefined) delete process.env.NEXT_DEPLOYMENT_ID;
+      else process.env.NEXT_DEPLOYMENT_ID = previous;
     }
   });
 });

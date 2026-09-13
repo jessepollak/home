@@ -1,11 +1,20 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import type { RegionId } from "@/config/regions";
+import {
+  commitClientUrl,
+  flowHref,
+  withoutFlowHref,
+  type ShellFlow,
+} from "@/config/shell-location";
 import { useAccountWallet } from "@/client/account/cdp-client";
+import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { FundingExperienceForWallet } from "./funding-experience";
+import type { AddMoneyStep } from "./add-money-dialog";
 
 const subscribeToMountedState = () => () => {};
 const mountedClientSnapshot = () => true;
@@ -23,9 +32,12 @@ const iconProps = {
   "aria-hidden": true,
 };
 
+type FundingFlow = Extract<ShellFlow, "add-money" | "receive">;
+
 export type FundingActionsProps = {
   initialOpen?: boolean;
-  returnedFromCoinbase?: boolean;
+  initialFlow?: FundingFlow | null;
+  returnedFromProvider?: boolean;
   regionId?: RegionId;
   onClosed?: () => void;
 };
@@ -38,58 +50,99 @@ export function FundingActions(props: FundingActionsProps) {
 export function FundingActionsForWallet({
   wallet,
   initialOpen = false,
-  returnedFromCoinbase = false,
+  initialFlow = null,
+  returnedFromProvider = false,
   regionId = "GLOBAL",
   onClosed,
 }: FundingActionsProps & {
   wallet: Parameters<typeof FundingExperienceForWallet>[0]["wallet"];
 }) {
-  const router = useRouter();
   const pathname = usePathname();
+  const routing = useOptionalHomeShellRouting();
   const [userOpen, setUserOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const openedInAppRef = useRef(false);
   const mounted = useSyncExternalStore(
     subscribeToMountedState,
     mountedClientSnapshot,
     mountedServerSnapshot,
   );
-  const routeOpen = (initialOpen || returnedFromCoinbase) && !dismissed;
-  const open = userOpen || routeOpen;
+  const routedFlow = routing?.state.flow === "add-money" || routing?.state.flow === "receive"
+    ? routing.state.flow
+    : null;
+  const requestedFlow: FundingFlow | null = routedFlow ?? initialFlow ?? (
+    returnedFromProvider ? "receive" : initialOpen ? "add-money" : null
+  );
+  const routeOpen = requestedFlow !== null && (routing !== null || !dismissed);
+  const open = routing ? routeOpen : userOpen || routeOpen;
+
+  function setFundingFlow(flow: FundingFlow, mode: "push" | "replace") {
+    if (routing) {
+      routing.setFlow(flow, { mode });
+      return;
+    }
+    commitClientUrl(flowHref("/dashboard", flow), mode);
+  }
 
   function close() {
     setUserOpen(false);
     setDismissed(true);
-    if (pathname === "/dashboard" && (initialOpen || returnedFromCoinbase)) {
-      router.replace("/dashboard", { scroll: false });
+    if (openedInAppRef.current) {
+      openedInAppRef.current = false;
+      window.history.back();
+    } else if (
+      pathname === "/dashboard" &&
+      (requestedFlow !== null || initialOpen || returnedFromProvider)
+    ) {
+      if (routing) {
+        routing.clearFlow({ mode: "replace", fundingReturn: true });
+      } else {
+        const next = new URL(
+          withoutFlowHref("/dashboard", new URLSearchParams(window.location.search)),
+          window.location.origin,
+        );
+        next.searchParams.delete("return");
+        next.searchParams.delete("add-money");
+        commitClientUrl(`${next.pathname}${next.search}`, "replace");
+      }
     }
     onClosed?.();
+  }
+
+  function onStepChange(step: AddMoneyStep) {
+    if (!open) return;
+    setFundingFlow(step === "receive" ? "receive" : "add-money", "replace");
   }
 
   const modal = (
     <FundingExperienceForWallet
       wallet={wallet}
-      navigateToHostedOnramp={(url) => window.location.assign(url)}
+      navigateToRedirect={(url) => window.location.assign(url)}
       open={open}
       onClose={close}
-      returnedFromCoinbase={returnedFromCoinbase}
+      returnedFromProvider={returnedFromProvider}
+      initialStep={requestedFlow === "receive" ? "receive" : "method"}
+      onStepChange={onStepChange}
       regionId={regionId}
     />
   );
 
   return (
     <>
-      <button
+      <Button
         className="add-money"
-        data-action-trigger=""
-        type="button"
         onClick={() => {
+          openedInAppRef.current = true;
           setDismissed(false);
           setUserOpen(true);
+          setFundingFlow("add-money", "push");
         }}
       >
-        <PlusIcon />
-        <span>Add money</span>
-      </button>
+        <span className="add-money-content">
+          <PlusIcon />
+          <span>Add money</span>
+        </span>
+      </Button>
       {mounted ? createPortal(modal, document.body) : null}
     </>
   );

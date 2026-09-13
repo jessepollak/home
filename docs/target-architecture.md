@@ -2,7 +2,7 @@
 
 Status: **target / not the current tree.** This is the 2026-09-07 production-destination design (Vercel + Neon Postgres + CDP webhooks, later `packages/*`). It is not a map of `apps/web/` today and not a delivery inventory.
 
-**Current tree (read these first):** [build status](build-status.md) · [wallet runtime spike](wallet-runtime-spike.md) · [Vercel deploy](vercel-deploy.md) (bun settings; Neon money-action adapter is in the tree when `DATABASE_URL` is set) · [architecture review](architecture-review-2026-09.md) · [docs index](README.md)
+**Current tree (read these first):** [Home is thin](home-is-thin.md) · [build status](build-status.md) · [Vercel deploy](vercel-deploy.md) · [architecture review](architecture-review-2026-09.md) · [docs index](README.md)
 
 Formerly published as `docs/technical-design.md`. Historical two-hour slice plan: [archived implementation plan](archive/implementation-plan-2026-09-07.md). Product intent: [product scope](product-scope.md).
 Updated: 2026-09-08 (relocated and retitled; body is the 2026-09-07 design).
@@ -294,7 +294,7 @@ Token amounts remain decimal integer strings at API boundaries and losslessly st
 
 Browser requests go to same-origin Next.js route handlers with a CDP access token. A shared wrapper validates the token through CDP, resolves the Home user and allowed wallet, then invokes a feature service. No second login. Ownership is enforced for every user-scoped read/write; never authorize using a client-supplied user ID or unverified wallet address. Keep provider keys and database credentials server-only.
 
-Suggested resources: `GET /api/capabilities`, `GET /api/portfolio`, `POST /api/actions/prepare`, `POST /api/actions/:id/claim`, `POST /api/actions/:id/execution-reference`, `GET /api/operations/:id`, and `POST /api/webhooks/:provider`. Provider commands execute through the authorized service after the claim; wallet actions return the bound plan for client signing. Version payload schemas and return structured errors. Use TanStack Query for private activity polling, refresh after writes and back off when idle.
+Current action resources are `POST /api/actions/prepare`, `GET /api/actions/:id`, `POST /api/actions/:id/confirm`, `POST /api/actions/:id/handle`, and `GET /api/actions`. The server returns an owner-bound call plan; the fenced browser dispatches it directly through the selected wallet provider and records provider evidence. Version payload schemas and return structured errors. Use private activity polling, refresh after writes, and back off when idle.
 
 ### CDP webhook coverage
 

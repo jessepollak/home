@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   FundingProvider,
@@ -6,13 +8,14 @@ import type {
   Quote,
   ReportedState,
 } from "@/shared/funding/provider-contract";
+import { atomicToDecimal, decimalToAtomic } from "@/shared/formatting/atomic";
+import { providerFetchImplementation } from "../../core/provider-context";
 import {
   createRipioClient,
   RipioProviderError,
   type RipioClient,
   type RipioOrderReference,
-} from "../../ripio-client";
-import { parseRipioWebhook } from "../../ripio-reconciliation";
+} from "./client";
 import { ripioManifest } from "./manifest";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -49,7 +52,7 @@ export const ripioProvider: FundingProvider = {
     return {
       providerQuoteId: quote.quoteId,
       fiatAmount: quote.finalFromAmount,
-      tokenAmountAtomic: decimalToAtomic(quote.finalToAmount, ctx.binding.asset.decimals),
+      tokenAmountAtomic: ripioDecimalToAtomic(quote.finalToAmount, ctx.binding.asset.decimals, "invalid-response"),
       fees: quote.fees.map((fee) => ({
         label: fee.type,
         amount: fee.amount,
@@ -74,7 +77,7 @@ export const ripioProvider: FundingProvider = {
         toCurrency: ctx.binding.asset.symbol,
         chain: "BASE",
         paymentMethodType: ctx.binding.paymentMethod.id,
-        finalToAmount: atomicToDecimal(input.quote.tokenAmountAtomic, ctx.binding.asset.decimals),
+        finalToAmount: ripioAtomicToDecimal(input.quote.tokenAmountAtomic, ctx.binding.asset.decimals),
       });
       return {
         outcome: "created",
@@ -109,7 +112,7 @@ export const ripioProvider: FundingProvider = {
       toCurrency: ctx.binding.asset.symbol,
       chain: "BASE",
       paymentMethodType: ctx.binding.paymentMethod.id,
-      finalToAmount: atomicToDecimal(input.expectedTokenAmountAtomic, input.tokenDecimals),
+      finalToAmount: ripioAtomicToDecimal(input.expectedTokenAmountAtomic, input.tokenDecimals),
     });
     if (
       transaction.customerId !== input.customerRef
@@ -122,7 +125,7 @@ export const ripioProvider: FundingProvider = {
       || transaction.toCurrency !== ctx.binding.asset.symbol
       || transaction.paymentMethodType !== ctx.binding.paymentMethod.id
       || transaction.amount === undefined
-      || decimalToAtomic(transaction.amount, input.tokenDecimals) !== input.expectedTokenAmountAtomic
+      || ripioDecimalToAtomic(transaction.amount, input.tokenDecimals, "invalid-response") !== input.expectedTokenAmountAtomic
     ) throw new RipioProviderError("binding-conflict");
     return observationFor(transaction.status, transaction.txnHash, transaction.latestRefund);
   },
@@ -138,11 +141,24 @@ export const ripioProvider: FundingProvider = {
   },
 };
 
+const clientsByTransport = new WeakMap<typeof fetch, Map<string, RipioClient>>();
+
 function clientFor(ctx: ProviderContext): RipioClient {
-  return createRipioClient(countryFor(ctx), {
-    env: ctx.env,
-    fetchImplementation: ctx.fetch,
-  });
+  const country = countryFor(ctx);
+  const clientId = ctx.env[`RIPIO_CLIENT_ID_${country}`];
+  const transport = providerFetchImplementation(ctx.fetch);
+  let clients = clientsByTransport.get(transport);
+  if (!clients) {
+    clients = new Map();
+    clientsByTransport.set(transport, clients);
+  }
+  const key = `${country}:${clientId}`;
+  let client = clients.get(key);
+  if (!client) {
+    client = createRipioClient(country, { env: ctx.env, fetchImplementation: ctx.fetch });
+    clients.set(key, client);
+  }
+  return client;
 }
 
 function countryFor(ctx: ProviderContext): "AR" | "CO" {
@@ -197,18 +213,38 @@ function assertRedirectOrigin(value: string): void {
   }
 }
 
-function decimalToAtomic(value: string, decimals: number): string {
-  if (!/^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value)) throw new RipioProviderError("invalid-response");
-  const [whole, fraction = ""] = value.split(".");
-  if (fraction.length > decimals) throw new RipioProviderError("invalid-response");
-  return `${whole}${fraction.padEnd(decimals, "0")}`.replace(/^0+(?=\d)/, "");
+function ripioDecimalToAtomic(
+  value: string,
+  decimals: number,
+  code: "invalid-request" | "invalid-response",
+): string {
+  try { return decimalToAtomic(value, decimals); }
+  catch (error) { throw new RipioProviderError(code, null, error); }
 }
 
-function atomicToDecimal(value: string, decimals: number): string {
-  if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new RipioProviderError("invalid-request");
-  const padded = value.padStart(decimals + 1, "0");
-  const fraction = padded.slice(-decimals).replace(/0+$/, "");
-  return fraction ? `${padded.slice(0, -decimals)}.${fraction}` : padded.slice(0, -decimals);
+function ripioAtomicToDecimal(value: string, decimals: number): string {
+  try { return atomicToDecimal(value, decimals); }
+  catch (error) { throw new RipioProviderError("invalid-request", null, error); }
+}
+
+function parseRipioWebhook(rawBody: Uint8Array): { providerOrderId: string } | null {
+  let value: unknown;
+  try { value = JSON.parse(new TextDecoder().decode(rawBody)); } catch { return null; }
+  if (
+    !isRecord(value)
+    || typeof value.eventType !== "string"
+    || value.eventType.length === 0
+    || typeof value.issueDatetime !== "string"
+    || !Number.isFinite(Date.parse(value.issueDatetime))
+    || !isRecord(value.transactionObject)
+    || typeof value.transactionObject.transactionId !== "string"
+    || !UUID.test(value.transactionObject.transactionId)
+  ) return null;
+  return { providerOrderId: value.transactionObject.transactionId };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function readTermsId(value: unknown): string | null {

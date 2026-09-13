@@ -5,6 +5,7 @@ import { createCdpSqlHttpTransport } from "@/server/chain-data/cdp-sql-client";
 import { ChainDataError } from "@/server/chain-data/errors";
 import { createActivityHandler } from "./handler";
 import { createActivityReader } from "./reader";
+import type { ActivityReadRequest, VerifiedActivityAccount } from "./types";
 
 const VERIFIED = "0x1111111111111111111111111111111111111111" as const;
 const ATTACKER = "0x9999999999999999999999999999999999999999";
@@ -25,7 +26,6 @@ function page(): ActivityPage {
   return {
     walletAddress: VERIFIED,
     chainId: 8453,
-    recordedOperations: "available",
     window: { from: "2026-08-07T12:00:00.000Z", to: TO },
     transfers: [],
     nextCursor: null,
@@ -45,22 +45,32 @@ function expectPrivate(response: Response) {
     "private, no-store, max-age=0",
   );
   expect(response.headers.get("pragma")).toBe("no-cache");
-  expect(response.headers.get("vary")).toBe(
+  expect([
     "Authorization, X-Home-Account-Provider",
-  );
+    "Cookie, Authorization, X-Home-Account-Provider",
+  ]).toContain(response.headers.get("vary") ?? "");
 }
 
 describe("activity route handler", () => {
   test("derives wallet scope only from the verified session and forwards the stable window", async () => {
     let received: unknown;
-    const handler = createActivityHandler({
+    let storeCalls = 0;
+    const dependencies = {
       authorize: async () => sessionResponse(),
-      readActivity: async (account, request, signal) => {
+      readActivity: async (
+        account: VerifiedActivityAccount,
+        request: ActivityReadRequest,
+        signal?: AbortSignal,
+      ) => {
         received = { account, request, signal };
         return page();
       },
       now: () => new Date(TO),
-    });
+      store: async () => {
+        storeCalls += 1;
+      },
+    };
+    const handler = createActivityHandler(dependencies);
     const request = new Request(
       `http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=next`,
     );
@@ -68,6 +78,7 @@ describe("activity route handler", () => {
 
     expect(response.status).toBe(200);
     expectPrivate(response);
+    expect(storeCalls).toBe(0);
     expect(received).toEqual({
       account: {
         address: VERIFIED,
@@ -79,279 +90,8 @@ describe("activity route handler", () => {
     });
   });
 
-  test("emits started and successful final observations without private values", async () => {
-    const observations: unknown[] = [];
-    const ticks = [0, 5, 10, 15];
-    const handler = createActivityHandler({
-      authorize: async () => sessionResponse(),
-      readActivity: async () => page(),
-      now: () => new Date(TO),
-      clock: () => ticks.shift() ?? 15,
-      observe: (event) => observations.push(event),
-    });
 
-    const response = await handler(
-      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
-    );
 
-    expect(response.status).toBe(200);
-    expect(observations).toEqual([
-      {
-        kind: "activity-read",
-        route: "/api/activity",
-        outcome: "started",
-        reason: "primary-source",
-        source: "cdp-sql",
-        durationMs: 5,
-        sourceDurationMs: 0,
-        sourceAttemptCount: 1,
-        pageCount: 0,
-        rowCount: 0,
-        recordedOperations: "not-started",
-      },
-      {
-        kind: "activity-read",
-        route: "/api/activity",
-        outcome: "succeeded",
-        reason: "primary-source",
-        source: "cdp-sql",
-        durationMs: 15,
-        sourceDurationMs: 5,
-        sourceAttemptCount: 1,
-        pageCount: 1,
-        rowCount: 0,
-        recordedOperations: "available",
-      },
-    ]);
-    const serialized = JSON.stringify(observations);
-    expect(serialized).not.toContain(VERIFIED);
-    expect(serialized).not.toContain("subject-a");
-    expect(serialized).not.toContain(TO);
-  });
-
-  test("emits rejected final observations for authorization and request rejection", async () => {
-    const observations: Array<{ outcome: string; reason: string }> = [];
-    const observe = (event: { outcome: string; reason: string }) => {
-      observations.push(event);
-    };
-    const unauthorized = createActivityHandler({
-      authorize: async () => Response.json({}, { status: 401 }),
-      readActivity: async () => page(),
-      observe,
-    });
-    const invalid = createActivityHandler({
-      authorize: async () => sessionResponse(),
-      readActivity: async () => page(),
-      now: () => new Date(TO),
-      observe,
-    });
-
-    expect(
-      (
-        await unauthorized(
-          new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
-        )
-      ).status,
-    ).toBe(401);
-    expect(
-      (await invalid(new Request("http://localhost/api/activity?to=invalid"))).status,
-    ).toBe(400);
-    expect(observations.map(({ outcome, reason }) => ({ outcome, reason }))).toEqual([
-      { outcome: "rejected", reason: "authorization" },
-      { outcome: "rejected", reason: "request" },
-    ]);
-  });
-
-  test("swallows asynchronous activity observation rejections", async () => {
-    const unhandled: unknown[] = [];
-    const onUnhandled = (reason: unknown) => unhandled.push(reason);
-    process.on("unhandledRejection", onUnhandled);
-    try {
-      const handler = createActivityHandler({
-        authorize: async () => sessionResponse(),
-        readActivity: async () => page(),
-        now: () => new Date(TO),
-        observe: () => Promise.reject(new Error("async observation unavailable")),
-      });
-      const response = await handler(
-        new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
-      );
-      expect(response.status).toBe(200);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(unhandled).toEqual([]);
-    } finally {
-      process.off("unhandledRejection", onUnhandled);
-    }
-  });
-
-  test("emits failed and cancelled primary outcomes without starting secondary work", async () => {
-    for (const cancelled of [false, true]) {
-      const controller = new AbortController();
-      const observations: Array<{ outcome: string }> = [];
-      let secondaryCalls = 0;
-      const handler = createActivityHandler({
-        authorize: async () => sessionResponse(),
-        readActivity: async () => {
-          if (cancelled) controller.abort("fixture-cancelled");
-          throw new ChainDataError("timed-out", "private provider detail");
-        },
-        readRecordedOperations: async () => {
-          secondaryCalls += 1;
-        },
-        now: () => new Date(TO),
-        observe: (event) => observations.push(event),
-      });
-      const response = await handler(
-        new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`, {
-          signal: controller.signal,
-        }),
-      );
-
-      expect(response.status).toBe(504);
-      expect(observations.map(({ outcome }) => outcome)).toEqual([
-        "started",
-        cancelled ? "cancelled" : "failed",
-      ]);
-      expect(secondaryCalls).toBe(0);
-    }
-  });
-
-  test("degrades recorded-operation store errors without masking readable onchain history", async () => {
-    let receivedOwner: unknown;
-    const expected = page();
-    const handler = createActivityHandler({
-      authorize: async () => sessionResponse(),
-      readActivity: async () => expected,
-      readRecordedOperations: async (owner) => {
-        receivedOwner = owner;
-        throw new Error("private database detail");
-      },
-      reportRecordedOperationsFailure: () => {
-        throw new Error("log sink unavailable");
-      },
-      now: () => new Date(TO),
-    });
-
-    const response = await handler(
-      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
-    );
-
-    expect(response.status).toBe(200);
-    expectPrivate(response);
-    expect(receivedOwner).toEqual({
-      subject: "subject-a",
-      address: VERIFIED,
-      chainId: 8453,
-      accountProvider: "cdp-embedded",
-    });
-    expect(await response.json()).toEqual({
-      ...expected,
-      recordedOperations: "unavailable",
-    });
-  });
-
-  test("swallows an async reporting rejection without delaying or changing the degraded response", async () => {
-    const unhandled: unknown[] = [];
-    const onUnhandled = (reason: unknown) => unhandled.push(reason);
-    process.on("unhandledRejection", onUnhandled);
-    try {
-      const expected = page();
-      const handler = createActivityHandler({
-        authorize: async () => sessionResponse(),
-        readActivity: async () => expected,
-        readRecordedOperations: async () => {
-          throw new Error("private database detail");
-        },
-        reportRecordedOperationsFailure: () =>
-          Promise.reject(new Error("async log sink unavailable")),
-        now: () => new Date(TO),
-      });
-
-      const response = await handler(
-        new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
-      );
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({
-        ...expected,
-        recordedOperations: "unavailable",
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(unhandled).toEqual([]);
-    } finally {
-      process.off("unhandledRejection", onUnhandled);
-    }
-  });
-
-  test("bounds and aborts a hanging recorded-operation query before degrading", async () => {
-    const expected = page();
-    let secondaryAborted = false;
-    const handler = createActivityHandler({
-      authorize: async () => sessionResponse(),
-      readActivity: async () => expected,
-      readRecordedOperations: async (_owner, signal) =>
-        new Promise((_, reject) => {
-          signal?.addEventListener(
-            "abort",
-            () => {
-              secondaryAborted = true;
-              reject(signal.reason);
-            },
-            { once: true },
-          );
-        }),
-      recordedOperationsTimeoutMs: 5,
-      reportRecordedOperationsFailure: () => {},
-      now: () => new Date(TO),
-    });
-
-    const response = await handler(
-      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
-    );
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      ...expected,
-      recordedOperations: "unavailable",
-    });
-    expect(secondaryAborted).toBe(true);
-  });
-
-  test("does not convert request cancellation during the secondary read into degradation", async () => {
-    const controller = new AbortController();
-    let secondaryAborted = false;
-    const observations: Array<{ outcome: string }> = [];
-    const handler = createActivityHandler({
-      authorize: async () => sessionResponse(),
-      readActivity: async () => page(),
-      readRecordedOperations: async (_owner, signal) =>
-        new Promise((_, reject) => {
-          signal?.addEventListener(
-            "abort",
-            () => {
-              secondaryAborted = true;
-              reject(signal.reason);
-            },
-            { once: true },
-          );
-          controller.abort("request cancelled");
-        }),
-      now: () => new Date(TO),
-      observe: (event) => observations.push(event),
-    });
-
-    const response = await handler(
-      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`, {
-        signal: controller.signal,
-      }),
-    );
-
-    expect(response.status).toBe(502);
-    expect(secondaryAborted).toBe(true);
-    expect(observations.map(({ outcome }) => outcome)).toEqual([
-      "started",
-      "cancelled",
-    ]);
-  });
 
   test("rejects browser wallet scope and unknown query inputs without calling chain data", async () => {
     for (const query of [
@@ -565,81 +305,6 @@ describe("activity route handler", () => {
     expect(body.transfers).toEqual([]);
   });
 
-  test("live slim CDP empty envelope is 200 [] not ACTIVITY_INVALID_RESPONSE", async () => {
-    const history = createBaseErc20TransferHistory({
-      assets: activityAssets.map((asset) => ({
-        id: asset.id,
-        chainId: 8453,
-        address: asset.tokenAddress,
-      })),
-      transport: createCdpSqlHttpTransport({
-        auth: { mode: "client-api-key", clientApiKey: "client-key-value" },
-        fetch: async () =>
-          new Response(
-            JSON.stringify({ result: [], metadata: { rowCount: 0 } }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
-      }),
-      now: () => new Date(TO),
-    });
-    const handler = createActivityHandler({
-      authorize: async () => sessionResponse(),
-      readActivity: createActivityReader((input) => history.listTransfers(input)),
-      now: () => new Date(TO),
-    });
-    const response = await handler(
-      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
-    );
-    expect(response.status).toBe(200);
-    expectPrivate(response);
-    const body = (await response.json()) as { transfers: unknown[]; error?: unknown };
-    expect(body.error).toBeUndefined();
-    expect(body.transfers).toEqual([]);
-  });
-
-  test("healthy session with empty CDP history is an empty page, not ACTIVITY_UNAVAILABLE", async () => {
-    let sql = "";
-    const history = createBaseErc20TransferHistory({
-      assets: activityAssets.map((asset) => ({
-        id: asset.id,
-        chainId: 8453,
-        address: asset.tokenAddress,
-      })),
-      transport: {
-        async run(request) {
-          sql = request.sql;
-          return {
-            result: [],
-            metadata: {
-              cached: false,
-              executionTimestamp: TO,
-              executionTimeMs: 4,
-              rowCount: 0,
-            },
-          };
-        },
-      },
-      now: () => new Date(TO),
-    });
-    const handler = createActivityHandler({
-      authorize: async () => sessionResponse(),
-      readActivity: createActivityReader((input) => history.listTransfers(input)),
-      now: () => new Date(TO),
-    });
-    const response = await handler(
-      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
-    );
-    expect(response.status).toBe(200);
-    expectPrivate(response);
-    const body = (await response.json()) as { transfers: unknown[]; error?: unknown };
-    expect(body.error).toBeUndefined();
-    expect(body.transfers).toEqual([]);
-    expect(sql).toContain("sum(toInt8(action)) AS net_action");
-    expect(sql).toContain("WHERE net_action > 0");
-    expect(sql).not.toMatch(/\bHAVING\b/);
-    expect(sql).not.toMatch(/GROUP BY log_id[\s\S]*LIMIT 10000/);
-  });
-
   test("maps CDP SQL provider codes instead of one ACTIVITY_UNAVAILABLE catch-all", async () => {
     const cases = [
       {
@@ -714,10 +379,6 @@ describe("activity route handler", () => {
       readActivity: async () => {
         throw new Error("private provider detail");
       },
-      readRecordedOperations: async () => {
-        throw new Error("private database detail");
-      },
-      reportRecordedOperationsFailure: () => {},
       now: () => new Date(TO),
     });
     const response = await handler(

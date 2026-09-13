@@ -3,20 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "bun@1.3.12",
-  "engines": { "node": ">=22" },
-  "workspaces": ["apps/*", "packages/*"],
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "dev": "bun run --cwd apps/web dev",
-    "build": "bun run --cwd apps/web build && bun run --cwd apps/design-system build",
+    "build": "bun run --cwd apps/web build",
     "start": "bun run --cwd apps/web start",
-    "lint": "bun run --cwd packages/ui lint && bun run --cwd apps/design-system lint && bun run --cwd apps/web lint",
-    "typecheck": "bun run --cwd packages/ui typecheck && bun run --cwd apps/design-system typecheck && bun run --cwd apps/web typecheck",
-    "test": "bun run --cwd packages/ui test && bun run --cwd apps/design-system test && bun run --cwd apps/web test",
+    "lint": "bun run --cwd apps/web lint",
+    "typecheck": "bun run --cwd apps/web typecheck",
+    "test": "bun run --cwd apps/web test",
     "check": "bun run test && bun run lint && bun run typecheck && bun run build",
-    "money-actions:migrate": "bun run --cwd apps/web money-actions:migrate",
-    "funding:migrate": "bun run --cwd apps/web funding:migrate",
-    "dev:design-system": "bun run --cwd apps/design-system dev",
-    "test:browser:design-system": "bun run --cwd apps/design-system test:browser"
+    "db:migrate": "bun run --cwd apps/web db:migrate"
   },
-  "trustedDependencies": ["sharp", "unrs-resolver"]
+  "trustedDependencies": [
+    "sharp",
+    "unrs-resolver"
+  ]
 }

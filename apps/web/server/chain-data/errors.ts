@@ -1,3 +1,5 @@
+import "server-only";
+
 export type ChainDataErrorCode =
   | "invalid-input"
   | "invalid-response"

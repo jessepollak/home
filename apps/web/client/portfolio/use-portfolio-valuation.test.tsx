@@ -1,5 +1,11 @@
 import "@/client/account/dom-test-harness";
 
+import {
+  getHomeQueryClient,
+  ownerQueryKey,
+  ownerQueryMeta,
+  shouldPersistOwnerQuery,
+} from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { usePortfolioValuation } from "./use-portfolio-valuation";
@@ -146,24 +152,60 @@ function snapshot(region: "US" | "DE") {
 
 function Harness({ region, fetchValuation }: { region: "US" | "DE"; fetchValuation: FetchPortfolioValuation }) {
   const state = usePortfolioValuation(session, region, fetchValuation);
-  return <div>{state.status === "ready" ? `${state.snapshot.selectedRegion}:${state.snapshot.quoteCurrency}` : state.status}</div>;
+  return <div>{state.status === "ready" ? `${state.snapshot.selectedRegion}:${state.snapshot.quoteCurrency}${state.revalidating ? ":updating" : ""}` : state.status}</div>;
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  getHomeQueryClient().clear();
+});
 
 describe("portfolio valuation ownership", () => {
-  test("clears prior currency data and ignores a late response after region changes", async () => {
+  test("marks valuation responses memory-only so recognized rows cannot enter the owner persister", async () => {
+    const fetchValuation: FetchPortfolioValuation = async () => snapshot("US");
+    render(<Harness region="US" fetchValuation={fetchValuation} />);
+    await waitFor(() => expect(document.body.textContent).toBe("US:USD"));
+
+    const ownerKey = `${session.subject}\u0000${ADDRESS}\u00008453`;
+    const query = getHomeQueryClient().getQueryCache().find({
+      queryKey: ownerQueryKey(ownerKey, "valuation", "US"),
+    });
+    expect(query?.meta).toEqual({ persistence: "memory", ownerKey });
+    expect(query && shouldPersistOwnerQuery(query, ownerKey)).toBe(false);
+  });
+
+  test("stays memory-only after an imperative fetchQuery refresh (the transport's post-action path)", async () => {
+    const fetchValuation: FetchPortfolioValuation = async () => snapshot("US");
+    render(<Harness region="US" fetchValuation={fetchValuation} />);
+    await waitFor(() => expect(document.body.textContent).toBe("US:USD"));
+
+    const ownerKey = `${session.subject}\u0000${ADDRESS}\u00008453`;
+    const queryKey = ownerQueryKey(ownerKey, "valuation", "US");
+    // fetchQuery options overwrite the hook's meta; the transport must pass "memory".
+    await getHomeQueryClient().fetchQuery({
+      queryKey,
+      staleTime: 0,
+      retry: false,
+      meta: ownerQueryMeta(ownerKey, "memory"),
+      queryFn: async () => snapshot("US"),
+    });
+    const query = getHomeQueryClient().getQueryCache().find({ queryKey });
+    expect(query?.meta).toEqual({ persistence: "memory", ownerKey });
+    expect(query && shouldPersistOwnerQuery(query, ownerKey)).toBe(false);
+  });
+
+  test("keeps previous owner data during a region update and replaces it when fresh data arrives", async () => {
     const us = deferred<unknown>();
     const de = deferred<unknown>();
     const fetchValuation: FetchPortfolioValuation = (region) =>
       region === "US" ? us.promise : de.promise;
     const view = render(<Harness region="US" fetchValuation={fetchValuation} />);
+    await act(async () => us.resolve(snapshot("US")));
+    await waitFor(() => expect(document.body.textContent).toBe("US:USD"));
 
     view.rerender(<Harness region="DE" fetchValuation={fetchValuation} />);
-    expect(document.body.textContent).toBe("loading");
+    expect(document.body.textContent).toBe("US:USD:updating");
 
-    await act(async () => us.resolve(snapshot("US")));
-    expect(document.body.textContent).toBe("loading");
     await act(async () => de.resolve(snapshot("DE")));
     await waitFor(() => expect(document.body.textContent).toBe("DE:EUR"));
   });

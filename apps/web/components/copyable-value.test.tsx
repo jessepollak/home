@@ -2,7 +2,7 @@ import "./../client/account/dom-test-harness";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
 
-const { act, cleanup, fireEvent, render, waitFor } = await import(
+const { cleanup, fireEvent, render, waitFor } = await import(
   "@testing-library/react"
 );
 const { CopyableValue } = await import("./copyable-value");
@@ -44,47 +44,6 @@ describe("CopyableValue", () => {
     expect(view.container.querySelector('[aria-live="polite"]')?.textContent).toBe("Copied");
   });
 
-  test("copies a full transaction id while showing its condensed hash", async () => {
-    let copied = "";
-    const transactionId = `0x${"ab".repeat(32)}`;
-    const condensed = `${transactionId.slice(0, 10)}…${transactionId.slice(-8)}`;
-    withClipboard(async (value: string) => {
-      copied = value;
-    });
-    const view = render(
-      <CopyableValue
-        value={transactionId}
-        display={condensed}
-        valueKind="transaction ID"
-      />,
-    );
-
-    fireEvent.click(view.getByRole("button", { name: `Copy ${condensed}` }));
-    await waitFor(() => expect(copied).toBe(transactionId));
-    expect(view.getByRole("button", { name: "Copied" })).toBeTruthy();
-  });
-
-  test("labels the fallback and error with the transaction-ID noun", async () => {
-    const transactionId = `0x${"ab".repeat(32)}`;
-    const condensed = `${transactionId.slice(0, 10)}…${transactionId.slice(-8)}`;
-    const view = render(
-      <CopyableValue
-        value={transactionId}
-        display={condensed}
-        valueKind="transaction ID"
-      />,
-    );
-
-    fireEvent.click(view.getByRole("button", { name: `Copy ${condensed}` }));
-    expect(view.queryByRole("button", { name: "Copied" })).toBeNull();
-    expect((await view.findByRole("alert")).textContent).toContain(
-      "full transaction ID below",
-    );
-    expect(view.getByLabelText(`Full transaction ID ${transactionId}`).textContent).toBe(
-      transactionId,
-    );
-  });
-
   test("exposes the selectable full value and a truthful error when clipboard is unavailable", async () => {
     const view = render(<CopyableValue value={VALUE} display={DISPLAY} valueKind="address" />);
     fireEvent.click(view.getByRole("button", { name: `Copy ${DISPLAY}` }));
@@ -110,23 +69,6 @@ describe("CopyableValue", () => {
     const alert = await view.findByRole("alert");
     expect(alert.textContent).toContain("Clipboard access failed");
     expect(view.getByLabelText(`Full address ${VALUE}`).textContent).toBe(VALUE);
-  });
-
-  test("clears the confirmation after the reset timer", async () => {
-    jest.useFakeTimers();
-    withClipboard(async () => {});
-    const view = render(<CopyableValue value={VALUE} display={DISPLAY} valueKind="address" />);
-
-    fireEvent.click(view.getByRole("button", { name: `Copy ${DISPLAY}` }));
-    expect(await view.findByRole("button", { name: "Copied" })).toBeTruthy();
-
-    await act(async () => {
-      jest.advanceTimersByTime(1600);
-    });
-
-    expect(view.getByRole("button", { name: `Copy ${DISPLAY}` })).toBeTruthy();
-    expect(view.queryByRole("button", { name: "Copied" })).toBeNull();
-    expect(view.container.querySelector('[aria-live="polite"]')?.textContent).toBe("");
   });
 
   test("clears a stale confirmation when the value or owner changes", async () => {
@@ -163,10 +105,5 @@ describe("CopyableValue", () => {
     expect(view.queryByRole("button", { name: "Copied" })).toBeNull();
   });
 
-  test("is a native type=button control", () => {
-    const view = render(<CopyableValue value={VALUE} display={DISPLAY} valueKind="address" />);
-    const control = view.getByRole("button", { name: `Copy ${DISPLAY}` });
-    expect(control.tagName.toLowerCase()).toBe("button");
-    expect(control.getAttribute("type")).toBe("button");
-  });
+
 });

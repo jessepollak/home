@@ -1,61 +1,30 @@
+.tradeUnavailable,
+.tradeUnavailableSticky {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.tradeUnavailable > [role="note"],
+.tradeUnavailableSticky > [role="note"] {
+  text-align: right;
+}
+
 .rowActions {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-  border-bottom: 1px solid rgba(10, 11, 13, 0.11);
-  padding: 0 2px 8px 43px;
-}
-
-.rowActions button,
-.prepare,
-.dialog header button {
-  min-height: 44px;
-  border: 1px solid rgba(10, 11, 13, 0.18);
-  border-radius: 8px;
-  background: #fff;
-  color: #0a0b0d;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.68rem;
-  font-weight: 720;
-  padding: 0 12px;
-}
-
-.rowActions button:first-child,
-.prepare {
-  border-color: #0052ff;
-  background: #0052ff;
-  color: #fff;
-}
-
-.rowActions button:disabled,
-.stickyActions button:disabled,
-.prepare:disabled,
-.dialog header button:disabled {
-  cursor: not-allowed;
-  opacity: 0.48;
-}
-
-.rowActions button:focus-visible,
-.prepare:focus-visible,
-.dialog button:focus-visible,
-.dialog input:focus-visible {
-  outline: 2px solid #0000ff;
-  outline-offset: 2px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 2px 0.5rem 43px;
 }
 
 .locked {
-  border-bottom: 1px solid rgba(10, 11, 13, 0.11);
+  border-bottom: 1px solid var(--border);
   padding: 0 2px 9px 43px;
-  color: #686f7b;
-  font-size: 0.62rem;
   text-align: right;
 }
 
 .lockedSticky {
   margin-top: 22px;
-  color: #686f7b;
-  font-size: 0.78rem;
 }
 
 .stickyActions {
@@ -65,184 +34,14 @@
   display: grid;
   flex-shrink: 0;
   grid-template-columns: 1.15fr 1fr;
-  gap: 8px;
-  margin-top: 12px;
-  background: var(--home-canvas);
-  padding: 12px 0 4px;
-}
-
-.stickyActions button {
-  min-height: 54px;
-  border: 1px solid var(--home-hairline);
-  border-radius: var(--control-radius);
-  background: var(--home-white);
-  color: var(--home-ink);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.92rem;
-  font-weight: 720;
-  transition: transform var(--motion-press) ease;
-}
-
-.stickyActions button:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.stickyActions button:first-child {
-  border-color: var(--home-blue);
-  background: var(--home-blue);
-  color: var(--home-white);
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem 0 0.25rem;
+  background: var(--muted);
 }
 
 @media (max-width: 719px) {
   .stickyActions {
     bottom: calc(70px + env(safe-area-inset-bottom));
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stickyActions button {
-    transition: none;
-  }
-
-  .stickyActions button:active:not(:disabled) {
-    transform: none;
-  }
-}
-
-.dialog {
-  position: fixed;
-  inset: auto 16px 16px;
-  width: min(calc(100% - 32px), 520px);
-  max-width: none;
-  max-height: calc(100svh - 32px);
-  overflow: auto;
-  margin: 0 auto;
-  border: 1px solid rgba(10, 11, 13, 0.16);
-  border-radius: 14px 14px 8px 8px;
-  background: #fff;
-  box-shadow: 0 24px 80px rgba(10, 11, 13, 0.24);
-  color: #0a0b0d;
-  padding: 22px;
-}
-
-.dialog::backdrop {
-  background: rgba(10, 11, 13, 0.52);
-}
-
-.dialog header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.dialog h2 {
-  margin: 0;
-  font-size: 1.45rem;
-  font-weight: 680;
-  letter-spacing: -0.04em;
-}
-
-.dialog header button {
-  width: 44px;
-  padding: 0;
-  font-size: 1.2rem;
-}
-
-.dialog form,
-.reviewBody {
-  display: grid;
-  gap: 12px;
-  margin-top: 22px;
-}
-
-.reviewBody ul,
-.reviewBody p {
-  margin: 0;
-  color: #686f7b;
-  font-size: 0.72rem;
-  line-height: 1.5;
-}
-
-.reviewBody ul {
-  display: grid;
-  gap: 6px;
-  padding-left: 18px;
-}
-
-.dialog label {
-  font-size: 0.76rem;
-  font-weight: 720;
-}
-
-.dialog input {
-  width: 100%;
-  min-height: 48px;
-  border: 1px solid rgba(10, 11, 13, 0.22);
-  border-radius: 8px;
-  background: #fff;
-  color: #0a0b0d;
-  font: inherit;
-  font-size: 1rem;
-  padding: 0 13px;
-}
-
-.dialog dl {
-  margin: 2px 0 0;
-  border: 1px solid rgba(10, 11, 13, 0.12);
-}
-
-.dialog dl > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid rgba(10, 11, 13, 0.1);
-  padding: 10px 12px;
-  font-size: 0.72rem;
-}
-
-.dialog dl > div:last-child {
-  border-bottom: 0;
-}
-
-.dialog dt {
-  color: #686f7b;
-}
-
-.dialog dd {
-  margin: 0;
-  font-weight: 680;
-  text-align: right;
-}
-
-.help,
-.error {
-  margin: 0;
-  font-size: 0.72rem;
-  line-height: 1.5;
-}
-
-.help {
-  color: #686f7b;
-}
-
-.error {
-  border-radius: 8px;
-  background: #fff1f0;
-  color: #8d211a;
-  padding: 10px 12px;
-}
-
-.prepare {
-  min-height: 44px;
-  font-size: 0.78rem;
-}
-
-@media (min-width: 720px) {
-  .dialog {
-    inset: 50% auto auto 50%;
-    transform: translate(-50%, -50%);
-    border-radius: 10px;
   }
 }

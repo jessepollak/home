@@ -4,7 +4,7 @@ import {
   type ShellLocation,
   type ShellSearchInput,
 } from "@/config/shell-location";
-import { resolveMarketPriceAssetIdentity } from "@/shared/invest/history-contract";
+import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 import { getDiscoverShelf, type DiscoverShelfId } from "./discover";
 
 export type InvestView =

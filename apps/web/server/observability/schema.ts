@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   sanitizeIdentifier,
   sanitizeRoutePath,
@@ -20,17 +22,9 @@ export const ACTIVITY_READ_REASONS = [
   "primary-source",
 ] as const;
 export const ACTIVITY_READ_SOURCES = ["none", "cdp-sql"] as const;
-export const ACTIVITY_RECORDED_OPERATIONS_STATES = [
-  "not-started",
-  "available",
-  "unavailable",
-] as const;
-
 export type ActivityReadOutcome = (typeof ACTIVITY_READ_OUTCOMES)[number];
 export type ActivityReadReason = (typeof ACTIVITY_READ_REASONS)[number];
 export type ActivityReadSource = (typeof ACTIVITY_READ_SOURCES)[number];
-export type ActivityRecordedOperationsState =
-  (typeof ACTIVITY_RECORDED_OPERATIONS_STATES)[number];
 
 export type PortfolioBalanceSourceReason =
   | "not-configured"
@@ -41,6 +35,23 @@ export type PortfolioBalanceSourceReason =
   | "invalid-response"
   | "partial"
   | "read-failed";
+
+export const SERVER_EVENT_KINDS = [
+  "action-prepare",
+  "action-confirm",
+  "action-handle",
+  "funding-order",
+  "funding-webhook",
+] as const;
+export const SERVER_EVENT_OUTCOMES = [
+  "failed",
+  "rejected",
+  "invalid",
+  "unmatched",
+  "unavailable",
+] as const;
+export type ServerEventKind = (typeof SERVER_EVENT_KINDS)[number];
+export type ServerEventOutcome = (typeof SERVER_EVENT_OUTCOMES)[number];
 
 export type ObservabilityEvent =
   | {
@@ -75,7 +86,15 @@ export type ObservabilityEvent =
       sourceAttemptCount: number;
       pageCount: number;
       rowCount: number;
-      recordedOperations: ActivityRecordedOperationsState;
+    }
+  | {
+      kind: ServerEventKind;
+      route: string;
+      code: string;
+      outcome: ServerEventOutcome;
+      provider?: string;
+      ownerHash?: string;
+      durationMs: number;
     };
 
 type ObservabilityLogBase = {
@@ -121,7 +140,15 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         sourceAttemptCount: number;
         pageCount: number;
         rowCount: number;
-        recordedOperations: ActivityRecordedOperationsState;
+      }
+    | {
+        level: "error" | "info";
+        kind: ServerEventKind;
+        code: string;
+        outcome: ServerEventOutcome;
+        provider?: string;
+        ownerHash?: string;
+        durationMs: number;
       }
   );
 
@@ -157,11 +184,29 @@ export function normalizeObservabilityEvent(
       sourceAttemptCount: boundedInteger(event.sourceAttemptCount, 10),
       pageCount: boundedInteger(event.pageCount, 10),
       rowCount: boundedInteger(event.rowCount, 10_000),
-      recordedOperations: allowedValue(
-        event.recordedOperations,
-        ACTIVITY_RECORDED_OPERATIONS_STATES,
-        "not-started",
-      ),
+    };
+  }
+
+  if (isServerEvent(event)) {
+    const outcome = allowedValue(event.outcome, SERVER_EVENT_OUTCOMES, "failed");
+    const code = /^[A-Z][A-Z0-9_]{0,63}$/.test(event.code)
+      ? event.code
+      : "SERVER_EVENT";
+    const provider = event.provider
+      ? sanitizeIdentifier(event.provider, "unknown").slice(0, 64)
+      : undefined;
+    const ownerHash = event.ownerHash && /^[a-f0-9]{32}$/.test(event.ownerHash)
+      ? event.ownerHash
+      : undefined;
+    return {
+      ...base,
+      level: outcome === "unmatched" ? "info" : "error",
+      kind: event.kind,
+      code,
+      outcome,
+      ...(provider ? { provider } : {}),
+      ...(ownerHash ? { ownerHash } : {}),
+      durationMs: boundedInteger(event.durationMs, 60_000),
     };
   }
 
@@ -204,6 +249,12 @@ export function normalizeObservabilityEvent(
     ...(method ? { method } : {}),
     ...(routeType ? { routeType } : {}),
   };
+}
+
+function isServerEvent(
+  event: ObservabilityEvent,
+): event is Extract<ObservabilityEvent, { kind: ServerEventKind }> {
+  return SERVER_EVENT_KINDS.includes(event.kind as ServerEventKind);
 }
 
 function boundedInteger(value: number, maximum: number): number {

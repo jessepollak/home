@@ -1,113 +1,95 @@
 .page {
   display: grid;
-  gap: var(--home-ui-space-8);
-  color: var(--home-ui-color-text);
-  font-family: var(--home-ui-font-family);
+  gap: 2rem;
+  padding: 0.5rem 0 1.5rem;
+  color: var(--foreground);
   overflow-wrap: anywhere;
-  padding: var(--home-ui-space-2) 0 var(--home-ui-space-6);
 }
 
 .section {
   display: grid;
-  gap: var(--home-ui-space-3);
+  gap: 0.75rem;
 }
 
 .card {
+  margin: 0;
   overflow: hidden;
-  border: 1px solid var(--home-ui-color-border);
-  border-radius: var(--home-ui-radius-surface);
-  background: var(--home-ui-color-surface);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
+  background: var(--background);
+  padding: 0.25rem 0.75rem;
+  list-style: none;
 }
 
-.countryRow,
-.row,
-.rowButton {
-  width: 100%;
+.card > li,
+.card > li > button {
   min-height: 64px;
-  padding: var(--home-ui-space-3) 14px;
 }
 
-.countryRow,
-.row {
-  display: grid;
-  align-items: center;
-  gap: var(--home-ui-space-3);
+.card > li:not(:last-child) {
+  border-bottom: 1px solid var(--border);
 }
 
 .countryRow {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  flex-wrap: nowrap;
 }
 
-.countryRow > [role="combobox"] {
+.countryAction {
+  min-width: 0;
+  max-width: 60%;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+
+.countryRow [role="combobox"] {
   min-width: 0;
   max-width: 100%;
   white-space: normal;
 }
 
-.row {
-  grid-template-columns: minmax(0, 1fr);
+.card code {
+  font-family: var(--font-mono);
 }
 
-.row + .rowButton,
-.row + .row {
-  border-top: 1px solid var(--home-ui-color-border);
-}
-
-.countryCopy,
-.row > div {
-  display: grid;
-  min-width: 0;
-  gap: var(--home-ui-space-1);
-}
-
-.row small button {
-  display: inline-flex;
-  min-height: var(--home-ui-target-min);
+.contentRow {
   align-items: center;
 }
 
-.row code {
-  font-family: var(--home-ui-font-numeric);
+.disclosureRow {
+  min-height: 0;
+  padding-block: 0.75rem;
 }
 
-.rowButton {
-  display: block;
-  border-radius: 0;
-  color: var(--home-ui-color-text);
+.actionRow {
+  min-height: 64px;
+  border: 0;
   text-align: left;
+  cursor: pointer;
 }
 
-.rowButton:focus-visible {
-  outline-offset: -3px;
-}
-
-.rowButton :global(.home-ui-button__label),
-.rowButtonContent {
-  width: 100%;
-  min-width: 0;
-}
-
-.rowButtonContent {
-  display: flex;
+.contracts button {
+  display: inline-flex;
+  min-height: 44px;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--home-ui-space-3);
 }
 
-.rowButtonContent svg {
-  flex: 0 0 auto;
-  color: var(--home-ui-color-muted);
+.termLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+.termLinks a {
+  color: var(--primary);
+  font-weight: 500;
 }
 
 @media (max-width: 350px) {
-  .countryRow {
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: start;
+  .countryAction {
+    max-width: none;
   }
 
-  .countryRow > [role="combobox"] {
-    grid-column: 2;
-    width: 100%;
+  .countryRow [role="combobox"] {
     justify-content: space-between;
     text-align: left;
   }

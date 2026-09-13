@@ -5,7 +5,7 @@ import {
   type InvestAsset,
   type InvestAssetId,
 } from "@/config/invest-assets";
-import { matchesMarketPriceAssetIdentity } from "@/shared/invest/history-contract";
+import { matchesMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
 
 export const STOCK_PREVIEW_COUNT = 6;

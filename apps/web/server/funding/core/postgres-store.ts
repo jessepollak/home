@@ -1,25 +1,15 @@
 import "server-only";
 
-import { Pool } from "@neondatabase/serverless";
+import { getSqlExecutor, isUniqueViolation, type SqlExecutor } from "@/server/db/sql";
 import type { Instruction, Quote } from "@/shared/funding/provider-contract";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore, FundingReservation } from "./store";
 
 type Row = Record<string, unknown>;
-export type FundingSqlResult<T = Row> = { rows: T[] };
-export interface FundingSqlExecutor {
-  query<T = Row>(text: string, values?: unknown[]): Promise<FundingSqlResult<T>>;
-  transaction<T>(run: (transaction: FundingSqlExecutor) => Promise<T>): Promise<T>;
-}
 const TERMINAL_SQL = "'dispatch-ambiguous','received','expired','cancelled','failed','refunded'";
 const PROGRESS_SQL = "ARRAY['reserving','unknown','awaiting-payment','payment-received','settling','sent','sent-unverified']";
 
 export class PostgresFundingOrderStore implements FundingOrderStore {
-  constructor(private readonly sql: FundingSqlExecutor) {}
-
-  static fromConnectionString(connectionString: string): PostgresFundingOrderStore {
-    if (!connectionString.trim()) throw new Error("DATABASE_URL is required for funding orders");
-    return new PostgresFundingOrderStore(createNeonFundingSqlExecutor(connectionString));
-  }
+  constructor(private readonly sql: SqlExecutor) {}
 
   async reserve(input: FundingReservation) {
     return this.sql.transaction(async (transaction) => {
@@ -66,7 +56,7 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
     try {
       return await this.updatedOrNull(`UPDATE funding_orders SET state='received', transaction_hash=$2, log_index=$3, instructions=NULL, version=version+1, updated_at=$5 WHERE id=$1 AND version=$4 AND state NOT IN (${TERMINAL_SQL}) AND transaction_hash IS NULL AND log_index IS NULL RETURNING *`, [id, input.transactionHash.toLowerCase(), input.logIndex, input.expectedVersion, input.updatedAt]);
     } catch (error) {
-      if (typeof error === "object" && error && (("code" in error && error.code === "23505") || ("errno" in error && error.errno === "23505"))) return null;
+      if (isUniqueViolation(error)) return null;
       throw error;
     }
   }
@@ -76,20 +66,11 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
   private async updatedOrNull(text: string, values: unknown[]): Promise<FundingOrder | null> { return this.one(text, values); }
 }
 
-export function createNeonFundingSqlExecutor(connectionString: string): FundingSqlExecutor {
-  const pool = new Pool({ connectionString });
-  const wrap = (queryable: Pick<Pool, "query">): FundingSqlExecutor => ({
-    async query<T>(text: string, values: unknown[] = []) { const result = await queryable.query(text, values); return { rows: result.rows as T[] }; },
-    async transaction<T>(run: (transaction: FundingSqlExecutor) => Promise<T>) {
-      const client = await pool.connect();
-      try { await client.query("BEGIN"); const result = await run(wrap(client as unknown as Pool)); await client.query("COMMIT"); return result; }
-      catch (error) { await client.query("ROLLBACK").catch(() => undefined); throw error; }
-      finally { client.release(); }
-    },
-  });
-  return wrap(pool);
+export function createRuntimeFundingOrderStore(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): FundingOrderStore {
+  return new PostgresFundingOrderStore(getSqlExecutor(env));
 }
-export function createRuntimeFundingOrderStore(env: Readonly<Record<string, string | undefined>> = process.env): FundingOrderStore { const url = env.DATABASE_URL?.trim(); if (!url) throw new Error("DATABASE_URL is required for funding-order persistence"); return PostgresFundingOrderStore.fromConnectionString(url); }
 
 function fromRow(row: Row): FundingOrder {
   const json = <T>(value: unknown): T => typeof value === "string" ? JSON.parse(value) as T : value as T;

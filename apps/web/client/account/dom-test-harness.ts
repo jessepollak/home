@@ -1,4 +1,6 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { afterEach } from "bun:test";
+import { getHomeQueryClient } from "@/client/query/query-client";
 
 if (typeof window === "undefined") {
   // Happy DOM models browser fetch responses, so it intentionally drops the
@@ -34,14 +36,11 @@ if (typeof window === "undefined") {
     })) as unknown as typeof fetch;
 }
 
-if (!HTMLDialogElement.prototype.showModal) {
-  HTMLDialogElement.prototype.showModal = function showModal() {
-    this.setAttribute("open", "");
-  };
-}
+const { cleanup: cleanupDomTests } = await import("@testing-library/react");
 
-if (!HTMLDialogElement.prototype.close) {
-  HTMLDialogElement.prototype.close = function close() {
-    this.removeAttribute("open");
-  };
-}
+afterEach(() => {
+  // Unmount observers before clearing so no active query can repopulate the
+  // shared browser client after a test boundary.
+  cleanupDomTests();
+  getHomeQueryClient().clear();
+});

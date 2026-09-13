@@ -1,20 +1,18 @@
-import { SupportedGlobe } from "@/client/landing/supported-globe";
+import { SupportedGlobeDynamic } from "@/client/landing/supported-globe-dynamic";
 import { PortfolioHomeExperience } from "@/client/home/home-experience";
+import { searchParamsToString } from "@/config/shell-location";
 
-type HomePageProps = {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-};
-
-export default async function HomePage({ searchParams }: HomePageProps) {
+export default async function HomePage({ searchParams }: PageProps<"/">) {
   const query = await searchParams;
-  // Server geo can later pass a detected country here. Anonymous persisted
-  // preference is intentionally resolved inside the client boundary.
+  // Server geo can later pass a detected country here. The anonymous persisted
+  // preference is resolved inside the client boundary; URL shell state is passed
+  // from the request so the server and client render the same initial intent.
   return (
     <PortfolioHomeExperience
       detectedCountry={null}
-      initialAccountOpen={query.account === "signin"}
-      landingVisual={<SupportedGlobe />}
+      landingVisual={<SupportedGlobeDynamic />}
       routeMode="landing"
+      initialSearch={searchParamsToString(query)}
     />
   );
 }

@@ -2,7 +2,7 @@
 
 Status: design of record, September 11, 2026, v2 after Jesse's review; implemented by the #301 candidate on September 12, 2026. Reconciliation intent and adapter echo validation were amended during implementation review. Tracking: [#301](https://github.com/jessepollak/home/issues/301).
 
-Related: [regional money](regional-money.md), [currency defaults](currency-defaults.md), [fork and extend](fork-and-extend.md), [contribution contract](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers).
+Related: [regional money](regional-money.md), [currency defaults](currency-defaults.md), [fork and extend](fork-and-extend.md), [current engineering rules](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers).
 
 ## Intent
 
@@ -16,7 +16,7 @@ Everything in this document serves that. Anything that does not is deliberately 
 |---|---|---|
 | Coinbase Onramp (US, USDC) | Live hosted redirect | Wrong shape; the headless API ([#52](https://github.com/jessepollak/home/issues/52)) is the one to build on. Left alone until then. |
 | Ripio Ramps (AR wARS, CO wCOP) | Merged ([#253](https://github.com/jessepollak/home/pull/253)), unwired, UI is a synthetic preview | Bespoke store, reconciliation, webhook handler, UI step. |
-| IDRX (ID) | Draft [#120](https://github.com/jessepollak/home/pull/120), blocked on a funded proof | +4,120 lines, bespoke attempt store, handler, UI step. |
+| IDRX (ID) | Draft [#120](https://github.com/jessepollak/home/pull/120), blocked on a funded proof | Adapter, handler, and UI candidate. |
 | MXNB, XSGD, TRYB | Blocked ([#56](https://github.com/jessepollak/home/issues/56)–[#58](https://github.com/jessepollak/home/issues/58)) | Nobody on the crew can complete a payment in those countries. |
 
 Each route rebuilt the same things. The seam builds them once.

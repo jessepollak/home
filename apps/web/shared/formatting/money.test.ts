@@ -1,15 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import {
   MONEY_CHANGE_COLOR_TOKENS,
+  formatBasisPoints,
   formatChartPrice,
+  formatExactPresentationTokenAmount,
   formatFiatAmount,
+  formatHealthFactor,
+  formatOracleUsd,
   formatPercentage,
   formatPresentationDate,
   formatPresentationPrice,
   formatPresentationTokenAmount,
   formatSignedPercentChange,
   formatTokenAmount,
+  formatUnsignedTokenAmount,
   formatUsdPrice,
+  formatUsdStablecoinAmount,
+  formatWadPercent,
   moneyChangeTone,
   presentationAssetClass,
   presentationMoneyMetadata,
@@ -33,47 +40,52 @@ const localeCases = [
     percentage: "4.50%",
     delta: "−0.67%",
     tiny: "$0.0000001234",
-    date: "Sep 7, 2026 at 11:05 AM",
+    date: "Sep 7, 2026, 11:05 AM",
   },
   {
     regionId: "BR" as const,
     currency: "BRL",
-    fiat: "R$ 1.234,56",
+    fiat: "R$\u00A01.234,56",
     token: "−123,45 USDC",
-    compact: "R$ 64,21 mil",
+    compact: "R$\u00A064,21 mil",
     percentage: "4,50%",
     delta: "−0,67%",
-    tiny: "R$ 0,0000001234",
+    tiny: "R$\u00A00,0000001234",
     date: "7 de set. de 2026, 11:05",
   },
   {
     regionId: "AR" as const,
     currency: "ARS",
-    fiat: "$ 1.234,56",
+    fiat: "$1.234,56",
     token: "−123,45 USDC",
-    compact: "$ 64,21 K",
+    compact: "$64,21K",
     percentage: "4,50%",
     delta: "−0,67%",
-    tiny: "$ 0,0000001234",
+    tiny: "$0,0000001234",
     date: "7 de sept de 2026, 11:05 a. m.",
   },
   {
     regionId: "ID" as const,
     currency: "IDR",
-    fiat: "Rp1.234,56",
+    fiat: "Rp\u00A01.234,56",
     token: "−123,45 USDC",
-    compact: "Rp64,21 rb",
+    compact: "Rp\u00A064,21 rb",
     percentage: "4,50%",
     delta: "−0,67%",
-    tiny: "Rp0,0000001234",
+    tiny: "Rp\u00A00,0000001234",
     date: "7 Sep 2026, 11.05",
   },
 ];
 
 describe("presentation money formatting", () => {
-  test.each(localeCases)(
-    "formats amounts, compact values, signs, percentages, tiny prices, and dates for $regionId",
-    (entry) => {
+  test("keeps internal spaces in multi-word token labels", () => {
+    expect(formatPresentationTokenAmount("999999", 18, "vault shares")).toBe("<0.000001 vault shares");
+    expect(formatPresentationTokenAmount("1500000000000000000", 18, "vault shares", { useNoBreakSpace: true }))
+      .toMatch(/^\S+\u00a0vault\u00a0shares$/);
+  });
+
+  test("formats amounts, signs, percentages, prices, and dates for every locale", () => {
+    for (const entry of localeCases) {
       expect(
         formatFiatAmount(BigInt("123456"), 2, entry.currency, {
           regionId: entry.regionId,
@@ -110,8 +122,8 @@ describe("presentation money formatting", () => {
           style: "activity-full",
         }),
       ).toBe(entry.date);
-    },
-  );
+    }
+  });
 
   test("derives locale and currency metadata from presentation regions", () => {
     expect(presentationMoneyMetadata()).toMatchObject({
@@ -165,6 +177,30 @@ describe("presentation money formatting", () => {
     ).toBe("45,690,152 JESSE");
   });
 
+  test("centralizes exact token, fiat, WAD, basis-point, health, and oracle formatting", () => {
+    const cases = [
+      { actual: formatUnsignedTokenAmount("1234560000", 6), expected: "1,234.56" },
+      { actual: formatExactPresentationTokenAmount("1", 18, "ETH", { useNoBreakSpace: true }), expected: "0.000000000000000001\u00A0ETH" },
+      { actual: formatUsdStablecoinAmount("1234560000"), expected: "$1,234.56" },
+      { actual: formatUsdStablecoinAmount("1000001"), expected: "$1.000001" },
+      { actual: formatFiatAmount("1234.565", "USD"), expected: "$1,234.56" },
+      { actual: formatWadPercent("455000000000000"), expected: "0.05%" },
+      { actual: formatBasisPoints("455"), expected: "4.55%" },
+      { actual: formatHealthFactor("1235000000000000000"), expected: "1.24" },
+      { actual: formatHealthFactor(null), expected: "No debt" },
+      { actual: formatOracleUsd("800000000000000000000000000000000000000"), expected: "$80,000.00" },
+    ];
+    for (const entry of cases) expect(entry.actual).toBe(entry.expected);
+
+    expect(formatPresentationTokenAmount("bad", 6, "USDC")).toBe("—");
+    expect(formatFiatAmount("-1", "USD")).toBe("—");
+    expect(() => formatUnsignedTokenAmount("-1", 6)).toThrow(TypeError);
+    expect(() => formatWadPercent("-1")).toThrow(TypeError);
+    expect(() => formatBasisPoints("-1")).toThrow(TypeError);
+    expect(() => formatHealthFactor("-1")).toThrow(TypeError);
+    expect(() => formatOracleUsd("-1")).toThrow(TypeError);
+  });
+
   test("keeps ordinary and tiny market prices exact within display bounds", () => {
     expect(formatUsdPrice("231.708792875")).toBe("$231.71");
     expect(formatUsdPrice("12345678901234567890.1")).toBe(
@@ -174,7 +210,7 @@ describe("presentation money formatting", () => {
     expect(formatUsdPrice("1e-7")).toBe("$0.0000001");
     expect(formatUsdPrice("0.000000001")).toBe("<$0.00000001");
     expect(formatPresentationPrice("231.708792875", "BRL", "BR")).toBe(
-      "R$ 231,71",
+      "R$\u00A0231,71",
     );
     expect(formatChartPrice("0.0123456")).toBe("$0.012346");
     expect(formatChartPrice("1.234e-7")).toBe("$0.0000001234");
@@ -201,8 +237,15 @@ describe("presentation money formatting", () => {
     expect(MONEY_CHANGE_COLOR_TOKENS).toEqual({
       positive: "var(--home-positive)",
       negative: "var(--home-negative)",
-      neutral: "var(--home-muted)",
+      neutral: "var(--home-text-muted)",
     });
+  });
+
+  test("returns a deterministic unavailable value for malformed dates", () => {
+    expect(formatPresentationDate("not-a-date", {
+      timeZone: "UTC",
+      style: "activity-full",
+    })).toBe("—");
   });
 
   test("keeps valuation wrappers on the shared exact formatter", () => {
@@ -210,8 +253,8 @@ describe("presentation money formatting", () => {
     expect(formatFiatValue({ atoms: "0", scale: 18 }, "USD")).toBe("USD 0.00");
     expect(presentationCurrencyName("USD")).toBe("US dollar");
     expect(formatPresentationFiat({ atoms: "481240", scale: 2 }, "IDR", 2, "ID")).toBe(
-      "Rp4.812,40",
+      "Rp\u00A04.812,40",
     );
-    expect(formatMoneyLabel("4,812.40", "BRL", "BR")).toBe("R$ 4.812,40");
+    expect(formatMoneyLabel("4,812.40", "BRL", "BR")).toBe("R$\u00A04.812,40");
   });
 });

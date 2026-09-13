@@ -47,7 +47,9 @@ export function InvestHub({
     >
       {hosted ? null : (
         <header className={styles.header}>
-          <h2 id="invest-title">Invest</h2>
+          <h2 className="text-page-title font-semibold" id="invest-title">
+            Invest
+          </h2>
         </header>
       )}
       <div className={styles.shelves}>

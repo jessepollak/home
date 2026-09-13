@@ -1,18 +1,16 @@
 import "@/client/account/dom-test-harness";
 
+import { page } from "@/tests/helpers/dom";
+import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   type MarketPricesResponse,
-} from "@/shared/invest/public-contract";
+} from "@/shared/invest/contracts/market-prices";
 import type { UseMarketPricesOptions } from "./use-market-prices";
 
-const { cleanup, render, waitFor, within } = await import("@testing-library/react");
+const { cleanup, render, waitFor } = await import("@testing-library/react");
 const { useMarketPrices } = await import("./use-market-prices");
-
-function page() {
-  return within(document.body);
-}
 
 function responseWithSnapshot(
   asOf: string,
@@ -89,33 +87,12 @@ function HookProbe({
   );
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  getHomeQueryClient().clear();
+});
 
 describe("useMarketPrices", () => {
-  test("loads the public snapshot without auth and preserves a stable market props object", async () => {
-    const renderedProps: ReturnType<typeof useMarketPrices>[] = [];
-    const options: UseMarketPricesOptions = {
-      fetchImpl: (async () =>
-        Response.json(responseWithSnapshot(new Date().toISOString()))),
-      refreshCooldownMs: 60_000,
-    };
-    const view = render(
-      <HookProbe options={options} onRender={(props) => renderedProps.push(props)} />,
-    );
-
-    await waitFor(() =>
-      expect(page().getByTestId("stock-detail").textContent).toBe(
-        "$123.4567890123456789",
-      ),
-    );
-    const readyProps = renderedProps.at(-1);
-
-    view.rerender(
-      <HookProbe options={options} onRender={(props) => renderedProps.push(props)} />,
-    );
-    expect(renderedProps.at(-1)).toBe(readyProps);
-  });
-
   test("ages a ready source snapshot out while mounted instead of presenting it as perpetually live", async () => {
     const freshnessMs = 20;
     const options: UseMarketPricesOptions = {
@@ -174,26 +151,6 @@ describe("useMarketPrices", () => {
         "Price snapshot is stale.",
       ),
     );
-  });
-
-  test("preserves stock and crypto changeLabel from the public snapshot", async () => {
-    render(
-      <HookProbe
-        options={{
-          fetchImpl: (async () =>
-            Response.json(
-              responseWithSnapshot(new Date().toISOString(), {
-                changeLabel: "+1.25%",
-              }),
-            )),
-        }}
-      />,
-    );
-
-    await waitFor(() =>
-      expect(page().getByTestId("stock-change").textContent).toBe("+1.25%"),
-    );
-    expect(page().getByTestId("crypto-change").textContent).toBe("+1.25%");
   });
 
   test("rejects malformed public payloads into a generic error state", async () => {

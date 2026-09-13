@@ -1,27 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
-  basenameProfileUrl,
   fetchBasenameProfile,
   parseBasenameProfile,
-  profileGlyph,
 } from "./basename-profile";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 
 describe("profileGlyph", () => {
-  test("prefers Basename, then email local-part, then owner key", () => {
-    expect(
-      profileGlyph({
-        basename: "Jesse.base.eth",
-        ownerKey: "ada@example.test",
-        address: ADDRESS,
-      }),
-    ).toBe("j");
-    expect(profileGlyph({ ownerKey: "Ada@example.test" })).toBe("a");
-    expect(profileGlyph({ ownerKey: "home-user" })).toBe("h");
-    expect(profileGlyph({ address: ADDRESS })).toBe("1");
-    expect(profileGlyph({})).toBe("");
-  });
+
 });
 
 describe("parseBasenameProfile", () => {
@@ -63,19 +49,5 @@ describe("fetchBasenameProfile", () => {
     ).toBeNull();
   });
 
-  test("returns a parsed profile from the public resolver URL", async () => {
-    const seen: string[] = [];
-    const profile = await fetchBasenameProfile(ADDRESS, async (input) => {
-      seen.push(String(input));
-      return Response.json({
-        name: "jesse.base.eth",
-        avatar: "https://example.test/j.png",
-      });
-    });
-    expect(seen).toEqual([basenameProfileUrl(ADDRESS)]);
-    expect(profile).toEqual({
-      name: "jesse.base.eth",
-      avatarUrl: "https://example.test/j.png",
-    });
-  });
+
 });

@@ -6,10 +6,10 @@ This path used to hold the 2026-09-07 production-destination design. It is **tar
 
 **Current tree (start here):**
 
-1. [Build status](build-status.md) — what is delivered and which gates remain
-2. [Wallet runtime spike](wallet-runtime-spike.md) — prepare → claim → submit → receipt
-3. [Vercel deploy](vercel-deploy.md) — bun monorepo build settings; hosted money actions need `DATABASE_URL`
-4. [Architecture review](architecture-review-2026-09.md) — patterns, risks, contribution contract
+1. [Home is thin](home-is-thin.md) — action and client contract
+2. [Build status](build-status.md) — local-app boundary
+3. [Vercel deploy](vercel-deploy.md) — Bun monorepo build settings
+4. [Architecture review](architecture-review-2026-09.md) — current-tree boundaries
 5. [Docs index](README.md)
 
-The Neon / Vercel / webhook design was not deleted. It lives at the target-architecture link above. Local `bun dev` still uses SQLite under `.local/` when `DATABASE_URL` is unset. A Neon/Postgres money-action adapter is in the tree for hosted deploys; Drizzle, webhooks, and the rest of the target stack are not.
+The Neon / Vercel / webhook design was not deleted. It lives at the target-architecture link above. The current app uses the thin Postgres action schema when `DATABASE_URL` is configured; Drizzle, webhooks, and the rest of the target stack are not current-tree contracts.

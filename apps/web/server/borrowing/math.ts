@@ -1,3 +1,5 @@
+import "server-only";
+
 export const WAD = BigInt("1000000000000000000");
 export const ORACLE_PRICE_SCALE = BigInt("1000000000000000000000000000000000000");
 export const VIRTUAL_ASSETS = BigInt("1");

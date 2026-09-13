@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type {
   AccountResourceOptions,
   AccountSessionStatus,
@@ -9,20 +9,23 @@ import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
 import type { SessionFetch, VerifiedAccountSession } from "./session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { TransferExecutionError } from "@/shared/transfers/types";
-import type { MoneyActionApiFetch } from "@/client/money-actions/client";
+import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import {
+  deploymentHeaders,
+  throwIfDeploymentExpired,
+} from "@/client/query/deployment-headers";
+import {
+  applyActionHandleEffects,
+  createBalanceFreshnessState,
+  resetBalanceFreshness,
+  startBalanceFreshness,
+} from "@/client/query/after-action";
+import { dataOwnerKey } from "./owner-keys";
 
-export function accountAuthorizationBoundary(
-  ownerKey: string,
-  session: VerifiedAccountSession,
-): string | null {
-  return session.smartAccount
-    ? `${ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.accountProvider}`
-    : null;
-}
+type MoneyActionApiFetch = (path: string, init?: RequestInit) => Promise<unknown>;
 
 const accountResourcePrefixes = [
   "/api/actions",
-  "/api/savings/actions",
   "/api/trades",
   "/api/borrow",
   "/api/funding",
@@ -81,6 +84,7 @@ function responseErrorDetails(payload: unknown): {
 export function useAuthenticatedTransport({
   session,
   status,
+  verification,
   ownerKey,
   ownerFence,
   getAccessToken,
@@ -89,23 +93,32 @@ export function useAuthenticatedTransport({
 }: {
   session: VerifiedAccountSession | null;
   status: AccountSessionStatus;
+  verification: "provisional" | "server" | null;
   ownerKey: string | null;
   ownerFence: OwnerGenerationFence;
   getAccessToken: () => Promise<string | null>;
   sessionFetch?: SessionFetch;
   authentication?: "cdp" | "native-base";
 }) {
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const freshnessState = useRef(createBalanceFreshnessState());
+  const reset = useCallback(() => {
+    resetBalanceFreshness(freshnessState.current);
+  }, []);
+  useEffect(() => reset, [reset]);
+
   const fetchVerifiedResource = useCallback(
     async (
       endpoint:
         | "/api/portfolio"
         | "/api/portfolio/valuation"
         | "/api/activity"
-        | "/api/savings/positions",
+        | "/api/savings/positions"
+        | "/api/actions",
       signal?: AbortSignal,
       query?: string,
     ): Promise<unknown> => {
-      if (!session || status !== "verified" || !ownerKey) {
+      if (!session || status !== "verified" || verification !== "server" || !ownerKey) {
         throw new Error("Authenticated resource is unavailable.");
       }
       const accessToken = await getAccessToken();
@@ -113,6 +126,7 @@ export function useAuthenticatedTransport({
         throw new Error("Authenticated resource is unavailable.");
       }
 
+      const skewHeaders = deploymentHeaders();
       let response: Response;
       try {
         response = await (sessionFetch ?? fetch)(
@@ -120,6 +134,7 @@ export function useAuthenticatedTransport({
           {
             method: "GET",
             headers: {
+              ...skewHeaders,
               Accept: "application/json",
               ...(authentication === "cdp" ? { Authorization: `Bearer ${accessToken}` } : {}),
               [ACCOUNT_PROVIDER_HEADER]: session.accountProvider,
@@ -140,6 +155,7 @@ export function useAuthenticatedTransport({
         } catch {
           // Fixed-endpoint callers only need the bounded status/code seam.
         }
+        throwIfDeploymentExpired(response, skewHeaders, details.code);
         const unavailable = new Error("Authenticated resource is unavailable.");
         Object.assign(unavailable, { status: response.status, ...details });
         throw unavailable;
@@ -150,17 +166,24 @@ export function useAuthenticatedTransport({
         throw new Error("Authenticated resource is unavailable.");
       }
     },
-    [authentication, getAccessToken, ownerKey, session, sessionFetch, status],
+    [authentication, getAccessToken, ownerKey, session, sessionFetch, status, verification],
   );
+
+  const startActionBalanceFreshness = useCallback((actionId: string) => startBalanceFreshness({
+    actionId,
+    session,
+    queryClient,
+    fetchVerifiedResource,
+    state: freshnessState.current,
+  }), [fetchVerifiedResource, queryClient, session]);
 
   const fetchAccountResource = useCallback(
     async (path: string, options: AccountResourceOptions = {}): Promise<unknown> => {
       const safePath = normalizeAccountResourcePath(path);
-      if (!session?.smartAccount || status !== "verified" || !ownerKey) {
+      if (!session?.smartAccount || status !== "verified" || verification !== "server" || !ownerKey) {
         throw new TransferExecutionError("stale-session");
       }
-      const boundary = accountAuthorizationBoundary(ownerKey, session);
-      const identity = ownerFence.capture(ownerKey, boundary);
+      const identity = ownerFence.capture();
       const assertActive = () => {
         if (!ownerFence.isCurrent(identity)) {
           throw new TransferExecutionError("stale-session");
@@ -174,11 +197,13 @@ export function useAuthenticatedTransport({
       if (method === "GET" && options.body !== undefined) {
         throw new TransferExecutionError("invalid-request");
       }
+      const skewHeaders = deploymentHeaders();
       let response: Response;
       try {
         response = await (sessionFetch ?? fetch)(safePath, {
           method,
           headers: {
+            ...skewHeaders,
             Accept: "application/json",
             ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
             ...(authentication === "cdp" ? { Authorization: `Bearer ${accessToken}` } : {}),
@@ -203,6 +228,7 @@ export function useAuthenticatedTransport({
         } catch {
           // Money-action callers only need the bounded status/code seam.
         }
+        throwIfDeploymentExpired(response, skewHeaders, details.code);
         const failure = new TransferExecutionError(
           response.status === 409 ? "submission-pending" : "unavailable",
         );
@@ -212,13 +238,23 @@ export function useAuthenticatedTransport({
       try {
         const value = await response.json();
         assertActive();
+        if (/^\/api\/actions\/[^/]+\/handle$/.test(new URL(safePath, "https://home.invalid").pathname)) {
+          const ownerDataKey = dataOwnerKey(session);
+          void applyActionHandleEffects({
+            path: safePath,
+            body: options.body,
+            dataOwnerKey: ownerDataKey,
+            queryClient,
+            startBalanceFreshness: startActionBalanceFreshness,
+          });
+        }
         return value;
       } catch (error) {
         if (error instanceof TransferExecutionError) throw error;
         throw new TransferExecutionError("unavailable", error);
       }
     },
-    [authentication, getAccessToken, ownerFence, ownerKey, session, sessionFetch, status],
+    [authentication, getAccessToken, ownerFence, ownerKey, queryClient, session, sessionFetch, startActionBalanceFreshness, status, verification],
   );
 
   const fetchMoneyActionApi = useCallback<MoneyActionApiFetch>(
@@ -231,10 +267,6 @@ export function useAuthenticatedTransport({
     [fetchAccountResource],
   );
 
-  const fetchPortfolio = useCallback(
-    (signal?: AbortSignal) => fetchVerifiedResource("/api/portfolio", signal),
-    [fetchVerifiedResource],
-  );
   const fetchPortfolioValuation = useCallback(
     (region: import("@/config/regions").RegionId, signal?: AbortSignal) =>
       fetchVerifiedResource(
@@ -256,12 +288,12 @@ export function useAuthenticatedTransport({
   );
 
   return {
-    fetchPortfolio,
     fetchPortfolioValuation,
     fetchActivity,
     fetchSavingsPositions,
     fetchAccountResource,
     fetchMoneyActionApi,
+    reset,
   };
 }
 
