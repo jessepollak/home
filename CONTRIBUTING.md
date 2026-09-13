@@ -5,7 +5,7 @@ Home is meant to be cloned and run first. This guide is for focused pull request
 ## Start here
 
 1. [README — Get started](README.md#get-started)
-2. [Home is thin](docs/home-is-thin.md) — action and client rules
+2. [Architecture](docs/architecture.md) — principles, seams, and the thinness test; [Actions](docs/actions.md) for the action flow
 3. [Architecture review](docs/architecture-review-2026-09.md) — current-tree boundaries and contribution contract
 4. [Docs index](docs/README.md)
 5. [Operating manual](docs/operating-manual.md) — issue labels, proof bar, and merge policy

@@ -1,6 +1,6 @@
 # Docs
 
-Start with [Home is thin](home-is-thin.md) for the current action and client contract. [Build status](build-status.md) records the local-app boundary; [Fork and extend](fork-and-extend.md) is the operator path.
+Start with [Architecture](architecture.md), the one normative design document; [Actions](actions.md) and [Balances](balances.md) are its subsystem designs. [Build status](build-status.md) records the local-app boundary; [Fork and extend](fork-and-extend.md) is the operator path.
 
 | Doc | Description |
 | --- | --- |
@@ -22,7 +22,9 @@ Start with [Home is thin](home-is-thin.md) for the current action and client con
 | [Docs index](README.md) | This complete documentation index. |
 | [Fork and extend](fork-and-extend.md) | Operator customization and hosting guide. |
 | [Funding provider seam](funding-provider-seam.md) | Funding adapter contract and design history. |
-| [Home is thin](home-is-thin.md) | Current action, client, and performance rules. |
+| [Architecture](architecture.md) | Principles, seams, data model, flows, client, quality bar, fork contract. Wins over every other doc. |
+| [Actions](actions.md) | The action record, derived status, prepare → confirm → dispatch → handle, SDK-verified retry semantics, owner fence. |
+| [Balances](balances.md) | One balances pipeline and snapshot: enumerate → resolve → read → price; device and server caching. |
 | [Implementation plan](implementation-plan.md) | Redirect to the archived livestream plan. |
 | [Issuer integration guide](integrations/README.md) | Funding-provider adapter walkthrough. |
 | [Invest data](invest-data.md) | Invest asset identity and data notes. |
@@ -36,7 +38,7 @@ Start with [Home is thin](home-is-thin.md) for the current action and client con
 | [QA checking shimmer spec](qa/checking-97/CHECKING-SHIMMER-SPEC.md) | Checking shimmer QA specification. |
 | [README capture guide](readme/README.md) | Screenshot provenance and regeneration. |
 | [Regional money](regional-money.md) | Regional presentation and stablecoin candidates. |
-| [Target architecture](target-architecture.md) | Future production architecture, not the current tree. |
+| [Target architecture](target-architecture.md) | Historical September 7 build plan; superseded by [Architecture](architecture.md) where they disagree. |
 | [Technical design](technical-design.md) | Redirect to target architecture. |
 | [UI direction](ui-direction.md) | Product UI rules and visual direction. |
 | [UI PR previews](ui-pr-previews.md) | Required proof for user-visible changes. |
