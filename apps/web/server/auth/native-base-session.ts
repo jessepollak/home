@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createHmac, createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createPublicClient, getAddress, http } from "viem";
 import { base } from "viem/chains";

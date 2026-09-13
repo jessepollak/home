@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   PORTFOLIO_NATIVE_ASSET_KEY,
   PORTFOLIO_USDC_ASSET_KEY,

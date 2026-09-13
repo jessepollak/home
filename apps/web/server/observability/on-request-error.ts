@@ -1,3 +1,5 @@
+import "server-only";
+
 import { writeObservabilityEvent } from "./log";
 import type { ObservabilityEvent } from "./schema";
 

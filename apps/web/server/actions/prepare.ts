@@ -1,3 +1,5 @@
+import "server-only";
+
 import { emitServerEvent } from "@/server/observability/log";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowPreviewRequest } from "@/shared/borrowing/types";

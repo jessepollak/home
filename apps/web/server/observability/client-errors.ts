@@ -1,3 +1,5 @@
+import "server-only";
+
 import { URL } from "node:url";
 import {
   sanitizeIdentifier,

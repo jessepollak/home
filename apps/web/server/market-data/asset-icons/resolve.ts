@@ -1,3 +1,5 @@
+import "server-only";
+
 import { cryptoAssets, stockAssets } from "@/config/invest-assets";
 import { readCodexTokenImages, contractKey } from "../codex/token-images";
 import type { FetchLike } from "../codex/execute";

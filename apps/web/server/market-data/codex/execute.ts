@@ -1,3 +1,5 @@
+import "server-only";
+
 import { CODEX_GRAPHQL_ENDPOINT, CODEX_REQUEST_TIMEOUT_MS } from "./config";
 import { CodexMarketDataError } from "./client";
 import { parseJsonWithNumberLexemes } from "./lossless-json";

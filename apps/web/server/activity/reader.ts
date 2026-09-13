@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   ACTIVITY_PAGE_SIZE,
   ACTIVITY_WINDOW_DAYS,

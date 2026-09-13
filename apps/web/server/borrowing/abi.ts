@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import {
   BORROW_MARKET_PARAMS,

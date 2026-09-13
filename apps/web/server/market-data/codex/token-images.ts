@@ -1,3 +1,5 @@
+import "server-only";
+
 import { cryptoAssets, stockAssets } from "@/config/invest-assets";
 import { sanitizeImageUrl } from "../asset-icons/image-url";
 import {

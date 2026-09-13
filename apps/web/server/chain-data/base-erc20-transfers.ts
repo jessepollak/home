@@ -1,3 +1,5 @@
+import "server-only";
+
 import { parseCdpSqlResponseEnvelope } from "./cdp-sql-client";
 import { ChainDataError } from "./errors";
 import {

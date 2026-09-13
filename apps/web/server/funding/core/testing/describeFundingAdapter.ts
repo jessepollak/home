@@ -1,3 +1,5 @@
+import "server-only";
+
 import { describe, expect, test } from "bun:test";
 import type { CountryCode } from "@/config/regions";
 import type { FundingAsset } from "@/shared/funding/assets";

@@ -1,3 +1,5 @@
+import "server-only";
+
 const MAX_WEBHOOK_BYTES = 64 * 1024;
 const WEBHOOK_READ_TIMEOUT_MS = 6_000;
 

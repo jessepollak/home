@@ -1,3 +1,5 @@
+import "server-only";
+
 import { isRegionId, type RegionId } from "@/config/regions";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import {

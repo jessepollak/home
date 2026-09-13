@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { FundingProvider } from "@/shared/funding/provider-contract";
 import { coinbaseProvider } from "./coinbase/adapter";
 import { idrxProvider } from "./idrx/adapter";

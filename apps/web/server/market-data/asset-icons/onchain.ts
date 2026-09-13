@@ -1,3 +1,5 @@
+import "server-only";
+
 import { decodeFunctionResult, encodeFunctionData } from "viem";
 import { cryptoAssets, stockAssets } from "@/config/invest-assets";
 import { baseRpcBatch, resolveBaseRpcUrl } from "@/server/chain/rpc";

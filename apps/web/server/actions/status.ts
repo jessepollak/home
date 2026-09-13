@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { DerivedActionStatus } from "@/shared/money-actions/types";
 
 export type ActionReceiptState = "pending" | "confirmed" | "failed" | "unavailable";
