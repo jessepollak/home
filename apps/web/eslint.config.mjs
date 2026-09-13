@@ -99,6 +99,34 @@ function restrictedDynamicImports(pattern, message) {
   ];
 }
 
+const serverOnlyPlugin = {
+  rules: {
+    "require-server-only": {
+      meta: {
+        type: "problem",
+        messages: {
+          missing:
+            'Server modules must start with `import "server-only";` to follow Vercel\'s server-only guidance and prevent accidental client imports.',
+        },
+        schema: [],
+      },
+      create(context) {
+        return {
+          Program(node) {
+            const firstImport = node.body.find((statement) => statement.type === "ImportDeclaration");
+            if (firstImport?.source.value === "server-only" && firstImport.specifiers.length === 0) return;
+
+            context.report({
+              node: firstImport ?? node,
+              messageId: "missing",
+            });
+          },
+        };
+      },
+    },
+  },
+};
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -328,6 +356,14 @@ const eslintConfig = defineConfig([
         "error",
         ...restrictedDynamicImports(serverForbiddenPattern, serverLayerMessage),
       ],
+    },
+  },
+  {
+    files: ["server/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    plugins: { "server-only": serverOnlyPlugin },
+    rules: {
+      "server-only/require-server-only": "error",
     },
   },
   // These final client/component blocks preserve the import-boundary syntax
