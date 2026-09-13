@@ -1,6 +1,6 @@
 import "./dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { dehydrate } from "@tanstack/react-query";
 import type { AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client";
 import type { VerifiedAccountSession } from "./session-client";
@@ -22,8 +22,10 @@ const { AccountWalletSessionOwner } = await import("./cdp-session-lifecycle");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111" as const;
 const ADDRESS_B = "0x2222222222222222222222222222222222222222" as const;
+const ADDRESS_CASED = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa" as const;
+const ADDRESS_CASED_LOWER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
 
-function verifiedSession(subject: string, address: typeof ADDRESS_A | typeof ADDRESS_B): VerifiedAccountSession {
+function verifiedSession(subject: string, address: `0x${string}`): VerifiedAccountSession {
   return {
     user: { subject },
     smartAccount: { address, chainId: 8453 },
@@ -138,21 +140,93 @@ describe("owner query hydration lifecycle", () => {
     }
   });
 
+  test("owner key first, smart account later revalidates in both session orderings", async () => {
+    const rows = [
+      { name: "session in flight", firstSession: "pending" },
+      { name: "already server-verified", firstSession: "verified-without-account" },
+    ] as const;
+    const provisional = verifiedSession("subject-a", ADDRESS_A);
+    const verifiedWithoutAccount: VerifiedAccountSession = {
+      user: { subject: "subject-a" },
+      smartAccount: null,
+      accountProvider: "cdp-embedded",
+    };
+
+    for (const row of rows) {
+      let sessionReads = 0;
+      const sessionFetch = async () => {
+        sessionReads += 1;
+        if (sessionReads === 1) {
+          return row.firstSession === "pending"
+            ? new Promise<Response>(() => {})
+            : Response.json(verifiedWithoutAccount);
+        }
+        return Response.json(provisional);
+      };
+      const owner = (ownerSdk: AccountWalletSdkBoundary) => (
+        <AccountWalletSessionOwner sdk={ownerSdk} sessionFetch={sessionFetch}>
+          <HydrationProbe fetchValuation={async () => new Promise<unknown>(() => {})} />
+        </AccountWalletSessionOwner>
+      );
+      const view = render(owner(sdk("sdk-owner-a")));
+
+      if (row.firstSession === "pending") {
+        await waitFor(() => expect(sessionReads).toBe(1));
+        expect(observedClient?.status).toBe("validating");
+      } else {
+        await waitFor(() => expect(observedClient?.verification).toBe("server"));
+        expect(observedClient?.session?.smartAccount).toBeNull();
+      }
+
+      await act(async () => { view.rerender(owner(sdk("sdk-owner-a", provisional))); });
+      await waitFor(() => expect(observedClient?.verification).toBe("server"));
+      expect(observedClient?.status).toBe("verified");
+      expect(observedClient?.session?.smartAccount?.address).toBe(ADDRESS_A);
+      expect(sessionReads).toBe(2);
+
+      cleanup();
+      observedClient = null;
+      getHomeQueryClient().clear();
+      window.localStorage.clear();
+    }
+  });
+
   test("server verification preserves matching provisional data and clears mismatches", async () => {
     const rows = [
-      { name: "matching", server: verifiedSession("subject-a", ADDRESS_A), survives: true },
-      { name: "different", server: verifiedSession("subject-b", ADDRESS_B), survives: false },
+      {
+        name: "matching",
+        provisional: verifiedSession("subject-a", ADDRESS_A),
+        server: verifiedSession("subject-a", ADDRESS_A),
+        survives: true,
+        noClear: false,
+      },
+      {
+        name: "matching mixed-case SDK address",
+        provisional: verifiedSession("subject-a", ADDRESS_CASED),
+        server: verifiedSession("subject-a", ADDRESS_CASED_LOWER),
+        survives: true,
+        noClear: true,
+      },
+      {
+        name: "different",
+        provisional: verifiedSession("subject-a", ADDRESS_A),
+        server: verifiedSession("subject-b", ADDRESS_B),
+        survives: false,
+        noClear: false,
+      },
     ] as const;
 
     for (const row of rows) {
-      const provisional = verifiedSession("subject-a", ADDRESS_A);
-      const provisionalOwnerKey = dataOwnerKey(provisional);
+      const provisionalOwnerKey = dataOwnerKey(row.provisional);
+      const storageKey = ownerQueryStorageKey(provisionalOwnerKey)!;
       persistValuation(provisionalOwnerKey, "12340000");
       let resolveSession!: (response: Response) => void;
       const sessionResponse = new Promise<Response>((resolve) => { resolveSession = resolve; });
+      const queryClient = getHomeQueryClient();
+      const clearSpy = spyOn(queryClient, "clear");
       const view = render(
         <AccountWalletSessionOwner
-          sdk={sdk("sdk-owner-a", provisional)}
+          sdk={sdk("sdk-owner-a", row.provisional)}
           sessionFetch={async () => sessionResponse}
         >
           <HydrationProbe fetchValuation={async () => new Promise<unknown>(() => {})} />
@@ -163,12 +237,16 @@ describe("owner query hydration lifecycle", () => {
       expect(view.getByTestId("valuation").textContent).toBe("12340000");
       resolveSession(Response.json(row.server));
       await waitFor(() => expect(observedClient?.verification).toBe("server"));
-      expect(getHomeQueryClient().getQueryData(ownerQueryKey(provisionalOwnerKey, "valuation", "US")))
+      expect(queryClient.getQueryData(ownerQueryKey(provisionalOwnerKey, "valuation", "US")))
         [row.survives ? "toBeDefined" : "toBeUndefined"]();
+      if (row.survives) expect(window.localStorage.getItem(storageKey)).not.toBeNull();
+      else expect(window.localStorage.getItem(storageKey)).toBeNull();
+      if (row.noClear) expect(clearSpy).not.toHaveBeenCalled();
+      clearSpy.mockRestore();
 
       cleanup();
       observedClient = null;
-      getHomeQueryClient().clear();
+      queryClient.clear();
       window.localStorage.clear();
     }
   });

@@ -553,6 +553,7 @@ test("reload paints persisted balances before stale valuation responds", async (
     performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
   );
   expect(provisionalPaint.balances).toBeLessThan(verifiedPaint);
+  await expect(page.getByText("$12.34", { exact: true }).first()).toBeVisible();
   fixtures.releaseValuation();
 });
 

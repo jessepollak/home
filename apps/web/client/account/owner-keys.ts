@@ -37,7 +37,7 @@ export function dataOwnerKey(session: DataOwnerSession): string {
 export function ownerSessionBoundary(wallet: OwnerSessionWallet): string | null {
   const session = wallet.session;
   return wallet.ownerKey && session?.smartAccount
-    ? `${wallet.ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.accountProvider}`
+    ? `${wallet.ownerKey}\u0000${session.user.subject}\u0000${session.smartAccount.address.toLowerCase()}\u0000${session.accountProvider}`
     : null;
 }
 

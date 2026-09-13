@@ -85,6 +85,7 @@ export function AccountWalletSessionOwner({
     initialProvisionalSession ? "validating" : "restoring",
   );
   const [message, setMessage] = useState<string | null>(null);
+  const [validationRequest, requestValidation] = useState(0);
   const previousProvisionalOwnerKey = useRef(
     initialProvisionalSession ? dataOwnerKey(initialProvisionalSession) : null,
   );
@@ -104,6 +105,7 @@ export function AccountWalletSessionOwner({
     );
     if (!ownerChanged && provisionalChanged) {
       fence.updateAuthorizationBoundary(nextBoundary, provisionalOwnerKey);
+      requestValidation((request) => request + 1);
     }
     if (ownerChanged || provisionalChanged) {
       validationRef.current?.abort();
@@ -238,7 +240,7 @@ export function AccountWalletSessionOwner({
       cancelled = true;
       validationRef.current?.abort();
     };
-  }, [authentication, baseAccountEnabled, clearPrivate, initializationError, isInitialized, isSignedIn, loseVerification, ownerKey, sessionFetch]);
+  }, [authentication, baseAccountEnabled, clearPrivate, initializationError, isInitialized, isSignedIn, loseVerification, ownerKey, sessionFetch, validationRequest]);
 
   const beginSignIn = useCallback((provider: AccountProvider) => {
     if (cleanupRef.current) throw new Error("Sign-out is still finishing.");
