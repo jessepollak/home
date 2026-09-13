@@ -2,7 +2,6 @@ import { recordAuthDiagnostic } from "./auth-diagnostics";
 import { parseSession } from "@/shared/account/contracts/session";
 import {
   ACCOUNT_PROVIDER_HEADER,
-  BASE_CHAIN_ID,
   type AccountProviderRequest,
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";

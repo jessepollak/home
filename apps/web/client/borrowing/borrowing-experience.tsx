@@ -402,7 +402,6 @@ function usePersistedPresentationRegion(): RegionId {
   return regionId;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function readableResourceError(error: unknown) {
   if (error instanceof Error && error.message && error.message !== "Authenticated resource is unavailable.") return error.message;
   return "The current limit or RPC simulation could not be verified. Refresh and try again.";

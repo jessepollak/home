@@ -319,7 +319,7 @@ async function openBaseProvider(
         !("id" in result) ||
         result.id !== submissionId ||
         !("version" in result) ||
-        result.version !== "2.0.0" ||
+        !(result.version === "2.0.0") ||
         !("chainId" in result) ||
         chainIdFromProvider(result.chainId) !== BASE_CHAIN_ID ||
         !("atomic" in result) ||

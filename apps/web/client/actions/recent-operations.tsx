@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { DerivedActionStatus } from "@/shared/money-actions/types";
 import {
   dedupeRecentMoneyActions,
   parseRecentMoneyActions,
