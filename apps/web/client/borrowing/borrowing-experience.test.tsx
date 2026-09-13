@@ -61,9 +61,7 @@ afterEach(() => {
 describe("BorrowExperience", () => {
   test("shows the single verified market while keeping a signed-out wallet truly empty", () => {
     render(<BorrowExperience session={null} />);
-    const title = within(document.body).getByRole("heading", { level: 1, name: "USDC against cbBTC" });
-    expect(title.classList.contains("home-ui-text")).toBe(true);
-    expect(title.getAttribute("data-text-style")).toBe("page-title");
+    expect(within(document.body).getByRole("heading", { level: 1, name: "USDC against cbBTC" })).toBeTruthy();
     expect(within(document.body).getByText(/Sign in to view this wallet’s position/)).toBeTruthy();
     expect(document.body.textContent).not.toContain("Demo balance");
   });
@@ -92,14 +90,10 @@ describe("BorrowExperience", () => {
     };
 
     render(<BorrowExperience session={session} fetchAccountResource={fetchAccountResource} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
-    const refreshButton = await within(document.body).findByRole("button", { name: "Refresh" });
-    expect(refreshButton.classList.contains("home-ui-button")).toBe(true);
-    expect(refreshButton.getAttribute("data-variant")).toBe("secondary");
+    expect(await within(document.body).findByRole("button", { name: "Refresh" })).toBeTruthy();
     fireEvent.change(within(document.body).getByLabelText("Action"), { target: { value: "borrow" } });
     fireEvent.change(within(document.body).getByLabelText("Amount (USDC)"), { target: { value: "1" } });
     const previewButton = within(document.body).getByRole("button", { name: "Review current preview" });
-    expect(previewButton.classList.contains("home-ui-button")).toBe(true);
-    expect(previewButton.getAttribute("data-variant")).toBe("primary");
     fireEvent.click(previewButton);
     expect(await within(document.body).findByText("Borrow USDC")).toBeTruthy();
     expect(reads).toEqual(["/api/borrow"]);

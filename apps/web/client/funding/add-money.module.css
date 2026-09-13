@@ -3,20 +3,10 @@
 .methods {
   display: grid;
   width: 100%;
-  gap: var(--home-ui-space-3);
+  gap: 0.75rem;
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.methods :global(.home-ui-list-row) {
-  border: 1px solid var(--separator);
-  border-radius: var(--home-ui-radius-control);
-}
-
-.methods :global(.home-ui-list-row__content) {
-  min-height: 76px;
-  padding: 15px 16px;
 }
 
 .methodIcon {
@@ -26,7 +16,7 @@
   place-items: center;
   border-radius: 50%;
   background: var(--home-canvas);
-  color: var(--fg);
+  color: var(--foreground);
 }
 
 .receive {
@@ -43,9 +33,9 @@
   width: min(100%, 220px);
   aspect-ratio: 1;
   overflow: hidden;
-  border: 1px solid var(--separator);
-  border-radius: var(--home-ui-radius-surface);
-  background: var(--home-white);
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
+  background: var(--background);
 }
 
 .qr,
@@ -69,7 +59,7 @@
 
 .addressText {
   min-height: 44px;
-  color: var(--fg);
+  color: var(--foreground);
   font-size: 1rem;
   font-weight: 680;
   padding: 8px 6px;
@@ -89,10 +79,10 @@
 .fullAddress {
   display: block;
   width: 100%;
-  border: 1px solid var(--separator);
-  border-radius: var(--home-ui-radius-control);
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
   background: var(--home-canvas);
-  color: var(--fg);
+  color: var(--foreground);
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-size: 0.72rem;
   line-height: 1.45;
@@ -103,7 +93,7 @@
 }
 
 .fullAddress:focus-visible {
-  outline: 3px solid var(--home-ui-color-focus-halo);
+  outline: 3px solid var(--ring);
   outline-offset: 2px;
 }
 
@@ -117,7 +107,7 @@
   width: 100%;
   justify-items: center;
   gap: 9px;
-  border-top: 1px solid var(--separator);
+  border-top: 1px solid var(--border);
   padding-top: 14px;
 }
 
@@ -133,7 +123,7 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  color: var(--fg);
+  color: var(--foreground);
   font-size: 0.82rem;
   font-weight: 700;
 }

@@ -3,7 +3,7 @@
 import { useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
-import { Button } from "@home/ui";
+import { Button } from "@/components/ui/button";
 import type { RegionId } from "@/config/regions";
 import {
   commitClientUrl,
@@ -131,7 +131,6 @@ export function FundingActionsForWallet({
     <>
       <Button
         className="add-money"
-        variant="primary"
         onClick={() => {
           openedInAppRef.current = true;
           setDismissed(false);

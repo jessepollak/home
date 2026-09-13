@@ -2,24 +2,36 @@
 
 import Link from "next/link";
 import {
-  Button,
-  EmptyState,
-  Field,
-  Heading,
-  Inline,
-  Input,
-  ListRow,
-  Select,
-  StatusMessage,
-  Text,
-} from "@home/ui";
-import { MoneyTicker } from "@home/ui/money-ticker";
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
+} from "@/components/ui/item";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
+import { MoneyTicker } from "@/components/money-ticker";
 import { useMemo, useState } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MoneyActionReview } from "@/client/actions/review";
-import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
+import type {
+  OperationResult,
+  PreparedMoneyAction,
+} from "@/shared/money-actions/types";
 import {
   formatHealthFactor,
   formatOracleUsd,
@@ -27,13 +39,8 @@ import {
   formatPresentationTokenAmount,
   formatWadPercent,
 } from "@/shared/formatting";
-import {
-  readAnonymousCountryPreference,
-} from "@/config/country-preference";
-import {
-  resolvePresentation,
-  type RegionId,
-} from "@/config/regions";
+import { readAnonymousCountryPreference } from "@/config/country-preference";
+import { resolvePresentation, type RegionId } from "@/config/regions";
 import {
   BORROW_COLLATERAL_TOKEN,
   BORROW_LOAN_TOKEN,
@@ -46,7 +53,11 @@ import type {
   BorrowPreviewResponse,
 } from "@/shared/borrowing/types";
 import styles from "./borrowing-experience.module.css";
-import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
+import {
+  ownerQueryKey,
+  ownerQueryMeta,
+  useHomeQuery,
+} from "@/client/query/query-client";
 
 type FetchAccountResource = (
   path: string,
@@ -60,8 +71,13 @@ type FetchAccountResource = (
 type BorrowExperienceProps = {
   session: VerifiedAccountSession | null;
   fetchAccountResource?: FetchAccountResource;
-  prepareMoneyAction?: (kind: string, params: unknown) => Promise<PreparedMoneyAction>;
-  executeMoneyAction?: (action: PreparedMoneyAction) => Promise<OperationResult>;
+  prepareMoneyAction?: (
+    kind: string,
+    params: unknown,
+  ) => Promise<PreparedMoneyAction>;
+  executeMoneyAction?: (
+    action: PreparedMoneyAction,
+  ) => Promise<OperationResult>;
   regionId?: RegionId;
 };
 
@@ -74,7 +90,10 @@ type PreviewState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "preview-only"; response: Extract<BorrowPreviewResponse, { status: "preview-only" }> }
+  | {
+      status: "preview-only";
+      response: Extract<BorrowPreviewResponse, { status: "preview-only" }>;
+    }
   | { status: "prepared"; action: PreparedMoneyAction };
 
 type LimitPresentation = {
@@ -117,7 +136,9 @@ function BorrowExperienceInner({
   const sessionKey = session?.smartAccount ? ownerDataKey(session) : null;
   const dataOwnerKey = sessionKey;
   const snapshotQuery = useHomeQuery({
-    queryKey: dataOwnerKey ? ownerQueryKey(dataOwnerKey, "borrow") : ["unauthenticated", "borrow-disabled"],
+    queryKey: dataOwnerKey
+      ? ownerQueryKey(dataOwnerKey, "borrow")
+      : ["unauthenticated", "borrow-disabled"],
     enabled: Boolean(sessionKey && fetchAccountResource && owner),
     staleTime: 15_000,
     retry: false,
@@ -141,17 +162,20 @@ function BorrowExperienceInner({
       : snapshotQuery.isError
         ? { status: "error", snapshot: null }
         : { status: "ready", snapshot: snapshotQuery.data };
-  const [operation, setOperation] = useState<BorrowOperation>("supply-collateral");
+  const [operation, setOperation] =
+    useState<BorrowOperation>("supply-collateral");
   const [amount, setAmount] = useState("");
   const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
 
   const refresh = () => snapshotQuery.refetch();
 
   const snapshot = state.status === "ready" ? state.snapshot : null;
-  const actionAsset = operation === "supply-collateral" || operation === "withdraw-collateral"
-    ? BORROW_COLLATERAL_TOKEN
-    : BORROW_LOAN_TOKEN;
-  const emptyWallet = snapshot !== null &&
+  const actionAsset =
+    operation === "supply-collateral" || operation === "withdraw-collateral"
+      ? BORROW_COLLATERAL_TOKEN
+      : BORROW_LOAN_TOKEN;
+  const emptyWallet =
+    snapshot !== null &&
     BigInt(snapshot.wallet.collateralBalanceRaw) === BigInt("0") &&
     BigInt(snapshot.wallet.loanBalanceRaw) === BigInt("0") &&
     BigInt(snapshot.position.collateralRaw) === BigInt("0") &&
@@ -162,11 +186,14 @@ function BorrowExperienceInner({
     if (!snapshot || !prepareMoneyAction) return;
     setPreview({ status: "loading" });
     try {
-      const action = await prepareMoneyAction(operation === "repay-all" ? "repay" : operation, {
-        operation,
-        amount,
-        snapshotBlockHash: snapshot.source.blockHash,
-      });
+      const action = await prepareMoneyAction(
+        operation === "repay-all" ? "repay" : operation,
+        {
+          operation,
+          amount,
+          snapshotBlockHash: snapshot.source.blockHash,
+        },
+      );
       setPreview({ status: "prepared", action });
     } catch (error) {
       setPreview({
@@ -181,29 +208,59 @@ function BorrowExperienceInner({
     switch (operation) {
       case "supply-collateral":
         return {
-          value: formatPresentationTokenAmount(snapshot.wallet.collateralBalanceRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true }),
+          value: formatPresentationTokenAmount(
+            snapshot.wallet.collateralBalanceRaw,
+            8,
+            "cbBTC",
+            { regionId, useNoBreakSpace: true },
+          ),
           suffix: "wallet balance",
         };
       case "borrow":
         return {
-          value: formatPresentationTokenAmount(snapshot.position.borrowCapacityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true }),
+          value: formatPresentationTokenAmount(
+            snapshot.position.borrowCapacityAssetsRaw,
+            6,
+            "USDC",
+            { cashCurrency: "USD", regionId, useNoBreakSpace: true },
+          ),
           suffix: "current capacity",
         };
       case "repay":
         return {
-          value: formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true }),
+          value: formatPresentationTokenAmount(
+            snapshot.position.debtAssetsRaw,
+            6,
+            "USDC",
+            { cashCurrency: "USD", regionId, useNoBreakSpace: true },
+          ),
           suffix: "current debt; enter less for an exact partial repayment",
         };
       case "repay-all":
         return {
-          value: formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true }),
+          value: formatPresentationTokenAmount(
+            snapshot.position.debtAssetsRaw,
+            6,
+            "USDC",
+            { cashCurrency: "USD", regionId, useNoBreakSpace: true },
+          ),
           suffix: "current debt estimate; maximum cannot exceed",
-          secondValue: formatPresentationTokenAmount(snapshot.wallet.loanBalanceRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true }),
+          secondValue: formatPresentationTokenAmount(
+            snapshot.wallet.loanBalanceRaw,
+            6,
+            "USDC",
+            { cashCurrency: "USD", regionId, useNoBreakSpace: true },
+          ),
           secondSuffix: "wallet balance",
         };
       case "withdraw-collateral":
         return {
-          value: formatPresentationTokenAmount(snapshot.position.withdrawableCollateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true }),
+          value: formatPresentationTokenAmount(
+            snapshot.position.withdrawableCollateralRaw,
+            8,
+            "cbBTC",
+            { regionId, useNoBreakSpace: true },
+          ),
           suffix: "currently withdrawable",
         };
     }
@@ -214,127 +271,339 @@ function BorrowExperienceInner({
       <section className={styles.experience} aria-labelledby="borrow-title">
         <nav className={styles.chrome} aria-label="Borrow navigation">
           <Link href="/dashboard">← Dashboard</Link>
-          <Text as="span" textStyle="metadata" tone="muted">Home · Base</Text>
+          <span className="text-metadata text-muted-foreground">
+            Home · Base
+          </span>
         </nav>
         <header className={styles.header}>
-          <Heading level={1} textStyle="page-title" id="borrow-title">USDC against cbBTC</Heading>
+          <h1 className="text-page-title font-semibold" id="borrow-title">
+            USDC against cbBTC
+          </h1>
         </header>
 
         {!sessionKey ? (
-          <StatusMessage className={styles.notice} title="Sign in to view this wallet’s position" />
+          <BorrowNotice
+            className={styles.notice}
+            title="Sign in to view this wallet’s position"
+          />
         ) : null}
         {sessionKey && state.status === "loading" ? (
-          <StatusMessage className={styles.notice} title="Loading current market state" />
+          <BorrowNotice
+            className={styles.notice}
+            title="Loading current market state"
+          />
         ) : null}
         {sessionKey && state.status === "error" ? (
-          <StatusMessage
+          <BorrowNotice
             className={styles.notice}
             tone="error"
             role="alert"
             title="Borrowing state unavailable"
-            action={<Button type="button" variant="secondary" onClick={() => void refresh()}>Retry</Button>}
+            action={
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-11"
+                onClick={() => void refresh()}
+              >
+                Retry
+              </Button>
+            }
           >
             Refresh to try again.
-          </StatusMessage>
+          </BorrowNotice>
         ) : null}
 
         {snapshot ? (
           <>
             <div className={styles.asOf}>
-              <Text as="span" textStyle="metadata" tone="muted">
-                <time dateTime={blockTime(snapshot.source.blockTimestamp)}>As of {formatTime(blockTime(snapshot.source.blockTimestamp), regionId)}</time>
-              </Text>
+              <span className="text-metadata text-muted-foreground">
+                <time dateTime={blockTime(snapshot.source.blockTimestamp)}>
+                  As of{" "}
+                  {formatTime(
+                    blockTime(snapshot.source.blockTimestamp),
+                    regionId,
+                  )}
+                </time>
+              </span>
             </div>
-            <section className={styles.metrics} aria-labelledby="position-title">
-              <Inline className={styles.sectionHeading} space="3">
-                <Heading level={2} textStyle="section-title" id="position-title">Wallet and position</Heading>
-                <Button type="button" variant="secondary" onClick={() => void refresh()}>Refresh</Button>
-              </Inline>
+            <section
+              className={styles.metrics}
+              aria-labelledby="position-title"
+            >
+              <div className={styles.sectionHeading}>
+                <h2
+                  className="text-section-title font-semibold"
+                  id="position-title"
+                >
+                  Wallet and position
+                </h2>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-11"
+                  onClick={() => void refresh()}
+                >
+                  Refresh
+                </Button>
+              </div>
               {emptyWallet ? (
-                <EmptyState
-                  className={styles.empty}
-                  title="This wallet has no cbBTC, USDC, or borrow position."
-                />
+                <Empty className={styles.empty}>
+                  <EmptyHeader>
+                    <EmptyTitle>
+                      This wallet has no cbBTC, USDC, or borrow position.
+                    </EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
               ) : null}
               <ul className={styles.metricGrid}>
-                <Metric label="cbBTC wallet" value={formatPresentationTokenAmount(snapshot.wallet.collateralBalanceRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} money />
-                <Metric label="USDC wallet" value={formatPresentationTokenAmount(snapshot.wallet.loanBalanceRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} money />
-                <Metric label="Collateral supplied" value={formatPresentationTokenAmount(snapshot.position.collateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} money />
-                <Metric label="Current debt" value={formatPresentationTokenAmount(snapshot.position.debtAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} note="Rounded up from Morpho borrow shares" money />
-                <Metric label="Current borrow capacity" value={formatPresentationTokenAmount(snapshot.position.borrowCapacityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} note="Lower of collateral limit and indexed liquidity" money />
-                <Metric label="Currently withdrawable" value={formatPresentationTokenAmount(snapshot.position.withdrawableCollateralRaw, 8, "cbBTC", { regionId, useNoBreakSpace: true })} note="At the displayed oracle price" money />
-                <Metric label="Health factor" value={formatHealthFactor(snapshot.position.healthFactorWad, regionId)} note={healthNote(snapshot.position.healthFactorWad)} />
-                <Metric label="Liquidation price" value={snapshot.position.liquidationPriceRaw ? `${formatOracleUsd(snapshot.position.liquidationPriceRaw, regionId)} / cbBTC` : "No debt"} money={snapshot.position.liquidationPriceRaw !== null} />
-                <Metric label="Oracle price" value={`${formatOracleUsd(snapshot.state.oraclePriceRaw, regionId)} / cbBTC`} money />
-                <Metric label="Variable borrow APR" value={formatWadPercent(snapshot.state.borrowAprWad, regionId)} note="Current per-second rate annualized; not fixed" />
-                <Metric label="Indexed liquidity" value={formatPresentationTokenAmount(snapshot.state.liquidityAssetsRaw, 6, "USDC", { cashCurrency: "USD", regionId, useNoBreakSpace: true })} money />
-                <Metric label="Market state updated" value={formatTime(blockTime(snapshot.state.lastUpdateTimestamp), regionId)} />
+                <Metric
+                  label="cbBTC wallet"
+                  value={formatPresentationTokenAmount(
+                    snapshot.wallet.collateralBalanceRaw,
+                    8,
+                    "cbBTC",
+                    { regionId, useNoBreakSpace: true },
+                  )}
+                  money
+                />
+                <Metric
+                  label="USDC wallet"
+                  value={formatPresentationTokenAmount(
+                    snapshot.wallet.loanBalanceRaw,
+                    6,
+                    "USDC",
+                    { cashCurrency: "USD", regionId, useNoBreakSpace: true },
+                  )}
+                  money
+                />
+                <Metric
+                  label="Collateral supplied"
+                  value={formatPresentationTokenAmount(
+                    snapshot.position.collateralRaw,
+                    8,
+                    "cbBTC",
+                    { regionId, useNoBreakSpace: true },
+                  )}
+                  money
+                />
+                <Metric
+                  label="Current debt"
+                  value={formatPresentationTokenAmount(
+                    snapshot.position.debtAssetsRaw,
+                    6,
+                    "USDC",
+                    { cashCurrency: "USD", regionId, useNoBreakSpace: true },
+                  )}
+                  note="Rounded up from Morpho borrow shares"
+                  money
+                />
+                <Metric
+                  label="Current borrow capacity"
+                  value={formatPresentationTokenAmount(
+                    snapshot.position.borrowCapacityAssetsRaw,
+                    6,
+                    "USDC",
+                    { cashCurrency: "USD", regionId, useNoBreakSpace: true },
+                  )}
+                  note="Lower of collateral limit and indexed liquidity"
+                  money
+                />
+                <Metric
+                  label="Currently withdrawable"
+                  value={formatPresentationTokenAmount(
+                    snapshot.position.withdrawableCollateralRaw,
+                    8,
+                    "cbBTC",
+                    { regionId, useNoBreakSpace: true },
+                  )}
+                  note="At the displayed oracle price"
+                  money
+                />
+                <Metric
+                  label="Health factor"
+                  value={formatHealthFactor(
+                    snapshot.position.healthFactorWad,
+                    regionId,
+                  )}
+                  note={healthNote(snapshot.position.healthFactorWad)}
+                />
+                <Metric
+                  label="Liquidation price"
+                  value={
+                    snapshot.position.liquidationPriceRaw
+                      ? `${formatOracleUsd(snapshot.position.liquidationPriceRaw, regionId)} / cbBTC`
+                      : "No debt"
+                  }
+                  money={snapshot.position.liquidationPriceRaw !== null}
+                />
+                <Metric
+                  label="Oracle price"
+                  value={`${formatOracleUsd(snapshot.state.oraclePriceRaw, regionId)} / cbBTC`}
+                  money
+                />
+                <Metric
+                  label="Variable borrow APR"
+                  value={formatWadPercent(
+                    snapshot.state.borrowAprWad,
+                    regionId,
+                  )}
+                  note="Current per-second rate annualized; not fixed"
+                />
+                <Metric
+                  label="Indexed liquidity"
+                  value={formatPresentationTokenAmount(
+                    snapshot.state.liquidityAssetsRaw,
+                    6,
+                    "USDC",
+                    { cashCurrency: "USD", regionId, useNoBreakSpace: true },
+                  )}
+                  money
+                />
+                <Metric
+                  label="Market state updated"
+                  value={formatTime(
+                    blockTime(snapshot.state.lastUpdateTimestamp),
+                    regionId,
+                  )}
+                />
               </ul>
             </section>
 
             <form className={styles.form} onSubmit={submitPreview}>
-              <Heading level={2} textStyle="section-title">Preview action</Heading>
-              <Field label="Action" htmlFor="borrow-operation" required>
-                <Select id="borrow-operation" value={operation} onChange={(event) => { setOperation(event.target.value as BorrowOperation); setAmount(""); setPreview({ status: "idle" }); }}>
-                  <option value="supply-collateral">Supply cbBTC collateral</option>
-                  <option value="borrow">Borrow USDC</option>
-                  <option value="repay">Repay USDC (partial)</option>
-                  <option value="repay-all">Repay all USDC debt</option>
-                  <option value="withdraw-collateral">Withdraw cbBTC collateral</option>
-                </Select>
+              <h2 className="text-section-title font-semibold">
+                Preview action
+              </h2>
+              <Field>
+                <FieldLabel htmlFor="borrow-operation">Action</FieldLabel>
+                <NativeSelect
+                  className="w-full"
+                  id="borrow-operation"
+                  value={operation}
+                  required
+                  onChange={(event) => {
+                    setOperation(event.target.value as BorrowOperation);
+                    setAmount("");
+                    setPreview({ status: "idle" });
+                  }}
+                >
+                  <NativeSelectOption value="supply-collateral">
+                    Supply cbBTC collateral
+                  </NativeSelectOption>
+                  <NativeSelectOption value="borrow">
+                    Borrow USDC
+                  </NativeSelectOption>
+                  <NativeSelectOption value="repay">
+                    Repay USDC (partial)
+                  </NativeSelectOption>
+                  <NativeSelectOption value="repay-all">
+                    Repay all USDC debt
+                  </NativeSelectOption>
+                  <NativeSelectOption value="withdraw-collateral">
+                    Withdraw cbBTC collateral
+                  </NativeSelectOption>
+                </NativeSelect>
               </Field>
-              <Field
-                label={`${operation === "repay-all" ? "Maximum debit" : "Amount"} (${actionAsset.symbol})`}
-                htmlFor="borrow-amount"
-                required
-              >
+              <Field>
+                <FieldLabel htmlFor="borrow-amount">{`${operation === "repay-all" ? "Maximum debit" : "Amount"} (${actionAsset.symbol})`}</FieldLabel>
                 <Input
+                  className="min-h-11"
                   id="borrow-amount"
                   inputMode="decimal"
                   autoComplete="off"
+                  required
                   value={amount}
-                  onChange={(event) => { setAmount(event.target.value); setPreview({ status: "idle" }); }}
-                  placeholder={actionAsset.decimals === 8 ? "0.00000000" : "0.00"}
+                  onChange={(event) => {
+                    setAmount(event.target.value);
+                    setPreview({ status: "idle" });
+                  }}
+                  placeholder={
+                    actionAsset.decimals === 8 ? "0.00000000" : "0.00"
+                  }
                 />
               </Field>
               {selectedLimit ? (
-                <Text as="p" textStyle="metadata" tone="muted" className={styles.limit}>
-                  <MoneyTicker value={selectedLimit.value} /> {selectedLimit.suffix}
+                <p
+                  className={`${styles.limit} text-metadata text-muted-foreground`}
+                >
+                  <MoneyTicker
+                    className="min-w-0 align-bottom"
+                    value={selectedLimit.value}
+                  />{" "}
+                  {selectedLimit.suffix}
                   {selectedLimit.secondValue ? (
-                    <> <MoneyTicker value={selectedLimit.secondValue} /> {selectedLimit.secondSuffix}</>
+                    <>
+                      {" "}
+                      <MoneyTicker
+                        className="min-w-0 align-bottom"
+                        value={selectedLimit.secondValue}
+                      />{" "}
+                      {selectedLimit.secondSuffix}
+                    </>
                   ) : null}
-                </Text>
+                </p>
               ) : null}
-              <Button type="submit" disabled={!amount.trim() || preview.status === "loading"}>
-                {preview.status === "loading" ? "Checking RPC simulation…" : "Review current preview"}
+              <Button
+                className="min-h-11"
+                type="submit"
+                disabled={!amount.trim() || preview.status === "loading"}
+                aria-busy={preview.status === "loading"}
+              >
+                {preview.status === "loading"
+                  ? "Checking RPC simulation…"
+                  : "Review current preview"}
               </Button>
             </form>
           </>
         ) : null}
 
         {preview.status === "error" ? (
-          <StatusMessage
+          <BorrowNotice
             className={styles.notice}
             tone="error"
             role="alert"
             title="Preview unavailable"
           >
             {preview.message}
-          </StatusMessage>
+          </BorrowNotice>
         ) : null}
         {preview.status === "preview-only" ? (
-          <section className={styles.previewOnly} aria-labelledby="preview-only-title">
-            <Heading level={2} textStyle="section-title" id="preview-only-title">Read-only preview</Heading>
-            <Text as="strong" textStyle="row-label">{preview.response.preview.title}</Text>
-            <Text as="span" textStyle="row-value">
-              <MoneyTicker value={formatPresentationTokenAmount(preview.response.preview.amount.amountBaseUnits, preview.response.preview.amount.decimals, preview.response.preview.amount.symbol, { regionId, useNoBreakSpace: true })} />
-            </Text>
+          <section
+            className={styles.previewOnly}
+            aria-labelledby="preview-only-title"
+          >
+            <h2
+              className="text-section-title font-semibold"
+              id="preview-only-title"
+            >
+              Read-only preview
+            </h2>
+            <strong className="text-row-label">
+              {preview.response.preview.title}
+            </strong>
+            <span className="text-row-value font-mono">
+              <MoneyTicker
+                value={formatPresentationTokenAmount(
+                  preview.response.preview.amount.amountBaseUnits,
+                  preview.response.preview.amount.decimals,
+                  preview.response.preview.amount.symbol,
+                  { regionId, useNoBreakSpace: true },
+                )}
+              />
+            </span>
             <ul>
               {preview.response.preview.warnings.map((warning) => (
-                <li key={warning}><Text as="span" textStyle="secondary" tone="muted">{warning}</Text></li>
+                <li
+                  className="text-caption text-muted-foreground"
+                  key={warning}
+                >
+                  {warning}
+                </li>
               ))}
             </ul>
-            <Text as="p" textStyle="secondary" tone="muted">{preview.response.preview.disabledReason}</Text>
+            <p className="text-caption text-muted-foreground">
+              {preview.response.preview.disabledReason}
+            </p>
           </section>
         ) : null}
       </section>
@@ -366,42 +635,134 @@ function Metric({
   money?: boolean;
 }) {
   return (
-    <ListRow
-      leading={null}
-      label={label}
-      description={note}
-      value={money ? <MoneyTicker value={value} /> : value}
-    />
+    <Item
+      render={<li />}
+      className="min-h-11 flex-col items-start gap-1 rounded-none border-0 bg-muted px-2 py-2.5 sm:flex-row sm:items-center sm:gap-2.5"
+    >
+      <ItemContent className="min-w-0">
+        <ItemTitle className="text-row-label">{label}</ItemTitle>
+        {note ? (
+          <ItemDescription className="text-caption">{note}</ItemDescription>
+        ) : null}
+      </ItemContent>
+      <ItemActions className="text-row-value justify-start text-left font-mono sm:max-w-[45%] sm:justify-end sm:text-right">
+        {money ? <MoneyTicker value={value} /> : value}
+      </ItemActions>
+    </Item>
   );
 }
 
-function parseSnapshot(value: unknown, expectedOwner: `0x${string}`): BorrowMarketSnapshot | null {
-  if (!isRecord(value) || value.chainId !== 8453 || typeof value.walletAddress !== "string" || value.walletAddress.toLowerCase() !== expectedOwner.toLowerCase()) return null;
-  if (!isRecord(value.market) || value.market.id !== BORROW_MARKET_ID || typeof value.market.morpho !== "string" || value.market.morpho.toLowerCase() !== MORPHO_BLUE_ADDRESS.toLowerCase()) return null;
-  if (!isRecord(value.source) || typeof value.source.blockNumber !== "string" || typeof value.source.blockHash !== "string" || typeof value.source.blockTimestamp !== "string" || !/^0x[0-9a-f]{64}$/.test(value.source.blockHash)) return null;
-  if (!isRecord(value.state) || !isRecord(value.wallet) || !isRecord(value.position)) return null;
+function BorrowNotice({
+  action,
+  children,
+  className,
+  role = "status",
+  title,
+  tone = "neutral",
+}: {
+  action?: React.ReactNode;
+  children?: React.ReactNode;
+  className?: string;
+  role?: "status" | "alert";
+  title?: React.ReactNode;
+  tone?: "neutral" | "error";
+}) {
+  return (
+    <Alert
+      className={className}
+      role={role}
+      variant={tone === "error" ? "destructive" : "default"}
+    >
+      {title ? <AlertTitle>{title}</AlertTitle> : null}
+      {children ? <AlertDescription>{children}</AlertDescription> : null}
+      {action ? <AlertAction>{action}</AlertAction> : null}
+    </Alert>
+  );
+}
+
+function parseSnapshot(
+  value: unknown,
+  expectedOwner: `0x${string}`,
+): BorrowMarketSnapshot | null {
+  if (
+    !isRecord(value) ||
+    value.chainId !== 8453 ||
+    typeof value.walletAddress !== "string" ||
+    value.walletAddress.toLowerCase() !== expectedOwner.toLowerCase()
+  )
+    return null;
+  if (
+    !isRecord(value.market) ||
+    value.market.id !== BORROW_MARKET_ID ||
+    typeof value.market.morpho !== "string" ||
+    value.market.morpho.toLowerCase() !== MORPHO_BLUE_ADDRESS.toLowerCase()
+  )
+    return null;
+  if (
+    !isRecord(value.source) ||
+    typeof value.source.blockNumber !== "string" ||
+    typeof value.source.blockHash !== "string" ||
+    typeof value.source.blockTimestamp !== "string" ||
+    !/^0x[0-9a-f]{64}$/.test(value.source.blockHash)
+  )
+    return null;
+  if (
+    !isRecord(value.state) ||
+    !isRecord(value.wallet) ||
+    !isRecord(value.position)
+  )
+    return null;
   const decimalFields = [
-    value.source.blockNumber, value.source.blockTimestamp,
-    value.state.oraclePriceRaw, value.state.borrowRatePerSecondWad, value.state.borrowAprWad,
-    value.state.totalSupplyAssetsRaw, value.state.totalBorrowAssetsRaw, value.state.totalBorrowSharesRaw,
-    value.state.liquidityAssetsRaw, value.state.lastUpdateTimestamp,
-    value.wallet.collateralBalanceRaw, value.wallet.loanBalanceRaw,
-    value.wallet.collateralAllowanceRaw, value.wallet.loanAllowanceRaw,
-    value.position.collateralRaw, value.position.borrowSharesRaw, value.position.debtAssetsRaw,
-    value.position.borrowCapacityAssetsRaw, value.position.withdrawableCollateralRaw,
+    value.source.blockNumber,
+    value.source.blockTimestamp,
+    value.state.oraclePriceRaw,
+    value.state.borrowRatePerSecondWad,
+    value.state.borrowAprWad,
+    value.state.totalSupplyAssetsRaw,
+    value.state.totalBorrowAssetsRaw,
+    value.state.totalBorrowSharesRaw,
+    value.state.liquidityAssetsRaw,
+    value.state.lastUpdateTimestamp,
+    value.wallet.collateralBalanceRaw,
+    value.wallet.loanBalanceRaw,
+    value.wallet.collateralAllowanceRaw,
+    value.wallet.loanAllowanceRaw,
+    value.position.collateralRaw,
+    value.position.borrowSharesRaw,
+    value.position.debtAssetsRaw,
+    value.position.borrowCapacityAssetsRaw,
+    value.position.withdrawableCollateralRaw,
   ];
-  if (decimalFields.some((field) => typeof field !== "string" || !/^\d+$/.test(field))) return null;
-  if (value.position.healthFactorWad !== null && (typeof value.position.healthFactorWad !== "string" || !/^\d+$/.test(value.position.healthFactorWad))) return null;
-  if (value.position.liquidationPriceRaw !== null && (typeof value.position.liquidationPriceRaw !== "string" || !/^\d+$/.test(value.position.liquidationPriceRaw))) return null;
+  if (
+    decimalFields.some(
+      (field) => typeof field !== "string" || !/^\d+$/.test(field),
+    )
+  )
+    return null;
+  if (
+    value.position.healthFactorWad !== null &&
+    (typeof value.position.healthFactorWad !== "string" ||
+      !/^\d+$/.test(value.position.healthFactorWad))
+  )
+    return null;
+  if (
+    value.position.liquidationPriceRaw !== null &&
+    (typeof value.position.liquidationPriceRaw !== "string" ||
+      !/^\d+$/.test(value.position.liquidationPriceRaw))
+  )
+    return null;
   return value as BorrowMarketSnapshot;
 }
 
 function healthNote(raw: string | null) {
   if (raw === null) return "No active liquidation threshold";
   const health = BigInt(raw);
-  if (health < BigInt("1000000000000000000")) return "At or below the indexed liquidation threshold";
-  if (health < BigInt("1100000000000000000")) return "Very close to liquidation";
-  if (health < BigInt("1250000000000000000")) return "Limited liquidation buffer";
+  if (health < BigInt("1000000000000000000"))
+    return "At or below the indexed liquidation threshold";
+  if (health < BigInt("1100000000000000000"))
+    return "Very close to liquidation";
+  if (health < BigInt("1250000000000000000"))
+    return "Limited liquidation buffer";
   return "Above the indexed liquidation threshold";
 }
 
@@ -425,8 +786,15 @@ function usePersistedPresentationRegion(): RegionId {
   return regionId;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 function readableResourceError(error: unknown) {
-  if (error instanceof Error && error.message && error.message !== "Authenticated resource is unavailable.") return error.message;
+  if (
+    error instanceof Error &&
+    error.message &&
+    error.message !== "Authenticated resource is unavailable."
+  )
+    return error.message;
   return "The current limit or RPC simulation could not be verified. Refresh and try again.";
 }
