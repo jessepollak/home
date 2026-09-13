@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { SegmentedControl, Text } from "@home/ui";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Liveline, type LivelinePoint } from "liveline";
 import {
   MARKET_PRICE_RANGES,
@@ -18,7 +18,6 @@ import type { PriceHistoryState } from "./use-price-history";
 import styles from "./invest-experience.module.css";
 
 const LINE_COLOR = "#0052ff";
-const RANGE_ITEMS = MARKET_PRICE_RANGES.map((value) => ({ value, label: value }));
 const RANGE_SECONDS: Record<MarketPriceRange, number> = {
   "1D": 86_400,
   "1W": 7 * 86_400,
@@ -52,16 +51,28 @@ export function PriceChart({
   return (
     <div className={styles.chartBlock}>
       <div className={styles.chartCaption}>
-        <Text as="span" textStyle="metadata" tone="muted">Price history</Text>
-        <Text as="strong" textStyle="metadata">USD</Text>
+        <span className="text-metadata text-muted-foreground">Price history</span>
+        <strong className="text-metadata">USD</strong>
       </div>
-      <SegmentedControl
-        items={RANGE_ITEMS}
-        value={range}
-        onValueChange={onRangeChange}
+      <ToggleGroup
+        value={[range]}
+        onValueChange={(values) => {
+          const nextRange = values[0];
+          if (nextRange) onRangeChange(nextRange as MarketPriceRange);
+        }}
         aria-label="Price range"
-        stretch
-      />
+        className="w-full gap-0 rounded-lg bg-muted p-control-inset"
+      >
+        {MARKET_PRICE_RANGES.map((value) => (
+          <ToggleGroupItem
+            key={value}
+            value={value}
+            className="min-h-11 flex-1 text-toggle-sm aria-pressed:bg-background"
+          >
+            {value}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
       <ChartBody history={history} range={range} />
     </div>
   );
@@ -131,11 +142,11 @@ function ChartBody({
         />
       ) : null}
       {unavailable ? (
-        <Text className={styles.chartMessage} textStyle="metadata" tone="muted" role="status">
+        <p className={`${styles.chartMessage} text-metadata text-muted-foreground`} role="status">
           {history.status === "error"
             ? "Price history unavailable."
             : "No price history for this range."}
-        </Text>
+        </p>
       ) : null}
     </div>
   );
@@ -231,7 +242,6 @@ function AssetLiveline({
       badge={false}
       showValue={false}
       grid={false}
-      loading={false}
       lerpSpeed={reduceMotion ? 1 : 0.08}
       lineWidth={2.5}
       formatTime={formatTime}

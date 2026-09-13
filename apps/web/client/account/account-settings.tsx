@@ -1,7 +1,17 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Heading, ListRow, StatusMessage } from "@home/ui";
+import { ChevronRight } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
 import { CopyableValue } from "@/components/copyable-value";
 import { CountrySelect } from "@/components/country-select";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -49,77 +59,87 @@ export function AccountSettings({
   return (
     <div className={styles.page}>
       <section className={styles.section} aria-labelledby="preferences-heading">
-        <Heading
-          id="preferences-heading"
-          level={2}
-          textStyle="section-title"
-        >
+        <h2 id="preferences-heading" className="text-section-title font-semibold">
           Preferences
-        </Heading>
+        </h2>
         <ul className={styles.card}>
-          <ListRow
-            className={styles.countryRow}
-            leading={(
+          <Item render={<li />} className={styles.countryRow}>
+            <ItemMedia>
               <CurrencyMark
                 currency={region.currency.code}
                 symbol={region.currency.symbol}
               />
-            )}
-            label="Country"
-            description={<span id="country-help">Sets how money is shown</span>}
-            value={(
+            </ItemMedia>
+            <ItemContent>
+              <ItemTitle className="text-row-label!">Country</ItemTitle>
+              <ItemDescription id="country-help" className="line-clamp-none text-metadata!">
+                Sets how money is shown
+              </ItemDescription>
+            </ItemContent>
+            <ItemActions className={styles.countryAction}>
               <CountrySelect
                 value={regionId}
                 onValueChange={onRegionChange}
                 describedBy="country-help preference-status"
                 variant="settings"
               />
-            )}
-          />
+            </ItemActions>
+          </Item>
         </ul>
-        <StatusMessage
-          id="preference-status"
-          aria-live="polite"
-          visuallyHidden
-        >
-          {preferenceMessage ||
-            (isPreferenceReady
-              ? `${sourceLabels[resolutionSource]}.`
-              : "Checking saved country preference.")}
-        </StatusMessage>
+        <Alert id="preference-status" aria-live="polite" role="status" className="sr-only">
+          <AlertDescription>
+            {preferenceMessage ||
+              (isPreferenceReady
+                ? `${sourceLabels[resolutionSource]}.`
+                : "Checking saved country preference.")}
+          </AlertDescription>
+        </Alert>
       </section>
 
       <section className={styles.section} aria-labelledby="account-heading">
-        <Heading id="account-heading" level={2} textStyle="section-title">
+        <h2 id="account-heading" className="text-section-title font-semibold">
           Account
-        </Heading>
+        </h2>
         <ul className={styles.card}>
-          <ListRow
-            className={styles.contentRow}
-            label="Base account"
-            description={accountAddress ? (
-              <CopyableValue
-                value={accountAddress}
-                display={formatAddress(accountAddress)}
-                valueKind="address"
-              />
-            ) : (
-              "Setup in progress"
-            )}
-          />
-          <ListRow
-            className={styles.actionRow}
-            label="Sign out"
-            onPress={onSignOut}
-            actionHint="Sign out of Home"
-          />
+          <Item render={<li />} className={styles.contentRow}>
+            <ItemContent>
+              <ItemTitle className="text-row-label!">Base account</ItemTitle>
+              <ItemDescription className="text-metadata!">
+                {accountAddress ? (
+                  <CopyableValue
+                    value={accountAddress}
+                    display={formatAddress(accountAddress)}
+                    valueKind="address"
+                  />
+                ) : (
+                  "Setup in progress"
+                )}
+              </ItemDescription>
+            </ItemContent>
+          </Item>
+          <li>
+            <Item
+              render={<Button variant="ghost" />}
+              className={styles.actionRow}
+              onClick={onSignOut}
+              aria-describedby="sign-out-hint"
+            >
+              <ItemContent>
+                <ItemTitle className="text-row-label!">Sign out</ItemTitle>
+              </ItemContent>
+              <ItemActions aria-hidden="true">
+                <ChevronRight />
+              </ItemActions>
+              <span id="sign-out-hint" hidden>Sign out of Home</span>
+            </Item>
+          </li>
         </ul>
       </section>
 
       <section className={styles.section} aria-labelledby="disclosures-heading">
-        <Heading id="disclosures-heading" level={2} textStyle="section-title">
+        <h2 id="disclosures-heading" className="text-section-title font-semibold">
           Disclosures &amp; terms
-        </Heading>
+        </h2>
         <ul className={styles.card}>
           <DisclosureRow title="Availability">
             Features and providers vary by country. Tokenized stock trading
@@ -171,25 +191,13 @@ export function AccountSettings({
           </DisclosureRow>
           <DisclosureRow title="Terms">
             <span className={styles.termLinks}>
-              <a
-                href="https://www.coinbase.com/legal"
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a href="https://www.coinbase.com/legal" target="_blank" rel="noreferrer">
                 Coinbase legal
               </a>
-              <a
-                href="https://terms.ripio.com/"
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a href="https://terms.ripio.com/" target="_blank" rel="noreferrer">
                 Ripio terms
               </a>
-              <a
-                href="https://morpho.org/terms-of-use/"
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a href="https://morpho.org/terms-of-use/" target="_blank" rel="noreferrer">
                 Morpho terms
               </a>
             </span>
@@ -200,18 +208,13 @@ export function AccountSettings({
   );
 }
 
-function DisclosureRow({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
+function DisclosureRow({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <ListRow
-      className={`${styles.contentRow} ${styles.disclosureRow}`}
-      label={title}
-      description={children}
-    />
+    <Item render={<li />} className={`${styles.contentRow} ${styles.disclosureRow}`}>
+      <ItemContent>
+        <ItemTitle className="text-row-label!">{title}</ItemTitle>
+        <ItemDescription className="line-clamp-none text-metadata!">{children}</ItemDescription>
+      </ItemContent>
+    </Item>
   );
 }

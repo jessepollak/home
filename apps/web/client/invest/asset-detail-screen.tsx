@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Heading, IconButton, Text } from "@home/ui";
-import { ArrowRightIcon } from "@home/ui/icons";
-import { MoneyTicker } from "@home/ui/money-ticker";
+import { ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { MoneyTicker } from "@/components/money-ticker";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import {
@@ -36,22 +36,25 @@ export function AssetDetailStatusScreen({
     >
       {hosted ? null : (
         <header className={styles.screenHeader}>
-          <IconButton
-            icon={ArrowRightIcon}
-            className={styles.back}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`${styles.back} min-h-11 min-w-11`}
             onClick={onBack}
             aria-label="Back"
-          />
-          <Heading level={2} textStyle="section-title" id="invest-asset-status-title">
+          >
+            <ArrowRight />
+          </Button>
+          <h2 id="invest-asset-status-title" className="text-section-title font-semibold">
             Asset details
-          </Heading>
+          </h2>
         </header>
       )}
-      <Text className={styles.shelfStatus} textStyle="metadata" tone="muted" role="status">
+      <p className={`${styles.shelfStatus} text-metadata text-muted-foreground`} role="status">
         {status === "loading"
           ? "Loading asset details."
           : "This Base asset is currently unavailable."}
-      </Text>
+      </p>
     </section>
   );
 }
@@ -82,44 +85,46 @@ export function AssetDetailScreen({
     >
       {hosted ? null : (
         <header className={styles.screenHeader}>
-          <IconButton
-            icon={ArrowRightIcon}
-            className={styles.back}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`${styles.back} min-h-11 min-w-11`}
             onClick={onBack}
             aria-label="Back"
-          />
+          >
+            <ArrowRight />
+          </Button>
           <span className={styles.detailIdentity}>
             <AssetIcon mark={mark} />
-            <Heading level={2} textStyle="section-title" id="invest-asset-title">
+            <h2 id="invest-asset-title" className="text-section-title font-semibold">
               {asset.displayName}
-            </Heading>
+            </h2>
           </span>
         </header>
       )}
 
       <div className={styles.priceHeader}>
-        <Text
-          as="strong"
-          textStyle={price.tone === "ready" ? "amount" : "section-title"}
-          tone={price.tone === "ready" ? "default" : "muted"}
-          className={styles.price}
+        <strong
+          className={`${styles.price} ${
+            price.tone === "ready"
+              ? "font-mono text-amount font-semibold"
+              : "text-section-title font-semibold text-muted-foreground"
+          }`}
           data-tone={price.tone}
         >
           {price.tone === "ready" ? <MoneyTicker value={price.value} /> : price.detail}
-        </Text>
+        </strong>
         {change !== "—" ? (
-          <Text
-            as="small"
-            textStyle="secondary"
-            className={styles.change}
+          <small
+            className={`${styles.change} text-caption`}
             data-money-change={changeTone}
           >
             {change}
-          </Text>
+          </small>
         ) : null}
-        <Text as="span" textStyle="secondary" tone="muted">
+        <span className="text-caption text-muted-foreground">
           {asset.representation.tokenSymbol} · Base
-        </Text>
+        </span>
       </div>
 
       <PriceChart range={range} history={history} onRangeChange={setRange} />

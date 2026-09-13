@@ -1,6 +1,15 @@
 "use client";
 
-import { ListRow } from "@home/ui";
+import { ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
 import type { InvestAsset } from "@/config/invest-assets";
 import {
   presentInvestAssetMark,
@@ -29,16 +38,34 @@ export function DiscoverAssetRow({
   const changeTone = moneyChangeTone(change);
 
   return (
-    <ListRow
-      leading={<AssetIcon mark={mark} />}
-      label={asset.displayName}
-      description={asset.displaySymbol}
-      value={price.value}
-      valueDescription={change !== "—" ? (
-        <span className={styles.change} data-money-change={changeTone}>{change}</span>
-      ) : undefined}
-      onPress={onOpen}
-      actionHint={`View ${asset.displayName} details`}
-    />
+    <li className={styles.assetRow}>
+      <Item
+        render={<Button variant="ghost" />}
+        className="min-h-13 flex-nowrap border-0 text-left"
+        onClick={onOpen}
+        aria-describedby={`${asset.id}-action-hint`}
+      >
+        <ItemMedia><AssetIcon mark={mark} /></ItemMedia>
+        <ItemContent>
+          <ItemTitle className="text-row-label!">{asset.displayName}</ItemTitle>
+          <ItemDescription className="text-metadata!">{asset.displaySymbol}</ItemDescription>
+        </ItemContent>
+        <ItemContent className="items-end text-right">
+          <ItemTitle className="font-mono text-row-value!">{price.value}</ItemTitle>
+          {change !== "—" ? (
+            <ItemDescription
+              className={`${styles.change} text-metadata`}
+              data-money-change={changeTone}
+            >
+              {change}
+            </ItemDescription>
+          ) : null}
+        </ItemContent>
+        <ItemActions aria-hidden="true"><ChevronRight /></ItemActions>
+        <span id={`${asset.id}-action-hint`} hidden>
+          View {asset.displayName} details
+        </span>
+      </Item>
+    </li>
   );
 }

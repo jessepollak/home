@@ -1,6 +1,8 @@
 "use client";
 
-import { Button, Field, Input, Text } from "@home/ui";
+import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import type { FormEvent, RefObject } from "react";
 import styles from "./account.module.css";
 
@@ -23,12 +25,10 @@ export function SignInEmail({
 }) {
   return (
     <form className={styles.form} onSubmit={onSubmit}>
-      <Field
-        className={styles.authField}
-        label="Email address"
-        htmlFor="account-email"
-        required
-      >
+      <Field className={styles.authField}>
+        <FieldLabel htmlFor="account-email" className="text-caption">
+          Email address<span className="text-destructive" aria-hidden="true">*</span>
+        </FieldLabel>
         <Input
           ref={inputRef}
           id="account-email"
@@ -38,8 +38,9 @@ export function SignInEmail({
           autoComplete="email"
           placeholder="you@example.com"
           value={email}
-          onChange={(event) => onEmailChange(event.currentTarget.value)}
+          onInput={(event) => onEmailChange(event.currentTarget.value)}
           disabled={isSendingCode}
+          required
           autoFocus
           data-initial-focus
         />
@@ -50,7 +51,7 @@ export function SignInEmail({
       {baseAccountEnabled ? (
         <>
           <div className={styles.signInDivider} role="separator">
-            <Text as="span" textStyle="metadata" tone="muted">or</Text>
+            <span className="text-metadata text-muted-foreground">or</span>
           </div>
           <Button
             className={styles.formAction}
