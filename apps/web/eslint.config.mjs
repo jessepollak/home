@@ -7,7 +7,15 @@ const sharedLayerMessage =
 const clientLayerMessage = "client modules must not import the server layer";
 const browserSdkMessage =
   "browser wallet provider SDKs belong behind the client/account owner-generation fence";
+const baseUiMessage =
+  "@base-ui/react primitives may only be imported by owned components/ui wrappers";
+const literalStyleMessage =
+  "Use semantic theme tokens instead of color, radius, or size literals in utility strings.";
 const serverLayerMessage = "server modules must not import web client or app layers";
+const baseUiImportRestriction = {
+  group: ["@base-ui/react", "@base-ui/react/*"],
+  message: baseUiMessage,
+};
 
 const relativePrefixPattern = String.raw`(?:\.\.?\/)+`;
 const intermediateSegmentsPattern = String.raw`(?:[^/]+\/)*`;
@@ -24,9 +32,6 @@ const rawButtonAllowlist = [
 ];
 
 const rawFieldAllowlist = [];
-
-const rawHeadingAllowlist = [
-];
 
 const formattingSyntaxAllowlist = [
   // These calls format geometry, not money.
@@ -46,6 +51,30 @@ const formattingSyntaxRestrictions = [
   {
     selector: "CallExpression[callee.property.name='toFixed']",
     message: "Use shared/formatting for numeric presentation.",
+  },
+];
+
+const literalStylePattern = String.raw`(?:#[0-9a-fA-F]{3,8}|rgba?\(|(?:[a-z-]+:)*-?(?:rounded|text|size|w|h|min-w|max-w|min-h|max-h|p[trblxy]?|m[trblxy]?|gap|space-[xy]|inset(?:-[xy])?|top|right|bottom|left|ring|outline|border)-\[(?![^\]]*var\(--)[^\]]*(?:px|rem)[^\]]*\]|(?:^|\s)(?:[a-z-]+:)*(?:bg|text|border|ring|outline|fill|stroke)-(?:white|black|slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)(?:-|\x2f|\s|$))`;
+const literalStyleRestrictions = [
+  {
+    selector: `JSXAttribute[name.name='className'] > Literal[value=/${literalStylePattern}/]`,
+    message: literalStyleMessage,
+  },
+  {
+    selector: `JSXAttribute[name.name='className'] > JSXExpressionContainer Literal[value=/${literalStylePattern}/]`,
+    message: literalStyleMessage,
+  },
+  {
+    selector: `JSXAttribute[name.name='className'] TemplateElement[value.raw=/${literalStylePattern}/]`,
+    message: literalStyleMessage,
+  },
+  {
+    selector: `CallExpression[callee.name=/^(?:cn|cva)$/] Literal[value=/${literalStylePattern}/]`,
+    message: literalStyleMessage,
+  },
+  {
+    selector: `CallExpression[callee.name=/^(?:cn|cva)$/] TemplateElement[value.raw=/${literalStylePattern}/]`,
+    message: literalStyleMessage,
   },
 ];
 
@@ -148,6 +177,7 @@ const eslintConfig = defineConfig([
               group: ["@coinbase/cdp-*", "@coinbase/cdp-*/*", "@base-org/account", "@base-org/account/*"],
               message: browserSdkMessage,
             },
+            baseUiImportRestriction,
           ],
         },
       ],
@@ -173,12 +203,35 @@ const eslintConfig = defineConfig([
               group: ["@coinbase/cdp-*", "@coinbase/cdp-*/*", "@base-org/account", "@base-org/account/*"],
               message: browserSdkMessage,
             },
+            baseUiImportRestriction,
           ],
         },
       ],
       "no-restricted-syntax": [
         "error",
         ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
+        ...literalStyleRestrictions,
+      ],
+    },
+  },
+  {
+    files: ["components/ui/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [{ name: "@/server", message: clientLayerMessage }],
+          patterns: [
+            {
+              group: ["@/server/*"],
+              message: clientLayerMessage,
+            },
+            {
+              group: ["@coinbase/cdp-*", "@coinbase/cdp-*/*", "@base-org/account", "@base-org/account/*"],
+              message: browserSdkMessage,
+            },
+          ],
+        },
       ],
     },
   },
@@ -194,6 +247,7 @@ const eslintConfig = defineConfig([
               group: ["@/server/*"],
               message: clientLayerMessage,
             },
+            baseUiImportRestriction,
           ],
         },
       ],
@@ -210,6 +264,7 @@ const eslintConfig = defineConfig([
               group: ["@coinbase/cdp-*", "@coinbase/cdp-*/*", "@base-org/account", "@base-org/account/*"],
               message: browserSdkMessage,
             },
+            baseUiImportRestriction,
           ],
         },
       ],
@@ -232,6 +287,7 @@ const eslintConfig = defineConfig([
               message: "tests must not read source files; assert behavior instead",
             },
           ],
+          patterns: [baseUiImportRestriction],
         },
       ],
       "no-restricted-syntax": [
@@ -264,6 +320,7 @@ const eslintConfig = defineConfig([
               group: ["@/app/*", "@/client/*", "@/components/*"],
               message: serverLayerMessage,
             },
+            baseUiImportRestriction,
           ],
         },
       ],
@@ -274,7 +331,7 @@ const eslintConfig = defineConfig([
     },
   },
   // These final client/component blocks preserve the import-boundary syntax
-  // checks while applying the two allowlists independently.
+  // checks while applying the raw-element allowlists independently.
   {
     files: [
       "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -286,6 +343,7 @@ const eslintConfig = defineConfig([
         "error",
         ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
         ...formattingSyntaxRestrictions,
+        ...literalStyleRestrictions,
       ],
     },
   },
@@ -294,12 +352,13 @@ const eslintConfig = defineConfig([
       "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
       "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
     ],
-    ignores: [...new Set([...rawButtonAllowlist, ...formattingSyntaxAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**"],
+    ignores: [...new Set([...rawButtonAllowlist, ...formattingSyntaxAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**", "components/ui/**"],
     rules: {
       "no-restricted-syntax": [
         "error",
         ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
         ...formattingSyntaxRestrictions,
+        ...literalStyleRestrictions,
         {
           selector: "JSXOpeningElement[name.name='button']",
           message: "Use Button or IconButton from @home/ui. The raw-button allowlist only shrinks.",
@@ -312,30 +371,13 @@ const eslintConfig = defineConfig([
       "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
       "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
     ],
-    ignores: [...new Set([...rawHeadingAllowlist, ...formattingSyntaxAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**"],
+    ignores: [...new Set([...rawFieldAllowlist, ...formattingSyntaxAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**", "components/ui/**"],
     rules: {
       "no-restricted-syntax": [
         "error",
         ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
         ...formattingSyntaxRestrictions,
-        {
-          selector: "JSXOpeningElement[name.name=/^h[1-4]$/]",
-          message: "Use Heading from @home/ui. The raw-heading allowlist only shrinks.",
-        },
-      ],
-    },
-  },
-  {
-    files: [
-      "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-      "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-    ],
-    ignores: [...new Set([...rawFieldAllowlist, ...formattingSyntaxAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**"],
-    rules: {
-      "no-restricted-syntax": [
-        "error",
-        ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
-        ...formattingSyntaxRestrictions,
+        ...literalStyleRestrictions,
         {
           selector: "JSXOpeningElement[name.name=/^(?:input|select)$/]",
           message: "Use Input or Select from @home/ui. The raw-field allowlist only shrinks.",
@@ -348,19 +390,20 @@ const eslintConfig = defineConfig([
       "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
       "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
     ],
-    ignores: [...new Set([...rawButtonAllowlist, ...rawHeadingAllowlist, ...formattingSyntaxAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**"],
+    ignores: [...new Set([...rawButtonAllowlist, ...rawFieldAllowlist, ...formattingSyntaxAllowlist]), "**/*.test.{ts,tsx}", "**/tests/**", "components/ui/**"],
     rules: {
       "no-restricted-syntax": [
         "error",
         ...restrictedDynamicImports(clientForbiddenPattern, clientLayerMessage),
         ...formattingSyntaxRestrictions,
+        ...literalStyleRestrictions,
         {
           selector: "JSXOpeningElement[name.name='button']",
           message: "Use Button or IconButton from @home/ui. The raw-button allowlist only shrinks.",
         },
         {
-          selector: "JSXOpeningElement[name.name=/^h[1-4]$/]",
-          message: "Use Heading from @home/ui. The raw-heading allowlist only shrinks.",
+          selector: "JSXOpeningElement[name.name=/^(?:input|select)$/]",
+          message: "Use Input or Select from @home/ui. The raw-field allowlist only shrinks.",
         },
       ],
     },
@@ -383,13 +426,10 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": [
         "error",
         ...formattingSyntaxRestrictions,
+        ...literalStyleRestrictions,
         {
           selector: "JSXOpeningElement[name.name='button']",
           message: "Use Button or IconButton from @home/ui. The raw-button allowlist only shrinks.",
-        },
-        {
-          selector: "JSXOpeningElement[name.name=/^h[1-4]$/]",
-          message: "Use Heading from @home/ui. The raw-heading allowlist only shrinks.",
         },
       ],
     },

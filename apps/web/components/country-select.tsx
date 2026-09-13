@@ -34,7 +34,7 @@ export function CountrySelect({
         aria-describedby={describedBy}
         className={
           variant === "settings"
-            ? "flex min-h-11 items-center justify-end gap-1 border-0 bg-transparent p-0 text-right text-[0.92rem] font-semibold text-[var(--fg)] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[var(--home-ui-color-focus)]"
+            ? "flex min-h-11 items-center justify-end gap-1 border-0 bg-transparent p-0 text-right text-country-select font-semibold text-[var(--fg)] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[var(--home-focus-offset)] focus-visible:outline-[var(--home-ui-color-focus)]"
             : "home-ui-select-trigger surface-primary font-semibold data-[state=open]:border-[var(--home-ui-color-action)]"
         }
       >
@@ -63,13 +63,13 @@ export function CountrySelect({
             event.stopPropagation();
             target.focus();
           }}
-          className="surface-primary z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-home-ui-control border border-[var(--separator)] p-1 text-[var(--fg)] shadow-[0_12px_32px_rgba(10,11,13,0.16)]"
+          className="surface-primary z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-home-ui-control border border-[var(--separator)] p-1 text-[var(--fg)] shadow-[var(--home-country-select-shadow)]"
         >
           <RadixSelect.ScrollUpButton className="flex h-8 cursor-default items-center justify-center text-[var(--fg-muted)]">
             <ScrollChevronIcon direction="up" />
             <span className="sr-only">Scroll to earlier countries</span>
           </RadixSelect.ScrollUpButton>
-          <RadixSelect.Viewport className="max-h-[min(20rem,var(--radix-select-content-available-height))] overscroll-contain">
+          <RadixSelect.Viewport className="max-h-[min(var(--home-country-select-max-height),var(--radix-select-content-available-height))] overscroll-contain">
             {regionIds.map((id) => (
               <RadixSelect.Item
                 key={id}
