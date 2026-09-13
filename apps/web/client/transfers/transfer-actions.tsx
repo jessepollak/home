@@ -25,8 +25,8 @@ import {
 import { markHomePerformance } from "@/client/observability/perf-marks";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { SendDialog } from "./send-dialog";
-import { TRANSFER_ASSETS, formatSendConfirmAmount } from "@/shared/transfers/transfer-helpers";
-import type { ConfirmedTransfer } from "@/shared/transfers/types";
+import { formatSendConfirmAmount, getTransferAsset } from "@/shared/transfers/transfer-helpers";
+import type { ConfirmedTransfer, TransferAssetAvailability } from "@/shared/transfers/types";
 import styles from "./transfers.module.css";
 
 const subscribeToMountedState = () => () => {};
@@ -36,7 +36,7 @@ const mountedServerSnapshot = () => false;
 export type TransferActionsProps = {
   initialOpen?: boolean;
   initialActionId?: string | null;
-  availableByAsset?: Partial<Record<"usdc" | "eth", string>>;
+  availableAssets?: readonly TransferAssetAvailability[];
 };
 
 type TransferWallet = Pick<
@@ -58,7 +58,7 @@ export function TransferActionsForWallet({
   wallet,
   initialOpen = false,
   initialActionId = null,
-  availableByAsset,
+  availableAssets,
 }: TransferActionsProps & { wallet: TransferWallet }) {
   const routing = useOptionalHomeShellRouting();
   const [sendOpen, setSendOpen] = useState(false);
@@ -146,7 +146,7 @@ export function TransferActionsForWallet({
               open={visibleSend}
               address={verifiedAddress}
               immediate={dropPrivate}
-              availableByAsset={availableByAsset}
+              availableAssets={availableAssets}
               prepareMoneyAction={wallet.prepareMoneyAction}
               resumeMoneyAction={wallet.resumeMoneyAction}
               executeMoneyAction={wallet.executeMoneyAction}
@@ -174,7 +174,7 @@ export function TransferActionsForWallet({
                   Sent <MoneyTicker value={formatSendConfirmAmount(visibleSuccess.amountBaseUnits, visibleSuccess.assetId)} />
                 </Text>
                 <Text textStyle="metadata" tone="muted" className={styles.successDetail}>
-                  {TRANSFER_ASSETS[visibleSuccess.assetId].symbol} · Base ·{" "}
+                  {getTransferAsset(visibleSuccess.assetId)?.symbol ?? visibleSuccess.assetId} · Base ·{" "}
                   <CopyableValue
                     value={visibleSuccess.recipient}
                     display={formatAddress(visibleSuccess.recipient)}

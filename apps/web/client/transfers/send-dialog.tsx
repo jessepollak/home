@@ -18,25 +18,29 @@ import {
   useMoneyAssetPricing,
 } from "@/client/money-modal";
 import {
-  TRANSFER_ASSETS,
   assertTransferRequest,
   formatSendConfirmAmount,
+  getTransferAsset,
   isTransferRecipient,
   normalizeTransferRecipient,
   parseTransferAmount,
   transferRequestFromAction,
 } from "@/shared/transfers/transfer-helpers";
-import { TransferExecutionError, type ConfirmedTransfer, type TransferAssetId, type TransferRequest } from "@/shared/transfers/types";
+import {
+  TransferExecutionError,
+  type ConfirmedTransfer,
+  type TransferAssetAvailability,
+  type TransferRequest,
+} from "@/shared/transfers/types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import modal from "@/client/money-modal/money-modal.module.css";
 
 type SendStep = "amount" | "address" | "confirm" | "pending" | "error";
-const ASSET_OPTIONS = [{ id: "usdc", label: "USDC" }, { id: "eth", label: "ETH" }] as const;
 
 export function SendDialog({
   open,
   address,
-  availableByAsset,
+  availableAssets,
   prepareMoneyAction,
   resumeMoneyAction,
   executeMoneyAction,
@@ -51,7 +55,7 @@ export function SendDialog({
 }: {
   open: boolean;
   address: `0x${string}` | null;
-  availableByAsset?: Partial<Record<TransferAssetId, string>>;
+  availableAssets?: readonly TransferAssetAvailability[];
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   resumeMoneyAction: AccountWalletClient["resumeMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
@@ -64,7 +68,7 @@ export function SendDialog({
   onClose: () => void;
   onClosed?: () => void;
 }) {
-  const [assetId, setAssetId] = useState<TransferAssetId>("usdc");
+  const [assetId, setAssetId] = useState<string | null>(() => availableAssets?.[0]?.id ?? null);
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
   const [request, setRequest] = useState<TransferRequest | null>(null);
@@ -72,7 +76,13 @@ export function SendDialog({
   const [step, setStep] = useState<SendStep>("amount");
   const [error, setError] = useState<string | null>(null);
   const resumedActionRef = useRef<string | null>(null);
-  const pricing = useMoneyAssetPricing(TRANSFER_ASSETS[assetId].symbol);
+  const activeAssetId = assetId && availableAssets?.some((asset) => asset.id === assetId)
+    ? assetId
+    : availableAssets?.[0]?.id ?? null;
+  const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
+  const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
+  const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);
+  const assetOptions = availableAssets?.map((asset) => ({ id: asset.id, label: asset.symbol })) ?? [];
 
   useEffect(() => {
     if (!open || !ownerBoundary || !resumeActionId) return;
@@ -103,7 +113,7 @@ export function SendDialog({
   }, [onInvalidResume, open, ownerBoundary, resumeActionId, resumeMoneyAction]);
 
   function reset() {
-    setAssetId("usdc"); setRecipient(""); setAmount(""); setRequest(null);
+    setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); setAmount(""); setRequest(null);
     setAction(null); setStep("amount"); setError(null);
   }
   function close() { reset(); onClose(); }
@@ -115,11 +125,11 @@ export function SendDialog({
 
   async function prepare() {
     try {
-      if (!address) throw new TransferExecutionError("unavailable");
+      if (!address || !selectedAsset || !activeAssetId) throw new TransferExecutionError("unavailable");
       const next: TransferRequest = {
-        assetId,
+        assetId: activeAssetId,
         recipient: normalizeTransferRecipient(recipient),
-        amountBaseUnits: parseTransferAmount(amount.replace(/\.$/, ""), TRANSFER_ASSETS[assetId].decimals),
+        amountBaseUnits: parseTransferAmount(amount.replace(/\.$/, ""), selectedAsset.decimals),
       };
       assertTransferRequest(next);
       setRequest(next); setStep("pending"); setError(null);
@@ -145,7 +155,7 @@ export function SendDialog({
       onClose();
     } catch (caught) {
       if (isUnavailableReview(caught)) {
-        setAssetId("usdc");
+        setAssetId(availableAssets?.[0]?.id ?? null);
         setRecipient("");
         setAmount("");
         setRequest(null);
@@ -161,29 +171,30 @@ export function SendDialog({
   }
 
   const confirmAmount = request ? formatSendConfirmAmount(request.amountBaseUnits, request.assetId) : "";
+  const requestAsset = request ? getTransferAsset(request.assetId) : null;
   return (
     <MoneyModal open={open} labelledBy="send-title" immediate={immediate} onCancel={close} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
       <MoneyModalHeader title={step === "confirm" || step === "pending" || step === "error" ? "Confirm" : "Send"} titleId="send-title" onBack={step === "amount" || step === "pending" ? undefined : back} onClose={close} closeDisabled={step === "pending"} closeLabel="Close send dialog" />
       <div className={modal.body}>
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} onAmountChange={setAmount} availableLabel={availableByAsset?.[assetId] ? `${availableByAsset[assetId]} available` : undefined} assetId={assetId} assetLabel={TRANSFER_ASSETS[assetId].symbol} assetOptions={ASSET_OPTIONS} onAssetChange={(next) => setAssetId(next as TransferAssetId)} chipSet="quick-local" pricing={pricing} nativeSymbol={TRANSFER_ASSETS[assetId].symbol} />
-          <MoneyNumpad value={amount} maxDecimals={TRANSFER_ASSETS[assetId].decimals} onChange={setAmount} />
+          <MoneyAmountDisplay amount={amount} onAmountChange={setAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetCurrency={selectedAsset?.cashCurrency} assetOptions={assetOptions} onAssetChange={(next) => { setAssetId(next); setAmount(""); }} chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
+          {selectedAsset ? <MoneyNumpad value={amount} maxDecimals={selectedAsset.decimals} onChange={setAmount} /> : <StatusMessage>No catalog balance is available to send.</StatusMessage>}
         </> : null}
         {step === "address" ? <div className={modal.fieldBlock}>
           <AddressField id="send-recipient" label="To" value={recipient} onChange={setRecipient} aria-describedby="send-recipient-hint" />
           <Text id="send-recipient-hint" textStyle="metadata" tone="muted" className={modal.fieldHint}>Base address</Text>
         </div> : null}
-        {request && (step === "confirm" || step === "pending" || step === "error") ? <>
-          <MoneyConfirmSummary amount={confirmAmount} lead={`You're sending ${TRANSFER_ASSETS[request.assetId].symbol}`} rows={[
+        {request && requestAsset && (step === "confirm" || step === "pending" || step === "error") ? <>
+          <MoneyConfirmSummary amount={confirmAmount} lead={`You're sending ${requestAsset.symbol}`} rows={[
             { label: "To", value: <CopyableValue value={request.recipient} display={formatAddress(request.recipient)} valueKind="address" /> },
-            { label: "Asset", value: TRANSFER_ASSETS[request.assetId].symbol },
+            { label: "Asset", value: requestAsset.symbol },
             { label: "Network", value: "Base" },
           ]} />
           {step === "pending" ? <StatusMessage className={modal.pending}><span className={modal.spinner} aria-hidden="true" />Waiting for your wallet…</StatusMessage> : null}
         </> : null}
         {error ? <StatusMessage className={modal.error} tone="error" role="alert">{error}</StatusMessage> : null}
       </div>
-      {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!isPositiveDecimalAmount(amount)} onPrimary={() => { setError(null); setStep("address"); }} /> : null}
+      {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!selectedAsset || !isPositiveDecimalAmount(amount)} onPrimary={() => { setError(null); setStep("address"); }} /> : null}
       {step === "address" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!isTransferRecipient(recipient)} onPrimary={() => void prepare()} /> : null}
       {step === "confirm" ? <MoneyModalFooter primaryLabel={<>Send <MoneyTicker value={confirmAmount} /></>} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}
       {step === "error" ? <MoneyModalFooter primaryLabel="Try again" onPrimary={() => { setError(null); setStep("confirm"); }} secondaryLabel="Back" onSecondary={back} /> : null}

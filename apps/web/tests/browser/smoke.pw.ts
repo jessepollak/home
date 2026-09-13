@@ -11,6 +11,7 @@ const BALANCES_PAINTED_BUDGET_MS = process.env.CI ? 3_500 : 1_000;
 const OWNER = "0x1111111111111111111111111111111111111111";
 const RECIPIENT = "0x2222222222222222222222222222222222222222";
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+const CBBTC = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf";
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 const USER_OPERATION_HASH = `0x${"ab".repeat(32)}`;
 const TRANSACTION_HASH = `0x${"cd".repeat(32)}`;
@@ -19,19 +20,22 @@ const EXPIRES_AT = new Date(Date.now() + 10 * 60_000).toISOString();
 
 type ActionStatus = "unconfirmed" | "pending" | "confirmed";
 
-function action() {
-  const amount = "1000000";
+function action(transfer: { assetId: "usdc" | "cbbtc"; amountBaseUnits: string } = { assetId: "usdc", amountBaseUnits: "1000000" }) {
+  const asset = transfer.assetId === "cbbtc"
+    ? { symbol: "cbBTC", decimals: 8, token: CBBTC }
+    : { symbol: "USDC", decimals: 6, token: USDC };
+  const amount = transfer.amountBaseUnits;
   return {
     id: ACTION_ID,
     owner: { subject: "playwright-smoke-subject", address: OWNER, chainId: 8453, accountProvider: "cdp-embedded" },
     kind: "send",
-    title: "Send USDC",
+    title: `Send ${asset.symbol}`,
     calls: [{
-      to: USDC,
+      to: asset.token,
       data: `0xa9059cbb${RECIPIENT.slice(2).padStart(64, "0")}${BigInt(amount).toString(16).padStart(64, "0")}`,
       value: "0",
     }],
-    amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: amount, direction: "spend" }],
+    amounts: [{ assetId: transfer.assetId, symbol: asset.symbol, decimals: asset.decimals, amountBaseUnits: amount, direction: "spend" }],
     warnings: [`Recipient: ${RECIPIENT}`, "Network fee shown by wallet."],
     createdAt: CREATED_AT,
     expiresAt: EXPIRES_AT,
@@ -108,6 +112,36 @@ function savingsPositions() {
   };
 }
 
+function cbBtcValuation() {
+  const base = valuation();
+  const assetKey = `eip155:8453/erc20:${CBBTC}` as const;
+  const holding = {
+    kind: "direct" as const,
+    id: "cbbtc",
+    assetKey,
+    name: "Coinbase Wrapped BTC",
+    symbol: "cbBTC",
+    decimals: 8,
+    assetKind: "erc20" as const,
+    contractAddress: CBBTC,
+    cashCurrency: null,
+    balanceBaseUnits: "100000",
+    readStatus: "ready" as const,
+  };
+  return {
+    ...base,
+    inventory: {
+      ...base.inventory,
+      holdings: [base.inventory.holdings[0], base.inventory.holdings[1], holding, ...base.inventory.holdings.slice(2)],
+    },
+    lines: [
+      ...base.lines,
+      { holdingAssetKey: assetKey, valueCurrency: "USD", value: { atoms: "6000", scale: 2 }, status: "priced", reason: null },
+    ],
+    total: { ...base.total, value: { atoms: "7234", scale: 2 } },
+  };
+}
+
 function recognizedValuation() {
   const base = valuation();
   return {
@@ -164,15 +198,16 @@ async function json(route: Route, body: unknown) {
 
 async function installApiFixtures(
   page: Page,
-  options: { portfolioValuation?: ReturnType<typeof valuation> } = {},
+  options: { portfolioValuation?: unknown; failHandleOnce?: boolean } = {},
 ) {
   let status: ActionStatus = "unconfirmed";
+  let currentAction = action();
   let valuationReads = 0;
   let activityReads = 0;
   let delayedValuation: Promise<void> | null = null;
   let releaseDelayedValuation: (() => void) | null = null;
   let handleRecorded = false;
-  let failHandleResponseOnce = true;
+  let failHandleResponseOnce = options.failHandleOnce ?? true;
   let fundingStatusReads = 0;
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -184,8 +219,15 @@ async function installApiFixtures(
       if (delayedValuation) await delayedValuation;
       return json(route, options.portfolioValuation ?? valuation());
     }
-    if (path === "/api/actions/prepare" && request.method() === "POST") { status = "unconfirmed"; return json(route, action()); }
-    if (path === `/api/actions/${ACTION_ID}/confirm`) { status = "pending"; return json(route, { id: ACTION_ID, calls: action().calls, summary: { title: "Send USDC", amounts: action().amounts, warnings: action().warnings, expiresAt: EXPIRES_AT }, expiresAt: EXPIRES_AT }); }
+    if (path === "/api/actions/prepare" && request.method() === "POST") {
+      const body = request.postDataJSON() as { kind?: string; params?: { assetId?: string; amountBaseUnits?: string } };
+      if (body.kind === "send" && (body.params?.assetId === "usdc" || body.params?.assetId === "cbbtc") && typeof body.params.amountBaseUnits === "string") {
+        currentAction = action({ assetId: body.params.assetId, amountBaseUnits: body.params.amountBaseUnits });
+      }
+      status = "unconfirmed";
+      return json(route, currentAction);
+    }
+    if (path === `/api/actions/${ACTION_ID}/confirm`) { status = "pending"; return json(route, { id: ACTION_ID, calls: currentAction.calls, summary: { title: currentAction.title, amounts: currentAction.amounts, warnings: currentAction.warnings, expiresAt: EXPIRES_AT }, expiresAt: EXPIRES_AT }); }
     if (path === `/api/actions/${ACTION_ID}/handle`) {
       const body = request.postDataJSON() as { providerHandle?: string; transactionHash?: string };
       if (body.transactionHash) {
@@ -197,9 +239,9 @@ async function installApiFixtures(
       return json(route, { action: { id: ACTION_ID, status: "pending", providerHandle: USER_OPERATION_HASH } });
     }
     if (path === `/api/actions/${ACTION_ID}`) return json(route, status === "unconfirmed"
-      ? { id: ACTION_ID, kind: "send", summary: { title: "Send USDC", amounts: action().amounts, warnings: action().warnings, expiresAt: EXPIRES_AT }, calls: action().calls, expiresAt: EXPIRES_AT }
+      ? { id: ACTION_ID, kind: "send", summary: { title: currentAction.title, amounts: currentAction.amounts, warnings: currentAction.warnings, expiresAt: EXPIRES_AT }, calls: currentAction.calls, expiresAt: EXPIRES_AT }
       : { action: { id: ACTION_ID, status: "pending", providerHandle: handleRecorded ? USER_OPERATION_HASH : undefined } });
-    if (path === "/api/actions") return json(route, { actions: status === "pending" || status === "confirmed" ? [{ id: ACTION_ID, provider: "cdp-embedded", kind: "send", summary: { title: "Send USDC", amounts: action().amounts, warnings: action().warnings, expiresAt: EXPIRES_AT }, status, createdAt: CREATED_AT, confirmedAt: CREATED_AT, providerHandle: handleRecorded ? USER_OPERATION_HASH : undefined, transactionHash: status === "confirmed" ? TRANSACTION_HASH : undefined, owner: action().owner }] : [] });
+    if (path === "/api/actions") return json(route, { actions: status === "pending" || status === "confirmed" ? [{ id: ACTION_ID, provider: "cdp-embedded", kind: "send", summary: { title: currentAction.title, amounts: currentAction.amounts, warnings: currentAction.warnings, expiresAt: EXPIRES_AT }, status, createdAt: CREATED_AT, confirmedAt: CREATED_AT, providerHandle: handleRecorded ? USER_OPERATION_HASH : undefined, transactionHash: status === "confirmed" ? TRANSACTION_HASH : undefined, owner: currentAction.owner }] : [] });
     if (path === "/api/activity") {
       activityReads += 1;
       const to = url.searchParams.get("to") ?? new Date().toISOString();
@@ -313,6 +355,36 @@ test("recognized token is nested-Balances-only and never enters Send availabilit
   await expect(send.getByText("Recognized Coin", { exact: true })).toHaveCount(0);
   await expect(send.getByText("RCG", { exact: true })).toHaveCount(0);
   await expect(send.getByText(/12\.34 available/)).toBeVisible();
+});
+
+test("sends a held catalog cbBTC balance with one asset selector indicator", async ({ page }) => {
+  const fixture = cbBtcValuation();
+  parsePortfolioValuationSnapshot(fixture, {
+    subject: "playwright-smoke-subject",
+    smartAccountAddress: OWNER,
+    chainId: 8453,
+  }, "US");
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page, { portfolioValuation: fixture, failHandleOnce: false });
+  await signIn(page);
+
+  await page.getByRole("button", { name: "Send" }).click();
+  const send = page.getByRole("dialog", { name: "Send" });
+  const selector = send.getByRole("combobox", { name: "Asset" });
+  await expect(selector).toBeVisible();
+  await expect(send.locator(".lucide-chevron-down")).toHaveCount(0);
+  await selector.selectOption("cbbtc");
+  await expect(send.getByRole("img", { name: "0.001 cbBTC available" })).toBeVisible();
+  await typeAmount(page, "0.001");
+  await send.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
+  await send.getByRole("button", { name: "Continue" }).click();
+  const confirm = page.getByRole("dialog", { name: "Confirm" });
+  await expect(confirm.getByText("You're sending cbBTC", { exact: true })).toBeVisible();
+  await confirm.getByRole("button", { name: "Send 0.001 cbBTC" }).click();
+  await expect(confirm).toBeHidden();
+  await expect(page.getByText("Sent 0.001 cbBTC to 0x2222…222222", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem("home:playwright-smoke:dispatch-count"))).toBe("1");
 });
 
 test("ambiguous handle response retries without a second wallet dispatch", async ({ page }) => {

@@ -3,7 +3,7 @@
 import { Button, Select, Text } from "@home/ui";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDownUp, ChevronDown, Delete } from "lucide-react";
+import { ArrowDownUp, Delete } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { applyNumpadKey, type NumpadKey } from "./numpad";
@@ -316,7 +316,6 @@ export function MoneyAssetPicker({
         aria-label="Asset"
         value={assetId}
         onChange={(event) => onAssetChange?.(event.target.value)}
-        suffix={<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />}
       >
         {assetOptions?.map((option) => (
           <option key={option.id} value={option.id}>
