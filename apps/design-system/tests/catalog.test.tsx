@@ -54,6 +54,15 @@ test("catalog renders real package exports and deterministic specimen controls",
   expect(ticker?.getAttribute("aria-label")).toBe("$1,234.56");
   fireEvent.click(page.getByRole("button", { name: "Update balance ticker" }));
   expect(ticker?.getAttribute("aria-label")).toBe("$9,876.54");
+  const entryTicker = container.querySelector<HTMLElement>("[data-entry-ticker-specimen]");
+  expect(entryTicker?.getAttribute("aria-label")).toBe("$0");
+  expect(entryTicker?.getAttribute("data-reserve-digits")).toBe("false");
+  expect(entryTicker?.style.minInlineSize).toBe("2ch");
+  fireEvent.click(page.getByRole("button", { name: "Update entry ticker" }));
+  expect(entryTicker?.getAttribute("aria-label")).toBe("$258");
+  expect(entryTicker?.style.minInlineSize).toBe("4ch");
+  fireEvent.click(page.getByRole("button", { name: "Update entry ticker" }));
+  expect(entryTicker?.style.minInlineSize).toBe("2ch");
   expect(page.getByRole("button", { name: "Confirm" }).hasAttribute("hapticfeedback")).toBe(false);
   const activationStatus = container.querySelector("output");
   fireEvent.click(button);

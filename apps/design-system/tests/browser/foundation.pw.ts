@@ -249,6 +249,43 @@ test("interactive ListRows follow keyboard order and native activation", async (
   await expect(linked).toHaveAttribute("href", "#list-row-title");
 });
 
+test("ListRow hover stays inset, disabled rows stay quiet, and labels use medium weight", async ({ page }) => {
+  await page.goto("/");
+  const row = page.getByRole("button", { name: /Received from a wallet/ });
+  const label = row.locator(".home-ui-list-row__label");
+  const value = row.locator(".home-ui-list-row__value-primary");
+  await expect(label).toHaveCSS("font-weight", "500");
+  await expect(value).toHaveCSS("font-weight", "500");
+
+  await row.hover();
+  await expect(row).toHaveCSS("background-color", "rgb(238, 240, 244)");
+  await expect(row).toHaveCSS("background-clip", "content-box");
+  await expect(row).toHaveCSS("border-radius", "6px");
+
+  await page.getByRole("checkbox", { name: "Disabled", exact: true }).check();
+  await expect(row).toBeDisabled();
+  await row.hover({ force: true });
+  await expect(row).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+});
+
+test("MoneyTicker can follow keypad character count while the default keeps its reservation", async ({ page }) => {
+  await page.goto("/");
+  const balance = page.locator("[data-ticker-specimen]");
+  const entry = page.locator("[data-entry-ticker-specimen]");
+  await expect(balance).toHaveAttribute("data-reserve-digits", "true");
+  await expect(entry).toHaveAttribute("data-reserve-digits", "false");
+  const shortWidth = await entry.evaluate((element) => Number.parseFloat(getComputedStyle(element).minWidth));
+
+  await page.getByRole("button", { name: "Update entry ticker" }).click();
+  await expect(entry).toHaveAttribute("aria-label", "$258");
+  const longWidth = await entry.evaluate((element) => Number.parseFloat(getComputedStyle(element).minWidth));
+  expect(longWidth).toBeCloseTo(shortWidth * 2, 1);
+  await page.getByRole("button", { name: "Update entry ticker" }).click();
+  await expect(entry).toHaveAttribute("aria-label", "$0");
+  const resetWidth = await entry.evaluate((element) => Number.parseFloat(getComputedStyle(element).minWidth));
+  expect(resetWidth).toBeCloseTo(shortWidth, 1);
+});
+
 test("narrow normal-size icon buttons retain shared 44px geometry", async ({ page }) => {
   for (const [width, rootSize] of [[320, "16px"], [390, "16px"], [320, "12px"]] as const) {
     await page.setViewportSize({ width, height: 900 });
@@ -266,9 +303,13 @@ test("narrow normal-size icon buttons retain shared 44px geometry", async ({ pag
 test("shared radii, press motion, layout spacing, and surface colors render from the package", async ({ page }) => {
   await page.goto("/");
   const primary = page.getByRole("button", { name: "Primary", exact: true });
+  const quiet = page.getByRole("button", { name: "Quiet", exact: true });
   const iconButton = page.getByRole("button", { name: "Add example" });
   await expect(primary).toHaveCSS("border-radius", "6px");
   await expect(iconButton).toHaveCSS("border-radius", "6px");
+  await expect(quiet).toHaveCSS("color", "rgb(10, 11, 13)");
+  await quiet.hover();
+  await expect(quiet).toHaveCSS("background-color", "rgb(238, 240, 244)");
 
   for (const button of [primary, iconButton]) {
     await button.hover();

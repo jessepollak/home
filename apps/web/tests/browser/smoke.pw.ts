@@ -272,11 +272,17 @@ async function amountMetrics(page: Page) {
     const ticker = node?.querySelector<HTMLElement>("[role='img']");
     if (!node || !ticker) return null;
     const style = getComputedStyle(node);
-    const textWidth = ticker.getBoundingClientRect().width;
+    const containerBounds = node.getBoundingClientRect();
+    const tickerBounds = ticker.getBoundingClientRect();
+    const textWidth = tickerBounds.width;
     const padding = (name: "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft") =>
       Number.parseFloat(style[name]) || 0;
     return {
       text: ticker.getAttribute("aria-label"),
+      containerLeft: containerBounds.left,
+      containerRight: containerBounds.right,
+      tickerLeft: tickerBounds.left,
+      tickerRight: tickerBounds.right,
       clientWidth: node.clientWidth,
       scrollWidth: node.scrollWidth,
       fontSize: Number.parseFloat(style.fontSize),
@@ -288,6 +294,11 @@ async function amountMetrics(page: Page) {
       textWidth,
     };
   });
+}
+
+function expectTickerInsideAmount(metrics: NonNullable<Awaited<ReturnType<typeof amountMetrics>>>) {
+  expect(metrics.tickerLeft).toBeGreaterThanOrEqual(metrics.containerLeft - 0.5);
+  expect(metrics.tickerRight).toBeLessThanOrEqual(metrics.containerRight + 0.5);
 }
 
 test("recognized token is nested-Balances-only and never enters Send availability", async ({ page }) => {
@@ -525,6 +536,8 @@ test("send modal leaves action-row trigger styling at 390px", async ({ page }) =
     page.evaluate(() => Boolean(document.querySelector("dialog")?.closest(".action-row"))),
   ).toBe(false);
 
+  const close = dialog.getByRole("button", { name: "Close send dialog" });
+  await expect(close).toHaveCSS("color", "rgb(10, 11, 13)");
   const primary = dialog.getByRole("button", { name: "Continue" });
   await expect(primary).toBeVisible();
   const primaryStyle = await primary.evaluate((element) => {
@@ -548,11 +561,24 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   await page.getByRole("button", { name: "Send" }).click();
 
   const amount = page.locator("[data-primary-amount]");
+  await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$0");
+  const zeroAt320 = await amountMetrics(page);
+  expectTickerInsideAmount(zeroAt320!);
+
+  await typeAmount(page, "258");
+  await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$258");
+  const twoFiftyEightAt320 = await amountMetrics(page);
+  expectTickerInsideAmount(twoFiftyEightAt320!);
+  for (let index = 0; index < 3; index += 1) {
+    await page.getByRole("button", { name: "Delete last digit", exact: true }).click();
+  }
+
   await typeAmount(page, "123456789012.123456");
   await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$123456789012.123456");
 
   const at320 = await amountMetrics(page);
   expect(at320?.text).toBe("$123456789012.123456");
+  expectTickerInsideAmount(at320!);
   expect(at320?.clientWidth).toBeGreaterThanOrEqual(270);
   expect(at320?.clientWidth).toBeLessThanOrEqual(285);
   expect(at320?.scrollWidth).toBeLessThanOrEqual((at320?.clientWidth ?? 0) + 2);
@@ -570,6 +596,7 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "123456789012.123456");
   const native = await amountMetrics(page);
   expect(native?.text).toBe("123456789012.123456");
+  expectTickerInsideAmount(native!);
   expect(native?.scrollWidth).toBeLessThanOrEqual((native?.clientWidth ?? 0) + 2);
   expect(native?.fontSize).toBeGreaterThanOrEqual(20);
   expect(native?.fontSize).toBeLessThan(51.2);
@@ -582,6 +609,7 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   await expect.poll(async () => (await amountMetrics(page))?.fontSize)
     .toBeGreaterThan((native?.fontSize ?? 0) + 1);
   const at390 = await amountMetrics(page);
+  expectTickerInsideAmount(at390!);
   expect(at390?.clientWidth).toBeGreaterThanOrEqual(340);
   expect(at390?.clientWidth).toBeLessThanOrEqual(355);
   expect(at390?.scrollWidth).toBeLessThanOrEqual((at390?.clientWidth ?? 0) + 2);
@@ -592,9 +620,27 @@ test("money amount auto-fits the longest local and native values at 320px and 39
     (at390?.clientWidth ?? 0) - (at390?.paddingLeft ?? 0) - (at390?.paddingRight ?? 0) + 2,
   );
 
-  // Deleting back to a short amount must grow the type back (the ticker's digit
-  // reservation must not pin the shrunken size).
-  const shrunk = at390?.fontSize ?? 0;
+  await page.getByRole("button", { name: /as the primary amount/ }).click();
+  await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$123456789012.123456");
+  for (let index = 0; index < 20; index += 1) {
+    await page.getByRole("button", { name: "Delete last digit", exact: true }).click();
+  }
+  await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$0");
+  expectTickerInsideAmount((await amountMetrics(page))!);
+  await typeAmount(page, "258");
+  await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$258");
+  expectTickerInsideAmount((await amountMetrics(page))!);
+  for (let index = 0; index < 3; index += 1) {
+    await page.getByRole("button", { name: "Delete last digit", exact: true }).click();
+  }
+  await typeAmount(page, "123456789012.123456");
+  await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$123456789012.123456");
+  const regrownAt390 = await amountMetrics(page);
+  expectTickerInsideAmount(regrownAt390!);
+
+  // Deleting back to a short amount must grow the type back without remounting
+  // the ticker or pinning the shrunken size.
+  const shrunk = regrownAt390?.fontSize ?? 0;
   for (let index = 0; index < 17; index += 1) {
     await page.getByRole("button", { name: "Delete last digit", exact: true }).click();
   }

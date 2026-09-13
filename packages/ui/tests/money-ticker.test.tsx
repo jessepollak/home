@@ -45,3 +45,32 @@ test("a placeholder replaces animated digits immediately", () => {
   expect(ticker?.querySelector(".home-ui-money-ticker__track")?.textContent).toBe("—");
   expect(view.container.querySelector("number-flow-react")).toBeNull();
 });
+
+test("reserveDigits can follow the current character count without remounting", () => {
+  const view = render(<MoneyTicker value="$0" reserveDigits={false} />);
+  const ticker = view.container.querySelector<HTMLElement>(".home-ui-money-ticker");
+  const rightmostDigit = view.container.querySelector("number-flow-react")!;
+  expect(ticker?.style.minInlineSize).toBe("2ch");
+  expect(ticker?.getAttribute("data-reserve-digits")).toBe("false");
+
+  view.rerender(<MoneyTicker value="$25" reserveDigits={false} />);
+  expect(ticker?.style.minInlineSize).toBe("3ch");
+  expect(view.container.querySelectorAll("number-flow-react")[1]).toBe(rightmostDigit);
+
+  view.rerender(<MoneyTicker value="$258" reserveDigits={false} />);
+  expect(ticker?.style.minInlineSize).toBe("4ch");
+  expect(view.container.querySelectorAll("number-flow-react")[2]).toBe(rightmostDigit);
+
+  view.rerender(<MoneyTicker value="$0" reserveDigits={false} />);
+  expect(ticker?.style.minInlineSize).toBe("2ch");
+});
+
+test("balances keep grow-only character reservation by default", () => {
+  const view = render(<MoneyTicker value="$258" />);
+  const ticker = view.container.querySelector<HTMLElement>(".home-ui-money-ticker");
+  expect(ticker?.style.minInlineSize).toBe("4ch");
+  expect(ticker?.getAttribute("data-reserve-digits")).toBe("true");
+
+  view.rerender(<MoneyTicker value="$0" />);
+  expect(ticker?.style.minInlineSize).toBe("4ch");
+});

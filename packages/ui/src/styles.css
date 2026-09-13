@@ -161,7 +161,7 @@
 }
 .home-ui-button:where([data-variant="quiet"]) {
   background: transparent;
-  color: var(--home-ui-color-action);
+  color: var(--fg, var(--home-ui-color-text));
 }
 @media (hover: hover) {
   .home-ui-button:enabled:hover { background: var(--home-ui-color-action-hover); }
@@ -549,6 +549,7 @@
 .home-ui-list-row:where([data-has-leading="false"][data-interactive="true"][data-selection="true"]) .home-ui-list-row__content { grid-template-columns: minmax(0, 1fr) minmax(0, 40%); }
 .home-ui-list-row:where([data-has-leading="false"][data-interactive="true"][data-selection="true"][data-has-value="false"]) .home-ui-list-row__content { grid-template-columns: minmax(0, 1fr); }
 .home-ui-list-row__control {
+  background-clip: content-box;
   text-decoration: none;
   cursor: pointer;
   touch-action: manipulation;
@@ -559,9 +560,9 @@
   cursor: not-allowed;
 }
 @media (hover: hover) {
-  .home-ui-list-row__control:not(:disabled):hover { background: var(--home-ui-color-subtle-hover); }
+  .home-ui-list-row__control:not(:disabled):hover { background-color: var(--home-ui-color-subtle-hover); }
 }
-.home-ui-list-row__control:not(:disabled):active { background: var(--home-ui-color-subtle-pressed); }
+.home-ui-list-row__control:not(:disabled):active { background-color: var(--home-ui-color-subtle-pressed); }
 .home-ui-list-row__control:focus-visible {
   outline: 2px solid var(--home-ui-color-focus);
   outline-offset: 1px;
@@ -587,7 +588,7 @@
 }
 .home-ui-list-row__label {
   font-size: var(--home-ui-type-row-label-size);
-  font-weight: var(--home-ui-type-weight-strong);
+  font-weight: var(--home-ui-type-weight-medium);
 }
 .home-ui-list-row__description,
 .home-ui-list-row__value-description {

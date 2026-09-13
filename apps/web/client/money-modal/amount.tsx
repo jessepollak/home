@@ -101,9 +101,9 @@ export function useAutoFitAmountText(text: string) {
       const available = container.clientWidth - horizontalPadding;
       const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
       const currentSize = Number.parseFloat(computed.fontSize);
-      // Measure the ticker box itself (what is laid out). Its digit reservation only
-      // grows, so the primary ticker is keyed on the text length below: a shortened
-      // amount remounts with a fresh reservation and grows back.
+      // Measure the ticker box itself (what is laid out). The primary ticker opts
+      // out of grow-only digit reservation, so deleting digits shrinks this box and
+      // lets the amount return to its full type size without remounting the ticker.
       const ticker = container.querySelector<HTMLElement>(".home-ui-money-ticker");
       const renderedNatural = ticker?.offsetWidth || sizer.getBoundingClientRect().width;
       if (available <= 0 || renderedNatural <= 0 || !Number.isFinite(base) || base <= 0) return;
@@ -263,9 +263,9 @@ export function MoneyPrimaryAmount({
         style={fontSize === undefined ? undefined : { fontSize }}
       >
         <MoneyTicker
-          key={Array.from(text).length}
           value={text}
-          style={scaleX < 1 ? { transform: `scaleX(${scaleX})`, transformOrigin: "left center" } : undefined}
+          reserveDigits={false}
+          style={scaleX < 1 ? { transform: `scaleX(${scaleX})`, transformOrigin: "center" } : undefined}
         />
       </div>
       <span

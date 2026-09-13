@@ -169,6 +169,7 @@
 }
 
 .assetAmount {
+  box-sizing: border-box;
   display: flex;
   width: 100%;
   max-width: 100%;
@@ -179,6 +180,13 @@
   letter-spacing: -0.06em;
   line-height: 1;
   white-space: nowrap;
+}
+
+.assetAmount :global(.home-ui-money-ticker__track) {
+  /* Negative amount letter-spacing narrows the final glyph's layout box. Keep
+     its ink inside the measured ticker instead of letting a clipping ancestor
+     shave the right edge at the base size. */
+  padding-inline-end: 0.06em;
 }
 
 .amountSizer {

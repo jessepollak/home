@@ -36,6 +36,8 @@ export type MoneyTickerProps = Omit<
   value: string;
   /** Disables transitions while preserving the exact formatted value. */
   animated?: boolean;
+  /** Keeps the ticker's widest rendered character count to prevent balance rows from shifting. */
+  reserveDigits?: boolean;
 };
 
 /**
@@ -63,6 +65,7 @@ export function splitMoneyTickerValue(value: string): MoneyTickerParts {
 export function MoneyTicker({
   value,
   animated = true,
+  reserveDigits = true,
   className,
   style,
   ...props
@@ -74,14 +77,14 @@ export function MoneyTicker({
   const characterCount = Array.from(value).length;
   const [reservedCharacters, setReservedCharacters] = useState(characterCount);
 
-  if (characterCount > reservedCharacters) {
+  if (reserveDigits && characterCount > reservedCharacters) {
     setReservedCharacters(characterCount);
   }
 
   let digitIndex = 0;
   const tickerStyle = {
     ...style,
-    minInlineSize: `${reservedCharacters}ch`,
+    minInlineSize: `${reserveDigits ? reservedCharacters : characterCount}ch`,
   } satisfies CSSProperties;
 
   return (
@@ -91,6 +94,7 @@ export function MoneyTicker({
       style={tickerStyle}
       role="img"
       aria-label={props["aria-label"] ?? value}
+      data-reserve-digits={reserveDigits ? "true" : "false"}
       data-reserved-digits={digitCount}
     >
       <span className="home-ui-money-ticker__fallback" aria-hidden="true">

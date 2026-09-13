@@ -164,6 +164,7 @@ export function FoundationCatalog() {
   const [rowActivations, setRowActivations] = useState(0);
   const [segmentedValue, setSegmentedValue] = useState("1D");
   const [tickerValue, setTickerValue] = useState("$1,234.56");
+  const [entryTickerValue, setEntryTickerValue] = useState("$0");
   const primaryRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -316,6 +317,7 @@ export function FoundationCatalog() {
               valueDescription="Confirmed"
               tone="success"
               onPress={() => setRowActivations((count) => count + 1)}
+              disabled={disabled}
               actionHint="Open received transaction"
             />
             <ListRow
@@ -439,6 +441,20 @@ export function FoundationCatalog() {
             onClick={() => setTickerValue((current) => current === "$1,234.56" ? "$9,876.54" : "$1,234.56")}
           >
             Update balance ticker
+          </Button>
+          <Text textStyle="secondary" tone="muted">Keypad entry follows the current character count without remounting.</Text>
+          <MoneyTicker
+            className="home-ui-text"
+            data-text-style="row-value"
+            data-entry-ticker-specimen
+            reserveDigits={false}
+            value={entryTickerValue}
+          />
+          <Button
+            variant="secondary"
+            onClick={() => setEntryTickerValue((current) => current === "$0" ? "$258" : "$0")}
+          >
+            Update entry ticker
           </Button>
         </section>
 
