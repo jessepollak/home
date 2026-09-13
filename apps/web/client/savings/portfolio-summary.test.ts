@@ -131,24 +131,44 @@ describe("savings portfolio summary", () => {
     expect(stale.apy.status).toBe("stale");
   });
 
-  test("uses state and source timestamps for a bounded freshness decision", () => {
+  test("separates read freshness from Morpho indexed-state age", () => {
     const fresh = candidate(VAULT_A, 0.04);
-    expect(getSavingsRateState(fresh, {
-      metadataFetchedAt: "2026-09-10T12:00:00.000Z",
-      nowMs: TEST_NOW,
-    })).toEqual({ status: "available", value: 0.04 });
+    const cases = [
+      {
+        name: "fresh read with a three-hour-old indexed state",
+        candidate: { ...fresh, stateAsOf: new Date(TEST_NOW - 3 * 60 * 60_000).toISOString() },
+        metadataFetchedAt: new Date(TEST_NOW).toISOString(),
+        expected: { status: "available", value: 0.04 },
+      },
+      {
+        name: "six-minute-old source read",
+        candidate: { ...fresh, source: { ...fresh.source, fetchedAt: new Date(TEST_NOW - 6 * 60_000).toISOString() } },
+        metadataFetchedAt: new Date(TEST_NOW).toISOString(),
+        expected: { status: "stale", value: null },
+      },
+      {
+        name: "twenty-five-hour-old indexed state",
+        candidate: { ...fresh, stateAsOf: new Date(TEST_NOW - 25 * 60 * 60_000).toISOString() },
+        metadataFetchedAt: new Date(TEST_NOW).toISOString(),
+        expected: { status: "stale", value: null },
+      },
+      {
+        name: "future source skew",
+        candidate: { ...fresh, source: { ...fresh.source, fetchedAt: new Date(TEST_NOW + 60_001).toISOString() } },
+        metadataFetchedAt: new Date(TEST_NOW).toISOString(),
+        expected: { status: "unavailable", value: null },
+      },
+    ] as const;
 
-    const expiredAtBoundary = {
-      ...fresh,
-      stateAsOf: new Date(TEST_NOW - 5 * 60_000 - 1).toISOString(),
-    };
-    expect(getSavingsRateState(expiredAtBoundary, {
-      metadataFetchedAt: "2026-09-10T12:00:00.000Z",
-      nowMs: TEST_NOW,
-    })).toEqual({ status: "stale", value: null });
+    for (const entry of cases) {
+      expect(getSavingsRateState(entry.candidate, {
+        metadataFetchedAt: entry.metadataFetchedAt,
+        nowMs: TEST_NOW,
+      }), entry.name).toEqual(entry.expected);
+    }
 
     expect(getSavingsRateState({ ...fresh, stateAsOf: null }, {
-      metadataFetchedAt: "2026-09-10T12:00:00.000Z",
+      metadataFetchedAt: new Date(TEST_NOW).toISOString(),
       nowMs: TEST_NOW,
     })).toEqual({ status: "unavailable", value: null });
     expect(getSavingsRateState(fresh, {

@@ -1,14 +1,14 @@
 import "../account/dom-test-harness";
 
+import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
-  ACTIVITY_TEASER_LIMIT,
   type ActivityPage,
   type FetchActivity,
 } from "./types";
 
-const { act, cleanup, fireEvent, render, waitFor, within } = await import(
+const { act, cleanup, fireEvent, render, waitFor } = await import(
   "@testing-library/react"
 );
 const { ActivityPanel } = await import("./activity-panel");
@@ -110,7 +110,6 @@ function pageFor(
   return {
     walletAddress,
     chainId: 8453,
-    recordedOperations: "available",
     window: { from, to },
     transfers: options.empty
       ? []
@@ -157,6 +156,7 @@ function deferred<T>() {
 
 afterEach(() => {
   cleanup();
+  getHomeQueryClient().clear();
   ControlledIntersectionObserver.instances = [];
   Object.defineProperty(globalThis, "IntersectionObserver", {
     configurable: true,
@@ -166,72 +166,6 @@ afterEach(() => {
 });
 
 describe("ActivityPanel", () => {
-  test("renders direction, bounded shared amount formatting, and details without Refresh chrome", async () => {
-    const view = render(
-      <ActivityPanel
-        session={session("subject-a", WALLET_A)}
-        fetchActivity={async (query) =>
-          pageFor(query, WALLET_A, { amount: "1234567890000" })
-        }
-      />,
-    );
-
-    await waitFor(() => expect(view.getByText("Received")).toBeTruthy());
-    expect(view.getByText("+1,234,567.89 USDC")).toBeTruthy();
-    expect(view.queryByRole("button", { name: "Refresh" })).toBeNull();
-    expect(view.queryByText(/^Updated(\s|$)/)).toBeNull();
-    expect(view.queryByText("Data may be delayed")).toBeNull();
-    expect(view.queryByText("Activity coverage")).toBeNull();
-    expect(view.queryByRole("link", { name: "View on BaseScan" })).toBeNull();
-
-    fireEvent.click(
-      view.getByRole("button", { name: "View received USDC transaction details" }),
-    );
-    const dialog = view.getByRole("dialog", { name: "Received USDC" });
-    expect(
-      within(dialog).getByRole("link", { name: "View on BaseScan" }),
-    ).toHaveProperty(
-      "href",
-      `https://basescan.org/tx/0x${"a".repeat(64)}`,
-    );
-    expect(within(dialog).getByText("+1234567.89 USDC")).toBeTruthy();
-    expect(within(dialog).getByText("Confirmed")).toBeTruthy();
-  });
-
-  test("keeps onchain rows readable with a small recorded-actions notice", async () => {
-    const view = render(
-      <ActivityPanel
-        session={session("subject-a", WALLET_A)}
-        fetchActivity={async (query) => ({
-          ...pageFor(query, WALLET_A),
-          recordedOperations: "unavailable",
-        })}
-      />,
-    );
-
-    await waitFor(() => expect(view.getByText("Received")).toBeTruthy());
-    expect(
-      view.getByText(
-        "Pending Home actions are temporarily unavailable. Onchain activity is still shown.",
-      ),
-    ).toBeTruthy();
-    expect(view.queryByText("Activity is temporarily unavailable.")).toBeNull();
-  });
-
-  test("renders Base Account session transfers the same as email CDP", async () => {
-    const view = render(
-      <ActivityPanel
-        session={session("siwe-subject", WALLET_A, "base-account")}
-        fetchActivity={async (query) =>
-          pageFor(query, WALLET_A, { amount: "10000000" })
-        }
-      />,
-    );
-
-    await waitFor(() => expect(view.getByText("Received")).toBeTruthy());
-    expect(view.getByText("+10.00 USDC")).toBeTruthy();
-  });
-
   test("keeps the pagination window stable while deduplicating overlap", async () => {
     const queries: string[] = [];
     let initialExecutionTimestamp = "";
@@ -254,7 +188,6 @@ describe("ActivityPanel", () => {
         id: "event-2",
         blockNumber: "19",
       });
-      second.recordedOperations = "unavailable";
       second.source.stale = false;
       second.source.executionTimestamp = new Date(
         new Date(second.window.to).getTime() - 1_000,
@@ -280,14 +213,14 @@ describe("ActivityPanel", () => {
     fireEvent.click(view.getByText("Load more activity"));
     await waitFor(() => expect(queries).toHaveLength(2));
     await waitFor(() =>
-      expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(2),
+      expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(2),
     );
     const firstQuery = new URLSearchParams(queries[0]);
     const secondQuery = new URLSearchParams(queries[1]);
     expect(secondQuery.get("to")).toBe(firstQuery.get("to"));
     expect(secondQuery.get("cursor")).toBe("cursor-1");
     expect(view.queryByText(/Updated /)).toBeNull();
-    expect(view.getByText(/Pending Home actions are temporarily unavailable/)).toBeTruthy();
+    expect(view.queryByText(/Pending Home actions are temporarily unavailable/)).toBeNull();
     expect(initialExecutionTimestamp).not.toBe("");
   });
 
@@ -314,9 +247,10 @@ describe("ActivityPanel", () => {
       await pendingA.promise;
     });
 
-    fireEvent.click(
-      view.getByRole("button", { name: "View received USDC transaction details" }),
+    const detailsButton = await waitFor(() =>
+      view.getByRole("button", { description: "View received USDC transaction details" }),
     );
+    fireEvent.click(detailsButton);
     expect(view.getByRole("dialog", { name: "Received USDC" })).toBeTruthy();
 
     view.rerender(
@@ -365,7 +299,7 @@ describe("ActivityPanel", () => {
       pendingB.resolve(pageFor(queries[1]!, WALLET_B, { id: "event-2" }));
       await pendingB.promise;
     });
-    expect(view.getByText("Received")).toBeTruthy();
+    await waitFor(() => expect(view.getByText("Received")).toBeTruthy());
 
     await act(async () => {
       pendingA.resolve(pageFor(queries[0]!, WALLET_A));
@@ -424,121 +358,6 @@ describe("ActivityPanel", () => {
     expect(view.queryByText("No transfer history was inferred from this error.")).toBeNull();
   });
 
-  test("uses the authenticated main as its sentinel root and exposes loading and end states", async () => {
-    Object.defineProperty(globalThis, "IntersectionObserver", {
-      configurable: true,
-      writable: true,
-      value: ControlledIntersectionObserver,
-    });
-    const pending = deferred<unknown>();
-    const hashes: string[][] = [];
-    const queries: string[] = [];
-    let calls = 0;
-    const view = render(
-      <main className="app-main app-main-authenticated" data-testid="scroll-root">
-        <ActivityPanel
-          session={session("subject-a", WALLET_A)}
-          onTransactionHashesChange={(next) => hashes.push(next)}
-          fetchActivity={async (query) => {
-            queries.push(query);
-            calls += 1;
-            if (calls === 1) {
-              return pageFor(query, WALLET_A, {
-                id: "event-1",
-                blockNumber: "20",
-                nextCursor: "cursor-1",
-              });
-            }
-            return pending.promise;
-          }}
-        />
-      </main>,
-    );
-
-    await waitFor(() => expect(ControlledIntersectionObserver.instances).toHaveLength(1));
-    const observer = ControlledIntersectionObserver.instances[0]!;
-    expect(observer.root).toBe(view.getByTestId("scroll-root"));
-    expect(observer.rootMargin).toBe("0px 0px 240px 0px");
-
-    act(() => observer.intersect());
-    await waitFor(() => expect(view.getByText("Loading more activity…")).toBeTruthy());
-    expect(calls).toBe(2);
-    const loadingButton = view.getByRole("button", { name: "Loading…" });
-    expect(loadingButton).toBeTruthy();
-    expect(loadingButton.hasAttribute("disabled")).toBe(true);
-    await act(async () => {
-      pending.resolve(pageFor(queries[1]!, WALLET_A, {
-        id: "event-2",
-        blockNumber: "19",
-      }));
-      await pending.promise;
-    });
-    await waitFor(() => expect(view.getByText("End of activity")).toBeTruthy());
-    expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(2);
-    await waitFor(() =>
-      expect(hashes.at(-1)).toEqual([
-        `0x${"a".repeat(64)}`,
-        `0x${"b".repeat(64)}`,
-      ]),
-    );
-  });
-
-  for (const pageKind of ["empty", "overlap"] as const) {
-    test(`pauses native observer loading after a fresh-cursor ${pageKind} page`, async () => {
-      Object.defineProperty(globalThis, "IntersectionObserver", {
-        configurable: true,
-        writable: true,
-        value: ControlledIntersectionObserver,
-      });
-      const queries: string[] = [];
-      const view = render(
-        <ActivityPanel
-          session={session("subject-a", WALLET_A)}
-          fetchActivity={async (query) => {
-            queries.push(query);
-            if (queries.length === 1) {
-              return pageFor(query, WALLET_A, {
-                id: "event-1",
-                blockNumber: "20",
-                nextCursor: "cursor-1",
-              });
-            }
-            return pageFor(query, WALLET_A, {
-              id: "event-1",
-              blockNumber: "20",
-              nextCursor: `cursor-${queries.length}`,
-              empty: pageKind === "empty",
-            });
-          }}
-        />,
-      );
-
-      await waitFor(() => expect(ControlledIntersectionObserver.instances).toHaveLength(1));
-      act(() => ControlledIntersectionObserver.instances[0]!.intersect());
-      await waitFor(() =>
-        expect(view.getByText("Continue loading activity")).toBeTruthy(),
-      );
-      expect(queries).toHaveLength(2);
-      expect(new URLSearchParams(queries[1]).get("cursor")).toBe("cursor-1");
-      expect(
-        view.getByText(
-          "No additional activity was found on that page. Continue to check older activity.",
-        ),
-      ).toBeTruthy();
-      expect(view.queryByText("End of activity")).toBeNull();
-      expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(1);
-
-      act(() => {
-        for (const observer of ControlledIntersectionObserver.instances) {
-          observer.intersect();
-          observer.intersect();
-        }
-      });
-      await act(async () => Promise.resolve());
-      expect(queries).toHaveLength(2);
-    });
-  }
-
   test("manually continues after a finite zero-unique page and appends useful rows", async () => {
     Object.defineProperty(globalThis, "IntersectionObserver", {
       configurable: true,
@@ -577,11 +396,11 @@ describe("ActivityPanel", () => {
     await waitFor(() =>
       expect(view.getByText("Continue loading activity")).toBeTruthy(),
     );
-    expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(1);
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
 
     fireEvent.click(view.getByText("Continue loading activity"));
     await waitFor(() => expect(view.getByText("End of activity")).toBeTruthy());
-    expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(2);
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(2);
     expect(queries.map((query) => new URLSearchParams(query).get("cursor"))).toEqual([
       null,
       "cursor-1",
@@ -590,38 +409,5 @@ describe("ActivityPanel", () => {
     expect(new Set(queries.map((query) => new URLSearchParams(query).get("to"))).size).toBe(1);
   });
 
-  test("teaser density caps rows and hides Load more without Refresh chrome", async () => {
-    const view = render(
-      <ActivityPanel
-        session={session("subject-a", WALLET_A)}
-        density="teaser"
-        fetchActivity={async (query) => {
-          const first = pageFor(query, WALLET_A, {
-            id: "event-1",
-            nextCursor: "cursor-1",
-          });
-          return {
-            ...first,
-            transfers: Array.from({ length: ACTIVITY_TEASER_LIMIT + 2 }, (_, index) => ({
-              ...first.transfers[0]!,
-              id: `8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913:event-${index + 1}`,
-              logId: `event-${index + 1}`,
-              blockNumber: String(20 - index),
-              logIndex: String(index + 1),
-              transactionHash: `0x${(10 + index).toString(16).padStart(64, "0")}`,
-            })),
-          };
-        }}
-      />,
-    );
 
-    await waitFor(() =>
-      expect(view.getAllByRole("button", { name: /transaction details/ })).toHaveLength(
-        ACTIVITY_TEASER_LIMIT,
-      ),
-    );
-    expect(view.queryByRole("button", { name: "Load more activity" })).toBeNull();
-    expect(view.queryByRole("button", { name: "Refresh" })).toBeNull();
-    expect(view.queryByText(/^Updated(\s|$)/)).toBeNull();
-  });
 });

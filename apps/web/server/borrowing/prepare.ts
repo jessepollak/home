@@ -1,4 +1,7 @@
+import "server-only";
+
 import type { MoneyActionAmount, MoneyActionDraft } from "@/shared/money-actions/types";
+import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import {
   approveCall,
   borrowCall,
@@ -25,7 +28,6 @@ import {
 } from "./math";
 import type {
   BorrowActionPreparation,
-  BorrowMarketSnapshot,
   BorrowOperation,
   BorrowPreviewRequest,
 } from "@/shared/borrowing/types";

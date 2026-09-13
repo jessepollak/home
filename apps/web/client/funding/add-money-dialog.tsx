@@ -2,6 +2,18 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowDownToLine } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
@@ -14,68 +26,61 @@ import {
   type RegionId,
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
-import {
-  MoneyModal,
-  MoneyModalFooter,
-  MoneyModalHeader,
-} from "@/client/money-modal";
+import { MoneyModal, MoneyModalHeader } from "@/client/money-modal";
 import modal from "@/client/money-modal/money-modal.module.css";
 import styles from "./add-money.module.css";
 import { ReceiveQr } from "./receive-qr";
-import { FundingOrderFlow, type FundingBinding, type FundingOrderSummary } from "./order-flow";
+import {
+  FundingOrderFlow,
+  type FundingBinding,
+  type FundingOrderSummary,
+} from "./order-flow";
 
-export type AddMoneyStep = "method" | "receive" | "buy" | "order" | "onramps";
+export type AddMoneyStep = "method" | "receive" | "order";
 
 export function AddMoneyDialog({
   open,
   step,
   address,
-  openingOnramp,
-  onrampError,
   signedOut,
   regionId,
   onClose,
   onBack,
   onSelectReceive,
-  onSelectBuy,
   providerBindings,
   selectedBinding,
   initialOrder,
   fetchAccountResource,
+  queryOwnerKey,
   onSelectBinding,
-  onSelectAnotherOnramp,
-  onContinueToCoinbase,
+  onOpenRedirect,
 }: {
   open: boolean;
   step: AddMoneyStep;
   address: `0x${string}` | null;
-  openingOnramp: boolean;
-  onrampError: string | null;
   signedOut: boolean;
   regionId: RegionId;
   onClose: () => void;
   onBack: () => void;
   onSelectReceive: () => void;
-  onSelectBuy: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
   selectedBinding: FundingBinding | null;
   initialOrder: FundingOrderSummary | null;
-  fetchAccountResource: (path: string, options?: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal }) => Promise<unknown>;
+  fetchAccountResource: (
+    path: string,
+    options?: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal },
+  ) => Promise<unknown>;
+  queryOwnerKey?: string | null;
   onSelectBinding: (binding: FundingBinding) => void;
-  onSelectAnotherOnramp: () => void;
-  onContinueToCoinbase: () => void;
+  onOpenRedirect: (url: string) => void;
 }) {
   const currency = presentationRegions[regionId].currency.code ?? "USD";
   const title =
     step === "receive"
       ? "Receive"
-      : step === "buy"
-        ? "Deposit USD"
-        : step === "order"
-          ? `Deposit ${selectedBinding?.currency ?? currency}`
-          : step === "onramps"
-            ? "Choose another onramp"
-            : "Add money";
+      : step === "order"
+        ? `Deposit ${selectedBinding?.currency ?? currency}`
+        : "Add money";
 
   return (
     <MoneyModal
@@ -97,32 +102,22 @@ export function AddMoneyDialog({
         <MethodBody
           regionId={regionId}
           onSelectReceive={onSelectReceive}
-          onSelectBuy={onSelectBuy}
           providerBindings={providerBindings}
           onSelectBinding={onSelectBinding}
-          onSelectAnotherOnramp={onSelectAnotherOnramp}
         />
       ) : null}
       {!signedOut && step === "receive" ? (
         <ReceiveBody address={address} regionId={regionId} />
       ) : null}
-      {!signedOut && step === "buy" ? <BuyBody /> : null}
       {!signedOut && step === "order" && selectedBinding ? (
-        <FundingOrderFlow binding={selectedBinding} fetchAccountResource={fetchAccountResource} onBack={onBack} initialOrder={initialOrder} />
-      ) : null}
-      {!signedOut && step === "onramps" ? (
-        <OtherOnrampsBody
-          regionId={regionId}
-          onSelectCoinbase={onSelectBuy}
+        <FundingOrderFlow
+          binding={selectedBinding}
+          fetchAccountResource={fetchAccountResource}
+          queryOwnerKey={queryOwnerKey}
+          onBack={onBack}
+          onOpenRedirect={onOpenRedirect}
+          initialOrder={initialOrder}
         />
-      ) : null}
-
-      {onrampError && step === "buy" ? (
-        <div className={styles.statusStack}>
-          <p className={modal.error} role="alert">
-            {onrampError}
-          </p>
-        </div>
       ) : null}
 
       {signedOut ? (
@@ -132,21 +127,6 @@ export function AddMoneyDialog({
           </Link>
         </div>
       ) : null}
-
-      {!signedOut && step === "buy" ? (
-        <MoneyModalFooter
-          primaryLabel={openingOnramp ? "Opening Coinbase…" : "Continue to Coinbase"}
-          primaryDisabled={openingOnramp}
-          onPrimary={onContinueToCoinbase}
-          secondaryLabel="Back"
-          onSecondary={onBack}
-        />
-      ) : null}
-      {!signedOut && step === "onramps" ? (
-        <div className={modal.footer}>
-          <button className={modal.quiet} type="button" onClick={onBack}>Back</button>
-        </div>
-      ) : null}
     </MoneyModal>
   );
 }
@@ -154,60 +134,74 @@ export function AddMoneyDialog({
 export function MethodBody({
   regionId,
   onSelectReceive,
-  onSelectBuy,
   providerBindings,
   onSelectBinding,
-  onSelectAnotherOnramp,
 }: {
   regionId: RegionId;
   onSelectReceive: () => void;
-  onSelectBuy: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
   onSelectBinding: (binding: FundingBinding) => void;
-  onSelectAnotherOnramp: () => void;
 }) {
-  const showCoinbase = regionId === "US";
   return (
     <div className={modal.body}>
-      <div className={styles.methods}>
-        <button className={styles.method} type="button" onClick={onSelectReceive}>
-          <span className={styles.methodIcon} aria-hidden="true">
-            <ArrowDownToLine size={18} strokeWidth={2.1} />
-          </span>
-          <span className={styles.methodCopy}>
-            <span className={styles.methodTitle}>Receive crypto</span>
-            <span className={styles.methodHint}>USDC and supported tokens on Base</span>
-          </span>
-          <span className={styles.methodChevron} aria-hidden="true">›</span>
-        </button>
+      <ul className={styles.methods}>
+        <li>
+          <Item
+            className="min-h-11 flex-nowrap border-border bg-background text-left"
+            variant="outline"
+            render={
+              <Button
+                variant="ghost"
+                type="button"
+                onClick={onSelectReceive}
+                aria-describedby="receive-method-hint"
+              />
+            }
+          >
+            <ItemMedia>
+              <span className={styles.methodIcon} aria-hidden="true">
+                <ArrowDownToLine size={18} strokeWidth={2.1} />
+              </span>
+            </ItemMedia>
+            <ItemContent className="min-h-16 justify-center">
+              <ItemTitle className="text-row-label">Receive crypto</ItemTitle>
+              <ItemDescription className="text-caption">
+                USDC and supported tokens on Base
+              </ItemDescription>
+              <span id="receive-method-hint" hidden>Open receive options</span>
+            </ItemContent>
+            <ItemActions aria-hidden="true">›</ItemActions>
+          </Item>
+        </li>
         {providerBindings.map((binding) => (
-          <button className={styles.method} type="button" onClick={() => onSelectBinding(binding)} key={`${binding.providerId}:${binding.assetId}`}>
-            <CurrencyMark currency={binding.currency as FiatCurrencyCode} symbol={presentationRegions[regionId].currency.symbol ?? "$"} />
-            <span className={styles.methodCopy}>
-              <span className={styles.methodTitle}>Deposit {binding.currency}</span>
-              <span className={styles.methodHint}>Use {binding.displayName} to deposit from your local bank</span>
-            </span>
-            <span className={styles.methodChevron} aria-hidden="true">›</span>
-          </button>
+          <li key={`${binding.providerId}:${binding.assetId}`}>
+            <Item
+              className="min-h-11 flex-nowrap border-border bg-background text-left"
+              variant="outline"
+              render={
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={() => onSelectBinding(binding)}
+                  aria-describedby={`funding-method-${binding.providerId}-${binding.assetId}`}
+                />
+              }
+            >
+              <ItemMedia>
+                <CurrencyMark
+                  currency={binding.currency as FiatCurrencyCode}
+                  symbol={presentationRegions[regionId].currency.symbol ?? "$"}
+                />
+              </ItemMedia>
+              <ItemContent className="min-h-16 justify-center">
+                <ItemTitle className="text-row-label">{`Deposit ${binding.currency} with ${binding.displayName}`}</ItemTitle>
+                <span id={`funding-method-${binding.providerId}-${binding.assetId}`} hidden>Open deposit flow</span>
+              </ItemContent>
+              <ItemActions aria-hidden="true">›</ItemActions>
+            </Item>
+          </li>
         ))}
-        {showCoinbase ? (
-          <button className={styles.method} type="button" onClick={onSelectBuy}>
-            <CurrencyMark currency="USD" symbol="$" />
-            <span className={styles.methodCopy}>
-              <span className={styles.methodTitle}>Deposit USD</span>
-              <span className={styles.methodHint}>Use Coinbase to deposit USD</span>
-            </span>
-            <span className={styles.methodChevron} aria-hidden="true">›</span>
-          </button>
-        ) : null}
-      </div>
-      <button
-        className={styles.anotherOnramp}
-        type="button"
-        onClick={onSelectAnotherOnramp}
-      >
-        Use another onramp
-      </button>
+      </ul>
     </div>
   );
 }
@@ -221,12 +215,21 @@ export function ReceiveBody({
 }) {
   return (
     <div className={`${modal.body} ${styles.receive}`}>
-      <p className={styles.network}>Receive on Base</p>
+      <Badge className={styles.network} variant="secondary">
+        Receive on Base
+      </Badge>
       <div className={styles.qrFrame}>
         {address ? (
-          <ReceiveQr value={address} label={`QR code for Base address ${address}`} />
+          <ReceiveQr
+            value={address}
+            label={`QR code for Base address ${address}`}
+          />
         ) : (
-          <span className={`shimmer ${styles.qrShimmer}`} data-shimmer="qr" aria-hidden="true" />
+          <Skeleton
+            className={styles.qrShimmer}
+            data-shimmer="qr"
+            aria-hidden="true"
+          />
         )}
       </div>
       <div className={styles.addressBlock}>
@@ -234,12 +237,16 @@ export function ReceiveBody({
           <ReceiveAddress address={address} />
         ) : (
           <>
-            <span
-              className={`shimmer ${styles.addressShimmer}`}
+            <Skeleton
+              className={styles.addressShimmer}
               data-shimmer="address"
               aria-hidden="true"
             />
-            <p className={styles.addressHint}>Preparing your Base address</p>
+            <p
+              className={`${styles.addressHint} text-metadata text-muted-foreground`}
+            >
+              Preparing your Base address
+            </p>
           </>
         )}
       </div>
@@ -249,7 +256,9 @@ export function ReceiveBody({
 }
 
 function ReceiveAddress({ address }: { address: `0x${string}` }) {
-  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">(
+    "idle",
+  );
   const condensed = formatAddress(address);
 
   async function copyAddress() {
@@ -267,8 +276,8 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
 
   return (
     <>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
         className={styles.addressText}
         title={address}
         aria-label={copyStatus === "copied" ? "Copied" : `Copy ${condensed}`}
@@ -276,12 +285,15 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
         onClick={() => void copyAddress()}
       >
         {copyStatus === "copied" ? "Copied" : condensed}
-      </button>
+      </Button>
       {copyStatus === "error" ? (
         <div className={styles.copyFallback}>
-          <p id="receive-address-help" className={styles.copyError} role="alert">
-            Clipboard access is unavailable. Select and copy the full address below.
-          </p>
+          <Alert id="receive-address-help" variant="destructive" role="alert">
+            <AlertDescription>
+              Clipboard access is unavailable. Select and copy the full address
+              below.
+            </AlertDescription>
+          </Alert>
           <code
             className={styles.fullAddress}
             aria-label={`Full Base address ${address}`}
@@ -291,111 +303,14 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
           </code>
         </div>
       ) : (
-        <p id="receive-address-help" className={styles.addressHint}>
+        <p
+          id="receive-address-help"
+          className={`${styles.addressHint} text-metadata text-muted-foreground`}
+        >
           Tap the address to copy
         </p>
       )}
     </>
-  );
-}
-
-export function BuyBody() {
-  return (
-    <div className={`${modal.body} ${styles.buy}`}>
-      <CurrencyMark currency="USD" symbol="$" />
-      <h3 className={styles.buyTitle}>Use Coinbase to deposit USD</h3>
-      <p className={styles.buyLead}>
-        Continue to Coinbase&apos;s hosted onramp to deposit into this account.
-      </p>
-    </div>
-  );
-}
-
-type OtherOnramp = {
-  id: string;
-  provider: "Coinbase" | "Ripio";
-  currency: "USD" | "ARS" | "COP" | "BRL";
-  regionId: "US" | "AR" | "CO" | "BR";
-};
-
-const otherOnramps: readonly OtherOnramp[] = [
-  { id: "coinbase-usd", provider: "Coinbase", currency: "USD", regionId: "US" },
-  { id: "ripio-ars", provider: "Ripio", currency: "ARS", regionId: "AR" },
-  { id: "ripio-cop", provider: "Ripio", currency: "COP", regionId: "CO" },
-  { id: "ripio-brl", provider: "Ripio", currency: "BRL", regionId: "BR" },
-];
-
-export function OtherOnrampsBody({
-  regionId,
-  onSelectCoinbase,
-}: {
-  regionId: RegionId;
-  onSelectCoinbase: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const matches = otherOnramps.filter((onramp) => {
-    if (onramp.regionId === regionId) return false;
-    return `${onramp.provider} ${onramp.currency}`
-      .toLocaleLowerCase()
-      .includes(normalizedQuery);
-  });
-
-  return (
-    <div className={modal.body}>
-      <label className={styles.searchLabel} htmlFor="other-onramp-search">
-        Search onramps
-      </label>
-      <input
-        id="other-onramp-search"
-        className={styles.searchInput}
-        type="search"
-        value={query}
-        placeholder="Provider or currency"
-        onChange={(event) => setQuery(event.currentTarget.value)}
-      />
-      <div className={styles.otherOnramps} aria-live="polite">
-        {matches.map((onramp) => {
-          const canOpen = onramp.provider === "Coinbase";
-          const region = presentationRegions[onramp.regionId];
-          const content = (
-            <>
-              <CurrencyMark currency={onramp.currency} symbol={region.currency.symbol ?? "$"} />
-              <span className={styles.methodCopy}>
-                <span className={styles.methodTitle}>
-                  Use {onramp.provider} to deposit {onramp.currency}
-                </span>
-                <span className={styles.methodHint}>
-                  {canOpen
-                    ? "Available without changing your saved country"
-                    : "Unavailable for your selected country"}
-                </span>
-              </span>
-              {canOpen ? (
-                <span className={styles.methodChevron} aria-hidden="true">›</span>
-              ) : null}
-            </>
-          );
-          return canOpen ? (
-            <button
-              className={styles.method}
-              type="button"
-              onClick={onSelectCoinbase}
-              key={onramp.id}
-            >
-              {content}
-            </button>
-          ) : (
-            <div className={`${styles.method} ${styles.unavailableMethod}`} key={onramp.id}>
-              {content}
-            </div>
-          );
-        })}
-        {matches.length === 0 ? (
-          <p className={styles.noOnramps}>No onramps match your search.</p>
-        ) : null}
-      </div>
-    </div>
   );
 }
 
@@ -404,21 +319,35 @@ export function SupportedAssets({ regionId }: { regionId: RegionId }) {
   const localAsset = supportedRegionalAsset(region.currency.code);
 
   return (
-    <section className={styles.supported} aria-label="Supported receive assets on Base">
-      <p className={styles.supportedLabel}>Supported on Base</p>
-      <div className={styles.supportedMarks}>
+    <section
+      className={styles.supported}
+      aria-label="Supported receive assets on Base"
+    >
+      <p
+        className={`${styles.supportedLabel} text-metadata text-muted-foreground`}
+      >
+        Supported on Base
+      </p>
+      <div className={`${styles.supportedMarks} flex items-center gap-3.5`}>
         <span className={styles.supportedAsset}>
           <CurrencyMark currency="USD" symbol="$" />
           <span>USDC</span>
         </span>
         {localAsset ? (
           <span className={styles.supportedAsset}>
-            <CurrencyMark currency={localAsset.cashCurrency} symbol={region.currency.symbol} />
+            <CurrencyMark
+              currency={localAsset.cashCurrency}
+              symbol={region.currency.symbol}
+            />
             <span>{localAsset.symbol}</span>
           </span>
         ) : null}
       </div>
-      <p className={styles.supportedMore}>Plus other tokens in Home&apos;s supported Base inventory</p>
+      <p
+        className={`${styles.supportedMore} text-metadata text-muted-foreground`}
+      >
+        Plus other tokens in Home&apos;s supported Base inventory
+      </p>
     </section>
   );
 }
@@ -436,7 +365,7 @@ function supportedRegionalAsset(
 function SignedOutBody() {
   return (
     <div className={modal.body}>
-      <p className={styles.subtitle}>
+      <p className={`${styles.subtitle} text-caption text-muted-foreground`}>
         Sign in and verify a Base account before showing a funding address.
       </p>
     </div>

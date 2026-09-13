@@ -1,3 +1,5 @@
+import "server-only";
+
 export function parseLosslessJson(text: string): unknown {
   let transformed = "";
   let index = 0;

@@ -1,8 +1,6 @@
 # Home web
 
-Next.js App Router, strict TypeScript, and Tailwind CSS. This file is a workspace command note, not a feature inventory — see the [root Get started](../../README.md#get-started) path, [build status](../../docs/build-status.md), [wallet runtime](../../docs/wallet-runtime-spike.md), [architecture review](../../docs/architecture-review-2026-09.md), and [fork and extend](../../docs/fork-and-extend.md).
-
-Run commands from the repository root:
+Next.js App Router, strict TypeScript, and Tailwind CSS. Run commands from the repository root:
 
 ```sh
 bun install --frozen-lockfile
@@ -11,15 +9,6 @@ bun test
 bun check
 ```
 
-## Workspace layout
+For the app contract, read [Home is thin](../../docs/home-is-thin.md); for current boundaries, read the [architecture review](../../docs/architecture-review-2026-09.md). This workspace contains routes and presentation in `app/`, client experiences in `client/`, shared contracts in `shared/`, authenticated boundaries in `server/`, and typed product configuration in `config/`.
 
-Delivery state lives in [build status](../../docs/build-status.md), not in this file. Browsing requires no credentials; email authentication uses the public project ID and matching server keys from your CDP project.
-
-- `app/`: routes, client presentation experience, root layout, and visual tokens.
-- `config/`: brand, regions, country preference, navigation, invest/portfolio asset identities.
-- `client/`: account, Invest, Savings, money-action UI.
-- `.env.local`: local values, ignored by Git. Copy from the repo-root `.env.example`; do not overwrite an existing file.
-
-The CDP provider lives in `app/layout.tsx`; Home consumes the shared verified session. Country selection is presentation only, never an eligibility or authorization check. `bun check` runs deterministic tests, lint, typecheck, and the production build; live probes remain opt-in.
-
-See [fork and extend](../../docs/fork-and-extend.md) to change brand, regions, assets, or providers. Production shared persistence and deployment remain later work; local money actions use SQLite under `.local/`.
+Copy the root `.env.example` to ignored `.env.local` without overwriting it. Public screens work without credentials; authenticated features need your own configured providers. See [Fork and extend](../../docs/fork-and-extend.md) for operator configuration.

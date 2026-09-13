@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { MoneyTicker } from "@/components/money-ticker";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
 import {
@@ -12,10 +15,9 @@ import type { MarketDataState } from "@/shared/invest/invest-market";
 import { moneyChangeTone } from "@/shared/formatting";
 import { useMarketDisplay } from "./use-market-display";
 import { AssetIcon } from "./asset-icon";
-import { BackIcon } from "./category-screen";
 import { PriceChart } from "./price-chart";
 import { usePriceHistory } from "./use-price-history";
-import type { MarketPriceRange } from "@/shared/invest/history-contract";
+import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import styles from "./invest-experience.module.css";
 
 export function AssetDetailStatusScreen({
@@ -34,13 +36,21 @@ export function AssetDetailStatusScreen({
     >
       {hosted ? null : (
         <header className={styles.screenHeader}>
-          <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
-            <BackIcon />
-          </button>
-          <h2 id="invest-asset-status-title">Asset details</h2>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`${styles.back} min-h-11 min-w-11`}
+            onClick={onBack}
+            aria-label="Back"
+          >
+            <ArrowRight />
+          </Button>
+          <h2 id="invest-asset-status-title" className="text-section-title font-semibold">
+            Asset details
+          </h2>
         </header>
       )}
-      <p className={styles.shelfStatus} role="status">
+      <p className={`${styles.shelfStatus} text-metadata text-muted-foreground`} role="status">
         {status === "loading"
           ? "Loading asset details."
           : "This Base asset is currently unavailable."}
@@ -75,24 +85,44 @@ export function AssetDetailScreen({
     >
       {hosted ? null : (
         <header className={styles.screenHeader}>
-          <button type="button" className={styles.back} onClick={onBack} aria-label="Back">
-            <BackIcon />
-          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`${styles.back} min-h-11 min-w-11`}
+            onClick={onBack}
+            aria-label="Back"
+          >
+            <ArrowRight />
+          </Button>
           <span className={styles.detailIdentity}>
             <AssetIcon mark={mark} />
-            <h2 id="invest-asset-title">{asset.displayName}</h2>
+            <h2 id="invest-asset-title" className="text-section-title font-semibold">
+              {asset.displayName}
+            </h2>
           </span>
         </header>
       )}
 
       <div className={styles.priceHeader}>
-        <strong data-tone={price.tone}>
-          {price.tone === "ready" ? price.value : price.detail}
+        <strong
+          className={`${styles.price} ${
+            price.tone === "ready"
+              ? "font-mono text-amount font-semibold"
+              : "text-section-title font-semibold text-muted-foreground"
+          }`}
+          data-tone={price.tone}
+        >
+          {price.tone === "ready" ? <MoneyTicker value={price.value} /> : price.detail}
         </strong>
         {change !== "—" ? (
-          <small className={styles.change} data-money-change={changeTone}>{change}</small>
+          <small
+            className={`${styles.change} text-caption`}
+            data-money-change={changeTone}
+          >
+            {change}
+          </small>
         ) : null}
-        <span>
+        <span className="text-caption text-muted-foreground">
           {asset.representation.tokenSymbol} · Base
         </span>
       </div>

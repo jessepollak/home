@@ -1,3 +1,5 @@
+import "server-only";
+
 export const BASE_MAINNET_CHAIN_ID = 8453 as const;
 
 export type HexAddress = `0x${string}`;

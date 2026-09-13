@@ -3,9 +3,8 @@ import {
   createCodexMarketHistoryReader,
   createErrorMarketHistoryResponse,
 } from "@/server/market-data/codex/history";
-import type { MarketPriceHistoryResponse } from "@/shared/invest/history-contract";
-import { createMarketPriceHistoryHandler } from "./handler";
-import { dynamic, runtime } from "./route";
+import type { MarketPriceHistoryResponse } from "@/shared/invest/contracts/market-price-history";
+import { createMarketPriceHistoryHandler } from "@/server/market-data/handlers/market-price-history";
 
 const dynamicId = "base:0x1111111111111111111111111111111111111111";
 const dynamicAddress = "0x1111111111111111111111111111111111111111";
@@ -22,10 +21,7 @@ const ready: MarketPriceHistoryResponse = {
 };
 
 describe("GET /api/market-prices/history", () => {
-  test("is a public Node route and returns allowlisted history without authentication", async () => {
-    expect(runtime).toBe("nodejs");
-    expect(dynamic).toBe("force-dynamic");
-
+  test("returns allowlisted public history", async () => {
     let catalogCalls = 0;
     const GET = createMarketPriceHistoryHandler(
       async () => ready,

@@ -1,119 +1,71 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
 import type { RegionId } from "@/config/regions";
 import { isVerifiedPortfolioSession } from "@/client/portfolio/parse";
-import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/parse-valuation";
+import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
+import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/contract";
 import type {
   FetchPortfolioValuation,
   PortfolioValuationSnapshot,
   PortfolioValuationState,
   VerifiedPortfolioValuationSession,
 } from "@/shared/portfolio/valuation-state";
+import { dataOwnerKey as portfolioOwnerKey } from "@/client/account/owner-keys";
 
-type OwnedState =
-  | { requestKey: null; status: "unavailable"; snapshot: null; error: null }
-  | { requestKey: string; status: "loading"; snapshot: null; error: null }
-  | {
-      requestKey: string;
-      status: "ready";
-      snapshot: PortfolioValuationSnapshot;
-      error: null;
-    }
-  | {
-      requestKey: string;
-      status: "error";
-      snapshot: null;
-      error: "portfolio-valuation-unavailable";
-    };
-
-const unavailableState: OwnedState = {
-  requestKey: null,
-  status: "unavailable",
-  snapshot: null,
-  error: null,
+type PortfolioValuationQuerySession = VerifiedPortfolioValuationSession & {
+  accountProvider?: string;
 };
 
+export const valuationStaleTimeMs = 15_000;
+
 export function usePortfolioValuation(
-  session: VerifiedPortfolioValuationSession | null,
+  session: PortfolioValuationQuerySession | null,
   region: RegionId,
   fetchValuation: FetchPortfolioValuation,
-  refreshTrigger?: string | number,
-): PortfolioValuationState {
-  const sequence = useRef(0);
-  const [state, setState] = useState<OwnedState>(unavailableState);
+  options: { enabled?: boolean } = {},
+): PortfolioValuationState & { revalidating?: true } {
   const validSession = isVerifiedPortfolioSession(session) ? session : null;
-  const subject = validSession?.subject ?? null;
-  const smartAccountAddress = validSession?.smartAccountAddress ?? null;
-  const chainId = validSession?.chainId ?? null;
-  const requestKey = validSession
-    ? `${subject}\u0000${smartAccountAddress?.toLowerCase()}\u0000${chainId}\u0000${region}`
-    : null;
+  const ownerKey = validSession ? portfolioOwnerKey(validSession) : null;
+  const query = useHomeQuery<PortfolioValuationSnapshot>({
+    queryKey: ownerKey
+      ? ownerQueryKey(ownerKey, "valuation", region)
+      : ["unauthenticated", "valuation-disabled", region],
+    enabled: ownerKey !== null && options.enabled !== false,
+    staleTime: valuationStaleTimeMs,
+    retry: false,
+    refetchOnWindowFocus: true,
+    // The response includes optional recognized-token rows. Keep this query in
+    // memory so those wallet-specific catalog matches are never dehydrated.
+    meta: ownerKey ? ownerQueryMeta(ownerKey, "memory") : undefined,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[0] === ownerKey
+        ? keepPreviousData(previousData)
+        : undefined,
+    queryFn: async ({ signal }) => {
+      if (!validSession) throw new Error("Portfolio valuation is unavailable.");
+      return parsePortfolioValuationSnapshot(
+        await fetchValuation(region, signal),
+        validSession,
+        region,
+      );
+    },
+    select: (snapshot) => snapshot,
+  });
 
-  useEffect(() => {
-    const requestSequence = ++sequence.current;
-    if (!subject || !smartAccountAddress || chainId !== 8453 || !requestKey) return;
-    const controller = new AbortController();
-    const expectedSession: VerifiedPortfolioValuationSession = {
-      subject,
-      smartAccountAddress,
-      chainId,
+  if (!ownerKey) return { status: "unavailable", snapshot: null, error: null };
+  if (query.isPending) return { status: "loading", snapshot: null, error: null };
+  if (query.isError) {
+    return {
+      status: "error",
+      snapshot: null,
+      error: "portfolio-valuation-unavailable",
     };
-
-    void fetchValuation(region, controller.signal).then(
-      (payload) => {
-        if (controller.signal.aborted || sequence.current !== requestSequence) return;
-        try {
-          const snapshot = parsePortfolioValuationSnapshot(
-            payload,
-            expectedSession,
-            region,
-          );
-          setState({
-            requestKey,
-            status: "ready",
-            snapshot,
-            error: null,
-          });
-        } catch {
-          setState({
-            requestKey,
-            status: "error",
-            snapshot: null,
-            error: "portfolio-valuation-unavailable",
-          });
-        }
-      },
-      () => {
-        if (controller.signal.aborted || sequence.current !== requestSequence) return;
-        setState({
-          requestKey,
-          status: "error",
-          snapshot: null,
-          error: "portfolio-valuation-unavailable",
-        });
-      },
-    );
-    return () => controller.abort();
-  }, [
-    chainId,
-    fetchValuation,
-    refreshTrigger,
-    region,
-    requestKey,
-    smartAccountAddress,
-    subject,
-  ]);
-
-  if (state.requestKey !== requestKey) {
-    setState(
-      requestKey
-        ? { requestKey, status: "loading", snapshot: null, error: null }
-        : unavailableState,
-    );
-    return requestKey
-      ? { status: "loading", snapshot: null, error: null }
-      : unavailableState;
   }
-  return state;
+  return {
+    status: "ready",
+    snapshot: query.data,
+    error: null,
+    ...(query.isFetching ? { revalidating: true as const } : {}),
+  };
 }

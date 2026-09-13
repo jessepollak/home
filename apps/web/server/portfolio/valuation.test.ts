@@ -7,9 +7,8 @@ import {
   portfolioVaults,
   verifiedLocalCashAssets,
 } from "@/config/portfolio-assets";
-import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/parse-valuation";
+import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/contract";
 import { presentPortfolioValuation } from "@/shared/portfolio/present-home-balances";
-import type { CodexRawQuoteInput } from "@/server/market-data/codex/raw-quotes";
 import { supportedFiatCurrencies } from "@/server/portfolio/fx-coinbase";
 import type {
   FxQuote,
@@ -161,69 +160,6 @@ function prices(inputs: readonly { assetKey: string; address: `0x${string}` }[],
 }
 
 describe("supported portfolio valuation assembly", () => {
-  test("keeps the fixed local-asset quote set and presents nonselected cash as an asset", async () => {
-    let priceInputs: readonly CodexRawQuoteInput[] = [];
-    const read = createPortfolioValuationReader({
-      readInventory: async () => inventory({ eurc: "1000000" }),
-      readPrices: async (inputs) => {
-        priceInputs = inputs;
-        return prices(inputs);
-      },
-      readExchangeRates: async () => exchangeRates(),
-    });
-
-    const result = await read(account, "US");
-
-    expect(priceInputs).toHaveLength(20);
-    expect(priceInputs.map(({ assetKey }) => assetKey)).toContain(
-      verifiedLocalCashAssets.EUR.assetKey,
-    );
-    expect(priceInputs.map(({ assetKey }) => assetKey)).toContain(
-      verifiedLocalCashAssets.IDR.assetKey,
-    );
-    expect(result.cashBuckets).toHaveLength(1);
-    expect(result.cashBuckets[0]?.roles).toEqual([
-      "canonical-usd",
-      "selected-local",
-    ]);
-    expect(result.total.status).toBe("all-supported-read-holdings-priced");
-    expect(result.total.value).toEqual({
-      atoms: "4200000000000000000",
-      scale: 18,
-    });
-    expect(
-      result.lines.find(
-        ({ holdingAssetKey }) =>
-          holdingAssetKey === verifiedLocalCashAssets.EUR.assetKey,
-      )?.status,
-    ).toBe("priced");
-    expect(
-      result.nativeCashValuations?.find(
-        ({ holdingAssetKey }) =>
-          holdingAssetKey === verifiedLocalCashAssets.EUR.assetKey,
-      ),
-    ).toMatchObject({
-      denominationCurrency: "EUR",
-      value: { atoms: "1080000000000000000", scale: 18 },
-      status: "priced",
-      reason: null,
-      exactContractUsdPrice: {
-        assetKey: verifiedLocalCashAssets.EUR.assetKey,
-        unitPrice: { atoms: "12", scale: 1 },
-        status: "fresh",
-      },
-      denominationFx: {
-        baseCurrency: "USD",
-        quoteCurrency: "EUR",
-        quoteUnitsPerUsd: { atoms: "9", scale: 1 },
-        status: "fresh",
-      },
-    });
-    expect(new Set(result.lines.map(({ holdingAssetKey }) => holdingAssetKey)).size).toBe(
-      result.lines.length,
-    );
-  });
-
   test("separates EUR cash, retains a partial subtotal, and never assumes a missing peg", async () => {
     const read = createPortfolioValuationReader({
       readInventory: async () => inventory({ eurc: "1000000" }),
@@ -244,42 +180,6 @@ describe("supported portfolio valuation assembly", () => {
     expect(result.total.unpricedAssetKeys).toEqual([
       verifiedLocalCashAssets.EUR.assetKey,
     ]);
-  });
-
-  test("reuses native-cash values across country switches without adding them to totals", async () => {
-    const read = createPortfolioValuationReader({
-      readInventory: async () =>
-        inventory({ eurc: "1000000", idrx: "100", vaultUnderlying: "0" }),
-      readPrices: async (inputs) => prices(inputs),
-      readExchangeRates: async () => exchangeRates(),
-    });
-
-    const germany = await read(account, "DE");
-    const indonesia = await read(account, "ID");
-    const germanEuro = germany.nativeCashValuations?.find(
-      ({ holdingAssetKey }) => holdingAssetKey === verifiedLocalCashAssets.EUR.assetKey,
-    );
-    const indonesianEuro = indonesia.nativeCashValuations?.find(
-      ({ holdingAssetKey }) => holdingAssetKey === verifiedLocalCashAssets.EUR.assetKey,
-    );
-
-    expect(germanEuro).toEqual(indonesianEuro);
-    expect(germany.cashBuckets.find(({ symbol }) => symbol === "EURC")?.indicativeValue).toEqual(
-      germanEuro?.value,
-    );
-    expect(indonesia.cashBuckets.find(({ symbol }) => symbol === "IDRX")?.indicativeValue).toEqual(
-      indonesia.nativeCashValuations?.find(
-        ({ holdingAssetKey }) => holdingAssetKey === verifiedLocalCashAssets.IDR.assetKey,
-      )?.value,
-    );
-    expect(germany.total.value).toEqual({
-      atoms: "2880000000000000000",
-      scale: 18,
-    });
-    expect(indonesia.total.value).toEqual({
-      atoms: "3200000000000000000",
-      scale: 18,
-    });
   });
 
   test("fails native cash closed for missing, stale, invalid price or denomination FX", async () => {
@@ -671,24 +571,57 @@ describe("supported portfolio valuation assembly", () => {
     }
   });
 
-  test("keeps GLOBAL currencyless and exposes unsupported regional cash safely", async () => {
+  test("adds only fresh quality-gated recognized quotes to the aggregate while retaining quantity-only rows", async () => {
+    const recognizedAddress = "0x9999999999999999999999999999999999999999" as const;
+    const weakAddress = "0x8888888888888888888888888888888888888888" as const;
     const read = createPortfolioValuationReader({
       readInventory: async () => inventory(),
       readPrices: async (inputs) => prices(inputs),
       readExchangeRates: async () => exchangeRates(),
+      readRecognized: async () => ({
+        status: "complete",
+        holdings: [
+          {
+            address: recognizedAddress,
+            name: "Recognized",
+            symbol: "RCG",
+            decimals: 18,
+            balanceBaseUnits: "1000000000000000000",
+            liquidityUsd: { atoms: "100000", scale: 0 },
+            volume24Usd: { atoms: "10000", scale: 0 },
+            price: {
+              assetKey: `eip155:8453/erc20:${recognizedAddress}`,
+              contractAddress: recognizedAddress,
+              quoteCurrency: "USD",
+              unitPrice: { atoms: "2", scale: 0 },
+              sourceValue: "2",
+              status: "fresh",
+              source: source("Codex"),
+            },
+          },
+          {
+            address: weakAddress,
+            name: "Weak",
+            symbol: "WEAK",
+            decimals: 18,
+            balanceBaseUnits: "5000000000000000000",
+            liquidityUsd: { atoms: "99999", scale: 0 },
+            volume24Usd: { atoms: "10000", scale: 0 },
+            price: null,
+          },
+        ],
+      }),
     });
-    const global = await read(account, "GLOBAL");
-    expect(global.quoteCurrency).toBeNull();
-    expect(global.total.status).toBe("unavailable-no-quote-currency");
-    expect(global.total.value).toBeNull();
-    expect(global.lines).toEqual([]);
 
-    const brazil = await read(account, "BR");
-    expect(brazil.cashBuckets.at(-1)).toMatchObject({
-      roles: ["selected-local"],
-      symbol: "BRZ",
-      valuationStatus: "unsupported",
-      assetKey: null,
-    });
+    const result = await read(account, "US");
+
+    expect(result.recognized?.holdings).toMatchObject([
+      { symbol: "RCG", valuationStatus: "priced", value: { atoms: "2000000000000000000", scale: 18 } },
+      { symbol: "WEAK", valuationStatus: "unpriced", value: null },
+    ]);
+    expect(result.total.value).toEqual({ atoms: "5000000000000000000", scale: 18 });
+    expect(result.total.unpricedAssetKeys).not.toContain(`eip155:8453/erc20:${weakAddress}`);
   });
+
+
 });

@@ -98,17 +98,20 @@ Jesse-locked with Hannah, September 9, 2026. Issues and PR labels (`owner:*` / o
 
 Jesse-locked, September 11, 2026. This replaces the earlier pipelines, calibrated-QA, and publication sections. The goal is merged code; evidence exists to get there, not the other way around.
 
+**Scope contract (Jesse-locked, September 12, 2026).** Extraction and refactor commits are moves, extractions, and rewires only. Pre-existing flaws found in touched code are fixed in separate commits. Reviewers hold a change to what it introduces, not unrelated inherited behavior.
+
+**Reset-program delivery mode (Jesse-locked, September 12, 2026).** For the Home-is-thin reset and its follow-ons, lanes use short branches and the coordinator merges to `main` when `bun check` is green. This program uses no issues, labels, draft PRs, or review rounds; Jesse reviews the integrated result on `main`.
+
 1. **One issue, one writer, one worktree, one PR.** Small scope, one lane, one owner, ordinary branch. If an issue needs more than one lane, split the issue. Run as many lanes as the backlog has disjoint issues (5–10 is normal); the shared limit is heavy jobs — at most four concurrent `bun check` / Playwright runs on one machine — not writers. Lanes are self-contained: the coordinator picks the next issue, launches the lane, and reads the result. A blocked lane names its dependency on the issue and the coordinator moves on.
 2. **The loop:** implement → `bun check` → one fresh independent review → fix blocking findings → push → CI green → attach the preview ([UI PR previews](ui-pr-previews.md)) → undraft and `status:needs-jesse`. Any PR that needs an operator action to work after merge — a new environment variable, migration command, provider-dashboard change, or Vercel setting — states it under an **Operator action required** heading in the PR body with exact environment variable names, non-secret setting values, and exact commands. Never include secret values, credentials, tokens, private keys, or customer data in the PR or ready comment. It goes to `status:needs-jesse` with that step named in the ready comment; merging is not done until Jesse completes it, and the lane verifies the production path after Jesse confirms. Every PR is created with its labels (`owner:*`, `lane:*`, `priority:*`, `status:working`); a PR without labels is not on the board.
 3. **Blocking findings** are correctness, security, privacy, data loss, and the money-loop gates below. Everything else becomes a follow-up issue, not another review round. Hard cap: two review rounds per PR; a third round never happens silently. After two, if any blocking finding is still unresolved the PR goes to Jesse with the open question; otherwise it ships with the follow-ups filed.
-4. **Routing:** writers — DeepSeek V4 Pro for product UI and ordinary backend; Sol for money, auth, privacy, and balance-correctness paths. Reviewers — Astra for money, auth, and privacy; Sol for product UI and ordinary backend; Terra for docs and metadata. Astra reviews, it never writes. Reviews are read-only and time-boxed; an unfinished review is not a pass.
+4. **Routing:** choose a writer and reviewer appropriate to the change's risk and scope. Reviews are read-only and time-boxed; an unfinished review is not a pass.
 5. **Tests are proportional.** For UI fixes, test code should not exceed product code. Reuse the existing Playwright config and unit patterns. No new `/dev` harness routes or bespoke servers unless the feature itself needs them.
 6. **Preview is the proof.** The Vercel preview link plus one screenshot or one short video in the PR description. No manifests, hashes, tiles, or publication reviews.
 7. **Git:** ordinary pushes to the owned branch; append fixes. Never rewrite published history or force-update `main`; a rewrite needs Jesse's explicit exception.
 8. **PR + CI is the status.** No progress comments, checkpoints, or receipts on GitHub. Comment only for a blocker, a decision for Jesse, or a handoff to another owner.
-9. **Money work keeps its rigor** (see [PRs](#prs)) and runs on its own cadence. It never sets the tempo for unrelated UI or docs work.
-10. **Authority:** the coordinator may undraft and mark `status:needs-jesse` when the loop is complete. Jesse alone approves and merges. Nothing here grants deployment, funded, destructive, or Neon-cleanup authority.
-11. **Jesse's review is a mandatory round.** Everything posts from Jesse's account, so the crew marks every comment, thread reply, and review it writes with a trailing `<!-- hugo -->`. Any comment from `jessepollak` without that marker is Jesse; the [review pickup workflow](../.github/workflows/jesse-review.yml) flips the PR to `status:working` and adds `review:jesse`. The lane's writer applies his items, replies once (with the marker) naming the commit, gets CI green, removes `review:jesse`, and returns the PR to `status:needs-jesse`. This round does not count against the two-round cap.
+9. **Authority:** the coordinator may undraft and mark `status:needs-jesse` when the loop is complete. Jesse alone approves and merges. Nothing here grants deployment, funded, destructive, or Neon-cleanup authority.
+10. **Jesse's review is a mandatory round.** Everything posts from Jesse's account, so the crew marks every comment, thread reply, and review it writes with a trailing `<!-- hugo -->`. Any comment from `jessepollak` without that marker is Jesse; the [review pickup workflow](../.github/workflows/jesse-review.yml) flips the PR to `status:working` and adds `review:jesse`. The lane's writer applies his items, replies once (with the marker) naming the commit, gets CI green, removes `review:jesse`, and returns the PR to `status:needs-jesse`. This round does not count against the two-round cap.
 
 ## 1:1s and learning retros
 
@@ -128,14 +131,15 @@ Do not silently patch process in one bot's memory only.
 
 Small, reviewable, one lane. Same contribution contract as any engineer: [architecture review § D](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers).
 
-Money-loop gates (do not weaken). Full list in the contribution contract:
+Money invariants:
 
-- Never accept client-authored calldata / call plans.
-- Never double-dispatch. Claim is the only grant of `dispatch`.
-- Never authorize from `?wallet=` or a client user id.
-- Never confirm from the client. Receipt + `verifiedExecution` only.
-- Never use JS floats for token amounts, debt, or settlement.
-- Never treat country or UI copy as eligibility.
+- Calldata is server-authored.
+- Scope comes from the verified session, never `?wallet=` or a client user id.
+- Token amounts are `bigint` from the boundary in.
+- CDP `idempotencyKey` and the EIP-5792 id equal the Home action id.
+- Every provider call and server POST is guarded by the owner-generation fence.
+
+Test Home's logic: calldata issuance, auth scope, amount parsing and formatting, derived status, the owner fence, and UI behavior that would be a bug if broken. Do not re-test CDP, Base Account, Next, motion, or happy-dom. Use no real sleeps or source-text assertions; keep permutation matrices table-driven and bounded. Test code should not exceed product code except for status derivation and amount parsing. apps/web unit suite stays under 10s wall on a laptop; a change that pushes one file over 1s says why.
 
 `bun check` must be green. Do not enable live Morpho/CDP SQL smokes or funded-wallet secrets in pull-request CI.
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { Separator } from "@/components/ui/separator";
 import { MoneyModal, MoneyModalHeader } from "@/client/money-modal";
 import modal from "@/client/money-modal/money-modal.module.css";
 import type { TransactionDetails } from "./transaction-explorer";
@@ -37,7 +38,7 @@ export function TransactionDetailsModal({
         closeLabel="Close transaction details"
       />
       <div className={modal.body}>
-        <dl className={modal.rows}>
+        <dl className={`${modal.rows} ${details?.explorer ? modal.rowsWithFooter : ""}`}>
           {rows.map((row) => (
             <div className={modal.row} key={row.label}>
               <dt>{row.label}</dt>
@@ -46,16 +47,21 @@ export function TransactionDetailsModal({
           ))}
         </dl>
         {details?.explorer ? (
-          <p className={styles.explorerWrap}>
-            <a
-              className={styles.explorer}
-              href={details.explorer.href}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {details.explorer.label}
-            </a>
-          </p>
+          <>
+            <Separator className={styles.divider} />
+            <div className={styles.explorerWrap}>
+              <a
+                className={styles.explorer}
+                href={details.explorer.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={details.explorer.title}
+              >
+                {details.explorer.label}
+                <span aria-hidden="true"> ↗</span>
+              </a>
+            </div>
+          </>
         ) : null}
       </div>
     </MoneyModal>

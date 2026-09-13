@@ -1,7 +1,10 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+import { MoneyTicker } from "@/components/money-ticker";
+import { NativeSelect } from "@/components/ui/native-select";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDownUp, ChevronDown, Delete } from "lucide-react";
+import { ArrowDownUp, Delete } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { applyNumpadKey, type NumpadKey } from "./numpad";
@@ -28,6 +31,16 @@ const AMOUNT_FIT_TOLERANCE_PX = 0.5;
 // and negative letter-spacing round at each size). Reserve a small headroom so
 // a measured fit never overflows the container by a subpixel rounding error.
 const AMOUNT_FIT_SAFETY_FACTOR = 0.97;
+
+export type MoneyAmountChangeSource = "keypad" | "programmatic";
+
+export function shouldAnimatePrimaryAmount(
+  previousAmount: string,
+  amount: string,
+  changeSource: MoneyAmountChangeSource,
+): boolean {
+  return previousAmount === amount || changeSource === "programmatic";
+}
 
 /**
  * Scales a formatted amount to fit the available width without changing,
@@ -76,52 +89,73 @@ export function triggerKeyHaptic(durationMs = 12): void {
 }
 
 export function useAutoFitAmountText(text: string) {
-  const containerRef = useRef<HTMLParagraphElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const sizerRef = useRef<HTMLSpanElement>(null);
   const [fontSize, setFontSize] = useState<number | undefined>(undefined);
+  const [scaleX, setScaleX] = useState(1);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
     const sizer = sizerRef.current;
     if (!container || !sizer) return;
 
+    // Re-measure only when the text changes (effect deps), fonts settle, or the
+    // container's inline width changes. Our own font-size change alters the
+    // container's height and the ticker's box; feeding those back would oscillate.
+    let lastWidth = -1;
     const measure = () => {
+      lastWidth = container.clientWidth;
       const computed = window.getComputedStyle(container);
       const horizontalPadding =
         (Number.parseFloat(computed.paddingLeft) || 0)
         + (Number.parseFloat(computed.paddingRight) || 0);
       const available = container.clientWidth - horizontalPadding;
-      const natural = sizer.getBoundingClientRect().width;
-      if (available <= 0 || natural <= 0) return;
-
       const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
-      if (!Number.isFinite(base) || base <= 0) return;
+      const currentSize = Number.parseFloat(computed.fontSize);
+      // Measure the ticker box itself (what is laid out). The primary ticker opts
+      // out of grow-only digit reservation, so deleting digits shrinks this box and
+      // lets the amount return to its full type size without remounting the ticker.
+      const ticker = container.querySelector<HTMLElement>("[data-slot=\"money-ticker\"]");
+      const renderedNatural = ticker?.offsetWidth || sizer.getBoundingClientRect().width;
+      if (available <= 0 || renderedNatural <= 0 || !Number.isFinite(base) || base <= 0) return;
 
+      const natural = Number.isFinite(currentSize) && currentSize > 0
+        ? renderedNatural * (base / currentSize)
+        : renderedNatural;
       const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
       const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
-      // Round down and reserve headroom so the rendered amount never exceeds
-      // the container by a subpixel rounding error; the exact decimal string
-      // is never altered.
-      const target =
-        Math.floor(
-          fitAmountFontSize(available * AMOUNT_FIT_SAFETY_FACTOR, natural, base, min) * 10,
-        ) / 10;
+      const fitted = available * AMOUNT_FIT_SAFETY_FACTOR;
+      const target = Math.floor(fitAmountFontSize(fitted, natural, base, min) * 10) / 10;
+      // At the minimum type size an extreme value (20 characters at 320px) can still
+      // exceed the width; compact only the inline axis by the small remainder rather
+      // than clipping or dropping below the readable minimum.
+      const unclamped = (base * fitted) / natural;
+      const targetScaleX = Math.min(1, Math.max(0.9, unclamped / target));
 
       setFontSize((current) =>
         current !== undefined && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
           ? current
           : target,
       );
+      setScaleX((current) => (Math.abs(current - targetScaleX) < 0.005 ? current : targetScaleX));
     };
 
     measure();
 
     let observer: ResizeObserver | undefined;
     if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(measure);
+      observer = new ResizeObserver(() => {
+        if (container.clientWidth !== lastWidth) measure();
+      });
       observer.observe(container);
-      observer.observe(sizer);
     }
+    const rootStyleObserver = typeof MutationObserver === "undefined"
+      ? undefined
+      : new MutationObserver(measure);
+    rootStyleObserver?.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
 
     let active = true;
     const fonts = (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts;
@@ -132,10 +166,11 @@ export function useAutoFitAmountText(text: string) {
     return () => {
       active = false;
       observer?.disconnect();
+      rootStyleObserver?.disconnect();
     };
   }, [text]);
 
-  return { containerRef, sizerRef, fontSize };
+  return { containerRef, sizerRef, fontSize, scaleX };
 }
 
 export function useMoneyAssetPricing(assetSymbol: string): MoneyAssetPricing {
@@ -157,9 +192,10 @@ export function MoneyAmountDisplay({
   pricing,
   nativeSymbol,
   initialUnit = "local",
+  amountChangeSource = "programmatic",
 }: {
   amount: string;
-  onAmountChange?: (value: string) => void;
+  onAmountChange?: (value: string, source: MoneyAmountChangeSource) => void;
   availableLabel?: string;
   availableAmount?: string | null;
   assetId?: string;
@@ -172,6 +208,7 @@ export function MoneyAmountDisplay({
   pricing: MoneyAssetPricing;
   nativeSymbol: string;
   initialUnit?: MoneyPrimaryUnit;
+  amountChangeSource?: MoneyAmountChangeSource;
 }) {
   const [requestedUnit, setRequestedUnit] = useState<MoneyPrimaryUnit>(initialUnit);
   const lastAssetId = useRef(assetId);
@@ -208,11 +245,16 @@ export function MoneyAmountDisplay({
             localCurrency={pricing.status === "priced" ? pricing.localCurrency : "USD"}
             primaryUnit={primaryUnit}
             availableAmount={maxAmount}
-            onSelect={onAmountChange}
+            onSelect={(value) => onAmountChange(value, "programmatic")}
           />
         ) : null}
       </div>
-      <MoneyPrimaryAmount amount={amount} unit={primaryUnit} pricing={pricing} />
+      <MoneyPrimaryAmount
+        amount={amount}
+        changeSource={amountChangeSource}
+        unit={primaryUnit}
+        pricing={pricing}
+      />
       {pricing.status === "priced" ? (
         <MoneyUnitToggle
           secondaryLabel={secondary}
@@ -221,33 +263,46 @@ export function MoneyAmountDisplay({
           }
         />
       ) : null}
-      {availableLine ? <p className={styles.available}>{availableLine}</p> : null}
+      {availableLine ? <div className={`${styles.available} text-caption text-muted-foreground`}><MoneyTicker value={availableLine} /></div> : null}
     </div>
   );
 }
 
 export function MoneyPrimaryAmount({
   amount,
+  changeSource,
   unit,
   pricing,
 }: {
   amount: string;
+  changeSource: MoneyAmountChangeSource;
   unit: MoneyPrimaryUnit;
   pricing: MoneyAssetPricing;
 }) {
   const text = formatPrimaryAmount(amount, unit, pricing);
-  const { containerRef, sizerRef, fontSize } = useAutoFitAmountText(text);
+  const [rendered, setRendered] = useState({ amount, text, animated: true });
+  let animated = rendered.animated;
+  if (rendered.amount !== amount || rendered.text !== text) {
+    animated = shouldAnimatePrimaryAmount(rendered.amount, amount, changeSource);
+    setRendered({ amount, text, animated });
+  }
+  const { containerRef, sizerRef, fontSize, scaleX } = useAutoFitAmountText(text);
 
   return (
     <>
-      <p
+      <div
         ref={containerRef}
         className={styles.assetAmount}
         data-primary-amount
         style={fontSize === undefined ? undefined : { fontSize }}
       >
-        {text}
-      </p>
+        <MoneyTicker
+          value={text}
+          animated={animated}
+          reserveDigits={false}
+          style={scaleX < 1 ? { transform: `scaleX(${scaleX})`, transformOrigin: "center" } : undefined}
+        />
+      </div>
       <span
         ref={sizerRef}
         className={styles.amountSizer}
@@ -289,9 +344,10 @@ export function MoneyAssetPicker({
   }
 
   return (
-    <label className={styles.assetPill}>
+    <div className={styles.assetPicker}>
       <CurrencyMark currency={markCurrency} symbol={assetLabel} />
-      <select
+      <NativeSelect
+        className={styles.assetSelect}
         aria-label="Asset"
         value={assetId}
         onChange={(event) => onAssetChange?.(event.target.value)}
@@ -301,9 +357,8 @@ export function MoneyAssetPicker({
             {option.label}
           </option>
         ))}
-      </select>
-      <ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
-    </label>
+      </NativeSelect>
+    </div>
   );
 }
 
@@ -328,34 +383,34 @@ export function MoneyQuickChips({
     <div className={styles.chips} role="group" aria-label="Quick amounts">
       {chipSet === "quick-local" ? (
         <>
-          <button
+          <Button
             className={styles.chip}
-            type="button"
+            variant="secondary"
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("10", availableAmount))}
           >
-            {formatChipLabel(10, localCurrency)}
-          </button>
-          <button
+            <MoneyTicker value={formatChipLabel(10, localCurrency)} />
+          </Button>
+          <Button
             className={styles.chip}
-            type="button"
+            variant="secondary"
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("25", availableAmount))}
           >
-            {formatChipLabel(25, localCurrency)}
-          </button>
+            <MoneyTicker value={formatChipLabel(25, localCurrency)} />
+          </Button>
         </>
       ) : null}
-      <button
+      <Button
         className={`${styles.chip} ${styles.chipMax}`}
-        type="button"
+        variant="secondary"
         disabled={!maxEnabled}
         onClick={() => {
           if (availableAmount) onSelect(availableAmount);
         }}
       >
         Max
-      </button>
+      </Button>
     </div>
   );
 }
@@ -368,15 +423,15 @@ export function MoneyUnitToggle({
   onToggle: () => void;
 }) {
   return (
-    <button
+    <Button
       className={styles.unitToggle}
-      type="button"
+      variant="ghost"
       onClick={onToggle}
       aria-label={`Show ${secondaryLabel} as the primary amount`}
     >
       <ArrowDownUp size={16} strokeWidth={2} aria-hidden="true" />
-      <span>{secondaryLabel}</span>
-    </button>
+      <MoneyTicker value={secondaryLabel} />
+    </Button>
   );
 }
 
@@ -390,22 +445,22 @@ export function MoneyNumpad({
 }: {
   value: string;
   maxDecimals: number;
-  onChange: (value: string) => void;
+  onChange: (value: string, source: MoneyAmountChangeSource) => void;
   disabled?: boolean;
 }) {
   return (
     <div className={styles.numpad} role="group" aria-label="Amount keypad">
       {KEYS.map((key) => (
-        <button
+        <Button
           key={key}
           className={styles.key}
-          type="button"
+          variant="secondary"
           disabled={disabled}
           aria-label={key === "backspace" ? "Delete last digit" : key === "." ? "Decimal point" : key}
           onClick={() => {
             const next = applyNumpadKey(value, key, maxDecimals);
             if (next === value) return;
-            onChange(next);
+            onChange(next, "keypad");
             triggerKeyHaptic();
           }}
         >
@@ -414,7 +469,7 @@ export function MoneyNumpad({
           ) : (
             key
           )}
-        </button>
+        </Button>
       ))}
     </div>
   );

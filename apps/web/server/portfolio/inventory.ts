@@ -55,6 +55,7 @@ export type PortfolioInventoryReader = (
   account: VerifiedPortfolioAccount,
   quoteCurrency: FiatCurrencyCode | null,
   signal?: AbortSignal,
+  options?: { fresh?: boolean },
 ) => Promise<PortfolioInventorySnapshot>;
 
 export function createPortfolioInventoryReader(options: {
@@ -122,6 +123,7 @@ export function createPortfolioInventoryReader(options: {
     account: VerifiedPortfolioAccount,
     _quoteCurrency: FiatCurrencyCode | null,
     externalSignal?: AbortSignal,
+    readOptions?: { fresh?: boolean },
   ): Promise<PortfolioInventorySnapshot> {
     if (
       account.verification !== "session-smart-account" ||
@@ -143,7 +145,13 @@ export function createPortfolioInventoryReader(options: {
       const directs = await withStageTimeout(
         externalSignal,
         timeoutMs,
-        (signal) => readDirectHoldings(listTokenBalances, address, signal, log),
+        (signal) => readDirectHoldings(
+          listTokenBalances,
+          address,
+          signal,
+          log,
+          readOptions?.fresh === true,
+        ),
       );
       const verifiedDirects = await recoverConfiguredErc20Holdings(
         directs.holdings,
@@ -201,6 +209,7 @@ async function readDirectHoldings(
   address: PortfolioAddress,
   signal: AbortSignal,
   log: (event: ObservabilityEvent) => unknown,
+  fresh: boolean,
 ): Promise<{
   holdings: DirectPortfolioHolding[];
   recoveryIds: ReadonlySet<string>;
@@ -219,6 +228,7 @@ async function readDirectHoldings(
     listed = await listTokenBalances({
       address,
       neededContractAddresses: needed,
+      fresh,
       signal,
     });
   } catch (error) {

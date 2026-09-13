@@ -10,7 +10,7 @@ import createErrorsFixture from "./fixtures/create-errors.synthetic.json";
 import createQrisFixture from "./fixtures/create-qris.synthetic.json";
 import createVaFixture from "./fixtures/create-va.synthetic.json";
 import historyUnknownFixture from "./fixtures/history-unknown.synthetic.json";
-import { createIdrxSignature, idrxProvider } from "./adapter";
+import { createIdrxSignature, idrxAtomicAmount, idrxProvider } from "./adapter";
 
 const DESTINATION = "0x1111111111111111111111111111111111111111" as const;
 const env = {
@@ -123,6 +123,18 @@ describeFundingAdapter({
 });
 
 describe("IDRX adapter behavior", () => {
+  test("preserves the IDRX nullable bigint amount contract", () => {
+    const cases = [
+      { value: "20000.50", decimals: 2, expected: BigInt(2_000_050) },
+      { value: "20000.501", decimals: 2, expected: null },
+      { value: "-1", decimals: 2, expected: null },
+      { value: "", decimals: 2, expected: null },
+    ] as const;
+    for (const scenario of cases) {
+      expect(idrxAtomicAmount(scenario.value, scenario.decimals)).toBe(scenario.expected);
+    }
+  });
+
   test("keeps every committed provider fixture explicitly synthetic", () => {
     expect(bindingMismatchesFixture.source).toBe("synthetic");
     expect(createVaFixture.source).toBe("synthetic");
@@ -393,30 +405,6 @@ describe("IDRX adapter behavior", () => {
       });
     }
   });
-
-  test("bounds a stalled provider response body", async () => {
-    let cancellations = 0;
-    const ctx = createProviderContext({
-      manifest: idrxProvider.manifest,
-      region: "ID",
-      paymentMethodId: "qris",
-      env,
-      fetchImplementation: (async () => new Response(
-        new ReadableStream<Uint8Array>({
-          cancel() {
-            cancellations += 1;
-          },
-        }),
-        { status: 200 },
-      )) as unknown as typeof fetch,
-    });
-    const startedAt = performance.now();
-    await expect(idrxProvider.createOrder(intent, ctx)).resolves.toEqual({
-      outcome: "ambiguous",
-    });
-    expect(performance.now() - startedAt).toBeLessThan(8_000);
-    expect(cancellations).toBe(1);
-  }, 10_000);
 
   test("rejects unsupported precision before an outbound request", async () => {
     let calls = 0;

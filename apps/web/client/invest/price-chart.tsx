@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Liveline, type LivelinePoint } from "liveline";
 import {
   MARKET_PRICE_RANGES,
   type MarketPriceHistoryPoint,
   type MarketPriceRange,
-} from "@/shared/invest/history-contract";
+} from "@/shared/invest/contracts/market-price-history";
 import {
   formatChartPrice,
   formatPresentationDate,
@@ -33,7 +34,7 @@ export const LIVELINE_PLOT_PADDING = {
   left: 16,
 } as const;
 
-/** First-load shimmer fades on `--motion-tab` so Liveline's chartReveal can play. */
+/** First-load shimmer fades on `--home-motion-tab` so Liveline's chartReveal can play. */
 export const CHART_COVER_FADE_MS = 180;
 
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
@@ -50,21 +51,28 @@ export function PriceChart({
   return (
     <div className={styles.chartBlock}>
       <div className={styles.chartCaption}>
-        <span>Price history</span>
-        <strong>USD</strong>
+        <span className="text-metadata text-muted-foreground">Price history</span>
+        <strong className="text-metadata">USD</strong>
       </div>
-      <div className={styles.ranges} role="group" aria-label="Price range">
-        {MARKET_PRICE_RANGES.map((option) => (
-          <button
-            key={option}
-            type="button"
-            aria-pressed={option === range}
-            onClick={() => onRangeChange(option)}
+      <ToggleGroup
+        value={[range]}
+        onValueChange={(values) => {
+          const nextRange = values[0];
+          if (nextRange) onRangeChange(nextRange as MarketPriceRange);
+        }}
+        aria-label="Price range"
+        className="w-full gap-0 rounded-lg bg-muted p-control-inset"
+      >
+        {MARKET_PRICE_RANGES.map((value) => (
+          <ToggleGroupItem
+            key={value}
+            value={value}
+            className="min-h-11 flex-1 text-toggle-sm aria-pressed:bg-background"
           >
-            {option}
-          </button>
+            {value}
+          </ToggleGroupItem>
         ))}
-      </div>
+      </ToggleGroup>
       <ChartBody history={history} range={range} />
     </div>
   );
@@ -134,7 +142,7 @@ function ChartBody({
         />
       ) : null}
       {unavailable ? (
-        <p className={styles.chartMessage} role="status">
+        <p className={`${styles.chartMessage} text-metadata text-muted-foreground`} role="status">
           {history.status === "error"
             ? "Price history unavailable."
             : "No price history for this range."}
@@ -234,7 +242,6 @@ function AssetLiveline({
       badge={false}
       showValue={false}
       grid={false}
-      loading={false}
       lerpSpeed={reduceMotion ? 1 : 0.08}
       lineWidth={2.5}
       formatTime={formatTime}

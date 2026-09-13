@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { getFundingAsset } from "@/shared/funding/assets";
 import type { FundingProvider, Observation, Quote } from "@/shared/funding/provider-contract";
+import { decimalToAtomic } from "@/shared/formatting/atomic";
 import { createProviderContext } from "./provider-context";
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
@@ -225,8 +226,14 @@ export function publicOrder(order: FundingOrder) {
   return { id: order.id, providerId: order.providerId, region: order.region, assetId: order.assetId, paymentMethod: order.paymentMethod, fiatAmount: order.fiatAmount, quote: order.quote, quoteToken: order.quoteToken, state: order.state, expectedTokenAmountAtomic: order.expectedTokenAmountAtomic, fees: order.fees, expiresAt: order.expiresAt, instructions: order.instructions, providerStatus: order.providerStatus, transactionHash: order.transactionHash, createdAt: order.createdAt, updatedAt: order.updatedAt };
 }
 function ownerFor(session: VerifiedAccountSession): FundingOrderOwner { return { subject: session.user.subject, accountProvider: session.accountProvider }; }
-function localOneToOneQuote(fiatAmount: string, decimals: number, now: Date): Quote { return { fiatAmount, tokenAmountAtomic: decimalToAtomic(fiatAmount, decimals), fees: [], feesKnown: false, expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString() }; }
-function decimalToAtomic(value: string, decimals: number): string { const match = /^(0|[1-9][0-9]*)(?:\.([0-9]+))?$/.exec(value); if (!match || (match[2]?.length ?? 0) > decimals || !/[1-9]/.test(value)) throw new FundingCoreError("INVALID_AMOUNT", 400); return `${match[1]}${(match[2] ?? "").padEnd(decimals, "0")}`.replace(/^0+(?=\d)/, ""); }
+function localOneToOneQuote(fiatAmount: string, decimals: number, now: Date): Quote {
+  try {
+    if (!/[1-9]/.test(fiatAmount)) throw new Error("Amount must be positive.");
+    return { fiatAmount, tokenAmountAtomic: decimalToAtomic(fiatAmount, decimals), fees: [], feesKnown: false, expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString() };
+  } catch {
+    throw new FundingCoreError("INVALID_AMOUNT", 400);
+  }
+}
 function validAtomic(value: string) { return /^(0|[1-9][0-9]*)$/.test(value); }
 function parseQuoteRequest(value: unknown): { providerId: string; region: string; paymentMethod: string; fiatAmount: string; kycFields: Record<string, string> | null } | null {
   if (!record(value) || !["providerId", "region", "paymentMethod", "fiatAmount", "kycFields"].every((key) => !(key in value) || key === "kycFields" || typeof value[key] === "string")) return null;

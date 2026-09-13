@@ -384,11 +384,9 @@ export function SupportedGlobe({ className, countries = defaultCountries }: Supp
           </div>
         ) : null}
       </div>
-      <figcaption className={styles.caption}>Illustrative connections, not live activity.</figcaption>
       <div className={styles.srOnly}>
         <p id={descriptionId}>
           {countries.length} country &amp; currency profiles connected by a small illustrative route set.
-          Product availability varies. Routes are not transactions, live volume, payment activity, or verified corridors.
           {status === "ready" && " Drag horizontally to spin. Space pauses or resumes rotation; Left and Right arrows rotate the globe. Tab to a country point; Up and Down arrows move between visible country points."}
         </p>
         <p id={motionId} role="status">

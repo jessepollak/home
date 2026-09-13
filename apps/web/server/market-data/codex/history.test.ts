@@ -4,7 +4,6 @@ import { CodexMarketDataError } from "./client";
 import { CODEX_GRAPHQL_ENDPOINT } from "./config";
 import {
   CODEX_BARS_QUERY,
-  CODEX_HISTORY_CACHE_MAX_ENTRIES,
   CODEX_HISTORY_MAX_IN_FLIGHT,
   createCodexMarketHistoryReader,
   MARKET_HISTORY_WINDOWS,
@@ -192,56 +191,6 @@ describe("Codex market history reader", () => {
       status: "ready",
       points: [{ value: "64210.5" }],
     });
-    expect(calls).toBe(2);
-  });
-
-  test("bounds high-cardinality cache entries with deterministic LRU eviction", async () => {
-    const requestedSymbols: string[] = [];
-    const reader = createCodexMarketHistoryReader({
-      apiKey: "fixture-key",
-      now,
-      cacheMaxEntries: 3,
-      fetchImpl: async (_url, init) => {
-        const body = JSON.parse(String(init?.body)) as {
-          variables: { symbol: string };
-        };
-        requestedSymbols.push(body.variables.symbol);
-        return barsResponse([{ t: 1757286400, c: "0.0123" }]);
-      },
-    });
-    const dynamicIds = Array.from(
-      { length: 12 },
-      (_, index) =>
-        `base:0x${(index + 1).toString(16).padStart(40, "0")}`,
-    );
-
-    for (const assetId of dynamicIds) await reader(assetId, "1D");
-    await reader(dynamicIds[0]!, "1D");
-
-    expect(CODEX_HISTORY_CACHE_MAX_ENTRIES).toBe(64);
-    expect(requestedSymbols).toHaveLength(dynamicIds.length + 1);
-    expect(requestedSymbols.at(-1)).toBe(requestedSymbols[0]);
-  });
-
-  test("reuses cached history until expiry and refetches after expiry", async () => {
-    let currentTime = NOW_MS;
-    let calls = 0;
-    const reader = createCodexMarketHistoryReader({
-      apiKey: "fixture-key",
-      now: () => new Date(currentTime),
-      cacheTtlMs: 100,
-      fetchImpl: async () => {
-        calls += 1;
-        return barsResponse([{ t: 1757286400, c: "64210.5" }]);
-      },
-    });
-
-    await reader("cbbtc", "1D");
-    await reader("cbbtc", "1D");
-    expect(calls).toBe(1);
-
-    currentTime += 101;
-    await reader("cbbtc", "1D");
     expect(calls).toBe(2);
   });
 

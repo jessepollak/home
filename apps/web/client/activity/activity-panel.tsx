@@ -1,13 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { MoneyTicker } from "@/components/money-ticker";
 import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
 import {
   presentActivityTransferDetails,
   presentActivityTransferRow,
 } from "./activity-presenter";
-import styles from "./activity.module.css";
 import { useActivity } from "./use-activity";
 import {
   ACTIVITY_TEASER_LIMIT,
@@ -19,7 +27,6 @@ import {
 export function ActivityPanel({
   session,
   fetchActivity,
-  refreshTrigger,
   regionId = "GLOBAL",
   onTransactionHashesChange,
   leading,
@@ -27,7 +34,7 @@ export function ActivityPanel({
   density = "page",
   header,
 }: ActivityPanelProps) {
-  const activity = useActivity(session, fetchActivity, refreshTrigger);
+  const activity = useActivity(session, fetchActivity);
   const [selectedTransfer, setSelectedTransfer] =
     useState<ActivityTransfer | null>(null);
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
@@ -46,22 +53,21 @@ export function ActivityPanel({
   const heading = header === undefined ? <DefaultActivityHeader /> : header;
   const labelledBy = header === null ? undefined : "activity-title";
   const labelled = header === null ? "Activity" : undefined;
-  const timeZone = runtimeTimeZone();
   const details = selectedTransfer
-    ? presentActivityTransferDetails(selectedTransfer, { regionId, timeZone })
+    ? presentActivityTransferDetails(selectedTransfer, { regionId })
     : null;
   const detailsTitleId = "activity-transfer-details-title";
 
   if (activity.status === "unavailable") {
     return (
       <section
-        className={styles.panel}
+        className="surface-primary rounded-xl border border-border p-4 sm:p-6"
         aria-labelledby={labelledBy}
         aria-label={labelled}
       >
         {heading}
         {leading}
-        {suppressEmpty ? null : <p className={styles.empty}>No activity yet</p>}
+        {suppressEmpty ? null : <ActivityEmpty />}
       </section>
     );
   }
@@ -69,17 +75,19 @@ export function ActivityPanel({
   if (activity.status === "loading") {
     return (
       <section
-        className={styles.panel}
+        className="surface-primary rounded-xl border border-border p-4 sm:p-6"
         aria-labelledby={labelledBy}
         aria-label={labelled}
         aria-busy="true"
       >
         {heading}
         {leading}
-        <div className={styles.loading} role="status">
-          <span className={styles.spinner} aria-hidden="true" />
-          Loading recent activity…
-        </div>
+        <Alert role="status" className="mt-4 border-0 bg-transparent p-0 text-muted-foreground">
+          <AlertDescription className="flex items-center gap-2 text-inherit">
+            <ActivitySpinner />
+            Loading recent activity…
+          </AlertDescription>
+        </Alert>
       </section>
     );
   }
@@ -87,23 +95,21 @@ export function ActivityPanel({
   if (activity.status === "error") {
     return (
       <section
-        className={styles.panel}
+        className="surface-primary rounded-xl border border-border p-4 sm:p-6"
         aria-labelledby={labelledBy}
         aria-label={labelled}
       >
         {heading}
         {leading}
-        <div className={styles.error} role="alert">
-          <strong>Activity is temporarily unavailable.</strong>
-          {activity.error.message ? (
-            <span>{activity.error.message}</span>
-          ) : activity.error.code ? (
-            <span>{activity.error.code}</span>
+        <Alert className="mt-4" variant="destructive" role="alert">
+          <AlertTitle>Activity is temporarily unavailable.</AlertTitle>
+          {activity.error.message || activity.error.code ? (
+            <AlertDescription>{activity.error.message || activity.error.code}</AlertDescription>
           ) : null}
-          <button type="button" onClick={activity.retry}>
-            Try again
-          </button>
-        </div>
+          <AlertAction>
+            <Button className="w-max" variant="secondary" onClick={activity.retry}>Try again</Button>
+          </AlertAction>
+        </Alert>
       </section>
     );
   }
@@ -116,27 +122,21 @@ export function ActivityPanel({
   const isEmpty = visibleTransfers.length === 0;
   return (
     <section
-      className={styles.panel}
+      className="surface-primary rounded-xl border border-border p-4 sm:p-6"
       aria-labelledby={labelledBy}
       aria-label={labelled}
     >
       {heading}
       {leading}
-      {page.recordedOperations === "unavailable" ? (
-        <p className={styles.secondaryNotice} role="status">
-          Pending Home actions are temporarily unavailable. Onchain activity is still shown.
-        </p>
-      ) : null}
       {isEmpty ? (
-        suppressEmpty ? null : <p className={styles.empty}>No activity yet</p>
+        suppressEmpty ? null : <ActivityEmpty />
       ) : (
-        <ol className={styles.list}>
+        <ol className="mt-4 list-none border-t border-border p-0">
           {visibleTransfers.map((transfer) => (
             <TransferActivityRow
               key={transfer.id}
               transfer={transfer}
               regionId={regionId}
-              timeZone={timeZone}
               onActivate={() => setSelectedTransfer(transfer)}
             />
           ))}
@@ -212,47 +212,48 @@ function ActivityPagination({
 
   if (!nextCursor) {
     return hasTransfers ? (
-      <p className={styles.end} role="status">
+      <p className="text-metadata mt-4 text-center text-muted-foreground" role="status">
         End of activity
       </p>
     ) : null;
   }
 
   return (
-    <div className={styles.pagination}>
+    <div className="mt-3">
       {loading ? (
-        <div className={styles.loadingMore} role="status" aria-live="polite">
-          <span className={styles.spinner} aria-hidden="true" />
-          Loading more activity…
-        </div>
+        <Alert role="status" aria-live="polite" className="min-h-11 justify-center border-0 bg-transparent p-0 text-muted-foreground">
+          <AlertDescription className="flex items-center justify-center gap-2 text-inherit">
+            <ActivitySpinner />
+            Loading more activity…
+          </AlertDescription>
+        </Alert>
       ) : null}
       {failed ? (
-        <p className={styles.loadMoreError} role="alert">
+        <p className="text-metadata mb-2 text-destructive" role="alert">
           More activity could not be loaded. Your current results are unchanged.
         </p>
       ) : autoLoadPaused ? (
-        <p className={styles.loadMoreNotice} role="status">
+        <p className="text-metadata mb-2 text-muted-foreground" role="status">
           No additional activity was found on that page. Continue to check older activity.
         </p>
       ) : null}
-      <button
-        className={styles.loadMoreButton}
-        type="button"
-        onClick={failed || autoLoadPaused ? continueManually : loadMore}
-        disabled={loading}
-      >
-        {loading
-          ? "Loading…"
-          : failed
+      {loading ? null : (
+        <Button
+          className="min-h-11 w-full"
+          variant="secondary"
+          onClick={failed || autoLoadPaused ? continueManually : loadMore}
+        >
+          {failed
             ? "Retry more activity"
             : autoLoadPaused
               ? "Continue loading activity"
               : "Load more activity"}
-      </button>
+        </Button>
+      )}
       <div
         key={nextCursor}
         ref={sentinelRef}
-        className={styles.sentinel}
+        className="h-px w-full"
         data-activity-sentinel=""
         aria-hidden="true"
       />
@@ -260,10 +261,29 @@ function ActivityPagination({
   );
 }
 
+function ActivityEmpty() {
+  return (
+    <Empty className="mt-4 items-start justify-start p-0 text-left">
+      <EmptyHeader className="items-start">
+        <EmptyTitle className="text-row-label">No activity yet</EmptyTitle>
+      </EmptyHeader>
+    </Empty>
+  );
+}
+
+function ActivitySpinner() {
+  return (
+    <span
+      className="size-4 shrink-0 animate-spin rounded-full border-2 border-primary/20 border-t-primary motion-reduce:animate-none"
+      aria-hidden="true"
+    />
+  );
+}
+
 function DefaultActivityHeader() {
   return (
-    <div className={styles.header}>
-      <h2 id="activity-title">Activity</h2>
+    <div className="flex items-start justify-between gap-4">
+      <h2 id="activity-title" className="text-metadata font-semibold tracking-widest text-muted-foreground uppercase">Activity</h2>
     </div>
   );
 }
@@ -271,15 +291,13 @@ function DefaultActivityHeader() {
 function TransferActivityRow({
   transfer,
   regionId,
-  timeZone,
   onActivate,
 }: {
   transfer: ActivityTransfer;
   regionId: NonNullable<ActivityPanelProps["regionId"]>;
-  timeZone: string;
   onActivate: () => void;
 }) {
-  const model = presentActivityTransferRow(transfer, { regionId, timeZone });
+  const model = presentActivityTransferRow(transfer, { regionId });
   return (
     <ActivityRow
       icon={iconForDirection(transfer.direction)}
@@ -291,7 +309,7 @@ function TransferActivityRow({
         </time>
       }
       contextTitle={model.fullDate}
-      value={model.value}
+      value={<MoneyTicker value={model.value} />}
       onActivate={onActivate}
       activateLabel={`View ${model.directionLabel.toLowerCase()} ${transfer.tokenSymbol ?? "unknown token"} transaction details`}
     />
@@ -302,12 +320,4 @@ function iconForDirection(direction: ActivityDirection): string {
   if (direction === "incoming") return "↓";
   if (direction === "outgoing") return "↑";
   return "↔";
-}
-
-function runtimeTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
 }

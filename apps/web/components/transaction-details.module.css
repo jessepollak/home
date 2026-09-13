@@ -1,13 +1,17 @@
+.divider {
+  margin-top: 4px;
+}
+
 .explorerWrap {
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   margin: 4px 0 0;
 }
 
 .explorer {
-  color: var(--home-blue);
-  font-size: 0.9rem;
-  font-weight: 700;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
   text-decoration: none;
 }
 
@@ -16,6 +20,6 @@
 }
 
 .explorer:focus-visible {
-  outline: 2px solid var(--home-blue);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }

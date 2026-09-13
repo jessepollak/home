@@ -1,37 +1,16 @@
+import { deploymentHeaders } from "@/client/query/deployment-headers";
 import {
   ACCOUNT_PROVIDER_HEADER,
-  BASE_CHAIN_ID,
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
-
-const addressPattern = /^0x[0-9a-fA-F]{40}$/;
+import { parseNativeBaseNonceResponse } from "@/shared/account/contracts/base-nonce";
+import { parseNativeBaseSession } from "@/shared/account/contracts/base-verify";
 const flowIdPattern = /^[0-9a-f-]{16,64}$/;
 
 export type NativeBaseFetch = (
   input: RequestInfo | URL,
   init?: RequestInit,
 ) => Promise<Response>;
-
-export function parseNativeBaseSession(value: unknown): VerifiedAccountSession | null {
-  if (!value || typeof value !== "object") return null;
-  const session = value as Partial<VerifiedAccountSession>;
-  if (
-    session.accountProvider !== "base-account" ||
-    !session.user || typeof session.user.subject !== "string" || !session.user.subject ||
-    !session.smartAccount ||
-    typeof session.smartAccount.address !== "string" ||
-    !addressPattern.test(session.smartAccount.address) ||
-    session.smartAccount.chainId !== BASE_CHAIN_ID
-  ) return null;
-  return {
-    user: { subject: session.user.subject },
-    smartAccount: {
-      address: session.smartAccount.address.toLowerCase() as `0x${string}`,
-      chainId: BASE_CHAIN_ID,
-    },
-    accountProvider: "base-account",
-  };
-}
 
 async function readSessionResponse(response: Response): Promise<VerifiedAccountSession> {
   if (!response.ok) throw new Error("Native Base authentication failed.");
@@ -55,6 +34,7 @@ export async function restoreNativeBaseSession(
     response = await fetchImpl("/api/session", {
       method: "GET",
       headers: {
+        ...deploymentHeaders(),
         Accept: "application/json",
         [ACCOUNT_PROVIDER_HEADER]: "base-account",
       },
@@ -75,19 +55,19 @@ export async function requestNativeBaseChallenge(
 ): Promise<{ flowId: string; message: string }> {
   const response = await fetchImpl("/api/auth/base/nonce", {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: {
+      ...deploymentHeaders(),
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({ address }),
     cache: "no-store",
     credentials: "same-origin",
     redirect: "error",
   });
   if (!response.ok) throw new Error("Native Base authentication failed.");
-  const value: unknown = await response.json().catch(() => null);
-  if (
-    !value || typeof value !== "object" ||
-    !("message" in value) || typeof value.message !== "string" ||
-    value.message.length === 0 || value.message.length > 16_384
-  ) throw new Error("Native Base authentication failed.");
+  const value = parseNativeBaseNonceResponse(await response.json().catch(() => null));
+  if (!value) throw new Error("Native Base authentication failed.");
   const flowId = crypto.randomUUID();
   if (!flowIdPattern.test(flowId)) throw new Error("Native Base authentication failed.");
   return { flowId, message: value.message };
@@ -101,7 +81,11 @@ export async function verifyNativeBaseChallenge(
 ): Promise<VerifiedAccountSession> {
   const response = await fetchImpl("/api/auth/base/verify", {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: {
+      ...deploymentHeaders(),
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({ message, signature }),
     cache: "no-store",
     credentials: "same-origin",
@@ -117,6 +101,9 @@ export async function verifyNativeBaseChallenge(
 export async function clearNativeBaseSession(
   fetchImpl: NativeBaseFetch = fetch,
 ): Promise<void> {
+  // Never pin sign-out to the serving deployment. Logout only clears cookies
+  // and is valid on any deployment; a pinned request from a tab older than the
+  // Skew Protection max age would 404 and leave the user unable to sign out.
   const response = await fetchImpl("/api/auth/base/logout", {
     method: "POST",
     headers: { Accept: "application/json" },

@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useNestedAppChrome } from "@/components/app-chrome";
 import type { InvestAsset } from "@/config/invest-assets";
+import { commitClientUrl } from "@/config/shell-location";
+import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
 import {
@@ -22,6 +23,7 @@ import { CategoryScreen } from "./category-screen";
 import { InvestHub } from "./invest-hub";
 import {
   investHref,
+  investViewFromLocation,
   investViewFromSearch,
   type InvestView,
 } from "./invest-location";
@@ -54,7 +56,7 @@ export function InvestExperience({
   onLoadMoreMemes,
   onRetryLoadMoreMemes,
 }: InvestExperienceProps = {}) {
-  const router = useRouter();
+  const routing = useOptionalHomeShellRouting();
   const [view, setView] = useState<InvestView>(() => {
     if (typeof window !== "undefined") {
       const fromUrl = investViewFromSearch(
@@ -74,29 +76,34 @@ export function InvestExperience({
     resetHostScroll(hostRef.current);
   }, [currentViewKey]);
 
+  const appliedPopRevisionRef = useRef(routing?.popRevision ?? 0);
   useEffect(() => {
-    const onPopState = () => {
-      setView(investViewFromSearch(new URLSearchParams(window.location.search)));
+    if (!routing || appliedPopRevisionRef.current === routing.popRevision) return;
+    appliedPopRevisionRef.current = routing.popRevision;
+    if (routing.state.location.panel !== "invest") return;
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setView(investViewFromLocation(routing.state.location));
       setInAppChildDepth((depth) => Math.max(0, depth - 1));
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+    });
+    return () => { active = false; };
+  }, [routing]);
 
   const go = useCallback((next: InvestView) => {
     setView(next);
     setInAppChildDepth((depth) => depth + 1);
-    router.push(investHref(next), { scroll: false });
-  }, [router]);
+    commitClientUrl(investHref(next));
+  }, []);
 
   const leaveChild = useCallback((parent: InvestView) => {
     setView(parent);
     if (inAppChildDepth > 0) {
-      router.back();
+      window.history.back();
       return;
     }
-    router.replace(investHref(parent), { scroll: false });
-  }, [inAppChildDepth, router]);
+    commitClientUrl(investHref(parent), "replace");
+  }, [inAppChildDepth]);
 
   const chromeTitle =
     view.screen === "category"
@@ -112,7 +119,7 @@ export function InvestExperience({
         : null;
 
   useNestedAppChrome(
-    chromeTitle && chromeBackLabel
+    (!routing || routing.state.panel === "invest") && chromeTitle && chromeBackLabel
       ? {
           title: chromeTitle,
           backLabel: chromeBackLabel,

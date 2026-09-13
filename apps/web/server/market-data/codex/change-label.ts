@@ -3,6 +3,8 @@
  * `filterTokens.change24` and `getTokenPrices.priceChange24`.
  * Missing, zero, or malformed values are omitted — never invented.
  */
+import "server-only";
+
 export function formatChangeLabel(value: unknown): string | undefined {
   const decimal = readSignedDecimal(value);
   if (decimal === null || decimal === 0) return undefined;

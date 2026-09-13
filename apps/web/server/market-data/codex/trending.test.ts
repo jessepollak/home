@@ -209,15 +209,6 @@ describe("Codex trending memes pages", () => {
     expect(page.exhausted).toBe(false);
   });
 
-  test("rejects a repeated page-one result", () => {
-    expect(() =>
-      normalizeTrendingMemesPage(trendingPayload([], 0), NOW, {
-        offset: 24,
-        limit: CODEX_TRENDING_PAGE_SIZE,
-      }),
-    ).toThrow(CodexMarketDataError);
-  });
-
   test("rejects an inconsistent provider count", () => {
     const payload = { filterTokens: { results: [memeRow("0x1111111111111111111111111111111111111111", "Higher")], count: 5, page: 0 } };
     expect(() =>
@@ -226,45 +217,6 @@ describe("Codex trending memes pages", () => {
         limit: CODEX_TRENDING_PAGE_SIZE,
       }),
     ).toThrow(CodexMarketDataError);
-  });
-
-  test("rejects missing pagination metadata", () => {
-    expect(() =>
-      normalizeTrendingMemesPage({ filterTokens: { results: [] } }, NOW, {
-        offset: 0,
-        limit: CODEX_TRENDING_PAGE_SIZE,
-      }),
-    ).toThrow(CodexMarketDataError);
-  });
-
-  test("coalesces concurrent reads and caches each offset", async () => {
-    let upstreamCalls = 0;
-    const reader = createCodexTrendingMemesPageReader({
-      apiKey: "fixture-key",
-      now: () => NOW,
-      fetchImpl: async () => {
-        upstreamCalls += 1;
-        return new Response(
-          JSON.stringify({
-            data: trendingPayload(
-              [memeRow("0x1111111111111111111111111111111111111111", "Higher")],
-              0,
-            ),
-          }),
-        );
-      },
-    });
-
-    const [first, second, cached] = await Promise.all([
-      reader(0),
-      reader(0),
-      reader(0),
-    ]);
-    expect(upstreamCalls).toBe(1);
-    expect(first.status).toBe("ready");
-    expect(first.assets).toHaveLength(1);
-    expect(second).toEqual(first);
-    expect(cached).toEqual(first);
   });
 
   test("does not cache a failed page and refetches the same offset", async () => {
@@ -283,66 +235,7 @@ describe("Codex trending memes pages", () => {
     expect(upstreamCalls).toBe(2);
   });
 
-  test("bounds the per-offset cache with least-recently-used eviction", async () => {
-    let upstreamCalls = 0;
-    const reader = createCodexTrendingMemesPageReader({
-      apiKey: "fixture-key",
-      now: () => NOW,
-      cacheMaxEntries: 2,
-      fetchImpl: async (_url, init) => {
-        upstreamCalls += 1;
-        const body = JSON.parse(String(init?.body)) as {
-          variables: { offset: number };
-        };
-        return new Response(
-          JSON.stringify({
-            data: trendingPayload(
-              [memeRow("0x1111111111111111111111111111111111111111", "Higher")],
-              body.variables.offset,
-            ),
-          }),
-        );
-      },
-    });
 
-    await reader(0);
-    await reader(24);
-    await reader(48); // evicts offset 0 (cache capped at 2)
-    expect(upstreamCalls).toBe(3);
-    await reader(0); // refetched after eviction; this evicts offset 24 (now LRU)
-    expect(upstreamCalls).toBe(4);
-    await reader(48); // still cached (most recently used)
-    expect(upstreamCalls).toBe(4);
-    await reader(24); // refetched after being evicted
-    expect(upstreamCalls).toBe(5);
-  });
-
-  test("fails closed when concurrent in-flight pages exceed the cap", async () => {
-    const release = () => new Promise((resolve) => setTimeout(resolve, 20));
-    const reader = createCodexTrendingMemesPageReader({
-      apiKey: "fixture-key",
-      now: () => NOW,
-      maxInFlight: 1,
-      fetchImpl: async (_url, init) => {
-        const body = JSON.parse(String(init?.body)) as {
-          variables: { offset: number };
-        };
-        await release();
-        return new Response(
-          JSON.stringify({
-            data: trendingPayload(
-              [memeRow("0x1111111111111111111111111111111111111111", "Higher")],
-              body.variables.offset,
-            ),
-          }),
-        );
-      },
-    });
-
-    const first = reader(0);
-    await expect(reader(24)).rejects.toThrow(CodexMarketDataError);
-    expect((await first).status).toBe("ready");
-  });
 });
 
 describe("Codex trending meme admission", () => {

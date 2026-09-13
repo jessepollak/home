@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { PortfolioAddress } from "@/config/portfolio-assets";
 import { parseExactDecimal } from "@/shared/portfolio/valuation-math";
 import type { PriceQuote, ValuationSource } from "@/shared/portfolio/valuation-types";
@@ -11,7 +13,7 @@ import {
   CODEX_TOKEN_PRICES_QUERY,
 } from "./config";
 import { parseJsonWithNumberLexemes } from "./lossless-json";
-import { MARKET_PRICE_FRESHNESS_MS } from "@/shared/invest/public-contract";
+import { MARKET_PRICE_FRESHNESS_MS } from "@/shared/invest/contracts/market-prices";
 
 export type CodexRawQuoteInput = {
   assetKey: `eip155:8453/erc20:${string}`;
@@ -76,6 +78,7 @@ export function createCodexRawQuotesReader(options: {
   };
 }
 
+export const CODEX_SHARED_READER_MAX = 256;
 let sharedApiKey: string | undefined;
 const sharedReaders = new Map<string, ReturnType<typeof createCodexRawQuotesReader>>();
 
@@ -92,11 +95,28 @@ export function getCodexRawQuotes(
     .sort()
     .join("|");
   let reader = sharedReaders.get(key);
-  if (!reader) {
+  if (reader) {
+    sharedReaders.delete(key);
+    sharedReaders.set(key, reader);
+  } else {
     reader = createCodexRawQuotesReader({ apiKey, inputs });
     sharedReaders.set(key, reader);
+    while (sharedReaders.size > CODEX_SHARED_READER_MAX) {
+      const oldest = sharedReaders.keys().next().value;
+      if (oldest === undefined) break;
+      sharedReaders.delete(oldest);
+    }
   }
   return reader();
+}
+
+export function resetCodexSharedReadersForTests(): void {
+  sharedApiKey = undefined;
+  sharedReaders.clear();
+}
+
+export function codexSharedReaderCountForTests(): number {
+  return sharedReaders.size;
 }
 
 async function fetchQuotes({
