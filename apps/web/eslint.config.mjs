@@ -23,12 +23,9 @@ const rawButtonAllowlist = [
   "client/invest/price-chart.tsx",
   "client/landing/supported-globe.tsx",
   "client/savings/savings-experience.tsx",
-  "components/address-field.tsx",
 ];
 
-const rawFieldAllowlist = [
-  "client/account/account-screen.tsx",
-];
+const rawFieldAllowlist = [];
 
 const rawHeadingAllowlist = [
 ];

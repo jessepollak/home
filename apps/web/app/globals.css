@@ -289,8 +289,7 @@ body:has(.app-frame-shell) {
   -webkit-overflow-scrolling: touch;
 }
 
-.landing-main,
-.account-state-main {
+.landing-main {
   display: grid;
   min-height: clamp(390px, calc(100svh - 164px), 680px);
   align-items: center;
@@ -300,28 +299,21 @@ body:has(.app-frame-shell) {
 .landing-main-with-visual {
   justify-items: center;
   align-content: center;
-  gap: 8px;
+  gap: var(--home-ui-space-2);
   padding-block: 18px 40px;
   text-align: center;
 }
 
-.landing-main-with-visual .landing-hero h1 {
-  max-width: none;
-  margin-top: 0;
-  max-width: 780px;
-  font-size: clamp(2.5rem, 7vw, 4.4rem);
-}
-
-.landing-main-with-visual .landing-copy {
-  margin-inline: auto;
-}
-
-.landing-main-with-visual .landing-actions {
-  justify-content: center;
-}
-
 .landing-hero {
   width: min(100%, 760px);
+}
+
+.landing-content {
+  align-items: flex-start;
+}
+
+.landing-main-with-visual .landing-content {
+  align-items: center;
 }
 
 .landing-visual {
@@ -334,104 +326,36 @@ body:has(.app-frame-shell) {
   height: auto;
 }
 
-.landing-hero h1,
-.account-state-card h1 {
+.landing-heading {
   max-width: 680px;
-  margin: 12px 0 0;
   font-size: clamp(2.65rem, 11vw, 5.8rem);
-  font-weight: 650;
+  font-weight: var(--home-ui-type-weight-strong);
   letter-spacing: -0.07em;
   line-height: 0.94;
 }
 
-.landing-copy,
-.account-state-card > p:not(.eyebrow) {
+.landing-main-with-visual .landing-heading {
+  max-width: 780px;
+  font-size: clamp(2.5rem, 7vw, 4.4rem);
+}
+
+.landing-copy {
   max-width: 610px;
-  margin: 18px 0 0;
-  color: var(--muted);
   font-size: clamp(0.92rem, 2.3vw, 1.08rem);
   line-height: 1.55;
 }
 
 .landing-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 24px;
+  justify-content: flex-start;
 }
 
-.landing-primary,
-.landing-secondary {
-  min-height: 48px;
-  font-size: 0.82rem;
-  font-weight: 750;
-  padding: 0 20px;
-}
-
-.landing-secondary {
-  border-color: var(--foreground);
+.landing-main-with-visual .landing-actions {
+  justify-content: center;
 }
 
 .landing-status {
-  max-width: 560px;
-  margin-top: 24px;
-  border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
-  background: var(--surface);
-  padding: 13px 15px;
-}
-
-.landing-status p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.72rem;
-  line-height: 1.45;
-}
-
-.landing-status button {
-  margin-top: 9px;
-  color: var(--foreground);
-  font-size: 0.72rem;
-  font-weight: 750;
-  padding: 0;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.account-state-card {
-  width: min(100%, 620px);
-  border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
-  background: var(--surface);
-  padding: 28px;
-}
-
-.account-state-card h1 {
-  font-size: clamp(1.9rem, 7vw, 3.4rem);
-}
-
-.account-state-card .landing-primary {
-  margin-top: 22px;
-}
-
-.loading-lines {
-  display: grid;
-  gap: 10px;
-  margin-top: 30px;
-}
-
-.loading-lines span {
-  width: 100%;
-  height: 10px;
-  background: var(--home-gray-100);
-}
-
-.loading-lines span:nth-child(2) {
-  width: 72%;
-}
-
-.loading-lines span:nth-child(3) {
-  width: 43%;
+  width: min(100%, 560px);
+  text-align: left;
 }
 
 .main-heading {
@@ -1016,22 +940,13 @@ body:has(.app-frame-shell) {
     padding-top: 14px;
   }
 
-  .landing-main,
-  .account-state-main {
+  .landing-main {
     min-height: calc(100svh - 136px);
     padding-block: 24px;
   }
 
-  .landing-hero h1 {
+  .landing-heading {
     font-size: clamp(2.35rem, 8vw, 3.4rem);
-  }
-
-  .landing-copy {
-    margin-top: 14px;
-  }
-
-  .landing-actions {
-    margin-top: 18px;
   }
 
   .panel-stage {
@@ -1074,8 +989,7 @@ body:has(.app-frame-shell) {
     padding-top: 28px;
   }
 
-  .landing-main,
-  .account-state-main {
+  .landing-main {
     padding-inline: 18px;
   }
 

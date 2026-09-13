@@ -19,15 +19,15 @@
 }
 
 .icon[data-tone="outgoing"] {
-  border-color: #f0d0cd;
-  background: #fff1f0;
-  color: #a12c23;
+  border-color: color-mix(in srgb, var(--home-ui-color-market-loss) 24%, var(--home-ui-color-surface));
+  background: color-mix(in srgb, var(--home-ui-color-market-loss) 8%, var(--home-ui-color-surface));
+  color: var(--home-ui-color-market-loss);
 }
 
 .icon[data-tone="self"] {
-  border-color: #d6e0f8;
-  background: #eef3ff;
-  color: #17448f;
+  border-color: var(--home-ui-color-accent-tint-separator);
+  background: var(--home-ui-color-accent-tint);
+  color: var(--home-ui-color-accent-tint-text);
 }
 
 .icon[data-tone="outlined"] {

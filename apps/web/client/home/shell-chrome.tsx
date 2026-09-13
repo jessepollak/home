@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Button, Heading, Text } from "@home/ui";
+import { Button, Heading, Inline, Stack, StatusMessage, Text } from "@home/ui";
 import { HomeMark } from "@/components/home-mark";
 import { ProfileMark } from "@/components/profile-mark";
 import { useAccountWallet } from "@/client/account/cdp-client";
@@ -166,26 +166,36 @@ export function SignedOutLanding({
     <main className={`landing-main${landingVisual ? " landing-main-with-visual" : ""}`}>
       {landingVisual ? <div className="landing-visual">{landingVisual}</div> : null}
       <section className="landing-hero" aria-labelledby="landing-title">
-        <Heading level={1} textStyle="page-title" id="landing-title">One home for your money.</Heading>
-        <Text className="landing-copy">Invest in any asset, earn more on your savings, and grow your wealth.</Text>
-        <div className="landing-actions">
-          {isVerified ? (
-            <Button className="landing-primary" onClick={onDashboard}>Open dashboard</Button>
-          ) : (
-            <>
-              <Button className="landing-primary" onClick={onSignIn}>Sign in</Button>
-              {showCreateAccount ? (
-                <Button className="landing-secondary" variant="secondary" onClick={onSignIn}>Create account</Button>
-              ) : null}
-            </>
-          )}
-        </div>
-        {signOutError ? (
-          <div className="landing-status" role="alert">
-            <Text textStyle="metadata" tone="muted">{signOutError}</Text>
-            <Button variant="quiet" onClick={onRetrySignOut}>Retry sign out</Button>
-          </div>
-        ) : null}
+        <Stack className="landing-content" space="6">
+          <Heading className="landing-heading" level={1} textStyle="page-title" id="landing-title">
+            One home for your money.
+          </Heading>
+          <Text className="landing-copy" textStyle="secondary" tone="muted">
+            Invest in any asset, earn more on your savings, and grow your wealth.
+          </Text>
+          <Inline className="landing-actions" space="3">
+            {isVerified ? (
+              <Button onClick={onDashboard}>Open dashboard</Button>
+            ) : (
+              <>
+                <Button onClick={onSignIn}>Sign in</Button>
+                {showCreateAccount ? (
+                  <Button variant="secondary" onClick={onSignIn}>Create account</Button>
+                ) : null}
+              </>
+            )}
+          </Inline>
+          {signOutError ? (
+            <StatusMessage
+              className="landing-status"
+              tone="error"
+              role="alert"
+              action={<Button variant="quiet" onClick={onRetrySignOut}>Retry sign out</Button>}
+            >
+              {signOutError}
+            </StatusMessage>
+          ) : null}
+        </Stack>
       </section>
     </main>
   );
