@@ -2,7 +2,7 @@ import { emitServerEvent } from "@/server/observability/log";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowPreviewRequest } from "@/shared/borrowing/types";
 import type { SavingsActionInput } from "@/server/savings/types";
-import type { TransferRequest } from "@/shared/transfers/types";
+import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import { isActionKind, type ActionKind } from "@/shared/money-actions/types";
 import { authorizeSession } from "@/server/auth/authorize";
 import { issueSendMoneyAction } from "@/server/money-actions/prepare-send";
@@ -65,6 +65,9 @@ export function createPrepareActionHandler(dependencies: {
       }
       if (error instanceof BorrowPreparationError) {
         return fail(error.code.toUpperCase().replaceAll("-", "_"), error.message, error.code === "stale-state" ? 409 : 400);
+      }
+      if (error instanceof TransferExecutionError && error.reason === "invalid-request") {
+        return fail("INVALID_SEND_REQUEST", "Use a valid Base recipient, asset, and integer amount.", 400);
       }
       return fail("ACTION_PREPARE_UNAVAILABLE", "The action could not be prepared safely.", 502);
     }

@@ -7,6 +7,8 @@ export {
   TRANSFER_ASSETS,
   formatSendConfirmAmount,
   formatTransferAmount,
+  getTransferAsset,
+  getTransferAssets,
   isTransferRecipient,
   normalizeTransferRecipient,
   parseTransferAmount,
@@ -14,6 +16,8 @@ export {
 export {
   TransferExecutionError,
   type ConfirmedTransfer,
+  type TransferAsset,
+  type TransferAssetAvailability,
   type TransferAssetId,
   type TransferRequest,
 } from "@/shared/transfers/types";

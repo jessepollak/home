@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  encodeErc20Transfer,
   encodeUsdcTransfer,
   formatSendConfirmAmount,
   formatTransferAmount,
@@ -19,6 +20,7 @@ describe("transfer amount helpers", () => {
     expect(formatSendConfirmAmount("1000001", "usdc")).toBe("$1.000001");
     expect(formatSendConfirmAmount("1234560000", "usdc")).toBe("$1,234.56");
     expect(formatSendConfirmAmount("1", "eth")).toBe("0.000000000000000001\u00A0ETH");
+    expect(formatSendConfirmAmount("100000", "cbbtc")).toBe("0.001\u00A0cbBTC");
   });
 
   test("rejects exponent notation, excess precision, zero, and malformed addresses", () => {
@@ -29,9 +31,18 @@ describe("transfer amount helpers", () => {
     expect(() => normalizeTransferRecipient("0x0000000000000000000000000000000000000000")).toThrow(TransferExecutionError);
   });
 
-  test("encodes the canonical USDC transfer selector and uint256 arguments", () => {
+  test("encodes catalog ERC-20 transfers with the token as target", () => {
     expect(encodeUsdcTransfer(RECIPIENT, BigInt(1))).toBe(
       `0xa9059cbb${RECIPIENT.slice(2).padStart(64, "0")}${"1".padStart(64, "0")}`,
     );
+    expect(encodeErc20Transfer(
+      "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      RECIPIENT,
+      BigInt(100_000),
+    )).toEqual({
+      to: "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      data: `0xa9059cbb${RECIPIENT.slice(2).padStart(64, "0")}${BigInt(100_000).toString(16).padStart(64, "0")}`,
+      value: BigInt(0),
+    });
   });
 });

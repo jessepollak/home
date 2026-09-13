@@ -119,7 +119,7 @@ export function HomePanel({
         <TransferActions
           initialOpen={initialSendFlow}
           initialActionId={initialSendActionId}
-          availableByAsset={deriveSendAvailability(balanceItems)}
+          availableAssets={deriveSendAvailability(balanceItems)}
         />
       </div>
 

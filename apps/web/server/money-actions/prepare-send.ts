@@ -1,14 +1,13 @@
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { MoneyActionDraft, PreparedMoneyAction } from "@/shared/money-actions/types";
 import {
-  TRANSFER_ASSETS,
   assertTransferRequest,
-  encodeUsdcTransfer,
+  encodeErc20Transfer,
+  getTransferAsset,
 } from "@/shared/transfers/transfer-helpers";
-import type { TransferRequest } from "@/shared/transfers/types";
-import type { PreparedMoneyAction } from "@/shared/money-actions/types";
-import { PORTFOLIO_BASE_USDC_ADDRESS } from "@/shared/portfolio/types";
-import { issueMoneyAction } from "./issue";
+import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
+import { issueMoneyAction } from "./issue";
 
 export function createPrepareSendMoneyActionHandler(dependencies: {
   authorize: SessionAuthorizer;
@@ -42,11 +41,18 @@ export async function issueSendMoneyAction(
   request: TransferRequest,
   now = new Date(),
 ): Promise<PreparedMoneyAction> {
+  return issueMoneyAction(session, buildSendMoneyActionDraft(request, now));
+}
+
+export function buildSendMoneyActionDraft(
+  request: TransferRequest,
+  now = new Date(),
+): MoneyActionDraft {
   assertTransferRequest(request);
   const call = buildServerTransferCall(request);
-  const asset = TRANSFER_ASSETS[request.assetId];
-  const target = request.assetId === "usdc" ? PORTFOLIO_BASE_USDC_ADDRESS : request.recipient;
-  return issueMoneyAction(session, {
+  const asset = getTransferAsset(request.assetId);
+  if (!asset) throw new TransferExecutionError("invalid-request");
+  return {
     kind: "send",
     title: `Send ${asset.symbol}`,
     calls: [{ to: call.to, data: call.data, value: call.value.toString(10) }],
@@ -59,23 +65,27 @@ export async function issueSendMoneyAction(
     }],
     warnings: [
       `Recipient: ${request.recipient}`,
-      `Execution target: ${target}`,
+      `Execution target: ${call.to}`,
       "Your wallet will show the Base network fee before you sign.",
     ],
     expiresAt: new Date(now.getTime() + 10 * 60 * 1000).toISOString(),
-  });
+  };
 }
 
-function buildServerTransferCall(request: TransferRequest): {
+export function buildServerTransferCall(request: TransferRequest): {
   to: `0x${string}`;
   value: bigint;
   data: `0x${string}`;
 } {
   assertTransferRequest(request);
+  const asset = getTransferAsset(request.assetId);
+  if (!asset) throw new TransferExecutionError("invalid-request");
   const amount = BigInt(request.amountBaseUnits);
-  return request.assetId === "eth"
-    ? { to: request.recipient, value: amount, data: "0x" }
-    : { to: PORTFOLIO_BASE_USDC_ADDRESS, value: BigInt(0), data: encodeUsdcTransfer(request.recipient, amount) };
+  if (asset.kind === "native") {
+    return { to: request.recipient, value: amount, data: "0x" };
+  }
+  if (!asset.contractAddress) throw new TransferExecutionError("invalid-request");
+  return encodeErc20Transfer(asset.contractAddress, request.recipient, amount);
 }
 
 function isTransferRequest(value: unknown): value is TransferRequest {
@@ -84,7 +94,7 @@ function isTransferRequest(value: unknown): value is TransferRequest {
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.keys(value).every((key) => ["assetId", "recipient", "amountBaseUnits"].includes(key)) &&
-    ((value as TransferRequest).assetId === "usdc" || (value as TransferRequest).assetId === "eth") &&
+    typeof (value as TransferRequest).assetId === "string" &&
     typeof (value as TransferRequest).recipient === "string" &&
     typeof (value as TransferRequest).amountBaseUnits === "string",
   );

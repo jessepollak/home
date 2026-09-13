@@ -70,6 +70,32 @@ describe("prepare action handler", () => {
     expect((await response.json() as { error: { code: string } }).error.code).toBe(code);
   });
 
+  test("rejects unknown and recognized-only send assets with 400", async () => {
+    const handler = createPrepareActionHandler({ authorize: async () => authorized() });
+    for (const assetId of [
+      "unknown",
+      "recognized:0x9999999999999999999999999999999999999999",
+    ]) {
+      const response = await handler(new Request("https://home.test/api/actions/prepare", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded",
+        },
+        body: JSON.stringify({
+          kind: "send",
+          params: {
+            assetId,
+            recipient: "0x2222222222222222222222222222222222222222",
+            amountBaseUnits: "1",
+          },
+        }),
+      }));
+      expect(response.status).toBe(400);
+      expect((await response.json() as { error: { code: string } }).error.code).toBe("INVALID_SEND_REQUEST");
+    }
+  });
+
   test("rejects action kinds outside the stored vocabulary", async () => {
     const handler = createPrepareActionHandler({ authorize: async () => authorized() });
 
