@@ -14,47 +14,15 @@ import { MoneyAmountDisplay, MoneyModalFooter, MoneyNumpad } from "@/client/mone
 import modal from "@/client/money-modal/money-modal.module.css";
 import styles from "./add-money.module.css";
 import { ownerQueryKey, ownerQueryMeta, publicQueryKey, useHomeQuery } from "@/client/query/query-client";
-
-export type FundingBinding = {
-  providerId: string;
-  displayName: string;
-  region: string;
-  assetId: string;
-  assetSymbol: string;
-  assetDecimals: number;
-  currency: string;
-  paymentMethods: ReadonlyArray<{ id: string; label: string }>;
-  quotes: boolean;
-  kyc: { terms?: { url: string }; fields?: ReadonlyArray<{ name: string; label: string; type: "text" | "email" | "date" | "select"; options?: ReadonlyArray<string> }> } | null;
-};
-
-type FundingQuote = {
-  fiatAmount: string;
-  tokenAmountAtomic: string;
-  fees: ReadonlyArray<{ label: string; amount: string; currency: string }>;
-  feesKnown?: boolean;
-  expiresAt: string;
-};
-type QuoteDraft = { quote: FundingQuote; quoteToken: string };
-export type FundingOrderSummary = {
-  id: string;
-  providerId: string;
-  state: string;
-  fiatAmount: string;
-  quote?: FundingQuote;
-  quoteToken?: string;
-  expectedTokenAmountAtomic?: string | null;
-  fees?: ReadonlyArray<{ label: string; amount: string; currency: string }>;
-  providerStatus: string | null;
-  instructions: Instruction | null;
-};
-type Instruction =
-  | { kind: "redirect"; url: string }
-  | { kind: "bank-transfer"; rail: string; accountNumber: string; accountName?: string; bank?: string; alias?: string; reference?: string; amount: string; currency: string }
-  | { kind: "qr"; scheme: string; payload: string; amount: string; currency: string }
-  | { kind: "payment-key"; scheme: string; key: string; amount: string; currency: string };
+import type { FundingBinding } from "@/shared/funding/contracts/providers";
+import { readQuoteDraft, type QuoteDraft } from "@/shared/funding/contracts/quotes";
+import { readFundingOrder, type FundingOrderSummary, type Instruction } from "@/shared/funding/contracts/order";
 
 type AccountFetch = (path: string, options?: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal }) => Promise<unknown>;
+
+export type { FundingBinding } from "@/shared/funding/contracts/providers";
+export type { FundingOrderSummary } from "@/shared/funding/contracts/order";
+export { readFundingOrder } from "@/shared/funding/contracts/order";
 
 export function FundingOrderFlow({ binding, fetchAccountResource, queryOwnerKey, onBack, onOpenRedirect, initialOrder }: { binding: FundingBinding; fetchAccountResource: AccountFetch; queryOwnerKey?: string | null; onBack: () => void; onOpenRedirect: (url: string) => void; initialOrder?: FundingOrderSummary | null }) {
   const [method, setMethod] = useState(binding.paymentMethods[0]?.id ?? "");
@@ -351,6 +319,3 @@ function stateCopy(state: string) {
 }
 function terminal(state: string) { return ["received", "dispatch-ambiguous", "failed", "cancelled", "expired", "refunded"].includes(state); }
 function positiveDecimal(value: string) { return /^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value) && /[1-9]/.test(value); }
-function readQuoteDraft(value: unknown): QuoteDraft | null { if (!record(value) || typeof value.quoteToken !== "string" || !record(value.quote) || typeof value.quote.fiatAmount !== "string" || typeof value.quote.tokenAmountAtomic !== "string" || !Array.isArray(value.quote.fees) || typeof value.quote.expiresAt !== "string") return null; return { quoteToken: value.quoteToken, quote: value.quote as FundingQuote }; }
-export function readFundingOrder(value: unknown): FundingOrderSummary | null { const candidate = record(value) && record(value.order) ? value.order : null; return candidate && typeof candidate.id === "string" && typeof candidate.providerId === "string" && typeof candidate.state === "string" && typeof candidate.fiatAmount === "string" ? candidate as FundingOrderSummary : null; }
-function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

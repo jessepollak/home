@@ -8,7 +8,8 @@ import {
   AddMoneyDialog,
   type AddMoneyStep,
 } from "./add-money-dialog";
-import { readFundingOrder, type FundingBinding, type FundingOrderSummary } from "./order-flow";
+import { readFundingOrder, readProviderId, type FundingOrderSummary } from "@/shared/funding/contracts/order";
+import { readProviderBindings, type FundingBinding } from "@/shared/funding/contracts/providers";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 
 export type FundingExperienceProps = {
@@ -174,29 +175,4 @@ function FundingExperienceBoundary({
       onOpenRedirect={navigateToRedirect}
     />
   );
-}
-
-function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {
-  if (!isRecord(value) || !Array.isArray(value.providers)) return [];
-  return value.providers.filter((item): item is FundingBinding =>
-    isRecord(item) &&
-    typeof item.providerId === "string" &&
-    typeof item.displayName === "string" &&
-    typeof item.region === "string" &&
-    typeof item.assetId === "string" &&
-    typeof item.assetSymbol === "string" &&
-    Number.isSafeInteger(item.assetDecimals) &&
-    typeof item.currency === "string" &&
-    Array.isArray(item.paymentMethods)
-  );
-}
-
-function readProviderId(value: unknown): string | null {
-  return isRecord(value) && isRecord(value.order) && typeof value.order.providerId === "string"
-    ? value.order.providerId
-    : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
