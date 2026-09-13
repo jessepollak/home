@@ -4,12 +4,12 @@ import type { FiatCurrencyCode } from "@/config/regions";
 import type {
   AssetKey,
   BalancesCoverage,
+  ExactDecimal,
   Holding,
   HoldingBalance,
   HoldingKind,
   HoldingSource,
 } from "@/shared/balances/types";
-import type { ExactDecimal } from "@/shared/balances/types";
 
 export type UniverseEntry = {
   key: AssetKey;

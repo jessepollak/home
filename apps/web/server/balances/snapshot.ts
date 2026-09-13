@@ -6,10 +6,13 @@ import {
   BALANCES_VERSION,
   type BalancesAddress,
   type BalancesSnapshot,
-  type ExactDecimal,
   type Holding,
 } from "@/shared/balances/types";
-import { addFractions, exactDecimalToFraction, roundFractionPreservingPositive } from "@/shared/portfolio/valuation-math";
+import {
+  addFractions,
+  exactDecimalToFraction,
+  roundFractionPreservingPositive,
+} from "@/shared/portfolio/valuation-math";
 import type { BalancesRead } from "./types";
 
 export function assembleBalancesSnapshot({
@@ -28,26 +31,49 @@ export function assembleBalancesSnapshot({
   const quoteCurrency = presentationRegions[region].currency.code;
   const registry = holdings.filter((holding) => holding.source === "registry");
   let total: BalancesSnapshot["total"];
+
   if (quoteCurrency === null) {
-    total = { status: "no-quote-currency", value: null, currency: null };
+    total = {
+      status: "no-quote-currency",
+      value: null,
+      currency: null,
+    };
   } else {
-    const pricedRegistry = registry.filter((holding) => holding.value.status === "priced");
-    const allRegistryUnavailable = registry.every((holding) => holding.balance.status === "unavailable");
-    if (allRegistryUnavailable || pricedRegistry.length === 0) {
-      total = { status: "unavailable", value: null, currency: quoteCurrency };
-    } else {
-      const fractions = holdings.flatMap((holding) => holding.value.status === "priced" ? [exactDecimalToFraction(holding.value.amount)] : []);
-      const complete = registry.every((holding) => holding.value.status === "priced");
+    const incomplete = registry.some(
+      (holding) => holding.value.status !== "priced",
+    );
+    const hasNonzero = registry.some(
+      (holding) =>
+        holding.value.status === "priced" &&
+        exactDecimalToFraction(holding.value.amount).numerator > BigInt(0),
+    );
+
+    if (incomplete && !hasNonzero) {
       total = {
-        status: complete ? "complete" : "partial",
+        status: "unavailable",
+        value: null,
+        currency: quoteCurrency,
+      };
+    } else {
+      const fractions = holdings.flatMap((holding) =>
+        holding.value.status === "priced"
+          ? [exactDecimalToFraction(holding.value.amount)]
+          : [],
+      );
+      total = {
+        status: incomplete ? "partial" : "complete",
         value: roundFractionPreservingPositive(addFractions(fractions)),
         currency: quoteCurrency,
       };
     }
   }
+
   return {
     version: BALANCES_VERSION,
-    owner: { address: owner.toLowerCase() as BalancesAddress, chainId: BALANCES_CHAIN_ID },
+    owner: {
+      address: owner.toLowerCase() as BalancesAddress,
+      chainId: BALANCES_CHAIN_ID,
+    },
     region,
     quoteCurrency,
     block: read.block,
@@ -56,8 +82,4 @@ export function assembleBalancesSnapshot({
     coverage: read.coverage,
     total,
   };
-}
-
-export function sumExactDecimals(values: readonly ExactDecimal[]): ExactDecimal {
-  return roundFractionPreservingPositive(addFractions(values.map(exactDecimalToFraction)));
 }
