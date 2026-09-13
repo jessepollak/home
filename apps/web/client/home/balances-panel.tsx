@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MoneyTicker } from "@/components/money-ticker";
 import { CurrencyMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
+import {
+  presentPortfolioAssetMark,
+  type AssetMarkResolution,
+} from "@/client/asset-mark/presentation";
 import type { RegionId } from "@/config/regions";
 import type { BalanceRowModel, BalancesPresentation } from "@/shared/balances/present";
 import { ShimmerRows } from "./panel-shared";
@@ -67,12 +71,14 @@ export function useBalancesRevealWindow(
 export function BalancesPage({
   active,
   assetBalances,
+  assetMarkResolution,
   isChecking,
   revealedCount,
   onRevealMore,
 }: {
   active: boolean;
   assetBalances?: BalancesPresentation;
+  assetMarkResolution?: AssetMarkResolution;
   isChecking: boolean;
   revealedCount: number;
   onRevealMore: () => void;
@@ -89,6 +95,7 @@ export function BalancesPage({
       <IncrementalBalancesList
         active={active}
         rows={assetBalances?.rows ?? []}
+        assetMarkResolution={assetMarkResolution}
         isLoading={isLoading}
         isUnavailable={assetBalances?.status === "unavailable"}
         revealedCount={revealedCount}
@@ -100,15 +107,27 @@ export function BalancesPage({
 
 export function HomeBalancesList({
   rows,
+  assetMarkResolution,
   isLoading,
   isUnavailable = false,
 }: {
   rows: readonly BalanceRowModel[];
+  assetMarkResolution?: AssetMarkResolution;
   isLoading: boolean;
   isUnavailable?: boolean;
 }) {
   if (rows.length > 0) {
-    return <ul className="supplied-asset-list">{rows.map((row) => <HomeBalanceRowView key={row.key} row={row} />)}</ul>;
+    return (
+      <ul className="supplied-asset-list">
+        {rows.map((row) => (
+          <HomeBalanceRowView
+            key={row.key}
+            row={row}
+            assetMarkResolution={assetMarkResolution}
+          />
+        ))}
+      </ul>
+    );
   }
   if (isLoading) return <ShimmerRows count={2} />;
   if (isUnavailable) return null;
@@ -118,6 +137,7 @@ export function HomeBalancesList({
 function IncrementalBalancesList({
   active,
   rows,
+  assetMarkResolution,
   isLoading,
   isUnavailable = false,
   revealedCount,
@@ -125,6 +145,7 @@ function IncrementalBalancesList({
 }: {
   active: boolean;
   rows: readonly BalanceRowModel[];
+  assetMarkResolution?: AssetMarkResolution;
   isLoading: boolean;
   isUnavailable?: boolean;
   revealedCount: number;
@@ -155,21 +176,50 @@ function IncrementalBalancesList({
   return (
     <>
       <ul className="supplied-asset-list">
-        {rows.slice(0, count).map((row) => <HomeBalanceRowView key={row.key} row={row} />)}
+        {rows.slice(0, count).map((row) => (
+          <HomeBalanceRowView
+            key={row.key}
+            row={row}
+            assetMarkResolution={assetMarkResolution}
+          />
+        ))}
       </ul>
       {active && hasMore ? <div ref={sentinelRef} className="balances-sentinel" aria-hidden="true" /> : null}
     </>
   );
 }
 
-export function HomeBalanceRowView({ row }: { row: BalanceRowModel }) {
+export function HomeBalanceRowView({
+  row,
+  assetMarkResolution,
+}: {
+  row: BalanceRowModel;
+  assetMarkResolution?: AssetMarkResolution;
+}) {
+  const symbolMark = row.mark.kind === "symbol"
+    ? presentPortfolioAssetMark(
+        {
+          assetKey: row.key,
+          name: row.name,
+          symbol: row.mark.symbol,
+          currency: null,
+        },
+        assetMarkResolution,
+      )
+    : null;
   const icon = row.mark.kind === "flag"
     ? <CurrencyMark currency={row.mark.currency} />
     : row.mark.kind === "image"
       ? <CurrencyMark src={row.mark.url} symbol={row.mark.fallbackSymbol} />
       : row.mark.kind === "eth"
         ? <CurrencyMark symbol="ETH" />
-        : <CurrencyMark symbol={row.mark.symbol} />;
+        : (
+            <CurrencyMark
+              src={symbolMark?.imageUrl}
+              symbol={symbolMark?.symbol}
+              pending={symbolMark?.pending}
+            />
+          );
   return (
     <BalanceRow
       icon={icon}

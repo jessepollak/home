@@ -67,6 +67,7 @@ export function HomeShell({
   initialAccountSettingsOpen = false,
   assetBalances,
   sendAvailability = [],
+  assetMarkResolution,
   landingVisual,
   routeMode = "landing",
   initialAddMoney = false,
@@ -473,6 +474,7 @@ export function HomeShell({
           signOut={signOut}
           paintedAssetBalances={paintedAssetBalances}
           sendAvailability={sendAvailability}
+          assetMarkResolution={assetMarkResolution}
           activitySession={activitySession}
           fetchActivity={account.fetchActivity}
           fetchOperations={account.fetchOperations}

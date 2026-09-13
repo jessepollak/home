@@ -66,6 +66,23 @@ describe("balance presentation", () => {
     });
   });
 
+  test("renders a positive non-selected cash holding once in the cash group", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      region: "US",
+      registry: {
+        idrx: {
+          balance: ready("1230000"),
+          cashValue: pricedCash("IDR", "123", 2),
+        },
+      },
+    });
+    const idrRows = presentBalanceRows(snapshot).filter(
+      (row) => row.group === "cash" && row.mark.kind === "flag" && row.mark.currency === "IDR",
+    );
+
+    expect(idrRows).toHaveLength(1);
+  });
+
   test("uses each cash holding's native denomination in another region", () => {
     const snapshot = buildBalancesSnapshotFixture({
       region: "DE",

@@ -65,6 +65,12 @@ describe("SendDialog availability", () => {
     );
 
     fireEvent.click(page().getByRole("button", { name: "Max" }));
+    const amountField = document.querySelector(
+      "[data-primary-amount] [data-slot=\"money-ticker\"]",
+    );
+
+    expect(amountField?.getAttribute("aria-label")).toBe("$1.234567");
+    expect(amountField?.getAttribute("aria-label")).not.toContain("display copy only");
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
