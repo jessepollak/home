@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
+import { publicQueryKey, useHomeQuery } from "@/client/query/query-client";
+import { deploymentHeaders } from "@/client/query/deployment-headers";
 import {
-  MARKET_PRICE_HISTORY_VERSION,
-  MARKET_PRICE_RANGES,
+  parseHistoryResponse,
   type MarketPriceHistoryPoint,
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
-} from "@/shared/invest/history-contract";
+} from "@/shared/invest/contracts/market-price-history";
 
 const HISTORY_ENDPOINT = "/api/market-prices/history";
 
@@ -17,132 +18,41 @@ export type PriceHistoryState =
   | { status: "empty"; points: readonly MarketPriceHistoryPoint[] }
   | { status: "error"; points: readonly MarketPriceHistoryPoint[] };
 
-export function usePriceHistory(
-  assetId: string,
-  range: MarketPriceRange,
-): PriceHistoryState {
-  const requestKey = `${assetId}:${range}`;
-  const [loaded, setLoaded] = useState<{
-    key: string;
-    state: PriceHistoryState;
-  }>({
-    key: requestKey,
-    state: { status: "loading", points: [] },
+export function usePriceHistory(assetId: string, range: MarketPriceRange): PriceHistoryState {
+  const query = useHomeQuery<MarketPriceHistoryResponse>({
+    queryKey: publicQueryKey("price-history", assetId, range),
+    staleTime: 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[2] === assetId
+        ? keepPreviousData(previous)
+        : undefined,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(
+        `${HISTORY_ENDPOINT}?assetId=${encodeURIComponent(assetId)}&range=${encodeURIComponent(range)}`,
+        {
+          headers: { ...deploymentHeaders(), accept: "application/json" },
+          cache: "no-store",
+          signal,
+        },
+      );
+      const payload = parseHistoryResponse(await response.json());
+      if (!payload || payload.assetId !== assetId || payload.range !== range) {
+        throw new Error("Invalid history response");
+      }
+      return payload;
+    },
   });
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    void fetch(
-      `${HISTORY_ENDPOINT}?assetId=${encodeURIComponent(assetId)}&range=${encodeURIComponent(range)}`,
-      {
-        headers: { accept: "application/json" },
-        cache: "no-store",
-        signal: controller.signal,
-      },
-    )
-      .then(async (response) => {
-        const payload = parseHistoryResponse(await response.json());
-        if (!payload || payload.assetId !== assetId || payload.range !== range) {
-          throw new Error("Invalid history response");
-        }
-        if (payload.status === "ready" && payload.points.length > 0) {
-          setLoaded({
-            key: requestKey,
-            state: { status: "ready", points: payload.points },
-          });
-          return;
-        }
-        if (payload.status === "empty" || payload.status === "ready") {
-          setLoaded({
-            key: requestKey,
-            state: { status: "empty", points: [] },
-          });
-          return;
-        }
-        setLoaded({
-          key: requestKey,
-          state: { status: "error", points: [] },
-        });
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setLoaded({
-            key: requestKey,
-            state: { status: "error", points: [] },
-          });
-        }
-      });
-
-    return () => controller.abort();
-  }, [assetId, range, requestKey]);
-
-  if (loaded.key === requestKey) {
-    return loaded.state;
+  if (query.isPending) return { status: "loading", points: [] };
+  if (query.isError) return { status: "error", points: [] };
+  if (query.isPlaceholderData) return { status: "loading", points: query.data.points };
+  if (query.data.status === "ready" && query.data.points.length > 0) {
+    return { status: "ready", points: query.data.points };
   }
-
-  const sameAsset = loaded.key.startsWith(`${assetId}:`);
-  return {
-    status: "loading",
-    points:
-      sameAsset && loaded.state.status === "ready" && loaded.state.points.length > 0
-        ? loaded.state.points
-        : [],
-  };
+  if (query.data.status === "empty" || query.data.status === "ready") {
+    return { status: "empty", points: [] };
+  }
+  return { status: "error", points: [] };
 }
 
-function parseHistoryResponse(value: unknown): MarketPriceHistoryResponse | null {
-  const record = readRecord(value);
-  if (
-    !record ||
-    record.version !== MARKET_PRICE_HISTORY_VERSION ||
-    record.provider !== "codex" ||
-    typeof record.assetId !== "string" ||
-    typeof record.range !== "string" ||
-    !(MARKET_PRICE_RANGES as readonly string[]).includes(record.range) ||
-    (record.currency !== undefined && record.currency !== "USD") ||
-    !(
-      record.status === "ready" ||
-      record.status === "empty" ||
-      record.status === "unavailable" ||
-      record.status === "error"
-    ) ||
-    !Array.isArray(record.points)
-  ) {
-    return null;
-  }
-
-  const points: MarketPriceHistoryPoint[] = [];
-  for (const item of record.points) {
-    const point = readRecord(item);
-    if (
-      !point ||
-      typeof point.time !== "string" ||
-      !Number.isFinite(Date.parse(point.time)) ||
-      typeof point.value !== "string" ||
-      !/^(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(point.value) ||
-      !/[1-9]/.test((point.value.split(/[eE]/)[0] ?? ""))
-    ) {
-      return null;
-    }
-    points.push({ time: point.time, value: point.value });
-  }
-
-  return {
-    version: MARKET_PRICE_HISTORY_VERSION,
-    provider: "codex",
-    assetId: record.assetId as MarketPriceHistoryResponse["assetId"],
-    range: record.range as MarketPriceRange,
-    currency: "USD",
-    fetchedAt: typeof record.fetchedAt === "string" ? record.fetchedAt : null,
-    status: record.status,
-    points,
-  };
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
-}

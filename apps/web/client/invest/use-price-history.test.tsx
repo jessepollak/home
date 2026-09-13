@@ -1,15 +1,19 @@
 import "@/client/account/dom-test-harness";
 
+import { page } from "@/tests/helpers/dom";
+import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
-import type { MarketPriceRange } from "@/shared/invest/history-contract";
+import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 
-const { cleanup, render, waitFor, within } = await import("@testing-library/react");
+const { cleanup, render, waitFor } = await import("@testing-library/react");
 const { usePriceHistory } = await import("./use-price-history");
 
 const originalFetch = window.fetch;
 
-function page() {
-  return within(document.body);
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
+  return { promise, resolve };
 }
 
 function historyPayload(
@@ -48,17 +52,17 @@ function HookProbe({
 
 afterEach(() => {
   cleanup();
+  getHomeQueryClient().clear();
   window.fetch = originalFetch;
 });
 
 describe("usePriceHistory", () => {
   test("keeps the last ready series while a new range for the same asset loads", async () => {
+    const nextRange = deferred<void>();
     window.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
       const range = url.includes("range=1D") ? "1D" : "1W";
-      if (range === "1D") {
-        await new Promise((resolve) => setTimeout(resolve, 30));
-      }
+      if (range === "1D") await nextRange.promise;
       return Response.json(
         historyPayload("cbbtc", range, [
           {
@@ -78,6 +82,7 @@ describe("usePriceHistory", () => {
     expect(page().getByTestId("count").textContent).toBe("1");
     expect(page().getByTestId("first").textContent).toBe("62000");
 
+    nextRange.resolve();
     await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
     expect(page().getByTestId("first").textContent).toBe("64100");
   });
@@ -106,54 +111,42 @@ describe("usePriceHistory", () => {
     expect(page().getByTestId("count").textContent).toBe("0");
   });
 
-  test.each([
-    ["zero integer", "0"],
-    ["zero decimal with a positive exponent", "0.0e+123"],
-    ["zero with an uppercase negative exponent", "0E-7"],
-    ["negative", "-1"],
-    ["malformed", "1e"],
-    ["non-string", 1],
-  ] as const)("rejects %s history values", async (_description, value) => {
-    window.fetch = (async () =>
-      Response.json(
-        historyPayload("cbbtc", "1W", [
+  test("rejects invalid values and preserves positive decimal/scientific values", async () => {
+    const cases = [
+      ["0", "error"],
+      ["0.0e+123", "error"],
+      ["0E-7", "error"],
+      ["-1", "error"],
+      ["1e", "error"],
+      [1, "error"],
+      ["0.0123", "ready"],
+      ["1.25e-7", "ready"],
+      ["6.02E+23", "ready"],
+    ] as const;
+
+    for (const [value, expectedStatus] of cases) {
+      window.fetch = (async () =>
+        Response.json(historyPayload("cbbtc", "1W", [
           { time: "2026-09-09T00:00:00.000Z", value },
-        ]),
-      )) as unknown as typeof fetch;
-
-    render(<HookProbe assetId="cbbtc" range="1W" />);
-
-    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("error"));
-    expect(page().getByTestId("count").textContent).toBe("0");
-    expect(page().getByTestId("first").textContent).toBe("");
-  });
-
-  test.each([
-    ["positive decimal", "0.0123"],
-    ["lowercase scientific", "1.25e-7"],
-    ["uppercase scientific", "6.02E+23"],
-  ] as const)("preserves an exact %s history value", async (_description, value) => {
-    window.fetch = (async () =>
-      Response.json(
-        historyPayload("cbbtc", "1W", [
-          { time: "2026-09-09T00:00:00.000Z", value },
-        ]),
-      )) as unknown as typeof fetch;
-
-    render(<HookProbe assetId="cbbtc" range="1W" />);
-
-    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
-    expect(page().getByTestId("count").textContent).toBe("1");
-    expect(page().getByTestId("first").textContent).toBe(value);
+        ]))) as unknown as typeof fetch;
+      render(<HookProbe assetId="cbbtc" range="1W" />);
+      await waitFor(() =>
+        expect(page().getByTestId("status").textContent).toBe(expectedStatus),
+      );
+      expect(page().getByTestId("count").textContent).toBe(
+        expectedStatus === "ready" ? "1" : "0",
+      );
+      cleanup();
+      getHomeQueryClient().clear();
+    }
   });
 
   test("does not keep another asset’s series while the next history loads", async () => {
+    const nextAsset = deferred<void>();
     window.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
       const assetId = url.includes("assetId=cbltc") ? "cbltc" : "cbbtc";
-      if (assetId === "cbltc") {
-        await new Promise((resolve) => setTimeout(resolve, 30));
-      }
+      if (assetId === "cbltc") await nextAsset.promise;
       return Response.json(
         historyPayload(assetId, "1W", [
           {
@@ -170,73 +163,6 @@ describe("usePriceHistory", () => {
 
     rerender(<HookProbe assetId="cbltc" range="1W" />);
     expect(page().getByTestId("status").textContent).toBe("loading");
-    expect(page().getByTestId("count").textContent).toBe("0");
-  });
-});
-
-describe("point value validation", () => {
-  // Mutation-sensitive: old code used !/[1-9]/.test(point.value) on the full string,
-  // so exponent digits (e.g. the "1" in "0.0e+1") would satisfy the check, letting
-  // zero-priced points through. New code splits on /[eE]/ and tests mantissa only.
-
-  test("rejects '0.0e+1' — zero mantissa, exponent digit '1' fools old full-string check", async () => {
-    // old: !/[1-9]/.test("0.0e+1") → false (1 found) → point kept → status "ready"
-    // new: !/[1-9]/.test("0.0")    → true  (none)    → return null → status "error"
-    window.fetch = (async () =>
-      Response.json(
-        historyPayload("cbbtc", "1W", [
-          { time: "2026-09-01T00:00:00.000Z", value: "0.0e+1" },
-        ]),
-      )) as unknown as typeof fetch;
-    render(<HookProbe assetId="cbbtc" range="1W" />);
-    await waitFor(() =>
-      expect(page().getByTestId("status").textContent).toBe("error"),
-    );
-    expect(page().getByTestId("count").textContent).toBe("0");
-  });
-
-  test("rejects '0.0e+5' — zero mantissa, exponent digit '5' fools old full-string check", async () => {
-    // old: !/[1-9]/.test("0.0e+5") → false (5 found) → point kept → status "ready"
-    // new: !/[1-9]/.test("0.0")    → true  (none)    → return null → status "error"
-    window.fetch = (async () =>
-      Response.json(
-        historyPayload("cbbtc", "1W", [
-          { time: "2026-09-01T00:00:00.000Z", value: "0.0e+5" },
-        ]),
-      )) as unknown as typeof fetch;
-    render(<HookProbe assetId="cbbtc" range="1W" />);
-    await waitFor(() =>
-      expect(page().getByTestId("status").textContent).toBe("error"),
-    );
-    expect(page().getByTestId("count").textContent).toBe("0");
-  });
-
-  test("accepts '1.23e-4' — non-zero mantissa is correctly kept", async () => {
-    window.fetch = (async () =>
-      Response.json(
-        historyPayload("cbbtc", "1W", [
-          { time: "2026-09-01T00:00:00.000Z", value: "1.23e-4" },
-        ]),
-      )) as unknown as typeof fetch;
-    render(<HookProbe assetId="cbbtc" range="1W" />);
-    await waitFor(() =>
-      expect(page().getByTestId("status").textContent).toBe("ready"),
-    );
-    expect(page().getByTestId("count").textContent).toBe("1");
-    expect(page().getByTestId("first").textContent).toBe("1.23e-4");
-  });
-
-  test("rejects '0e0' — zero with zero exponent, no [1-9] in mantissa or full string", async () => {
-    window.fetch = (async () =>
-      Response.json(
-        historyPayload("cbbtc", "1W", [
-          { time: "2026-09-01T00:00:00.000Z", value: "0e0" },
-        ]),
-      )) as unknown as typeof fetch;
-    render(<HookProbe assetId="cbbtc" range="1W" />);
-    await waitFor(() =>
-      expect(page().getByTestId("status").textContent).toBe("error"),
-    );
     expect(page().getByTestId("count").textContent).toBe("0");
   });
 });

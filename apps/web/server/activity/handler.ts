@@ -1,15 +1,14 @@
-import {
-  ACCOUNT_PROVIDER_HEADER,
-  type AccountProvider,
-} from "@/shared/account/session-types";
-import type { MoneyActionOwner } from "@/shared/money-actions/types";
-import { ChainDataError } from "@/server/chain-data/errors";
-import { writeObservabilityEvent } from "@/server/observability/log";
-import type { ObservabilityEvent } from "@/server/observability/schema";
-import type { ActivityReader, RecordedOperationsReader } from "./types";
+import "server-only";
 
-export type SessionAuthorizer = (request: Request) => Promise<Response>;
-export type RecordedOperationsFailureReporter = () => unknown | PromiseLike<unknown>;
+import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
+import type { ActivityResponse } from "@/shared/activity/contract";
+import {
+  authorizeSession,
+  type SessionAuthorizer,
+} from "@/server/auth/authorize";
+import { ChainDataError } from "@/server/chain-data/errors";
+import type { ObservabilityEvent } from "@/server/observability/schema";
+import type { ActivityReader } from "./types";
 
 type ActivityReadObservation = Extract<
   ObservabilityEvent,
@@ -24,15 +23,10 @@ const privateResponseHeaders = {
   Pragma: "no-cache",
   Vary: `Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
 } as const;
-const DEFAULT_RECORDED_OPERATIONS_TIMEOUT_MS = 2_000;
-const MAX_RECORDED_OPERATIONS_TIMEOUT_MS = 5_000;
 
 export function createActivityHandler(dependencies: {
   authorize: SessionAuthorizer;
   readActivity: ActivityReader;
-  readRecordedOperations?: RecordedOperationsReader;
-  recordedOperationsTimeoutMs?: number;
-  reportRecordedOperationsFailure?: RecordedOperationsFailureReporter;
   now?: () => Date;
   clock?: () => number;
   observe?: ActivityObservationSink;
@@ -43,8 +37,8 @@ export function createActivityHandler(dependencies: {
 
   return async function GET(request: Request): Promise<Response> {
     const requestStartedAt = clock();
-    const boundaryResponse = await dependencies.authorize(request);
-    if (!boundaryResponse.ok) {
+    const session = await authorizeSession(request, dependencies.authorize);
+    if (session instanceof Response) {
       emitActivityObservation(
         observe,
         finalObservation({
@@ -55,29 +49,7 @@ export function createActivityHandler(dependencies: {
           finishedAt: clock(),
         }),
       );
-      return boundaryResponse;
-    }
-
-    const session = await parseAuthorizedSession(
-      boundaryResponse,
-      readRequestedProvider(request),
-    );
-    if (!session) {
-      emitActivityObservation(
-        observe,
-        finalObservation({
-          outcome: "rejected",
-          reason: "authorization",
-          source: "none",
-          requestStartedAt,
-          finishedAt: clock(),
-        }),
-      );
-      return privateError(
-        "AUTH_UNAVAILABLE",
-        "Authentication is temporarily unavailable.",
-        503,
-      );
+      return session;
     }
     if (!session.smartAccount) {
       emitActivityObservation(
@@ -128,7 +100,6 @@ export function createActivityHandler(dependencies: {
       sourceAttemptCount: 1,
       pageCount: 0,
       rowCount: 0,
-      recordedOperations: "not-started",
     });
 
     let primaryFinishedAt: number | null = null;
@@ -145,18 +116,6 @@ export function createActivityHandler(dependencies: {
       primaryFinishedAt = clock();
       throwIfAborted(request.signal);
 
-      const recordedOperations = await readRecordedOperationsAvailability(
-        dependencies,
-        {
-          subject: session.subject,
-          address: session.smartAccount.address,
-          chainId: 8453,
-          accountProvider: session.accountProvider,
-        },
-        request.signal,
-      );
-      throwIfAborted(request.signal);
-
       const finishedAt = clock();
       emitActivityObservation(observe, {
         kind: "activity-read",
@@ -169,9 +128,8 @@ export function createActivityHandler(dependencies: {
         sourceAttemptCount: 1,
         pageCount: 1,
         rowCount: page.transfers.length,
-        recordedOperations,
       });
-      return privateJson({ ...page, recordedOperations }, 200);
+      return privateJson(page satisfies ActivityResponse, 200);
     } catch (error) {
       const finishedAt = clock();
       emitActivityObservation(observe, {
@@ -188,7 +146,6 @@ export function createActivityHandler(dependencies: {
         sourceAttemptCount: 1,
         pageCount: 0,
         rowCount: 0,
-        recordedOperations: "not-started",
       });
       return activityReadError(error);
     }
@@ -213,7 +170,6 @@ function finalObservation(input: {
     sourceAttemptCount: 0,
     pageCount: 0,
     rowCount: 0,
-    recordedOperations: "not-started",
   };
 }
 
@@ -228,76 +184,6 @@ function emitActivityObservation(
     });
   } catch {
     // Synchronous observation failure must never change response behavior.
-  }
-}
-
-async function readRecordedOperationsAvailability(
-  dependencies: {
-    readRecordedOperations?: RecordedOperationsReader;
-    recordedOperationsTimeoutMs?: number;
-    reportRecordedOperationsFailure?: RecordedOperationsFailureReporter;
-  },
-  owner: MoneyActionOwner,
-  requestSignal: AbortSignal,
-): Promise<"available" | "unavailable"> {
-  if (!dependencies.readRecordedOperations) return "available";
-  throwIfAborted(requestSignal);
-
-  const controller = new AbortController();
-  const abortFromRequest = () => controller.abort(requestSignal.reason);
-  requestSignal.addEventListener("abort", abortFromRequest, { once: true });
-  if (requestSignal.aborted) abortFromRequest();
-  const timeout = setTimeout(
-    () =>
-      controller.abort(
-        new DOMException("Recorded operations timed out.", "TimeoutError"),
-      ),
-    recordedOperationsTimeoutMs(dependencies.recordedOperationsTimeoutMs),
-  );
-  try {
-    await dependencies.readRecordedOperations(owner, controller.signal);
-    throwIfAborted(controller.signal);
-    return "available";
-  } catch (error) {
-    if (requestSignal.aborted) throw error;
-    reportRecordedOperationsFailure(dependencies.reportRecordedOperationsFailure);
-    return "unavailable";
-  } finally {
-    clearTimeout(timeout);
-    requestSignal.removeEventListener("abort", abortFromRequest);
-    if (!controller.signal.aborted) {
-      controller.abort(
-        new DOMException("Recorded operations read settled.", "AbortError"),
-      );
-    }
-  }
-}
-
-function recordedOperationsTimeoutMs(value: number | undefined): number {
-  if (!Number.isSafeInteger(value) || (value ?? 0) <= 0) {
-    return DEFAULT_RECORDED_OPERATIONS_TIMEOUT_MS;
-  }
-  return Math.min(value!, MAX_RECORDED_OPERATIONS_TIMEOUT_MS);
-}
-
-function reportRecordedOperationsFailure(
-  reporter: RecordedOperationsFailureReporter | undefined,
-): void {
-  try {
-    const result = reporter
-      ? reporter()
-      : writeObservabilityEvent({
-          kind: "unhandled-server-error",
-          route: "/api/activity/recorded-operations",
-          method: "GET",
-          errorName: "RecordedOperationsUnavailable",
-          routeType: "secondary-source",
-        });
-    void Promise.resolve(result).catch(() => {
-      // Asynchronous reporting rejection must not escape the request.
-    });
-  } catch {
-    // Synchronous reporting failure must not change the readable onchain response.
   }
 }
 
@@ -337,64 +223,6 @@ function parseActivityRequest(
     return null;
   }
   return { to, cursor };
-}
-
-async function parseAuthorizedSession(
-  response: Response,
-  expectedProvider: AccountProvider | null,
-): Promise<{
-  smartAccount: { address: `0x${string}`; chainId: 8453 } | null;
-  subject: string;
-  accountProvider: AccountProvider;
-} | null> {
-  let value: unknown;
-  try {
-    value = await response.json();
-  } catch {
-    return null;
-  }
-  if (
-    !isRecord(value) ||
-    !isRecord(value.user) ||
-    typeof value.user.subject !== "string" ||
-    value.user.subject.trim().length === 0 ||
-    !expectedProvider ||
-    value.accountProvider !== expectedProvider
-  ) {
-    return null;
-  }
-  if (value.smartAccount === null) {
-    return {
-      smartAccount: null,
-      subject: value.user.subject,
-      accountProvider: expectedProvider,
-    };
-  }
-  if (!isRecord(value.smartAccount)) return null;
-  const { address, chainId } = value.smartAccount;
-  if (
-    typeof address !== "string" ||
-    !/^0x[0-9a-fA-F]{40}$/.test(address) ||
-    chainId !== 8453
-  ) {
-    return null;
-  }
-  return {
-    smartAccount: {
-      address: address.toLowerCase() as `0x${string}`,
-      chainId: 8453,
-    },
-    subject: value.user.subject,
-    accountProvider: expectedProvider,
-  };
-}
-
-function readRequestedProvider(request: Request): AccountProvider | null {
-  const requested = request.headers.get(ACCOUNT_PROVIDER_HEADER);
-  if (requested === null || requested === "cdp-embedded") {
-    return "cdp-embedded";
-  }
-  return requested === "base-account" ? "base-account" : null;
 }
 
 function activityReadError(error: unknown): Response {
@@ -465,8 +293,4 @@ function privateError(code: string, message: string, status: number): Response {
 
 function privateJson(body: unknown, status: number): Response {
   return Response.json(body, { status, headers: privateResponseHeaders });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

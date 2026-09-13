@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   compareActivityTransferKeys,
   isVerifiedActivitySession,
   parseActivityPage,
-} from "./parse";
+} from "@/shared/activity/contract";
 import type {
   ActivityPage,
   ActivityState,
@@ -13,49 +13,22 @@ import type {
   FetchActivity,
 } from "./types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import {
+  browserHomeQueryClient,
+  ownerQueryKey,
+  ownerQueryMeta,
+  useHomeInfiniteQuery,
+  useHomeQuery,
+  useHomeQueryClient,
+} from "@/client/query/query-client";
+import {
+  activityWindowScope,
+  advanceActivityWindowEnd,
+  initialActivityWindowEnd,
+} from "@/client/query/after-action";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 
-type OwnedActivityState =
-  | {
-      requestKey: null;
-      status: "unavailable";
-      page: null;
-      loadingMore: false;
-      loadMoreError: false;
-      autoLoadPaused: false;
-    }
-  | {
-      requestKey: string;
-      status: "error";
-      page: null;
-      loadingMore: false;
-      loadMoreError: false;
-      autoLoadPaused: false;
-      error: { code: string | null; message: string | null };
-    }
-  | {
-      requestKey: string;
-      status: "ready";
-      page: ActivityPage;
-      loadingMore: boolean;
-      loadMoreError: boolean;
-      autoLoadPaused: boolean;
-    };
-
-type LoadMoreRequest = {
-  requestKey: string;
-  sequence: number;
-  cursor: string;
-  controller: AbortController;
-};
-
-const unavailableState: OwnedActivityState = {
-  requestKey: null,
-  status: "unavailable",
-  page: null,
-  loadingMore: false,
-  loadMoreError: false,
-  autoLoadPaused: false,
-};
+export const activityStaleTimeMs = 10_000;
 
 export type UseActivityResult = ActivityState & {
   retry: () => void;
@@ -64,347 +37,176 @@ export type UseActivityResult = ActivityState & {
   retryLoadMore: () => void;
 };
 
+export const activityOwnerKey = dataOwnerKey;
+
 export function useActivity(
   session: VerifiedAccountSession | null,
   fetchActivity: FetchActivity,
-  refreshTrigger?: string | number,
 ): UseActivityResult {
-  const sequence = useRef(0);
-  const loadMoreRequest = useRef<LoadMoreRequest | null>(null);
-  const attemptedCursors = useRef(new Set<string>());
-  const [retryRevision, setRetryRevision] = useState(0);
-  const [refreshRevision, setRefreshRevision] = useState(0);
-  const [state, setState] = useState<OwnedActivityState>(unavailableState);
   const validSession = isVerifiedActivitySession(session) ? session : null;
-  const subject = validSession?.user.subject ?? null;
-  const walletAddress = validSession?.smartAccount.address ?? null;
-  const provider = validSession?.accountProvider ?? null;
-  const ownerKey =
-    subject && walletAddress && provider
-      ? `${subject}\u0000${walletAddress.toLowerCase()}\u00008453\u0000${provider}`
-      : null;
-  const requestKey = ownerKey
-    ? `${ownerKey}\u0000${retryRevision}\u0000${refreshRevision}\u0000${String(refreshTrigger ?? "")}`
-    : null;
+  const ownerKey = validSession ? activityOwnerKey(validSession) : null;
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const requestedCursorsRef = useRef(new Map<string, Set<string>>());
+  const loadMoreInFlightRef = useRef(false);
+  const [autoLoadPaused, setAutoLoadPaused] = useState(false);
+  const expectedSession = validSession;
+  const windowQuery = useHomeQuery({
+    queryKey: ownerKey
+      ? ownerQueryKey(ownerKey, activityWindowScope)
+      : ["unauthenticated", "activity-window-disabled"],
+    enabled: false,
+    initialData: ownerKey ? initialActivityWindowEnd : "",
+    staleTime: Infinity,
+    gcTime: Infinity,
+    meta: ownerKey ? ownerQueryMeta(ownerKey, "memory") : undefined,
+    queryFn: async () => ownerKey ? initialActivityWindowEnd() : "",
+  });
+  const windowEnd = windowQuery.data ?? "";
 
-  useEffect(() => {
-    const requestSequence = ++sequence.current;
-    loadMoreRequest.current?.controller.abort();
-    loadMoreRequest.current = null;
-    attemptedCursors.current = new Set();
-    if (!subject || !walletAddress || !provider || !requestKey) {
-      return;
-    }
-
-    const expectedSession: VerifiedAccountSession = {
-      user: { subject },
-      smartAccount: { address: walletAddress, chainId: 8453 },
-      accountProvider: provider,
-    };
-    const controller = new AbortController();
-    const windowEnd = new Date().toISOString();
-    const query = new URLSearchParams({ to: windowEnd }).toString();
-
-    void fetchActivity(query, controller.signal).then(
-      (payload) => {
-        if (controller.signal.aborted || sequence.current !== requestSequence) {
-          return;
+  const query = useHomeInfiniteQuery({
+    queryKey: ownerKey
+      ? ownerQueryKey(ownerKey, "activity", windowEnd)
+      : ["unauthenticated", "activity-disabled"],
+    enabled: ownerKey !== null,
+    initialPageParam: null as string | null,
+    staleTime: activityStaleTimeMs,
+    retry: false,
+    refetchOnWindowFocus: true,
+    meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
+    queryFn: async ({ pageParam, signal }) => {
+      if (!expectedSession) throw new Error("Activity is unavailable.");
+      const queryString = new URLSearchParams({
+        to: windowEnd,
+        ...(pageParam ? { cursor: pageParam } : {}),
+      }).toString();
+      const page = parseActivityPage(
+        await fetchActivity(queryString, signal),
+        expectedSession,
+        windowEnd,
+      );
+      if (ownerKey && pageParam) {
+        // Cursors are deterministic per window; a new window restarts the set.
+        const cursorScope = `${ownerKey}\u0000${windowEnd}`;
+        const requested = requestedCursorsRef.current.get(cursorScope) ?? new Set<string>();
+        requested.add(pageParam);
+        requestedCursorsRef.current.set(cursorScope, requested);
+        if (page.nextCursor && requested.has(page.nextCursor)) {
+          throw new Error("Activity cursor did not advance.");
         }
-        try {
-          setState({
-            requestKey,
-            status: "ready",
-            page: parseActivityPage(payload, expectedSession, windowEnd),
-            loadingMore: false,
-            loadMoreError: false,
-            autoLoadPaused: false,
-          });
-        } catch {
-          setState({
-            requestKey,
-            status: "error",
-            page: null,
-            loadingMore: false,
-            loadMoreError: false,
-            autoLoadPaused: false,
-            error: {
-              code: "ACTIVITY_RESPONSE_INVALID",
-              message: "Activity history could not be verified.",
-            },
-          });
-        }
-      },
-      (reason) => {
-        if (controller.signal.aborted || sequence.current !== requestSequence) {
-          return;
-        }
-        setState({
-          requestKey,
-          status: "error",
-          page: null,
-          loadingMore: false,
-          loadMoreError: false,
-          autoLoadPaused: false,
-          error: readActivityFailure(reason),
-        });
-      },
-    );
-
-    return () => controller.abort();
-  }, [fetchActivity, provider, requestKey, subject, walletAddress]);
-
-  useEffect(
-    () => () => {
-      loadMoreRequest.current?.controller.abort();
-      loadMoreRequest.current = null;
+      }
+      return page;
     },
-    [],
-  );
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+  });
 
-  const retry = useCallback(() => setRetryRevision((value) => value + 1), []);
-  const refresh = useCallback(
-    () => setRefreshRevision((value) => value + 1),
-    [],
-  );
+  const mergedPage = useMemo(() => {
+    const pages = query.data?.pages;
+    if (!pages?.length) return null;
+    return mergeActivityPages(pages);
+  }, [query.data?.pages]);
 
-  const requestMore = useCallback((manualRetry: boolean) => {
-    if (
-      !subject ||
-      !walletAddress ||
-      !provider ||
-      !requestKey ||
-      state.requestKey !== requestKey ||
-      state.status !== "ready" ||
-      state.loadingMore ||
-      (!manualRetry && state.autoLoadPaused) ||
-      loadMoreRequest.current
-    ) {
-      return;
+  const retry = useCallback(() => { void query.refetch(); }, [query]);
+  const refresh = useCallback(() => {
+    if (ownerKey) advanceActivityWindowEnd(queryClient, ownerKey);
+    setAutoLoadPaused(false);
+  }, [ownerKey, queryClient, setAutoLoadPaused]);
+  const requestMore = useCallback(async () => {
+    if (!query.hasNextPage || query.isFetchingNextPage || loadMoreInFlightRef.current || autoLoadPaused) return;
+    loadMoreInFlightRef.current = true;
+    try {
+      const previousCount = mergedPage?.transfers.length ?? 0;
+      const result = await query.fetchNextPage({ cancelRefetch: false });
+      const next = result.data ? mergeActivityPages(result.data.pages) : null;
+      if (next?.nextCursor && (next.transfers.length ?? 0) === previousCount) {
+        setAutoLoadPaused(true);
+      }
+    } finally {
+      loadMoreInFlightRef.current = false;
     }
+  }, [autoLoadPaused, mergedPage?.transfers.length, query]);
+  const retryLoadMore = useCallback(() => {
+    if (loadMoreInFlightRef.current) return;
+    setAutoLoadPaused(false);
+    loadMoreInFlightRef.current = true;
+    void query.fetchNextPage({ cancelRefetch: false }).finally(() => {
+      loadMoreInFlightRef.current = false;
+    });
+  }, [query, setAutoLoadPaused]);
 
-    const currentPage = state.page;
-    const cursor = currentPage.nextCursor;
-    if (!cursor) {
-      return;
-    }
-    if (!manualRetry && attemptedCursors.current.has(cursor)) {
-      return;
-    }
-
-    const expectedSession: VerifiedAccountSession = {
-      user: { subject },
-      smartAccount: { address: walletAddress, chainId: 8453 },
-      accountProvider: provider,
+  if (!ownerKey) {
+    return {
+      status: "unavailable", page: null, loadingMore: false,
+      loadMoreError: false, autoLoadPaused: false,
+      retry, refresh, loadMore: requestMore, retryLoadMore,
     };
-    const controller = new AbortController();
-    const requestSequence = sequence.current;
-    const request: LoadMoreRequest = {
-      requestKey,
-      sequence: requestSequence,
-      cursor,
-      controller,
+  }
+  if (query.isPending) {
+    return {
+      status: "loading", page: null, loadingMore: false,
+      loadMoreError: false, autoLoadPaused: false,
+      retry, refresh, loadMore: requestMore, retryLoadMore,
     };
-    loadMoreRequest.current = request;
-    attemptedCursors.current.add(cursor);
-    setState((current) =>
-      current.requestKey === requestKey &&
-      current.status === "ready" &&
-      current.page.nextCursor === cursor &&
-      !current.loadingMore
-        ? { ...current, loadingMore: true, loadMoreError: false }
-        : current,
-    );
-
-    const query = new URLSearchParams({
-      to: currentPage.window.to,
-      cursor,
-    }).toString();
-
-    void fetchActivity(query, controller.signal).then(
-      (payload) => {
-        if (!isCurrentLoadMoreRequest(loadMoreRequest.current, request, sequence.current)) {
-          return;
-        }
-        try {
-          const nextPage = parseActivityPage(
-            payload,
-            expectedSession,
-            currentPage.window.to,
-          );
-          if (
-            nextPage.nextCursor === cursor ||
-            (nextPage.nextCursor !== null &&
-              attemptedCursors.current.has(nextPage.nextCursor))
-          ) {
-            throw new Error("Activity cursor did not advance.");
-          }
-          const seen = new Map(
-            currentPage.transfers.map((transfer) => [transfer.id, transfer]),
-          );
-          const uniqueTransfers: ActivityTransfer[] = [];
-          for (const transfer of nextPage.transfers) {
-            const existing = seen.get(transfer.id);
-            if (existing) {
-              if (!sameActivityTransfer(existing, transfer)) {
-                throw new Error("Activity overlap changed an existing transfer.");
-              }
-              continue;
-            }
-            uniqueTransfers.push(transfer);
-          }
-          const previousLast = currentPage.transfers.at(-1);
-          if (
-            previousLast &&
-            uniqueTransfers[0] &&
-            compareActivityTransferKeys(previousLast, uniqueTransfers[0]) <= 0
-          ) {
-            throw new Error("Activity page order did not advance.");
-          }
-          setState((current) => {
-            if (
-              current.requestKey !== requestKey ||
-              current.status !== "ready" ||
-              current.page.window.to !== nextPage.window.to ||
-              current.page.nextCursor !== cursor
-            ) {
-              return current;
-            }
-            return {
-              requestKey,
-              status: "ready",
-              page: {
-                ...current.page,
-                recordedOperations:
-                  current.page.recordedOperations === "unavailable" ||
-                  nextPage.recordedOperations === "unavailable"
-                    ? "unavailable"
-                    : "available",
-                transfers: [...current.page.transfers, ...uniqueTransfers],
-                nextCursor: nextPage.nextCursor,
-              },
-              loadingMore: false,
-              loadMoreError: false,
-              autoLoadPaused:
-                nextPage.nextCursor !== null && uniqueTransfers.length === 0,
-            };
-          });
-        } catch {
-          markLoadMoreFailed(requestKey, cursor, setState);
-        } finally {
-          clearLoadMoreRequest(request);
-        }
-      },
-      () => {
-        if (!isCurrentLoadMoreRequest(loadMoreRequest.current, request, sequence.current)) {
-          return;
-        }
-        markLoadMoreFailed(requestKey, cursor, setState);
-        clearLoadMoreRequest(request);
-      },
-    );
-  }, [fetchActivity, provider, requestKey, state, subject, walletAddress]);
-
-  const loadMore = useCallback(() => requestMore(false), [requestMore]);
-  const retryLoadMore = useCallback(() => requestMore(true), [requestMore]);
-
-  const visibleState: ActivityState =
-    !requestKey
-      ? unavailableState
-      : state.requestKey === requestKey
-        ? state
-        : {
-            status: "loading",
-            page: null,
-            loadingMore: false,
-            loadMoreError: false,
-            autoLoadPaused: false,
-          };
-
+  }
+  if (!mergedPage) {
+    return {
+      status: "error", page: null, loadingMore: false,
+      loadMoreError: false, autoLoadPaused: false,
+      error: readActivityFailure(query.error),
+      retry, refresh, loadMore: requestMore, retryLoadMore,
+    };
+  }
   return {
-    ...visibleState,
+    status: "ready",
+    page: mergedPage,
+    loadingMore: query.isFetchingNextPage,
+    loadMoreError: query.isFetchNextPageError,
+    autoLoadPaused,
     retry,
     refresh,
-    loadMore,
+    loadMore: requestMore,
     retryLoadMore,
   };
+}
 
-  function clearLoadMoreRequest(request: LoadMoreRequest) {
-    if (loadMoreRequest.current === request) {
-      loadMoreRequest.current = null;
+function mergeActivityPages(pages: ActivityPage[]): ActivityPage {
+  const first = pages[0];
+  if (!first) throw new Error("Activity page is missing.");
+  const transfers: ActivityTransfer[] = [];
+  const seen = new Map<string, ActivityTransfer>();
+  let previous: ActivityTransfer | undefined;
+  for (const page of pages) {
+    if (page.window.to !== first.window.to) throw new Error("Activity window changed.");
+    for (const transfer of page.transfers) {
+      const existing = seen.get(transfer.id);
+      if (existing) {
+        if (!sameActivityTransfer(existing, transfer)) throw new Error("Activity overlap changed.");
+        continue;
+      }
+      if (previous && compareActivityTransferKeys(previous, transfer) <= 0) {
+        throw new Error("Activity page order did not advance.");
+      }
+      seen.set(transfer.id, transfer);
+      transfers.push(transfer);
+      previous = transfer;
     }
   }
+  const last = pages.at(-1) ?? first;
+  return {
+    ...first,
+    transfers,
+    nextCursor: last.nextCursor,
+  };
 }
 
-function isCurrentLoadMoreRequest(
-  current: LoadMoreRequest | null,
-  expected: LoadMoreRequest,
-  sequence: number,
-): boolean {
-  return (
-    current === expected &&
-    !expected.controller.signal.aborted &&
-    expected.sequence === sequence
-  );
+function sameActivityTransfer(left: ActivityTransfer, right: ActivityTransfer): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function sameActivityTransfer(
-  left: ActivityTransfer,
-  right: ActivityTransfer,
-): boolean {
-  return (
-    left.id === right.id &&
-    left.logId === right.logId &&
-    left.chainId === right.chainId &&
-    left.assetId === right.assetId &&
-    left.tokenAddress === right.tokenAddress &&
-    left.tokenSymbol === right.tokenSymbol &&
-    left.tokenDecimals === right.tokenDecimals &&
-    left.walletAddress === right.walletAddress &&
-    left.fromAddress === right.fromAddress &&
-    left.toAddress === right.toAddress &&
-    left.direction === right.direction &&
-    left.amountBaseUnits === right.amountBaseUnits &&
-    left.blockNumber === right.blockNumber &&
-    left.blockHash === right.blockHash &&
-    left.transactionHash === right.transactionHash &&
-    left.logIndex === right.logIndex &&
-    left.blockTimestamp === right.blockTimestamp
-  );
-}
-
-function readActivityFailure(reason: unknown): {
-  code: string | null;
-  message: string | null;
-} {
-  if (!reason || typeof reason !== "object") {
-    return { code: null, message: null };
-  }
-  const code =
-    "code" in reason &&
-    typeof reason.code === "string" &&
-    /^[A-Z][A-Z0-9_]{1,64}$/.test(reason.code)
-      ? reason.code
-      : null;
-  const message =
-    "serverMessage" in reason &&
-    typeof reason.serverMessage === "string" &&
-    reason.serverMessage.length > 0 &&
-    reason.serverMessage.length <= 200
-      ? reason.serverMessage
-      : null;
+function readActivityFailure(reason: unknown): { code: string | null; message: string | null } {
+  if (!reason || typeof reason !== "object") return { code: null, message: null };
+  const code = "code" in reason && typeof reason.code === "string" && /^[A-Z][A-Z0-9_]{1,64}$/.test(reason.code)
+    ? reason.code : null;
+  const message = "serverMessage" in reason && typeof reason.serverMessage === "string" && reason.serverMessage.length <= 200
+    ? reason.serverMessage : null;
   return { code, message };
-}
-
-function markLoadMoreFailed(
-  requestKey: string,
-  cursor: string,
-  setState: React.Dispatch<React.SetStateAction<OwnedActivityState>>,
-) {
-  setState((current) =>
-    current.requestKey === requestKey &&
-    current.status === "ready" &&
-    current.page.nextCursor === cursor
-      ? { ...current, loadingMore: false, loadMoreError: true }
-      : current,
-  );
 }

@@ -90,6 +90,7 @@ function CurrencyMarkSlot({
           className={styles.flag}
           src={src}
           alt=""
+          referrerPolicy="no-referrer"
           draggable={false}
           hidden={imageStatus !== "ready"}
           onLoad={() => setImageStatus("ready")}

@@ -11,7 +11,6 @@ export * from "@/shared/activity/types";
 export type ActivityPanelProps = {
   session: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
-  refreshTrigger?: string | number;
   regionId?: RegionId;
   onTransactionHashesChange?: (hashes: string[]) => void;
   leading?: ReactNode;

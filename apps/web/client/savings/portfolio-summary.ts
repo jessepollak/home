@@ -4,6 +4,8 @@ const canonicalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const decimalPattern = /^(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i;
 
 export const SAVINGS_RATE_FRESHNESS_MS = 5 * 60_000;
+/** Morpho's indexed vault state may legitimately trail our read by hours. */
+export const SAVINGS_STATE_MAX_AGE_MS = 24 * 60 * 60_000;
 const SAVINGS_RATE_MAX_FUTURE_SKEW_MS = 60_000;
 
 export type SavingsAssetIdentity = {
@@ -201,17 +203,21 @@ export function getSavingsRateState(
     return { status: "unavailable", value: null };
   }
 
-  const timestamps = [candidate.stateAsOf, candidate.source.fetchedAt, metadataFetchedAt];
-  const parsed = timestamps.map(parseTimestamp);
-  if (parsed.some((timestamp) => timestamp === null)) {
+  const stateAsOf = parseTimestamp(candidate.stateAsOf);
+  const sourceFetchedAt = parseTimestamp(candidate.source.fetchedAt);
+  const metadataReadAt = parseTimestamp(metadataFetchedAt);
+  const timestamps = [stateAsOf, sourceFetchedAt, metadataReadAt];
+  if (timestamps.some((timestamp) => timestamp === null)) {
     return { status: "unavailable", value: null };
   }
-  if (parsed.some((timestamp) => timestamp! > nowMs + SAVINGS_RATE_MAX_FUTURE_SKEW_MS)) {
+  if (timestamps.some((timestamp) => timestamp! > nowMs + SAVINGS_RATE_MAX_FUTURE_SKEW_MS)) {
     return { status: "unavailable", value: null };
   }
   if (
     metadataStale ||
-    parsed.some((timestamp) => nowMs - timestamp! > SAVINGS_RATE_FRESHNESS_MS)
+    nowMs - sourceFetchedAt! > SAVINGS_RATE_FRESHNESS_MS ||
+    nowMs - metadataReadAt! > SAVINGS_RATE_FRESHNESS_MS ||
+    nowMs - stateAsOf! > SAVINGS_STATE_MAX_AGE_MS
   ) {
     return { status: "stale", value: null };
   }
@@ -223,15 +229,13 @@ export function nextSavingsRateExpiryAt(
   metadataFetchedAt: string | null,
   nowMs: number,
 ): number | null {
-  const timestamps = candidates.flatMap((candidate) => [
-    parseTimestamp(candidate.stateAsOf),
-    parseTimestamp(candidate.source.fetchedAt),
-  ]);
-  timestamps.push(parseTimestamp(metadataFetchedAt));
-  const futureExpirations = timestamps
-    .filter((timestamp): timestamp is number => timestamp !== null)
-    .map((timestamp) => timestamp + SAVINGS_RATE_FRESHNESS_MS + 1)
-    .filter((expiresAt) => expiresAt > nowMs);
+  const futureExpirations = [
+    ...candidates.flatMap((candidate) => [
+      expiryAfter(parseTimestamp(candidate.stateAsOf), SAVINGS_STATE_MAX_AGE_MS),
+      expiryAfter(parseTimestamp(candidate.source.fetchedAt), SAVINGS_RATE_FRESHNESS_MS),
+    ]),
+    expiryAfter(parseTimestamp(metadataFetchedAt), SAVINGS_RATE_FRESHNESS_MS),
+  ].filter((expiresAt): expiresAt is number => expiresAt !== null && expiresAt > nowMs);
   return futureExpirations.length > 0 ? Math.min(...futureExpirations) : null;
 }
 
@@ -308,6 +312,10 @@ function exactNonNegativeDecimal(value: number | null): { atoms: bigint; scale: 
   }
   if (scale > 10_000) return null;
   return { atoms: BigInt(digits || "0"), scale };
+}
+
+function expiryAfter(timestamp: number | null, maxAgeMs: number): number | null {
+  return timestamp === null ? null : timestamp + maxAgeMs + 1;
 }
 
 function parseTimestamp(value: string | null | undefined): number | null {

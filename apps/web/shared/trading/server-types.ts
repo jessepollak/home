@@ -2,7 +2,6 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   MoneyActionDraft,
   MoneyActionOwner,
-  PreparedMoneyAction,
 } from "@/shared/money-actions/types";
 import type { PrepareTradeRequest, TradeIntentReview } from "@/shared/trading/types";
 
@@ -185,35 +184,11 @@ export type TradeIntent = {
   signatureDigest?: string;
 };
 
-export type TradeIntentStore = {
-  issue(intent: TradeIntent): Promise<void>;
-  get(owner: MoneyActionOwner, id: string): Promise<TradeIntent | null>;
-  getByFinalActionId(owner: MoneyActionOwner, actionId: string): Promise<TradeIntent | null>;
-  bindFinalAction(input: {
-    owner: MoneyActionOwner;
-    id: string;
-    intentHash: string;
-    finalActionId: string;
-    signatureDigest: string;
-  }): Promise<TradeIntent | null>;
-};
-
-export type IssueTradeAction = (
-  session: VerifiedAccountSession,
-  draft: MoneyActionDraft,
-  options: {
-    sensitivePayloadExpiresAt: string;
-    actionId: string;
-    createdAt: string;
-  },
-) => Promise<PreparedMoneyAction>;
-
 export type PrepareTradeDependencies = {
   quoteClient: TradeQuoteClient;
   readBalance: TradeBalanceReader;
   readPermit2State: Permit2StateReader;
   resolveSigner: TradeSignerResolver;
-  intentStore: TradeIntentStore;
   now?: () => Date;
 };
 
@@ -221,25 +196,6 @@ export type PrepareTradeInput = {
   httpRequest: Request;
   session: VerifiedAccountSession;
   request: PrepareTradeRequest;
-  signal?: AbortSignal;
-};
-
-export type FinalizeTradeDependencies = {
-  readBalance: TradeBalanceReader;
-  readPermit2State: Permit2StateReader;
-  resolveSigner: TradeSignerResolver;
-  verifySmartAccountSignature: SmartAccountSignatureVerifier;
-  intentStore: TradeIntentStore;
-  issueAction: IssueTradeAction;
-  now?: () => Date;
-};
-
-export type FinalizeTradeInput = {
-  httpRequest: Request;
-  session: VerifiedAccountSession;
-  intentId: string;
-  intentHash: string;
-  signature: Hex;
   signal?: AbortSignal;
 };
 

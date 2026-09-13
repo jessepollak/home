@@ -1,90 +1,32 @@
 # Fork and extend
 
-Status: operator guide for the local finance spike, September 8, 2026. This is how to clone Home and replace brand, regions, assets, and providers. It is not a contribution process and does not authorize production use. Current delivery: [build status](build-status.md).
+This is an operator guide for cloning Home. It does not authorize production use.
 
-Home is meant to be forked. Brand, regions, asset selection, and providers are compile-time configuration in this repository. Each operator provisions their own CDP project, credentials, and deployment. Upstream pull requests are optional; see the root README if you send one.
+## Start
 
-## Start from a running clone
+Follow [Get started](../README.md#get-started), then copy `.env.example` to gitignored `apps/web/.env.local` without overwriting an existing file. Run `bun dev`. Public surfaces work without credentials; authenticated features require your own provider projects and allowed origins.
 
-Follow [Get started](../README.md#get-started) first: `bun install --frozen-lockfile`, copy `.env.example` to `apps/web/.env.local` without overwriting an existing file, then `bun dev`. Browsing works without credentials. Email sign-in and authenticated money actions need your own CDP project; money actions also require the PostgreSQL configuration below.
-
-Then change configuration in place. Typed registries live under `apps/web/config/`. Provider seams live under `apps/web/server/` and the matching setup docs below. Keep one root `bun.lock`.
-
-## Brand
+## Customize
 
 | What | Where |
-|---|---|
-| App name, description, repository URL | `apps/web/config/brand.ts` (consumed by `apps/web/app/layout.tsx` metadata) |
-| Color tokens and control radii | `apps/web/app/globals.css` (`--home-*` variables). Direction: [UI direction](ui-direction.md) |
-| Home / Save / Invest labels | `apps/web/config/navigation.ts` |
-| Shell and feature UI | `apps/web/client/home/home-experience.tsx`, `apps/web/client/` |
-| Animated Home mark | `apps/web/components/home-mark.tsx` and `apps/web/public/home-mark/` |
+| --- | --- |
+| Brand, metadata, colors | `apps/web/config/brand.ts`, `apps/web/app/globals.css` |
+| Navigation | `apps/web/config/navigation.ts` |
+| Regions and presentation | `apps/web/config/regions.ts` |
+| Wallet, savings, and Invest assets | `apps/web/config/portfolio-assets.ts`, `apps/web/shared/savings/config.ts`, `apps/web/config/invest-assets.ts` |
+| Provider integrations | `apps/web/server/` and the matching docs |
 
-The Home mark fonts are **not** MIT-licensed. Read `apps/web/public/home-mark/PROVENANCE.md` before copying or redistributing those files. A fork that keeps the mark needs its own permission for Base Sans; Doto is SIL OFL.
+Country selection changes presentation only. Asset identity is chain ID plus address, never a ticker. Replace Home and Base branding before publishing; see `apps/web/public/home-mark/PROVENANCE.md` before reusing the mark.
 
-Do not treat Base brand assets, trademarks, or provider names as yours. Replace name, description, and visual tokens before publishing a fork.
+## Actions and hosting
 
-## Regions and currency presentation
+Actions require `DATABASE_URL` and use the disposable `actions` schema applied by `bun run db:migrate`. Their contract is [Home is thin](home-is-thin.md): server-authored calldata, verified scope, one owner-generation fence, and provider/chain-derived status. Do not point a fork at another operator’s database or provider project.
 
-Country selection is presentation, not eligibility, residency, or a funding unlock.
+For Vercel settings, see [Vercel deploy](vercel-deploy.md). For CDP configuration, see [CDP setup](cdp-setup.md). For funding adapters, see the [issuer integration guide](integrations/README.md).
 
-| What | Where |
-|---|---|
-| ISO country roster, fiat codes, welcome copy, accent | `apps/web/config/regions.ts` (`presentationRegions`, `resolvePresentation`) |
-| Anonymous remembered country | `apps/web/config/country-preference.ts` |
-| Native-currency UI rules | [Regional money](regional-money.md) |
-| Confirmed default token per currency | [Currency defaults](currency-defaults.md) |
+## Before publishing
 
-Changing country updates labels, formatting, and default cash presentation. It does not convert holdings or enable a route. The landing globe remains illustrative and does not read or write the saved country preference. Adding a country means a typed region record plus a verified Base asset later — not a ticker in copy. Local development has no Vercel geo header; the resolver falls back to `GLOBAL` unless the visitor picks a country.
-
-## Asset inventories
-
-Contract identity is always chain ID + address. Display tickers are labels only.
-
-| Inventory | File | Notes |
-|---|---|---|
-| Invest stocks / wrapped crypto / memes | `apps/web/config/invest-assets.ts` | Display vs token representation. Details: [Invest data](invest-data.md) |
-| List/detail labels | `apps/web/config/asset-presentation.ts` | |
-| Wallet cash, native ETH, vault list used in valuation | `apps/web/config/portfolio-assets.ts` | USDC/ETH quantities vs regional valuation: [Portfolio](portfolio.md) |
-| Sourced Base stablecoin metadata | [stablecoin-candidates.json](stablecoin-candidates.json) | Verification pending; assets stay disabled until you verify them |
-
-Prices are optional and server-only ([Codex prices](codex-prices.md)). Presence in a registry is not a trade route, redemption, or eligibility decision.
-
-## Provider seams
-
-Operators bring their own projects. Nothing in this repo is a shared CDP, Morpho, or Codex account.
-
-| Seam | Config / env | Doc |
-|---|---|---|
-| Email sign-in, session validation | `NEXT_PUBLIC_CDP_PROJECT_ID`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` | [CDP setup](cdp-setup.md) |
-| Indexed ERC-20 history | `CDP_SQL_AUTH_MODE`, `CDP_SQL_CLIENT_API_KEY` | [CDP SQL](cdp-sql.md) |
-| Optional Base Account SIWE | `NEXT_PUBLIC_ENABLE_BASE_ACCOUNT` | [Base Account](base-account.md) |
-| Morpho USDC vault shortlist | `apps/web/shared/savings/config.ts` (keep in sync with `portfolioVaults`) | [Morpho setup](morpho-setup.md) |
-| One cbBTC/USDC borrow market | `apps/web/shared/borrowing/config.ts` | `apps/web/server/borrowing/README.md` |
-| Invest USD indications | `CODEX_API_KEY` | [Codex prices](codex-prices.md) |
-| Funding providers | `apps/web/server/funding/providers/` plus manifest-declared server env | [Issuer integration guide](integrations/README.md) |
-| Base RPC | server-only `BASE_RPC_URL` (CDP Node HTTPS; required on Vercel Production/Preview, optional locally) | [Portfolio](portfolio.md) |
-| Issuer-contributed funding provider (in flight) | Adapter manifest credentials | [Issuer integration guide](integrations/README.md) |
-
-The issuer guide records the current/in-flight boundary; it does not make an unmerged adapter or funding route available.
-
-Copy the root `.env.example` into gitignored `apps/web/.env.local`. Never commit secrets or use a `NEXT_PUBLIC_` prefix on server keys. Add `http://localhost:3000` and one forever-allowlisted staging/prod origin to **your** CDP Embedded Wallet CORS; add a Vercel preview origin only when that PR must demo sign-in ([preview auth](cdp-setup.md#preview-auth)). Live probes stay opt-in; do not enable them as defaults.
-
-Changing a vault or market address is not enough: adapters check chain, exact contracts, decimals, and (for borrow) oracle/IRM/LLTV. Verify against issuer and protocol docs before enabling a product.
-
-## Local spike vs production
-
-The running app is a **local finance spike**, not a production-approved deployment. See [build status](build-status.md) and [wallet runtime](wallet-runtime-spike.md).
-
-Money actions have no local SQLite fallback: in local and hosted runtimes, they require PostgreSQL through `DATABASE_URL` plus `MONEY_ACTION_POSTGRES_CUTOVER=verified-empty`. Set the cutover value only after verifying no unresolved legacy SQLite money actions remain; otherwise money actions fail closed. CI runs the real PostgreSQL money/attempt contract against disposable PostgreSQL 14.
-
-This is limited to money actions. The separate trading intent runtime uses local SQLite only when neither `VERCEL` nor `DATABASE_URL` is set; it fails closed for hosted or database-configured trading and does not provide multi-instance swap readiness. Public Base RPC remains the local default; operators should configure `BASE_RPC_URL`. Do not point a fork at someone else's database or CDP project. Bun monorepo Vercel settings are in [Vercel deploy](vercel-deploy.md).
-
-Venice/agent inference, Rain cards, unrestricted assets, and broader borrow markets are not implemented; additional funding providers use the checked-in provider seam. Stock trading and external Base-account trading remain gated.
-
-## After you customize
-
-- Keep configuration and secrets out of git. `.env.local` is gitignored; use permission `0600` for real keys.
-- Country, language, and eligibility stay separate. A region switch must not imply residency or unlock a restricted stock.
-- Exact asset, network, and user approval remain part of financial review. Documented token support is not a tested live integration.
-- `bun check` is the same gate CI runs (`bun install --frozen-lockfile` then `bun check`) if you send a focused PR. User-visible UI / core-flow PRs include the Vercel preview link and one inline screenshot or short clip in the PR description ([UI PR previews](ui-pr-previews.md)).
+- Keep secrets out of git and use your own provider credentials.
+- Do not infer eligibility from country, language, or UI copy.
+- Keep exact amounts, fees, network, and asset identity on action review.
+- Run `bun check` before sharing a focused upstream change.

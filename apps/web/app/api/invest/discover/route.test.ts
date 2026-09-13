@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createErrorInvestDiscover } from "@/server/market-data/invest-discover";
 import type { InvestDiscoverResponse } from "@/server/market-data/invest-discover";
-import { createInvestDiscoverHandler } from "./handler";
-import { dynamic, runtime } from "./route";
+import { createInvestDiscoverHandler } from "@/server/market-data/handlers/invest-discover";
 
 const payload: InvestDiscoverResponse = {
   version: 1,
@@ -22,10 +21,7 @@ const discoverRequest = (path = "/api/invest/discover") =>
   new Request(`http://home.test${path}`);
 
 describe("GET /api/invest/discover", () => {
-  test("is a public Node route and returns the discover contract", async () => {
-    expect(runtime).toBe("nodejs");
-    expect(dynamic).toBe("force-dynamic");
-
+  test("returns the public discover contract", async () => {
     const response = await createInvestDiscoverHandler(async () => payload)(
       discoverRequest(),
     );

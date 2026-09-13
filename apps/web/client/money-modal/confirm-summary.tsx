@@ -1,5 +1,6 @@
 "use client";
 
+import { MoneyTicker } from "@/components/money-ticker";
 import type { ReactNode } from "react";
 import styles from "./money-modal.module.css";
 
@@ -20,8 +21,10 @@ export function MoneyConfirmSummary({
   return (
     <>
       <div className={styles.confirmAmount}>
-        <p className={styles.confirmFigure}>{amount}</p>
-        <p className={styles.confirmLead}>{lead}</p>
+        <div className={`${styles.confirmFigure} font-mono text-amount font-semibold`}>
+          <MoneyTicker value={amount} />
+        </div>
+        <p className={`${styles.confirmLead} text-caption text-muted-foreground`}>{lead}</p>
       </div>
       <dl className={styles.rows}>
         {rows.map((row) => (

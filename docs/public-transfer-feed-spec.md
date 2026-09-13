@@ -338,9 +338,9 @@ No country flags, city names, routes, “sent around the world,” customer labe
 - `apps/web/server/chain-data/types.ts`
 - `apps/web/config/portfolio-assets.ts`
 - `apps/web/components/finance-rows.tsx`
-- `apps/web/server/money-actions/sqlite-store.node.ts`
+- `apps/web/server/money-actions/`
 - `docs/cdp-sql.md`
-- `docs/wallet-runtime-spike.md`
+- `docs/home-is-thin.md`
 - `docs/target-architecture.md` (production destination; not the current tree)
 - Official CDP SQL overview, schema, endpoint, and quickstart. ([docs.cdp.coinbase.com](https://docs.cdp.coinbase.com/data/sql-api/welcome?utm_source=openai))
 - Official Circle USDC/EURC and IDRX contract registries. ([developers.circle.com](https://developers.circle.com/stablecoins/usdc-contract-addresses?utm_source=openai))

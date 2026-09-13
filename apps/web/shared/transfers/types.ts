@@ -1,4 +1,19 @@
-export type TransferAssetId = "usdc" | "eth";
+export type TransferAssetId = string;
+
+export type TransferAsset = {
+  id: TransferAssetId;
+  assetKey: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  kind: "native" | "erc20";
+  contractAddress: `0x${string}` | null;
+  cashCurrency: string | null;
+};
+
+export type TransferAssetAvailability = TransferAsset & {
+  balanceLabel: string;
+};
 
 export type TransferRequest = {
   assetId: TransferAssetId;

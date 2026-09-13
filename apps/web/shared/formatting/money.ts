@@ -12,6 +12,42 @@ const maximumTinyPriceFractionDigits = 8;
 const maximumChartTinyFractionDigits = 12;
 const minusSign = "−";
 
+const NBSP = "\u00A0";
+const anySpace = /[\s\u00A0\u2007\u2009\u202F]+/g;
+
+/**
+ * ICU builds disagree on the whitespace they emit (U+0020 vs U+00A0 vs U+202F)
+ * and on joiners such as "at". Home owns these typographic choices so output is
+ * byte-identical on every platform.
+ */
+function collapseSpaces(value: string, replacement: string): string {
+  return value.replace(anySpace, replacement).trim();
+}
+
+/** Multi-character currency symbols (R$, Rp, US$) take one no-break space; single glyphs ($, €, £) none. */
+function joinCurrencyPrefix(symbol: string, amount: string): string {
+  const compact = collapseSpaces(symbol, "");
+  if (!compact) return amount;
+  return compact.length > 1 ? `${compact}${NBSP}${amount}` : `${compact}${amount}`;
+}
+
+function joinCurrencySuffix(amount: string, symbol: string): string {
+  const compact = collapseSpaces(symbol, "");
+  return compact ? `${amount}${NBSP}${compact}` : amount;
+}
+
+/** Token symbols keep their internal spacing ("vault shares"); only currency glyphs are compacted. */
+function joinAmountAndSymbol(
+  amount: string,
+  symbol: string,
+  useNoBreakSpace = false,
+): string {
+  const separator = useNoBreakSpace ? NBSP : " ";
+  const label = collapseSpaces(symbol, separator);
+  if (!label) return amount;
+  return `${amount}${separator}${label}`;
+}
+
 const regionLocales = {
   GLOBAL: "en-US",
   AR: "es-AR",
@@ -58,7 +94,7 @@ const regionLocales = {
 export const MONEY_CHANGE_COLOR_TOKENS = {
   positive: "var(--home-positive)",
   negative: "var(--home-negative)",
-  neutral: "var(--home-muted)",
+  neutral: "var(--home-text-muted)",
 } as const;
 
 export type MoneyChangeTone = keyof typeof MONEY_CHANGE_COLOR_TOKENS;
@@ -193,6 +229,15 @@ export type PresentationTokenAmountOptions = {
   cashCurrency?: string | null;
   category?: "stock" | "crypto" | "meme";
   regionId?: RegionId;
+  useNoBreakSpace?: boolean;
+};
+
+type FiatAmountOptions = {
+  regionId?: RegionId;
+  fractionDigits?: number;
+  minimumFractionDigits?: number;
+  sign?: MoneySignPolicy;
+  markTiny?: boolean;
 };
 
 const majorSymbols = new Set([
@@ -221,21 +266,57 @@ export function formatPresentationTokenAmount(
   symbol: string,
   options: PresentationTokenAmountOptions = {},
 ): string {
-  const parsedBaseUnits = parseAtomicAmount(balanceBaseUnits);
-  const assetClass = presentationAssetClass({ ...options, symbol });
-  const { maximumFractionDigits, minimumFractionDigits } =
-    presentationFractionDigits(parsedBaseUnits, decimals, assetClass);
-  const amount = padLocalizedFractionDigits(
-    formatTokenAmount(
-      parsedBaseUnits,
-      decimals,
-      maximumFractionDigits,
+  try {
+    const parsedBaseUnits = parseAtomicAmount(balanceBaseUnits);
+    const assetClass = presentationAssetClass({ ...options, symbol });
+    const { maximumFractionDigits, minimumFractionDigits } =
+      presentationFractionDigits(parsedBaseUnits, decimals, assetClass);
+    const amount = padLocalizedFractionDigits(
+      formatTokenAmount(
+        parsedBaseUnits,
+        decimals,
+        maximumFractionDigits,
+        options.regionId,
+      ),
+      minimumFractionDigits,
       options.regionId,
-    ),
-    minimumFractionDigits,
-    options.regionId,
+    );
+    return joinAmountAndSymbol(amount, symbol, options.useNoBreakSpace);
+  } catch {
+    return "—";
+  }
+}
+
+/** Formats all token precision for review and detail surfaces. */
+export function formatExactTokenAmount(
+  balanceBaseUnits: AtomicAmount,
+  decimals: number,
+  regionId: RegionId = "GLOBAL",
+): string {
+  return formatTokenAmount(balanceBaseUnits, decimals, decimals, regionId);
+}
+
+/** Formats unsigned token amounts and rejects malformed or negative input. */
+export function formatUnsignedTokenAmount(
+  balanceBaseUnits: AtomicAmount,
+  decimals: number,
+  regionId: RegionId = "GLOBAL",
+): string {
+  const parsed = parseUnsignedAtomicAmount(balanceBaseUnits);
+  return formatExactTokenAmount(parsed, decimals, regionId);
+}
+
+export function formatExactPresentationTokenAmount(
+  balanceBaseUnits: AtomicAmount,
+  decimals: number,
+  symbol: string,
+  options: { regionId?: RegionId; useNoBreakSpace?: boolean } = {},
+): string {
+  return joinAmountAndSymbol(
+    formatExactTokenAmount(balanceBaseUnits, decimals, options.regionId),
+    symbol,
+    options.useNoBreakSpace,
   );
-  return `${amount} ${symbol}`;
 }
 
 /** Exact decimal formatting from atomic bigint units. */
@@ -264,32 +345,144 @@ export function formatDecimalAmount(
   return applySign(amount, result.negative, options.sign);
 }
 
-/** Exact fiat formatting from atomic bigint units. */
+/** Exact fiat formatting from atomic bigint units or an exact decimal string. */
 export function formatFiatAmount(
   atoms: bigint,
   decimals: number,
   currency: string,
-  options: {
-    regionId?: RegionId;
-    fractionDigits?: number;
-    sign?: MoneySignPolicy;
-    markTiny?: boolean;
-  } = {},
+  options?: FiatAmountOptions,
+): string;
+export function formatFiatAmount(
+  value: string,
+  currency: string,
+  options?: FiatAmountOptions,
+): string;
+export function formatFiatAmount(
+  value: bigint | string,
+  decimalsOrCurrency: number | string,
+  currencyOrOptions: string | FiatAmountOptions = {},
+  maybeOptions: FiatAmountOptions = {},
 ): string {
+  if (typeof value === "string") {
+    const currency = decimalsOrCurrency as string;
+    const options = currencyOrOptions as FiatAmountOptions;
+    const decimal = parseDecimal(value);
+    if (!decimal || decimal.negative) return "—";
+    const fractionDigits = options.fractionDigits ?? 2;
+    const minimumFractionDigits = options.minimumFractionDigits ?? fractionDigits;
+    validateFractionRange(fractionDigits, minimumFractionDigits);
+    const regionId = options.regionId ?? defaultRegionForCurrency(currency);
+    const result = scaledDecimalResult(
+      BigInt(decimal.digits),
+      decimal.scale,
+      fractionDigits,
+      options.markTiny,
+    );
+    const canonical = trimCanonicalFraction(
+      result.canonical,
+      minimumFractionDigits,
+    );
+    return `${result.tiny ? "<" : ""}${formatCurrencyDecimal(
+      canonical,
+      currency,
+      regionId,
+    )}`;
+  }
+
+  const decimals = decimalsOrCurrency as number;
+  const currency = currencyOrOptions as string;
+  const options = maybeOptions;
   const fractionDigits = options.fractionDigits ?? 2;
+  const minimumFractionDigits = options.minimumFractionDigits ?? fractionDigits;
+  validateFractionRange(fractionDigits, minimumFractionDigits);
   const regionId = options.regionId ?? defaultRegionForCurrency(currency);
   const result = scaledDecimalResult(
-    atoms,
+    value,
     decimals,
     fractionDigits,
     options.markTiny,
   );
-  const label = `${result.tiny ? "<" : ""}${formatCurrencyDecimal(
+  const canonical = trimCanonicalFraction(
     result.canonical,
+    minimumFractionDigits,
+  );
+  const label = `${result.tiny ? "<" : ""}${formatCurrencyDecimal(
+    canonical,
     currency,
     regionId,
   )}`;
   return applySign(label, result.negative, options.sign);
+}
+
+export function formatUsdStablecoinAmount(
+  balanceBaseUnits: AtomicAmount,
+  decimals = 6,
+  regionId: RegionId = "GLOBAL",
+): string {
+  try {
+    const atoms = parseUnsignedAtomicAmount(balanceBaseUnits);
+    return formatFiatAmount(atoms, decimals, "USD", {
+      fractionDigits: decimals,
+      minimumFractionDigits: Math.min(2, decimals),
+      regionId,
+    });
+  } catch {
+    return "—";
+  }
+}
+
+export function formatPresentationPercentage(
+  value: number | null | undefined,
+  regionId: RegionId = "GLOBAL",
+): string {
+  const formatted = formatPercentage(value, regionId);
+  return formatted === "Unavailable" ? "—" : formatted;
+}
+
+export function formatWadPercent(
+  raw: AtomicAmount,
+  regionId: RegionId = "GLOBAL",
+): string {
+  const value = parseUnsignedAtomicAmount(raw) * BigInt(100);
+  return `${formatDecimalAmount(value, 18, {
+    fractionDigits: 2,
+    markTiny: false,
+    regionId,
+  })}%`;
+}
+
+export function formatBasisPoints(
+  raw: AtomicAmount,
+  regionId: RegionId = "GLOBAL",
+): string {
+  return `${formatDecimalAmount(parseUnsignedAtomicAmount(raw), 2, {
+    fractionDigits: 2,
+    markTiny: false,
+    regionId,
+  })}%`;
+}
+
+export function formatHealthFactor(
+  raw: AtomicAmount | null,
+  regionId: RegionId = "GLOBAL",
+): string {
+  if (raw === null) return "No debt";
+  return formatDecimalAmount(parseUnsignedAtomicAmount(raw), 18, {
+    fractionDigits: 2,
+    markTiny: false,
+    regionId,
+  });
+}
+
+/** Morpho oracle prices are loan-token units per collateral token at 34 decimals. */
+export function formatOracleUsd(
+  raw: AtomicAmount,
+  regionId: RegionId = "GLOBAL",
+): string {
+  return formatFiatAmount(parseUnsignedAtomicAmount(raw), 34, "USD", {
+    fractionDigits: 2,
+    regionId,
+  });
 }
 
 export function formatUsdPrice(
@@ -431,24 +624,33 @@ export function formatPresentationDate(
     style: PresentationDateStyle;
   },
 ): string {
-  const styles: Record<PresentationDateStyle, Intl.DateTimeFormatOptions> = {
-    "activity-full": {
-      month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
-    },
-    "activity-short": {
-      month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-    },
-    "date-time-zone": {
-      month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
-    },
-    "chart-time": { hour: "numeric", minute: "2-digit" },
+  const locale = presentationLocale(options.regionId);
+  const zone = options.timeZone ? { timeZone: options.timeZone } : {};
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  const part = (formatOptions: Intl.DateTimeFormatOptions) =>
+    collapseSpaces(new Intl.DateTimeFormat(locale, { ...formatOptions, ...zone }).format(date), " ");
+  const dateParts: Record<PresentationDateStyle, Intl.DateTimeFormatOptions | null> = {
+    "activity-full": { month: "short", day: "numeric", year: "numeric" },
+    "activity-short": { month: "short", day: "numeric" },
+    "date-time-zone": { month: "short", day: "numeric", year: "numeric" },
+    "chart-time": null,
     "chart-weekday": { weekday: "short" },
     "chart-date": { month: "short", day: "numeric" },
   };
-  return new Intl.DateTimeFormat(presentationLocale(options.regionId), {
-    ...styles[options.style],
-    ...(options.timeZone ? { timeZone: options.timeZone } : {}),
-  }).format(new Date(value));
+  const timeParts: Record<PresentationDateStyle, Intl.DateTimeFormatOptions | null> = {
+    "activity-full": { hour: "numeric", minute: "2-digit" },
+    "activity-short": { hour: "numeric", minute: "2-digit" },
+    "date-time-zone": { hour: "numeric", minute: "2-digit", timeZoneName: "short" },
+    "chart-time": { hour: "numeric", minute: "2-digit" },
+    "chart-weekday": null,
+    "chart-date": null,
+  };
+  const dateOptions = dateParts[options.style];
+  const timeOptions = timeParts[options.style];
+  const pieces = [dateOptions ? part(dateOptions) : null, timeOptions ? part(timeOptions) : null]
+    .filter((piece): piece is string => Boolean(piece));
+  return pieces.join(", ");
 }
 
 export function scaleDecimalByExact(
@@ -488,6 +690,14 @@ function parseAtomicAmount(value: AtomicAmount): bigint {
   return BigInt(value);
 }
 
+function parseUnsignedAtomicAmount(value: AtomicAmount): bigint {
+  const parsed = parseAtomicAmount(value);
+  if (parsed < BigInt(0)) {
+    throw new TypeError("amount must not be negative.");
+  }
+  return parsed;
+}
+
 function validateDecimals(decimals: number): void {
   if (!Number.isSafeInteger(decimals) || decimals < 0 || decimals > 255) {
     throw new TypeError("decimals must be an integer from 0 through 255.");
@@ -501,6 +711,17 @@ function validateFractionDigits(fractionDigits: number): void {
     fractionDigits > 20
   ) {
     throw new TypeError("fractionDigits must be an integer from 0 through 20.");
+  }
+}
+
+function validateFractionRange(
+  fractionDigits: number,
+  minimumFractionDigits: number,
+): void {
+  validateFractionDigits(fractionDigits);
+  validateFractionDigits(minimumFractionDigits);
+  if (minimumFractionDigits > fractionDigits) {
+    throw new TypeError("minimumFractionDigits must not exceed fractionDigits.");
   }
 }
 
@@ -603,6 +824,18 @@ function formatDecimal(
   );
 }
 
+function trimCanonicalFraction(
+  value: string,
+  minimumFractionDigits: number,
+): string {
+  const [whole, initialFraction = ""] = value.split(".");
+  let fraction = initialFraction;
+  while (fraction.length > minimumFractionDigits && fraction.endsWith("0")) {
+    fraction = fraction.slice(0, -1);
+  }
+  return fraction ? `${whole}.${fraction}` : whole;
+}
+
 function decimalFromScaledInteger(
   value: bigint,
   scale: number,
@@ -655,13 +888,19 @@ function formatCurrencyDecimal(
   regionId: RegionId,
 ): string {
   const localizedAmount = localizeCanonicalDecimal(amount, regionId);
-  const parts = new Intl.NumberFormat(presentationLocale(regionId), {
-    style: "currency",
-    currency,
-    currencyDisplay: "narrowSymbol",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).formatToParts(BigInt(0));
+  let parts: Intl.NumberFormatPart[];
+  try {
+    parts = new Intl.NumberFormat(presentationLocale(regionId), {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).formatToParts(BigInt(0));
+  } catch {
+    // Provider-supplied codes (USDC, IDRX, wARS) are not ISO 4217: render as a suffix label.
+    return joinAmountAndSymbol(localizedAmount, currency.trim().toUpperCase(), true);
+  }
   const numericTypes = new Set<Intl.NumberFormatPartTypes>([
     "integer", "group", "decimal", "fraction",
   ]);
@@ -672,7 +911,7 @@ function formatCurrencyDecimal(
   }
   const prefix = parts.slice(0, firstNumeric).map((part) => part.value).join("");
   const suffix = parts.slice(lastNumeric + 1).map((part) => part.value).join("");
-  return `${prefix}${localizedAmount}${suffix}`;
+  return joinCurrencySuffix(joinCurrencyPrefix(prefix, localizedAmount), suffix);
 }
 
 function formatCompactPrice(
@@ -696,9 +935,10 @@ function formatCompactPrice(
     part.type === "integer" || part.type === "group" ||
     part.type === "decimal" || part.type === "fraction"
   );
-  const suffix = compactIndex < 0 || lastNumericIndex < 0
+  const rawSuffix = compactIndex < 0 || lastNumericIndex < 0
     ? ""
-    : compactParts.slice(lastNumericIndex + 1).map((part) => part.value).join("");
+    : collapseSpaces(compactParts.slice(lastNumericIndex + 1).map((part) => part.value).join(""), "");
+  const suffix = rawSuffix.length > 1 ? `${NBSP}${rawSuffix}` : rawSuffix;
   const label = `${formatCurrencyDecimal(amount, currency, regionId)}${suffix}`;
   return applySign(label, decimal.negative, "auto");
 }
@@ -714,7 +954,7 @@ function applySign(
 }
 
 function normalizeMinus(value: string): string {
-  return value.replace(/-/g, minusSign);
+  return collapseSpaces(value.replace(/-/g, minusSign), NBSP);
 }
 
 function presentationFractionDigits(

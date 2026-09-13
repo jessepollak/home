@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createHmac } from "node:crypto";
 import type {
   CreateOrderResult,
@@ -8,6 +10,7 @@ import type {
   ProviderOrder,
   ReconciliationIntent,
 } from "@/shared/funding/provider-contract";
+import { decimalToAtomic } from "@/shared/formatting/atomic";
 import { IDRX_API_ORIGIN, IDRX_CHECKOUT_ORIGIN, idrxManifest } from "./manifest";
 
 const MINT_PATH = "/transaction/mint-request";
@@ -29,7 +32,7 @@ export const idrxProvider: FundingProvider = {
 
   async createOrder(input, ctx) {
     const atomic = input.fiatAmount.length <= MAX_IDRX_DECIMAL_LENGTH
-      ? decimalToAtomic(input.fiatAmount, ctx.binding.asset.decimals)
+      ? idrxAtomicAmount(input.fiatAmount, ctx.binding.asset.decimals)
       : null;
     if (
       atomic === null ||
@@ -341,9 +344,9 @@ function assertPaymentAmount(
   fees: ProviderOrder["fees"],
   decimals: number,
 ): void {
-  const paymentAtomic = decimalToAtomic(value, decimals);
+  const paymentAtomic = idrxAtomicAmount(value, decimals);
   const feeAtomic = fees.reduce((total, fee) => {
-    const atomic = decimalToAtomic(fee.amount, decimals);
+    const atomic = idrxAtomicAmount(fee.amount, decimals);
     if (atomic === null) throw new Error("Invalid IDRX fee amount.");
     return total + atomic;
   }, BigInt(0));
@@ -501,7 +504,7 @@ function assertOptionalAtomicAmount(
   decimals: number,
 ): void {
   if (value === undefined) return;
-  if (decimalToAtomic(readDecimal(value), decimals) !== expected) {
+  if (idrxAtomicAmount(readDecimal(value), decimals) !== expected) {
     throw new Error("IDRX amount echo mismatch.");
   }
 }
@@ -749,19 +752,15 @@ function readOptionalReference(value: unknown): { reference?: string } {
   return { reference: readBoundedString(value, 128) };
 }
 
-function decimalToAtomic(value: string, decimals: number): bigint | null {
-  if (
-    value.length > 128 ||
-    !Number.isSafeInteger(decimals) ||
-    decimals < 0 ||
-    decimals > 255
-  ) return null;
-  const match = /^(0|[1-9]\d*)(?:\.(\d+))?$/.exec(value);
-  if (!match) return null;
-  const fraction = match[2] ?? "";
-  if (fraction.length > decimals) return null;
-  return BigInt(match[1]) * BigInt(10) ** BigInt(decimals) +
-    BigInt(fraction.padEnd(decimals, "0") || "0");
+export function idrxAtomicAmount(value: string, decimals: number): bigint | null {
+  if (value.length > 128 || !Number.isSafeInteger(decimals) || decimals < 0 || decimals > 255) {
+    return null;
+  }
+  try {
+    return BigInt(decimalToAtomic(value, decimals));
+  } catch {
+    return null;
+  }
 }
 
 function normalizeCustomerName(value: string): string {

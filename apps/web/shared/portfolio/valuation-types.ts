@@ -136,6 +136,27 @@ export type CashBucket = {
     | "unsupported";
 };
 
+export type RecognizedPortfolioHolding = {
+  id: `recognized:${string}`;
+  assetKey: `eip155:8453/erc20:${string}`;
+  name: string;
+  symbol: string;
+  decimals: number;
+  contractAddress: PortfolioAddress;
+  imageUrl?: string;
+  balanceBaseUnits: string;
+  liquidityUsd: ExactDecimal;
+  volume24Usd: ExactDecimal;
+  valueCurrency: FiatCurrencyCode | null;
+  value: ExactDecimal | null;
+  valuationStatus: "priced" | "unpriced";
+};
+
+export type RecognizedPortfolioSection = {
+  status: "complete" | "incomplete";
+  holdings: RecognizedPortfolioHolding[];
+};
+
 export type PortfolioValuationSnapshot = {
   version: 2;
   walletAddress: PortfolioAddress;
@@ -158,6 +179,8 @@ export type PortfolioValuationSnapshot = {
   fx: FxQuote | null;
   nativeEthQuote: NativeEthQuote;
   lines: ValuationLine[];
+  /** Optional bounded Codex catalog discovery. Never persisted client-side. */
+  recognized?: RecognizedPortfolioSection;
   /** Additive v2 extension. Legacy v2 snapshots may omit it. */
   nativeCashValuations?: NativeCashValuation[];
   cashBuckets: CashBucket[];

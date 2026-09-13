@@ -1,3 +1,5 @@
+import "server-only";
+
 import { describe, expect, test } from "bun:test";
 import type { CountryCode } from "@/config/regions";
 import type { FundingAsset } from "@/shared/funding/assets";
@@ -7,6 +9,7 @@ import type {
   OrderIntent,
   ReconciliationIntent,
 } from "@/shared/funding/provider-contract";
+import { decimalToAtomic } from "@/shared/formatting/atomic";
 import {
   FundingProviderConfigurationError,
   FundingProviderFetchError,
@@ -277,21 +280,6 @@ function containsValue(value: unknown, expected: string): boolean {
   if (Array.isArray(value)) return value.some((item) => containsValue(item, expected));
   if (!value || typeof value !== "object") return false;
   return Object.values(value).some((item) => containsValue(item, expected));
-}
-
-function decimalToAtomic(value: string, decimals: number): string {
-  const match = /^(0|[1-9]\d*)(?:\.(\d+))?$/.exec(value);
-  if (!match || !Number.isSafeInteger(decimals) || decimals < 0) {
-    throw new Error("The conformance amount is invalid.");
-  }
-  const fraction = match[2] ?? "";
-  if (fraction.length > decimals) {
-    throw new Error("The conformance amount exceeds the asset precision.");
-  }
-  return (
-    BigInt(match[1]) * BigInt(10) ** BigInt(decimals) +
-    BigInt(fraction.padEnd(decimals, "0") || "0")
-  ).toString(10);
 }
 
 function assertInstructionIsSafe(

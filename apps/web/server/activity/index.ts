@@ -1,3 +1,5 @@
+import "server-only";
+
 export { createActivityHandler } from "./handler";
 export { createActivityReader, getRecentBaseActivity } from "./reader";
 export type {

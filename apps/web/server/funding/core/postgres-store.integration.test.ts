@@ -2,7 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { PostgresFundingOrderStore, type FundingSqlExecutor } from "./postgres-store";
+import type { SqlExecutor } from "@/server/db/sql";
+import { PostgresFundingOrderStore } from "./postgres-store";
 import type { FundingReservation } from "./store";
 
 const connectionString = process.env.FUNDING_PG_TEST_URL?.trim();
@@ -99,12 +100,13 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
   });
 });
 
-function bunExecutor(sqlClient: BunSqlClient, inTransaction = false): FundingSqlExecutor {
+function bunExecutor(sqlClient: BunSqlClient, inTransaction = false): SqlExecutor {
   return {
     async query<T>(text: string, values: unknown[] = []) {
-      return { rows: Array.from(await sqlClient.unsafe(text, values)) as T[] };
+      const rows = Array.from(await sqlClient.unsafe(text, values)) as T[];
+      return { rows, rowCount: rows.length };
     },
-    async transaction<T>(run: (transaction: FundingSqlExecutor) => Promise<T>) {
+    async transaction<T>(run: (transaction: SqlExecutor) => Promise<T>) {
       if (inTransaction) throw new Error("nested transaction unsupported");
       return sqlClient.begin((transaction) => run(bunExecutor(transaction, true)));
     },

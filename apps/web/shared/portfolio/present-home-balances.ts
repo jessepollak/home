@@ -11,6 +11,7 @@ import {
   formatPresentationFiat,
   presentationCurrencyName,
 } from "./valuation-format";
+import { exactDecimalToFraction } from "./valuation-math";
 import type { PortfolioValuationState } from "./valuation-state";
 
 export type HomeAssetBalanceItem = {
@@ -19,10 +20,13 @@ export type HomeAssetBalanceItem = {
   group?: "cash" | "asset";
   name: string;
   detail?: string;
+  imageUrl?: string;
   displayBalance: string;
   displayContext?: string;
   currencyCode?: string | null;
   tone?: "default" | "muted" | "error";
+  /** Recognized catalog rows are nested-Balances-only. */
+  recognized?: true;
 };
 
 export type HomeAssetBalancesPresentation = {
@@ -45,7 +49,7 @@ export function previewHomeBalanceItems(
   items: readonly HomeAssetBalanceItem[],
   limit = HOME_BALANCES_HUB_PREVIEW_COUNT,
 ): readonly HomeAssetBalanceItem[] {
-  return items.slice(0, limit);
+  return items.filter((item) => item.recognized !== true).slice(0, limit);
 }
 
 export function presentPortfolioValuation(
@@ -96,19 +100,21 @@ export function presentPortfolioValuation(
       ? "Choose a country in Account to set how money is shown"
       : totalUnavailable
         ? "Balance unavailable"
-        : totalPartial
-          ? "Unavailable"
-          : undefined,
-    items: [
-      ...snapshot.cashBuckets.map((bucket) =>
-        presentCashBucket(
-          bucket,
-          snapshot.nativeCashValuations,
-          snapshot.selectedRegion,
+        : undefined,
+    items: orderHomeBalanceItems(
+      [
+        ...snapshot.cashBuckets.map((bucket) =>
+          presentCashBucket(
+            bucket,
+            snapshot.nativeCashValuations,
+            snapshot.selectedRegion,
+          ),
         ),
-      ),
-      ...presentAssetRows(snapshot),
-    ],
+        ...presentAssetRows(snapshot),
+        ...presentRecognizedRows(snapshot),
+      ],
+      snapshot,
+    ),
     ...presentNonreadyItemIds(snapshot),
   };
 }
@@ -240,6 +246,42 @@ function presentAssetRows(
   return [...fiat, ...other];
 }
 
+function presentRecognizedRows(
+  snapshot: PortfolioValuationSnapshot,
+): HomeAssetBalanceItem[] {
+  return (snapshot.recognized?.holdings ?? []).map((holding) => {
+    const nativeLabel = formatPresentationTokenAmount(
+      BigInt(holding.balanceBaseUnits),
+      holding.decimals,
+      holding.symbol,
+      { category: "crypto", regionId: snapshot.selectedRegion },
+    );
+    const pricedFiat =
+      holding.valuationStatus === "priced" &&
+      holding.value &&
+      holding.valueCurrency
+        ? formatPresentationFiat(
+            holding.value,
+            holding.valueCurrency,
+            2,
+            snapshot.selectedRegion,
+          )
+        : null;
+    return {
+      id: `asset:${holding.assetKey}`,
+      assetKey: holding.assetKey,
+      group: "asset",
+      name: holding.name,
+      detail: holding.symbol,
+      ...(holding.imageUrl ? { imageUrl: holding.imageUrl } : {}),
+      displayBalance: pricedFiat ?? nativeLabel,
+      ...(pricedFiat ? { displayContext: nativeLabel } : {}),
+      currencyCode: null,
+      recognized: true,
+    };
+  });
+}
+
 function presentDirectAssetRow(
   snapshot: PortfolioValuationSnapshot,
   holding: DirectPortfolioHolding & { balanceBaseUnits: string },
@@ -329,6 +371,76 @@ function selectedCashAssetKeys(snapshot: PortfolioValuationSnapshot): Set<string
       bucket.assetKey ? [bucket.assetKey] : [],
     ),
   );
+}
+
+function orderHomeBalanceItems(
+  items: readonly HomeAssetBalanceItem[],
+  snapshot: PortfolioValuationSnapshot,
+): HomeAssetBalanceItem[] {
+  const fiatValueByAssetKey = new Map<
+    string,
+    NonNullable<ValuationLine["value"]>
+  >(
+    snapshot.lines.flatMap((line) =>
+      line.status === "priced" && line.value && BigInt(line.value.atoms) > BigInt(0)
+        ? [[line.holdingAssetKey, line.value] as const]
+        : [],
+    ),
+  );
+  for (const holding of snapshot.recognized?.holdings ?? []) {
+    if (
+      holding.valuationStatus === "priced" &&
+      holding.value &&
+      BigInt(holding.value.atoms) > BigInt(0)
+    ) {
+      fiatValueByAssetKey.set(holding.assetKey, holding.value);
+    }
+  }
+
+  const cash: HomeAssetBalanceItem[] = [];
+  const priced: HomeAssetBalanceItem[] = [];
+  const unpricedOrDust: HomeAssetBalanceItem[] = [];
+  for (const item of items) {
+    if (item.group === "cash" || item.currencyCode) {
+      cash.push(item);
+      continue;
+    }
+    const value = item.assetKey ? fiatValueByAssetKey.get(item.assetKey) : undefined;
+    if (value && isAtLeastOneCent(value)) priced.push(item);
+    else unpricedOrDust.push(item);
+  }
+
+  priced.sort((left, right) => {
+    const leftValue = fiatValueByAssetKey.get(left.assetKey!)!;
+    const rightValue = fiatValueByAssetKey.get(right.assetKey!)!;
+    const comparison = compareExactDecimals(rightValue, leftValue);
+    return comparison || compareNames(left, right);
+  });
+  unpricedOrDust.sort(compareNames);
+  return [...cash, ...priced, ...unpricedOrDust];
+}
+
+function isAtLeastOneCent(value: NonNullable<ValuationLine["value"]>): boolean {
+  const fraction = exactDecimalToFraction(value);
+  return fraction.numerator * BigInt(100) >= fraction.denominator;
+}
+
+function compareExactDecimals(
+  left: NonNullable<ValuationLine["value"]>,
+  right: NonNullable<ValuationLine["value"]>,
+): number {
+  const leftFraction = exactDecimalToFraction(left);
+  const rightFraction = exactDecimalToFraction(right);
+  const leftScaled = leftFraction.numerator * rightFraction.denominator;
+  const rightScaled = rightFraction.numerator * leftFraction.denominator;
+  return leftScaled < rightScaled ? -1 : leftScaled > rightScaled ? 1 : 0;
+}
+
+function compareNames(
+  left: HomeAssetBalanceItem,
+  right: HomeAssetBalanceItem,
+): number {
+  return left.name.localeCompare(right.name, "en", { sensitivity: "base" });
 }
 
 function pricedDisplayFiat(

@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   PORTFOLIO_NATIVE_ASSET_KEY,
   PORTFOLIO_USDC_ASSET_KEY,
@@ -35,11 +37,16 @@ import type {
   PortfolioInventorySnapshot,
   PortfolioValuationSnapshot,
   PriceQuote,
+  RecognizedPortfolioSection,
   ValuationLine,
   ValuationSource,
 } from "@/shared/portfolio/valuation-types";
 import type { VerifiedPortfolioAccount } from "@/shared/portfolio/types";
 import { getPortfolioInventory } from "./inventory";
+import {
+  getRecognizedPortfolio,
+  type RecognizedTokenDiscovery,
+} from "./recognized";
 
 const ZERO: Fraction = { numerator: BigInt(0), denominator: BigInt(1) };
 
@@ -47,19 +54,22 @@ export type PortfolioValuationReader = (
   account: VerifiedPortfolioAccount,
   region: RegionId,
   signal?: AbortSignal,
+  options?: { fresh?: boolean },
 ) => Promise<PortfolioValuationSnapshot>;
 
 export function createPortfolioValuationReader(dependencies: {
   readInventory?: typeof getPortfolioInventory;
   readPrices?: (inputs: readonly CodexRawQuoteInput[]) => Promise<PriceQuote[]>;
   readExchangeRates?: typeof getCoinbaseExchangeRates;
+  readRecognized?: typeof getRecognizedPortfolio;
 } = {}): PortfolioValuationReader {
   const readInventory = dependencies.readInventory ?? getPortfolioInventory;
   const readPrices = dependencies.readPrices ?? getCodexRawQuotes;
   const readExchangeRates =
     dependencies.readExchangeRates ?? getCoinbaseExchangeRates;
+  const readRecognized = dependencies.readRecognized ?? getRecognizedPortfolio;
 
-  return async function readPortfolioValuation(account, region, signal) {
+  return async function readPortfolioValuation(account, region, signal, options) {
     const quoteCurrency = presentationRegions[region].currency.code;
     const priceInputs = getDirectPortfolioAssets()
       .filter(
@@ -72,10 +82,13 @@ export function createPortfolioValuationReader(dependencies: {
         networkId: 8453 as const,
       }));
 
-    const [inventory, pricesResult, exchangeRatesResult] = await Promise.all([
-      readInventory(account, quoteCurrency, signal),
+    const [inventory, pricesResult, exchangeRatesResult, recognizedDiscovery] = await Promise.all([
+      readInventory(account, quoteCurrency, signal, options),
       readPrices(priceInputs).catch(() => unavailablePrices(priceInputs)),
       readExchangeRates().catch(() => unavailableExchangeRates()),
+      readRecognized(account.address, signal).catch(
+        (): RecognizedTokenDiscovery => ({ status: "incomplete", holdings: [] }),
+      ),
     ]);
     if (signal?.aborted) throw new Error("Portfolio valuation was aborted.");
 
@@ -134,6 +147,16 @@ export function createPortfolioValuationReader(dependencies: {
       if (result.fraction) lineFractions.set(holding.assetKey, result.fraction);
     }
 
+    const recognizedResult = buildRecognizedSection({
+      discovery: recognizedDiscovery,
+      currency: quoteCurrency,
+      fxQuotes,
+    });
+    const recognized = recognizedResult.section;
+    for (const [assetKey, fraction] of recognizedResult.valueFractions) {
+      lineFractions.set(assetKey, fraction);
+    }
+
     const unavailableAssetKeys = lines
       .filter(({ status }) =>
         status === "read-incomplete" ||
@@ -182,6 +205,7 @@ export function createPortfolioValuationReader(dependencies: {
         : null,
       nativeEthQuote,
       lines,
+      recognized,
       nativeCashValuations,
       cashBuckets: buildCashBuckets({
         region,
@@ -294,6 +318,58 @@ function valueHolding({
     ),
     status: "priced",
     reason: null,
+  };
+}
+
+function buildRecognizedSection({
+  discovery,
+  currency,
+  fxQuotes,
+}: {
+  discovery: RecognizedTokenDiscovery;
+  currency: FiatCurrencyCode | null;
+  fxQuotes: readonly FxQuote[];
+}): {
+  section: RecognizedPortfolioSection;
+  valueFractions: Map<PortfolioAssetKey, Fraction>;
+} {
+  const valueFractions = new Map<PortfolioAssetKey, Fraction>();
+  const holdings = discovery.holdings.map((holding) => {
+    const assetKey = `eip155:8453/erc20:${holding.address.toLowerCase()}` as const;
+    const fx = currency
+      ? fxQuotes.find(({ quoteCurrency }) => quoteCurrency === currency)
+      : null;
+    const fraction =
+      holding.price?.status === "fresh" &&
+      holding.price.unitPrice &&
+      fx?.status === "fresh" &&
+      fx.quoteUnitsPerUsd
+        ? multiplyFractions(
+            baseUnitsToFraction(holding.balanceBaseUnits, holding.decimals),
+            exactDecimalToFraction(holding.price.unitPrice),
+            exactDecimalToFraction(fx.quoteUnitsPerUsd),
+          )
+        : null;
+    if (fraction) valueFractions.set(assetKey, fraction);
+    return {
+      id: `recognized:${holding.address.toLowerCase()}` as const,
+      assetKey,
+      name: holding.name,
+      symbol: holding.symbol,
+      decimals: holding.decimals,
+      contractAddress: holding.address.toLowerCase() as `0x${string}`,
+      ...(holding.imageUrl ? { imageUrl: holding.imageUrl } : {}),
+      balanceBaseUnits: holding.balanceBaseUnits,
+      liquidityUsd: holding.liquidityUsd,
+      volume24Usd: holding.volume24Usd,
+      valueCurrency: currency,
+      value: fraction ? roundFractionPreservingPositive(fraction) : null,
+      valuationStatus: fraction ? "priced" as const : "unpriced" as const,
+    };
+  });
+  return {
+    section: { status: discovery.status, holdings },
+    valueFractions,
   };
 }
 

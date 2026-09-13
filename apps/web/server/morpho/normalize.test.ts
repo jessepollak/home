@@ -77,17 +77,13 @@ describe("Morpho V1 normalization", () => {
     expect(normalizeVaultCandidate(wrongUnderlying, source)).toBeNull();
   });
 
-  test.each(invalidRates)(
-    "rejects state.%s when it is %s",
-    (field, _description, value) => {
+  test("rejects every malformed rate representation", () => {
+    for (const [field, , value] of invalidRates) {
       const vault = validVault();
       (vault.state as Record<string, unknown>)[field] = value;
-
-      expect(() => normalizeVaultCandidate(vault, source)).toThrow(
-        MorphoSchemaError,
-      );
-    },
-  );
+      expect(() => normalizeVaultCandidate(vault, source)).toThrow(MorphoSchemaError);
+    }
+  });
 
   test("accepts finite numbers and explicit numeric strings, including zero", () => {
     const vault = validVault();

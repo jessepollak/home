@@ -46,9 +46,6 @@ export type ConnectedBaseAccount = {
   assertUnchanged: () => Promise<void>;
   signMessage: (message: string) => Promise<`0x${string}`>;
   signTypedData: (typedData: unknown) => Promise<`0x${string}`>;
-  sendTransaction?: (
-    transaction: BaseAccountTransaction,
-  ) => Promise<`0x${string}`>;
   sendCalls?: (
     calls: BaseAccountTransaction[],
     requestId: string,
@@ -264,36 +261,6 @@ async function openBaseProvider(
         throw new BaseAccountConnectorError("invalid-provider-response");
       }
       return signature.toLowerCase() as `0x${string}`;
-    },
-    async sendTransaction(transaction) {
-      await assertUnchanged();
-      let transactionHash: unknown;
-      try {
-        transactionHash = await provider.request({
-          method: "eth_sendTransaction",
-          params: [
-            {
-              from: connectedAddress,
-              to: transaction.to,
-              value: `0x${transaction.value.toString(16)}`,
-              data: transaction.data,
-            },
-          ],
-        });
-      } catch (error) {
-        if (providerErrorCode(error) === 4001) {
-          throw new BaseAccountConnectorError("cancelled", error);
-        }
-        throw new BaseAccountConnectorError("invalid-provider-response", error);
-      }
-      await assertUnchanged();
-      if (
-        typeof transactionHash !== "string" ||
-        !transactionHashPattern.test(transactionHash)
-      ) {
-        throw new BaseAccountConnectorError("invalid-provider-response");
-      }
-      return transactionHash.toLowerCase() as `0x${string}`;
     },
     async sendCalls(calls, requestId, beforeDispatch) {
       await assertUnchanged();

@@ -96,6 +96,25 @@ describe("Ripio funding adapter", () => {
     }
   });
 
+  test("reuses one OAuth token across operations for the same country and client", async () => {
+    let tokenPosts = 0;
+    const sharedFetch = (async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/oauth2/token/") {
+        tokenPosts += 1;
+        return tokenResponse();
+      }
+      return Response.json(transaction("PENDING"));
+    }) as unknown as typeof fetch;
+    const memoEnv = { ...env, RIPIO_CLIENT_ID_AR: "memo-client" };
+    const input = { homeOrderId, providerOrderId, providerQuoteId: quoteId, customerRef, transactionType: "MINT" as const, chainId: 8453 as const, tokenAddress: "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d" as const, destination: intent.destination, fiatAmount: "1000", expectedTokenAmountAtomic: intent.quote.tokenAmountAtomic, tokenDecimals: 18 };
+    const first = createProviderContext({ manifest: ripioManifest, region: "AR", paymentMethodId: "bank_transfer", env: memoEnv, fetchImplementation: sharedFetch });
+    const second = createProviderContext({ manifest: ripioManifest, region: "AR", paymentMethodId: "bank_transfer", env: memoEnv, fetchImplementation: sharedFetch });
+    await ripioProvider.getOrder!(input, first);
+    await ripioProvider.getOrder!(input, second);
+    expect(tokenPosts).toBe(1);
+  });
+
   test("verifies the raw webhook body before returning a provider order ID", () => {
     const raw = new TextEncoder().encode(JSON.stringify({ eventType: "ONRAMP_PAYMENT_RECEIVED", issueDatetime: "2026-09-12T00:00:00.000Z", transactionObject: { transactionId: "44444444-4444-4444-8444-444444444444" } }));
     const signature = createHmac("sha256", env.RIPIO_WEBHOOK_SECRET).update(raw).digest("hex");

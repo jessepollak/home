@@ -72,6 +72,8 @@ export type ListTokenBalancesRequest = {
   address: `0x${string}`;
   /** Stop paging once every lowercase contract (or native sentinel) is seen. */
   neededContractAddresses?: ReadonlySet<string>;
+  /** Ignore and replace the same-owner pagination checkpoint for this read. */
+  fresh?: boolean;
   signal?: AbortSignal;
 };
 
@@ -148,6 +150,7 @@ export function createCdpTokenBalancesClient(options: {
       const address = request.address.toLowerCase() as `0x${string}`;
       const currentTime = now();
       evictExpiredCheckpoints(checkpoints, currentTime, cacheTtlMs);
+      if (request.fresh) checkpoints.delete(address);
       const checkpoint = checkpoints.get(address);
       const resumed = checkpoint !== undefined;
       const observationStartedAt = checkpoint?.savedAt ?? currentTime;

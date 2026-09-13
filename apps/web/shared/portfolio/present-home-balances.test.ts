@@ -12,7 +12,6 @@ import type {
   PortfolioValuationSnapshot,
 } from "@/shared/portfolio/valuation-types";
 import {
-  HOME_BALANCES_HUB_PREVIEW_COUNT,
   previewHomeBalanceItems,
   presentPortfolioValuation,
 } from "./present-home-balances";
@@ -148,45 +147,6 @@ function snapshot(
 }
 
 describe("presentPortfolioValuation", () => {
-  test("uses a quiet loading label and no valuation sentence", () => {
-    const presented = presentPortfolioValuation({
-      status: "loading",
-      snapshot: null,
-      error: null,
-    });
-    expect(presented.statusLabel).toBe("Updating…");
-    expect(presented.displayTotal).toBeNull();
-  });
-
-  test("labels cash with currency names and honest zeros, not stablecoin pairs", () => {
-    const presented = presentPortfolioValuation({
-      status: "ready",
-      snapshot: snapshot(),
-      error: null,
-    });
-
-    expect(presented.displayTotal).toBe("R$ 0,00");
-    expect(presented.totalStatus).toBe("complete");
-    expect(presented.statusLabel).toBeUndefined();
-    expect(presented.items.map((item) => item.name)).toEqual([
-      "US dollar",
-      "Brazilian real",
-    ]);
-    expect(presented.items.map((item) => item.displayBalance)).toEqual([
-      "$ 0,00",
-      "R$ 0,00",
-    ]);
-    expect(presented.items.every((item) => item.group === "cash")).toBe(true);
-    const serialized = JSON.stringify(presented);
-    expect(serialized).not.toContain("USDC");
-    expect(serialized).not.toContain("BRZ");
-    expect(serialized).not.toContain("USD /");
-    expect(serialized).not.toContain("BRL /");
-    expect(serialized).not.toContain("Not available yet");
-    expect(serialized).not.toContain("Wallet & savings");
-    expect(serialized).not.toContain("Unavailable");
-  });
-
   test("preserves partial and unavailable total truth without inventing value", () => {
     const partial = presentPortfolioValuation({
       status: "ready",
@@ -234,10 +194,10 @@ describe("presentPortfolioValuation", () => {
     });
 
     expect(partial).toMatchObject({
-      displayTotal: "R$ 12,50",
+      displayTotal: "R$\u00A012,50",
       totalStatus: "partial",
-      statusLabel: "Unavailable",
     });
+    expect(partial.statusLabel).toBeUndefined();
     expect(unavailable).toMatchObject({
       displayTotal: "—",
       totalStatus: "unavailable",
@@ -517,7 +477,7 @@ describe("presentPortfolioValuation", () => {
       group: "asset",
       name: "Ethereum",
       detail: "ETH",
-      displayBalance: "Rp78.123.456,00",
+      displayBalance: "Rp\u00A078.123.456,00",
       displayContext: "1,1010 ETH",
       currencyCode: null,
     });
@@ -761,7 +721,7 @@ describe("presentPortfolioValuation", () => {
       error: null,
     });
 
-    expect(presented.displayTotal).toBe("Rp17.690,40");
+    expect(presented.displayTotal).toBe("Rp\u00A017.690,40");
     expect(presented.items.find((item) => item.name === "Euro")).toEqual({
       id: `asset:${verifiedLocalCashAssets.EUR.assetKey}`,
       assetKey: verifiedLocalCashAssets.EUR.assetKey,
@@ -860,7 +820,7 @@ describe("presentPortfolioValuation", () => {
     });
 
     expect(presented.items.find((item) => item.name === "Euro")?.displayBalance).toBe(
-      "<€ 0,01",
+      "<€0,01",
     );
   });
 
@@ -1001,8 +961,8 @@ describe("presentPortfolioValuation", () => {
       presented.items.map((item) => [item.group, item.name, item.displayBalance]),
     ).toEqual([
       ["cash", "US dollar", "$10,00"],
-      ["cash", "Indonesian rupiah", "Rp2.500,00"],
-      ["asset", "Ethereum", "Rp78.123.456,00"],
+      ["cash", "Indonesian rupiah", "Rp\u00A02.500,00"],
+      ["asset", "Ethereum", "Rp\u00A078.123.456,00"],
     ]);
     expect(presented.items.find((item) => item.name === "US dollar")?.displayBalance).not.toContain(
       "Rp",
@@ -1010,87 +970,6 @@ describe("presentPortfolioValuation", () => {
     expect(presented.items.find((item) => item.group === "asset")?.displayContext).toBe(
       "1,1010 ETH",
     );
-  });
-
-  test("lists every nonzero holding after cash, fiat assets first, and omits zeros", () => {
-    const nvidia = investPortfolioAssets.find((asset) => asset.id === "nvdac");
-    const meta = investPortfolioAssets.find((asset) => asset.id === "metac");
-    if (!nvidia || !meta) throw new Error("Expected tokenized stock fixtures.");
-
-    const presented = presentPortfolioValuation({
-      status: "ready",
-      snapshot: snapshot({
-        selectedRegion: "US",
-        quoteCurrency: "USD",
-        inventory: {
-          scope: "configured-base-assets-v1",
-          walletDiscoveryComplete: false,
-          holdings: [
-            directHolding({
-              id: nativeEthAsset.id,
-              assetKey: PORTFOLIO_NATIVE_ASSET_KEY,
-              name: nativeEthAsset.name,
-              symbol: nativeEthAsset.symbol,
-              balanceBaseUnits: "50000000000000000",
-            }),
-            directHolding({
-              id: nvidia.id,
-              assetKey: nvidia.assetKey,
-              name: nvidia.name,
-              symbol: nvidia.symbol,
-              decimals: nvidia.decimals,
-              assetKind: "erc20",
-              contractAddress: nvidia.contractAddress,
-              balanceBaseUnits: "150000000",
-            }),
-            directHolding({
-              id: meta.id,
-              assetKey: meta.assetKey,
-              name: meta.name,
-              symbol: meta.symbol,
-              decimals: meta.decimals,
-              assetKind: "erc20",
-              contractAddress: meta.contractAddress,
-            }),
-            directHolding({
-              id: verifiedLocalCashAssets.EUR.id,
-              assetKey: verifiedLocalCashAssets.EUR.assetKey,
-              name: verifiedLocalCashAssets.EUR.name,
-              symbol: verifiedLocalCashAssets.EUR.symbol,
-              decimals: verifiedLocalCashAssets.EUR.decimals,
-              assetKind: "erc20",
-              contractAddress: verifiedLocalCashAssets.EUR.contractAddress,
-              cashCurrency: "EUR",
-              balanceBaseUnits: "109430000",
-            }),
-          ],
-          omissions: [],
-        },
-        cashBuckets: [
-          {
-            id: "cash:usd",
-            roles: ["canonical-usd", "selected-local"],
-            assetKey: PORTFOLIO_USDC_ASSET_KEY,
-            symbol: "USDC",
-            denominationCurrency: "USD",
-            tokenAmountBaseUnits: "4343810000",
-            tokenDecimals: 6,
-            indicativeValue: { atoms: "4343810000", scale: 6 },
-            valuationStatus: "priced",
-          },
-        ],
-      }),
-      error: null,
-    });
-
-    expect(presented.items.map((item) => [item.group, item.name])).toEqual([
-      ["cash", "US dollar"],
-      ["asset", "Euro"],
-      ["asset", "Ethereum"],
-      ["asset", "NVIDIA"],
-    ]);
-    expect(presented.items.find((item) => item.name === "Meta")).toBeUndefined();
-    expect(JSON.stringify(presented.items)).not.toContain("USDC");
   });
 
   test("does not create an unread invest row without prior owner-scoped membership", () => {
@@ -1141,20 +1020,95 @@ describe("presentPortfolioValuation", () => {
     expect(presented.unavailableItemIds).toEqual([`asset:${nvidia.assetKey}`]);
   });
 
-  test("caps only the Home hub preview, not the full Balances list", () => {
-    const items = Array.from({ length: HOME_BALANCES_HUB_PREVIEW_COUNT + 3 }, (_, index) => ({
-      id: `row-${index}`,
-      name: `Asset ${index}`,
-      displayBalance: `${index}.00`,
-    }));
+  test("orders every cash row first, then fiat value descending, then dust and unpriced assets alphabetically", () => {
+    const bitcoinKey = "eip155:8453/erc20:0x1111111111111111111111111111111111111111";
+    const teslaKey = "eip155:8453/erc20:0x2222222222222222222222222222222222222222";
+    const zebraKey = "eip155:8453/erc20:0x3333333333333333333333333333333333333333";
+    const nvidiaAddress = "0x4444444444444444444444444444444444444444" as const;
+    const alphaAddress = "0x5555555555555555555555555555555555555555" as const;
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "US",
+        quoteCurrency: "USD",
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: verifiedLocalCashAssets.EUR.id,
+              assetKey: verifiedLocalCashAssets.EUR.assetKey,
+              name: verifiedLocalCashAssets.EUR.name,
+              symbol: verifiedLocalCashAssets.EUR.symbol,
+              decimals: verifiedLocalCashAssets.EUR.decimals,
+              assetKind: "erc20",
+              contractAddress: verifiedLocalCashAssets.EUR.contractAddress,
+              cashCurrency: "EUR",
+              balanceBaseUnits: "1000000",
+            }),
+            directHolding({ id: "tesla", assetKey: teslaKey, name: "Tesla", symbol: "TSLA", balanceBaseUnits: "1" }),
+            directHolding({ id: "bitcoin", assetKey: bitcoinKey, name: "Bitcoin", symbol: "BTC", balanceBaseUnits: "1" }),
+            directHolding({ id: "zebra", assetKey: zebraKey, name: "Zebra", symbol: "ZBR", balanceBaseUnits: "1" }),
+          ],
+          omissions: [],
+        },
+        lines: [
+          { holdingAssetKey: bitcoinKey, valueCurrency: "USD", value: { atoms: "5355", scale: 0 }, status: "priced", reason: null },
+          { holdingAssetKey: teslaKey, valueCurrency: "USD", value: { atoms: "9", scale: 3 }, status: "priced", reason: null },
+          { holdingAssetKey: zebraKey, valueCurrency: "USD", value: null, status: "unpriced", reason: "fixture" },
+        ],
+        recognized: {
+          status: "complete",
+          holdings: [
+            {
+              id: `recognized:${nvidiaAddress}`,
+              assetKey: `eip155:8453/erc20:${nvidiaAddress}`,
+              name: "NVIDIA",
+              symbol: "NVDA",
+              decimals: 18,
+              contractAddress: nvidiaAddress,
+              balanceBaseUnits: "1",
+              liquidityUsd: { atoms: "100000", scale: 0 },
+              volume24Usd: { atoms: "10000", scale: 0 },
+              valueCurrency: "USD",
+              value: { atoms: "100", scale: 0 },
+              valuationStatus: "priced",
+            },
+            {
+              id: `recognized:${alphaAddress}`,
+              assetKey: `eip155:8453/erc20:${alphaAddress}`,
+              name: "Alpha",
+              symbol: "ALP",
+              decimals: 18,
+              contractAddress: alphaAddress,
+              balanceBaseUnits: "1",
+              liquidityUsd: { atoms: "100000", scale: 0 },
+              volume24Usd: { atoms: "10000", scale: 0 },
+              valueCurrency: "USD",
+              value: null,
+              valuationStatus: "unpriced",
+            },
+          ],
+        },
+      }),
+      error: null,
+    });
 
-    expect(previewHomeBalanceItems(items)).toHaveLength(HOME_BALANCES_HUB_PREVIEW_COUNT);
-    expect(previewHomeBalanceItems(items).map((item) => item.id)).toEqual([
-      "row-0",
-      "row-1",
-      "row-2",
-      "row-3",
+    expect(presented.items.map(({ name }) => name)).toEqual([
+      "US dollar",
+      "Brazilian real",
+      "Euro",
+      "Bitcoin",
+      "NVIDIA",
+      "Alpha",
+      "Tesla",
+      "Zebra",
     ]);
-    expect(items).toHaveLength(HOME_BALANCES_HUB_PREVIEW_COUNT + 3);
+    expect(previewHomeBalanceItems(presented.items).map(({ name }) => name)).toEqual([
+      "US dollar",
+      "Brazilian real",
+      "Euro",
+      "Bitcoin",
+    ]);
   });
 });

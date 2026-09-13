@@ -70,8 +70,6 @@ class ProviderFixture {
         return this.signature;
       case "eth_signTypedData_v4":
         return this.typedSignature;
-      case "eth_sendTransaction":
-        return this.transactionHash;
       case "wallet_sendCalls": {
         const result = this.callsId;
         if (this.accountsAfterSendCalls) this.accounts = this.accountsAfterSendCalls;
@@ -132,37 +130,6 @@ describe("Base Account connector boundary", () => {
       method: "eth_signTypedData_v4",
       params: [ADDRESS, JSON.stringify(permit)],
     });
-  });
-
-  test("sends only from the verified universal account and rechecks account and chain around signing", async () => {
-    const provider = new ProviderFixture();
-    const connection = await connectWithBaseProvider(asProvider(provider), () => {});
-    const hash = await connection.sendTransaction?.({
-      to: OTHER_ADDRESS,
-      value: BigInt(15),
-      data: "0x1234",
-    });
-
-    expect(hash).toBe(`0x${"ab".repeat(32)}`);
-    expect(
-      provider.requests.find((request) => request.method === "eth_sendTransaction"),
-    ).toEqual({
-      method: "eth_sendTransaction",
-      params: [
-        {
-          from: ADDRESS,
-          to: OTHER_ADDRESS,
-          value: "0xf",
-          data: "0x1234",
-        },
-      ],
-    });
-    expect(
-      provider.requests.filter((request) => request.method === "eth_accounts"),
-    ).toHaveLength(2);
-    expect(
-      provider.requests.filter((request) => request.method === "eth_chainId"),
-    ).toHaveLength(3);
   });
 
   test("submits approval plus action as one required-atomic call bundle and recovers its transaction", async () => {

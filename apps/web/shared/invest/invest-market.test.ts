@@ -87,7 +87,7 @@ describe("invest market display", () => {
         quoteUnitsPerUsd: { atoms: "16425", scale: 0 },
       }),
     ).toMatchObject({
-      value: "Rp3.805.816,92",
+      value: "Rp\u00A03.805.816,92",
       changeLabel: "+1,25%",
     });
     expect(

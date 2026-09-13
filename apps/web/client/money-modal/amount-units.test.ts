@@ -3,7 +3,6 @@ import {
   clampDecimal,
   convertDisplayAmount,
   decimalFromBaseUnits,
-  formatAvailableLine,
   formatChipLabel,
   formatPrimaryAmount,
   formatSecondaryAmount,
@@ -60,12 +59,5 @@ describe("available parse and Max", () => {
     expect(decimalFromBaseUnits("128400000", 6)).toBe("128.4");
   });
 
-  test("rewrites the available line for the current primary unit", () => {
-    expect(formatAvailableLine("$1,240.00 available", "local", usdUsdc, "USDC")).toBe(
-      "$1,240.00 available",
-    );
-    expect(formatAvailableLine("$1,240.00 available", "native", usdUsdc, "USDC")).toBe(
-      "1,240.00 USDC available",
-    );
-  });
+
 });
