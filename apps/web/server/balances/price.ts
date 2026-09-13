@@ -9,7 +9,7 @@ import {
   getCodexRawQuotes,
   type CodexRawQuoteInput,
 } from "@/server/market-data/codex/raw-quotes";
-import { getCoinbaseExchangeRates } from "@/server/portfolio/fx-coinbase";
+import { getCoinbaseExchangeRates } from "./fx-coinbase";
 import type {
   ExactDecimal,
   Holding,
@@ -152,6 +152,15 @@ function priceHolding(
       ...(holding.cashCurrency
         ? { cashValue: priceCash(holding, prices, rates) }
         : {}),
+    };
+  }
+  if (holding.source === "wallet") {
+    return {
+      ...base,
+      value: {
+        status: "unpriced",
+        reason: "below-market-gate",
+      },
     };
   }
 

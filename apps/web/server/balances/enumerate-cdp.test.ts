@@ -6,7 +6,7 @@ import {
   createCdpTokenBalancesClient,
   parseNextPageToken,
   tokenBalancesRequestPath,
-} from "./cdp-token-balances";
+} from "./enumerate-cdp";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -15,15 +15,19 @@ const IDRX = "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22";
 function token(
   contractAddress: string,
   amount: string,
-  extras: Record<string, unknown> = {},
+  options: {
+    amount?: Record<string, unknown>;
+    token?: Record<string, unknown>;
+  } = {},
 ) {
   return {
-    amount: { amount, decimals: 99, ...extras },
+    amount: { amount, decimals: 18, ...options.amount },
     token: {
       network: "base",
-      symbol: "IGNORE",
-      name: "ignore",
+      symbol: "TKN",
+      name: "Token",
       contractAddress,
+      ...options.token,
     },
   };
 }
@@ -63,7 +67,7 @@ describe("CDP Onchain Data Token Balances client", () => {
       },
     ]);
     expect(urls[0]).toBe(
-      `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=20`,
+      `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=100`,
     );
     expect(tokenBalancesRequestPath(ADDRESS)).toBe(
       `/platform/v2/data/evm/token-balances/base/${ADDRESS}`,
@@ -72,13 +76,53 @@ describe("CDP Onchain Data Token Balances client", () => {
       complete: true,
       balances: [
         {
-          contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
-          amountBaseUnits: "3",
-          native: true,
-        },
-        {
           contractAddress: USDC.toLowerCase() as `0x${string}`,
           amountBaseUnits: "1000000",
+          name: "Token",
+          symbol: "TKN",
+          decimals: 18,
+          native: false,
+        },
+      ],
+    });
+  });
+
+  test("parses bounded metadata, drops invalid optional fields, and skips native", async () => {
+    const client = createCdpTokenBalancesClient({
+      env: {
+        CDP_API_KEY_ID: "key-id",
+        ["CDP_API_KEY_" + "SECRET"]: "secret",
+      },
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: async () => Response.json({
+        balances: [
+          token(CDP_NATIVE_TOKEN_ADDRESS, "1"),
+          token(USDC, "2", {
+            token: { name: "  USD Coin  ", symbol: "USDC" },
+            amount: { decimals: 6 },
+          }),
+          token(IDRX, "3", {
+            token: { name: "", symbol: "x".repeat(65) },
+            amount: { decimals: 256 },
+          }),
+        ],
+      }),
+    });
+
+    await expect(client.listBalances({ address: ADDRESS })).resolves.toEqual({
+      complete: true,
+      balances: [
+        {
+          contractAddress: USDC.toLowerCase() as `0x${string}`,
+          amountBaseUnits: "2",
+          name: "USD Coin",
+          symbol: "USDC",
+          decimals: 6,
+          native: false,
+        },
+        {
+          contractAddress: IDRX,
+          amountBaseUnits: "3",
           native: false,
         },
       ],
@@ -116,7 +160,7 @@ describe("CDP Onchain Data Token Balances client", () => {
       neededContractAddresses: new Set([USDC.toLowerCase(), IDRX]),
     });
     expect(urls[1]).toBe(
-      `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=20&pageToken=${encodeURIComponent(official)}`,
+      `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=100&pageToken=${encodeURIComponent(official)}`,
     );
     expect(listed.complete).toBeTrue();
     expect(
@@ -161,8 +205,8 @@ describe("CDP Onchain Data Token Balances client", () => {
       neededContractAddresses: new Set([USDC.toLowerCase(), IDRX]),
     });
     expect(urls).toEqual([
-      `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=20`,
-      `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=20&pageToken=page-two`,
+      `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=100`,
+      `https://api.cdp.coinbase.com/platform/v2/data/evm/token-balances/base/${ADDRESS}?pageSize=100&pageToken=page-two`,
     ]);
     expect(listed.complete).toBeTrue();
     expect(listed.balances.map(({ contractAddress }) => contractAddress)).toEqual([
@@ -234,7 +278,7 @@ describe("CDP Onchain Data Token Balances client", () => {
         pages += 1;
         if (pages === 1) {
           return Response.json({
-            balances: [token("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", "42")],
+            balances: [token(USDC, "42")],
             nextPageToken: "page-two",
           });
         }
@@ -248,13 +292,14 @@ describe("CDP Onchain Data Token Balances client", () => {
     });
     expect(pages).toBe(3);
     expect(listed.complete).toBeFalse();
-    expect(listed.balances).toEqual([
-      {
-        contractAddress: CDP_NATIVE_TOKEN_ADDRESS,
-        amountBaseUnits: "42",
-        native: true,
-      },
-    ]);
+    expect(listed.balances).toEqual([{
+      contractAddress: USDC.toLowerCase() as `0x${string}`,
+      amountBaseUnits: "42",
+      name: "Token",
+      symbol: "TKN",
+      decimals: 18,
+      native: false,
+    }]);
   });
 
   test("still fails closed when the first Token Balances page is rate-limited", async () => {

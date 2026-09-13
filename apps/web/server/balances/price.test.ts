@@ -14,7 +14,7 @@ const source = {
 function holding(
   address: string,
   id: string,
-  sourceKind: "registry" | "catalog",
+  sourceKind: "registry" | "catalog" | "wallet",
   options: {
     cash?: "USD";
     liquidity?: string;
@@ -180,6 +180,29 @@ describe("balances pricing", () => {
     expect(result[0]?.cashValue).toMatchObject({
       status: "priced",
       currency: "USD",
+    });
+  });
+
+  test("leaves wallet rows unpriced and does not issue a price request for them", async () => {
+    const wallet = holding(
+      "0x4444444444444444444444444444444444444444",
+      "wallet:token",
+      "wallet",
+    );
+    const batches: string[][] = [];
+    const price = createBalancesPricer({
+      readPrices: async (inputs) => {
+        batches.push(inputs.map(({ assetKey }) => assetKey));
+        return inputs.map((input) => quote(input.assetKey, "fresh"));
+      },
+      readExchangeRates: async () => rates(),
+    });
+
+    const result = await price({ ...read, holdings: [wallet] }, "US");
+    expect(batches).toEqual([]);
+    expect(result[0]?.value).toEqual({
+      status: "unpriced",
+      reason: "below-market-gate",
     });
   });
 
