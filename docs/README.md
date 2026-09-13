@@ -19,7 +19,7 @@ Start with [Home is thin](home-is-thin.md) for the current action and client con
 | [Codex prices](codex-prices.md) | Server-side Invest price integration. |
 | [Currency defaults](currency-defaults.md) | Default asset choices by currency. |
 | [Delivery gates](delivery-gates.md) | Repository and deployment gate boundary. |
-| [Design system](design-system.md) | Shared UI package guidance. |
+| [Design system](design-system.md) | Locked shadcn-on-Base-UI direction and outgoing `@home/ui` guidance. |
 | [Docs index](README.md) | This complete documentation index. |
 | [Fork and extend](fork-and-extend.md) | Operator customization and hosting guide. |
 | [Funding provider seam](funding-provider-seam.md) | Funding adapter contract and design history. |
