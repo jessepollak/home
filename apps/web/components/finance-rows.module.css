@@ -3,36 +3,36 @@
   width: 32px;
   height: 32px;
   place-items: center;
-  border: 1px solid var(--fg);
-  border-radius: var(--home-ui-radius-control);
-  background: var(--fg);
-  color: var(--fg-on-accent);
+  border: 1px solid var(--foreground);
+  border-radius: var(--radius);
+  background: var(--foreground);
+  color: var(--background);
   font-size: 0.72rem;
   font-weight: 800;
   line-height: 1;
 }
 
 .icon[data-tone="incoming"] {
-  border-color: var(--home-ui-color-status-success-border);
-  background: var(--home-ui-color-status-success-background);
-  color: var(--home-ui-color-status-success-text);
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--background));
+  color: var(--success);
 }
 
 .icon[data-tone="outgoing"] {
-  border-color: color-mix(in srgb, var(--home-ui-color-market-loss) 24%, var(--home-ui-color-surface));
-  background: color-mix(in srgb, var(--home-ui-color-market-loss) 8%, var(--home-ui-color-surface));
-  color: var(--home-ui-color-market-loss);
+  border-color: color-mix(in srgb, var(--market-loss) 24%, var(--background));
+  background: color-mix(in srgb, var(--market-loss) 8%, var(--background));
+  color: var(--market-loss);
 }
 
 .icon[data-tone="self"] {
-  border-color: var(--home-ui-color-accent-tint-separator);
-  background: var(--home-ui-color-accent-tint);
-  color: var(--home-ui-color-accent-tint-text);
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--background));
+  background: color-mix(in srgb, var(--primary) 8%, var(--background));
+  color: var(--primary);
 }
 
 .icon[data-tone="outlined"] {
-  background: var(--home-ui-color-surface);
-  color: var(--fg);
+  background: var(--background);
+  color: var(--foreground);
 }
 
 .icon[data-tone="mark"] {

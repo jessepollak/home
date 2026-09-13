@@ -1,25 +1,3 @@
-.hit {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  flex: 0 0 auto;
-  background: transparent;
-  color: var(--fg);
-  padding: 0;
-}
-
-.hit:disabled {
-  background: transparent;
-  color: var(--fg);
-  cursor: default;
-}
-
-.hit:enabled:active {
-  background: transparent;
-  transform: none;
-}
-
 .mark {
   display: grid;
   width: 32px;
@@ -29,8 +7,8 @@
   overflow: hidden;
   isolation: isolate;
   border-radius: 50%;
-  background: var(--home-ui-color-canvas);
-  color: var(--fg);
+  background: var(--muted);
+  color: var(--foreground);
   font-size: 0.82rem;
   font-weight: 750;
   line-height: 1;
@@ -52,22 +30,13 @@
   width: 100%;
   height: 100%;
   place-items: center;
-  background: var(--home-ui-color-canvas);
-  color: var(--fg);
+  background: var(--muted);
+  color: var(--foreground);
   text-transform: lowercase;
 }
 
-.hit:focus-visible {
-  outline: 2px solid var(--home-ui-color-focus);
-  outline-offset: 2px;
-}
-
 @media (hover: hover) and (pointer: fine) {
-  .hit:hover:not(:disabled) {
-    background: transparent;
-  }
-
-  .hit:hover:not(:disabled) .mark {
-    box-shadow: inset 0 0 0 1px var(--separator);
+  .mark:hover {
+    box-shadow: inset 0 0 0 1px var(--border);
   }
 }

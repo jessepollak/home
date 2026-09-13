@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@home/ui";
-import styles from "./copyable-value.module.css";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type CopyStatus = "idle" | "copied" | "unavailable" | "denied";
 
@@ -81,13 +81,6 @@ function CopyableValueControl({
     }
   }
 
-  const controlClassName = [
-    styles.text,
-    status === "copied" ? styles.copied : null,
-    className,
-  ]
-    .filter(Boolean)
-    .join(" ");
   const controlLabel =
     status === "copied" ? copiedLabel : `${copyLabelPrefix}${shown}`;
   const selectableLabel = fallbackLabel ?? `Full ${valueKind} ${value}`;
@@ -101,24 +94,28 @@ function CopyableValueControl({
   return (
     <>
       <Button
-        variant="quiet"
-        className={controlClassName}
+        variant="ghost"
+        className={cn(
+          "inline h-auto min-h-0 min-w-0 border-0 bg-transparent p-0 font-mono text-inherit no-underline transition-colors hover:bg-transparent active:translate-y-0",
+          status === "copied" && "text-primary",
+          className,
+        )}
         title={value}
         aria-label={controlLabel}
         onClick={() => void copy()}
       >
         {status === "copied" ? copiedLabel : shown}
       </Button>
-      <span className={styles.srOnly} aria-live="polite" aria-atomic="true">
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
         {status === "copied" ? copiedLabel : ""}
       </span>
       {status === "unavailable" || status === "denied" ? (
-        <span className={styles.fallback}>
-          <span className={styles.error} role="alert">
+        <span className="mt-1.5 block">
+          <span className="text-metadata block text-muted-foreground" role="alert">
             {errorMessage}
           </span>
           <code
-            className={styles.fullValue}
+            className="text-metadata mt-1.5 block w-full select-text overflow-wrap-anywhere rounded-md border border-border bg-muted px-3 py-2.5 font-mono text-foreground focus-visible:outline-3 focus-visible:outline-ring"
             aria-label={selectableLabel}
             tabIndex={0}
           >

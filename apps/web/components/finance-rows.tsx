@@ -1,6 +1,17 @@
-import { ListRow, type ListRowTone } from "@home/ui";
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
+import { cn } from "@/lib/utils";
 import styles from "./finance-rows.module.css";
+
+export type FinanceRowTone = "default" | "accent" | "success" | "error" | "muted";
 
 type FinanceRowProps = {
   kind: "activity" | "balance" | "asset";
@@ -12,7 +23,7 @@ type FinanceRowProps = {
   value: ReactNode;
   valueContext?: ReactNode;
   valueContextTitle?: string;
-  valueTone?: ListRowTone;
+  valueTone?: FinanceRowTone;
   onActivate?: () => void;
   activateLabel?: string;
 };
@@ -47,43 +58,81 @@ function FinanceRow({
   onActivate,
   activateLabel,
 }: FinanceRowProps) {
-  const leading = (
-    <span className={styles.icon} data-tone={iconTone} aria-hidden="true">
-      {icon}
-    </span>
+  const hintId = useId();
+  const content = (
+    <>
+      <ItemMedia className="self-center" aria-hidden="true">
+        <span className={styles.icon} data-tone={iconTone}>
+          {icon}
+        </span>
+      </ItemMedia>
+      <ItemContent className="min-w-0 gap-0 self-center">
+        <ItemTitle className="text-row-label w-full font-semibold text-foreground">
+          {label}
+        </ItemTitle>
+        {context === undefined ? null : (
+          <ItemDescription className="text-caption line-clamp-1" title={contextTitle}>
+            {context}
+          </ItemDescription>
+        )}
+      </ItemContent>
+      <ItemContent
+        className={cn(
+          "min-w-0 items-end gap-0 self-center text-right",
+          valueTone === "success" && "text-success",
+          valueTone === "error" && "text-destructive",
+          valueTone === "muted" && "text-muted-foreground",
+          valueTone === "accent" && "text-primary",
+        )}
+      >
+        <ItemTitle className="text-row-value w-full justify-end font-mono font-medium text-inherit">
+          {value}
+        </ItemTitle>
+        {valueContext === undefined ? null : (
+          <ItemDescription
+            className="text-caption line-clamp-1 w-full text-right text-inherit"
+            title={valueContextTitle}
+          >
+            {valueContext}
+          </ItemDescription>
+        )}
+      </ItemContent>
+      {onActivate ? (
+        <ItemActions className="text-muted-foreground" aria-hidden="true">
+          ›
+        </ItemActions>
+      ) : null}
+    </>
   );
-  const description = context === undefined
-    ? undefined
-    : <span title={contextTitle}>{context}</span>;
-  const valueDescription = valueContext === undefined
-    ? undefined
-    : <span title={valueContextTitle}>{valueContext}</span>;
-
-  if (onActivate) {
-    return (
-      <ListRow
-        data-kind={kind}
-        leading={leading}
-        label={label}
-        description={description}
-        value={value}
-        valueDescription={valueDescription}
-        tone={valueTone}
-        onPress={onActivate}
-        actionHint={activateLabel ?? "View details"}
-      />
-    );
-  }
 
   return (
-    <ListRow
-      data-kind={kind}
-      leading={leading}
-      label={label}
-      description={description}
-      value={value}
-      valueDescription={valueDescription}
-      tone={valueTone}
-    />
+    <li>
+      <Item
+        data-kind={kind}
+        className={cn(
+          "grid min-h-12 grid-cols-[auto_minmax(0,1fr)_minmax(0,40%)] flex-nowrap gap-2 rounded-none border-0 border-b border-border px-0.5 py-2 last:border-b-0",
+          onActivate && "grid-cols-[auto_minmax(0,1fr)_minmax(0,34%)_auto] cursor-pointer hover:bg-muted",
+        )}
+        {...(onActivate
+          ? {
+              render: (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  aria-describedby={hintId}
+                  onClick={onActivate}
+                />
+              ),
+            }
+          : {})}
+      >
+        {content}
+        {onActivate ? (
+          <span id={hintId} hidden>
+            {activateLabel ?? "View details"}
+          </span>
+        ) : null}
+      </Item>
+    </li>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@home/ui";
+import { Button } from "@/components/ui/button";
 import { publicQueryKey, useHomeQuery } from "@/client/query/query-client";
 import {
   fetchBasenameProfile,
@@ -74,8 +74,9 @@ function ProfileMarkButton({
 
   return (
     <Button
-      className={styles.hit}
-      variant="quiet"
+      className="size-11 shrink-0 bg-transparent p-0 text-foreground hover:bg-transparent active:translate-y-0"
+      variant="ghost"
+      size="icon"
       aria-label="Account"
       disabled={disabled}
       onClick={onClick}

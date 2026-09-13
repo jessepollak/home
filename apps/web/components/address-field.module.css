@@ -1,9 +1,0 @@
-.input {
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  font-size: 0.95rem;
-}
-
-.paste {
-  flex: 0 0 auto;
-  padding: var(--home-ui-space-2);
-}

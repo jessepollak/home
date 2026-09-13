@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Field, Input } from "@home/ui";
 import { ClipboardPaste } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { formatAddress, isAddress } from "@/shared/formatting";
-import styles from "./address-field.module.css";
 
 export function AddressField({
   id,
@@ -37,14 +38,13 @@ export function AddressField({
   }
 
   return (
-    <Field
-      className={styles.field}
-      label={label}
-      htmlFor={id}
-      action={(
+    <Field>
+      <div className="flex min-h-11 items-center justify-between gap-2">
+        <FieldLabel htmlFor={id}>{label}</FieldLabel>
         <Button
-          className={styles.paste}
-          variant="quiet"
+          className="min-h-11 min-w-11 shrink-0 p-2"
+          variant="ghost"
+          size="icon"
           type="button"
           disabled={disabled}
           aria-label="Paste address"
@@ -52,11 +52,10 @@ export function AddressField({
         >
           <ClipboardPaste size={18} strokeWidth={1.9} aria-hidden="true" />
         </Button>
-      )}
-    >
+      </div>
       <Input
         id={id}
-        className={styles.input}
+        className="h-11 font-mono text-caption"
         value={display}
         onChange={(event) => onChange(event.target.value)}
         onFocus={() => setFocused(true)}

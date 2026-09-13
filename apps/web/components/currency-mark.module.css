@@ -7,7 +7,7 @@
   overflow: hidden;
   isolation: isolate;
   border-radius: 50%;
-  background: var(--home-ui-color-canvas);
+  background: var(--muted);
   box-shadow: inset 0 0 0 1px var(--separator);
   color: var(--fg);
   font-size: 0.72rem;
@@ -35,8 +35,8 @@
   width: 100%;
   height: 100%;
   place-items: center;
-  padding-inline: var(--home-ui-space-1);
-  background: var(--home-ui-color-canvas);
+  padding-inline: 0.25rem;
+  background: var(--muted);
   color: var(--fg);
   font-size: 0.68rem;
   letter-spacing: -0.02em;
