@@ -1,4 +1,7 @@
+import "server-only";
+
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
+import type { BorrowResponse } from "@/shared/borrowing/contract";
 import {
   authorizeSession,
   type SessionAuthorizer,
@@ -26,7 +29,7 @@ export function createBorrowHandler(dependencies: {
         session.smartAccount.address,
         request.signal,
       );
-      return privateJson(snapshot, 200);
+      return privateJson(snapshot satisfies BorrowResponse, 200);
     } catch {
       return privateJson(
         {

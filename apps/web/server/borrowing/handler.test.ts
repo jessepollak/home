@@ -9,7 +9,7 @@ import {
   BORROW_ORACLE_ADDRESS,
   MORPHO_BLUE_ADDRESS,
 } from "@/shared/borrowing/config";
-import type { BorrowMarketSnapshot } from "@/shared/borrowing/types";
+import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import { createBorrowHandler } from "./handler";
 import { ORACLE_PRICE_SCALE } from "./math";
 

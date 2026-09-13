@@ -12,7 +12,7 @@ import {
   BORROW_ORACLE_ADDRESS,
   MORPHO_BLUE_ADDRESS,
 } from "@/shared/borrowing/config";
-import type { BorrowMarketSnapshot } from "@/shared/borrowing/types";
+import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 
 const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const { BorrowExperience } = await import("./borrowing-experience");
