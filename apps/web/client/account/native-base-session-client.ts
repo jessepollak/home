@@ -3,9 +3,8 @@ import {
   ACCOUNT_PROVIDER_HEADER,
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
-import { parseNativeBaseNonceResponse } from "@/shared/account/contracts/base-nonce";
+import { parseNativeBaseNonceResponse, type NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import { parseNativeBaseSession } from "@/shared/account/contracts/base-verify";
-const flowIdPattern = /^[0-9a-f-]{16,64}$/;
 
 export type NativeBaseFetch = (
   input: RequestInfo | URL,
@@ -50,9 +49,8 @@ export async function restoreNativeBaseSession(
 }
 
 export async function requestNativeBaseChallenge(
-  address: `0x${string}`,
   fetchImpl: NativeBaseFetch = fetch,
-): Promise<{ flowId: string; message: string }> {
+): Promise<NativeBaseChallenge> {
   const response = await fetchImpl("/api/auth/base/nonce", {
     method: "POST",
     headers: {
@@ -60,7 +58,7 @@ export async function requestNativeBaseChallenge(
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ address }),
+    body: JSON.stringify({}),
     cache: "no-store",
     credentials: "same-origin",
     redirect: "error",
@@ -68,15 +66,13 @@ export async function requestNativeBaseChallenge(
   if (!response.ok) throw new Error("Native Base authentication failed.");
   const value = parseNativeBaseNonceResponse(await response.json().catch(() => null));
   if (!value) throw new Error("Native Base authentication failed.");
-  const flowId = crypto.randomUUID();
-  if (!flowIdPattern.test(flowId)) throw new Error("Native Base authentication failed.");
-  return { flowId, message: value.message };
+  return value;
 }
 
 export async function verifyNativeBaseChallenge(
+  address: `0x${string}`,
   message: string,
   signature: `0x${string}`,
-  expectedAddress: `0x${string}`,
   fetchImpl: NativeBaseFetch = fetch,
 ): Promise<VerifiedAccountSession> {
   const response = await fetchImpl("/api/auth/base/verify", {
@@ -86,13 +82,13 @@ export async function verifyNativeBaseChallenge(
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ message, signature }),
+    body: JSON.stringify({ address, message, signature }),
     cache: "no-store",
     credentials: "same-origin",
     redirect: "error",
   });
   const session = await readSessionResponse(response);
-  if (session.smartAccount?.address !== expectedAddress.toLowerCase()) {
+  if (session.smartAccount?.address !== address.toLowerCase()) {
     throw new Error("Native Base authentication failed.");
   }
   return session;

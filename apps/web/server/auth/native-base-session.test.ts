@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { createSiweMessage } from "viem/siwe";
+import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import {
   HOME_CHALLENGE_COOKIE,
   HOME_SESSION_COOKIE,
@@ -11,8 +13,9 @@ import {
   signedValue,
 } from "./native-base-session";
 
-const SECRET = "test-secret-that-is-at-least-thirty-two-bytes";
+const SECRET = "test-home-session-secret-that-is-long-enough";
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
+const OTHER_ADDRESS = "0x2222222222222222222222222222222222222222" as const;
 const ORIGIN = "http://127.0.0.1:3103";
 const START = new Date("2026-09-12T12:00:00.000Z");
 const NONCE = "a".repeat(48);
@@ -60,37 +63,67 @@ function handlers(now = () => START, verifySignature = async () => true) {
   };
 }
 
+function messageFor(
+  challenge: NativeBaseChallenge,
+  address: `0x${string}` = ADDRESS,
+  overrides: Partial<Parameters<typeof createSiweMessage>[0]> = {},
+): string {
+  return createSiweMessage({
+    ...challenge,
+    address,
+    issuedAt: new Date(challenge.issuedAt),
+    expirationTime: new Date(challenge.expirationTime),
+    ...overrides,
+  });
+}
+
 async function challenge(
   nonce: ReturnType<typeof createNativeBaseNonceHandler>,
-): Promise<{ message: string; cookie: string }> {
-  const response = await nonce(post("/api/auth/base/nonce", { address: ADDRESS }));
+): Promise<{ challenge: NativeBaseChallenge; message: string; cookie: string }> {
+  const response = await nonce(post("/api/auth/base/nonce", {}));
   expect(response.status).toBe(200);
-  const payload = await response.json() as { message: string };
+  const payload = await response.json() as NativeBaseChallenge;
   return {
-    message: payload.message,
+    challenge: payload,
+    message: messageFor(payload),
     cookie: cookieValue(response, HOME_CHALLENGE_COOKIE),
   };
 }
 
+function verifyBody(message: string, address: `0x${string}` = ADDRESS) {
+  return { address, message, signature: "0x1234" };
+}
+
 describe("native Base authentication handlers", () => {
-  test("requires HOME_SESSION_SECRET before issuing a stateless challenge", async () => {
+  test("requires HOME_SESSION_SECRET and an address-independent empty challenge request", async () => {
     const nonce = createNativeBaseNonceHandler({
-      sessionSecret: "",
+      sessionSecret: "short",
       now: () => START,
       randomId: () => NONCE,
     });
-    expect((await nonce(post("/api/auth/base/nonce", { address: ADDRESS }))).status).toBe(503);
+    expect((await nonce(post("/api/auth/base/nonce", {}))).status).toBe(503);
+
+    const configured = handlers().nonce;
+    expect((await configured(post("/api/auth/base/nonce", { address: ADDRESS }))).status).toBe(400);
+    const issued = await challenge(configured);
+    expect(issued.challenge).toEqual({
+      nonce: NONCE,
+      chainId: 8453,
+      domain: "127.0.0.1:3103",
+      uri: ORIGIN,
+      version: "1",
+      statement: "Sign in to Home.",
+      issuedAt: START.toISOString(),
+      expirationTime: new Date(START.getTime() + NATIVE_BASE_NONCE_TTL_MS).toISOString(),
+    });
   });
 
-  test("issues a Base-bound challenge and establishes a signed HttpOnly session", async () => {
+  test("establishes a signed HttpOnly session from the exact issued fields and body address", async () => {
     const { nonce, verify } = handlers();
     const issued = await challenge(nonce);
-    expect(issued.message).toContain("Chain ID: 8453");
-    expect(issued.message).toContain(`URI: ${ORIGIN}`);
-
     const verified = await verify(post(
       "/api/auth/base/verify",
-      { message: issued.message, signature: "0x1234" },
+      verifyBody(issued.message),
       issued.cookie,
     ));
     expect(verified.status).toBe(200);
@@ -105,48 +138,151 @@ describe("native Base authentication handlers", () => {
     });
   });
 
-  // Stateless challenge (audit A-02, decision D1): single-use is enforced by the browser dropping the
-  // cookie plus the 5-minute TTL, not by server-side consumption. A replay WITH the cookie inside
-  // the TTL is accepted by design; the attacker would already hold the HttpOnly cookie.
-  test("rejects a replayed verify once the browser has dropped the challenge cookie", async () => {
+  test("returns a cleared 401 when canonical rendering rejects the issued host", async () => {
+    const invalidOrigin = "http://foo+bar";
+    const { nonce, verify } = handlers();
+    const nonceResponse = await nonce(post("/api/auth/base/nonce", {}, undefined, invalidOrigin));
+    expect(nonceResponse.status).toBe(200);
+    const issued = await nonceResponse.json() as NativeBaseChallenge;
+    const message = `${issued.domain} wants you to sign in with your Ethereum account:\n${ADDRESS}\n\n${issued.statement}\n\nURI: ${issued.uri}\nVersion: ${issued.version}\nChain ID: ${issued.chainId}\nNonce: ${issued.nonce}\nIssued At: ${issued.issuedAt}\nExpiration Time: ${issued.expirationTime}`;
+
+    const response = await verify(post(
+      "/api/auth/base/verify",
+      verifyBody(message),
+      cookieValue(nonceResponse, HOME_CHALLENGE_COOKIE),
+      invalidOrigin,
+    ));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: { code: "INVALID_AUTH_PROOF" } });
+    expect(response.headers.getSetCookie().some((value) =>
+      value.startsWith(`${HOME_CHALLENGE_COOKIE}=`) && value.includes("Max-Age=0")
+    )).toBe(true);
+  });
+
+  test("requires normalized body address to equal the parsed SIWE address", async () => {
     const { nonce, verify } = handlers();
     const issued = await challenge(nonce);
     expect((await verify(post(
       "/api/auth/base/verify",
-      { message: issued.message, signature: "0x1234" },
+      verifyBody(issued.message, OTHER_ADDRESS),
       issued.cookie,
-    ))).status).toBe(200);
-
-    const replay = await verify(post(
+    ))).status).toBe(401);
+    expect((await verify(post(
       "/api/auth/base/verify",
       { message: issued.message, signature: "0x1234" },
-    ));
-    expect(replay.status).toBe(401);
+      issued.cookie,
+    ))).status).toBe(401);
   });
 
-  test("rejects expired, tampered, and message-mismatched challenges", async () => {
+  test("rejects every changed issued field and every unissued SIWE extra", async () => {
+    const cases: Array<[string, (issued: Awaited<ReturnType<typeof challenge>>) => string]> = [
+      ["chain", (issued) => messageFor(issued.challenge, ADDRESS, { chainId: 1 })],
+      ["domain", (issued) => messageFor(issued.challenge, ADDRESS, { domain: "evil.example" })],
+      ["uri", (issued) => messageFor(issued.challenge, ADDRESS, { uri: "https://evil.example" })],
+      ["nonce", (issued) => messageFor(issued.challenge, ADDRESS, { nonce: "b".repeat(48) })],
+      ["version", (issued) => issued.message.replace("Version: 1", "Version: 2")],
+      ["statement", (issued) => messageFor(issued.challenge, ADDRESS, { statement: "Different." })],
+      ["issuedAt", (issued) => messageFor(issued.challenge, ADDRESS, { issuedAt: new Date(START.getTime() + 1_000) })],
+      ["expirationTime", (issued) => messageFor(issued.challenge, ADDRESS, { expirationTime: new Date(START.getTime() + 60_000) })],
+      ["notBefore", (issued) => messageFor(issued.challenge, ADDRESS, { notBefore: START })],
+      ["requestId", (issued) => messageFor(issued.challenge, ADDRESS, { requestId: "unissued" })],
+      ["resources", (issued) => messageFor(issued.challenge, ADDRESS, { resources: ["https://home.example/resource"] })],
+      ["scheme", (issued) => messageFor(issued.challenge, ADDRESS, { scheme: "https" })],
+      ["trailing field", (issued) => `${issued.message}\nUnexpected: value`],
+    ];
+    for (const [name, mutate] of cases) {
+      const { nonce, verify } = handlers();
+      const issued = await challenge(nonce);
+      const message = mutate(issued);
+      expect((await verify(post(
+        "/api/auth/base/verify",
+        verifyBody(message),
+        issued.cookie,
+      ))).status, name).toBe(401);
+    }
+
+    const matchingScheme = handlers();
+    const issued = await challenge(matchingScheme.nonce);
+    expect((await matchingScheme.verify(post(
+      "/api/auth/base/verify",
+      verifyBody(messageFor(issued.challenge, ADDRESS, { scheme: "http" })),
+      issued.cookie,
+    ))).status).toBe(200);
+  });
+
+  test("accepts an unexpired signed challenge when the verifier clock trails the issuer", async () => {
+    let current = new Date(START.getTime() + 1_000);
+    const { nonce, verify } = handlers(() => current);
+    const issued = await challenge(nonce);
+    current = START;
+
+    expect((await verify(post(
+      "/api/auth/base/verify",
+      verifyBody(issued.message),
+      issued.cookie,
+    ))).status).toBe(200);
+  });
+
+  test("rejects challenge cookie v1, wrong TTL, expiry, and tampering", async () => {
+    const { nonce, verify } = handlers();
+    const issued = await challenge(nonce);
+    const legacy = signedValue(Buffer.from(SECRET), JSON.stringify({
+      version: 1,
+      origin: ORIGIN,
+      challenge: issued.challenge,
+    }));
+    expect((await verify(post(
+      "/api/auth/base/verify",
+      verifyBody(issued.message),
+      `${HOME_CHALLENGE_COOKIE}=${legacy}`,
+    ))).status).toBe(401);
+
+    const wrongTtlChallenge = {
+      ...issued.challenge,
+      expirationTime: new Date(START.getTime() + 60_000).toISOString(),
+    };
+    const wrongTtl = signedValue(Buffer.from(SECRET), JSON.stringify({
+      version: 2,
+      origin: ORIGIN,
+      challenge: wrongTtlChallenge,
+    }));
+    expect((await verify(post(
+      "/api/auth/base/verify",
+      verifyBody(messageFor(wrongTtlChallenge)),
+      `${HOME_CHALLENGE_COOKIE}=${wrongTtl}`,
+    ))).status).toBe(401);
+
     let current = START;
     const expiring = handlers(() => current);
     const expired = await challenge(expiring.nonce);
     current = new Date(START.getTime() + NATIVE_BASE_NONCE_TTL_MS + 1);
     expect((await expiring.verify(post(
       "/api/auth/base/verify",
-      { message: expired.message, signature: "0x1234" },
+      verifyBody(expired.message),
       expired.cookie,
     ))).status).toBe(401);
 
-    const { nonce, verify } = handlers();
-    const issued = await challenge(nonce);
     const tamperedCookie = `${issued.cookie.slice(0, -1)}x`;
     expect((await verify(post(
       "/api/auth/base/verify",
-      { message: issued.message, signature: "0x1234" },
+      verifyBody(issued.message),
       tamperedCookie,
     ))).status).toBe(401);
+  });
+
+  // Stateless challenge: single-use is enforced by the browser dropping the cookie plus the TTL.
+  test("rejects a replayed verify once the browser has dropped the challenge cookie", async () => {
+    const { nonce, verify } = handlers();
+    const issued = await challenge(nonce);
     expect((await verify(post(
       "/api/auth/base/verify",
-      { message: issued.message.replace("Chain ID: 8453", "Chain ID: 1"), signature: "0x1234" },
+      verifyBody(issued.message),
       issued.cookie,
+    ))).status).toBe(200);
+    expect((await verify(post(
+      "/api/auth/base/verify",
+      verifyBody(issued.message),
     ))).status).toBe(401);
   });
 
@@ -160,7 +296,7 @@ describe("native Base authentication handlers", () => {
       const issued = await challenge(nonce);
       const response = await verify(post(
         "/api/auth/base/verify",
-        { message: issued.message, signature: "0x1234" },
+        verifyBody(issued.message),
         issued.cookie,
       ));
       expect(response.status).toBe(entry.status);
@@ -187,7 +323,7 @@ describe("native Base authentication handlers", () => {
     const issued = await challenge(nonce);
     const response = await verify(post(
       "/api/auth/base/verify",
-      { message: issued.message, signature: "0x1234" },
+      verifyBody(issued.message),
       issued.cookie,
     ));
     const sessionCookie = cookieValue(response, HOME_SESSION_COOKIE);

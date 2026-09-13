@@ -18,7 +18,6 @@ import {
   restoreNativeBaseSession,
   verifyNativeBaseChallenge,
 } from "./native-base-session-client";
-import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 
 export type NativeBaseIdentity = {
   identity: VerifiedAccountSession | null;
@@ -37,7 +36,6 @@ export function useNativeBaseIdentity(): NativeBaseIdentity {
     "provider-unavailable" | undefined
   >();
   const restoreSequence = useRef(0);
-  const challenges = useRef(new Map<string, { message: string; address: `0x${string}` }>());
 
   const restore = useCallback(async (signal?: AbortSignal) => {
     const sequence = ++restoreSequence.current;
@@ -77,25 +75,13 @@ export function useNativeBaseIdentity(): NativeBaseIdentity {
     provisionalSession: identity,
     signInWithEmail: async () => { throw new Error("Email authentication requires a CDP project."); },
     verifyEmailOTP: async () => { throw new Error("Email authentication requires a CDP project."); },
-    signInWithSiwe: async (options) => {
-      const current = new URL(window.location.href);
-      if (options.chainId !== BASE_CHAIN_ID || options.domain !== current.host || options.uri !== current.origin) {
-        throw new Error("Native Base authentication request was invalid.");
-      }
-      const challenge = await requestNativeBaseChallenge(options.address);
-      challenges.current.set(challenge.flowId, { message: challenge.message, address: options.address });
-      return challenge;
-    },
-    verifySiweSignature: async (flowId, signature) => {
-      const challenge = challenges.current.get(flowId);
-      challenges.current.delete(flowId);
-      if (!challenge) throw new Error("Native Base authentication request expired.");
-      setIdentity(await verifyNativeBaseChallenge(challenge.message, signature, challenge.address));
+    requestBaseAccountChallenge: () => requestNativeBaseChallenge(),
+    verifyBaseAccountProof: async ({ address, message, signature }) => {
+      setIdentity(await verifyNativeBaseChallenge(address, message, signature));
     },
     getAccessToken: async () => null,
     signOut: async () => {
       await clearNativeBaseSession();
-      challenges.current.clear();
       setIdentity(null);
     },
   }), [identity, initializationError, isSettled, restore]);

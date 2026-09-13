@@ -21,7 +21,7 @@ import {
 import { signInProviderUnavailableCopy, type SignInAvailability } from "./sign-in-copy";
 import { BaseAccountConnectorError } from "./base-account-connector";
 import type { VerifiedAccountSession } from "./session-client";
-import { BASE_CHAIN_ID } from "@/shared/account/session-types";
+import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import {
@@ -132,13 +132,12 @@ export type AccountWalletSdkBoundary = {
   provisionalSession?: VerifiedAccountSession | null;
   signInWithEmail: (email: string) => Promise<{ flowId: string }>;
   verifyEmailOTP: (flowId: string, otp: string) => Promise<void>;
-  signInWithSiwe: (options: {
+  requestBaseAccountChallenge: () => Promise<NativeBaseChallenge>;
+  verifyBaseAccountProof: (proof: {
     address: `0x${string}`;
-    chainId: typeof BASE_CHAIN_ID;
-    domain: string;
-    uri: string;
-  }) => Promise<{ flowId: string; message: string }>;
-  verifySiweSignature: (flowId: string, signature: `0x${string}`) => Promise<void>;
+    message: string;
+    signature: `0x${string}`;
+  }) => Promise<void>;
   getAccessToken: () => Promise<string | null>;
   sendUserOperation?: (options: SendUserOperationOptions) => Promise<SendUserOperationResult>;
   getUserOperation?: (options: GetUserOperationOptions) => Promise<GetUserOperationResult>;

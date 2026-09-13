@@ -1,6 +1,8 @@
 import "@/client/account/dom-test-harness";
 
 import { describe, expect, test } from "bun:test";
+import { createSiweMessage } from "viem/siwe";
+import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import { HOME_CDP_LIVE_COOKIE, HOME_CDP_SESSION_COOKIE } from "@/server/auth/cdp-render-session";
 import {
   HOME_CHALLENGE_COOKIE,
@@ -43,7 +45,7 @@ describe("native Base authentication after shared DOM setup", () => {
     const nonce = createNativeBaseNonceHandler(dependencies);
     const verify = createNativeBaseVerifyHandler(dependencies);
 
-    const nonceResponse = await nonce(request("/api/auth/base/nonce", { address: ADDRESS }));
+    const nonceResponse = await nonce(request("/api/auth/base/nonce", {}));
     expect(nonceResponse.status).toBe(200);
     const challengeCookies = nonceResponse.headers.getSetCookie();
     expect(challengeCookies).toHaveLength(1);
@@ -52,10 +54,16 @@ describe("native Base authentication after shared DOM setup", () => {
     expect(challengeCookies[0]).toContain("Secure");
     expect(challengeCookies[0]).toContain("SameSite=Lax");
 
-    const { message } = await nonceResponse.json() as { message: string };
+    const challenge = await nonceResponse.json() as NativeBaseChallenge;
+    const message = createSiweMessage({
+      ...challenge,
+      address: ADDRESS,
+      issuedAt: new Date(challenge.issuedAt),
+      expirationTime: new Date(challenge.expirationTime),
+    });
     const verifyResponse = await verify(request(
       "/api/auth/base/verify",
-      { message, signature: "0x1234" },
+      { address: ADDRESS, message, signature: "0x1234" },
       cookiePair(challengeCookies[0]!),
     ));
     expect(verifyResponse.status).toBe(200);

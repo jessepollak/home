@@ -4,7 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { AccountWalletContext, type AccountSessionStatus, type AccountWalletClient, type AccountWalletSdkBoundary, type BaseAccountLoginPhase } from "./cdp-client";
 import { connectBaseAccount, restoreBaseAccount, BaseAccountConnectorError, type BaseAccountConnector, type BaseAccountInvalidation, type BaseAccountRestorer, type ConnectedBaseAccount } from "./base-account-connector";
 import { SessionValidationError, validateAccountSession, type SessionFetch, type VerifiedAccountSession } from "./session-client";
-import { BASE_CHAIN_ID, type AccountProvider, type AccountProviderRequest } from "@/shared/account/session-types";
+import { createSiweMessage } from "viem/siwe";
+import { type AccountProvider, type AccountProviderRequest } from "@/shared/account/session-types";
 import {
   clearOwnerQueryBoundary,
   clearOwnerQueryMemory,
@@ -47,8 +48,8 @@ export function AccountWalletSessionOwner({
     provisionalSession,
     signInWithEmail,
     verifyEmailOTP,
-    signInWithSiwe,
-    verifySiweSignature,
+    requestBaseAccountChallenge,
+    verifyBaseAccountProof,
     getAccessToken,
     sendUserOperation,
     getUserOperation,
@@ -284,18 +285,30 @@ export function AccountWalletSessionOwner({
     let connection: ConnectedBaseAccount | null = null;
     try {
       fence.assertCurrent(generation);
-      connection = await baseAccountConnector(onBaseInvalidated);
+      const challenge = await requestBaseAccountChallenge();
+      fence.assertCurrent(generation);
+      connection = await baseAccountConnector(challenge, onBaseInvalidated);
       fence.assertCurrent(generation);
       baseConnectionRef.current = connection;
-      const url = new URL(window.location.href);
-      fence.assertCurrent(generation);
-      const challenge = await signInWithSiwe({ address: connection.address, chainId: BASE_CHAIN_ID, domain: url.host, uri: url.origin });
-      fence.assertCurrent(generation);
-      onPhase("signing");
-      const signature = await connection.signMessage(challenge.message);
+
+      let message: string;
+      let signature: `0x${string}`;
+      if (connection.kind === "proof") {
+        message = connection.message;
+        signature = connection.signature;
+      } else {
+        onPhase("signing");
+        message = createSiweMessage({
+          ...challenge,
+          address: connection.address,
+          issuedAt: new Date(challenge.issuedAt),
+          expirationTime: new Date(challenge.expirationTime),
+        });
+        signature = await connection.signMessage(message);
+      }
       fence.assertCurrent(generation);
       onPhase("verifying");
-      await verifySiweSignature(challenge.flowId, signature);
+      await verifyBaseAccountProof({ address: connection.address, message, signature });
       providerRef.current = "base-account";
       writeAccountProviderHint("base-account");
     } catch (error) {
@@ -304,7 +317,7 @@ export function AccountWalletSessionOwner({
       if (error instanceof BaseAccountConnectorError) throw new BaseAccountLoginError(baseLoginFailureFromConnector(error), error);
       throw new BaseAccountLoginError("provider-unavailable", error);
     }
-  }, [baseAccountConnector, baseAccountEnabled, beginSignIn, fence, onBaseInvalidated, signInWithSiwe, verifySiweSignature]);
+  }, [baseAccountConnector, baseAccountEnabled, beginSignIn, fence, onBaseInvalidated, requestBaseAccountChallenge, verifyBaseAccountProof]);
 
   const cancelSignInAttempt = useCallback(() => {
     fence.advance();
