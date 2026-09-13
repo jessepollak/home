@@ -1,8 +1,9 @@
 "use client";
 
-import { Button, Heading, StatusMessage } from "@home/ui";
-import { MoneyTicker } from "@home/ui/money-ticker";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { MoneyTicker } from "@/components/money-ticker";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import {
   formatPresentationDate,
@@ -10,7 +11,6 @@ import {
 } from "@/shared/formatting";
 import { useReactiveExpiry } from "./expiry";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
-import styles from "./review.module.css";
 
 export type MoneyActionReviewProps = {
   action: PreparedMoneyAction;
@@ -68,11 +68,17 @@ function MoneyActionReviewContent({
   }
 
   return (
-    <section className={`${styles.review} surface-primary`} aria-labelledby={`money-action-${action.id}`}>
-      <Heading id={`money-action-${action.id}`} level={3} textStyle="section-title" className={styles.title}>
+    <section
+      className="surface-primary mx-auto mt-4 grid w-full max-w-3xl gap-4 rounded-xl border border-border border-t-primary border-t-3 p-4 sm:p-6"
+      aria-labelledby={`money-action-${action.id}`}
+    >
+      <h3
+        id={`money-action-${action.id}`}
+        className="text-section-title font-semibold tracking-tight"
+      >
         {action.title}
-      </Heading>
-      <dl className={styles.rows}>
+      </h3>
+      <dl className="m-0 grid border-t border-foreground">
         {action.amounts.map((amount, index) => {
           const formattedAmount = formatExactPresentationTokenAmount(
             amount.amountBaseUnits,
@@ -80,46 +86,69 @@ function MoneyActionReviewContent({
             amount.symbol,
           );
           return (
-            <div className={styles.row} key={`${amount.assetId}-${amount.direction}-${index}`}>
-              <dt>{amount.maximum ? "Up to" : amount.direction === "spend" ? "You spend" : "You receive"}</dt>
-              <dd>
+            <div
+              className="text-metadata grid min-h-11 grid-cols-1 items-start gap-1 border-b border-border py-2 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
+              key={`${amount.assetId}-${amount.direction}-${index}`}
+            >
+              <dt className="text-muted-foreground">
+                {amount.maximum ? "Up to" : amount.direction === "spend" ? "You spend" : "You receive"}
+              </dt>
+              <dd className="m-0 overflow-wrap-anywhere font-medium sm:text-right">
                 {amount.estimated ? "Estimated " : ""}
-                <MoneyTicker value={formattedAmount} />
+                <MoneyTicker className="inline-flex align-bottom" value={formattedAmount} />
               </dd>
             </div>
           );
         })}
-        <div className={styles.row}>
-          <dt>Network</dt>
-          <dd>Base (8453)</dd>
-        </div>
-        <div className={styles.row}>
-          <dt>Valid until</dt>
-          <dd>{formatPresentationDate(action.expiresAt, { style: "date-time-zone" })}</dd>
-        </div>
+        <ReviewRow label="Network">Base (8453)</ReviewRow>
+        <ReviewRow label="Valid until">
+          {formatPresentationDate(action.expiresAt, { style: "date-time-zone" })}
+        </ReviewRow>
       </dl>
       {action.warnings.map((warning) => (
-        <StatusMessage className={styles.warning} tone="warning" key={warning}>
-          {presentReviewWarning(warning)}
-        </StatusMessage>
+        <Alert
+          className="text-metadata border-warning-border bg-warning-background text-foreground"
+          role="status"
+          key={warning}
+        >
+          <AlertDescription className="text-inherit">
+            {presentReviewWarning(warning)}
+          </AlertDescription>
+        </Alert>
       ))}
       {expired && !attempted ? (
-        <StatusMessage className={styles.error} tone="error" role="alert">
-          This prepared action expired. Prepare and review a fresh action.
-        </StatusMessage>
+        <Alert className="text-metadata" variant="destructive" role="alert">
+          <AlertDescription className="text-inherit">
+            This prepared action expired. Prepare and review a fresh action.
+          </AlertDescription>
+        </Alert>
       ) : null}
-      {error ? <StatusMessage className={styles.error} tone="error" role="alert">{error}</StatusMessage> : null}
-      <div className={styles.actions}>
-        <Button variant="secondary" disabled={pending} onClick={onClose}>Back</Button>
+      {error ? (
+        <Alert className="text-metadata" variant="destructive" role="alert">
+          <AlertDescription className="text-inherit">{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-2">
+        <Button className="min-h-11 w-full" variant="secondary" disabled={pending} onClick={onClose}>Back</Button>
         <Button
+          className="min-h-11 w-full aria-busy:opacity-60"
           disabled={pending || (expired && !attempted)}
-          loading={pending}
+          aria-busy={pending}
           onClick={() => void confirm()}
         >
-          {pending ? "Submitting…" : attempted ? "Retry" : action.kind === "trade" ? "Confirm trade" : "Confirm action"}
+          {attempted ? "Retry" : action.kind === "trade" ? "Confirm trade" : "Confirm action"}
         </Button>
       </div>
     </section>
+  );
+}
+
+function ReviewRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="text-metadata grid min-h-11 grid-cols-1 items-start gap-1 border-b border-border py-2 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="m-0 overflow-wrap-anywhere font-medium sm:text-right">{children}</dd>
+    </div>
   );
 }
 

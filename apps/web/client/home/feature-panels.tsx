@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Skeleton } from "@home/ui";
+import { Skeleton } from "@/components/ui/skeleton";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import type { RegionId } from "@/config/regions";
 import { EmptyPanel, ShimmerRows } from "./panel-shared";
@@ -40,8 +40,6 @@ function SavePanelShell() {
     <section className="save-panel-shell" aria-busy="true">
       <div className="save-panel-shell-hero">
         <Skeleton
-          shape="rectangle"
-          height="2.4rem"
           className="balance-hero-shimmer"
           data-shimmer="hero"
         />

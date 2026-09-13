@@ -1,8 +1,8 @@
 "use client";
 
-import { Heading, StatusMessage } from "@home/ui";
-import { MoneyTicker } from "@home/ui/money-ticker";
 import { useEffect, useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { MoneyTicker } from "@/components/money-ticker";
 import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -17,7 +17,6 @@ import {
   formatPresentationTokenAmount,
 } from "@/shared/formatting";
 import { labelForOperationStatus, presentOperationDetails, primaryOperationAmount } from "./operation-details";
-import styles from "./recent-operations.module.css";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import { activityOwnerKey } from "@/client/activity/use-activity";
 
@@ -77,11 +76,19 @@ export function RecentMoneyActions({
   useEffect(() => onVisibleCountChange?.(visibleCount), [onVisibleCountChange, visibleCount]);
   if (operations.length === 0 && (!unavailable || !showUnavailableNotice)) return null;
 
-  return <section className={styles.section} aria-labelledby={embedded ? undefined : "home-operations-title"}>
-    {embedded ? null : <Heading id="home-operations-title" level={3} textStyle="section-title">Home actions</Heading>}
-    {unavailable ? <StatusMessage className={styles.message}>Recorded Home actions are unavailable. Onchain transfers are still shown.</StatusMessage> : <ol className={styles.list}>
-      {operations.map((operation) => <OperationRow key={operation.action.id} operation={operation} onActivate={() => setSelected(operation)} />)}
-    </ol>}
+  return <section className="grid gap-3" aria-labelledby={embedded ? undefined : "home-operations-title"}>
+    {embedded ? null : <h3 id="home-operations-title" className="text-section-title font-semibold">Home actions</h3>}
+    {unavailable ? (
+      <Alert role="status" className="border-0 bg-transparent p-0">
+        <AlertDescription className="text-caption">
+          Recorded Home actions are unavailable. Onchain transfers are still shown.
+        </AlertDescription>
+      </Alert>
+    ) : (
+      <ol className="grid list-none gap-1 p-0">
+        {operations.map((operation) => <OperationRow key={operation.action.id} operation={operation} onActivate={() => setSelected(operation)} />)}
+      </ol>
+    )}
     <TransactionDetailsModal open={selected !== null} titleId="home-operation-details-title" details={selected ? presentOperationDetails(selected) : null} onClose={() => setSelected(null)} />
   </section>;
 }

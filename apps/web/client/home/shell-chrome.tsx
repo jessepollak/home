@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Button, Heading, Inline, Stack, StatusMessage, Text } from "@home/ui";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { HomeMark } from "@/components/home-mark";
 import { ProfileMark } from "@/components/profile-mark";
 import { useAccountWallet } from "@/client/account/cdp-client";
@@ -41,7 +42,7 @@ export function ShellHeader({
     <header className="app-header">
       <div className="app-header-start">
         {isAccountSettingsOpen ? (
-          <Heading level={1} textStyle="section-title" className="app-header-lead-title">Account</Heading>
+          <h1 className="app-header-lead-title text-section-title">Account</h1>
         ) : nestedChromeTitle ? (
           <NestedHomeHeader
             title={nestedChromeTitle}
@@ -49,7 +50,7 @@ export function ShellHeader({
             onBack={onNestedChromeBack}
           />
         ) : routeMode === "dashboard" && activeNavigation === "invest" ? (
-          <Heading level={1} textStyle="section-title" className="app-header-lead-title">Invest</Heading>
+          <h1 className="app-header-lead-title text-section-title">Invest</h1>
         ) : (
           <HomeMark onClick={() => { if (isVerified) onHome(); }} />
         )}
@@ -137,10 +138,10 @@ function NestedHomeHeader({
 }) {
   return (
     <div className="header-leading">
-      <Button className="header-back-link" variant="quiet" onClick={onBack} aria-label={backLabel}>
+      <Button className="header-back-link" variant="ghost" onClick={onBack} aria-label={backLabel}>
         <span aria-hidden="true">←</span>
       </Button>
-      <Heading level={1} textStyle="section-title" className="header-panel-title app-header-title">{title}</Heading>
+      <h1 className="header-panel-title app-header-title text-section-title">{title}</h1>
     </div>
   );
 }
@@ -166,14 +167,14 @@ export function SignedOutLanding({
     <main className={`landing-main${landingVisual ? " landing-main-with-visual" : ""}`}>
       {landingVisual ? <div className="landing-visual">{landingVisual}</div> : null}
       <section className="landing-hero" aria-labelledby="landing-title">
-        <Stack className="landing-content" space="6">
-          <Heading className="landing-heading" level={1} textStyle="page-title" id="landing-title">
+        <div className="landing-content flex flex-col gap-6">
+          <h1 className="landing-heading text-page-title" id="landing-title">
             One home for your money.
-          </Heading>
-          <Text className="landing-copy" textStyle="secondary" tone="muted">
+          </h1>
+          <p className="landing-copy text-caption text-muted-foreground">
             Invest in any asset, earn more on your savings, and grow your wealth.
-          </Text>
-          <Inline className="landing-actions" space="3">
+          </p>
+          <div className="landing-actions flex items-center gap-3">
             {isVerified ? (
               <Button onClick={onDashboard}>Open dashboard</Button>
             ) : (
@@ -184,18 +185,16 @@ export function SignedOutLanding({
                 ) : null}
               </>
             )}
-          </Inline>
+          </div>
           {signOutError ? (
-            <StatusMessage
-              className="landing-status"
-              tone="error"
-              role="alert"
-              action={<Button variant="quiet" onClick={onRetrySignOut}>Retry sign out</Button>}
-            >
-              {signOutError}
-            </StatusMessage>
+            <Alert className="landing-status" variant="destructive" role="alert">
+              <AlertDescription>{signOutError}</AlertDescription>
+              <AlertAction>
+                <Button variant="ghost" onClick={onRetrySignOut}>Retry sign out</Button>
+              </AlertAction>
+            </Alert>
           ) : null}
-        </Stack>
+        </div>
       </section>
     </main>
   );

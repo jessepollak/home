@@ -1,8 +1,9 @@
 "use client";
 
 import { PiggyBank } from "lucide-react";
-import { Button, Heading, Skeleton, Text } from "@home/ui";
-import { MoneyTicker } from "@home/ui/money-ticker";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { MoneyTicker } from "@/components/money-ticker";
 import type { FetchActivity } from "@/client/activity";
 import { FundingActions } from "@/client/funding/funding-actions";
 import { TransferActions } from "@/client/transfers";
@@ -28,11 +29,11 @@ function SectionTapIn({
   return (
     <Button
       className="section-tap-in"
-      variant="quiet"
+      variant="ghost"
       onClick={onOpen}
       aria-label={title}
     >
-      <Heading level={2} textStyle="metadata" id={headingId}>{title}</Heading>
+      <h2 className="text-metadata" id={headingId}>{title}</h2>
       <span className="section-tap-in-affordance" aria-hidden="true">›</span>
     </Button>
   );
@@ -92,20 +93,18 @@ export function HomePanel({
       >
         {isLoading ? (
           <Skeleton
-            shape="rectangle"
-            height="2.4rem"
             className="balance-hero-shimmer"
             data-shimmer="hero"
           />
         ) : (
-          <Text as="div" textStyle="amount" className="balance-hero-total">
+          <div className="balance-hero-total text-amount font-mono">
             <MoneyTicker value={assetBalances?.displayTotal ?? "—"} />
-          </Text>
+          </div>
         )}
         {showBalanceStatus ? (
-          <Text textStyle="metadata" className="balance-status" data-total-status={assetBalances?.totalStatus}>
+          <p className="balance-status text-metadata" data-total-status={assetBalances?.totalStatus}>
             {balanceStatusLabel}
-          </Text>
+          </p>
         ) : null}
         {isLoading || isRevalidating ? <span className="sr-status">Updating…</span> : null}
       </section>
@@ -138,13 +137,13 @@ export function HomePanel({
       </section>
 
       {showSessionShimmer ? (
-        <Button className="save-teaser" variant="secondary" onClick={onOpenSave} aria-label="Save">
+        <Button className="save-teaser rounded-xl border border-border bg-background" variant="secondary" onClick={onOpenSave} aria-label="Save">
           <Skeleton className="shimmer-save-icon" />
-          <Skeleton shape="text" className="shimmer-line shimmer-line-save" />
-          <Skeleton shape="text" className="shimmer-pill" />
+          <Skeleton className="shimmer-line shimmer-line-save" />
+          <Skeleton className="shimmer-pill" />
         </Button>
       ) : (
-        <Button className="save-teaser" variant="secondary" onClick={onOpenSave} aria-label="Save">
+        <Button className="save-teaser rounded-xl border border-border bg-background" variant="secondary" onClick={onOpenSave} aria-label="Save">
           <span className="save-teaser-icon" aria-hidden="true">
             <PiggyBank size={20} strokeWidth={1.9} />
           </span>

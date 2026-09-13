@@ -1,15 +1,21 @@
 "use client";
 
-import { Button, EmptyState, Heading, StatusMessage, Text } from "@home/ui";
-import { MoneyTicker } from "@home/ui/money-ticker";
 import { useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { MoneyTicker } from "@/components/money-ticker";
 import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
 import {
   presentActivityTransferDetails,
   presentActivityTransferRow,
 } from "./activity-presenter";
-import styles from "./activity.module.css";
 import { useActivity } from "./use-activity";
 import {
   ACTIVITY_TEASER_LIMIT,
@@ -55,13 +61,13 @@ export function ActivityPanel({
   if (activity.status === "unavailable") {
     return (
       <section
-        className={`${styles.panel} surface-primary`}
+        className="surface-primary rounded-xl border border-border p-4 sm:p-6"
         aria-labelledby={labelledBy}
         aria-label={labelled}
       >
         {heading}
         {leading}
-        {suppressEmpty ? null : <EmptyState className={styles.empty} title="No activity yet" />}
+        {suppressEmpty ? null : <ActivityEmpty />}
       </section>
     );
   }
@@ -69,17 +75,19 @@ export function ActivityPanel({
   if (activity.status === "loading") {
     return (
       <section
-        className={`${styles.panel} surface-primary`}
+        className="surface-primary rounded-xl border border-border p-4 sm:p-6"
         aria-labelledby={labelledBy}
         aria-label={labelled}
         aria-busy="true"
       >
         {heading}
         {leading}
-        <StatusMessage className={styles.loading}>
-          <span className={styles.spinner} aria-hidden="true" />
-          Loading recent activity…
-        </StatusMessage>
+        <Alert role="status" className="mt-4 border-0 bg-transparent p-0 text-muted-foreground">
+          <AlertDescription className="flex items-center gap-2 text-inherit">
+            <ActivitySpinner />
+            Loading recent activity…
+          </AlertDescription>
+        </Alert>
       </section>
     );
   }
@@ -87,21 +95,21 @@ export function ActivityPanel({
   if (activity.status === "error") {
     return (
       <section
-        className={`${styles.panel} surface-primary`}
+        className="surface-primary rounded-xl border border-border p-4 sm:p-6"
         aria-labelledby={labelledBy}
         aria-label={labelled}
       >
         {heading}
         {leading}
-        <StatusMessage
-          className={styles.error}
-          tone="error"
-          role="alert"
-          title="Activity is temporarily unavailable."
-          action={<Button variant="secondary" onClick={activity.retry}>Try again</Button>}
-        >
-          {activity.error.message || activity.error.code || undefined}
-        </StatusMessage>
+        <Alert className="mt-4" variant="destructive" role="alert">
+          <AlertTitle>Activity is temporarily unavailable.</AlertTitle>
+          {activity.error.message || activity.error.code ? (
+            <AlertDescription>{activity.error.message || activity.error.code}</AlertDescription>
+          ) : null}
+          <AlertAction>
+            <Button className="w-max" variant="secondary" onClick={activity.retry}>Try again</Button>
+          </AlertAction>
+        </Alert>
       </section>
     );
   }
@@ -114,16 +122,16 @@ export function ActivityPanel({
   const isEmpty = visibleTransfers.length === 0;
   return (
     <section
-      className={`${styles.panel} surface-primary`}
+      className="surface-primary rounded-xl border border-border p-4 sm:p-6"
       aria-labelledby={labelledBy}
       aria-label={labelled}
     >
       {heading}
       {leading}
       {isEmpty ? (
-        suppressEmpty ? null : <EmptyState className={styles.empty} title="No activity yet" />
+        suppressEmpty ? null : <ActivityEmpty />
       ) : (
-        <ol className={styles.list}>
+        <ol className="mt-4 list-none border-t border-border p-0">
           {visibleTransfers.map((transfer) => (
             <TransferActivityRow
               key={transfer.id}
@@ -204,32 +212,34 @@ function ActivityPagination({
 
   if (!nextCursor) {
     return hasTransfers ? (
-      <Text textStyle="metadata" className={styles.end} role="status">
+      <p className="text-metadata mt-4 text-center text-muted-foreground" role="status">
         End of activity
-      </Text>
+      </p>
     ) : null;
   }
 
   return (
-    <div className={styles.pagination}>
+    <div className="mt-3">
       {loading ? (
-        <StatusMessage className={styles.loadingMore} aria-live="polite">
-          <span className={styles.spinner} aria-hidden="true" />
-          Loading more activity…
-        </StatusMessage>
+        <Alert role="status" aria-live="polite" className="min-h-11 justify-center border-0 bg-transparent p-0 text-muted-foreground">
+          <AlertDescription className="flex items-center justify-center gap-2 text-inherit">
+            <ActivitySpinner />
+            Loading more activity…
+          </AlertDescription>
+        </Alert>
       ) : null}
       {failed ? (
-        <Text textStyle="metadata" className={styles.loadMoreError} role="alert">
+        <p className="text-metadata mb-2 text-destructive" role="alert">
           More activity could not be loaded. Your current results are unchanged.
-        </Text>
+        </p>
       ) : autoLoadPaused ? (
-        <Text textStyle="metadata" className={styles.loadMoreNotice} role="status">
+        <p className="text-metadata mb-2 text-muted-foreground" role="status">
           No additional activity was found on that page. Continue to check older activity.
-        </Text>
+        </p>
       ) : null}
       {loading ? null : (
         <Button
-          className={styles.loadMoreButton}
+          className="min-h-11 w-full"
           variant="secondary"
           onClick={failed || autoLoadPaused ? continueManually : loadMore}
         >
@@ -243,7 +253,7 @@ function ActivityPagination({
       <div
         key={nextCursor}
         ref={sentinelRef}
-        className={styles.sentinel}
+        className="h-px w-full"
         data-activity-sentinel=""
         aria-hidden="true"
       />
@@ -251,10 +261,29 @@ function ActivityPagination({
   );
 }
 
+function ActivityEmpty() {
+  return (
+    <Empty className="mt-4 items-start justify-start p-0 text-left">
+      <EmptyHeader className="items-start">
+        <EmptyTitle className="text-row-label">No activity yet</EmptyTitle>
+      </EmptyHeader>
+    </Empty>
+  );
+}
+
+function ActivitySpinner() {
+  return (
+    <span
+      className="size-4 shrink-0 animate-spin rounded-full border-2 border-primary/20 border-t-primary motion-reduce:animate-none"
+      aria-hidden="true"
+    />
+  );
+}
+
 function DefaultActivityHeader() {
   return (
-    <div className={styles.header}>
-      <Heading id="activity-title" level={2} textStyle="metadata">Activity</Heading>
+    <div className="flex items-start justify-between gap-4">
+      <h2 id="activity-title" className="text-metadata font-semibold tracking-widest text-muted-foreground uppercase">Activity</h2>
     </div>
   );
 }
