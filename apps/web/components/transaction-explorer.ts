@@ -33,7 +33,7 @@ export function transactionExplorerLink(
   if (!isTransactionHash(transactionHash)) return null;
   return {
     href: `https://basescan.org/tx/${transactionHash}`,
-    label: "View on BaseScan",
+    label: "View on explorer",
     title: "View the transaction on BaseScan",
   };
 }

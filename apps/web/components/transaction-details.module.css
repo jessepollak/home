@@ -4,14 +4,14 @@
 
 .explorerWrap {
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   margin: var(--home-ui-space-1) 0 0;
 }
 
 .explorer {
-  color: var(--home-ui-color-action);
-  font-size: 0.9rem;
-  font-weight: 700;
+  color: var(--home-ui-color-muted);
+  font-size: var(--home-ui-type-secondary-size);
+  font-weight: var(--home-ui-type-weight-medium);
   text-decoration: none;
 }
 

@@ -54,9 +54,11 @@ export function TransactionDetailsModal({
                 className={styles.explorer}
                 href={details.explorer.href}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
+                title={details.explorer.title}
               >
                 {details.explorer.label}
+                <span aria-hidden="true"> ↗</span>
               </a>
             </Text>
           </>

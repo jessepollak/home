@@ -266,19 +266,16 @@
 
 .row {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
+  grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
   gap: var(--home-ui-space-3);
   border-top: 1px solid var(--home-ui-color-border);
   padding: 14px 0;
 }
 
-.row:last-child {
-  border-bottom: 1px solid var(--home-ui-color-border);
-}
-
 .row dt {
   color: var(--home-ui-color-muted);
   font-size: var(--home-ui-type-secondary-size);
+  white-space: nowrap;
 }
 
 .row dd {
