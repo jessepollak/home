@@ -25,6 +25,7 @@ type AssetMarkIdentity = {
   assetKey: string;
   name: string;
   symbol: string;
+  imageUrl?: string | null;
   currency?: string | null;
 };
 
@@ -107,9 +108,9 @@ function presentAssetMark(
   identity: AssetMarkIdentity,
   resolution: AssetMarkResolution,
 ): AssetMarkPresentation {
-  const resolvedImage = normalizedImageUrl(
-    resolution.images?.[identity.assetKey],
-  );
+  const resolvedImage =
+    normalizedImageUrl(identity.imageUrl) ??
+    normalizedImageUrl(resolution.images?.[identity.assetKey]);
   const canResolve =
     investAssetByKey.has(identity.assetKey) ||
     Object.prototype.hasOwnProperty.call(

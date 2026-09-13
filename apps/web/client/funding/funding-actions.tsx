@@ -131,8 +131,8 @@ export function FundingActionsForWallet({
     <>
       <Button
         className="add-money"
-        data-action-trigger=""
-        variant="secondary"
+        variant="primary"
+        style={{ inlineSize: "100%", minBlockSize: 44 }}
         onClick={() => {
           openedInAppRef.current = true;
           setDismissed(false);
@@ -140,8 +140,17 @@ export function FundingActionsForWallet({
           setFundingFlow("add-money", "push");
         }}
       >
-        <PlusIcon />
-        <span>Add money</span>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 7,
+          }}
+        >
+          <PlusIcon />
+          <span>Add money</span>
+        </span>
       </Button>
       {mounted ? createPortal(modal, document.body) : null}
     </>

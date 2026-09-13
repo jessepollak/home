@@ -76,6 +76,7 @@ export function presentHomeBalanceMark(
     {
       assetKey: item.assetKey ?? item.id,
       name: item.name,
+      imageUrl: item.imageUrl,
       symbol: currency
         ? presentationCurrencySymbol(currency)
         : item.detail ?? item.name,

@@ -12,6 +12,7 @@ import type {
   PortfolioValuationSnapshot,
 } from "@/shared/portfolio/valuation-types";
 import {
+  previewHomeBalanceItems,
   presentPortfolioValuation,
 } from "./present-home-balances";
 
@@ -1019,5 +1020,95 @@ describe("presentPortfolioValuation", () => {
     expect(presented.unavailableItemIds).toEqual([`asset:${nvidia.assetKey}`]);
   });
 
+  test("orders every cash row first, then fiat value descending, then dust and unpriced assets alphabetically", () => {
+    const bitcoinKey = "eip155:8453/erc20:0x1111111111111111111111111111111111111111";
+    const teslaKey = "eip155:8453/erc20:0x2222222222222222222222222222222222222222";
+    const zebraKey = "eip155:8453/erc20:0x3333333333333333333333333333333333333333";
+    const nvidiaAddress = "0x4444444444444444444444444444444444444444" as const;
+    const alphaAddress = "0x5555555555555555555555555555555555555555" as const;
+    const presented = presentPortfolioValuation({
+      status: "ready",
+      snapshot: snapshot({
+        selectedRegion: "US",
+        quoteCurrency: "USD",
+        inventory: {
+          scope: "configured-base-assets-v1",
+          walletDiscoveryComplete: false,
+          holdings: [
+            directHolding({
+              id: verifiedLocalCashAssets.EUR.id,
+              assetKey: verifiedLocalCashAssets.EUR.assetKey,
+              name: verifiedLocalCashAssets.EUR.name,
+              symbol: verifiedLocalCashAssets.EUR.symbol,
+              decimals: verifiedLocalCashAssets.EUR.decimals,
+              assetKind: "erc20",
+              contractAddress: verifiedLocalCashAssets.EUR.contractAddress,
+              cashCurrency: "EUR",
+              balanceBaseUnits: "1000000",
+            }),
+            directHolding({ id: "tesla", assetKey: teslaKey, name: "Tesla", symbol: "TSLA", balanceBaseUnits: "1" }),
+            directHolding({ id: "bitcoin", assetKey: bitcoinKey, name: "Bitcoin", symbol: "BTC", balanceBaseUnits: "1" }),
+            directHolding({ id: "zebra", assetKey: zebraKey, name: "Zebra", symbol: "ZBR", balanceBaseUnits: "1" }),
+          ],
+          omissions: [],
+        },
+        lines: [
+          { holdingAssetKey: bitcoinKey, valueCurrency: "USD", value: { atoms: "5355", scale: 0 }, status: "priced", reason: null },
+          { holdingAssetKey: teslaKey, valueCurrency: "USD", value: { atoms: "9", scale: 3 }, status: "priced", reason: null },
+          { holdingAssetKey: zebraKey, valueCurrency: "USD", value: null, status: "unpriced", reason: "fixture" },
+        ],
+        recognized: {
+          status: "complete",
+          holdings: [
+            {
+              id: `recognized:${nvidiaAddress}`,
+              assetKey: `eip155:8453/erc20:${nvidiaAddress}`,
+              name: "NVIDIA",
+              symbol: "NVDA",
+              decimals: 18,
+              contractAddress: nvidiaAddress,
+              balanceBaseUnits: "1",
+              liquidityUsd: { atoms: "100000", scale: 0 },
+              volume24Usd: { atoms: "10000", scale: 0 },
+              valueCurrency: "USD",
+              value: { atoms: "100", scale: 0 },
+              valuationStatus: "priced",
+            },
+            {
+              id: `recognized:${alphaAddress}`,
+              assetKey: `eip155:8453/erc20:${alphaAddress}`,
+              name: "Alpha",
+              symbol: "ALP",
+              decimals: 18,
+              contractAddress: alphaAddress,
+              balanceBaseUnits: "1",
+              liquidityUsd: { atoms: "100000", scale: 0 },
+              volume24Usd: { atoms: "10000", scale: 0 },
+              valueCurrency: "USD",
+              value: null,
+              valuationStatus: "unpriced",
+            },
+          ],
+        },
+      }),
+      error: null,
+    });
 
+    expect(presented.items.map(({ name }) => name)).toEqual([
+      "US dollar",
+      "Brazilian real",
+      "Euro",
+      "Bitcoin",
+      "NVIDIA",
+      "Alpha",
+      "Tesla",
+      "Zebra",
+    ]);
+    expect(previewHomeBalanceItems(presented.items).map(({ name }) => name)).toEqual([
+      "US dollar",
+      "Brazilian real",
+      "Euro",
+      "Bitcoin",
+    ]);
+  });
 });
