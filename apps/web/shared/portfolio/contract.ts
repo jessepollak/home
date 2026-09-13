@@ -14,7 +14,6 @@ import {
 import type { PortfolioValuationSnapshot } from "./valuation-types";
 export type { PortfolioValuationSnapshot } from "./valuation-types";
 
-export const PORTFOLIO_VALUATION_VERSION = 2 as const;
 import type { VerifiedPortfolioSession } from "@/shared/portfolio/types";
 import {
   baseUnitsToFraction,
@@ -23,6 +22,8 @@ import {
   roundFractionPreservingPositive,
 } from "@/shared/portfolio/valuation-math";
 import type { ExactDecimal } from "@/shared/portfolio/valuation-types";
+
+export const PORTFOLIO_VALUATION_VERSION = 2 as const;
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const blockHashPattern = /^0x[0-9a-fA-F]{64}$/;
