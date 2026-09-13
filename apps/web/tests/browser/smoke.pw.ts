@@ -271,7 +271,7 @@ function expectTickerInsideAmount(metrics: NonNullable<Awaited<ReturnType<typeof
 
 async function visibleBalanceRowLayout(page: Page) {
   return page.locator(
-    '[data-shell-panel]:not([hidden]) .balances-panel .supplied-asset-list li',
+    '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
   ).evaluateAll((rows) => rows.map((row) => {
     const bounds = row.getBoundingClientRect();
     return {
@@ -302,9 +302,10 @@ test("catalog token appears on Home and Balances with its image, but never enter
   await installApiFixtures(page, { balances: fixture });
   await signIn(page);
 
-  const homeCatalogRow = page.locator('[data-shell-panel]:not([hidden]) .balances-panel li', {
-    hasText: "Recognized Coin",
-  });
+  const homeCatalogRow = page.locator(
+    '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
+    { hasText: "Recognized Coin" },
+  );
   await expect(homeCatalogRow).toBeVisible();
   await expect(homeCatalogRow.getByText("1 RCG", { exact: true })).toBeVisible();
   await expect(homeCatalogRow.locator(`img[src="${RECOGNIZED_IMAGE_URL}"]`)).toBeVisible();
@@ -334,7 +335,7 @@ test("Home, Save, Balances, and Home reuse one balances request per region", asy
   await signIn(page);
   await expect.poll(() => fixtures.balancesReadsForRegion("US")).toBe(1);
 
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator('section[aria-labelledby="save-heading"]').getByRole("button").click();
   await expect(page.getByRole("region", { name: "Save" })).toBeVisible();
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await page.getByRole("button", { name: "Balances", exact: true }).click();
@@ -577,7 +578,7 @@ test("reload paints persisted balances before stale balances respond without shi
   await expect(page.getByText("Recognized Coin", { exact: true }).first()).toBeVisible();
 
   fixtures.releaseBalances();
-  await expect(page.locator('[data-shell-panel]:not([hidden]) .balance-hero')).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.locator('[data-shell-panel]:not([hidden]) [aria-label="Total balance"]')).not.toHaveAttribute("aria-busy", "true");
   const settledLayout = await visibleBalanceRowLayout(page);
   expect(settledLayout).toEqual(provisionalLayout);
 });
