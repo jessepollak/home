@@ -80,6 +80,15 @@ jobs:
       - name: Test Chromium smoke and WebKit MoneyModal regression
         run: bun run --cwd apps/web test:browser-smoke
 
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-smoke-results
+          path: apps/web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
   delivery-automation-tests:
     name: delivery automation tests
     runs-on: ubuntu-latest

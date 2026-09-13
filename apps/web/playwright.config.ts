@@ -59,6 +59,9 @@ export default defineConfig({
   testMatch: "smoke.pw.ts",
   fullyParallel: false,
   workers: 1,
+  // Hosted runners are 3-5x slower and render fonts differently; a real failure
+  // still fails three times, and every failure keeps its trace + video.
+  retries: process.env.CI ? 2 : 0,
   webServer: {
     command: "bun run dev -- --port 3199",
     url: "http://localhost:3199",
