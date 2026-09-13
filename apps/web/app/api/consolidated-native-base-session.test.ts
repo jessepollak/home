@@ -71,7 +71,10 @@ describe("consolidated route authorization", () => {
     ] as const;
 
     for (const route of routes) {
-      expect((await route.invoke(validCookie)).status, `${route.name} valid session`).not.toBe(401);
+      const valid = await route.invoke(validCookie);
+      const validBody = (await valid.clone().json().catch(() => null)) as { error?: { code?: string } } | null;
+      expect([400, 401, 403], `${route.name} valid session status ${valid.status}`).not.toContain(valid.status);
+      expect(validBody?.error?.code, `${route.name} valid session boundary code`).not.toBe("AUTH_UNAVAILABLE");
       expect((await route.invoke(invalidCookie)).status, `${route.name} invalid session`).toBe(401);
     }
   });
@@ -79,7 +82,7 @@ describe("consolidated route authorization", () => {
 
 async function createSessionCookie(): Promise<string> {
   const dependencies = {
-    homeSessionSecret: SECRET,
+    sessionSecret: SECRET,
     now: () => NOW,
     randomId: () => "a".repeat(48),
     verify: async () => true,
