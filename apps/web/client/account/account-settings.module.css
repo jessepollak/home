@@ -1,10 +1,9 @@
 .page {
   display: grid;
   gap: var(--home-ui-space-8);
-  color: var(--home-ui-color-text);
-  font-family: var(--home-ui-font-family);
-  overflow-wrap: anywhere;
   padding: var(--home-ui-space-2) 0 var(--home-ui-space-6);
+  color: var(--home-ui-color-text);
+  overflow-wrap: anywhere;
 }
 
 .section {
@@ -13,65 +12,57 @@
 }
 
 .card {
+  margin: 0;
   overflow: hidden;
   border: 1px solid var(--home-ui-color-border);
   border-radius: var(--home-ui-radius-surface);
   background: var(--home-ui-color-surface);
+  padding: var(--home-ui-space-1) var(--home-ui-space-3);
+  list-style: none;
 }
 
-.countryRow,
-.row,
-.rowButton {
-  width: 100%;
+.card :global(.home-ui-list-row__content) {
   min-height: 64px;
-  padding: var(--home-ui-space-3) 14px;
 }
 
-.countryRow,
-.row {
-  display: grid;
-  align-items: center;
-  gap: var(--home-ui-space-3);
+.countryRow :global(.home-ui-list-row__value),
+.countryRow :global(.home-ui-list-row__value-primary) {
+  min-width: 0;
+  width: 100%;
+  font-family: var(--home-ui-font-family);
 }
 
-.countryRow {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-}
-
-.countryRow > [role="combobox"] {
+.countryRow [role="combobox"] {
   min-width: 0;
   max-width: 100%;
   white-space: normal;
 }
 
-.row {
+.contentRow :global(.home-ui-list-row__leading),
+.contentRow :global(.home-ui-list-row__value) {
+  display: none;
+}
+
+.contentRow :global(.home-ui-list-row__content) {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.row + .rowButton,
-.row + .row {
-  border-top: 1px solid var(--home-ui-color-border);
+.actionRow :global(.home-ui-list-row__leading),
+.actionRow :global(.home-ui-list-row__value) {
+  display: none;
 }
 
-.countryCopy,
-.row > div {
-  display: grid;
-  min-width: 0;
-  gap: var(--home-ui-space-1);
+.actionRow :global(.home-ui-list-row__content) {
+  grid-template-columns: minmax(0, 1fr) var(--home-ui-icon-size);
 }
 
-.row small button {
-  display: inline-flex;
-  min-height: var(--home-ui-target-min);
-  align-items: center;
-}
-
-.row code {
+.card code {
   font-family: var(--home-ui-font-numeric);
 }
 
-.disclosureRow {
+.disclosureRow :global(.home-ui-list-row__content) {
   min-height: 0;
+  padding-block: var(--home-ui-space-3);
 }
 
 .contracts button {
@@ -91,44 +82,8 @@
   font-weight: var(--home-ui-type-weight-medium);
 }
 
-.rowButton {
-  display: block;
-  border-radius: 0;
-  color: var(--home-ui-color-text);
-  text-align: left;
-}
-
-.rowButton:focus-visible {
-  outline-offset: -3px;
-}
-
-.rowButton :global(.home-ui-button__label),
-.rowButtonContent {
-  width: 100%;
-  min-width: 0;
-}
-
-.rowButtonContent {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--home-ui-space-3);
-}
-
-.rowButtonContent svg {
-  flex: 0 0 auto;
-  color: var(--home-ui-color-muted);
-}
-
 @media (max-width: 350px) {
-  .countryRow {
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .countryRow > [role="combobox"] {
-    grid-column: 2;
-    width: 100%;
+  .countryRow [role="combobox"] {
     justify-content: space-between;
     text-align: left;
   }

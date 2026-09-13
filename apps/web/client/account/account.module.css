@@ -1,17 +1,8 @@
-.sheetHeader,
-.fieldHeader {
+.sheetHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--home-ui-space-3);
-}
-
-.sheetHeader {
-  align-items: center;
-}
-
-.fieldHeader {
-  flex-wrap: wrap;
 }
 
 .closeButton {
@@ -24,12 +15,24 @@
   margin-top: var(--home-ui-space-6);
 }
 
-.form label,
-.fieldHeader label {
-  color: var(--home-ui-color-text);
-  font-size: var(--home-ui-type-secondary-size);
-  font-weight: var(--home-ui-type-weight-strong);
-  line-height: var(--home-ui-type-body-leading);
+.authField :global(.home-ui-control) {
+  min-height: max(54px, 3rem);
+}
+
+.input {
+  padding-inline: var(--home-ui-space-4);
+}
+
+.otpInput {
+  font-family: var(--home-ui-font-numeric);
+  font-size: 1.35rem;
+  font-weight: var(--home-ui-type-weight-medium);
+  letter-spacing: 0.24em;
+  text-align: center;
+}
+
+.otpField :global(.home-ui-field__control-row) {
+  align-items: stretch;
 }
 
 .signInDivider {
@@ -46,41 +49,6 @@
   content: "";
 }
 
-.input,
-.otpInput {
-  width: 100%;
-  min-height: max(54px, 3rem);
-  border: 1px solid color-mix(in srgb, var(--home-ui-color-text) 22%, transparent);
-  border-radius: var(--home-ui-radius-control);
-  background: var(--home-ui-color-surface);
-  color: var(--home-ui-color-text);
-  font-family: var(--home-ui-font-family);
-  font-size: var(--home-ui-type-input-size);
-  line-height: var(--home-ui-type-body-leading);
-  padding: var(--home-ui-space-2) var(--home-ui-space-4);
-}
-
-.otpInput {
-  font-family: var(--home-ui-font-numeric);
-  font-size: 1.35rem;
-  font-weight: var(--home-ui-type-weight-medium);
-  letter-spacing: 0.24em;
-  text-align: center;
-}
-
-.input:focus,
-.otpInput:focus {
-  border-color: var(--home-ui-color-focus);
-  outline: 3px solid color-mix(in srgb, var(--home-ui-color-focus) 14%, transparent);
-}
-
-.input:disabled,
-.otpInput:disabled {
-  background: var(--home-ui-color-disabled-surface);
-  color: var(--home-ui-color-disabled-text);
-  cursor: not-allowed;
-}
-
 .formAction,
 .statusAction {
   width: 100%;
@@ -95,37 +63,28 @@
   padding-inline: var(--home-ui-space-2);
 }
 
-.notice,
-.error,
+.message,
 .pendingPanel,
 .statusPanel {
-  margin: var(--home-ui-space-6) 0 0;
-  border-radius: var(--home-ui-radius-control);
-  padding: var(--home-ui-space-3) var(--home-ui-space-4);
-}
-
-.notice {
-  background: #eef3ff;
-  color: #17356f;
-}
-
-.error {
-  background: var(--home-ui-color-status-error-background);
-  color: var(--home-ui-color-status-error-text);
+  margin-top: var(--home-ui-space-6);
 }
 
 .pendingPanel {
   display: flex;
   align-items: center;
   gap: var(--home-ui-space-3);
+  border-radius: var(--home-ui-radius-control);
   background: var(--home-ui-color-subtle-hover);
+  padding: var(--home-ui-space-3) var(--home-ui-space-4);
 }
 
 .statusPanel {
   display: grid;
   gap: var(--home-ui-space-2);
   border: 1px solid var(--home-ui-color-border);
+  border-radius: var(--home-ui-radius-control);
   background: var(--home-ui-color-canvas);
+  padding: var(--home-ui-space-3) var(--home-ui-space-4);
 }
 
 .statusPanel a {
@@ -150,10 +109,6 @@
   border-top-color: var(--home-ui-color-action);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
-}
-
-.fieldHelp {
-  margin-top: calc(-1 * var(--home-ui-space-1));
 }
 
 .providerHandoff {
@@ -189,6 +144,14 @@
 }
 
 @media (max-width: 480px) {
+  .otpField :global(.home-ui-field__control-row) {
+    flex-wrap: wrap;
+  }
+
+  .changeEmailButton {
+    width: 100%;
+  }
+
   .providerHandoff {
     grid-template-columns: auto minmax(0, 1fr);
   }

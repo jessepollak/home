@@ -1,6 +1,6 @@
 "use client";
 
-import { Heading, IconButton, Text } from "@home/ui";
+import { Heading, IconButton, StatusMessage } from "@home/ui";
 import { Sheet } from "@home/ui/sheet";
 import { XIcon } from "@home/ui/icons";
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
@@ -266,8 +266,8 @@ export function AccountSignInSheet({
           <SignInBlockedPanel reason={signInAvailability === "provider-unavailable" ? "provider-unavailable" : "unconfigured"} />
         ) : (
           <>
-            {message ? <Text className={styles.notice} textStyle="secondary" role="status">{message}</Text> : null}
-            {authError ? <Text className={styles.error} textStyle="secondary" role="alert">{authError}</Text> : null}
+            {message ? <StatusMessage className={styles.message}>{message}</StatusMessage> : null}
+            {authError ? <StatusMessage className={styles.message} tone="error" role="alert">{authError}</StatusMessage> : null}
             <SignInStatus
               phase={isProviderHandoff ? null : activeBaseAccountPhase}
               cleaningUp={isCleaningUp}

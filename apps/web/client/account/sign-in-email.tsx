@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Text } from "@home/ui";
+import { Button, Field, Input, Text } from "@home/ui";
 import type { FormEvent, RefObject } from "react";
 import styles from "./account.module.css";
 
@@ -23,22 +23,27 @@ export function SignInEmail({
 }) {
   return (
     <form className={styles.form} onSubmit={onSubmit}>
-      <label htmlFor="account-email">Email address</label>
-      <input
-        ref={inputRef}
-        id="account-email"
-        className={styles.input}
-        type="email"
-        inputMode="email"
-        autoComplete="email"
-        placeholder="you@example.com"
-        value={email}
-        onChange={(event) => onEmailChange(event.currentTarget.value)}
-        disabled={isSendingCode}
+      <Field
+        className={styles.authField}
+        label="Email address"
+        htmlFor="account-email"
         required
-        autoFocus
-        data-initial-focus
-      />
+      >
+        <Input
+          ref={inputRef}
+          id="account-email"
+          className={styles.input}
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          placeholder="you@example.com"
+          value={email}
+          onChange={(event) => onEmailChange(event.currentTarget.value)}
+          disabled={isSendingCode}
+          autoFocus
+          data-initial-focus
+        />
+      </Field>
       <Button className={styles.formAction} type="submit" disabled={isSendingCode}>
         {isSendingCode ? "Sending code…" : "Continue with email"}
       </Button>

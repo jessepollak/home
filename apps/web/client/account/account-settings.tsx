@@ -1,8 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Button, Heading, Text } from "@home/ui";
-import { ArrowRightIcon } from "@home/ui/icons";
+import { Heading, ListRow, StatusMessage } from "@home/ui";
 import { CopyableValue } from "@/components/copyable-value";
 import { CountrySelect } from "@/components/country-select";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -57,88 +56,75 @@ export function AccountSettings({
         >
           Preferences
         </Heading>
-        <div className={styles.card}>
-          <div className={styles.countryRow}>
-            <CurrencyMark
-              currency={region.currency.code}
-              symbol={region.currency.symbol}
-            />
-            <div className={styles.countryCopy}>
-              <Text as="span" textStyle="row-label">
-                Country
-              </Text>
-              <Text
-                id="country-help"
-                textStyle="metadata"
-                tone="muted"
-              >
-                Sets how money is shown
-              </Text>
-            </div>
-            <CountrySelect
-              value={regionId}
-              onValueChange={onRegionChange}
-              describedBy="country-help preference-status"
-              variant="settings"
-            />
-          </div>
-        </div>
-        <p id="preference-status" className="sr-status" aria-live="polite">
+        <ul className={styles.card}>
+          <ListRow
+            className={styles.countryRow}
+            leading={(
+              <CurrencyMark
+                currency={region.currency.code}
+                symbol={region.currency.symbol}
+              />
+            )}
+            label="Country"
+            description={<span id="country-help">Sets how money is shown</span>}
+            value={(
+              <CountrySelect
+                value={regionId}
+                onValueChange={onRegionChange}
+                describedBy="country-help preference-status"
+                variant="settings"
+              />
+            )}
+          />
+        </ul>
+        <StatusMessage
+          id="preference-status"
+          aria-live="polite"
+          visuallyHidden
+        >
           {preferenceMessage ||
             (isPreferenceReady
               ? `${sourceLabels[resolutionSource]}.`
               : "Checking saved country preference.")}
-        </p>
+        </StatusMessage>
       </section>
 
       <section className={styles.section} aria-labelledby="account-heading">
         <Heading id="account-heading" level={2} textStyle="section-title">
           Account
         </Heading>
-        <div className={styles.card}>
-          <div className={styles.row}>
-            <div>
-              <Text as="strong" textStyle="row-label">
-                Base account
-              </Text>
-              <Text as="small" textStyle="metadata" tone="muted">
-                {accountAddress ? (
-                  <CopyableValue
-                    value={accountAddress}
-                    display={formatAddress(accountAddress)}
-                    valueKind="address"
-                  />
-                ) : (
-                  "Setup in progress"
-                )}
-              </Text>
-            </div>
-          </div>
-          <Button
-            className={styles.rowButton}
-            variant="quiet"
-            onClick={onSignOut}
-          >
-            <span className={styles.rowButtonContent}>
-              <Text as="span" textStyle="row-label">
-                Sign out
-              </Text>
-              <ArrowRightIcon
-                size={20}
-                weight="regular"
-                aria-hidden="true"
-                focusable="false"
+        <ul className={styles.card}>
+          <ListRow
+            className={styles.contentRow}
+            leading={null}
+            label="Base account"
+            description={accountAddress ? (
+              <CopyableValue
+                value={accountAddress}
+                display={formatAddress(accountAddress)}
+                valueKind="address"
               />
-            </span>
-          </Button>
-        </div>
+            ) : (
+              "Setup in progress"
+            )}
+            value={null}
+          />
+          <ListRow
+            className={styles.actionRow}
+            leading={null}
+            label="Sign out"
+            value={null}
+            onPress={onSignOut}
+            actionHint="Sign out of Home"
+          />
+        </ul>
       </section>
 
       <section className={styles.section} aria-labelledby="disclosures-heading">
         <Heading id="disclosures-heading" level={2} textStyle="section-title">
           Disclosures &amp; terms
         </Heading>
-        <div className={styles.card}>
+        <ul className={styles.card}>
           <DisclosureRow title="Availability">
             Features and providers vary by country. Tokenized stock trading
             requires issuer and provider eligibility verification.
@@ -212,7 +198,7 @@ export function AccountSettings({
               </a>
             </span>
           </DisclosureRow>
-        </div>
+        </ul>
       </section>
     </div>
   );
@@ -226,15 +212,12 @@ function DisclosureRow({
   children: ReactNode;
 }) {
   return (
-    <div className={`${styles.row} ${styles.disclosureRow}`}>
-      <div>
-        <Text as="strong" textStyle="row-label">
-          {title}
-        </Text>
-        <Text as="div" textStyle="metadata" tone="muted">
-          {children}
-        </Text>
-      </div>
-    </div>
+    <ListRow
+      className={`${styles.contentRow} ${styles.disclosureRow}`}
+      leading={null}
+      label={title}
+      description={children}
+      value={null}
+    />
   );
 }
