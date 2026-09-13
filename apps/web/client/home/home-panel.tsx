@@ -92,7 +92,8 @@ export function HomePanel({
       >
         {isLoading ? (
           <Skeleton
-            shape="text"
+            shape="rectangle"
+            height="2.4rem"
             className="balance-hero-shimmer"
             data-shimmer="hero"
           />

@@ -591,6 +591,14 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   expect(at390?.textWidth).toBeLessThanOrEqual(
     (at390?.clientWidth ?? 0) - (at390?.paddingLeft ?? 0) - (at390?.paddingRight ?? 0) + 2,
   );
+
+  // Deleting back to a short amount must grow the type back (the ticker's digit
+  // reservation must not pin the shrunken size).
+  const shrunk = at390?.fontSize ?? 0;
+  for (let index = 0; index < 17; index += 1) {
+    await page.getByRole("button", { name: "Delete last digit", exact: true }).click();
+  }
+  await expect.poll(async () => (await amountMetrics(page))?.fontSize).toBeGreaterThan(shrunk + 10);
 });
 
 test("money amount recomputes for text scaling", async ({ page }) => {

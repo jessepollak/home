@@ -416,7 +416,7 @@ export function SavingsExperience({
                     <span className={styles.vaultName}>
                       <Text as="strong" textStyle="row-label">{candidate.name}</Text>
                       {funded && loadState.status === "ready" ? (
-                        <Text as="span" className={styles.vaultApy} textStyle="metadata" tone="muted">
+                        <Text as="span" textStyle="metadata" tone="muted">
                           {fundedVaultApyLabel(candidate, loadState.data, rateNowMs)}
                         </Text>
                       ) : null}
@@ -430,7 +430,7 @@ export function SavingsExperience({
                         />
                       </Text>
                     ) : (
-                      <Text as="span" className={styles.vaultMeta} textStyle="metadata" tone="muted">
+                      <Text as="span" textStyle="metadata" tone="muted">
                         {loadState.status === "ready"
                           ? availableVaultApyLabel(candidate, loadState.data, rateNowMs)
                           : "APY unavailable"}

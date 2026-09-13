@@ -166,7 +166,7 @@ export function TransferActionsForWallet({
 
       {visibleSuccess ? (
         <ToastViewport>
-          <Toast tone="success" duration={6000} onDismiss={() => setSuccess(null)}>
+          <Toast key={visibleSuccess.transactionHash} tone="success" duration={6000} onDismiss={() => setSuccess(null)}>
             <div className={styles.successContent}>
               <span className={styles.successMark} aria-hidden="true">✓</span>
               <div>

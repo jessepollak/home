@@ -677,6 +677,7 @@ body:has(.app-frame-shell) {
   min-height: 64px;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
+  justify-items: stretch;
   gap: 12px;
   color: var(--home-ink);
   padding: 12px 14px;

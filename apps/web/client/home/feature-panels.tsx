@@ -40,7 +40,8 @@ function SavePanelShell() {
     <section className="save-panel-shell" aria-busy="true">
       <div className="save-panel-shell-hero">
         <Skeleton
-          shape="text"
+          shape="rectangle"
+          height="2.4rem"
           className="balance-hero-shimmer"
           data-shimmer="hero"
         />

@@ -279,7 +279,8 @@ function OrderStatus({ order, onBack }: { order: FundingOrderSummary; onBack: ()
   return (
     <>
       <Stack className={`${modal.body} ${styles.statusStack}`} space="2">
-        <StatusMessage title={copy.title}>{copy.body}</StatusMessage>
+        <Heading level={3} textStyle="section-title">{copy.title}</Heading>
+        <StatusMessage>{copy.body}</StatusMessage>
         {order.instructions ? <InstructionView instruction={order.instructions} /> : null}
         {order.providerStatus ? <Text textStyle="secondary" tone="muted">Status: {order.providerStatus}</Text> : null}
       </Stack>

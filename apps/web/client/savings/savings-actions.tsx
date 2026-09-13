@@ -214,7 +214,7 @@ export function SavingsMoneyDialog({
                 ]}
               />
               {step === "pending" ? (
-                <StatusMessage id="savings-action-pending">
+                <StatusMessage id="savings-action-pending" className={modal.pending}>
                   <span className={modal.spinner} aria-hidden="true" />
                   Waiting for your wallet…
                 </StatusMessage>
@@ -267,7 +267,7 @@ export function SavingsMoneyDialog({
 
       {success ? (
         <ToastViewport>
-          <Toast tone="success" duration={6000} onDismiss={() => setSuccess(null)}>
+          <Toast key={`${success.mode}:${success.amount}`} tone="success" duration={6000} onDismiss={() => setSuccess(null)}>
             <Text as="strong" textStyle="row-label">
               {success.mode === "deposit" ? "Deposited" : "Withdrew"} {success.amount}
             </Text>

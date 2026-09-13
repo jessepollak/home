@@ -96,6 +96,9 @@ export function useAutoFitAmountText(text: string) {
       const available = container.clientWidth - horizontalPadding;
       const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
       const currentSize = Number.parseFloat(computed.fontSize);
+      // Measure the ticker box itself (what is laid out). Its digit reservation only
+      // grows, so the primary ticker is keyed on the text length below: a shortened
+      // amount remounts with a fresh reservation and grows back.
       const ticker = container.querySelector<HTMLElement>(".home-ui-money-ticker");
       const renderedNatural = ticker?.offsetWidth || sizer.getBoundingClientRect().width;
       if (available <= 0 || renderedNatural <= 0 || !Number.isFinite(base) || base <= 0) return;
@@ -105,20 +108,20 @@ export function useAutoFitAmountText(text: string) {
         : renderedNatural;
       const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
       const min = Number.parseFloat(minRaw) || AMOUNT_MIN_FONT_SIZE_FALLBACK;
-      const scaled = (base * available * AMOUNT_FIT_SAFETY_FACTOR) / natural;
-      // Keep the minimum vertical type size while compacting only the inline
-      // axis when DM Mono's fixed glyph widths need a little more room.
-      const target = Math.floor(Math.min(base, Math.max(min, scaled)) * 10) / 10;
-      const targetScaleX = Math.min(1, scaled / target);
+      const fitted = available * AMOUNT_FIT_SAFETY_FACTOR;
+      const target = Math.floor(fitAmountFontSize(fitted, natural, base, min) * 10) / 10;
+      // At the minimum type size an extreme value (20 characters at 320px) can still
+      // exceed the width; compact only the inline axis by the small remainder rather
+      // than clipping or dropping below the readable minimum.
+      const unclamped = (base * fitted) / natural;
+      const targetScaleX = Math.min(1, Math.max(0.9, unclamped / target));
 
       setFontSize((current) =>
         current !== undefined && Math.abs(current - target) < AMOUNT_FIT_TOLERANCE_PX
           ? current
           : target,
       );
-      setScaleX((current) =>
-        Math.abs(current - targetScaleX) < 0.005 ? current : targetScaleX,
-      );
+      setScaleX((current) => (Math.abs(current - targetScaleX) < 0.005 ? current : targetScaleX));
     };
 
     measure();
@@ -254,8 +257,9 @@ export function MoneyPrimaryAmount({
         style={fontSize === undefined ? undefined : { fontSize }}
       >
         <MoneyTicker
+          key={Array.from(text).length}
           value={text}
-          style={scaleX < 1 ? { transform: `scaleX(${scaleX})` } : undefined}
+          style={scaleX < 1 ? { transform: `scaleX(${scaleX})`, transformOrigin: "left center" } : undefined}
         />
       </div>
       <span
