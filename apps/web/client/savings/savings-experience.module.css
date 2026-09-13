@@ -36,27 +36,27 @@
 .vaults,
 .vaultList { width: 100%; }
 .vaults { display: grid; gap: 10px; }
-.vault { display: grid; width: 100%; border: 1px solid var(--separator); border-radius: var(--panel-radius); }
-
-.vaultHeader {
+.vault {
   display: grid;
   width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: var(--panel-radius);
+  list-style: none;
+}
+.vaultRow { border: 0; }
+.vaultRow :global(.home-ui-list-row__content) {
   min-height: 64px;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
   gap: 12px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
   padding: 14px 16px;
-  text-align: left;
-  font: inherit;
 }
+.vaultRow :global(.home-ui-list-row__leading),
+.vaultRow :global(.home-ui-list-row__indicator) { display: none; }
 
 .vaultSelected { border-color: var(--home-blue); box-shadow: 0 0 0 1px var(--home-blue); }
-.vaultName { display: grid; min-width: 0; gap: 3px; }
-.vaultBalance { min-width: 0; max-width: 100%; }
 
 .detailsBody {
   border-top: 1px solid var(--separator);
@@ -118,8 +118,14 @@
   .vaults,
   .vaultList,
   .actions { min-width: 0; max-width: 100%; }
-  .vaultHeader { grid-template-columns: minmax(0, 1fr); align-items: start; }
-  .vaultBalance { justify-self: start; text-align: left; }
+  .vaultRow :global(.home-ui-list-row__content) {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+  .vaultRow :global(.home-ui-list-row__value) {
+    justify-items: start;
+    text-align: left;
+  }
   .actionsSplit { grid-template-columns: 1fr; }
 }
 

@@ -49,7 +49,7 @@ async function expectWholeAsciiWords(locator: Locator) {
 async function expectNoOverflow(page: Page) {
   await page.evaluate(() => document.fonts.ready);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  const clipped = await page.locator(".home-ui-text, .home-ui-money-ticker, .home-ui-button, .home-ui-field, .home-ui-control, .home-ui-list-row, .home-ui-list-row__content, .home-ui-badge, .home-ui-divider, .catalog-section, .catalog-controls, .catalog-control-grid, .catalog-control-grid label, .home-ui-empty-state, .home-ui-status-message, .home-ui-toast").evaluateAll((elements) =>
+  const clipped = await page.locator(".home-ui-text, .home-ui-money-ticker, .home-ui-button, .home-ui-segmented-control, .home-ui-segmented-control__item, .home-ui-field, .home-ui-control, .home-ui-list-row, .home-ui-list-row__content, .home-ui-badge, .home-ui-divider, .catalog-section, .catalog-controls, .catalog-control-grid, .catalog-control-grid label, .home-ui-empty-state, .home-ui-status-message, .home-ui-toast").evaluateAll((elements) =>
     elements.filter((element) => {
       // Tight display line boxes can have visible font ink outside their height;
       // that is not clipping. Still reject horizontal overflow and any vertical
@@ -176,7 +176,7 @@ for (const width of [320, 390, 1280]) {
     await page.getByRole("combobox", { name: "Text size" }).selectOption("200");
 
     const rows = page.locator(".home-ui-list-row");
-    await expect(rows).toHaveCount(3);
+    await expect(rows).toHaveCount(4);
     await expect(page.getByText("Received from a wallet with a long and detailed display name", { exact: true })).toBeVisible();
     await expect(page.getByText("+$1,234,567.89", { exact: true })).toBeVisible();
     await expect(page.locator(".home-ui-badge")).toHaveCount(5);
@@ -189,6 +189,49 @@ for (const width of [320, 390, 1280]) {
     await expectNoOverflow(page);
   });
 }
+
+test("SegmentedControl selects with Arrow, Home, and End keys and keeps 44px targets", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto("/");
+  const group = page.getByRole("radiogroup", { name: "Chart range specimen" });
+  const day = group.getByRole("radio", { name: "1D" });
+  const week = group.getByRole("radio", { name: "1W" });
+  const year = group.getByRole("radio", { name: "1Y" });
+
+  await day.focus();
+  await day.press("ArrowRight");
+  await expect(week).toBeFocused();
+  await expect(week).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("[data-segmented-value]")).toHaveText("Selected range: 1W");
+  await week.press("End");
+  await expect(year).toBeFocused();
+  await expect(year).toHaveAttribute("aria-checked", "true");
+  await year.press("Home");
+  await expect(day).toBeFocused();
+  await expect(day).toHaveAttribute("aria-checked", "true");
+
+  for (const item of await group.getByRole("radio").all()) {
+    const box = await item.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  }
+  await page.getByRole("combobox", { name: "Text size" }).selectOption("200");
+  await expectNoOverflow(page);
+});
+
+test("320px valueless ListRow gives its label the full trailing-content width", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto("/");
+  const row = page.locator("[data-valueless-row]");
+  await expect(row).toHaveAttribute("data-has-value", "false");
+  await expect(row.locator(".home-ui-list-row__value")).toHaveCount(0);
+  const widths = await row.evaluate((element) => {
+    const control = element.querySelector<HTMLElement>(".home-ui-list-row__content")!;
+    const identity = element.querySelector<HTMLElement>(".home-ui-list-row__identity")!;
+    return { control: control.getBoundingClientRect().width, identity: identity.getBoundingClientRect().width };
+  });
+  expect(widths.identity).toBeGreaterThan(widths.control * 0.5);
+});
 
 test("interactive ListRows follow keyboard order and native activation", async ({ page }) => {
   await page.goto("/");

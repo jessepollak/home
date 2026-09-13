@@ -9,13 +9,16 @@ import type {
 
 export type ListRowTone = "default" | "accent" | "success" | "error" | "muted";
 
-type ListRowBaseProps = Omit<HTMLAttributes<HTMLLIElement>, "children" | "onClick"> & {
+type ListRowBaseProps = Omit<
+  HTMLAttributes<HTMLLIElement>,
+  "aria-checked" | "children" | "onClick" | "role"
+> & {
   leading: ReactNode;
   label: ReactNode;
   description?: ReactNode;
   /** Interactive rows only: announced as a description after the row content ("View details"). */
   actionHint?: string;
-  value: ReactNode;
+  value?: ReactNode;
   valueDescription?: ReactNode;
   tone?: ListRowTone;
 };
@@ -27,6 +30,9 @@ type StaticListRowProps = {
   target?: never;
   rel?: never;
   download?: never;
+  role?: never;
+  "aria-checked"?: never;
+  name?: never;
 };
 
 type PressableListRowProps = {
@@ -36,6 +42,9 @@ type PressableListRowProps = {
   target?: never;
   rel?: never;
   download?: never;
+  role?: "radio";
+  "aria-checked"?: ButtonHTMLAttributes<HTMLButtonElement>["aria-checked"];
+  name?: ButtonHTMLAttributes<HTMLButtonElement>["name"];
 };
 
 type LinkedListRowProps = {
@@ -45,6 +54,9 @@ type LinkedListRowProps = {
   target?: AnchorHTMLAttributes<HTMLAnchorElement>["target"];
   rel?: AnchorHTMLAttributes<HTMLAnchorElement>["rel"];
   download?: AnchorHTMLAttributes<HTMLAnchorElement>["download"];
+  role?: never;
+  "aria-checked"?: never;
+  name?: never;
 };
 
 export type ListRowProps = ListRowBaseProps &
@@ -65,7 +77,10 @@ export function ListRow({
   download,
   className,
   "aria-label": ariaLabel,
+  "aria-checked": ariaChecked,
   actionHint,
+  role,
+  name,
   ...rowProps
 }: ListRowProps) {
   // Interactive rows keep their content as the accessible name; the action hint is a description.
@@ -80,12 +95,14 @@ export function ListRow({
           <span className="home-ui-list-row__description">{description}</span>
         ) : null}
       </span>
-      <span className="home-ui-list-row__value" data-tone={tone}>
-        <span className="home-ui-list-row__value-primary">{value}</span>
-        {valueDescription !== undefined ? (
-          <span className="home-ui-list-row__value-description">{valueDescription}</span>
-        ) : null}
-      </span>
+      {value !== undefined ? (
+        <span className="home-ui-list-row__value" data-tone={tone}>
+          <span className="home-ui-list-row__value-primary">{value}</span>
+          {valueDescription !== undefined ? (
+            <span className="home-ui-list-row__value-description">{valueDescription}</span>
+          ) : null}
+        </span>
+      ) : null}
       {onPress !== undefined || href !== undefined ? (
         <span className="home-ui-list-row__indicator" aria-hidden="true">›</span>
       ) : null}
@@ -100,6 +117,9 @@ export function ListRow({
         type="button"
         onClick={onPress}
         disabled={disabled}
+        role={role}
+        aria-checked={ariaChecked}
+        name={name}
         aria-describedby={describedBy}
       >
         {content}
@@ -129,6 +149,7 @@ export function ListRow({
       {...rowProps}
       className={["home-ui-list-row", className].filter(Boolean).join(" ")}
       data-interactive={onPress !== undefined || href !== undefined ? "true" : "false"}
+      data-has-value={value !== undefined ? "true" : "false"}
       aria-label={onPress === undefined && href === undefined ? ariaLabel : undefined}
     >
       {rowContent}

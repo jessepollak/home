@@ -138,7 +138,6 @@ export function MethodBody({
           )}
           label="Receive crypto"
           description="USDC and supported tokens on Base"
-          value=""
           actionHint="Open receive options"
           onPress={onSelectReceive}
         />
@@ -153,7 +152,6 @@ export function MethodBody({
               />
             )}
             label={`Deposit ${binding.currency} with ${binding.displayName}`}
-            value=""
             actionHint="Open deposit flow"
             onPress={() => onSelectBinding(binding)}
           />

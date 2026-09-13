@@ -147,6 +147,26 @@ afterEach(() => {
 });
 
 describe("Save simplify", () => {
+  test("exposes vault selection as named radio controls with checked state", async () => {
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session(ADDRESS_A)}
+        fetchPositions={async () => positions(ADDRESS_A)}
+      />,
+    );
+
+    const gauntletRadio = await page().findByRole("radio", { name: /Gauntlet USDC Prime/ });
+    const steakhouseRadio = page().getByRole("radio", { name: /Steakhouse USDC/ });
+    expect(gauntletRadio.getAttribute("aria-checked")).toBe("true");
+    expect(steakhouseRadio.getAttribute("aria-checked")).toBe("false");
+    expect(gauntletRadio.getAttribute("name")).toBe("savings-vault");
+    fireEvent.click(steakhouseRadio);
+    expect(steakhouseRadio.getAttribute("aria-checked")).toBe("true");
+    expect(gauntletRadio.getAttribute("aria-checked")).toBe("false");
+  });
+
   test("prepares a deposit with the selected vault and exact base-unit amount", async () => {
     const prepares: unknown[] = [];
     render(

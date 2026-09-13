@@ -1,6 +1,11 @@
 export { Text, Heading, type TextProps, type HeadingProps, type TextStyle } from "./text";
 export { Button, type ButtonProps } from "./button";
 export { IconButton, type IconButtonProps } from "./icon-button";
+export {
+  SegmentedControl,
+  type SegmentedControlItem,
+  type SegmentedControlProps,
+} from "./segmented-control";
 export { Field, type FieldProps } from "./field";
 export { Input, type InputProps } from "./input";
 export { Select, type SelectProps } from "./select";

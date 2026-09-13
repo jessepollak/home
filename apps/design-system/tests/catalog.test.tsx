@@ -38,7 +38,11 @@ test("catalog renders real package exports and deterministic specimen controls",
   expect(container.querySelectorAll("[data-token-kind='shadow']")).toHaveLength(2);
   expect(container.querySelectorAll("[data-token-kind='layer']")).toHaveLength(3);
   expect(container.querySelectorAll("[data-token-kind='easing']")).toHaveLength(3);
-  expect(container.querySelectorAll(".home-ui-list-row")).toHaveLength(3);
+  expect(container.querySelectorAll(".home-ui-list-row")).toHaveLength(4);
+  expect(container.querySelector("[data-valueless-row]")?.getAttribute("data-has-value")).toBe("false");
+  expect(page.getByRole("radiogroup", { name: "Chart range specimen" }).classList.contains("home-ui-segmented-control")).toBe(true);
+  fireEvent.keyDown(page.getByRole("radio", { name: "1D", checked: true }), { key: "ArrowRight" });
+  expect(container.querySelector("[data-segmented-value]")?.textContent).toBe("Selected range: 1W");
   expect(container.querySelectorAll(".home-ui-badge")).toHaveLength(5);
   expect(container.querySelectorAll(".home-ui-divider")).toHaveLength(2);
   expect(page.getByRole("button", { description: "Open received transaction" }).closest("li")?.classList.contains("home-ui-list-row")).toBe(true);
