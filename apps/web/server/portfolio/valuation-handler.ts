@@ -1,10 +1,12 @@
+import "server-only";
+
 import { isRegionId, type RegionId } from "@/config/regions";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import {
   authorizeSession,
   type SessionAuthorizer,
 } from "@/server/auth/authorize";
-import type { PortfolioValuationSnapshot } from "@/shared/portfolio/valuation-types";
+import type { PortfolioValuationSnapshot } from "@/shared/portfolio/contract";
 import {
   BASE_CHAIN_ID,
   type Address,
@@ -72,7 +74,7 @@ export function createPortfolioValuationHandler(dependencies: {
         request.signal,
         { fresh: wantsFresh && freshReadLimiter.take(ownerKey(session)) },
       );
-      return privateJson(snapshot, 200);
+      return privateJson(snapshot satisfies PortfolioValuationSnapshot, 200);
     } catch {
       return privateJson(
         {

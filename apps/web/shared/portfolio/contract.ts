@@ -1,3 +1,6 @@
+// Route contract.
+// GET /api/portfolio/valuation
+
 import {
   PORTFOLIO_NATIVE_ASSET_KEY,
   PORTFOLIO_USDC_ASSET_KEY,
@@ -8,7 +11,10 @@ import {
   type FiatCurrencyCode,
   type RegionId,
 } from "@/config/regions";
-import type { PortfolioValuationSnapshot } from "./valuation-state";
+import type { PortfolioValuationSnapshot } from "./valuation-types";
+export type { PortfolioValuationSnapshot } from "./valuation-types";
+
+export const PORTFOLIO_VALUATION_VERSION = 2 as const;
 import type { VerifiedPortfolioSession } from "@/shared/portfolio/types";
 import {
   baseUnitsToFraction,
@@ -51,7 +57,7 @@ export function parsePortfolioValuationSnapshot(
   if (!isRecord(value)) fail();
   const expectedCurrency = presentationRegions[expectedRegion].currency.code;
   if (
-    value.version !== 2 ||
+    value.version !== PORTFOLIO_VALUATION_VERSION ||
     value.chainId !== 8453 ||
     value.selectedRegion !== expectedRegion ||
     value.quoteCurrency !== expectedCurrency ||

@@ -7,7 +7,7 @@ import {
   portfolioVaults,
   verifiedLocalCashAssets,
 } from "@/config/portfolio-assets";
-import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/parse-valuation";
+import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/contract";
 import { presentPortfolioValuation } from "@/shared/portfolio/present-home-balances";
 import { supportedFiatCurrencies } from "@/server/portfolio/fx-coinbase";
 import type {

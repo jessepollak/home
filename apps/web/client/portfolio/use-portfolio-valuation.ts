@@ -4,7 +4,7 @@ import { keepPreviousData } from "@tanstack/react-query";
 import type { RegionId } from "@/config/regions";
 import { isVerifiedPortfolioSession } from "@/client/portfolio/parse";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
-import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/parse-valuation";
+import { parsePortfolioValuationSnapshot } from "@/shared/portfolio/contract";
 import type {
   FetchPortfolioValuation,
   PortfolioValuationSnapshot,
