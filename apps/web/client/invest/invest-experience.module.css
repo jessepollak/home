@@ -123,34 +123,6 @@
   letter-spacing: 0.04em;
 }
 
-.ranges {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
-  padding: 0 2px;
-}
-
-.ranges button {
-  min-height: 34px;
-  border: 1px solid transparent;
-  border-radius: var(--home-ui-radius-control);
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-  font-size: var(--home-ui-type-metadata-size);
-  font-weight: var(--home-ui-type-weight-strong);
-  transition:
-    background-color var(--home-ui-motion-chip) var(--home-ui-easing-standard),
-    border-color var(--home-ui-motion-chip) var(--home-ui-easing-standard),
-    color var(--home-ui-motion-chip) var(--home-ui-easing-standard);
-}
-
-.ranges button[aria-pressed="true"] {
-  border-color: var(--separator);
-  background: var(--home-ui-color-canvas);
-  color: var(--fg);
-}
-
 .chartStage {
   position: relative;
   display: flex;
@@ -291,10 +263,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ranges button,
-  .plotCover {
-    transition: none;
-  }
+  .plotCover { transition: none; }
 
   .plotCoverChip::after,
   .spinner {

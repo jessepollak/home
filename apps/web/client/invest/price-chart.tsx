@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Text } from "@home/ui";
+import { SegmentedControl, Text } from "@home/ui";
 import { Liveline, type LivelinePoint } from "liveline";
 import {
   MARKET_PRICE_RANGES,
@@ -18,6 +18,7 @@ import type { PriceHistoryState } from "./use-price-history";
 import styles from "./invest-experience.module.css";
 
 const LINE_COLOR = "#0052ff";
+const RANGE_ITEMS = MARKET_PRICE_RANGES.map((value) => ({ value, label: value }));
 const RANGE_SECONDS: Record<MarketPriceRange, number> = {
   "1D": 86_400,
   "1W": 7 * 86_400,
@@ -54,18 +55,13 @@ export function PriceChart({
         <Text as="span" textStyle="metadata" tone="muted">Price history</Text>
         <Text as="strong" textStyle="metadata">USD</Text>
       </div>
-      <div className={styles.ranges} role="group" aria-label="Price range">
-        {MARKET_PRICE_RANGES.map((option) => (
-          <button
-            key={option}
-            type="button"
-            aria-pressed={option === range}
-            onClick={() => onRangeChange(option)}
-          >
-            {option}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        items={RANGE_ITEMS}
+        value={range}
+        onValueChange={onRangeChange}
+        aria-label="Price range"
+        stretch
+      />
       <ChartBody history={history} range={range} />
     </div>
   );

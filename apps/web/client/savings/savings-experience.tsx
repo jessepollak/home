@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, EmptyState, Heading, Skeleton, Stack, StatusMessage, Text } from "@home/ui";
+import { Button, EmptyState, Heading, ListRow, Skeleton, Stack, StatusMessage, Text } from "@home/ui";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
 import { useOptionalAppChrome } from "@/components/app-chrome";
@@ -402,43 +402,33 @@ export function SavingsExperience({
                 entry.vaultAddress.toLowerCase() === candidate.vaultAddress.toLowerCase(),
               );
               return (
-                <div
+                <ul
                   key={candidate.vaultAddress}
                   className={`${styles.vault} surface-primary ${isSelected ? styles.vaultSelected : ""}`.trim()}
                 >
-                  <button
-                    className={styles.vaultHeader}
-                    type="button"
+                  <ListRow
+                    className={styles.vaultRow}
+                    leading={null}
+                    label={candidate.name}
+                    description={funded && loadState.status === "ready"
+                      ? fundedVaultApyLabel(candidate, loadState.data, rateNowMs)
+                      : undefined}
+                    value={showBalanceRows ? (
+                      <MoneyTicker
+                        value={balance?.amount === null || balance?.amount === undefined
+                          ? "—"
+                          : formatUsdStablecoinAmount(balance.amount.toString())}
+                      />
+                    ) : loadState.status === "ready"
+                      ? availableVaultApyLabel(candidate, loadState.data, rateNowMs)
+                      : "APY unavailable"}
+                    onPress={() => setSelectedAddress(candidate.vaultAddress)}
                     role="radio"
                     aria-checked={isSelected}
-                    onClick={() => setSelectedAddress(candidate.vaultAddress)}
-                  >
-                    <span className={styles.vaultName}>
-                      <Text as="strong" textStyle="row-label">{candidate.name}</Text>
-                      {funded && loadState.status === "ready" ? (
-                        <Text as="span" textStyle="metadata" tone="muted">
-                          {fundedVaultApyLabel(candidate, loadState.data, rateNowMs)}
-                        </Text>
-                      ) : null}
-                    </span>
-                    {showBalanceRows ? (
-                      <Text as="span" className={styles.vaultBalance} textStyle="row-value">
-                        <MoneyTicker
-                          value={balance?.amount === null || balance?.amount === undefined
-                            ? "—"
-                            : formatUsdStablecoinAmount(balance.amount.toString())}
-                        />
-                      </Text>
-                    ) : (
-                      <Text as="span" textStyle="metadata" tone="muted">
-                        {loadState.status === "ready"
-                          ? availableVaultApyLabel(candidate, loadState.data, rateNowMs)
-                          : "APY unavailable"}
-                      </Text>
-                    )}
-                  </button>
+                    name="savings-vault"
+                  />
                   {isSelected ? (
-                    <div className={styles.detailsBody}>
+                    <li className={styles.detailsBody}>
                       <dl className={styles.detailsFacts}>
                         <div className={styles.detailsFact}>
                           <dt>Fee</dt>
@@ -459,9 +449,9 @@ export function SavingsExperience({
                           </dd>
                         </div>
                       </dl>
-                    </div>
+                    </li>
                   ) : null}
-                </div>
+                </ul>
               );
             })}
           </Stack>

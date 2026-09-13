@@ -20,10 +20,7 @@ const nodeBuiltins = "assert|async_hooks|buffer|child_process|cluster|crypto|dgr
 // Baseline allowlists contain today's production violators. Entries only shrink
 // as files adopt @home/ui; do not add new files to make a lint failure pass.
 const rawButtonAllowlist = [
-  "client/invest/price-chart.tsx",
   "client/landing/supported-globe.tsx",
-  "client/savings/savings-experience.tsx",
-  "components/address-field.tsx",
 ];
 
 const rawFieldAllowlist = [
