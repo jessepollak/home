@@ -2,11 +2,43 @@
 @import "@home/ui/tokens.css";
 @import "@home/ui/tailwind.css";
 @import "@home/ui/styles.css";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 @source "../../../packages/ui/src";
 
+@custom-variant dark (&:is(.dark *));
+
 :root {
+  --background: var(--home-ui-color-surface);
+  --foreground: var(--home-ui-color-text);
+  --card: var(--home-ui-color-surface);
+  --card-foreground: var(--home-ui-color-text);
+  --popover: var(--home-ui-color-surface);
+  --popover-foreground: var(--home-ui-color-text);
+  --primary: var(--home-ui-color-action);
+  --primary-foreground: var(--home-ui-color-on-action);
+  --secondary: var(--home-ui-color-canvas);
+  --secondary-foreground: var(--home-ui-color-text);
+  --muted: var(--home-ui-color-canvas);
+  --muted-foreground: var(--home-ui-color-muted);
+  --accent: var(--home-ui-color-canvas);
+  --accent-foreground: var(--home-ui-color-text);
+  --destructive: var(--home-ui-color-error);
+  --border: var(--home-ui-color-border);
+  --input: var(--home-ui-color-border);
+  --ring: var(--home-ui-color-focus);
+  --success: var(--home-ui-color-success);
+  --success-foreground: var(--home-ui-color-on-action);
+  --warning: var(--home-ui-color-status-warning-border);
+  --warning-foreground: var(--home-ui-color-on-action);
+  --warning-background: var(--home-ui-color-status-warning-background);
+  --warning-border: var(--home-ui-color-status-warning-border);
+  --market-gain: var(--home-ui-color-market-gain);
+  --market-loss: var(--home-ui-color-market-loss);
+  --radius: 0.375rem;
+
   --home-ink: var(--home-ui-color-text);
-  --home-muted: var(--home-ui-color-muted);
+  --home-text-muted: var(--home-ui-color-muted);
   --home-white: var(--home-ui-color-surface);
   --home-canvas: var(--home-ui-color-canvas);
   --home-hairline: var(--home-ui-color-border);
@@ -17,11 +49,8 @@
   --home-gray-100: var(--home-hairline);
   --home-gray-300: #b1b7c3;
   --home-gray-500: #717886;
-  --home-gray-600: var(--home-muted);
+  --home-gray-600: var(--home-text-muted);
   --home-gray-800: #32353d;
-  --background: var(--home-white);
-  --foreground: var(--home-ink);
-  --muted: var(--home-muted);
   --line: var(--home-hairline);
   --surface: var(--home-canvas);
   --base-blue: var(--home-blue);
@@ -30,15 +59,107 @@
   --motion-tab: 180ms;
   --motion-chip: 120ms;
   --motion-press: 100ms;
+  --home-focus-offset: 3px;
+  --home-country-select-max-height: 20rem;
+  --home-country-select-shadow: 0 12px 32px color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.75 0.16 260);
+  --primary-foreground: oklch(0.145 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.75 0.16 260);
+  --success: oklch(0.75 0.14 150);
+  --success-foreground: oklch(0.145 0 0);
+  --warning: oklch(0.75 0.16 260);
+  --warning-foreground: oklch(0.145 0 0);
+  --warning-background: oklch(0.269 0 0);
+  --warning-border: oklch(0.75 0.16 260);
+  --market-gain: oklch(0.75 0.14 150);
+  --market-loss: oklch(0.704 0.191 22.216);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-accent: var(--base-blue);
-  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-background: var(--warning-background);
+  --color-warning-border: var(--warning-border);
+  --color-market-gain: var(--market-gain);
+  --color-market-loss: var(--market-loss);
+  --font-sans: var(--home-ui-font-dm-sans), ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: var(--home-ui-font-dm-mono), ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --radius-sm: calc(var(--radius) * 0.6667);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.3333);
+  --radius-xl: calc(var(--radius) * 2);
+  --radius-2xl: calc(var(--radius) * 2.6667);
+  --radius-3xl: calc(var(--radius) * 3.3333);
+  --radius-4xl: calc(var(--radius) * 4);
+  --text-amount: 2.5rem;
+  --text-amount--line-height: 1.1;
+  --text-page-title: 2rem;
+  --text-page-title--line-height: 1.2;
+  --text-sheet-title: 1.5rem;
+  --text-sheet-title--line-height: 1.25;
+  --text-section-title: 1.125rem;
+  --text-section-title--line-height: 1.4;
+  --text-row-label: 1rem;
+  --text-row-label--line-height: 1.5;
+  --text-row-value: 1rem;
+  --text-row-value--line-height: 1.5;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5;
+  --text-input: 1rem;
+  --text-input--line-height: 1.25;
+  --text-control: 1rem;
+  --text-control--line-height: 1.25;
+  --text-secondary: 0.875rem;
+  --text-secondary--line-height: 1.5;
+  --text-country-select: 0.92rem;
+  --text-toggle-sm: 0.8rem;
+  --spacing-control-inset: 0.1875rem;
+  --spacing-hairline: 0.0625rem;
+  --spacing-tab-indicator-offset: 0.3125rem;
+  --text-metadata: 0.75rem;
+  --text-metadata--line-height: 1.5;
 }
+
+/* The generated universal border rule is intentionally omitted: this step is pixel-neutral. */
+@layer base {}
 
 * {
   box-sizing: border-box;
@@ -264,13 +385,13 @@ body:has(.app-frame-shell) {
 .header-account-link:disabled {
   border-color: var(--line);
   background: var(--surface);
-  color: var(--muted);
+  color: var(--home-text-muted);
 }
 
 .header-account-quiet:disabled {
   border-color: var(--home-hairline);
   background: var(--home-white);
-  color: var(--home-muted);
+  color: var(--home-text-muted);
 }
 
 .app-main {
@@ -368,7 +489,7 @@ body:has(.app-frame-shell) {
 .eyebrow,
 .section-kicker {
   margin: 0;
-  color: var(--home-muted);
+  color: var(--home-text-muted);
   font-size: 0.72rem;
   font-weight: 750;
   letter-spacing: 0.08em;
@@ -401,7 +522,7 @@ body:has(.app-frame-shell) {
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
   background: var(--surface);
-  color: var(--muted);
+  color: var(--home-text-muted);
   font-size: 0.72rem;
   padding: 12px 14px;
 }
@@ -457,7 +578,7 @@ body:has(.app-frame-shell) {
 
 .balance-status {
   margin: 8px 0 0;
-  color: var(--home-muted);
+  color: var(--home-text-muted);
   font-size: 0.78rem;
   line-height: 1.35;
 }
@@ -548,7 +669,7 @@ body:has(.app-frame-shell) {
 
 .balances-panel h2 {
   margin: 0;
-  color: var(--home-muted);
+  color: var(--home-text-muted);
   font-size: 0.72rem;
   font-weight: 750;
   letter-spacing: 0.08em;
@@ -585,7 +706,7 @@ body:has(.app-frame-shell) {
 
 .balances-empty {
   margin: 14px 0 4px;
-  color: var(--muted);
+  color: var(--home-text-muted);
   font-size: 0.78rem;
 }
 
@@ -669,7 +790,7 @@ body:has(.app-frame-shell) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--muted);
+  color: var(--home-text-muted);
   font-size: 0.66rem;
   font-weight: 650;
   white-space: nowrap;
@@ -700,7 +821,7 @@ body:has(.app-frame-shell) {
 }
 
 .balance-value span {
-  color: var(--muted);
+  color: var(--home-text-muted);
   font-size: 0.74rem;
   font-weight: 600;
 }
@@ -792,7 +913,7 @@ body:has(.app-frame-shell) {
 
 .account-message {
   margin: 15px 0 0;
-  color: var(--muted);
+  color: var(--home-text-muted);
   font-size: 0.74rem;
 }
 
@@ -814,7 +935,7 @@ body:has(.app-frame-shell) {
 }
 
 .account-details dt {
-  color: var(--muted);
+  color: var(--home-text-muted);
   font-size: 0.58rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -832,7 +953,7 @@ body:has(.app-frame-shell) {
 }
 
 .section-heading-row > span {
-  color: var(--muted);
+  color: var(--home-text-muted);
   font-size: 0.64rem;
   text-align: right;
 }
@@ -850,7 +971,7 @@ body:has(.app-frame-shell) {
 
 .asset-section > h3 {
   margin: 14px 0 -4px;
-  color: var(--muted);
+  color: var(--home-text-muted);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -864,7 +985,7 @@ body:has(.app-frame-shell) {
 
 .activity-panel h2 {
   margin: 0;
-  color: var(--home-muted);
+  color: var(--home-text-muted);
   font-size: 0.72rem;
   font-weight: 750;
   letter-spacing: 0.08em;
@@ -887,7 +1008,7 @@ body:has(.app-frame-shell) {
 .empty-panel {
   min-height: 180px;
   padding: 20px;
-  color: var(--muted);
+  color: var(--home-text-muted);
   font-size: 0.8rem;
 }
 
@@ -898,7 +1019,7 @@ body:has(.app-frame-shell) {
   margin-top: 26px;
   border-top: 1px solid var(--line);
   padding: 16px 0 0;
-  color: var(--muted);
+  color: var(--home-text-muted);
   font-size: 0.64rem;
 }
 

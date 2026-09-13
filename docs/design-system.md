@@ -1,5 +1,28 @@
 # Home UI foundation
 
+## Direction — locked September 12, 2026
+
+Home is becoming a shadcn app on the Base UI preset; the delivery plan and rationale live in [#347](https://github.com/jessepollak/home/issues/347).
+
+- D1: replace `@home/ui` and its catalog with owned shadcn components under `apps/web/components/ui`.
+- D2: replace `Sheet` directly with the shadcn Base UI `Drawer`.
+- D3: standardize icons on Lucide.
+- D4: keep the money-flow step sequence unchanged during this migration.
+- D5: allow raw `@base-ui/react` imports only inside `components/ui`.
+- D6: use Tailwind utilities as the styling layer for component and new-surface work.
+
+Step 1 adds the app-local theme, fonts, lint boundaries, preview route, and screenshot baselines without changing consumers. The rest of this document describes the outgoing `@home/ui` system until step 5 replaces it.
+
+### Foundation baseline numbers
+
+Next.js 16 no longer prints a `First Load JS` column, so `/dashboard` initial JS is the byte sum of its production build manifest root files and unique client-reference chunks.
+
+| Measure | Before (`origin/main` at `a11e989`) | After step 1 |
+| --- | ---: | ---: |
+| `/dashboard` initial JS | 1,043,755 bytes (1,019.3 KiB; 9 chunks) | 1,045,544 bytes (1,021.0 KiB; 10 chunks) |
+| Total `.next/static` CSS chunks | 109,292 bytes | 182,923 bytes |
+| `bun run --cwd apps/web test` wall time | 3.32 s | 3.18 s |
+
 [#207](https://github.com/jessepollak/home/issues/207) F1 adds a **private, source-exported** React package and isolated catalog. It does not migrate production Home, close #207, replace MoneyModal, or introduce financial behavior. `apps/web` and HomeMark’s Base Sans/Doto fonts are unchanged.
 
 ## Consume

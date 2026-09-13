@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { dmMono, dmSans } from "@home/ui/next-font";
+import { dmMono, dmSans } from "@/app/fonts/local-fonts";
 import { brand } from "@/config/brand";
 import { CdpAccountProvider } from "@/client/account/cdp-client";
 import { normalizeProjectId } from "@/client/account/session-client";
