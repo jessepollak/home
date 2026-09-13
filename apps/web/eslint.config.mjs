@@ -13,7 +13,7 @@ const literalStyleMessage =
   "Use semantic theme tokens instead of color, radius, or size literals in utility strings.";
 const serverLayerMessage = "server modules must not import web client or app layers";
 const baseUiImportRestriction = {
-  group: ["@base-ui/react", "@base-ui/react/*"],
+  group: ["@base-ui/react", "@base-ui/react/**"],
   message: baseUiMessage,
 };
 

@@ -143,12 +143,12 @@
   --text-row-value--line-height: 1.5;
   --text-body: 1rem;
   --text-body--line-height: 1.5;
-  --text-input: 1rem;
-  --text-input--line-height: 1.25;
+  --text-field: 1rem;
+  --text-field--line-height: 1.25;
   --text-control: 1rem;
   --text-control--line-height: 1.25;
-  --text-secondary: 0.875rem;
-  --text-secondary--line-height: 1.5;
+  --text-caption: 0.875rem;
+  --text-caption--line-height: 1.5;
   --text-country-select: 0.92rem;
   --text-toggle-sm: 0.8rem;
   --spacing-control-inset: 0.1875rem;

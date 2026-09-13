@@ -237,7 +237,7 @@ describe("presentation money formatting", () => {
     expect(MONEY_CHANGE_COLOR_TOKENS).toEqual({
       positive: "var(--home-positive)",
       negative: "var(--home-negative)",
-      neutral: "var(--home-muted)",
+      neutral: "var(--home-text-muted)",
     });
   });
 

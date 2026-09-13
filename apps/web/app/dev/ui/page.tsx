@@ -25,9 +25,9 @@ export default function UiThemePreviewPage() {
   return (
     <main className="mx-auto grid min-h-screen w-full max-w-3xl gap-8 bg-background p-6 text-foreground font-sans">
       <section className="grid gap-4">
-        <div role="heading" aria-level={1} className="text-page-title font-semibold">
+        <h1 className="text-page-title font-semibold">
           Home UI theme
-        </div>
+        </h1>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {swatches.map(([label, className]) => (
             <div
@@ -49,7 +49,7 @@ export default function UiThemePreviewPage() {
         <div className="text-row-label">Row label</div>
         <div className="text-row-value font-mono">1,234.56 USDC</div>
         <div className="text-body">Body copy</div>
-        <div className="text-secondary text-muted-foreground">Secondary copy</div>
+        <div className="text-caption text-muted-foreground">Secondary copy</div>
         <div className="text-metadata text-muted-foreground">Metadata</div>
       </section>
 

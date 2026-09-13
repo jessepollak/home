@@ -15,8 +15,11 @@ type Metric =
 type Counts = Record<Metric, number>;
 
 type Baseline = {
-  maximums: Pick<Counts, "rawButtons" | "rawHeadings" | "rawProse" | "colorLiterals" | "radiusLiterals">;
-  informational: Pick<Counts, "sharedButtons" | "sharedHeadings" | "sharedProse" | "homeUiImports">;
+  maximums: Pick<Counts, "rawButtons" | "colorLiterals" | "radiusLiterals">;
+  // Raw headings and prose are informational since #347: headings are `<h1>`–`<h6>`
+  // with utilities by design, and `Text` is being deleted. ESLint still bans raw
+  // buttons/inputs/selects outside components/ui.
+  informational: Pick<Counts, "rawHeadings" | "rawProse" | "sharedButtons" | "sharedHeadings" | "sharedProse" | "homeUiImports">;
 };
 
 const repoRoot = resolve(import.meta.dir, "../..");
@@ -48,8 +51,6 @@ const metricOrder: Metric[] = [
 
 const guardedMetrics = [
   "rawButtons",
-  "rawHeadings",
-  "rawProse",
   "colorLiterals",
   "radiusLiterals",
 ] as const;
@@ -114,7 +115,9 @@ function displayPath(path: string): string {
 }
 
 const allFiles = (await Promise.all(sourceRoots.map((root) => filesUnder(resolve(webRoot, root))))).flat();
-const tsxFiles = allFiles.filter((path) => path.endsWith(".tsx") && !path.includes(".test.") && !path.split(sep).includes("tests"));
+const scanExclusions = ["components/ui/", "app/dev/"];
+const isExcluded = (path: string) => scanExclusions.some((prefix) => displayPath(path).startsWith(prefix));
+const tsxFiles = allFiles.filter((path) => path.endsWith(".tsx") && !path.includes(".test.") && !path.split(sep).includes("tests") && !isExcluded(path));
 const cssFiles = [
   ...allFiles.filter((path) => path.endsWith(".module.css")),
   resolve(webRoot, "app/globals.css"),

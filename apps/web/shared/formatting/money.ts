@@ -94,7 +94,7 @@ const regionLocales = {
 export const MONEY_CHANGE_COLOR_TOKENS = {
   positive: "var(--home-positive)",
   negative: "var(--home-negative)",
-  neutral: "var(--home-muted)",
+  neutral: "var(--home-text-muted)",
 } as const;
 
 export type MoneyChangeTone = keyof typeof MONEY_CHANGE_COLOR_TOKENS;
