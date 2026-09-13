@@ -11,6 +11,10 @@ import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
 import {
+  deploymentHeaders,
+  throwIfDeploymentExpired,
+} from "@/client/query/deployment-headers";
+import {
   applyActionHandleEffects,
   createBalanceFreshnessState,
   resetBalanceFreshness,
@@ -120,6 +124,7 @@ export function useAuthenticatedTransport({
         throw new Error("Authenticated resource is unavailable.");
       }
 
+      const skewHeaders = deploymentHeaders();
       let response: Response;
       try {
         response = await (sessionFetch ?? fetch)(
@@ -127,6 +132,7 @@ export function useAuthenticatedTransport({
           {
             method: "GET",
             headers: {
+              ...skewHeaders,
               Accept: "application/json",
               ...(authentication === "cdp" ? { Authorization: `Bearer ${accessToken}` } : {}),
               [ACCOUNT_PROVIDER_HEADER]: session.accountProvider,
@@ -140,6 +146,7 @@ export function useAuthenticatedTransport({
         if (signal?.aborted) throw error;
         throw new Error("Authenticated resource is unavailable.");
       }
+      throwIfDeploymentExpired(response, skewHeaders);
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
         try {
@@ -188,11 +195,13 @@ export function useAuthenticatedTransport({
       if (method === "GET" && options.body !== undefined) {
         throw new TransferExecutionError("invalid-request");
       }
+      const skewHeaders = deploymentHeaders();
       let response: Response;
       try {
         response = await (sessionFetch ?? fetch)(safePath, {
           method,
           headers: {
+            ...skewHeaders,
             Accept: "application/json",
             ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
             ...(authentication === "cdp" ? { Authorization: `Bearer ${accessToken}` } : {}),
@@ -210,6 +219,7 @@ export function useAuthenticatedTransport({
         throw new TransferExecutionError("unavailable", error);
       }
       assertActive();
+      throwIfDeploymentExpired(response, skewHeaders);
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
         try {

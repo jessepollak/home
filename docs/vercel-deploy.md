@@ -14,6 +14,20 @@ Keep **Root Directory** at the repository root so the root lockfile and workspac
 | Build Command | `bun run build` |
 | Node.js | 22+ |
 
+### Skew Protection
+
+For the Vercel project `home-web`, verify **Project Settings → Advanced → Skew Protection** is enabled. Vercel enables it by default only for projects created after November 19, 2024, and this project's creation date is unknown. Keep the default one-day max age unless the client compatibility window changes.
+
+Next inlines the serving deployment ID at build time, and Home adds it as the `x-deployment-id` header on client requests to `/api/*`. No environment variable is required. We use the explicit header rather than the alternative experimental `experimental.useSkewCookie` option.
+
+Verify against a preview after an older deployment passes the configured max age:
+
+```sh
+# Set <old dpl id>, <current dpl id>, and <preview> from the Vercel preview deployments.
+curl -sI -H "x-deployment-id: <old dpl id>" https://<preview>/api/market-prices    # 404
+curl -sI -H "x-deployment-id: <current dpl id>" https://<preview>/api/market-prices # 200
+```
+
 ## Environment
 
 Copy names from [`.env.example`](../.env.example); keep values in Vercel or gitignored `apps/web/.env.local`. Never expose server keys with `NEXT_PUBLIC_`.

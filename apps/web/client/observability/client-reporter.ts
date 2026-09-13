@@ -1,3 +1,4 @@
+import { deploymentHeaders } from "@/client/query/deployment-headers";
 import {
   sanitizeIdentifier,
   sanitizeRoutePath,
@@ -34,7 +35,10 @@ export async function reportClientError(
     const body = JSON.stringify(buildClientErrorReport(input));
     await send(CLIENT_ERROR_ENDPOINT, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        ...deploymentHeaders(),
+        "content-type": "application/json",
+      },
       body,
       cache: "no-store",
       credentials: "omit",
