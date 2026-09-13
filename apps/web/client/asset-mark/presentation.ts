@@ -37,38 +37,6 @@ export function assetKeyForInvestAsset(asset: InvestAsset): string {
   return assetKeyForErc20(asset.contractAddress);
 }
 
-/**
- * Converts the discover response's id-keyed icon map and embedded meme
- * images into the stable-key map shared by Home and Invest. This is a pure
- * normalization of already-fetched data; it never starts another provider read.
- */
-export function assetMarkResolutionFromDiscover({
-  icons,
-  memeAssets = [],
-  pending = false,
-}: {
-  icons: Readonly<Record<string, string | null>>;
-  memeAssets?: readonly InvestAsset[];
-  pending?: boolean;
-}): AssetMarkResolution {
-  const images: Record<string, string | null> = {};
-  const assetsById = new Map<string, InvestAsset>(
-    [...investAssets, ...memeAssets].map((asset) => [asset.id, asset]),
-  );
-
-  for (const [assetId, imageUrl] of Object.entries(icons)) {
-    const asset = assetsById.get(assetId);
-    if (!asset) continue;
-    images[assetKeyForInvestAsset(asset)] = normalizedImageUrl(imageUrl);
-  }
-  for (const asset of memeAssets) {
-    if (asset.imageUrl === undefined) continue;
-    images[assetKeyForInvestAsset(asset)] = normalizedImageUrl(asset.imageUrl);
-  }
-
-  return { images, pending };
-}
-
 export function presentInvestAssetMark(
   asset: InvestAsset,
   resolution: AssetMarkResolution = {},

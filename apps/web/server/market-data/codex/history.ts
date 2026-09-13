@@ -16,7 +16,7 @@ import {
   type MarketPriceHistoryPoint,
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
-} from "@/shared/invest/history-contract";
+} from "@/shared/invest/contracts/market-price-history";
 
 export const CODEX_BARS_QUERY = `query GetBars($symbol: String!, $from: Int!, $to: Int!, $resolution: String!) {
   getBars(

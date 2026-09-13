@@ -3,7 +3,7 @@ import {
   createCodexMarketHistoryReader,
   createErrorMarketHistoryResponse,
 } from "@/server/market-data/codex/history";
-import type { MarketPriceHistoryResponse } from "@/shared/invest/history-contract";
+import type { MarketPriceHistoryResponse } from "@/shared/invest/contracts/market-price-history";
 import { createMarketPriceHistoryHandler } from "@/server/market-data/handlers/market-price-history";
 
 const dynamicId = "base:0x1111111111111111111111111111111111111111";

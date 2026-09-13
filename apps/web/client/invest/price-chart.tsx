@@ -7,7 +7,7 @@ import {
   MARKET_PRICE_RANGES,
   type MarketPriceHistoryPoint,
   type MarketPriceRange,
-} from "@/shared/invest/history-contract";
+} from "@/shared/invest/contracts/market-price-history";
 import {
   formatChartPrice,
   formatPresentationDate,

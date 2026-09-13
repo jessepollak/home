@@ -26,7 +26,7 @@ import {
   MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   MARKET_PRICES_VERSION,
   type MarketPricesResponse,
-} from "@/shared/invest/public-contract";
+} from "@/shared/invest/contracts/market-prices";
 
 type FetchLike = (
   input: RequestInfo | URL,

@@ -3,12 +3,11 @@
 import { keepPreviousData } from "@tanstack/react-query";
 import { publicQueryKey, useHomeQuery } from "@/client/query/query-client";
 import {
-  MARKET_PRICE_HISTORY_VERSION,
-  MARKET_PRICE_RANGES,
+  parseHistoryResponse,
   type MarketPriceHistoryPoint,
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
-} from "@/shared/invest/history-contract";
+} from "@/shared/invest/contracts/market-price-history";
 
 const HISTORY_ENDPOINT = "/api/market-prices/history";
 
@@ -52,35 +51,3 @@ export function usePriceHistory(assetId: string, range: MarketPriceRange): Price
   return { status: "error", points: [] };
 }
 
-function parseHistoryResponse(value: unknown): MarketPriceHistoryResponse | null {
-  const record = readRecord(value);
-  if (!record || record.version !== MARKET_PRICE_HISTORY_VERSION || record.provider !== "codex" ||
-    typeof record.assetId !== "string" || typeof record.range !== "string" ||
-    !(MARKET_PRICE_RANGES as readonly string[]).includes(record.range) ||
-    (record.currency !== undefined && record.currency !== "USD") ||
-    !(record.status === "ready" || record.status === "empty" || record.status === "unavailable" || record.status === "error") ||
-    !Array.isArray(record.points)) return null;
-  const points: MarketPriceHistoryPoint[] = [];
-  for (const item of record.points) {
-    const point = readRecord(item);
-    if (!point || typeof point.time !== "string" || !Number.isFinite(Date.parse(point.time)) ||
-      typeof point.value !== "string" || !/^(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(point.value) ||
-      !/[1-9]/.test((point.value.split(/[eE]/)[0] ?? ""))) return null;
-    points.push({ time: point.time, value: point.value });
-  }
-  return {
-    version: MARKET_PRICE_HISTORY_VERSION,
-    provider: "codex",
-    assetId: record.assetId as MarketPriceHistoryResponse["assetId"],
-    range: record.range as MarketPriceRange,
-    currency: "USD",
-    fetchedAt: typeof record.fetchedAt === "string" ? record.fetchedAt : null,
-    status: record.status,
-    points,
-  };
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown> : null;
-}
