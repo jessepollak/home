@@ -1,13 +1,31 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, EmptyState, Heading, ListRow, Skeleton, Stack, StatusMessage, Text } from "@home/ui";
-import { MoneyTicker } from "@home/ui/money-ticker";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
+} from "@/components/ui/item";
+import { Skeleton } from "@/components/ui/skeleton";
+import { MoneyTicker } from "@/components/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
+import type {
+  OperationResult,
+  PreparedMoneyAction,
+} from "@/shared/money-actions/types";
 import { usePortfolioValuation } from "@/client/portfolio";
 import {
   formatAddress,
@@ -29,10 +47,7 @@ import type {
   MorphoVaultPosition,
   MorphoVaultsResult,
 } from "@/shared/savings/types";
-import {
-  readUsdcBaseUnits,
-  shortVaultLabel,
-} from "./format";
+import { readUsdcBaseUnits, shortVaultLabel } from "./format";
 import {
   formatExactSavingsApy,
   getSavingsRateState,
@@ -41,7 +56,12 @@ import {
   type SavingsApySummary,
 } from "./portfolio-summary";
 import styles from "./savings-experience.module.css";
-import { ownerQueryKey, ownerQueryMeta, publicQueryKey, useHomeQuery } from "@/client/query/query-client";
+import {
+  ownerQueryKey,
+  ownerQueryMeta,
+  publicQueryKey,
+  useHomeQuery,
+} from "@/client/query/query-client";
 import { activityOwnerKey } from "@/client/activity/use-activity";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { markHomePerformance } from "@/client/observability/perf-marks";
@@ -53,8 +73,13 @@ type SavingsExperienceProps = {
   fetchVaults?: (signal?: AbortSignal) => Promise<unknown>;
   now?: () => number;
   availableUsdcBaseUnits?: string | null;
-  prepareMoneyAction?: (endpoint: string, input: unknown) => Promise<PreparedMoneyAction>;
-  executeMoneyAction?: (action: PreparedMoneyAction) => Promise<OperationResult>;
+  prepareMoneyAction?: (
+    endpoint: string,
+    input: unknown,
+  ) => Promise<PreparedMoneyAction>;
+  executeMoneyAction?: (
+    action: PreparedMoneyAction,
+  ) => Promise<OperationResult>;
   onBack?: () => void;
 };
 
@@ -94,13 +119,16 @@ export function AuthenticatedSavingsExperience() {
         accountProvider: session.accountProvider,
       }
     : null;
-  const portfolio = usePortfolioValuation(portfolioSession, "US", account.fetchPortfolioValuation);
+  const portfolio = usePortfolioValuation(
+    portfolioSession,
+    "US",
+    account.fetchPortfolioValuation,
+  );
   const usdc = portfolio.snapshot?.inventory.holdings.find(
     (holding) => holding.kind === "direct" && holding.id === "usdc",
   );
-  const availableUsdcBaseUnits = usdc?.kind === "direct"
-    ? usdc.balanceBaseUnits
-    : null;
+  const availableUsdcBaseUnits =
+    usdc?.kind === "direct" ? usdc.balanceBaseUnits : null;
 
   return (
     <SavingsExperience
@@ -129,11 +157,12 @@ export function SavingsExperience({
   const [actionMode, setActionMode] = useState<SavingsActionMode | null>(null);
   const routing = useOptionalHomeShellRouting();
   const openedActionInAppRef = useRef(false);
-  const routedActionMode: SavingsActionMode | null = routing?.state.flow === "save-deposit"
-    ? "deposit"
-    : routing?.state.flow === "save-withdraw"
-      ? "withdraw"
-      : null;
+  const routedActionMode: SavingsActionMode | null =
+    routing?.state.flow === "save-deposit"
+      ? "deposit"
+      : routing?.state.flow === "save-withdraw"
+        ? "withdraw"
+        : null;
   const visibleActionMode = routing ? routedActionMode : actionMode;
   const hosted = Boolean(useOptionalAppChrome());
   const sessionAddress = session?.smartAccount?.address ?? null;
@@ -151,11 +180,15 @@ export function SavingsExperience({
       return data;
     },
   });
-  const loadState = useMemo<LoadState>(() => metadataQuery.data
-    ? { status: "ready", data: metadataQuery.data }
-    : metadataQuery.isError
-      ? { status: "error", data: null }
-      : { status: "loading", data: null }, [metadataQuery.data, metadataQuery.isError]);
+  const loadState = useMemo<LoadState>(
+    () =>
+      metadataQuery.data
+        ? { status: "ready", data: metadataQuery.data }
+        : metadataQuery.isError
+          ? { status: "error", data: null }
+          : { status: "loading", data: null },
+    [metadataQuery.data, metadataQuery.isError],
+  );
   const positionsQuery = useHomeQuery({
     queryKey: sessionKey
       ? ownerQueryKey(sessionKey, "savings-positions")
@@ -166,13 +199,16 @@ export function SavingsExperience({
     refetchOnWindowFocus: false,
     meta: sessionKey ? ownerQueryMeta(sessionKey, "owner") : undefined,
     queryFn: ({ signal }) => {
-      if (!fetchPositions) throw new Error("Savings positions are unavailable.");
+      if (!fetchPositions)
+        throw new Error("Savings positions are unavailable.");
       return fetchPositions(signal);
     },
     select: (value) => {
-      if (!sessionAddress) throw new Error("Savings positions are unavailable.");
+      if (!sessionAddress)
+        throw new Error("Savings positions are unavailable.");
       const data = parsePositionResult(value, sessionAddress);
-      if (!data || !isUsablePositionResult(data)) throw new Error("Savings positions are invalid.");
+      if (!data || !isUsablePositionResult(data))
+        throw new Error("Savings positions are invalid.");
       return data;
     },
   });
@@ -183,7 +219,9 @@ export function SavingsExperience({
     queueMicrotask(() => {
       if (active) setRateNowMs(now());
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [now, positionsQuery.dataUpdatedAt]);
 
   useEffect(() => {
@@ -194,7 +232,10 @@ export function SavingsExperience({
       rateNowMs,
     );
     if (expiresAt === null || expiresAt <= rateNowMs) return;
-    const timeout = setTimeout(() => setRateNowMs(now()), expiresAt - rateNowMs);
+    const timeout = setTimeout(
+      () => setRateNowMs(now()),
+      expiresAt - rateNowMs,
+    );
     return () => clearTimeout(timeout);
   }, [loadState, now, rateNowMs]);
 
@@ -209,7 +250,12 @@ export function SavingsExperience({
       };
     }
     return positionsQuery.isError ? { status: "error" } : { status: "loading" };
-  }, [positionsQuery.data, positionsQuery.isError, positionsQuery.isFetching, sessionKey]);
+  }, [
+    positionsQuery.data,
+    positionsQuery.isError,
+    positionsQuery.isFetching,
+    sessionKey,
+  ]);
 
   useEffect(() => {
     if (
@@ -222,49 +268,66 @@ export function SavingsExperience({
 
   const allCandidates = useMemo(() => {
     if (loadState.status !== "ready") return [];
-    return [...loadState.data.candidates]
-      .sort((left, right) => Number(/gauntlet/i.test(right.name)) - Number(/gauntlet/i.test(left.name)));
+    return [...loadState.data.candidates].sort(
+      (left, right) =>
+        Number(/gauntlet/i.test(right.name)) -
+        Number(/gauntlet/i.test(left.name)),
+    );
   }, [loadState]);
   const candidates = allCandidates.slice(0, 2);
-  const selected = candidates.find((candidate) =>
-    candidate.vaultAddress.toLowerCase() === (selectedAddress ?? "").toLowerCase(),
-  ) ?? candidates[0] ?? null;
+  const selected =
+    candidates.find(
+      (candidate) =>
+        candidate.vaultAddress.toLowerCase() ===
+        (selectedAddress ?? "").toLowerCase(),
+    ) ??
+    candidates[0] ??
+    null;
 
   const portfolioSummary = useMemo(() => {
     if (positionState.status !== "ready") return null;
     return summarizeSavingsPortfolio({
       supportedVaultAddresses: MORPHO_V1_CANDIDATE_ADDRESSES,
-      requiredAsset: loadState.status === "ready" ? loadState.data.asset : BASE_USDC_ASSET,
+      requiredAsset:
+        loadState.status === "ready" ? loadState.data.asset : BASE_USDC_ASSET,
       candidates: loadState.status === "ready" ? loadState.data.candidates : [],
       positions: positionState.data.vaults,
-      metadataFetchedAt: loadState.status === "ready" ? loadState.data.source.fetchedAt : null,
+      metadataFetchedAt:
+        loadState.status === "ready" ? loadState.data.source.fetchedAt : null,
       metadataStale: loadState.status === "ready" && loadState.data.stale,
       nowMs: rateNowMs,
     });
   }, [loadState, positionState, rateNowMs]);
   const balances = collectVaultBalances(candidates, positionState);
   const coldLoading = Boolean(sessionKey && positionState.status === "loading");
-  const positionFailed = Boolean(sessionKey && positionState.status === "error");
-  const refreshing = positionState.status === "ready" && positionState.refreshing;
-  const refreshError = positionState.status === "ready" && positionState.refreshError;
+  const positionFailed = Boolean(
+    sessionKey && positionState.status === "error",
+  );
+  const refreshing =
+    positionState.status === "ready" && positionState.refreshing;
+  const refreshError =
+    positionState.status === "ready" && positionState.refreshError;
   const funded = portfolioSummary?.funded ?? false;
-  const availableBalance = portfolioSummary?.balance.status === "available"
-    ? portfolioSummary.balance
-    : null;
+  const availableBalance =
+    portfolioSummary?.balance.status === "available"
+      ? portfolioSummary.balance
+      : null;
   const showBalanceRows = funded || Boolean(sessionKey && !availableBalance);
   const selectedBalance = selected
-    ? balances.find((entry) =>
-      entry.vaultAddress.toLowerCase() === selected.vaultAddress.toLowerCase(),
-    )
+    ? balances.find(
+        (entry) =>
+          entry.vaultAddress.toLowerCase() ===
+          selected.vaultAddress.toLowerCase(),
+      )
     : undefined;
   const selectedAmount = selectedBalance?.amount ?? null;
   const canWithdraw = Boolean(selectedAmount && selectedAmount > BigInt(0));
   const actionsReady = Boolean(
     availableBalance &&
-      session?.smartAccount &&
-      selected &&
-      prepareMoneyAction &&
-      executeMoneyAction,
+    session?.smartAccount &&
+    selected &&
+    prepareMoneyAction &&
+    executeMoneyAction,
   );
 
   function openAction(mode: SavingsActionMode) {
@@ -298,140 +361,204 @@ export function SavingsExperience({
       {hosted ? null : (
         <header className={styles.header}>
           {onBack ? (
-            <Button className={styles.back} variant="quiet" onClick={onBack} aria-label="Back">
+            <Button
+              className={styles.back}
+              variant="ghost"
+              size="icon"
+              onClick={onBack}
+              aria-label="Back"
+            >
               <span aria-hidden="true">←</span>
             </Button>
           ) : (
             <span />
           )}
-          <Heading level={2} textStyle="sheet-title" id="savings-title" className={styles.title}>Save</Heading>
+          <h2
+            className={`${styles.title} text-sheet-title font-semibold`}
+            id="savings-title"
+          >
+            Save
+          </h2>
           <span />
         </header>
       )}
 
-      <Stack
-        className={styles.hero}
-        space="2"
+      <div
+        className={`${styles.hero} flex flex-col gap-2`}
         aria-busy={coldLoading || refreshing || undefined}
       >
         {coldLoading ? (
           <>
             <Skeleton
-              shape="rectangle"
-              width="min(48%, 11.5rem)"
-              height="3.4rem"
+              className="h-14 w-2/5 max-w-44"
               data-shimmer="savings-hero"
             />
-            <StatusMessage visuallyHidden>Updating…</StatusMessage>
+            <SavingsNotice visuallyHidden>Updating…</SavingsNotice>
           </>
         ) : availableBalance ? (
           <>
-            <Text
-              textStyle="amount"
-              className={`${styles.heroAmount} ${funded ? "" : styles.heroAmountEmpty}`.trim()}
+            <p
+              className={`${styles.heroAmount} text-amount font-mono ${funded ? "" : styles.heroAmountEmpty}`.trim()}
             >
-              <MoneyTicker value={formatUsdStablecoinAmount(availableBalance.totalBaseUnits)} />
-            </Text>
+              <MoneyTicker
+                value={formatUsdStablecoinAmount(
+                  availableBalance.totalBaseUnits,
+                )}
+              />
+            </p>
             {funded && portfolioSummary ? (
               loadState.status === "loading" ? (
                 <>
-                  <Skeleton
-                    shape="text"
-                    width="7rem"
-                    height="0.9rem"
-                    data-shimmer="savings-apy"
-                  />
-                  <StatusMessage visuallyHidden>Loading APY…</StatusMessage>
+                  <Skeleton className="h-4 w-28" data-shimmer="savings-apy" />
+                  <SavingsNotice visuallyHidden>Loading APY…</SavingsNotice>
                 </>
               ) : (
                 <FundedApyCaption apy={portfolioSummary.apy} />
               )
             ) : (
-              <EmptyState
+              <SavingsEmpty
                 className={styles.heroEmpty}
                 title="Nothing saved yet"
-                description={selected && loadState.status === "ready"
-                  ? `Available vault · ${shortVaultLabel(selected.name)} · ${availableVaultApyLabel(selected, loadState.data, rateNowMs)}`
-                  : undefined}
+                description={
+                  selected && loadState.status === "ready"
+                    ? `Available vault · ${shortVaultLabel(selected.name)} · ${availableVaultApyLabel(selected, loadState.data, rateNowMs)}`
+                    : undefined
+                }
               />
             )}
             {refreshing ? (
-              <Text className={styles.heroMeta} textStyle="metadata" tone="muted" role="status">Refreshing…</Text>
+              <p
+                className={`${styles.heroMeta} text-metadata text-muted-foreground`}
+                role="status"
+              >
+                Refreshing…
+              </p>
             ) : refreshError ? (
-              <Text className={styles.heroMeta} textStyle="metadata" tone="muted" role="status">Refresh unavailable</Text>
+              <p
+                className={`${styles.heroMeta} text-metadata text-muted-foreground`}
+                role="status"
+              >
+                Refresh unavailable
+              </p>
             ) : null}
           </>
         ) : !sessionKey ? (
           <>
-            <Text textStyle="amount" className={`${styles.heroAmount} ${styles.heroAmountEmpty}`}>
+            <p
+              className={`${styles.heroAmount} ${styles.heroAmountEmpty} text-amount font-mono`}
+            >
               <MoneyTicker value="$0.00" />
-            </Text>
-            <EmptyState
+            </p>
+            <SavingsEmpty
               className={styles.heroEmpty}
               title="Nothing saved yet"
-              description={selected && loadState.status === "ready"
-                ? `Available vault · ${shortVaultLabel(selected.name)} · ${availableVaultApyLabel(selected, loadState.data, rateNowMs)}`
-                : undefined}
+              description={
+                selected && loadState.status === "ready"
+                  ? `Available vault · ${shortVaultLabel(selected.name)} · ${availableVaultApyLabel(selected, loadState.data, rateNowMs)}`
+                  : undefined
+              }
             />
           </>
         ) : (
           <>
-            <Text textStyle="amount" className={styles.heroAmount}><MoneyTicker value="—" /></Text>
-            <Text className={styles.heroCaption} textStyle="secondary" tone="muted" role="status">Balance unavailable</Text>
+            <p className={`${styles.heroAmount} text-amount font-mono`}>
+              <MoneyTicker value="—" />
+            </p>
+            <p
+              className={`${styles.heroCaption} text-caption text-muted-foreground`}
+              role="status"
+            >
+              Balance unavailable
+            </p>
           </>
         )}
-      </Stack>
+      </div>
 
       {loadState.status === "loading" ? (
-        <section
-          className={styles.vaults}
-          aria-label="Vaults"
-          aria-busy="true"
-        >
+        <section className={styles.vaults} aria-label="Vaults" aria-busy="true">
           <VaultListSkeleton />
-          <StatusMessage visuallyHidden>Loading vaults…</StatusMessage>
+          <SavingsNotice visuallyHidden>Loading vaults…</SavingsNotice>
         </section>
       ) : loadState.status === "error" ? (
-        <StatusMessage tone="error" role="alert">Vaults are temporarily unavailable.</StatusMessage>
+        <SavingsNotice tone="error" role="alert">
+          Vaults are temporarily unavailable.
+        </SavingsNotice>
       ) : !coldLoading && !positionFailed && candidates.length > 0 ? (
         <section className={styles.vaults} aria-label="Vaults">
-          <Stack className={styles.vaultList} space={{ custom: "10px" }} role="radiogroup" aria-label="Vault">
+          <div
+            className={`${styles.vaultList} flex flex-col gap-2.5`}
+            role="radiogroup"
+            aria-label="Vault"
+          >
             {candidates.map((candidate) => {
-              const isSelected = selected?.vaultAddress === candidate.vaultAddress;
-              const balance = balances.find((entry) =>
-                entry.vaultAddress.toLowerCase() === candidate.vaultAddress.toLowerCase(),
+              const isSelected =
+                selected?.vaultAddress === candidate.vaultAddress;
+              const balance = balances.find(
+                (entry) =>
+                  entry.vaultAddress.toLowerCase() ===
+                  candidate.vaultAddress.toLowerCase(),
+              );
+              const rowValue = showBalanceRows ? (
+                <MoneyTicker
+                  value={
+                    balance?.amount === null || balance?.amount === undefined
+                      ? "—"
+                      : formatUsdStablecoinAmount(balance.amount.toString())
+                  }
+                />
+              ) : loadState.status === "ready" ? (
+                availableVaultApyLabel(candidate, loadState.data, rateNowMs)
+              ) : (
+                "APY unavailable"
               );
               return (
                 <ul
                   key={candidate.vaultAddress}
                   className={`${styles.vault} surface-primary ${isSelected ? styles.vaultSelected : ""}`.trim()}
                 >
-                  <ListRow
-                    className={styles.vaultRow}
-                    label={candidate.name}
-                    description={funded && loadState.status === "ready"
-                      ? fundedVaultApyLabel(candidate, loadState.data, rateNowMs)
-                      : undefined}
-                    value={showBalanceRows ? (
-                      <MoneyTicker
-                        value={balance?.amount === null || balance?.amount === undefined
-                          ? "—"
-                          : formatUsdStablecoinAmount(balance.amount.toString())}
-                      />
-                    ) : loadState.status === "ready"
-                      ? availableVaultApyLabel(candidate, loadState.data, rateNowMs)
-                      : "APY unavailable"}
-                    onPress={() => setSelectedAddress(candidate.vaultAddress)}
-                    role="radio"
-                    aria-checked={isSelected}
-                    name="savings-vault"
-                  />
+                  <li>
+                    <Item
+                      className={`${styles.vaultRow} min-h-16 flex-nowrap rounded-none border-0 px-4 py-3.5 text-left`}
+                      render={
+                        <Button
+                          variant="ghost"
+                          type="button"
+                          onClick={() =>
+                            setSelectedAddress(candidate.vaultAddress)
+                          }
+                          role="radio"
+                          aria-checked={isSelected}
+                          name="savings-vault"
+                        />
+                      }
+                    >
+                      <ItemContent className="min-w-0">
+                        <ItemTitle className="text-row-label">
+                          {candidate.name}
+                        </ItemTitle>
+                        {funded && loadState.status === "ready" ? (
+                          <ItemDescription className="text-caption">
+                            {fundedVaultApyLabel(
+                              candidate,
+                              loadState.data,
+                              rateNowMs,
+                            )}
+                          </ItemDescription>
+                        ) : null}
+                      </ItemContent>
+                      <ItemActions className="text-row-value justify-end text-right font-mono">
+                        {rowValue}
+                      </ItemActions>
+                    </Item>
+                  </li>
                   {isSelected ? (
                     <li className={styles.detailsBody}>
                       <dl className={styles.detailsFacts}>
                         <div className={styles.detailsFact}>
                           <dt>Fee</dt>
-                          <dd>{formatPresentationPercentage(selected.feeRate)}</dd>
+                          <dd>
+                            {formatPresentationPercentage(selected.feeRate)}
+                          </dd>
                         </div>
                         <div className={styles.detailsFact}>
                           <dt>Curator</dt>
@@ -453,12 +580,14 @@ export function SavingsExperience({
                 </ul>
               );
             })}
-          </Stack>
+          </div>
         </section>
       ) : null}
 
       {loadState.status !== "error" && (availableBalance || !sessionKey) ? (
-        <div className={`${styles.actions} ${funded ? styles.actionsSplit : ""}`.trim()}>
+        <div
+          className={`${styles.actions} ${funded ? styles.actionsSplit : ""}`.trim()}
+        >
           <Button
             className={styles.action}
             disabled={!actionsReady}
@@ -497,7 +626,7 @@ export function SavingsExperience({
           availableBaseUnits={
             visibleActionMode === "deposit"
               ? availableUsdcBaseUnits
-              : selectedAmount?.toString() ?? null
+              : (selectedAmount?.toString() ?? null)
           }
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
@@ -541,27 +670,97 @@ function fundedVaultApyLabel(
 function FundedApyCaption({ apy }: { apy: SavingsApySummary }) {
   if (apy.status === "available") {
     return (
-      <Text className={styles.heroCaption} textStyle="secondary" tone="muted">
+      <p className={`${styles.heroCaption} text-caption text-muted-foreground`}>
         Earning ~{formatExactSavingsApy(apy.value)}
-      </Text>
+      </p>
     );
   }
   if (apy.status === "partial") {
-    return <Text className={styles.heroCaption} textStyle="secondary" tone="muted" role="status">APY partially unavailable</Text>;
+    return (
+      <p
+        className={`${styles.heroCaption} text-caption text-muted-foreground`}
+        role="status"
+      >
+        APY partially unavailable
+      </p>
+    );
   }
   if (apy.status === "stale") {
-    return <Text className={styles.heroCaption} textStyle="secondary" tone="muted" role="status">APY data stale</Text>;
+    return (
+      <p
+        className={`${styles.heroCaption} text-caption text-muted-foreground`}
+        role="status"
+      >
+        APY data stale
+      </p>
+    );
   }
-  return <Text className={styles.heroCaption} textStyle="secondary" tone="muted" role="status">APY unavailable</Text>;
+  return (
+    <p
+      className={`${styles.heroCaption} text-caption text-muted-foreground`}
+      role="status"
+    >
+      APY unavailable
+    </p>
+  );
+}
+
+function SavingsEmpty({
+  className,
+  description,
+  title,
+}: {
+  className?: string;
+  description?: React.ReactNode;
+  title: React.ReactNode;
+}) {
+  return (
+    <Empty className={className}>
+      <EmptyHeader>
+        <EmptyTitle className="text-muted-foreground font-normal">
+          {title}
+        </EmptyTitle>
+        {description ? (
+          <EmptyDescription>{description}</EmptyDescription>
+        ) : null}
+      </EmptyHeader>
+    </Empty>
+  );
+}
+
+function SavingsNotice({
+  children,
+  role = "status",
+  tone = "neutral",
+  visuallyHidden = false,
+}: {
+  children: React.ReactNode;
+  role?: "status" | "alert";
+  tone?: "neutral" | "error";
+  visuallyHidden?: boolean;
+}) {
+  return (
+    <Alert
+      className={visuallyHidden ? "sr-only" : undefined}
+      role={role}
+      variant={tone === "error" ? "destructive" : "default"}
+    >
+      <AlertDescription>{children}</AlertDescription>
+    </Alert>
+  );
 }
 
 function VaultListSkeleton() {
   return (
     <ul className={styles.vaultSkeletonList} aria-hidden="true">
       {[0, 1].map((index) => (
-        <li key={index} className={styles.vaultSkeleton} data-shimmer="vault-row">
-          <Skeleton shape="text" className={styles.vaultSkeletonName} />
-          <Skeleton shape="text" className={styles.vaultSkeletonValue} />
+        <li
+          key={index}
+          className={styles.vaultSkeleton}
+          data-shimmer="vault-row"
+        >
+          <Skeleton className={`${styles.vaultSkeletonName} h-4`} />
+          <Skeleton className={`${styles.vaultSkeletonValue} h-4`} />
         </li>
       ))}
     </ul>
@@ -580,8 +779,10 @@ function collectVaultBalances(
   }
 
   return candidates.map((candidate) => {
-    const entry = state.data.vaults.find((vault) =>
-      vault.vaultAddress.toLowerCase() === candidate.vaultAddress.toLowerCase(),
+    const entry = state.data.vaults.find(
+      (vault) =>
+        vault.vaultAddress.toLowerCase() ===
+        candidate.vaultAddress.toLowerCase(),
     );
     if (!entry) {
       return { vaultAddress: candidate.vaultAddress, amount: null };
@@ -596,7 +797,10 @@ function collectVaultBalances(
   });
 }
 
-function parsePositionResult(value: unknown, expectedAddress: Address): PositionResult | null {
+function parsePositionResult(
+  value: unknown,
+  expectedAddress: Address,
+): PositionResult | null {
   if (
     !isRecord(value) ||
     typeof value.accountAddress !== "string" ||
@@ -604,7 +808,8 @@ function parsePositionResult(value: unknown, expectedAddress: Address): Position
     typeof value.fetchedAt !== "string" ||
     !Number.isFinite(Date.parse(value.fetchedAt)) ||
     !Array.isArray(value.vaults)
-  ) return null;
+  )
+    return null;
 
   const configuredVaults = new Set(
     MORPHO_V1_CANDIDATE_ADDRESSES.map((address) => address.toLowerCase()),
@@ -614,20 +819,37 @@ function parsePositionResult(value: unknown, expectedAddress: Address): Position
   for (const entry of value.vaults) {
     if (!isRecord(entry) || typeof entry.vaultAddress !== "string") return null;
     const normalizedVault = entry.vaultAddress.toLowerCase();
-    if (!configuredVaults.has(normalizedVault) || seenVaults.has(normalizedVault)) return null;
+    if (
+      !configuredVaults.has(normalizedVault) ||
+      seenVaults.has(normalizedVault)
+    )
+      return null;
     seenVaults.add(normalizedVault);
-    if (entry.position !== null && !isPosition(entry.position, expectedAddress, entry.vaultAddress)) return null;
+    if (
+      entry.position !== null &&
+      !isPosition(entry.position, expectedAddress, entry.vaultAddress)
+    )
+      return null;
     vaults.push({
       vaultAddress: entry.vaultAddress as Address,
       position: entry.position as MorphoVaultPosition | null,
     });
   }
   if (seenVaults.size !== configuredVaults.size) return null;
-  return { accountAddress: expectedAddress, fetchedAt: value.fetchedAt, vaults };
+  return {
+    accountAddress: expectedAddress,
+    fetchedAt: value.fetchedAt,
+    vaults,
+  };
 }
 
-function isPosition(value: unknown, accountAddress: Address, vaultAddress: string) {
-  return isRecord(value) &&
+function isPosition(
+  value: unknown,
+  accountAddress: Address,
+  vaultAddress: string,
+) {
+  return (
+    isRecord(value) &&
     typeof value.accountAddress === "string" &&
     value.accountAddress.toLowerCase() === accountAddress.toLowerCase() &&
     typeof value.vaultAddress === "string" &&
@@ -639,12 +861,15 @@ function isPosition(value: unknown, accountAddress: Address, vaultAddress: strin
     Number.isFinite(Date.parse(value.indexedAt)) &&
     isMorphoSource(value.source, "vaultPosition") &&
     value.withdrawableRaw === null &&
-    typeof value.withdrawableNote === "string";
+    typeof value.withdrawableNote === "string"
+  );
 }
 
 function isUsablePositionResult(data: PositionResult): boolean {
-  return data.vaults.every((entry) =>
-    entry.position === null || readUsdcBaseUnits(entry.position.assetsRaw) !== null
+  return data.vaults.every(
+    (entry) =>
+      entry.position === null ||
+      readUsdcBaseUnits(entry.position.assetsRaw) !== null,
   );
 }
 
@@ -667,18 +892,21 @@ function parseVaultsResult(value: unknown): MorphoVaultsResult | null {
     !value.candidates.every(isVaultCandidate) ||
     !isMorphoSource(value.source, "vaults") ||
     typeof value.stale !== "boolean"
-  ) return null;
+  )
+    return null;
   const candidateAddresses = value.candidates.map((candidate) =>
-    (candidate as MorphoVaultCandidate).vaultAddress.toLowerCase()
+    (candidate as MorphoVaultCandidate).vaultAddress.toLowerCase(),
   );
-  if (new Set(candidateAddresses).size !== candidateAddresses.length) return null;
+  if (new Set(candidateAddresses).size !== candidateAddresses.length)
+    return null;
   return value as MorphoVaultsResult;
 }
 
 function isVaultCandidate(value: unknown): boolean {
   if (!isRecord(value) || typeof value.vaultAddress !== "string") return false;
   const vaultAddress = value.vaultAddress;
-  return value.version === "v1" &&
+  return (
+    value.version === "v1" &&
     MORPHO_V1_CANDIDATE_ADDRESSES.some(
       (address) => address.toLowerCase() === vaultAddress.toLowerCase(),
     ) &&
@@ -689,27 +917,41 @@ function isVaultCandidate(value: unknown): boolean {
     isSavingsAsset(value.asset) &&
     (value.netApy === null || typeof value.netApy === "number") &&
     (value.stateAsOf === null || typeof value.stateAsOf === "string") &&
-    isMorphoSource(value.source, "vaults");
+    isMorphoSource(value.source, "vaults")
+  );
 }
 
 function isSavingsAsset(value: unknown): boolean {
-  return isRecord(value) &&
+  return (
+    isRecord(value) &&
     typeof value.address === "string" &&
     value.address.toLowerCase() === BASE_USDC_ADDRESS.toLowerCase() &&
     value.symbol === "USDC" &&
-    value.decimals === BASE_USDC_DECIMALS;
+    value.decimals === BASE_USDC_DECIMALS
+  );
 }
 
-function isMorphoSource(value: unknown, query: "vaults" | "vaultPosition"): boolean {
-  if (!isRecord(value) || typeof value.fetchedAt !== "string" || !Number.isFinite(Date.parse(value.fetchedAt))) {
+function isMorphoSource(
+  value: unknown,
+  query: "vaults" | "vaultPosition",
+): boolean {
+  if (
+    !isRecord(value) ||
+    typeof value.fetchedAt !== "string" ||
+    !Number.isFinite(Date.parse(value.fetchedAt))
+  ) {
     return false;
   }
   if (query === "vaultPosition" && value.provider === "Base JSON-RPC") {
-    return typeof value.blockNumber === "string" && /^\d+$/.test(value.blockNumber);
+    return (
+      typeof value.blockNumber === "string" && /^\d+$/.test(value.blockNumber)
+    );
   }
-  return value.provider === "Morpho GraphQL" &&
+  return (
+    value.provider === "Morpho GraphQL" &&
     value.endpoint === "https://api.morpho.org/graphql" &&
-    value.query === query;
+    value.query === query
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
