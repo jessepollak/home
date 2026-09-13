@@ -3,7 +3,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Bleed, Button, Field, Heading, IconButton, Inline, Input, Inset, Select, Stack, Text, haptic } from "@home/ui";
+import { Bleed, Button, Field, Heading, IconButton, Inline, Input, Inset, ListRow, SegmentedControl, Select, Stack, Text, haptic } from "@home/ui";
 import { PlusIcon } from "@home/ui/icons";
 
 afterEach(() => {
@@ -72,6 +72,56 @@ describe("native controls", () => {
     rerender(<IconButton icon={PlusIcon} iconSize={24} aria-label="Add example" disabled />);
     expect(button.querySelector("svg")?.getAttribute("width")).toBe("24");
     expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("segmented control exposes radio state and selects with pointer and roving keyboard focus", () => {
+    const change = mock(() => {});
+    const items = [
+      { value: "1D", label: "1D" },
+      { value: "1W", label: "1W", disabled: true },
+      { value: "1M", label: "1M" },
+      { value: "1Y", label: "1Y" },
+    ] as const;
+    render(<SegmentedControl items={items} value="1D" onValueChange={change} aria-label="Price range" stretch />);
+    const group = page().getByRole("radiogroup", { name: "Price range" });
+    const day = page().getByRole("radio", { name: "1D", checked: true });
+    const month = page().getByRole("radio", { name: "1M" });
+    const year = page().getByRole("radio", { name: "1Y" });
+    expect(group.getAttribute("data-stretch")).toBe("true");
+    expect(day.getAttribute("tabindex")).toBe("0");
+    expect(month.getAttribute("tabindex")).toBe("-1");
+    expect((page().getByRole("radio", { name: "1W" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.keyDown(day, { key: "ArrowRight" });
+    expect(change).toHaveBeenLastCalledWith("1M");
+    expect(document.activeElement).toBe(month);
+    fireEvent.keyDown(month, { key: "End" });
+    expect(change).toHaveBeenLastCalledWith("1Y");
+    expect(document.activeElement).toBe(year);
+    fireEvent.keyDown(year, { key: "Home" });
+    expect(change).toHaveBeenLastCalledWith("1D");
+    expect(document.activeElement).toBe(day);
+    fireEvent.click(month);
+    expect(change).toHaveBeenLastCalledWith("1M");
+  });
+
+  test("ListRow omits the value column and forwards radio state to its interactive control", () => {
+    render(
+      <ul>
+        <ListRow
+          leading={<span aria-hidden="true">$</span>}
+          label="Bank account"
+          onPress={() => {}}
+          role="radio"
+          aria-checked="true"
+          name="funding-method"
+        />
+      </ul>,
+    );
+    const row = page().getByRole("radio", { name: /Bank account/, checked: true });
+    expect(row.getAttribute("name")).toBe("funding-method");
+    expect(row.closest("li")?.getAttribute("data-has-value")).toBe("false");
+    expect(row.querySelector(".home-ui-list-row__value")).toBeNull();
   });
 
   test("input and select forward native props, refs, events, and adornment slots", () => {

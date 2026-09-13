@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Badge, Bleed, Button, Divider, EmptyState, Field, Heading, IconButton, Inline, Input, Inset, ListRow, Select, Skeleton, Stack, StatusMessage, Text, Toast, ToastViewport, type TextStyle } from "@home/ui";
+import { Badge, Bleed, Button, Divider, EmptyState, Field, Heading, IconButton, Inline, Input, Inset, ListRow, SegmentedControl, Select, Skeleton, Stack, StatusMessage, Text, Toast, ToastViewport, type TextStyle } from "@home/ui";
 import { Sheet } from "@home/ui/sheet";
 import { MoneyTicker } from "@home/ui/money-ticker";
 import { ArrowRightIcon, CheckIcon, PlusIcon, XIcon } from "@home/ui/icons";
@@ -162,6 +162,7 @@ export function FoundationCatalog() {
   const [width, setWidth] = useState("fluid");
   const [activations, setActivations] = useState(0);
   const [rowActivations, setRowActivations] = useState(0);
+  const [segmentedValue, setSegmentedValue] = useState("1D");
   const [tickerValue, setTickerValue] = useState("$1,234.56");
   const primaryRef = useRef<HTMLButtonElement>(null);
 
@@ -238,6 +239,25 @@ export function FoundationCatalog() {
           <Text as="div" textStyle="secondary"><output aria-live="polite">Activations: {activations}</output></Text>
         </section>
 
+        <section className="catalog-section bg-home-ui-surface" aria-labelledby="segmented-control-title">
+          <Heading id="segmented-control-title" level={2} textStyle="section-title">Segmented control</Heading>
+          <Text textStyle="secondary" tone="muted">A radio group for mutually exclusive choices with Arrow, Home, and End keyboard selection.</Text>
+          <SegmentedControl
+            items={[
+              { value: "1D", label: "1D" },
+              { value: "1W", label: "1W" },
+              { value: "1M", label: "1M" },
+              { value: "3M", label: "3M" },
+              { value: "1Y", label: "1Y" },
+            ]}
+            value={segmentedValue}
+            onValueChange={setSegmentedValue}
+            aria-label="Chart range specimen"
+            stretch
+          />
+          <Text as="span" textStyle="secondary" data-segmented-value>Selected range: {segmentedValue}</Text>
+        </section>
+
         <section className="catalog-section bg-home-ui-surface" aria-labelledby="icons-title">
           <Heading id="icons-title" level={2} textStyle="section-title">Icon buttons</Heading>
           <Text textStyle="secondary" tone="muted">20px / 24px Phosphor artwork. Minimum 44px targets.</Text>
@@ -307,6 +327,14 @@ export function FoundationCatalog() {
               tone="error"
               href="#list-row-title"
               actionHint="View Ethereum details"
+            />
+            <ListRow
+              leading={<span className="catalog-row-mark">BA</span>}
+              label="Bank account with a long label that uses the full valueless row width"
+              description="No trailing value column"
+              onPress={() => setRowActivations((count) => count + 1)}
+              actionHint="Choose bank account"
+              data-valueless-row
             />
           </ul>
           <Text as="span" textStyle="secondary" data-row-activations>Row activations: {rowActivations}</Text>
