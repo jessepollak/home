@@ -18,7 +18,7 @@ type SessionBoundary = (
   request: Request,
 ) => Promise<VerifiedAccountSession | Response>;
 
-const defaultSessionBoundary = createSessionHandler({
+export const sessionHandler = createSessionHandler({
   getValidator: getCdpAccessTokenValidator,
   baseAccountEnabled: isBaseAccountEnabled(
     process.env.NEXT_PUBLIC_ENABLE_BASE_ACCOUNT,
@@ -33,7 +33,7 @@ const defaultSessionBoundary = createSessionHandler({
  */
 export async function authorizeSession(
   request: Request,
-  boundary: SessionBoundary = defaultSessionBoundary,
+  boundary: SessionBoundary = sessionHandler,
 ): Promise<VerifiedAccountSession | Response> {
   const result = await boundary(request);
   if (result instanceof Response && !result.ok) return result;
