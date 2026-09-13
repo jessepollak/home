@@ -1475,6 +1475,69 @@ test.describe("MoneyModal painted motion", () => {
   });
 });
 
+test.describe("Chromium 390px money-flow screenshots", () => {
+  test.skip(({ browserName }) => browserName !== "chromium", "Chromium screenshot baseline");
+
+  test("captures the Send amount step", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+    await installApiFixtures(page);
+    await signIn(page);
+
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByRole("dialog", { name: "Send" })).toBeVisible();
+    await expect(page).toHaveScreenshot("money-send-amount.png", {
+      maxDiffPixelRatio: 0.01,
+    });
+  });
+
+  test("captures the Send review step", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+    await installApiFixtures(page);
+    await signIn(page);
+
+    await page.getByRole("button", { name: "Send" }).click();
+    await typeAmount(page, "1");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.getByRole("dialog", { name: "Confirm" })).toBeVisible();
+    await expect(page).toHaveScreenshot("money-send-review.png", {
+      maxDiffPixelRatio: 0.01,
+    });
+  });
+
+  test("captures the Add money sheet", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+    await installApiFixtures(page);
+    await signIn(page);
+
+    await page.getByRole("button", { name: "Add money", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Add money" })).toBeVisible();
+    await expect(page).toHaveScreenshot("money-add-sheet.png", {
+      maxDiffPixelRatio: 0.01,
+    });
+  });
+
+  test("captures the IDRX order review", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => localStorage.setItem("home.country.v1", "ID"));
+    await installApiFixtures(page);
+    await signIn(page);
+
+    await page.getByRole("button", { name: "Add money" }).click();
+    await page.getByRole("button", { name: /Deposit IDR with IDRX/ }).click();
+    await typeAmount(page, "20000");
+    await page.getByRole("button", { name: "Review quote", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Review quote" })).toBeVisible();
+    await expect(page).toHaveScreenshot("money-idrx-review.png", {
+      maxDiffPixelRatio: 0.01,
+    });
+  });
+});
+
 test("IDRX Add money goes from method to VA instructions and verified receipt", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "ID"));
