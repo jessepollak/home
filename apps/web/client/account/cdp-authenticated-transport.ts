@@ -111,7 +111,6 @@ export function useAuthenticatedTransport({
   const fetchVerifiedResource = useCallback(
     async (
       endpoint:
-        | "/api/portfolio"
         | "/api/balances"
         | "/api/activity"
         | "/api/actions",

@@ -22,5 +22,4 @@ export {
   type MorphoVaultCandidate,
   type MorphoVaultPosition,
   type MorphoVaultsResult,
-  type VerifiedMorphoAccount,
 } from "@/shared/savings/types";
