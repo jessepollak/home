@@ -359,8 +359,8 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["server/**/*.ts"],
-    ignores: ["**/*.test.ts"],
+    files: ["server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+    ignores: ["**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}", "**/*.d.ts"],
     plugins: { "server-only": serverOnlyPlugin },
     rules: {
       "server-only/require-server-only": "error",
