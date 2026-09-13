@@ -14,14 +14,22 @@ export const BALANCES_OWNER_CACHE_MAX = 256;
 
 type Dependencies = {
   readUniverse?: (signal?: AbortSignal) => Promise<BalancesUniverse>;
-  readBalances?: (universe: BalancesUniverse, owner: PortfolioAddress, signal?: AbortSignal) => Promise<BalancesRead>;
+  readBalances?: (
+    universe: BalancesUniverse,
+    owner: PortfolioAddress,
+    signal?: AbortSignal,
+  ) => Promise<BalancesRead>;
   priceBalances?: (read: BalancesRead, region: RegionId) => Promise<Holding[]>;
   now?: () => Date;
   ttlMs?: number;
   maxOwners?: number;
 };
 
-type Entry = { inFlight: Promise<BalancesRead> | null; value: BalancesRead | null; storedAt: number };
+type Entry = {
+  inFlight: Promise<BalancesRead> | null;
+  value: BalancesRead | null;
+  storedAt: number;
+};
 
 /** Per-owner coalescing and its bounded TTL cache are local to one serverless instance. */
 export function createBalancesService(dependencies: Dependencies = {}) {
@@ -33,25 +41,36 @@ export function createBalancesService(dependencies: Dependencies = {}) {
   const maxOwners = dependencies.maxOwners ?? BALANCES_OWNER_CACHE_MAX;
   const entries = new Map<string, Entry>();
 
-  async function getRead(owner: PortfolioAddress, signal?: AbortSignal): Promise<BalancesRead> {
+  async function getRead(owner: PortfolioAddress): Promise<BalancesRead> {
     const key = owner.toLowerCase();
     const current = now().getTime();
     let entry = entries.get(key);
+
     if (entry) {
       entries.delete(key);
       entries.set(key, entry);
-      if (entry.value && current - entry.storedAt <= ttlMs) return entry.value;
-      if (entry.inFlight) return entry.inFlight;
+      if (entry.value && current - entry.storedAt <= ttlMs) {
+        return entry.value;
+      }
+      if (entry.inFlight) {
+        return entry.inFlight;
+      }
     } else {
-      entry = { inFlight: null, value: null, storedAt: 0 };
+      entry = {
+        inFlight: null,
+        value: null,
+        storedAt: 0,
+      };
       entries.set(key, entry);
       evict(entries, maxOwners);
     }
+
     const target = entry;
     target.inFlight = (async () => {
-      const universe = await readUniverse(signal);
-      return readBalances(universe, owner, signal);
+      const universe = await readUniverse();
+      return readBalances(universe, owner);
     })();
+
     try {
       const value = await target.inFlight;
       target.value = value;
@@ -65,10 +84,21 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     }
   }
 
-  return async function getBalancesSnapshot(owner: PortfolioAddress, region: RegionId, signal?: AbortSignal): Promise<BalancesSnapshot> {
-    const read = await getRead(owner, signal);
+  return async function getBalancesSnapshot(
+    owner: PortfolioAddress,
+    region: RegionId,
+    signal?: AbortSignal,
+  ): Promise<BalancesSnapshot> {
+    void signal;
+    const read = await getRead(owner);
     const holdings = await priceBalances(read, region);
-    return assembleBalancesSnapshot({ owner, region, read, holdings, now });
+    return assembleBalancesSnapshot({
+      owner,
+      region,
+      read,
+      holdings,
+      now,
+    });
   };
 }
 
@@ -77,7 +107,9 @@ export const getBalancesSnapshot = createBalancesService();
 function evict(entries: Map<string, Entry>, maximum: number): void {
   while (entries.size > maximum) {
     const oldest = entries.keys().next().value;
-    if (oldest === undefined) return;
+    if (oldest === undefined) {
+      return;
+    }
     entries.delete(oldest);
   }
 }
