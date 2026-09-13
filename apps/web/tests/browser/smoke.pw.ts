@@ -1,9 +1,17 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { parsePortfolioValuationSnapshot } from "../../shared/portfolio/contract";
+import type { RegionId } from "../../config/regions";
+import { parseBalancesSnapshot } from "../../shared/balances/contract";
+import type { BalancesSnapshot } from "../../shared/balances/types";
 import {
   BASE_USDC_ADDRESS,
   MORPHO_V1_CANDIDATE_ADDRESSES,
 } from "../../shared/savings/config";
+import {
+  balancesSnapshot,
+  RECOGNIZED_IMAGE_URL,
+  rowAnatomySnapshot,
+  scrollableBalancesSnapshot,
+} from "./balances-fixtures";
 
 // Local laptops paint balances in ~350-620ms; hosted CI runners measure 1.0-2.2s. Regressions show as multiples, not tens of ms.
 const BALANCES_PAINTED_BUDGET_MS = process.env.CI ? 3_500 : 1_000;
@@ -39,26 +47,6 @@ function action(transfer: { assetId: "usdc" | "cbbtc"; amountBaseUnits: string }
     warnings: [`Recipient: ${RECIPIENT}`, "Network fee shown by wallet."],
     createdAt: CREATED_AT,
     expiresAt: EXPIRES_AT,
-  };
-}
-
-function valuation() {
-  const usdcKey = `eip155:8453/erc20:${USDC}`;
-  const holdings = [
-    { kind: "direct", id: "eth", assetKey: "eip155:8453/native", name: "Ethereum", symbol: "ETH", decimals: 18, assetKind: "native", contractAddress: null, cashCurrency: null, balanceBaseUnits: "0", readStatus: "ready" },
-    { kind: "direct", id: "usdc", assetKey: usdcKey, name: "US dollar", symbol: "USDC", decimals: 6, assetKind: "erc20", contractAddress: USDC, cashCurrency: "USD", balanceBaseUnits: "12340000", readStatus: "ready" },
-    ...["0xee8f4ec5672f09119b96ab6fb59c27e1b7e44b61", "0x7bfa7c4f149e7415b73bdedfe609237e29cbf34a", "0xbeef010f9cb27031ad51e3333f9af9c6b1228183"].map((address, index) => ({ kind: "vault-position", id: `vault-${index}`, assetKey: `eip155:8453/erc20:${address}`, name: `Vault ${index}`, symbol: "USDC vault", vaultAddress: address, decimals: 18, underlyingAssetKey: usdcKey, underlyingSymbol: "USDC", underlyingDecimals: 6, sharesBaseUnits: "0", underlyingBaseUnits: "0", readStatus: "ready", conversionMethod: "erc4626-convertToAssets" })),
-  ];
-  const source = { provider: "Coinbase Exchange Rates", method: "fixture", fetchedAt: new Date().toISOString(), asOf: null, timeBasis: "retrieved-at" };
-  return {
-    version: 2, walletAddress: OWNER, chainId: 8453, selectedRegion: "US", quoteCurrency: "USD",
-    block: { number: "16", hash: `0x${"cd".repeat(32)}`, timestamp: String(Math.floor(Date.now() / 1000)) }, fetchedAt: source.fetchedAt,
-    inventory: { scope: "configured-base-assets-v1", walletDiscoveryComplete: false, holdings, omissions: [] }, prices: [],
-    fx: { baseCurrency: "USD", quoteCurrency: "USD", quoteUnitsPerUsd: { atoms: "1", scale: 0 }, sourceValue: "1", status: "fresh", source },
-    nativeEthQuote: { baseCurrency: "USD", assetSymbol: "ETH", assetUnitsPerUsd: { atoms: "5", scale: 4 }, sourceValue: "0.0005", status: "fresh", source },
-    lines: holdings.map(({ assetKey }) => ({ holdingAssetKey: assetKey, valueCurrency: "USD", value: { atoms: assetKey === usdcKey ? "1234" : "0", scale: assetKey === usdcKey ? 2 : 0 }, status: "priced", reason: null })),
-    cashBuckets: [{ id: `cash:${usdcKey}`, roles: ["canonical-usd", "selected-local"], assetKey: usdcKey, symbol: "USDC", denominationCurrency: "USD", tokenAmountBaseUnits: "12340000", tokenDecimals: 6, indicativeValue: { atoms: "1234", scale: 2 }, valuationStatus: "priced" }],
-    total: { label: "supported-portfolio-value", status: "all-supported-read-holdings-priced", value: { atoms: "1234", scale: 2 }, currency: "USD", unpricedAssetKeys: [], unavailableAssetKeys: [] },
   };
 }
 
@@ -101,98 +89,6 @@ function savingsVaults() {
   };
 }
 
-function savingsPositions() {
-  return {
-    accountAddress: OWNER,
-    fetchedAt: "2026-09-12T12:00:02.000Z",
-    vaults: MORPHO_V1_CANDIDATE_ADDRESSES.map((vaultAddress) => ({
-      vaultAddress,
-      position: null,
-    })),
-  };
-}
-
-function cbBtcValuation() {
-  const base = valuation();
-  const assetKey = `eip155:8453/erc20:${CBBTC}` as const;
-  const holding = {
-    kind: "direct" as const,
-    id: "cbbtc",
-    assetKey,
-    name: "Coinbase Wrapped BTC",
-    symbol: "cbBTC",
-    decimals: 8,
-    assetKind: "erc20" as const,
-    contractAddress: CBBTC,
-    cashCurrency: null,
-    balanceBaseUnits: "100000",
-    readStatus: "ready" as const,
-  };
-  return {
-    ...base,
-    inventory: {
-      ...base.inventory,
-      holdings: [base.inventory.holdings[0], base.inventory.holdings[1], holding, ...base.inventory.holdings.slice(2)],
-    },
-    lines: [
-      ...base.lines,
-      { holdingAssetKey: assetKey, valueCurrency: "USD", value: { atoms: "6000", scale: 2 }, status: "priced", reason: null },
-    ],
-    total: { ...base.total, value: { atoms: "7234", scale: 2 } },
-  };
-}
-
-function recognizedValuation() {
-  const base = valuation();
-  return {
-    ...base,
-    recognized: {
-      status: "complete",
-      holdings: [{
-        id: "recognized:0x9999999999999999999999999999999999999999",
-        assetKey: "eip155:8453/erc20:0x9999999999999999999999999999999999999999",
-        name: "Recognized Coin",
-        symbol: "RCG",
-        decimals: 18,
-        contractAddress: "0x9999999999999999999999999999999999999999",
-        imageUrl: "https://images.example.test/recognized.svg",
-        balanceBaseUnits: "1230000000000000000",
-        liquidityUsd: { atoms: "100000", scale: 0 },
-        volume24Usd: { atoms: "10000", scale: 0 },
-        valueCurrency: "USD",
-        value: null,
-        valuationStatus: "unpriced",
-      }],
-    },
-  };
-}
-
-function scrollableValuation() {
-  const base = valuation();
-  const extras = Array.from({ length: 24 }, (_, index) => ({
-    kind: "direct" as const,
-    id: `zero-holding-${index}`,
-    assetKey: `eip155:8453/erc20:0x${index
-      .toString(16)
-      .padStart(40, "0")}`,
-    name: `Zero holding ${index}`,
-    symbol: `Z${index}`,
-    decimals: 18,
-    assetKind: "erc20" as const,
-    contractAddress: null,
-    cashCurrency: null,
-    balanceBaseUnits: "1",
-    readStatus: "ready" as const,
-  }));
-  return {
-    ...base,
-    inventory: {
-      ...base.inventory,
-      holdings: [...base.inventory.holdings, ...extras],
-    },
-  };
-}
-
 async function json(route: Route, body: unknown) {
   await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 }
@@ -200,7 +96,7 @@ async function json(route: Route, body: unknown) {
 async function installApiFixtures(
   page: Page,
   options: {
-    portfolioValuation?: unknown;
+    balances?: BalancesSnapshot | ((region: RegionId) => BalancesSnapshot);
     initialActionStatus?: ActionStatus;
     activityTransfers?: boolean;
     failHandleOnce?: boolean;
@@ -209,12 +105,15 @@ async function installApiFixtures(
   let status: ActionStatus = options.initialActionStatus ?? "unconfirmed";
   let currentAction = action();
   let sessionReads = 0;
-  let valuationReads = 0;
+  let balancesReads = 0;
+  let portfolioValuationReads = 0;
+  let savingsPositionReads = 0;
   let activityReads = 0;
+  const balancesReadsByRegion = new Map<RegionId, number>();
   let delayedSession: Promise<void> | null = null;
   let releaseDelayedSession: (() => void) | null = null;
-  let delayedValuation: Promise<void> | null = null;
-  let releaseDelayedValuation: (() => void) | null = null;
+  let delayedBalances: Promise<void> | null = null;
+  let releaseDelayedBalances: (() => void) | null = null;
   let handleRecorded = false;
   let failHandleResponseOnce = options.failHandleOnce ?? true;
   let fundingStatusReads = 0;
@@ -222,15 +121,22 @@ async function installApiFixtures(
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname;
+    if (path === "/api/portfolio/valuation") portfolioValuationReads += 1;
+    if (path === "/api/savings/positions") savingsPositionReads += 1;
     if (path === "/api/session") {
       sessionReads += 1;
       if (delayedSession) await delayedSession;
       return json(route, { user: { subject: "playwright-smoke-subject" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" });
     }
-    if (path === "/api/portfolio/valuation") {
-      valuationReads += 1;
-      if (delayedValuation) await delayedValuation;
-      return json(route, options.portfolioValuation ?? valuation());
+    if (path === "/api/balances") {
+      const region = (url.searchParams.get("region") ?? "US") as RegionId;
+      balancesReads += 1;
+      balancesReadsByRegion.set(region, (balancesReadsByRegion.get(region) ?? 0) + 1);
+      if (delayedBalances) await delayedBalances;
+      const fixture = typeof options.balances === "function"
+        ? options.balances(region)
+        : options.balances ?? balancesSnapshot(region);
+      return json(route, fixture);
     }
     if (path === "/api/actions/prepare" && request.method() === "POST") {
       const body = request.postDataJSON() as { kind?: string; params?: { assetId?: string; amountBaseUnits?: string } };
@@ -281,7 +187,6 @@ async function installApiFixtures(
       return json(route, { walletAddress: OWNER, chainId: 8453, window: { from, to }, transfers, nextCursor: null, source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to } });
     }
     if (path === "/api/savings/vaults") return json(route, savingsVaults());
-    if (path === "/api/savings/positions") return json(route, savingsPositions());
     if (path === "/api/funding/providers") return json(route, url.searchParams.get("region") === "ID" ? { providers: [{ providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx", assetSymbol: "IDRX", assetDecimals: 2, currency: "IDR", paymentMethods: [{ id: "bank-va-mandiri", label: "Bank transfer · Mandiri" }], quotes: false, kyc: null }] } : { providers: [] });
     if (path === "/api/funding/quotes") return json(route, { quoteToken: "fixture-signed-quote", quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: EXPIRES_AT } });
     if (path === "/api/funding/orders" && request.method() === "POST") return json(route, { order: { id: ACTION_ID, providerId: "idrx", region: "ID", assetId: "base:idrx", paymentMethod: "bank-va-mandiri", fiatAmount: "20000", state: "awaiting-payment", expectedTokenAmountAtomic: "2000000", fees: [{ label: "Network", amount: "100", currency: "IDR" }], instructions: { kind: "bank-transfer", rail: "Mandiri virtual account", accountNumber: "123456789012", accountName: "Home Fixture", amount: "20000", currency: "IDR" }, providerStatus: "pending" } });
@@ -292,7 +197,11 @@ async function installApiFixtures(
   });
   return {
     sessionReads: () => sessionReads,
-    valuationReads: () => valuationReads,
+    balancesReads: () => balancesReads,
+    balancesReadsForRegion: (region: RegionId) => balancesReadsByRegion.get(region) ?? 0,
+    balanceReadRegions: () => [...balancesReadsByRegion.entries()],
+    portfolioValuationReads: () => portfolioValuationReads,
+    savingsPositionReads: () => savingsPositionReads,
     activityReads: () => activityReads,
     delayNextSession() {
       delayedSession = new Promise<void>((resolve) => { releaseDelayedSession = resolve; });
@@ -303,14 +212,14 @@ async function installApiFixtures(
       delayedSession = null;
       releaseDelayedSession = null;
     },
-    delayNextValuation() {
-      delayedValuation = new Promise<void>((resolve) => { releaseDelayedValuation = resolve; });
-      return valuationReads + 1;
+    delayNextBalances() {
+      delayedBalances = new Promise<void>((resolve) => { releaseDelayedBalances = resolve; });
+      return balancesReads + 1;
     },
-    releaseValuation() {
-      releaseDelayedValuation?.();
-      delayedValuation = null;
-      releaseDelayedValuation = null;
+    releaseBalances() {
+      releaseDelayedBalances?.();
+      delayedBalances = null;
+      releaseDelayedBalances = null;
     },
   };
 }
@@ -366,32 +275,55 @@ function expectTickerInsideAmount(metrics: NonNullable<Awaited<ReturnType<typeof
   expect(metrics.tickerRight).toBeLessThanOrEqual(metrics.containerRight + 0.5);
 }
 
-test("recognized token is nested-Balances-only, uses its Codex image, and never enters Send availability", async ({ page }) => {
-  const fixture = recognizedValuation();
-  parsePortfolioValuationSnapshot(fixture, {
+async function visibleBalanceRowLayout(page: Page) {
+  return page.locator(
+    '[data-shell-panel]:not([hidden]) .balances-panel .supplied-asset-list li',
+  ).evaluateAll((rows) => rows.map((row) => {
+    const bounds = row.getBoundingClientRect();
+    return {
+      text: row.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+    };
+  }));
+}
+
+test("catalog token appears on Home and Balances with its image, but never enters Send availability", async ({ page }) => {
+  const fixture = balancesSnapshot();
+  parseBalancesSnapshot(fixture, {
     subject: "playwright-smoke-subject",
     smartAccountAddress: OWNER,
     chainId: 8453,
   }, "US");
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
-  await page.route("https://images.example.test/recognized.svg", (route) =>
+  await page.route(RECOGNIZED_IMAGE_URL, (route) =>
     route.fulfill({
       status: 200,
       contentType: "image/svg+xml",
       body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0052ff"/></svg>',
     }),
   );
-  await installApiFixtures(page, { portfolioValuation: fixture });
+  await installApiFixtures(page, { balances: fixture });
   await signIn(page);
 
-  await expect(page.getByText("Recognized Coin", { exact: true })).toHaveCount(0);
+  const homeCatalogRow = page.locator('[data-shell-panel]:not([hidden]) .balances-panel li', {
+    hasText: "Recognized Coin",
+  });
+  await expect(homeCatalogRow).toBeVisible();
+  await expect(homeCatalogRow.getByText("1 RCG", { exact: true })).toBeVisible();
+  await expect(homeCatalogRow.locator(`img[src="${RECOGNIZED_IMAGE_URL}"]`)).toBeVisible();
+  await expect(homeCatalogRow.locator('[data-mark="image"]')).toBeVisible();
+
   await page.getByRole("button", { name: "Balances" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Balances" })).toBeVisible();
-  await expect(page.getByText("Recognized Coin", { exact: true })).toBeVisible();
-  await expect(page.getByText("1.2300 RCG", { exact: true })).toBeVisible();
-  const recognizedRow = page.locator("li", { hasText: "Recognized Coin" });
-  await expect(recognizedRow.locator('img[src="https://images.example.test/recognized.svg"]')).toBeVisible();
-  await expect(recognizedRow.locator('[data-mark="image"]')).toBeVisible();
+  const balancesCatalogRow = page.locator('[data-shell-panel]:not([hidden]) li', {
+    hasText: "Recognized Coin",
+  });
+  await expect(balancesCatalogRow).toBeVisible();
+  await expect(balancesCatalogRow.getByText("1 RCG", { exact: true })).toBeVisible();
+  await expect(balancesCatalogRow.locator(`img[src="${RECOGNIZED_IMAGE_URL}"]`)).toBeVisible();
 
   await page.getByRole("button", { name: "Back" }).click();
   await page.getByRole("button", { name: "Send" }).click();
@@ -399,6 +331,74 @@ test("recognized token is nested-Balances-only, uses its Codex image, and never 
   await expect(send.getByText("Recognized Coin", { exact: true })).toHaveCount(0);
   await expect(send.getByText("RCG", { exact: true })).toHaveCount(0);
   await expect(send.getByText(/12\.34 available/)).toBeVisible();
+});
+
+test("Home, Save, Balances, and Home reuse one balances request per region", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  const fixtures = await installApiFixtures(page);
+  const startedAt = Date.now();
+  await signIn(page);
+  await expect.poll(() => fixtures.balancesReadsForRegion("US")).toBe(1);
+
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Save" })).toBeVisible();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.getByRole("button", { name: "Balances", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Balances" })).toBeVisible();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Add money", exact: true })).toBeVisible();
+
+  expect(Date.now() - startedAt).toBeLessThan(15_000);
+  const readsByRegion = fixtures.balanceReadRegions();
+  expect(readsByRegion.length).toBeGreaterThan(0);
+  expect(readsByRegion.every(([, reads]) => reads === 1)).toBe(true);
+  expect(fixtures.balancesReads()).toBe(readsByRegion.length);
+  expect(fixtures.portfolioValuationReads()).toBe(0);
+  expect(fixtures.savingsPositionReads()).toBe(0);
+});
+
+test("cash, priced catalog, and unpriced registry balances share one row anatomy", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  const fixtures = await installApiFixtures(page, { balances: rowAnatomySnapshot() });
+  fixtures.delayNextBalances();
+  await signIn(page);
+  expect(await page.evaluate(() =>
+    performance.getEntriesByName("balances:painted", "mark").length,
+  )).toBe(0);
+  fixtures.releaseBalances();
+
+  await page.getByRole("button", { name: "Balances", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Balances" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() =>
+    performance.getEntriesByName("balances:painted", "mark").length,
+  )).toBe(1);
+
+  const activePanel = page.locator('[data-shell-panel]:not([hidden])');
+  const cash = activePanel.locator("li", { hasText: "US dollar" });
+  const catalog = activePanel.locator("li", { hasText: "Recognized Coin" });
+  const unpriced = activePanel.locator("li", { hasText: "Toshi" });
+  for (const row of [cash, catalog, unpriced]) {
+    await expect(row.locator('[data-kind="balance"]')).toHaveCount(1);
+    await expect(row.locator('[data-slot="item-media"]')).toHaveCount(1);
+    await expect(row.locator('[data-slot="item-content"]')).toHaveCount(2);
+  }
+
+  await expect(cash.locator('[data-slot="item-content"]').first().locator('[data-slot="item-title"]'))
+    .toHaveText("US dollar");
+  await expect(cash.locator('[data-slot="item-description"]')).toHaveCount(0);
+  await expect(cash.locator('[data-slot="item-content"]').nth(1).getByRole("img", { name: "Unavailable" }))
+    .toBeVisible();
+
+  const catalogContent = catalog.locator('[data-slot="item-content"]');
+  await expect(catalogContent.first().locator('[data-slot="item-title"]')).toHaveText("Recognized Coin");
+  await expect(catalogContent.first().locator('[data-slot="item-description"]')).toHaveText("1 RCG");
+  await expect(catalogContent.nth(1).getByRole("img", { name: "$18.20" })).toBeVisible();
+
+  const unpricedContent = unpriced.locator('[data-slot="item-content"]');
+  await expect(unpricedContent.first().locator('[data-slot="item-title"]')).toHaveText("Toshi");
+  await expect(unpricedContent.first().locator('[data-slot="item-description"]')).toHaveCount(0);
+  await expect(unpricedContent.nth(1).getByRole("img", { name: /TOSHI$/ })).toBeVisible();
+  await expect(activePanel.getByText("Ethereum", { exact: true })).toHaveCount(0);
 });
 
 test("Activity transaction details keep labels on one line and link to the explorer", async ({ page }) => {
@@ -442,14 +442,14 @@ test("recent operations open transaction details", async ({ page }) => {
 });
 
 test("sends a held catalog cbBTC balance with one asset selector indicator", async ({ page }) => {
-  const fixture = cbBtcValuation();
-  parsePortfolioValuationSnapshot(fixture, {
+  const fixture = balancesSnapshot();
+  parseBalancesSnapshot(fixture, {
     subject: "playwright-smoke-subject",
     smartAccountAddress: OWNER,
     chainId: 8453,
   }, "US");
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
-  await installApiFixtures(page, { portfolioValuation: fixture, failHandleOnce: false });
+  await installApiFixtures(page, { balances: fixture, failHandleOnce: false });
   await signIn(page);
 
   await page.getByRole("button", { name: "Send" }).click();
@@ -472,7 +472,7 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
 });
 
 test("ambiguous handle response retries without a second wallet dispatch", async ({ page }) => {
-  parsePortfolioValuationSnapshot(valuation(), {
+  parseBalancesSnapshot(balancesSnapshot(), {
     subject: "playwright-smoke-subject",
     smartAccountAddress: OWNER,
     chainId: 8453,
@@ -509,35 +509,62 @@ test("ambiguous handle response retries without a second wallet dispatch", async
   await expect(page.getByText(/Pending/)).toHaveCount(0);
 });
 
-test("reload paints persisted balances before stale valuation responds", async ({ page }) => {
+test("reload paints persisted balances before stale balances respond without shifting rows", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
   const fixtures = await installApiFixtures(page);
   await signIn(page);
   const coldPaint = await page.evaluate(() =>
     performance.getEntriesByName("balances:painted", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
   );
+  expect(coldPaint).toBeLessThan(BALANCES_PAINTED_BUDGET_MS);
   await expect.poll(() => page.evaluate(() =>
     Object.keys(localStorage).find((key) => key.startsWith("home.query.v1:")) ?? null,
   )).not.toBeNull();
-  await page.evaluate(() => {
+  const persistedFacts = await page.evaluate(() => {
     const key = Object.keys(localStorage).find((candidate) => candidate.startsWith("home.query.v1:"));
     if (!key) throw new Error("Persisted owner cache is missing");
     const persisted = JSON.parse(localStorage.getItem(key) ?? "null") as {
-      clientState?: { queries?: Array<{ state?: { dataUpdatedAt?: number } }> };
+      buster?: string;
+      clientState?: {
+        queries?: Array<{
+          queryKey?: unknown[];
+          state?: { data?: { holdings?: Array<{ id?: string }> }; dataUpdatedAt?: number };
+        }>;
+      };
     };
+    const balancesQuery = persisted.clientState?.queries?.find(
+      (query) => query.queryKey?.[1] === "balances",
+    );
     for (const query of persisted.clientState?.queries ?? []) {
       if (query.state) query.state.dataUpdatedAt = 0;
     }
     localStorage.setItem(key, JSON.stringify(persisted));
+    return {
+      buster: persisted.buster,
+      queryKey: balancesQuery?.queryKey,
+      hasCatalog: balancesQuery?.state?.data?.holdings?.some(
+        (holding) => holding.id === "catalog:0x9999999999999999999999999999999999999999",
+      ) ?? false,
+    };
   });
+  expect(persistedFacts.buster).toBe("home-query-v2");
+  expect(persistedFacts.queryKey).toEqual([
+    expect.any(String),
+    "balances",
+    "US",
+  ]);
+  expect(persistedFacts.hasCatalog).toBe(true);
+
   const delayedSessionRead = fixtures.delayNextSession();
-  fixtures.delayNextValuation();
-  const valuationReadsBeforeReload = fixtures.valuationReads();
+  const delayedBalancesRead = fixtures.delayNextBalances();
+  const balancesReadsBeforeReload = fixtures.balancesReads();
 
   await page.reload();
   await expect.poll(fixtures.sessionReads, { timeout: 15_000 }).toBeGreaterThanOrEqual(delayedSessionRead);
   await expect(page.getByText("$12.34", { exact: true }).first()).toBeVisible();
-  expect(fixtures.valuationReads()).toBe(valuationReadsBeforeReload);
+  await expect(page.getByText("Recognized Coin", { exact: true }).first()).toBeVisible();
+  expect(fixtures.balancesReads()).toBe(balancesReadsBeforeReload);
+  const provisionalLayout = await visibleBalanceRowLayout(page);
   const provisionalPaint = await page.evaluate(() => ({
     balances: performance.getEntriesByName("balances:painted", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
     verified: performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
@@ -553,8 +580,13 @@ test("reload paints persisted balances before stale valuation responds", async (
     performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
   );
   expect(provisionalPaint.balances).toBeLessThan(verifiedPaint);
-  await expect(page.getByText("$12.34", { exact: true }).first()).toBeVisible();
-  fixtures.releaseValuation();
+  await expect.poll(fixtures.balancesReads).toBeGreaterThanOrEqual(delayedBalancesRead);
+  await expect(page.getByText("Recognized Coin", { exact: true }).first()).toBeVisible();
+
+  fixtures.releaseBalances();
+  await expect(page.locator('[data-shell-panel]:not([hidden]) .balance-hero')).not.toHaveAttribute("aria-busy", "true");
+  const settledLayout = await visibleBalanceRowLayout(page);
+  expect(settledLayout).toEqual(provisionalLayout);
 });
 
 test("reload resumes an unconfirmed send review from its URL action", async ({ page }) => {
@@ -800,12 +832,13 @@ async function openScrolledBalances(page: Page) {
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
   await installApiFixtures(page);
   await page.route(
-    (url) => url.pathname === "/api/portfolio/valuation",
+    (url) => url.pathname === "/api/balances",
     async (route) => {
+      const region = (new URL(route.request().url()).searchParams.get("region") ?? "US") as RegionId;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(scrollableValuation()),
+        body: JSON.stringify(scrollableBalancesSnapshot(region)),
       });
     },
   );
