@@ -5,6 +5,16 @@ import { chromium, type BrowserContext, type Page, type Route } from "@playwrigh
 import { mkdir, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { portfolioVaults } from "../../apps/web/config/portfolio-assets";
+import { isRegionId, presentationRegions, type FiatCurrencyCode } from "../../apps/web/config/regions";
+import {
+  buildBalancesSnapshotFixture,
+  catalogHolding,
+  decimal,
+  priced,
+  pricedCash,
+  ready,
+} from "../../apps/web/shared/balances/fixtures";
 
 const captureUrl = new URL(process.env.HOME_CAPTURE_BASE_URL ?? "http://localhost:3199");
 if (captureUrl.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(captureUrl.hostname)) {
@@ -26,67 +36,47 @@ function now() {
   return new Date().toISOString();
 }
 
-function valuation() {
-  const fetchedAt = now();
-  const usdcKey = `eip155:8453/erc20:${USDC}`;
-  const holdings = [
-    {
-      kind: "direct", id: "eth", assetKey: "eip155:8453/native", name: "Ethereum",
-      symbol: "ETH", decimals: 18, assetKind: "native", contractAddress: null,
-      cashCurrency: null, balanceBaseUnits: "850000000000000000", readStatus: "ready",
-    },
-    {
-      kind: "direct", id: "usdc", assetKey: usdcKey, name: "US dollar", symbol: "USDC",
-      decimals: 6, assetKind: "erc20", contractAddress: USDC, cashCurrency: "USD",
-      balanceBaseUnits: "1284000000", readStatus: "ready",
-    },
-    ...VAULTS.map((address, index) => ({
-      kind: "vault-position", id: `vault-${index}`,
-      assetKey: `eip155:8453/erc20:${address.toLowerCase()}`,
-      name: index === 0 ? "Steakhouse USDC" : index === 1 ? "Gauntlet USDC Prime" : "Re7 USDC",
-      symbol: "USDC vault", vaultAddress: address, decimals: 18,
-      underlyingAssetKey: usdcKey, underlyingSymbol: "USDC", underlyingDecimals: 6,
-      sharesBaseUnits: index === 1 ? "312000000000000000000" : "0",
-      underlyingBaseUnits: index === 1 ? "320000000" : "0", readStatus: "ready",
-      conversionMethod: "erc4626-convertToAssets",
-    })),
-  ];
-  const source = {
-    provider: "Coinbase Exchange Rates", method: "README sample fixture", fetchedAt, asOf: fetchedAt,
-    timeBasis: "retrieved-at",
-  };
-  const values = new Map([
-    ["eip155:8453/native", { atoms: "267632", scale: 2 }],
-    [usdcKey, { atoms: "1284", scale: 0 }],
-    [`eip155:8453/erc20:${VAULTS[1]!.toLowerCase()}`, { atoms: "320", scale: 0 }],
-  ]);
-  return {
-    version: 2, walletAddress: OWNER, chainId: 8453, selectedRegion: "US", quoteCurrency: "USD",
-    block: { number: "35123456", hash: `0x${"cd".repeat(32)}`, timestamp: String(Math.floor(Date.now() / 1000)) },
-    fetchedAt,
-    inventory: { scope: "configured-base-assets-v1", walletDiscoveryComplete: false, holdings, omissions: [] },
-    prices: [],
-    fx: { baseCurrency: "USD", quoteCurrency: "USD", quoteUnitsPerUsd: { atoms: "1", scale: 0 }, sourceValue: "1", status: "fresh", source },
-    nativeEthQuote: { baseCurrency: "USD", assetSymbol: "ETH", assetUnitsPerUsd: { atoms: "3176", scale: 7 }, sourceValue: "0.0003176", status: "fresh", source },
-    lines: holdings.map(({ assetKey }) => ({
-      holdingAssetKey: assetKey,
-      valueCurrency: "USD",
-      value: values.get(assetKey) ?? { atoms: "0", scale: 0 },
-      status: "priced",
-      reason: null,
-    })),
-    cashBuckets: [{
-      id: `cash:${usdcKey}`, roles: ["canonical-usd", "selected-local"], assetKey: usdcKey,
-      symbol: "USDC", denominationCurrency: "USD", tokenAmountBaseUnits: "1284000000", tokenDecimals: 6,
-      indicativeValue: { atoms: "1284", scale: 0 }, valuationStatus: "priced",
-    }],
-    total: {
-      label: "supported-portfolio-value", status: "all-supported-read-holdings-priced",
-      value: { atoms: "428032", scale: 2 }, currency: "USD", unpricedAssetKeys: [], unavailableAssetKeys: [],
-    },
-  };
-}
+function balances(regionValue: string | null) {
+  const region = isRegionId(regionValue) ? regionValue : "US";
+  const currency = presentationRegions[region].currency.code as FiatCurrencyCode | null;
+  const quoteValue = (atoms: string) => currency
+    ? priced(currency, atoms)
+    : { status: "unpriced" as const, reason: "no-quote-currency" as const };
 
+  return buildBalancesSnapshotFixture({
+    region,
+    owner: OWNER,
+    fetchedAt: now(),
+    registry: {
+      usdc: {
+        balance: ready("1284000000"),
+        value: quoteValue("128400"),
+        cashValue: pricedCash("USD", "128400"),
+      },
+      eth: {
+        balance: ready("850000000000000000"),
+        value: quoteValue("267632"),
+      },
+      [portfolioVaults[1].id]: {
+        balance: ready("312000000000000000000"),
+        underlyingBalance: ready("320000000"),
+        value: quoteValue("32000"),
+      },
+    },
+    catalog: [catalogHolding({
+      address: "0x1111111111111111111111111111111111111112",
+      name: "Higher",
+      symbol: "HIGHER",
+      decimals: 18,
+    }, "12500000000000000000", {
+      status: "unpriced",
+      reason: currency ? "below-market-gate" : "no-quote-currency",
+    })],
+    total: currency
+      ? { status: "complete", value: decimal("428032", 2), currency }
+      : { status: "no-quote-currency", value: null, currency: null },
+  });
+}
 
 function vaultCandidate(vaultAddress: string, name: string, netApy: number) {
   const fetchedAt = now();
@@ -110,21 +100,6 @@ function savingsVaults() {
     ],
     source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt },
     stale: false,
-  };
-}
-
-function savingsPositions() {
-  return {
-    accountAddress: OWNER, fetchedAt: now(),
-    vaults: VAULTS.map((vaultAddress, index) => ({
-      vaultAddress,
-      position: index === 1 ? {
-        version: "v1", accountAddress: OWNER, vaultAddress,
-        assetsRaw: "320000000", sharesRaw: "312000000000000000000", indexedAt: now(),
-        source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaultPosition", fetchedAt: now() },
-        withdrawableRaw: null, withdrawableNote: "No maxWithdraw query was made.",
-      } : null,
-    })),
   };
 }
 
@@ -227,7 +202,7 @@ async function installFixtures(context: BrowserContext) {
     }
 
     if (path === "/api/session") return json(route, { user: { subject: "readme-sample-subject" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" });
-    if (path === "/api/portfolio/valuation") return json(route, valuation());
+    if (path === "/api/balances") return json(route, balances(requestUrl.searchParams.get("region")));
     if (path === "/api/activity") {
       const to = requestUrl.searchParams.get("to") ?? now();
       const from = new Date(Date.parse(to) - 31 * 24 * 60 * 60 * 1_000).toISOString();
@@ -238,7 +213,6 @@ async function installFixtures(context: BrowserContext) {
       });
     }
     if (path === "/api/savings/vaults") return json(route, savingsVaults());
-    if (path === "/api/savings/positions") return json(route, savingsPositions());
     if (path === "/api/market-prices") return json(route, marketPrices());
     if (path === "/api/invest/discover") return json(route, investDiscover());
     if (path === "/api/borrow") return json(route, borrowSnapshot());

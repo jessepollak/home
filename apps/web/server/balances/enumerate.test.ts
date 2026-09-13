@@ -9,7 +9,6 @@ const row = {
   name: "Token",
   symbol: "TKN",
   decimals: 18,
-  native: false as const,
 };
 
 function deferred<T>() {
@@ -65,10 +64,12 @@ describe("balances enumeration cache", () => {
     expect(calls).toBe(2);
   });
 
-  test("maps unavailable CDP to one source event", async () => {
+  test("does not cache unavailable CDP enumeration", async () => {
     const events: unknown[] = [];
+    let calls = 0;
     const enumerate = createBalancesEnumerator({
       listBalances: async () => {
+        calls += 1;
         throw new CdpTokenBalancesError(
           "not-configured",
           "missing credentials",
@@ -81,43 +82,63 @@ describe("balances enumeration cache", () => {
       status: "unavailable",
       rows: [],
     });
-    expect(events).toEqual([{
+    await expect(enumerate(owner)).resolves.toEqual({
+      status: "unavailable",
+      rows: [],
+    });
+    expect(calls).toBe(2);
+    expect(events).toEqual(Array(2).fill({
       kind: "portfolio-balance-source",
       route: "/api/balances",
       source: "cdp-token-balances",
       stage: "inventory",
       outcome: "unavailable",
       reason: "not-configured",
-    }]);
+    }));
   });
 
-  test("deadline returns collected rows as incomplete and emits partial", async () => {
+  test("caches incomplete enumeration for the same 60s TTL", async () => {
     const events: unknown[] = [];
+    let calls = 0;
+    let current = 0;
     const enumerate = createBalancesEnumerator({
-      deadlineMs: 0,
-      listBalances: ({ signal }) => new Promise((resolve) => {
-        signal?.addEventListener("abort", () => resolve({
-          balances: [row],
-          complete: false,
-        }), { once: true });
-      }),
+      now: () => current,
+      listBalances: async () => {
+        calls += 1;
+        return { balances: [row], complete: false };
+      },
       log: (event) => events.push(event),
     });
 
-    await expect(enumerate(owner)).resolves.toEqual({
-      status: "incomplete",
-      rows: [{
-        contractAddress: row.contractAddress,
-        amountBaseUnits: "7",
-        name: "Token",
-        symbol: "TKN",
-        decimals: 18,
-      }],
-    });
+    await expect(enumerate(owner)).resolves.toMatchObject({ status: "incomplete" });
+    current += 60_000;
+    await expect(enumerate(owner)).resolves.toMatchObject({ status: "incomplete" });
+    expect(calls).toBe(1);
     expect(events).toMatchObject([{
       source: "cdp-token-balances",
       outcome: "incomplete",
       reason: "partial",
     }]);
+  });
+
+  test("evicts the least recently used owner after 256 cached owners", async () => {
+    const calls = new Map<string, number>();
+    const enumerate = createBalancesEnumerator({
+      listBalances: async ({ address }) => {
+        calls.set(address, (calls.get(address) ?? 0) + 1);
+        return { balances: [], complete: true };
+      },
+    });
+    const owners = Array.from({ length: 257 }, (_, index) =>
+      `0x${(index + 1).toString(16).padStart(40, "0")}` as const);
+
+    for (const address of owners.slice(0, 256)) await enumerate(address);
+    await enumerate(owners[0]);
+    await enumerate(owners[256]);
+    await enumerate(owners[1]);
+
+    expect(calls.get(owners[0])).toBe(1);
+    expect(calls.get(owners[1])).toBe(2);
+    expect(calls.get(owners[256])).toBe(1);
   });
 });

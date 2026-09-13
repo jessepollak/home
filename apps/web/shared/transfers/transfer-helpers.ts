@@ -9,7 +9,6 @@ import {
   TransferExecutionError,
   type TransferAsset,
   type TransferAssetId,
-  type TransferBalance,
   type TransferRequest,
 } from "./types";
 
@@ -142,16 +141,6 @@ export function assertTransferRequest(value: TransferRequest): void {
   readBaseUnits(value.amountBaseUnits, true);
 }
 
-export function findTransferBalance(
-  assets: readonly TransferBalance[],
-  assetId: TransferAssetId,
-): bigint {
-  const asset = assets.find((candidate) => candidate.id === assetId);
-  if (!asset) {
-    throw new TransferExecutionError("unavailable");
-  }
-  return readBaseUnits(asset.balanceBaseUnits);
-}
 
 export function encodeErc20Transfer(
   token: `0x${string}`,

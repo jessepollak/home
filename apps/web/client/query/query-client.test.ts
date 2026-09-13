@@ -30,7 +30,7 @@ describe("owner query cache boundary", () => {
   test("owner switch clears memory and every persisted owner store", () => {
     const client = createHomeQueryClient();
     const storage = memoryStorage();
-    client.setQueryData(ownerQueryKey("owner-a", "valuation", "US"), { total: "1" });
+    client.setQueryData(ownerQueryKey("owner-a", "balances", "US"), { total: "1" });
     storage.setItem(`${ownerQueryCachePrefix}owner-a`, "a");
     storage.setItem(`${ownerQueryCachePrefix}owner-b`, "b");
     storage.setItem("home.country.v1", "US");
@@ -46,8 +46,8 @@ describe("owner query cache boundary", () => {
   test("preserving one owner clears other memory and persisted stores", () => {
     const client = createHomeQueryClient();
     const storage = memoryStorage();
-    client.setQueryData(ownerQueryKey("owner-a", "valuation", "US"), { total: "1" });
-    client.setQueryData(ownerQueryKey("owner-b", "valuation", "US"), { total: "2" });
+    client.setQueryData(ownerQueryKey("owner-a", "balances", "US"), { total: "1" });
+    client.setQueryData(ownerQueryKey("owner-b", "balances", "US"), { total: "2" });
     const ownerAStorageKey = `${ownerQueryCachePrefix}${encodeURIComponent("owner-a")}`;
     const ownerBStorageKey = `${ownerQueryCachePrefix}${encodeURIComponent("owner-b")}`;
     storage.setItem(ownerAStorageKey, "a");
@@ -55,9 +55,9 @@ describe("owner query cache boundary", () => {
 
     clearOwnerQueryBoundary(client, storage, "owner-a");
 
-    expect(client.getQueryData<{ total: string }>(ownerQueryKey("owner-a", "valuation", "US")))
+    expect(client.getQueryData<{ total: string }>(ownerQueryKey("owner-a", "balances", "US")))
       .toEqual({ total: "1" });
-    expect(client.getQueryData(ownerQueryKey("owner-b", "valuation", "US"))).toBeUndefined();
+    expect(client.getQueryData(ownerQueryKey("owner-b", "balances", "US"))).toBeUndefined();
     expect(storage.getItem(ownerAStorageKey)).toBe("a");
     expect(storage.getItem(ownerBStorageKey)).toBeNull();
   });
@@ -97,12 +97,12 @@ describe("owner query cache boundary", () => {
     const ownerKey = "subject\u00000x1111111111111111111111111111111111111111\u00008453";
     const client = createHomeQueryClient();
     await client.fetchQuery({
-      queryKey: ownerQueryKey(ownerKey, "valuation", "US"),
+      queryKey: ownerQueryKey(ownerKey, "balances", "US"),
       meta: ownerQueryMeta(ownerKey, "owner"),
       queryFn: async () => ({ amount: "10" }),
     });
     await client.fetchQuery({
-      queryKey: ownerQueryKey("other-owner", "valuation", "US"),
+      queryKey: ownerQueryKey("other-owner", "balances", "US"),
       meta: ownerQueryMeta(ownerKey, "owner"),
       queryFn: async () => ({ amount: "99" }),
     });
@@ -121,7 +121,7 @@ describe("owner query cache boundary", () => {
     persister?.flush();
     const restored = createHomeQueryClient();
     expect(restoreOwnerQueries(restored, storage, ownerKey)).toBe(true);
-    expect(restored.getQueryData<{ amount: string }>(ownerQueryKey(ownerKey, "valuation", "US")))
+    expect(restored.getQueryData<{ amount: string }>(ownerQueryKey(ownerKey, "balances", "US")))
       .toEqual({ amount: "10" });
   });
 });

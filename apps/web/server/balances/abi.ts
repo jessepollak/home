@@ -6,7 +6,6 @@ export const MULTICALL3_ADDRESS = "0xca11bde05977b3631167028862be2a173976ca11" a
 
 export const erc20Abi = [
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "balance", type: "uint256" }] },
-  { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ name: "decimals", type: "uint8" }] },
 ] as const;
 
 export const vaultAbi = [
@@ -37,10 +36,5 @@ export function decodeAggregate3(value: unknown): ContractResult[] {
 
 export function decodeBalance(data: Hex): bigint | null {
   try { return decodeFunctionResult({ abi: erc20Abi, functionName: "balanceOf", data }); }
-  catch { return null; }
-}
-
-export function decodeDecimals(data: Hex): number | null {
-  try { return decodeFunctionResult({ abi: erc20Abi, functionName: "decimals", data }); }
   catch { return null; }
 }

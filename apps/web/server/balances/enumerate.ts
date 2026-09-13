@@ -72,8 +72,10 @@ export function createBalancesEnumerator(dependencies: Dependencies = {}) {
     );
     try {
       const value = await target.inFlight;
-      target.value = value;
-      target.storedAt = now();
+      if (value.status !== "unavailable") {
+        target.value = value;
+        target.storedAt = now();
+      }
       return value;
     } finally {
       target.inFlight = null;

@@ -6,7 +6,4 @@ export type {
   MorphoVaultsResult,
 } from "@/shared/savings/contracts/vaults";
 export { MORPHO_API_VERSION } from "@/shared/savings/contracts/vaults";
-export type {
-  MorphoVaultPosition,
-  VerifiedMorphoAccount,
-} from "@/shared/savings/contracts/positions";
+export type { MorphoVaultPosition } from "@/shared/savings/contracts/positions";

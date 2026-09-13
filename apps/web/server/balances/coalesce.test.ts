@@ -154,6 +154,21 @@ describe("balances composition and read coalescing", () => {
     });
   });
 
+  test("clears a failed registry read so the next call starts a new read", async () => {
+    let count = 0;
+    const service = serviceWithRead(async () => {
+      count += 1;
+      if (count === 1) throw new Error("registry unavailable");
+      return read;
+    });
+
+    await expect(service(owner, "US")).rejects.toThrow("registry unavailable");
+    await expect(service(owner, "US")).resolves.toMatchObject({
+      coverage: { registry: "complete" },
+    });
+    expect(count).toBe(2);
+  });
+
   test("starts a new registry read after the 2s TTL expires", async () => {
     let count = 0;
     let current = Date.parse("2026-09-13T12:00:00.000Z");
