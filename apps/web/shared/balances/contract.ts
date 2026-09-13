@@ -23,6 +23,7 @@ import {
   catalogHoldingId,
   erc20AssetKey,
   nativeAssetKey,
+  walletHoldingId,
   type BalancesSession,
   type BalancesSnapshot,
   type ExactDecimal,
@@ -221,7 +222,9 @@ function validateHolding(
   registryKeys: ReadonlySet<string>,
 ): Holding {
   if (!isRecord(raw)) fail("holding shape");
-  if (raw.source !== "registry" && raw.source !== "catalog") fail("holding source");
+  if (raw.source !== "registry" && raw.source !== "catalog" && raw.source !== "wallet") {
+    fail("holding source");
+  }
   if (typeof raw.id !== "string" || typeof raw.key !== "string") fail("holding identity");
   if (!readBoundedText(raw.name) || !readBoundedText(raw.symbol)) fail("holding name");
   if (!readDecimals(raw.decimals)) fail("holding decimals");
@@ -282,12 +285,15 @@ function validateHolding(
     return holding;
   }
 
-  // Catalog row: positive ERC-20 outside the registry.
+  // Catalog or wallet-discovered row: positive ERC-20 outside the registry.
   const contractAddress = typeof raw.contractAddress === "string" ? raw.contractAddress : "";
+  const expectedId = raw.source === "catalog"
+    ? catalogHoldingId(contractAddress)
+    : walletHoldingId(contractAddress);
   if (
     !lowercaseAddressPattern.test(contractAddress) ||
     raw.kind !== "erc20" ||
-    raw.id !== catalogHoldingId(contractAddress) ||
+    raw.id !== expectedId ||
     raw.key !== erc20AssetKey(contractAddress) ||
     registryKeys.has(raw.key) ||
     (raw.cashCurrency ?? null) !== null ||
@@ -298,13 +304,13 @@ function validateHolding(
     balance.baseUnits === "0" ||
     (raw.imageUrl !== undefined && !validateHttpsImage(raw.imageUrl))
   ) {
-    fail("catalog holding");
+    fail(`${raw.source} holding`);
   }
   return {
     key: raw.key as Holding["key"],
     id: raw.id,
     kind: "erc20",
-    source: "catalog",
+    source: raw.source,
     name: raw.name as string,
     symbol: raw.symbol as string,
     decimals: raw.decimals as number,

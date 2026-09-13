@@ -20,7 +20,15 @@ export type AssetKey = NativeAssetKey | Erc20AssetKey;
 export type ExactDecimal = { atoms: string; scale: number };
 
 export type HoldingKind = "native" | "erc20" | "vault-share";
-export type HoldingSource = "registry" | "catalog";
+/**
+ * Provenance of a holding:
+ * - `registry`: configured in config/portfolio-assets (cash, ETH, Invest, vault shares); always present.
+ * - `catalog`: one of the Codex top-512 Base tokens; present only with a positive balance.
+ * - `wallet`: discovered by a wallet enumerator (CDP Token Balances) outside the registry and
+ *   catalog, resolved against Codex metadata by contract address; present only with a positive
+ *   balance. Reserved for the "all tokens" phase (docs/balances.md §Next); no server emits it yet.
+ */
+export type HoldingSource = "registry" | "catalog" | "wallet";
 
 export type HoldingBalance =
   | { status: "ready"; baseUnits: string }
@@ -47,7 +55,7 @@ export type HoldingCashValue =
 
 export type Holding = {
   key: AssetKey;
-  /** Registry id ("usdc", "eth", "cbbtc", "morpho-steakhouse-usdc") or `catalog:${lowercaseAddress}`. */
+  /** Registry id ("usdc", "eth", "cbbtc", "morpho-steakhouse-usdc"), `catalog:${lowercaseAddress}`, or `wallet:${lowercaseAddress}`. */
   id: string;
   kind: HoldingKind;
   source: HoldingSource;
@@ -56,7 +64,7 @@ export type Holding = {
   decimals: number;
   contractAddress: BalancesAddress | null;
   cashCurrency: FiatCurrencyCode | null;
-  /** Catalog rows only; sanitized https URL. */
+  /** Catalog and wallet rows only; sanitized https URL. */
   imageUrl?: string;
   /** Vault shares only. */
   underlying?: { key: Erc20AssetKey; symbol: "USDC"; decimals: 6 };
@@ -119,4 +127,8 @@ export function erc20AssetKey(address: string): Erc20AssetKey {
 
 export function catalogHoldingId(address: string): `catalog:${string}` {
   return `catalog:${address.toLowerCase()}`;
+}
+
+export function walletHoldingId(address: string): `wallet:${string}` {
+  return `wallet:${address.toLowerCase()}`;
 }

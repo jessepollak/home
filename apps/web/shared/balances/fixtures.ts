@@ -10,6 +10,7 @@ import {
   BALANCES_VERSION,
   catalogHoldingId,
   erc20AssetKey,
+  walletHoldingId,
   type BalancesSnapshot,
   type ExactDecimal,
   type Holding,
@@ -48,6 +49,15 @@ export const FIXTURE_CATALOG = {
     decimals: 6,
     imageUrl: "https://assets.example.invalid/quiet.png",
   },
+} as const;
+
+/** A wallet-discovered token outside the registry and catalog (docs/balances.md §Next). */
+export const FIXTURE_WALLET_TOKEN = {
+  address: "0x5555555555555555555555555555555555555555",
+  name: "Discovered Token",
+  symbol: "DISC",
+  decimals: 18,
+  imageUrl: "https://assets.example.invalid/disc.png",
 } as const;
 
 export type HoldingOverride = Partial<
@@ -97,11 +107,28 @@ export function catalogHolding(
   balance: string,
   value: HoldingValue,
 ): Holding {
+  return discoveredHolding("catalog", entry, balance, value);
+}
+
+export function walletHolding(
+  entry: CatalogFixtureEntry,
+  balance: string,
+  value: HoldingValue,
+): Holding {
+  return discoveredHolding("wallet", entry, balance, value);
+}
+
+function discoveredHolding(
+  source: "catalog" | "wallet",
+  entry: CatalogFixtureEntry,
+  balance: string,
+  value: HoldingValue,
+): Holding {
   return {
     key: erc20AssetKey(entry.address),
-    id: catalogHoldingId(entry.address),
+    id: source === "catalog" ? catalogHoldingId(entry.address) : walletHoldingId(entry.address),
     kind: "erc20",
-    source: "catalog",
+    source,
     name: entry.name,
     symbol: entry.symbol,
     decimals: entry.decimals,

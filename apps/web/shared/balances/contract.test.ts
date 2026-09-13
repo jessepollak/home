@@ -3,11 +3,13 @@ import { BalancesResponseError, expectedRegistryHoldings, parseBalancesSnapshot 
 import {
   FIXTURE_CATALOG,
   FIXTURE_OWNER_ADDRESS,
+  FIXTURE_WALLET_TOKEN,
   balancesSnapshotFixture,
   buildBalancesSnapshotFixture,
   catalogHolding,
   priced,
   ready,
+  walletHolding,
 } from "./fixtures";
 import type { BalancesSession, BalancesSnapshot } from "./types";
 
@@ -49,6 +51,22 @@ describe("parseBalancesSnapshot", () => {
     const parsed = parseBalancesSnapshot(clone(snapshot), session, "DE");
     const usdc = parsed.holdings.find((holding) => holding.id === "usdc");
     expect(usdc?.cashValue).toEqual({ status: "priced", currency: "USD", amount: { atoms: "100", scale: 2 } });
+  });
+
+  test("accepts a wallet-discovered row alongside catalog rows", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      catalog: [
+        catalogHolding(FIXTURE_CATALOG.priced, "1000000000000000000", priced("USD", "146")),
+        walletHolding(FIXTURE_WALLET_TOKEN, "2500000000000000000", {
+          status: "unpriced",
+          reason: "below-market-gate",
+        }),
+      ],
+    });
+    const parsed = parseBalancesSnapshot(clone(snapshot), session, "US");
+    const discovered = parsed.holdings.find((holding) => holding.source === "wallet");
+    expect(discovered?.id).toBe(`wallet:${FIXTURE_WALLET_TOKEN.address}`);
+    expect(discovered?.imageUrl).toBe(FIXTURE_WALLET_TOKEN.imageUrl);
   });
 
   test("carries every registry asset plus the catalog rows", () => {
@@ -196,6 +214,17 @@ describe("parseBalancesSnapshot", () => {
     { label: "partial total without a value", mutate: (s) => ({ ...s, total: { ...s.total, value: null } }) },
     { label: "unavailable total with a value", mutate: (s) => ({ ...s, total: { status: "unavailable", value: { atoms: "1", scale: 2 }, currency: "USD" } }) },
     { label: "total in the wrong currency", mutate: (s) => ({ ...s, total: { ...s.total, currency: "EUR" } }) },
+    {
+      label: "wallet row claiming a catalog id",
+      mutate: (s) => ({
+        ...s,
+        holdings: [
+          ...s.holdings,
+          { ...walletHolding(FIXTURE_WALLET_TOKEN, "1", priced("USD", "1")), id: `catalog:${FIXTURE_WALLET_TOKEN.address}` },
+        ],
+      }),
+    },
+    { label: "unknown holding source", mutate: (s) => ({ ...s, holdings: s.holdings.map((h) => (h.id === "eth" ? { ...h, source: "indexer" } : h)) }) },
     { label: "not an object", mutate: () => "nope" },
   ];
 
