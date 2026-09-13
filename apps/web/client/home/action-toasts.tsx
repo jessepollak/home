@@ -2,14 +2,14 @@
 
 import { Toaster } from "@/components/ui/toast";
 import { useCallback, useEffect, useRef } from "react";
-import { useHomeToast, type HomeToastRole, type HomeToastTone } from "./use-home-toast";
+import { homeToastDurationMs, useHomeToast, type HomeToastRole, type HomeToastTone } from "./use-home-toast";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { formatAddress, formatFiatAmount, formatPresentationTokenAmount } from "@/shared/formatting";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import { activityOwnerKey } from "@/client/activity/use-activity";
 import { actionFailureEvent } from "./action-toast-events";
 
-const defaultDismissAfterMs = 5_000;
+const defaultDismissAfterMs = homeToastDurationMs;
 
 type ToastAction = {
   id: string;
@@ -38,6 +38,7 @@ export function ActionToasts({
 }) {
   const ownerKey = session?.smartAccount ? activityOwnerKey(session) : null;
   const seenStatuses = useRef(new Map<string, ToastAction["status"]>());
+  const seededOwners = useRef(new Set<string>());
   const { add, closeAll } = useHomeToast(ownerKey);
   const actions = useHomeQuery({
     queryKey: ownerKey ? ownerQueryKey(ownerKey, "actions") : ["unauthenticated", "action-toasts-disabled"],
@@ -61,14 +62,21 @@ export function ActionToasts({
   useEffect(() => () => closeAll(), [closeAll]);
 
   useEffect(() => {
-    if (!actions.data) return;
+    if (!actions.data || !ownerKey) return;
+    if (!seededOwners.current.has(ownerKey)) {
+      for (const action of actions.data) {
+        seenStatuses.current.set(`${ownerKey}\u0000${action.id}`, action.status);
+      }
+      seededOwners.current.add(ownerKey);
+      return;
+    }
     for (const action of actions.data) {
       const statusKey = `${ownerKey}\u0000${action.id}`;
       const previous = seenStatuses.current.get(statusKey);
       if (action.status === "pending" && previous === undefined) {
         const message = actionToastMessage(action, "pending");
         if (message) addToast(message);
-      } else if (action.status === "confirmed" && previous && previous !== "confirmed") {
+      } else if (action.status === "confirmed" && previous === "pending") {
         const message = actionToastMessage(action, "confirmed");
         if (message) addToast(message, "success");
       }

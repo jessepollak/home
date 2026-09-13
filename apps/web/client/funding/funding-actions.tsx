@@ -4,6 +4,7 @@ import { useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 import type { RegionId } from "@/config/regions";
 import {
   commitClientUrl,
@@ -19,18 +20,6 @@ import type { AddMoneyStep } from "./add-money-dialog";
 const subscribeToMountedState = () => () => {};
 const mountedClientSnapshot = () => true;
 const mountedServerSnapshot = () => false;
-
-const iconProps = {
-  width: 20,
-  height: 20,
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.8,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-  "aria-hidden": true,
-};
 
 type FundingFlow = Extract<ShellFlow, "add-money" | "receive">;
 
@@ -130,7 +119,8 @@ export function FundingActionsForWallet({
   return (
     <>
       <Button
-        className="add-money"
+        size="lg"
+        className="h-11"
         onClick={() => {
           openedInAppRef.current = true;
           setDismissed(false);
@@ -138,20 +128,10 @@ export function FundingActionsForWallet({
           setFundingFlow("add-money", "push");
         }}
       >
-        <span className="add-money-content">
-          <PlusIcon />
-          <span>Add money</span>
-        </span>
+        <Plus className="size-4" aria-hidden="true" />
+        Add money
       </Button>
       {mounted ? createPortal(modal, document.body) : null}
     </>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg {...iconProps}>
-      <path d="M12 5v14M5 12h14" />
-    </svg>
   );
 }

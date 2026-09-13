@@ -1,5 +1,7 @@
 "use client";
 
+import { LoaderCircle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { BaseAccountLoginPhase } from "./cdp-client";
 import {
@@ -9,7 +11,6 @@ import {
   signInUnconfiguredCopy,
 } from "./sign-in-copy";
 import { baseAccountPhaseMessage } from "./sign-in-base-account";
-import styles from "./account.module.css";
 
 export function SignInBlockedPanel({
   reason,
@@ -18,23 +19,26 @@ export function SignInBlockedPanel({
 }) {
   if (reason === "unconfigured") {
     return (
-      <div className={styles.statusPanel} role="alert">
-        <strong className="text-row-label">{signInUnconfiguredCopy.heading}</strong>
-        <p className="text-caption text-muted-foreground">
-          This deployment is missing <code>NEXT_PUBLIC_CDP_PROJECT_ID</code>.
-        </p>
-        <p className="text-caption text-muted-foreground">
-          Copy <code>.env.example</code> to <code>apps/web/.env.local</code>, then follow{" "}
-          <a href={CDP_SETUP_DOC_HREF}>{CDP_SETUP_DOC_LABEL}</a>.
-        </p>
-      </div>
+      <Alert className="mt-6">
+        <AlertTitle>{signInUnconfiguredCopy.heading}</AlertTitle>
+        <AlertDescription>
+          <p>
+            This deployment is missing <code className="font-mono">NEXT_PUBLIC_CDP_PROJECT_ID</code>.
+          </p>
+          <p>
+            Copy <code className="font-mono">.env.example</code> to{" "}
+            <code className="font-mono">apps/web/.env.local</code>, then follow{" "}
+            <a href={CDP_SETUP_DOC_HREF}>{CDP_SETUP_DOC_LABEL}</a>.
+          </p>
+        </AlertDescription>
+      </Alert>
     );
   }
   return (
-    <div className={styles.statusPanel} role="alert">
-      <strong className="text-row-label">{signInProviderUnavailableCopy.heading}</strong>
-      <p className="text-caption text-muted-foreground">{signInProviderUnavailableCopy.body}</p>
-    </div>
+    <Alert className="mt-6">
+      <AlertTitle>{signInProviderUnavailableCopy.heading}</AlertTitle>
+      <AlertDescription>{signInProviderUnavailableCopy.body}</AlertDescription>
+    </Alert>
   );
 }
 
@@ -64,30 +68,34 @@ export function SignInStatus({
         : null;
   if (pending) {
     return (
-      <div className={styles.pendingPanel} aria-live="polite">
-        <span className={styles.spinner} aria-hidden="true" />
-        <span className="text-caption text-muted-foreground">{pending}</span>
-      </div>
+      <Alert className="mt-6" aria-live="polite" role="status">
+        <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        <AlertDescription>{pending}</AlertDescription>
+      </Alert>
     );
   }
   if (signOutError) {
     return (
-      <div className={styles.statusPanel} role="alert">
-        <strong className="text-row-label">Sign-out did not finish.</strong>
-        <Button className={styles.statusAction} variant="secondary" onClick={onRetrySignOut}>
-          Retry sign out
-        </Button>
-      </div>
+      <Alert className="mt-6">
+        <AlertTitle>Sign-out did not finish.</AlertTitle>
+        <AlertDescription>
+          <Button className="mt-2 w-full" size="lg" variant="secondary" onClick={onRetrySignOut}>
+            Retry sign out
+          </Button>
+        </AlertDescription>
+      </Alert>
     );
   }
   if (unavailable) {
     return (
-      <div className={styles.statusPanel} role="alert">
-        <strong className="text-row-label">We could not verify this session.</strong>
-        <Button className={styles.statusAction} variant="secondary" onClick={onRetryValidation}>
-          Try again
-        </Button>
-      </div>
+      <Alert className="mt-6">
+        <AlertTitle>We could not verify this session.</AlertTitle>
+        <AlertDescription>
+          <Button className="mt-2 w-full" size="lg" variant="secondary" onClick={onRetryValidation}>
+            Try again
+          </Button>
+        </AlertDescription>
+      </Alert>
     );
   }
   return null;

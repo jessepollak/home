@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
+import { LoaderCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { activityOwnerKey } from "@/client/activity/use-activity";
-import { useHomeToast } from "@/client/home/use-home-toast";
 import {
   MoneyAmountDisplay,
   MoneyConfirmSummary,
   MoneyModal,
+  MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
   MoneyNumpad,
@@ -24,7 +24,6 @@ import type {
 } from "@/shared/money-actions/types";
 import { formatApy, formatUsdcUsd, parseUsdcAmount } from "@/client/savings/format";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
-import modal from "@/client/money-modal/money-modal.module.css";
 
 export type SavingsActionMode = "deposit" | "withdraw";
 
@@ -63,9 +62,7 @@ export function SavingsMoneyDialog({
   const [attemptedAction, setAttemptedAction] = useState(false);
   const [step, setStep] = useState<DialogStep>("amount");
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<{ mode: SavingsActionMode; amount: string; candidateName: string } | null>(null);
   const [openedAt] = useState(() => Date.now());
-  const { add: addToast } = useHomeToast(activityOwnerKey(session));
   const expiredPrepared = preparedAction
     ? Date.parse(preparedAction.expiresAt) <= openedAt
     : false;
@@ -76,25 +73,6 @@ export function SavingsMoneyDialog({
     : mode === "deposit"
       ? "Deposit"
       : "Withdraw";
-
-  useEffect(() => {
-    if (!success) return;
-    addToast({
-      id: `savings:${success.mode}:${success.amount}`,
-      tone: "success",
-      role: "status",
-      duration: 6_000,
-      onClose: () => setSuccess(null),
-      message: (
-        <div className="flex flex-col gap-1">
-          <strong className="text-row-label font-semibold">
-            {success.mode === "deposit" ? "Deposited" : "Withdrew"} {success.amount}
-          </strong>
-          <p className="text-metadata text-muted-foreground">Save · {success.candidateName}</p>
-        </div>
-      ),
-    });
-  }, [addToast, success]);
 
   function changeAmount(value: string, source: MoneyAmountChangeSource) {
     setAmountChangeSource(source);
@@ -176,13 +154,11 @@ export function SavingsMoneyDialog({
         setStep(result.status === "failed" ? "failed" : "error");
         return;
       }
-      const confirmedAmount = confirmAmount;
       try {
         await onConfirmed?.(result);
       } catch {
         // A parent refresh failure must not relabel a dispatched action.
       }
-      setSuccess({ mode, amount: confirmedAmount, candidateName: candidate.name });
       reset();
       onClose();
     } catch {
@@ -213,7 +189,7 @@ export function SavingsMoneyDialog({
           closeLabel={`Close ${mode} dialog`}
         />
 
-        <div className={modal.body}>
+        <MoneyModalBody className="gap-4 pt-4">
           {step === "amount" ? (
             <>
               <MoneyAmountDisplay
@@ -245,10 +221,7 @@ export function SavingsMoneyDialog({
                 ]}
               />
               {step === "pending" ? (
-                <StatusMessage id="savings-action-pending" className={modal.pending}>
-                  <span className={modal.spinner} aria-hidden="true" />
-                  Waiting for your wallet…
-                </StatusMessage>
+                <StatusMessage id="savings-action-pending"><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Waiting for your wallet…</span></StatusMessage>
               ) : null}
             </>
           ) : null}
@@ -259,7 +232,7 @@ export function SavingsMoneyDialog({
               This {mode} expired. Go back and continue again.
             </StatusMessage>
           ) : null}
-        </div>
+        </MoneyModalBody>
 
         {step === "amount" ? (
           <MoneyModalFooter

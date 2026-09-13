@@ -15,9 +15,8 @@ import {
 import type { RegionId } from "@/config/regions";
 import { usePresentationRegionId } from "./presentation-quote";
 import type { PriceHistoryState } from "./use-price-history";
-import styles from "./invest-experience.module.css";
 
-const LINE_COLOR = "#0052ff";
+const LINE_COLOR = "var(--primary)";
 const RANGE_SECONDS: Record<MarketPriceRange, number> = {
   "1D": 86_400,
   "1W": 7 * 86_400,
@@ -34,7 +33,7 @@ export const LIVELINE_PLOT_PADDING = {
   left: 16,
 } as const;
 
-/** First-load shimmer fades on `--home-motion-tab` so Liveline's chartReveal can play. */
+/** First-load cover fades once so Liveline's chart reveal can play. */
 export const CHART_COVER_FADE_MS = 180;
 
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
@@ -49,10 +48,10 @@ export function PriceChart({
   onRangeChange: (range: MarketPriceRange) => void;
 }) {
   return (
-    <div className={styles.chartBlock}>
-      <div className={styles.chartCaption}>
-        <span className="text-metadata text-muted-foreground">Price history</span>
-        <strong className="text-metadata">USD</strong>
+    <div className="flex min-h-76 flex-1 flex-col gap-3">
+      <div className="flex items-baseline justify-between">
+        <span className="text-sm text-muted-foreground">Price history</span>
+        <strong className="text-sm font-medium">USD</strong>
       </div>
       <ToggleGroup
         value={[range]}
@@ -61,13 +60,15 @@ export function PriceChart({
           if (nextRange) onRangeChange(nextRange as MarketPriceRange);
         }}
         aria-label="Price range"
-        className="w-full gap-0 rounded-lg bg-muted p-control-inset"
+        variant="outline"
+        spacing={0}
+        className="w-full"
       >
         {MARKET_PRICE_RANGES.map((value) => (
           <ToggleGroupItem
             key={value}
             value={value}
-            className="min-h-11 flex-1 text-toggle-sm aria-pressed:bg-background"
+            className="h-11 flex-1"
           >
             {value}
           </ToggleGroupItem>
@@ -116,7 +117,7 @@ function ChartBody({
 
   return (
     <div
-      className={styles.chartStage}
+      className="relative flex min-h-64 flex-1 overflow-hidden rounded-lg bg-muted"
       role={stageRole}
       aria-label={stageLabel}
       aria-busy={waitingFirstPaint || chipLoad || undefined}
@@ -125,24 +126,24 @@ function ChartBody({
       }
     >
       {plot ? (
-        <div className={styles.plotFrame} data-plot-key={plot.key} data-plot-range={plot.range}>
+        <div
+          className="absolute inset-0 z-1 flex min-h-64 overflow-hidden [&>div]:min-h-64 [&>div]:min-w-0 [&>div]:flex-1"
+          data-plot-key={plot.key}
+          data-plot-range={plot.range}
+        >
           <AssetLiveline plot={plot} reduceMotion={reduceMotion} />
         </div>
       ) : null}
       {coverKind ? (
         <div
-          className={
-            coverKind === "first"
-              ? `${styles.plotCover} shimmer`
-              : `${styles.plotCover} ${styles.plotCoverChip}`
-          }
+          className="pointer-events-none absolute inset-0 z-3 animate-pulse bg-muted transition-opacity duration-200 data-[fading=true]:opacity-0 motion-reduce:animate-none motion-reduce:transition-none"
           data-plot-cover={coverKind}
           data-fading={firstCover && !coldLoad ? "true" : undefined}
           aria-hidden
         />
       ) : null}
       {unavailable ? (
-        <p className={`${styles.chartMessage} text-metadata text-muted-foreground`} role="status">
+        <p className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-muted-foreground" role="status">
           {history.status === "error"
             ? "Price history unavailable."
             : "No price history for this range."}

@@ -42,20 +42,20 @@ export function AddressField({
       <div className="flex min-h-11 items-center justify-between gap-2">
         <FieldLabel htmlFor={id}>{label}</FieldLabel>
         <Button
-          className="min-h-11 min-w-11 shrink-0 p-2"
+          className="size-11 shrink-0"
           variant="ghost"
-          size="icon"
+          size="icon-lg"
           type="button"
           disabled={disabled}
           aria-label="Paste address"
           onClick={() => void paste()}
         >
-          <ClipboardPaste size={18} strokeWidth={1.9} aria-hidden="true" />
+          <ClipboardPaste className="size-4" aria-hidden="true" />
         </Button>
       </div>
       <Input
         id={id}
-        className="h-11 font-mono text-caption"
+        className="h-11 font-mono text-sm"
         value={display}
         onChange={(event) => onChange(event.target.value)}
         onFocus={() => setFocused(true)}

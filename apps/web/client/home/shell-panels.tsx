@@ -1,6 +1,7 @@
 "use client";
 
 import type { RefObject, ReactNode } from "react";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { FetchActivity } from "@/client/activity";
 import { AccountSettings } from "@/client/account/account-settings";
@@ -96,18 +97,24 @@ export function DashboardShell({
 }) {
   return (
     <>
-      <main ref={mainRef} className="app-main app-main-authenticated">
+      <main
+        ref={mainRef}
+        className="app-main-authenticated order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden overflow-y-auto bg-muted pb-[max(1rem,env(safe-area-inset-bottom))] scroll-pb-[max(1rem,env(safe-area-inset-bottom))] sm:order-2"
+      >
+        <div className="mx-auto w-full max-w-2xl px-4 py-4 sm:py-6">
         {isUnavailable ? (
-          <div className="dashboard-notice" role="alert">
-            <span>{unavailableMessage ?? "Account check unavailable."}</span>
-            <Button variant="ghost" onClick={() => void retrySessionValidation()}>
-              Retry account check
-            </Button>
-          </div>
+          <Alert className="mb-4" role="alert">
+            <AlertDescription>{unavailableMessage ?? "Account check unavailable."}</AlertDescription>
+            <AlertAction>
+              <Button variant="ghost" onClick={() => void retrySessionValidation()}>
+                Retry account check
+              </Button>
+            </AlertAction>
+          </Alert>
         ) : null}
 
         {isAccountSettingsOpen ? (
-          <div className="panel-fade">
+          <div>
             <AccountSettings
               regionId={regionId}
               onRegionChange={selectRegion}
@@ -119,13 +126,13 @@ export function DashboardShell({
             />
           </div>
         ) : isSignedOut ? (
-          <section className="panel-stage" aria-busy="true" aria-label="Signed out">
-            <span className="sr-status">Signed out</span>
+          <section aria-busy="true" aria-label="Signed out">
+            <span className="sr-only">Signed out</span>
           </section>
         ) : (
           <section
             ref={panelStageRef}
-            className="panel-stage"
+            className="outline-none"
             id="navigation-panel"
             tabIndex={-1}
             aria-labelledby={
@@ -138,7 +145,7 @@ export function DashboardShell({
             }
             aria-busy={isChecking}
           >
-            <div className="panel-fade">
+            <div>
               {mountedPanels.has("home") ? (
                 <MountedShellPanel active={activeNavigation === "home"}>
                   <HomePanel
@@ -203,6 +210,7 @@ export function DashboardShell({
             </div>
           </section>
         )}
+        </div>
       </main>
       {!isSignedOut ? (
         <PrimaryNavigation activeNavigation={activeNavigation} onNavigate={navigateTo} />

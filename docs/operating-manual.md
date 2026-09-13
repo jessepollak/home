@@ -138,6 +138,7 @@ Money invariants:
 - Token amounts are `bigint` from the boundary in.
 - CDP `idempotencyKey` and the EIP-5792 id equal the Home action id.
 - Every provider call and server POST is guarded by the owner-generation fence.
+- Server-side reconciliation reads are `owner_key`-scoped, read-only toward the provider, and never mutate calldata.
 
 Test Home's logic: calldata issuance, auth scope, amount parsing and formatting, derived status, the owner fence, and UI behavior that would be a bug if broken. Do not re-test CDP, Base Account, Next, motion, or happy-dom. Use no real sleeps or source-text assertions; keep permutation matrices table-driven and bounded. Test code should not exceed product code except for status derivation and amount parsing. apps/web unit suite stays under 10s wall on a laptop; a change that pushes one file over 1s says why.
 

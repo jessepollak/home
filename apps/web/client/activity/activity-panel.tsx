@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   AlertAction,
@@ -8,7 +8,9 @@ import {
   AlertTitle,
 } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { ItemGroup } from "@/components/ui/item";
 import { MoneyTicker } from "@/components/money-ticker";
 import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
@@ -17,6 +19,7 @@ import {
   presentActivityTransferRow,
 } from "./activity-presenter";
 import { useActivity } from "./use-activity";
+import { ShimmerRows } from "@/client/home/panel-shared";
 import {
   ACTIVITY_TEASER_LIMIT,
   type ActivityDirection,
@@ -35,8 +38,7 @@ export function ActivityPanel({
   header,
 }: ActivityPanelProps) {
   const activity = useActivity(session, fetchActivity);
-  const [selectedTransfer, setSelectedTransfer] =
-    useState<ActivityTransfer | null>(null);
+  const [selectedTransfer, setSelectedTransfer] = useState<ActivityTransfer | null>(null);
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);
@@ -60,87 +62,59 @@ export function ActivityPanel({
 
   if (activity.status === "unavailable") {
     return (
-      <section
-        className="surface-primary rounded-xl border border-border p-4 sm:p-6"
-        aria-labelledby={labelledBy}
-        aria-label={labelled}
-      >
-        {heading}
-        {leading}
+      <ActivitySurface heading={heading} leading={leading} labelledBy={labelledBy} label={labelled}>
         {suppressEmpty ? null : <ActivityEmpty />}
-      </section>
+      </ActivitySurface>
     );
   }
 
   if (activity.status === "loading") {
     return (
-      <section
-        className="surface-primary rounded-xl border border-border p-4 sm:p-6"
-        aria-labelledby={labelledBy}
-        aria-label={labelled}
-        aria-busy="true"
-      >
-        {heading}
-        {leading}
-        <Alert role="status" className="mt-4 border-0 bg-transparent p-0 text-muted-foreground">
-          <AlertDescription className="flex items-center gap-2 text-inherit">
-            <ActivitySpinner />
-            Loading recent activity…
-          </AlertDescription>
-        </Alert>
-      </section>
+      <ActivitySurface heading={heading} leading={leading} labelledBy={labelledBy} label={labelled} busy>
+        <ShimmerRows count={density === "teaser" ? 2 : 4} />
+        <span className="sr-only">Loading recent activity…</span>
+      </ActivitySurface>
     );
   }
 
   if (activity.status === "error") {
     return (
-      <section
-        className="surface-primary rounded-xl border border-border p-4 sm:p-6"
-        aria-labelledby={labelledBy}
-        aria-label={labelled}
-      >
-        {heading}
-        {leading}
-        <Alert className="mt-4" variant="destructive" role="alert">
+      <ActivitySurface heading={heading} leading={leading} labelledBy={labelledBy} label={labelled}>
+        <Alert variant="destructive" role="alert">
           <AlertTitle>Activity is temporarily unavailable.</AlertTitle>
           {activity.error.message || activity.error.code ? (
             <AlertDescription>{activity.error.message || activity.error.code}</AlertDescription>
           ) : null}
           <AlertAction>
-            <Button className="w-max" variant="secondary" onClick={activity.retry}>Try again</Button>
+            <Button variant="secondary" onClick={activity.retry}>Try again</Button>
           </AlertAction>
         </Alert>
-      </section>
+      </ActivitySurface>
     );
   }
 
   const { page } = activity;
-  const visibleTransfers =
-    density === "teaser"
-      ? page.transfers.slice(0, ACTIVITY_TEASER_LIMIT)
-      : page.transfers;
+  const visibleTransfers = density === "teaser"
+    ? page.transfers.slice(0, ACTIVITY_TEASER_LIMIT)
+    : page.transfers;
   const isEmpty = visibleTransfers.length === 0;
   return (
-    <section
-      className="surface-primary rounded-xl border border-border p-4 sm:p-6"
-      aria-labelledby={labelledBy}
-      aria-label={labelled}
-    >
-      {heading}
-      {leading}
+    <ActivitySurface heading={heading} leading={leading} labelledBy={labelledBy} label={labelled}>
       {isEmpty ? (
         suppressEmpty ? null : <ActivityEmpty />
       ) : (
-        <ol className="mt-4 list-none border-t border-border p-0">
-          {visibleTransfers.map((transfer) => (
-            <TransferActivityRow
-              key={transfer.id}
-              transfer={transfer}
-              regionId={regionId}
-              onActivate={() => setSelectedTransfer(transfer)}
-            />
-          ))}
-        </ol>
+        <ItemGroup className="gap-0">
+          <ol className="list-none p-0">
+            {visibleTransfers.map((transfer) => (
+              <TransferActivityRow
+                key={transfer.id}
+                transfer={transfer}
+                regionId={regionId}
+                onActivate={() => setSelectedTransfer(transfer)}
+              />
+            ))}
+          </ol>
+        </ItemGroup>
       )}
 
       {density === "page" ? (
@@ -161,6 +135,34 @@ export function ActivityPanel({
         details={details}
         onClose={() => setSelectedTransfer(null)}
       />
+    </ActivitySurface>
+  );
+}
+
+function ActivitySurface({
+  heading,
+  leading,
+  labelledBy,
+  label,
+  busy = false,
+  children,
+}: {
+  heading: ReactNode;
+  leading: ReactNode;
+  labelledBy?: string;
+  label?: string;
+  busy?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
+      <Card>
+        {heading ? <CardHeader>{heading}</CardHeader> : null}
+        <CardContent className="space-y-3 px-2">
+          {leading}
+          {children}
+        </CardContent>
+      </Card>
     </section>
   );
 }
@@ -186,23 +188,12 @@ function ActivityPagination({
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
-    if (
-      !sentinel ||
-      !nextCursor ||
-      loading ||
-      failed ||
-      autoLoadPaused ||
-      typeof IntersectionObserver === "undefined"
-    ) {
-      return;
-    }
+    if (!sentinel || !nextCursor || loading || failed || autoLoadPaused || typeof IntersectionObserver === "undefined") return;
     const closestRoot = sentinel.closest(".app-main-authenticated");
     const root = closestRoot instanceof HTMLElement ? closestRoot : null;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          loadMore();
-        }
+        if (entries.some((entry) => entry.isIntersecting)) loadMore();
       },
       { root, rootMargin: "0px 0px 240px 0px" },
     );
@@ -212,80 +203,53 @@ function ActivityPagination({
 
   if (!nextCursor) {
     return hasTransfers ? (
-      <p className="text-metadata mt-4 text-center text-muted-foreground" role="status">
-        End of activity
-      </p>
+      <p className="text-center text-xs text-muted-foreground" role="status">End of activity</p>
     ) : null;
   }
 
   return (
-    <div className="mt-3">
+    <div className="space-y-2">
       {loading ? (
-        <Alert role="status" aria-live="polite" className="min-h-11 justify-center border-0 bg-transparent p-0 text-muted-foreground">
-          <AlertDescription className="flex items-center justify-center gap-2 text-inherit">
-            <ActivitySpinner />
-            Loading more activity…
-          </AlertDescription>
-        </Alert>
+        <div role="status" aria-live="polite">
+          <ShimmerRows count={1} />
+          <span className="sr-only">Loading more activity…</span>
+        </div>
       ) : null}
       {failed ? (
-        <p className="text-metadata mb-2 text-destructive" role="alert">
+        <p className="text-xs text-destructive" role="alert">
           More activity could not be loaded. Your current results are unchanged.
         </p>
       ) : autoLoadPaused ? (
-        <p className="text-metadata mb-2 text-muted-foreground" role="status">
+        <p className="text-xs text-muted-foreground" role="status">
           No additional activity was found on that page. Continue to check older activity.
         </p>
       ) : null}
       {loading ? null : (
         <Button
-          className="min-h-11 w-full"
+          className="h-11 w-full"
           variant="secondary"
           onClick={failed || autoLoadPaused ? continueManually : loadMore}
         >
-          {failed
-            ? "Retry more activity"
-            : autoLoadPaused
-              ? "Continue loading activity"
-              : "Load more activity"}
+          {failed ? "Retry more activity" : autoLoadPaused ? "Continue loading activity" : "Load more activity"}
         </Button>
       )}
-      <div
-        key={nextCursor}
-        ref={sentinelRef}
-        className="h-px w-full"
-        data-activity-sentinel=""
-        aria-hidden="true"
-      />
+      <div key={nextCursor} ref={sentinelRef} className="h-px w-full" data-activity-sentinel="" aria-hidden="true" />
     </div>
   );
 }
 
 function ActivityEmpty() {
   return (
-    <Empty className="mt-4 items-start justify-start p-0 text-left">
+    <Empty className="items-start justify-start p-0 text-left">
       <EmptyHeader className="items-start">
-        <EmptyTitle className="text-row-label">No activity yet</EmptyTitle>
+        <EmptyTitle>No activity yet</EmptyTitle>
       </EmptyHeader>
     </Empty>
   );
 }
 
-function ActivitySpinner() {
-  return (
-    <span
-      className="size-4 shrink-0 animate-spin rounded-full border-2 border-primary/20 border-t-primary motion-reduce:animate-none"
-      aria-hidden="true"
-    />
-  );
-}
-
 function DefaultActivityHeader() {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <h2 id="activity-title" className="text-metadata font-semibold tracking-widest text-muted-foreground uppercase">Activity</h2>
-    </div>
-  );
+  return <h2 id="activity-title" className="text-lg font-semibold">Activity</h2>;
 }
 
 function TransferActivityRow({
@@ -303,11 +267,7 @@ function TransferActivityRow({
       icon={iconForDirection(transfer.direction)}
       iconTone={model.iconTone}
       label={model.directionLabel}
-      context={
-        <time dateTime={model.dateTime} aria-label={model.fullDate}>
-          {model.shortDate}
-        </time>
-      }
+      context={<time dateTime={model.dateTime} aria-label={model.fullDate}>{model.shortDate}</time>}
       contextTitle={model.fullDate}
       value={<MoneyTicker value={model.value} />}
       onActivate={onActivate}

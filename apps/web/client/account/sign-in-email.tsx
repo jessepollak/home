@@ -1,10 +1,9 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel, FieldSeparator } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { FormEvent, RefObject } from "react";
-import styles from "./account.module.css";
 
 export function SignInEmail({
   email,
@@ -24,15 +23,15 @@ export function SignInEmail({
   onBaseAccountSignIn: () => void;
 }) {
   return (
-    <form className={styles.form} onSubmit={onSubmit}>
-      <Field className={styles.authField}>
-        <FieldLabel htmlFor="account-email" className="text-caption">
+    <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+      <Field>
+        <FieldLabel htmlFor="account-email">
           Email address<span className="text-destructive" aria-hidden="true">*</span>
         </FieldLabel>
         <Input
           ref={inputRef}
           id="account-email"
-          className={styles.input}
+          className="h-11"
           type="email"
           inputMode="email"
           autoComplete="email"
@@ -45,16 +44,15 @@ export function SignInEmail({
           data-initial-focus
         />
       </Field>
-      <Button className={styles.formAction} type="submit" disabled={isSendingCode}>
+      <Button className="h-11 w-full" size="lg" type="submit" disabled={isSendingCode}>
         {isSendingCode ? "Sending code…" : "Continue with email"}
       </Button>
       {baseAccountEnabled ? (
         <>
-          <div className={styles.signInDivider} role="separator">
-            <span className="text-metadata text-muted-foreground">or</span>
-          </div>
+          <FieldSeparator>or</FieldSeparator>
           <Button
-            className={styles.formAction}
+            className="h-11 w-full"
+            size="lg"
             variant="secondary"
             onClick={onBaseAccountSignIn}
           >

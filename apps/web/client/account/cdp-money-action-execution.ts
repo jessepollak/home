@@ -115,7 +115,7 @@ export function useMoneyActionExecution({
         if (!connection?.getCallsStatus) {
           return { status: "unavailable" };
         }
-        return normalizeResolutionState(await connection.getCallsStatus(action.id));
+        return normalizeResolutionState(await connection.getCallsStatus(providerHandle));
       },
       recordTransactionHash: async (transactionHash) => {
         if (hashPattern.test(transactionHash)) {
@@ -162,8 +162,7 @@ export function useMoneyActionExecution({
             if (!connection?.sendCalls || connection.address.toLowerCase() !== action.owner.address.toLowerCase()) {
               throw new TransferExecutionError("stale-session");
             }
-            await connection.sendCalls(calls, action.id, async () => ownerFence.assertCurrent(generation));
-            return action.id;
+            return connection.sendCalls(calls, action.id, async () => ownerFence.assertCurrent(generation));
           }
           if (!sdkSendUserOperation) throw new TransferExecutionError("unavailable");
           ownerFence.assertCurrent(generation);

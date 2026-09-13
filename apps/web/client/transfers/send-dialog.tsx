@@ -2,16 +2,17 @@
 
 import { MoneyTicker } from "@/components/money-ticker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode, useMemo } from "react";
+import { LoaderCircle } from "lucide-react";
 import { AddressField } from "@/components/address";
 import { CopyableValue } from "@/components/copyable-value";
-import { formatAddress } from "@/shared/formatting";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import {
   MoneyAmountDisplay,
   MoneyConfirmSummary,
   MoneyModal,
+  MoneyModalBody,
   MoneyModalFooter,
   MoneyModalHeader,
   MoneyNumpad,
@@ -30,12 +31,10 @@ import {
 } from "@/shared/transfers/transfer-helpers";
 import {
   TransferExecutionError,
-  type ConfirmedTransfer,
   type TransferAssetAvailability,
   type TransferRequest,
 } from "@/shared/transfers/types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
-import modal from "@/client/money-modal/money-modal.module.css";
 
 type SendStep = "amount" | "address" | "confirm" | "pending" | "error";
 
@@ -51,7 +50,6 @@ export function SendDialog({
   resumeActionId = null,
   onReview,
   onInvalidResume,
-  onConfirmed,
   onClose,
   onClosed,
 }: {
@@ -66,7 +64,6 @@ export function SendDialog({
   immediate?: boolean;
   onReview?: (actionId: string) => void;
   onInvalidResume?: () => void;
-  onConfirmed?: (transfer: ConfirmedTransfer) => void;
   onClose: () => void;
   onClosed?: () => void;
 }) {
@@ -98,7 +95,14 @@ export function SendDialog({
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);
-  const assetOptions = availableAssets?.map((asset) => ({ id: asset.id, label: asset.symbol })) ?? [];
+  const assetOptions = useMemo(
+    () => availableAssets?.map((asset) => ({
+      id: asset.id,
+      label: asset.symbol,
+      description: asset.name,
+    })) ?? [],
+    [availableAssets],
+  );
 
   useEffect(() => {
     if (!open || !ownerBoundary || !resumeActionId) return;
@@ -163,10 +167,7 @@ export function SendDialog({
     if (!action || !request) return;
     setStep("pending"); setError(null);
     try {
-      const result = await executeMoneyAction(action);
-      if (result.status === "confirmed" && result.transactionHash) {
-        onConfirmed?.({ ...request, transactionHash: result.transactionHash });
-      }
+      await executeMoneyAction(action);
       reset();
       onClose();
     } catch (caught) {
@@ -191,25 +192,25 @@ export function SendDialog({
   return (
     <MoneyModal open={open} labelledBy="send-title" immediate={immediate} onCancel={close} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
       <MoneyModalHeader title={step === "confirm" || step === "pending" || step === "error" ? "Confirm" : "Send"} titleId="send-title" onBack={step === "amount" || step === "pending" ? undefined : back} onClose={close} closeDisabled={step === "pending"} closeLabel="Close send dialog" />
-      <div className={modal.body}>
+      <MoneyModalBody className="gap-4 pt-4">
         {step === "amount" ? <>
           <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(selectedAvailability.balanceBaseUnits, selectedAvailability.decimals) : null} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetCurrency={selectedAsset?.cashCurrency} assetOptions={assetOptions} onAssetChange={(next) => { setAssetId(next); changeAmount("", "programmatic"); }} chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
           {selectedAsset ? <MoneyNumpad value={amount} maxDecimals={selectedAsset.decimals} onChange={changeAmount} /> : <StatusMessage>No catalog balance is available to send.</StatusMessage>}
         </> : null}
-        {step === "address" ? <div className={modal.fieldBlock}>
+        {step === "address" ? <div className="space-y-2">
           <AddressField id="send-recipient" label="To" value={recipient} onChange={setRecipient} aria-describedby="send-recipient-hint" />
-          <p id="send-recipient-hint" className={`${modal.fieldHint} text-metadata`}>Base address</p>
+          <p id="send-recipient-hint" className="text-sm text-muted-foreground">Base address</p>
         </div> : null}
         {request && requestAsset && (step === "confirm" || step === "pending" || step === "error") ? <>
           <MoneyConfirmSummary amount={confirmAmount} lead={`You're sending ${requestAsset.symbol}`} rows={[
-            { label: "To", value: <CopyableValue value={request.recipient} display={formatAddress(request.recipient)} valueKind="address" /> },
+            { label: "To", value: <CopyableValue value={request.recipient} presentation="full" valueKind="address" className="sm:justify-end" />, fullValue: true },
             { label: "Asset", value: requestAsset.symbol },
             { label: "Network", value: "Base" },
           ]} />
-          {step === "pending" ? <StatusMessage className={modal.pending}><span className={modal.spinner} aria-hidden="true" />Waiting for your wallet…</StatusMessage> : null}
+          {step === "pending" ? <StatusMessage><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Waiting for your wallet…</span></StatusMessage> : null}
         </> : null}
-        {error ? <StatusMessage className={modal.error} tone="error" role="alert">{error}</StatusMessage> : null}
-      </div>
+        {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
+      </MoneyModalBody>
       {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!selectedAsset || !isPositiveDecimalAmount(amount)} onPrimary={() => { setError(null); setStep("address"); }} /> : null}
       {step === "address" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!isTransferRecipient(recipient)} onPrimary={() => void prepare()} /> : null}
       {step === "confirm" ? <MoneyModalFooter primaryLabel={<>Send <MoneyTicker value={confirmAmount} /></>} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}

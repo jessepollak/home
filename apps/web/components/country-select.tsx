@@ -1,12 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import {
   isRegionId,
   presentationRegions,
@@ -21,66 +23,58 @@ type CountrySelectProps = {
   variant?: "default" | "settings";
 };
 
+type CountryOption = {
+  value: RegionId;
+  label: string;
+};
+
+const countryOptions: CountryOption[] = regionIds.map((regionId) => ({
+  value: regionId,
+  label: presentationRegions[regionId].selectorLabel,
+}));
+
 export function CountrySelect({
   value,
   onValueChange,
   describedBy,
   variant = "default",
 }: CountrySelectProps) {
+  const [open, setOpen] = useState(false);
+  const selected = countryOptions.find((option) => option.value === value) ?? null;
+
   return (
-    <Select
-      value={value}
+    <Combobox
+      items={countryOptions}
+      value={selected}
+      open={open}
+      onOpenChange={setOpen}
       onValueChange={(nextValue) => {
-        if (isRegionId(nextValue)) onValueChange(nextValue);
+        if (nextValue && isRegionId(nextValue.value)) {
+          onValueChange(nextValue.value);
+          setOpen(false);
+        }
       }}
     >
-      <SelectTrigger
-        id="country"
+      <ComboboxInput
         aria-label="Country"
         aria-describedby={describedBy}
+        placeholder="Search countries"
         className={
           variant === "settings"
-            ? "min-h-11 max-w-full justify-end border-0 bg-transparent p-0 text-right text-country-select font-semibold shadow-none"
-            : "min-h-11 w-full bg-background text-country-select font-semibold"
+            ? "h-11 w-auto min-w-0 max-w-40 [&_[role=combobox]]:min-w-0 [&_[role=combobox]]:truncate [&_[role=combobox]]:text-left"
+            : "h-11 w-full"
         }
-      >
-        <SelectValue>
-          {(selectedValue) =>
-            isRegionId(selectedValue)
-              ? presentationRegions[selectedValue].selectorLabel
-              : selectedValue
-          }
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent
-        sideOffset={6}
-        className="max-h-(--home-country-select-max-height) min-w-(--anchor-width) p-1"
-        onKeyDownCapture={(event) => {
-          if (event.key !== "Home" && event.key !== "End") return;
-
-          const options = Array.from(
-            event.currentTarget.querySelectorAll<HTMLElement>(
-              '[role="option"]:not([data-disabled])',
-            ),
-          );
-          const target = event.key === "Home" ? options[0] : options.at(-1);
-          if (!target) return;
-
-          event.preventDefault();
-          event.stopPropagation();
-          target.focus();
-        }}
-      >
-        {regionIds.map((id) => (
-          <SelectItem
-            key={id}
-            value={id}
-            className="min-h-10 py-2 pr-9 pl-3 text-country-select font-semibold"
-          >
-            {presentationRegions[id].selectorLabel}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+      />
+      <ComboboxContent>
+        <ComboboxEmpty>No countries found.</ComboboxEmpty>
+        <ComboboxList>
+          {(option: CountryOption) => (
+            <ComboboxItem key={option.value} value={option}>
+              {option.label}
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   );
 }

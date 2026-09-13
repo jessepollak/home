@@ -9,7 +9,6 @@ import {
   type MemeShelfStatus,
 } from "./discover";
 import { DiscoverShelf } from "./discover-shelf";
-import styles from "./invest-experience.module.css";
 
 export type InvestHubProps = {
   stockMarket: MarketDataState;
@@ -41,18 +40,18 @@ export function InvestHub({
 
   return (
     <section
-      className={styles.experience}
+      className="w-full"
       aria-label={hosted ? "Invest" : undefined}
       aria-labelledby={hosted ? undefined : "invest-title"}
     >
       {hosted ? null : (
-        <header className={styles.header}>
-          <h2 className="text-page-title font-semibold" id="invest-title">
+        <header className="mb-6">
+          <h2 className="text-2xl font-semibold tracking-tight" id="invest-title">
             Invest
           </h2>
         </header>
       )}
-      <div className={styles.shelves}>
+      <div className="space-y-4">
         {discoverShelves.map((shelf) => (
           <DiscoverShelf
             key={shelf.id}

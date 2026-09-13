@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from "react";
+import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Item,
@@ -9,7 +10,6 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { cn } from "@/lib/utils";
-import styles from "./finance-rows.module.css";
 
 export type FinanceRowTone = "default" | "accent" | "success" | "error" | "muted";
 
@@ -61,36 +61,43 @@ function FinanceRow({
   const hintId = useId();
   const content = (
     <>
-      <ItemMedia className="self-center" aria-hidden="true">
-        <span className={styles.icon} data-tone={iconTone}>
-          {icon}
+      <ItemMedia variant="image" className="size-10 self-center translate-y-0 rounded-full bg-muted" aria-hidden="true">
+        <span
+          className={cn(
+            "grid size-10 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground",
+            iconTone === "incoming" && "text-muted-foreground",
+            iconTone === "outgoing" && "text-muted-foreground",
+            iconTone === "self" && "text-muted-foreground",
+            iconTone === "outlined" && "text-destructive",
+            iconTone === "mark" && "overflow-hidden bg-transparent text-inherit",
+          )}
+          data-tone={iconTone}
+        >
+          {typeof icon === "string" ? <DirectionIcon value={icon} /> : icon}
         </span>
       </ItemMedia>
-      <ItemContent className="min-w-0 gap-0 self-center">
-        <ItemTitle className="text-row-label w-full font-semibold text-foreground">
-          {label}
-        </ItemTitle>
+      <ItemContent className="min-w-0">
+        <ItemTitle className="w-full text-foreground">{label}</ItemTitle>
         {context === undefined ? null : (
-          <ItemDescription className="text-caption line-clamp-1" title={contextTitle}>
+          <ItemDescription className="line-clamp-1" title={contextTitle}>
             {context}
           </ItemDescription>
         )}
       </ItemContent>
       <ItemContent
         className={cn(
-          "min-w-0 items-end gap-0 self-center text-right",
-          valueTone === "success" && "text-success",
+          "min-w-0 items-end text-right",
+          (valueTone === "success" || valueTone === "accent") && "text-primary",
           valueTone === "error" && "text-destructive",
           valueTone === "muted" && "text-muted-foreground",
-          valueTone === "accent" && "text-primary",
         )}
       >
-        <ItemTitle className="text-row-value w-full justify-end tabular-nums font-medium text-inherit">
+        <ItemTitle className="w-full justify-end text-sm font-medium tabular-nums text-inherit">
           {value}
         </ItemTitle>
         {valueContext === undefined ? null : (
           <ItemDescription
-            className="text-caption line-clamp-1 w-full text-right text-inherit"
+            className="line-clamp-1 w-full text-right text-sm text-muted-foreground"
             title={valueContextTitle}
           >
             {valueContext}
@@ -99,7 +106,7 @@ function FinanceRow({
       </ItemContent>
       {onActivate ? (
         <ItemActions className="text-muted-foreground" aria-hidden="true">
-          ›
+          <ChevronRight className="size-4" />
         </ItemActions>
       ) : null}
     </>
@@ -109,10 +116,7 @@ function FinanceRow({
     <li>
       <Item
         data-kind={kind}
-        className={cn(
-          "grid min-h-12 grid-cols-[auto_minmax(0,1fr)_minmax(0,40%)] flex-nowrap gap-2 rounded-none border-0 border-b border-border px-0.5 py-2 last:border-b-0",
-          onActivate && "grid-cols-[auto_minmax(0,1fr)_minmax(0,34%)_auto] cursor-pointer hover:bg-muted",
-        )}
+        className={cn("min-h-16 flex-nowrap items-center border-0", onActivate && "cursor-pointer hover:bg-muted")}
         {...(onActivate
           ? {
               render: (
@@ -135,4 +139,11 @@ function FinanceRow({
       </Item>
     </li>
   );
+}
+
+function DirectionIcon({ value }: { value: string }) {
+  if (value === "↓") return <ArrowDown className="size-4" />;
+  if (value === "↑") return <ArrowUp className="size-4" />;
+  if (value === "↔") return <ArrowLeftRight className="size-4" />;
+  return <span>{value}</span>;
 }

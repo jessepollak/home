@@ -9,6 +9,7 @@ type BunSqlClient = { unsafe(text: string, values?: unknown[]): Promise<ArrayLik
 let client: BunSqlClient;
 let store: ActionsStore;
 const owner = { subject: "action-pg", address: "0x1111111111111111111111111111111111111111" as const, chainId: 8453 as const, accountProvider: "cdp-embedded" as const };
+const baseOwner = { ...owner, subject: "action-pg-base", accountProvider: "base-account" as const };
 const otherOwner = { ...owner, subject: "action-pg-other" };
 const summary = { title: "Send USDC", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" };
 const calls = [{ to: owner.address, data: "0x1234" as const, value: "0" }];
@@ -44,6 +45,16 @@ describePostgres("actions schema and store", () => {
     expect((await store.get(owner, id))?.confirmed_at).not.toBeNull();
     expect((await store.recordHandle(owner, id, { providerHandle: `0x${"ab".repeat(32)}` }))?.provider_handle).toBe(`0x${"ab".repeat(32)}`);
     expect(await store.recordHandle(owner, id, { providerHandle: `0x${"cd".repeat(32)}` })).toBeNull();
+  });
+
+  test("base-account confirmation leaves the provider handle empty until the wallet handle is recorded", async () => {
+    const id = randomUUID();
+    const walletHandle = `0x${"ef".repeat(32)}`;
+    await store.insert({ id, owner: baseOwner, kind: "send", summary, pending: { calls }, createdAt: "2026-09-12T10:00:00.000Z" });
+
+    expect((await store.confirm(baseOwner, id))?.provider_handle).toBeNull();
+    expect((await store.get(baseOwner, id))?.provider_handle).toBeNull();
+    expect((await store.recordHandle(baseOwner, id, { providerHandle: walletHandle }))?.provider_handle).toBe(walletHandle);
   });
 
   test("lazy GC deletes stale drafts and lists only recent confirmed owner rows", async () => {

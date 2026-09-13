@@ -1,4 +1,7 @@
 import { BASE_USDC_DECIMALS } from "@/shared/savings/config";
+import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
+import { formatPresentationPercentage } from "@/shared/formatting";
+import { getSavingsRateState } from "./portfolio-summary";
 export { readUsdcBaseUnits } from "@/shared/savings/contracts/positions";
 
 export {
@@ -8,6 +11,31 @@ export {
 
 export function shortVaultLabel(name: string): string {
   return name.trim().split(/\s+/)[0] || name;
+}
+
+export function preferredSavingsCandidates(
+  candidates: readonly MorphoVaultCandidate[],
+): MorphoVaultCandidate[] {
+  return [...candidates].sort(
+    (left, right) =>
+      Number(/gauntlet/i.test(right.name)) -
+      Number(/gauntlet/i.test(left.name)),
+  );
+}
+
+export function savingsVaultApyLabel(
+  candidate: MorphoVaultCandidate,
+  metadata: MorphoVaultsResult,
+  nowMs: number,
+): string {
+  const rate = getSavingsRateState(candidate, {
+    metadataFetchedAt: metadata.source.fetchedAt,
+    metadataStale: metadata.stale,
+    nowMs,
+  });
+  if (rate.status === "stale") return "APY stale";
+  if (rate.status === "unavailable") return "APY unavailable";
+  return `${formatPresentationPercentage(rate.value)} APY`;
 }
 
 export function parseUsdcAmount(value: string): string {

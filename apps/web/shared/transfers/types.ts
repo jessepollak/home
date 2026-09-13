@@ -23,10 +23,6 @@ export type TransferRequest = {
   amountBaseUnits: string;
 };
 
-export type ConfirmedTransfer = TransferRequest & {
-  transactionHash: `0x${string}`;
-};
-
 export type PendingTransfer = TransferRequest & {
   intentId: string;
   provider: "cdp-embedded" | "base-account";

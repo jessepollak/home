@@ -2,7 +2,14 @@
 
 import { Button } from "@/components/ui/button";
 import { MoneyTicker } from "@/components/money-ticker";
-import { NativeSelect } from "@/components/ui/native-select";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDownUp, Delete } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -22,7 +29,6 @@ import {
   type MoneyChipSet,
   type MoneyPrimaryUnit,
 } from "./amount-units";
-import styles from "./money-modal.module.css";
 
 const AMOUNT_MIN_FONT_PROPERTY = "--money-amount-min-size";
 const AMOUNT_MIN_FONT_SIZE_FALLBACK = 20;
@@ -201,7 +207,7 @@ export function MoneyAmountDisplay({
   assetId?: string;
   assetLabel?: string;
   assetCurrency?: string | null;
-  assetOptions?: ReadonlyArray<{ id: string; label: string }>;
+  assetOptions?: ReadonlyArray<{ id: string; label: string; description?: string }>;
   onAssetChange?: (assetId: string) => void;
   assetLocked?: boolean;
   chipSet?: MoneyChipSet;
@@ -229,8 +235,8 @@ export function MoneyAmountDisplay({
   }, [assetId]);
 
   return (
-    <div className={styles.amountBlock}>
-      <div className={styles.amountToolbar}>
+    <div className="grid justify-items-center gap-3 py-3">
+      <div className="flex w-full items-center justify-between gap-2">
         <MoneyAssetPicker
           assetId={assetId}
           assetLabel={assetLabel}
@@ -263,7 +269,7 @@ export function MoneyAmountDisplay({
           }
         />
       ) : null}
-      {availableLine ? <div className={`${styles.available} text-caption text-muted-foreground`}><MoneyTicker value={availableLine} /></div> : null}
+      {availableLine ? <div className="text-center text-sm text-muted-foreground"><MoneyTicker value={availableLine} /></div> : null}
     </div>
   );
 }
@@ -292,7 +298,7 @@ export function MoneyPrimaryAmount({
     <>
       <div
         ref={containerRef}
-        className={styles.assetAmount}
+        className="flex w-full max-w-full justify-center whitespace-nowrap px-4 py-3 text-5xl font-semibold leading-none tabular-nums"
         data-primary-amount
         style={fontSize === undefined ? undefined : { fontSize }}
       >
@@ -305,7 +311,7 @@ export function MoneyPrimaryAmount({
       </div>
       <span
         ref={sizerRef}
-        className={styles.amountSizer}
+        className="pointer-events-none absolute invisible whitespace-nowrap text-5xl font-semibold leading-none tabular-nums"
         data-amount-sizer
         aria-hidden="true"
       >
@@ -326,7 +332,7 @@ export function MoneyAssetPicker({
   assetId?: string;
   assetLabel?: string;
   assetCurrency?: string | null;
-  assetOptions?: ReadonlyArray<{ id: string; label: string }>;
+  assetOptions?: ReadonlyArray<{ id: string; label: string; description?: string }>;
   onAssetChange?: (assetId: string) => void;
   locked?: boolean;
 }) {
@@ -336,29 +342,33 @@ export function MoneyAssetPicker({
 
   if (!canPick) {
     return (
-      <div className={styles.assetPill} aria-label={assetLabel}>
+      <div className="flex h-9 items-center gap-2 rounded-md border bg-background px-2 text-sm font-medium" aria-label={assetLabel}>
         <CurrencyMark currency={markCurrency} symbol={assetLabel} />
-        <span className={styles.assetName}>{assetLabel}</span>
+        <span>{assetLabel}</span>
       </div>
     );
   }
 
+  const selected = assetOptions?.find((option) => option.id === assetId) ?? null;
   return (
-    <div className={styles.assetPicker}>
-      <CurrencyMark currency={markCurrency} symbol={assetLabel} />
-      <NativeSelect
-        className={styles.assetSelect}
-        aria-label="Asset"
-        value={assetId}
-        onChange={(event) => onAssetChange?.(event.target.value)}
-      >
-        {assetOptions?.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.label}
-          </option>
-        ))}
-      </NativeSelect>
-    </div>
+    <Combobox
+      items={assetOptions}
+      value={selected}
+      onValueChange={(option) => { if (option) onAssetChange?.(option.id); }}
+      itemToStringValue={(option) => option.label}
+    >
+      <ComboboxInput aria-label="Asset" placeholder={assetLabel} className="w-auto min-w-28" />
+      <ComboboxContent>
+        <ComboboxEmpty>No assets found.</ComboboxEmpty>
+        <ComboboxList>
+          {(option) => (
+            <ComboboxItem key={option.id} value={option}>
+              {option.description ? `${option.label} — ${option.description}` : option.label}
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   );
 }
 
@@ -380,20 +390,20 @@ export function MoneyQuickChips({
   const quickDisabled = primaryUnit === "native";
 
   return (
-    <div className={styles.chips} role="group" aria-label="Quick amounts">
+    <div className="flex flex-wrap justify-end gap-2" role="group" aria-label="Quick amounts">
       {chipSet === "quick-local" ? (
         <>
           <Button
-            className={styles.chip}
-            variant="secondary"
+            variant="outline"
+            size="sm"
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("10", availableAmount))}
           >
             <MoneyTicker value={formatChipLabel(10, localCurrency)} />
           </Button>
           <Button
-            className={styles.chip}
-            variant="secondary"
+            variant="outline"
+            size="sm"
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("25", availableAmount))}
           >
@@ -402,8 +412,8 @@ export function MoneyQuickChips({
         </>
       ) : null}
       <Button
-        className={`${styles.chip} ${styles.chipMax}`}
-        variant="secondary"
+        variant="outline"
+        size="sm"
         disabled={!maxEnabled}
         onClick={() => {
           if (availableAmount) onSelect(availableAmount);
@@ -424,12 +434,12 @@ export function MoneyUnitToggle({
 }) {
   return (
     <Button
-      className={styles.unitToggle}
-      variant="ghost"
+      variant="outline"
+      size="sm"
       onClick={onToggle}
       aria-label={`Show ${secondaryLabel} as the primary amount`}
     >
-      <ArrowDownUp size={16} strokeWidth={2} aria-hidden="true" />
+      <ArrowDownUp className="size-4" aria-hidden="true" />
       <MoneyTicker value={secondaryLabel} />
     </Button>
   );
@@ -449,12 +459,12 @@ export function MoneyNumpad({
   disabled?: boolean;
 }) {
   return (
-    <div className={styles.numpad} role="group" aria-label="Amount keypad">
+    <div className="grid grid-cols-3 gap-2" role="group" aria-label="Amount keypad">
       {KEYS.map((key) => (
         <Button
           key={key}
-          className={styles.key}
-          variant="secondary"
+          className="h-14 text-xl tabular-nums"
+          variant="ghost"
           disabled={disabled}
           aria-label={key === "backspace" ? "Delete last digit" : key === "." ? "Decimal point" : key}
           onClick={() => {

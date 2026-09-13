@@ -1,17 +1,30 @@
+import "./dom-test-harness";
+
 import { describe, expect, test } from "bun:test";
 import { MfaError } from "@coinbase/cdp-core";
+import type { MutableRefObject } from "react";
 import { executeActionOnce } from "./action-dispatch";
 import {
   normalizeResolutionState,
   pollTransactionResolution,
   type ResolutionClock,
 } from "./action-resolution";
-import { BaseAccountConnectorError } from "./base-account-connector";
+import {
+  BaseAccountConnectorError,
+  type ConnectedBaseAccount,
+} from "./base-account-connector";
+import type { AuthenticatedTransport } from "./cdp-authenticated-transport";
+import type { OwnerGenerationFence } from "./owner-generation-fence";
+import type { VerifiedAccountSession } from "./session-client";
 import { TransferExecutionError } from "@/shared/transfers/types";
+
+const { render } = await import("@testing-library/react");
+const { createElement } = await import("react");
+const { useMoneyActionExecution } = await import("./cdp-money-action-execution");
 
 const id = "11111111-1111-4111-8111-111111111111";
 const plan = { calls: [{ to: "0x1111111111111111111111111111111111111111" as const, data: "0x1234" as const, value: "0" }] };
-const transactionHash = `0x${"cd".repeat(32)}`;
+const transactionHash = `0x${"cd".repeat(32)}` as `0x${string}`;
 
 function fakeClock() {
   let now = 0;
@@ -112,6 +125,119 @@ describe("thin action dispatch", () => {
     await expect(executeAmbiguous()).rejects.toBe(ambiguous);
     await expect(executeAmbiguous()).rejects.toBe(ambiguous);
     expect(ambiguousDispatches).toBe(1);
+  });
+
+  test("records and resolves a Base Account wallet-generated handle", async () => {
+    const fake = fakeClock();
+    const walletHandle = `0x${"ef".repeat(64)}`;
+    const address = "0x1111111111111111111111111111111111111111" as const;
+    const session: VerifiedAccountSession = {
+      user: { subject: "subject" },
+      smartAccount: { address, chainId: 8453 },
+      accountProvider: "base-account",
+    };
+    const ownerFence: OwnerGenerationFence = {
+      advance: () => 4,
+      capture: () => 4,
+      isCurrent: (generation) => generation === 4,
+      assertCurrent: (generation) => { expect(generation).toBe(4); },
+      updateAuthorizationBoundary: () => {},
+      updateOwnerKey: () => false,
+    };
+    const handlePosts: Array<{ path: string; body: unknown }> = [];
+    const transport = {
+      fetchAccountResource: async (path: string, options?: { body?: unknown }) => {
+        if (path === `/api/actions/${id}`) {
+          return {
+            id,
+            kind: "send",
+            summary: {
+              title: "Send",
+              amounts: [],
+              warnings: [],
+              expiresAt: "2099-01-01T00:00:00.000Z",
+            },
+            calls: plan.calls,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+          };
+        }
+        if (path === `/api/actions/${id}/confirm`) return { calls: plan.calls };
+        if (path === `/api/actions/${id}/handle`) {
+          handlePosts.push({ path, body: options?.body });
+          return {};
+        }
+        throw new Error(`Unexpected account resource ${path}`);
+      },
+    } as unknown as AuthenticatedTransport;
+    const statusHandles: string[] = [];
+    const connection: ConnectedBaseAccount = {
+      address,
+      assertUnchanged: async () => {},
+      signMessage: async () => "0x12",
+      signTypedData: async () => "0x12",
+      sendCalls: async (_calls, requestId, beforeDispatch) => {
+        expect(requestId).toBe(id);
+        await beforeDispatch?.();
+        return walletHandle;
+      },
+      getCallsStatus: async (providerHandle) => {
+        statusHandles.push(providerHandle);
+        return { status: "complete", transactionHash };
+      },
+      disconnect: async () => {},
+    };
+    const baseConnection = { current: connection } as MutableRefObject<ConnectedBaseAccount | null>;
+    let execution!: ReturnType<typeof useMoneyActionExecution>;
+
+    function Probe() {
+      execution = useMoneyActionExecution({
+        session,
+        status: "verified",
+        verification: "server",
+        ownerKey: "owner",
+        ownerFence,
+        sdkSendUserOperation: undefined,
+        sdkGetUserOperation: undefined,
+        baseConnection,
+        transport,
+      });
+      return null;
+    }
+
+    render(createElement(Probe));
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    globalThis.setTimeout = ((callback: TimerHandler, delay?: number) =>
+      fake.clock.setTimer(() => {
+        if (typeof callback === "function") callback();
+      }, delay ?? 0)) as typeof setTimeout;
+    globalThis.clearTimeout = ((timer: unknown) =>
+      fake.clock.clearTimer(timer)) as typeof clearTimeout;
+
+    try {
+      const action = await execution.resumeMoneyAction(id);
+      await expect(execution.executeMoneyAction(action)).resolves.toMatchObject({
+        id,
+        status: "submitted",
+      });
+      expect(handlePosts).toEqual([{
+        path: `/api/actions/${id}/handle`,
+        body: { providerHandle: walletHandle },
+      }]);
+
+      await fake.advance(1_500);
+
+      expect(statusHandles).toEqual([walletHandle]);
+      expect(handlePosts).toEqual([
+        { path: `/api/actions/${id}/handle`, body: { providerHandle: walletHandle } },
+        { path: `/api/actions/${id}/handle`, body: { transactionHash } },
+      ]);
+      expect(fake.pending()).toBe(0);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+      execution.reset();
+    }
   });
 
   test("polls pending CDP operations to completion and records the transaction hash once", async () => {

@@ -1,12 +1,20 @@
 "use client";
 
-import { PiggyBank } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyTicker } from "@/components/money-ticker";
 import type { FetchActivity } from "@/client/activity";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { FundingActions } from "@/client/funding/funding-actions";
+import { SavingsTeaser } from "@/client/savings/savings-teaser";
 import { TransferActions } from "@/client/transfers";
 import { previewBalanceRows } from "@/shared/balances/present";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
@@ -17,25 +25,27 @@ import { HomeBalancesList } from "./balances-panel";
 import type { HomeAssetBalancesPresentation } from "./home-types";
 import { ShimmerRows } from "./panel-shared";
 
-function SectionTapIn({
+function SectionHeader({
   headingId,
   title,
   onOpen,
+  actionLabel = "See all",
 }: {
   headingId: string;
-  title: "Balances" | "Activity";
+  title: "Balances" | "Save" | "Activity";
   onOpen: () => void;
+  actionLabel?: "See all" | "Earn";
 }) {
   return (
-    <Button
-      className="section-tap-in"
-      variant="ghost"
-      onClick={onOpen}
-      aria-label={title}
-    >
-      <h2 className="text-metadata" id={headingId}>{title}</h2>
-      <span className="section-tap-in-affordance" aria-hidden="true">›</span>
-    </Button>
+    <>
+      <CardTitle id={headingId} role="heading" aria-level={2}>{title}</CardTitle>
+      <CardAction>
+        <Button size="sm" variant="ghost" onClick={onOpen} aria-label={title}>
+          {actionLabel}
+          <ChevronRight className="size-4" aria-hidden="true" />
+        </Button>
+      </CardAction>
+    </>
   );
 }
 
@@ -82,35 +92,33 @@ export function HomePanel({
   const balanceStatusLabel =
     assetBalances?.totalStatus === "partial" ? undefined : assetBalances?.statusLabel;
   const showBalanceStatus =
-    assetBalances?.status !== "loading" &&
-    Boolean(balanceStatusLabel);
+    assetBalances?.status !== "loading" && Boolean(balanceStatusLabel);
 
   return (
-    <div className="home-panel">
-      <section
-        className="balance-hero"
+    <div className="space-y-4">
+      <Card
+        className="py-0"
         aria-label={heroLabel}
         aria-busy={isLoading || isRevalidating || undefined}
       >
-        {isLoading ? (
-          <Skeleton
-            className="balance-hero-shimmer"
-            data-shimmer="hero"
-          />
-        ) : (
-          <div className="balance-hero-total text-amount tabular-nums">
-            <MoneyTicker value={assetBalances?.displayTotal ?? "—"} />
-          </div>
-        )}
-        {showBalanceStatus ? (
-          <p className="balance-status text-metadata" data-total-status={assetBalances?.totalStatus}>
-            {balanceStatusLabel}
-          </p>
-        ) : null}
-        {isLoading || isRevalidating ? <span className="sr-status">Updating…</span> : null}
-      </section>
+        <CardContent className="space-y-2 p-5 sm:p-6">
+          {isLoading ? (
+            <Skeleton className="h-10 w-48" data-shimmer="hero" />
+          ) : (
+            <div className="text-4xl font-semibold tabular-nums">
+              <MoneyTicker value={assetBalances?.displayTotal ?? "—"} />
+            </div>
+          )}
+          {showBalanceStatus ? (
+            <p className="text-sm text-muted-foreground" data-total-status={assetBalances?.totalStatus}>
+              {balanceStatusLabel}
+            </p>
+          ) : null}
+          {isLoading || isRevalidating ? <span className="sr-only">Updating…</span> : null}
+        </CardContent>
+      </Card>
 
-      <div className="action-row" aria-label="Money actions">
+      <div className="grid grid-cols-2 gap-2" aria-label="Money actions">
         <FundingActions
           initialOpen={initialAddMoney}
           returnedFromProvider={returnedFromProvider}
@@ -123,54 +131,57 @@ export function HomePanel({
         />
       </div>
 
-      <section className="balances-panel" aria-labelledby="balances-heading">
-        <SectionTapIn
-          headingId="balances-heading"
-          title="Balances"
-          onOpen={onOpenBalances}
-        />
-        <HomeBalancesList
-          rows={previewBalanceRows(balanceRows)}
-          assetMarkResolution={assetMarkResolution}
-          isLoading={isLoading}
-          isUnavailable={assetBalances?.status === "unavailable"}
-        />
+      <section aria-labelledby="balances-heading">
+        <Card>
+          <CardHeader>
+            <SectionHeader
+              headingId="balances-heading"
+              title="Balances"
+              onOpen={onOpenBalances}
+            />
+          </CardHeader>
+          <CardContent className="px-2">
+            <HomeBalancesList
+              rows={previewBalanceRows(balanceRows)}
+              isLoading={isLoading}
+              isUnavailable={assetBalances?.status === "unavailable"}
+              assetMarkResolution={assetMarkResolution}
+            />
+          </CardContent>
+        </Card>
+      </section>
+
+      <section aria-labelledby="save-heading">
+        <Card>
+          <CardHeader>
+            <CardTitle id="save-heading" role="heading" aria-level={2}>Save</CardTitle>
+          </CardHeader>
+          <CardContent className="px-2">
+            <SavingsTeaser onOpen={onOpenSave} />
+          </CardContent>
+        </Card>
       </section>
 
       {showSessionShimmer ? (
-        <Button className="save-teaser rounded-xl border border-border bg-background" variant="secondary" onClick={onOpenSave} aria-label="Save">
-          <Skeleton className="shimmer-save-icon" />
-          <Skeleton className="shimmer-line shimmer-line-save" />
-          <Skeleton className="shimmer-pill" />
-        </Button>
-      ) : (
-        <Button className="save-teaser rounded-xl border border-border bg-background" variant="secondary" onClick={onOpenSave} aria-label="Save">
-          <span className="save-teaser-icon" aria-hidden="true">
-            <PiggyBank size={20} strokeWidth={1.9} />
-          </span>
-          <span className="save-teaser-label">Save</span>
-          <span className="save-teaser-action">Earn <span aria-hidden="true">›</span></span>
-        </Button>
-      )}
-
-      {showSessionShimmer ? (
-        <section className="activity-panel" aria-labelledby="activity-title" aria-busy="true">
-          <SectionTapIn headingId="activity-title" title="Activity" onOpen={onOpenActivity} />
-          <ShimmerRows count={2} />
+        <section aria-labelledby="activity-title" aria-busy="true">
+          <Card>
+            <CardHeader>
+              <SectionHeader headingId="activity-title" title="Activity" onOpen={onOpenActivity} />
+            </CardHeader>
+            <CardContent className="px-2"><ShimmerRows count={2} /></CardContent>
+          </Card>
         </section>
       ) : (
-        <div className="activity-panel activity-panel-slot">
-          <ConnectedActivityPanel
-            density="teaser"
-            header={
-              <SectionTapIn headingId="activity-title" title="Activity" onOpen={onOpenActivity} />
-            }
-            activitySession={activitySession}
-            fetchActivity={fetchActivity}
-            fetchOperations={fetchOperations}
-            regionId={regionId}
-          />
-        </div>
+        <ConnectedActivityPanel
+          density="teaser"
+          header={
+            <SectionHeader headingId="activity-title" title="Activity" onOpen={onOpenActivity} />
+          }
+          activitySession={activitySession}
+          fetchActivity={fetchActivity}
+          fetchOperations={fetchOperations}
+          regionId={regionId}
+        />
       )}
     </div>
   );

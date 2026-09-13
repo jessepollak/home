@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { MoneyTicker } from "@/components/money-ticker";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import {
@@ -68,86 +69,78 @@ function MoneyActionReviewContent({
   }
 
   return (
-    <section
-      className="surface-primary mx-auto mt-4 grid w-full max-w-3xl gap-4 rounded-xl border border-border border-t-primary border-t-3 p-4 sm:p-6"
-      aria-labelledby={`money-action-${action.id}`}
-    >
-      <h3
-        id={`money-action-${action.id}`}
-        className="text-section-title font-semibold tracking-tight"
-      >
-        {action.title}
-      </h3>
-      <dl className="m-0 grid border-t border-foreground">
-        {action.amounts.map((amount, index) => {
-          const formattedAmount = formatExactPresentationTokenAmount(
-            amount.amountBaseUnits,
-            amount.decimals,
-            amount.symbol,
-          );
-          return (
-            <div
-              className="text-metadata grid min-h-11 grid-cols-1 items-start gap-1 border-b border-border py-2 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
-              key={`${amount.assetId}-${amount.direction}-${index}`}
-            >
-              <dt className="text-muted-foreground">
-                {amount.maximum ? "Up to" : amount.direction === "spend" ? "You spend" : "You receive"}
-              </dt>
-              <dd className="m-0 overflow-wrap-anywhere font-medium sm:text-right">
-                {amount.estimated ? "Estimated " : ""}
-                <MoneyTicker className="inline-flex align-bottom" value={formattedAmount} />
-              </dd>
-            </div>
-          );
-        })}
-        <ReviewRow label="Network">Base (8453)</ReviewRow>
-        <ReviewRow label="Valid until">
-          {formatPresentationDate(action.expiresAt, { style: "date-time-zone" })}
-        </ReviewRow>
-      </dl>
-      {action.warnings.map((warning) => (
-        <Alert
-          className="text-metadata border-warning-border bg-warning-background text-foreground"
-          role="status"
-          key={warning}
-        >
-          <AlertDescription className="text-inherit">
-            {presentReviewWarning(warning)}
-          </AlertDescription>
-        </Alert>
-      ))}
-      {expired && !attempted ? (
-        <Alert className="text-metadata" variant="destructive" role="alert">
-          <AlertDescription className="text-inherit">
-            This prepared action expired. Prepare and review a fresh action.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      {error ? (
-        <Alert className="text-metadata" variant="destructive" role="alert">
-          <AlertDescription className="text-inherit">{error}</AlertDescription>
-        </Alert>
-      ) : null}
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-2">
-        <Button className="min-h-11 w-full" variant="secondary" disabled={pending} onClick={onClose}>Back</Button>
-        <Button
-          className="min-h-11 w-full aria-busy:opacity-60"
-          disabled={pending || (expired && !attempted)}
-          aria-busy={pending}
-          onClick={() => void confirm()}
-        >
-          {attempted ? "Retry" : action.kind === "trade" ? "Confirm trade" : "Confirm action"}
-        </Button>
-      </div>
-    </section>
+    <Card className="mx-auto mt-4 w-full max-w-3xl" aria-labelledby={`money-action-${action.id}`}>
+      <CardHeader>
+        <h2 id={`money-action-${action.id}`} data-slot="card-title" className="text-lg leading-snug font-semibold">
+          {action.title}
+        </h2>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <dl className="m-0 grid border-t">
+          {action.amounts.map((amount, index) => {
+            const formattedAmount = formatExactPresentationTokenAmount(
+              amount.amountBaseUnits,
+              amount.decimals,
+              amount.symbol,
+            );
+            return (
+              <div
+                className="grid min-h-11 grid-cols-1 items-start gap-1 border-b py-2 text-sm last:border-b-0 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
+                key={`${amount.assetId}-${amount.direction}-${index}`}
+              >
+                <dt className="text-muted-foreground">
+                  {amount.maximum ? "Up to" : amount.direction === "spend" ? "You spend" : "You receive"}
+                </dt>
+                <dd className="m-0 overflow-wrap-anywhere font-medium tabular-nums sm:text-right">
+                  {amount.estimated ? "Estimated " : ""}
+                  <MoneyTicker className="inline-flex align-bottom" value={formattedAmount} />
+                </dd>
+              </div>
+            );
+          })}
+          <ReviewRow label="Network">Base (8453)</ReviewRow>
+          <ReviewRow label="Valid until">
+            {formatPresentationDate(action.expiresAt, { style: "date-time-zone" })}
+          </ReviewRow>
+        </dl>
+        {action.warnings.map((warning) => (
+          <Alert role="status" key={warning}>
+            <AlertDescription>{presentReviewWarning(warning)}</AlertDescription>
+          </Alert>
+        ))}
+        {expired && !attempted ? (
+          <Alert variant="destructive" role="alert">
+            <AlertDescription>
+              This prepared action expired. Prepare and review a fresh action.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        {error ? (
+          <Alert variant="destructive" role="alert">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-2">
+          <Button className="h-11 w-full" variant="secondary" disabled={pending} onClick={onClose}>Back</Button>
+          <Button
+            className="h-11 w-full aria-busy:opacity-60"
+            disabled={pending || (expired && !attempted)}
+            aria-busy={pending}
+            onClick={() => void confirm()}
+          >
+            {attempted ? "Retry" : action.kind === "trade" ? "Confirm trade" : "Confirm action"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
 function ReviewRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="text-metadata grid min-h-11 grid-cols-1 items-start gap-1 border-b border-border py-2 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3">
+    <div className="grid min-h-11 grid-cols-1 items-start gap-1 border-b py-2 text-sm last:border-b-0 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="m-0 overflow-wrap-anywhere font-medium sm:text-right">{children}</dd>
+      <dd className="m-0 overflow-wrap-anywhere font-medium tabular-nums sm:text-right">{children}</dd>
     </div>
   );
 }

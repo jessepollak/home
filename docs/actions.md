@@ -18,8 +18,8 @@ create table actions (
   pending            jsonb,                     -- server-built calls and (trades) permit fields for unconfirmed actions; cleared on confirm
   created_at         timestamptz not null default now(),
   confirmed_at       timestamptz,               -- set by POST /confirm; unconfirmed rows are invisible
-  provider_handle    text,                      -- CDP userOperationHash, or the EIP-5792 id (= id) for Base
-  transaction_hash   text,                      -- resolved by the client from provider status; server verifies via receipt
+  provider_handle    text,                      -- CDP userOperationHash, or the wallet-returned EIP-5792 bundle id for Base
+  transaction_hash   text,                      -- resolved from provider status (client, or server reconciliation for Base); server verifies via receipt
   handle_recorded_at timestamptz
 );
 create index actions_owner_recent on actions (owner_key, confirmed_at desc) where confirmed_at is not null;
@@ -37,9 +37,11 @@ create index actions_owner_recent on actions (owner_key, confirmed_at desc) wher
 
 1. `POST /api/actions/prepare` `{kind, params}` → server verifies scope, builds calldata, inserts an unconfirmed `actions` row, and stores the draft calls in `pending` for every kind. It returns `{id, calls, summary, expiresAt}`. Trades return `{id, summary, permit2Typed, expiresAt}` and additionally store the permit hash, swapCallIndex, and quote expiry in `pending`.
 2. Client shows review. `GET /api/actions/:id` is owner-scoped and returns the unconfirmed summary plus `pending.calls`, so a reload mid-review can resume. On confirm: `POST /api/actions/:id/confirm` (sets `confirmed_at`, returns the final `calls`, and clears `pending`; for trades the body carries the Permit2 `signature`, the server verifies the signer is the owner and splices it — this is the kept half of `finalize`). The client dispatches only on 2xx. Reload-resume is intended only before confirm; after confirm the tab owns dispatch and any live retry.
-3. Dispatch: CDP `sendUserOperation({ idempotencyKey: id, calls })` → `provider_handle = userOperationHash`. Base `wallet_sendCalls({ id, calls, atomicRequired: true })` → `provider_handle = id`, prefilled at confirm.
-4. `POST /api/actions/:id/handle` `{providerHandle}` and later `{transactionHash}` once the client resolves it from `getUserOperation` / `wallet_getCallsStatus`. Retried while the tab lives; late posts are accepted. Only the client can query provider status (end-user credentials); the server derives only from receipts.
+3. Dispatch: CDP `sendUserOperation({ idempotencyKey: id, calls })` → `provider_handle = userOperationHash`. Base `wallet_sendCalls({ id, calls, atomicRequired: true })` → `provider_handle` = the bundle id the wallet returns (not the request `id`; Base generates its own, and `wallet_getCallsStatus` only accepts that one).
+4. `POST /api/actions/:id/handle` `{providerHandle}` and later `{transactionHash}` once the client resolves it from `getUserOperation` / `wallet_getCallsStatus`. Retried while the tab lives; late posts are accepted. CDP status is readable only with end-user credentials, so the server derives CDP rows from receipts alone; Base handles can also be reconciled server-side (below).
 5. `GET /api/actions` returns the owner's confirmed rows (last 24h) with derived status; Activity = chain activity ∪ those rows, deduped by `transaction_hash`. `RecentMoneyActions` and `transfer-actions.tsx` read this route.
+
+For Base Account rows whose client stopped after recording a provider handle, owner-scoped action reads wait through a short client grace period and then ask the Coinbase Wallet status RPC (`BASE_ACCOUNT_STATUS_RPC_URL` override for tests/staging) for that handle. A completed response can fill the missing transaction hash before the normal Base receipt check; provider failures, malformed responses, conflicts, and timeouts leave the stored action unchanged. These reconciliation calls are status-only and never recreate, alter, or dispatch calldata; CDP embedded rows are not reconciled by the server.
 
 Retry semantics, verified against the installed SDKs:
 - **Shared rule:** an explicit user rejection is definitely not submitted by that invocation. Return a typed `rejected` result, evict only that rejected dispatch promise, and permit another user-initiated attempt in the same tab. An ambiguous provider or transport failure stays cached and is never dispatched again.

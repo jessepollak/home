@@ -43,7 +43,9 @@ afterEach(() => {
 });
 
 describe("action toast owner fence", () => {
-  test("shows each pending to confirmed status transition once", async () => {
+  test("shows new pending and pending to confirmed status transitions once after the first snapshot", async () => {
+    const queryKey = ownerQueryKey(activityOwnerKey(session), "actions");
+    const nextRow = { ...row, id: "22222222-2222-4222-8222-222222222222" };
     const view = render(
       <ActionToasts
         session={session}
@@ -52,11 +54,18 @@ describe("action toast owner fence", () => {
       />,
     );
 
-    await view.findByText("Sending $1.00 to 0x2222…222222");
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(queryKey)).toBeTruthy());
+    expect(view.queryByText("Sending $1.00 to 0x2222…222222")).toBeNull();
+
+    act(() => {
+      getHomeQueryClient().setQueryData(queryKey, { actions: [row, nextRow] });
+    });
+    await waitFor(() => expect(view.getAllByText("Sending $1.00 to 0x2222…222222")).toHaveLength(1));
+
     act(() => {
       getHomeQueryClient().setQueryData(
-        ownerQueryKey(activityOwnerKey(session), "actions"),
-        { actions: [{ ...row, status: "confirmed" }] },
+        queryKey,
+        { actions: [row, { ...nextRow, status: "confirmed" }] },
       );
     });
     await waitFor(() => expect(view.getAllByText("Sent $1.00 to 0x2222…222222")).toHaveLength(1));

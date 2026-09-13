@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -10,6 +11,7 @@ type CopyableValueProps = {
   value: string;
   /** Condensed label shown in the control. Defaults to the full value. */
   display?: string;
+  presentation?: "inline" | "full";
   className?: string;
   copiedLabel?: string;
   copyLabelPrefix?: string;
@@ -43,6 +45,7 @@ export function CopyableValue(props: CopyableValueProps) {
 function CopyableValueControl({
   value,
   display,
+  presentation = "inline",
   className,
   copiedLabel = "Copied",
   copyLabelPrefix = "Copy ",
@@ -97,6 +100,7 @@ function CopyableValueControl({
         variant="ghost"
         className={cn(
           "inline h-auto min-h-0 min-w-0 border-0 bg-transparent p-0 font-mono text-inherit no-underline whitespace-normal break-all transition-colors hover:bg-transparent active:translate-y-0",
+          presentation === "full" && "flex min-h-11 w-full items-start justify-start gap-2 py-2 text-left text-sm",
           status === "copied" && "text-primary",
           className,
         )}
@@ -104,18 +108,23 @@ function CopyableValueControl({
         aria-label={controlLabel}
         onClick={() => void copy()}
       >
-        {status === "copied" ? copiedLabel : shown}
+        <span className={cn(presentation === "full" && "min-w-0 flex-1 break-all")}>
+          {status === "copied" ? copiedLabel : shown}
+        </span>
+        {presentation === "full" ? (
+          <Copy className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        ) : null}
       </Button>
       <span className="sr-only" aria-live="polite" aria-atomic="true">
         {status === "copied" ? copiedLabel : ""}
       </span>
       {status === "unavailable" || status === "denied" ? (
         <span className="mt-1.5 block">
-          <span className="text-metadata block text-muted-foreground" role="alert">
+          <span className="block text-xs text-muted-foreground" role="alert">
             {errorMessage}
           </span>
           <code
-            className="text-metadata mt-1.5 block w-full select-text overflow-wrap-anywhere rounded-md border border-border bg-muted px-3 py-2.5 font-mono text-foreground focus-visible:outline-3 focus-visible:outline-ring"
+            className="mt-1.5 block w-full select-text overflow-wrap-anywhere rounded-md border bg-muted px-3 py-2.5 font-mono text-xs text-foreground focus-visible:outline-3 focus-visible:outline-ring"
             aria-label={selectableLabel}
             tabIndex={0}
           >

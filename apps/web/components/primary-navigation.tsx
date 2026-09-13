@@ -2,7 +2,6 @@
 
 import { ChartNoAxesCombined, House } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import {
   isHomeNestedPanelId,
   navigationItems,
@@ -10,7 +9,7 @@ import {
   type ShellPanelId,
 } from "@/config/navigation";
 
-type PrimaryNavigationProps = {
+ type PrimaryNavigationProps = {
   activeNavigation: ShellPanelId;
   onNavigate: (id: NavigationId) => void;
 };
@@ -26,7 +25,7 @@ export function PrimaryNavigation({
 }: PrimaryNavigationProps) {
   return (
     <nav
-      className="relative z-20 order-2 grid shrink-0 grid-cols-2 border-t border-border bg-background pb-[env(safe-area-inset-bottom)] max-md:-mx-4 md:order-1 md:static md:w-full md:border-t-0 md:border-b"
+      className="order-2 grid w-full shrink-0 grid-cols-2 border-t bg-background pb-[env(safe-area-inset-bottom)] sm:order-1 sm:mx-auto sm:max-w-2xl sm:border-x sm:border-b sm:pb-0"
       aria-label="Main navigation"
     >
       {navigationItems.map((item) => {
@@ -40,29 +39,14 @@ export function PrimaryNavigation({
             key={item.id}
             id={`${item.id}-nav`}
             variant="ghost"
-            className={cn(
-              "group/nav-item relative h-14 min-h-14 min-w-0 flex-col gap-1 rounded-none border-0 bg-transparent px-0 py-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:z-1 focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-ring active:translate-y-0 motion-reduce:transition-none md:flex-row md:justify-start md:gap-2 md:px-2.5",
-              isActive && "text-foreground hover:bg-transparent",
-            )}
+            size="lg"
+            className="h-12 min-w-0 rounded-none text-muted-foreground aria-[current=page]:bg-muted aria-[current=page]:text-foreground"
             onClick={() => onNavigate(item.id)}
             aria-current={isActive ? "page" : undefined}
             aria-controls="navigation-panel"
           >
-            <span
-              className={cn(
-                "inline-flex size-8 shrink-0 origin-center items-center justify-center rounded-md border border-transparent text-foreground transition-[background-color,border-color,color,transform] group-active/nav-item:scale-95 motion-reduce:transition-none motion-reduce:group-active/nav-item:scale-100",
-                isActive && "border-primary bg-primary text-primary-foreground",
-              )}
-              aria-hidden="true"
-            >
-              <Icon size={21} strokeWidth={isActive ? 2.25 : 1.9} />
-            </span>
-            <span className={cn(
-              "max-w-full shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-metadata font-semibold leading-none",
-              isActive && "font-bold",
-            )}>
-              {item.label}
-            </span>
+            <Icon className="size-5" aria-hidden="true" />
+            <span className="truncate">{item.label}</span>
           </Button>
         );
       })}

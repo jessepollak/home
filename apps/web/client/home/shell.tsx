@@ -435,7 +435,11 @@ export function HomeShell({
 
   return (
     <HomeShellRoutingProvider value={routingValue}>
-      <div className={`app-frame${routeMode === "dashboard" ? " app-frame-shell" : ""}`}>
+      <div
+        className={routeMode === "dashboard"
+          ? "flex h-svh max-h-svh flex-col overflow-hidden bg-muted"
+          : "flex min-h-svh flex-col bg-background"}
+      >
       <ShellHeader
         isAccountSettingsOpen={isAccountSettingsOpen}
         nestedChromeTitle={nestedChromeTitle}

@@ -1,20 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { DrawerFooter } from "@/components/ui/drawer";
 import {
   Item,
   ItemActions,
   ItemContent,
   ItemDescription,
+  ItemGroup,
   ItemMedia,
+  ItemSeparator,
   ItemTitle,
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowDownToLine } from "lucide-react";
+import { ArrowDownToLine, ChevronRight } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
   verifiedLocalCashAssets,
@@ -26,9 +30,7 @@ import {
   type RegionId,
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
-import { MoneyModal, MoneyModalHeader } from "@/client/money-modal";
-import modal from "@/client/money-modal/money-modal.module.css";
-import styles from "./add-money.module.css";
+import { MoneyModal, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
 import { ReceiveQr } from "./receive-qr";
 import {
   FundingOrderFlow,
@@ -121,11 +123,14 @@ export function AddMoneyDialog({
       ) : null}
 
       {signedOut ? (
-        <div className={modal.footer}>
-          <Link className={modal.primary} href="/?account=signin">
+        <DrawerFooter className="p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <Link
+            className={buttonVariants({ size: "lg", className: "h-11" })}
+            href="/?account=signin"
+          >
             Sign in
           </Link>
-        </div>
+        </DrawerFooter>
       ) : null}
     </MoneyModal>
   );
@@ -143,69 +148,69 @@ export function MethodBody({
   onSelectBinding: (binding: FundingBinding) => void;
 }) {
   return (
-    <div className={modal.body}>
-      <ul className={styles.methods}>
-        <li>
-          <Item
-            className="min-h-11 flex-nowrap border-border bg-background text-left"
-            variant="outline"
-            render={
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={onSelectReceive}
-                aria-describedby="receive-method-hint"
-              />
-            }
-          >
-            <ItemMedia>
-              <span className={styles.methodIcon} aria-hidden="true">
-                <ArrowDownToLine size={18} strokeWidth={2.1} />
-              </span>
-            </ItemMedia>
-            <ItemContent className="min-h-16 justify-center">
-              <ItemTitle className="text-row-label">Receive crypto</ItemTitle>
-              <ItemDescription className="text-caption">
-                USDC and supported tokens on Base
-              </ItemDescription>
-              <span id="receive-method-hint" hidden>Open receive options</span>
-            </ItemContent>
-            <ItemActions aria-hidden="true">›</ItemActions>
-          </Item>
-        </li>
-        {providerBindings.map((binding) => (
-          <li key={`${binding.providerId}:${binding.assetId}`}>
+    <MoneyModalBody className="pt-4">
+      <Card>
+        <CardContent className="px-2">
+          <ItemGroup className="gap-0">
             <Item
-              className="min-h-11 flex-nowrap border-border bg-background text-left"
-              variant="outline"
               render={
                 <Button
                   variant="ghost"
                   type="button"
-                  onClick={() => onSelectBinding(binding)}
-                  aria-describedby={`funding-method-${binding.providerId}-${binding.assetId}`}
+                  onClick={onSelectReceive}
+                  aria-describedby="receive-method-hint"
                 />
               }
+              className="min-h-16 flex-nowrap items-center rounded-none border-0"
             >
-              <ItemMedia>
-                <CurrencyMark
-                  currency={binding.currency as FiatCurrencyCode}
-                  symbol={presentationRegions[regionId].currency.symbol ?? "$"}
-                />
+              <ItemMedia variant="icon" className="size-10 self-center translate-y-0 rounded-full bg-muted">
+                <ArrowDownToLine className="size-4" />
               </ItemMedia>
-              <ItemContent className="min-h-16 justify-center">
-                <ItemTitle className="text-row-label">{`Deposit ${binding.currency} with ${binding.displayName}`}</ItemTitle>
-                <span id={`funding-method-${binding.providerId}-${binding.assetId}`} hidden>Open deposit flow</span>
+              <ItemContent className="min-w-0">
+                <ItemTitle>Receive crypto</ItemTitle>
+                <ItemDescription>USDC and supported tokens on Base</ItemDescription>
+                <span id="receive-method-hint" hidden>Open receive options</span>
               </ItemContent>
-              <ItemActions aria-hidden="true">›</ItemActions>
+              <ItemActions aria-hidden="true">
+                <ChevronRight className="size-4 text-muted-foreground" />
+              </ItemActions>
             </Item>
-          </li>
-        ))}
-      </ul>
-    </div>
+            {providerBindings.map((binding) => (
+              <Fragment key={`${binding.providerId}:${binding.assetId}`}>
+                <ItemSeparator className="my-0" />
+                <Item
+                  render={
+                    <Button
+                      variant="ghost"
+                      type="button"
+                      onClick={() => onSelectBinding(binding)}
+                      aria-describedby={`funding-method-${binding.providerId}-${binding.assetId}`}
+                    />
+                  }
+                  className="min-h-16 flex-nowrap items-center rounded-none border-0"
+                >
+                  <ItemMedia variant="image" className="size-10 self-center translate-y-0 rounded-full bg-muted">
+                    <CurrencyMark
+                      currency={binding.currency as FiatCurrencyCode}
+                      symbol={presentationRegions[regionId].currency.symbol ?? "$"}
+                    />
+                  </ItemMedia>
+                  <ItemContent className="min-w-0">
+                    <ItemTitle>{`Deposit ${binding.currency} with ${binding.displayName}`}</ItemTitle>
+                    <span id={`funding-method-${binding.providerId}-${binding.assetId}`} hidden>Open deposit flow</span>
+                  </ItemContent>
+                  <ItemActions aria-hidden="true">
+                    <ChevronRight className="size-4 text-muted-foreground" />
+                  </ItemActions>
+                </Item>
+              </Fragment>
+            ))}
+          </ItemGroup>
+        </CardContent>
+      </Card>
+    </MoneyModalBody>
   );
 }
-
 export function ReceiveBody({
   address,
   regionId,
@@ -214,11 +219,9 @@ export function ReceiveBody({
   regionId: RegionId;
 }) {
   return (
-    <div className={`${modal.body} ${styles.receive}`}>
-      <Badge className={styles.network} variant="secondary">
-        Receive on Base
-      </Badge>
-      <div className={styles.qrFrame}>
+    <MoneyModalBody className="items-center gap-4 pt-2">
+      <Badge variant="secondary">Receive on Base</Badge>
+      <div className="aspect-square w-full max-w-56 overflow-hidden rounded-xl border bg-background">
         {address ? (
           <ReceiveQr
             value={address}
@@ -226,32 +229,30 @@ export function ReceiveBody({
           />
         ) : (
           <Skeleton
-            className={styles.qrShimmer}
+            className="size-full"
             data-shimmer="qr"
             aria-hidden="true"
           />
         )}
       </div>
-      <div className={styles.addressBlock}>
+      <div className="grid justify-items-center gap-1 text-center">
         {address ? (
           <ReceiveAddress address={address} />
         ) : (
           <>
             <Skeleton
-              className={styles.addressShimmer}
+              className="h-4 w-36"
               data-shimmer="address"
               aria-hidden="true"
             />
-            <p
-              className={`${styles.addressHint} text-metadata text-muted-foreground`}
-            >
+            <p className="text-center text-xs text-muted-foreground">
               Preparing your Base address
             </p>
           </>
         )}
       </div>
       <SupportedAssets regionId={regionId} />
-    </div>
+    </MoneyModalBody>
   );
 }
 
@@ -278,7 +279,8 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
     <>
       <Button
         variant="ghost"
-        className={styles.addressText}
+        className="select-text px-2 font-medium"
+        size="lg"
         title={address}
         aria-label={copyStatus === "copied" ? "Copied" : `Copy ${condensed}`}
         aria-describedby="receive-address-help"
@@ -287,7 +289,7 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
         {copyStatus === "copied" ? "Copied" : condensed}
       </Button>
       {copyStatus === "error" ? (
-        <div className={styles.copyFallback}>
+        <div className="grid w-full max-w-xs justify-items-center gap-2">
           <Alert id="receive-address-help" variant="destructive" role="alert">
             <AlertDescription>
               Clipboard access is unavailable. Select and copy the full address
@@ -295,7 +297,7 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
             </AlertDescription>
           </Alert>
           <code
-            className={styles.fullAddress}
+            className="block w-full select-text rounded-lg border bg-muted p-3 font-mono text-xs [overflow-wrap:anywhere]"
             aria-label={`Full Base address ${address}`}
             tabIndex={0}
           >
@@ -305,7 +307,7 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
       ) : (
         <p
           id="receive-address-help"
-          className={`${styles.addressHint} text-metadata text-muted-foreground`}
+          className="text-center text-xs text-muted-foreground"
         >
           Tap the address to copy
         </p>
@@ -320,21 +322,19 @@ export function SupportedAssets({ regionId }: { regionId: RegionId }) {
 
   return (
     <section
-      className={styles.supported}
+      className="grid w-full justify-items-center gap-3 border-t pt-4"
       aria-label="Supported receive assets on Base"
     >
-      <p
-        className={`${styles.supportedLabel} text-metadata text-muted-foreground`}
-      >
+      <p className="text-xs font-medium text-muted-foreground">
         Supported on Base
       </p>
-      <div className={`${styles.supportedMarks} flex items-center gap-3.5`}>
-        <span className={styles.supportedAsset}>
+      <div className="flex items-center justify-center gap-4">
+        <span className="inline-flex items-center gap-2 text-sm font-medium">
           <CurrencyMark currency="USD" symbol="$" />
           <span>USDC</span>
         </span>
         {localAsset ? (
-          <span className={styles.supportedAsset}>
+          <span className="inline-flex items-center gap-2 text-sm font-medium">
             <CurrencyMark
               currency={localAsset.cashCurrency}
               symbol={region.currency.symbol}
@@ -343,9 +343,7 @@ export function SupportedAssets({ regionId }: { regionId: RegionId }) {
           </span>
         ) : null}
       </div>
-      <p
-        className={`${styles.supportedMore} text-metadata text-muted-foreground`}
-      >
+      <p className="max-w-sm text-center text-xs text-muted-foreground">
         Plus other tokens in Home&apos;s supported Base inventory
       </p>
     </section>
@@ -364,10 +362,10 @@ function supportedRegionalAsset(
 
 function SignedOutBody() {
   return (
-    <div className={modal.body}>
-      <p className={`${styles.subtitle} text-caption text-muted-foreground`}>
+    <MoneyModalBody className="pt-4">
+      <p className="text-sm text-muted-foreground">
         Sign in and verify a Base account before showing a funding address.
       </p>
-    </div>
+    </MoneyModalBody>
   );
 }

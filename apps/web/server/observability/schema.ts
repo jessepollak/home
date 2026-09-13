@@ -40,11 +40,14 @@ export const SERVER_EVENT_KINDS = [
   "action-prepare",
   "action-confirm",
   "action-handle",
+  "action-reconcile",
   "funding-order",
   "funding-webhook",
 ] as const;
 export const SERVER_EVENT_OUTCOMES = [
   "failed",
+  "ok",
+  "conflict",
   "rejected",
   "invalid",
   "unmatched",
@@ -200,7 +203,10 @@ export function normalizeObservabilityEvent(
       : undefined;
     return {
       ...base,
-      level: outcome === "unmatched" ? "info" : "error",
+      level: outcome === "unmatched" || outcome === "ok" ||
+        (event.kind === "action-reconcile" && outcome === "unavailable")
+        ? "info"
+        : "error",
       kind: event.kind,
       code,
       outcome,

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { ArrowLeft } from "lucide-react";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { HomeMark } from "@/components/home-mark";
@@ -39,10 +40,10 @@ export function ShellHeader({
   onCloseSettings: () => void;
 }) {
   return (
-    <header className="app-header">
-      <div className="app-header-start">
+    <header className="order-0 mx-auto flex min-h-14 w-full max-w-2xl shrink-0 items-center justify-between gap-4 border-b bg-background px-4 py-2">
+      <div className="flex min-w-0 items-center">
         {isAccountSettingsOpen ? (
-          <h1 className="app-header-lead-title text-section-title">Account</h1>
+          <h1 className="text-base font-semibold">Account</h1>
         ) : nestedChromeTitle ? (
           <NestedHomeHeader
             title={nestedChromeTitle}
@@ -50,17 +51,14 @@ export function ShellHeader({
             onBack={onNestedChromeBack}
           />
         ) : routeMode === "dashboard" && activeNavigation === "invest" ? (
-          <h1 className="app-header-lead-title text-section-title">Invest</h1>
+          <h1 className="text-base font-semibold">Invest</h1>
         ) : (
           <HomeMark onClick={() => { if (isVerified) onHome(); }} />
         )}
       </div>
-      <span className="app-header-title-slot" aria-hidden="true" />
-      <div className="app-header-end">
+      <div className="flex shrink-0 items-center">
         {isAccountSettingsOpen ? (
-          <Button className="header-done-link" variant="secondary" onClick={onCloseSettings}>
-            Done
-          </Button>
+          <Button variant="secondary" onClick={onCloseSettings}>Done</Button>
         ) : (
           <HeaderAccountAction
             status={account.status}
@@ -101,7 +99,7 @@ function HeaderAccountAction({
   onOpenSettings: () => void;
 }) {
   if (status === "signout-error") {
-    return <Button className="header-account-link" onClick={onSignOut}>Retry sign out</Button>;
+    return <Button onClick={onSignOut}>Retry sign out</Button>;
   }
   if (routeMode === "dashboard") {
     const checking = status === "restoring" || status === "validating";
@@ -119,12 +117,12 @@ function HeaderAccountAction({
     }
   }
   if (status === "restoring" || status === "validating") {
-    return <Button className="header-account-link header-account-quiet" variant="secondary" disabled>Account</Button>;
+    return <Button variant="secondary" disabled>Account</Button>;
   }
   if (status === "verified" || (status === "unavailable" && isSignedIn)) {
-    return <Button className="header-account-link" onClick={onDashboard}>Dashboard</Button>;
+    return <Button onClick={onDashboard}>Dashboard</Button>;
   }
-  return <Button className="header-account-link" onClick={onSignIn}>Sign in</Button>;
+  return <Button onClick={onSignIn}>Sign in</Button>;
 }
 
 function NestedHomeHeader({
@@ -137,11 +135,11 @@ function NestedHomeHeader({
   onBack: () => void;
 }) {
   return (
-    <div className="header-leading">
-      <Button className="header-back-link" variant="ghost" onClick={onBack} aria-label={backLabel}>
-        <span aria-hidden="true">←</span>
+    <div className="flex min-w-0 items-center gap-2">
+      <Button variant="ghost" size="icon" onClick={onBack} aria-label={backLabel}>
+        <ArrowLeft className="size-4" aria-hidden="true" />
       </Button>
-      <h1 className="header-panel-title app-header-title text-section-title">{title}</h1>
+      <h1 className="min-w-0 text-base font-semibold">{title}</h1>
     </div>
   );
 }
@@ -164,30 +162,34 @@ export function SignedOutLanding({
   onRetrySignOut: () => void;
 }) {
   return (
-    <main className={`landing-main${landingVisual ? " landing-main-with-visual" : ""}`}>
-      {landingVisual ? <div className="landing-visual">{landingVisual}</div> : null}
-      <section className="landing-hero" aria-labelledby="landing-title">
-        <div className="landing-content flex flex-col gap-6">
-          <h1 className="landing-heading text-page-title" id="landing-title">
+    <main className="flex flex-1 flex-col md:grid md:grid-cols-2">
+      {landingVisual ? (
+        <div className="min-h-64 overflow-hidden bg-muted md:min-h-0">{landingVisual}</div>
+      ) : null}
+      <section className="flex items-center p-6 md:p-12" aria-labelledby="landing-title">
+        <div className="mx-auto flex w-full max-w-lg flex-col gap-6">
+          <h1 className="text-4xl font-semibold tracking-tight" id="landing-title">
             One home for your money.
           </h1>
-          <p className="landing-copy text-caption text-muted-foreground">
+          <p className="text-lg text-muted-foreground">
             Invest in any asset, earn more on your savings, and grow your wealth.
           </p>
-          <div className="landing-actions flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {isVerified ? (
-              <Button onClick={onDashboard}>Open dashboard</Button>
+              <Button size="lg" className="h-11" onClick={onDashboard}>Open dashboard</Button>
             ) : (
               <>
-                <Button onClick={onSignIn}>Sign in</Button>
+                <Button size="lg" className="h-11" onClick={onSignIn}>Sign in</Button>
                 {showCreateAccount ? (
-                  <Button variant="secondary" onClick={onSignIn}>Create account</Button>
+                  <Button size="lg" className="h-11" variant="secondary" onClick={onSignIn}>
+                    Create account
+                  </Button>
                 ) : null}
               </>
             )}
           </div>
           {signOutError ? (
-            <Alert className="landing-status" variant="destructive" role="alert">
+            <Alert variant="destructive" role="alert">
               <AlertDescription>{signOutError}</AlertDescription>
               <AlertAction>
                 <Button variant="ghost" onClick={onRetrySignOut}>Retry sign out</Button>

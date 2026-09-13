@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { ItemGroup } from "@/components/ui/item";
 import { MoneyTicker } from "@/components/money-ticker";
 import { CurrencyMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
@@ -60,7 +63,11 @@ export function useBalancesRevealWindow(
   const extend = useCallback(() => {
     setRevealWindow((current) =>
       current.key === key && current.resetSignal === resetSignal
-        ? { key, resetSignal, count: Math.min(current.count + BALANCES_BATCH_SIZE, rows.length) }
+        ? {
+            key,
+            resetSignal: current.resetSignal,
+            count: Math.min(current.count + BALANCES_BATCH_SIZE, rows.length),
+          }
         : current,
     );
   }, [key, resetSignal, rows.length]);
@@ -84,70 +91,67 @@ export function BalancesPage({
   onRevealMore: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading" || isChecking;
-  const balanceStatusLabel = assetBalances?.totalStatus === "partial" ? undefined : assetBalances?.statusLabel;
+  const balanceStatusLabel =
+    assetBalances?.totalStatus === "partial" ? undefined : assetBalances?.statusLabel;
+  const showBalanceStatus =
+    assetBalances?.status !== "loading" && Boolean(balanceStatusLabel);
   return (
-    <section className="balances-panel nested-home-panel" aria-label="Balances">
-      {assetBalances?.status !== "loading" && balanceStatusLabel ? (
-        <p className="balance-status balance-status-panel text-metadata" data-total-status={assetBalances?.totalStatus}>
+    <section className="space-y-3" aria-label="Balances">
+      {showBalanceStatus ? (
+        <p className="text-sm text-muted-foreground" data-total-status={assetBalances?.totalStatus}>
           {balanceStatusLabel}
         </p>
       ) : null}
-      <IncrementalBalancesList
-        active={active}
-        rows={assetBalances?.rows ?? []}
-        assetMarkResolution={assetMarkResolution}
-        isLoading={isLoading}
-        isUnavailable={assetBalances?.status === "unavailable"}
-        revealedCount={revealedCount}
-        onRevealMore={onRevealMore}
-      />
+      <Card>
+        <CardContent className="px-2">
+          <IncrementalBalancesList
+            active={active}
+            rows={assetBalances?.rows ?? []}
+            isLoading={isLoading}
+            isUnavailable={assetBalances?.status === "unavailable"}
+            assetMarkResolution={assetMarkResolution}
+            revealedCount={revealedCount}
+            onRevealMore={onRevealMore}
+          />
+        </CardContent>
+      </Card>
     </section>
   );
 }
 
 export function HomeBalancesList({
   rows,
-  assetMarkResolution,
   isLoading,
   isUnavailable = false,
+  assetMarkResolution,
 }: {
   rows: readonly BalanceRowModel[];
-  assetMarkResolution?: AssetMarkResolution;
   isLoading: boolean;
   isUnavailable?: boolean;
+  assetMarkResolution?: AssetMarkResolution;
 }) {
   if (rows.length > 0) {
-    return (
-      <ul className="supplied-asset-list">
-        {rows.map((row) => (
-          <HomeBalanceRowView
-            key={row.key}
-            row={row}
-            assetMarkResolution={assetMarkResolution}
-          />
-        ))}
-      </ul>
-    );
+    return <BalancesList rows={rows} assetMarkResolution={assetMarkResolution} />;
   }
   if (isLoading) return <ShimmerRows count={2} />;
   if (isUnavailable) return null;
-  return <p className="balances-empty text-metadata">No balances yet</p>;
+  return <BalancesEmpty />;
 }
 
 function IncrementalBalancesList({
   active,
   rows,
-  assetMarkResolution,
   isLoading,
   isUnavailable = false,
+  assetMarkResolution,
   revealedCount,
   onRevealMore,
 }: {
   active: boolean;
   rows: readonly BalanceRowModel[];
-  assetMarkResolution?: AssetMarkResolution;
   isLoading: boolean;
   isUnavailable?: boolean;
+  assetMarkResolution?: AssetMarkResolution;
   revealedCount: number;
   onRevealMore: () => void;
 }) {
@@ -159,9 +163,13 @@ function IncrementalBalancesList({
     if (!active || !hasMore || typeof IntersectionObserver === "undefined") return;
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
+    const closestRoot = sentinel.closest(".app-main-authenticated");
+    const root = closestRoot instanceof HTMLElement ? closestRoot : null;
     const observer = new IntersectionObserver(
-      (entries) => { if (entries.some((entry) => entry.isIntersecting)) onRevealMore(); },
-      { rootMargin: "0px 0px 40% 0px" },
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) onRevealMore();
+      },
+      { root, rootMargin: "0px 0px 100% 0px" },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
@@ -170,13 +178,33 @@ function IncrementalBalancesList({
   if (rows.length === 0) {
     if (isLoading) return <ShimmerRows count={2} />;
     if (isUnavailable) return null;
-    return <p className="balances-empty text-metadata">No balances yet</p>;
+    return <BalancesEmpty />;
   }
 
   return (
     <>
-      <ul className="supplied-asset-list">
-        {rows.slice(0, count).map((row) => (
+      <BalancesList
+        rows={rows.slice(0, count)}
+        assetMarkResolution={assetMarkResolution}
+      />
+      {active && hasMore ? (
+        <div ref={sentinelRef} className="h-px" aria-hidden="true" />
+      ) : null}
+    </>
+  );
+}
+
+function BalancesList({
+  rows,
+  assetMarkResolution,
+}: {
+  rows: readonly BalanceRowModel[];
+  assetMarkResolution?: AssetMarkResolution;
+}) {
+  return (
+    <ItemGroup className="gap-0">
+      <ul className="list-none p-0" data-balance-list="">
+        {rows.map((row) => (
           <HomeBalanceRowView
             key={row.key}
             row={row}
@@ -184,8 +212,17 @@ function IncrementalBalancesList({
           />
         ))}
       </ul>
-      {active && hasMore ? <div ref={sentinelRef} className="balances-sentinel" aria-hidden="true" /> : null}
-    </>
+    </ItemGroup>
+  );
+}
+
+function BalancesEmpty() {
+  return (
+    <Empty className="p-4">
+      <EmptyHeader>
+        <EmptyTitle>No balances yet</EmptyTitle>
+      </EmptyHeader>
+    </Empty>
   );
 }
 

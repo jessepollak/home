@@ -19,7 +19,6 @@ import type { MarketDataState } from "@/shared/invest/invest-market";
 import { moneyChangeTone } from "@/shared/formatting";
 import { useMarketDisplay } from "./use-market-display";
 import { AssetIcon } from "./asset-icon";
-import styles from "./invest-experience.module.css";
 
 export function DiscoverAssetRow({
   asset,
@@ -38,30 +37,40 @@ export function DiscoverAssetRow({
   const changeTone = moneyChangeTone(change);
 
   return (
-    <li className={styles.assetRow}>
+    <li>
       <Item
         render={<Button variant="ghost" />}
-        className="min-h-13 flex-nowrap border-0 text-left"
+        className="min-h-16 flex-nowrap cursor-pointer items-center border-0 text-left hover:bg-muted"
         onClick={onOpen}
         aria-describedby={`${asset.id}-action-hint`}
       >
-        <ItemMedia><AssetIcon mark={mark} /></ItemMedia>
-        <ItemContent>
-          <ItemTitle className="text-row-label!">{asset.displayName}</ItemTitle>
-          <ItemDescription className="text-metadata!">{asset.displaySymbol}</ItemDescription>
+        <ItemMedia variant="image" className="size-10 self-center translate-y-0 rounded-full bg-muted">
+          <AssetIcon mark={mark} />
+        </ItemMedia>
+        <ItemContent className="min-w-0">
+          <ItemTitle>{asset.displayName}</ItemTitle>
+          <ItemDescription>{asset.displaySymbol}</ItemDescription>
         </ItemContent>
         <ItemContent className="items-end text-right">
-          <ItemTitle className="tabular-nums text-row-value!">{price.value}</ItemTitle>
+          <ItemTitle className="text-sm font-medium tabular-nums">{price.value}</ItemTitle>
           {change !== "—" ? (
             <ItemDescription
-              className={`${styles.change} text-metadata`}
+              className={
+                changeTone === "positive"
+                  ? "text-[var(--market-gain)]"
+                  : changeTone === "negative"
+                    ? "text-[var(--market-loss)]"
+                    : undefined
+              }
               data-money-change={changeTone}
             >
               {change}
             </ItemDescription>
           ) : null}
         </ItemContent>
-        <ItemActions aria-hidden="true"><ChevronRight /></ItemActions>
+        <ItemActions aria-hidden="true">
+          <ChevronRight className="size-4" />
+        </ItemActions>
         <span id={`${asset.id}-action-hint`} hidden>
           View {asset.displayName} details
         </span>

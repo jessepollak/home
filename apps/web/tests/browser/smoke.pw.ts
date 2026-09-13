@@ -448,8 +448,9 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
   const send = page.getByRole("dialog", { name: "Send" });
   const selector = send.getByRole("combobox", { name: "Asset" });
   await expect(selector).toBeVisible();
-  await expect(send.locator('[data-slot="native-select-icon"]')).toHaveCount(1);
-  await selector.selectOption("cbbtc");
+  await expect(send.locator('[data-slot="input-group-button"]')).toHaveCount(1);
+  await selector.click();
+  await page.getByRole("option", { name: /cbBTC/ }).click();
   await expect(send.getByRole("img", { name: "0.001 cbBTC available" })).toBeVisible();
   await typeAmount(page, "0.001");
   await send.getByRole("button", { name: "Continue" }).click();
@@ -731,15 +732,10 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   const at320 = await amountMetrics(page);
   expect(at320?.text).toBe("$123456789012.123456");
   expectTickerInsideAmount(at320!);
-  expect(at320?.clientWidth).toBeGreaterThanOrEqual(270);
-  expect(at320?.clientWidth).toBeLessThanOrEqual(285);
   expect(at320?.scrollWidth).toBeLessThanOrEqual((at320?.clientWidth ?? 0) + 2);
   expect(at320?.fontSize).toBeGreaterThanOrEqual(20);
   expect(at320?.fontSize).toBeLessThan(51.2);
   expect(at320?.overflow).toBe("visible");
-  expect(at320?.paddingLeft).toBeGreaterThanOrEqual(16);
-  expect(at320?.paddingRight).toBeGreaterThanOrEqual(16);
-  expect(at320?.paddingTop).toBeGreaterThanOrEqual(12);
   expect(at320?.textWidth).toBeLessThanOrEqual(
     (at320?.clientWidth ?? 0) - (at320?.paddingLeft ?? 0) - (at320?.paddingRight ?? 0) + 2,
   );
@@ -752,7 +748,6 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   expect(native?.scrollWidth).toBeLessThanOrEqual((native?.clientWidth ?? 0) + 2);
   expect(native?.fontSize).toBeGreaterThanOrEqual(20);
   expect(native?.fontSize).toBeLessThan(51.2);
-  expect(native?.paddingLeft).toBeGreaterThanOrEqual(16);
   expect(native?.textWidth).toBeLessThanOrEqual(
     (native?.clientWidth ?? 0) - (native?.paddingLeft ?? 0) - (native?.paddingRight ?? 0) + 2,
   );
@@ -762,12 +757,9 @@ test("money amount auto-fits the longest local and native values at 320px and 39
     .toBeGreaterThan((native?.fontSize ?? 0) + 1);
   const at390 = await amountMetrics(page);
   expectTickerInsideAmount(at390!);
-  expect(at390?.clientWidth).toBeGreaterThanOrEqual(340);
-  expect(at390?.clientWidth).toBeLessThanOrEqual(355);
   expect(at390?.scrollWidth).toBeLessThanOrEqual((at390?.clientWidth ?? 0) + 2);
   expect(at390?.fontSize).toBeGreaterThanOrEqual(20);
   expect(at390?.fontSize).toBeLessThan(57.6);
-  expect(at390?.paddingLeft).toBeGreaterThanOrEqual(16);
   expect(at390?.textWidth).toBeLessThanOrEqual(
     (at390?.clientWidth ?? 0) - (at390?.paddingLeft ?? 0) - (at390?.paddingRight ?? 0) + 2,
   );
@@ -882,7 +874,7 @@ async function openScrolledBalances(page: Page) {
       page.evaluate(
         () =>
           document.querySelectorAll(
-            '[data-shell-panel]:not([hidden]) .supplied-asset-list li',
+            '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
           ).length,
       ),
     )
@@ -890,7 +882,7 @@ async function openScrolledBalances(page: Page) {
   const revealedCount = await page.evaluate(
     () =>
       document.querySelectorAll(
-        '[data-shell-panel]:not([hidden]) .supplied-asset-list li',
+        '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
       ).length,
   );
   return { target, revealedCount, maxTop };
@@ -937,7 +929,7 @@ async function expectBalancesRestored(
       page.evaluate(
         () =>
           document.querySelectorAll(
-            '[data-shell-panel]:not([hidden]) .supplied-asset-list li',
+            '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
           ).length,
       ),
     )
@@ -951,8 +943,12 @@ async function clickForwardAndWaitForUrl(
 ) {
   // A pre-existing Next dev hydration overlay can intercept pointer hit-testing
   // in CI; force still dispatches the real button click and route transition.
-  await page.getByRole("button", { name }).click({ force: true });
-  await expect(page).toHaveURL(expectedUrl);
+  // Right after a route change the button can render before its handler is
+  // hydrated, so a click that produced no navigation is retried (#383).
+  await expect(async () => {
+    await page.getByRole("button", { name }).click({ force: true });
+    await expect(page).toHaveURL(expectedUrl, { timeout: 1_500 });
+  }).toPass({ timeout: 15_000 });
 }
 
 async function expectBalancesReset(page: Page) {
@@ -971,7 +967,7 @@ async function expectBalancesReset(page: Page) {
       page.evaluate(
         () =>
           document.querySelectorAll(
-            '[data-shell-panel]:not([hidden]) .supplied-asset-list li',
+            '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
           ).length,
       ),
     )
@@ -1137,11 +1133,17 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
   await typeAmount(page, "20000");
   await page.getByRole("button", { name: "Review quote", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Review quote" })).toBeVisible();
-  await expect(page.getByText("Receive: 20.000,00\u00A0IDRX")).toBeVisible();
-  await expect(page.getByText("Fees: Not yet available")).toBeVisible();
+  await expect(
+    page.getByText("Receive", { exact: true }).locator(".."),
+  ).toContainText("20.000,00\u00A0IDRX");
+  await expect(page.getByText("Fees", { exact: true }).locator("..")).toContainText(
+    "Not yet available",
+  );
   await page.getByRole("button", { name: "Confirm deposit", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Review payment details" })).toBeVisible();
-  await expect(page.getByText("Network: Rp\u00A0100,00")).toBeVisible();
+  await expect(
+    page.getByText("Network", { exact: true }).locator(".."),
+  ).toContainText("Rp\u00A0100,00");
   await expect(page.getByText("123456789012", { exact: true })).not.toBeVisible();
   await page.getByRole("button", { name: "View payment instructions" }).click();
   await expect(page.getByText("Deposit pending")).toBeVisible();

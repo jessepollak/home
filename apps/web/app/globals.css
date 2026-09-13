@@ -93,16 +93,5 @@
   * { @apply border-border outline-ring/50; }
   body { @apply bg-background text-foreground; }
   html { @apply font-sans; }
+  a[href], button:not(:disabled), [role="button"]:not([aria-disabled="true"]), [role="option"]:not([aria-disabled="true"]), [role="radio"]:not([aria-disabled="true"]), summary { cursor: pointer !important; }
 }
-
-/* Lane A should absorb authenticated canvas styling into the shell once its utility pass lands. */
-.app-frame:has(.app-main-authenticated), html:has(.app-main-authenticated), body:has(.app-main-authenticated) { background: var(--muted); }
-
-/* Lane A should absorb dashboard viewport locking into the shell once its utility pass lands. */
-html:has(.app-frame-shell), body:has(.app-frame-shell) { height: 100%; overflow: hidden; }
-
-/* Lane A should move the dashboard flex viewport onto the shell element. */
-.app-frame-shell { display: flex; flex-direction: column; height: 100dvh; max-height: 100dvh; overflow: hidden; }
-
-/* Lane A should move the behavior-critical scroll container and safe area onto the authenticated main. */
-.app-main-authenticated { flex: 1 1 auto; order: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; padding-bottom: max(16px, env(safe-area-inset-bottom, 0px)); scroll-padding-bottom: max(16px, env(safe-area-inset-bottom, 0px)); -webkit-overflow-scrolling: touch; }

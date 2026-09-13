@@ -125,7 +125,6 @@ export class ActionsStore {
       const updated = await tx.query<RawActionRow>(
         `UPDATE actions
          SET confirmed_at = now(),
-             provider_handle = CASE WHEN provider = 'base-account' THEN id::text ELSE provider_handle END,
              pending = NULL
          WHERE id = $1 AND owner_key = $2
          RETURNING *`,

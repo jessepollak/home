@@ -91,11 +91,11 @@ describe("FundingExperience", () => {
     for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
-    expect(page().getByText((_, element) => element?.textContent === "Receive: 1.000\u00A0wARS")).toBeTruthy();
-    expect(page().getByText("Rail: $10,00")).toBeTruthy();
+    expect(page().getByText("Receive").parentElement?.textContent).toContain("1.000\u00A0wARS");
+    expect(page().getByText("Rail").parentElement?.textContent).toContain("$10,00");
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
     await page().findByRole("heading", { name: "Review payment details" });
-    expect(page().getByText("Provider: $12,00")).toBeTruthy();
+    expect(page().getByText("Provider").parentElement?.textContent).toContain("$12,00");
     expect(page().queryByText("1234567890")).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
     await page().findByText("Deposit pending");

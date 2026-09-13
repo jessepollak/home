@@ -94,7 +94,7 @@ describe("SendDialog resume", () => {
     );
 
     expect(await page().findByRole("button", { name: "Send $1.00" })).toBeTruthy();
-    expect(page().getByRole("button", { name: "Copy 0x2222…222222" })).toBeTruthy();
+    expect(page().getByRole("button", { name: `Copy ${RECIPIENT}` })).toBeTruthy();
     expect(invalidResumes).toBe(0);
 
     view.rerender(

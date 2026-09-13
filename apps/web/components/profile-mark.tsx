@@ -7,7 +7,6 @@ import {
   fetchBasenameProfile,
   profileGlyph,
 } from "@/client/account/basename-profile";
-import styles from "./profile-mark.module.css";
 
 export function ProfileMark({
   status,
@@ -74,15 +73,15 @@ function ProfileMarkButton({
 
   return (
     <Button
-      className="size-11 shrink-0 bg-transparent p-0 text-foreground hover:bg-transparent active:translate-y-0"
+      className="size-11 shrink-0"
       variant="ghost"
-      size="icon"
+      size="icon-lg"
       aria-label="Account"
       disabled={disabled}
       onClick={onClick}
     >
       <span
-        className={[styles.mark, showShimmer ? "shimmer" : ""].filter(Boolean).join(" ")}
+        className={`relative isolate grid size-8 place-items-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-foreground ${showShimmer ? "animate-pulse" : ""}`}
         data-profile={
           showShimmer ? "shimmer" : showPhoto && photoStatus === "ready" ? "photo" : "glyph"
         }
@@ -93,7 +92,7 @@ function ProfileMarkButton({
           // Remote Basename photos are not in the Next image allowlist.
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            className={styles.photo}
+            className="col-start-1 row-start-1 size-full object-cover"
             src={photoUrl}
             alt=""
             draggable={false}
@@ -103,7 +102,7 @@ function ProfileMarkButton({
           />
         ) : null}
         {!showShimmer && !(showPhoto && photoStatus === "ready") ? (
-          <span className={styles.glyph}>{glyph}</span>
+          <span className="col-start-1 row-start-1 grid size-full place-items-center bg-muted lowercase text-foreground">{glyph}</span>
         ) : null}
       </span>
     </Button>

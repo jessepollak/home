@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, type ReactNode } from "react";
 import {
+  ACTIVITY_TEASER_LIMIT,
   ActivityPanel,
   type ActivityPanelDensity,
   type FetchActivity,
@@ -34,7 +35,7 @@ export function ActivityPage({
   if (showSessionShimmer) {
     return (
       <section
-        className="activity-panel nested-home-panel"
+        className="space-y-3"
         aria-label="Activity"
         aria-busy="true"
       >
@@ -43,7 +44,7 @@ export function ActivityPage({
     );
   }
   return (
-    <div className="activity-panel activity-panel-slot nested-home-panel">
+    <div>
       <ConnectedActivityPanel
         density="page"
         header={null}
@@ -117,6 +118,7 @@ export function ConnectedActivityPanel({
           excludeTransactionHashes={indexedTransactionHashes}
           embedded
           showUnavailableNotice={false}
+          limit={density === "teaser" ? ACTIVITY_TEASER_LIMIT : undefined}
         />
       }
     />

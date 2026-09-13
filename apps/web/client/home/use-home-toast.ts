@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { toast } from "@/components/ui/toast";
 
+export const homeToastDurationMs = 3_000;
+
 export type HomeToastTone = "neutral" | "success" | "error";
 export type HomeToastRole = "status" | "alert";
 
@@ -25,7 +27,7 @@ export function useHomeToast(ownerBoundary: string | null) {
     }
   }, [ownerBoundary]);
 
-  const add = useCallback(({ id, message, tone = "neutral", role = "status", duration = 5_000, onClose }: HomeToastOptions) => {
+  const add = useCallback(({ id, message, tone = "neutral", role = "status", duration = homeToastDurationMs, onClose }: HomeToastOptions) => {
     return toast.add({
       id,
       title: message,

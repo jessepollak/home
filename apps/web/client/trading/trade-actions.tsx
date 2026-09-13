@@ -5,7 +5,6 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { InvestAsset } from "@/config/invest-assets";
 import { getTradeAssetStatus } from "@/shared/trading/assets";
 import type { TradeIntentReview } from "@/shared/trading/types";
-import styles from "./trade-actions.module.css";
 
 export function TradeActions({
   asset,
@@ -19,7 +18,7 @@ export function TradeActions({
   if (status.status === "eligibility-required") {
     return (
       <div
-        className={`${layout === "sticky" ? styles.lockedSticky : styles.locked} text-metadata text-muted-foreground`}
+        className={layout === "sticky" ? "mt-4 text-sm text-muted-foreground" : "text-right text-sm text-muted-foreground"}
         role="note"
       >
         Stocks aren&apos;t available yet.
@@ -28,15 +27,15 @@ export function TradeActions({
   }
 
   return (
-    <div className={layout === "sticky" ? styles.tradeUnavailableSticky : styles.tradeUnavailable}>
+    <div className={layout === "sticky" ? "sticky bottom-[env(safe-area-inset-bottom)] z-2 mt-4 space-y-2 bg-background pt-3" : "space-y-2"}>
       <div
-        className={layout === "sticky" ? styles.stickyActions : styles.rowActions}
+        className={layout === "sticky" ? "grid grid-cols-2 gap-2" : "flex justify-end gap-2"}
         aria-label={`Trade ${asset.displayName}`}
       >
-        <Button disabled>Buy</Button>
-        <Button variant="secondary" disabled>Sell</Button>
+        <Button className="h-11" size="lg" disabled>Buy</Button>
+        <Button className="h-11" size="lg" variant="secondary" disabled>Sell</Button>
       </div>
-      <div className="text-metadata text-muted-foreground" role="note">
+      <div className="text-right text-sm text-muted-foreground" role="note">
         Swaps aren&apos;t available right now.
       </div>
     </div>

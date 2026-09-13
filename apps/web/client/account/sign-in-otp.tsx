@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { FormEvent, RefObject } from "react";
-import styles from "./account.module.css";
 
 export function SignInOtp({
   email,
@@ -30,16 +29,16 @@ export function SignInOtp({
   onResend: () => void;
 }) {
   return (
-    <form className={styles.form} onSubmit={onSubmit}>
-      <Field className={`${styles.authField} ${styles.otpField}`}>
-        <FieldLabel htmlFor="account-otp" className="text-caption">
+    <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+      <Field>
+        <FieldLabel htmlFor="account-otp">
           Verification code<span className="text-destructive" aria-hidden="true">*</span>
         </FieldLabel>
-        <div className={styles.authControlRow}>
+        <div className="flex min-w-0 flex-wrap items-stretch gap-2 sm:flex-nowrap">
           <Input
             ref={inputRef}
             id="account-otp"
-            className={styles.otpInput}
+            className="h-11 min-w-0 flex-1 text-center text-xl font-medium tracking-[0.24em] tabular-nums"
             type="text"
             inputMode="numeric"
             autoComplete="one-time-code"
@@ -54,7 +53,8 @@ export function SignInOtp({
             data-initial-focus
           />
           <Button
-            className={styles.changeEmailButton}
+            className="h-11 w-full sm:w-auto"
+            size="lg"
             variant="ghost"
             onClick={onChangeEmail}
             disabled={isVerifyingCode || isSendingCode}
@@ -62,19 +62,21 @@ export function SignInOtp({
             Change email
           </Button>
         </div>
-        <FieldDescription id="account-otp-hint" className="text-metadata">
+        <FieldDescription id="account-otp-hint">
           Sent to {email}. Codes expire.
         </FieldDescription>
       </Field>
       <Button
-        className={styles.formAction}
+        className="h-11 w-full"
+        size="lg"
         type="submit"
         disabled={isVerifyingCode || otp.length !== 6}
       >
         {isVerifyingCode ? "Verifying…" : "Verify and continue"}
       </Button>
       <Button
-        className={styles.formAction}
+        className="h-11 w-full"
+        size="lg"
         variant="secondary"
         onClick={onResend}
         disabled={isSendingCode || resendSeconds > 0}

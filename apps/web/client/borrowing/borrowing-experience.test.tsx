@@ -14,7 +14,7 @@ import {
 } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 
-const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
+const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { BorrowExperience } = await import("./borrowing-experience");
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
@@ -97,11 +97,17 @@ describe("BorrowExperience", () => {
 
     render(<BorrowExperience session={session} fetchAccountResource={fetchAccountResource} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     expect(await within(document.body).findByRole("button", { name: "Refresh" })).toBeTruthy();
-    fireEvent.change(within(document.body).getByLabelText("Action"), { target: { value: "borrow" } });
+    const operationPicker = within(document.body).getByRole("combobox", { name: "Action" });
+    fireEvent.click(operationPicker);
+    const borrowOption = await within(document.body).findByRole("option", { name: "Borrow USDC" });
+    fireEvent.pointerDown(borrowOption, { button: 0 });
+    fireEvent.pointerUp(borrowOption, { button: 0 });
+    fireEvent.click(borrowOption);
+    await waitFor(() => expect(within(document.body).getByLabelText("Amount (USDC)")).toBeTruthy());
     fireEvent.change(within(document.body).getByLabelText("Amount (USDC)"), { target: { value: "1" } });
     const previewButton = within(document.body).getByRole("button", { name: "Review current preview" });
     fireEvent.click(previewButton);
-    expect(await within(document.body).findByText("Borrow USDC")).toBeTruthy();
+    expect(await within(document.body).findByRole("heading", { name: "Borrow USDC" })).toBeTruthy();
     expect(reads).toEqual(["/api/borrow"]);
     expect(prepared).toEqual([{
       kind: "borrow",

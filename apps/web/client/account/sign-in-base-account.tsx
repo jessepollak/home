@@ -1,9 +1,10 @@
 "use client";
 
+import { LoaderCircle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { RefObject } from "react";
 import type { BaseAccountLoginPhase } from "./cdp-client";
-import styles from "./account.module.css";
 
 export function baseAccountPhaseMessage(phase: BaseAccountLoginPhase): string {
   switch (phase) {
@@ -21,10 +22,11 @@ export function BaseAccountOnlySignIn({
   onSignIn: () => void;
 }) {
   return (
-    <div className={styles.form}>
+    <div className="mt-6">
       <Button
         ref={buttonRef}
-        className={styles.formAction}
+        className="h-11 w-full"
+        size="lg"
         variant="secondary"
         onClick={onSignIn}
         autoFocus
@@ -44,18 +46,16 @@ export function BaseAccountHandoff({
   onCancel: () => void;
 }) {
   return (
-    <aside className={styles.providerHandoff} aria-live="polite" role="status">
+    <Alert className="fixed right-4 bottom-4 left-4 z-20 mx-auto max-w-xl sm:right-6 sm:bottom-6 sm:left-auto" aria-live="polite" role="status">
       {phase ? (
         <>
-          <span className={styles.spinner} aria-hidden="true" />
-          <p className="text-caption text-muted-foreground">
-            {baseAccountPhaseMessage(phase)}
-          </p>
+          <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          <AlertDescription>{baseAccountPhaseMessage(phase)}</AlertDescription>
         </>
       ) : null}
-      <Button className={styles.providerAction} variant="secondary" onClick={onCancel}>
+      <Button className="mt-2 w-full" size="lg" variant="secondary" onClick={onCancel}>
         Cancel sign in
       </Button>
-    </aside>
+    </Alert>
   );
 }

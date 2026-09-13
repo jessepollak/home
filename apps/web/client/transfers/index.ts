@@ -15,7 +15,6 @@ export {
 } from "@/shared/transfers/transfer-helpers";
 export {
   TransferExecutionError,
-  type ConfirmedTransfer,
   type TransferAsset,
   type TransferAssetAvailability,
   type TransferAssetId,

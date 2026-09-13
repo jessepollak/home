@@ -43,13 +43,10 @@ export function InvestPanel({
 
 function SavePanelShell() {
   return (
-    <section className="save-panel-shell" aria-busy="true">
-      <div className="save-panel-shell-hero">
-        <Skeleton
-          className="balance-hero-shimmer"
-          data-shimmer="hero"
-        />
-        <span className="sr-status">Updating…</span>
+    <section className="space-y-6" aria-busy="true">
+      <div className="rounded-xl bg-card p-6 ring-1 ring-foreground/10">
+        <Skeleton className="h-10 w-48" data-shimmer="hero" />
+        <span className="sr-only">Updating…</span>
       </div>
       <ShimmerRows count={2} />
     </section>
