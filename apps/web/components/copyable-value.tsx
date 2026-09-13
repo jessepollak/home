@@ -96,7 +96,7 @@ function CopyableValueControl({
       <Button
         variant="ghost"
         className={cn(
-          "inline h-auto min-h-0 min-w-0 border-0 bg-transparent p-0 font-mono text-inherit no-underline transition-colors hover:bg-transparent active:translate-y-0",
+          "inline h-auto min-h-0 min-w-0 border-0 bg-transparent p-0 font-mono text-inherit no-underline whitespace-normal break-all transition-colors hover:bg-transparent active:translate-y-0",
           status === "copied" && "text-primary",
           className,
         )}
