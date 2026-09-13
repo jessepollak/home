@@ -8,7 +8,7 @@ import type {
   MarketPricesFxQuote,
   MarketPricesResponse,
 } from "@/shared/invest/contracts/market-prices";
-import type { FxQuote } from "@/shared/portfolio/valuation-types";
+import type { FxQuote } from "@/shared/balances/quotes";
 
 type MarketPricesReader = () => Promise<MarketPricesResponse>;
 type ExchangeRatesReader = () => Promise<{ quotes: readonly FxQuote[] }>;

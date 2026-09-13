@@ -141,38 +141,6 @@ describe("Save simplify", () => {
     ]);
   });
 
-  test("does not call the legacy positions reader before or after an action", async () => {
-    let legacyReads = 0;
-    render(
-      <SavingsExperience
-        now={testNow}
-        initialData={initialData}
-        session={session()}
-        fetchPositions={async () => {
-          legacyReads += 1;
-          return {};
-        }}
-        balanceStatus="ready"
-        balancePositions={balancePositions()}
-        availableUsdcBaseUnits="50000000"
-        prepareMoneyAction={async () => preparedAction("savings-deposit")}
-        executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
-      />,
-    );
-
-    await page().findByText("Nothing saved yet");
-    fireEvent.click(page().getByRole("button", { name: "Get started" }));
-    fireEvent.click(page().getByRole("button", { name: "1" }));
-    fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(legacyReads).toBe(0);
-  });
-
   test("sums every funded vault from the balances snapshot", async () => {
     render(
       <SavingsExperience

@@ -65,16 +65,11 @@ export type AccountWalletClient = {
   verifyEmailCode: (flowId: string, otp: string) => Promise<void>;
   signInWithBaseAccount: (onPhase: (phase: BaseAccountLoginPhase) => void) => Promise<void>;
   cancelSignInAttempt: () => void;
-  fetchPortfolioValuation: (
-    region: import("@/config/regions").RegionId,
-    signal?: AbortSignal,
-  ) => Promise<unknown>;
   fetchBalances: (
     region: import("@/config/regions").RegionId,
     signal?: AbortSignal,
   ) => Promise<unknown>;
   fetchActivity: (query: string, signal?: AbortSignal) => Promise<unknown>;
-  fetchSavingsPositions: (signal?: AbortSignal) => Promise<unknown>;
   fetchAccountResource: (path: string, options?: AccountResourceOptions) => Promise<unknown>;
   prepareMoneyAction: (kind: string, params: unknown) => Promise<PreparedMoneyAction>;
   resumeMoneyAction: (id: string) => Promise<PreparedMoneyAction>;
@@ -114,10 +109,8 @@ export function createBlockedAccountWalletClient(
     verifyEmailCode: async () => { throw new Error(blockedError); },
     signInWithBaseAccount: async () => { throw new BaseAccountLoginError("disabled"); },
     cancelSignInAttempt: () => {},
-    fetchPortfolioValuation: async () => { throw new Error("Portfolio valuation is unavailable."); },
     fetchBalances: async () => { throw new Error("Balances are unavailable."); },
     fetchActivity: async () => { throw new Error("Activity is unavailable."); },
-    fetchSavingsPositions: async () => { throw new Error("Savings positions are unavailable."); },
     fetchAccountResource: async () => { throw new Error("Authenticated resource is unavailable."); },
     prepareMoneyAction: async () => { throw new TransferExecutionError("unavailable"); },
     resumeMoneyAction: async () => { throw new TransferExecutionError("unavailable"); },

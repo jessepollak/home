@@ -3,9 +3,8 @@ import type { ShellPanelId } from "@/config/navigation";
 import type { RegionId } from "@/config/regions";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
-import type { BalanceRowModel, BalancesPresentation } from "@/shared/balances/present";
+import type { BalancesPresentation } from "@/shared/balances/present";
 
-export type HomeAssetBalanceItem = BalanceRowModel;
 export type HomeAssetBalancesPresentation = BalancesPresentation;
 
 export type HomeExperienceProps = {

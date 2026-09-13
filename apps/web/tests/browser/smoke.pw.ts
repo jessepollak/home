@@ -106,8 +106,6 @@ async function installApiFixtures(
   let currentAction = action();
   let sessionReads = 0;
   let balancesReads = 0;
-  let portfolioValuationReads = 0;
-  let savingsPositionReads = 0;
   let activityReads = 0;
   const balancesReadsByRegion = new Map<RegionId, number>();
   let delayedSession: Promise<void> | null = null;
@@ -121,8 +119,6 @@ async function installApiFixtures(
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname;
-    if (path === "/api/portfolio/valuation") portfolioValuationReads += 1;
-    if (path === "/api/savings/positions") savingsPositionReads += 1;
     if (path === "/api/session") {
       sessionReads += 1;
       if (delayedSession) await delayedSession;
@@ -200,8 +196,6 @@ async function installApiFixtures(
     balancesReads: () => balancesReads,
     balancesReadsForRegion: (region: RegionId) => balancesReadsByRegion.get(region) ?? 0,
     balanceReadRegions: () => [...balancesReadsByRegion.entries()],
-    portfolioValuationReads: () => portfolioValuationReads,
-    savingsPositionReads: () => savingsPositionReads,
     activityReads: () => activityReads,
     delayNextSession() {
       delayedSession = new Promise<void>((resolve) => { releaseDelayedSession = resolve; });
@@ -353,8 +347,6 @@ test("Home, Save, Balances, and Home reuse one balances request per region", asy
   expect(readsByRegion.length).toBeGreaterThan(0);
   expect(readsByRegion.every(([, reads]) => reads === 1)).toBe(true);
   expect(fixtures.balancesReads()).toBe(readsByRegion.length);
-  expect(fixtures.portfolioValuationReads()).toBe(0);
-  expect(fixtures.savingsPositionReads()).toBe(0);
 });
 
 test("cash, priced catalog, and unpriced registry balances share one row anatomy", async ({ page }) => {

@@ -7,7 +7,7 @@ import {
 } from "@/config/portfolio-assets";
 import { sanitizeImageUrl } from "@/server/market-data/asset-icons/image-url";
 import { parseExactDecimal } from "@/shared/portfolio/valuation-math";
-import type { ExactDecimal } from "@/shared/portfolio/valuation-types";
+import type { ExactDecimal } from "@/shared/balances/quotes";
 import { CodexMarketDataError } from "./client";
 import { CODEX_REQUEST_TIMEOUT_MS } from "./config";
 import {
