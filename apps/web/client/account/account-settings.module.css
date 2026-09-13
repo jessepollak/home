@@ -1,35 +1,44 @@
 .page {
   display: grid;
-  gap: var(--home-ui-space-8);
-  padding: var(--home-ui-space-2) 0 var(--home-ui-space-6);
-  color: var(--home-ui-color-text);
+  gap: 2rem;
+  padding: 0.5rem 0 1.5rem;
+  color: var(--foreground);
   overflow-wrap: anywhere;
 }
 
 .section {
   display: grid;
-  gap: var(--home-ui-space-3);
+  gap: 0.75rem;
 }
 
 .card {
   margin: 0;
   overflow: hidden;
-  border: 1px solid var(--home-ui-color-border);
-  border-radius: var(--home-ui-radius-surface);
-  background: var(--home-ui-color-surface);
-  padding: var(--home-ui-space-1) var(--home-ui-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
+  background: var(--background);
+  padding: 0.25rem 0.75rem;
   list-style: none;
 }
 
-.card :global(.home-ui-list-row__content) {
+.card > li,
+.card > li > button {
   min-height: 64px;
 }
 
-.countryRow :global(.home-ui-list-row__value),
-.countryRow :global(.home-ui-list-row__value-primary) {
+.card > li:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+
+.countryRow {
+  flex-wrap: nowrap;
+}
+
+.countryAction {
   min-width: 0;
-  width: 100%;
-  font-family: var(--home-ui-font-family);
+  max-width: 60%;
+  flex: 1 1 auto;
+  justify-content: flex-end;
 }
 
 .countryRow [role="combobox"] {
@@ -39,32 +48,47 @@
 }
 
 .card code {
-  font-family: var(--home-ui-font-numeric);
+  font-family: var(--font-mono);
 }
 
-.disclosureRow :global(.home-ui-list-row__content) {
+.contentRow {
+  align-items: center;
+}
+
+.disclosureRow {
   min-height: 0;
-  padding-block: var(--home-ui-space-3);
+  padding-block: 0.75rem;
+}
+
+.actionRow {
+  min-height: 64px;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
 }
 
 .contracts button {
   display: inline-flex;
-  min-height: var(--home-ui-target-min);
+  min-height: 44px;
   align-items: center;
 }
 
 .termLinks {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--home-ui-space-2) var(--home-ui-space-3);
+  gap: 0.5rem 0.75rem;
 }
 
 .termLinks a {
-  color: var(--home-ui-color-action);
-  font-weight: var(--home-ui-type-weight-medium);
+  color: var(--primary);
+  font-weight: 500;
 }
 
 @media (max-width: 350px) {
+  .countryAction {
+    max-width: none;
+  }
+
   .countryRow [role="combobox"] {
     justify-content: space-between;
     text-align: left;

@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Text } from "@home/ui";
+import { Button } from "@/components/ui/button";
 import type { RefObject } from "react";
 import type { BaseAccountLoginPhase } from "./cdp-client";
 import styles from "./account.module.css";
@@ -48,9 +48,9 @@ export function BaseAccountHandoff({
       {phase ? (
         <>
           <span className={styles.spinner} aria-hidden="true" />
-          <Text textStyle="secondary" tone="muted">
+          <p className="text-caption text-muted-foreground">
             {baseAccountPhaseMessage(phase)}
-          </Text>
+          </p>
         </>
       ) : null}
       <Button className={styles.providerAction} variant="secondary" onClick={onCancel}>

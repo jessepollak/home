@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Text } from "@home/ui";
+import { Button } from "@/components/ui/button";
 import type { BaseAccountLoginPhase } from "./cdp-client";
 import {
   CDP_SETUP_DOC_HREF,
@@ -19,21 +19,21 @@ export function SignInBlockedPanel({
   if (reason === "unconfigured") {
     return (
       <div className={styles.statusPanel} role="alert">
-        <Text as="strong" textStyle="row-label">{signInUnconfiguredCopy.heading}</Text>
-        <Text textStyle="secondary" tone="muted">
+        <strong className="text-row-label">{signInUnconfiguredCopy.heading}</strong>
+        <p className="text-caption text-muted-foreground">
           This deployment is missing <code>NEXT_PUBLIC_CDP_PROJECT_ID</code>.
-        </Text>
-        <Text textStyle="secondary" tone="muted">
+        </p>
+        <p className="text-caption text-muted-foreground">
           Copy <code>.env.example</code> to <code>apps/web/.env.local</code>, then follow{" "}
           <a href={CDP_SETUP_DOC_HREF}>{CDP_SETUP_DOC_LABEL}</a>.
-        </Text>
+        </p>
       </div>
     );
   }
   return (
     <div className={styles.statusPanel} role="alert">
-      <Text as="strong" textStyle="row-label">{signInProviderUnavailableCopy.heading}</Text>
-      <Text textStyle="secondary" tone="muted">{signInProviderUnavailableCopy.body}</Text>
+      <strong className="text-row-label">{signInProviderUnavailableCopy.heading}</strong>
+      <p className="text-caption text-muted-foreground">{signInProviderUnavailableCopy.body}</p>
     </div>
   );
 }
@@ -66,14 +66,14 @@ export function SignInStatus({
     return (
       <div className={styles.pendingPanel} aria-live="polite">
         <span className={styles.spinner} aria-hidden="true" />
-        <Text as="span" textStyle="secondary" tone="muted">{pending}</Text>
+        <span className="text-caption text-muted-foreground">{pending}</span>
       </div>
     );
   }
   if (signOutError) {
     return (
       <div className={styles.statusPanel} role="alert">
-        <Text as="strong" textStyle="row-label">Sign-out did not finish.</Text>
+        <strong className="text-row-label">Sign-out did not finish.</strong>
         <Button className={styles.statusAction} variant="secondary" onClick={onRetrySignOut}>
           Retry sign out
         </Button>
@@ -83,7 +83,7 @@ export function SignInStatus({
   if (unavailable) {
     return (
       <div className={styles.statusPanel} role="alert">
-        <Text as="strong" textStyle="row-label">We could not verify this session.</Text>
+        <strong className="text-row-label">We could not verify this session.</strong>
         <Button className={styles.statusAction} variant="secondary" onClick={onRetryValidation}>
           Try again
         </Button>
