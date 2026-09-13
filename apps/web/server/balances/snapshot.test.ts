@@ -4,6 +4,8 @@ import {
   balancesSnapshotFixture,
   FIXTURE_FETCHED_AT,
   FIXTURE_OWNER_ADDRESS,
+  FIXTURE_WALLET_TOKEN,
+  walletHolding,
 } from "@/shared/balances/fixtures";
 import type { ExactDecimal, Holding } from "@/shared/balances/types";
 import { assembleBalancesSnapshot } from "./snapshot";
@@ -81,12 +83,19 @@ const priced = (atoms: string): Holding["value"] => ({
 });
 
 describe("balances snapshot", () => {
-  test("assembles a response accepted by the locked contract", () => {
+  test("assembles catalog and wallet rows accepted by the locked contract", () => {
+    const holdings = [
+      ...balancesSnapshotFixture.holdings,
+      walletHolding(FIXTURE_WALLET_TOKEN, "25", {
+        status: "unpriced",
+        reason: "below-market-gate",
+      }),
+    ];
     const snapshot = assembleBalancesSnapshot({
       owner: FIXTURE_OWNER_ADDRESS,
       region: "US",
       read,
-      holdings: balancesSnapshotFixture.holdings,
+      holdings,
       now: () => new Date(FIXTURE_FETCHED_AT),
     });
     expect(parseBalancesSnapshot(
@@ -146,11 +155,15 @@ describe("balances snapshot", () => {
       },
     },
     {
-      name: "catalog-only value is included when all registry rows are priced",
+      name: "catalog value adds while an unpriced wallet row cannot affect the total",
       holdings: [
         registryHolding("usdc", "0", priced("0")),
         registryHolding("cbbtc", "0", priced("0")),
         catalogHolding(decimal("7")),
+        walletHolding(FIXTURE_WALLET_TOKEN, "25", {
+          status: "unpriced",
+          reason: "below-market-gate",
+        }),
       ],
       expected: {
         status: "complete",

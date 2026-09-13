@@ -23,10 +23,7 @@ function deferred<T>() {
   const promise = new Promise<T>((resolvePromise) => {
     resolve = resolvePromise;
   });
-  return {
-    promise,
-    resolve,
-  };
+  return { promise, resolve };
 }
 
 function serviceWithRead(
@@ -38,18 +35,48 @@ function serviceWithRead(
   } = {},
 ) {
   return createBalancesService({
-    readUniverse: async () => ({
-      entries: [],
-      catalogStatus: "unavailable",
-    }),
+    readUniverse: async () => ({ entries: [] }),
+    enumerateBalances: async () => ({ status: "unavailable", rows: [] }),
     readBalances,
+    resolveBalances: async (registryRead) => registryRead,
     priceBalances: async () => [],
     ...options,
   });
 }
 
-describe("balances read coalescing", () => {
-  test("shares one in-flight owner read and reuses it across regions", async () => {
+describe("balances composition and read coalescing", () => {
+  test("starts enumeration and registry read concurrently", async () => {
+    const readGate = deferred<BalancesRead>();
+    const enumerationGate = deferred<{
+      status: "unavailable";
+      rows: [];
+    }>();
+    let readStarted = false;
+    let enumerationStarted = false;
+    const service = createBalancesService({
+      readUniverse: async () => ({ entries: [] }),
+      readBalances: async () => {
+        readStarted = true;
+        return readGate.promise;
+      },
+      enumerateBalances: async () => {
+        enumerationStarted = true;
+        return enumerationGate.promise;
+      },
+      resolveBalances: async (registryRead) => registryRead,
+      priceBalances: async () => [],
+    });
+
+    const pending = service(owner, "US");
+    await Promise.resolve();
+    expect(readStarted).toBeTrue();
+    expect(enumerationStarted).toBeTrue();
+    readGate.resolve(read);
+    enumerationGate.resolve({ status: "unavailable", rows: [] });
+    await pending;
+  });
+
+  test("shares one in-flight registry read and reuses it across regions", async () => {
     let count = 0;
     const gate = deferred<void>();
     const service = serviceWithRead(async () => {
@@ -69,21 +96,25 @@ describe("balances read coalescing", () => {
     expect(count).toBe(1);
   });
 
-  test("keeps the shared read alive when the first caller aborts", async () => {
-    const gate = deferred<BalancesRead>();
-    let receivedSignal: AbortSignal | undefined;
+  test("keeps registry and enumeration work alive when the first caller aborts", async () => {
+    const readGate = deferred<BalancesRead>();
+    const enumerationGate = deferred<{
+      status: "unavailable";
+      rows: [];
+    }>();
+    let readSignal: AbortSignal | undefined;
+    let enumerationSignal: AbortSignal | undefined;
     const service = createBalancesService({
-      readUniverse: async (signal) => {
-        receivedSignal = signal;
-        return {
-          entries: [],
-          catalogStatus: "unavailable",
-        };
-      },
+      readUniverse: async () => ({ entries: [] }),
       readBalances: async (_universe, _owner, signal) => {
-        receivedSignal = signal;
-        return gate.promise;
+        readSignal = signal;
+        return readGate.promise;
       },
+      enumerateBalances: async (_owner, signal) => {
+        enumerationSignal = signal;
+        return enumerationGate.promise;
+      },
+      resolveBalances: async (registryRead) => registryRead,
       priceBalances: async () => [],
     });
     const controller = new AbortController();
@@ -91,29 +122,39 @@ describe("balances read coalescing", () => {
     const first = service(owner, "US", controller.signal);
     const second = service(owner, "DE");
     controller.abort();
-    gate.resolve(read);
+    readGate.resolve(read);
+    enumerationGate.resolve({ status: "unavailable", rows: [] });
 
     await expect(first).resolves.toMatchObject({ region: "US" });
     await expect(second).resolves.toMatchObject({ region: "DE" });
-    expect(receivedSignal).toBeUndefined();
+    expect(readSignal).toBeUndefined();
+    expect(enumerationSignal).toBeUndefined();
   });
 
-  test("clears a failed entry so the next call starts a new read", async () => {
-    let count = 0;
-    const service = serviceWithRead(async () => {
-      count += 1;
-      if (count === 1) {
-        throw new Error("down");
-      }
-      return read;
+  test("CDP unavailable still yields the registry snapshot", async () => {
+    const service = createBalancesService({
+      readUniverse: async () => ({ entries: [] }),
+      readBalances: async () => read,
+      enumerateBalances: async () => ({ status: "unavailable", rows: [] }),
+      resolveBalances: async (registryRead, enumeration) => ({
+        ...registryRead,
+        coverage: {
+          ...registryRead.coverage,
+          catalog: enumeration.status === "unavailable"
+            ? "unavailable"
+            : "complete",
+        },
+      }),
+      priceBalances: async () => [],
     });
 
-    await expect(service(owner, "US")).rejects.toThrow("down");
-    await expect(service(owner, "US")).resolves.toMatchObject({ region: "US" });
-    expect(count).toBe(2);
+    await expect(service(owner, "US")).resolves.toMatchObject({
+      holdings: [],
+      coverage: { registry: "complete", catalog: "unavailable" },
+    });
   });
 
-  test("starts a new read after the TTL expires", async () => {
+  test("starts a new registry read after the 2s TTL expires", async () => {
     let count = 0;
     let current = Date.parse("2026-09-13T12:00:00.000Z");
     const service = serviceWithRead(async () => {
@@ -133,14 +174,13 @@ describe("balances read coalescing", () => {
   test("evicts the least recently used owner at maxOwners", async () => {
     const counts = new Map<string, number>();
     const service = createBalancesService({
-      readUniverse: async () => ({
-        entries: [],
-        catalogStatus: "unavailable",
-      }),
+      readUniverse: async () => ({ entries: [] }),
+      enumerateBalances: async () => ({ status: "unavailable", rows: [] }),
       readBalances: async (_universe, address) => {
         counts.set(address, (counts.get(address) ?? 0) + 1);
         return read;
       },
+      resolveBalances: async (registryRead) => registryRead,
       priceBalances: async () => [],
       maxOwners: 2,
     });

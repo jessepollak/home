@@ -31,7 +31,6 @@ import type {
 } from "./types";
 
 export const BALANCES_READ_DEADLINE_MS = 4_000;
-export const BALANCES_CHUNK_SIZE = 128;
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const blockHashPattern = /^0x[0-9a-fA-F]{64}$/;
 const chainAssertions = new Map<string, Promise<void>>();
@@ -103,9 +102,8 @@ export function createBalancesReader(dependencies: Dependencies = {}) {
 
       let hostedGuardEmitted = false;
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const inspection = inspectRpc();
         const guardRegistry =
-          hosted() && inspection.source === "public-default";
+          hosted() && inspectRpc().source === "public-default";
         if (guardRegistry && !hostedGuardEmitted) {
           emitHostedGuard(log);
           hostedGuardEmitted = true;
@@ -116,14 +114,9 @@ export function createBalancesReader(dependencies: Dependencies = {}) {
           universe,
           owner.toLowerCase() as PortfolioAddress,
           readSignal,
-          {
-            guardRegistry,
-            sequentialCatalog: inspection.hostClass === "public-base",
-          },
+          guardRegistry,
         );
-        if (!result.changed) {
-          return result.read;
-        }
+        if (!result.changed) return result.read;
       }
 
       throw new Error(
@@ -140,10 +133,7 @@ async function readOnce(
   universe: BalancesUniverse,
   owner: PortfolioAddress,
   signal: AbortSignal,
-  options: {
-    guardRegistry: boolean;
-    sequentialCatalog: boolean;
-  },
+  guardRegistry: boolean,
 ): Promise<ReadOnceResult> {
   const block = parseBlock(
     await rpc.request("eth_getBlockByNumber", ["latest", false], signal),
@@ -152,52 +142,27 @@ async function readOnce(
   const registry = universe.entries.filter(
     (entry) => entry.source === "registry",
   );
-  const catalog = universe.entries.filter(
-    (entry) => entry.source === "catalog",
-  );
   const native = registry.find((entry) => entry.kind === "native");
   const registryContracts = registry.filter(
     (entry) => entry.contractAddress !== null,
   );
-  const catalogChunks = chunk(catalog, BALANCES_CHUNK_SIZE);
-
-  const nativePromise = native && !options.guardRegistry
-    ? readNative(rpc, owner, blockTag, signal)
-    : Promise.resolve<bigint | null>(null);
-  const registryPromise = options.guardRegistry
-    ? Promise.resolve({
-        values: registryContracts.map(() => null),
-        failed: true,
-      })
-    : readContractChunk(
-        rpc,
-        registryContracts,
-        owner,
-        blockTag,
-        signal,
-      );
-  const catalogResults: Array<{
-    values: Array<bigint | null>;
-    failed: boolean;
-  }> = [];
-
-  if (options.sequentialCatalog) {
-    for (const entries of catalogChunks) {
-      catalogResults.push(
-        await readContractChunk(rpc, entries, owner, blockTag, signal),
-      );
-    }
-  } else {
-    catalogResults.push(...await Promise.all(
-      catalogChunks.map((entries) =>
-        readContractChunk(rpc, entries, owner, blockTag, signal),
-      ),
-    ));
-  }
 
   const [nativeValue, registryResult] = await Promise.all([
-    nativePromise,
-    registryPromise,
+    native && !guardRegistry
+      ? readNative(rpc, owner, blockTag, signal)
+      : Promise.resolve<bigint | null>(null),
+    guardRegistry
+      ? Promise.resolve({
+          values: registryContracts.map(() => null),
+          failed: true,
+        })
+      : readContractChunk(
+          rpc,
+          registryContracts,
+          owner,
+          blockTag,
+          signal,
+        ),
   ]);
   const balances = new Map<string, HoldingBalance>();
 
@@ -213,24 +178,6 @@ async function readOnce(
       entry.id,
       value === null ? unavailable() : ready(value),
     );
-  });
-
-  const catalogPositive: ReadHolding[] = [];
-  let catalogReadIncomplete = false;
-  catalogChunks.forEach((entries, chunkIndex) => {
-    const result = catalogResults[chunkIndex]!;
-    if (result.failed) {
-      catalogReadIncomplete = true;
-    }
-    entries.forEach((entry, index) => {
-      const value = result.values[index];
-      if (value !== null && value > BigInt(0)) {
-        catalogPositive.push({
-          ...entry,
-          balance: ready(value),
-        });
-      }
-    });
   });
 
   const vaults = registry.filter((entry) => entry.kind === "vault-share");
@@ -273,15 +220,13 @@ async function readOnce(
     confirmationIndex,
     signal,
   );
-  if (confirmationBatch === null) {
-    return { changed: true };
-  }
+  if (confirmationBatch === null) return { changed: true };
 
   const confirmedBlock = parseBlock(confirmationBatch[confirmationIndex]);
-  const changed =
+  if (
     confirmedBlock.number !== block.number ||
-    confirmedBlock.hash.toLowerCase() !== block.hash.toLowerCase();
-  if (changed) {
+    confirmedBlock.hash.toLowerCase() !== block.hash.toLowerCase()
+  ) {
     return { changed: true };
   }
 
@@ -312,20 +257,15 @@ async function readOnce(
   const registryUnavailable = registryHoldings.some(
     (holding) => holding.balance.status === "unavailable",
   );
-  const catalogStatus = universe.catalogStatus === "unavailable"
-    ? "unavailable"
-    : universe.catalogStatus === "incomplete" || catalogReadIncomplete
-      ? "incomplete"
-      : "complete";
 
   return {
     changed: false,
     read: {
       block,
-      holdings: [...registryHoldings, ...catalogPositive],
+      holdings: registryHoldings,
       coverage: {
         registry: registryUnavailable ? "partial" : "complete",
-        catalog: catalogStatus,
+        catalog: "unavailable",
       },
     },
   };
@@ -354,10 +294,7 @@ async function readContractChunk(
   signal: AbortSignal,
 ): Promise<{ values: Array<bigint | null>; failed: boolean }> {
   if (entries.length === 0) {
-    return {
-      values: [],
-      failed: false,
-    };
+    return { values: [], failed: false };
   }
 
   const result = await retryRead(async () => {
@@ -389,14 +326,8 @@ async function readContractChunk(
   }, signal);
 
   return result === null
-    ? {
-        values: entries.map(() => null),
-        failed: true,
-      }
-    : {
-        values: result,
-        failed: false,
-      };
+    ? { values: entries.map(() => null), failed: true }
+    : { values: result, failed: false };
 }
 
 async function readConfirmationBatch(
@@ -451,17 +382,11 @@ function parseBlock(value: unknown) {
 }
 
 function ready(value: bigint): HoldingBalance {
-  return {
-    status: "ready",
-    baseUnits: value.toString(10),
-  };
+  return { status: "ready", baseUnits: value.toString(10) };
 }
 
 function unavailable(): HoldingBalance {
-  return {
-    status: "unavailable",
-    baseUnits: null,
-  };
+  return { status: "unavailable", baseUnits: null };
 }
 
 function tryWord(value: unknown): bigint | null {
@@ -470,14 +395,6 @@ function tryWord(value: unknown): bigint | null {
   } catch {
     return null;
   }
-}
-
-function chunk<T>(values: readonly T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push(values.slice(index, index + size));
-  }
-  return chunks;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

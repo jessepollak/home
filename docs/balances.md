@@ -1,6 +1,6 @@
 # Balances: one snapshot, every row, cached on the device
 
-Status: **design locked for implementation** (2026-09-13, after one independent design review). Builds on [home-is-thin](home-is-thin.md) (client architecture, startup gate, "no database caching") and supersedes Q1 Phase A of the [balances inventory](balances-inventory-architecture.md) summary and [portfolio.md](portfolio.md) once the deletion step lands. Universe is the one Jesse locked on [#337](https://github.com/jessepollak/home/issues/337): registry assets plus the top 512 clean Base tokens from Codex.
+Status: **G1 CDP-first server design locked for implementation** (2026-09-13, Jesse: “Go”). Builds on [home-is-thin](home-is-thin.md) and supersedes Q1 Phase A of the [balances inventory](balances-inventory-architecture.md) summary and [portfolio.md](portfolio.md) once the deletion step lands. Home now enumerates the wallet through CDP, resolves against registry ∪ Codex 512 ∪ wallet metadata, reads the registry at one pinned block, and prices resolved rows.
 
 ## What Jesse asked for
 
@@ -30,106 +30,66 @@ Status: **design locked for implementation** (2026-09-13, after one independent 
 
 ## Design
 
-### 1. One universe
+### 1. One enumeration + one registry
 
-`server/balances/universe.ts` returns the bounded set of assets Home reads, with provenance:
+The server has two bounded inputs with different freshness and authority:
 
-```ts
-type UniverseEntry = {
-  key: AssetKey;                       // "eip155:8453/native" | `eip155:8453/erc20:${lowercase}`
-  kind: "native" | "erc20" | "vault-share";
-  source: "registry" | "catalog";      // registry = config/portfolio-assets + vaults; catalog = Codex 512
-  id: string;                          // registry id ("usdc", "cbbtc", "morpho-steakhouse-usdc") or `catalog:${address}`
-  name: string; symbol: string; decimals: number;
-  contractAddress: `0x${string}` | null;
-  cashCurrency: FiatCurrencyCode | null;
-  imageUrl?: string;                   // catalog only (sanitized https)
-  liquidityUsd?: ExactDecimal; volume24Usd?: ExactDecimal;   // catalog only; server-side gate inputs, never on the wire
-  underlying?: { key: AssetKey; symbol: "USDC"; decimals: 6 }; // vault-share only
-};
-```
+1. **Enumerate per owner.** CDP Token Balances scans up to 32 pages at the documented maximum of 100 rows per page (3,200 rows). It returns lowercase ERC-20 contract addresses, decimal-integer-string amounts, and optional trimmed `name`, `symbol`, and `decimals`. The native `0xeeee…` sentinel is excluded because ETH is read from the registry path. One in-flight scan is shared per owner, cached for 60 s in a 256-owner LRU, detached from route caller aborts, and bounded by its own 8 s deadline. A deadline after one or more pages preserves those rows and marks the scan incomplete.
+2. **Read the registry.** `server/balances/universe.ts` contains only configured direct assets and vault shares from `config/portfolio-assets.ts`. Registry ordering stays cash → native → other direct assets → vaults. It never expands to the Codex catalog and never performs a 512-contract `decimals()` verification.
 
-Registry entries come from `config/portfolio-assets.ts` and `shared/assets/base.ts` (unchanged). Catalog entries come from today's `recognized-catalog.ts` (three Codex pages, 60 s shared cache, registry wins on overlap, symbol-collision exclusion) **plus** a once-per-refresh onchain `decimals()` verification of all 512 (four shared multicalls per 60 s), so the per-user path no longer pays that round trip. Entries whose Codex decimals disagree with the chain are dropped from the universe. The universe is ≈ 25 registry + ≤ 512 catalog contracts and is the only thing the chain reader iterates.
+CDP supplies display-grade quantities only for positive non-registry rows. Registry quantities, including ETH and vault shares, always come from the pinned Base read. This deliberately gives action-relevant assets a coherent block while allowing Home to show tokens discovered by the wallet index.
 
 ### 2. One chain read
 
-`server/balances/read.ts` reads the whole universe for one owner in one pinned pass through the configured Base RPC (`server/chain/rpc.ts`):
+`server/balances/read.ts` reads the registry and vault conversions in one pinned pass through the configured Base RPC:
 
-1. `eth_getBlockByNumber("latest")` → `{number, hash, timestamp}`. `eth_chainId` is asserted once per process per resolved URL, not per read.
-2. In parallel, all pinned to that block number: `eth_getBalance(owner)`; Multicall3 `aggregate3(allowFailure: true)` of `balanceOf(owner)`:
-   - **chunk 0 = registry only** (≈ 25 contracts incl. vault shares, cash first), issued first and never mixed with catalog contracts;
-   - chunks 1…n = catalog, 128 per chunk (≈ 4 chunks).
-3. One batch: `convertToAssets(shares)` for vault shares with a positive balance **and** a re-read of the pinned block by number. If the hash differs, retry the whole read once; a second mismatch fails the read (client keeps previous data and retries at the next stale window).
-4. Any failed chunk (RPC error, non-`success` multicall envelope) is retried once at the same block; a timeout is not retried. After that, its rows are `unavailable`.
+1. `eth_getBlockByNumber("latest")` selects `{number, hash, timestamp}`. `eth_chainId` remains asserted once per resolved URL.
+2. In parallel at that block: `eth_getBalance(owner)` and one Multicall3 `aggregate3(allowFailure: true)` containing every configured ERC-20 and vault-share `balanceOf(owner)` call.
+3. One batch converts positive vault shares with `convertToAssets(shares)` and re-reads the pinned block. A changed hash re-pins and retries the whole read once; a second mismatch fails.
+4. A failed registry call is retried once. A successful zero is `"0"`; a failed read is `unavailable`, never zero. The whole read retains its 4 s deadline.
 
-Hosted guard: on `VERCEL_ENV ∈ {production, preview}` with `resolveBaseRpcUrl().source === "public-default"` (`hostedRuntimeExpectsManagedBaseRpcUrl`, today uncalled), the reader does **not** touch public RPC for registry (cash) rows: every registry row is `unavailable`, `coverage.registry: "partial"`, and one `portfolio-balance-source` event fires with `reason: "not-configured"`. Block pinning and catalog chunks still use the resolved RPC URL. Locally on `hostClass === "public-base"`, catalog chunks run sequentially (today's behavior) so `bun dev` does not reintroduce #69's `-32016` blanks.
+The hosted public-default guard is unchanged: preview/production never uses an implicit public RPC for registry quantities, marks those rows unavailable, and emits one `portfolio-balance-source` event per read. There is no catalog chunk and no sequential-public-catalog branch. The pinned registry read keeps its separate 2 s per-owner coalescing TTL so post-action polling can refresh configured ids without forcing a new CDP scan.
 
-Result: `ReadHolding[]` with `balance: {status: "ready", baseUnits} | {status: "unavailable", baseUnits: null}` for registry entries, and positive-only rows for catalog entries. Successful zero stays `"0"`, never `unavailable`; a failed call is `unavailable`, never `"0"`. Registry rows are always present (Send/Save need "0 available" vs "unavailable"); catalog rows appear only when positive.
+### Resolve
 
-This removes **CDP Token Balances** from the quantity path (it stays as the future enumerator, §Next) and retires the configured-ERC-20 recovery stage. Rationale: the fixed allowlist never needed a wallet-enumerating API; the recognized branch already proves Multicall3 on the same RPC every read; a bounded universe makes the read O(universe) instead of O(wallet spam), so the 6,213-token wallet from #337 completes in the same time as an empty one; a single block pin gives every row the same `asOf`. Q1 of the inventory summary chose CDP Token Balances to escape *public* RPC rate limits; that constraint no longer holds (`BASE_RPC_URL` → CDP Node in production) and the hosted guard above enforces it. No hybrid: it would lose the single block and keep 519 LOC to buy a safety property that registry-chunk isolation gives inside one source. home-is-thin's "Keep: … `server/portfolio`" was the money-action reset's scope fence, not a prohibition. Supersedes Q1 Phase A; recorded in `balances-inventory-architecture.md`.
+After enumeration and the pinned registry read finish concurrently, `server/balances/resolve.ts` joins `registry ∪ Codex 512 catalog ∪ wallet`:
 
-Budget per read: 1 (block) + 1 (getBalance) + ≈ 5 (chunks) + 1 (convert + block re-read) = ≈ 8 requests in ≤ 6-wide bursts; one read per owner per 2 s at most (coalescing below). Verify CDP Node's documented RPS budget once on preview and record it here. The 4 s whole-read deadline is intentionally shorter than the 6 s per-call RPC timeout: a timeout fails the whole read rather than marking individual rows unavailable, and the client keeps its previous snapshot through `keepPreviousData`.
+- Registry contracts found in CDP are ignored; their quantity remains the pinned registry quantity.
+- A positive enumerated contract in the cached Codex 512 catalog becomes a `catalog` holding. Catalog `name`, `symbol`, `decimals`, image, liquidity, and 24 h volume win; the CDP amount supplies the display quantity. If CDP supplies decimals and they disagree with Codex, the row is skipped and coverage becomes incomplete.
+- A positive contract outside registry and catalog becomes a `wallet` holding only when CDP supplied valid `name`, `symbol`, and `decimals`. It has id `wallet:<lowercase address>`, no image, and no liquidity/volume evidence. Missing or invalid optional metadata skips the row silently.
+- Zero rows are skipped and contracts are deduped by lowercase address.
+
+The Codex catalog reader remains the three-page, 512-entry, 60 s shared cache. It resolves membership and presentation metadata; it is not part of the chain quantity read.
 
 ### 3. One pricing pass
 
-`server/balances/price.ts` prices only holdings with a positive balance:
+`server/balances/price.ts` prices positive holdings as follows:
 
-- ERC-20 and vault underlying: Codex `getTokenPrices` exact-contract quotes, 25 per batch, via today's `raw-quotes.ts` (45 s cache; ≤ 5 min old counts as fresh, else `stale`).
-- ETH: Coinbase exchange-rates ETH quote (today's `fx-coinbase.ts`).
-- FX: Coinbase USD→region rates (same module).
-- Cash holdings (`cashCurrency !== null`) additionally get `cashValue` in their **own** denomination (USDC in USD, IDRX in IDR) so a USDC row in a DE view still reads in dollars. Server-side bigint math; the client never converts.
-- Catalog rows enter the **total** only when they pass the #337 market-quality gate (≥ $100k liquidity, ≥ $10k 24 h volume, fresh price). Below the gate the row shows quantity and `value.reason: "below-market-gate"`.
-- `total.status` is computed from **registry** rows only (vault shares included). Catalog rows add value when gated-in and never move status; one dust catalog token cannot flip a wallet to `partial`.
+- The full registry ERC-20/vault-underlying input set remains one stable batch on every pricing pass.
+- Positive `catalog` rows are priced in batches of 25 and retain the ≥ $100k liquidity, ≥ $10k 24 h volume, fresh-price market gate.
+- `wallet` rows are not priced in G1 because they have no liquidity evidence. They return `value: { status: "unpriced", reason: "below-market-gate" }` and never enter the total.
+- ETH and FX continue to use Coinbase exchange rates. Cash rows still get `cashValue` in their own denomination.
+- `total.status` is determined from registry rows only. Gated-in catalog values add to the amount without changing status.
 
-Valuation math is `shared/portfolio/valuation-math.ts` unchanged (bigint rationals, `roundFractionPreservingPositive`). No `Number` on any amount.
+All amount and valuation math remains bigint / exact-decimal based; no amount crosses through JavaScript `Number`.
 
-### 4. One snapshot (contract v3)
+### 4. One snapshot (contract v3) and coverage
 
-`GET /api/balances?region=XX` → `shared/balances/types.ts` (coordinator-owned; the exact file is the contract):
+`GET /api/balances?region=XX` keeps the locked `shared/balances/types.ts` v3 shape. Registry, catalog, and wallet rows all use `holdings[]`; the parser continues to require positive lowercase non-registry ERC-20 rows with source-specific ids and keys.
 
-```ts
-type BalancesSnapshot = {
-  version: 3;
-  owner: { address: `0x${string}`; chainId: 8453 };
-  region: RegionId;
-  quoteCurrency: FiatCurrencyCode | null;
-  block: { number: string; hash: `0x${string}`; timestamp: string };
-  fetchedAt: string;
-  holdings: Holding[];
-  coverage: {
-    registry: "complete" | "partial";                   // any registry row unavailable → partial
-    catalog: "complete" | "incomplete" | "unavailable"; // Codex page / chunk failed → incomplete; no Codex key → unavailable
-  };
-  total: {
-    status: "complete" | "partial" | "unavailable" | "no-quote-currency";
-    value: ExactDecimal | null;
-    currency: FiatCurrencyCode | null;
-  };
-};
+Coverage now means:
 
-type Holding = {
-  key: AssetKey; id: string; kind; source; name; symbol; decimals; contractAddress; cashCurrency; imageUrl?;
-  underlying?: { key: AssetKey; symbol: "USDC"; decimals: 6 };
-  balance: { status: "ready"; baseUnits: string } | { status: "unavailable"; baseUnits: null };
-  underlyingBalance?: { status: "ready"; baseUnits: string } | { status: "unavailable"; baseUnits: null };
-  value:                                        // in quoteCurrency
-    | { status: "priced"; currency: FiatCurrencyCode; amount: ExactDecimal; asOf: string }
-    | { status: "unpriced"; reason: "price-unavailable" | "price-stale" | "fx-unavailable" | "below-market-gate" | "no-quote-currency" }
-    | { status: "unavailable" };                // balance unavailable
-  cashValue?:                                   // cashCurrency !== null only; in the holding's own currency
-    | { status: "priced"; currency: FiatCurrencyCode; amount: ExactDecimal }
-    | { status: "unpriced"; reason: "price-unavailable" | "price-stale" | "fx-unavailable" }
-    | { status: "unavailable" };
-};
-```
+| field | status | meaning |
+|---|---|---|
+| `coverage.registry` | `complete` | Every configured registry quantity was read successfully. |
+| `coverage.registry` | `partial` | At least one registry quantity is unavailable. |
+| `coverage.catalog` | `complete` | The CDP scan completed, the Codex catalog cache is complete, and no enumerated catalog row was skipped for a decimals disagreement. |
+| `coverage.catalog` | `incomplete` | The scan hit its page/deadline bound, Codex returned a partial catalog, or a CDP/Codex decimals disagreement caused a skip. |
+| `coverage.catalog` | `unavailable` | CDP enumeration was unavailable; the response is a full registry-only snapshot. |
 
-Dropped from the wire: `inventory.scope`, `walletDiscoveryComplete`, `omissions`, `lines`, `prices[]`, `fx`, `nativeEthQuote`, `nativeCashValuations`, `cashBuckets`, `recognized`, liquidity/volume, unit prices. Cash-bucket roles (selected local, canonical USD, the `unsupported` local placeholder) are a rule of region × registry and live in a pure client selector. The response is private (`Cache-Control: private, no-store`, `Vary: Authorization, X-Home-Account-Provider`).
+CDP unavailability never turns `/api/balances` into a 502. A registry read failure retains the existing fail-closed registry row semantics and can still cause the route-level read failure behavior when the pinned pass itself cannot complete.
 
-`parseBalancesSnapshot(value, session, region)` verifies **shape and scope only**: owner/chain/region/currency match the verified session, integer base units, registry rows' metadata equals `config/portfolio-assets`, catalog keys disjoint from registry, https image URLs, `priced ⇒ amount`. It does not recompute arithmetic against a same-origin server.
-
-Server-side coalescing, keyed on **owner** for the chain read (region-independent) and on `(owner, region)` for pricing: one in-flight read per owner and a 2 s snapshot TTL per serverless instance, so the 3 s fresh-until-moved poll across two cached regions, focus refetches, and multiple tabs share one chain read. This replaces `fresh-read-limiter.ts` and the `fresh=1` parameter (which only meant "discard the CDP pagination checkpoint"); every read is at `latest`.
-
-Routes: `GET /api/balances` is added. `GET /api/portfolio/valuation` and `GET /api/savings/positions` are deleted in the final step once no client calls them. `GET /api/borrow` is untouched.
+Server composition is: `enumerate(owner)` and `read(registry, owner)` concurrently → `resolve` → `price` → `snapshot`. Caller abort signals do not cancel shared owner work.
 
 ### 5. One client query, persisted whole
 
@@ -183,37 +143,30 @@ Send, Save, Borrow, Trade calldata is issued for registry assets only, exactly a
 
 Additive first, deletions last. No lane deletes something another lane's consumer still imports.
 
-| step | owns | adds | deletes |
+| step | owns | adds / changes | deletes |
 |---|---|---|---|
-| **B0 contract** (coordinator) | `shared/balances/{types,contract,fixtures}.ts` + tests | v3 types, `parseBalancesSnapshot`, one fixture snapshot (cash positive, ETH positive, registry unpriced, registry unavailable, three vault shares with one positive, three catalog rows: priced / below-gate / price-missing) | — |
-| **B1 server** (worker) | `server/balances/**`, `app/api/balances/route.ts`, `server/observability/schema.ts` route enum, `routes.contract.test.ts` entry | universe + catalog decimals check, pinned read with registry chunk 0 + hosted guard + retry, pricing incl. `cashValue`, snapshot assembly, owner-keyed coalescing; route test proves output parses with `parseBalancesSnapshot` | — |
-| **B2 client** (worker, against the B0 fixture) | `shared/balances/{select,present}.ts`, `client/balances/**`, `client/home/{balances-panel,home-panel,send-availability,portfolio-home-experience,shell,shell-panels,home-types,home-experience,feature-panels}.tsx`, `client/query/{query-client,after-action}.ts`, `client/account/{cdp-authenticated-transport,cdp-client,cdp-session-lifecycle}` (additive `fetchBalances`), `client/savings/{savings-experience.tsx,portfolio-summary.ts}` (switch to selectors), `client/money-modal` availability plumbing | one hook, selectors, presenter, rows, persistence incl. catalog, after-action meta fix, Save on the shared snapshot | — |
-| **B3 proof** (routine-worker, after B1+B2 integrate) | `tests/browser/smoke.pw.ts` fixtures → v3, perf marks | recognized-everywhere smoke, reload-from-cache smoke with catalog rows, one-read-per-region smoke | — |
-| **B4 delete** (routine-worker, last) | `server/portfolio/{inventory,inventory-erc20-rpc,inventory-erc20-rpc.live,recognized,recognized-rpc,valuation,valuation-handler,fresh-read-limiter}.ts` + tests (`cdp-token-balances.ts` + test **move** verbatim to `server/balances/`; `fx-coinbase.ts` + test move to `server/balances/`), `server/morpho/position-handler.ts`, `createVaultPositionsReader`, `app/api/{portfolio/valuation,savings/positions}`, `shared/portfolio/{contract,valuation-types,present-home-balances,types,valuation-state}.ts`, `client/portfolio/**`, transport `fetchPortfolioValuation`/`fetchSavingsPositions`, `dehydrateOwnerQueries` valuation special case; docs (`portfolio.md` → this file, inventory-doc Q1 note, home-is-thin caching line) | — | ≈ 4,000 LOC |
+| **B0 contract** (complete) | `shared/balances/{types,contract,fixtures}.ts` + tests | v3 accepts registry, catalog, and wallet rows | — |
+| **B1/F1 server baseline** (complete) | `server/balances/**`, route, observability | registry+catalog fixed-universe read, pricing, snapshot, coalescing | — |
+| **G1 CDP-first server** (this lane) | `server/balances/**`, CDP and FX moves/shims, this doc | per-owner CDP enumeration cache; registry-only pinned read; resolve to catalog/wallet rows; wallet unpriced | removed catalog multicall/decimals verification from the balances path |
+| **B2/B3 client + proof** (complete) | client selectors/query/persistence and smoke fixtures | one persisted v3 query and shared rows | — |
+| **B4/G2 deletion** (follows) | legacy `server/portfolio/**`, old routes/types/client imports | repoint any final consumers to balances-owned modules | legacy valuation/inventory/recognized paths and temporary re-export shims |
 
-Keep and move in B1: `recognized-catalog.ts` → `server/balances/catalog.ts`; `inventory-vault-rpc.ts` convert logic → `server/balances/read.ts`. Keep unchanged: `valuation-math.ts`, `valuation-format.ts`, `fx-coinbase.ts`, `raw-quotes.ts`, `server/chain/rpc.ts`, `MoneyTicker`, `BalanceRow`, `CurrencyMark`, asset-mark.
+G1 moves CDP Token Balances and Coinbase FX into `server/balances/` and leaves temporary server-only re-export shims for legacy importers. Keep unchanged: `recognized-catalog.ts`, `raw-quotes.ts`, `valuation-math.ts`, `valuation-format.ts`, `server/chain/rpc.ts`, `MoneyTicker`, `BalanceRow`, `CurrencyMark`, and asset-mark.
 
-## Next: all tokens (not this pass)
+## Next
 
-Jesse wants every token the wallet holds eventually, not only registry + 512. The pipeline is shaped so that phase adds a stage and changes nothing downstream:
+- Enrich `wallet` rows through a Codex lookup by contract address so they can gain images and liquidity/volume evidence, then apply the same display and total market gates.
+- Add a second enumerator only if preview evidence shows CDP's curated index is too thin for tokens users expect to see.
+- Measure on preview: CDP index lag after a Send, Jesse's wallet row count, and Jesse's page count at 100 rows per page.
 
-```text
-enumerate (per owner) → resolve (metadata + spam gate) → read (pinned multicall) → price
-```
-
-- **Enumerate.** CDP Token Balances lists the contracts the wallet holds (curated Coinbase index; default 20 per page, documented max 100 — verify on preview and raise `CDP_TOKEN_BALANCES_PAGE_SIZE`). Its amounts are discovery hints, never displayed quantities: CDP has no block, and its index omits contracts (today's code already treats a CDP omission as non-authoritative). The wallet address goes to CDP only; Codex still sees contract addresses, never the wallet.
-- **Resolve.** Enumerated contracts not in the registry or the 512 catalog are looked up on Codex by contract address (name, symbol, decimals, image, liquidity, `potentialScam`), decimals verified onchain like catalog rows, and gated (same market gate for the total; a display gate — e.g. any positive liquidity and not flagged — for the row). Bound the discovered set (e.g. top 256 by liquidity) so the read stays O(known set). The universe becomes per owner: `resolveUniverse(owner) = registry ∪ catalog ∪ discovered(owner)`; `coalesce.ts` already keys the chain read per owner.
-- **Read / price.** Unchanged. Discovered rows enter as `source: "wallet"`, id `wallet:${address}`, positive-only — the v3 contract, parser, persistence, selectors (`selectSendable` rejects non-registry), and presenter already accept them (`shared/balances/types.ts`, fixture `walletHolding`).
-- **Actions.** Still registry-only until a separate decision extends Send.
-
-Open before that phase: CDP paging latency for dusty wallets (6,213 history entries → ~63 pages at 100/page; needs a per-owner enumeration cache with a longer TTL than the 2 s read TTL, invalidated by the after-action path), and whether a second enumerator (Alchemy/QuickNode, per the inventory doc's Q2) is needed when CDP's index misses tokens users care about.
+Actions remain registry-only until a separate product decision extends Send.
 
 ## Acceptance
 
 1. **Instant paint.** Playwright: persist a v3 snapshot with cash + registry + 3 catalog rows → reload → all rows visible before the stubbed `/api/balances` responds; `balances:painted` < budget; no layout shift when the response lands with identical data.
 2. **One read.** Network log across Home → Save → Balances → Home shows exactly one `/api/balances` per region per 15 s; zero `/api/portfolio/valuation`, `/api/savings/positions` after B4.
 3. **One shape.** After B4, `rg "recognized|cashBuckets|nativeCashValuations|inventory.holdings" apps/web` → 0; the route contract test asserts `holdings[]` is the only balance carrier.
-4. **Fail closed.** Table-driven: catalog chunk failure → registry rows untouched, failed catalog rows absent, `coverage.catalog: "incomplete"`; registry chunk failure after retry → those rows `unavailable`, `coverage.registry: "partial"`, cash rows read `Unavailable`, non-cash hidden; Codex down → registry rows `unpriced`, `coverage.catalog: "unavailable"`, total `partial`; RPC down → every registry row `unavailable`, total `unavailable`, never `"0"`; hosted + public-default RPC → registry `unavailable` + one observability event.
+4. **Fail closed.** Table-driven: CDP down → registry-only snapshot, `coverage.catalog: "unavailable"`, one event; CDP page/deadline bound or Codex partial → resolved rows retained, `coverage.catalog: "incomplete"`; registry chunk failure after retry → those rows `unavailable`, `coverage.registry: "partial"`, never `"0"`; RPC down → every registry row `unavailable`, total `unavailable`; hosted + public-default RPC → registry unavailable + one observability event.
 5. **Cash denomination.** USDC row in a DE view renders in USD; IDRX row in a US view renders in IDR; the total renders in the region currency.
 6. **Consistent rows.** DOM test: a cash row, a priced catalog row, an unpriced registry row, an unavailable cash row render through one `BalanceRow`; snapshot test on `presentBalanceRows` ordering and membership (vault shares absent, zero non-cash absent, catalog present).
 7. **Selectors.** Send availability from a fixture with USDC `0`, cbBTC positive, a catalog token positive → exactly `[cbbtc]` with base units; `summarizeSavingsPortfolio(selectVaultPositions(fixture))` matches today's `portfolio-summary.test.ts` expectations.
@@ -222,6 +175,6 @@ Open before that phase: CDP paging latency for dusty wallets (6,213 history entr
 
 ## Decisions taken (Jesse can veto on the issue)
 
-1. Balance quantities come from one pinned Multicall3 pass on the configured RPC (registry-chunk isolation, hosted public-RPC guard); CDP Token Balances is no longer the quantity authority (supersedes Q1 Phase A). Its client is **kept** as the wallet enumerator for the "all tokens" phase below — Jesse, 2026-09-13.
+1. **CDP-first:** CDP Token Balances enumerates and supplies display-grade quantities for non-registry rows; one pinned registry+vault multicall backs actions and the total; Codex prices — Jesse, Go, 2026-09-13.
 2. Persist catalog rows in the device cache (reverses one #337 rule).
 3. Catalog rows visible in the Home teaser, Balances, and Save totals; not actionable. Send for catalog ERC-20s is a later, separate decision.

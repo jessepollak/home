@@ -29,7 +29,19 @@ export type UniverseEntry = {
 
 export type BalancesUniverse = {
   entries: UniverseEntry[];
-  catalogStatus: BalancesCoverage["catalog"];
+};
+
+export type EnumeratedBalance = {
+  contractAddress: `0x${string}`;
+  amountBaseUnits: string;
+  name?: string;
+  symbol?: string;
+  decimals?: number;
+};
+
+export type BalancesEnumeration = {
+  status: "complete" | "incomplete" | "unavailable";
+  rows: EnumeratedBalance[];
 };
 
 export type ReadHolding = UniverseEntry & {

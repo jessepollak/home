@@ -33,55 +33,29 @@ const native: UniverseEntry = {
   cashCurrency: null,
 };
 
-function token(
-  address: string,
-  id: string,
-  source: "registry" | "catalog",
-): UniverseEntry {
+function token(address: string, id: string): UniverseEntry {
   return {
     key: `eip155:8453/erc20:${address}`,
     kind: "erc20",
-    source,
+    source: "registry",
     id,
     name: id,
     symbol: id.toUpperCase(),
     decimals: 18,
     contractAddress: address as `0x${string}`,
     cashCurrency: null,
-    ...(source === "catalog"
-      ? {
-          liquidityUsd: { atoms: "100000", scale: 0 },
-          volume24Usd: { atoms: "10000", scale: 0 },
-        }
-      : {}),
   };
 }
 
-const r1 = token(
-  "0x1111111111111111111111111111111111111111",
-  "r1",
-  "registry",
-);
-const r2 = token(
-  "0x2222222222222222222222222222222222222222",
-  "r2",
-  "registry",
-);
-const c1 = token(
-  "0x3333333333333333333333333333333333333333",
-  "catalog:c1",
-  "catalog",
-);
+const r1 = token("0x1111111111111111111111111111111111111111", "r1");
+const r2 = token("0x2222222222222222222222222222222222222222", "r2");
 
 function aggregate(values: Array<bigint | null>): Hex {
   return encodeFunctionResult({
     abi: multicallAbi,
     functionName: "aggregate3",
     result: values.map((value) => value === null
-      ? {
-          success: false,
-          returnData: "0x" as Hex,
-        }
+      ? { success: false, returnData: "0x" as Hex }
       : {
           success: true,
           returnData: encodeFunctionResult({
@@ -94,10 +68,9 @@ function aggregate(values: Array<bigint | null>): Hex {
 }
 
 function targets(params: readonly unknown[]): string[] {
-  const call = (params[0] as { data: Hex }).data;
   const decoded = decodeFunctionData({
     abi: multicallAbi,
-    data: call,
+    data: (params[0] as { data: Hex }).data,
   });
   return decoded.args[0].map(({ target }) => target.toLowerCase());
 }
@@ -108,11 +81,6 @@ function readerFor(
     batch?: () => Promise<Array<unknown | null>>;
     log?: (event: unknown) => void;
     hosted?: boolean;
-    inspect?: () => {
-      source: "configured" | "public-default";
-      hostClass: "public-base" | "other";
-      protocol: "https";
-    };
   } = {},
 ) {
   clearBalancesChainAssertionsForTests();
@@ -122,11 +90,11 @@ function readerFor(
       batch: options.batch ?? (async () => [block]),
       assertBaseChain: async () => {},
     },
-    inspectRpc: options.inspect ?? (() => ({
+    inspectRpc: () => ({
       source: options.hosted ? "public-default" : "configured",
       hostClass: "public-base",
       protocol: "https",
-    })),
+    }),
     resolvedRpcUrl: () => `https://rpc.test/${Math.random()}`,
     hosted: () => options.hosted ?? false,
     log: options.log as never,
@@ -134,31 +102,23 @@ function readerFor(
 }
 
 describe("balances chain read", () => {
-  test("isolates registry, preserves zero, and omits unavailable catalog rows", async () => {
+  test("issues one registry-only chunk, preserves zero, and never reads catalog entries", async () => {
     const seen: string[][] = [];
     const read = readerFor(async (method, params) => {
-      if (method === "eth_getBlockByNumber") {
-        return block;
-      }
-      if (method === "eth_getBalance") {
-        return "0x5";
-      }
-      const chunkTargets = targets(params);
-      seen.push(chunkTargets);
-      return chunkTargets[0] === r1.contractAddress
-        ? aggregate([BigInt(0), null])
-        : aggregate([BigInt(7)]);
+      if (method === "eth_getBlockByNumber") return block;
+      if (method === "eth_getBalance") return "0x5";
+      seen.push(targets(params));
+      return aggregate([BigInt(0), null]);
     });
+    const catalog = {
+      ...token("0x3333333333333333333333333333333333333333", "catalog:x"),
+      source: "catalog" as const,
+    };
 
-    const result = await read({
-      entries: [native, r1, r2, c1],
-      catalogStatus: "complete",
-    }, owner);
+    const result = await read({ entries: [native, r1, r2, catalog] }, owner);
 
-    expect(seen).toEqual([
-      [r1.contractAddress!, r2.contractAddress!],
-      [c1.contractAddress!],
-    ]);
+    expect(seen).toEqual([[r1.contractAddress!, r2.contractAddress!]]);
+    expect(result.holdings.some(({ id }) => id === catalog.id)).toBeFalse();
     expect(result.holdings.find(({ id }) => id === "r1")?.balance).toEqual({
       status: "ready",
       baseUnits: "0",
@@ -167,93 +127,24 @@ describe("balances chain read", () => {
       status: "unavailable",
       baseUnits: null,
     });
-    expect(result.holdings.find(({ id }) => id === c1.id)?.balance).toEqual({
-      status: "ready",
-      baseUnits: "7",
-    });
-    expect(result.coverage).toEqual({
-      registry: "partial",
-      catalog: "complete",
-    });
+    expect(result.coverage.registry).toBe("partial");
   });
 
-  test("treats a reverted catalog row as not held without reducing coverage", async () => {
-    const read = readerFor(async (method, params) => {
-      if (method === "eth_getBlockByNumber") {
-        return block;
-      }
-      if (method === "eth_getBalance") {
-        return "0x0";
-      }
-      return targets(params)[0] === c1.contractAddress
-        ? aggregate([null])
-        : aggregate([BigInt(0)]);
-    });
-
-    const result = await read({
-      entries: [native, r1, c1],
-      catalogStatus: "complete",
-    }, owner);
-
-    expect(result.holdings.some(({ id }) => id === c1.id)).toBe(false);
-    expect(result.coverage.catalog).toBe("complete");
-  });
-
-  test("retries a failed chunk once and never coerces it to zero", async () => {
+  test("retries a failed registry chunk once and never coerces it to zero", async () => {
     let attempts = 0;
     const read = readerFor(async (method) => {
-      if (method === "eth_getBlockByNumber") {
-        return block;
-      }
-      if (method === "eth_getBalance") {
-        return "0x0";
-      }
+      if (method === "eth_getBlockByNumber") return block;
+      if (method === "eth_getBalance") return "0x0";
       attempts += 1;
       throw new Error("rpc down");
     });
 
-    const result = await read({
-      entries: [native, r1],
-      catalogStatus: "unavailable",
-    }, owner);
-
+    const result = await read({ entries: [native, r1] }, owner);
     expect(attempts).toBe(2);
     expect(result.holdings.find(({ id }) => id === "r1")?.balance).toEqual({
       status: "unavailable",
       baseUnits: null,
     });
-  });
-
-  test("retries a transient confirmation batch error", async () => {
-    let batchAttempts = 0;
-    let latestReads = 0;
-    const read = readerFor(async (method) => {
-      if (method === "eth_getBlockByNumber") {
-        latestReads += 1;
-        return block;
-      }
-      return "0x0";
-    }, {
-      batch: async () => {
-        batchAttempts += 1;
-        if (batchAttempts === 1) {
-          throw new Error("transient");
-        }
-        return [block];
-      },
-    });
-
-    const result = await read({
-      entries: [native],
-      catalogStatus: "unavailable",
-    }, owner);
-
-    expect(result.holdings[0]?.balance).toEqual({
-      status: "ready",
-      baseUnits: "0",
-    });
-    expect(batchAttempts).toBe(2);
-    expect(latestReads).toBe(1);
   });
 
   test("re-pins the whole read after a null confirmation slot", async () => {
@@ -272,62 +163,30 @@ describe("balances chain read", () => {
       },
     });
 
-    await expect(read({
-      entries: [native],
-      catalogStatus: "unavailable",
-    }, owner)).resolves.toMatchObject({
-      coverage: {
-        registry: "complete",
-      },
+    await expect(read({ entries: [native] }, owner)).resolves.toMatchObject({
+      coverage: { registry: "complete" },
     });
     expect(batchAttempts).toBe(3);
     expect(latestReads).toBe(2);
   });
 
-  test("hosted public-default guard emits once across a whole-read retry", async () => {
+  test("hosted public-default guard skips registry RPC and emits once", async () => {
     const events: unknown[] = [];
-    const calledTargets: string[][] = [];
-    let batchAttempts = 0;
-    let inspections = 0;
-    const read = readerFor(async (method, params) => {
-      if (method === "eth_getBlockByNumber") {
-        return block;
-      }
-      if (method === "eth_getBalance") {
-        throw new Error("must not call native");
-      }
-      calledTargets.push(targets(params));
-      return aggregate([BigInt(3)]);
+    const calls: string[] = [];
+    const read = readerFor(async (method) => {
+      calls.push(method);
+      if (method === "eth_getBlockByNumber") return block;
+      throw new Error("registry RPC must be guarded");
     }, {
-      batch: async () => {
-        batchAttempts += 1;
-        return [batchAttempts === 1 ? changedBlock : block];
-      },
-      log: (event) => events.push(event),
       hosted: true,
-      inspect: () => {
-        inspections += 1;
-        return {
-          source: "public-default",
-          hostClass: "public-base",
-          protocol: "https",
-        };
-      },
+      log: (event) => events.push(event),
     });
 
-    const result = await read({
-      entries: [native, r1, c1],
-      catalogStatus: "complete",
-    }, owner);
-
-    expect(calledTargets).toEqual([
-      [c1.contractAddress!],
-      [c1.contractAddress!],
-    ]);
-    expect(result.holdings.find(({ id }) => id === "r1")?.balance.status)
-      .toBe("unavailable");
+    const result = await read({ entries: [native, r1] }, owner);
+    expect(calls).toEqual(["eth_getBlockByNumber"]);
+    expect(result.holdings.every(({ balance }) => balance.status === "unavailable"))
+      .toBeTrue();
     expect(events).toHaveLength(1);
-    expect(inspections).toBe(2);
   });
 
   test("retries the whole read once on a changed block then fails", async () => {
@@ -354,10 +213,9 @@ describe("balances chain read", () => {
       hosted: () => false,
     });
 
-    await expect(read({
-      entries: [native],
-      catalogStatus: "unavailable",
-    }, owner)).rejects.toThrow("changed twice");
+    await expect(read({ entries: [native] }, owner)).rejects.toThrow(
+      "changed twice",
+    );
     expect(latest).toBe(2);
   });
 });
