@@ -1477,6 +1477,10 @@ test.describe("MoneyModal painted motion", () => {
 
 test.describe("Chromium 390px money-flow screenshots", () => {
   test.skip(({ browserName }) => browserName !== "chromium", "Chromium screenshot baseline");
+  // Baselines are platform-suffixed (`-darwin.png`) and were captured on macOS, where the
+  // integration gate runs. Linux baselines for CI land with #347 step 5; until then the
+  // suite is a local integration guard, not a CI gate.
+  test.skip(process.platform !== "darwin", "screenshot baselines exist for macOS only (#347)");
 
   test("captures the Send amount step", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
