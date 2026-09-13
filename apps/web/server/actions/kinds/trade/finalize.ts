@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type {

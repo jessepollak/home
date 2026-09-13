@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   FundingProvider,

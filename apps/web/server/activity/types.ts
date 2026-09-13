@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { ActivityPage } from "@/shared/activity/types";
 
 export type VerifiedActivityAccount = {

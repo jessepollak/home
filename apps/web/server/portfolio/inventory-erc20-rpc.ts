@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { PortfolioAddress } from "@/config/portfolio-assets";
 import {
   BaseRpcError,

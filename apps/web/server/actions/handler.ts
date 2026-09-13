@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";

@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { FiatCurrencyCode } from "@/config/regions";
 import { parseExactDecimal } from "@/shared/portfolio/valuation-math";
 import type { FxQuote, NativeEthQuote, ValuationSource } from "@/shared/portfolio/valuation-types";

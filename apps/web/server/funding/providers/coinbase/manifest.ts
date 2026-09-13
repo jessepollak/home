@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { FundingProviderManifest } from "@/shared/funding/provider-contract";
 
 export const COINBASE_ONRAMP_API_ORIGIN = "https://api.cdp.coinbase.com" as const;

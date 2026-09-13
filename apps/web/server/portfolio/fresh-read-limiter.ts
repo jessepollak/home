@@ -1,3 +1,5 @@
+import "server-only";
+
 export const PORTFOLIO_FRESH_READ_INTERVAL_MS = 5_000;
 export const PORTFOLIO_FRESH_READ_MAX_OWNERS = 1_000;
 

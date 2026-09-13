@@ -1,3 +1,5 @@
+import "server-only";
+
 export const CODEX_GRAPHQL_ENDPOINT = "https://graph.codex.io/graphql";
 export const CODEX_PRICE_SOURCE_LABEL = "Codex";
 export const CODEX_PRICE_SOURCE_URL =

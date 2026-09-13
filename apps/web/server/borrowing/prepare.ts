@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { MoneyActionAmount, MoneyActionDraft } from "@/shared/money-actions/types";
 import {
   approveCall,

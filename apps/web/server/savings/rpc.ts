@@ -1,3 +1,5 @@
+import "server-only";
+
 import { BASE_CHAIN_ID, BASE_USDC_ADDRESS } from "@/shared/savings/config";
 import type { Address } from "@/shared/savings/types";
 import {

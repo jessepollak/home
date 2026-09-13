@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   ACCOUNT_PROVIDER_HEADER,
   type VerifiedAccountSession,

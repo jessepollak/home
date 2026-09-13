@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { FundingProviderManifest } from "@/shared/funding/provider-contract";
 
 export const IDRX_API_ORIGIN = "https://api.idrx.co" as const;

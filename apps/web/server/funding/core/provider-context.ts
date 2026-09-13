@@ -1,3 +1,5 @@
+import "server-only";
+
 import { getFundingAsset } from "@/shared/funding/assets";
 import type {
   FundingProviderManifest,

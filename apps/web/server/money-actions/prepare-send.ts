@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionDraft, PreparedMoneyAction } from "@/shared/money-actions/types";
 import {
