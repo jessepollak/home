@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { StatusMessage, Text, Toast, ToastViewport } from "@home/ui";
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { activityOwnerKey } from "@/client/activity/use-activity";
+import { useHomeToast } from "@/client/home/use-home-toast";
 import {
   MoneyAmountDisplay,
   MoneyConfirmSummary,
@@ -60,6 +62,7 @@ export function SavingsMoneyDialog({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ mode: SavingsActionMode; amount: string } | null>(null);
   const [openedAt] = useState(() => Date.now());
+  const { add: addToast } = useHomeToast(activityOwnerKey(session));
   const expiredPrepared = preparedAction
     ? Date.parse(preparedAction.expiresAt) <= openedAt
     : false;
@@ -70,6 +73,25 @@ export function SavingsMoneyDialog({
     : mode === "deposit"
       ? "Deposit"
       : "Withdraw";
+
+  useEffect(() => {
+    if (!success) return;
+    addToast({
+      id: `savings:${success.mode}:${success.amount}`,
+      tone: "success",
+      role: "status",
+      duration: 6_000,
+      onClose: () => setSuccess(null),
+      message: (
+        <div className="flex flex-col gap-1">
+          <strong className="text-row-label font-semibold">
+            {success.mode === "deposit" ? "Deposited" : "Withdrew"} {success.amount}
+          </strong>
+          <p className="text-metadata text-muted-foreground">Save · {candidate.name}</p>
+        </div>
+      ),
+    });
+  }, [addToast, candidate.name, success]);
 
   function reset() {
     setAmount("");
@@ -265,17 +287,23 @@ export function SavingsMoneyDialog({
         ) : null}
       </MoneyModal>
 
-      {success ? (
-        <ToastViewport>
-          <Toast key={`${success.mode}:${success.amount}`} tone="success" duration={6000} onDismiss={() => setSuccess(null)}>
-            <Text as="strong" textStyle="row-label">
-              {success.mode === "deposit" ? "Deposited" : "Withdrew"} {success.amount}
-            </Text>
-            <Text textStyle="metadata" tone="muted">Save · {candidate.name}</Text>
-          </Toast>
-        </ToastViewport>
-      ) : null}
     </>
+  );
+}
+
+function StatusMessage({
+  children,
+  tone = "neutral",
+  role,
+  ...props
+}: Omit<ComponentProps<typeof Alert>, "children"> & {
+  children: ReactNode;
+  tone?: "neutral" | "error";
+}) {
+  return (
+    <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}>
+      <AlertDescription>{children}</AlertDescription>
+    </Alert>
   );
 }
 

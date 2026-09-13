@@ -1,8 +1,8 @@
 "use client";
 
-import { StatusMessage, Text } from "@home/ui";
-import { MoneyTicker } from "@home/ui/money-ticker";
-import { useEffect, useRef, useState } from "react";
+import { MoneyTicker } from "@/components/money-ticker";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { AddressField } from "@/components/address";
 import { CopyableValue } from "@/components/copyable-value";
 import { formatAddress } from "@/shared/formatting";
@@ -123,7 +123,7 @@ export function SendDialog({
     setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); setAmount(""); setRequest(null);
     setAction(null); setStep("amount"); setError(null);
   }
-  function close() { reset(); onClose(); }
+  function close() { onClose(); }
   function back() {
     setError(null);
     if (step === "address") setStep("amount");
@@ -189,7 +189,7 @@ export function SendDialog({
         </> : null}
         {step === "address" ? <div className={modal.fieldBlock}>
           <AddressField id="send-recipient" label="To" value={recipient} onChange={setRecipient} aria-describedby="send-recipient-hint" />
-          <Text id="send-recipient-hint" textStyle="metadata" tone="muted" className={modal.fieldHint}>Base address</Text>
+          <p id="send-recipient-hint" className={`${modal.fieldHint} text-metadata`}>Base address</p>
         </div> : null}
         {request && requestAsset && (step === "confirm" || step === "pending" || step === "error") ? <>
           <MoneyConfirmSummary amount={confirmAmount} lead={`You're sending ${requestAsset.symbol}`} rows={[
@@ -206,6 +206,22 @@ export function SendDialog({
       {step === "confirm" ? <MoneyModalFooter primaryLabel={<>Send <MoneyTicker value={confirmAmount} /></>} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}
       {step === "error" ? <MoneyModalFooter primaryLabel="Try again" onPrimary={() => { setError(null); setStep("confirm"); }} secondaryLabel="Back" onSecondary={back} /> : null}
     </MoneyModal>
+  );
+}
+
+function StatusMessage({
+  children,
+  tone = "neutral",
+  role,
+  ...props
+}: Omit<ComponentProps<typeof Alert>, "children"> & {
+  children: ReactNode;
+  tone?: "neutral" | "error";
+}) {
+  return (
+    <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}>
+      <AlertDescription>{children}</AlertDescription>
+    </Alert>
   );
 }
 

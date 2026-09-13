@@ -1,7 +1,8 @@
 "use client";
 
-import { Toast, ToastViewport, type ToastTone } from "@home/ui";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Toaster } from "@/components/ui/toast";
+import { useCallback, useEffect, useRef } from "react";
+import { useHomeToast, type HomeToastRole, type HomeToastTone } from "./use-home-toast";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { formatAddress, formatFiatAmount, formatPresentationTokenAmount } from "@/shared/formatting";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
@@ -10,12 +11,6 @@ import { actionFailureEvent } from "./action-toast-events";
 
 const defaultDismissAfterMs = 5_000;
 
-type ActionToast = {
-  id: number;
-  message: string;
-  tone: ToastTone;
-  role: "status" | "alert";
-};
 type ToastAction = {
   id: string;
   kind: string;
@@ -42,9 +37,8 @@ export function ActionToasts({
   dismissAfterMs?: number;
 }) {
   const ownerKey = session?.smartAccount ? activityOwnerKey(session) : null;
-  const [toasts, setToasts] = useState<ActionToast[]>([]);
-  const nextId = useRef(0);
   const seenStatuses = useRef(new Map<string, ToastAction["status"]>());
+  const { add, closeAll } = useHomeToast(ownerKey);
   const actions = useHomeQuery({
     queryKey: ownerKey ? ownerQueryKey(ownerKey, "actions") : ["unauthenticated", "action-toasts-disabled"],
     enabled: ownerKey !== null,
@@ -56,18 +50,15 @@ export function ActionToasts({
     select: parseToastActions,
   });
 
-  const dismiss = useCallback((id: number) => {
-    setToasts((current) => current.filter((toast) => toast.id !== id));
-  }, [setToasts]);
-
   const addToast = useCallback((
     message: string,
-    tone: ToastTone = "neutral",
-    role: "status" | "alert" = "status",
+    tone: HomeToastTone = "neutral",
+    role: HomeToastRole = "status",
   ) => {
-    const id = ++nextId.current;
-    setToasts((current) => [...current, { id, message, tone, role }]);
-  }, [setToasts]);
+    add({ message, tone, role, duration: dismissAfterMs });
+  }, [add, dismissAfterMs]);
+
+  useEffect(() => () => closeAll(), [closeAll]);
 
   useEffect(() => {
     if (!actions.data) return;
@@ -95,22 +86,7 @@ export function ActionToasts({
     return () => window.removeEventListener(actionFailureEvent, onFailure);
   }, [addToast]);
 
-  return (
-    <ToastViewport>
-      {toasts.map((toast) => (
-        <Toast
-          key={toast.id}
-          tone={toast.tone}
-          role={toast.role}
-          duration={dismissAfterMs}
-          onDismiss={() => dismiss(toast.id)}
-          dismissLabel={`Dismiss ${toast.message}`}
-        >
-          {toast.message}
-        </Toast>
-      ))}
-    </ToastViewport>
-  );
+  return <Toaster />;
 }
 
 function parseToastActions(value: unknown): ToastAction[] {

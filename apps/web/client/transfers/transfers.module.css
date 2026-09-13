@@ -1,7 +1,7 @@
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--home-ui-space-2);
+  gap: 8px;
 }
 
 .secondaryAction {
@@ -12,7 +12,7 @@
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: var(--home-ui-space-3);
+  gap: 12px;
 }
 
 .successMark {
@@ -22,12 +22,12 @@
   flex: 0 0 auto;
   place-items: center;
   border-radius: 50%;
-  background: var(--home-ui-color-action);
-  color: var(--home-ui-color-on-action);
-  font-size: var(--home-ui-type-secondary-size);
-  font-weight: var(--home-ui-type-weight-strong);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .successDetail {
-  margin-top: var(--home-ui-space-1);
+  margin: 4px 0 0;
 }

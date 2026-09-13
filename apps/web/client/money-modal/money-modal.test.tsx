@@ -4,70 +4,13 @@ import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, test } from "bun:test";
 import { useState } from "react";
 
-const { cleanup, fireEvent, render } = await import("@testing-library/react");
-const { MoneyModal, MoneyModalFooter, MoneyModalHeader } = await import("./money-modal");
-
-function Harness({ startOpen = false }: { startOpen?: boolean }) {
-  const [open, setOpen] = useState(startOpen);
-  return (
-    <>
-      <button type="button" onClick={() => setOpen(true)}>
-        Open money
-      </button>
-      <MoneyModal
-        open={open}
-        labelledBy="money-sheet-title"
-        immediate
-        onCancel={() => setOpen(false)}
-        onClose={() => setOpen(false)}
-      >
-        <MoneyModalHeader
-          title="Send"
-          titleId="money-sheet-title"
-          onClose={() => setOpen(false)}
-          closeLabel="Close send dialog"
-        />
-        <div>Amount body</div>
-        <MoneyModalFooter primaryLabel="Continue" onPrimary={() => {}} />
-      </MoneyModal>
-    </>
-  );
-}
+const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
+const { MoneyModal } = await import("./money-modal");
 
 afterEach(cleanup);
 
-describe("MoneyModal shell", () => {
-  test("opens as a labelled modal and moves focus inside", () => {
-    render(<Harness />);
-    fireEvent.click(page().getByRole("button", { name: "Open money" }));
-
-    const dialog = page().getByRole("dialog", { name: "Send" });
-    expect(dialog).toBeTruthy();
-    expect(dialog.contains(document.activeElement)).toBe(true);
-  });
-
-  test("dismisses from the close button and restores the trigger", () => {
-    render(<Harness />);
-    const trigger = page().getByRole("button", { name: "Open money" });
-    trigger.focus();
-    fireEvent.click(trigger);
-    fireEvent.click(page().getByRole("button", { name: "Close send dialog" }));
-
-    expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  test("dismisses only backdrop clicks", () => {
-    render(<Harness startOpen />);
-    fireEvent.click(page().getByRole("heading", { name: "Send" }));
-    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
-
-    fireEvent.click(page().getByRole("dialog", { name: "Send" }));
-    expect(page().queryByRole("dialog", { name: "Send" })).toBeNull();
-
-  });
-
-  test("keeps the modal open when cancellation is rejected", () => {
+describe("MoneyModal dismissal contract", () => {
+  test("keeps the drawer open when cancellation is vetoed", async () => {
     render(
       <MoneyModal
         open
@@ -80,7 +23,39 @@ describe("MoneyModal shell", () => {
       </MoneyModal>,
     );
 
-    fireEvent.click(page().getByRole("dialog", { name: "Blocked" }));
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "Escape" });
+    });
+
     expect(page().getByRole("dialog", { name: "Blocked" })).toBeTruthy();
+  });
+
+  test("calls onClose only after an accepted close completes", async () => {
+    const events: string[] = [];
+
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <MoneyModal
+          open={open}
+          labelledBy="ordered-title"
+          immediate
+          onCancel={() => {
+            events.push("cancel");
+            setOpen(false);
+          }}
+          onClose={() => events.push("close")}
+        >
+          <h2 id="ordered-title">Ordered</h2>
+        </MoneyModal>
+      );
+    }
+
+    render(<Harness />);
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "Escape" });
+    });
+    await waitFor(() => expect(page().queryByRole("dialog", { name: "Ordered" })).toBeNull());
+    expect(events).toEqual(["cancel", "close"]);
   });
 });

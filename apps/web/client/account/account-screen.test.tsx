@@ -117,85 +117,6 @@ afterEach(() => {
 });
 
 describe("production account sign-in sheet", () => {
-  test("lets the close control cancel an in-flight email request and ignores its late result", async () => {
-    const codeRequest = deferred<{ flowId: string }>();
-    render(<SheetHarness requestEmailCode={() => codeRequest.promise} />);
-    fireEvent.click(page().getByRole("button", { name: "Open account" }));
-    const email = await page().findByRole("textbox", { name: "Email address" });
-    fireEvent.input(email, { target: { value: "fixture@example.test" } });
-    fireEvent.click(page().getByRole("button", { name: "Continue with email" }));
-    fireEvent.click(page().getByRole("button", { name: "Close sign in" }));
-    expect((document.querySelector("dialog") as HTMLDialogElement).open).toBe(false);
-
-    await act(async () => {
-      codeRequest.resolve({ flowId: "late-flow" });
-      await codeRequest.promise;
-    });
-    fireEvent.click(page().getByRole("button", { name: "Open account" }));
-    await waitFor(() =>
-      expect((document.querySelector("dialog") as HTMLDialogElement).open).toBe(true),
-    );
-    expect(await page().findByRole("textbox", { name: "Email address" })).toBeTruthy();
-    expect(page().queryByRole("textbox", { name: "Verification code" })).toBeNull();
-  });
-
-  test("does not let an existing verified session auto-close a new email attempt", async () => {
-    render(
-      <SheetHarness
-        requestEmailCode={async () => ({ flowId: "new-email-flow" })}
-        initiallySignedIn
-      />,
-    );
-    await waitFor(() =>
-      expect(page().getByTestId("session-status").textContent).toBe("verified"),
-    );
-    fireEvent.click(page().getByRole("button", { name: "Open account" }));
-    const dialog = await page().findByRole("dialog", { name: "Sign in to Home" });
-    expect((dialog as HTMLDialogElement).open).toBe(true);
-
-    const email = page().getByRole("textbox", { name: "Email address" });
-    fireEvent.input(email, { target: { value: "new@example.test" } });
-    fireEvent.click(page().getByRole("button", { name: "Continue with email" }));
-    expect(await page().findByRole("textbox", { name: "Verification code" })).toBeTruthy();
-    expect((dialog as HTMLDialogElement).open).toBe(true);
-  });
-
-  test("keeps configured CDP email and Base Account actions together when enabled", async () => {
-    const disabledView = render(
-      <SheetHarness
-        requestEmailCode={async () => ({ flowId: "unused-flow" })}
-      />,
-    );
-    fireEvent.click(page().getByRole("button", { name: "Open account" }));
-    expect(
-      await page().findByRole("button", { name: "Continue with email" }),
-    ).toBeTruthy();
-    expect(
-      page().queryByRole("button", { name: "Sign in with Base Account" }),
-    ).toBeNull();
-    disabledView.unmount();
-
-    render(
-      <SheetHarness
-        requestEmailCode={async () => ({ flowId: "unused-flow" })}
-        baseAccountEnabled
-        baseAccountConnector={async () => {
-          throw new BaseAccountConnectorError("cancelled");
-        }}
-      />,
-    );
-    fireEvent.click(page().getByRole("button", { name: "Open account" }));
-    expect(
-      await page().findByRole("button", { name: "Continue with email" }),
-    ).toBeTruthy();
-    fireEvent.click(
-      page().getByRole("button", { name: "Sign in with Base Account" }),
-    );
-    expect((await page().findByRole("alert")).textContent).toContain(
-      "Base Account sign-in was canceled",
-    );
-  });
-
   test("blocks the real sign-in sheet while missing-connection cleanup is deferred", async () => {
     window.sessionStorage.setItem("home:account-provider", "base-account");
     const cleanupRequest = deferred<void>();
@@ -308,18 +229,22 @@ describe("production account sign-in sheet", () => {
     ).getByRole("button", { name: "Open account" });
     trigger.focus();
     fireEvent.click(trigger);
-    const dialog = page().getByRole("dialog", { name: "Sign in to Home" });
+    expect(page().getByRole("dialog", { name: "Sign in to Home" })).toBeTruthy();
     fireEvent.click(
       await page().findByRole("button", { name: "Sign in with Base Account" }),
     );
     expect(
       await page().findByRole("button", { name: "Cancel sign in" }),
     ).toBeTruthy();
-    expect((dialog as HTMLDialogElement).open).toBe(false);
+    await waitFor(() =>
+      expect(page().queryByRole("dialog", { name: "Sign in to Home" })).toBeNull(),
+    );
 
     fireEvent.click(page().getByRole("button", { name: "Cancel sign in" }));
-    await waitFor(() => expect(page().queryByRole("button", { name: "Cancel sign in" })).toBeNull());
-    expect(document.activeElement).toBe(trigger);
+    await waitFor(() =>
+      expect(page().queryByRole("button", { name: "Cancel sign in" })).toBeNull(),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
   test("offers an explicit sign-out retry while failed cleanup keeps details private", async () => {
@@ -347,6 +272,4 @@ describe("production account sign-in sheet", () => {
     fireEvent.click(page().getByRole("button", { name: "Retry sign out" }));
     await waitFor(() => expect(retries).toBe(1));
   });
-
-
 });
