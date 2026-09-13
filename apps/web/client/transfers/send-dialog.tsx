@@ -76,9 +76,16 @@ export function SendDialog({
   const [step, setStep] = useState<SendStep>("amount");
   const [error, setError] = useState<string | null>(null);
   const resumedActionRef = useRef<string | null>(null);
-  const activeAssetId = assetId && availableAssets?.some((asset) => asset.id === assetId)
+  const selectedStillAvailable = !assetId || availableAssets?.some((asset) => asset.id === assetId) !== false;
+  const activeAssetId = assetId && selectedStillAvailable
     ? assetId
     : availableAssets?.[0]?.id ?? null;
+  // A refresh that drops the selected asset must not carry a typed amount onto
+  // another asset: fall back explicitly during render (React's derived-state pattern).
+  if (assetId && !selectedStillAvailable) {
+    setAssetId(activeAssetId);
+    if (amount !== "") setAmount("");
+  }
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);

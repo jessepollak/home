@@ -705,6 +705,18 @@ body:has(.app-frame-shell) {
   font-weight: 600;
 }
 
+.action-row .add-money {
+  inline-size: 100%;
+  min-block-size: 44px;
+}
+
+.action-row .add-money-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--home-ui-space-2);
+}
+
 .action-row {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

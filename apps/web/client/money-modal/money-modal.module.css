@@ -272,6 +272,15 @@
   padding: 14px 0;
 }
 
+.row:last-child {
+  border-bottom: 1px solid var(--home-ui-color-border);
+}
+
+/* Detail sheets end with a divider before the explorer link: no doubled hairline. */
+.rowsWithFooter .row:last-child {
+  border-bottom: 0;
+}
+
 .row dt {
   color: var(--home-ui-color-muted);
   font-size: var(--home-ui-type-secondary-size);

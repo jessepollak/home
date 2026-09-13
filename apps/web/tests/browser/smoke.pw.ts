@@ -200,7 +200,7 @@ async function json(route: Route, body: unknown) {
 async function installApiFixtures(
   page: Page,
   options: {
-    portfolioValuation?: ReturnType<typeof valuation> | unknown;
+    portfolioValuation?: unknown;
     initialActionStatus?: ActionStatus;
     activityTransfers?: boolean;
     failHandleOnce?: boolean;

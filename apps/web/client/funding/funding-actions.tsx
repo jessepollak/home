@@ -132,7 +132,6 @@ export function FundingActionsForWallet({
       <Button
         className="add-money"
         variant="primary"
-        style={{ inlineSize: "100%", minBlockSize: 44 }}
         onClick={() => {
           openedInAppRef.current = true;
           setDismissed(false);
@@ -140,14 +139,7 @@ export function FundingActionsForWallet({
           setFundingFlow("add-money", "push");
         }}
       >
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 7,
-          }}
-        >
+        <span className="add-money-content">
           <PlusIcon />
           <span>Add money</span>
         </span>

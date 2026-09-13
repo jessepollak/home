@@ -38,7 +38,7 @@ export function TransactionDetailsModal({
         closeLabel="Close transaction details"
       />
       <div className={modal.body}>
-        <dl className={modal.rows}>
+        <dl className={`${modal.rows} ${details?.explorer ? modal.rowsWithFooter : ""}`}>
           {rows.map((row) => (
             <div className={modal.row} key={row.label}>
               <dt>{row.label}</dt>
