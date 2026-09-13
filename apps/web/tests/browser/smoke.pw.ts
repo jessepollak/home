@@ -121,6 +121,7 @@ function recognizedValuation() {
         symbol: "RCG",
         decimals: 18,
         contractAddress: "0x9999999999999999999999999999999999999999",
+        imageUrl: "https://images.example.test/recognized.svg",
         balanceBaseUnits: "1230000000000000000",
         liquidityUsd: { atoms: "100000", scale: 0 },
         volume24Usd: { atoms: "10000", scale: 0 },
@@ -290,7 +291,7 @@ async function amountMetrics(page: Page) {
   });
 }
 
-test("recognized token is nested-Balances-only and never enters Send availability", async ({ page }) => {
+test("recognized token is nested-Balances-only, uses its Codex image, and never enters Send availability", async ({ page }) => {
   const fixture = recognizedValuation();
   parsePortfolioValuationSnapshot(fixture, {
     subject: "playwright-smoke-subject",
@@ -298,6 +299,13 @@ test("recognized token is nested-Balances-only and never enters Send availabilit
     chainId: 8453,
   }, "US");
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await page.route("https://images.example.test/recognized.svg", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0052ff"/></svg>',
+    }),
+  );
   await installApiFixtures(page, { portfolioValuation: fixture });
   await signIn(page);
 
@@ -306,6 +314,9 @@ test("recognized token is nested-Balances-only and never enters Send availabilit
   await expect(page.getByRole("heading", { level: 1, name: "Balances" })).toBeVisible();
   await expect(page.getByText("Recognized Coin", { exact: true })).toBeVisible();
   await expect(page.getByText("1.2300 RCG", { exact: true })).toBeVisible();
+  const recognizedRow = page.locator("li", { hasText: "Recognized Coin" });
+  await expect(recognizedRow.locator('img[src="https://images.example.test/recognized.svg"]')).toBeVisible();
+  await expect(recognizedRow.locator('[data-mark="image"]')).toBeVisible();
 
   await page.getByRole("button", { name: "Back" }).click();
   await page.getByRole("button", { name: "Send" }).click();
@@ -511,13 +522,51 @@ test("visited Invest and Activity panels stay mounted across tab changes", async
   expect(fixtures.activityReads()).toBe(readsAfterFirstVisit);
 });
 
+test("Add money is a full-slot primary action with an inline icon at 320px, 390px, and desktop", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await page.setViewportSize({ width: 390, height: 720 });
+  await signIn(page);
+
+  for (const width of [320, 390, 1326]) {
+    await page.setViewportSize({ width, height: 720 });
+    const addMoney = page.getByRole("button", { name: "Add money", exact: true });
+    const send = page.getByRole("button", { name: "Send", exact: true });
+    await expect(addMoney).toBeVisible();
+    const metrics = await addMoney.evaluate((element) => {
+      const button = element.getBoundingClientRect();
+      const icon = element.querySelector("svg")?.getBoundingClientRect();
+      const label = element.querySelector(".home-ui-button__label > span > span")?.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        width: button.width,
+        height: button.height,
+        backgroundColor: style.backgroundColor,
+        color: style.color,
+        iconCenterY: icon ? icon.y + icon.height / 2 : null,
+        iconRight: icon?.right ?? null,
+        labelCenterY: label ? label.y + label.height / 2 : null,
+        labelLeft: label?.left ?? null,
+      };
+    });
+    const sendWidth = await send.evaluate((element) => element.getBoundingClientRect().width);
+
+    expect(metrics.backgroundColor).toBe("rgb(0, 82, 255)");
+    expect(metrics.color).toBe("rgb(255, 255, 255)");
+    expect(metrics.height).toBeGreaterThanOrEqual(44);
+    expect(Math.abs(metrics.width - sendWidth)).toBeLessThanOrEqual(1);
+    expect(metrics.iconRight).toBeLessThan(metrics.labelLeft ?? 0);
+    expect(Math.abs((metrics.iconCenterY ?? 0) - (metrics.labelCenterY ?? 0))).toBeLessThanOrEqual(1);
+  }
+});
+
 test("send modal leaves action-row trigger styling at 390px", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
   await installApiFixtures(page);
   await page.setViewportSize({ width: 390, height: 720 });
   await signIn(page);
 
-  await expect(page.locator(".action-row [data-action-trigger]")).toHaveCount(2);
+  await expect(page.locator(".action-row [data-action-trigger]")).toHaveCount(1);
   await page.getByRole("button", { name: "Send" }).click();
   const dialog = page.getByRole("dialog", { name: "Send" });
   await expect(dialog).toBeVisible();

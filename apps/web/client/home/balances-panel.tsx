@@ -56,6 +56,7 @@ export function balancesListKey(
       group: item.group ?? null,
       name: item.name,
       detail: item.detail ?? null,
+      imageUrl: item.imageUrl ?? null,
       displayBalance: item.displayBalance,
       displayContext: item.displayContext ?? null,
       currencyCode: item.currencyCode ?? null,
