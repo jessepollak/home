@@ -60,7 +60,7 @@ export function parseTradeIntent(
     value.signingRequestId !== `trade-permit:${value.id}` ||
     !isRecord(value.signingTypedData) || !isRecord(value.signingTypedData.domain) ||
     value.signingTypedData.domain.name !== "Coinbase Smart Wallet" ||
-    value.signingTypedData.domain.version !== "1" ||
+    !(value.signingTypedData.domain.version === "1") ||
     value.signingTypedData.domain.chainId !== 8453 ||
     value.signingTypedData.domain.verifyingContract !== session.smartAccount.address ||
     value.signingTypedData.primaryType !== "CoinbaseSmartWalletMessage" ||
