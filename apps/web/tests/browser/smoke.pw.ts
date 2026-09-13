@@ -536,7 +536,8 @@ test("reload resumes an unconfirmed send review from its URL action", async ({ p
   await page.reload();
 
   const review = page.getByRole("dialog", { name: "Confirm" });
-  await expect(review).toBeVisible();
+  // A full reload re-verifies the session and hydrates before the resume fetch.
+  await expect(review).toBeVisible({ timeout: 15_000 });
   await expect(review.getByText("You're sending USDC")).toBeVisible();
   await expect(review.getByRole("button", { name: "Send $1.00" })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`flow=send.*action=${ACTION_ID}`));
@@ -1060,28 +1061,23 @@ test("account sign-in and settings stay reachable at 390px, 320px, and 200% text
   const signInWithBase = page.getByRole("button", { name: "Sign in with Base Account" });
   const expectAlignedHeader = async (name: string) => {
     const heading = page.getByRole("heading", { level: 2, name });
-    const [headingBox, closeBox, iconBox] = await Promise.all([
-      heading.boundingBox(),
-      close.boundingBox(),
-      close.locator("svg").boundingBox(),
-    ]);
-    if (!headingBox || !closeBox || !iconBox) {
-      throw new Error("Account modal header is not measurable");
-    }
     // Sub-3px is invisible; hosted Linux font metrics round differently than macOS.
+    // Poll: the sheet may still be laying out after a viewport or text-size change.
     const alignmentTolerance = process.env.CI ? 2.5 : 1;
-    expect(
-      Math.abs(
-        headingBox.y + headingBox.height / 2
-        - (closeBox.y + closeBox.height / 2),
-      ),
-    ).toBeLessThanOrEqual(alignmentTolerance);
-    expect(
-      Math.abs(
-        iconBox.y + iconBox.height / 2
-        - (closeBox.y + closeBox.height / 2),
-      ),
-    ).toBeLessThanOrEqual(alignmentTolerance);
+    const misalignment = async () => {
+      const [headingBox, closeBox, iconBox] = await Promise.all([
+        heading.boundingBox(),
+        close.boundingBox(),
+        close.locator("svg").boundingBox(),
+      ]);
+      if (!headingBox || !closeBox || !iconBox) return Number.POSITIVE_INFINITY;
+      const closeCenter = closeBox.y + closeBox.height / 2;
+      return Math.max(
+        Math.abs(headingBox.y + headingBox.height / 2 - closeCenter),
+        Math.abs(iconBox.y + iconBox.height / 2 - closeCenter),
+      );
+    };
+    await expect.poll(misalignment, { timeout: 10_000 }).toBeLessThanOrEqual(alignmentTolerance);
   };
 
   await expect(page.getByRole("dialog", { name: "Sign in to Home" })).toBeVisible();
