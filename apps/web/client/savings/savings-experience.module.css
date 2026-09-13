@@ -49,12 +49,10 @@
 .vaultRow { border: 0; }
 .vaultRow :global(.home-ui-list-row__content) {
   min-height: 64px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto; /* value hugs; no leading, no chevron (radio) */
   gap: 12px;
   padding: 14px 16px;
 }
-.vaultRow :global(.home-ui-list-row__leading),
-.vaultRow :global(.home-ui-list-row__indicator) { display: none; }
 
 .vaultSelected { border-color: var(--home-blue); box-shadow: 0 0 0 1px var(--home-blue); }
 

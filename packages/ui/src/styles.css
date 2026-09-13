@@ -529,15 +529,25 @@
   font: inherit;
   text-align: start;
 }
-.home-ui-list-row[data-has-value="false"] .home-ui-list-row__content {
+.home-ui-list-row:where([data-has-value="false"]) .home-ui-list-row__content {
   grid-template-columns: auto minmax(0, 1fr);
 }
-.home-ui-list-row[data-interactive="true"] .home-ui-list-row__content {
+.home-ui-list-row:where([data-interactive="true"]) .home-ui-list-row__content {
   grid-template-columns: auto minmax(0, 1fr) minmax(0, 40%) var(--home-ui-icon-size);
 }
-.home-ui-list-row[data-interactive="true"][data-has-value="false"] .home-ui-list-row__content {
+.home-ui-list-row:where([data-interactive="true"][data-has-value="false"]) .home-ui-list-row__content {
   grid-template-columns: auto minmax(0, 1fr) var(--home-ui-icon-size);
 }
+/* Selection rows (role=radio) render no navigation chevron, so no trailing track. */
+.home-ui-list-row:where([data-interactive="true"][data-selection="true"]) .home-ui-list-row__content { grid-template-columns: auto minmax(0, 1fr) minmax(0, 40%); }
+.home-ui-list-row:where([data-interactive="true"][data-selection="true"][data-has-value="false"]) .home-ui-list-row__content { grid-template-columns: auto minmax(0, 1fr); }
+/* No leading slot: the leading track is dropped (consumers never need display:none). */
+.home-ui-list-row:where([data-has-leading="false"]) .home-ui-list-row__content { grid-template-columns: minmax(0, 1fr) minmax(0, 40%); }
+.home-ui-list-row:where([data-has-leading="false"][data-has-value="false"]) .home-ui-list-row__content { grid-template-columns: minmax(0, 1fr); }
+.home-ui-list-row:where([data-has-leading="false"][data-interactive="true"]) .home-ui-list-row__content { grid-template-columns: minmax(0, 1fr) minmax(0, 40%) var(--home-ui-icon-size); }
+.home-ui-list-row:where([data-has-leading="false"][data-interactive="true"][data-has-value="false"]) .home-ui-list-row__content { grid-template-columns: minmax(0, 1fr) var(--home-ui-icon-size); }
+.home-ui-list-row:where([data-has-leading="false"][data-interactive="true"][data-selection="true"]) .home-ui-list-row__content { grid-template-columns: minmax(0, 1fr) minmax(0, 40%); }
+.home-ui-list-row:where([data-has-leading="false"][data-interactive="true"][data-selection="true"][data-has-value="false"]) .home-ui-list-row__content { grid-template-columns: minmax(0, 1fr); }
 .home-ui-list-row__control {
   text-decoration: none;
   cursor: pointer;
@@ -690,24 +700,36 @@
     grid-template-columns: auto minmax(0, 1fr);
     column-gap: var(--home-ui-space-2);
   }
-  .home-ui-list-row[data-interactive="true"] .home-ui-list-row__content {
+  .home-ui-list-row:where([data-interactive="true"]) .home-ui-list-row__content {
     grid-template-columns: auto minmax(0, 1fr) var(--home-ui-icon-size);
   }
-  .home-ui-list-row[data-has-value="false"] .home-ui-list-row__content {
+  .home-ui-list-row:where([data-has-value="false"]) .home-ui-list-row__content {
     grid-template-columns: auto minmax(0, 1fr);
   }
-  .home-ui-list-row[data-interactive="true"][data-has-value="false"] .home-ui-list-row__content {
+  .home-ui-list-row:where([data-interactive="true"][data-has-value="false"]) .home-ui-list-row__content {
     grid-template-columns: auto minmax(0, 1fr) var(--home-ui-icon-size);
+  }
+  .home-ui-list-row:where([data-has-leading="false"]) .home-ui-list-row__content,
+  .home-ui-list-row:where([data-has-leading="false"][data-selection="true"]) .home-ui-list-row__content {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .home-ui-list-row:where([data-has-leading="false"][data-interactive="true"]) .home-ui-list-row__content {
+    grid-template-columns: minmax(0, 1fr) var(--home-ui-icon-size);
+  }
+  .home-ui-list-row:where([data-has-leading="false"][data-interactive="true"][data-selection="true"]) .home-ui-list-row__content {
+    grid-template-columns: minmax(0, 1fr);
   }
   .home-ui-list-row__value {
     grid-column: 2;
     justify-items: start;
     text-align: start;
   }
+  .home-ui-list-row:where([data-has-leading="false"]) .home-ui-list-row__value { grid-column: 1; }
   .home-ui-list-row__indicator {
     grid-column: 3;
     grid-row: 1 / span 2;
   }
+  .home-ui-list-row:where([data-has-leading="false"]) .home-ui-list-row__indicator { grid-column: 2; }
 }
 
 @media (prefers-reduced-motion: reduce) {

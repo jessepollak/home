@@ -38,24 +38,6 @@
   white-space: normal;
 }
 
-.contentRow :global(.home-ui-list-row__leading),
-.contentRow :global(.home-ui-list-row__value) {
-  display: none;
-}
-
-.contentRow :global(.home-ui-list-row__content) {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.actionRow :global(.home-ui-list-row__leading),
-.actionRow :global(.home-ui-list-row__value) {
-  display: none;
-}
-
-.actionRow :global(.home-ui-list-row__content) {
-  grid-template-columns: minmax(0, 1fr) var(--home-ui-icon-size);
-}
-
 .card code {
   font-family: var(--home-ui-font-numeric);
 }

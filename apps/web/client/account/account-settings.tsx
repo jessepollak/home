@@ -96,7 +96,6 @@ export function AccountSettings({
         <ul className={styles.card}>
           <ListRow
             className={styles.contentRow}
-            leading={null}
             label="Base account"
             description={accountAddress ? (
               <CopyableValue
@@ -107,13 +106,10 @@ export function AccountSettings({
             ) : (
               "Setup in progress"
             )}
-            value={null}
           />
           <ListRow
             className={styles.actionRow}
-            leading={null}
             label="Sign out"
-            value={null}
             onPress={onSignOut}
             actionHint="Sign out of Home"
           />
@@ -214,10 +210,8 @@ function DisclosureRow({
   return (
     <ListRow
       className={`${styles.contentRow} ${styles.disclosureRow}`}
-      leading={null}
       label={title}
       description={children}
-      value={null}
     />
   );
 }

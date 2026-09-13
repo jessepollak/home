@@ -13,7 +13,8 @@ type ListRowBaseProps = Omit<
   HTMLAttributes<HTMLLIElement>,
   "aria-checked" | "children" | "onClick" | "role"
 > & {
-  leading: ReactNode;
+  /** Optional; when omitted the identity spans the leading track (no `display:none` needed). */
+  leading?: ReactNode;
   label: ReactNode;
   description?: ReactNode;
   /** Interactive rows only: announced as a description after the row content ("View details"). */
@@ -88,7 +89,7 @@ export function ListRow({
   const describedBy = actionHint ? hintId : undefined;
   const content = (
     <>
-      <span className="home-ui-list-row__leading">{leading}</span>
+      {leading !== undefined ? <span className="home-ui-list-row__leading">{leading}</span> : null}
       <span className="home-ui-list-row__identity">
         <span className="home-ui-list-row__label">{label}</span>
         {description !== undefined ? (
@@ -103,7 +104,7 @@ export function ListRow({
           ) : null}
         </span>
       ) : null}
-      {onPress !== undefined || href !== undefined ? (
+      {(onPress !== undefined || href !== undefined) && role !== "radio" ? (
         <span className="home-ui-list-row__indicator" aria-hidden="true">›</span>
       ) : null}
     </>
@@ -150,6 +151,8 @@ export function ListRow({
       className={["home-ui-list-row", className].filter(Boolean).join(" ")}
       data-interactive={onPress !== undefined || href !== undefined ? "true" : "false"}
       data-has-value={value !== undefined ? "true" : "false"}
+      data-has-leading={leading !== undefined ? "true" : "false"}
+      data-selection={role === "radio" ? "true" : undefined}
       aria-label={onPress === undefined && href === undefined ? ariaLabel : undefined}
     >
       {rowContent}

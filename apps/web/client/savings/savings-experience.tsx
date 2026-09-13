@@ -408,7 +408,6 @@ export function SavingsExperience({
                 >
                   <ListRow
                     className={styles.vaultRow}
-                    leading={null}
                     label={candidate.name}
                     description={funded && loadState.status === "ready"
                       ? fundedVaultApyLabel(candidate, loadState.data, rateNowMs)
