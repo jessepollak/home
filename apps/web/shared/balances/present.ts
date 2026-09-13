@@ -94,11 +94,6 @@ export function presentBalanceRows(snapshot: BalancesSnapshot): BalanceRowModel[
       holding.balance.status !== "ready" ||
       holding.balance.baseUnits === "0"
     ) continue;
-    if (holding.cashCurrency !== null) {
-      cash.push(presentCash({ kind: "holding", holding }, snapshot));
-      selectedCashIds.add(holding.id);
-      continue;
-    }
     const row = presentAsset(holding, snapshot);
     if (holding.value.status === "priced") {
       if (isAtLeastOneCent(holding.value.amount)) priced.push({ row, value: holding.value.amount });

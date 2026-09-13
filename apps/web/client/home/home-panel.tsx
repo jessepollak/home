@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyTicker } from "@/components/money-ticker";
 import type { FetchActivity } from "@/client/activity";
+import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { FundingActions } from "@/client/funding/funding-actions";
 import { TransferActions } from "@/client/transfers";
 import { previewBalanceRows } from "@/shared/balances/present";
@@ -40,6 +41,7 @@ function SectionTapIn({
 
 export function HomePanel({
   assetBalances,
+  assetMarkResolution,
   activitySession,
   sendAvailability,
   fetchActivity,
@@ -54,6 +56,7 @@ export function HomePanel({
   regionId,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
+  assetMarkResolution?: AssetMarkResolution;
   activitySession: VerifiedAccountSession | null;
   sendAvailability: readonly TransferAssetAvailability[];
   fetchActivity: FetchActivity;
@@ -80,7 +83,6 @@ export function HomePanel({
     assetBalances?.totalStatus === "partial" ? undefined : assetBalances?.statusLabel;
   const showBalanceStatus =
     assetBalances?.status !== "loading" &&
-    balanceStatusLabel !== "Updating…" &&
     Boolean(balanceStatusLabel);
 
   return (
@@ -129,6 +131,7 @@ export function HomePanel({
         />
         <HomeBalancesList
           rows={previewBalanceRows(balanceRows)}
+          assetMarkResolution={assetMarkResolution}
           isLoading={isLoading}
           isUnavailable={assetBalances?.status === "unavailable"}
         />
