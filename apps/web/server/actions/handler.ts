@@ -1,4 +1,10 @@
+import "server-only";
+
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actions/contracts/get";
+import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
+import type { ActionListItem, ListActionsResponse } from "@/shared/actions/contracts/list";
 import type { MoneyActionOwner, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { createTransferReceiptReader, type TransferReceiptStatus } from "./receipt";
@@ -47,7 +53,7 @@ export function createGetActionHandler(dependencies: {
         summary: row.summary,
         calls: row.pending?.calls ?? [],
         expiresAt: row.summary.expiresAt,
-      }, 200);
+      } satisfies GetActionPendingResponse, 200);
     }
     let receipt: ActionReceiptState | null = null;
     if (row.transaction_hash && hashPattern.test(row.transaction_hash)) {
@@ -119,7 +125,7 @@ export function createConfirmActionHandler(dependencies: {
 
     const row = await store.confirm(owner, id, calls);
     if (!row || !row.pending?.calls?.length) return fail("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
-    return privateJson({ id: row.id, calls: row.pending.calls, summary: row.summary, expiresAt: row.summary.expiresAt }, 200);
+    return privateJson({ id: row.id, calls: row.pending.calls, summary: row.summary, expiresAt: row.summary.expiresAt } satisfies ConfirmActionResponse, 200);
   };
 }
 
@@ -153,7 +159,7 @@ export function createHandleActionHandler(dependencies: {
       return fail("INVALID_ACTION_HANDLE", "A provider handle or transaction hash is required.", 400);
     }
     const row = await (dependencies.store ?? getActionsStore()).recordHandle(owner, id, { providerHandle, transactionHash });
-    return row ? privateJson({ action: await presentAction(row, owner) }, 200)
+    return row ? privateJson({ action: await presentAction(row, owner) } satisfies HandleActionResponse, 200)
       : fail("ACTION_NOT_FOUND", "The action is unavailable or the handle conflicts.", 404);
   };
 }
@@ -182,7 +188,7 @@ export function createListActionsHandler(dependencies: {
       }
       return presentAction(row, owner, receipt, dependencies.now?.());
     }));
-    return privateJson({ actions }, 200);
+    return privateJson({ actions } satisfies ListActionsResponse, 200);
   };
 }
 
@@ -214,7 +220,7 @@ export async function presentAction(
       chainId: 8453,
       accountProvider: owner.accountProvider,
     },
-  };
+  } satisfies ActionListItem & GetActionResponse;
 }
 
 export function preparedActionFromResponse(

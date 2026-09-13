@@ -1,4 +1,7 @@
+import "server-only";
+
 import { emitServerEvent } from "@/server/observability/log";
+import type { PrepareActionResponse } from "@/shared/actions/contracts/prepare";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowPreviewRequest } from "@/shared/borrowing/types";
 import type { SavingsActionInput } from "@/server/savings/types";
@@ -44,7 +47,7 @@ export function createPrepareActionHandler(dependencies: {
     };
     try {
       const action = await prepare(session, body.kind, body.params, request.signal, dependencies);
-      return privateJson(action, 201);
+      return privateJson(action satisfies PrepareActionResponse, 201);
     } catch (error) {
       if (error instanceof SavingsActionError) {
         switch (error.reason) {
