@@ -37,6 +37,7 @@ const WAD = BigInt("1000000000000000000");
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const integerPattern = /^(?:0|[1-9][0-9]*)$/;
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
+const RATE_LIMITED_RPC_CODES = new Set([-32016, -32005]);
 
 export type SavingsActionErrorReason =
   | "invalid-input"
@@ -127,13 +128,21 @@ export function createPrepareSavingsAction(options: {
       ? prepareDeposit(normalizedAction, accountAddress, amount, state, expiresAt)
       : prepareWithdrawal(normalizedAction, accountAddress, amount, state, expiresAt);
 
+    const simulationSource = {
+      blockNumber: state.block.number,
+      blockHash: state.block.hash,
+    };
     try {
-      await simulateBatch(draft.calls, accountAddress, {
-        blockNumber: state.block.number,
-        blockHash: state.block.hash,
-      }, signal);
+      await simulateBatch(draft.calls, accountAddress, simulationSource, signal);
     } catch (error) {
-      throw mapSimulationError(error);
+      const mapped = mapSimulationError(error);
+      if (mapped.reason !== "rate-limited") throw mapped;
+      if (retryDelayMs > 0) await sleep(retryDelayMs, signal);
+      try {
+        await simulateBatch(draft.calls, accountAddress, simulationSource, signal);
+      } catch (retryError) {
+        throw mapSimulationError(retryError);
+      }
     }
     return draft;
   };
@@ -305,15 +314,24 @@ function normalizeAction(action: SavingsActionInput): SavingsActionInput {
 
 function mapSimulationError(error: unknown): SavingsActionError {
   if (error instanceof SavingsActionError) return error;
-  if (
-    error instanceof CoinbaseSmartAccountBatchSimulationError &&
-    error.code === "account-capability"
-  ) {
-    return new SavingsActionError(
-      "unavailable",
-      "Savings actions require a deployed Coinbase smart account that supports ordered batch simulation.",
-      { cause: error },
-    );
+  if (error instanceof CoinbaseSmartAccountBatchSimulationError) {
+    if (error.code === "account-capability") {
+      return new SavingsActionError(
+        "unavailable",
+        "Savings actions require a deployed Coinbase smart account that supports ordered batch simulation.",
+        { cause: error },
+      );
+    }
+    if (
+      error.httpStatus === 429 ||
+      (error.rpcCode !== null && RATE_LIMITED_RPC_CODES.has(error.rpcCode))
+    ) {
+      return new SavingsActionError(
+        "rate-limited",
+        "Base RPC is rate limited. Try again shortly.",
+        { cause: error },
+      );
+    }
   }
   return new SavingsActionError(
     "rpc",
