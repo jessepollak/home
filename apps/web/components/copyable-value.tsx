@@ -129,7 +129,7 @@ function CopyableValueControl({
             {errorMessage}
           </span>
           <code
-            className="mt-1.5 block w-full select-text overflow-wrap-anywhere rounded-md border bg-muted px-3 py-2.5 font-mono text-xs text-foreground focus-visible:outline-3 focus-visible:outline-ring"
+            className="mt-1.5 block w-full select-text wrap-anywhere rounded-md border bg-muted px-3 py-2.5 font-mono text-xs text-foreground focus-visible:outline-3 focus-visible:outline-ring"
             aria-label={selectableLabel}
             tabIndex={0}
           >

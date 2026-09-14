@@ -143,7 +143,7 @@ export function AuthenticatedBorrowTeaser({ onOpen, regionId = "GLOBAL" }: { onO
     .sort((a, b) => a.market.rank - b.market.rank)[0] ?? null;
   const title = active ? "Bitcoin position" : "Borrow against Bitcoin";
   const description = active
-    ? `${formatToken(active.debtAssetsRaw, active.market.loanToken, regionId)} borrowed · ${bufferCopy(active.healthFactorWad)}`
+    ? borrowTeaserPositionDescription(active, regionId)
     : leading?.availability.status === "unavailable"
       ? "Bitcoin borrowing is currently unavailable"
       : "Borrow USDC with cbBTC on Base";
@@ -186,6 +186,7 @@ function BorrowExperienceInner({
   if (configuredSelection) {
     return (
       <BorrowDirectMarket
+        key={configuredSelection}
         session={session}
         fetchAccountResource={fetchAccountResource}
         prepareMoneyAction={prepareMoneyAction}
@@ -226,7 +227,7 @@ function BorrowExperienceInner({
               {overview.data.discovery.reason ?? "Position discovery may be incomplete. Missing values are not zero."}
             </BorrowNotice>
           ) : null}
-          <div className="space-y-3" aria-label="Borrow markets">
+          <div className="space-y-3" aria-label="Borrow markets" role="list">
             {overview.data.opportunities
               .slice()
               .sort((a, b) => a.market.rank - b.market.rank)
@@ -273,6 +274,8 @@ function BorrowDirectMarket({
   const canOpen = Boolean(snapshot && snapshot.eligibility.newRisk && snapshot.eligibility.mode === "enabled" &&
     risk !== "urgent" && risk !== "liquidatable" && BigInt(snapshot.state.liquidityAssetsRaw) > BigInt(0) &&
     (hasCollateral ? BigInt(snapshot.position.borrowCapacityAssetsRaw) > BigInt(0) : BigInt(openingBorrowAvailableBaseUnits(snapshot)) > BigInt(0)));
+  const [dialogSnapshot, setDialogSnapshot] = useState<BorrowMarketSnapshot | null>(null);
+  if (!dialogSnapshot && snapshot && canOpen) setDialogSnapshot(snapshot);
 
   return (
     <section className="space-y-4" aria-labelledby="borrow-direct-title">
@@ -287,7 +290,7 @@ function BorrowDirectMarket({
           Current wallet, market, and position values could not be verified.
         </BorrowNotice>
       ) : null}
-      {snapshot && !canOpen ? (
+      {snapshot && !canOpen && !dialogSnapshot ? (
         <Card className="overflow-hidden">
           <CardContent className="space-y-4 px-4 py-0 sm:px-5">
             <BorrowMarketHeading market={snapshot.market} />
@@ -300,11 +303,11 @@ function BorrowDirectMarket({
           </CardContent>
         </Card>
       ) : null}
-      {snapshot && canOpen && session?.smartAccount && prepareMoneyAction && executeMoneyAction ? (
+      {dialogSnapshot && session?.smartAccount && prepareMoneyAction && executeMoneyAction ? (
         <BorrowMoneyDialog
           session={session}
-          snapshot={snapshot}
-          operation={hasCollateral ? "borrow" : "supply-and-borrow"}
+          snapshot={dialogSnapshot}
+          operation={BigInt(dialogSnapshot.position.collateralRaw) > BigInt(0) ? "borrow" : "supply-and-borrow"}
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
           regionId={regionId}
@@ -340,7 +343,7 @@ function BorrowMarketCard({
   const urgent = risk === "urgent" || risk === "liquidatable";
 
   return (
-    <Card className="overflow-hidden" data-testid="borrow-market-card">
+    <Card className="overflow-hidden" data-testid="borrow-market-card" role="listitem">
       <CardContent className="space-y-4 px-4 py-0 sm:px-5">
         <BorrowMarketHeading market={opportunity.market} />
         {opportunity.availability.status === "unavailable" ? (
@@ -415,7 +418,7 @@ function BorrowOpenSummary({ snapshot, regionId }: { snapshot: BorrowMarketSnaps
       : "You need cbBTC in this wallet before you can borrow.";
   return (
     <div className="space-y-1">
-      <p className="overflow-wrap-anywhere text-xl font-semibold tabular-nums"><MoneyTicker value={formatToken(available, snapshot.market.loanToken, regionId)} /> available</p>
+      <p className="text-xl font-semibold tabular-nums"><MoneyTicker className="overflow-x-auto" value={formatToken(available, snapshot.market.loanToken, regionId)} /> available</p>
       <p className="text-sm text-muted-foreground">
         {collateralCopy}{hasSuppliedCollateral || hasWalletCollateral ? ` · ${formatWadPercent(snapshot.state.borrowAprWad, regionId)} variable rate` : ""}
       </p>
@@ -429,11 +432,11 @@ function BorrowPositionSummary({ snapshot, regionId }: { snapshot: BorrowMarketS
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="min-w-0 rounded-lg bg-muted/50 p-3">
           <p className="text-xs text-muted-foreground">Borrowed</p>
-          <p className="overflow-wrap-anywhere font-semibold tabular-nums"><MoneyTicker value={formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId)} /></p>
+          <p className="font-semibold tabular-nums"><MoneyTicker className="overflow-x-auto" value={formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId)} /></p>
         </div>
         <div className="min-w-0 rounded-lg bg-muted/50 p-3">
           <p className="text-xs text-muted-foreground">Bitcoin locked</p>
-          <p className="overflow-wrap-anywhere font-semibold tabular-nums"><MoneyTicker value={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} /></p>
+          <p className="font-semibold tabular-nums"><MoneyTicker className="overflow-x-auto" value={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} /></p>
         </div>
       </div>
       <LiquidationBufferMeter
@@ -477,12 +480,12 @@ function BorrowCardActions({ snapshot, urgent, onOpen }: { snapshot: BorrowMarke
         ))}
       </div>
       {hasDebt || hasCollateral ? (
-        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+        <div className="flex flex-wrap items-center gap-2 border-t pt-3" role="group" aria-label="Manage Bitcoin position">
           <span className="mr-1 text-xs font-medium text-muted-foreground">Manage</span>
           {!urgent ? <Button className="min-h-11 h-auto whitespace-normal py-2" size="sm" variant="outline" disabled={!hasWalletCollateral} onClick={() => onOpen("supply-collateral")}>Add collateral</Button> : null}
           {hasDebt ? <Button className="min-h-11 h-auto whitespace-normal py-2" size="sm" variant="outline" disabled={!hasWalletLoan} onClick={() => onOpen("repay-all")}>Repay all</Button> : null}
-          <Button className="min-h-11 h-auto whitespace-normal py-2" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>Withdraw</Button>
-          <Button className="min-h-11 h-auto whitespace-normal py-2" size="sm" variant="outline" disabled={!hasCollateral && !hasDebt || (hasDebt && !hasWalletLoan)} onClick={() => onOpen("close-position")}>Close</Button>
+          <Button aria-label="Withdraw collateral from Bitcoin position" className="min-h-11 h-auto whitespace-normal py-2" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>Withdraw</Button>
+          <Button aria-label="Close Bitcoin position" className="min-h-11 h-auto whitespace-normal py-2" size="sm" variant="outline" disabled={!hasCollateral && !hasDebt || (hasDebt && !hasWalletLoan)} onClick={() => onOpen("close-position")}>Close</Button>
         </div>
       ) : null}
       {snapshot.eligibility.mode === "reducing-only" || !snapshot.eligibility.newRisk ? (
@@ -657,17 +660,24 @@ function BorrowMoneyDialog({
                   pricing={primaryPricing}
                   nativeSymbol={primaryAsset.symbol}
                 />
-                {operation === "supply-and-borrow" && openingCollateralBaseUnits ? (
-                  <BorrowNotice title="Bitcoin collateral">
-                    Borrowing this amount will lock {formatToken(openingCollateralBaseUnits, snapshot.market.collateralToken, regionId)} as collateral. It remains yours, but cannot be withdrawn while it backs this debt.
-                  </BorrowNotice>
+                <MoneyNumpad value={amount} maxDecimals={primaryAsset.decimals} onChange={(value, source) => { setAmount(value); setAmountChangeSource(source); }} />
+                {operation === "supply-and-borrow" ? (
+                  <div className="min-h-[4.5rem] rounded-lg border bg-muted/40 px-3 py-2 text-sm" data-testid="borrow-collateral-preview">
+                    <p className="font-medium">Bitcoin collateral</p>
+                    <p className="text-muted-foreground">
+                      {openingCollateralBaseUnits
+                        ? `This borrow will lock ${formatToken(openingCollateralBaseUnits, snapshot.market.collateralToken, regionId)} as collateral.`
+                        : isPositiveDecimalAmount(amount)
+                          ? "That amount needs more cbBTC than is available in this wallet."
+                          : "Enter an amount to preview the cbBTC that will be locked."}
+                    </p>
+                  </div>
                 ) : null}
                 {maximumOperation ? (
                   <BorrowNotice title="Maximum repayment">
                     Current debt is {formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId)}. The actual repayment is determined by current borrow shares and cannot exceed the amount you review.
                   </BorrowNotice>
                 ) : null}
-                <MoneyNumpad value={amount} maxDecimals={primaryAsset.decimals} onChange={(value, source) => { setAmount(value); setAmountChangeSource(source); }} />
               </>
             )}
           </>
@@ -710,15 +720,17 @@ function BorrowPreparedReview({ action, snapshot, regionId }: { action: Prepared
   });
   return (
     <div className="space-y-3">
-      <MoneyConfirmSummary
-        amount={amount}
-        lead={action.title}
-        rows={[
-          ...movementRows,
-          { label: "Variable rate", value: formatWadPercent(metadata?.borrowAprWad ?? snapshot.state.borrowAprWad, regionId) },
-          { label: "Network", value: "Base" },
-        ]}
-      />
+      <div className="min-w-0 [&_[data-slot=money-ticker]]:overflow-x-auto [&_dd]:wrap-anywhere">
+        <MoneyConfirmSummary
+          amount={amount}
+          lead={action.title}
+          rows={[
+            ...movementRows,
+            { label: "Variable rate", value: formatWadPercent(metadata?.borrowAprWad ?? snapshot.state.borrowAprWad, regionId) },
+            { label: "Network", value: "Base" },
+          ]}
+        />
+      </div>
       {metadata?.projectedHealthFactorWad ? (
         <LiquidationBufferMeter
           healthFactorWad={metadata.projectedHealthFactorWad}
@@ -907,6 +919,12 @@ function bufferCopy(healthFactorWad: string | null): string {
   const bps = liquidationBufferBps(healthFactor);
   if (bps === null || healthFactor === null) return "No debt";
   return healthFactor <= WAD ? "Immediate liquidation risk" : `Bitcoin can fall ${formatBufferPercent(bps)}`;
+}
+
+export function borrowTeaserPositionDescription(position: BorrowOverviewPosition, regionId: RegionId): string {
+  return BigInt(position.debtAssetsRaw) === BigInt(0)
+    ? `No debt · ${formatToken(position.collateralRaw, position.market.collateralToken, regionId)} locked`
+    : `${formatToken(position.debtAssetsRaw, position.market.loanToken, regionId)} borrowed · ${bufferCopy(position.healthFactorWad)}`;
 }
 
 export function parseClientTokenAmount(value: string, decimals: number): string {

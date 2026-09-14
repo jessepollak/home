@@ -91,7 +91,7 @@ function MoneyActionReviewContent({
                 <dt className="text-muted-foreground">
                   {amount.maximum ? "Up to" : amount.direction === "spend" ? "You spend" : "You receive"}
                 </dt>
-                <dd className="m-0 overflow-wrap-anywhere font-medium tabular-nums sm:text-right">
+                <dd className="m-0 wrap-anywhere font-medium tabular-nums sm:text-right">
                   {amount.estimated ? "Estimated " : ""}
                   <MoneyTicker className="inline-flex align-bottom" value={formattedAmount} />
                 </dd>
@@ -140,7 +140,7 @@ function ReviewRow({ label, children }: { label: string; children: ReactNode }) 
   return (
     <div className="grid min-h-11 grid-cols-1 items-start gap-1 border-b py-2 text-sm last:border-b-0 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="m-0 overflow-wrap-anywhere font-medium tabular-nums sm:text-right">{children}</dd>
+      <dd className="m-0 wrap-anywhere font-medium tabular-nums sm:text-right">{children}</dd>
     </div>
   );
 }

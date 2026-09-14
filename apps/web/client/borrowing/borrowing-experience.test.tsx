@@ -15,9 +15,10 @@ import {
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 
-const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const {
   BorrowExperience,
+  borrowTeaserPositionDescription,
   openingBorrowAvailableBaseUnits,
   parseClientTokenAmount,
   partialRepayMaximumBaseUnits,
@@ -129,8 +130,12 @@ describe("BorrowExperience redesign", () => {
     fireEvent.click(await body.findByRole("button", { name: "Borrow" }));
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
     expect(dialog.getByRole("img", { name: /\$500\.00 available/ })).toBeTruthy();
-    fireEvent.click(dialog.getByRole("button", { name: "1" }));
-    expect(dialog.getByText(/will lock .*cbBTC as collateral/)).toBeTruthy();
+    const numpadKey = dialog.getByRole("button", { name: "1" });
+    fireEvent.click(numpadKey);
+    const preview = dialog.getByTestId("borrow-collateral-preview");
+    expect(preview.textContent).toMatch(/will lock .*cbBTC as collateral/);
+    expect(preview.getAttribute("role")).toBeNull();
+    expect(numpadKey.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     await dialog.findByText("Network");
     expect(dialog.getByText("Base")).toBeTruthy();
@@ -140,6 +145,23 @@ describe("BorrowExperience redesign", () => {
     expect(dialog.queryByText("LLTV")).toBeNull();
     expect(dialog.getByRole("meter", { name: "Liquidation buffer" })).toBeTruthy();
     expect(requests).toEqual([{ kind: "borrow", params: { marketId: BORROW_MARKET_ID, operation: "supply-and-borrow", amountBaseUnits: "1000000", collateralAmountBaseUnits: recommendedOpeningCollateralBaseUnits(snapshot, "1000000") } }]);
+  });
+
+  test("keeps the collateral preview stable below the numpad and explains over-available amounts without a live region", async () => {
+    const snapshot = noPosition();
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot)} prepareMoneyAction={async () => prepared("supply-and-borrow")} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body);
+    fireEvent.click(await body.findByRole("button", { name: "Borrow" }));
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    const preview = dialog.getByTestId("borrow-collateral-preview");
+    expect(preview.textContent).toContain("Enter an amount to preview");
+    for (let index = 0; index < 6; index += 1) {
+      fireEvent.click(dialog.getByRole("button", { name: "9" }));
+    }
+    expect(dialog.getByTestId("borrow-collateral-preview")).toBe(preview);
+    expect(preview.textContent).toContain("needs more cbBTC than is available");
+    expect(preview.closest("[role='status'], [role='alert']")).toBeNull();
+    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   test("uses supplied collateral for a zero-debt position without requiring or locking more wallet cbBTC", async () => {
@@ -180,6 +202,20 @@ describe("BorrowExperience redesign", () => {
     expect(body.queryByText("Available liquidity")).toBeNull();
   });
 
+  test("keeps a direct Borrow modal mounted with its verified snapshot while the detail refetches", async () => {
+    const first = noPosition();
+    const unavailable = noPosition({ wallet: { ...first.wallet, collateralBalanceRaw: "0" } });
+    let fetches = 0;
+    render(<BorrowExperience session={session()} selectedMarketId={BORROW_MARKET_ID} fetchAccountResource={async () => ++fetches === 1 ? first : unavailable} prepareMoneyAction={async () => prepared("supply-and-borrow")} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body);
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    await act(async () => { await getHomeQueryClient().invalidateQueries(); });
+    await waitFor(() => expect(fetches).toBeGreaterThan(1));
+    expect(body.getByRole("dialog", { name: "Borrow" })).toBeTruthy();
+    expect(dialog.getByTestId("borrow-collateral-preview").textContent).toMatch(/will lock .*cbBTC/);
+  });
+
   test("keeps the no-cbBTC market visible but inert", async () => {
     const snapshot = noPosition({ wallet: { ...noPosition().wallet, collateralBalanceRaw: "0" } });
     render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot)} />);
@@ -203,8 +239,11 @@ describe("BorrowExperience redesign", () => {
     const borrow = body.getByRole("button", { name: "Borrow more" });
     expect(borrow.parentElement?.className).toContain("grid-cols-1");
     expect(borrow.className).toContain("min-h-11");
-    expect(body.getByRole("button", { name: "Withdraw" }).className).toContain("min-h-11");
-    expect(body.getByRole("button", { name: "Close" }).className).toContain("min-h-11");
+    expect(body.getByRole("list", { name: "Borrow markets" })).toBeTruthy();
+    expect(body.getByRole("listitem")).toBe(card);
+    expect(body.getByRole("group", { name: "Manage Bitcoin position" })).toBeTruthy();
+    expect(body.getByRole("button", { name: "Withdraw collateral from Bitcoin position" }).className).toContain("min-h-11");
+    expect(body.getByRole("button", { name: "Close Bitcoin position" }).className).toContain("min-h-11");
     expect(card.className).not.toContain("hover:bg-muted");
   });
 
@@ -340,5 +379,11 @@ describe("Borrow bigint helpers", () => {
     const healthy = overview().positions[0];
     const urgent = { ...healthy, market: { ...healthy.market, rank: 2 }, healthFactorWad: "1200000000000000000" };
     expect(selectUrgentBorrowPosition([healthy, urgent])).toBe(urgent);
+  });
+
+  test("describes a collateral-only server position without a zero borrowed amount", () => {
+    const active = overview().positions[0];
+    const collateralOnly = { ...active, borrowSharesRaw: "0", debtAssetsRaw: "0", healthFactorWad: null };
+    expect(borrowTeaserPositionDescription(collateralOnly, "US")).toBe("No debt · 0.5000 cbBTC locked");
   });
 });
