@@ -158,6 +158,14 @@ export type Observation = {
   state: ReportedState;
   providerStatus: string;
   transactionHash?: `0x${string}` | null;
+  // The token amount the provider settles when it deducts its own fee from
+  // the mint after the order was created (IDRX hosted QRIS). Must be at
+  // most `expectedTokenAmountAtomic`; the core verifies the Base transfer
+  // against this amount instead of the requested one. `fees` itemizes the
+  // provider's charges as reported with that settlement, in the quote fee
+  // shape, so the deduction shows as fee lines on the order.
+  settledTokenAmountAtomic?: string;
+  fees?: Quote["fees"];
 };
 
 export type OrderState =

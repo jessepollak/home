@@ -223,10 +223,16 @@ export class FundingCore {
       }, ctx);
     } catch { return order; }
     const nextState = observation.state === "sent" ? "sent-unverified" : observation.state;
+    // A provider may settle less than requested when it deducts its own fee
+    // after creation (IDRX hosted QRIS). Never more: the adapter is not
+    // allowed to raise what counts as received.
+    const settled = settledAmount(observation, order.expectedTokenAmountAtomic);
+    if (settled === undefined) return order;
     let updated = await this.deps.store.applyObservation(order.id, {
       state: nextState,
       providerStatus: observation.providerStatus,
       providerTransactionHash: observation.transactionHash,
+      ...(settled ? { expectedTokenAmountAtomic: settled, ...(observation.fees ? { fees: observation.fees } : {}) } : {}),
       expectedVersion: order.version,
       updatedAt: this.now().toISOString(),
     });
@@ -257,6 +263,16 @@ export class FundingCore {
   private provider(id: string) { return this.deps.providers.find((provider) => provider.manifest.id === id); }
   private quoteSecret() { return this.env.FUNDING_QUOTE_SECRET?.trim() ?? ""; }
   private sandbox() { return this.env.FUNDING_SANDBOX === "1"; }
+}
+
+// Returns the settled amount to store, null when the observation carries none,
+// or undefined when the reported amount is invalid and must be ignored.
+function settledAmount(observation: Observation, expected: string): string | null | undefined {
+  const reported = observation.settledTokenAmountAtomic;
+  if (reported === undefined) return null;
+  if (!/^[1-9][0-9]{0,77}$/.test(reported)) return undefined;
+  if (BigInt(reported) > BigInt(expected)) return undefined;
+  return reported === expected ? null : reported;
 }
 
 export class FundingCoreError extends Error { constructor(readonly code: string, readonly status: number) { super(code); } }

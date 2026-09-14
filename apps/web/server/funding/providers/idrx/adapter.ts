@@ -173,10 +173,9 @@ export const idrxProvider: FundingProvider = {
         return unknown("AMBIGUOUS_HISTORY");
       }
       const record = payload.records[0];
-      if (!recordMatchesReconciliationIntent(record, input, ctx)) {
-        return unknown("INTENT_MISMATCH");
-      }
-      return observationFromRecord(record);
+      const settlement = readReconciliationSettlement(record, input, ctx);
+      if (!settlement) return unknown("INTENT_MISMATCH");
+      return observationFromRecord(record, settlement);
     } catch {
       return unknown("INVALID_RESPONSE");
     }
@@ -234,6 +233,17 @@ async function classifyCreateFailure(response: Response): Promise<CreateOrderRes
       return { outcome: "ambiguous" };
     }
     const message = typeof payload.message === "string" ? payload.message : "";
+    // IDRX attaches a machine-readable `data.code` (for example
+    // `BANK_ACCOUNT_REQUIRED` when a VA channel needs a registered bank
+    // account) to validation rejections. No order exists in that case.
+    if (
+      response.status === 400 &&
+      isRecord(payload.data) &&
+      typeof payload.data.code === "string" &&
+      /^[A-Z][A-Z0-9_]{2,63}$/.test(payload.data.code)
+    ) {
+      return { outcome: "rejected", message: rejectionCopy(payload.data.code) };
+    }
     if (!isDocumentedDefinitiveCreateError(response.status, message)) {
       return { outcome: "ambiguous" };
     }
@@ -241,6 +251,16 @@ async function classifyCreateFailure(response: Response): Promise<CreateOrderRes
   } catch {
     return { outcome: "ambiguous" };
   }
+}
+
+// The core stores the rejection message as providerStatus and shows it to
+// the user, so provider text never passes through; coded rejections map to
+// Home copy the user can act on.
+function rejectionCopy(code: string): string {
+  if (code === "BANK_ACCOUNT_REQUIRED") {
+    return "This bank transfer option is not available for this account yet. Choose another way to pay.";
+  }
+  return "IDRX rejected the funding order.";
 }
 
 function isDocumentedDefinitiveCreateError(
@@ -322,20 +342,52 @@ function readPaymentEchoes(
   return { fees, paymentAmount };
 }
 
-function assertHistoryPaymentEchoes(
+// Live history records carry `paymentAmount` (what the user pays) and
+// `fees[]`; the invariant is paymentAmount = toBeMinted + sum(fees), whether
+// a fee is added on top (VA) or deducted from the mint (hosted QRIS).
+function readHistoryPaymentEchoes(
   data: JsonRecord,
-  expectedAtomic: bigint,
+  settledAtomic: bigint,
   decimals: number,
-): void {
-  const hasPaymentAmount = data.amount !== undefined;
+): ProviderOrder["fees"] | null {
+  const paymentValues = [data.paymentAmount, data.amount].filter(
+    (value) => value !== undefined,
+  );
   const hasFees = data.fees !== undefined;
-  if (!hasPaymentAmount && !hasFees) return;
-  if (!hasPaymentAmount || !hasFees) {
+  if (paymentValues.length === 0 && !hasFees) return null;
+  if (paymentValues.length === 0 || !hasFees) {
     throw new Error("Incomplete IDRX history payment echoes.");
   }
+  const normalized = new Set(paymentValues.map(readDecimal));
+  if (normalized.size !== 1) throw new Error("Conflicting IDRX payment amounts.");
   const fees = readFees(data.fees);
-  const paymentAmount = readDecimal(data.amount);
-  assertPaymentAmount(paymentAmount, expectedAtomic, fees, decimals);
+  assertPaymentAmount([...normalized][0] as string, settledAtomic, fees, decimals);
+  return fees;
+}
+
+// A lowered mint is only acceptable when the record itemizes fees that cover
+// the shortfall, and the shortfall stays within a small share of the request.
+function assertBoundedShortfall(
+  expectedAtomic: bigint,
+  settledAtomic: bigint,
+  fees: ProviderOrder["fees"] | null,
+  decimals: number,
+): void {
+  if (fees === null) {
+    throw new Error("IDRX lowered the mint without itemized fees.");
+  }
+  const feeAtomic = fees.reduce((total, fee) => {
+    const atomic = idrxAtomicAmount(fee.amount, decimals);
+    if (atomic === null) throw new Error("Invalid IDRX fee amount.");
+    return total + atomic;
+  }, BigInt(0));
+  const shortfall = expectedAtomic - settledAtomic;
+  if (shortfall > feeAtomic) {
+    throw new Error("IDRX shortfall exceeds the itemized fees.");
+  }
+  if (shortfall * BigInt(10_000) > expectedAtomic * MAX_SETTLEMENT_SHORTFALL_BASIS_POINTS) {
+    throw new Error("IDRX shortfall exceeds the settlement cap.");
+  }
 }
 
 function assertPaymentAmount(
@@ -580,11 +632,27 @@ function isValidReconciliationIntent(
   );
 }
 
-function recordMatchesReconciliationIntent(
+type Settlement = {
+  settledAtomic: bigint;
+  expectedAtomic: bigint;
+  fees: ProviderOrder["fees"];
+};
+
+// A provider may lower the settled amount only by fees it itemizes, and the
+// deduction may not exceed this share of the requested amount. IDRX deducts
+// the 0.7% QRIS fee from the mint; flat channel fees are paid on top and do
+// not lower it, so the cap is on the shortfall, not on the fee total.
+const MAX_SETTLEMENT_SHORTFALL_BASIS_POINTS = BigInt(500);
+
+// Validates a history record against the immutable intent and returns the
+// amount IDRX will actually mint. IDRX deducts a channel fee from the minted
+// amount for hosted QRIS (0.7% on 2026-09-14), so `toBeMinted` in the record
+// can be lower than the requested amount; it can never be higher.
+function readReconciliationSettlement(
   record: JsonRecord,
   input: ReconciliationIntent,
   ctx: ProviderContext,
-): boolean {
+): Settlement | null {
   try {
     const expectedAtomic = BigInt(input.expectedTokenAmountAtomic);
     assertOrderIdAliases(record, input.providerOrderId, true);
@@ -593,21 +661,64 @@ function recordMatchesReconciliationIntent(
     assertChainAliases(record, input.chainId);
     assertTokenAliases(record, ctx);
     assertDestinationAliases(record, input.destination);
-    assertAmountAliases(record, expectedAtomic, input.tokenDecimals);
-    assertHistoryPaymentEchoes(record, expectedAtomic, input.tokenDecimals);
+    const settledAtomic = readSettledAmount(
+      record,
+      expectedAtomic,
+      input.tokenDecimals,
+    );
+    const fees = readHistoryPaymentEchoes(record, settledAtomic, input.tokenDecimals);
+    if (settledAtomic < expectedAtomic) {
+      assertBoundedShortfall(expectedAtomic, settledAtomic, fees, input.tokenDecimals);
+    }
     assertRailEchoes(
       record,
       channelForPaymentMethod(ctx.binding.paymentMethod.id),
     );
     readCheckoutUrlEchoes(record, false);
     readTransactionHash(record);
-    return true;
+    return { settledAtomic, expectedAtomic, fees: fees ?? [] };
   } catch {
-    return false;
+    return null;
   }
 }
 
-function observationFromRecord(record: JsonRecord): Observation {
+function readSettledAmount(
+  record: JsonRecord,
+  expectedAtomic: bigint,
+  decimals: number,
+): bigint {
+  for (const value of [record.decimals, record.tokenDecimals, record.assetDecimals]) {
+    assertOptionalInteger(value, decimals);
+  }
+  assertOptionalAtomicAmount(record.baseAmount, expectedAtomic, decimals);
+  let settled = expectedAtomic;
+  if (record.toBeMinted !== undefined) {
+    const minted = idrxAtomicAmount(readDecimal(record.toBeMinted), decimals);
+    if (minted === null || minted <= BigInt(0) || minted > expectedAtomic) {
+      throw new Error("IDRX settled amount outside the requested amount.");
+    }
+    settled = minted;
+  }
+  for (const value of [
+    record.expectedTokenAmountAtomic,
+    record.tokenAmountAtomic,
+    record.amountAtomic,
+  ]) {
+    assertOptionalAtomicString(value, settled);
+  }
+  return settled;
+}
+
+function observationFromRecord(
+  record: JsonRecord,
+  settlement: Settlement,
+): Observation {
+  const settled = settlement.settledAtomic === settlement.expectedAtomic
+    ? {}
+    : {
+        settledTokenAmountAtomic: settlement.settledAtomic.toString(10),
+        fees: settlement.fees,
+      };
   const mint = typeof record.userMintStatus === "string"
     ? record.userMintStatus
     : "INVALID";
@@ -620,11 +731,12 @@ function observationFromRecord(record: JsonRecord): Observation {
     return {
       state: "sent",
       providerStatus,
+      ...settled,
       ...(transactionHash ? { transactionHash } : {}),
     };
   }
   if (mint === "PROCESSING" && payment === "PAID") {
-    return { state: "settling", providerStatus };
+    return { state: "settling", providerStatus, ...settled };
   }
   if (mint === "NOT_AVAILABLE" && payment === "WAITING_FOR_PAYMENT") {
     return { state: "awaiting-payment", providerStatus };
@@ -736,15 +848,20 @@ function readExpiry(value: unknown): string {
   return expiry;
 }
 
+// The live IDRX API serialises amounts as JSON numbers (`"toBeMinted": 19860`,
+// `"paymentAmount": 23000`); fee entries and older responses use strings.
 function readDecimal(value: unknown): string {
+  const text = typeof value === "number" && Number.isFinite(value)
+    ? String(value)
+    : value;
   if (
-    typeof value !== "string" ||
-    value.length > MAX_IDRX_DECIMAL_LENGTH ||
-    !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(value)
+    typeof text !== "string" ||
+    text.length > MAX_IDRX_DECIMAL_LENGTH ||
+    !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(text)
   ) {
     throw new Error("Invalid decimal amount.");
   }
-  return value;
+  return text;
 }
 
 function readOptionalReference(value: unknown): { reference?: string } {
