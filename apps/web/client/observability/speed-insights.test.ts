@@ -15,6 +15,11 @@ describe("Speed Insights route boundary", () => {
       url: "https://home.example/dashboard?panel=balances#asset",
       route: "/dashboard",
     })).toEqual({ ...vital, url: "https://home.example/dashboard", route: "/dashboard" });
+    expect(filterSpeedInsightsEvent({
+      ...vital,
+      url: "https://alice:secret@home.example/dashboard?panel=balances#asset",
+      route: "/dashboard",
+    })).toEqual({ ...vital, url: "https://home.example/dashboard", route: "/dashboard" });
   });
 
   test("drops unobserved, relative, and malformed URLs", () => {

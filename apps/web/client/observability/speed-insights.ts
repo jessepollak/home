@@ -8,9 +8,8 @@ export const filterSpeedInsightsEvent: BeforeSendMiddleware = (event) => {
     const pathname = url.pathname;
     if (!observedRoutes.has(pathname)) return null;
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    url.search = "";
-    url.hash = "";
-    return { ...event, url: url.href };
+    const sanitizedUrl = new URL(pathname, url.origin);
+    return { ...event, url: sanitizedUrl.href };
   } catch {
     return null;
   }
