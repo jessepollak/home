@@ -1,32 +1,46 @@
 # Borrow
 
-Jesse-locked September 13, 2026 ([#395](https://github.com/jessepollak/home/issues/395)). This document describes the delivered Borrow boundary, including the routed portfolio and MoneyModal experience.
+Jesse-locked September 13, 2026 ([#395](https://github.com/jessepollak/home/issues/395)). Updated September 14, 2026 for the direct market-card and MoneyModal experience.
 
 ## Launch boundary
 
-Borrow uses an operator-controlled, compile-time `BorrowMarketRef` registry on Base. That registry—not Morpho API discovery, protocol listing state, or a permissionless catalog—controls which markets Home advertises and enables for new risk. Launch enables only the verified Morpho USDC/cbBTC isolated market. The reader, integer math, calldata builders, and action preparation are market-parameterized so another reviewed isolated market is a registry entry plus fixtures, not a second protocol integration. Home does not load a permissionless market catalog or run background alerts.
+Borrow uses an operator-controlled, compile-time `BorrowMarketRef` registry on Base. The registry—not Morpho API discovery, protocol listing state, or a permissionless catalog—controls which markets Home shows and enables for new risk. Launch enables only the verified Morpho USDC/cbBTC isolated market. The reader, shared integer math, calldata builders, and action preparation remain market-parameterized.
 
 Removing or warning a market must not remove management access for an existing position. Operators retain its trusted registry tuple and change it to `reducing-only`; repay, repay-all, close, add-collateral, and zero-debt collateral withdrawal remain available when their required reads verify, while borrow-more and debt-bearing collateral withdrawal remain blocked.
 
-Every detail read and action prepare verifies `idToMarketParams` against the trusted registry tuple at a pinned block. The server derives the owner, `onBehalf`, receiver, Morpho deployment, tokens, oracle, IRM, and LLTV. It simulates the exact ordered Coinbase smart-account batch and reconfirms the pinned block hash. The client sends only a configured market id, an operation, and decimal-integer base-unit amounts.
+Every market read and action prepare verifies `idToMarketParams` against the trusted registry tuple at a pinned block. The server derives the owner, `onBehalf`, receiver, Morpho deployment, tokens, oracle, IRM, and LLTV. It simulates the exact ordered Coinbase smart-account batch and reconfirms the pinned block hash. The client sends only a configured market id, an operation, and decimal-integer base-unit amounts.
 
-## Routed UI
+## Borrow interface
 
-Signed-in users open Borrow at `/dashboard?panel=borrow`. A configured market detail uses `/dashboard?panel=borrow&market=<market-id>`; the client accepts only market ids from the compile-time registry. The overview shows verified active positions before other enabled opportunities, preserves partial-discovery uncertainty, and routes every action through the shared MoneyModal prepare/review/confirm flow.
+Signed-in users open Borrow at `/dashboard?panel=borrow`. The overview shows one friendly card for every enabled registry market, whether or not the owner has debt. The Bitcoin card uses the Bitcoin display name while exact token amounts continue to say `cbBTC`. A missing cbBTC balance leaves the market visible but disables Borrow; it does not redirect to another product.
 
-Borrow review is server-authored. The client displays the prepared action's exact movements, projected health or `No debt`, liquidation price, and all server warnings. Prepared reviews expire after two minutes and must be prepared again before confirmation. Repay-all and close use a wallet-capped debt buffer for accrual while the server remains authoritative over exact borrow shares, finite approval, simulation, and the reviewed maximum.
+An active position stays on the same market card. Borrow more and Repay are the primary actions; Add collateral, Repay all, Withdraw, and Close are compact management actions. When liquidation risk is urgent, Repay and Add collateral move to the primary positions. Partial and unavailable reads remain explicit and are never presented as zero.
+
+The `market` query parameter is still accepted for configured registry ids, but it opens the direct Borrow MoneyModal rather than the deprecated dense market inspector. Home does not show LLTV, raw protocol-limit rows, contract facts, or a separate detail dashboard on the Borrow product surface.
+
+## Opening and reviewing a position
+
+A user without a position enters the USDC amount first. Available borrowing is derived with pure shared bigint math from the verified wallet cbBTC balance, current market liquidity, Morpho share rounding, and Home's `1.25` hard health-factor floor.
+
+Home automatically derives the least collateral that targets health factor `1.50`. If the requested amount cannot reach `1.50` with the wallet balance but can still satisfy the `1.25` hard floor, Home uses the available wallet collateral. It does not lock the whole wallet by default. Before review, the modal states the exact cbBTC amount that will be locked and that collateral cannot be withdrawn while it backs the debt. The existing atomic supply-and-borrow action still sends an explicit collateral amount.
+
+Liquidation risk is presented as price-drop buffer: `buffer bps = (health factor - WAD) * 10000 / health factor`. With no debt there is no meter. The visual meter clamps at 50%, includes 20% floor and approximately 33% healthy ticks, and exposes an accessible meter value. User copy says “Bitcoin can fall X% before liquidation,” with liquidation price as optional secondary information. Numeric health factor is secondary position text only.
+
+Borrow review is concise and server-authored. It shows the primary amount, exact spend/receive or repay movements, the projected liquidation buffer, the variable rate from the fresh prepared snapshot, Network Base, and compact server warnings. Prepared reviews expire after two minutes and must be prepared again before confirmation.
+
+Repay-all and close use current borrow shares with a finite wallet-bounded maximum. The client buffer is approximately one hour of rate-based debt accrual plus one base unit; the server remains authoritative over exact borrow shares, finite approval, simulation, and the reviewed maximum.
 
 ## Private APIs
 
 - `GET /api/borrow` returns version `1`: configured opportunities, verified non-zero positions, owner/provider scope, and truthful complete/partial discovery. A failed market read is `unavailable`; it is never a zero balance or zero position.
-- `GET /api/borrow/markets/:marketId` returns version `1`: exact market identity, pinned source block, market state, wallet state, accrued position, raw protocol limits, and Home policy-adjusted limits.
-- `POST /api/actions/prepare` supports add collateral, borrow, atomic supply-and-borrow, partial repay, capped share-based repay-all, collateral withdrawal, and atomic close. Compound operations map to the existing durable `borrow` and `repay` kinds.
+- `GET /api/borrow/markets/:marketId` returns version `1`: exact market identity, pinned source block, market state, wallet state, accrued position, raw protocol limits, and Home policy-adjusted limits. The product uses this data to power the card and direct modal, not a detail inspector.
+- `POST /api/actions/prepare` supports add collateral, borrow, atomic supply-and-borrow, partial repay, capped share-based repay-all, collateral withdrawal, and atomic close. Borrow prepared metadata includes the fresh `borrowAprWad` used by confirmation.
 
 Confirmation stays the shared thin commit of the stored calls. It performs no Borrow-only preflight.
 
 ## Risk and approvals
 
-Risk-increasing actions that leave debt must have projected health factor `>= 1.25`. The raw protocol limit remains visible beside the policy-adjusted limit. The shared `1.10` critical threshold is retained. Zero-debt closes and withdrawals are not subject to the floor.
+Risk-increasing actions that leave debt must have projected health factor `>= 1.25`. The opening flow targets `1.50`; `1.25` is a hard floor, not the default target. The shared `1.10` critical threshold is retained. Zero-debt closes and withdrawals are not subject to the floor.
 
 Approvals are finite and exact. Home does not issue unlimited approvals and does not issue `approve(0)` before `approve(exact)`; incompatible assets are not enabled.
 

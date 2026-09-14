@@ -153,6 +153,7 @@ export async function prepareBorrowAction(input: {
           collateralAsset: { id: market.collateralToken.id, symbol: market.collateralToken.symbol },
           projectedHealthFactorWad: postHealth?.toString(10) ?? null,
           projectedLiquidationPriceRaw: liquidationPriceRaw(postDebt, postCollateral, market.lltvWad)?.toString(10) ?? null,
+          borrowAprWad: snapshot.state.borrowAprWad,
           source: { blockNumber: snapshot.source.blockNumber, blockHash: snapshot.source.blockHash, blockTimestamp: snapshot.source.blockTimestamp },
         },
       },

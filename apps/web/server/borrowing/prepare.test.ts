@@ -57,7 +57,7 @@ describe("generic borrow action preparation", () => {
     expect(result.draft.kind).toBe(kind);
     expect(result.draft.calls).toHaveLength(callCount);
     expect(batches).toHaveLength(1);
-    expect(result.draft.metadata).toMatchObject({ product: "borrow", operation: request.operation, marketId: market.marketId });
+    expect(result.draft.metadata).toMatchObject({ product: "borrow", operation: request.operation, marketId: market.marketId, borrowAprWad: snapshot().state.borrowAprWad });
     expect(JSON.stringify(request)).not.toContain("snapshotBlockHash");
     const ownerWord = OWNER.slice(2).padStart(64, "0");
     expect(result.draft.calls.at(-1)!.data).toContain(ownerWord);

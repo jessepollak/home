@@ -52,6 +52,7 @@ export type BorrowMoneyActionMetadata = {
   collateralAsset: { id: string; symbol: string };
   projectedHealthFactorWad: string | null;
   projectedLiquidationPriceRaw: string | null;
+  borrowAprWad: string;
   source: { blockNumber: string; blockHash: `0x${string}`; blockTimestamp: string };
 };
 export type MoneyActionMetadata = BorrowMoneyActionMetadata;

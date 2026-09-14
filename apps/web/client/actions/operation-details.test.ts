@@ -146,6 +146,7 @@ describe("operation transaction details", () => {
           collateralAsset: { id: "collateral", symbol: "cbBTC" },
           projectedHealthFactorWad: null,
           projectedLiquidationPriceRaw: null,
+          borrowAprWad: "0",
           source: { blockNumber: "1", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1" },
         },
       },

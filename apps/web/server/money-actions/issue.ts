@@ -142,6 +142,7 @@ function normalizeMetadata(value: MoneyActionMetadata): MoneyActionMetadata {
     typeof value.marketId !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.marketId) ||
     !validSummaryAsset(value.loanAsset) || !validSummaryAsset(value.collateralAsset) ||
     !validNullableInteger(value.projectedHealthFactorWad) || !validNullableInteger(value.projectedLiquidationPriceRaw) ||
+    typeof value.borrowAprWad !== "string" || !integerPattern.test(value.borrowAprWad) ||
     !value.source || typeof value.source.blockNumber !== "string" || !integerPattern.test(value.source.blockNumber) ||
     typeof value.source.blockTimestamp !== "string" || !integerPattern.test(value.source.blockTimestamp) ||
     typeof value.source.blockHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.source.blockHash)) {

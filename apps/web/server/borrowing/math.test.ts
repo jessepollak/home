@@ -8,6 +8,7 @@ import {
   minimumCollateralForHealthFactor,
   policyMaximumDebtAssets,
   healthFactorWad,
+  liquidationBufferBps,
   liquidationPriceRaw,
   minimumCollateralForDebt,
   parseTokenAmount,
@@ -129,4 +130,11 @@ describe("Morpho borrowing integer math", () => {
     expect(() => parseTokenAmount("1.0000001", 6)).toThrow("at most 6");
     expect(() => parseTokenAmount("1e3", 6)).toThrow();
   });
+  test("converts health factor to price-drop liquidation buffer bps", () => {
+    expect(liquidationBufferBps(null)).toBeNull();
+    expect(liquidationBufferBps(BigInt("1000000000000000000"))).toBe(BigInt(0));
+    expect(liquidationBufferBps(BigInt("1250000000000000000"))).toBe(BigInt(2000));
+    expect(liquidationBufferBps(BigInt("1500000000000000000"))).toBe(BigInt(3333));
+  });
+
 });
