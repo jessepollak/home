@@ -14,6 +14,7 @@ export type FundingOrderSummary = {
   fiatAmount: string;
   quote?: Quote;
   quoteToken?: string;
+  sandbox?: boolean;
   expectedTokenAmountAtomic?: string | null;
   fees?: ReadonlyArray<{ label: string; amount: string; currency: string }>;
   expiresAt?: string | null;

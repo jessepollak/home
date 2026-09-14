@@ -14,3 +14,8 @@ test("funding_orders migration locks reservation, provider order, receipt, and t
   expect(sql).toContain("prevent_funding_receipt_mutation");
   expect(sql).toContain("OR instructions IS NULL");
 });
+
+test("funding sandbox migration adds a durable false-by-default flag", async () => {
+  const sql = await readFile(resolve(import.meta.dir, "../migrations/004_funding_sandbox.sql"), "utf8");
+  expect(sql).toContain("ADD COLUMN IF NOT EXISTS sandbox boolean NOT NULL DEFAULT false");
+});

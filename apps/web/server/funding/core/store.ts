@@ -26,6 +26,7 @@ export type FundingOrder = {
   quote: Quote;
   quoteToken: string;
   customerRef: string | null;
+  sandbox: boolean;
   state: OrderState;
   creationBlock: string;
   providerOrderId: string | null;
@@ -44,7 +45,7 @@ export type FundingOrder = {
 
 export type FundingReservation = Pick<FundingOrder,
   "id" | "owner" | "destination" | "providerId" | "region" | "assetId" |
-  "paymentMethod" | "fiatAmount" | "intentDigest" | "quote" | "quoteToken" | "customerRef" |
+  "paymentMethod" | "fiatAmount" | "intentDigest" | "quote" | "quoteToken" | "customerRef" | "sandbox" |
   "creationBlock" | "createdAt"
 >;
 
@@ -123,7 +124,8 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
   async getOpen(owner: FundingOrderOwner, region: string) {
     return cloneOrNull([...this.orders.values()].reverse().find((order) =>
       sameOwner(order.owner, owner) && order.region === region
-        && (!isTerminalFundingState(order.state) || order.state === "dispatch-ambiguous"),
+        && (!isTerminalFundingState(order.state) || order.state === "dispatch-ambiguous")
+        && !(order.sandbox && order.state === "sent-unverified"),
     ));
   }
 

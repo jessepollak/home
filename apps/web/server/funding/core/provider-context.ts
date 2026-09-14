@@ -36,6 +36,7 @@ export function createProviderContext(options: {
   env?: Environment;
   fetchImplementation?: typeof fetch;
   timeoutMs?: number;
+  sandbox?: boolean;
 }): ProviderContext {
   const matchingBindings = options.manifest.bindings.flatMap((binding) => {
     if (binding.region !== options.region) return [];
@@ -149,6 +150,7 @@ export function createProviderContext(options: {
       paymentMethod: Object.freeze({ ...paymentMethod }),
     }),
     env: Object.freeze(declaredEnvironment),
+    sandbox: options.sandbox === true,
     fetch: boundedFetch,
   });
 }

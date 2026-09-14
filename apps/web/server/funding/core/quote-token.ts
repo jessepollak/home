@@ -14,6 +14,7 @@ export type FundingQuoteClaims = {
   fiatAmount: string;
   quote: Quote;
   customerRef: string | null;
+  sandbox: boolean;
 };
 
 export type AuthenticatedFundingQuote = {
@@ -62,6 +63,7 @@ function validClaims(value: unknown): value is FundingQuoteClaims {
     && ["providerId", "region", "paymentMethod", "assetId", "fiatAmount"].every((key) => typeof value[key] === "string" && value[key].length > 0)
     && typeof value.destination === "string" && /^0x[0-9a-f]{40}$/.test(value.destination)
     && (value.customerRef === null || typeof value.customerRef === "string")
+    && typeof value.sandbox === "boolean"
     && typeof value.quote.fiatAmount === "string"
     && typeof value.quote.tokenAmountAtomic === "string" && /^(0|[1-9][0-9]*)$/.test(value.quote.tokenAmountAtomic)
     && Array.isArray(value.quote.fees)

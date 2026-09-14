@@ -53,6 +53,16 @@ export const SERVER_EVENT_OUTCOMES = [
   "unmatched",
   "unavailable",
 ] as const;
+export const FUNDING_ORDER_CODES = [
+  "ORDER_UNAVAILABLE",
+  "QUOTE_ECHO_MISMATCH",
+  "ORDER_ECHO_MISMATCH",
+  "ORDER_AMBIGUOUS",
+  "STATUS_ECHO_MISMATCH",
+  "PROVIDER_HTTP_4XX",
+  "PROVIDER_HTTP_5XX",
+  "PROVIDER_TRANSPORT",
+] as const;
 export type ServerEventKind = (typeof SERVER_EVENT_KINDS)[number];
 export type ServerEventOutcome = (typeof SERVER_EVENT_OUTCOMES)[number];
 
@@ -192,9 +202,11 @@ export function normalizeObservabilityEvent(
 
   if (isServerEvent(event)) {
     const outcome = allowedValue(event.outcome, SERVER_EVENT_OUTCOMES, "failed");
-    const code = /^[A-Z][A-Z0-9_]{0,63}$/.test(event.code)
-      ? event.code
-      : "SERVER_EVENT";
+    const code = event.kind === "funding-order"
+      ? allowedValue(event.code, FUNDING_ORDER_CODES, "ORDER_UNAVAILABLE")
+      : /^[A-Z][A-Z0-9_]{0,63}$/.test(event.code)
+        ? event.code
+        : "SERVER_EVENT";
     const provider = event.provider
       ? sanitizeIdentifier(event.provider, "unknown").slice(0, 64)
       : undefined;
