@@ -3,6 +3,7 @@
 // GET /api/borrow/markets/:marketId
 
 import type { AccountProvider } from "@/shared/account/session-types";
+import type { LendingMarketDetail, LendingOverview } from "@/shared/lending/contract";
 import type { BorrowAddress, BorrowAssetRef, BorrowMarketId } from "./config";
 import { getBorrowMarketRef } from "./config";
 
@@ -66,6 +67,7 @@ export type BorrowMarketSnapshot = {
     healthFactorWad: string | null;
     liquidationPriceRaw: string | null;
   };
+  lending?: LendingMarketDetail;
 };
 
 export type BorrowOverviewOpportunity = {
@@ -100,6 +102,7 @@ export type BorrowOverviewResponse = {
   };
   opportunities: BorrowOverviewOpportunity[];
   positions: BorrowOverviewPosition[];
+  lending?: LendingOverview;
 };
 
 export type BorrowResponse = BorrowOverviewResponse;

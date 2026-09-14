@@ -64,7 +64,7 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
         warnings: item.summary.warnings as string[],
         expiresAt: item.summary.expiresAt,
         ...(typeof item.summary.quoteId === "string" ? { quoteId: item.summary.quoteId } : {}),
-        ...(isBorrowMetadata(item.summary.metadata) ? { metadata: item.summary.metadata } : {}),
+        ...(isMoneyActionMetadata(item.summary.metadata) ? { metadata: item.summary.metadata } : {}),
         createdAt: item.createdAt,
       },
       status: item.status,
@@ -84,12 +84,17 @@ export function dedupeRecentMoneyActions(
   return operations.filter((operation) => !operation.transactionHash || !excluded.has(operation.transactionHash.toLowerCase()));
 }
 
-function isBorrowMetadata(value: unknown): value is MoneyActionMetadata {
-  return isRecord(value) && value.product === "borrow" && typeof value.operation === "string" &&
-    typeof value.marketId === "string" && /^0x[0-9a-fA-F]{64}$/.test(value.marketId) &&
-    isRecord(value.loanAsset) && typeof value.loanAsset.id === "string" && typeof value.loanAsset.symbol === "string" &&
-    isRecord(value.collateralAsset) && typeof value.collateralAsset.id === "string" && typeof value.collateralAsset.symbol === "string" &&
-    isRecord(value.source) && typeof value.source.blockNumber === "string" && typeof value.source.blockHash === "string" && typeof value.source.blockTimestamp === "string";
+function isMoneyActionMetadata(value: unknown): value is MoneyActionMetadata {
+  if (!isRecord(value) || typeof value.operation !== "string" || typeof value.marketId !== "string" ||
+    !/^0x[0-9a-fA-F]{64}$/.test(value.marketId) || !isRecord(value.loanAsset) ||
+    typeof value.loanAsset.id !== "string" || typeof value.loanAsset.symbol !== "string" || !isRecord(value.source) ||
+    typeof value.source.blockNumber !== "string" || typeof value.source.blockHash !== "string" || typeof value.source.blockTimestamp !== "string") return false;
+  if (value.product === "lend") {
+    return (value.operation === "supply" || value.operation === "withdraw" || value.operation === "withdraw-all") &&
+      [value.supplySharesRaw, value.suppliedAssetsRaw, value.withdrawableAssetsRaw, value.supplyAprWad].every((field) => typeof field === "string" && /^\d+$/.test(field));
+  }
+  return value.product === "borrow" && isRecord(value.collateralAsset) &&
+    typeof value.collateralAsset.id === "string" && typeof value.collateralAsset.symbol === "string";
 }
 function isDerivedStatus(value: unknown): value is DerivedActionStatus {
   return value === "pending" || value === "unknown" || value === "confirmed" || value === "failed";

@@ -87,7 +87,11 @@ describe("Base Morpho borrowing RPC", () => {
     expect(BigInt(snapshot.position.borrowCapacityAssetsRaw)).toBeLessThan(source.expectedCapacity);
     expect(snapshot.source.blockHash).toBe(BLOCK_HASH);
     expect(Object.keys(snapshot)).toEqual([
-      "chainId", "walletAddress", "version", "market", "eligibility", "source", "state", "wallet", "position",
+      "chainId", "walletAddress", "version", "market", "eligibility", "source", "state", "wallet", "position", "lending",
+    ]);
+    expect(Object.keys(snapshot.state)).toEqual([
+      "oraclePriceRaw", "borrowRatePerSecondWad", "borrowAprWad", "totalSupplyAssetsRaw",
+      "totalBorrowAssetsRaw", "totalBorrowSharesRaw", "liquidityAssetsRaw", "lastUpdateTimestamp",
     ]);
     const batch = source.requests[2] as Array<{ params: unknown[] }>;
     expect(batch).toHaveLength(8);

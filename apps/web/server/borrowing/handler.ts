@@ -2,7 +2,8 @@ import "server-only";
 
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { BORROW_MARKETS, getBorrowMarketRef } from "@/shared/borrowing/config";
-import type { BorrowOverviewResponse, BorrowResponse } from "@/shared/borrowing/contract";
+import type { BorrowMarketSnapshot, BorrowOverviewResponse, BorrowResponse } from "@/shared/borrowing/contract";
+import type { LendingCapabilityMode, LendingMarketState } from "@/shared/lending/contract";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { emitServerEvent } from "@/server/observability/log";
 import type { BorrowRpcReader } from "./rpc";
@@ -60,6 +61,39 @@ export function createBorrowHandler(dependencies: { authorize: SessionAuthorizer
             debtAssetsRaw: snapshot.position.debtAssetsRaw, healthFactorWad: snapshot.position.healthFactorWad,
           }]
         : []),
+      lending: {
+        version: "1",
+        opportunities: results.map(({ market, snapshot, error }) => {
+          const mode = lendingMode(market.capabilities.lend);
+          return {
+            market: snapshot?.market ?? marketIdentity(market),
+            availability: snapshot
+              ? {
+                  status: "available" as const,
+                  mode,
+                  canSupply: market.capabilities.lend === "enabled",
+                  canWithdraw: BigInt(snapshot.lending?.position.supplySharesRaw ?? "0") > BigInt(0),
+                  reason: market.capabilities.lend === "enabled" ? null : market.capabilities.lend === "reducing-only"
+                    ? "This verified market permits withdrawal but not new supply."
+                    : "This verified market is not approved for new lending supply.",
+                  source: snapshot.source,
+                  state: lendingState(snapshot),
+                }
+              : {
+                  status: "unavailable" as const,
+                  mode,
+                  canSupply: market.capabilities.lend === "enabled",
+                  canWithdraw: false as const,
+                  reason: error!,
+                  source: null,
+                  state: null,
+                },
+          };
+        }),
+        positions: verified.flatMap(({ snapshot }) => snapshot?.lending && BigInt(snapshot.lending.position.supplySharesRaw) > BigInt(0)
+          ? [{ market: snapshot.market, source: snapshot.source, ...snapshot.lending.position }]
+          : []),
+      },
     };
     return privateJson(response satisfies BorrowResponse, 200);
   };
@@ -81,6 +115,13 @@ export function createBorrowMarketHandler(dependencies: { authorize: SessionAuth
   };
 }
 
+function lendingMode(capability: (typeof BORROW_MARKETS)[number]["capabilities"]["lend"]): LendingCapabilityMode {
+  return capability ?? "withdraw-only";
+}
+function lendingState(snapshot: BorrowMarketSnapshot): LendingMarketState {
+  if (!snapshot.lending) throw new Error("The generic Morpho projection omitted lending state.");
+  return snapshot.lending.state;
+}
 function marketIdentity(market: (typeof BORROW_MARKETS)[number]) {
   return {
     id: market.marketId, morpho: market.morpho, loanToken: market.loanToken, collateralToken: market.collateralToken,

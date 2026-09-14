@@ -137,24 +137,40 @@ function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
 }
 
 function normalizeMetadata(value: MoneyActionMetadata): MoneyActionMetadata {
-  if (!value || value.product !== "borrow" ||
-    !["supply-collateral", "borrow", "supply-and-borrow", "repay", "repay-all", "withdraw-collateral", "close-position"].includes(value.operation) ||
-    typeof value.marketId !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.marketId) ||
-    !validSummaryAsset(value.loanAsset) || !validSummaryAsset(value.collateralAsset) ||
-    !validNullableInteger(value.projectedHealthFactorWad) || !validNullableInteger(value.projectedLiquidationPriceRaw) ||
-    typeof value.borrowAprWad !== "string" || !integerPattern.test(value.borrowAprWad) ||
-    !value.source || typeof value.source.blockNumber !== "string" || !integerPattern.test(value.source.blockNumber) ||
-    typeof value.source.blockTimestamp !== "string" || !integerPattern.test(value.source.blockTimestamp) ||
-    typeof value.source.blockHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.source.blockHash)) {
+  if (!value || typeof value.marketId !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.marketId) ||
+    !validSummaryAsset(value.loanAsset) || !validMetadataSource(value.source)) {
+    throw new MoneyActionIssueError("invalid-draft");
+  }
+  if (value.product === "borrow") {
+    if (!["supply-collateral", "borrow", "supply-and-borrow", "repay", "repay-all", "withdraw-collateral", "close-position"].includes(value.operation) ||
+      !validSummaryAsset(value.collateralAsset) || !validNullableInteger(value.projectedHealthFactorWad) ||
+      !validNullableInteger(value.projectedLiquidationPriceRaw) || !integerPattern.test(value.borrowAprWad)) {
+      throw new MoneyActionIssueError("invalid-draft");
+    }
+    return {
+      ...value,
+      marketId: value.marketId.toLowerCase() as `0x${string}`,
+      loanAsset: { id: value.loanAsset.id.trim(), symbol: value.loanAsset.symbol.trim() },
+      collateralAsset: { id: value.collateralAsset.id.trim(), symbol: value.collateralAsset.symbol.trim() },
+      source: { ...value.source, blockHash: value.source.blockHash.toLowerCase() as `0x${string}` },
+    };
+  }
+  if (value.product !== "lend" || !["supply", "withdraw", "withdraw-all"].includes(value.operation) ||
+    ![value.supplySharesRaw, value.suppliedAssetsRaw, value.withdrawableAssetsRaw, value.supplyAprWad].every((field) => integerPattern.test(field))) {
     throw new MoneyActionIssueError("invalid-draft");
   }
   return {
     ...value,
     marketId: value.marketId.toLowerCase() as `0x${string}`,
     loanAsset: { id: value.loanAsset.id.trim(), symbol: value.loanAsset.symbol.trim() },
-    collateralAsset: { id: value.collateralAsset.id.trim(), symbol: value.collateralAsset.symbol.trim() },
     source: { ...value.source, blockHash: value.source.blockHash.toLowerCase() as `0x${string}` },
   };
+}
+
+function validMetadataSource(value: MoneyActionMetadata["source"] | undefined) {
+  return Boolean(value && typeof value.blockNumber === "string" && integerPattern.test(value.blockNumber) &&
+    typeof value.blockTimestamp === "string" && integerPattern.test(value.blockTimestamp) &&
+    typeof value.blockHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(value.blockHash));
 }
 function validSummaryAsset(value: { id: string; symbol: string } | undefined) {
   return Boolean(value && typeof value.id === "string" && value.id.trim().length > 0 && value.id.length <= 200 &&

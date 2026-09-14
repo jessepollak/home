@@ -16,7 +16,7 @@ function word(value: bigint) { return value.toString(16).padStart(64, "0"); }
 function addressWord(address: string) { return address.slice(2).toLowerCase().padStart(64, "0"); }
 function words(...values: string[]) { return `0x${values.join("")}`; }
 
-function fixture(options: { wrongLltv?: boolean; market?: VerifiedMorphoMarketRef } = {}) {
+function fixture(options: { wrongLltv?: boolean; market?: VerifiedMorphoMarketRef; borrowRate?: bigint; feeWad?: bigint; supplyShares?: bigint } = {}) {
   const configured = options.market ?? DEFAULT_VERIFIED_MORPHO_MARKET;
   const requests: unknown[] = [];
   const totalSupplyAssets = BigInt("100000000000");
@@ -41,14 +41,14 @@ function fixture(options: { wrongLltv?: boolean; market?: VerifiedMorphoMarketRe
         addressWord(configured.irm),
         word(options.wrongLltv ? configured.lltvWad - BigInt("1") : configured.lltvWad),
       ),
-      4: words(word(totalSupplyAssets), word(BigInt("2000000000")), word(totalBorrowAssets), word(totalBorrowShares), word(BigInt("90")), word(BigInt("0"))),
-      5: words(word(BigInt("0")), word(borrowShares), word(collateral)),
+      4: words(word(totalSupplyAssets), word(BigInt("2000000000")), word(totalBorrowAssets), word(totalBorrowShares), word(BigInt("90")), word(options.feeWad ?? BigInt("0"))),
+      5: words(word(options.supplyShares ?? BigInt("0")), word(borrowShares), word(collateral)),
       6: words(word(oraclePrice)),
       7: words(word(BigInt("2000000"))),
       8: words(word(BigInt("50000000"))),
       9: words(word(BigInt("0"))),
       10: words(word(BigInt("0"))),
-      11: words(word(BigInt("0"))),
+      11: words(word(options.borrowRate ?? BigInt("0"))),
     };
     return { jsonrpc: "2.0", id: request.id, result: callResult[request.id] };
   };
@@ -89,6 +89,23 @@ describe("Base Morpho market RPC", () => {
     const batch = source.requests[2] as Array<{ params: unknown[] }>;
     expect(batch).toHaveLength(8);
     expect(batch.every((request) => request.params[1] === "0x64")).toBe(true);
+  });
+
+  test("accrues lender assets, fee-share dilution, utilization, APR, and liquidity-limited withdrawal", async () => {
+    const source = fixture({
+      borrowRate: BigInt("100000000000000"),
+      feeWad: BigInt("100000000000000000"),
+      supplyShares: BigInt("1000000000"),
+    });
+    const snapshot = await createMorphoMarketRpcReader({ fetchImpl: source.fetchImpl, rpcUrl: "https://rpc.example.test" })
+      .readSnapshot(OWNER, DEFAULT_VERIFIED_MORPHO_MARKET);
+    expect(BigInt(snapshot.state.totalSupplySharesRaw)).toBeGreaterThan(BigInt("2000000000"));
+    expect(BigInt(snapshot.state.totalSupplyAssetsRaw)).toBeGreaterThan(BigInt("100000000000"));
+    expect(BigInt(snapshot.state.utilizationWad)).toBeGreaterThan(BigInt(0));
+    expect(BigInt(snapshot.state.supplyAprWad)).toBeGreaterThan(BigInt(0));
+    expect(snapshot.position.supplySharesRaw).toBe("1000000000");
+    expect(BigInt(snapshot.position.suppliedAssetsRaw)).toBeGreaterThan(BigInt(0));
+    expect(BigInt(snapshot.position.withdrawableSupplyAssetsRaw)).toBeLessThanOrEqual(BigInt(snapshot.state.liquidityAssetsRaw));
   });
 
   test("uses the supplied typed market tuple and asset decimals without pair-specific branches", async () => {

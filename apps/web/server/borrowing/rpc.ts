@@ -97,7 +97,16 @@ function projectBorrowSnapshot(
       reason: borrowMode === "enabled" ? null : "This verified market is available only for risk reduction.",
     },
     source: snapshot.source,
-    state: snapshot.state,
+    state: {
+      oraclePriceRaw: snapshot.state.oraclePriceRaw,
+      borrowRatePerSecondWad: snapshot.state.borrowRatePerSecondWad,
+      borrowAprWad: snapshot.state.borrowAprWad,
+      totalSupplyAssetsRaw: snapshot.state.totalSupplyAssetsRaw,
+      totalBorrowAssetsRaw: snapshot.state.totalBorrowAssetsRaw,
+      totalBorrowSharesRaw: snapshot.state.totalBorrowSharesRaw,
+      liquidityAssetsRaw: snapshot.state.liquidityAssetsRaw,
+      lastUpdateTimestamp: snapshot.state.lastUpdateTimestamp,
+    },
     wallet: snapshot.wallet,
     position: {
       collateralRaw: snapshot.position.collateralRaw,
@@ -110,5 +119,34 @@ function projectBorrowSnapshot(
       healthFactorWad: snapshot.position.healthFactorWad,
       liquidationPriceRaw: snapshot.position.liquidationPriceRaw,
     },
+    lending: {
+      version: "1",
+      mode: lendingMode(snapshot.capabilities.lend),
+      canSupply: snapshot.capabilities.lend === "enabled",
+      canWithdraw: BigInt(snapshot.position.supplySharesRaw) > BigInt(0),
+      reason: snapshot.capabilities.lend === "enabled"
+        ? null
+        : snapshot.capabilities.lend === "reducing-only"
+          ? "This verified market permits withdrawal but not new supply."
+          : "This verified market is not approved for new lending supply.",
+      state: {
+        totalSupplyAssetsRaw: snapshot.state.totalSupplyAssetsRaw,
+        totalSupplySharesRaw: snapshot.state.totalSupplySharesRaw,
+        totalBorrowAssetsRaw: snapshot.state.totalBorrowAssetsRaw,
+        liquidityAssetsRaw: snapshot.state.liquidityAssetsRaw,
+        feeWad: snapshot.state.feeWad,
+        utilizationWad: snapshot.state.utilizationWad,
+        supplyAprWad: snapshot.state.supplyAprWad,
+      },
+      position: {
+        supplySharesRaw: snapshot.position.supplySharesRaw,
+        suppliedAssetsRaw: snapshot.position.suppliedAssetsRaw,
+        withdrawableAssetsRaw: snapshot.position.withdrawableSupplyAssetsRaw,
+      },
+    },
   };
+}
+
+function lendingMode(capability: MorphoMarketSnapshot["capabilities"]["lend"]): "enabled" | "reducing-only" | "withdraw-only" {
+  return capability ?? "withdraw-only";
 }

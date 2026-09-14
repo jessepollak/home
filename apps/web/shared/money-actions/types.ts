@@ -9,6 +9,8 @@ export const ACTION_KINDS = [
   "trade",
   "supply-collateral",
   "withdraw-collateral",
+  "lend-supply",
+  "lend-withdraw",
 ] as const;
 
 export type ActionKind = (typeof ACTION_KINDS)[number];
@@ -55,7 +57,22 @@ export type BorrowMoneyActionMetadata = {
   borrowAprWad: string;
   source: { blockNumber: string; blockHash: `0x${string}`; blockTimestamp: string };
 };
-export type MoneyActionMetadata = BorrowMoneyActionMetadata;
+export type LendMoneyActionMetadata = {
+  product: "lend";
+  operation: "supply" | "withdraw" | "withdraw-all";
+  marketId: `0x${string}`;
+  loanAsset: { id: string; symbol: string };
+  supplySharesRaw: string;
+  suppliedAssetsRaw: string;
+  withdrawableAssetsRaw: string;
+  supplyAprWad: string;
+  projectedHealthFactorWad?: never;
+  projectedLiquidationPriceRaw?: never;
+  collateralAsset?: never;
+  borrowAprWad?: never;
+  source: { blockNumber: string; blockHash: `0x${string}`; blockTimestamp: string };
+};
+export type MoneyActionMetadata = BorrowMoneyActionMetadata | LendMoneyActionMetadata;
 
 export type MoneyActionDraft = {
   kind: ActionKind;

@@ -37,6 +37,8 @@ export function labelForMoneyActionKind(kind: ActionKind): string {
     case "borrow": return "Borrow";
     case "repay": return "Repay";
     case "withdraw-collateral": return "Withdraw collateral";
+    case "lend-supply": return "Supply to Lend";
+    case "lend-withdraw": return "Withdraw from Lend";
   }
 }
 
@@ -59,6 +61,8 @@ export function presentOperationDetails(
       label: "Market",
       value: `${operation.action.metadata.collateralAsset.symbol} / ${operation.action.metadata.loanAsset.symbol}`,
     });
+  } else if (operation.action.metadata?.product === "lend") {
+    rows.push({ label: "Market", value: operation.action.metadata.loanAsset.symbol });
   }
 
   for (const amount of orderedOperationAmounts(operation.action.amounts)) {
@@ -97,6 +101,10 @@ export function presentOperationDetails(
 }
 
 function labelForStoredOperation(operation: RecentMoneyActionOperation): string {
+  const lend = operation.action.metadata?.product === "lend" ? operation.action.metadata.operation : null;
+  if (lend === "supply") return "Supply";
+  if (lend === "withdraw") return "Withdraw";
+  if (lend === "withdraw-all") return "Withdraw all";
   const borrow = operation.action.metadata?.product === "borrow" ? operation.action.metadata.operation : null;
   switch (borrow) {
     case "supply-collateral": return "Add collateral";

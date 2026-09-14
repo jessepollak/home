@@ -47,6 +47,27 @@ describe("recent Home action activity", () => {
     expect(dedupeRecentMoneyActions([operation()], new Set([transactionHash]))).toEqual([]);
   });
 
+  test("preserves discriminated Lend metadata for operation activity", () => {
+    const lend = row();
+    lend.kind = "lend-withdraw";
+    lend.summary = {
+      ...lend.summary,
+      title: "Withdraw all USDC supply",
+      metadata: {
+        product: "lend",
+        operation: "withdraw-all",
+        marketId: `0x${"12".repeat(32)}`,
+        loanAsset: { id: "loan", symbol: "USDC" },
+        supplySharesRaw: "10",
+        suppliedAssetsRaw: "9",
+        withdrawableAssetsRaw: "9",
+        supplyAprWad: "1",
+        source: { blockNumber: "1", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1" },
+      },
+    } as typeof lend.summary;
+    expect(parseRecentMoneyActions({ actions: [lend] }, session)[0]?.action.metadata).toMatchObject({ product: "lend", operation: "withdraw-all" });
+  });
+
   test("keeps pending rows without transaction hashes and rejects non-derived statuses", () => {
     const pending = { ...row(undefined, "pending"), transactionHash: undefined };
     const parsed = parseRecentMoneyActions({ actions: [pending] }, session);

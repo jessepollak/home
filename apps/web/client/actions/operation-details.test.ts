@@ -155,6 +155,29 @@ describe("operation transaction details", () => {
     expect(details.rows).toContainEqual({ label: "Market", value: "cbBTC / USDC" });
   });
 
+  test("renders Lend identity and operation from discriminated metadata", () => {
+    const details = presentOperationDetails(baseOperation({
+      action: {
+        ...baseOperation().action,
+        kind: "lend-withdraw",
+        title: "Opaque stored label",
+        metadata: {
+          product: "lend",
+          operation: "withdraw-all",
+          marketId: `0x${"12".repeat(32)}`,
+          loanAsset: { id: "loan", symbol: "USDC" },
+          supplySharesRaw: "10",
+          suppliedAssetsRaw: "9",
+          withdrawableAssetsRaw: "9",
+          supplyAprWad: "1",
+          source: { blockNumber: "1", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1" },
+        },
+      },
+    }));
+    expect(details.rows).toContainEqual({ label: "Type", value: "Withdraw all" });
+    expect(details.rows).toContainEqual({ label: "Market", value: "USDC" });
+  });
+
   test("labels every stored action kind without parsing the title", () => {
     expect(labelForMoneyActionKind("send")).toBe("Send");
     expect(labelForMoneyActionKind("savings-deposit")).toBe("Deposit to Save");
@@ -164,6 +187,8 @@ describe("operation transaction details", () => {
     expect(labelForMoneyActionKind("borrow")).toBe("Borrow");
     expect(labelForMoneyActionKind("repay")).toBe("Repay");
     expect(labelForMoneyActionKind("withdraw-collateral")).toBe("Withdraw collateral");
+    expect(labelForMoneyActionKind("lend-supply")).toBe("Supply to Lend");
+    expect(labelForMoneyActionKind("lend-withdraw")).toBe("Withdraw from Lend");
   });
 
   test("labels the four derived statuses plus client dispatch outcomes", () => {

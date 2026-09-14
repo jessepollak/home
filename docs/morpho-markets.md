@@ -6,7 +6,9 @@ Home keeps a compile-time registry of verified Morpho market tuples in `shared/m
 
 `shared/morpho-markets/math.ts` contains the product-neutral integer math. `server/morpho-markets/abi.ts` and `server/morpho-markets/rpc.ts` contain the generic ABI, pinned reader, and Coinbase smart-account batch simulation. The reader returns verified market, wallet, and position state without deciding a product's risk policy or public response contract.
 
-Borrow remains a product projection. Its compatibility modules add the Borrow health-factor policy, eligibility copy, API version, response fields, and action semantics. Borrow handlers stay under `server/borrowing` because their overview/detail wire contracts and error behavior are product-specific. Lend fields, actions, and UI are intentionally outside this extraction.
+Borrow remains a product projection. Its compatibility modules add the Borrow health-factor policy, eligibility copy, API version, response fields, and action semantics. Borrow handlers stay under `server/borrowing` because their overview/detail wire contracts and error behavior are product-specific.
+
+The generic reader now also preserves supply shares, accrues borrow interest, applies Morpho protocol fee-share dilution, and derives current lender assets, liquidity-bounded withdrawal, utilization, and net supply APR with integer math. The authenticated Borrow overview and detail envelopes carry a separate additive version-`1` `lending` section; Borrow `positions` remain debt/collateral-only. Direct Lend supply, exact withdrawal, and share-based withdraw-all preparation use the same verified registry, pinned snapshot, and ordered batch simulation. The Lend product UI and routing remain outside this backend phase.
 
 ## Capability approval
 

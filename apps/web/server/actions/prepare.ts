@@ -4,6 +4,7 @@ import { emitServerEvent } from "@/server/observability/log";
 import type { PrepareActionResponse } from "@/shared/actions/contracts/prepare";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { actionKindForBorrowOperation, parseBorrowActionIntent } from "@/shared/borrowing/types";
+import { actionKindForLendOperation, parseLendActionIntent } from "@/shared/lending/types";
 import type { SavingsActionInput } from "@/server/savings/types";
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import { isActionKind, type ActionKind } from "@/shared/money-actions/types";
@@ -14,6 +15,9 @@ import { prepareSavingsAction, SavingsActionError } from "@/server/savings/prepa
 import { prepareBorrowAction, BorrowPreparationError } from "@/server/borrowing/prepare";
 import { getBaseBorrowing } from "@/server/borrowing/rpc";
 import { getBorrowMarketRef } from "@/shared/borrowing/config";
+import { getVerifiedMorphoMarket } from "@/shared/morpho-markets/config";
+import { getBaseMorphoMarkets } from "@/server/morpho-markets/rpc";
+import { LendPreparationError, prepareLendAction } from "@/server/lending/prepare";
 import type { ActionAuthorizer } from "./handler";
 
 const privateHeaders = {
@@ -70,6 +74,9 @@ export function createPrepareActionHandler(dependencies: {
       if (error instanceof BorrowPreparationError) {
         return fail(error.code.toUpperCase().replaceAll("-", "_"), error.message, error.code === "limit-exceeded" ? 409 : 400);
       }
+      if (error instanceof LendPreparationError) {
+        return fail(`LEND_${error.code.toUpperCase().replaceAll("-", "_")}`, error.message, error.code === "limit-exceeded" ? 409 : error.code === "simulation-failed" ? 502 : 400);
+      }
       if (error instanceof TransferExecutionError && error.reason === "invalid-request") {
         return fail("INVALID_SEND_REQUEST", "Use a valid Base recipient, asset, and integer amount.", 400);
       }
@@ -109,6 +116,19 @@ async function prepare(
     const snapshot = await rpc.readSnapshot(session.smartAccount.address, market, signal);
     const preparation = await prepareBorrowAction({ request, market, snapshot, rpc, signal });
     if (!preparation.fullySimulated) throw new BorrowPreparationError("simulation-failed", preparation.simulationGap ?? "Borrow execution is unavailable.");
+    return issueMoneyAction(session, preparation.draft);
+  }
+  if (kind === "lend-supply" || kind === "lend-withdraw") {
+    if (!session.smartAccount) throw new LendPreparationError("invalid-input", "A verified Base account is required.");
+    const lendRequest = parseLendActionIntent(params);
+    if (!lendRequest || actionKindForLendOperation(lendRequest.operation) !== kind) {
+      throw new LendPreparationError("invalid-input", "The lending operation or exact base-unit amount is invalid.");
+    }
+    const market = getVerifiedMorphoMarket(lendRequest.marketId);
+    if (!market) throw new LendPreparationError("unsupported-market", "The lending market is not configured.");
+    const snapshot = await getBaseMorphoMarkets.readSnapshot(session.smartAccount.address, market, signal);
+    const preparation = await prepareLendAction({ request: lendRequest, market, owner: session.smartAccount.address, snapshot, rpc: getBaseMorphoMarkets, signal });
+    if (!preparation.fullySimulated) throw new LendPreparationError("simulation-failed", preparation.simulationGap ?? "Lending execution is unavailable.");
     return issueMoneyAction(session, preparation.draft);
   }
   if (kind === "trade") {

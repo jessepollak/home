@@ -10,6 +10,7 @@ export type MorphoMoneyActionCall = MoneyActionCall & {
 const SELECTOR = {
   position: "93c52062", market: "5c60e39a", idToMarketParams: "2c3c9157", price: "a035b1fe",
   borrowRateView: "8c00bf6b", balanceOf: "70a08231", allowance: "dd62ed3e", approve: "095ea7b3",
+  supply: "a99aad89", withdraw: "5c2bea49",
   supplyCollateral: "238d6579", borrow: "50d8cd4b", repay: "20b76e81", withdrawCollateral: "8720316d",
   executeBatch: "34fcd5be", implementation: "5c60da1b",
 } as const;
@@ -27,6 +28,15 @@ export function encodeAllowance(owner: MorphoAddress, spender: MorphoAddress) { 
 
 export function approveCall(token: { address: MorphoAddress; id: string }, spender: MorphoAddress, amount: bigint): MorphoMoneyActionCall {
   return { to: token.address, data: data(SELECTOR.approve, addressWord(spender), uintWord(amount)), value: "0", approval: { assetId: token.id, spender } };
+}
+export function supplyCall(ref: VerifiedMorphoMarketRef, amount: bigint, owner: MorphoAddress): MoneyActionCall {
+  return { to: ref.morpho, data: data(SELECTOR.supply, ...marketParamWords(ref), uintWord(amount), uintWord(BigInt(0)), addressWord(owner), uintWord(BigInt(9) * BigInt(32)), uintWord(BigInt(0))), value: "0" };
+}
+export function withdrawAssetsCall(ref: VerifiedMorphoMarketRef, amount: bigint, owner: MorphoAddress): MoneyActionCall {
+  return withdrawAssetsOrSharesCall(ref, amount, BigInt(0), owner);
+}
+export function withdrawSharesCall(ref: VerifiedMorphoMarketRef, shares: bigint, owner: MorphoAddress): MoneyActionCall {
+  return withdrawAssetsOrSharesCall(ref, BigInt(0), shares, owner);
 }
 export function supplyCollateralCall(ref: VerifiedMorphoMarketRef, amount: bigint, owner: MorphoAddress): MoneyActionCall {
   return { to: ref.morpho, data: data(SELECTOR.supplyCollateral, ...marketParamWords(ref), uintWord(amount), addressWord(owner), uintWord(BigInt(8) * BigInt(32)), uintWord(BigInt(0))), value: "0" };
@@ -62,6 +72,10 @@ export function decodeWords(value: unknown, expectedWords: number, label: string
 export function decodeAddressWord(word: bigint): MorphoAddress {
   if (word < BigInt(0) || word >= (BigInt(1) << BigInt(160))) throw new TypeError("Address word is out of range.");
   return `0x${word.toString(16).padStart(40, "0")}` as MorphoAddress;
+}
+function withdrawAssetsOrSharesCall(ref: VerifiedMorphoMarketRef, assets: bigint, shares: bigint, owner: MorphoAddress): MoneyActionCall {
+  if ((assets === BigInt(0)) === (shares === BigInt(0))) throw new TypeError("Morpho withdrawal must specify either assets or shares.");
+  return { to: ref.morpho, data: data(SELECTOR.withdraw, ...marketParamWords(ref), uintWord(assets), uintWord(shares), addressWord(owner), addressWord(owner)), value: "0" };
 }
 function repayAssetsOrSharesCall(ref: VerifiedMorphoMarketRef, assets: bigint, shares: bigint, owner: MorphoAddress): MoneyActionCall {
   if ((assets === BigInt(0)) === (shares === BigInt(0))) throw new TypeError("Morpho repayment must specify either assets or shares.");

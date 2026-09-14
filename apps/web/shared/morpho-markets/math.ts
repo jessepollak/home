@@ -15,6 +15,10 @@ export function mulDivUp(x: bigint, y: bigint, denominator: bigint): bigint {
   return ((x * y) - BigInt("1")) / denominator + BigInt("1");
 }
 
+export function toAssetsDown(shares: bigint, totalAssets: bigint, totalShares: bigint): bigint {
+  return mulDivDown(shares, totalAssets + VIRTUAL_ASSETS, totalShares + VIRTUAL_SHARES);
+}
+
 export function toAssetsUp(shares: bigint, totalAssets: bigint, totalShares: bigint): bigint {
   return mulDivUp(shares, totalAssets + VIRTUAL_ASSETS, totalShares + VIRTUAL_SHARES);
 }
@@ -37,6 +41,46 @@ export function taylorCompounded(ratePerSecondWad: bigint, elapsed: bigint): big
 
 export function accrueBorrowAssets(totalBorrowAssets: bigint, ratePerSecondWad: bigint, elapsed: bigint): bigint {
   return totalBorrowAssets + mulDivDown(totalBorrowAssets, taylorCompounded(ratePerSecondWad, elapsed), WAD);
+}
+
+export function accrueMorphoSupplyState(input: {
+  totalSupplyAssets: bigint;
+  totalSupplyShares: bigint;
+  storedBorrowAssets: bigint;
+  currentBorrowAssets: bigint;
+  feeWad: bigint;
+}): { currentSupplyAssets: bigint; currentSupplyShares: bigint; feeAmount: bigint; feeShares: bigint } {
+  if (input.feeWad < BigInt("0") || input.feeWad > WAD || input.currentBorrowAssets < input.storedBorrowAssets) {
+    throw new RangeError("Invalid Morpho supply accrual inputs.");
+  }
+  const interest = input.currentBorrowAssets - input.storedBorrowAssets;
+  const feeAmount = mulDivDown(interest, input.feeWad, WAD);
+  const currentSupplyAssets = input.totalSupplyAssets + interest;
+  const feeShares = toSharesDown(
+    feeAmount,
+    currentSupplyAssets - feeAmount,
+    input.totalSupplyShares,
+  );
+  return {
+    currentSupplyAssets,
+    currentSupplyShares: input.totalSupplyShares + feeShares,
+    feeAmount,
+    feeShares,
+  };
+}
+
+export function utilizationWad(totalBorrowAssets: bigint, totalSupplyAssets: bigint): bigint {
+  if (totalBorrowAssets < BigInt("0") || totalSupplyAssets < BigInt("0")) throw new RangeError("Invalid utilization inputs.");
+  if (totalSupplyAssets === BigInt("0")) return BigInt("0");
+  const utilization = mulDivDown(totalBorrowAssets, WAD, totalSupplyAssets);
+  return utilization > WAD ? WAD : utilization;
+}
+
+export function netSupplyAprWad(borrowAprWad: bigint, utilization: bigint, feeWad: bigint): bigint {
+  if (borrowAprWad < BigInt("0") || utilization < BigInt("0") || utilization > WAD || feeWad < BigInt("0") || feeWad > WAD) {
+    throw new RangeError("Invalid supply APR inputs.");
+  }
+  return mulDivDown(mulDivDown(borrowAprWad, utilization, WAD), WAD - feeWad, WAD);
 }
 
 export function borrowCapacityAssets(collateralAssets: bigint, oraclePrice: bigint, lltvWad: bigint): bigint {

@@ -19,6 +19,11 @@ function snapshot(): BorrowMarketSnapshot {
     state: { oraclePriceRaw: "1", borrowRatePerSecondWad: "0", borrowAprWad: "0", totalSupplyAssetsRaw: "2", totalBorrowAssetsRaw: "1", totalBorrowSharesRaw: "1", liquidityAssetsRaw: "1", lastUpdateTimestamp: "1" },
     wallet: { collateralBalanceRaw: "1", loanBalanceRaw: "1", collateralAllowanceRaw: "0", loanAllowanceRaw: "0" },
     position: { collateralRaw: "1", borrowSharesRaw: "1", debtAssetsRaw: "1", rawBorrowCapacityAssetsRaw: "1", borrowCapacityAssetsRaw: "0", rawWithdrawableCollateralRaw: "0", withdrawableCollateralRaw: "0", healthFactorWad: "1", liquidationPriceRaw: "1" },
+    lending: {
+      version: "1", mode: "enabled", canSupply: true, canWithdraw: true, reason: null,
+      state: { totalSupplyAssetsRaw: "2", totalSupplySharesRaw: "2", totalBorrowAssetsRaw: "1", liquidityAssetsRaw: "1", feeWad: "0", utilizationWad: "500000000000000000", supplyAprWad: "0" },
+      position: { supplySharesRaw: "1", suppliedAssetsRaw: "1", withdrawableAssetsRaw: "1" },
+    },
   };
 }
 function request(path = "/api/borrow") { return new Request(`https://home.test${path}`, { headers: { [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded" } }); }
@@ -34,6 +39,19 @@ describe("borrow API handlers", () => {
     expect(value).toMatchObject({ version: "1", owner: { address: OWNER }, discovery: { status: "complete", verifiedCount: 1 } });
     expect(value.opportunities).toHaveLength(1);
     expect(value.positions).toHaveLength(1);
+    expect(value.lending).toMatchObject({ version: "1", opportunities: [{ availability: { status: "available", canSupply: true } }] });
+    expect(value.lending.positions).toHaveLength(1);
+    expect(value.positions[0]).not.toHaveProperty("supplySharesRaw");
+  });
+
+  test("keeps a verified zero lender position out of lending positions without making the market unavailable", async () => {
+    const zero = snapshot();
+    zero.lending!.canWithdraw = false;
+    zero.lending!.position = { supplySharesRaw: "0", suppliedAssetsRaw: "0", withdrawableAssetsRaw: "0" };
+    const handler = createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc(async () => zero) });
+    const value = await (await handler(request())).json();
+    expect(value.lending.opportunities[0].availability).toMatchObject({ status: "available", canSupply: true, canWithdraw: false });
+    expect(value.lending.positions).toEqual([]);
   });
 
   test("represents an RPC failure as unavailable and emits redacted bounded observability", async () => {
@@ -47,6 +65,8 @@ describe("borrow API handlers", () => {
       expect(value.discovery.status).toBe("partial");
       expect(value.opportunities[0].availability).toMatchObject({ status: "unavailable", source: null });
       expect(value.positions).toEqual([]);
+      expect(value.lending.opportunities[0].availability).toMatchObject({ status: "unavailable", source: null, state: null });
+      expect(value.lending.positions).toEqual([]);
       expect(JSON.stringify(value.opportunities[0])).not.toContain("collateralRaw");
       expect(lines).toHaveLength(1);
       expect(JSON.parse(lines[0])).toMatchObject({

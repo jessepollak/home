@@ -25,12 +25,16 @@ import {
 import {
   SECONDS_PER_YEAR,
   accrueBorrowAssets,
+  accrueMorphoSupplyState,
   availableBorrowAssets,
   borrowCapacityAssets,
   healthFactorWad,
   liquidationPriceRaw,
   minimumCollateralForDebt,
+  netSupplyAprWad,
+  toAssetsDown,
   toAssetsUp,
+  utilizationWad,
 } from "@/shared/morpho-markets/math";
 import {
   createBaseRpcClient,
@@ -84,9 +88,13 @@ export type MorphoMarketSnapshot = {
     borrowRatePerSecondWad: string;
     borrowAprWad: string;
     totalSupplyAssetsRaw: string;
+    totalSupplySharesRaw: string;
     totalBorrowAssetsRaw: string;
     totalBorrowSharesRaw: string;
     liquidityAssetsRaw: string;
+    feeWad: string;
+    utilizationWad: string;
+    supplyAprWad: string;
     lastUpdateTimestamp: string;
   };
   wallet: {
@@ -96,6 +104,9 @@ export type MorphoMarketSnapshot = {
     loanAllowanceRaw: string;
   };
   position: {
+    supplySharesRaw: string;
+    suppliedAssetsRaw: string;
+    withdrawableSupplyAssetsRaw: string;
     collateralRaw: string;
     borrowSharesRaw: string;
     debtAssetsRaw: string;
@@ -216,19 +227,28 @@ export function createMorphoMarketRpcReader(options: {
           throw new MorphoMarketRpcError("The Base source block changed while the market was read.");
         }
         const borrowRate = oneWord(rateResponse.result, "borrow rate");
-        const [totalSupplyAssets, , storedBorrowAssets, totalBorrowShares, lastUpdate] = market;
+        assertMaximum(borrowRate, UINT256_MAX / SECONDS_PER_YEAR, "borrow rate");
+        const [totalSupplyAssets, totalSupplyShares, storedBorrowAssets, totalBorrowShares, lastUpdate, feeWad] = market;
         if (lastUpdate === BigInt("0")) throw new MorphoMarketRpcError("The configured Morpho market is not created.");
         if (lastUpdate > block.timestamp) throw new MorphoMarketRpcError("Morpho market time is ahead of the source block.");
         const elapsed = block.timestamp - lastUpdate;
         const currentBorrowAssets = accrueBorrowAssets(storedBorrowAssets, borrowRate, elapsed);
-        const interest = currentBorrowAssets - storedBorrowAssets;
-        const currentSupplyAssets = totalSupplyAssets + interest;
+        const { currentSupplyAssets, currentSupplyShares } = accrueMorphoSupplyState({
+          totalSupplyAssets,
+          totalSupplyShares,
+          storedBorrowAssets,
+          currentBorrowAssets,
+          feeWad,
+        });
         assertMaximum(currentBorrowAssets, UINT128_MAX, "accrued borrow assets");
         assertMaximum(currentSupplyAssets, UINT128_MAX, "accrued supply assets");
+        assertMaximum(currentSupplyShares, UINT128_MAX, "accrued supply shares");
         const liquidity = currentSupplyAssets >= currentBorrowAssets
           ? currentSupplyAssets - currentBorrowAssets
           : BigInt("0");
-        const [, borrowShares, collateral] = position;
+        const [supplyShares, borrowShares, collateral] = position;
+        const suppliedAssets = toAssetsDown(supplyShares, currentSupplyAssets, currentSupplyShares);
+        const withdrawableSupplyAssets = suppliedAssets < liquidity ? suppliedAssets : liquidity;
         const debt = toAssetsUp(borrowShares, currentBorrowAssets, totalBorrowShares);
         const rawMaxDebt = borrowCapacityAssets(collateral, oraclePrice, marketRef.lltvWad);
         const rawAvailableBorrow = availableBorrowAssets({
@@ -240,6 +260,9 @@ export function createMorphoMarketRpcReader(options: {
         });
         const rawRequiredCollateral = minimumCollateralForDebt(debt, oraclePrice, marketRef.lltvWad);
         const rawWithdrawableCollateral = collateral > rawRequiredCollateral ? collateral - rawRequiredCollateral : BigInt("0");
+        const utilization = utilizationWad(currentBorrowAssets, currentSupplyAssets);
+        const borrowApr = borrowRate * SECONDS_PER_YEAR;
+        const supplyApr = netSupplyAprWad(borrowApr, utilization, feeWad);
         const fetchedAt = now();
         if (Number.isNaN(fetchedAt.getTime())) throw new MorphoMarketRpcError("The Morpho market fetch time is invalid.");
 
@@ -267,11 +290,15 @@ export function createMorphoMarketRpcReader(options: {
           state: {
             oraclePriceRaw: oraclePrice.toString(10),
             borrowRatePerSecondWad: borrowRate.toString(10),
-            borrowAprWad: (borrowRate * SECONDS_PER_YEAR).toString(10),
+            borrowAprWad: borrowApr.toString(10),
             totalSupplyAssetsRaw: currentSupplyAssets.toString(10),
+            totalSupplySharesRaw: currentSupplyShares.toString(10),
             totalBorrowAssetsRaw: currentBorrowAssets.toString(10),
             totalBorrowSharesRaw: totalBorrowShares.toString(10),
             liquidityAssetsRaw: liquidity.toString(10),
+            feeWad: feeWad.toString(10),
+            utilizationWad: utilization.toString(10),
+            supplyAprWad: supplyApr.toString(10),
             lastUpdateTimestamp: lastUpdate.toString(10),
           },
           wallet: {
@@ -281,6 +308,9 @@ export function createMorphoMarketRpcReader(options: {
             loanAllowanceRaw: oneWord(resultById(calls, 10), "loan allowance").toString(10),
           },
           position: {
+            supplySharesRaw: supplyShares.toString(10),
+            suppliedAssetsRaw: suppliedAssets.toString(10),
+            withdrawableSupplyAssetsRaw: withdrawableSupplyAssets.toString(10),
             collateralRaw: collateral.toString(10),
             borrowSharesRaw: borrowShares.toString(10),
             debtAssetsRaw: debt.toString(10),
