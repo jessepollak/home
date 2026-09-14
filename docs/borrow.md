@@ -6,7 +6,7 @@ Jesse-locked September 13, 2026 ([#395](https://github.com/jessepollak/home/issu
 
 Borrow uses an operator-controlled, compile-time `BorrowMarketRef` registry on Base. The registry—not Morpho API discovery, protocol listing state, or a permissionless catalog—controls which markets Home shows and enables for new risk. Launch enables only the verified Morpho USDC/cbBTC isolated market. The reader, shared integer math, calldata builders, and action preparation remain market-parameterized.
 
-Removing or warning a market must not remove management access for an existing position. Operators retain its trusted registry tuple and change it to `reducing-only`; repay, repay-all, close, add-collateral, and zero-debt collateral withdrawal remain available when their required reads verify, while borrow-more and debt-bearing collateral withdrawal remain blocked.
+Removing or warning a market must not remove management access for an existing position. Operators retain its trusted registry tuple and change it to `reducing-only`; repay (including full repayment), add-collateral, and zero-debt collateral withdrawal remain available when their required reads verify, while borrow-more and debt-bearing collateral withdrawal remain blocked. Repay-all and atomic close remain supported backend operations, but are not separate visible actions.
 
 Every market read and action prepare verifies `idToMarketParams` against the trusted registry tuple at a pinned block. The server derives the owner, `onBehalf`, receiver, Morpho deployment, tokens, oracle, IRM, and LLTV. It simulates the exact ordered Coinbase smart-account batch and reconfirms the pinned block hash. The client sends only a configured market id, an operation, and decimal-integer base-unit amounts.
 
@@ -14,7 +14,7 @@ Every market read and action prepare verifies `idToMarketParams` against the tru
 
 Signed-in users open Borrow at `/dashboard?panel=borrow`. The overview shows one friendly card for every enabled registry market, whether or not the owner has debt. The Bitcoin card uses the Bitcoin display name while exact token amounts continue to say `cbBTC`. A missing cbBTC balance leaves the market visible but disables Borrow; it does not redirect to another product.
 
-An active position stays on the same market card. Borrow more and Repay are the primary actions; Add collateral, Repay all, Withdraw, and Close are compact management actions. When liquidation risk is urgent, Repay and Add collateral move to the primary positions. Partial and unavailable reads remain explicit and are never presented as zero.
+An active position stays on the same market card. Borrow more and Repay are the primary actions; Add collateral and Withdraw are the only management actions. The same minimum action set remains visible when liquidation risk is urgent, with risk-increasing actions disabled. Partial and unavailable reads remain explicit and are never presented as zero.
 
 The `market` query parameter is still accepted for configured registry ids, but it opens the direct Borrow MoneyModal rather than the deprecated dense market inspector. Home does not show LLTV, raw protocol-limit rows, contract facts, or a separate detail dashboard on the Borrow product surface.
 
@@ -28,7 +28,7 @@ Liquidation risk is presented as price-drop buffer: `buffer bps = (health factor
 
 Borrow review is concise and server-authored. It shows the primary amount, exact spend/receive or repay movements, the projected liquidation buffer, the variable rate from the fresh prepared snapshot, Network Base, and compact server warnings. Prepared reviews expire after two minutes and must be prepared again before confirmation.
 
-Repay-all and close use current borrow shares with a finite wallet-bounded maximum. The client buffer is approximately one hour of rate-based debt accrual plus one base unit; the server remains authoritative over exact borrow shares, finite approval, simulation, and the reviewed maximum.
+Repay is one smart flow. An amount below current estimated debt prepares an exact partial repayment and warns that debt remains. Max, or an entered amount at or above current estimated debt, prepares repay-all with current borrow shares and a finite wallet-bounded maximum, so it does not show the partial-repayment warning. If wallet USDC is below debt, Max remains an exact partial repayment. The full-repayment client buffer is approximately one hour of rate-based debt accrual plus one base unit; the server remains authoritative over exact borrow shares, finite approval, simulation, and the reviewed maximum. Atomic close remains backend-supported but is not presented as a separate user primitive.
 
 ## Private APIs
 

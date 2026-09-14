@@ -67,6 +67,19 @@ describe("Borrow UI intent mapping", () => {
     });
   }
 
+  test.each(["1000000", "1000001"])("routes repay amount %s at or above debt to the reviewed repay-all maximum", (amountBaseUnits) => {
+    expect(buildBorrowPreparedIntent({
+      snapshot: snapshot(),
+      operation: "repay",
+      amountBaseUnits,
+      maximumRepayBaseUnits: "1000100",
+    })).toEqual({
+      kind: "repay",
+      operation: "repay-all",
+      params: { marketId: BORROW_MARKET_ID, operation: "repay-all", maximumRepayBaseUnits: "1000100" },
+    });
+  });
+
   test("routes zero-debt close to a full collateral withdrawal", () => {
     expect(buildBorrowPreparedIntent({ snapshot: snapshot("0"), operation: "close-position" })).toEqual({
       kind: "withdraw-collateral",

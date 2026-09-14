@@ -67,11 +67,13 @@ export function buildBorrowPreparedIntent({
   operation,
   amountBaseUnits,
   collateralAmountBaseUnits,
+  maximumRepayBaseUnits,
 }: {
   snapshot: BorrowMarketSnapshot;
   operation: BorrowOperation;
   amountBaseUnits?: string;
   collateralAmountBaseUnits?: string;
+  maximumRepayBaseUnits?: string;
 }): BorrowPreparedIntent {
   if (operation === "close-position" && BigInt(snapshot.position.debtAssetsRaw) === BigInt(0)) {
     return {
@@ -93,6 +95,17 @@ export function buildBorrowPreparedIntent({
         operation,
         amountBaseUnits: requiredAmount(amountBaseUnits),
         collateralAmountBaseUnits: requiredAmount(collateralAmountBaseUnits),
+      },
+    };
+  }
+  if (operation === "repay" && BigInt(requiredAmount(amountBaseUnits)) >= BigInt(snapshot.position.debtAssetsRaw)) {
+    return {
+      kind: actionKindForBorrowOperation("repay-all"),
+      operation: "repay-all",
+      params: {
+        marketId: snapshot.market.id,
+        operation: "repay-all",
+        maximumRepayBaseUnits: requiredAmount(maximumRepayBaseUnits),
       },
     };
   }

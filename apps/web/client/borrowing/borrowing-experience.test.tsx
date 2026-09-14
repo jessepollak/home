@@ -21,7 +21,6 @@ const {
   borrowTeaserPositionDescription,
   openingBorrowAvailableBaseUnits,
   parseClientTokenAmount,
-  partialRepayMaximumBaseUnits,
   recommendedOpeningCollateralBaseUnits,
   recommendedRepayMaximumBaseUnits,
   selectUrgentBorrowPosition,
@@ -75,18 +74,23 @@ function overview({ position = true, unavailable = false, owner = OWNER }: { pos
   };
 }
 
-function prepared(operation: "borrow" | "supply-and-borrow" = "borrow", overrides: Partial<PreparedMoneyAction> = {}): PreparedMoneyAction {
+function prepared(operation: "borrow" | "supply-and-borrow" | "repay" | "repay-all" = "borrow", overrides: Partial<PreparedMoneyAction> = {}): PreparedMoneyAction {
   const amounts = operation === "supply-and-borrow"
     ? [
         { assetId: BORROW_COLLATERAL_TOKEN.id, symbol: "cbBTC", decimals: 8, amountBaseUnits: "2181", direction: "spend" as const },
         { assetId: BORROW_LOAN_TOKEN.id, symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "receive" as const },
       ]
-    : [{ assetId: BORROW_LOAN_TOKEN.id, symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "receive" as const }];
+    : operation === "repay-all"
+      ? [
+          { assetId: BORROW_LOAN_TOKEN.id, symbol: "USDC", decimals: 6, amountBaseUnits: "100000000", direction: "spend" as const, estimated: true },
+          { assetId: BORROW_LOAN_TOKEN.id, symbol: "USDC", decimals: 6, amountBaseUnits: "100000362", direction: "spend" as const, maximum: true },
+        ]
+      : [{ assetId: BORROW_LOAN_TOKEN.id, symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: operation === "repay" ? "spend" as const : "receive" as const }];
   return {
     id: "11111111-1111-4111-8111-111111111111",
     owner: { subject: "borrow-ui-user", address: OWNER, chainId: 8453, accountProvider: "cdp-embedded" },
-    kind: "borrow",
-    title: operation === "supply-and-borrow" ? "Borrow USDC against cbBTC" : "Borrow USDC",
+    kind: operation === "repay" || operation === "repay-all" ? "repay" : "borrow",
+    title: operation === "supply-and-borrow" ? "Borrow USDC against cbBTC" : operation === "repay-all" ? "Repay all USDC debt" : operation === "repay" ? "Repay USDC" : "Borrow USDC",
     calls: [{ to: MORPHO_BLUE_ADDRESS, data: "0x1234", value: "0" }],
     amounts,
     warnings: [],
@@ -130,6 +134,7 @@ describe("BorrowExperience redesign", () => {
     fireEvent.click(await body.findByRole("button", { name: "Borrow" }));
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
     expect(dialog.getByRole("img", { name: /\$500\.00 available/ })).toBeTruthy();
+    expect(dialog.getByLabelText("USDC").querySelector("[data-mark='shimmer'] img")?.getAttribute("src")).toBe("/currency-flags/us.svg");
     const numpadKey = dialog.getByRole("button", { name: "1" });
     fireEvent.click(numpadKey);
     const preview = dialog.getByTestId("borrow-collateral-preview");
@@ -179,7 +184,8 @@ describe("BorrowExperience redesign", () => {
     const requests: Array<{ kind: string; params: unknown }> = [];
     render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot, overview({ position: false }))} prepareMoneyAction={async (kind, params) => { requests.push({ kind, params }); return prepared("borrow"); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body);
-    expect(await body.findByRole("img", { name: "150.00 USDC" })).toBeTruthy();
+    const availableTicker = await body.findByRole("img", { name: "150.00 USDC" });
+    expect(availableTicker.getAttribute("data-reserve-digits")).toBe("false");
     expect(body.getByText(/0\.5000 cbBTC locked as collateral/)).toBeTruthy();
     expect(body.queryByText("You need cbBTC in this wallet before you can borrow.")).toBeNull();
     const borrow = body.getByRole("button", { name: "Borrow" }) as HTMLButtonElement;
@@ -241,19 +247,24 @@ describe("BorrowExperience redesign", () => {
     expect(borrow.className).toContain("min-h-11");
     expect(body.getByRole("list", { name: "Borrow markets" })).toBeTruthy();
     expect(body.getByRole("listitem")).toBe(card);
-    expect(body.getByRole("group", { name: "Manage Bitcoin position" })).toBeTruthy();
-    expect(body.getByRole("button", { name: "Withdraw collateral from Bitcoin position" }).className).toContain("min-h-11");
-    expect(body.getByRole("button", { name: "Close Bitcoin position" }).className).toContain("min-h-11");
+    const manage = body.getByRole("group", { name: "Manage Bitcoin position" });
+    const manageButtons = within(manage).getAllByRole("button");
+    expect(manageButtons.map((button) => button.textContent)).toEqual(["Add collateral", "Withdraw"]);
+    expect(manageButtons[0]?.parentElement?.className).toContain("grid-cols-2");
+    expect(manageButtons.every((button) => button.className.includes("min-h-11") && button.className.includes("w-full"))).toBe(true);
+    expect(body.queryByRole("button", { name: "Repay all" })).toBeNull();
+    expect(body.queryByRole("button", { name: "Close Bitcoin position" })).toBeNull();
     expect(card.className).not.toContain("hover:bg-muted");
   });
 
-  test("prioritizes Repay and Add collateral in urgent state", async () => {
+  test("keeps the minimum action set in urgent state while disabling risk increases", async () => {
     const snapshot = detail({ position: { ...detail().position, healthFactorWad: "1200000000000000000" } });
     render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot)} />);
     const body = within(document.body);
     const buttons = await body.findAllByRole("button");
-    expect(buttons.slice(0, 2).map((button) => button.textContent)).toEqual(["Repay", "Add collateral"]);
-    expect(body.queryByRole("button", { name: "Borrow more" })).toBeNull();
+    expect(buttons.map((button) => button.textContent)).toEqual(["Borrow more", "Repay", "Add collateral", "Withdraw"]);
+    expect((body.getByRole("button", { name: "Borrow more" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((body.getByRole("button", { name: "Withdraw collateral from Bitcoin position" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   test("uses destructive buffer treatment below the 1.25 floor and immediate-risk copy at liquidation", async () => {
@@ -293,6 +304,61 @@ describe("BorrowExperience redesign", () => {
     expect(await dialog.findByText("Review warnings")).toBeTruthy();
     expect(dialog.getAllByRole("listitem").map((item) => item.textContent)).toEqual(warnings);
     expect(dialog.queryByText("Review warning")).toBeNull();
+  });
+
+  test("prepares an entered amount below debt as a partial repay with the partial-payment warning", async () => {
+    const requests: Array<{ kind: string; params: unknown }> = [];
+    const partialWarning = "This is a partial repayment. The remaining debt continues to accrue at a variable rate.";
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async (kind, params) => { requests.push({ kind, params }); return prepared("repay", { warnings: [partialWarning] }); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body);
+    fireEvent.click(await body.findByRole("button", { name: "Repay" }));
+    const dialog = within(await body.findByRole("dialog", { name: "Repay" }));
+    fireEvent.click(dialog.getByRole("button", { name: "5" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(await dialog.findByText(partialWarning)).toBeTruthy();
+    expect(requests).toEqual([{ kind: "repay", params: { marketId: BORROW_MARKET_ID, operation: "repay", amountBaseUnits: "5000000" } }]);
+  });
+
+  test("prepares Max and an amount at current debt as buffered repay-all without a partial-payment warning", async () => {
+    const expectedMaximum = recommendedRepayMaximumBaseUnits("100000000", "200000000", "1000000000");
+    const requests: Array<{ kind: string; params: unknown }> = [];
+    const view = render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async (kind, params) => { requests.push({ kind, params }); return prepared("repay-all"); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body);
+    fireEvent.click(await body.findByRole("button", { name: "Repay" }));
+    let dialog = within(await body.findByRole("dialog", { name: "Repay" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Max" }));
+    expect(dialog.getByText("Maximum repayment")).toBeTruthy();
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    await dialog.findByText("Maximum repayment (USDC)");
+    expect(dialog.queryByText(/This is a partial repayment/)).toBeNull();
+    expect(requests[0]).toEqual({ kind: "repay", params: { marketId: BORROW_MARKET_ID, operation: "repay-all", maximumRepayBaseUnits: expectedMaximum } });
+
+    view.unmount();
+    getHomeQueryClient().clear();
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async (kind, params) => { requests.push({ kind, params }); return prepared("repay-all"); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const nextBody = within(document.body);
+    fireEvent.click(await nextBody.findByRole("button", { name: "Repay" }));
+    dialog = within(await nextBody.findByRole("dialog", { name: "Repay" }));
+    for (const digit of ["1", "0", "0"]) fireEvent.click(dialog.getByRole("button", { name: digit }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    await dialog.findByText("Maximum repayment (USDC)");
+    expect(requests[1]).toEqual({ kind: "repay", params: { marketId: BORROW_MARKET_ID, operation: "repay-all", maximumRepayBaseUnits: expectedMaximum } });
+  });
+
+  test("keeps wallet-short Max as an accurate partial repay", async () => {
+    const base = detail();
+    const snapshot = detail({ wallet: { ...base.wallet, loanBalanceRaw: "50000000" } });
+    const requests: Array<{ kind: string; params: unknown }> = [];
+    const partialWarning = "This is a partial repayment. The remaining debt continues to accrue at a variable rate.";
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot)} prepareMoneyAction={async (kind, params) => { requests.push({ kind, params }); return prepared("repay", { amounts: [{ assetId: BORROW_LOAN_TOKEN.id, symbol: "USDC", decimals: 6, amountBaseUnits: "50000000", direction: "spend" }], warnings: [partialWarning] }); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body);
+    fireEvent.click(await body.findByRole("button", { name: "Repay" }));
+    const dialog = within(await body.findByRole("dialog", { name: "Repay" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Max" }));
+    expect(dialog.queryByText("Maximum repayment")).toBeNull();
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(await dialog.findByText(partialWarning)).toBeTruthy();
+    expect(requests).toEqual([{ kind: "repay", params: { marketId: BORROW_MARKET_ID, operation: "repay", amountBaseUnits: "50000000" } }]);
   });
 
   test("surfaces sanitized typed prepare errors without transport details", async () => {
@@ -370,7 +436,6 @@ describe("Borrow bigint helpers", () => {
 
   test("normalizes amounts and uses a one-hour rate-based repay-all buffer plus one unit", () => {
     expect(parseClientTokenAmount("25.", 6)).toBe("25000000");
-    expect(partialRepayMaximumBaseUnits("100000000", "200000000")).toBe("99999999");
     expect(recommendedRepayMaximumBaseUnits("100000000", "200000000", "1000000000")).toBe("100000362");
     expect(recommendedRepayMaximumBaseUnits("100000000", "100000100", "1000000000")).toBe("100000100");
   });
