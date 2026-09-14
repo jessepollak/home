@@ -1,7 +1,7 @@
-# Base Morpho Borrow engine
+# Borrow product projection
 
-The launch registry contains the verified USDC/cbBTC isolated market on Base. The reader, ABI builders, integer math, and prepare path accept a typed market reference and verify its full immutable tuple with `idToMarketParams` at the pinned block.
+Borrow uses the verified registry, ABI, integer math, pinned reader, and batch simulation in `shared/morpho-markets` and `server/morpho-markets`. See [docs/morpho-markets.md](../../../../docs/morpho-markets.md) for the generic engine boundary.
 
-Actions use server-derived authority, finite exact approvals, full ordered Coinbase smart-account batch simulation, and a final source-block hash confirmation. Risk-increasing actions with debt remaining must preserve Home's 1.25 health floor. Repay-all and close use borrow shares with a finite wallet-bounded maximum.
+This directory remains product-specific. It projects `capabilities.borrow` into Borrow eligibility, applies Home's 1.25 health floor, preserves the private Borrow API v1 contracts, and prepares the existing Borrow action set with finite approvals.
 
-The normative product and backend boundary is [docs/borrow.md](../../../../docs/borrow.md).
+The normative product behavior is [docs/borrow.md](../../../../docs/borrow.md).

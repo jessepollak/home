@@ -1,3 +1,3 @@
 import "server-only";
 
-export * from "@/shared/borrowing/math";
+export * from "@/shared/morpho-markets/math";
