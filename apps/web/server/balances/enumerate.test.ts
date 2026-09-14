@@ -39,7 +39,7 @@ describe("balances enumeration in-flight dedupe", () => {
     const first = enumerate(owner, controller.signal);
     const waiter = enumerate(owner);
     controller.abort();
-    expect(receivedSignal?.aborted).toBeFalse();
+    expect(receivedSignal).toBeUndefined();
     gate.resolve({ balances: [row], complete: true, nextPageToken: null, pagesRead: 1, durationMs: 1 });
     await expect(first).resolves.toMatchObject({ status: "complete" });
     await expect(waiter).resolves.toMatchObject({ status: "complete" });

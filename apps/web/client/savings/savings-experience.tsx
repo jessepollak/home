@@ -69,7 +69,6 @@ import {
 } from "@/client/query/query-client";
 import { deploymentHeaders } from "@/client/query/deployment-headers";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
-import { markHomePerformance } from "@/client/observability/perf-marks";
 
 type SavingsExperienceProps = {
   initialData?: MorphoVaultsResult | null;
@@ -230,15 +229,6 @@ export function SavingsExperience({
     if (balanceStatus === "error") return { status: "error" };
     return { status: "loading" };
   }, [balancePositions, balanceRevalidating, balanceStatus, hasSession]);
-
-  useEffect(() => {
-    if (
-      loadState.status === "ready" &&
-      (positionState.status === "ready" || positionState.status === "idle")
-    ) {
-      markHomePerformance("save:ready");
-    }
-  }, [loadState.status, positionState.status]);
 
   const allCandidates = useMemo(() => {
     if (loadState.status !== "ready") return [];

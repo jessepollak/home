@@ -5,6 +5,7 @@ import {
   sanitizeRoutePath,
   scrubString,
 } from "@/shared/observability/scrub";
+import type { HomeStartupReport } from "@/shared/observability/home-startup";
 
 export const OBSERVABILITY_SCHEMA = "home.observability.v2" as const;
 
@@ -92,6 +93,7 @@ export type ServerEventKind = (typeof SERVER_EVENT_KINDS)[number];
 export type ServerEventOutcome = (typeof SERVER_EVENT_OUTCOMES)[number];
 
 export type ObservabilityEvent =
+  | HomeStartupReport
   | {
       kind: "unhandled-server-error";
       route: string;
@@ -154,6 +156,19 @@ type ObservabilityLogBase = {
 
 export type ObservabilityLogLine = ObservabilityLogBase &
   (
+    | {
+        level: "info" | "error";
+        kind: "home-startup";
+        code: "HOME_STARTUP";
+        version: 1;
+        outcome: HomeStartupReport["outcome"];
+        cache: HomeStartupReport["cache"];
+        shellMs: number;
+        sessionMs?: number;
+        balancesMs?: number;
+        interactiveMs?: number;
+        totalMs: number;
+      }
     | {
         level: "error";
         kind: "unhandled-server-error";
@@ -230,6 +245,30 @@ export function normalizeObservabilityEvent(
     schema: OBSERVABILITY_SCHEMA,
     route: sanitizeRoutePath(event.route),
   };
+
+  if (event.kind === "home-startup") {
+    return {
+      schema: OBSERVABILITY_SCHEMA,
+      route: event.route,
+      level: event.outcome === "ready" || event.outcome === "signed-out" ? "info" : "error",
+      kind: event.kind,
+      code: "HOME_STARTUP",
+      version: 1,
+      outcome: event.outcome,
+      cache: event.cache,
+      shellMs: boundedInteger(event.shellMs, 60_000),
+      ...(event.sessionMs === undefined
+        ? {}
+        : { sessionMs: boundedInteger(event.sessionMs, 60_000) }),
+      ...(event.balancesMs === undefined
+        ? {}
+        : { balancesMs: boundedInteger(event.balancesMs, 60_000) }),
+      ...(event.interactiveMs === undefined
+        ? {}
+        : { interactiveMs: boundedInteger(event.interactiveMs, 60_000) }),
+      totalMs: boundedInteger(event.totalMs, 60_000),
+    };
+  }
 
   if (event.kind === "balances-read") {
     const outcome = allowedValue(event.outcome, BALANCES_READ_OUTCOMES, "error");

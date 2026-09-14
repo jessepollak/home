@@ -2,7 +2,7 @@
 
 Status: source-level milestone for issue #74, implemented September 11, 2026. This is not a deployment or production-verification claim.
 
-Home's first observability milestone is deliberately scrub-first. It provides a closed JSON error schema, one Next.js owner for unhandled server errors, and a bounded same-origin client-error channel. Existing product API routes are not wrapped in this pass.
+Home's first observability milestone is deliberately scrub-first. It provides a closed JSON error schema, one Next.js owner for unhandled server errors, and a bounded same-origin client-error channel. Existing product API routes are not wrapped in this pass. The additive real-user and startup-performance design is documented in [Production performance observability](performance-observability.md).
 
 ## What is in the source tree
 
@@ -14,6 +14,7 @@ Home's first observability milestone is deliberately scrub-first. It provides a 
 | Server error owner | `apps/web/instrumentation.ts` → `onRequestError` | Uses the route template, method, route type, and sanitized error class only; it never reads the exception message, stack, digest, request URL, or headers |
 | Client reporter | `apps/web/instrumentation-client.ts` | Installs before hydration, sends at most five reports per page, omits credentials and referrer, and never affects application behavior |
 | Client ingestion | `POST /api/client-errors` | Requires exact same origin and JSON, limits the body to 2 KiB while streaming, rejects unknown fields, and applies a 30-report/minute per-instance shedding limit |
+| Startup ingestion | `POST /api/client-performance` | Accepts only the closed Home startup schema with fixed routes, outcomes, cache provenance, and bounded durations; it uses the same transport defenses and a separate limiter |
 
 Example log line:
 
@@ -47,7 +48,7 @@ This milestone therefore produces structured runtime error logs, not exported ap
 
 ## Operator use
 
-In Vercel project logs, search for the exact schema identifier `home.observability.v2`, then narrow by `kind`, `code`, `route`, or `errorName`. Balance diagnosis uses `kind=portfolio-balance-source` plus the closed `source`, `stage`, `outcome`, and `reason` fields; it contains no account, contract, quantity, request, or provider payload. Treat these lines as error signals, not user or transaction records. Do not add request headers, bodies, wallet addresses, provider responses, or exception objects to the schema.
+In Vercel project logs, search for the exact schema identifier `home.observability.v2`, then narrow by `kind`, `code`, `route`, or `errorName`. Home startup diagnosis uses `kind=home-startup` with only fixed outcome, cache, route, and duration fields. Balance diagnosis uses `kind=portfolio-balance-source` plus the closed `source`, `stage`, `outcome`, and `reason` fields; it contains no account, contract, quantity, request, or provider payload. Treat these lines as error signals, not user or transaction records. Do not add request headers, bodies, wallet addresses, provider responses, or exception objects to the schema.
 
 The client endpoint's fixed-window limiter is intentionally per runtime instance. It bounds source-level work but is not a global distributed rate limit. Vercel platform request controls remain the appropriate outer abuse boundary.
 

@@ -5,17 +5,20 @@ import { writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import {
   CdpTokenBalancesError,
+  CDP_TOKEN_BALANCES_SOFT_PAGE_START_MS,
+  CDP_TOKEN_BALANCES_TIMEOUT_MS,
   createCdpTokenBalancesClient,
   type CdpTokenBalancesClient,
 } from "./enumerate-cdp";
 import type { BalancesEnumeration } from "./types";
 
-export const BALANCES_ENUMERATION_DEADLINE_MS = 8_000;
+export const BALANCES_ENUMERATION_SOFT_PAGE_START_MS =
+  CDP_TOKEN_BALANCES_SOFT_PAGE_START_MS;
+export const BALANCES_ENUMERATION_HARD_PAGE_MS = CDP_TOKEN_BALANCES_TIMEOUT_MS;
 
 type Dependencies = {
   listBalances?: CdpTokenBalancesClient["listBalances"];
   log?: (event: ObservabilityEvent) => unknown;
-  deadlineMs?: number;
 };
 
 /** Per-owner in-flight CDP enumeration dedupe, detached from every route caller signal. */
@@ -23,7 +26,6 @@ export function createBalancesEnumerator(dependencies: Dependencies = {}) {
   const listBalances = dependencies.listBalances ??
     createCdpTokenBalancesClient().listBalances;
   const log = dependencies.log ?? writeObservabilityEvent;
-  const deadlineMs = dependencies.deadlineMs ?? BALANCES_ENUMERATION_DEADLINE_MS;
   const inFlight = new Map<string, Promise<BalancesEnumeration>>();
 
   return async function enumerateBalances(
@@ -38,7 +40,6 @@ export function createBalancesEnumerator(dependencies: Dependencies = {}) {
     const pending = runEnumeration(
       listBalances,
       owner.toLowerCase() as PortfolioAddress,
-      deadlineMs,
       log,
       cursor,
     ).finally(() => {
@@ -54,21 +55,14 @@ export const enumerateBalances = createBalancesEnumerator();
 async function runEnumeration(
   listBalances: CdpTokenBalancesClient["listBalances"],
   owner: PortfolioAddress,
-  deadlineMs: number,
   log: (event: ObservabilityEvent) => unknown,
   cursor?: string | null,
 ): Promise<BalancesEnumeration> {
-  const controller = new AbortController();
   const startedAt = Date.now();
-  const timer = setTimeout(
-    () => controller.abort("balances-enumeration-deadline"),
-    deadlineMs,
-  );
   try {
     const listed = await listBalances({
       address: owner,
       ...(cursor ? { pageToken: cursor } : {}),
-      signal: controller.signal,
     });
     const result: BalancesEnumeration = {
       status: listed.complete ? "complete" : "incomplete",
@@ -106,8 +100,6 @@ async function runEnumeration(
       pagesRead: 0,
       durationMs,
     };
-  } finally {
-    clearTimeout(timer);
   }
 }
 

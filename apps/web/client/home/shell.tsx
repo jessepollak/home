@@ -28,7 +28,11 @@ import {
   type ShellFlow,
 } from "@/config/shell-location";
 import { useOptionalAppChrome } from "@/components/app-chrome";
-import { markHomePerformance } from "@/client/observability/perf-marks";
+import {
+  markHomePerformance,
+  markHomeStartupOutcome,
+  startHomePerformance,
+} from "@/client/observability/perf-marks";
 import {
   balancesListKey,
   clampHomeScrollTop,
@@ -150,9 +154,10 @@ export function HomeShell({
   const previousScrollContextRef = useRef(scrollContextId);
 
   useEffect(() => {
+    startHomePerformance(shellPath);
     const frame = window.requestAnimationFrame(() => markHomePerformance("shell:paint"));
     return () => window.cancelAnimationFrame(frame);
-  }, []);
+  }, [shellPath]);
   useEffect(() => {
     if (previousScrollContextRef.current === scrollContextId) return;
     previousScrollContextRef.current = scrollContextId;
@@ -248,8 +253,7 @@ export function HomeShell({
   const mayPaintBalances = account.verification !== null;
   useEffect(() => {
     if (isVerified) markHomePerformance("session:verified");
-    if (isVerified && account.session?.smartAccount) markHomePerformance("wallet:ready");
-  }, [account.session?.smartAccount, isVerified]);
+  }, [isVerified]);
   useEffect(() => {
     if (
       !applyInboundUrlIntent ||
@@ -265,6 +269,10 @@ export function HomeShell({
   }, [account.session?.smartAccount, applyInboundUrlIntent, applyUrlState, isVerified, routeMode]);
   const isUnavailable = account.status === "unavailable";
   const isSignedOut = account.status === "signed-out" || account.status === "signout-error";
+  useEffect(() => {
+    if (isUnavailable) markHomeStartupOutcome("unavailable");
+    else if (isSignedOut) markHomeStartupOutcome("signed-out");
+  }, [isSignedOut, isUnavailable]);
   const paintedAssetBalances = mayPaintBalances
     ? (presentAssetBalances?.(showSmallBalances || revealSmallBalances) ?? assetBalances ?? loadingAssetBalances)
     : loadingAssetBalances;

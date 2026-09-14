@@ -164,10 +164,26 @@ describe("balance observations", () => {
     }]);
   });
 
-  test("resumes a bounded enumeration, merges stored rows, and clears the cursor", async () => {
+  test("a fresh partial row with a cursor is served without foreground enumeration", async () => {
+    const fixture = setup({});
+    await fixture.store.putObservation(observation({
+      enumerationCursor: "page-two",
+      coverage: { registry: "complete", catalog: "incomplete" },
+    }));
+
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.coverage.catalog).toBe("incomplete");
+    expect(fixture.reads()).toBe(0);
+    expect(fixture.enumerations()).toBe(0);
+    expect(fixture.events).toContainEqual(expect.objectContaining({ outcome: "served-row" }));
+    expect((await fixture.store.get(8453, owner))?.enumerationCursor).toBe("page-two");
+  });
+
+  test("the backstop resumes a bounded enumeration, merges stored rows, and clears the cursor", async () => {
     const nextAddress = "0x2222222222222222222222222222222222222222" as const;
     const cursors: Array<string | null | undefined> = [];
     const fixture = setup({
+      now: "2026-09-13T12:02:01.000Z",
       enumerate: async (cursor) => {
         cursors.push(cursor);
         return {
@@ -195,9 +211,9 @@ describe("balance observations", () => {
     expect(fixture.enumerations()).toBe(1);
   });
 
-  test("hot rows re-read registry only and retain catalog rows without moving observedAt", async () => {
+  test("hot rows with a cursor re-read registry only and preserve catalog progress", async () => {
     const fixture = setup({});
-    await fixture.store.putObservation(observation());
+    await fixture.store.putObservation(observation({ enumerationCursor: "page-two" }));
     await fixture.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
     const snapshot = await fixture.service(owner, "US");
     expect(fixture.reads()).toBe(1);
@@ -205,6 +221,8 @@ describe("balance observations", () => {
     expect(snapshot.holdings.map((holding) => holding.source)).toEqual(["registry", "catalog"]);
     expect(snapshot.fetchedAt).toBe(observedAt);
     expect((await fixture.store.get(8453, owner))?.observedAt).toBe(observedAt);
+    expect((await fixture.store.get(8453, owner))?.enumerationCursor).toBe("page-two");
+    expect(fixture.events).toContainEqual(expect.objectContaining({ outcome: "registry-only" }));
   });
 
   test("continuous hot reads still run a full observation after 120 seconds", async () => {
@@ -387,6 +405,7 @@ describe("balance observations", () => {
       }),
     });
     await fixture.store.putObservation(observation({ enumerationCursor: "page-two" }));
+    await fixture.store.markStale(8453, owner, new Date("2026-09-13T12:00:20.000Z"));
 
     const snapshot = await fixture.service(owner, "US");
     expect(snapshot.holdings.map(({ id }) => id)).toContain(catalog.id);

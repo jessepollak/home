@@ -13,6 +13,8 @@ import {
   type QueryKey,
 } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
+import { recordHomeStartupCache } from "@/client/observability/perf-marks";
+import type { HomeStartupCacheState } from "@/shared/observability/home-startup";
 
 export const ownerQueryCachePrefix = "home.query.v1:";
 export const ownerQueryCacheTtlMs = 24 * 60 * 60 * 1000;
@@ -174,12 +176,22 @@ export function restoreOwnerQueries(
   return true;
 }
 
+export function ownerRestoreCacheState(
+  ownerKey: string | null,
+  restored: boolean,
+): HomeStartupCacheState {
+  if (!ownerKey) return "unknown";
+  return restored ? "restored" : "cold";
+}
+
 export function OwnerQueryPersistence({ ownerKey }: { ownerKey: string | null }) {
   const queryClient = useQueryClient(browserHomeQueryClient());
   useState(() => {
-    if (ownerKey && typeof window !== "undefined") {
-      restoreOwnerQueries(queryClient, window.localStorage, ownerKey);
-    }
+    const restored = Boolean(
+      ownerKey && typeof window !== "undefined" &&
+      restoreOwnerQueries(queryClient, window.localStorage, ownerKey),
+    );
+    recordHomeStartupCache(ownerRestoreCacheState(ownerKey, restored));
     return ownerKey;
   });
   useEffect(() => {
