@@ -4,6 +4,7 @@ import { dataOwnerKey } from "@/client/account/owner-keys";
 import type { VerifiedAccountSession } from "@/client/account/session-client";
 import {
   createBalanceFreshnessState,
+  indexedScopes,
   startBalanceFreshness,
 } from "./after-action";
 import {
@@ -172,13 +173,13 @@ describe("balance freshness across cached regions", () => {
       expect(fetchMetas).toEqual(
         scenario.regions.map(() => ({ persistence: "owner", ownerKey })),
       );
-      expect(invalidations).toBe(scenario.expectedMoved ? 3 : 0);
+      expect(invalidations).toBe(scenario.expectedMoved ? indexedScopes.length : 0);
 
       if (scenario.expectedMoved) {
         await fake.advance(6_000);
         await flushMicrotasks();
         expect(freshReads).toBe(scenario.regions.length);
-        expect(invalidations).toBe(3);
+        expect(invalidations).toBe(indexedScopes.length);
       }
     });
   }

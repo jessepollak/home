@@ -60,6 +60,11 @@ describe("LendExperience", () => {
     const body = within(document.body); expect(await body.findByText("Market currently unavailable")).toBeTruthy(); expect(body.getByTestId("lend-market-card")).toBeTruthy();
   });
 
+  test("does not show a perpetual wallet skeleton for an unavailable market without a position", async () => {
+    render(<LendExperience session={session()} fetchAccountResource={async (path) => path === "/api/borrow" ? overview({ unavailable: true, position: false }) : Promise.reject(new Error("detail should stay disabled"))} {...actionProps} />);
+    const body = within(document.body); expect(await body.findByText("Market currently unavailable")).toBeTruthy(); expect(body.queryByText("Loading wallet lending balance")).toBeNull();
+  });
+
   test("fences owner data and renders loading and unavailable states", async () => {
     const pending = new Promise<unknown>(() => {});
     const { unmount } = render(<LendExperience session={session()} fetchAccountResource={async () => pending} />);
@@ -68,13 +73,21 @@ describe("LendExperience", () => {
     expect(await within(document.body).findByText("Lend is unavailable")).toBeTruthy();
   });
 
-  test("supplies through amount-first review with server-authored APY and Base", async () => {
+  test("supplies through amount-first review with the server-authored variable rate and Base", async () => {
     const requests: Array<{ kind: string; params: unknown }> = [];
     const empty = detail({ lending: { ...detail().lending, position: { supplySharesRaw: "0", suppliedAssetsRaw: "0", withdrawableAssetsRaw: "0" } } });
     render(<LendExperience session={session()} fetchAccountResource={accountFetch(empty, overview({ position: false }))} prepareMoneyAction={async (kind, params) => { requests.push({ kind, params }); return prepared("supply"); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body); fireEvent.click(await body.findByRole("button", { name: "Lend" })); const dialog = within(await body.findByRole("dialog", { name: "Lend" }));
     expect(dialog.getByRole("button", { name: "Max" })).toBeTruthy(); fireEvent.click(dialog.getByRole("button", { name: "1" })); fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
     expect(await dialog.findByText("Lend to this market")).toBeTruthy(); expect(dialog.getByText("Variable rate")).toBeTruthy(); expect(dialog.getByText("Base")).toBeTruthy(); expect(requests[0]).toEqual({ kind: "lend-supply", params: { marketId: market.marketId, operation: "supply", amountBaseUnits: "1000000" } });
+  });
+
+  test("refreshes Lend overview and detail after a successful action", async () => {
+    let overviewReads = 0; let detailReads = 0;
+    const empty = detail({ lending: { ...detail().lending, position: { supplySharesRaw: "0", suppliedAssetsRaw: "0", withdrawableAssetsRaw: "0" } } });
+    render(<LendExperience session={session()} fetchAccountResource={async (path) => { if (path === "/api/borrow") { overviewReads += 1; return overview({ position: false }); } detailReads += 1; return empty; }} prepareMoneyAction={async () => prepared("supply")} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body); fireEvent.click(await body.findByRole("button", { name: "Lend" })); const dialog = within(await body.findByRole("dialog", { name: "Lend" })); fireEvent.click(dialog.getByRole("button", { name: "1" })); fireEvent.click(dialog.getByRole("button", { name: "Continue" })); fireEvent.click(await dialog.findByRole("button", { name: "Confirm action" }));
+    await waitFor(() => { expect(overviewReads).toBeGreaterThan(1); expect(detailReads).toBeGreaterThan(1); });
   });
 
   test("routes withdraw Max to share-based withdraw-all only for a fully liquid position", async () => {
@@ -101,6 +114,13 @@ describe("LendExperience", () => {
     const dust = detail({ lending: { ...detail().lending, canWithdraw: false, position: { supplySharesRaw: "1", suppliedAssetsRaw: "0", withdrawableAssetsRaw: "0" } } }); const requests: unknown[] = [];
     render(<LendExperience session={session()} fetchAccountResource={accountFetch(dust, overview({ dust: true }))} prepareMoneyAction={async (_kind, params) => { requests.push(params); return prepared("withdraw-all", { amounts: [{ assetId: market.loanToken.id, symbol: "USDC", decimals: 6, amountBaseUnits: "0", direction: "receive", estimated: true }] }); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body); fireEvent.click(await body.findByRole("button", { name: "Withdraw" })); const dialog = within(await body.findByRole("dialog", { name: "Withdraw" })); expect(dialog.getByText("Dust cleanup")).toBeTruthy(); fireEvent.click(dialog.getByRole("button", { name: "Continue" })); expect(await dialog.findByText("Withdraw full lending position")).toBeTruthy(); expect(requests[0]).toEqual({ marketId: market.marketId, operation: "withdraw-all" });
+  });
+
+  test("treats a server-expired review as expired even when its timestamp is still in the future", async () => {
+    const empty = detail({ lending: { ...detail().lending, position: { supplySharesRaw: "0", suppliedAssetsRaw: "0", withdrawableAssetsRaw: "0" } } });
+    render(<LendExperience session={session()} fetchAccountResource={accountFetch(empty, overview({ position: false }))} prepareMoneyAction={async () => prepared("supply")} executeMoneyAction={async () => { throw { code: "ACTION_EXPIRED" }; }} />);
+    const body = within(document.body); fireEvent.click(await body.findByRole("button", { name: "Lend" })); const dialog = within(await body.findByRole("dialog", { name: "Lend" })); fireEvent.click(dialog.getByRole("button", { name: "1" })); fireEvent.click(dialog.getByRole("button", { name: "Continue" })); fireEvent.click(await dialog.findByRole("button", { name: "Confirm action" }));
+    expect(await dialog.findByText(/review expired/)).toBeTruthy(); expect(dialog.getByRole("button", { name: "Confirm action" }).hasAttribute("disabled")).toBe(true);
   });
 
   test("handles preparation failure, expiry, and wallet rejection", async () => {

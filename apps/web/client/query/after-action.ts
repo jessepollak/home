@@ -14,11 +14,12 @@ export const afterActionScopes = [
   "balances",
   "activity",
   "borrow",
+  "lend",
   "actions",
 ] as const;
 
 /** Indexer-backed scopes: refreshed again once balances have visibly moved. */
-export const indexedScopes = ["activity", "borrow", "actions"] as const;
+export const indexedScopes = ["activity", "borrow", "lend", "actions"] as const;
 
 export const activityWindowScope = "activity-window";
 const activityWindowQuantumMs = 60_000;

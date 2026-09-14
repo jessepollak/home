@@ -59,7 +59,7 @@ export function AuthenticatedLendTeaser({ onOpen, regionId = "GLOBAL" }: { onOpe
   return (
     <ItemGroup className="gap-0">
       <Item className="min-h-16 flex-nowrap cursor-pointer items-center whitespace-normal border-0 text-left hover:bg-muted" render={<Button variant="ghost" type="button" />} onClick={onOpen}>
-        <LoanAssetMark symbol={opportunity?.market.loanToken.symbol ?? position?.market.loanToken.symbol ?? "USDC"} />
+        <LoanAssetMark decorative symbol={opportunity?.market.loanToken.symbol ?? position?.market.loanToken.symbol ?? "USDC"} />
         <ItemContent className="min-w-0"><ItemTitle>Lend</ItemTitle><ItemDescription>{overview.isPending ? "Loading lending markets…" : description}</ItemDescription></ItemContent>
         <ItemActions className="shrink-0"><ArrowRight className="size-4" aria-hidden="true" /></ItemActions>
       </Item>
@@ -129,9 +129,9 @@ function LendMarketCard({ opportunity, position, session, fetchAccountResource, 
           <Metric label="Withdrawable" value={hasPosition ? formatToken(withdrawableRaw, opportunity.market, regionId) : "—"} />
         </div>
         {opportunity.availability.status === "unavailable" ? <LendNotice tone="error" role="alert" title="Market currently unavailable">{opportunity.availability.reason}</LendNotice> : null}
-        {detail.isPending && !current ? <div aria-busy="true"><Skeleton className="h-10 w-full" /><span className="sr-only">Loading wallet lending balance</span></div> : null}
+        {detail.isPending && detail.isFetching && !current ? <div aria-busy="true"><Skeleton className="h-10 w-full" /><span className="sr-only">Loading wallet lending balance</span></div> : null}
         {detail.isError && !current && opportunity.availability.status === "available" ? <LendNotice tone="error" role="alert" title="Wallet values unavailable" action={<Button variant="secondary" onClick={() => void detail.refetch()}>Retry</Button>}>Your wallet and current withdrawal values could not be verified.</LendNotice> : null}
-        {hasPosition && BigInt(withdrawableRaw) === BigInt(0) ? <LendNotice title="Withdrawals are temporarily unavailable">Your position remains supplied, but this market has no liquid dollars available right now.</LendNotice> : null}
+        {opportunity.availability.status === "available" && hasPosition && BigInt(withdrawableRaw) === BigInt(0) ? <LendNotice title="Withdrawals are temporarily unavailable">Your position remains supplied, but this market has no liquid dollars available right now.</LendNotice> : null}
         {current && (current.lending.mode === "reducing-only" || !current.lending.canSupply) ? <p className="text-sm text-muted-foreground">{current.lending.reason ?? "New lending is paused. You can still withdraw available funds."}</p> : null}
         {current && prepareMoneyAction && executeMoneyAction ? <div className="grid grid-cols-2 gap-2" role="group" aria-label="Manage lending position">
           <Button className="min-h-11 w-full" disabled={!canSupply} onClick={() => setDialog({ operation: "supply", detail: current })}>{hasPosition ? "Lend more" : "Lend"}</Button>
@@ -144,7 +144,7 @@ function LendMarketCard({ opportunity, position, session, fetchAccountResource, 
 }
 
 function Metric({ label, value }: { label: string; value: string }) { return <div className="min-w-0 rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="overflow-x-auto whitespace-nowrap font-semibold tabular-nums"><MoneyTicker value={value} reserveDigits={false} /></p></div>; }
-function LoanAssetMark({ symbol }: { symbol: string }) { return <span className="flex size-10 shrink-0 items-center justify-center [&_[data-mark]]:size-10" role="img" aria-label={`${symbol} icon`}><CurrencyMark currency={symbol === "USDC" ? "USD" : null} symbol={symbol} /></span>; }
+function LoanAssetMark({ decorative = false, symbol }: { decorative?: boolean; symbol: string }) { return <span className="flex size-10 shrink-0 items-center justify-center [&_[data-mark]]:size-10" {...(decorative ? { "aria-hidden": true } : { role: "img", "aria-label": `${symbol} icon` })}><CurrencyMark currency={symbol === "USDC" ? "USD" : null} symbol={symbol} /></span>; }
 
 function LendMoneyDialog({ session, detail, operation, prepareMoneyAction, executeMoneyAction, regionId, onClose }: {
   session: VerifiedAccountSession; detail: LendingMarketDetailResponse; operation: "supply" | "withdraw";
@@ -152,9 +152,11 @@ function LendMoneyDialog({ session, detail, operation, prepareMoneyAction, execu
   regionId: RegionId; onClose: () => void;
 }) {
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const dataOwnerKey = ownerDataKey(session);
   const [amount, setAmount] = useState("");
   const [amountChangeSource, setAmountChangeSource] = useState<MoneyAmountChangeSource>("programmatic");
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
+  const [serverExpiredActionId, setServerExpiredActionId] = useState<string | null>(null);
   const [step, setStep] = useState<"amount" | "confirm" | "pending" | "error" | "failed">("amount");
   const [error, setError] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
@@ -164,10 +166,10 @@ function LendMoneyDialog({ session, detail, operation, prepareMoneyAction, execu
   const availableAmount = decimalFromBaseUnits(availableRaw, detail.market.loanToken.decimals);
   const pricing = useMoneyAssetPricing(detail.market.loanToken.symbol);
   const expiresAt = preparedAction ? Date.parse(preparedAction.expiresAt) : Number.POSITIVE_INFINITY;
-  const expired = Boolean(preparedAction && (!Number.isFinite(expiresAt) || expiresAt <= now));
+  const expired = Boolean(preparedAction && (serverExpiredActionId === preparedAction.id || !Number.isFinite(expiresAt) || expiresAt <= now));
   useEffect(() => { if (!preparedAction || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) return; const delay = expiresAt - Date.now() + 1; if (delay > 2_147_000_000) return; const timer = window.setTimeout(() => setNow(Date.now()), delay); return () => window.clearTimeout(timer); }, [expiresAt, preparedAction]);
   function changeAmount(value: string, source: MoneyAmountChangeSource) { setAmount(value); setAmountChangeSource(source); setError(null); }
-  function goBack() { setPreparedAction(null); setAttempted(false); setError(null); setStep("amount"); }
+  function goBack() { setPreparedAction(null); setServerExpiredActionId(null); setAttempted(false); setError(null); setStep("amount"); }
   function closeIfAllowed() { if (step === "pending") return false; onClose(); return true; }
   async function prepare() {
     try {
@@ -178,7 +180,7 @@ function LendMoneyDialog({ session, detail, operation, prepareMoneyAction, execu
       setStep("pending"); setError(null);
       const action = await prepareMoneyAction(operation === "supply" ? "lend-supply" : "lend-withdraw", { marketId: detail.market.id, operation: lendOperation, ...(lendOperation === "withdraw-all" ? {} : { amountBaseUnits: amountBaseUnits! }) });
       if (!preparedActionMatches(action, session, detail.market.id, lendOperation)) throw new LendClientError("The prepared action did not match this verified account and lending market.");
-      setPreparedAction(action); setAttempted(false); setNow(Date.now()); setStep("confirm");
+      setPreparedAction(action); setServerExpiredActionId(null); setAttempted(false); setNow(Date.now()); setStep("confirm");
     } catch (caught) { setPreparedAction(null); setError(readableLendError(caught)); setStep("amount"); }
   }
   async function confirm() {
@@ -187,8 +189,20 @@ function LendMoneyDialog({ session, detail, operation, prepareMoneyAction, execu
     try {
       const result = await executeMoneyAction(preparedAction); setAttempted(true);
       if (result.status === "rejected" || result.status === "failed") { setError(result.status === "rejected" ? "The wallet request was rejected." : "The verified onchain receipt reported failure."); setStep(result.status === "failed" ? "failed" : "error"); return; }
-      onClose(); void queryClient.invalidateQueries({ queryKey: ownerQueryKey(ownerDataKey(session), "borrow") });
-    } catch (caught) { setAttempted(errorCode(caught) !== "ACTION_EXPIRED"); setError(errorCode(caught) === "ACTION_EXPIRED" ? "This lending review expired. Go back and prepare it again." : "The dispatch outcome is unresolved. Retry recording this same action; a new dispatch will not be created."); setStep("confirm"); }
+      onClose(); void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey, "lend") }),
+        queryClient.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey, "borrow") }),
+      ]);
+    } catch (caught) {
+      if (errorCode(caught) === "ACTION_EXPIRED") {
+        setAttempted(false); setServerExpiredActionId(preparedAction.id);
+        setError("This lending review expired. Go back and prepare it again.");
+      } else {
+        setAttempted(true);
+        setError("The dispatch outcome is unresolved. Retry recording this same action; a new dispatch will not be created.");
+      }
+      setStep("confirm");
+    }
   }
   return <MoneyModal open labelledBy="lend-action-title" describedBy={step === "pending" ? "lend-action-pending" : undefined} onCancel={closeIfAllowed} onClose={onClose}>
     <MoneyModalHeader title={step === "amount" ? operationLabels[operation] : "Confirm"} titleId="lend-action-title" onBack={step === "amount" || step === "pending" ? undefined : goBack} onClose={closeIfAllowed} closeDisabled={step === "pending"} closeLabel="Close Lend action" />
