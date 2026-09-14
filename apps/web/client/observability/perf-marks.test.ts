@@ -1,19 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import type { HomeStartupReport } from "@/shared/observability/home-startup";
+import type { HomeStartupReport } from "@/shared/observability/client-performance.contract";
 import {
   HOME_STARTUP_TIMEOUT_MS,
   createHomeStartupRecorder,
   markHomePerformance,
+  sendHomeStartupReport,
 } from "./perf-marks";
 
 function fixture() {
   let now = 0;
   let timeout: (() => void) | null = null;
+  const scheduledDelays: number[] = [];
   const sent: HomeStartupReport[] = [];
   const recorder = createHomeStartupRecorder({
     now: () => now,
     scheduleTimeout: (run, delayMs) => {
-      expect(delayMs).toBe(HOME_STARTUP_TIMEOUT_MS);
+      scheduledDelays.push(delayMs);
       timeout = run;
       return 1 as unknown as ReturnType<typeof setTimeout>;
     },
@@ -22,6 +24,7 @@ function fixture() {
   });
   return {
     recorder,
+    scheduledDelays,
     sent,
     at(value: number) { now = value; },
     timeout() { timeout?.(); },
@@ -101,6 +104,19 @@ describe("Home startup recorder", () => {
     }]);
   });
 
+  test("anchors the timeout deadline to navigation time", () => {
+    const delayed = fixture();
+    delayed.at(12_000); delayed.recorder.start("/");
+    expect(delayed.scheduledDelays).toEqual([3_000]);
+
+    const expired = fixture();
+    expired.at(HOME_STARTUP_TIMEOUT_MS); expired.recorder.start("/");
+    expired.recorder.mark("shell:paint");
+    expired.recorder.mark("session:verified");
+    expect(expired.scheduledDelays).toEqual([]);
+    expect(expired.sent).toEqual([]);
+  });
+
   test("drops a timeout without shell paint and ignores later marks", () => {
     const value = fixture();
     value.recorder.start("/dashboard");
@@ -150,6 +166,53 @@ describe("Home startup recorder", () => {
     value.at(1); value.recorder.mark("session:verified");
     value.at(2); value.recorder.mark("shell:paint");
     expect(value.sent[0]).toMatchObject({ route: "/", outcome: "ready", totalMs: 2 });
+  });
+
+  test("does not transport malformed reports but sends valid reports", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: RequestInit[] = [];
+    globalThis.fetch = Object.assign(
+      async (_input: URL | RequestInfo, init?: RequestInit) => {
+        calls.push(init!);
+        return new Response(null, { status: 204 });
+      },
+      { preconnect: () => undefined },
+    ) as typeof fetch;
+
+    try {
+      await sendHomeStartupReport({
+        version: 1,
+        kind: "home-startup",
+        route: "/",
+        outcome: "ready",
+        cache: "unknown",
+        shellMs: 1,
+        totalMs: 2,
+      });
+      await sendHomeStartupReport({
+        version: 1,
+        kind: "home-startup",
+        route: "/",
+        outcome: "ready",
+        cache: "unknown",
+        shellMs: 1,
+        totalMs: 2,
+        extra: "identity",
+      } as unknown as HomeStartupReport);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body).toBe(JSON.stringify({
+      version: 1,
+      kind: "home-startup",
+      route: "/",
+      outcome: "ready",
+      cache: "unknown",
+      shellMs: 1,
+      totalMs: 2,
+    }));
   });
 
   test("reporting failures are isolated", () => {

@@ -1,12 +1,7 @@
 import "server-only";
 
 import { URL } from "node:url";
-import {
-  HOME_STARTUP_CACHE_STATES,
-  HOME_STARTUP_OUTCOMES,
-  HOME_STARTUP_ROUTES,
-  type HomeStartupReport,
-} from "@/shared/observability/home-startup";
+import { parseClientPerformanceReport } from "@/shared/observability/client-performance.contract";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 
@@ -14,27 +9,6 @@ export const CLIENT_PERFORMANCE_MAX_BODY_BYTES = 2_048;
 export const CLIENT_PERFORMANCE_WINDOW_MS = 60_000;
 export const CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW = 30;
 
-const allowedKeys = new Set([
-  "version",
-  "kind",
-  "route",
-  "outcome",
-  "cache",
-  "shellMs",
-  "sessionMs",
-  "balancesMs",
-  "interactiveMs",
-  "totalMs",
-]);
-const requiredKeys = new Set([
-  "version",
-  "kind",
-  "route",
-  "outcome",
-  "cache",
-  "shellMs",
-  "totalMs",
-]);
 const responseHeaders = {
   "cache-control": "no-store, max-age=0",
   "content-security-policy": "default-src 'none'",
@@ -59,58 +33,6 @@ class FixedWindowLimiter {
 }
 
 const limiter = new FixedWindowLimiter();
-
-export function parseClientPerformanceReport(value: unknown): HomeStartupReport | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record);
-  if (
-    keys.some((key) => !allowedKeys.has(key)) ||
-    [...requiredKeys].some((key) => !Object.hasOwn(record, key)) ||
-    record.version !== 1 ||
-    record.kind !== "home-startup" ||
-    !isAllowed(record.route, HOME_STARTUP_ROUTES) ||
-    !isAllowed(record.outcome, HOME_STARTUP_OUTCOMES) ||
-    !isAllowed(record.cache, HOME_STARTUP_CACHE_STATES)
-  ) {
-    return null;
-  }
-
-  const shellMs = normalizeDuration(record.shellMs);
-  const totalMs = normalizeDuration(record.totalMs);
-  if (shellMs === null || totalMs === null) return null;
-
-  const optionalDurations: Partial<Pick<
-    HomeStartupReport,
-    "sessionMs" | "balancesMs" | "interactiveMs"
-  >> = {};
-  for (const key of ["sessionMs", "balancesMs", "interactiveMs"] as const) {
-    if (!Object.hasOwn(record, key)) continue;
-    const normalized = normalizeDuration(record[key]);
-    if (normalized === null) return null;
-    optionalDurations[key] = normalized;
-  }
-
-  return {
-    version: 1,
-    kind: "home-startup",
-    route: record.route,
-    outcome: record.outcome,
-    cache: record.cache,
-    shellMs,
-    ...optionalDurations,
-    totalMs,
-  };
-}
-
-function normalizeDuration(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  return Math.min(60_000, Math.max(0, Math.round(value)));
-}
-
-function isAllowed<const T extends readonly string[]>(value: unknown, allowed: T): value is T[number] {
-  return typeof value === "string" && allowed.includes(value);
-}
 
 export function createClientPerformanceHandler(dependencies?: {
   log?: (event: ObservabilityEvent) => unknown;

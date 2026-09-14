@@ -1,9 +1,10 @@
-import type {
-  HomeStartupCacheState,
-  HomeStartupOutcome,
-  HomeStartupReport,
-  HomeStartupRoute,
-} from "@/shared/observability/home-startup";
+import {
+  parseClientPerformanceReport,
+  type HomeStartupCacheState,
+  type HomeStartupOutcome,
+  type HomeStartupReport,
+  type HomeStartupRoute,
+} from "@/shared/observability/client-performance.contract";
 
 export const HOME_PERFORMANCE_MARKS = [
   "shell:paint",
@@ -90,8 +91,13 @@ export function createHomeStartupRecorder(dependencies: RecorderDependencies) {
     start(initialRoute: HomeStartupRoute): void {
       if (route !== null || terminal) return;
       route = initialRoute;
-      timeout = dependencies.scheduleTimeout(() => finish("timeout"), HOME_STARTUP_TIMEOUT_MS);
-      maybeFinishReady();
+      const remainingTimeoutMs = Math.max(0, HOME_STARTUP_TIMEOUT_MS - dependencies.now());
+      if (remainingTimeoutMs === 0) {
+        finish("timeout");
+      } else {
+        timeout = dependencies.scheduleTimeout(() => finish("timeout"), remainingTimeoutMs);
+        maybeFinishReady();
+      }
     },
     mark(name: HomePerformanceMark): HomeStartupReport | null {
       if (terminal) return null;
@@ -117,12 +123,14 @@ function duration(value: number): number {
   return Math.min(60_000, Math.max(0, Math.round(value)));
 }
 
-async function sendHomeStartupReport(report: HomeStartupReport): Promise<void> {
+export async function sendHomeStartupReport(report: HomeStartupReport): Promise<void> {
+  const parsedReport = parseClientPerformanceReport(report);
+  if (!parsedReport) return;
   try {
     await fetch(CLIENT_PERFORMANCE_ENDPOINT, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(report),
+      body: JSON.stringify(parsedReport),
       credentials: "omit",
       cache: "no-store",
       keepalive: true,

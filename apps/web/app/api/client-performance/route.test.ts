@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { parseClientPerformanceReport } from "@/shared/observability/client-performance.contract";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import {
   CLIENT_PERFORMANCE_MAX_BODY_BYTES,
   createClientPerformanceHandler,
-  parseClientPerformanceReport,
 } from "@/server/observability/client-performance";
 
 const endpoint = "https://home.example/api/client-performance";
