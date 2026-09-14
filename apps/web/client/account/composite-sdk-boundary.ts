@@ -46,8 +46,8 @@ export function composeSdkBoundaries({
       await cdp.verifyEmailOTP(flowId, otp);
       if (native.identity !== null) await clearNative();
     },
-    signInWithSiwe: native.boundary.signInWithSiwe,
-    verifySiweSignature: native.boundary.verifySiweSignature,
+    requestBaseAccountChallenge: native.boundary.requestBaseAccountChallenge,
+    verifyBaseAccountProof: native.boundary.verifyBaseAccountProof,
     getAccessToken: nativeSignedIn ? async () => null : cdp.getAccessToken,
     sendUserOperation: cdp.sendUserOperation,
     getUserOperation: cdp.getUserOperation,

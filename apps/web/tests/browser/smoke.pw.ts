@@ -1176,8 +1176,10 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
   await installApiFixtures(page);
   await signIn(page);
   await page.getByRole("button", { name: "Add money" }).click();
-  const method = page.getByRole("button", { name: /Deposit IDR with IDRX/ });
+  // The row title is "Deposit IDR"; the provider and rail live in its description.
+  const method = page.getByRole("button", { name: /Deposit IDR/ });
   await expect(method).toBeVisible();
+  await expect(method).toContainText("IDRX · Bank transfer · Mandiri");
   await method.click();
   await typeAmount(page, "20000");
   await page.getByRole("button", { name: "Review quote", exact: true }).click();

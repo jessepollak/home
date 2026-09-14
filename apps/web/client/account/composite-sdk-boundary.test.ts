@@ -27,8 +27,12 @@ function boundary(overrides: Partial<AccountWalletSdkBoundary> = {}): AccountWal
     provisionalSession: null,
     signInWithEmail: async () => ({ flowId: "email-flow" }),
     verifyEmailOTP: async () => {},
-    signInWithSiwe: async () => ({ flowId: "siwe-flow", message: "message" }),
-    verifySiweSignature: async () => {},
+    requestBaseAccountChallenge: async () => ({
+      nonce: "a".repeat(48), chainId: 8453, domain: "home.example", uri: "https://home.example",
+      version: "1", statement: "Sign in to Home.", issuedAt: "2026-09-13T12:00:00.000Z",
+      expirationTime: "2026-09-13T12:05:00.000Z",
+    }),
+    verifyBaseAccountProof: async () => {},
     getAccessToken: async () => "token",
     signOut: async () => {},
     ...overrides,
@@ -183,10 +187,10 @@ const rows: Array<{ name: string; run: () => Promise<void> }> = [
     run: async () => {
       const events: string[] = [];
       const sdk = composeSdkBoundaries(input({
-        native: { verifySiweSignature: async () => { events.push("verify"); } },
+        native: { verifyBaseAccountProof: async () => { events.push("verify"); } },
         cdpSignOut: async () => { events.push("sign-out-cdp"); },
       }));
-      await sdk.verifySiweSignature("flow", "0x1234");
+      await sdk.verifyBaseAccountProof({ address: NATIVE_ADDRESS, message: "message", signature: "0x1234" });
       await Promise.resolve();
       expect(events).toEqual(["verify"]);
     },

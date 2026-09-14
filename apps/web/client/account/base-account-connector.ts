@@ -1,6 +1,10 @@
 "use client";
 
 import type { ProviderInterface } from "@base-org/account";
+import { createWalletClient, custom } from "viem";
+import { base } from "viem/chains";
+import { connect } from "viem/experimental/erc7846";
+import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 
 const BASE_CHAIN_HEX = "0x2105";
@@ -41,7 +45,7 @@ export type BaseAccountCallStatus =
   | { status: "failed" }
   | { status: "complete"; transactionHash: `0x${string}` };
 
-export type ConnectedBaseAccount = {
+type ConnectedBaseAccountCommon = {
   address: `0x${string}`;
   assertUnchanged: () => Promise<void>;
   signMessage: (message: string) => Promise<`0x${string}`>;
@@ -56,11 +60,19 @@ export type ConnectedBaseAccount = {
   disconnect: () => Promise<void>;
 };
 
+export type ConnectedBaseAccount = ConnectedBaseAccountCommon & (
+  | { kind: "proof"; message: string; signature: `0x${string}` }
+  | { kind: "unsupported" }
+);
+
 export type BaseAccountConnector = (
+  challenge: NativeBaseChallenge,
   onInvalidated: (reason: BaseAccountInvalidation) => void,
 ) => Promise<ConnectedBaseAccount>;
 
-export type BaseAccountRestorer = BaseAccountConnector;
+export type BaseAccountRestorer = (
+  onInvalidated: (reason: BaseAccountInvalidation) => void,
+) => Promise<ConnectedBaseAccount>;
 
 type BaseAccountProvider = Pick<
   ProviderInterface,
@@ -68,11 +80,12 @@ type BaseAccountProvider = Pick<
 >;
 
 function providerErrorCode(error: unknown): number | null {
-  if (!error || typeof error !== "object" || !("code" in error)) {
-    return null;
-  }
-
-  return typeof error.code === "number" ? error.code : null;
+  if (
+    !error || typeof error !== "object" ||
+    !("code" in error) || typeof error.code !== "number" || !Number.isSafeInteger(error.code) ||
+    !("message" in error) || typeof error.message !== "string" || !error.message
+  ) return null;
+  return error.code;
 }
 
 function normalizeAddress(value: unknown): `0x${string}` | null {
@@ -105,6 +118,7 @@ async function openBaseProvider(
   provider: BaseAccountProvider,
   onInvalidated: (reason: BaseAccountInvalidation) => void,
   interactive: boolean,
+  challenge?: NativeBaseChallenge,
 ): Promise<ConnectedBaseAccount> {
   let invalidation: BaseAccountInvalidation | null = null;
   let connectedAddress: `0x${string}` | null = null;
@@ -146,43 +160,122 @@ async function openBaseProvider(
     provider.removeListener("disconnect", onDisconnect);
   };
 
+  let resultKind: "proof" | "unsupported" = "unsupported";
+  let proof: { message: string; signature: `0x${string}` } | null = null;
+  let walletConnected = false;
   try {
+    let accounts: unknown;
     if (interactive) {
+      if (!challenge) throw new BaseAccountConnectorError("invalid-provider-response");
       await provider.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: BASE_CHAIN_HEX }],
       });
+      try {
+        const response = await connect(
+          createWalletClient({
+            chain: base,
+            transport: custom({
+              request: async (args) => {
+                try {
+                  const response = await provider.request(args);
+                  if (args.method === "wallet_connect") walletConnected = true;
+                  return response;
+                } catch (error) {
+                  if (providerErrorCode(error) === null) {
+                    throw new BaseAccountConnectorError("invalid-provider-response", error);
+                  }
+                  throw error;
+                }
+              },
+            }, { retryCount: 0 }),
+          }),
+          {
+            capabilities: {
+              unstable_signInWithEthereum: {
+                nonce: challenge.nonce,
+                chainId: challenge.chainId,
+                domain: challenge.domain,
+                uri: challenge.uri,
+                version: challenge.version,
+                statement: challenge.statement,
+                issuedAt: new Date(challenge.issuedAt),
+                expirationTime: new Date(challenge.expirationTime),
+              },
+            },
+          },
+        );
+        accounts = response.accounts;
+        if (!Array.isArray(accounts) || accounts.length !== 1) {
+          throw new BaseAccountConnectorError("invalid-provider-response");
+        }
+        const account = accounts[0];
+        connectedAddress = normalizeAddress(account?.address);
+        if (!connectedAddress) throw new BaseAccountConnectorError("invalid-provider-response");
+        const signIn = account.capabilities?.unstable_signInWithEthereum;
+        const capabilityCode = providerErrorCode(signIn);
+        if (capabilityCode !== null) {
+          if ("signature" in signIn) {
+            throw new BaseAccountConnectorError("invalid-provider-response", signIn);
+          }
+          if ([4200, -32601, -32004].includes(capabilityCode)) {
+            resultKind = "unsupported";
+          } else if (capabilityCode === 4001 || capabilityCode === 5000) {
+            throw new BaseAccountConnectorError("cancelled", signIn);
+          } else {
+            throw new BaseAccountConnectorError("invalid-provider-response", signIn);
+          }
+        } else if (
+          signIn && typeof signIn === "object" &&
+          "message" in signIn && typeof signIn.message === "string" && signIn.message.length > 0 && signIn.message.length <= 16_384 &&
+          "signature" in signIn && typeof signIn.signature === "string" && hexPattern.test(signIn.signature)
+        ) {
+          resultKind = "proof";
+          proof = { message: signIn.message, signature: signIn.signature.toLowerCase() as `0x${string}` };
+        } else {
+          throw new BaseAccountConnectorError("invalid-provider-response");
+        }
+      } catch (error) {
+        if (error instanceof BaseAccountConnectorError) throw error;
+        const code = providerErrorCode(error);
+        if (code === 4001 || code === 5000) {
+          throw new BaseAccountConnectorError("cancelled", error);
+        }
+        if (![4200, -32601, -32004].includes(code ?? Number.NaN)) {
+          throw new BaseAccountConnectorError("invalid-provider-response", error);
+        }
+        accounts = await provider.request({ method: "eth_requestAccounts" });
+        walletConnected = true;
+        if (!Array.isArray(accounts) || accounts.length !== 1) {
+          throw new BaseAccountConnectorError("invalid-provider-response");
+        }
+        connectedAddress = firstAddress(accounts);
+      }
+    } else {
+      accounts = await provider.request({ method: "eth_accounts" });
+      if (Array.isArray(accounts) && accounts.length === 0) {
+        throw new BaseAccountConnectorError("missing-connection");
+      }
+      if (!Array.isArray(accounts) || accounts.length !== 1) {
+        throw new BaseAccountConnectorError("invalid-provider-response");
+      }
+      connectedAddress = firstAddress(accounts);
     }
-    const accounts = await provider.request({
-      method: interactive ? "eth_requestAccounts" : "eth_accounts",
-    });
-    if (!interactive && Array.isArray(accounts) && accounts.length === 0) {
-      throw new BaseAccountConnectorError("missing-connection");
-    }
-    connectedAddress = firstAddress(accounts);
-    if (!connectedAddress) {
-      throw new BaseAccountConnectorError("invalid-provider-response");
-    }
+    if (!connectedAddress) throw new BaseAccountConnectorError("invalid-provider-response");
     const chainId = chainIdFromProvider(
       await provider.request({ method: "eth_chainId" }),
     );
-    if (chainId === null) {
-      throw new BaseAccountConnectorError("invalid-provider-response");
-    }
-    if (chainId !== BASE_CHAIN_ID) {
-      throw new BaseAccountConnectorError("chain-changed");
-    }
-    if (invalidation) {
-      throw new BaseAccountConnectorError(invalidation);
-    }
+    if (chainId === null) throw new BaseAccountConnectorError("invalid-provider-response");
+    if (chainId !== BASE_CHAIN_ID) throw new BaseAccountConnectorError("chain-changed");
+    if (invalidation) throw new BaseAccountConnectorError(invalidation);
   } catch (error) {
     removeListeners();
-    if (error instanceof BaseAccountConnectorError) {
-      throw error;
+    if (walletConnected) {
+      try { await provider.disconnect(); } catch { /* best-effort wallet cleanup */ }
     }
-    if (providerErrorCode(error) === 4001) {
-      throw new BaseAccountConnectorError("cancelled", error);
-    }
+    if (error instanceof BaseAccountConnectorError) throw error;
+    const code = providerErrorCode(error);
+    if (code === 4001 || code === 5000) throw new BaseAccountConnectorError("cancelled", error);
     throw new BaseAccountConnectorError("invalid-provider-response", error);
   }
 
@@ -220,6 +313,9 @@ async function openBaseProvider(
   };
 
   return {
+    ...(resultKind === "proof" && proof
+      ? { kind: "proof" as const, ...proof }
+      : { kind: "unsupported" as const }),
     address: connectedAddress,
     assertUnchanged,
     async signMessage(message) {
@@ -231,7 +327,8 @@ async function openBaseProvider(
           params: [utf8MessageToHex(message), connectedAddress],
         });
       } catch (error) {
-        if (providerErrorCode(error) === 4001) {
+        const code = providerErrorCode(error);
+        if (code === 4001 || code === 5000) {
           throw new BaseAccountConnectorError("cancelled", error);
         }
         throw new BaseAccountConnectorError("invalid-provider-response", error);
@@ -364,9 +461,10 @@ async function openBaseProvider(
 
 export function connectWithBaseProvider(
   provider: BaseAccountProvider,
+  challenge: NativeBaseChallenge,
   onInvalidated: (reason: BaseAccountInvalidation) => void,
 ): Promise<ConnectedBaseAccount> {
-  return openBaseProvider(provider, onInvalidated, true);
+  return openBaseProvider(provider, onInvalidated, true, challenge);
 }
 
 export function restoreWithBaseProvider(
@@ -391,8 +489,9 @@ async function createBaseProvider(): Promise<BaseAccountProvider> {
 }
 
 export const connectBaseAccount: BaseAccountConnector = async (
+  challenge,
   onInvalidated,
-) => connectWithBaseProvider(await createBaseProvider(), onInvalidated);
+) => connectWithBaseProvider(await createBaseProvider(), challenge, onInvalidated);
 
 export const restoreBaseAccount: BaseAccountRestorer = async (
   onInvalidated,

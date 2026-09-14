@@ -300,11 +300,9 @@ export function FundingOrderFlow({
           amountChangeSource={amountChangeSource}
           onAmountChange={changeAmount}
           assetId={binding.assetId}
-          assetLabel={binding.currency}
-          assetCurrency={binding.currency}
-          assetLocked
           pricing={{ status: "unpriced" }}
           nativeSymbol={binding.currency}
+          fiatCurrency={binding.currency}
         />
         <MoneyNumpad
           value={amount}

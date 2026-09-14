@@ -206,6 +206,7 @@ export function MoneyAmountDisplay({
   chipSet = "none",
   pricing,
   nativeSymbol,
+  fiatCurrency,
   initialUnit = "local",
   amountChangeSource = "programmatic",
 }: {
@@ -222,6 +223,7 @@ export function MoneyAmountDisplay({
   chipSet?: MoneyChipSet;
   pricing: MoneyAssetPricing;
   nativeSymbol: string;
+  fiatCurrency?: string;
   initialUnit?: MoneyPrimaryUnit;
   amountChangeSource?: MoneyAmountChangeSource;
 }) {
@@ -245,14 +247,16 @@ export function MoneyAmountDisplay({
 
   return (
     <div className="grid justify-items-center gap-3 py-3">
-      <MoneyAssetPicker
-        assetId={assetId}
-        assetLabel={assetLabel}
-        assetCurrency={assetCurrency}
-        assetOptions={assetOptions}
-        onAssetChange={onAssetChange}
-        locked={assetLocked}
-      />
+      {assetLabel ? (
+        <MoneyAssetPicker
+          assetId={assetId}
+          assetLabel={assetLabel}
+          assetCurrency={assetCurrency}
+          assetOptions={assetOptions}
+          onAssetChange={onAssetChange}
+          locked={assetLocked}
+        />
+      ) : null}
       {onAmountChange ? (
         <MoneyQuickChips
           chipSet={chipSet}
@@ -267,6 +271,7 @@ export function MoneyAmountDisplay({
         changeSource={amountChangeSource}
         unit={primaryUnit}
         pricing={pricing}
+        fiatCurrency={fiatCurrency}
       />
       <div className="grid justify-items-center gap-1">
         {pricing.status === "priced" ? (
@@ -288,13 +293,15 @@ export function MoneyPrimaryAmount({
   changeSource,
   unit,
   pricing,
+  fiatCurrency,
 }: {
   amount: string;
   changeSource: MoneyAmountChangeSource;
   unit: MoneyPrimaryUnit;
   pricing: MoneyAssetPricing;
+  fiatCurrency?: string;
 }) {
-  const text = formatPrimaryAmount(amount, unit, pricing);
+  const text = formatPrimaryAmount(amount, unit, pricing, fiatCurrency);
   const [rendered, setRendered] = useState({ amount, text, animated: true });
   let animated = rendered.animated;
   if (rendered.amount !== amount || rendered.text !== text) {

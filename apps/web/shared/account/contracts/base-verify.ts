@@ -9,6 +9,7 @@ import {
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 
 export type NativeBaseVerifyRequest = {
+  address: `0x${string}`;
   message: string;
   signature: `0x${string}`;
 };

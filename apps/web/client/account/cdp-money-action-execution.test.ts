@@ -171,6 +171,7 @@ describe("thin action dispatch", () => {
     } as unknown as AuthenticatedTransport;
     const statusHandles: string[] = [];
     const connection: ConnectedBaseAccount = {
+      kind: "unsupported",
       address,
       assertUnchanged: async () => {},
       signMessage: async () => "0x12",

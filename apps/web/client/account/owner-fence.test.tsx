@@ -1,6 +1,7 @@
 import "./dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { createSiweMessage } from "viem/siwe";
 import type { AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client";
 import type { VerifiedAccountSession } from "./session-client";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
@@ -43,6 +44,12 @@ class ProviderFixture {
   async request({ method }: { method: string }): Promise<unknown> {
     switch (method) {
       case "wallet_switchEthereumChain": return null;
+      case "wallet_connect": return {
+        accounts: [{
+          address: ADDRESS_A,
+          capabilities: { signInWithEthereum: { message: "signed SIWE", signature: "0x1234" } },
+        }],
+      };
       case "eth_requestAccounts":
       case "eth_accounts": return [ADDRESS_A];
       case "eth_chainId": return "0x2105";
@@ -102,8 +109,12 @@ function sdk(overrides: Partial<AccountWalletSdkBoundary> = {}): AccountWalletSd
     ownerKey: OWNER_A,
     signInWithEmail: async () => ({ flowId: "email-flow" }),
     verifyEmailOTP: async () => {},
-    signInWithSiwe: async () => ({ flowId: "siwe-flow", message: "fixture SIWE message" }),
-    verifySiweSignature: async () => {},
+    requestBaseAccountChallenge: async () => ({
+      nonce: "a".repeat(48), chainId: 8453, domain: "home.example", uri: "https://home.example",
+      version: "1", statement: "Sign in to Home.", issuedAt: "2026-09-13T12:00:00.000Z",
+      expirationTime: "2026-09-13T12:05:00.000Z",
+    }),
+    verifyBaseAccountProof: async () => {},
     getAccessToken: async () => "fixture-token",
     signOut: async () => {},
     ...overrides,
@@ -194,6 +205,70 @@ afterEach(() => {
 });
 
 describe("owner generation fence", () => {
+  test("signs and submits the canonical SIWE message only for an unsupported connection", async () => {
+    const loginChallenge = {
+      nonce: "a".repeat(48),
+      chainId: 8453 as const,
+      domain: "home.example",
+      uri: "https://home.example",
+      version: "1" as const,
+      statement: "Sign in to Home." as const,
+      issuedAt: "2026-09-13T12:00:00.000Z",
+      expirationTime: "2026-09-13T12:05:00.000Z",
+    };
+    const signedMessages: string[] = [];
+    const submittedProofs: Array<{
+      address: `0x${string}`;
+      message: string;
+      signature: `0x${string}`;
+    }> = [];
+    const phases: string[] = [];
+
+    render(
+      <AccountWalletSessionOwner
+        sdk={sdk({
+          isSignedIn: false,
+          ownerKey: null,
+          requestBaseAccountChallenge: async () => loginChallenge,
+          verifyBaseAccountProof: async (proof) => { submittedProofs.push(proof); },
+        })}
+        baseAccountEnabled
+        baseAccountConnector={async () => ({
+          kind: "unsupported",
+          address: ADDRESS_A,
+          assertUnchanged: async () => {},
+          signMessage: async (message) => {
+            signedMessages.push(message);
+            return "0x1234";
+          },
+          signTypedData: async () => "0x1234",
+          disconnect: async () => {},
+        })}
+      >
+        <ClientProbe />
+      </AccountWalletSessionOwner>,
+    );
+    await waitFor(() => expect(currentClient().status).toBe("signed-out"));
+
+    await act(async () => {
+      await currentClient().signInWithBaseAccount((phase) => phases.push(phase));
+    });
+
+    const message = createSiweMessage({
+      ...loginChallenge,
+      address: ADDRESS_A,
+      issuedAt: new Date(loginChallenge.issuedAt),
+      expirationTime: new Date(loginChallenge.expirationTime),
+    });
+    expect(signedMessages).toEqual([message]);
+    expect(submittedProofs).toEqual([{
+      address: ADDRESS_A,
+      message,
+      signature: "0x1234",
+    }]);
+    expect(phases).toEqual(["connecting", "signing", "verifying"]);
+  });
+
   test("blocks prepared actions after every owner-generation trigger", async () => {
     for (const { initialProvider, trigger } of triggerRows) {
       const provider = new ProviderFixture();
@@ -223,7 +298,7 @@ describe("owner generation fence", () => {
         sdk={ownerSdk}
         sessionFetch={sessionFetch}
         baseAccountEnabled
-        baseAccountConnector={(onInvalidated) => connectWithBaseProvider(asProvider, onInvalidated)}
+        baseAccountConnector={(challenge, onInvalidated) => connectWithBaseProvider(asProvider, challenge, onInvalidated)}
         baseAccountRestorer={(onInvalidated) => restoreWithBaseProvider(asProvider, onInvalidated)}
       >
         <ClientProbe />

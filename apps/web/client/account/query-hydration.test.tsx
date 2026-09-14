@@ -48,8 +48,12 @@ function sdk(
     provisionalSession,
     signInWithEmail: async () => ({ flowId: "flow" }),
     verifyEmailOTP: async () => {},
-    signInWithSiwe: async () => ({ flowId: "flow", message: "message" }),
-    verifySiweSignature: async () => {},
+    requestBaseAccountChallenge: async () => ({
+      nonce: "a".repeat(48), chainId: 8453, domain: "home.example", uri: "https://home.example",
+      version: "1", statement: "Sign in to Home.", issuedAt: "2026-09-13T12:00:00.000Z",
+      expirationTime: "2026-09-13T12:05:00.000Z",
+    }),
+    verifyBaseAccountProof: async () => {},
     getAccessToken: async () => "token",
     signOut: async () => {},
   };

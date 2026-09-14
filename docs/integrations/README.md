@@ -1,34 +1,54 @@
 # Issuer integration guide
 
-Status: issuer walkthrough for the #301 funding-provider seam candidate, September 12, 2026. This page does not authorize a funded test, deployment, provider enablement, or merge.
+Status: issuer walkthrough for the funding-provider seam on `main`, September 13, 2026. This page does not authorize a funded test, deployment, provider enablement, or merge.
 
 ## Current status and prerequisites
 
-| Capability | Current `main` | Prerequisite for this walkthrough |
+| Capability | Current `main` | What to use |
 | --- | --- | --- |
-| Provider contract, IDRX/Ripio adapters, orders/evidence, and Add money order UI | Implemented in the #301 candidate; review the exact branch before use | [#301](https://github.com/jessepollak/home/issues/301) |
-| Native Base Account session without CDP | Not implemented; current Base Account sign-in is CDP-backed | [#288](https://github.com/jessepollak/home/issues/288) |
-| Local Postgres (`docker-compose`, `bun run db:up`) | Not implemented; money actions need configured Postgres | [#289](https://github.com/jessepollak/home/issues/289) |
+| Provider contract, IDRX/Ripio/Coinbase adapters, orders/evidence, and Add money order UI | Shipped in [#284](https://github.com/jessepollak/home/pull/284) / [#301](https://github.com/jessepollak/home/issues/301) | The checked-in seam and provider READMEs |
+| Home-native Base Account sign-in | Shipped ([#404](https://github.com/jessepollak/home/pull/404)); Base Account always uses Home-native SIWE and needs only `HOME_SESSION_SECRET` (at least 32 characters) | No CDP project required; `NEXT_PUBLIC_CDP_PROJECT_ID` only adds email sign-in |
+| Local Postgres | Shipped via `docker-compose.yml` and `bun run db:up` | Docker and the local `DATABASE_URL` below |
+| Coinbase headless Orders API | In review in [#398](https://github.com/jessepollak/home/pull/398) | `main` still uses the Coinbase hosted redirect |
 
-The seam contract is [`apps/web/shared/funding/provider-contract.ts`](../../apps/web/shared/funding/provider-contract.ts), the canonical registry is [`assets.ts`](../../apps/web/shared/funding/assets.ts), and reference adapters live under [`apps/web/server/funding/providers/`](../../apps/web/server/funding/providers/). Legacy Coinbase and Ripio files remain until replacement parity and #293 cleanup review.
+The seam contract is [`apps/web/shared/funding/provider-contract.ts`](../../apps/web/shared/funding/provider-contract.ts), assets are registered in [`apps/web/shared/funding/assets.ts`](../../apps/web/shared/funding/assets.ts), and IDRX, Ripio, and Coinbase adapters live under [`apps/web/server/funding/providers/`](../../apps/web/server/funding/providers/). The API exposes providers, quotes, orders/list/status, and provider webhooks under [`apps/web/app/api/funding/`](../../apps/web/app/api/funding/). Root `bun run db:migrate` applies both database and funding migrations; the legacy Ripio store, reconciliation, migration, contract, and bespoke webhook stack has been removed.
 
 ## Seven steps for an issuer
 
-The local sign-in and database commands in steps 2–3 land with #288/#289; until those merge, use an isolated operator database and the existing verified account flow. Never infer that candidate code is deployed.
+1. **Clone and install.** Run:
 
-1. **Clone and install.** Clone Home and run `bun install --frozen-lockfile`. Start from [Get started](../../README.md#get-started); keep credentials in gitignored `apps/web/.env.local`.
-2. **Start local Postgres and Home.** Run `bun run db:migrate`, then `bun dev`. #289 supplies local-only database commands; never substitute a shared or production database.
-3. **Sign in locally.** Use the native Base Account session from #288. The verified server session, not a browser address, region, or provider customer ID, supplies the destination address.
-4. **Copy and register a reference adapter.** Copy `apps/web/server/funding/providers/idrx/` (polling) or `providers/ripio/` (quotes, KYC, webhooks) to `providers/<your-provider>/`, then register it in `providers/index.ts`. The checked-in manifest, asset registry, and adapter types delivered by #301 are authoritative.
-5. **Configure declared credentials only.** Put `FUNDING_QUOTE_SECRET` and only the adapter manifest’s variables in `.env.local`; never commit them or use `NEXT_PUBLIC_`. Configuration makes a binding appear in `GET /api/funding/providers?region=`, but grants neither production nor funded-test authority.
-6. **Run fixture-only checks, then the flow.** From the repository root, run `bun test apps/web/server/funding apps/web/shared/funding apps/web/client/funding`; this exercises adapters, store/core/routes, and UI with synthetic fixtures and makes no live provider writes. Then run `bun check`. Do not run a payment without operator authorization; keep provider and funded-wallet secrets out of CI.
-7. **Open the upstream PR with bounded proof.** Include the adapter, manifest, and `source: "synthetic"` fixtures; attach one 390px local-flow clip and a dated environment line in the adapter README. Use `owner:hugo`, `lane:backend`, `priority:p1`, and `status:working`, with `Closes #301` when working on that issue. End crew-written comments with `<!-- hugo -->`. Fresh review is required, and only Jesse approves and merges.
+   ```sh
+   git clone https://github.com/jessepollak/home.git
+   cd home
+   bun install --frozen-lockfile
+   cp .env.example apps/web/.env.local
+   ```
+
+   If `apps/web/.env.local` already exists, keep it and add only the missing names. It is gitignored; never commit values.
+
+2. **Start and migrate local Postgres.** Run `bun run db:up`, set `DATABASE_URL=postgresql://home:home@127.0.0.1:54320/home_local` in `apps/web/.env.local`, then run `bun run db:migrate`. Use `bun run db:down` when finished.
+
+3. **Sign in with Base Account.** Set server-only `HOME_SESSION_SECRET` to at least 32 characters; a CDP project is not needed (`NEXT_PUBLIC_CDP_PROJECT_ID` only adds email sign-in). Run `bun dev`, open `http://localhost:3000`, pick the country for the binding, and choose **Continue with Base Account**. The verified server session, not a browser address, region, or provider customer ID, supplies the destination address.
+
+4. **Configure the binding, then restart Home.** Set server-only `FUNDING_QUOTE_SECRET` to at least 32 characters. For IDRX, also set `IDRX_CLIENT_ID`, `IDRX_CLIENT_SECRET`, and `IDRX_CUSTOMER_NAME`. For Ripio Argentina, set `RIPIO_CLIENT_ID_AR`, `RIPIO_CLIENT_SECRET_AR`, and shared `RIPIO_WEBHOOK_SECRET`; for Colombia, use `RIPIO_CLIENT_ID_CO`, `RIPIO_CLIENT_SECRET_CO`, and that same webhook secret. Restart `bun dev` after changing the environment. Another issuer can copy [`providers/idrx/`](../../apps/web/server/funding/providers/idrx/) or [`providers/ripio/`](../../apps/web/server/funding/providers/ripio/) and register the new adapter in [`providers/index.ts`](../../apps/web/server/funding/providers/index.ts).
+
+5. **Confirm eligibility and run synthetic checks.** With every variable declared by the selected manifest binding set, **Add money** shows that binding for its country. From the repository root run:
+
+   ```sh
+   bun test apps/web/server/funding apps/web/shared/funding apps/web/client/funding
+   ```
+
+   The checked-in IDRX and Ripio coverage uses synthetic fixtures or test doubles and makes no live provider call. Use each adapter README's **Confirm against your API** checklist before treating its request or response shape as production-confirmed.
+
+6. **Walk the flow only with operator authorization.** Add money → select the configured deposit method → complete KYC when requested → review the quote → create the order → follow its instructions → keep the Add money order screen open (it polls status) and watch it reach the provider-reported state and, after exact Base receipt evidence, **Money received** (`received`). Closing the drawer does not lose the order: reopening Add money for that country resumes it. Activity does not list funding orders; it reads the CDP transfer feed, which is unconfigured in this setup. `POST /api/funding/webhooks/ripio` cannot reach a local run without an external tunnel; local testing still progresses through status polling (the client polls every four seconds and the core limits refreshes to one per three seconds). Do not make a payment without explicit funded-test approval.
+
+7. **Open a bounded upstream PR.** Include the adapter, manifest, synthetic fixtures/tests, and README. Attach one 390px clip of the local flow and add a dated line such as `Confirmed against <environment> on YYYY-MM-DD` without credentials, customer data, payment details, or wallet secrets. Run `bun check`; fresh review is required, and only Jesse approves and merges.
 
 ## What the seam core enforces
 
 The seam core—not an adapter—owns the session-derived Base destination, configured binding and exact registry asset, one reservation/no retry after ambiguous create, quote binding, owner-scoped private/no-store reads, status observation, verified webhooks, and receipt/log evidence before `received`. A provider can report provider state; it cannot declare funds received.
 
-This does not change the legacy Coinbase route. Read the checked-in provider contract, routes, store, and conformance harness after they land rather than copying this summary into an API manual.
+The Coinbase adapter on `main` still creates a hosted redirect and cannot reconcile status. The headless replacement, `embed` instruction, `QuoteIntent.returnUrl`, and core redirect validation are in review in #398, not merged. Read the checked-in provider contract, routes, store, and conformance harness rather than copying this summary into an API manual.
 
 ## Authority and safety
 
