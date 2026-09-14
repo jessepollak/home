@@ -38,6 +38,8 @@ export type MoneyTickerProps = Omit<
   animated?: boolean;
   /** Keeps the ticker's widest rendered character count to prevent balance rows from shifting. */
   reserveDigits?: boolean;
+  /** Aligns the formatted value within its reserved width. Start-aligned tickers never reserve width. */
+  align?: "start" | "end";
 };
 
 /**
@@ -66,6 +68,7 @@ export function MoneyTicker({
   value,
   animated = true,
   reserveDigits = true,
+  align = "end",
   className,
   style,
   ...props
@@ -76,22 +79,24 @@ export function MoneyTicker({
   const digitCount = characters.filter(isAsciiDigit).length;
   const characterCount = Array.from(value).length;
   const [reservedCharacters, setReservedCharacters] = useState(characterCount);
+  const reservesWidth = align === "end" && reserveDigits;
 
-  if (reserveDigits && characterCount > reservedCharacters) {
+  if (reservesWidth && characterCount > reservedCharacters) {
     setReservedCharacters(characterCount);
   }
 
   let digitIndex = 0;
   const tickerStyle = {
     ...style,
-    minInlineSize: `${reserveDigits ? reservedCharacters : characterCount}ch`,
+    minInlineSize: `${reservesWidth ? reservedCharacters : characterCount}ch`,
   } satisfies CSSProperties;
 
   return (
     <span
       {...props}
       className={[
-        "relative inline-flex w-fit max-w-full justify-end whitespace-nowrap tabular-nums text-inherit",
+        "relative inline-flex w-fit max-w-full whitespace-nowrap tabular-nums text-inherit",
+        align === "start" ? "justify-start" : "justify-end",
         className,
       ]
         .filter(Boolean)
@@ -100,7 +105,8 @@ export function MoneyTicker({
       role="img"
       aria-label={props["aria-label"] ?? value}
       data-slot="money-ticker"
-      data-reserve-digits={reserveDigits ? "true" : "false"}
+      data-align={align}
+      data-reserve-digits={reservesWidth ? "true" : "false"}
       data-reserved-digits={digitCount}
     >
       <span

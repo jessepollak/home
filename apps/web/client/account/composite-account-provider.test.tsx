@@ -118,8 +118,15 @@ mock.module("./native-base-bridge", () => ({
       provisionalSession: identity,
       signInWithEmail: async () => { throw new Error("Email uses CDP."); },
       verifyEmailOTP: async () => { throw new Error("Email uses CDP."); },
-      signInWithSiwe: async () => ({ flowId: "base-flow", message: "Sign in" }),
-      verifySiweSignature: async () => {
+      requestBaseAccountChallenge: async () => {
+        events.push("native-challenge");
+        return {
+          nonce: "a".repeat(48), chainId: 8453, domain: "localhost", uri: "http://localhost",
+          version: "1" as const, statement: "Sign in to Home." as const,
+          issuedAt: "2026-09-13T12:00:00.000Z", expirationTime: "2026-09-13T12:05:00.000Z",
+        };
+      },
+      verifyBaseAccountProof: async () => {
         events.push("native-verify");
         setNativeIdentity(NATIVE_SESSION);
       },
@@ -146,8 +153,15 @@ mock.module("@base-org/account", () => ({
       removeListener: () => {},
       disconnect: async () => {},
       request: async ({ method }: { method: string }) => {
+        events.push(`base-${method}`);
         switch (method) {
           case "wallet_switchEthereumChain": return null;
+          case "wallet_connect": return {
+            accounts: [{
+              address: NATIVE_SESSION.smartAccount!.address,
+              capabilities: { signInWithEthereum: { message: "signed SIWE", signature: "0x1234" } },
+            }],
+          };
           case "eth_requestAccounts":
           case "eth_accounts": return [NATIVE_SESSION.smartAccount!.address];
           case "eth_chainId": return "0x2105";
@@ -229,6 +243,7 @@ describe("composite account provider switches", () => {
 
     await waitFor(() => expect(currentClient().status).toBe("verified"));
     expect(currentClient().session?.accountProvider).toBe("base-account");
+    events.length = 0;
 
     const { flowId } = await act(async () => currentClient().requestEmailCode("person@example.com"));
     let verification!: Promise<void>;
@@ -258,7 +273,15 @@ describe("composite account provider switches", () => {
     await waitFor(() => expect(currentClient().status).toBe("verified"));
     await waitFor(() => expect(cdpSignOuts).toBe(1));
 
-    expect(events).toEqual(["native-verify", "cdp-signout"]);
+    expect(events).toEqual([
+      "native-challenge",
+      "base-wallet_switchEthereumChain",
+      "base-wallet_connect",
+      "base-eth_chainId",
+      "native-verify",
+      "cdp-signout",
+    ]);
+    expect(events).not.toContain("base-personal_sign");
     expect(currentClient().status).toBe("verified");
   });
 });

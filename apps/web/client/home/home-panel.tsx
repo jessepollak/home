@@ -107,7 +107,11 @@ export function HomePanel({
             <Skeleton className="h-10 w-48" data-shimmer="hero" />
           ) : (
             <div className="text-4xl font-semibold tabular-nums">
-              <MoneyTicker value={assetBalances?.displayTotal ?? "—"} />
+              <MoneyTicker
+                value={assetBalances?.displayTotal ?? "—"}
+                align="start"
+                reserveDigits={false}
+              />
             </div>
           )}
           {assetBalances?.breakdown.length || showBalanceStatus ? (

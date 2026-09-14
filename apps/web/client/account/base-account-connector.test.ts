@@ -3,11 +3,20 @@ import {
   BaseAccountConnectorError,
   connectWithBaseProvider,
   restoreWithBaseProvider,
-  utf8MessageToHex,
 } from "./base-account-connector";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 const OTHER_ADDRESS = "0x2222222222222222222222222222222222222222";
+const CHALLENGE = {
+  nonce: "a".repeat(48),
+  chainId: 8453,
+  domain: "home.example",
+  uri: "https://home.example",
+  version: "1",
+  statement: "Sign in to Home.",
+  issuedAt: "2026-09-13T12:00:00.000Z",
+  expirationTime: "2026-09-13T12:05:00.000Z",
+} as const;
 
 type EventName = "accountsChanged" | "chainChanged" | "disconnect";
 
@@ -27,6 +36,10 @@ class ProviderFixture {
     receipts: [{ transactionHash: `0x${"ab".repeat(32)}` }],
   };
   emitAccountsDuringConnect = false;
+  walletConnectError: unknown = null;
+  signInCapability: unknown = { message: "signed SIWE message", signature: "0x1234" };
+  personalSignError: unknown = null;
+  disconnects = 0;
   accountsAfterSendCalls: string[] | null = null;
   requests: { method: string; params?: readonly unknown[] | object }[] = [];
   listeners = new Map<EventName, Set<(value: never) => void>>();
@@ -57,16 +70,23 @@ class ProviderFixture {
     switch (args.method) {
       case "wallet_switchEthereumChain":
         return null;
+      case "wallet_connect":
+        if (this.walletConnectError) throw this.walletConnectError;
+        if (this.emitAccountsDuringConnect) this.emit("accountsChanged", this.accounts);
+        return {
+          accounts: this.accounts.map((address) => ({
+            address,
+            capabilities: { signInWithEthereum: this.signInCapability },
+          })),
+        };
       case "eth_requestAccounts":
-        if (this.emitAccountsDuringConnect) {
-          this.emit("accountsChanged", this.accounts);
-        }
         return this.accounts;
       case "eth_accounts":
         return this.accounts;
       case "eth_chainId":
         return this.chainId;
       case "personal_sign":
+        if (this.personalSignError) throw this.personalSignError;
         return this.signature;
       case "eth_signTypedData_v4":
         return this.typedSignature;
@@ -82,7 +102,7 @@ class ProviderFixture {
     }
   }
 
-  async disconnect() {}
+  async disconnect() { this.disconnects += 1; }
 }
 
 function asProvider(provider: ProviderFixture) {
@@ -90,51 +110,56 @@ function asProvider(provider: ProviderFixture) {
 }
 
 describe("Base Account connector boundary", () => {
-  test("requests Base 8453, keeps the universal account, and signs the exact UTF-8 message", async () => {
+  test("uses wallet_connect SIWE as one approval without account or personal-sign fallback", async () => {
     const provider = new ProviderFixture();
     provider.emitAccountsDuringConnect = true;
     const invalidations: string[] = [];
     const connection = await connectWithBaseProvider(
       asProvider(provider),
+      CHALLENGE,
       (reason) => invalidations.push(reason),
     );
 
-    expect(connection.address).toBe(ADDRESS);
-    expect(provider.requests.slice(0, 3)).toEqual([
+    expect(connection).toMatchObject({
+      kind: "proof",
+      address: ADDRESS,
+      message: "signed SIWE message",
+      signature: "0x1234",
+    });
+    expect(provider.requests).toEqual([
       {
         method: "wallet_switchEthereumChain",
         params: [{ chainId: "0x2105" }],
       },
-      { method: "eth_requestAccounts" },
+      {
+        method: "wallet_connect",
+        params: [{
+          version: "1",
+          capabilities: {
+            signInWithEthereum: {
+              nonce: CHALLENGE.nonce,
+              chainId: "0x2105",
+              domain: CHALLENGE.domain,
+              uri: CHALLENGE.uri,
+              version: "1",
+              statement: CHALLENGE.statement,
+              issuedAt: CHALLENGE.issuedAt,
+              expirationTime: CHALLENGE.expirationTime,
+            },
+          },
+        }],
+      },
       { method: "eth_chainId" },
     ]);
-
-    const message = "home.example wants you to sign in\nUnicode: ₿";
-    expect(utf8MessageToHex(message)).toBe(
-      `0x${Buffer.from(message, "utf8").toString("hex")}`,
-    );
-    await expect(connection.signMessage(message)).resolves.toBe("0x1234");
-    expect(
-      provider.requests.find((request) => request.method === "personal_sign"),
-    ).toEqual({
-      method: "personal_sign",
-      params: [utf8MessageToHex(message), ADDRESS],
-    });
+    expect(provider.requests.some(({ method }) =>
+      method === "eth_requestAccounts" || method === "personal_sign"
+    )).toBe(false);
     expect(invalidations).toEqual([]);
-
-    const permit = { primaryType: "PermitTransferFrom", domain: { name: "Permit2" } };
-    await expect(connection.signTypedData(permit)).resolves.toBe(`0x${"cd".repeat(65)}`);
-    expect(
-      provider.requests.find((request) => request.method === "eth_signTypedData_v4"),
-    ).toEqual({
-      method: "eth_signTypedData_v4",
-      params: [ADDRESS, JSON.stringify(permit)],
-    });
   });
 
   test("submits approval plus action as one required-atomic call bundle and recovers its transaction", async () => {
     const provider = new ProviderFixture();
-    const connection = await connectWithBaseProvider(asProvider(provider), () => {});
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
     const calls = [
       { to: OTHER_ADDRESS as `0x${string}`, value: BigInt(0), data: "0x095ea7b3" as `0x${string}` },
       { to: ADDRESS as `0x${string}`, value: BigInt(0), data: "0x1234" as `0x${string}` },
@@ -178,7 +203,7 @@ describe("Base Account connector boundary", () => {
   test("returns the Base submission handle before a later account-state read could discard it", async () => {
     const provider = new ProviderFixture();
     provider.accountsAfterSendCalls = [OTHER_ADDRESS];
-    const connection = await connectWithBaseProvider(asProvider(provider), () => {});
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
 
     const submissionId = await connection.sendCalls?.([
       { to: OTHER_ADDRESS, value: BigInt(0), data: "0x1234" },
@@ -198,7 +223,7 @@ describe("Base Account connector boundary", () => {
 
   test("rejects mismatched or failed Base bundle recovery evidence", async () => {
     const provider = new ProviderFixture();
-    const connection = await connectWithBaseProvider(asProvider(provider), () => {});
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
 
     provider.callsStatus = {
       id: "different-bundle",
@@ -267,8 +292,19 @@ describe("Base Account connector boundary", () => {
     expect(provider.requests).toEqual([{ method: "eth_accounts" }]);
 
     await expect(
-      connectWithBaseProvider(asProvider(provider), () => {}),
+      connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {}),
     ).rejects.toMatchObject({ reason: "invalid-provider-response" });
+  });
+
+  test("rejects a wallet_connect response with multiple accounts without fallback", async () => {
+    const provider = new ProviderFixture();
+    provider.accounts = [ADDRESS, OTHER_ADDRESS];
+
+    await expect(
+      connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {}),
+    ).rejects.toMatchObject({ reason: "invalid-provider-response" });
+    expect(provider.requests.some(({ method }) => method === "eth_requestAccounts")).toBe(false);
+    expect(provider.disconnects).toBe(1);
   });
 
   test("keeps thrown and malformed restoration reads retryable instead of typing them as missing", async () => {
@@ -296,25 +332,107 @@ describe("Base Account connector boundary", () => {
     ).rejects.toMatchObject({ reason: "invalid-provider-response" });
   });
 
-  test("maps a provider rejection to a canceled connection", async () => {
+  test("falls back only for explicit method or capability unsupported codes", async () => {
+    for (const code of [4200, -32601, -32004]) {
+      const methodProvider = new ProviderFixture();
+      methodProvider.walletConnectError = { code, message: "unsupported" };
+      const methodFallback = await connectWithBaseProvider(asProvider(methodProvider), CHALLENGE, () => {});
+      expect(methodFallback.kind).toBe("unsupported");
+      expect(methodProvider.requests.map(({ method }) => method)).toEqual([
+        "wallet_switchEthereumChain",
+        "wallet_connect",
+        "eth_requestAccounts",
+        "eth_chainId",
+      ]);
+
+      const capabilityProvider = new ProviderFixture();
+      capabilityProvider.signInCapability = { code, message: "unsupported capability" };
+      const capabilityFallback = await connectWithBaseProvider(asProvider(capabilityProvider), CHALLENGE, () => {});
+      expect(capabilityFallback.kind).toBe("unsupported");
+      expect(capabilityFallback.address).toBe(ADDRESS);
+      expect(capabilityProvider.requests.some(({ method }) => method === "eth_requestAccounts")).toBe(false);
+      await expect(capabilityFallback.signMessage("fallback message")).resolves.toBe("0x1234");
+      expect(capabilityProvider.requests.filter(({ method }) => method === "personal_sign")).toHaveLength(1);
+    }
+  });
+
+  test("disconnects after a method-level fallback connects but later chain validation fails", async () => {
     const provider = new ProviderFixture();
-    provider.request = async () => {
-      throw { code: 4001, message: "fixture rejection" };
-    };
+    provider.walletConnectError = { code: 4200, message: "unsupported" };
+    provider.chainId = "0x1";
 
     await expect(
-      connectWithBaseProvider(asProvider(provider), () => {}),
-    ).rejects.toEqual(
-      expect.objectContaining({
-        reason: "cancelled",
-      }) as BaseAccountConnectorError,
-    );
+      connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {}),
+    ).rejects.toMatchObject({ reason: "chain-changed" });
+    expect(provider.requests.map(({ method }) => method)).toEqual([
+      "wallet_switchEthereumChain",
+      "wallet_connect",
+      "eth_requestAccounts",
+      "eth_chainId",
+    ]);
+    expect(provider.disconnects).toBe(1);
+  });
+
+  test("cancels only explicit rejection codes and fails closed for every other response", async () => {
+    for (const code of [4001, 5000]) {
+      for (const capability of [false, true]) {
+        const provider = new ProviderFixture();
+        if (capability) provider.signInCapability = { code, message: "rejected" };
+        else provider.walletConnectError = { code, message: "rejected" };
+        await expect(
+          connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {}),
+        ).rejects.toEqual(expect.objectContaining({ reason: "cancelled" }) as BaseAccountConnectorError);
+        expect(provider.requests.some(({ method }) => method === "eth_requestAccounts")).toBe(false);
+        if (capability) expect(provider.disconnects).toBe(1);
+      }
+    }
+
+    for (const code of [4001, 5000]) {
+      const provider = new ProviderFixture();
+      provider.signInCapability = { code: 4200, message: "unsupported capability" };
+      provider.personalSignError = { code, message: "rejected signing" };
+      const fallback = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
+      await expect(fallback.signMessage("fallback message")).rejects.toMatchObject({ reason: "cancelled" });
+    }
+
+    for (const signInCapability of [
+      undefined,
+      null,
+      {},
+      { message: "missing signature" },
+      { code: 4200 },
+      { code: 4200, message: "ambiguous", signature: "0x1234" },
+      { code: 4100, message: "unauthorized" },
+    ]) {
+      const provider = new ProviderFixture();
+      provider.signInCapability = signInCapability;
+      await expect(
+        connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {}),
+      ).rejects.toMatchObject({ reason: "invalid-provider-response" });
+      expect(provider.requests.some(({ method }) => method === "eth_requestAccounts")).toBe(false);
+      expect(provider.disconnects).toBe(1);
+    }
+
+    for (const error of [
+      new Error("malformed"),
+      { code: "4200" },
+      { code: 4200 },
+      { code: 4100, message: "unauthorized" },
+    ]) {
+      const provider = new ProviderFixture();
+      provider.walletConnectError = error;
+      await expect(
+        connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {}),
+      ).rejects.toMatchObject({ reason: "invalid-provider-response" });
+      expect(provider.requests.some(({ method }) => method === "eth_requestAccounts")).toBe(false);
+    }
   });
 
   test("rejects account and chain changes before verification can continue", async () => {
     const accountProvider = new ProviderFixture();
     const accountConnection = await connectWithBaseProvider(
       asProvider(accountProvider),
+      CHALLENGE,
       () => {},
     );
     accountProvider.accounts = [OTHER_ADDRESS];
@@ -326,6 +444,7 @@ describe("Base Account connector boundary", () => {
     const chainProvider = new ProviderFixture();
     const chainConnection = await connectWithBaseProvider(
       asProvider(chainProvider),
+      CHALLENGE,
       () => {},
     );
     chainProvider.chainId = "0x1";
@@ -340,6 +459,7 @@ describe("Base Account connector boundary", () => {
     provider.signature = "not-hex";
     const connection = await connectWithBaseProvider(
       asProvider(provider),
+      CHALLENGE,
       () => {},
     );
 

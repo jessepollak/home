@@ -5,12 +5,17 @@ import { createPublicClient, getAddress, http } from "viem";
 import { base } from "viem/chains";
 import { createSiweMessage, parseSiweMessage } from "viem/siwe";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
+import {
+  NATIVE_BASE_CHALLENGE_TTL_MS,
+  NATIVE_BASE_STATEMENT,
+  parseNativeBaseChallenge,
+  type NativeBaseChallenge,
+} from "@/shared/account/contracts/base-nonce";
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
 import { HOME_CDP_LIVE_COOKIE, HOME_CDP_SESSION_COOKIE } from "@/server/auth/cdp-render-session";
 import {
   clearCookie,
   cookie,
-  equalText,
   readCookie,
   readSignedValue,
   requestOrigin,
@@ -21,7 +26,7 @@ export { clearCookie, cookie, readCookie, readSignedValue, signedValue } from "@
 
 export const HOME_SESSION_COOKIE = "home-session";
 export const HOME_CHALLENGE_COOKIE = "home-auth-challenge";
-export const NATIVE_BASE_NONCE_TTL_MS = 5 * 60 * 1000;
+export const NATIVE_BASE_NONCE_TTL_MS = NATIVE_BASE_CHALLENGE_TTL_MS;
 export const NATIVE_BASE_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 96 * 1024;
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -200,40 +205,66 @@ export function createNativeBaseNonceHandler(input: NativeBaseAuthDependencies =
     const deps = dependencies(input);
     const origin = requestOrigin(request);
     const body = await readBody(request);
-    const address = normalizeAddress(body?.address);
     if (!deps.secret) return json({ error: { code: "AUTH_UNAVAILABLE" } }, 503);
-    if (!origin || !address) return json({ error: { code: "INVALID_REQUEST" } }, 400);
+    if (!origin || !body || Object.keys(body).length !== 0) {
+      return json({ error: { code: "INVALID_REQUEST" } }, 400);
+    }
 
     const issuedAt = deps.now();
-    const expiresAt = new Date(issuedAt.getTime() + NATIVE_BASE_NONCE_TTL_MS);
+    const expirationTime = new Date(issuedAt.getTime() + NATIVE_BASE_CHALLENGE_TTL_MS);
     const nonce = deps.randomId();
     if (!/^[0-9a-f]{48}$/.test(nonce)) return json({ error: { code: "AUTH_UNAVAILABLE" } }, 503);
-    const message = createSiweMessage({
-      address,
+    const challenge: NativeBaseChallenge = {
+      nonce,
       chainId: BASE_CHAIN_ID,
       domain: origin.host,
       uri: origin.origin,
       version: "1",
-      nonce,
-      issuedAt,
-      expirationTime: expiresAt,
-      statement: "Sign in to Home.",
-    });
-    const challenge = signedValue(deps.secret, JSON.stringify({
-      version: 1,
-      address,
-      origin: origin.origin,
-      messageHash: createHash("sha256").update(message).digest("base64url"),
-      nonce,
+      statement: NATIVE_BASE_STATEMENT,
       issuedAt: issuedAt.toISOString(),
-      expiresAt: expiresAt.toISOString(),
+      expirationTime: expirationTime.toISOString(),
+    };
+    const token = signedValue(deps.secret, JSON.stringify({
+      version: 2,
+      origin: origin.origin,
+      challenge,
     }));
     return json(
-      { message, expiresAt: expiresAt.toISOString() },
+      challenge,
       200,
-      [cookie(HOME_CHALLENGE_COOKIE, challenge, request, NATIVE_BASE_NONCE_TTL_MS / 1000)],
+      [cookie(HOME_CHALLENGE_COOKIE, token, request, NATIVE_BASE_CHALLENGE_TTL_MS / 1000)],
     );
   };
+}
+
+function parseChallengeToken(
+  raw: string | null,
+  expectedOrigin: string,
+  now: Date,
+): NativeBaseChallenge | null {
+  try {
+    const payload = JSON.parse(raw ?? "null") as Record<string, unknown> | null;
+    if (
+      !payload ||
+      Object.keys(payload).length !== 3 ||
+      payload.version !== 2 ||
+      payload.origin !== expectedOrigin
+    ) return null;
+    const challenge = parseNativeBaseChallenge(payload.challenge);
+    if (
+      !challenge ||
+      challenge.uri !== expectedOrigin ||
+      Date.parse(challenge.expirationTime) <= now.getTime()
+    ) return null;
+    return challenge;
+  } catch {
+    return null;
+  }
+}
+
+function iso(value: Date | undefined): string | null {
+  if (!value || !Number.isFinite(value.getTime())) return null;
+  return value.toISOString();
 }
 
 export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies = {}) {
@@ -242,6 +273,7 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
     const clearChallenge = clearCookie(HOME_CHALLENGE_COOKIE, request);
     const origin = requestOrigin(request);
     const body = await readBody(request);
+    const address = normalizeAddress(body?.address);
     const message = typeof body?.message === "string" && body.message.length <= 16_384
       ? body.message
       : null;
@@ -251,67 +283,58 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
       : null;
     const challengeCookie = readCookie(request, HOME_CHALLENGE_COOKIE);
     if (!deps.secret) return json({ error: { code: "AUTH_UNAVAILABLE" } }, 503, [clearChallenge]);
-    if (!origin || !message || !signature || !challengeCookie.value) {
+    if (!origin || !address || !message || !signature || !challengeCookie.value) {
       return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
     }
-    const rawChallenge = readSignedValue(deps.secret, challengeCookie.value);
-    let challenge: {
-      address: `0x${string}`;
-      origin: string;
-      messageHash: string;
-      nonce: string;
-      issuedAt: string;
-      expiresAt: string;
-    } | null = null;
-    try {
-      const parsed = JSON.parse(rawChallenge ?? "null") as Record<string, unknown> | null;
-      const address = normalizeAddress(parsed?.address);
-      const issuedAt = typeof parsed?.issuedAt === "string" ? Date.parse(parsed.issuedAt) : Number.NaN;
-      const expiresAt = typeof parsed?.expiresAt === "string" ? Date.parse(parsed.expiresAt) : Number.NaN;
-      if (
-        parsed?.version === 1 &&
-        address &&
-        parsed.origin === origin.origin &&
-        typeof parsed.messageHash === "string" &&
-        typeof parsed.nonce === "string" && /^[0-9a-f]{48}$/.test(parsed.nonce) &&
-        Number.isFinite(issuedAt) &&
-        Number.isFinite(expiresAt) &&
-        expiresAt > deps.now().getTime() &&
-        expiresAt - issuedAt === NATIVE_BASE_NONCE_TTL_MS &&
-        equalText(parsed.messageHash, createHash("sha256").update(message).digest("base64url"))
-      ) {
-        challenge = {
-          address,
-          origin: parsed.origin,
-          messageHash: parsed.messageHash,
-          nonce: parsed.nonce,
-          issuedAt: parsed.issuedAt as string,
-          expiresAt: parsed.expiresAt as string,
-        };
-      }
-    } catch {
-      challenge = null;
-    }
+
+    const challenge = parseChallengeToken(
+      readSignedValue(deps.secret, challengeCookie.value),
+      origin.origin,
+      deps.now(),
+    );
     if (!challenge) return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
 
     const parsed = parseSiweMessage(message);
+    const parsedAddress = normalizeAddress(parsed.address);
     if (
-      parsed.address?.toLowerCase() !== challenge.address ||
-      parsed.chainId !== BASE_CHAIN_ID ||
-      parsed.domain !== origin.host ||
-      parsed.uri !== challenge.origin ||
+      parsedAddress !== address ||
+      parsed.chainId !== challenge.chainId ||
+      parsed.domain !== challenge.domain ||
+      parsed.uri !== challenge.uri ||
       parsed.nonce !== challenge.nonce ||
-      parsed.issuedAt?.toISOString() !== challenge.issuedAt ||
-      parsed.expirationTime?.toISOString() !== challenge.expiresAt
+      parsed.version !== challenge.version ||
+      parsed.statement !== challenge.statement ||
+      iso(parsed.issuedAt) !== challenge.issuedAt ||
+      iso(parsed.expirationTime) !== challenge.expirationTime ||
+      parsed.notBefore !== undefined ||
+      parsed.requestId !== undefined ||
+      parsed.resources !== undefined ||
+      (parsed.scheme !== undefined && `${parsed.scheme}:` !== origin.protocol)
     ) return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
+
+    let canonicalMessage: string;
+    try {
+      canonicalMessage = createSiweMessage({
+        ...challenge,
+        address,
+        issuedAt: new Date(challenge.issuedAt),
+        expirationTime: new Date(challenge.expirationTime),
+        ...(parsed.scheme ? { scheme: parsed.scheme } : {}),
+      });
+    } catch {
+      return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
+    }
+    if (message !== canonicalMessage) {
+      return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
+    }
 
     let verified = false;
     try {
       verified = await deps.verify({
-        address: challenge.address,
-        domain: origin.host,
+        address,
+        domain: challenge.domain,
         message,
-        nonce: parsed.nonce,
+        nonce: challenge.nonce,
         signature,
       });
     } catch {
@@ -319,7 +342,7 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
     }
     if (!verified) return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
 
-    const issued = issueSessionToken(deps.secret, challenge.address, deps.now());
+    const issued = issueSessionToken(deps.secret, address, deps.now());
     return json(issued.session, 200, [
       clearChallenge,
       cookie(HOME_SESSION_COOKIE, issued.token, request, NATIVE_BASE_SESSION_TTL_MS / 1000),

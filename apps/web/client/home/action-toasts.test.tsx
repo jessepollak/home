@@ -91,6 +91,7 @@ describe("action toast owner fence", () => {
       />,
     );
 
-    await waitFor(() => expect(view.queryByRole("alert")).toBeNull());
-  });
+    // Base UI's toast exit waits on a transition fallback (~1.5s under happy-dom); allow for CI load.
+    await waitFor(() => expect(view.queryByRole("alert")).toBeNull(), { timeout: 10_000 });
+  }, 15_000);
 });

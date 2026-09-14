@@ -75,8 +75,7 @@ export function presentBalances(state: BalancesState): BalancesPresentation {
   // Saved uses the same quote-currency subtotal as Cash and Investments; vault shares are
   // priced holdings in the snapshot, so the three figures share currency, precision, and the
   // unpriced rule (omitted, never 0).
-  const vaultShares = state.snapshot.holdings.filter((holding) => holding.kind === "vault-share");
-  const savedSubtotal = vaultShares.length > 0 ? presentHoldingsSubtotal(vaultShares, state.snapshot) : null;
+  const savedSubtotal = presentSavedSubtotal(state.snapshot);
   if (savedSubtotal) {
     breakdown.push({ id: "saved", label: "Saved", value: savedSubtotal });
   }
@@ -125,6 +124,11 @@ export function presentMoneyGroups(snapshot: BalancesSnapshot): MoneyGroupPresen
 
 export function presentBalanceRows(snapshot: BalancesSnapshot): BalanceRowModel[] {
   return presentMoneyGroups(snapshot).flatMap((group) => group.rows);
+}
+
+export function presentSavedSubtotal(snapshot: BalancesSnapshot): string | null {
+  const vaultShares = snapshot.holdings.filter((holding) => holding.kind === "vault-share");
+  return vaultShares.length > 0 ? presentHoldingsSubtotal(vaultShares, snapshot) : null;
 }
 
 function presentCash(entry: CashSelection, snapshot: BalancesSnapshot): BalanceRowModel {

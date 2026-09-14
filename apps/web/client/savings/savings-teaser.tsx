@@ -26,8 +26,8 @@ import {
   MORPHO_V1_CANDIDATE_ADDRESSES,
 } from "@/shared/savings/config";
 import { parseVaultsResult } from "@/shared/savings/contracts/vaults";
+import { presentSavedSubtotal } from "@/shared/balances/present";
 import { selectVaultPositions } from "@/shared/balances/select";
-import { formatUsdStablecoinAmount } from "@/shared/formatting";
 import {
   nextSavingsRateExpiryAt,
   summarizeSavingsPortfolio,
@@ -112,11 +112,12 @@ export function SavingsTeaser({ onOpen }: { onOpen: () => void }) {
 
   const balance = summary?.balance.status === "available" ? summary.balance : null;
   const isEmpty = balance?.totalBaseUnits === "0" || !sessionKey;
+  const savedSubtotal = balances.snapshot ? presentSavedSubtotal(balances.snapshot) : null;
   const title = isEmpty
     ? "Nothing saved yet"
     : balance
-      ? <MoneyTicker value={formatUsdStablecoinAmount(balance.totalBaseUnits)} />
-      : <MoneyTicker value="—" />;
+      ? <MoneyTicker value={savedSubtotal ?? "—"} align="start" reserveDigits={false} />
+      : <MoneyTicker value="—" align="start" reserveDigits={false} />;
   const description = metadataQuery.data && (summary || !sessionKey)
     ? savingsTeaserApyLabel({
         summary,
@@ -129,17 +130,18 @@ export function SavingsTeaser({ onOpen }: { onOpen: () => void }) {
   return (
     <Item
       render={<Button variant="ghost" type="button" />}
-      className="min-h-16 flex-nowrap cursor-pointer items-center border-0 text-left hover:bg-muted"
+      size="sm"
+      className="flex-nowrap cursor-pointer items-center border-0 py-2 text-left hover:bg-muted"
       onClick={onOpen}
       aria-describedby="save-teaser-hint"
     >
       <span id="save-teaser-hint" hidden>Open Save</span>
-      <ItemMedia variant="image" className="size-10 self-center translate-y-0 rounded-full bg-muted">
+      <ItemMedia variant="image" className="size-8 self-center translate-y-0 rounded-full bg-muted">
         <PiggyBank className="size-4 text-muted-foreground" aria-hidden="true" />
       </ItemMedia>
       <ItemContent className="min-w-0">
         <ItemTitle className="tabular-nums">{title}</ItemTitle>
-        {description ? <ItemDescription>{description}</ItemDescription> : null}
+        {description ? <ItemDescription className="text-xs text-muted-foreground">{description}</ItemDescription> : null}
       </ItemContent>
       <ItemActions className="shrink-0 text-sm font-medium text-muted-foreground" aria-hidden="true">
         Earn <span>›</span>

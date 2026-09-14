@@ -3,7 +3,9 @@ import { jsonResponse } from "@/tests/helpers/http";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import {
   clearNativeBaseSession,
+  requestNativeBaseChallenge,
   restoreNativeBaseSession,
+  verifyNativeBaseChallenge,
   type NativeBaseFetch,
 } from "./native-base-session-client";
 
@@ -47,6 +49,43 @@ describe("native Base session restoration", () => {
         restoreNativeBaseSession(fetchFixture),
       ).rejects.toThrow("Native Base authentication failed.");
     }
+  });
+});
+
+describe("native Base challenge and verification", () => {
+  test("requests an address-independent challenge and verifies address, message, and signature", async () => {
+    const challenge = {
+      nonce: "a".repeat(48),
+      chainId: 8453 as const,
+      domain: "home.example",
+      uri: "https://home.example",
+      version: "1" as const,
+      statement: "Sign in to Home." as const,
+      issuedAt: "2026-09-13T12:00:00.000Z",
+      expirationTime: "2026-09-13T12:05:00.000Z",
+    };
+    const requests: Array<{ input: string; init?: RequestInit }> = [];
+    const fetchFixture: NativeBaseFetch = async (input, init) => {
+      requests.push({ input: String(input), init });
+      return requests.length === 1 ? jsonResponse(challenge) : jsonResponse(session());
+    };
+
+    expect(await requestNativeBaseChallenge(fetchFixture)).toEqual(challenge);
+    expect(requests[0]?.input).toBe("/api/auth/base/nonce");
+    expect(requests[0]?.init?.body).toBe("{}");
+
+    await expect(verifyNativeBaseChallenge(
+      ADDRESS,
+      "signed message",
+      "0x1234",
+      fetchFixture,
+    )).resolves.toEqual(session());
+    expect(requests[1]?.input).toBe("/api/auth/base/verify");
+    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
+      address: ADDRESS,
+      message: "signed message",
+      signature: "0x1234",
+    });
   });
 });
 

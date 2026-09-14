@@ -12,12 +12,12 @@ Everything in this document serves that. Anything that does not is deliberately 
 
 ## Where we are
 
-| Route | State | Problem |
+| Route | State | What remains |
 |---|---|---|
-| Coinbase Onramp (US, USDC) | Headless Apple Pay provider on the seam (`providers/coinbase/`) | Awaiting Jesse's funded end-to-end proof and CDP production/preview domain allowlisting ([#294](https://github.com/jessepollak/home/issues/294)). |
-| Ripio Ramps (AR wARS, CO wCOP) | Adapter on the seam, unwired live | Provider-team funded validation remains. |
-| IDRX (ID) | Adapter on the seam, unwired live | Provider-team funded validation remains. |
-| MXNB, XSGD, TRYB | Blocked ([#56](https://github.com/jessepollak/home/issues/56)–[#58](https://github.com/jessepollak/home/issues/58)) | Nobody on the crew can complete a payment in those countries. |
+| Coinbase Onramp (US, USDC) | Headless Apple Pay provider on the seam (`providers/coinbase/`), embedded orders, core-owned sandbox mode | Awaiting Coinbase's production enablement of embedded orders and the funded end-to-end proof ([#294](https://github.com/jessepollak/home/issues/294)); CDP domain allowlisting for hosted previews. |
+| Ripio Ramps (AR wARS, CO wCOP) | Adapter and Add money flow on `main`; inert until every binding environment variable is set | Ripio must run the per-provider checklist; no live provider call has been made. |
+| IDRX (ID) | Adapter and Add money flow on `main`; inert until every binding environment variable is set | IDRX must run the per-provider checklist; no live provider call has been made. |
+| MXNB, XSGD, TRYB | Issuer scaffolds tracked in [#295](https://github.com/jessepollak/home/issues/295) have not started | Adapter, manifest, fixtures, and issuer confirmation. |
 
 Each route rebuilt the same things. The seam builds them once.
 
@@ -151,7 +151,7 @@ Add money → method list: `Receive crypto`, one `Deposit {currency}` row per co
 
 ## How an issuer tests the completed seam
 
-These steps describe the target after the core/routes, UI, sign-in, and local Postgres delivery items land; they cannot be completed from the unwired contract/IDRX candidate alone.
+These steps can now be completed from a clone of `main`; use the exact commands and environment names in [`docs/integrations/README.md`](integrations/README.md).
 
 1. `git clone`, `bun install`, `bun run db:up`, `bun dev`.
 2. Open Home, pick your country, sign in with Base Account.
