@@ -4,7 +4,7 @@ Jesse-locked September 13, 2026 ([#395](https://github.com/jessepollak/home/issu
 
 ## Launch boundary
 
-Borrow uses an operator-controlled, compile-time `BorrowMarketRef` registry on Base. The registry—not Morpho API discovery, protocol listing state, or a permissionless catalog—controls which markets Home shows and enables for new risk. Launch enables only the verified Morpho USDC/cbBTC isolated market. The reader, shared integer math, calldata builders, and action preparation remain market-parameterized.
+Borrow projects its approved markets from the operator-controlled, compile-time [verified Morpho registry](morpho-markets.md) on Base. The registry—not Morpho API discovery, protocol listing state, or a permissionless catalog—controls which markets Home shows and enables for new risk. Launch enables only the verified Morpho USDC/cbBTC isolated market. The reader, shared integer math, calldata builders, and action preparation remain market-parameterized.
 
 Removing or warning a market must not remove management access for an existing position. Operators retain its trusted registry tuple and change it to `reducing-only`; repay (including full repayment), add-collateral, and zero-debt collateral withdrawal remain available when their required reads verify, while borrow-more and debt-bearing collateral withdrawal remain blocked. Repay-all and atomic close remain supported backend operations, but are not separate visible actions.
 

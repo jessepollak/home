@@ -69,7 +69,7 @@ describe("borrow API handlers", () => {
     const handler = createBorrowMarketHandler({ authorize: async () => Response.json(session()), rpc: rpc(async (_owner, ref) => { expect(ref.marketId).toBe(market.marketId); return snapshot(); }) });
     const ok = await handler(request(`/api/borrow/markets/${market.marketId}`), { params: Promise.resolve({ marketId: market.marketId }) });
     expect(ok.status).toBe(200);
-    expect(await ok.json()).toMatchObject({ version: "1", walletAddress: OWNER });
+    expect(await ok.json()).toEqual(snapshot());
     const missing = await handler(request("/api/borrow/markets/0xdead"), { params: Promise.resolve({ marketId: "0xdead" }) });
     expect(missing.status).toBe(404);
   });
