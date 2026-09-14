@@ -6,7 +6,7 @@ Home uses two complementary performance signals and one bounded balance-latency 
 
 ## Browser signals
 
-`@vercel/speed-insights` is mounted in the root layout at a sample rate of 1. Its `beforeSend` boundary accepts only `/` and `/dashboard`, replaces the event URL and route with the pathname, and drops every other path. Query strings and hashes never reach the SDK. Vercel documents the framework integration and dashboard in [Speed Insights quickstart](https://vercel.com/docs/speed-insights/quickstart).
+`@vercel/speed-insights` is mounted in the root layout at a sample rate of 1. Its `beforeSend` boundary accepts only `/` and `/dashboard`, strips query strings and hashes, retains the required HTTP origin plus pathname, and drops every other or non-absolute URL. Vercel rejects pathname-only metric `href` values as invalid HTTP URLs, so the sanitized value must remain absolute. Vercel documents the framework integration and dashboard in [Speed Insights quickstart](https://vercel.com/docs/speed-insights/quickstart).
 
 `POST /api/client-performance` accepts one closed `home-startup` report per document. The only dimensions are route (`/` or `/dashboard`), terminal outcome (`ready`, `signed-out`, `unavailable`, or `timeout`), cache provenance (`restored`, `cold`, or `unknown`), and bounded integer phase durations. It accepts no account, owner, wallet, subject, provider, URL, query, hash, exception, or arbitrary string data.
 

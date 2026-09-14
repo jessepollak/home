@@ -4,9 +4,13 @@ const observedRoutes = new Set(["/", "/dashboard"]);
 
 export const filterSpeedInsightsEvent: BeforeSendMiddleware = (event) => {
   try {
-    const pathname = new URL(event.url, "https://home.invalid").pathname;
+    const url = new URL(event.url);
+    const pathname = url.pathname;
     if (!observedRoutes.has(pathname)) return null;
-    return { ...event, url: pathname, route: pathname };
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    url.search = "";
+    url.hash = "";
+    return { ...event, url: url.href, route: pathname };
   } catch {
     return null;
   }

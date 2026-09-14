@@ -9,15 +9,17 @@ describe("Speed Insights route boundary", () => {
       ...vital,
       url: "https://home.example/?account=signin#secret",
       route: "/?account=signin",
-    })).toEqual({ ...vital, url: "/", route: "/" });
+    })).toEqual({ ...vital, url: "https://home.example/", route: "/" });
     expect(filterSpeedInsightsEvent({
       ...vital,
       url: "https://home.example/dashboard?panel=balances#asset",
-    })).toEqual({ ...vital, url: "/dashboard", route: "/dashboard" });
+    })).toEqual({ ...vital, url: "https://home.example/dashboard", route: "/dashboard" });
   });
 
-  test("drops unobserved and malformed URLs", () => {
-    expect(filterSpeedInsightsEvent({ ...vital, url: "/activity?token=secret" })).toBeNull();
+  test("drops unobserved, relative, and malformed URLs", () => {
+    expect(filterSpeedInsightsEvent({ ...vital, url: "https://home.example/activity?token=secret" }))
+      .toBeNull();
+    expect(filterSpeedInsightsEvent({ ...vital, url: "/?token=secret" })).toBeNull();
     expect(filterSpeedInsightsEvent({ ...vital, url: "http://[" })).toBeNull();
   });
 });
