@@ -16,10 +16,9 @@ describe("verified Morpho market registry", () => {
     }
   });
 
-  test("approves the current USDC/cbBTC market for both Borrow and Lend", () => {
+  test("approves the current USDC/cbBTC market for Borrow", () => {
     expect(DEFAULT_VERIFIED_MORPHO_MARKET.capabilities).toEqual({
       borrow: "enabled",
-      lend: "enabled",
     });
     expect(getVerifiedMorphoMarket(DEFAULT_VERIFIED_MORPHO_MARKET.marketId.toUpperCase()))
       .toBe(DEFAULT_VERIFIED_MORPHO_MARKET);

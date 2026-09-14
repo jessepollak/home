@@ -70,7 +70,6 @@ export type MorphoMarketSnapshot = {
   };
   capabilities: {
     borrow?: MorphoMarketCapability;
-    lend?: MorphoMarketCapability;
   };
   source: {
     provider: "Base JSON-RPC";

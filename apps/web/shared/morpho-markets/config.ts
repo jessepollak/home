@@ -23,7 +23,6 @@ export type VerifiedMorphoMarketRef = {
   rank: number;
   capabilities: {
     borrow?: MorphoMarketCapability;
-    lend?: MorphoMarketCapability;
   };
 };
 
@@ -65,7 +64,7 @@ export const VERIFIED_MORPHO_MARKETS = [
     irm: MORPHO_USDC_CBBTC_IRM_ADDRESS,
     lltvWad: MORPHO_USDC_CBBTC_LLTV_WAD,
     rank: 1,
-    capabilities: { borrow: "enabled", lend: "enabled" },
+    capabilities: { borrow: "enabled" },
   },
 ] as const satisfies readonly VerifiedMorphoMarketRef[];
 

@@ -84,7 +84,7 @@ describe("Base Morpho market RPC", () => {
     expect(snapshot.market.morpho).toBe(MORPHO_BLUE_ADDRESS);
     expect(snapshot.position.debtAssetsRaw).toBe(source.expectedDebt.toString());
     expect(BigInt(snapshot.position.availableBorrowAssetsRaw)).toBe(source.expectedCapacity);
-    expect(snapshot.capabilities).toEqual({ borrow: "enabled", lend: "enabled" });
+    expect(snapshot.capabilities).toEqual({ borrow: "enabled" });
     expect(snapshot.source.blockHash).toBe(BLOCK_HASH);
     const batch = source.requests[2] as Array<{ params: unknown[] }>;
     expect(batch).toHaveLength(8);

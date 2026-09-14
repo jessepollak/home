@@ -16,7 +16,7 @@ describe("Borrow market registry", () => {
     expect(DEFAULT_BORROW_MARKET).toMatchObject({
       chainId: 8453,
       availability: "enabled",
-      capabilities: { borrow: "enabled", lend: "enabled" },
+      capabilities: { borrow: "enabled" },
       rank: 1,
     });
     expect(String(DEFAULT_BORROW_MARKET.loanToken.id)).toBe(`eip155:8453/erc20:${DEFAULT_BORROW_MARKET.loanToken.address.toLowerCase()}`);
