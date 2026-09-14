@@ -34,14 +34,16 @@ export const BORROW_HEALTH_CRITICAL_WAD = BigInt("1100000000000000000");
 export const BORROW_HEALTH_FLOOR_WAD = BigInt("1250000000000000000");
 export const BORROW_HEALTH_BUFFER_WAD = BigInt("1500000000000000000");
 
-export const BORROW_MARKETS = VERIFIED_MORPHO_MARKETS.flatMap((market): BorrowMarketRef[] => {
+export const BORROW_MARKETS: readonly BorrowMarketRef[] = VERIFIED_MORPHO_MARKETS.flatMap((market): BorrowMarketRef[] => {
   const availability = market.capabilities.borrow;
   return availability ? [{ ...market, availability }] : [];
 });
 
-export const DEFAULT_BORROW_MARKET = BORROW_MARKETS.find(
+const defaultBorrowMarket = BORROW_MARKETS.find(
   (market) => market.marketId === DEFAULT_VERIFIED_MORPHO_MARKET.marketId,
-)!;
+);
+if (!defaultBorrowMarket) throw new Error("The default verified Morpho market must support Borrow.");
+export const DEFAULT_BORROW_MARKET = defaultBorrowMarket;
 export const BORROW_MARKET_PARAMS = MORPHO_USDC_CBBTC_MARKET_PARAMS;
 
 export function getBorrowMarketRef(marketId: string): BorrowMarketRef | null {

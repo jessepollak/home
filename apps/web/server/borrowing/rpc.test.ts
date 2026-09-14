@@ -86,6 +86,9 @@ describe("Base Morpho borrowing RPC", () => {
     expect(BigInt(snapshot.position.rawBorrowCapacityAssetsRaw)).toBe(source.expectedCapacity);
     expect(BigInt(snapshot.position.borrowCapacityAssetsRaw)).toBeLessThan(source.expectedCapacity);
     expect(snapshot.source.blockHash).toBe(BLOCK_HASH);
+    expect(Object.keys(snapshot)).toEqual([
+      "chainId", "walletAddress", "version", "market", "eligibility", "source", "state", "wallet", "position",
+    ]);
     const batch = source.requests[2] as Array<{ params: unknown[] }>;
     expect(batch).toHaveLength(8);
     expect(batch.every((request) => request.params[1] === "0x64")).toBe(true);
