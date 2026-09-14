@@ -137,6 +137,46 @@ function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
 }
 
 function normalizeMetadata(value: MoneyActionMetadata): MoneyActionMetadata {
+  if (value?.product === "cashout") {
+    if (
+      (value.operation !== "deposit" && value.operation !== "withdraw") ||
+      !validShortText(value.providerId, 64) ||
+      !validShortText(value.providerName, 100) ||
+      (value.environment !== "production" && value.environment !== "sandbox") ||
+      !validShortText(value.platform, 64) ||
+      !validShortText(value.platformLabel, 100) ||
+      !/^[A-Z]{3}$/.test(value.currency) ||
+      (value.operation === "deposit" ? !validShortText(value.canonicalHandle, 200) : value.canonicalHandle !== undefined) ||
+      !/^(0|[1-9]\d*)(\.\d+)?$/.test(value.approximateFiatAmount) ||
+      (value.etaSeconds !== undefined && value.etaSeconds !== null && (!Number.isSafeInteger(value.etaSeconds) || value.etaSeconds < 0)) ||
+      !integerPattern.test(value.minConversionRate) ||
+      !value.intentAmountRange ||
+      !integerPattern.test(value.intentAmountRange.min) ||
+      !integerPattern.test(value.intentAmountRange.max) ||
+      BigInt(value.intentAmountRange.min) > BigInt(value.intentAmountRange.max) ||
+      !Number.isFinite(Date.parse(value.estimateAsOf)) ||
+      !addressPattern.test(value.escrow) ||
+      /^0x0{40}$/i.test(value.escrow) ||
+      (value.operation === "withdraw" ? !validShortText(value.depositId, 200) : value.depositId !== undefined)
+    ) throw new MoneyActionIssueError("invalid-draft");
+    const normalized = {
+      ...value,
+      providerId: value.providerId.trim(),
+      providerName: value.providerName.trim(),
+      platform: value.platform.trim(),
+      platformLabel: value.platformLabel.trim(),
+      minConversionRate: BigInt(value.minConversionRate).toString(10),
+      intentAmountRange: {
+        min: BigInt(value.intentAmountRange.min).toString(10),
+        max: BigInt(value.intentAmountRange.max).toString(10),
+      },
+      estimateAsOf: new Date(value.estimateAsOf).toISOString(),
+      escrow: value.escrow.toLowerCase() as `0x${string}`,
+    };
+    return value.operation === "deposit"
+      ? { ...normalized, operation: "deposit", canonicalHandle: value.canonicalHandle.trim(), depositId: undefined }
+      : { ...normalized, operation: "withdraw", canonicalHandle: undefined, depositId: value.depositId.trim() };
+  }
   if (!value || value.product !== "borrow" ||
     !["supply-collateral", "borrow", "supply-and-borrow", "repay", "repay-all", "withdraw-collateral", "close-position"].includes(value.operation) ||
     typeof value.marketId !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.marketId) ||
@@ -155,6 +195,9 @@ function normalizeMetadata(value: MoneyActionMetadata): MoneyActionMetadata {
     collateralAsset: { id: value.collateralAsset.id.trim(), symbol: value.collateralAsset.symbol.trim() },
     source: { ...value.source, blockHash: value.source.blockHash.toLowerCase() as `0x${string}` },
   };
+}
+function validShortText(value: unknown, max: number): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= max;
 }
 function validSummaryAsset(value: { id: string; symbol: string } | undefined) {
   return Boolean(value && typeof value.id === "string" && value.id.trim().length > 0 && value.id.length <= 200 &&

@@ -93,7 +93,7 @@ function FundingExperienceBoundary({
     meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
     queryFn: ({ signal }) =>
       wallet.fetchAccountResource(
-        `/api/funding/providers?region=${encodeURIComponent(regionId)}`,
+        `/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=onramp`,
         { signal },
       ),
   });

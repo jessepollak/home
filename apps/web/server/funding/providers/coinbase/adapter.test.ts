@@ -156,14 +156,19 @@ describe("Coinbase headless funding adapter", () => {
       {
         region: "US",
         assetId: "base:usdc",
-        paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }],
-        env: ["CDP_API_KEY_ID", "CDP_API_KEY_SECRET"],
+        currency: "USD",
+        directions: {
+          onramp: {
+            paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }],
+            env: ["CDP_API_KEY_ID", "CDP_API_KEY_SECRET"],
+          },
+        },
       },
     ]);
-    expect(coinbaseManifest.sandbox).toBe(true);
-    expect(coinbaseManifest.reference).toBe("provider");
-    expect(coinbaseManifest.quotes).toBe(true);
-    expect(coinbaseManifest.redirectOrigins).toEqual(["https://pay.coinbase.com"]);
+    expect(coinbaseManifest.onramp.sandbox).toBe(true);
+    expect(coinbaseManifest.onramp.reference).toBe("provider");
+    expect(coinbaseManifest.onramp.quotes).toBe(true);
+    expect(coinbaseManifest.onramp.redirectOrigins).toEqual(["https://pay.coinbase.com"]);
   });
 
   test("creates a fee-bearing quote with a three-minute expiry and decimal-safe echoes", async () => {
@@ -176,7 +181,7 @@ describe("Coinbase headless funding adapter", () => {
       },
     });
     const before = Date.now();
-    const quote = await adapter.createQuote!(
+    const quote = await adapter.onramp!.createQuote!(
       quoteIntent,
       context((async (input: RequestInfo | URL, init: RequestInit = {}) => {
         requests.push({ url: String(input), init });
@@ -225,7 +230,7 @@ describe("Coinbase headless funding adapter", () => {
       const adapter = createCoinbaseProvider({
         generateJwtImplementation: async () => "synthetic-jwt",
       });
-      await expect(adapter.createQuote!(
+      await expect(adapter.onramp!.createQuote!(
         quoteIntent,
         context((async () => response()) as unknown as typeof fetch),
       )).rejects.toBeInstanceOf(Error);
@@ -237,7 +242,7 @@ describe("Coinbase headless funding adapter", () => {
       () => quoteResponse({ paymentTotal: "25.01", paymentSubtotal: "24.51" }),
       () => quoteResponse({ purchaseAmount: "24.5000001" }),
     ]) {
-      await expect(provider.createQuote!(
+      await expect(provider.onramp!.createQuote!(
         quoteIntent,
         context((async () => response()) as unknown as typeof fetch),
       )).rejects.toBeInstanceOf(Error);
@@ -246,7 +251,7 @@ describe("Coinbase headless funding adapter", () => {
 
   test("pins purchaseAmount to the signed token amount and sends the Home reference", async () => {
     const requests: RequestInit[] = [];
-    const result = await provider.createOrder(
+    const result = await provider.onramp!.createOrder(
       intent,
       context((async (_input: RequestInfo | URL, init: RequestInit = {}) => {
         requests.push(init);
@@ -277,8 +282,8 @@ describe("Coinbase headless funding adapter", () => {
       return createResponse();
     }) as unknown as typeof fetch;
 
-    await provider.createOrder({ ...intent, clientIp: "203.0.113.4" }, context(fetchImplementation));
-    await provider.createOrder(intent, context(fetchImplementation));
+    await provider.onramp!.createOrder({ ...intent, clientIp: "203.0.113.4" }, context(fetchImplementation));
+    await provider.onramp!.createOrder(intent, context(fetchImplementation));
 
     expect(bodies[0]?.clientIp).toBe("203.0.113.4");
     expect(bodies[1]).not.toHaveProperty("clientIp");
@@ -293,8 +298,8 @@ describe("Coinbase headless funding adapter", () => {
         : createResponse({ partnerUserRef: partnerUserRef(DESTINATION, true) });
     }) as unknown as typeof fetch, "apple-pay", true);
 
-    await provider.createQuote!(quoteIntent, sandboxContext);
-    const result = await provider.createOrder(intent, sandboxContext);
+    await provider.onramp!.createQuote!(quoteIntent, sandboxContext);
+    const result = await provider.onramp!.createOrder(intent, sandboxContext);
 
     expect(requests[0]?.partnerUserRef).toBe(partnerUserRef(DESTINATION, true));
     expect(requests[1]?.partnerUserRef).toBe(partnerUserRef(DESTINATION, true));
@@ -308,7 +313,7 @@ describe("Coinbase headless funding adapter", () => {
       },
     });
 
-    const liveResult = await provider.createOrder(
+    const liveResult = await provider.onramp!.createOrder(
       intent,
       context((async () => createResponse()) as unknown as typeof fetch),
     );
@@ -327,7 +332,7 @@ describe("Coinbase headless funding adapter", () => {
         return "synthetic-jwt";
       },
     });
-    const result = await adapter.createOrder(
+    const result = await adapter.onramp!.createOrder(
       { ...intent, quote: undefined },
       context((async () => {
         httpCalls += 1;
@@ -350,7 +355,7 @@ describe("Coinbase headless funding adapter", () => {
       },
     });
 
-    const result = await adapter.createOrder(
+    const result = await adapter.onramp!.createOrder(
       intent,
       context((async () => {
         httpCalls += 1;
@@ -383,7 +388,7 @@ describe("Coinbase headless funding adapter", () => {
     ];
     for (const scenario of cases) {
       let calls = 0;
-      const result = await provider.createOrder(
+      const result = await provider.onramp!.createOrder(
         intent,
         context((async () => {
           calls += 1;
@@ -396,7 +401,7 @@ describe("Coinbase headless funding adapter", () => {
   });
 
   test("accepts the embedded-order payment link type observed live on 2026-09-13", async () => {
-    const result = await provider.createOrder(
+    const result = await provider.onramp!.createOrder(
       intent,
       context((async () => createResponse({}, {
         url: "https://pay.coinbase.com/v3/api-onramp/embedded-order?sessionToken=synthetic",
@@ -412,7 +417,7 @@ describe("Coinbase headless funding adapter", () => {
 
   test("maps a create fee-equation mismatch to ambiguous after one call", async () => {
     let calls = 0;
-    const result = await provider.createOrder(
+    const result = await provider.onramp!.createOrder(
       intent,
       context((async () => {
         calls += 1;
@@ -444,7 +449,7 @@ describe("Coinbase headless funding adapter", () => {
     ];
     for (const scenario of cases) {
       let calls = 0;
-      const result = await provider.createOrder(
+      const result = await provider.onramp!.createOrder(
         intent,
         context((async () => {
           calls += 1;
@@ -457,7 +462,7 @@ describe("Coinbase headless funding adapter", () => {
   });
 
   test("allows fiat repricing while surfacing the final total and order fees", async () => {
-    const result = await provider.createOrder(
+    const result = await provider.onramp!.createOrder(
       intent,
       context((async () => createResponse({
         paymentTotal: "26.25",
@@ -502,7 +507,7 @@ describe("Coinbase headless funding adapter", () => {
       ["ONRAMP_ORDER_STATUS_EXPIRED", "expired"],
     ] as const;
     for (const [status, expected] of cases) {
-      const result = await provider.getOrder(
+      const result = await provider.onramp!.getOrder(
         reconciliationIntent,
         context((async () => statusResponse({
           status,
@@ -529,17 +534,17 @@ describe("Coinbase headless funding adapter", () => {
       { purchaseAmount: "24.499999" },
     ];
     for (const mismatch of mismatches) {
-      const result = await provider.getOrder(
+      const result = await provider.onramp!.getOrder(
         reconciliationIntent,
         context((async () => statusResponse(mismatch)) as unknown as typeof fetch),
       );
       expect(result.state).toBe("unknown");
     }
-    await expect(provider.getOrder(
+    await expect(provider.onramp!.getOrder(
       reconciliationIntent,
       context((async () => new Response("unavailable", { status: 503 })) as unknown as typeof fetch),
     )).resolves.toMatchObject({ state: "unknown" });
-    await expect(provider.getOrder(
+    await expect(provider.onramp!.getOrder(
       reconciliationIntent,
       context((async () => { throw new Error("synthetic transport"); }) as unknown as typeof fetch),
     )).resolves.toMatchObject({ state: "unknown" });
@@ -549,7 +554,7 @@ describe("Coinbase headless funding adapter", () => {
     const lines: string[] = [];
     setObservabilityLogWriterForTests((line) => lines.push(line));
 
-    await expect(provider.createQuote!(
+    await expect(provider.onramp!.createQuote!(
       quoteIntent,
       context((async () => new Response("{}", {
         status: 201,
@@ -568,7 +573,7 @@ describe("Coinbase headless funding adapter", () => {
   test("emits only closed, scrubbed funding-order failure events", async () => {
     const lines: string[] = [];
     setObservabilityLogWriterForTests((line) => lines.push(line));
-    await provider.createOrder(
+    await provider.onramp!.createOrder(
       intent,
       context((async () => createResponse({ purchaseAmount: "1" })) as unknown as typeof fetch),
     );

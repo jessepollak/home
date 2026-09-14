@@ -64,8 +64,8 @@ export function createCoinbaseProvider(
 
   return {
     manifest: coinbaseManifest,
-
-    async createQuote(input, ctx) {
+    onramp: {
+      async createQuote(input, ctx) {
       const startedAt = Date.now();
       const body = createQuoteBody(input, ctx);
       const response = await postOrders(
@@ -190,6 +190,7 @@ export function createCoinbaseProvider(
         emitFailure("STATUS_ECHO_MISMATCH", startedAt, "failed");
         return unknown("INVALID_RESPONSE");
       }
+      },
     },
   };
 }

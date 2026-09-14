@@ -22,8 +22,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 export const ripioProvider: FundingProvider = {
   manifest: ripioManifest,
-
-  async ensureCustomer(input, ctx) {
+  onramp: {
+    async ensureCustomer(input, ctx) {
     const email = input.fields.email?.trim();
     if (!email) throw new RipioProviderError("invalid-request");
     const client = clientFor(ctx);
@@ -131,13 +131,14 @@ export const ripioProvider: FundingProvider = {
   },
 
   verifyWebhook(raw, headers, ctx) {
-    const supplied = headers.get(ripioManifest.webhook.signatureHeader)?.trim().replace(/^sha256=/i, "");
+    const supplied = headers.get(ripioManifest.onramp.webhook.signatureHeader)?.trim().replace(/^sha256=/i, "");
     if (!supplied || supplied.length > 128 || !/^[0-9a-f]{64}$/i.test(supplied)) return null;
     const expected = createHmac("sha256", ctx.env.RIPIO_WEBHOOK_SECRET).update(raw).digest();
     const actual = Buffer.from(supplied, "hex");
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
     const event = parseRipioWebhook(raw);
     return event ? { providerOrderId: event.providerOrderId } : null;
+    },
   },
 };
 
@@ -208,7 +209,7 @@ function observationFor(status: string, hash: string | null, refund: { status: s
 function assertRedirectOrigin(value: string): void {
   let url: URL;
   try { url = new URL(value); } catch { throw new RipioProviderError("binding-conflict"); }
-  if (!ripioManifest.redirectOrigins?.some((origin) => origin === url.origin) || url.username || url.password || url.hash) {
+  if (!ripioManifest.onramp.redirectOrigins?.some((origin) => origin === url.origin) || url.username || url.password || url.hash) {
     throw new RipioProviderError("binding-conflict");
   }
 }

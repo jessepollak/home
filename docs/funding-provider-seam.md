@@ -1,8 +1,18 @@
 # Funding provider seam
 
-Status: design of record, September 11, 2026, v2 after Jesse's review; implemented by the #301 candidate on September 12, 2026. Reconciliation intent and adapter echo validation were amended during implementation review. Tracking: [#301](https://github.com/jessepollak/home/issues/301).
+Status: design of record, September 11, 2026, v2 after Jesse's review; implemented by the #301 candidate on September 12, 2026. Directional provider contract added September 14, 2026 under [#436](https://github.com/jessepollak/home/issues/436). Reconciliation intent and adapter echo validation were amended during implementation review. Tracking: [#301](https://github.com/jessepollak/home/issues/301).
 
 Related: [regional money](regional-money.md), [currency defaults](currency-defaults.md), [fork and extend](fork-and-extend.md), [current engineering rules](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers).
+
+## Directional extension (#436)
+
+One provider identity may now expose an optional `onramp` port, optional `offramp` port, or both. Bindings declare `currency` and direction-specific payment methods and environment requirements. `GET /api/funding/providers` accepts `direction=onramp|offramp` (omission remains onramp-compatible); the core gives adapters only that direction's origins and, for offramps, only the selected production or Home-sandbox deployment.
+
+IDRX, Ripio, and Coinbase retain their existing Order lifecycles under `provider.onramp`. Peer is one registered identity with a working offramp seam and no invented onramp. Its pinned `@zkp2p/cash`/SDK contract sources, candidate corridors, exclusions, and operator gates are recorded in `server/funding/providers/peer/README.md`. `PEER_OFFRAMP_ENABLED` remains unset by default; no live or funded validation is claimed.
+
+Offramps execute through Actions rather than `funding_orders`. The shared Action contract reserves `cash-out` and `cash-out-withdraw` plus typed `product: "cashout"` metadata so Activity and resume do not infer protocol identity from titles or calldata. Home owns exact approval and validates the Home-pinned Peer escrow ABI, all create/withdraw fields, and the ERC-8021 boundary. Confirmed hashless actions are blocked for 15 minutes, owner-indexed Peer orders recover in-flight CDP sessions after reload, and full close supports prune-plus-withdraw plans. Send stage 2 exposes Peer only after eligible offramp discovery and requires verbatim confirmation of the canonical payout handle. `PEER_OFFRAMP_ENABLED` must equal `1` for discovery, new deposit preparation, and order listing; withdrawal preparation intentionally bypasses only that rollout switch so existing escrow owners retain a recovery path.
+
+Peer is a deliberate egress exception to the raw-HTTP adapter rule below. The exact installed Cash/SDK options do not expose fetch injection for the curator/indexer calls Home uses. The adapter instead requires literal manifest-pinned curator/indexer origins, passes those URLs and Home's Base RPC transport explicitly, disables foreign-chain RPC, and sets 6-second SDK/API and RPC timeouts where supported. Cash indexer requests retain package-owned timeout behavior, and owner scans remain capped at 100 because the installed package documents no pagination or higher safe ceiling. This residual can fail closed for unusually old/high-volume owners; Home does not monkey-patch global fetch or weaken the origin boundary.
 
 ## Intent
 

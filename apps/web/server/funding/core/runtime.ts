@@ -26,6 +26,14 @@ export function getFundingCore(): FundingCore {
         provider: providerId,
       });
     },
+    logProviderDiscoveryFailure: ({ providerId, reason }) => {
+      emitServerEvent("funding-order", {
+        route: "/api/funding/providers",
+        code: reason === "configuration" ? "OFFRAMP_DISCOVERY_CONFIGURATION" : "OFFRAMP_DISCOVERY_PROVIDER",
+        outcome: "unavailable",
+        provider: providerId,
+      });
+    },
   });
   return core;
 }

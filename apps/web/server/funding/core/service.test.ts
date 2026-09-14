@@ -10,7 +10,7 @@ import { MemoryFundingOrderStore } from "./store";
 import { FundingCore, resolveClientIp, isPrivateIp } from "./service";
 
 const session: VerifiedAccountSession = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
-const manifest = { id: "fixture", displayName: "Fixture", docsUrl: "https://example.com", bindings: [{ region: "ID", assetId: "base:idrx", paymentMethods: [{ id: "bank", label: "Bank" }], env: ["FIXTURE_KEY"] }], apiOrigins: ["https://example.com"], reference: "home" } as const satisfies FundingProviderManifest;
+const manifest = { id: "fixture", displayName: "Fixture", docsUrl: "https://example.com", onramp: { apiOrigins: ["https://example.com"], reference: "home" }, bindings: [{ region: "ID", assetId: "base:idrx", currency: "IDR", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["FIXTURE_KEY"] } } }] } as const satisfies FundingProviderManifest;
 
 function setup(
   outcome: "created" | "ambiguous" = "created",
@@ -24,16 +24,18 @@ function setup(
   let date = new Date("2026-09-12T00:00:00.000Z");
   const staleSignals: Array<{ address: string; at: string }> = [];
   const provider: FundingProvider = {
-    manifest: options.providerSandbox ? { ...manifest, sandbox: true } : manifest,
-    async createOrder(input, ctx) {
+    manifest: options.providerSandbox ? { ...manifest, onramp: { ...manifest.onramp, sandbox: true } } : manifest,
+    onramp: {
+      async createOrder(input, ctx) {
       dispatches += 1;
       expect(input.destination).toBe(session.smartAccount!.address);
       if (outcome === "ambiguous") return { outcome: "ambiguous" };
       return { outcome: "created", order: { providerOrderId: "fixture-order", tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
     },
-    async getOrder(_input, ctx) {
-      getOrderSandboxes.push(ctx.sandbox);
-      return { state: observation, providerStatus: observation, transactionHash: observation === "sent" ? `0x${"2".repeat(64)}` : null };
+      async getOrder(_input, ctx) {
+        getOrderSandboxes.push(ctx.sandbox);
+        return { state: observation, providerStatus: observation, transactionHash: observation === "sent" ? `0x${"2".repeat(64)}` : null };
+      },
     },
   };
   const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), ...(options.sandbox ? { FUNDING_SANDBOX: "1" } : {}) }, currentBaseBlock: async () => { blockReads += 1; return "500"; }, verifyReceipt: async (_order, hash) => { receiptVerifications += 1; return { transactionHash: hash, logIndex: 4 }; }, markStale: async (address, at) => { staleSignals.push({ address, at: at.toISOString() }); }, now: () => date });
@@ -43,14 +45,18 @@ function setup(
 describe("FundingCore", () => {
   test("lists only sandbox-capable providers in sandbox mode and leaves normal listing unchanged", async () => {
     const sandboxProvider: FundingProvider = {
-      manifest: { ...manifest, id: "sandbox-fixture", sandbox: true },
-      async createOrder() { return { outcome: "ambiguous" }; },
-      async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      manifest: { ...manifest, id: "sandbox-fixture", onramp: { ...manifest.onramp, sandbox: true } },
+      onramp: {
+        async createOrder() { return { outcome: "ambiguous" }; },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      },
     };
     const liveProvider: FundingProvider = {
       manifest: { ...manifest, id: "live-fixture" },
-      async createOrder() { return { outcome: "ambiguous" }; },
-      async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      onramp: {
+        async createOrder() { return { outcome: "ambiguous" }; },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      },
     };
     const dependencies = {
       providers: [sandboxProvider, liveProvider],
@@ -69,6 +75,25 @@ describe("FundingCore", () => {
 
     expect((await sandboxCore.listProviders("ID", session)).map((item) => item.providerId)).toEqual(["sandbox-fixture"]);
     expect((await liveCore.listProviders("ID", session)).map((item) => item.providerId)).toEqual(["sandbox-fixture", "live-fixture"]);
+  });
+
+  test("reports hidden offramp discovery failures without request data", async () => {
+    const events: Array<{ providerId: string; reason: "configuration" | "provider" }> = [];
+    const provider: FundingProvider = {
+      manifest: {
+        id: "offramp-fixture", displayName: "Offramp", docsUrl: "https://example.com",
+        offramp: { production: { apiOrigins: ["https://off.example"], contracts: { escrow: "0x1111111111111111111111111111111111111111", intentGuardian: "0x2222222222222222222222222222222222222222", intentGatingService: "0x3333333333333333333333333333333333333333" } } },
+        bindings: [{ region: "US", assetId: "base:usdc", currency: "USD", directions: { offramp: { paymentMethods: [{ id: "cashapp", label: "Cash App" }], env: ["OFFRAMP_ENABLED"], confirmedBy: "fixture" } } }],
+      },
+      offramp: { capabilities: async () => { throw new Error("provider unavailable"); } } as unknown as NonNullable<FundingProvider["offramp"]>,
+    };
+    const core = new FundingCore({
+      providers: [provider], store: new MemoryFundingOrderStore(), env: { OFFRAMP_ENABLED: "1" },
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      logProviderDiscoveryFailure: (event) => { events.push(event); },
+    });
+    expect(await core.listProviders("US", session, "offramp")).toEqual([]);
+    expect(events).toEqual([{ providerId: "offramp-fixture", reason: "provider" }]);
   });
 
   test("rejects quote tokens when the core sandbox mode changes", async () => {
@@ -90,10 +115,12 @@ describe("FundingCore", () => {
   test("rejects sandbox quotes for providers that do not declare sandbox support", async () => {
     let providerCalls = 0;
     const provider: FundingProvider = {
-      manifest: { ...manifest, quotes: true },
-      async createQuote() { providerCalls += 1; throw new Error("unexpected provider call"); },
-      async createOrder() { providerCalls += 1; return { outcome: "ambiguous" }; },
-      async getOrder() { providerCalls += 1; return { state: "unknown", providerStatus: "unknown" }; },
+      manifest: { ...manifest, onramp: { ...manifest.onramp, quotes: true } },
+      onramp: {
+        async createQuote() { providerCalls += 1; throw new Error("unexpected provider call"); },
+        async createOrder() { providerCalls += 1; return { outcome: "ambiguous" }; },
+        async getOrder() { providerCalls += 1; return { state: "unknown", providerStatus: "unknown" }; },
+      },
     };
     const core = new FundingCore({
       providers: [provider],
@@ -133,11 +160,13 @@ describe("FundingCore", () => {
     let capturedClientIp: string | undefined;
     const provider: FundingProvider = {
       manifest,
-      async createOrder(input, ctx) {
-        capturedClientIp = input.clientIp;
-        return { outcome: "created", order: { providerOrderId: "fixture-order", tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
+      onramp: {
+        async createOrder(input, ctx) {
+          capturedClientIp = input.clientIp;
+          return { outcome: "created", order: { providerOrderId: "fixture-order", tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
+        },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
       },
-      async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
     };
     const core = new FundingCore({
       providers: [provider],
@@ -222,7 +251,7 @@ describe("FundingCore", () => {
 
   test("logs unmatched webhooks without raw bodies or provider order identifiers", async () => {
     const events: Array<{ providerId: string; reason: "invalid" | "unmatched" }> = [];
-    const provider: FundingProvider = { manifest, createOrder: async () => ({ outcome: "ambiguous" }), getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }), verifyWebhook: () => ({ providerOrderId: "secret-provider-order" }) };
+    const provider: FundingProvider = { manifest, onramp: { createOrder: async () => ({ outcome: "ambiguous" }), getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }), verifyWebhook: () => ({ providerOrderId: "secret-provider-order" }) } };
     const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32) }, currentBaseBlock: async () => "1", verifyReceipt: async () => null, logUnmatchedWebhook: (event) => events.push(event) });
     expect(await core.handleWebhook("fixture", new TextEncoder().encode("private-body"), new Headers())).toEqual({ accepted: true, matched: false });
     expect(events).toEqual([{ providerId: "fixture", reason: "unmatched" }]);
@@ -243,18 +272,20 @@ describe("FundingCore", () => {
   test("passes the request origin return URL into provider quotes", async () => {
     const captured: QuoteIntent[] = [];
     const provider: FundingProvider = {
-      manifest: { ...manifest, quotes: true },
-      async createQuote(input) {
-        captured.push(input);
-        return {
-          fiatAmount: input.fiatAmount,
-          tokenAmountAtomic: "2000000",
-          fees: [],
-          expiresAt: "2099-01-01T00:00:00.000Z",
-        };
+      manifest: { ...manifest, onramp: { ...manifest.onramp, quotes: true } },
+      onramp: {
+        async createQuote(input) {
+          captured.push(input);
+          return {
+            fiatAmount: input.fiatAmount,
+            tokenAmountAtomic: "2000000",
+            fees: [],
+            expiresAt: "2099-01-01T00:00:00.000Z",
+          };
+        },
+        async createOrder() { return { outcome: "ambiguous" }; },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
       },
-      async createOrder() { return { outcome: "ambiguous" }; },
-      async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
     };
     const core = new FundingCore({
       providers: [provider],
@@ -276,10 +307,12 @@ describe("FundingCore", () => {
       code: "ETIMEDOUT",
     });
     const provider: FundingProvider = {
-      manifest: { ...manifest, quotes: true },
-      async createQuote() { throw providerError; },
-      async createOrder() { return { outcome: "ambiguous" }; },
-      async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      manifest: { ...manifest, onramp: { ...manifest.onramp, quotes: true } },
+      onramp: {
+        async createQuote() { throw providerError; },
+        async createOrder() { return { outcome: "ambiguous" }; },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      },
     };
     const core = new FundingCore({
       providers: [provider],
@@ -377,8 +410,9 @@ function coreWithInstruction(
   expectedTokenAmountAtomic = "2000000",
 ): FundingCore {
   const provider: FundingProvider = {
-    manifest: { ...manifest, redirectOrigins: ["https://pay.example"] },
-    async createOrder(_input, ctx) {
+    manifest: { ...manifest, onramp: { ...manifest.onramp, redirectOrigins: ["https://pay.example"] } },
+    onramp: {
+      async createOrder(_input, ctx) {
       return {
         outcome: "created",
         order: {
@@ -391,7 +425,8 @@ function coreWithInstruction(
         },
       };
     },
-    async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+    },
   };
   return new FundingCore({
     providers: [provider],

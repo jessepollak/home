@@ -141,7 +141,9 @@ describe("generic borrow action preparation", () => {
       liquidityAssets: BigInt(next.state.liquidityAssetsRaw),
     });
     const accepted = await prepare({ marketId: market.marketId, operation: "borrow", amountBaseUnits: maximumBorrow.toString() }, next);
-    expect(BigInt(accepted.result.draft.metadata!.projectedHealthFactorWad!)).toBeGreaterThanOrEqual(BORROW_HEALTH_FLOOR_WAD);
+    expect(accepted.result.draft.metadata?.product).toBe("borrow");
+    if (accepted.result.draft.metadata?.product !== "borrow") throw new Error("Expected borrow metadata.");
+    expect(BigInt(accepted.result.draft.metadata.projectedHealthFactorWad!)).toBeGreaterThanOrEqual(BORROW_HEALTH_FLOOR_WAD);
     await expect(prepareBorrowAction({
       request: { marketId: market.marketId, operation: "borrow", amountBaseUnits: (maximumBorrow + BigInt(1)).toString() },
       market,

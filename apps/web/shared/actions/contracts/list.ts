@@ -64,7 +64,7 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
         warnings: item.summary.warnings as string[],
         expiresAt: item.summary.expiresAt,
         ...(typeof item.summary.quoteId === "string" ? { quoteId: item.summary.quoteId } : {}),
-        ...(isBorrowMetadata(item.summary.metadata) ? { metadata: item.summary.metadata } : {}),
+        ...(isMoneyMetadata(item.summary.metadata) ? { metadata: item.summary.metadata } : {}),
         createdAt: item.createdAt,
       },
       status: item.status,
@@ -84,8 +84,20 @@ export function dedupeRecentMoneyActions(
   return operations.filter((operation) => !operation.transactionHash || !excluded.has(operation.transactionHash.toLowerCase()));
 }
 
-function isBorrowMetadata(value: unknown): value is MoneyActionMetadata {
-  return isRecord(value) && value.product === "borrow" && typeof value.operation === "string" &&
+function isMoneyMetadata(value: unknown): value is MoneyActionMetadata {
+  if (!isRecord(value)) return false;
+  if (value.product === "cashout") {
+    return (value.operation === "deposit" || value.operation === "withdraw") &&
+      typeof value.providerId === "string" && typeof value.providerName === "string" &&
+      (value.environment === "production" || value.environment === "sandbox") &&
+      typeof value.platform === "string" && typeof value.platformLabel === "string" && typeof value.currency === "string" &&
+      (value.operation === "deposit" ? typeof value.canonicalHandle === "string" && value.depositId === undefined : value.canonicalHandle === undefined && typeof value.depositId === "string") &&
+      typeof value.approximateFiatAmount === "string" &&
+      typeof value.minConversionRate === "string" && isRecord(value.intentAmountRange) &&
+      typeof value.intentAmountRange.min === "string" && typeof value.intentAmountRange.max === "string" &&
+      typeof value.estimateAsOf === "string" && typeof value.escrow === "string";
+  }
+  return value.product === "borrow" && typeof value.operation === "string" &&
     typeof value.marketId === "string" && /^0x[0-9a-fA-F]{64}$/.test(value.marketId) &&
     isRecord(value.loanAsset) && typeof value.loanAsset.id === "string" && typeof value.loanAsset.symbol === "string" &&
     isRecord(value.collateralAsset) && typeof value.collateralAsset.id === "string" && typeof value.collateralAsset.symbol === "string" &&
