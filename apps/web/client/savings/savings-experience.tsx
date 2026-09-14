@@ -381,11 +381,7 @@ export function SavingsExperience({
                   }
                 />
               )}
-              {refreshing ? (
-                <p className="text-xs text-muted-foreground" role="status">
-                  Refreshing…
-                </p>
-              ) : refreshError ? (
+              {refreshError ? (
                 <p className="text-xs text-muted-foreground" role="status">
                   Refresh unavailable
                 </p>

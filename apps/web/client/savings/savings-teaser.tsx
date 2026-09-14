@@ -78,6 +78,18 @@ export function SavingsTeaser({
       return data;
     },
   });
+  const metadataFetchedAt = metadataQuery.data?.source.fetchedAt ?? null;
+  useEffect(() => {
+    if (!metadataFetchedAt) return;
+    let active = true;
+    queueMicrotask(() => {
+      if (active) setRateNowMs(Date.now());
+    });
+    return () => {
+      active = false;
+    };
+  }, [metadataFetchedAt]);
+
   useEffect(() => {
     const metadata = metadataQuery.data;
     if (!metadata) return;
