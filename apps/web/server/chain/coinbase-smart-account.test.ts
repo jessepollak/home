@@ -78,6 +78,64 @@ describe("Coinbase smart-account ordered batch simulation", () => {
     });
   });
 
+  test("keeps an implementation-probe HTTP rate limit as a typed RPC failure", async () => {
+    const requests: number[] = [];
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as { id: number };
+      requests.push(request.id);
+      if (request.id === 22) {
+        return new Response("rate limited", { status: 429 });
+      }
+      return Response.json({ jsonrpc: "2.0", id: request.id, result: "0x6001" });
+    }) as typeof fetch;
+
+    await expect(createCoinbaseSmartAccountBatchSimulator({
+      fetchImpl,
+      rpcUrl: "https://rpc.example.test",
+    }).simulateBatch(
+      [{ to: IMPLEMENTATION, value: "0", data: "0x1234" }],
+      ACCOUNT,
+      { blockNumber: "100", blockHash: BLOCK_HASH },
+    )).rejects.toMatchObject({
+      name: "CoinbaseSmartAccountBatchSimulationError",
+      code: "rpc",
+      rpcErrorCode: "http",
+      rpcCode: null,
+      httpStatus: 429,
+    } satisfies Partial<CoinbaseSmartAccountBatchSimulationError>);
+    expect(requests).toEqual([21, 22]);
+  });
+
+  test("preserves an executeBatch JSON-RPC error envelope as a typed RPC failure", async () => {
+    const source = sourceFetch();
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as { id: number };
+      if (request.id === 24) {
+        return Response.json({
+          jsonrpc: "2.0",
+          id: request.id,
+          error: { code: -32000, message: "execution reverted" },
+        });
+      }
+      return source.fetchImpl(input, init);
+    }) as typeof fetch;
+
+    await expect(createCoinbaseSmartAccountBatchSimulator({
+      fetchImpl,
+      rpcUrl: "https://rpc.example.test",
+    }).simulateBatch(
+      [{ to: IMPLEMENTATION, value: "0", data: "0x1234" }],
+      ACCOUNT,
+      { blockNumber: "100", blockHash: BLOCK_HASH },
+    )).rejects.toMatchObject({
+      name: "CoinbaseSmartAccountBatchSimulationError",
+      code: "rpc",
+      rpcErrorCode: "rpc",
+      rpcCode: -32000,
+      httpStatus: null,
+    } satisfies Partial<CoinbaseSmartAccountBatchSimulationError>);
+  });
+
   test("classifies undeployed accounts and implementations as account capability failures", async () => {
     const calls = [{ to: IMPLEMENTATION, value: "0", data: "0x1234" as const }];
     const undeployed = sourceFetch({ accountCode: "0x" });

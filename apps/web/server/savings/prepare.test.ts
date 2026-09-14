@@ -346,6 +346,66 @@ describe("Morpho savings action preparation", () => {
     expect(simulations).toEqual([action.calls]);
   });
 
+  test("retries a rate-limited batch simulation once before succeeding", async () => {
+    let attempts = 0;
+    const delays: number[] = [];
+    const prepare = createPrepareSavingsAction({
+      readState: async () => baseState,
+      retryDelayMs: 400,
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+      simulateBatch: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new CoinbaseSmartAccountBatchSimulationError(
+            "Base RPC rejected a smart-account batch simulation call.",
+            "rpc",
+            { rpcErrorCode: "rpc", rpcCode: -32016 },
+          );
+        }
+      },
+    });
+
+    await expect(prepare({
+      session,
+      action: { kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1500000" },
+    })).resolves.toMatchObject({ kind: "savings-deposit" });
+    expect(attempts).toBe(2);
+    expect(delays).toEqual([400]);
+  });
+
+  test("keeps persistent simulation rate limits typed for Save", async () => {
+    for (const detail of [
+      { rpcErrorCode: "http" as const, httpStatus: 429 },
+      { rpcErrorCode: "rpc" as const, rpcCode: -32005 },
+    ]) {
+      let attempts = 0;
+      const prepare = createPrepareSavingsAction({
+        readState: async () => baseState,
+        retryDelayMs: 0,
+        simulateBatch: async () => {
+          attempts += 1;
+          throw new CoinbaseSmartAccountBatchSimulationError(
+            "Base RPC rejected a smart-account batch simulation call.",
+            "rpc",
+            detail,
+          );
+        },
+      });
+
+      await expect(prepare({
+        session,
+        action: { kind: "withdraw", vaultAddress: VAULT, amountBaseUnits: "1500000" },
+      })).rejects.toMatchObject({
+        name: "SavingsActionError",
+        reason: "rate-limited",
+        message: "Base RPC is rate limited. Try again shortly.",
+      } satisfies Partial<SavingsActionError>);
+      expect(attempts).toBe(2);
+    }
+  });
+
   test("maps account capability and source simulation failures to Save-specific safe errors", async () => {
     const capabilityFailure = createPrepareSavingsAction({
       readState: async () => baseState,

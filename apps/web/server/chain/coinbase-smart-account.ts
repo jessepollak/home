@@ -2,6 +2,7 @@ import "server-only";
 
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import {
+  BaseRpcError,
   createBaseRpcClient,
   parseRpcQuantity,
   resolveBaseRpcUrl,
@@ -32,17 +33,30 @@ export type CoinbaseSmartAccountBatchSimulator = {
   ): Promise<void>;
 };
 
+type SimulationErrorOptions = ErrorOptions & {
+  rpcErrorCode?: BaseRpcError["code"] | null;
+  rpcCode?: number | null;
+  httpStatus?: number | null;
+};
+
 export class CoinbaseSmartAccountBatchSimulationError extends Error {
   readonly code: "rpc" | "account-capability";
+  readonly rpcErrorCode: BaseRpcError["code"] | null;
+  readonly rpcCode: number | null;
+  readonly httpStatus: number | null;
 
   constructor(
     message: string,
-    codeOrOptions: "rpc" | "account-capability" | ErrorOptions = "rpc",
-    options?: ErrorOptions,
+    codeOrOptions: "rpc" | "account-capability" | SimulationErrorOptions = "rpc",
+    options?: SimulationErrorOptions,
   ) {
-    super(message, typeof codeOrOptions === "string" ? options : codeOrOptions);
+    const details = typeof codeOrOptions === "string" ? options : codeOrOptions;
+    super(message, details);
     this.name = "CoinbaseSmartAccountBatchSimulationError";
     this.code = typeof codeOrOptions === "string" ? codeOrOptions : "rpc";
+    this.rpcErrorCode = details?.rpcErrorCode ?? null;
+    this.rpcCode = details?.rpcCode ?? null;
+    this.httpStatus = details?.httpStatus ?? null;
   }
 }
 
@@ -94,22 +108,13 @@ export function createCoinbaseSmartAccountBatchSimulator(options: {
           );
         }
 
-        let implementationResult: unknown;
-        try {
-          implementationResult = await rpc(
-            client,
-            "eth_call",
-            [{ to: account, data: encodeImplementation() }, block],
-            signal,
-            22,
-          );
-        } catch (error) {
-          throw new CoinbaseSmartAccountBatchSimulationError(
-            "This deployed account does not expose the Coinbase smart-account implementation needed for batch simulation.",
-            "account-capability",
-            { cause: error },
-          );
-        }
+        const implementationResult = await rpc(
+          client,
+          "eth_call",
+          [{ to: account, data: encodeImplementation() }, block],
+          signal,
+          22,
+        );
 
         let implementation: ChainAddress;
         try {
@@ -253,7 +258,12 @@ async function rpc(
   } catch (error) {
     throw new CoinbaseSmartAccountBatchSimulationError(
       "Base RPC rejected a smart-account batch simulation call.",
-      { cause: error },
+      {
+        cause: error,
+        rpcErrorCode: error instanceof BaseRpcError ? error.code : null,
+        rpcCode: error instanceof BaseRpcError ? error.rpcCode : null,
+        httpStatus: error instanceof BaseRpcError ? error.httpStatus : null,
+      },
     );
   }
 }
