@@ -12,7 +12,6 @@ import {
 } from "@/shared/morpho-markets/math";
 import {
   createMorphoMarketRpcReader,
-  MorphoMarketRpcError,
   type MorphoMarketRpcReader,
   type MorphoMarketSnapshot,
 } from "@/server/morpho-markets/rpc";
@@ -46,7 +45,7 @@ function projectBorrowReader(reader: MorphoMarketRpcReader): BorrowRpcReader {
   return {
     async readSnapshot(account, marketRef, signal) {
       const snapshot = await reader.readSnapshot(account, marketRef, signal);
-      return projectBorrowSnapshot(snapshot);
+      return projectBorrowSnapshot(snapshot, marketRef.availability);
     },
     simulateBatch(calls, account, blockNumber, expectedBlockHash, signal) {
       return reader.simulateBatch(calls, account, blockNumber, expectedBlockHash, signal);
@@ -54,11 +53,10 @@ function projectBorrowReader(reader: MorphoMarketRpcReader): BorrowRpcReader {
   };
 }
 
-function projectBorrowSnapshot(snapshot: MorphoMarketSnapshot): BorrowMarketSnapshot {
-  const borrowMode = snapshot.capabilities.borrow;
-  if (!borrowMode) {
-    throw new MorphoMarketRpcError("The verified Morpho market is not approved for Borrow.");
-  }
+function projectBorrowSnapshot(
+  snapshot: MorphoMarketSnapshot,
+  borrowMode: BorrowMarketRef["availability"],
+): BorrowMarketSnapshot {
   const collateral = BigInt(snapshot.position.collateralRaw);
   const debt = BigInt(snapshot.position.debtAssetsRaw);
   const oraclePrice = BigInt(snapshot.state.oraclePriceRaw);
@@ -89,9 +87,9 @@ function projectBorrowSnapshot(snapshot: MorphoMarketSnapshot): BorrowMarketSnap
     : BigInt("0");
 
   return {
-    version: "1",
     chainId: snapshot.chainId,
     walletAddress: snapshot.walletAddress,
+    version: "1",
     market: snapshot.market,
     eligibility: {
       mode: borrowMode,

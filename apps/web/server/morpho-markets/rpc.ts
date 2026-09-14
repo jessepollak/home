@@ -156,8 +156,8 @@ export function createMorphoMarketRpcReader(options: {
       if (error instanceof MorphoMarketRpcError) throw error;
       throw new MorphoMarketRpcError(
         controller.signal.aborted
-          ? "The Base borrowing RPC request timed out or was aborted."
-          : "The Base borrowing RPC request failed.",
+          ? "The Base Morpho market RPC request timed out or was aborted."
+          : "The Base Morpho market RPC request failed.",
         { cause: error },
       );
     } finally {
@@ -241,7 +241,7 @@ export function createMorphoMarketRpcReader(options: {
         const rawRequiredCollateral = minimumCollateralForDebt(debt, oraclePrice, marketRef.lltvWad);
         const rawWithdrawableCollateral = collateral > rawRequiredCollateral ? collateral - rawRequiredCollateral : BigInt("0");
         const fetchedAt = now();
-        if (Number.isNaN(fetchedAt.getTime())) throw new MorphoMarketRpcError("The borrowing fetch time is invalid.");
+        if (Number.isNaN(fetchedAt.getTime())) throw new MorphoMarketRpcError("The Morpho market fetch time is invalid.");
 
         return {
           chainId: BASE_CHAIN_ID,
@@ -413,7 +413,7 @@ async function rpc(fetchImpl: FetchLike, rpcUrl: string, body: RpcRequest, signa
     const result = await createBaseRpcClient({ fetchImpl, rpcUrl }).request(body.method, body.params, signal, body.id);
     return { id: body.id, result };
   } catch (error) {
-    throw new MorphoMarketRpcError("Base RPC rejected a borrowing call or simulation.", { cause: error });
+    throw new MorphoMarketRpcError("Base RPC rejected a Morpho market call or simulation.", { cause: error });
   }
 }
 

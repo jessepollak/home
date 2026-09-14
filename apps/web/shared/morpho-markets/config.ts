@@ -71,11 +71,11 @@ export const VERIFIED_MORPHO_MARKETS = [
 
 export const DEFAULT_VERIFIED_MORPHO_MARKET = VERIFIED_MORPHO_MARKETS[0];
 export const MORPHO_USDC_CBBTC_MARKET_PARAMS = {
-  loanToken: DEFAULT_VERIFIED_MORPHO_MARKET.loanToken.address,
-  collateralToken: DEFAULT_VERIFIED_MORPHO_MARKET.collateralToken.address,
-  oracle: DEFAULT_VERIFIED_MORPHO_MARKET.oracle,
-  irm: DEFAULT_VERIFIED_MORPHO_MARKET.irm,
-  lltv: DEFAULT_VERIFIED_MORPHO_MARKET.lltvWad,
+  loanToken: MORPHO_USDC_CBBTC_LOAN_TOKEN.address,
+  collateralToken: MORPHO_USDC_CBBTC_COLLATERAL_TOKEN.address,
+  oracle: MORPHO_USDC_CBBTC_ORACLE_ADDRESS,
+  irm: MORPHO_USDC_CBBTC_IRM_ADDRESS,
+  lltv: MORPHO_USDC_CBBTC_LLTV_WAD,
 } as const;
 
 export function getVerifiedMorphoMarket(marketId: string): VerifiedMorphoMarketRef | null {
