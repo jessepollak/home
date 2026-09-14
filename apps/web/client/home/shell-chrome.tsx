@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { HomeMark } from "@/components/home-mark";
 import { ProfileMark } from "@/components/profile-mark";
 import { useAccountWallet } from "@/client/account/cdp-client";
+import {
+  shellChromeCompensationClassName,
+  shellContentFrameClassName,
+} from "@/components/shell-layout";
 
 export function ShellHeader({
   isAccountSettingsOpen,
@@ -39,28 +43,46 @@ export function ShellHeader({
   onOpenSettings: () => void;
   onCloseSettings: () => void;
 }) {
+  const dashboardTitle = isAccountSettingsOpen
+    ? "Account"
+    : nestedChromeTitle ?? (activeNavigation === "invest" ? "Invest" : "Home");
+  const hasNestedChrome = !isAccountSettingsOpen && nestedChromeTitle !== null;
+
   return (
-    <header className="order-0 mx-auto flex min-h-14 w-full max-w-2xl shrink-0 items-center justify-between gap-4 border-b bg-background px-4 py-2">
-      <div className="flex min-w-0 items-center">
-        {isAccountSettingsOpen ? (
-          <h1 className="text-base font-semibold">Account</h1>
-        ) : nestedChromeTitle ? (
-          <NestedHomeHeader
-            title={nestedChromeTitle}
-            backLabel={nestedChromeBackLabel}
-            onBack={onNestedChromeBack}
-          />
-        ) : routeMode === "dashboard" ? (
-          <div className="flex min-w-0 items-center gap-2">
+    <header className={`order-0 w-full shrink-0 bg-background ${shellChromeCompensationClassName}`}>
+      <div className={`${shellContentFrameClassName} flex min-h-14 items-center justify-between gap-4 border-b py-2`}>
+      {routeMode === "dashboard" ? (
+        <div className="flex min-w-0 items-center gap-2" data-shell-header-main="">
+          {hasNestedChrome ? (
+            <div
+              className="flex h-11 w-11 shrink-0 items-center md:h-7 md:w-31"
+              data-shell-back=""
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11 md:size-7"
+                aria-label={nestedChromeBackLabel}
+                onClick={onNestedChromeBack}
+              >
+                <ArrowLeft className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+          ) : (
             <HomeMark onClick={() => { if (isVerified) onHome(); }} />
-            <h1 className="truncate text-base font-semibold">
-              {activeNavigation === "invest" ? "Invest" : "Home"}
-            </h1>
-          </div>
-        ) : (
+          )}
+          <h1
+            className="min-w-0 truncate text-base font-semibold"
+            data-shell-header-title=""
+          >
+            {dashboardTitle}
+          </h1>
+        </div>
+      ) : (
+        <div className="flex min-w-0 items-center">
           <HomeMark onClick={() => { if (isVerified) onHome(); }} />
-        )}
-      </div>
+        </div>
+      )}
       <div className="flex shrink-0 items-center">
         {isAccountSettingsOpen ? (
           <Button variant="secondary" onClick={onCloseSettings}>Done</Button>
@@ -77,6 +99,7 @@ export function ShellHeader({
             onOpenSettings={onOpenSettings}
           />
         )}
+      </div>
       </div>
     </header>
   );
@@ -128,25 +151,6 @@ function HeaderAccountAction({
     return <Button onClick={onDashboard}>Dashboard</Button>;
   }
   return <Button onClick={onSignIn}>Sign in</Button>;
-}
-
-function NestedHomeHeader({
-  title,
-  backLabel,
-  onBack,
-}: {
-  title: string;
-  backLabel: string;
-  onBack: () => void;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <Button variant="ghost" size="icon" onClick={onBack} aria-label={backLabel}>
-        <ArrowLeft className="size-4" aria-hidden="true" />
-      </Button>
-      <h1 className="min-w-0 text-base font-semibold">{title}</h1>
-    </div>
-  );
 }
 
 export function SignedOutLanding({

@@ -13,6 +13,7 @@ const { act, cleanup, fireEvent, render, within } = await import("@testing-libra
 const { SavingsExperience } = await import("./savings-experience");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111";
+const CURATOR = "0x1234567890abcdef1234567890abcdef12345678";
 const GAUNTLET = MORPHO_V1_CANDIDATE_ADDRESSES[1];
 const STEAKHOUSE = MORPHO_V1_CANDIDATE_ADDRESSES[0];
 const THIRD_VAULT = MORPHO_V1_CANDIDATE_ADDRESSES[2];
@@ -139,6 +140,31 @@ describe("Save simplify", () => {
     expect(prepares).toEqual([
       { kind: "deposit", vaultAddress: GAUNTLET, amountBaseUnits: "100000000" },
     ]);
+  });
+
+  test("condenses the selected vault curator address while preserving copy access", async () => {
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={{
+          ...initialData,
+          candidates: [
+            steakhouse,
+            {
+              ...gauntlet,
+              curatorAddress: CURATOR as MorphoVaultCandidate["curatorAddress"],
+            },
+          ],
+        }}
+        session={session()}
+        balanceStatus="ready"
+        balancePositions={balancePositions()}
+      />,
+    );
+
+    const curator = await page().findByRole("button", { name: "Copy 0x1234…345678" });
+    expect(curator.textContent).toContain("0x1234…345678");
+    expect(curator.textContent).not.toContain(CURATOR);
   });
 
   test("appends a stale snapshot age to the Save max label", async () => {

@@ -12,7 +12,7 @@ import {
 import {
   isRegionId,
   presentationRegions,
-  regionIds,
+  countryRegionIds,
   type RegionId,
 } from "@/config/regions";
 
@@ -28,7 +28,7 @@ type CountryOption = {
   label: string;
 };
 
-const countryOptions: CountryOption[] = regionIds.map((regionId) => ({
+const countryOptions: CountryOption[] = countryRegionIds.map((regionId) => ({
   value: regionId,
   label: presentationRegions[regionId].selectorLabel,
 }));
@@ -40,7 +40,9 @@ export function CountrySelect({
   variant = "default",
 }: CountrySelectProps) {
   const [open, setOpen] = useState(false);
-  const selected = countryOptions.find((option) => option.value === value) ?? null;
+  const selectedValue = value === "GLOBAL" ? "US" : value;
+  const selected =
+    countryOptions.find((option) => option.value === selectedValue) ?? countryOptions[0] ?? null;
 
   return (
     <Combobox

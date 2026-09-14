@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { normalizeRegionId, presentationRegions, resolvePresentation } from "./regions";
 
 describe("presentation regions", () => {
-  test("excludes held countries while retaining neutral fallback", () => {
+  test("excludes held countries while retaining the US fallback", () => {
     for (const heldCountry of ["TZ", "UG", "TH"]) {
       expect(normalizeRegionId(heldCountry)).toBeNull();
       expect(resolvePresentation({ detectedCountry: heldCountry })).toEqual({
-        region: presentationRegions.GLOBAL,
+        region: presentationRegions.US,
         source: "fallback",
       });
     }
@@ -26,10 +26,10 @@ describe("resolvePresentation", () => {
     expect(resolvePresentation({ detectedCountry: "ng" }).region.id).toBe("NG");
   });
 
-  test("uses the neutral fallback for an unknown country", () => {
+  test("uses the US fallback for an unknown country", () => {
     const result = resolvePresentation({ detectedCountry: "ZZ" });
 
-    expect(result.region.id).toBe("GLOBAL");
+    expect(result.region.id).toBe("US");
     expect(result.source).toBe("fallback");
   });
 
@@ -54,14 +54,14 @@ describe("resolvePresentation", () => {
     expect(result.source).toBe("persisted");
   });
 
-  test("persists a deliberate neutral selection over later detection", () => {
+  test("migrates a legacy neutral selection to detected country", () => {
     const result = resolvePresentation({
       persistedCountry: "GLOBAL",
       detectedCountry: "US",
     });
 
-    expect(result.region.id).toBe("GLOBAL");
-    expect(result.source).toBe("persisted");
+    expect(result.region.id).toBe("US");
+    expect(result.source).toBe("detected");
   });
 
   test("ignores an invalid persisted value and continues to detection", () => {

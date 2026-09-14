@@ -40,20 +40,18 @@ export function TransactionDetailsModal({
         <dl>
           {rows.map((row) => (
             <div
-              className={row.display
-                ? "grid items-start gap-1 border-b py-3 last:border-b-0 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
-                : "flex items-start justify-between gap-4 border-b py-3 text-sm last:border-b-0"}
+              className="grid grid-cols-[minmax(6rem,0.65fr)_minmax(0,1.35fr)] items-center gap-3 border-b py-3 text-sm last:border-b-0"
               key={row.label}
             >
               <dt className="text-sm text-muted-foreground">{row.label}</dt>
-              <dd className={row.display ? "min-w-0 sm:text-right" : "min-w-0 text-right font-medium tabular-nums"}>
+              <dd className={`min-w-0 text-right ${row.display ? "" : "font-medium tabular-nums"}`}>
                 {row.display ? (
                   <CopyableValue
                     value={row.value}
                     display={row.display}
                     presentation="full"
                     valueKind={row.label === "Transaction" ? "transaction hash" : "address"}
-                    className="sm:justify-end"
+                    className="justify-end text-right"
                   />
                 ) : row.value}
               </dd>

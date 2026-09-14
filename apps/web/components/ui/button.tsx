@@ -19,6 +19,8 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
         navigation:
           "rounded-none text-muted-foreground hover:bg-muted hover:text-foreground aria-[current=page]:text-foreground dark:hover:bg-muted/50",
+        "product-tile":
+          "group rounded-xl bg-transparent text-foreground hover:bg-muted/60 hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground",
       },
       size: {
         default:
@@ -34,6 +36,10 @@ const buttonVariants = cva(
         "icon-lg": "size-9",
         inline:
           "h-auto min-h-0 gap-1 rounded-sm p-0 [&_svg:not([class*='size-'])]:size-3.5",
+        "card-action":
+          "-mr-2 h-auto min-h-7 gap-1 rounded-md pt-0.5 pr-2 pb-1.5 pl-2.5 [&_svg:not([class*='size-'])]:size-3.5",
+        "product-tile":
+          "h-full w-full items-stretch justify-start p-4 text-left whitespace-normal",
       },
     },
     defaultVariants: {

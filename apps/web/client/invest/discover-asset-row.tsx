@@ -40,7 +40,7 @@ export function DiscoverAssetRow({
     <li>
       <Item
         render={<Button variant="ghost" />}
-        className="min-h-16 flex-nowrap cursor-pointer items-center text-left"
+        className="flex-nowrap cursor-pointer items-center text-left"
         onClick={onOpen}
         aria-describedby={`${asset.id}-action-hint`}
       >

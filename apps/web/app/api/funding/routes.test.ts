@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { GET as providers } from "./providers/route";
+import { handleFundingProvidersRequest } from "./providers/handler";
 import { POST as quotes } from "./quotes/route";
 import { GET as openOrders, POST as createOrder } from "./orders/route";
 import { GET as orderStatus } from "./orders/[id]/route";
@@ -12,6 +13,62 @@ function assertPrivate(response: Response) {
 }
 
 describe("funding route privacy and rejection", () => {
+  test("returns no providers when funding persistence is not configured", async () => {
+    let listCalls = 0;
+    const response = await handleFundingProvidersRequest(
+      new Request("https://home.example/api/funding/providers?region=AR"),
+      {
+        authorize: async () => ({
+          user: { subject: "funding-user" },
+          smartAccount: {
+            address: "0x1111111111111111111111111111111111111111",
+            chainId: 8453,
+          },
+          accountProvider: "cdp-embedded",
+        }),
+        databaseUrl: undefined,
+        listProviders: async () => {
+          listCalls += 1;
+          return [{ providerId: "ripio" }];
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    assertPrivate(response);
+    expect(await response.json()).toEqual({ providers: [] });
+    expect(listCalls).toBe(0);
+  });
+
+  test("keeps provider-list failures visible as a transient service error", async () => {
+    const response = await handleFundingProvidersRequest(
+      new Request("https://home.example/api/funding/providers?region=AR"),
+      {
+        authorize: async () => ({
+          user: { subject: "funding-user" },
+          smartAccount: {
+            address: "0x1111111111111111111111111111111111111111",
+            chainId: 8453,
+          },
+          accountProvider: "cdp-embedded",
+        }),
+        databaseUrl: "postgres://configured",
+        listProviders: async () => {
+          throw new Error("database unavailable");
+        },
+      },
+    );
+
+    expect(response.status).toBe(503);
+    assertPrivate(response);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "PROVIDERS_UNAVAILABLE",
+        message: "Funding methods are unavailable.",
+      },
+    });
+  });
+
   test("rejects every unauthenticated funding route with private no-store", async () => {
     for (const [, invoke] of [
     ["providers", () => providers(new Request("https://home.example/api/funding/providers?region=ID"))],

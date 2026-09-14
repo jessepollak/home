@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useEffect,
   useSyncExternalStore,
   type ComponentPropsWithoutRef,
@@ -58,7 +59,7 @@ function serverDesktop() {
  * Keep these authored timelines separate (exit is not reversed entry).
  * Asset/source details: public/home-mark/PROVENANCE.md.
  */
-function MarkArtwork() {
+const MarkArtwork = memo(function MarkArtwork() {
   // Mini doesn't support the source's sequence + spring/transform API.
   const [scope, animate] = useAnimate<HTMLSpanElement>();
 
@@ -220,14 +221,14 @@ function MarkArtwork() {
       </span>
     </span>
   );
-}
+});
 
 /** Fixed layout footprint; native link/button behavior belongs to the caller. */
 export function HomeMark(props: HomeMarkProps) {
   // Remounting only the decorative desktop layer resets Motion's cached
   // transforms and cancels its sequences on responsive switches.
   const desktop = useSyncExternalStore(subscribeDesktop, isDesktop, serverDesktop);
-  const { className, ...controlProps } = props;
+  const { className, "aria-label": ariaLabel, ...controlProps } = props;
   const controlClass = className ? `${styles.control} ${className}` : styles.control;
   const artwork = <>
     <span className={styles.mobileSquare} aria-hidden="true" />
@@ -235,9 +236,9 @@ export function HomeMark(props: HomeMarkProps) {
   </>;
 
   return (
-    <span className={styles.root}>
+    <span className={styles.root} data-home-mark="">
       {"href" in controlProps && controlProps.href !== undefined ? (
-        <a {...controlProps} className={controlClass} aria-label="Home">
+        <a {...controlProps} className={controlClass} aria-label={ariaLabel ?? "Home"}>
           {artwork}
         </a>
       ) : (
@@ -246,7 +247,7 @@ export function HomeMark(props: HomeMarkProps) {
           type={controlProps.type ?? "button"}
           variant="ghost"
           className={controlClass}
-          aria-label="Home"
+          aria-label={ariaLabel ?? "Home"}
         >
           {artwork}
         </Button>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
@@ -49,15 +50,17 @@ export function useBalances(
     },
   });
 
-  if (!ownerKey) return { status: "unavailable", snapshot: null, error: null };
-  if (query.isPending) return { status: "loading", snapshot: null, error: null };
-  if (query.isError) return { status: "error", snapshot: null, error: "balances-unavailable" };
-  return {
-    status: "ready",
-    snapshot: query.data,
-    error: null,
-    ...(query.isFetching ? { revalidating: true as const } : {}),
-  };
+  return useMemo(() => {
+    if (!ownerKey) return { status: "unavailable", snapshot: null, error: null };
+    if (query.isPending) return { status: "loading", snapshot: null, error: null };
+    if (query.isError) return { status: "error", snapshot: null, error: "balances-unavailable" };
+    return {
+      status: "ready",
+      snapshot: query.data,
+      error: null,
+      ...(query.isFetching ? { revalidating: true as const } : {}),
+    };
+  }, [ownerKey, query.data, query.isError, query.isFetching, query.isPending]);
 }
 
 function isBalancesSession(value: BalancesQuerySession | null): value is BalancesQuerySession {

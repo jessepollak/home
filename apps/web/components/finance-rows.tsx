@@ -64,9 +64,9 @@ function FinanceRow({
       <ItemMedia variant="avatar" aria-hidden="true">
         <span
           className={cn(
-            "grid size-10 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground",
-            iconTone === "incoming" && "text-muted-foreground",
-            iconTone === "outgoing" && "text-muted-foreground",
+            "grid size-full place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground",
+            iconTone === "incoming" && "bg-market-gain/10 text-market-gain",
+            iconTone === "outgoing" && "bg-market-loss/10 text-market-loss",
             iconTone === "self" && "text-muted-foreground",
             iconTone === "outlined" && "text-destructive",
             iconTone === "mark" && "overflow-hidden bg-transparent text-inherit",
@@ -122,7 +122,7 @@ function FinanceRow({
     <li>
       <Item
         data-kind={kind}
-        className={cn("min-h-16 flex-nowrap items-center", onActivate && "cursor-pointer")}
+        className={cn("flex-nowrap items-center", onActivate && "cursor-pointer")}
         {...(onActivate
           ? {
               render: (

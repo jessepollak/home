@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Empty,
   EmptyDescription,
@@ -20,7 +20,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft } from "lucide-react";
 import { MoneyTicker } from "@/components/money-ticker";
-import { CopyableValue } from "@/components/copyable-value";
+import { AddressText } from "@/components/address-text";
 import { useOptionalAppChrome } from "@/components/app-chrome";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -430,12 +430,11 @@ export function SavingsExperience({
         </SavingsNotice>
       ) : !coldLoading && !positionFailed && candidates.length > 0 ? (
         <section className="space-y-4" aria-label="Vaults">
-          <Card>
-            <CardContent inset="list">
-              <div role="radiogroup" aria-label="Vault">
-                {candidates.map((candidate) => {
+          <div className="space-y-3" role="radiogroup" aria-label="Vault">
+            {candidates.map((candidate) => {
               const isSelected =
                 selected?.vaultAddress === candidate.vaultAddress;
+              const detailsId = `vault-${candidate.vaultAddress}-details`;
               const balance = balances.find(
                 (entry) =>
                   entry.vaultAddress.toLowerCase() ===
@@ -455,10 +454,15 @@ export function SavingsExperience({
                 "APY unavailable"
               );
               return (
+                <div
+                  key={candidate.vaultAddress}
+                  className={`overflow-hidden rounded-xl border bg-card transition-colors ${
+                    isSelected ? "border-primary" : "border-border"
+                  }`}
+                >
                   <Item
-                    key={candidate.vaultAddress}
-                    variant={isSelected ? "muted" : "default"}
-                    className="min-h-16 flex-nowrap cursor-pointer items-center"
+                    variant="flush"
+                    className="flex-nowrap cursor-pointer items-center"
                     render={
                       <Button
                         variant="ghost"
@@ -469,6 +473,7 @@ export function SavingsExperience({
                         }
                         role="radio"
                         aria-checked={isSelected}
+                        aria-controls={isSelected ? detailsId : undefined}
                         name="savings-vault"
                       />
                     }
@@ -494,43 +499,41 @@ export function SavingsExperience({
                       <ItemTitle numeric>{rowValue}</ItemTitle>
                     </ItemContent>
                   </Item>
+                  {isSelected ? (
+                    <dl
+                      id={detailsId}
+                      className="grid grid-cols-2 gap-4 border-t px-4 py-3"
+                      aria-label={`${candidate.name} details`}
+                    >
+                      <div className="min-w-0">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Fee
+                        </dt>
+                        <dd className="mt-1 text-sm tabular-nums">
+                          {formatPresentationPercentage(candidate.feeRate)}
+                        </dd>
+                      </div>
+                      <div className="min-w-0 text-right">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Curator
+                        </dt>
+                        <dd className="mt-1 min-w-0 text-sm">
+                          {candidate.curatorAddress ? (
+                            <AddressText
+                              address={candidate.curatorAddress}
+                              className="justify-end"
+                            />
+                          ) : (
+                            "—"
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                  ) : null}
+                </div>
               );
             })}
-              </div>
-            </CardContent>
-          </Card>
-          {selected ? (
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle>{selected.name}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <dl className="space-y-3">
-                  <div className="flex items-start justify-between gap-4">
-                    <dt className="text-sm text-muted-foreground">Fee</dt>
-                    <dd className="text-sm tabular-nums">
-                      {formatPresentationPercentage(selected.feeRate)}
-                    </dd>
-                  </div>
-                  <div className="grid items-start gap-1 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3">
-                    <dt className="text-sm text-muted-foreground">Curator</dt>
-                    <dd className="min-w-0 text-sm sm:text-right">
-                      {selected.curatorAddress ? (
-                        <CopyableValue
-                          value={selected.curatorAddress}
-                          presentation="full"
-                          valueKind="address"
-                          className="sm:justify-end"
-                        />
-                      ) : (
-                        "—"
-                      )}
-                    </dd>
-                  </div>
-                </dl>
-              </CardContent>
-            </Card>
-          ) : null}
+          </div>
         </section>
       ) : null}
 
@@ -546,7 +549,7 @@ export function SavingsExperience({
           {funded ? (
             <Button className="h-11"
               size="lg"
-              variant="secondary"
+              variant="outline"
               disabled={!actionsReady || !canWithdraw}
               onClick={() => openAction("withdraw")}
             >

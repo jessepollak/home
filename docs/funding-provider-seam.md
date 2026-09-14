@@ -141,7 +141,7 @@ How the ports fit: Ripio is `reference: "home"`, `quotes: true`, `kyc: { terms, 
 
 **Received.** When an observation carries a transaction hash, the core reads the receipt on Base and looks for a `Transfer` of exactly `expectedTokenAmountAtomic` of the binding's asset to the row's destination in a block at or after the row's creation block. On a match it records `(transaction_hash, log_index)` on the row under a unique index and sets `received`. No hash, no match, or a hash already claimed by another row leaves `sent-unverified`.
 
-**Storage.** One table, `funding_orders`, Postgres, with the instruction JSON inline and owner-scoped reads. Instructions are the provider's receiving details; they are deleted from the row when the order reaches a terminal state. Responses are `private, no-store`.
+**Storage.** One table, `funding_orders`, Postgres, with the instruction JSON inline and owner-scoped reads. Instructions are the provider's receiving details; they are deleted from the row when the order reaches a terminal state. Responses are `private, no-store`. When `DATABASE_URL` is not configured, the provider-list route returns no external methods, so Add money remains available through Receive crypto only; configured-store failures remain retryable service errors.
 
 **Adapters are trusted code.** They run in-process and are reviewed like any server change. `ctx.fetch` and `ctx.env` keep them honest, not sandboxed; adapters use raw HTTP through `ctx.fetch`, not provider SDKs.
 

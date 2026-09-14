@@ -279,9 +279,9 @@ describe("balance presentation", () => {
       displayTotal: "$1.23",
       totalStatus: "partial",
       breakdown: [
-        { id: "cash", label: "Cash", value: "$1,234.56" },
-        { id: "investments", label: "Investments", value: "$1,618.20" },
-        { id: "saved", label: "Saved", value: "$1,000.12" },
+        { id: "cash", label: "Cash", value: "$1,234.56", weight: 762 },
+        { id: "saved", label: "Savings", value: "$1,000.12", weight: 618 },
+        { id: "investments", label: "Investments", value: "$1,618.20", weight: 1_000 },
       ],
       revalidating: true,
     });

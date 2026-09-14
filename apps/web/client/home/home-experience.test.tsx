@@ -2,7 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import type { ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
 import type { SessionFetch, VerifiedAccountSession } from "@/client/account/session-client";
 import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
@@ -10,46 +10,55 @@ import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
 const replaceCalls: string[] = [];
 const pushCalls: string[] = [];
 let historyEntries = ["/"];
+let historyStates: unknown[] = [{}];
 let historyCursor = 0;
 const nativeReplaceState = window.history.replaceState.bind(window.history);
 
-function syncLocation(href: string) {
-  nativeReplaceState({}, "", href);
+function syncLocation(href: string, state: unknown = historyStates[historyCursor]) {
+  nativeReplaceState(state, "", href);
 }
 
-function pushHistory(href: string) {
+function pushHistory(href: string, state: unknown = {}) {
   pushCalls.push(href);
   historyEntries = historyEntries.slice(0, historyCursor + 1);
+  historyStates = historyStates.slice(0, historyCursor + 1);
   historyEntries.push(href);
+  historyStates.push(state);
   historyCursor = historyEntries.length - 1;
-  syncLocation(href);
+  syncLocation(href, state);
 }
 
-function replaceHistory(href: string) {
+function replaceHistory(href: string, state: unknown = historyStates[historyCursor]) {
   replaceCalls.push(href);
   historyEntries[historyCursor] = href;
-  syncLocation(href);
+  historyStates[historyCursor] = state;
+  syncLocation(href, state);
 }
 
 function popHistory() {
   if (historyCursor > 0) {
     historyCursor -= 1;
-    syncLocation(historyEntries[historyCursor]);
+    syncLocation(historyEntries[historyCursor]!, historyStates[historyCursor]);
   }
-  window.dispatchEvent(new PopStateEvent("popstate"));
+  window.dispatchEvent(new PopStateEvent("popstate", { state: historyStates[historyCursor] }));
 }
 
 Object.defineProperties(window.history, {
   pushState: {
     configurable: true,
-    value: (_state: unknown, _unused: string, href?: string | URL | null) => {
-      if (href !== undefined && href !== null) pushHistory(String(href));
+    value: (state: unknown, _unused: string, href?: string | URL | null) => {
+      if (href !== undefined && href !== null) pushHistory(String(href), state);
     },
   },
   replaceState: {
     configurable: true,
-    value: (_state: unknown, _unused: string, href?: string | URL | null) => {
-      if (href !== undefined && href !== null) replaceHistory(String(href));
+    value: (state: unknown, _unused: string, href?: string | URL | null) => {
+      if (href !== undefined && href !== null) {
+        replaceHistory(String(href), state);
+        return;
+      }
+      historyStates[historyCursor] = state;
+      nativeReplaceState(state, "");
     },
   },
   back: { configurable: true, value: popHistory },
@@ -71,6 +80,7 @@ const { act, cleanup, fireEvent, render, waitFor, within } = await import(
 const { CdpAccountProvider } = await import("@/client/account/cdp-client");
 const { AccountWalletSessionOwner } = await import("@/client/account/cdp-session-lifecycle");
 const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
+const { useNestedAppChrome } = await import("@/components/app-chrome");
 const { HomeExperience } = await import("./home-experience");
 
 const OWNER = "home-user";
@@ -125,6 +135,7 @@ function HomeHarness({
   sessionFetch = defaultSessionFetch,
   routeMode = "dashboard",
   assetBalances,
+  investContent = <section aria-label="Invest module">Invest fixture</section>,
   ...props
 }: {
   accountSdk: AccountWalletSdkBoundary;
@@ -138,7 +149,7 @@ function HomeHarness({
         {...props}
         routeMode={routeMode}
         savingsContent={<section aria-label="Savings module">Savings fixture</section>}
-        investContent={<section aria-label="Invest module">Invest fixture</section>}
+        investContent={investContent}
         assetBalances={assetBalances ?? {
           status: "ready",
           displayTotal: "$12.34",
@@ -157,7 +168,7 @@ function HomeHarness({
               tone: "default",
             }],
           }],
-          breakdown: [{ id: "cash", label: "Cash", value: "$12.34" }],
+          breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
           rows: [{
             key: "usdc",
             group: "cash",
@@ -183,6 +194,25 @@ async function waitForVerifiedShell() {
   });
 }
 
+function NestedInvestFixture() {
+  const [assetOpen, setAssetOpen] = useState(false);
+  useNestedAppChrome(
+    assetOpen
+      ? {
+          title: "US dollar",
+          backLabel: "Back to Invest",
+          onBack: () => setAssetOpen(false),
+        }
+      : null,
+  );
+
+  return (
+    <section aria-label="Invest module">
+      <button type="button" onClick={() => setAssetOpen(true)}>Open asset details</button>
+    </section>
+  );
+}
+
 Object.defineProperty(window, "matchMedia", {
   configurable: true,
   value: () => ({
@@ -197,11 +227,20 @@ Object.defineProperty(window, "matchMedia", {
   }),
 });
 HTMLElement.prototype.scrollIntoView = () => {};
+HTMLElement.prototype.scrollTo = function scrollTo(
+  optionsOrX?: ScrollToOptions | number,
+  y?: number,
+  ) {
+  this.scrollTop = typeof optionsOrX === "number"
+    ? y ?? 0
+    : optionsOrX?.top ?? 0;
+};
 
 function resetHistory() {
   replaceCalls.length = 0;
   pushCalls.length = 0;
   historyEntries = ["/"];
+  historyStates = [{}];
   historyCursor = 0;
   syncLocation("/");
 }
@@ -387,6 +426,164 @@ describe("Home shell auth and privacy", () => {
 });
 
 describe("Home shell routing and intents", () => {
+  test("keeps one stable title slot while L2 destinations replace the Home mark with Back", async () => {
+    const cases: Array<{
+      title: string;
+      leading: "home" | "back";
+      props: Partial<ComponentProps<typeof HomeHarness>>;
+    }> = [
+      { title: "Home", leading: "home", props: {} },
+      { title: "Invest", leading: "home", props: { initialPanel: "invest" } },
+      { title: "Your money", leading: "back", props: { initialPanel: "balances" } },
+      { title: "Activity", leading: "back", props: { initialPanel: "activity" } },
+      { title: "Save", leading: "back", props: { initialPanel: "save" } },
+      { title: "Account", leading: "home", props: { initialAccountSettingsOpen: true } },
+    ];
+    let titleClassName: string | null = null;
+
+    for (const shellCase of cases) {
+      render(
+        <HomeHarness
+          accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+          {...shellCase.props}
+        />,
+      );
+
+      const title = await waitFor(() => {
+        const element = document.querySelector<HTMLElement>("[data-shell-header-title]");
+        expect(element?.textContent).toBe(shellCase.title);
+        return element!;
+      });
+      const headerMain = title.closest<HTMLElement>("[data-shell-header-main]");
+      expect(headerMain).not.toBeNull();
+      if (shellCase.leading === "back") {
+        expect(headerMain!.querySelectorAll("[data-home-mark]")).toHaveLength(0);
+        expect(title.previousElementSibling?.hasAttribute("data-shell-back")).toBe(true);
+        expect(within(headerMain!).getByRole("button", { name: "Back" })).toBeTruthy();
+      } else {
+        expect(headerMain!.querySelectorAll("[data-home-mark]")).toHaveLength(1);
+        expect(title.previousElementSibling?.hasAttribute("data-home-mark")).toBe(true);
+        expect(within(headerMain!).getByRole("button", { name: "Home" })).toBeTruthy();
+      }
+      titleClassName ??= title.className;
+      expect(title.className).toBe(titleClassName);
+
+      cleanup();
+      getHomeQueryClient().clear();
+      resetHistory();
+    }
+  });
+
+  test("uses a Back button for nested Invest chrome and preserves its action", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        initialPanel="invest"
+        investContent={<NestedInvestFixture />}
+      />,
+    );
+    await waitForVerifiedShell();
+    expect(document.querySelector("[data-shell-header-title]")?.textContent).toBe("Invest");
+
+    fireEvent.click(page().getByRole("button", { name: "Open asset details" }));
+    await waitFor(() => {
+      expect(document.querySelector("[data-shell-header-title]")?.textContent).toBe("US dollar");
+    });
+    const nestedBack = page().getByRole("button", { name: "Back to Invest" });
+    expect(nestedBack.closest("[data-shell-back]")).not.toBeNull();
+    expect(document.querySelector("[data-home-mark]")).toBeNull();
+
+    fireEvent.click(nestedBack);
+    await waitFor(() => {
+      expect(document.querySelector("[data-shell-header-title]")?.textContent).toBe("Invest");
+    });
+  });
+
+  test("renders the total as a proportional cash, savings, and investments bar", async () => {
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={{
+          status: "ready",
+          displayTotal: "$33,231.30",
+          totalStatus: "complete",
+          groups: [],
+          breakdown: [
+            { id: "cash", label: "Cash", value: "$4,468.73", weight: 155 },
+            { id: "saved", label: "Savings", value: "$25.95", weight: 1 },
+            { id: "investments", label: "Investments", value: "$28,736.62", weight: 1_000 },
+          ],
+          rows: [],
+          hiddenRows: [],
+          hiddenCount: 0,
+        }}
+      />,
+    );
+    await waitForVerifiedShell();
+
+    const breakdown = document.querySelector<HTMLElement>("[data-balance-breakdown]");
+    expect(breakdown).not.toBeNull();
+    const labels = ["Cash", "Savings", "Investments"].map((label) =>
+      within(breakdown!).getByText(label),
+    );
+    expect(labels[0]!.compareDocumentPosition(labels[1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(labels[1]!.compareDocumentPosition(labels[2]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      breakdown!.querySelector<HTMLElement>('[data-balance-segment="cash"]')?.style.flexGrow,
+    ).toBe("155");
+    expect(
+      breakdown!.querySelector<HTMLElement>('[data-balance-segment="saved"]')?.style.flexGrow,
+    ).toBe("1");
+    expect(
+      breakdown!.querySelector<HTMLElement>('[data-balance-segment="investments"]')?.style.flexGrow,
+    ).toBe("1000");
+    expect(
+      breakdown!.querySelector<HTMLElement>('[data-balance-segment="cash"]')?.style.backgroundColor,
+    ).toBe("#0aa852");
+    expect(
+      breakdown!.querySelector<HTMLElement>('[data-balance-segment="saved"]')?.style.backgroundColor,
+    ).toBe("#0c84fa");
+    expect(
+      breakdown!.querySelector<HTMLElement>('[data-balance-segment="investments"]')?.style.backgroundColor,
+    ).toBe("#a064db");
+  });
+
+  test("does not re-present unchanged balances during navigation or account interactions", async () => {
+    let presentationCalls = 0;
+    const presentation: NonNullable<ComponentProps<typeof HomeExperience>["assetBalances"]> = {
+      status: "ready",
+      displayTotal: "$12.34",
+      totalStatus: "complete",
+      groups: [],
+      breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
+      rows: [],
+      hiddenRows: [],
+      hiddenCount: 0,
+    };
+    render(
+      <HomeHarness
+        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        presentAssetBalances={() => {
+          presentationCalls += 1;
+          return presentation;
+        }}
+      />,
+    );
+    await waitForVerifiedShell();
+    await waitFor(() => expect(presentationCalls).toBeGreaterThan(0));
+    presentationCalls = 0;
+
+    const navigation = within(page().getByRole("navigation", { name: "Main navigation" }));
+    fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
+    expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
+    fireEvent.click(navigation.getByRole("button", { name: "Home" }));
+    expect(page().getByLabelText("Total balance")).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Account" }));
+    expect(await page().findByRole("combobox", { name: "Country" })).toBeTruthy();
+
+    expect(presentationCalls).toBe(0);
+  });
+
   test("a group's More row opens the panel anchored to that group; absent groups show no row", async () => {
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
     await waitForVerifiedShell();
@@ -418,13 +615,34 @@ describe("Home shell routing and intents", () => {
     expect(page().getByRole("heading", { name: "Your money" })).toBeTruthy();
   });
 
+  test("restores the prior panel scroll position when returning from an L2", async () => {
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    await waitForVerifiedShell();
+
+    const main = page().getByRole("main");
+    main.scrollTop = 320;
+    fireEvent.scroll(main);
+    fireEvent.click(page().getByRole("button", { name: "Open Save" }));
+    await waitFor(() => expect(main.scrollTop).toBe(0));
+
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+    await waitFor(() => {
+      expect(page().getByLabelText("Total balance")).toBeTruthy();
+      expect(main.scrollTop).toBe(320);
+    });
+  });
+
   test("opens Borrow from the Home card without adding a bottom navigation item", async () => {
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
     await waitForVerifiedShell();
 
-    const borrowTeaser = page().getByRole("button", { name: "Borrow against Bitcoin Borrow USDC with cbBTC on Base" });
+    const saveTeaser = page().getByRole("button", { name: "Open Save" });
+    expect(saveTeaser.textContent).toContain("Earn");
+    expect(saveTeaser.closest("section")?.parentElement?.className).toContain("grid-cols-2");
+
+    const borrowTeaser = page().getByRole("button", { name: "Open Borrow" });
     expect(borrowTeaser.className).toContain("whitespace-normal");
-    expect(within(borrowTeaser).getByTestId("bitcoin-mark").getAttribute("aria-hidden")).toBe("true");
+    expect(borrowTeaser.querySelector(".lucide-bitcoin")).toBeTruthy();
     fireEvent.click(borrowTeaser);
     expect(`${window.location.pathname}${window.location.search}`).toBe("/dashboard?panel=borrow");
     expect(await page().findByText("Borrow USDC using your Bitcoin on Base.")).toBeTruthy();

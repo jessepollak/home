@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +19,7 @@ import { SavingsTeaser } from "@/client/savings/savings-teaser";
 import { AuthenticatedBorrowTeaser } from "@/client/borrowing/borrowing-experience";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { TransferActions } from "@/client/transfers";
-import type { MoneyGroupPresentation } from "@/shared/balances/present";
+import type { MoneyBreakdownItem, MoneyGroupPresentation } from "@/shared/balances/present";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -26,6 +28,12 @@ import { ConnectedActivityPanel } from "./activity-panel";
 import { HomeMoneyGroups } from "./balances-panel";
 import type { HomeAssetBalancesPresentation } from "./home-types";
 import { ShimmerRows } from "./panel-shared";
+
+const balanceBarColors: Record<MoneyBreakdownItem["id"], string> = {
+  cash: "#0aa852",
+  saved: "#0c84fa",
+  investments: "#a064db",
+};
 
 function SectionHeader({
   headingId,
@@ -42,7 +50,7 @@ function SectionHeader({
     <>
       <CardTitle id={headingId} role="heading" aria-level={2}>{title}</CardTitle>
       <CardAction>
-        <Button size="sm" variant="ghost" onClick={onOpen} aria-label={title}>
+        <Button size="card-action" variant="ghost" onClick={onOpen} aria-label={title}>
           {actionLabel}
           <ChevronRight className="size-4" aria-hidden="true" />
         </Button>
@@ -99,51 +107,103 @@ export function HomePanel({
       : "Total balance";
   const moneyGroups = assetBalances?.groups ?? [];
   const balanceStatusLabel = assetBalances?.statusLabel;
+  const [highlightedBreakdown, setHighlightedBreakdown] = useState<
+    MoneyBreakdownItem["id"] | null
+>(null);
   const showBalanceStatus =
     assetBalances?.status !== "loading" && Boolean(balanceStatusLabel);
 
   return (
     <div className="space-y-4">
       <Card
+        variant="flush"
         aria-label={heroLabel}
         aria-busy={isLoading || isRevalidating || undefined}
       >
-        <CardContent>
-          <div className="space-y-2 py-1 sm:px-1 sm:py-2">
-            <p className="text-sm text-muted-foreground">Total balance</p>
-            {isLoading ? (
-              <Skeleton className="h-10 w-48" data-shimmer="hero" />
-            ) : (
-              <div className="text-4xl font-semibold tabular-nums">
-                <MoneyTicker
-                  value={assetBalances?.displayTotal ?? "—"}
-                  align="start"
-                  reserveDigits={false}
-                />
-              </div>
-            )}
-            {assetBalances?.breakdown.length || showBalanceStatus ? (
-              <div className="flex w-full flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
-                {assetBalances?.breakdown.length ? (
-                  <p className="flex flex-wrap items-center gap-x-1 text-xs tabular-nums sm:text-sm">
-                    {assetBalances.breakdown.map((item, index) => (
-                      <span className="inline-flex items-center gap-1 whitespace-nowrap" key={item.id}>
-                        <span>{item.label}</span>
-                        <MoneyTicker value={item.value} reserveDigits={false} />
-                        {index < assetBalances.breakdown.length - 1 ? <span aria-hidden="true">·</span> : null}
-                      </span>
-                    ))}
-                  </p>
-                ) : <span />}
-                {showBalanceStatus ? (
-                  <p className="text-right" data-total-status={assetBalances?.totalStatus}>
-                    {balanceStatusLabel}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-            {isLoading || isRevalidating ? <span className="sr-only">Updating…</span> : null}
-          </div>
+        <CardContent inset="hero">
+          <p className="text-sm text-muted-foreground">Total balance</p>
+          {isLoading ? (
+            <Skeleton className="h-10 w-48" data-shimmer="hero" />
+          ) : (
+            <div className="text-4xl font-semibold tabular-nums">
+              <MoneyTicker
+                value={assetBalances?.displayTotal ?? "—"}
+                align="start"
+                reserveDigits={false}
+              />
+            </div>
+          )}
+          {assetBalances?.breakdown.length || showBalanceStatus ? (
+            <div className="space-y-2 pt-1 text-xs text-muted-foreground">
+              {assetBalances?.breakdown.length ? (
+                <div className="space-y-2" data-balance-breakdown>
+                  <div
+                    className="flex h-2 w-full cursor-pointer gap-0.5 overflow-visible rounded-sm bg-muted"
+                    aria-label="Balance allocation"
+                    role="img"
+                    onMouseLeave={() => setHighlightedBreakdown(null)}
+                  >
+                    {assetBalances.breakdown.map((item) => {
+                      const highlighted = highlightedBreakdown === item.id;
+                      const dimmed = highlightedBreakdown !== null && !highlighted;
+                      return (
+                        <span
+                          className={`min-w-1 origin-center rounded-xs transition-all duration-150 ${
+                            highlighted ? "z-10 scale-y-150 shadow-sm" : ""
+                          } ${dimmed ? "opacity-70" : "opacity-100"}`.trim()}
+                          data-balance-segment={item.id}
+                          key={item.id}
+                          onMouseEnter={() => setHighlightedBreakdown(item.id)}
+                          style={{
+                            backgroundColor: balanceBarColors[item.id],
+                            flexBasis: 0,
+                            flexGrow: item.weight,
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="grid grid-cols-3 gap-x-2 tabular-nums">
+                    {assetBalances.breakdown.map((item) => {
+                      const highlighted = highlightedBreakdown === item.id;
+                      const dimmed = highlightedBreakdown !== null && !highlighted;
+                      return (
+                        <span
+                          className={`flex min-w-0 cursor-pointer flex-col gap-0.5 text-left leading-tight transition-all duration-150 ${
+                            highlighted ? "font-semibold text-foreground" : ""
+                          } ${dimmed ? "opacity-70" : "opacity-100"}`.trim()}
+                          key={item.id}
+                          onMouseEnter={() => setHighlightedBreakdown(item.id)}
+                          onMouseLeave={() => setHighlightedBreakdown(null)}
+                        >
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span
+                              className="size-1.5 shrink-0 rounded-xs"
+                              style={{ backgroundColor: balanceBarColors[item.id] }}
+                              aria-hidden="true"
+                            />
+                            <span>{item.label}</span>
+                          </span>
+                          <MoneyTicker
+                            className="pl-3"
+                            value={item.value}
+                            align="start"
+                            reserveDigits={false}
+                          />
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              {showBalanceStatus ? (
+                <p data-total-status={assetBalances?.totalStatus}>
+                  {balanceStatusLabel}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {isLoading || isRevalidating ? <span className="sr-only">Updating…</span> : null}
         </CardContent>
       </Card>
 
@@ -184,26 +244,20 @@ export function HomePanel({
         </Card>
       </section>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <section aria-labelledby="save-heading">
-          <Card className="h-full">
-            <CardHeader>
-              <CardTitle id="save-heading" role="heading" aria-level={2}>Save</CardTitle>
-            </CardHeader>
-            <CardContent inset="list">
-              <SavingsTeaser onOpen={onOpenSave} regionId={regionId} />
-            </CardContent>
+      <div className="grid grid-cols-2 gap-2">
+        <section className="min-w-0 aspect-square sm:aspect-[3/2]" aria-labelledby="save-heading">
+          <Card variant="flush" className="h-full">
+            <SavingsTeaser headingId="save-heading" onOpen={onOpenSave} regionId={regionId} />
           </Card>
         </section>
 
-        <section aria-labelledby="borrow-heading">
-          <Card className="h-full">
-            <CardHeader>
-              <CardTitle id="borrow-heading" role="heading" aria-level={2}>Borrow</CardTitle>
-            </CardHeader>
-            <CardContent inset="list">
-              <AuthenticatedBorrowTeaser onOpen={onOpenBorrow} regionId={regionId} />
-            </CardContent>
+        <section className="min-w-0 aspect-square sm:aspect-[3/2]" aria-labelledby="borrow-heading">
+          <Card variant="flush" className="h-full">
+            <AuthenticatedBorrowTeaser
+              headingId="borrow-heading"
+              onOpen={onOpenBorrow}
+              regionId={regionId}
+            />
           </Card>
         </section>
       </div>
