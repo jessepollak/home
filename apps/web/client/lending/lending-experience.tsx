@@ -54,7 +54,7 @@ export function AuthenticatedLendTeaser({ onOpen, regionId = "GLOBAL" }: { onOpe
   const description = position
     ? `${formatToken(position.suppliedAssetsRaw, position.market, regionId)} supplied`
     : opportunity?.availability.status === "available"
-      ? `${formatWadPercent(opportunity.availability.state.supplyAprWad, regionId)} variable APY`
+      ? `${formatWadPercent(opportunity.availability.state.supplyAprWad, regionId)} variable rate`
       : "Direct variable-rate lending on Base";
   return (
     <ItemGroup className="gap-0">
@@ -123,7 +123,7 @@ function LendMarketCard({ opportunity, position, session, fetchAccountResource, 
       <CardContent className="space-y-4 px-4 py-4 sm:px-5">
         <div className="flex min-w-0 items-center gap-3"><LoanAssetMark symbol={opportunity.market.loanToken.symbol} /><div className="min-w-0"><h3 className="truncate text-base font-semibold">{opportunity.market.loanToken.name}</h3><p className="truncate text-sm text-muted-foreground">Direct lending · Base</p></div></div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Metric label="Variable APY" value={opportunity.availability.status === "available" ? formatWadPercent(opportunity.availability.state.supplyAprWad, regionId) : "—"} />
+          <Metric label="Variable rate" value={opportunity.availability.status === "available" ? formatWadPercent(opportunity.availability.state.supplyAprWad, regionId) : "—"} />
           <Metric label="Wallet" value={current ? formatToken(current.wallet.loanBalanceRaw, current.market, regionId) : "—"} />
           <Metric label="Supplied" value={hasPosition ? formatToken(suppliedRaw, opportunity.market, regionId) : "—"} />
           <Metric label="Withdrawable" value={hasPosition ? formatToken(withdrawableRaw, opportunity.market, regionId) : "—"} />
@@ -210,7 +210,7 @@ function LendPreparedReview({ action, detail, regionId }: { action: PreparedMone
   const amountEntry = action.amounts[0];
   const amount = amountEntry ? `${amountEntry.estimated ? "Estimated " : ""}${formatExactPresentationTokenAmount(amountEntry.amountBaseUnits, amountEntry.decimals, amountEntry.symbol)}` : action.title;
   const full = metadata?.operation === "withdraw-all";
-  return <div className="space-y-3"><MoneyConfirmSummary amount={amount} lead={full ? "Withdraw full lending position" : metadata?.operation === "withdraw" ? "Withdraw exact amount" : "Lend to this market"} rows={[{ label: amountEntry?.direction === "spend" ? "You lend" : full ? "Estimated receive" : "You receive", value: amount }, { label: "Variable APY", value: formatWadPercent(metadata?.supplyAprWad ?? detail.lending.state.supplyAprWad, regionId) }, { label: "Network", value: "Base" }]} />{action.warnings.length ? <LendNotice title="Rate and liquidity can change"><ul className="list-disc space-y-1 pl-4">{action.warnings.map((warning, index) => <li key={`${index}:${warning}`}>{warning}</li>)}</ul></LendNotice> : null}</div>;
+  return <div className="space-y-3"><MoneyConfirmSummary amount={amount} lead={full ? "Withdraw full lending position" : metadata?.operation === "withdraw" ? "Withdraw exact amount" : "Lend to this market"} rows={[{ label: amountEntry?.direction === "spend" ? "You lend" : full ? "Estimated receive" : "You receive", value: amount }, { label: "Variable rate", value: formatWadPercent(metadata?.supplyAprWad ?? detail.lending.state.supplyAprWad, regionId) }, { label: "Network", value: "Base" }]} />{action.warnings.length ? <LendNotice title="Rate and liquidity can change"><ul className="list-disc space-y-1 pl-4">{action.warnings.map((warning, index) => <li key={`${index}:${warning}`}>{warning}</li>)}</ul></LendNotice> : null}</div>;
 }
 
 function useLendingOverview(session: VerifiedAccountSession | null, fetchAccountResource?: FetchAccountResource) {

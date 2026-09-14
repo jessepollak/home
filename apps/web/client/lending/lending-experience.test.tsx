@@ -40,7 +40,7 @@ describe("LendExperience", () => {
     const body = within(document.body); const card = await body.findByTestId("lend-market-card");
     expect(card.className).not.toMatch(/(?:^|\s)h-\d/);
     expect(body.getByRole("img", { name: "USDC icon" }).querySelector("img")?.getAttribute("src")).toBe("/currency-flags/us.svg");
-    expect(body.getByText("Variable APY")).toBeTruthy(); expect(body.getByText("Wallet")).toBeTruthy(); expect(body.getByText("Supplied")).toBeTruthy(); expect(body.getByText("Withdrawable")).toBeTruthy();
+    expect(body.getByText("Variable rate")).toBeTruthy(); expect(body.getByText("Wallet")).toBeTruthy(); expect(body.getByText("Supplied")).toBeTruthy(); expect(body.getByText("Withdrawable")).toBeTruthy();
     expect(body.getByRole("group", { name: "Manage lending position" }).className).toContain("grid-cols-2");
   });
 
@@ -74,7 +74,7 @@ describe("LendExperience", () => {
     render(<LendExperience session={session()} fetchAccountResource={accountFetch(empty, overview({ position: false }))} prepareMoneyAction={async (kind, params) => { requests.push({ kind, params }); return prepared("supply"); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
     const body = within(document.body); fireEvent.click(await body.findByRole("button", { name: "Lend" })); const dialog = within(await body.findByRole("dialog", { name: "Lend" }));
     expect(dialog.getByRole("button", { name: "Max" })).toBeTruthy(); fireEvent.click(dialog.getByRole("button", { name: "1" })); fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
-    expect(await dialog.findByText("Lend to this market")).toBeTruthy(); expect(dialog.getByText("Variable APY")).toBeTruthy(); expect(dialog.getByText("Base")).toBeTruthy(); expect(requests[0]).toEqual({ kind: "lend-supply", params: { marketId: market.marketId, operation: "supply", amountBaseUnits: "1000000" } });
+    expect(await dialog.findByText("Lend to this market")).toBeTruthy(); expect(dialog.getByText("Variable rate")).toBeTruthy(); expect(dialog.getByText("Base")).toBeTruthy(); expect(requests[0]).toEqual({ kind: "lend-supply", params: { marketId: market.marketId, operation: "supply", amountBaseUnits: "1000000" } });
   });
 
   test("routes withdraw Max to share-based withdraw-all only for a fully liquid position", async () => {
