@@ -3,7 +3,7 @@ import "server-only";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import type { BorrowMarketRef } from "@/shared/borrowing/config";
 import type { BorrowOverviewResponse, BorrowResponse } from "@/shared/borrowing/contract";
-import type { LendingOpportunity, LendingPosition } from "@/shared/lending/contract";
+import type { LendingMarketDetailResponse, LendingOpportunity, LendingPosition } from "@/shared/lending/contract";
 import { VERIFIED_MORPHO_MARKETS, getVerifiedMorphoMarket, type VerifiedMorphoMarketRef } from "@/shared/morpho-markets/config";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { projectLendingDetail } from "@/server/lending/project";
@@ -160,7 +160,7 @@ function lendingOnlyDetail(snapshot: MorphoMarketSnapshot, market: VerifiedMorph
     source: snapshot.source,
     wallet: snapshot.wallet,
     lending: projectLendingDetail(snapshot, market),
-  };
+  } satisfies LendingMarketDetailResponse;
 }
 
 function emitReadUnavailable(session: { user: { subject: string }; accountProvider: string }, startedAt: number) {

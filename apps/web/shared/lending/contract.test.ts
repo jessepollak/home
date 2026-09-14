@@ -22,6 +22,7 @@ describe("lending API contract", () => {
     expect(parseLendingOverviewResponse(response, OWNER)?.positions[0]?.supplySharesRaw).toBe("2");
     expect(parseLendingOverviewResponse(response, "0x2222222222222222222222222222222222222222")).toBeNull();
     expect(parseLendingOverviewResponse({ ...response, lending: { ...response.lending, positions: [{ ...response.lending.positions[0], market: { ...identity, id: `0x${"12".repeat(32)}` } }] } }, OWNER)).toBeNull();
+    expect(parseLendingOverviewResponse({ ...response, version: "2" }, OWNER)).toBeNull();
   });
 
   test("parses additive detail and rejects fabricated unavailable zero state", () => {
@@ -31,5 +32,6 @@ describe("lending API contract", () => {
     };
     expect(parseLendingMarketDetailResponse(response, OWNER)).not.toBeNull();
     expect(parseLendingMarketDetailResponse({ ...response, lending: { ...response.lending, state: null } }, OWNER)).toBeNull();
+    expect(parseLendingMarketDetailResponse({ ...response, version: "2" }, OWNER)).toBeNull();
   });
 });

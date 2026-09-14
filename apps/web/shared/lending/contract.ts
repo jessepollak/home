@@ -86,15 +86,30 @@ export type LendingMarketDetail = {
   };
 };
 
+export type LendingMarketDetailResponse = {
+  version: typeof LENDING_CONTRACT_VERSION;
+  chainId: 8453;
+  walletAddress: MorphoAddress;
+  market: LendingMarketIdentity;
+  source: LendingSourceBlock;
+  wallet: {
+    collateralBalanceRaw: string;
+    loanBalanceRaw: string;
+    collateralAllowanceRaw: string;
+    loanAllowanceRaw: string;
+  };
+  lending: LendingMarketDetail;
+};
+
 export function parseLendingOverviewResponse(value: unknown, expectedOwner: `0x${string}`): LendingOverview | null {
-  if (!isRecord(value) || value.chainId !== 8453 || !isRecord(value.owner) ||
+  if (!isRecord(value) || value.version !== LENDING_CONTRACT_VERSION || value.chainId !== 8453 || !isRecord(value.owner) ||
     typeof value.owner.address !== "string" || value.owner.address.toLowerCase() !== expectedOwner.toLowerCase() ||
     !validAccountProvider(value.owner.accountProvider) || !validOverview(value.lending)) return null;
   return value.lending;
 }
 
 export function parseLendingMarketDetailResponse(value: unknown, expectedOwner: `0x${string}`): LendingMarketDetail | null {
-  if (!isRecord(value) || value.chainId !== 8453 || typeof value.walletAddress !== "string" ||
+  if (!isRecord(value) || value.version !== LENDING_CONTRACT_VERSION || value.chainId !== 8453 || typeof value.walletAddress !== "string" ||
     value.walletAddress.toLowerCase() !== expectedOwner.toLowerCase() || !isRecord(value.market) ||
     typeof value.market.id !== "string" || !marketMatches(value.market) || !validDetail(value.lending)) return null;
   return value.lending;
