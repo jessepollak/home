@@ -282,7 +282,10 @@ export function HomeShell({
   useEffect(() => {
     const onPopState = () => {
       const intent = readHomeInboundPanelState(new URLSearchParams(window.location.search));
-      pendingHistoryScrollRestoreRef.current = readClientScrollTop();
+      // Balances restores only proven asset/account returns; ordinary history returns reset it.
+      pendingHistoryScrollRestoreRef.current = intent.panel === balancesPanelId
+        ? null
+        : readClientScrollTop();
       const restoresBalances = intent.panel === balancesPanelId && isBalancesRestoreArmed();
       pendingBalancesRestoreRef.current = restoresBalances;
       setBorrowMarketOpenedInApp(false);
@@ -573,7 +576,8 @@ export function HomeShell({
     ? "Back"
     : investChrome?.nested?.backLabel ?? "Back";
   function leaveHomeNestedPanel() {
-    if (!isClientHistoryEntry()) {
+    // Home is a forward visit from Balances so browser Back can reopen a fresh Balances panel.
+    if (activeNavigation === balancesPanelId || !isClientHistoryEntry()) {
       navigateTo("home");
       return;
     }

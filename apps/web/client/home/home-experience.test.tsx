@@ -615,6 +615,20 @@ describe("Home shell routing and intents", () => {
     expect(page().getByRole("heading", { name: "Your money" })).toBeTruthy();
   });
 
+  test("keeps Balances Back as forward app navigation", async () => {
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    await waitForVerifiedShell();
+
+    fireEvent.click(page().getByRole("button", { name: "Your money" }));
+    const pushesBeforeBack = pushCalls.length;
+    fireEvent.click(page().getByRole("button", { name: "Back" }));
+
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/dashboard");
+    expect(pushCalls).toHaveLength(pushesBeforeBack + 1);
+    expect(pushCalls.at(-1)).toBe("/dashboard");
+    expect(page().getByLabelText("Total balance")).toBeTruthy();
+  });
+
   test("restores the prior panel scroll position when returning from an L2", async () => {
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
     await waitForVerifiedShell();
