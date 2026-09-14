@@ -10,6 +10,7 @@ import bindingMismatchesFixture from "./fixtures/binding-mismatches.synthetic.js
 import createErrorsFixture from "./fixtures/create-errors.synthetic.json";
 import createQrisFixture from "./fixtures/create-qris.synthetic.json";
 import createVaFixture from "./fixtures/create-va.synthetic.json";
+import historyMintedQrisLiveFixture from "./fixtures/history-minted-qris.live.json";
 import historyUnknownFixture from "./fixtures/history-unknown.synthetic.json";
 import { createIdrxSignature, idrxAtomicAmount, idrxProvider } from "./adapter";
 
@@ -170,12 +171,84 @@ describe("IDRX adapter behavior", () => {
     }
   });
 
-  test("keeps every committed provider fixture explicitly synthetic", () => {
+  test("keeps every committed provider fixture explicitly synthetic or a dated live capture", () => {
     expect(bindingMismatchesFixture.source).toBe("synthetic");
     expect(createVaFixture.source).toBe("synthetic");
     expect(createQrisFixture.source).toBe("synthetic");
     expect(createErrorsFixture.source).toBe("synthetic");
     expect(historyUnknownFixture.source).toBe("synthetic");
+    expect(historyMintedQrisLiveFixture.source).toBe("live");
+    expect(historyMintedQrisLiveFixture.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  test("reads the live IDRX history shape: numeric amounts and a fee deducted from the mint", async () => {
+    const liveRecord = historyMintedQrisLiveFixture.records[0];
+    const liveIntent = {
+      ...reconciliationIntent,
+      providerOrderId: liveRecord.merchantOrderId,
+      destination: liveRecord.destinationWalletAddress as `0x${string}`,
+      expectedTokenAmountAtomic: "2000000",
+    } satisfies ReconciliationIntent;
+    const ctx = createProviderContext({
+      manifest: idrxProvider.manifest,
+      region: "ID",
+      paymentMethodId: "qris",
+      env,
+      fetchImplementation: (async () =>
+        Response.json(historyMintedQrisLiveFixture)) as unknown as typeof fetch,
+    });
+    await expect(idrxProvider.getOrder(liveIntent, ctx)).resolves.toEqual({
+      state: "sent",
+      providerStatus: "MINTED:PAID",
+      settledTokenAmountAtomic: "1986000",
+      transactionHash: liveRecord.txHash as `0x${string}`,
+    });
+  });
+
+  test("never lets the settled amount exceed the requested amount", async () => {
+    const liveRecord = historyMintedQrisLiveFixture.records[0];
+    const liveIntent = {
+      ...reconciliationIntent,
+      providerOrderId: liveRecord.merchantOrderId,
+      destination: liveRecord.destinationWalletAddress as `0x${string}`,
+      expectedTokenAmountAtomic: "1985999",
+    } satisfies ReconciliationIntent;
+    const ctx = createProviderContext({
+      manifest: idrxProvider.manifest,
+      region: "ID",
+      paymentMethodId: "qris",
+      env,
+      fetchImplementation: (async () =>
+        Response.json(historyMintedQrisLiveFixture)) as unknown as typeof fetch,
+    });
+    await expect(idrxProvider.getOrder(liveIntent, ctx)).resolves.toMatchObject({
+      state: "unknown",
+      providerStatus: "INTENT_MISMATCH",
+    });
+  });
+
+  test("treats a coded IDRX validation rejection as a definitive no-order rejection", async () => {
+    let calls = 0;
+    const ctx = createProviderContext({
+      manifest: idrxProvider.manifest,
+      region: "ID",
+      paymentMethodId: "bank-va-mandiri",
+      env,
+      fetchImplementation: (async () => {
+        calls += 1;
+        return Response.json({
+          source: "synthetic",
+          statusCode: 400,
+          message: "Please register your MANDIRI bank account first before paying via MANDIRI Virtual Account.",
+          data: { code: "BANK_ACCOUNT_REQUIRED", requiredBankChannel: "MANDIRI" },
+        }, { status: 400 });
+      }) as unknown as typeof fetch,
+    });
+    await expect(idrxProvider.createOrder(intent, ctx)).resolves.toEqual({
+      outcome: "rejected",
+      message: "Please register your MANDIRI bank account first before paying via MANDIRI Virtual Account.",
+    });
+    expect(calls).toBe(1);
   });
 
   test("matches the fixed published IDRX HMAC helper vector exactly", () => {

@@ -569,6 +569,40 @@ describe("FundingCore", () => {
     await expect(core.handleWebhook("regional", raw, new Headers({ "x-signature": "us-secret" }))).rejects.toBe(unexpected);
   });
 
+  test("verifies the receipt against a lower provider-settled amount and never a higher one", async () => {
+    const verified: string[] = [];
+    let settled = "1986000";
+    let orders = 0;
+    const provider: FundingProvider = {
+      manifest,
+      async createOrder(input, ctx) {
+        orders += 1;
+        return { outcome: "created", order: { providerOrderId: `fixture-order-${orders}`, tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "redirect", url: "https://example.com/pay" } } };
+      },
+      async getOrder() { return { state: "sent", providerStatus: "MINTED:PAID", transactionHash: `0x${"2".repeat(64)}`, settledTokenAmountAtomic: settled }; },
+    };
+    let date = new Date("2026-09-12T00:00:00.000Z");
+    const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32) }, currentBaseBlock: async () => "500", verifyReceipt: async (order, hash) => { verified.push(order.expectedTokenAmountAtomic!); return { transactionHash: hash, logIndex: 4 }; }, now: () => date });
+    const quote = await core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" });
+    const created = await core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    expect(created.expectedTokenAmountAtomic).toBe("2000000");
+    date = new Date("2026-09-12T00:00:10.000Z");
+    const received = await core.getOrder(session, created.id);
+    expect(received.state).toBe("received");
+    expect(received.expectedTokenAmountAtomic).toBe("1986000");
+    expect(verified).toEqual(["1986000"]);
+
+    settled = "2000001";
+    const higher = await core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" });
+    date = new Date("2026-09-12T00:01:00.000Z");
+    const createdHigher = await core.createOrder(session, { quoteToken: higher.quoteToken }, "https://home.example");
+    date = new Date("2026-09-12T00:01:10.000Z");
+    const ignored = await core.getOrder(session, createdHigher.id);
+    expect(ignored.state).toBe("awaiting-payment");
+    expect(ignored.expectedTokenAmountAtomic).toBe("2000000");
+    expect(verified).toEqual(["1986000"]);
+  });
+
   test("logs unmatched webhooks without raw bodies or provider order identifiers", async () => {
     const events: Array<{ providerId: string; reason: "invalid" | "unmatched" | "region-mismatch" }> = [];
     const provider: FundingProvider = { manifest, onramp: { createOrder: async () => ({ outcome: "ambiguous" }), getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }), verifyWebhook: () => ({ providerOrderId: "secret-provider-order" }) } };
