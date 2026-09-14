@@ -10,7 +10,7 @@ export const filterSpeedInsightsEvent: BeforeSendMiddleware = (event) => {
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
     url.search = "";
     url.hash = "";
-    return { ...event, url: url.href, route: pathname };
+    return { ...event, url: url.href };
   } catch {
     return null;
   }

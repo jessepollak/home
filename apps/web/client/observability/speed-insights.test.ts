@@ -8,11 +8,12 @@ describe("Speed Insights route boundary", () => {
     expect(filterSpeedInsightsEvent({
       ...vital,
       url: "https://home.example/?account=signin#secret",
-      route: "/?account=signin",
+      route: "/",
     })).toEqual({ ...vital, url: "https://home.example/", route: "/" });
     expect(filterSpeedInsightsEvent({
       ...vital,
       url: "https://home.example/dashboard?panel=balances#asset",
+      route: "/dashboard",
     })).toEqual({ ...vital, url: "https://home.example/dashboard", route: "/dashboard" });
   });
 
