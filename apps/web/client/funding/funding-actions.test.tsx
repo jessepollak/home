@@ -36,7 +36,7 @@ function verifiedWallet(): FundingWallet {
       accountProvider: "cdp-embedded",
     },
     fetchAccountResource: async () => {
-      throw new Error("hosted funding fixture not configured");
+      throw new Error("funding fixture not configured");
     },
   };
 }

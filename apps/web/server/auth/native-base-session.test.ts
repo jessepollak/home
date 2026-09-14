@@ -109,13 +109,27 @@ describe("native Base authentication handlers", () => {
     expect(issued.challenge).toEqual({
       nonce: NONCE,
       chainId: 8453,
-      domain: "127.0.0.1:3103",
+      domain: "127.0.0.1",
       uri: ORIGIN,
       version: "1",
       statement: "Sign in to Home.",
       issuedAt: START.toISOString(),
       expirationTime: new Date(START.getTime() + NATIVE_BASE_NONCE_TTL_MS).toISOString(),
     });
+  });
+
+  test("issues the challenge for the Host the browser used, without the port", async () => {
+    // Next.js dev rebuilds request.url from the bind address (127.0.0.1), while
+    // the browser and the wallet see `localhost:3000`; Base Account signs the
+    // SIWE domain without a port.
+    const { nonce } = handlers();
+    const response = await nonce(post("/api/auth/base/nonce", {}, undefined, ORIGIN, {
+      Host: "localhost:3000",
+    }));
+    expect(response.status).toBe(200);
+    const payload = await response.json() as NativeBaseChallenge;
+    expect(payload.domain).toBe("localhost");
+    expect(payload.uri).toBe("http://localhost:3000");
   });
 
   test("establishes a signed HttpOnly session from the exact issued fields and body address", async () => {

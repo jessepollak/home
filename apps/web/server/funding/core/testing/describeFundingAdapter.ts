@@ -159,7 +159,8 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
         ctx.binding.asset.address.toLowerCase(),
       );
       expect(result.order.expectedTokenAmountAtomic).toBe(
-        decimalToAtomic(options.intent.fiatAmount, ctx.binding.asset.decimals),
+        options.intent.quote?.tokenAmountAtomic ??
+          decimalToAtomic(options.intent.fiatAmount, ctx.binding.asset.decimals),
       );
       assertInstructionIsSafe(result.order.instructions, options.provider.manifest.redirectOrigins);
     });
@@ -258,10 +259,9 @@ function reconciliationIntent(
     tokenAddress: asset.address,
     destination: options.intent.destination,
     fiatAmount: options.intent.fiatAmount,
-    expectedTokenAmountAtomic: decimalToAtomic(
-      options.intent.fiatAmount,
-      asset.decimals,
-    ),
+    expectedTokenAmountAtomic:
+      options.intent.quote?.tokenAmountAtomic ??
+      decimalToAtomic(options.intent.fiatAmount, asset.decimals),
     tokenDecimals: asset.decimals,
   };
 }
@@ -286,7 +286,7 @@ function assertInstructionIsSafe(
   instruction: Instruction,
   redirectOrigins: ReadonlyArray<string> | undefined,
 ): void {
-  if (instruction.kind !== "redirect") return;
+  if (instruction.kind !== "redirect" && instruction.kind !== "embed") return;
   expect(redirectOrigins?.length).toBeGreaterThan(0);
   const url = new URL(instruction.url);
   expect(url.protocol).toBe("https:");
@@ -294,4 +294,8 @@ function assertInstructionIsSafe(
   expect(url.username).toBe("");
   expect(url.password).toBe("");
   expect(url.hash).toBe("");
+  if (instruction.kind === "embed") {
+    expect(instruction.amount).toMatch(/^(?:0|[1-9]\d*)(?:\.\d+)?$/);
+    expect(instruction.currency).toMatch(/^[A-Z]{3}$/);
+  }
 }

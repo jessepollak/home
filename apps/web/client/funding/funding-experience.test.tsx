@@ -1,16 +1,18 @@
 import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { getHomeQueryClient } from "@/client/query/query-client";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { FundingExperienceForWallet } = await import("./funding-experience");
+const { shouldPollFundingOrder } = await import("./order-flow");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111" as const;
 const ADDRESS_B = "0x2222222222222222222222222222222222222222" as const;
-const HOSTED_URL = "https://pay.coinbase.com/buy/select-asset?sessionToken=fixture";
+const REDIRECT_URL = "https://checkout.idrx.co/?token=synthetic";
+const APPLE_PAY_URL = "https://pay.coinbase.com/embedded/apple-pay";
 
 type FundingWallet = Pick<
   AccountWalletClient,
@@ -22,7 +24,15 @@ function fundingBinding() {
 }
 
 function redirectBinding() {
-  return { providerId: "coinbase", displayName: "Coinbase", region: "US", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6, currency: "USD", paymentMethods: [{ id: "hosted", label: "Coinbase" }], quotes: false, kyc: null };
+  return { providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx", assetSymbol: "IDRX", assetDecimals: 2, currency: "IDR", paymentMethods: [{ id: "qris", label: "QRIS" }], quotes: false, kyc: null };
+}
+
+function applePayBinding() {
+  return { providerId: "coinbase", displayName: "Coinbase", region: "US", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6, currency: "USD", paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }], quotes: true, kyc: null };
+}
+
+function applePayOrder(state = "awaiting-payment", url = APPLE_PAY_URL) {
+  return { id: "11111111-1111-4111-8111-111111111111", providerId: "coinbase", state, fiatAmount: "25", expectedTokenAmountAtomic: "24500000", fees: [{ label: "Coinbase fee", amount: "0.50", currency: "USD" }], providerStatus: null, instructions: { kind: "embed", url, presentation: "apple-pay", amount: "25.50", currency: "USD" } };
 }
 
 function multiMethodBinding() {
@@ -51,7 +61,7 @@ function verifiedWallet(address: `0x${string}` = ADDRESS_A): FundingWallet {
       accountProvider: "base-account",
     },
     fetchAccountResource: async () => {
-      throw new Error("hosted funding fixture not configured");
+      throw new Error("funding fixture not configured");
     },
   };
 }
@@ -125,6 +135,7 @@ describe("FundingExperience", () => {
     for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
+    expect(page().queryByText("Sandbox — not a real deposit")).toBeNull();
     expect(page().getByText("Receive").parentElement?.textContent).toContain("1.000\u00A0wARS");
     expect(page().getByText("Rail").parentElement?.textContent).toContain("$10,00");
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
@@ -133,8 +144,58 @@ describe("FundingExperience", () => {
     expect(page().queryByText("1234567890")).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
     await page().findByText("Deposit pending");
+    expect(page().queryByText("Sandbox — not a real deposit")).toBeNull();
     expect(page().getByText("1234567890")).toBeTruthy();
     expect(requests.find((item) => item.path === "/api/funding/orders")?.body).toEqual({ quoteToken: "signed-token" });
+  });
+
+  test("shows the sandbox badge on all three review and status screens", async () => {
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [fundingBinding()] };
+        if (path.startsWith("/api/funding/orders?")) return { order: null };
+        if (path === "/api/funding/quotes") return { sandbox: true, quoteToken: "sandbox-token", quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
+        if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", sandbox: true, state: "awaiting-payment", fiatAmount: "1000", expectedTokenAmountAtomic: "1000000000000000000000", fees: [], providerStatus: null, instructions: { kind: "bank-transfer", rail: "CVU", accountNumber: "1234567890", amount: "1000", currency: "ARS" } } };
+        throw new Error("unexpected request");
+      },
+    };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
+    fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+    await page().findByRole("heading", { name: "Review quote" });
+    expect(page().getAllByText("Sandbox — not a real deposit")).toHaveLength(1);
+    fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
+    await page().findByRole("heading", { name: "Review payment details" });
+    expect(page().getAllByText("Sandbox — not a real deposit")).toHaveLength(1);
+    fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
+    await page().findByText("Deposit pending");
+    expect(page().getAllByText("Sandbox — not a real deposit")).toHaveLength(1);
+  });
+
+  test("stops polling sandbox sent-unverified orders but continues for live orders", () => {
+    expect(shouldPollFundingOrder({ state: "sent-unverified", sandbox: true })).toBe(false);
+    expect(shouldPollFundingOrder({ state: "sent-unverified", sandbox: false })).toBe(true);
+    expect(shouldPollFundingOrder({ state: "awaiting-payment", sandbox: true })).toBe(true);
+  });
+
+  test("shows sandbox sent-unverified as complete without polling", async () => {
+    let statusCalls = 0;
+    const order = { id: "11111111-1111-4111-8111-111111111111", providerId: "coinbase", sandbox: true, state: "sent-unverified", fiatAmount: "5", expectedTokenAmountAtomic: "4880000", fees: [{ label: "Coinbase fee", amount: "0.12", currency: "USD" }], providerStatus: "ONRAMP_ORDER_STATUS_COMPLETED", instructions: { kind: "embed", url: APPLE_PAY_URL, presentation: "apple-pay", amount: "5", currency: "USD" } };
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [applePayBinding()] };
+        if (path.includes("/api/funding/orders/11111111")) { statusCalls += 1; return { order }; }
+        if (path.startsWith("/api/funding/orders?")) return { order };
+        throw new Error("unexpected request");
+      },
+    };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="US" />);
+    expect(await page().findByRole("heading", { name: "Sandbox complete — no real funds moved" })).toBeTruthy();
+    expect(page().getAllByText("Sandbox — not a real deposit")).toHaveLength(1);
+    expect(statusCalls).toBe(0);
   });
 
   test("retries a lost order response with the exact original quote token", async () => {
@@ -177,15 +238,15 @@ describe("FundingExperience", () => {
     expect(page().queryByText("Check Activity before trying again")).toBeNull();
   });
 
-  test("opens a redirect instruction returned by a configured manifest binding", async () => {
+  test("keeps the generic redirect renderer for non-Coinbase providers", async () => {
     const navigations: string[] = [];
     const wallet = {
       ...verifiedWallet(),
       fetchAccountResource: async (path: string) => {
         if (path.startsWith("/api/funding/providers")) return { providers: [redirectBinding()] };
         if (path.startsWith("/api/funding/orders?")) return { order: null };
-        if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "25", tokenAmountAtomic: "25000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
-        if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "coinbase", state: "awaiting-payment", fiatAmount: "25", expectedTokenAmountAtomic: "25000000", fees: [], providerStatus: null, instructions: { kind: "redirect", url: HOSTED_URL } } };
+        if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "25000", tokenAmountAtomic: "2500000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" } };
+        if (path === "/api/funding/orders") return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "idrx", state: "awaiting-payment", fiatAmount: "25000", expectedTokenAmountAtomic: "2500000", fees: [], providerStatus: null, instructions: { kind: "redirect", url: REDIRECT_URL } } };
         throw new Error("unexpected request");
       },
     };
@@ -194,24 +255,23 @@ describe("FundingExperience", () => {
       <FundingExperienceForWallet
         wallet={wallet}
         navigateToRedirect={(url) => navigations.push(url)}
-        regionId="US"
+        regionId="ID"
       />,
     );
 
-    fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
-    for (const key of ["2", "5"]) fireEvent.click(page().getByRole("button", { name: key }));
-    expect(document.querySelector("[data-primary-amount] [role='img']")?.getAttribute("aria-label")).toBe("$25");
+    fireEvent.click(await page().findByRole("button", { name: /Deposit IDR/ }));
+    for (const key of ["2", "5", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
 
-    await waitFor(() => expect(navigations).toEqual([HOSTED_URL]));
-    expect(page().getByRole("link", { name: "Continue to payment" }).getAttribute("href")).toBe(HOSTED_URL);
+    await waitFor(() => expect(navigations).toEqual([REDIRECT_URL]));
+    expect(page().getByRole("link", { name: "Continue to payment" }).getAttribute("href")).toBe(REDIRECT_URL);
   });
 
   test("a resumed open redirect order never auto-navigates; it keeps the explicit link", async () => {
     const navigations: string[] = [];
-    const openOrder = { id: "11111111-1111-4111-8111-111111111111", providerId: "coinbase", state: "awaiting-payment", fiatAmount: "25", expectedTokenAmountAtomic: "25000000", fees: [], providerStatus: null, instructions: { kind: "redirect", url: HOSTED_URL } };
+    const openOrder = { id: "11111111-1111-4111-8111-111111111111", providerId: "idrx", state: "awaiting-payment", fiatAmount: "25000", expectedTokenAmountAtomic: "2500000", fees: [], providerStatus: null, instructions: { kind: "redirect", url: REDIRECT_URL } };
     const wallet = {
       ...verifiedWallet(),
       fetchAccountResource: async (path: string) => {
@@ -225,13 +285,134 @@ describe("FundingExperience", () => {
       <FundingExperienceForWallet
         wallet={wallet}
         navigateToRedirect={(url) => navigations.push(url)}
-        regionId="US"
+        regionId="ID"
       />,
     );
 
     expect(await page().findByRole("link", { name: "Continue to payment" })).toBeTruthy();
     await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
     expect(navigations).toEqual([]);
+  });
+
+  test("renders Apple Pay only after economics review and refetches only for trusted messages", async () => {
+    const navigations: string[] = [];
+    const requests: Array<{ path: string; method?: string }> = [];
+    let statusCalls = 0;
+    let resolveStatus!: (value: unknown) => void;
+    const statusResult = new Promise<unknown>((resolve) => { resolveStatus = resolve; });
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string, options?: { method?: "GET" | "POST" }) => {
+        requests.push({ path, method: options?.method });
+        if (path.startsWith("/api/funding/providers")) return { providers: [applePayBinding()] };
+        if (path.startsWith("/api/funding/orders?")) return { order: null };
+        if (path === "/api/funding/quotes") return { quoteToken: "signed-token", quote: { fiatAmount: "25", tokenAmountAtomic: "24500000", fees: [{ label: "Coinbase fee", amount: "0.50", currency: "USD" }], expiresAt: "2099-01-01T00:00:00.000Z" } };
+        if (path === "/api/funding/orders") return { order: applePayOrder() };
+        if (path === "/api/funding/orders/11111111-1111-4111-8111-111111111111") {
+          statusCalls += 1;
+          return statusResult;
+        }
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={(url) => navigations.push(url)} regionId="US" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
+    for (const key of ["2", "5"]) fireEvent.click(page().getByRole("button", { name: key }));
+    fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+    await page().findByRole("heading", { name: "Review quote" });
+    fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
+    await page().findByRole("heading", { name: "Review payment details" });
+    // The created order repriced ($25 quoted, $25.50 charged); the review shows the real total.
+    expect(page().getByText("You pay").parentElement?.textContent).toContain("$25.50");
+    expect(Boolean(page().queryByTitle("Apple Pay")), "iframe before economics confirmation").toBe(false);
+    expect(navigations).toEqual([]);
+
+    fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
+    const iframe = await page().findByTitle("Apple Pay") as HTMLIFrameElement;
+    expect(iframe.getAttribute("src")).toBe(APPLE_PAY_URL);
+    expect(iframe.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin");
+    expect(iframe.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(iframe.getAttribute("allow")).toBe("payment");
+    expect(page().getByText("Pay $25.50 with Apple Pay")).toBeTruthy();
+    expect(navigations).toEqual([]);
+
+    const source = iframe.contentWindow!;
+    const send = (data: unknown, origin = "https://pay.coinbase.com", eventSource: MessageEventSource = source) => {
+      window.dispatchEvent(new MessageEvent("message", { data, origin, source: eventSource }));
+    };
+    send(JSON.stringify({ eventName: "onramp_api.commit_success" }), "https://evil.example");
+    send(JSON.stringify({ eventName: "onramp_api.commit_success" }), "https://pay.coinbase.com", window);
+    send("not-json");
+    send(JSON.stringify({ eventName: "onramp_api.unknown" }));
+    await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    expect(statusCalls).toBe(0);
+
+    send(JSON.stringify({ eventName: "onramp_api.commit_success" }));
+    send({ eventName: "onramp_api.polling_success" });
+    await waitFor(() => expect(statusCalls).toBe(1));
+    expect(navigations).toEqual([]);
+    expect(requests.filter((request) => request.method === "POST")).toHaveLength(2);
+
+    resolveStatus({ order: applePayOrder("settling") });
+    await waitFor(() => expect(Boolean(page().queryByTitle("Apple Pay")), "iframe after settling").toBe(false));
+  });
+
+  test("removes the Apple Pay message listener on unmount", async () => {
+    const addListener = spyOn(window, "addEventListener");
+    const removeListener = spyOn(window, "removeEventListener");
+    const openOrder = applePayOrder();
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [applePayBinding()] };
+        if (path.startsWith("/api/funding/orders")) return { order: openOrder };
+        throw new Error("unexpected request");
+      },
+    };
+    const view = render(
+      <FundingExperienceForWallet
+        wallet={wallet}
+        navigateToRedirect={() => {}}
+        regionId="US"
+      />,
+    );
+
+    try {
+      await page().findByRole("heading", { name: "Review payment details" });
+      fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
+      await page().findByTitle("Apple Pay");
+      const messageRegistration = addListener.mock.calls.find(
+        ([type]) => type === "message",
+      );
+      expect(messageRegistration).toBeDefined();
+
+      view.unmount();
+
+      expect(removeListener).toHaveBeenCalledWith(
+        "message",
+        messageRegistration?.[1],
+      );
+    } finally {
+      addListener.mockRestore();
+      removeListener.mockRestore();
+    }
+  });
+
+  test("refuses to render an insecure embed URL", async () => {
+    const openOrder = applePayOrder("awaiting-payment", "http://pay.coinbase.com/embedded/apple-pay");
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [applePayBinding()] };
+        if (path.startsWith("/api/funding/orders")) return { order: openOrder };
+        throw new Error("unexpected request");
+      },
+    };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="US" />);
+    await page().findByRole("heading", { name: "Review payment details" });
+    fireEvent.click(page().getByRole("button", { name: "View payment instructions" }));
+    expect(page().queryByTitle("Apple Pay")).toBeNull();
   });
 
   test("hides the prior verified address as soon as the account boundary changes", () => {

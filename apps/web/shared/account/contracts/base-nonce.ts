@@ -62,7 +62,7 @@ export function parseNativeBaseChallenge(value: unknown): NativeBaseChallenge | 
     if (
       (uri.protocol !== "http:" && uri.protocol !== "https:") ||
       uri.origin !== record.uri ||
-      uri.host !== record.domain
+      uri.hostname !== record.domain
     ) return null;
   } catch {
     return null;

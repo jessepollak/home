@@ -217,7 +217,7 @@ export function createNativeBaseNonceHandler(input: NativeBaseAuthDependencies =
     const challenge: NativeBaseChallenge = {
       nonce,
       chainId: BASE_CHAIN_ID,
-      domain: origin.host,
+      domain: origin.hostname,
       uri: origin.origin,
       version: "1",
       statement: NATIVE_BASE_STATEMENT,
