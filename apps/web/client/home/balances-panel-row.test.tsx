@@ -1,7 +1,8 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { assetKeyForErc20 } from "@/config/portfolio-assets";
 import {
   buildBalancesSnapshotFixture,
@@ -13,10 +14,7 @@ import {
   type BalanceRowModel,
 } from "@/shared/balances/present";
 import { BalancesPage, HomeBalancesList } from "./balances-panel";
-import {
-  showSmallBalancesPreferenceKey,
-  useShowSmallBalances,
-} from "./use-show-small-balances";
+import { showSmallBalancesPreferenceKey } from "./use-show-small-balances";
 
 const CBBTC_KEY = assetKeyForErc20("0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf");
 const CBBTC_IMAGE = "https://assets.example.invalid/cbbtc.png";
@@ -77,7 +75,7 @@ describe("HomeBalanceRowView", () => {
     expect(view.container.querySelector("img")?.getAttribute("src")).toBe(CATALOG_IMAGE);
   });
 
-  test("the small-balances affordance toggles and persists across remount", async () => {
+  test("the small-balances affordance reveals without writing the device preference", () => {
     const snapshot = buildBalancesSnapshotFixture({
       catalog: [catalogHolding({
         address: "0x7777777777777777777777777777777777777777",
@@ -87,18 +85,19 @@ describe("HomeBalanceRowView", () => {
       }, "1", priced("USD", "9", 3))],
     });
 
-    function PreferenceBalancesPage() {
-      const [showSmallBalances, setShowSmallBalances] = useShowSmallBalances();
+    function TransientBalancesPage() {
+      const [revealSmallBalances, setRevealSmallBalances] = useState(false);
       const presentation = presentBalances(
         { status: "ready", snapshot, error: null },
-        { showSmallBalances },
+        { showSmallBalances: revealSmallBalances },
       );
       return (
         <BalancesPage
           active
           assetBalances={presentation}
-          showSmallBalances={showSmallBalances}
-          onShowSmallBalancesChange={setShowSmallBalances}
+          showSmallBalances={false}
+          revealSmallBalances={revealSmallBalances}
+          onRevealSmallBalancesChange={setRevealSmallBalances}
           isChecking={false}
           revealedCount={10}
           onRevealMore={() => {}}
@@ -106,16 +105,16 @@ describe("HomeBalanceRowView", () => {
       );
     }
 
-    const view = render(<PreferenceBalancesPage />);
+    const view = render(<TransientBalancesPage />);
     expect(view.queryByText("Dust Token")).toBeNull();
     fireEvent.click(view.getByRole("button", { name: "Show" }));
     expect(view.getByText("Dust Token")).toBeTruthy();
-    expect(window.localStorage.getItem(showSmallBalancesPreferenceKey)).toBe("true");
+    expect(window.localStorage.getItem(showSmallBalancesPreferenceKey)).toBeNull();
 
     view.unmount();
-    const remounted = render(<PreferenceBalancesPage />);
-    await waitFor(() => expect(remounted.getByText("Dust Token")).toBeTruthy());
-    expect(remounted.getByRole("button", { name: "Hide small balances" })).toBeTruthy();
+    const freshPageLoad = render(<TransientBalancesPage />);
+    expect(freshPageLoad.queryByText("Dust Token")).toBeNull();
+    expect(freshPageLoad.getByText("1 small balance hidden", { exact: false })).toBeTruthy();
   });
 
   test("renders every balance source through the same row anatomy", () => {

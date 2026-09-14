@@ -14,6 +14,7 @@ export type HomeExperienceProps = {
   initialPanel?: ShellPanelId;
   initialAccountSettingsOpen?: boolean;
   assetBalances?: HomeAssetBalancesPresentation;
+  presentAssetBalances?: (showSmallBalances: boolean) => HomeAssetBalancesPresentation;
   sendAvailability?: readonly TransferAssetAvailability[];
   showSmallBalances?: boolean;
   onShowSmallBalancesChange?: (value: boolean) => void;

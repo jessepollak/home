@@ -89,7 +89,8 @@ export function BalancesPage({
   active,
   assetBalances,
   showSmallBalances,
-  onShowSmallBalancesChange,
+  revealSmallBalances,
+  onRevealSmallBalancesChange,
   isChecking,
   revealedCount,
   onRevealMore,
@@ -97,7 +98,8 @@ export function BalancesPage({
   active: boolean;
   assetBalances?: BalancesPresentation;
   showSmallBalances: boolean;
-  onShowSmallBalancesChange: (value: boolean) => void;
+  revealSmallBalances: boolean;
+  onRevealSmallBalancesChange: (value: boolean) => void;
   isChecking: boolean;
   revealedCount: number;
   onRevealMore: () => void;
@@ -122,7 +124,8 @@ export function BalancesPage({
             isUnavailable={assetBalances?.status === "unavailable"}
             hiddenCount={assetBalances?.hiddenCount ?? 0}
             showSmallBalances={showSmallBalances}
-            onShowSmallBalancesChange={onShowSmallBalancesChange}
+            revealSmallBalances={revealSmallBalances}
+            onRevealSmallBalancesChange={onRevealSmallBalancesChange}
             revealedCount={revealedCount}
             onRevealMore={onRevealMore}
           />
@@ -203,7 +206,8 @@ function IncrementalBalancesList({
   isUnavailable = false,
   hiddenCount,
   showSmallBalances,
-  onShowSmallBalancesChange,
+  revealSmallBalances,
+  onRevealSmallBalancesChange,
   revealedCount,
   onRevealMore,
 }: {
@@ -213,7 +217,8 @@ function IncrementalBalancesList({
   isUnavailable?: boolean;
   hiddenCount: number;
   showSmallBalances: boolean;
-  onShowSmallBalancesChange: (value: boolean) => void;
+  revealSmallBalances: boolean;
+  onRevealSmallBalancesChange: (value: boolean) => void;
   revealedCount: number;
   onRevealMore: () => void;
 }) {
@@ -255,11 +260,11 @@ function IncrementalBalancesList({
   return (
     <>
       <GroupedBalancesList groups={visibleGroups} withAnchors />
-      {!hasMore && hiddenCount > 0 ? (
+      {!hasMore && !showSmallBalances && hiddenCount > 0 ? (
         <SmallBalancesControl
           hiddenCount={hiddenCount}
-          showSmallBalances={showSmallBalances}
-          onShowSmallBalancesChange={onShowSmallBalancesChange}
+          revealSmallBalances={revealSmallBalances}
+          onRevealSmallBalancesChange={onRevealSmallBalancesChange}
         />
       ) : null}
       {active && hasMore ? (
@@ -367,21 +372,21 @@ function BalancesList({ rows }: { rows: readonly BalanceRowModel[] }) {
 
 function SmallBalancesControl({
   hiddenCount,
-  showSmallBalances,
-  onShowSmallBalancesChange,
+  revealSmallBalances,
+  onRevealSmallBalancesChange,
 }: {
   hiddenCount: number;
-  showSmallBalances: boolean;
-  onShowSmallBalancesChange: (value: boolean) => void;
+  revealSmallBalances: boolean;
+  onRevealSmallBalancesChange: (value: boolean) => void;
 }) {
   return (
     <div className="flex min-h-16 items-center justify-center px-3 text-sm text-muted-foreground">
-      {showSmallBalances ? (
+      {revealSmallBalances ? (
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => onShowSmallBalancesChange(false)}
+          onClick={() => onRevealSmallBalancesChange(false)}
         >
           Hide small balances
         </Button>
@@ -393,7 +398,7 @@ function SmallBalancesControl({
             variant="ghost"
             size="sm"
             className="h-auto px-1 py-0"
-            onClick={() => onShowSmallBalancesChange(true)}
+            onClick={() => onRevealSmallBalancesChange(true)}
           >
             Show
           </Button>

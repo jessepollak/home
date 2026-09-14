@@ -180,7 +180,7 @@ Unverified until preview: the production `wallet.activity.multi` delivery envelo
 
 ### 9. Dust hidden by default (G4, shipped 2026-09-13)
 
-Rows below one cent in the presentation currency and unpriced `wallet` rows are hidden by default behind one "N small balances hidden · Show" control at the end of the Your money panel; the same preference is available in Account as "Show small balances" and persists per device under `home.show-small-balances.v1`. When enabled, the panel appends those rows after the visible Investments rows and offers "Hide small balances". The Home teaser never shows hidden rows. Cash rows and any row with a priced value ≥ one cent are never hidden. The total and group subtotals are unaffected.
+Rows below one cent in the presentation currency and unpriced `wallet` rows are hidden by default behind one "N small balances hidden · Show" control at the end of the Your money panel. The Balances control reveals them for the current page load only; the Account "Show small balances" switch persists per device under `home.show-small-balances.v1`. When enabled, the panel appends those rows after the visible Investments rows and offers "Hide small balances". The Home teaser never shows hidden rows. Cash rows and any row with a priced value ≥ one cent are never hidden. The total and group subtotals are unaffected.
 
 ## Sequencing (every integration point stays green)
 

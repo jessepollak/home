@@ -48,6 +48,8 @@ export function DashboardShell({
   sendAvailability,
   showSmallBalances,
   onShowSmallBalancesChange,
+  revealSmallBalances,
+  onRevealSmallBalancesChange,
   activitySession,
   fetchActivity,
   fetchOperations,
@@ -85,6 +87,8 @@ export function DashboardShell({
   sendAvailability: readonly TransferAssetAvailability[];
   showSmallBalances: boolean;
   onShowSmallBalancesChange: (value: boolean) => void;
+  revealSmallBalances: boolean;
+  onRevealSmallBalancesChange: (value: boolean) => void;
   activitySession: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
@@ -178,7 +182,8 @@ export function DashboardShell({
                     active={activeNavigation === balancesPanelId}
                     assetBalances={paintedAssetBalances}
                     showSmallBalances={showSmallBalances}
-                    onShowSmallBalancesChange={onShowSmallBalancesChange}
+                    revealSmallBalances={revealSmallBalances}
+                    onRevealSmallBalancesChange={onRevealSmallBalancesChange}
                     isChecking={isChecking}
                     revealedCount={balancesReveal.count}
                     onRevealMore={balancesReveal.extend}

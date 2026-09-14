@@ -371,6 +371,20 @@ test("holding icons and hidden dust stay consistent across Home, Balances, and S
   await expect(page.getByText("Dust Coin", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Hide small balances" })).toBeVisible();
 
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
+  await expect(page.getByText("Dust Coin", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("1 small balance hidden", { exact: false })).toBeVisible();
+
+  await page.getByRole("button", { name: "Account" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Account" })).toBeVisible();
+  await page.getByRole("switch", { name: "Show small balances" }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Dust Coin", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 small balance hidden", { exact: false })).toHaveCount(0);
+
   await page.getByRole("button", { name: "Back" }).click();
   await expect(page.locator(
     '[data-shell-panel]:not([hidden]) [data-balance-list] li',

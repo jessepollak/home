@@ -71,6 +71,7 @@ export function HomeShell({
   initialPanel = "home",
   initialAccountSettingsOpen = false,
   assetBalances,
+  presentAssetBalances,
   sendAvailability = [],
   showSmallBalances = false,
   onShowSmallBalancesChange = () => {},
@@ -114,6 +115,7 @@ export function HomeShell({
     () => new Set<ShellPanelId>(["home", initialPanel]),
   );
   const [balancesMounted, setBalancesMounted] = useState(initialPanel === balancesPanelId);
+  const [revealSmallBalances, setRevealSmallBalances] = useState(false);
   const [forwardRequest, setForwardRequest] = useState(0);
   const pendingBalancesRestoreRef = useRef(false);
   const balancesReturnScrollRef = useRef(0);
@@ -261,7 +263,7 @@ export function HomeShell({
   const isUnavailable = account.status === "unavailable";
   const isSignedOut = account.status === "signed-out" || account.status === "signout-error";
   const paintedAssetBalances = mayPaintBalances
-    ? (assetBalances ?? loadingAssetBalances)
+    ? (presentAssetBalances?.(showSmallBalances || revealSmallBalances) ?? assetBalances ?? loadingAssetBalances)
     : loadingAssetBalances;
   useEffect(() => {
     if (mayPaintBalances && paintedAssetBalances.status === "ready") {
@@ -512,6 +514,8 @@ export function HomeShell({
           sendAvailability={sendAvailability}
           showSmallBalances={showSmallBalances}
           onShowSmallBalancesChange={onShowSmallBalancesChange}
+          revealSmallBalances={revealSmallBalances}
+          onRevealSmallBalancesChange={setRevealSmallBalances}
           activitySession={activitySession}
           fetchActivity={account.fetchActivity}
           fetchOperations={account.fetchOperations}
