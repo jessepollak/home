@@ -118,12 +118,12 @@ describe("FundingExperience", () => {
       <FundingExperienceForWallet
         wallet={wallet}
         navigateToRedirect={() => {}}
-        regionId="US"
+        regionId="ID"
       />,
     );
 
     const provider = await page().findByRole("button", {
-      name: /Deposit USD/,
+      name: /Deposit IDR/,
     });
     expect(provider.hasAttribute("disabled")).toBe(true);
     expect(page().getByRole("alert").textContent).toContain(
