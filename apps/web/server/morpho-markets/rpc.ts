@@ -7,8 +7,6 @@ import {
   encodeAllowance,
   encodeBalanceOf,
   encodeBorrowRateView,
-  encodeCoinbaseExecuteBatch,
-  encodeImplementation,
   encodeMarket,
   encodeMarketParams,
   encodePosition,
@@ -33,6 +31,10 @@ import {
   toAssetsUp,
 } from "@/shared/morpho-markets/math";
 import {
+  CoinbaseSmartAccountBatchSimulationError,
+  createCoinbaseSmartAccountBatchSimulator,
+} from "@/server/chain/coinbase-smart-account";
+import {
   createBaseRpcClient,
   parseRpcQuantity,
   resolveBaseRpcUrl,
@@ -43,7 +45,6 @@ const UINT128_MAX = (BigInt("1") << BigInt("128")) - BigInt("1");
 const UINT256_MAX = (BigInt("1") << BigInt("256")) - BigInt("1");
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
-const hexDataPattern = /^0x(?:[0-9a-fA-F]{2})*$/;
 
 type FetchLike = typeof fetch;
 type RpcRequest = { id: number; method: string; params: unknown[] };
@@ -143,6 +144,11 @@ export function createMorphoMarketRpcReader(options: {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
     throw new MorphoMarketRpcError("The Base RPC timeout must be 1-30000ms.");
   }
+  const batchSimulator = createCoinbaseSmartAccountBatchSimulator({
+    fetchImpl,
+    rpcUrl,
+    timeoutMs,
+  });
 
   async function withTimeout<T>(externalSignal: AbortSignal | undefined, work: (signal: AbortSignal) => Promise<T>) {
     const controller = new AbortController();
@@ -293,102 +299,41 @@ export function createMorphoMarketRpcReader(options: {
     },
 
     async simulateBatch(calls, account, blockNumber, expectedBlockHash, externalSignal) {
-      assertAddress(account, "account");
-      if (calls.length === 0) throw new MorphoMarketRpcError("Simulation requires at least one call.");
-      for (const call of calls) assertAddress(call.to, "call.to");
-      if (!/^\d+$/.test(blockNumber)) throw new MorphoMarketRpcError("Simulation block number is invalid.");
-      if (!hashPattern.test(expectedBlockHash)) throw new MorphoMarketRpcError("Simulation block hash is invalid.");
-      await withTimeout(externalSignal, async (signal) => {
-        const block = toQuantity(BigInt(blockNumber));
-        const accountCode = readCode((await rpc(
-          fetchImpl,
-          rpcUrl,
-          request(21, "eth_getCode", [account, block]),
-          signal,
-        )).result, "smart account");
-        if (!hasExecutableCode(accountCode)) {
+      try {
+        await batchSimulator.simulateBatch(calls, account, {
+          blockNumber,
+          blockHash: expectedBlockHash,
+        }, externalSignal);
+      } catch (error) {
+        if (error instanceof CoinbaseSmartAccountBatchSimulationError) {
           throw new MorphoMarketRpcError(
-            "This verified account is not deployed, so Home cannot simulate Coinbase executeBatch for it.",
-            "account-capability",
-          );
-        }
-
-        let implementationResult: unknown;
-        try {
-          implementationResult = (await rpc(
-            fetchImpl,
-            rpcUrl,
-            request(22, "eth_call", [{ to: account, data: encodeImplementation() }, block]),
-            signal,
-          )).result;
-        } catch (error) {
-          throw new MorphoMarketRpcError(
-            "This deployed account does not expose the Coinbase smart-account implementation needed for batch simulation.",
-            "account-capability",
+            morphoSimulationMessage(error),
+            error.code,
             { cause: error },
           );
         }
-        let implementation: MorphoAddress;
-        try {
-          implementation = decodeAddressWord(oneWord(implementationResult, "smart account implementation"));
-        } catch (error) {
-          throw new MorphoMarketRpcError(
-            "This deployed account does not expose a valid Coinbase smart-account implementation.",
-            "account-capability",
-            { cause: error },
-          );
-        }
-        if (/^0x0{40}$/i.test(implementation)) {
-          throw new MorphoMarketRpcError("The Coinbase smart-account implementation is unavailable.", "account-capability");
-        }
-        const implementationCode = readCode((await rpc(
-          fetchImpl,
-          rpcUrl,
-          request(23, "eth_getCode", [implementation, block]),
-          signal,
-        )).result, "smart account implementation");
-        if (!hasExecutableCode(implementationCode)) {
-          throw new MorphoMarketRpcError(
-            "The Coinbase smart-account implementation is not deployed at the pinned block.",
-            "account-capability",
-          );
-        }
-
-        const response = await rpc(
-          fetchImpl,
-          rpcUrl,
-          request(24, "eth_call", [{
-            // Coinbase MultiOwnable permits the account itself; this preserves the exact ordered
-            // state changes without claiming that a future user signature has been validated.
-            from: account,
-            to: account,
-            data: encodeCoinbaseExecuteBatch(calls),
-            value: "0x0",
-          }, block]),
-          signal,
+        throw new MorphoMarketRpcError(
+          "The Base Morpho market batch simulation failed.",
+          { cause: error },
         );
-        if (typeof response.result !== "string" || !hexDataPattern.test(response.result)) {
-          throw new MorphoMarketRpcError("Base RPC returned invalid batch simulation data.");
-        }
-
-        const confirmed = readBlock((await rpc(
-          fetchImpl,
-          rpcUrl,
-          request(25, "eth_getBlockByNumber", [block, false]),
-          signal,
-        )).result);
-        if (
-          confirmed.number !== BigInt(blockNumber) ||
-          confirmed.hash.toLowerCase() !== expectedBlockHash.toLowerCase()
-        ) {
-          throw new MorphoMarketRpcError("The Base source block changed during batch simulation.");
-        }
-      });
+      }
     },
   };
 }
 
 export const getBaseMorphoMarkets = createMorphoMarketRpcReader();
+
+function morphoSimulationMessage(
+  error: CoinbaseSmartAccountBatchSimulationError,
+): string {
+  if (error.message === "Base RPC rejected a smart-account batch simulation call.") {
+    return "Base RPC rejected a Morpho market call or simulation.";
+  }
+  if (error.message === "The Base smart-account batch simulation timed out or was aborted.") {
+    return "The Base Morpho market RPC request timed out or was aborted.";
+  }
+  return error.message;
+}
 
 function verifyMarketParams(words: bigint[], marketRef: VerifiedMorphoMarketRef) {
   const [loan, collateral, oracle, irm, lltv] = words;
@@ -435,17 +380,6 @@ function oneWord(value: unknown, label: string) {
   return decodeWords(value, 1, label)[0];
 }
 
-function readCode(value: unknown, label: string) {
-  if (typeof value !== "string" || !hexDataPattern.test(value)) {
-    throw new MorphoMarketRpcError(`Base RPC returned invalid ${label} code.`);
-  }
-  return value;
-}
-
-function hasExecutableCode(value: string) {
-  return value.length > 2 && /[1-9a-f]/i.test(value.slice(2));
-}
-
 function readBlock(value: unknown): SourceBlock {
   if (!isRecord(value)) throw new MorphoMarketRpcError("Base RPC returned invalid block metadata.");
   if (typeof value.hash !== "string" || !hashPattern.test(value.hash)) throw new MorphoMarketRpcError("Base RPC returned an invalid block hash.");
@@ -468,11 +402,6 @@ function assertMaximum(value: bigint, maximum: bigint, label: string) {
 
 function assertAddress(value: string, label: string): asserts value is MorphoAddress {
   if (!addressPattern.test(value)) throw new MorphoMarketRpcError(`${label} must be an EVM address.`);
-}
-
-function toQuantity(value: bigint) {
-  if (value < BigInt("0")) throw new MorphoMarketRpcError("RPC quantity cannot be negative.");
-  return `0x${value.toString(16)}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
