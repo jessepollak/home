@@ -5,7 +5,7 @@ import {
   sanitizeRoutePath,
   scrubString,
 } from "@/shared/observability/scrub";
-import type { HomeStartupReport } from "@/shared/observability/home-startup";
+import type { HomeStartupReport } from "@/shared/observability/client-performance.contract";
 
 export const OBSERVABILITY_SCHEMA = "home.observability.v2" as const;
 

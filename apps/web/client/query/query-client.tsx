@@ -14,7 +14,7 @@ import {
 } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { recordHomeStartupCache } from "@/client/observability/perf-marks";
-import type { HomeStartupCacheState } from "@/shared/observability/home-startup";
+import type { HomeStartupCacheState } from "@/shared/observability/client-performance.contract";
 
 export const ownerQueryCachePrefix = "home.query.v1:";
 export const ownerQueryCacheTtlMs = 24 * 60 * 60 * 1000;
