@@ -10,6 +10,8 @@ import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 export const BALANCES_VERSION = 3 as const;
 export const BALANCES_ROUTE = "/api/balances" as const;
 export const BALANCES_CHAIN_ID = 8453 as const;
+/** A price older than this is not used for balance display valuation. */
+export const BALANCES_PRICE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export type BalancesAddress = `0x${string}`;
 export type NativeAssetKey = `eip155:${typeof BALANCES_CHAIN_ID}/native`;
@@ -41,7 +43,11 @@ export type HoldingValueUnpricedReason =
   | "below-market-gate"
   | "no-quote-currency";
 
-/** Value in the snapshot's `quoteCurrency`. */
+/**
+ * Value in the snapshot's `quoteCurrency`. `asOf` is the price source time; display
+ * valuation accepts prices up to BALANCES_PRICE_MAX_AGE_MS old (older → "price-stale").
+ * Trade and borrow authorization keep their own, stricter freshness rules.
+ */
 export type HoldingValue =
   | { status: "priced"; currency: FiatCurrencyCode; amount: ExactDecimal; asOf: string }
   | { status: "unpriced"; reason: HoldingValueUnpricedReason }
@@ -64,7 +70,7 @@ export type Holding = {
   decimals: number;
   contractAddress: BalancesAddress | null;
   cashCurrency: FiatCurrencyCode | null;
-  /** Catalog and wallet rows only; sanitized https URL. */
+  /** Sanitized https URL. Registry Invest icons come from the server icon resolver; catalog and wallet images from Codex. Cash and ETH rows carry no image (the client paints a flag or the ETH mark). */
   imageUrl?: string;
   /** Vault shares only. */
   underlying?: { key: Erc20AssetKey; symbol: "USDC"; decimals: 6 };
@@ -100,6 +106,8 @@ export type BalancesSnapshot = {
   holdings: Holding[];
   coverage: BalancesCoverage;
   total: BalancesTotal;
+  /** Set when a required re-observe failed and the last observation is served as it was (balances.md §8). */
+  stale?: true;
 };
 
 /** The verified session facts a snapshot must match before the client trusts it. */

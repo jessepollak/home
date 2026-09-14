@@ -39,6 +39,6 @@ describe("funding route privacy and rejection", () => {
     const response = await webhook(new Request("https://home.example/api/funding/webhooks/ripio", { method: "POST", body: "invalid" }), { params: Promise.resolve({ provider: "ripio" }) });
     expect(response.status).toBe(202);
     assertPrivate(response);
-    expect(await response.json()).toEqual({ accepted: true });
+    expect(await response.json()).toMatchObject({ accepted: true });
   });
 });

@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import type { ShellPanelId } from "@/config/navigation";
 import type { RegionId } from "@/config/regions";
-import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { BalancesPresentation } from "@/shared/balances/present";
 
@@ -15,8 +14,10 @@ export type HomeExperienceProps = {
   initialPanel?: ShellPanelId;
   initialAccountSettingsOpen?: boolean;
   assetBalances?: HomeAssetBalancesPresentation;
+  presentAssetBalances?: (showSmallBalances: boolean) => HomeAssetBalancesPresentation;
   sendAvailability?: readonly TransferAssetAvailability[];
-  assetMarkResolution?: AssetMarkResolution;
+  showSmallBalances?: boolean;
+  onShowSmallBalancesChange?: (value: boolean) => void;
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";
   initialAddMoney?: boolean;

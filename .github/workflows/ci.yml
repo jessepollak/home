@@ -133,6 +133,7 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
       ACTION_PG_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
       FUNDING_PG_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
+      BALANCES_PG_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -148,5 +149,5 @@ jobs:
       - name: Apply the Home database schema
         run: bun run --cwd apps/web db:migrate
 
-      - name: Test actions schema and funding stores against disposable PostgreSQL
-        run: bun test apps/web/server/actions/store.postgres.test.ts apps/web/server/funding/core/postgres-store.integration.test.ts
+      - name: Test actions, funding, and balance stores against disposable PostgreSQL
+        run: bun test apps/web/server/actions/store.postgres.test.ts apps/web/server/funding/core/postgres-store.integration.test.ts apps/web/server/balances/postgres-snapshot-store.test.ts apps/web/server/balances/postgres-webhook-subscription-store.test.ts apps/web/server/balances/postgres-price-observation-store.test.ts

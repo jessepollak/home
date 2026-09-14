@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { preferCodexAssetIcon } from "./resolve";
+import { emptyAssetIconMap, preferCodexAssetIcon } from "./resolve";
 
 describe("asset icon source priority", () => {
   test("uses Codex first, on-chain metadata second, and letters when neither resolves", () => {
@@ -10,5 +10,12 @@ describe("asset icon source priority", () => {
     ] as const) {
       expect(preferCodexAssetIcon(codex, onchain)).toBe(expected);
     }
+  });
+
+  test("includes configured meme assets in the resolver set", () => {
+    expect(emptyAssetIconMap()).toMatchObject({
+      degen: null,
+      toshi: null,
+    });
   });
 });

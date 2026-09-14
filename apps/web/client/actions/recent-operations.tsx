@@ -64,29 +64,41 @@ export function RecentMoneyActions({
   useEffect(() => onVisibleCountChange?.(visibleCount), [onVisibleCountChange, visibleCount]);
   if (operations.length === 0 && (!unavailable || !showUnavailableNotice)) return null;
 
-  return <section className="space-y-3" aria-labelledby={embedded ? undefined : "home-operations-title"}>
-    {embedded ? null : <h3 id="home-operations-title" className="text-lg font-semibold">Home actions</h3>}
-    {unavailable ? (
-      <Alert role="status" className="border-0 bg-transparent p-0">
-        <AlertDescription className="text-sm text-muted-foreground">
-          Recorded Home actions are unavailable. Onchain transfers are still shown.
-        </AlertDescription>
-      </Alert>
-    ) : (
-      <ItemGroup className="gap-0">
-        <ol className="list-none p-0">
-          {operations.map((operation) => (
-            <OperationRow
-              key={operation.action.id}
-              operation={operation}
-              onActivate={() => setSelected(operation)}
-            />
-          ))}
-        </ol>
-      </ItemGroup>
-    )}
-    <TransactionDetailsModal open={selected !== null} titleId="home-operation-details-title" details={selected ? presentOperationDetails(selected) : null} onClose={() => setSelected(null)} />
-  </section>;
+  const rows = unavailable ? (
+    <Alert role="status" className="border-0 bg-transparent p-0">
+      <AlertDescription className="text-sm text-muted-foreground">
+        Recorded Home actions are unavailable. Onchain transfers are still shown.
+      </AlertDescription>
+    </Alert>
+  ) : (
+    <ol className="list-none p-0">
+      {operations.map((operation) => (
+        <OperationRow
+          key={operation.action.id}
+          operation={operation}
+          onActivate={() => setSelected(operation)}
+        />
+      ))}
+    </ol>
+  );
+  const modal = (
+    <TransactionDetailsModal
+      open={selected !== null}
+      titleId="home-operation-details-title"
+      details={selected ? presentOperationDetails(selected) : null}
+      onClose={() => setSelected(null)}
+    />
+  );
+
+  if (embedded) return <>{rows}{modal}</>;
+
+  return (
+    <section className="space-y-3" aria-labelledby="home-operations-title">
+      <h3 id="home-operations-title" className="text-lg font-semibold">Home actions</h3>
+      {unavailable ? rows : <ItemGroup className="gap-0">{rows}</ItemGroup>}
+      {modal}
+    </section>
+  );
 }
 
 function OperationRow({ operation, onActivate }: { operation: RecentMoneyActionOperation; onActivate: () => void }) {

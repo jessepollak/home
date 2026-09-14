@@ -1,213 +1,427 @@
 import { describe, expect, test } from "bun:test";
+import type { Holding } from "@/shared/balances/types";
 import { createBalancesService } from "./coalesce";
-import type { BalancesRead } from "./types";
+import { MemoryBalanceSnapshotStore } from "./memory-snapshot-store";
+import type { BalanceObservation } from "./snapshot-store";
+import type { BalancesEnumeration, BalancesRead, ReadHolding } from "./types";
 
 const owner = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
-const otherOwner = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as const;
-const thirdOwner = "0xcccccccccccccccccccccccccccccccccccccccc" as const;
-const read: BalancesRead = {
-  block: {
-    number: "1",
-    hash: `0x${"1".repeat(64)}`,
-    timestamp: "1",
-  },
-  holdings: [],
-  coverage: {
-    registry: "complete",
-    catalog: "unavailable",
-  },
+const observedAt = "2026-09-13T12:00:00.000Z";
+const registry: ReadHolding = {
+  key: "eip155:8453/native",
+  id: "eth",
+  kind: "native",
+  source: "registry",
+  name: "Ethereum",
+  symbol: "ETH",
+  decimals: 18,
+  contractAddress: null,
+  cashCurrency: null,
+  balance: { status: "ready", baseUnits: "1" },
+};
+const catalog: ReadHolding = {
+  key: "eip155:8453/erc20:0x1111111111111111111111111111111111111111",
+  id: "catalog:0x1111111111111111111111111111111111111111",
+  kind: "erc20",
+  source: "catalog",
+  name: "Catalog",
+  symbol: "CAT",
+  decimals: 18,
+  contractAddress: "0x1111111111111111111111111111111111111111",
+  cashCurrency: null,
+  balance: { status: "ready", baseUnits: "2" },
 };
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
+function read(number = "10", at = observedAt, holdings: ReadHolding[] = [registry, catalog]): BalancesRead {
+  return {
+    block: { number, hash: `0x${number.padStart(64, "0")}`, timestamp: number },
+    observedAt: at,
+    holdings,
+    coverage: { registry: "complete", catalog: "complete" },
+  };
 }
 
-function serviceWithRead(
-  readBalances: () => Promise<BalancesRead>,
-  options: {
-    now?: () => Date;
-    ttlMs?: number;
-    maxOwners?: number;
-  } = {},
-) {
-  return createBalancesService({
+function observation(overrides: Partial<BalanceObservation> = {}): BalanceObservation {
+  const value = read();
+  return {
+    chainId: 8453,
+    address: owner,
+    blockNumber: value.block.number,
+    blockHash: value.block.hash,
+    blockTimestamp: value.block.timestamp,
+    observedAt: value.observedAt,
+    holdings: value.holdings,
+    coverage: value.coverage,
+    ...overrides,
+  };
+}
+
+function priced(rows: BalancesRead["holdings"]): Holding[] {
+  return rows.map((holding) => ({
+    key: holding.key,
+    id: holding.id,
+    kind: holding.kind,
+    source: holding.source,
+    name: holding.name,
+    symbol: holding.symbol,
+    decimals: holding.decimals,
+    contractAddress: holding.contractAddress,
+    cashCurrency: holding.cashCurrency,
+    balance: holding.balance,
+    value: { status: "unpriced", reason: "price-unavailable" },
+  }));
+}
+
+function setup(options: {
+  store?: MemoryBalanceSnapshotStore;
+  now?: string | (() => Date);
+  registryRead?: () => Promise<BalancesRead>;
+  enumerate?: (cursor?: string | null) => Promise<BalancesEnumeration>;
+}) {
+  const store = options.store ?? new MemoryBalanceSnapshotStore();
+  const configuredNow = options.now;
+  const events: unknown[] = [];
+  let reads = 0;
+  let enumerations = 0;
+  let clock = 0;
+  const service = createBalancesService({
+    store,
+    now: typeof configuredNow === "function"
+      ? configuredNow
+      : () => new Date(configuredNow ?? "2026-09-13T12:00:30.000Z"),
+    nowMs: () => clock++,
+    log: (event) => events.push(event),
     readUniverse: async () => ({ entries: [] }),
-    enumerateBalances: async () => ({ status: "unavailable", rows: [] }),
-    readBalances,
-    resolveBalances: async (registryRead) => registryRead,
-    priceBalances: async () => [],
-    ...options,
+    readBalances: async () => {
+      reads += 1;
+      return options.registryRead?.() ?? read("11", "2026-09-13T12:00:30.000Z", [registry]);
+    },
+    enumerateBalances: async (_owner, _signal, cursor) => {
+      enumerations += 1;
+      return options.enumerate?.(cursor) ?? { status: "complete", rows: [], nextCursor: null, pagesRead: 1, durationMs: 1 };
+    },
+    resolveBalances: async (registryRead, enumeration) => ({
+      ...registryRead,
+      holdings: enumeration.status === "unavailable"
+        ? registryRead.holdings
+        : [
+            ...registryRead.holdings,
+            ...(enumeration.rows.length === 0
+              ? [catalog]
+              : enumeration.rows.map((row) => ({
+                  ...catalog,
+                  key: `eip155:8453/erc20:${row.contractAddress}` as const,
+                  id: `catalog:${row.contractAddress}`,
+                  contractAddress: row.contractAddress,
+                  balance: { status: "ready" as const, baseUnits: row.amountBaseUnits },
+                }))),
+          ],
+      coverage: {
+        registry: registryRead.coverage.registry,
+        catalog: enumeration.status === "unavailable" ? "unavailable" : "complete",
+      },
+    }),
+    priceBalances: async (value) => priced(value.holdings),
   });
+  return {
+    store,
+    service,
+    events,
+    reads: () => reads,
+    enumerations: () => enumerations,
+  };
 }
 
-describe("balances composition and read coalescing", () => {
-  test("starts enumeration and registry read concurrently", async () => {
-    const readGate = deferred<BalancesRead>();
-    const enumerationGate = deferred<{
-      status: "unavailable";
-      rows: [];
-    }>();
-    let readStarted = false;
-    let enumerationStarted = false;
-    const service = createBalancesService({
-      readUniverse: async () => ({ entries: [] }),
-      readBalances: async () => {
-        readStarted = true;
-        return readGate.promise;
-      },
-      enumerateBalances: async () => {
-        enumerationStarted = true;
-        return enumerationGate.promise;
-      },
-      resolveBalances: async (registryRead) => registryRead,
-      priceBalances: async () => [],
-    });
-
-    const pending = service(owner, "US");
-    await Promise.resolve();
-    expect(readStarted).toBeTrue();
-    expect(enumerationStarted).toBeTrue();
-    readGate.resolve(read);
-    enumerationGate.resolve({ status: "unavailable", rows: [] });
-    await pending;
+describe("balance observations", () => {
+  test("serves a fresh row with fetchedAt equal to observedAt", async () => {
+    const fixture = setup({});
+    await fixture.store.putObservation(observation());
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.fetchedAt).toBe(observedAt);
+    expect(snapshot.stale).toBeUndefined();
+    expect(fixture.reads()).toBe(0);
+    expect(fixture.enumerations()).toBe(0);
   });
 
-  test("shares one in-flight registry read and reuses it across regions", async () => {
-    let count = 0;
-    const gate = deferred<void>();
-    const service = serviceWithRead(async () => {
-      count += 1;
-      await gate.promise;
-      return read;
-    }, {
-      now: () => new Date("2026-09-13T12:00:00.000Z"),
-    });
-
-    const first = service(owner, "US");
-    const second = service(owner, "US");
-    gate.resolve();
-
-    await Promise.all([first, second]);
-    await service(owner, "DE");
-    expect(count).toBe(1);
+  test("emits one balances-read event with stage durations and coverage", async () => {
+    const fixture = setup({});
+    await fixture.store.putObservation(observation());
+    await fixture.service(owner, "US");
+    expect(fixture.events).toEqual([{
+      kind: "balances-read",
+      route: "/api/balances",
+      outcome: "served-row",
+      durationMs: {
+        "store-read": 1,
+        enumerate: 0,
+        "registry-read": 0,
+        resolve: 0,
+        price: 1,
+        "store-write": 0,
+        total: expect.any(Number),
+      },
+      coverage: { registry: "complete", catalog: "complete" },
+    }]);
   });
 
-  test("keeps registry and enumeration work alive when the first caller aborts", async () => {
-    const readGate = deferred<BalancesRead>();
-    const enumerationGate = deferred<{
-      status: "unavailable";
-      rows: [];
-    }>();
-    let readSignal: AbortSignal | undefined;
-    let enumerationSignal: AbortSignal | undefined;
-    const service = createBalancesService({
-      readUniverse: async () => ({ entries: [] }),
-      readBalances: async (_universe, _owner, signal) => {
-        readSignal = signal;
-        return readGate.promise;
+  test("resumes a bounded enumeration, merges stored rows, and clears the cursor", async () => {
+    const nextAddress = "0x2222222222222222222222222222222222222222" as const;
+    const cursors: Array<string | null | undefined> = [];
+    const fixture = setup({
+      enumerate: async (cursor) => {
+        cursors.push(cursor);
+        return {
+          status: "complete",
+          rows: [{ contractAddress: nextAddress, amountBaseUnits: "3" }],
+          nextCursor: null,
+          pagesRead: 1,
+          durationMs: 5,
+        };
       },
-      enumerateBalances: async (_owner, signal) => {
-        enumerationSignal = signal;
-        return enumerationGate.promise;
-      },
-      resolveBalances: async (registryRead) => registryRead,
-      priceBalances: async () => [],
     });
-    const controller = new AbortController();
+    await fixture.store.putObservation(observation({ enumerationCursor: "page-two" }));
 
-    const first = service(owner, "US", controller.signal);
-    const second = service(owner, "DE");
-    controller.abort();
-    readGate.resolve(read);
-    enumerationGate.resolve({ status: "unavailable", rows: [] });
+    const snapshot = await fixture.service(owner, "US");
+    expect(cursors).toEqual(["page-two"]);
+    expect(snapshot.holdings.map(({ contractAddress }) => contractAddress)).toContain(
+      catalog.contractAddress,
+    );
+    expect(snapshot.holdings.map(({ contractAddress }) => contractAddress)).toContain(
+      nextAddress,
+    );
+    expect((await fixture.store.get(8453, owner))?.enumerationCursor).toBeNull();
 
-    await expect(first).resolves.toMatchObject({ region: "US" });
-    await expect(second).resolves.toMatchObject({ region: "DE" });
-    expect(readSignal).toBeUndefined();
-    expect(enumerationSignal).toBeUndefined();
+    await fixture.service(owner, "DE");
+    expect(fixture.enumerations()).toBe(1);
   });
 
-  test("CDP unavailable still yields the registry snapshot", async () => {
-    const service = createBalancesService({
-      readUniverse: async () => ({ entries: [] }),
-      readBalances: async () => read,
-      enumerateBalances: async () => ({ status: "unavailable", rows: [] }),
-      resolveBalances: async (registryRead, enumeration) => ({
-        ...registryRead,
-        coverage: {
-          ...registryRead.coverage,
-          catalog: enumeration.status === "unavailable"
-            ? "unavailable"
-            : "complete",
-        },
-      }),
-      priceBalances: async () => [],
-    });
+  test("hot rows re-read registry only and retain catalog rows without moving observedAt", async () => {
+    const fixture = setup({});
+    await fixture.store.putObservation(observation());
+    await fixture.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
+    const snapshot = await fixture.service(owner, "US");
+    expect(fixture.reads()).toBe(1);
+    expect(fixture.enumerations()).toBe(0);
+    expect(snapshot.holdings.map((holding) => holding.source)).toEqual(["registry", "catalog"]);
+    expect(snapshot.fetchedAt).toBe(observedAt);
+    expect((await fixture.store.get(8453, owner))?.observedAt).toBe(observedAt);
+  });
 
-    await expect(service(owner, "US")).resolves.toMatchObject({
-      holdings: [],
+  test("continuous hot reads still run a full observation after 120 seconds", async () => {
+    let current = new Date("2026-09-13T12:00:30.000Z");
+    const fixture = setup({
+      now: () => current,
+      registryRead: async () => read("11", current.toISOString(), [registry]),
+    });
+    await fixture.store.putObservation(observation());
+    await fixture.store.markHot(8453, owner, new Date("2026-09-13T12:05:00.000Z"));
+
+    await fixture.service(owner, "US");
+    current = new Date("2026-09-13T12:01:30.000Z");
+    await fixture.service(owner, "US");
+    expect((await fixture.store.get(8453, owner))?.observedAt).toBe(observedAt);
+    expect(fixture.enumerations()).toBe(0);
+
+    current = new Date("2026-09-13T12:02:01.000Z");
+    await fixture.service(owner, "US");
+    expect(fixture.enumerations()).toBe(1);
+  });
+
+  test("a stale mark causes a full re-observe", async () => {
+    const fixture = setup({});
+    await fixture.store.putObservation(observation());
+    await fixture.store.markStale(8453, owner, new Date("2026-09-13T12:00:20.000Z"));
+    await fixture.service(owner, "US");
+    expect(fixture.reads()).toBe(1);
+    expect(fixture.enumerations()).toBe(1);
+  });
+
+  test("a stale mark during a hot window still forces a full re-observe", async () => {
+    const fixture = setup({});
+    await fixture.store.putObservation(observation());
+    await fixture.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
+    await fixture.store.markStale(8453, owner, new Date("2026-09-13T12:00:20.000Z"));
+    await fixture.service(owner, "US");
+    expect(fixture.reads()).toBe(1);
+    expect(fixture.enumerations()).toBe(1);
+  });
+
+  test("degraded catalog coverage forces a full re-observe", async () => {
+    const fixture = setup({});
+    await fixture.store.putObservation({
+      ...observation(),
       coverage: { registry: "complete", catalog: "unavailable" },
     });
+    await fixture.service(owner, "US");
+    expect(fixture.enumerations()).toBe(1);
   });
 
-  test("clears a failed registry read so the next call starts a new read", async () => {
-    let count = 0;
-    const service = serviceWithRead(async () => {
-      count += 1;
-      if (count === 1) throw new Error("registry unavailable");
-      return read;
+  test("partial registry coverage behaves as hot without extending its lease", async () => {
+    const fixture = setup({});
+    await fixture.store.putObservation({
+      ...observation(),
+      coverage: { registry: "partial", catalog: "complete" },
     });
-
-    await expect(service(owner, "US")).rejects.toThrow("registry unavailable");
-    await expect(service(owner, "US")).resolves.toMatchObject({
-      coverage: { registry: "complete" },
-    });
-    expect(count).toBe(2);
+    await fixture.service(owner, "US");
+    expect(fixture.reads()).toBe(1);
+    expect(fixture.enumerations()).toBe(0);
+    expect((await fixture.store.get(8453, owner))?.observedAt).toBe(observedAt);
   });
 
-  test("starts a new registry read after the 2s TTL expires", async () => {
-    let count = 0;
-    let current = Date.parse("2026-09-13T12:00:00.000Z");
-    const service = serviceWithRead(async () => {
-      count += 1;
-      return read;
-    }, {
-      now: () => new Date(current),
-      ttlMs: 2_000,
-    });
-
-    await service(owner, "US");
-    current += 2_001;
-    await service(owner, "US");
-    expect(count).toBe(2);
+  test("the 120 second backstop causes a full re-observe", async () => {
+    const fixture = setup({ now: "2026-09-13T12:02:01.000Z" });
+    await fixture.store.putObservation(observation());
+    await fixture.service(owner, "US");
+    expect(fixture.reads()).toBe(1);
+    expect(fixture.enumerations()).toBe(1);
   });
 
-  test("evicts the least recently used owner at maxOwners", async () => {
-    const counts = new Map<string, number>();
-    const service = createBalancesService({
-      readUniverse: async () => ({ entries: [] }),
-      enumerateBalances: async () => ({ status: "unavailable", rows: [] }),
-      readBalances: async (_universe, address) => {
-        counts.set(address, (counts.get(address) ?? 0) + 1);
-        return read;
-      },
-      resolveBalances: async (registryRead) => registryRead,
-      priceBalances: async () => [],
-      maxOwners: 2,
+  test("failed required re-observe serves the prior row stale with unchanged coverage", async () => {
+    const fixture = setup({
+      registryRead: async () => { throw new Error("rpc unavailable"); },
+    });
+    await fixture.store.putObservation({
+      ...observation(),
+      coverage: { registry: "partial", catalog: "incomplete" },
+    });
+    await fixture.store.markStale(8453, owner, new Date("2026-09-13T12:00:20.000Z"));
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.stale).toBeTrue();
+    expect(snapshot.coverage).toEqual({ registry: "partial", catalog: "incomplete" });
+    expect(snapshot.fetchedAt).toBe(observedAt);
+  });
+
+  test("a snapshot read failure falls through to a fresh observation", async () => {
+    const memory = new MemoryBalanceSnapshotStore();
+    const fixture = setup({
+      store: Object.assign(memory, {
+        get: async () => { throw new Error("database unavailable"); },
+      }),
+    });
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.stale).toBeUndefined();
+    expect(fixture.reads()).toBe(1);
+  });
+
+  test("an observation write failure still returns the fresh read", async () => {
+    const memory = new MemoryBalanceSnapshotStore();
+    const fixture = setup({
+      store: Object.assign(memory, {
+        putObservation: async () => { throw new Error("database unavailable"); },
+      }),
+    });
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.stale).toBeUndefined();
+    expect(snapshot.fetchedAt).toBe("2026-09-13T12:00:30.000Z");
+  });
+
+  test("serves the winning row when the observation loses its conditional write", async () => {
+    const memory = new MemoryBalanceSnapshotStore();
+    await memory.putObservation(observation({
+      blockNumber: "12",
+      blockHash: `0x${"12".padStart(64, "0")}`,
+      blockTimestamp: "12",
+      observedAt: "2026-09-13T12:00:31.000Z",
+    }));
+    const winner = await memory.get(8453, owner);
+    let reads = 0;
+    const fixture = setup({
+      store: Object.assign(memory, {
+        get: async () => {
+          reads += 1;
+          return reads === 1 ? null : winner;
+        },
+        putObservation: async () => false,
+      }),
     });
 
-    await service(owner, "US");
-    await service(otherOwner, "US");
-    await service(owner, "DE");
-    await service(thirdOwner, "US");
-    await service(otherOwner, "US");
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.fetchedAt).toBe("2026-09-13T12:00:31.000Z");
+    expect(snapshot.block.number).toBe("12");
+  });
 
-    expect(counts.get(owner)).toBe(1);
-    expect(counts.get(otherOwner)).toBe(2);
-    expect(counts.get(thirdOwner)).toBe(1);
+  test("an unavailable enumeration preserves prior non-registry holdings and the full-observation pin", async () => {
+    const freshRegistry = {
+      ...registry,
+      balance: { status: "ready" as const, baseUnits: "9" },
+    };
+    const fixture = setup({
+      now: "2026-09-13T12:02:01.000Z",
+      registryRead: async () => read(
+        "11",
+        "2026-09-13T12:02:01.000Z",
+        [freshRegistry],
+      ),
+      enumerate: async () => ({
+        status: "unavailable",
+        rows: [],
+        nextCursor: null,
+        pagesRead: 0,
+        durationMs: 1,
+      }),
+    });
+    await fixture.store.putObservation(observation());
+
+    const first = await fixture.service(owner, "US");
+    expect(first.holdings.map(({ id }) => id)).toEqual([registry.id, catalog.id]);
+    expect(first.holdings[0]?.balance).toEqual({ status: "ready", baseUnits: "9" });
+    expect(first.coverage).toEqual({ registry: "complete", catalog: "complete" });
+    expect(first.fetchedAt).toBe(observedAt);
+    expect(await fixture.store.get(8453, owner)).toMatchObject({
+      observedAt,
+      enumerationCursor: null,
+    });
+
+    await fixture.service(owner, "US");
+    expect(fixture.enumerations()).toBe(2);
+  });
+
+  test("an unavailable enumeration resume preserves the stored cursor", async () => {
+    const fixture = setup({
+      enumerate: async () => ({
+        status: "unavailable",
+        rows: [],
+        nextCursor: null,
+        pagesRead: 0,
+        durationMs: 1,
+      }),
+    });
+    await fixture.store.putObservation(observation({ enumerationCursor: "page-two" }));
+
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.holdings.map(({ id }) => id)).toContain(catalog.id);
+    expect((await fixture.store.get(8453, owner))?.enumerationCursor).toBe("page-two");
+  });
+
+  test("failed initial observation rejects so the route can return 502", async () => {
+    const fixture = setup({
+      registryRead: async () => { throw new Error("rpc unavailable"); },
+    });
+    await expect(fixture.service(owner, "US")).rejects.toThrow("rpc unavailable");
+  });
+
+  test("dropping a row makes the next read re-observe", async () => {
+    const fixture = setup({});
+    await fixture.store.putObservation(observation());
+    await fixture.service(owner, "US");
+    fixture.store.deleteForTests(8453, owner);
+    await fixture.service(owner, "US");
+    expect(fixture.reads()).toBe(1);
+    expect(fixture.enumerations()).toBe(1);
+  });
+
+  test("shares one in-flight observation across regions", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fixture = setup({
+      registryRead: async () => { await gate; return read("11", "2026-09-13T12:00:30.000Z", [registry]); },
+    });
+    const first = fixture.service(owner, "US");
+    const second = fixture.service(owner, "DE");
+    await Promise.resolve();
+    release();
+    await Promise.all([first, second]);
+    expect(fixture.reads()).toBe(1);
+    expect(fixture.enumerations()).toBe(1);
   });
 });

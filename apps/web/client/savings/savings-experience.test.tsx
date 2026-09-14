@@ -141,6 +141,25 @@ describe("Save simplify", () => {
     ]);
   });
 
+  test("appends a stale snapshot age to the Save max label", async () => {
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session()}
+        balanceStatus="ready"
+        balancePositions={balancePositions()}
+        availableUsdcBaseUnits="50000000"
+        balanceAgeLabel="Updated 3 min ago"
+        prepareMoneyAction={async () => preparedAction("savings-deposit")}
+        executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
+      />,
+    );
+
+    fireEvent.click(await page().findByRole("button", { name: "Get started" }));
+    expect(page().getByText("Updated 3 min ago", { exact: false })).toBeTruthy();
+  });
+
   test("sums every funded vault from the balances snapshot", async () => {
     render(
       <SavingsExperience

@@ -6,6 +6,7 @@ import { readCurrentBaseBlock, verifyBaseFundingReceipt } from "./base-receipt";
 import { createRuntimeFundingOrderStore } from "./postgres-store";
 import { FundingCore } from "./service";
 import { emitServerEvent } from "@/server/observability/log";
+import { getBalanceSnapshotStore } from "@/server/balances/snapshot-store";
 
 export const authorizeFundingSession = authorizeSession;
 
@@ -16,6 +17,7 @@ export function getFundingCore(): FundingCore {
     store: createRuntimeFundingOrderStore(),
     currentBaseBlock: () => readCurrentBaseBlock(),
     verifyReceipt: (order, hash) => verifyBaseFundingReceipt(order, hash),
+    markStale: (address, at) => getBalanceSnapshotStore().markStale(8453, address, at),
     logUnmatchedWebhook: ({ providerId, reason }) => {
       emitServerEvent("funding-webhook", {
         route: "/api/funding/webhooks/:provider",

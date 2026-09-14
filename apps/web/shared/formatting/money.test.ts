@@ -24,11 +24,9 @@ import {
   type AtomicAmount,
 } from "./money";
 import {
-  formatFiatValue,
-  formatMoneyLabel,
   formatPresentationFiat,
   presentationCurrencyName,
-} from "@/shared/portfolio/valuation-format";
+} from "@/shared/formatting";
 
 const localeCases = [
   {
@@ -248,13 +246,11 @@ describe("presentation money formatting", () => {
     })).toBe("—");
   });
 
-  test("keeps valuation wrappers on the shared exact formatter", () => {
-    expect(formatFiatValue({ atoms: "4", scale: 3 }, "USD")).toBe("USD <0.01");
-    expect(formatFiatValue({ atoms: "0", scale: 18 }, "USD")).toBe("USD 0.00");
+  test("formats presentation fiat through the shared formatting barrel", () => {
     expect(presentationCurrencyName("USD")).toBe("US dollar");
+    expect(presentationCurrencyName("IDR")).toBe("Rupiah");
     expect(formatPresentationFiat({ atoms: "481240", scale: 2 }, "IDR", 2, "ID")).toBe(
       "Rp\u00A04.812,40",
     );
-    expect(formatMoneyLabel("4,812.40", "BRL", "BR")).toBe("R$\u00A04.812,40");
   });
 });

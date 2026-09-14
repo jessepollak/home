@@ -1,10 +1,32 @@
-import { formatPresentationPercentage } from "@/shared/formatting";
+import type { RegionId } from "@/config/regions";
+import {
+  formatPresentationPercentage,
+  formatUsdStablecoinAmount,
+} from "@/shared/formatting";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import {
   formatExactSavingsApy,
   getSavingsRateState,
   type SavingsPortfolioSummary,
 } from "./portfolio-summary";
+
+export function savingsTeaserBalanceLabel({
+  summary,
+  savedSubtotal,
+  regionId,
+}: {
+  summary: SavingsPortfolioSummary | null;
+  savedSubtotal: string | null;
+  regionId: RegionId;
+}): string {
+  if (savedSubtotal) return savedSubtotal;
+  if (summary?.balance.status !== "available") return "—";
+  return formatUsdStablecoinAmount(
+    summary.balance.totalBaseUnits,
+    summary.balance.asset.decimals,
+    regionId,
+  );
+}
 
 export function savingsTeaserApyLabel({
   summary,

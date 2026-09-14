@@ -99,12 +99,12 @@ export function ActivityPanel({
     : page.transfers;
   const isEmpty = visibleTransfers.length === 0;
   return (
-    <ActivitySurface heading={heading} leading={leading} labelledBy={labelledBy} label={labelled}>
-      {isEmpty ? (
-        suppressEmpty ? null : <ActivityEmpty />
-      ) : (
-        <ItemGroup className="gap-0">
-          <ol className="list-none p-0">
+    <ActivitySurface heading={heading} leading={null} labelledBy={labelledBy} label={labelled}>
+      {isEmpty && !suppressEmpty && !leading ? <ActivityEmpty /> : null}
+      <ItemGroup className="gap-1">
+        {leading}
+        {isEmpty ? null : (
+          <ol className="list-none p-0 space-y-1">
             {visibleTransfers.map((transfer) => (
               <TransferActivityRow
                 key={transfer.id}
@@ -114,8 +114,8 @@ export function ActivityPanel({
               />
             ))}
           </ol>
-        </ItemGroup>
-      )}
+        )}
+      </ItemGroup>
 
       {density === "page" ? (
         <ActivityPagination

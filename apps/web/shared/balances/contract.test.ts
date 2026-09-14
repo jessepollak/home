@@ -69,6 +69,17 @@ describe("parseBalancesSnapshot", () => {
     expect(discovered?.imageUrl).toBe(FIXTURE_WALLET_TOKEN.imageUrl);
   });
 
+  test("accepts an https image on a registry Invest row and a stale flag", () => {
+    const snapshot = clone(balancesSnapshotFixture);
+    snapshot.holdings = snapshot.holdings.map((h) =>
+      h.id === "cbbtc" ? { ...h, imageUrl: "https://icons.example.invalid/cbbtc.png" } : h,
+    );
+    snapshot.stale = true;
+    const parsed = parseBalancesSnapshot(clone(snapshot), session, "US");
+    expect(parsed.holdings.find((h) => h.id === "cbbtc")?.imageUrl).toBe("https://icons.example.invalid/cbbtc.png");
+    expect(parsed.stale).toBe(true);
+  });
+
   test("carries every registry asset plus the catalog rows", () => {
     const registryIds = [...expectedRegistryHoldings().keys()];
     const parsed = parseBalancesSnapshot(clone(balancesSnapshotFixture), session, "US");
@@ -100,8 +111,20 @@ describe("parseBalancesSnapshot", () => {
       mutate: (s) => ({ ...s, holdings: s.holdings.map((h) => (h.id === "usdc" ? { ...h, decimals: 18 } : h)) }),
     },
     {
-      label: "registry row claiming an image",
+      label: "cash registry row claiming an image",
       mutate: (s) => ({ ...s, holdings: s.holdings.map((h) => (h.id === "usdc" ? { ...h, imageUrl: "https://x.invalid/a.png" } : h)) }),
+    },
+    {
+      label: "native registry row claiming an image",
+      mutate: (s) => ({ ...s, holdings: s.holdings.map((h) => (h.id === "eth" ? { ...h, imageUrl: "https://x.invalid/a.png" } : h)) }),
+    },
+    {
+      label: "registry Invest row with a non-https image",
+      mutate: (s) => ({ ...s, holdings: s.holdings.map((h) => (h.id === "cbbtc" ? { ...h, imageUrl: "http://x.invalid/a.png" } : h)) }),
+    },
+    {
+      label: "stale flag that is not true",
+      mutate: (s) => ({ ...s, stale: false }),
     },
     {
       label: "unavailable balance coerced to zero",

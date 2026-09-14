@@ -33,6 +33,7 @@ export type SavingsMoneyDialogProps = {
   session: VerifiedAccountSession;
   candidate: MorphoVaultCandidate;
   availableLabel?: string;
+  balanceAgeLabel?: string;
   availableBaseUnits?: string | null;
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
@@ -48,6 +49,7 @@ export function SavingsMoneyDialog({
   session,
   candidate,
   availableLabel,
+  balanceAgeLabel,
   availableBaseUnits,
   prepareMoneyAction,
   executeMoneyAction,
@@ -198,6 +200,7 @@ export function SavingsMoneyDialog({
                 onAmountChange={changeAmount}
                 availableLabel={availableLabel}
                 availableAmount={decimalFromBaseUnits(availableBaseUnits ?? "", 6)}
+                availableSuffix={balanceAgeLabel}
                 assetId="usdc"
                 assetLabel="USDC"
                 assetLocked

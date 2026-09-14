@@ -127,11 +127,6 @@ export function roundFractionPreservingPositive(
   return { atoms: "1", scale: maximumScale };
 }
 
-export function isZeroFraction(value: Fraction): boolean {
-  assertFraction(value);
-  return value.numerator === BigInt(0);
-}
-
 function reduce(value: Fraction): Fraction {
   assertFraction(value);
   if (value.numerator === BigInt(0)) return { numerator: BigInt(0), denominator: BigInt(1) };

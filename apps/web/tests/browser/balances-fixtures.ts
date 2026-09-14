@@ -13,6 +13,7 @@ import type { BalancesSnapshot, Holding } from "../../shared/balances/types";
 
 export const SMOKE_OWNER = "0x1111111111111111111111111111111111111111" as const;
 export const RECOGNIZED_IMAGE_URL = "https://images.example.test/recognized.svg";
+export const CBBTC_IMAGE_URL = "https://images.example.test/cbbtc.svg";
 
 const recognizedEntry = {
   address: "0x9999999999999999999999999999999999999999",
@@ -20,6 +21,13 @@ const recognizedEntry = {
   symbol: "RCG",
   decimals: 18,
   imageUrl: RECOGNIZED_IMAGE_URL,
+} as const;
+
+const dustEntry = {
+  address: "0x7777777777777777777777777777777777777777",
+  name: "Dust Coin",
+  symbol: "DUST",
+  decimals: 18,
 } as const;
 
 function quoteCurrency(region: RegionId): FiatCurrencyCode | null {
@@ -41,6 +49,17 @@ export function recognizedCatalogHolding(region: RegionId): Holding {
   );
 }
 
+export function dustCatalogHolding(region: RegionId): Holding {
+  const currency = quoteCurrency(region);
+  return catalogHolding(
+    dustEntry,
+    "1000000000000000",
+    currency
+      ? priced(currency, "9", 3)
+      : { status: "unpriced", reason: "no-quote-currency" },
+  );
+}
+
 /**
  * The browser fixture mirrors shared/balances/fixtures.ts: the builder supplies
  * every configured direct asset and all three vault shares, while these
@@ -48,7 +67,7 @@ export function recognizedCatalogHolding(region: RegionId): Holding {
  */
 export function balancesSnapshot(region: RegionId = "US"): BalancesSnapshot {
   const currency = quoteCurrency(region);
-  return buildBalancesSnapshotFixture({
+  const snapshot = buildBalancesSnapshotFixture({
     region,
     owner: SMOKE_OWNER,
     registry: {
@@ -67,11 +86,17 @@ export function balancesSnapshot(region: RegionId = "US"): BalancesSnapshot {
         value: quotedValue(region, "100"),
       },
     },
-    catalog: [recognizedCatalogHolding(region)],
+    catalog: [recognizedCatalogHolding(region), dustCatalogHolding(region)],
     total: currency
       ? { status: "complete", value: decimal("9054", 2), currency }
       : { status: "no-quote-currency", value: null, currency: null },
   });
+  return {
+    ...snapshot,
+    holdings: snapshot.holdings.map((holding) => holding.id === "cbbtc"
+      ? { ...holding, imageUrl: CBBTC_IMAGE_URL }
+      : holding),
+  };
 }
 
 export function rowAnatomySnapshot(region: RegionId = "US"): BalancesSnapshot {

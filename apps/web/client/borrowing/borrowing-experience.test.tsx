@@ -237,7 +237,6 @@ describe("BorrowExperience redesign", () => {
     const body = within(document.body);
     const card = await body.findByTestId("borrow-market-card");
     expect(card.className).toContain("overflow-hidden");
-    expect(card.querySelector("[data-slot='card-content']")?.className).toContain("py-0");
     const borrowedSummary = body.getByText("Borrowed").parentElement?.parentElement;
     expect(borrowedSummary?.className).toContain("grid-cols-1");
     expect(borrowedSummary?.className).toContain("sm:grid-cols-2");

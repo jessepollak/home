@@ -8,7 +8,7 @@ const base: FundingReservation = {
   destination: "0x1111111111111111111111111111111111111111", providerId: "idrx",
   region: "ID", assetId: "base:idrx", paymentMethod: "qris", fiatAmount: "20000.00",
   intentDigest: "digest", quote: { fiatAmount: "20000.00", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
-  quoteToken: "signed-token", customerRef: null, creationBlock: "100", createdAt: "2026-09-12T00:00:00.000Z",
+  quoteToken: "signed-token", customerRef: null, sandbox: false, creationBlock: "100", createdAt: "2026-09-12T00:00:00.000Z",
 };
 
 describe("MemoryFundingOrderStore contract", () => {
@@ -28,6 +28,21 @@ describe("MemoryFundingOrderStore contract", () => {
     expect((await store.getOpen(owner, "ID"))?.id).toBe(ambiguous.id);
     expect(await store.applyObservation(base.id, { state: "sent-unverified", providerStatus: "late", expectedVersion: ambiguous.version, updatedAt: "2026-09-12T00:00:02.000Z" })).toBeNull();
     expect((await store.getOwned(base.id, owner))?.state).toBe("dispatch-ambiguous");
+  });
+
+  test("does not resume completed sandbox runs but keeps live sent-unverified orders open", async () => {
+    const sandboxStore = new MemoryFundingOrderStore();
+    const sandbox = { ...base, sandbox: true };
+    await sandboxStore.reserve(sandbox);
+    const sandboxDispatched = await sandboxStore.completeDispatch(sandbox.id, { providerOrderId: "sandbox-provider", expectedTokenAmountAtomic: "2000000", fees: [], expiresAt: null, instructions: { kind: "redirect", url: "https://example.com" }, expectedVersion: 0, updatedAt: "2026-09-12T00:00:01.000Z" });
+    await sandboxStore.applyObservation(sandbox.id, { state: "sent-unverified", providerStatus: "complete", expectedVersion: sandboxDispatched.version, updatedAt: "2026-09-12T00:00:02.000Z" });
+    expect(await sandboxStore.getOpen(owner, "ID")).toBeNull();
+
+    const liveStore = new MemoryFundingOrderStore();
+    await liveStore.reserve(base);
+    const liveDispatched = await liveStore.completeDispatch(base.id, { providerOrderId: "live-provider", expectedTokenAmountAtomic: "2000000", fees: [], expiresAt: null, instructions: { kind: "redirect", url: "https://example.com" }, expectedVersion: 0, updatedAt: "2026-09-12T00:00:01.000Z" });
+    await liveStore.applyObservation(base.id, { state: "sent-unverified", providerStatus: "unverified", expectedVersion: liveDispatched.version, updatedAt: "2026-09-12T00:00:02.000Z" });
+    expect((await liveStore.getOpen(owner, "ID"))?.id).toBe(base.id);
   });
 
   test("enforces unique provider IDs and unique receipt claims", async () => {

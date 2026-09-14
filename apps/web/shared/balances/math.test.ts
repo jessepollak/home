@@ -7,9 +7,9 @@ import {
   parseExactDecimal,
   roundFractionPreservingPositive,
   roundFractionToExactDecimal,
-} from "./valuation-math";
+} from "./math";
 
-describe("exact portfolio valuation math", () => {
+describe("exact balances math", () => {
   test("parses decimal and exponent lexemes without floating point", () => {
     expect(parseExactDecimal("0.000000000000000000123456789")).toEqual({
       atoms: "123456789",

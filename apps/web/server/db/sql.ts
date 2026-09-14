@@ -29,8 +29,9 @@ export function isUniqueViolation(error: unknown): boolean {
   return value.code === "23505" || value.errno === "23505" || value.sqlState === "23505";
 }
 
+type DriverQueryResult = { rows?: unknown[]; rowCount?: number | null };
 type Queryable = {
-  query: (text: string, values?: unknown[]) => Promise<{ rows: unknown[]; rowCount?: number | null }>;
+  query: (text: string, values?: unknown[]) => Promise<DriverQueryResult | DriverQueryResult[]>;
 };
 
 type PoolClientLike = Queryable & Pick<PoolClient, "release">;
@@ -64,9 +65,11 @@ function wrapQueryable(
       options: SqlQueryOptions = {},
     ) {
       throwIfSqlAborted(options.signal);
-      const result = await queryable.query(text, values);
+      const driverResult = await queryable.query(text, values);
       throwIfSqlAborted(options.signal);
-      return { rows: result.rows as T[], rowCount: result.rowCount ?? result.rows.length };
+      const result = lastDriverResult(driverResult);
+      const rows = result?.rows ?? [];
+      return { rows: rows as T[], rowCount: result?.rowCount ?? rows.length };
     },
     transaction<T>(fn: (tx: SqlExecutor) => Promise<T>) {
       return beginTransaction(fn as (tx: SqlExecutor) => Promise<unknown>) as Promise<T>;
@@ -126,8 +129,10 @@ export function createPostgresSqlExecutor(
       throwIfSqlAborted(signal);
       await client.query("BEGIN");
       if (schema && schemaName) {
-        const existing = await client.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schemaName]);
-        if (existing.rows.length !== 1) throw new Error(`PostgreSQL schema ${schemaName} does not exist`);
+        const existing = lastDriverResult(
+          await client.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schemaName]),
+        );
+        if (existing?.rows?.length !== 1) throw new Error(`PostgreSQL schema ${schemaName} does not exist`);
         await client.query(`SET LOCAL search_path TO ${schema}`);
       }
       const result = await fn(tx);
@@ -174,6 +179,12 @@ export function createPostgresSqlExecutor(
       if (pool) await pool.end();
     },
   };
+}
+
+function lastDriverResult(
+  result: DriverQueryResult | DriverQueryResult[],
+): DriverQueryResult | undefined {
+  return Array.isArray(result) ? result.at(-1) : result;
 }
 
 function throwIfSqlAborted(signal: AbortSignal | undefined): void {

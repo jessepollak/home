@@ -198,7 +198,7 @@ const currencyPresentations = {
   },
   IDR: {
     code: "IDR",
-    name: "Indonesian rupiah",
+    name: "Rupiah",
     symbol: "Rp",
     candidateAsset: candidateAsset("IDRX", "IDRX", "Verification pending"),
   },

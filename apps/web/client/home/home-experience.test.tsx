@@ -89,8 +89,12 @@ function sdk(overrides: Partial<AccountWalletSdkBoundary> = {}): AccountWalletSd
     ownerKey: null,
     signInWithEmail: async () => ({ flowId: "flow-1" }),
     verifyEmailOTP: async () => {},
-    signInWithSiwe: async () => ({ flowId: "siwe-1", message: "message" }),
-    verifySiweSignature: async () => {},
+    requestBaseAccountChallenge: async () => ({
+      nonce: "a".repeat(48), chainId: 8453, domain: "home.example", uri: "https://home.example",
+      version: "1", statement: "Sign in to Home.", issuedAt: "2026-09-13T12:00:00.000Z",
+      expirationTime: "2026-09-13T12:05:00.000Z",
+    }),
+    verifyBaseAccountProof: async () => {},
     getAccessToken: async () => "fixture-token",
     signOut: async () => {},
     ...overrides,
@@ -163,6 +167,8 @@ function HomeHarness({
             secondary: null,
             tone: "default",
           }],
+          hiddenRows: [],
+          hiddenCount: 0,
         }}
       />
     </AccountWalletSessionOwner>
@@ -381,6 +387,20 @@ describe("Home shell auth and privacy", () => {
 });
 
 describe("Home shell routing and intents", () => {
+  test("a group's More row opens the panel anchored to that group; absent groups show no row", async () => {
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    await waitForVerifiedShell();
+
+    // The harness wallet holds only cash: no Investments header or More row leading nowhere.
+    expect(page().queryByRole("button", { name: "More Investments" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "More Cash" }));
+
+    expect(`${window.location.pathname}${window.location.search}`).toBe(
+      "/dashboard?panel=balances&group=cash",
+    );
+    expect(page().getByRole("heading", { name: "Your money" })).toBeTruthy();
+  });
+
   test("keeps panel selection and browser history synchronized", async () => {
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
     await waitForVerifiedShell();

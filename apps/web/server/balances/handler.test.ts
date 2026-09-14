@@ -81,6 +81,19 @@ describe("balances handler", () => {
     }]);
   });
 
+  test("attempts subscription once per address without delaying or failing reads", async () => {
+    let attempts = 0;
+    const handler = createBalancesHandler({
+      authorize: async () => verified,
+      readBalances: async () => balancesSnapshotFixture,
+      ensureAddressSubscribed: async () => { attempts += 1; throw new Error("not configured"); },
+    });
+    await handler(new Request("https://home.test/api/balances?region=US"));
+    await handler(new Request("https://home.test/api/balances?region=DE"));
+    await Promise.resolve();
+    expect(attempts).toBe(1);
+  });
+
   test("returns the snapshot with private response headers", async () => {
     const handler = createBalancesHandler({
       authorize: async () => verified,

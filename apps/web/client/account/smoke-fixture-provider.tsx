@@ -37,11 +37,17 @@ export function SmokeFixtureAccountProvider({ children }: { children: ReactNode 
       window.sessionStorage.setItem(SIGNED_IN_KEY, "1");
       setOwnerKey("playwright-smoke-owner");
     },
-    signInWithSiwe: async () => ({
-      flowId: "playwright-smoke-siwe",
-      message: "Playwright smoke fixture",
+    requestBaseAccountChallenge: async () => ({
+      nonce: "a".repeat(48),
+      chainId: 8453,
+      domain: "localhost",
+      uri: "http://localhost",
+      version: "1",
+      statement: "Sign in to Home.",
+      issuedAt: "2026-09-13T00:00:00.000Z",
+      expirationTime: "2026-09-13T00:05:00.000Z",
     }),
-    verifySiweSignature: async () => {},
+    verifyBaseAccountProof: async () => {},
     getAccessToken: async () => ownerKey ? "playwright-smoke-token" : null,
     sendUserOperation: () => {
       const count = Number(window.sessionStorage.getItem(DISPATCH_COUNT_KEY) ?? "0") + 1;

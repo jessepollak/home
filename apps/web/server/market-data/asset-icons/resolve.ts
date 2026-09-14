@@ -1,6 +1,6 @@
 import "server-only";
 
-import { cryptoAssets, stockAssets } from "@/config/invest-assets";
+import { cryptoAssets, memeAssets, stockAssets } from "@/config/invest-assets";
 import { readCodexTokenImages, contractKey } from "../codex/token-images";
 import type { FetchLike } from "../codex/execute";
 import { CODEX_REQUEST_TIMEOUT_MS } from "../codex/config";
@@ -9,7 +9,7 @@ import { readOnchainIconImages } from "./onchain";
 export type AssetIconMap = Record<string, string | null>;
 
 const ICON_CACHE_TTL_MS = 60 * 60 * 1_000;
-const configuredIconAssets = [...stockAssets, ...cryptoAssets];
+const configuredIconAssets = [...stockAssets, ...cryptoAssets, ...memeAssets];
 
 type Clock = () => Date;
 

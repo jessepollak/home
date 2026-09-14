@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useBalances } from "@/client/balances";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { presentBalances } from "@/shared/balances/present";
@@ -8,11 +8,13 @@ import { resolvePresentation, type RegionId } from "@/config/regions";
 import { HomeExperience } from "./home-shell-provider";
 import { deriveSendAvailability } from "./send-availability";
 import type { HomeExperienceProps } from "./home-types";
+import { useShowSmallBalances } from "./use-show-small-balances";
 
 export function PortfolioHomeExperience(
   props: Omit<HomeExperienceProps, "assetBalances" | "sendAvailability">,
 ) {
   const account = useAccountWallet();
+  const [showSmallBalances, setShowSmallBalances] = useShowSmallBalances();
   const [selectedRegion, setSelectedRegion] = useState<RegionId>(
     () => resolvePresentation({ detectedCountry: props.detectedCountry }).region.id,
   );
@@ -27,7 +29,10 @@ export function PortfolioHomeExperience(
   const balances = useBalances(session, selectedRegion, account.fetchBalances, {
     enabled: account.verification === "server",
   });
-  const presentation = useMemo(() => presentBalances(balances), [balances]);
+  const presentAssetBalances = useCallback(
+    (showSmallBalances: boolean) => presentBalances(balances, { showSmallBalances }),
+    [balances],
+  );
   const sendAvailability = useMemo(
     () => balances.snapshot ? deriveSendAvailability(balances.snapshot) : [],
     [balances.snapshot],
@@ -36,8 +41,10 @@ export function PortfolioHomeExperience(
   return (
     <HomeExperience
       {...props}
-      assetBalances={presentation}
+      presentAssetBalances={presentAssetBalances}
       sendAvailability={sendAvailability}
+      showSmallBalances={showSmallBalances}
+      onShowSmallBalancesChange={setShowSmallBalances}
       selectedRegionId={selectedRegion}
       onRegionChange={setSelectedRegion}
     />

@@ -77,10 +77,10 @@ export function useCdpSdkBoundary(): CdpSdkBoundary {
       verifyEmailOTP: async (flowId, otp) => {
         await verifyEmailOTP({ flowId, otp });
       },
-      signInWithSiwe: async () => {
+      requestBaseAccountChallenge: async () => {
         throw new Error("Base Account uses the Home-native flow.");
       },
-      verifySiweSignature: async () => {
+      verifyBaseAccountProof: async () => {
         throw new Error("Base Account uses the Home-native flow.");
       },
       getAccessToken,

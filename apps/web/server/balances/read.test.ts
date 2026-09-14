@@ -90,6 +90,7 @@ function readerFor(
     batch?: (calls: readonly unknown[]) => Promise<Array<unknown | null>>;
     log?: (event: unknown) => void;
     hosted?: boolean;
+    now?: () => Date;
   } = {},
 ) {
   clearBalancesChainAssertionsForTests();
@@ -107,6 +108,7 @@ function readerFor(
     resolvedRpcUrl: () => `https://rpc.test/${Math.random()}`,
     hosted: () => options.hosted ?? false,
     log: options.log as never,
+    now: options.now,
   });
 }
 
@@ -118,7 +120,7 @@ describe("balances chain read", () => {
       if (method === "eth_getBalance") return "0x5";
       seen.push(targets(params));
       return aggregate([BigInt(0), null]);
-    });
+    }, { now: () => new Date("2026-09-13T12:00:00.000Z") });
     const catalog = {
       ...token("0x3333333333333333333333333333333333333333", "catalog:x"),
       source: "catalog" as const,
@@ -127,6 +129,7 @@ describe("balances chain read", () => {
     const result = await read({ entries: [native, r1, r2, catalog] }, owner);
 
     expect(seen).toEqual([[r1.contractAddress!, r2.contractAddress!]]);
+    expect(result.observedAt).toBe("2026-09-13T12:00:00.000Z");
     expect(result.holdings.some(({ id }) => id === catalog.id)).toBeFalse();
     expect(result.holdings.find(({ id }) => id === "r1")?.balance).toEqual({
       status: "ready",

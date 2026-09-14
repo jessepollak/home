@@ -10,11 +10,12 @@ import {
   type CodexRawQuoteInput,
 } from "@/server/market-data/codex/raw-quotes";
 import { getCoinbaseExchangeRates } from "./fx-coinbase";
-import type {
-  ExactDecimal,
-  Holding,
-  HoldingCashValue,
-  HoldingValue,
+import {
+  BALANCES_PRICE_MAX_AGE_MS,
+  type ExactDecimal,
+  type Holding,
+  type HoldingCashValue,
+  type HoldingValue,
 } from "@/shared/balances/types";
 import {
   baseUnitsToFraction,
@@ -23,15 +24,21 @@ import {
   multiplyFractions,
   roundFractionPreservingPositive,
   type Fraction,
-} from "@/shared/portfolio/valuation-math";
+} from "@/shared/balances/math";
 import type {
   FxQuote,
   NativeEthQuote,
   PriceQuote,
 } from "@/shared/balances/quotes";
 import type { BalancesRead, ReadHolding } from "./types";
+import {
+  getPriceObservationStore,
+  type PriceObservation,
+  type PriceObservationStore,
+} from "./price-observation-store";
 
 const PRICE_BATCH_SIZE = 25;
+export const BALANCES_PRICE_CONCURRENCY = 4;
 const LIQUIDITY_GATE = {
   numerator: BigInt(100_000),
   denominator: BigInt(1),
@@ -47,14 +54,22 @@ const ZERO: Fraction = {
 
 type ExchangeRates = Awaited<ReturnType<typeof getCoinbaseExchangeRates>>;
 type Dependencies = {
-  readPrices?: (inputs: readonly CodexRawQuoteInput[]) => Promise<PriceQuote[]>;
+  readPrices?: (
+    inputs: readonly CodexRawQuoteInput[],
+    options?: { freshnessMs?: number },
+  ) => Promise<PriceQuote[]>;
   readExchangeRates?: () => Promise<ExchangeRates>;
+  priceStore?: PriceObservationStore;
+  now?: () => Date;
 };
 
 export function createBalancesPricer(dependencies: Dependencies = {}) {
   const readPrices = dependencies.readPrices ?? getCodexRawQuotes;
   const readExchangeRates = dependencies.readExchangeRates
     ?? getCoinbaseExchangeRates;
+  const priceStore = dependencies.priceStore ?? getPriceObservationStore();
+  const now = dependencies.now ?? (() => new Date());
+  const lastWrittenAsOf = new Map<string, number>();
 
   return async function priceBalances(
     read: BalancesRead,
@@ -68,28 +83,31 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
         )
         .map(pricingInput),
     );
-    const catalogInputs = uniqueInputs(
+    const discoveredInputs = uniqueInputs(
       read.holdings
         .filter((holding) =>
-          holding.source === "catalog" && positivePricingAmount(holding),
+          (holding.source === "catalog" || holding.marketDataResolved === true) &&
+          positivePricingAmount(holding),
         )
         .map(pricingInput),
     );
-    const priceBatches: PriceQuote[][] = [];
+    const inputBatches: CodexRawQuoteInput[][] = [];
 
     if (registryInputs.length > 0) {
-      priceBatches.push(await readPriceBatch(readPrices, registryInputs));
+      inputBatches.push(registryInputs);
     }
     for (
       let index = 0;
-      index < catalogInputs.length;
+      index < discoveredInputs.length;
       index += PRICE_BATCH_SIZE
     ) {
-      priceBatches.push(await readPriceBatch(
-        readPrices,
-        catalogInputs.slice(index, index + PRICE_BATCH_SIZE),
-      ));
+      inputBatches.push(discoveredInputs.slice(index, index + PRICE_BATCH_SIZE));
     }
+    const priceBatches = await mapWithConcurrency(
+      inputBatches,
+      BALANCES_PRICE_CONCURRENCY,
+      (inputs) => readPriceBatch(readPrices, inputs),
+    );
 
     let rates: ExchangeRates | null = null;
     if (read.holdings.some(positivePricingAmount)) {
@@ -100,9 +118,15 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
       }
     }
 
-    const prices = priceBatches.flat();
+    const currentTime = now();
+    const prices = await persistAndRestorePrices(
+      priceBatches.flat(),
+      priceStore,
+      currentTime,
+      lastWrittenAsOf,
+    );
     return read.holdings.map((holding) =>
-      priceHolding(holding, quoteCurrency, prices, rates),
+      priceHolding(holding, quoteCurrency, prices, rates, currentTime),
     );
   };
 }
@@ -114,6 +138,7 @@ function priceHolding(
   quoteCurrency: FiatCurrencyCode | null,
   prices: readonly PriceQuote[],
   rates: ExchangeRates | null,
+  currentTime: Date,
 ): Holding {
   const base: Omit<Holding, "value"> = {
     key: holding.key,
@@ -154,7 +179,7 @@ function priceHolding(
         : {}),
     };
   }
-  if (holding.source === "wallet") {
+  if (holding.source === "wallet" && holding.marketDataResolved !== true) {
     return {
       ...base,
       value: {
@@ -164,7 +189,13 @@ function priceHolding(
     };
   }
 
-  const valuation = valueFraction(holding, quoteCurrency, prices, rates);
+  const valuation = valueFraction(
+    holding,
+    quoteCurrency,
+    prices,
+    rates,
+    currentTime,
+  );
   const value: HoldingValue = valuation.fraction
     ? {
         status: "priced",
@@ -191,6 +222,7 @@ function valueFraction(
   currency: FiatCurrencyCode,
   prices: readonly PriceQuote[],
   rates: ExchangeRates | null,
+  currentTime: Date,
 ): {
   fraction: Fraction | null;
   reason:
@@ -207,7 +239,7 @@ function valueFraction(
     ? holding.underlying!.decimals
     : holding.decimals;
   if (amount?.status !== "ready") {
-    return failed("price-unavailable");
+    return failed("price-unavailable", currentTime);
   }
 
   const quantity = baseUnitsToFraction(amount.baseUnits, decimals);
@@ -215,20 +247,20 @@ function valueFraction(
     return {
       fraction: ZERO,
       reason: "price-unavailable",
-      asOf: new Date().toISOString(),
+      asOf: currentTime.toISOString(),
     };
   }
 
   const fx = findFx(rates, currency);
   if (!fx) {
-    return failed("fx-unavailable");
+    return failed("fx-unavailable", currentTime);
   }
   const fxFraction = exactDecimalToFraction(fx.quoteUnitsPerUsd!);
 
   if (holding.kind === "native") {
     const native = rates?.nativeEthQuote ?? null;
     if (native?.status !== "fresh" || !native.assetUnitsPerUsd) {
-      return failed("price-unavailable");
+      return failed("price-unavailable", currentTime);
     }
     return {
       fraction: multiplyFractions(
@@ -250,19 +282,19 @@ function valueFraction(
     (candidate) => candidate.assetKey === pricingKey,
   );
   if (price?.status === "stale") {
-    return failed("price-stale");
+    return failed("price-stale", currentTime);
   }
   if (price?.status !== "fresh" || !price.unitPrice) {
-    return failed("price-unavailable");
+    return failed("price-unavailable", currentTime);
   }
   if (
-    holding.source === "catalog" &&
+    (holding.source === "catalog" || holding.source === "wallet") &&
     (
       !meetsGate(holding.liquidityUsd, LIQUIDITY_GATE) ||
       !meetsGate(holding.volume24Usd, VOLUME_GATE)
     )
   ) {
-    return failed("below-market-gate");
+    return failed("below-market-gate", currentTime);
   }
 
   return {
@@ -356,12 +388,107 @@ function uniqueInputs(
   return [...byKey.values()];
 }
 
+async function persistAndRestorePrices(
+  prices: readonly PriceQuote[],
+  store: PriceObservationStore,
+  currentTime: Date,
+  lastWrittenAsOf: Map<string, number>,
+): Promise<PriceQuote[]> {
+  const byKey = new Map<string, { observation: PriceObservation; asOfMs: number }>();
+  for (const price of prices) {
+    if (price.status !== "fresh" || !price.unitPrice || !price.source.asOf) continue;
+    const asOfMs = Date.parse(price.source.asOf);
+    if (!Number.isFinite(asOfMs) || asOfMs <= (lastWrittenAsOf.get(price.assetKey) ?? Number.NEGATIVE_INFINITY)) continue;
+    const existing = byKey.get(price.assetKey);
+    if (existing && existing.asOfMs >= asOfMs) continue;
+    byKey.set(price.assetKey, {
+      asOfMs,
+      observation: {
+        assetKey: price.assetKey,
+        unitPrice: price.unitPrice,
+        asOf: price.source.asOf,
+        fetchedAt: price.source.fetchedAt,
+      },
+    });
+  }
+  const pending = [...byKey.values()];
+  if (pending.length > 0) {
+    try {
+      await store.putMany(pending.map(({ observation }) => observation));
+      for (const { observation, asOfMs } of pending) {
+        lastWrittenAsOf.set(observation.assetKey, asOfMs);
+      }
+    } catch {
+      // Persistence is a best-effort cross-instance fallback, never a read failure.
+    }
+  }
+
+  const fallbackKeys = prices.flatMap((price) =>
+    price.status === "fresh" ? [] : [price.assetKey]);
+  if (fallbackKeys.length === 0) return [...prices];
+
+  let stored: PriceObservation[];
+  try {
+    stored = await store.getMany(fallbackKeys);
+  } catch {
+    return [...prices];
+  }
+  const storedByKey = new Map(stored.flatMap((observation) => {
+    const asOfMs = Date.parse(observation.asOf);
+    return Number.isFinite(asOfMs) &&
+        currentTime.getTime() - asOfMs <= BALANCES_PRICE_MAX_AGE_MS
+      ? [[observation.assetKey, observation] as const]
+      : [];
+  }));
+
+  return prices.map((price) => {
+    if (price.status === "fresh") return price;
+    const observation = storedByKey.get(price.assetKey);
+    if (!observation) return price;
+    return {
+      ...price,
+      unitPrice: observation.unitPrice,
+      status: "fresh",
+      source: {
+        provider: "Codex",
+        method: "Stored price observation",
+        fetchedAt: observation.fetchedAt,
+        asOf: observation.asOf,
+        timeBasis: "provider-as-of",
+      },
+    };
+  });
+}
+
+export async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  map: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, values.length) },
+    async () => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await map(values[index]!, index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 async function readPriceBatch(
   readPrices: NonNullable<Dependencies["readPrices"]>,
   inputs: readonly CodexRawQuoteInput[],
 ): Promise<PriceQuote[]> {
   try {
-    return await readPrices(inputs);
+    return await readPrices(inputs, {
+      freshnessMs: BALANCES_PRICE_MAX_AGE_MS,
+    });
   } catch {
     return unavailablePrices(inputs);
   }
@@ -407,11 +534,12 @@ function failed(
     | "price-stale"
     | "fx-unavailable"
     | "below-market-gate",
+  currentTime: Date,
 ) {
   return {
     fraction: null,
     reason,
-    asOf: new Date().toISOString(),
+    asOf: currentTime.toISOString(),
   } as const;
 }
 

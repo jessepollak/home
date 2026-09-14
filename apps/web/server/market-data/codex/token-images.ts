@@ -1,6 +1,6 @@
 import "server-only";
 
-import { cryptoAssets, stockAssets } from "@/config/invest-assets";
+import { cryptoAssets, memeAssets, stockAssets } from "@/config/invest-assets";
 import { sanitizeImageUrl } from "../asset-icons/image-url";
 import {
   executeCodexGraphql,
@@ -26,7 +26,7 @@ export const CODEX_TOKEN_IMAGES_QUERY = `query TokenImages($ids: [TokenInput!]!)
   }
 }`;
 
-const configuredIconAssets = [...stockAssets, ...cryptoAssets];
+const configuredIconAssets = [...stockAssets, ...cryptoAssets, ...memeAssets];
 
 export async function readCodexTokenImages({
   apiKey,

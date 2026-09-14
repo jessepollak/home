@@ -13,6 +13,7 @@ import type { BalancesRead } from "./types";
 
 const read: BalancesRead = {
   block: balancesSnapshotFixture.block,
+  observedAt: FIXTURE_FETCHED_AT,
   holdings: [],
   coverage: balancesSnapshotFixture.coverage,
 };
@@ -96,7 +97,6 @@ describe("balances snapshot", () => {
       region: "US",
       read,
       holdings,
-      now: () => new Date(FIXTURE_FETCHED_AT),
     });
     expect(parseBalancesSnapshot(
       snapshot,

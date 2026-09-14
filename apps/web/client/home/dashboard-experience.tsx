@@ -11,7 +11,6 @@ export function DashboardExperience({ initialSearch }: { initialSearch?: string 
   return (
     <PortfolioHomeExperience
       detectedCountry={null}
-      assetMarkResolution={discover.assetMarkResolution}
       investContent={
         <PricedInvestExperienceWithDiscover discover={discover} />
       }

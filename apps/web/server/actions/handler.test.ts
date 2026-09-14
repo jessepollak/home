@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ActionRow } from "./store";
-import { createConfirmActionHandler, createGetActionHandler, createListActionsHandler } from "./handler";
+import { createConfirmActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler } from "./handler";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -117,6 +117,105 @@ describe("actions HTTP handlers", () => {
     expect(response.status).toBe(200);
     expect(confirmedCalls).toEqual([CALL]);
     expect((await response.json()).calls).toEqual([CALL]);
+  });
+
+  test("confirm awaits the owner balance hot signal exactly once only after success", async () => {
+    const signals: Array<{ address: string; until: string }> = [];
+    let release!: () => void;
+    let signalStarted!: () => void;
+    const pendingSignal = new Promise<void>((resolve) => { release = resolve; });
+    const startedSignal = new Promise<void>((resolve) => { signalStarted = resolve; });
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      markHot: async (address, until) => {
+        signals.push({ address, until: until.toISOString() });
+        signalStarted();
+        await pendingSignal;
+      },
+      store: {
+        get: async () => row,
+        confirm: async (_owner, _id, calls) => ({ ...row, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }),
+      },
+    });
+    let responded = false;
+    const responsePending = handler(
+      request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }),
+      context(),
+    ).then((response) => {
+      responded = true;
+      return response;
+    });
+    await startedSignal;
+    expect(signals).toEqual([{ address: ADDRESS, until: "2026-09-12T12:06:00.000Z" }]);
+    expect(responded).toBeFalse();
+    release();
+    expect((await responsePending).status).toBe(200);
+
+    const failedSignals: string[] = [];
+    const failed = createConfirmActionHandler({
+      authorize: authorize(),
+      markHot: async (address) => { failedSignals.push(address); },
+      store: { get: async () => null, confirm: async () => null },
+    });
+    expect((await failed(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(404);
+    expect(failedSignals).toEqual([]);
+  });
+
+  test("handle awaits the owner balance hot signal exactly once only after success", async () => {
+    const signals: string[] = [];
+    const confirmed = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HANDLE };
+    const handler = createHandleActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      markHot: async (address) => { signals.push(address); },
+      store: { recordHandle: async () => confirmed },
+    });
+    const response = await handler(request(`/api/actions/${ID}/handle`, {
+      method: "POST",
+      body: JSON.stringify({ providerHandle: HANDLE }),
+    }), context());
+    expect(response.status).toBe(200);
+    expect(signals).toEqual([ADDRESS]);
+
+    const failedSignals: string[] = [];
+    const failed = createHandleActionHandler({
+      authorize: authorize(),
+      markHot: async (address) => { failedSignals.push(address); },
+      store: { recordHandle: async () => null },
+    });
+    expect((await failed(request(`/api/actions/${ID}/handle`, {
+      method: "POST",
+      body: JSON.stringify({ providerHandle: HANDLE }),
+    }), context())).status).toBe(404);
+    expect(failedSignals).toEqual([]);
+  });
+
+  test("a rejected balance signal still returns the normal confirm response and emits one event", async () => {
+    const writes: string[] = [];
+    setObservabilityLogWriterForTests((line) => writes.push(line));
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      markHot: async () => { throw new Error("database unavailable"); },
+      store: {
+        get: async () => row,
+        confirm: async (_owner, _id, calls) => ({ ...row, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }),
+      },
+    });
+
+    const response = await handler(
+      request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }),
+      context(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
+      kind: "balances-signal",
+      code: "BALANCE_SIGNAL_FAILED",
+      outcome: "unavailable",
+    });
   });
 
   test("a failed confirm emits exactly one bounded event without money or call fields", async () => {

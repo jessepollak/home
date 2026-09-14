@@ -76,7 +76,7 @@ describe("CDP Onchain Data Token Balances client", () => {
     expect(tokenBalancesRequestPath(ADDRESS)).toBe(
       `/platform/v2/data/evm/token-balances/base/${ADDRESS}`,
     );
-    expect(listed).toEqual({
+    expect(listed).toMatchObject({
       complete: true,
       balances: [
         {
@@ -109,7 +109,7 @@ describe("CDP Onchain Data Token Balances client", () => {
       }),
     });
 
-    await expect(client.listBalances({ address: ADDRESS })).resolves.toEqual({
+    await expect(client.listBalances({ address: ADDRESS })).resolves.toMatchObject({
       complete: true,
       balances: [
         {
@@ -155,6 +155,29 @@ describe("CDP Onchain Data Token Balances client", () => {
     expect(listed.balances.map(({ amountBaseUnits }) => amountBaseUnits)).toEqual(["1", "2"]);
   });
 
+  test("starts from a supplied resume page token", async () => {
+    const urls: string[] = [];
+    const client = createCdpTokenBalancesClient({
+      env: configuredEnv,
+      generateJwtImpl: async () => "signed-jwt",
+      fetchImpl: (async (input) => {
+        urls.push(String(input));
+        return Response.json({ balances: [token(IDRX, "2")] });
+      }) as typeof fetch,
+    });
+
+    const listed = await client.listBalances({
+      address: ADDRESS,
+      pageToken: "page-two",
+    });
+    expect(urls[0]).toContain("pageToken=page-two");
+    expect(listed).toMatchObject({
+      complete: true,
+      nextPageToken: null,
+      pagesRead: 1,
+    });
+  });
+
   test("returns every collected row as incomplete when the page budget is exhausted", async () => {
     let pages = 0;
     const client = createCdpTokenBalancesClient({
@@ -195,7 +218,7 @@ describe("CDP Onchain Data Token Balances client", () => {
 
     const listed = await client.listBalances({ address: ADDRESS });
     expect(calls).toBe(3);
-    expect(listed).toEqual({
+    expect(listed).toMatchObject({
       complete: false,
       balances: [{
         contractAddress: USDC.toLowerCase() as `0x${string}`,
@@ -226,7 +249,7 @@ describe("CDP Onchain Data Token Balances client", () => {
 
     const listed = await client.listBalances({ address: ADDRESS });
     expect(calls).toBe(3);
-    expect(listed).toEqual({
+    expect(listed).toMatchObject({
       complete: false,
       balances: [{
         contractAddress: USDC.toLowerCase() as `0x${string}`,
@@ -258,7 +281,7 @@ describe("CDP Onchain Data Token Balances client", () => {
       generateJwtImpl: async () => "signed-jwt",
       fetchImpl: async () => new Response("not found", { status: 404 }),
     });
-    await expect(empty.listBalances({ address: ADDRESS })).resolves.toEqual({
+    await expect(empty.listBalances({ address: ADDRESS })).resolves.toMatchObject({
       balances: [],
       complete: true,
     });

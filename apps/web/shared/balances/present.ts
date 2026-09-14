@@ -1,9 +1,11 @@
 import type { FiatCurrencyCode } from "@/config/regions";
-import { formatPresentationTokenAmount } from "@/shared/formatting";
 import {
   formatPresentationFiat,
+  formatPresentationTokenAmount,
+  formatRelativeTime,
   presentationCurrencyName,
-} from "@/shared/portfolio/valuation-format";
+} from "@/shared/formatting";
+import { exactDecimalToFraction } from "@/shared/balances/math";
 import { selectMoneyGroups, selectTotal, type CashSelection } from "./select";
 import type { BalancesSnapshot, BalancesState, ExactDecimal, Holding } from "./types";
 
@@ -42,14 +44,45 @@ export type BalancesPresentation = {
   groups: MoneyGroupPresentation[];
   breakdown: MoneyBreakdownItem[];
   rows: BalanceRowModel[];
+  hiddenRows: BalanceRowModel[];
+  hiddenCount: number;
   revalidating?: true;
 };
 
-export const HOME_MONEY_GROUP_PREVIEW_COUNT = 3;
+export type PresentBalancesOptions = {
+  showSmallBalances: boolean;
+  nowMs?: number;
+};
 
-export function presentBalances(state: BalancesState): BalancesPresentation {
+export const HOME_MONEY_GROUP_PREVIEW_COUNT = 3;
+export const HOME_BALANCES_HUB_PREVIEW_COUNT = 4;
+
+export function previewBalanceRows(
+  rows: readonly BalanceRowModel[],
+  hiddenRows: readonly BalanceRowModel[] = [],
+  limit = HOME_BALANCES_HUB_PREVIEW_COUNT,
+): readonly BalanceRowModel[] {
+  if (hiddenRows.length === 0) return rows.slice(0, limit);
+  const hiddenKeys = new Set(hiddenRows.map((row) => row.key));
+  return rows.filter((row) => !hiddenKeys.has(row.key)).slice(0, limit);
+}
+
+export function presentBalances(
+  state: BalancesState,
+  { showSmallBalances, nowMs = Date.now() }: PresentBalancesOptions = {
+    showSmallBalances: false,
+  },
+): BalancesPresentation {
   if (state.status === "loading") {
-    return { status: "loading", displayTotal: null, groups: [], breakdown: [], rows: [] };
+    return {
+      status: "loading",
+      displayTotal: null,
+      groups: [],
+      breakdown: [],
+      rows: [],
+      hiddenRows: [],
+      hiddenCount: 0,
+    };
   }
   if (state.status !== "ready") {
     return {
@@ -60,26 +93,31 @@ export function presentBalances(state: BalancesState): BalancesPresentation {
       groups: [],
       breakdown: [],
       rows: [],
+      hiddenRows: [],
+      hiddenCount: 0,
     };
   }
 
   const total = selectTotal(state.snapshot);
   const noCurrency = total.status === "no-quote-currency";
   const unavailable = total.status === "unavailable";
-  const groups = presentMoneyGroups(state.snapshot);
-  const breakdown = groups.flatMap((group): MoneyBreakdownItem[] =>
-    group.displaySubtotal
-      ? [{ id: group.id, label: group.label, value: group.displaySubtotal }]
-      : []
+  const partitions = presentMoneyGroupPartitions(state.snapshot);
+  const investmentRows = showSmallBalances
+    ? [...partitions.investmentRows, ...partitions.hiddenRows]
+    : partitions.investmentRows;
+  const groups = buildMoneyGroups(
+    state.snapshot,
+    partitions.cashSelections,
+    partitions.investmentHoldings,
+    partitions.cashRows,
+    investmentRows,
   );
-  // Saved uses the same quote-currency subtotal as Cash and Investments; vault shares are
-  // priced holdings in the snapshot, so the three figures share currency, precision, and the
-  // unpriced rule (omitted, never 0).
-  const vaultShares = state.snapshot.holdings.filter((holding) => holding.kind === "vault-share");
-  const savedSubtotal = vaultShares.length > 0 ? presentHoldingsSubtotal(vaultShares, state.snapshot) : null;
-  if (savedSubtotal) {
-    breakdown.push({ id: "saved", label: "Saved", value: savedSubtotal });
-  }
+  const breakdown = presentBreakdown(
+    state.snapshot,
+    partitions.cashSelections,
+    partitions.investmentHoldings,
+  );
+
   return {
     status: "ready",
     displayTotal: total.value && total.currency
@@ -92,39 +130,118 @@ export function presentBalances(state: BalancesState): BalancesPresentation {
         : "complete",
     statusLabel: noCurrency
       ? "Choose a country in Account to set how money is shown"
-      : unavailable
-        ? "Balance unavailable"
-        : undefined,
+      : state.snapshot.stale === true
+        ? `Updated ${formatRelativeTime(state.snapshot.fetchedAt, nowMs)}`
+        : unavailable
+          ? "Balance unavailable"
+          : undefined,
     groups,
     breakdown,
     rows: groups.flatMap((group) => group.rows),
+    hiddenRows: partitions.hiddenRows,
+    hiddenCount: partitions.hiddenRows.length,
     ...(state.revalidating ? { revalidating: true as const } : {}),
   };
 }
 
 export function presentMoneyGroups(snapshot: BalancesSnapshot): MoneyGroupPresentation[] {
+  const partitions = presentMoneyGroupPartitions(snapshot);
+  return buildMoneyGroups(
+    snapshot,
+    partitions.cashSelections,
+    partitions.investmentHoldings,
+    partitions.cashRows,
+    [...partitions.investmentRows, ...partitions.hiddenRows],
+  );
+}
+
+export function presentBalanceRows(snapshot: BalancesSnapshot): BalanceRowModel[] {
+  return presentMoneyGroups(snapshot).flatMap((group) => group.rows);
+}
+
+function presentMoneyGroupPartitions(snapshot: BalancesSnapshot): {
+  cashSelections: CashSelection[];
+  investmentHoldings: Holding[];
+  cashRows: BalanceRowModel[];
+  investmentRows: BalanceRowModel[];
+  hiddenRows: BalanceRowModel[];
+} {
   const selected = selectMoneyGroups(snapshot);
   const cashRows = selected.cash.map((entry) => presentCash(entry, snapshot));
-  const investmentRows = selected.investments.map((holding) => presentAsset(holding, snapshot));
+  const investmentRows: BalanceRowModel[] = [];
+  const hiddenRows: BalanceRowModel[] = [];
+
+  for (const holding of selected.investments) {
+    const row = presentAsset(holding, snapshot);
+    if (
+      (holding.value.status === "priced" && !isAtLeastOneCent(holding.value.amount)) ||
+      (holding.value.status !== "priced" && holding.source === "wallet")
+    ) {
+      hiddenRows.push(row);
+    } else {
+      investmentRows.push(row);
+    }
+  }
+  hiddenRows.sort(compareRows);
+
+  return {
+    cashSelections: selected.cash,
+    investmentHoldings: selected.investments,
+    cashRows,
+    investmentRows,
+    hiddenRows,
+  };
+}
+
+function buildMoneyGroups(
+  snapshot: BalancesSnapshot,
+  cashSelections: readonly CashSelection[],
+  investmentHoldings: readonly Holding[],
+  cashRows: BalanceRowModel[],
+  investmentRows: BalanceRowModel[],
+): MoneyGroupPresentation[] {
   const groups: MoneyGroupPresentation[] = [{
     id: "cash",
     label: "Cash",
-    displaySubtotal: presentCashSubtotal(selected.cash, snapshot),
+    displaySubtotal: presentCashSubtotal(cashSelections, snapshot),
     rows: cashRows,
   }];
   if (investmentRows.length > 0) {
     groups.push({
       id: "investments",
       label: "Investments",
-      displaySubtotal: presentHoldingsSubtotal(selected.investments, snapshot),
+      displaySubtotal: presentHoldingsSubtotal(investmentHoldings, snapshot),
       rows: investmentRows,
     });
   }
   return groups;
 }
 
-export function presentBalanceRows(snapshot: BalancesSnapshot): BalanceRowModel[] {
-  return presentMoneyGroups(snapshot).flatMap((group) => group.rows);
+function presentBreakdown(
+  snapshot: BalancesSnapshot,
+  cashSelections: readonly CashSelection[],
+  investmentHoldings: readonly Holding[],
+): MoneyBreakdownItem[] {
+  const breakdown: MoneyBreakdownItem[] = [];
+  const cashSubtotal = presentCashSubtotal(cashSelections, snapshot);
+  if (cashSubtotal) breakdown.push({ id: "cash", label: "Cash", value: cashSubtotal });
+  const investmentsSubtotal = presentHoldingsSubtotal(investmentHoldings, snapshot);
+  if (investmentsSubtotal) {
+    breakdown.push({ id: "investments", label: "Investments", value: investmentsSubtotal });
+  }
+  // Saved shares the quote-currency subtotal rule with Cash and Investments (omitted, never 0).
+  const savedSubtotal = presentSavedSubtotal(snapshot);
+  if (savedSubtotal) breakdown.push({ id: "saved", label: "Saved", value: savedSubtotal });
+  return breakdown;
+}
+
+export function presentSavedSubtotal(snapshot: BalancesSnapshot): string | null {
+  const vaultShares = snapshot.holdings.filter((holding) =>
+    holding.kind === "vault-share" &&
+    holding.balance.status === "ready" &&
+    holding.balance.baseUnits !== "0"
+  );
+  return vaultShares.length > 0 ? presentHoldingsSubtotal(vaultShares, snapshot) : null;
 }
 
 function presentCash(entry: CashSelection, snapshot: BalancesSnapshot): BalanceRowModel {
@@ -168,9 +285,9 @@ function presentCash(entry: CashSelection, snapshot: BalancesSnapshot): BalanceR
     group: "cash",
     name: presentationCurrencyName(currency),
     mark: { kind: "flag", currency },
-    primary: tokenQuantity(holding, snapshot),
+    primary: tokenQuantity(holding, snapshot, currency),
     secondary: null,
-    tone: "muted",
+    tone: "default",
   };
 }
 
@@ -235,16 +352,29 @@ function sumExactDecimals(values: readonly ExactDecimal[]): ExactDecimal {
   return { atoms: atoms.toString(), scale };
 }
 
-function tokenQuantity(holding: Holding, snapshot: BalancesSnapshot): string {
+function tokenQuantity(
+  holding: Holding,
+  snapshot: BalancesSnapshot,
+  symbol = holding.symbol,
+): string {
   if (holding.balance.status !== "ready") return "Unavailable";
   return formatPresentationTokenAmount(
     BigInt(holding.balance.baseUnits),
     holding.decimals,
-    holding.symbol,
+    symbol,
     {
       cashCurrency: holding.cashCurrency,
       category: holding.kind === "native" ? "crypto" : undefined,
       regionId: snapshot.region,
     },
   );
+}
+
+function isAtLeastOneCent(value: ExactDecimal): boolean {
+  const fraction = exactDecimalToFraction(value);
+  return fraction.numerator * BigInt(100) >= fraction.denominator;
+}
+
+function compareRows(left: BalanceRowModel, right: BalanceRowModel): number {
+  return left.name.localeCompare(right.name, "en", { sensitivity: "base" });
 }

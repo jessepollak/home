@@ -57,10 +57,15 @@ export type TokenBalancesPageSet = {
   balances: ListedTokenBalance[];
   /** False when a page, cursor, or request budget prevented an exhaustive scan. */
   complete: boolean;
+  /** Next page to request when `complete` is false. */
+  nextPageToken: string | null;
+  pagesRead: number;
+  durationMs: number;
 };
 
 export type ListTokenBalancesRequest = {
   address: `0x${string}`;
+  pageToken?: string;
   signal?: AbortSignal;
 };
 
@@ -125,8 +130,11 @@ export function createCdpTokenBalancesClient(options: {
       const address = request.address.toLowerCase() as `0x${string}`;
       const collected = new Map<string, ListedTokenBalance>();
       const seenPageTokens = new Set<string>();
-      let pageToken: string | undefined;
+      let pageToken = request.pageToken;
+      let nextPageToken: string | null = pageToken ?? null;
       let complete = false;
+      let pagesRead = 0;
+      const startedAt = Date.now();
 
       for (let page = 0; page < CDP_TOKEN_BALANCES_MAX_PAGES; page += 1) {
         let balances: Awaited<ReturnType<typeof fetchPage>>;
@@ -148,13 +156,16 @@ export function createCdpTokenBalancesClient(options: {
           }
           throw error;
         }
+        pagesRead += 1;
         for (const balance of balances.items) {
           collected.set(balance.contractAddress, balance);
         }
         if (!balances.nextPageToken) {
           complete = true;
+          nextPageToken = null;
           break;
         }
+        nextPageToken = balances.nextPageToken;
         if (
           balances.nextPageToken === pageToken ||
           seenPageTokens.has(balances.nextPageToken)
@@ -168,6 +179,9 @@ export function createCdpTokenBalancesClient(options: {
       return {
         balances: [...collected.values()],
         complete,
+        nextPageToken,
+        pagesRead,
+        durationMs: Date.now() - startedAt,
       };
     },
   };

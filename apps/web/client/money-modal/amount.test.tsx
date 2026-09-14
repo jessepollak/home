@@ -1,13 +1,15 @@
 import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { useState } from "react";
 import type { MoneyAmountChangeSource } from "./amount";
 
-const { cleanup, fireEvent, render } = await import("@testing-library/react");
+const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const {
   MoneyAmountDisplay,
+  MoneyAssetPicker,
+  matchesMoneyAssetOption,
   MoneyNumpad,
   shouldAnimatePrimaryAmount,
 } = await import("./amount");
@@ -29,6 +31,7 @@ function AmountHarness({
   ],
   availableLabel = "$1,240.00 available",
   availableAmount,
+  availableSuffix,
 }: {
   chipSet?: "none" | "max" | "quick-local";
   pricing?: typeof usdUsdc;
@@ -36,9 +39,10 @@ function AmountHarness({
   assetId?: string;
   assetLabel?: string;
   assetLocked?: boolean;
-  assetOptions?: ReadonlyArray<{ id: string; label: string }>;
+  assetOptions?: ReadonlyArray<{ id: string; label: string; description?: string }>;
   availableLabel?: string;
   availableAmount?: string | null;
+  availableSuffix?: string;
 }) {
   const [amount, setAmount] = useState("");
   const [amountChangeSource, setAmountChangeSource] =
@@ -55,6 +59,7 @@ function AmountHarness({
         onAmountChange={changeAmount}
         availableLabel={availableLabel}
         availableAmount={availableAmount}
+        availableSuffix={availableSuffix}
         assetId={assetId}
         assetLabel={assetLabel}
         assetOptions={assetOptions}
@@ -105,6 +110,85 @@ describe("MoneyAmountDisplay", () => {
     expect(page().getByLabelText("Native amount").textContent).toBe("25");
   });
 
+  test("centers a non-reserving primary ticker without a synthetic character width", () => {
+    render(<AmountHarness />);
+
+    const ticker = document.querySelector<HTMLElement>(
+      "[data-primary-amount] [data-slot='money-ticker']",
+    );
+    expect(ticker?.style.minInlineSize).toBe("");
+  });
+
+  test("centers the available amount without a synthetic character width", () => {
+    render(<AmountHarness />);
+
+    const ticker = document.querySelector<HTMLElement>(
+      "[data-slot='money-ticker'][aria-label='$1,240.00 available']",
+    );
+    expect(ticker?.style.minInlineSize).toBe("");
+    expect(ticker?.dataset.reserveDigits).toBe("false");
+  });
+
+  test("renders currency codes before stablecoin tickers, searches all labels, and uses small marks", async () => {
+    const usdc = {
+      id: "usdc",
+      label: "USDC",
+      description: "US dollar",
+      currency: "USD",
+      mark: {
+        assetKey: "usdc",
+        name: "US dollar",
+        symbol: "USDC",
+        imageUrl: null,
+        pending: false,
+        currency: "USD",
+      },
+    };
+    const euro = {
+      id: "eurc",
+      label: "EURC",
+      description: "Euro",
+      currency: "EUR",
+      mark: {
+        assetKey: "eurc",
+        name: "Euro",
+        symbol: "EURC",
+        imageUrl: null,
+        pending: false,
+        currency: "EUR",
+      },
+    };
+    expect(matchesMoneyAssetOption(euro, "Euro")).toBe(true);
+    expect(matchesMoneyAssetOption(euro, "eurc")).toBe(true);
+    expect(matchesMoneyAssetOption(euro, "EUR")).toBe(true);
+    expect(matchesMoneyAssetOption(euro, "dollar")).toBe(false);
+
+    const onAssetChange = mock(() => {});
+    const view = render(
+      <MoneyAssetPicker
+        assetId="usdc"
+        assetLabel="USDC"
+        assetCurrency="USD"
+        assetOptions={[usdc, euro]}
+        onAssetChange={onAssetChange}
+      />,
+    );
+    const input = view.getByRole("combobox", { name: "Asset" });
+    expect((input as HTMLInputElement).value).toBe("USD");
+    const trigger = input.parentElement?.querySelector("button");
+    expect(trigger).toBeTruthy();
+
+    fireEvent.click(trigger!);
+    await waitFor(() => expect(input.getAttribute("aria-expanded")).toBe("true"));
+    const option = await view.findByRole("option", { name: "EUR EURC" });
+    expect(option.textContent).toBe("EUREURC");
+    expect(document.querySelectorAll("[data-size='sm']").length).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(option);
+
+    await waitFor(() => expect(onAssetChange).toHaveBeenCalledWith("eurc"));
+  });
+
   test("disables local quick amounts while native is primary and Max fills the available amount", () => {
     render(<AmountHarness availableAmount="1240.00" />);
 
@@ -112,6 +196,19 @@ describe("MoneyAmountDisplay", () => {
     expect((page().getByRole("button", { name: "$10" }) as HTMLButtonElement).disabled).toBe(true);
     expect((page().getByRole("button", { name: "$25" }) as HTMLButtonElement).disabled).toBe(true);
 
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    expect(page().getByLabelText("Native amount").textContent).toBe("1240.00");
+  });
+
+  test("renders an available suffix without changing the exact Max amount", () => {
+    render(
+      <AmountHarness
+        availableAmount="1240.00"
+        availableSuffix="Updated 3 min ago"
+      />,
+    );
+
+    expect(page().getByText("Updated 3 min ago", { exact: false })).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Max" }));
     expect(page().getByLabelText("Native amount").textContent).toBe("1240.00");
   });

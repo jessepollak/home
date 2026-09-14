@@ -23,9 +23,11 @@ export function createBalancesHandler(dependencies: {
     region: RegionId,
     signal?: AbortSignal,
   ) => Promise<BalancesSnapshot>;
+  ensureAddressSubscribed?: (address: BalancesAddress) => Promise<void>;
   log?: (event: ObservabilityEvent) => unknown;
 }) {
   const log = dependencies.log ?? writeObservabilityEvent;
+  const subscriptionAttempts = new Set<string>();
 
   return async function GET(request: Request): Promise<Response> {
     const region = readRegion(request);
@@ -51,9 +53,15 @@ export function createBalancesHandler(dependencies: {
       }, 503);
     }
 
+    const address = session.smartAccount.address.toLowerCase() as BalancesAddress;
+    if (!subscriptionAttempts.has(address)) {
+      subscriptionAttempts.add(address);
+      fireAndForgetSubscription(() => dependencies.ensureAddressSubscribed?.(address));
+    }
+
     try {
       const snapshot = await dependencies.readBalances(
-        session.smartAccount.address,
+        address,
         region,
         request.signal,
       );
@@ -89,6 +97,15 @@ function emitReadFailure(
     });
   } catch {
     // Observability never changes responses.
+  }
+}
+
+function fireAndForgetSubscription(run: () => Promise<void> | undefined): void {
+  try {
+    const pending = run();
+    if (pending) void pending.catch(() => undefined);
+  } catch {
+    // Subscription failures are non-fatal and logged by the subscription port.
   }
 }
 

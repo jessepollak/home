@@ -32,7 +32,6 @@ import {
   ItemActions,
   ItemContent,
   ItemDescription,
-  ItemGroup,
   ItemTitle,
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -149,9 +148,9 @@ export function AuthenticatedBorrowTeaser({ onOpen, regionId = "GLOBAL" }: { onO
       : "Borrow USDC with cbBTC on Base";
 
   return (
-    <ItemGroup className="gap-0">
+    <div>
       <Item
-        className="min-h-16 flex-nowrap cursor-pointer items-center whitespace-normal border-0 text-left hover:bg-muted"
+        className="min-h-16 flex-nowrap cursor-pointer items-center whitespace-normal text-left"
         render={<Button variant="ghost" type="button" />}
         onClick={onOpen}
       >
@@ -162,7 +161,7 @@ export function AuthenticatedBorrowTeaser({ onOpen, regionId = "GLOBAL" }: { onO
         </ItemContent>
         <ItemActions className="shrink-0"><ArrowRight className="size-4" aria-hidden="true" /></ItemActions>
       </Item>
-    </ItemGroup>
+    </div>
   );
 }
 
@@ -292,14 +291,16 @@ function BorrowDirectMarket({
       ) : null}
       {snapshot && !canOpen && !dialogSnapshot ? (
         <Card className="overflow-hidden">
-          <CardContent className="space-y-4 px-4 py-0 sm:px-5">
-            <BorrowMarketHeading market={snapshot.market} />
-            <p className="text-sm text-muted-foreground">
-              {BigInt(snapshot.wallet.collateralBalanceRaw) === BigInt(0) && !hasCollateral
-                ? "You need cbBTC in this wallet before you can borrow."
-                : snapshot.eligibility.reason ?? "New borrowing is not currently available for this market."}
-            </p>
-            <Button variant="secondary" onClick={onClose}>Back to Borrow</Button>
+          <CardContent>
+            <div className="space-y-4 sm:px-1">
+              <BorrowMarketHeading market={snapshot.market} />
+              <p className="text-sm text-muted-foreground">
+                {BigInt(snapshot.wallet.collateralBalanceRaw) === BigInt(0) && !hasCollateral
+                  ? "You need cbBTC in this wallet before you can borrow."
+                  : snapshot.eligibility.reason ?? "New borrowing is not currently available for this market."}
+              </p>
+              <Button variant="secondary" onClick={onClose}>Back to Borrow</Button>
+            </div>
           </CardContent>
         </Card>
       ) : null}
@@ -342,30 +343,32 @@ function BorrowMarketCard({
 
   return (
     <Card className="overflow-hidden" data-testid="borrow-market-card" role="listitem">
-      <CardContent className="space-y-4 px-4 py-0 sm:px-5">
-        <BorrowMarketHeading market={opportunity.market} />
-        {opportunity.availability.status === "unavailable" ? (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">{opportunity.availability.reason}</p>
-            <Button disabled className="w-full sm:w-auto">Borrow</Button>
-          </div>
-        ) : detail.isPending && !snapshot ? (
-          <div className="space-y-3" aria-busy="true"><Skeleton className="h-5 w-40" /><Skeleton className="h-12 w-full" /><span className="sr-only">Loading Bitcoin market</span></div>
-        ) : detail.isError && !snapshot ? (
-          <BorrowNotice tone="error" role="alert" title="Market values are unavailable" action={<Button variant="secondary" onClick={() => void detail.refetch()}>Retry</Button>}>
-            Wallet balances and borrowing limits could not be verified.
-          </BorrowNotice>
-        ) : snapshot ? (
-          <>
-            {detail.isError ? <BorrowNotice tone="error" role="alert" title="Market values could not be refreshed">Showing the last verified values.</BorrowNotice> : null}
-            {hasDebt ? (
-              <BorrowPositionSummary snapshot={snapshot} regionId={regionId} />
-            ) : (
-              <BorrowOpenSummary snapshot={snapshot} regionId={regionId} />
-            )}
-            <BorrowCardActions snapshot={snapshot} onOpen={(operation) => setDialog({ operation, snapshot })} />
-          </>
-        ) : null}
+      <CardContent>
+        <div className="space-y-4 sm:px-1">
+          <BorrowMarketHeading market={opportunity.market} />
+          {opportunity.availability.status === "unavailable" ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">{opportunity.availability.reason}</p>
+              <Button disabled className="w-full sm:w-auto">Borrow</Button>
+            </div>
+          ) : detail.isPending && !snapshot ? (
+            <div className="space-y-3" aria-busy="true"><Skeleton className="h-5 w-40" /><Skeleton className="h-12 w-full" /><span className="sr-only">Loading Bitcoin market</span></div>
+          ) : detail.isError && !snapshot ? (
+            <BorrowNotice tone="error" role="alert" title="Market values are unavailable" action={<Button variant="secondary" onClick={() => void detail.refetch()}>Retry</Button>}>
+              Wallet balances and borrowing limits could not be verified.
+            </BorrowNotice>
+          ) : snapshot ? (
+            <>
+              {detail.isError ? <BorrowNotice tone="error" role="alert" title="Market values could not be refreshed">Showing the last verified values.</BorrowNotice> : null}
+              {hasDebt ? (
+                <BorrowPositionSummary snapshot={snapshot} regionId={regionId} />
+              ) : (
+                <BorrowOpenSummary snapshot={snapshot} regionId={regionId} />
+              )}
+              <BorrowCardActions snapshot={snapshot} onOpen={(operation) => setDialog({ operation, snapshot })} />
+            </>
+          ) : null}
+        </div>
       </CardContent>
       {dialog && prepareMoneyAction && executeMoneyAction ? (
         <BorrowMoneyDialog
@@ -469,15 +472,21 @@ function BorrowCardActions({ snapshot, onOpen }: { snapshot: BorrowMarketSnapsho
     <div className="space-y-3">
       <div className={`grid grid-cols-1 gap-2 ${primaryActions.length > 1 ? "sm:grid-cols-2" : ""}`}>
         {primaryActions.map((action, index) => (
-          <Button key={action.operation} className="min-h-11 h-auto whitespace-normal py-2" variant={index === 0 ? "default" : "secondary"} disabled={action.disabled} onClick={() => onOpen(action.operation)}>{action.label}</Button>
+          <Button key={action.operation} className="min-h-11 h-auto whitespace-normal" variant={index === 0 ? "default" : "secondary"} disabled={action.disabled} onClick={() => onOpen(action.operation)}>
+            <span className="py-2">{action.label}</span>
+          </Button>
         ))}
       </div>
       {hasDebt || hasCollateral ? (
         <div className="space-y-2 border-t pt-3" role="group" aria-label="Manage Bitcoin position">
           <span className="text-xs font-medium text-muted-foreground">Manage</span>
           <div className="grid grid-cols-2 gap-2">
-            <Button className="min-h-11 h-auto w-full whitespace-normal py-2" size="sm" variant="outline" disabled={!hasWalletCollateral} onClick={() => onOpen("supply-collateral")}>Add collateral</Button>
-            <Button aria-label="Withdraw collateral from Bitcoin position" className="min-h-11 h-auto w-full whitespace-normal py-2" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>Withdraw</Button>
+            <Button className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasWalletCollateral} onClick={() => onOpen("supply-collateral")}>
+              <span className="py-2">Add collateral</span>
+            </Button>
+            <Button aria-label="Withdraw collateral from Bitcoin position" className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>
+              <span className="py-2">Withdraw</span>
+            </Button>
           </div>
         </div>
       ) : null}
@@ -795,7 +804,7 @@ function LiquidationBufferMeter({
 }
 
 function BorrowOverviewLoading() {
-  return <Card aria-busy="true"><CardContent className="space-y-3 py-5"><Skeleton className="h-5 w-36" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /><span className="sr-only">Loading Borrow overview</span></CardContent></Card>;
+  return <Card aria-busy="true"><CardContent><div className="space-y-3 py-5"><Skeleton className="h-5 w-36" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /><span className="sr-only">Loading Borrow overview</span></div></CardContent></Card>;
 }
 
 function BorrowNotice({ action, children, role = "status", title, tone = "neutral", ...props }: Omit<ComponentProps<typeof Alert>, "children" | "title"> & { action?: ReactNode; children?: ReactNode; role?: "status" | "alert"; title?: ReactNode; tone?: "neutral" | "error" }) {

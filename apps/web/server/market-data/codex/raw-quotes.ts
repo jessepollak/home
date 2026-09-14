@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { PortfolioAddress } from "@/config/portfolio-assets";
-import { parseExactDecimal } from "@/shared/portfolio/valuation-math";
+import { parseExactDecimal } from "@/shared/balances/math";
 import type { PriceQuote, ValuationSource } from "@/shared/balances/quotes";
 import {
   CODEX_CACHE_TTL_MS,
@@ -39,11 +39,16 @@ export function createCodexRawQuotesReader(options: {
   fetchImpl?: FetchLike;
   now?: () => Date;
   timeoutMs?: number;
+  freshnessMs?: number;
 }) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? (() => new Date());
   const timeoutMs = options.timeoutMs ?? CODEX_REQUEST_TIMEOUT_MS;
+  const freshnessMs = options.freshnessMs ?? MARKET_PRICE_FRESHNESS_MS;
   const inputs = validateInputs(options.inputs);
+  if (!Number.isSafeInteger(freshnessMs) || freshnessMs < 0) {
+    throw new CodexRawQuoteError("The Codex quote freshness window is invalid.");
+  }
   let cache: { storedAt: number; quotes: PriceQuote[] } | null = null;
   let inFlight: Promise<PriceQuote[]> | null = null;
 
@@ -53,7 +58,7 @@ export function createCodexRawQuotesReader(options: {
       return unavailableQuotes(inputs, fetchedAt.toISOString());
     }
     if (cache && fetchedAt.getTime() - cache.storedAt <= CODEX_CACHE_TTL_MS) {
-      const quotes = reevaluateQuoteFreshness(cache.quotes, fetchedAt);
+      const quotes = reevaluateQuoteFreshness(cache.quotes, fetchedAt, freshnessMs);
       cache = { ...cache, quotes };
       return quotes;
     }
@@ -64,12 +69,17 @@ export function createCodexRawQuotesReader(options: {
         fetchImpl,
         fetchedAt,
         timeoutMs,
+        freshnessMs,
       });
     }
     try {
       const fetchedQuotes = await inFlight;
       const completedAt = readCurrentTime(now);
-      const quotes = reevaluateQuoteFreshness(fetchedQuotes, completedAt);
+      const quotes = reevaluateQuoteFreshness(
+        fetchedQuotes,
+        completedAt,
+        freshnessMs,
+      );
       cache = { storedAt: completedAt.getTime(), quotes };
       return quotes;
     } finally {
@@ -84,13 +94,15 @@ const sharedReaders = new Map<string, ReturnType<typeof createCodexRawQuotesRead
 
 export function getCodexRawQuotes(
   inputs: readonly CodexRawQuoteInput[],
+  options: { freshnessMs?: number } = {},
 ): Promise<PriceQuote[]> {
   const apiKey = process.env.CODEX_API_KEY;
   if (sharedApiKey !== apiKey) {
     sharedApiKey = apiKey;
     sharedReaders.clear();
   }
-  const key = inputs
+  const freshnessMs = options.freshnessMs ?? MARKET_PRICE_FRESHNESS_MS;
+  const key = `${freshnessMs}:` + inputs
     .map(({ networkId, address }) => `${networkId}:${address.toLowerCase()}`)
     .sort()
     .join("|");
@@ -99,7 +111,7 @@ export function getCodexRawQuotes(
     sharedReaders.delete(key);
     sharedReaders.set(key, reader);
   } else {
-    reader = createCodexRawQuotesReader({ apiKey, inputs });
+    reader = createCodexRawQuotesReader({ apiKey, inputs, freshnessMs });
     sharedReaders.set(key, reader);
     while (sharedReaders.size > CODEX_SHARED_READER_MAX) {
       const oldest = sharedReaders.keys().next().value;
@@ -125,12 +137,14 @@ async function fetchQuotes({
   fetchImpl,
   fetchedAt,
   timeoutMs,
+  freshnessMs,
 }: {
   apiKey: string;
   inputs: readonly CodexRawQuoteInput[];
   fetchImpl: FetchLike;
   fetchedAt: Date;
   timeoutMs: number;
+  freshnessMs: number;
 }): Promise<PriceQuote[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -164,7 +178,12 @@ async function fetchQuotes({
     if (!data || !Array.isArray(data.getTokenPrices)) {
       throw new CodexRawQuoteError("Codex quotes returned an invalid price list.");
     }
-    return normalizeQuotes(inputs, data.getTokenPrices, fetchedAt);
+    return normalizeQuotes(
+      inputs,
+      data.getTokenPrices,
+      fetchedAt,
+      freshnessMs,
+    );
   } catch (error) {
     if (error instanceof CodexRawQuoteError) throw error;
     throw new CodexRawQuoteError(
@@ -182,6 +201,7 @@ function normalizeQuotes(
   inputs: readonly CodexRawQuoteInput[],
   rows: readonly unknown[],
   fetchedAt: Date,
+  freshnessMs: number,
 ): PriceQuote[] {
   const inputByContract = new Map(
     inputs.map((input) => [contractKey(input.networkId, input.address), input]),
@@ -224,7 +244,7 @@ function normalizeQuotes(
       ) {
         quote = baseQuote(input, "invalid", sourceFor(fetchedAt, asOf), rawPrice);
       } else if (
-        fetchedAt.getTime() - sourceTimeMs > MARKET_PRICE_FRESHNESS_MS
+        fetchedAt.getTime() - sourceTimeMs > freshnessMs
       ) {
         quote = baseQuote(input, "stale", sourceFor(fetchedAt, asOf), rawPrice);
       } else {
@@ -252,6 +272,7 @@ function normalizeQuotes(
 function reevaluateQuoteFreshness(
   quotes: readonly PriceQuote[],
   currentTime: Date,
+  freshnessMs: number,
 ): PriceQuote[] {
   return quotes.map((quote) => {
     if (quote.status !== "fresh") return quote;
@@ -262,7 +283,7 @@ function reevaluateQuoteFreshness(
     if (asOf.getTime() > currentTime.getTime() + CODEX_MAX_FUTURE_SKEW_MS) {
       return { ...quote, unitPrice: null, status: "invalid" };
     }
-    if (currentTime.getTime() - asOf.getTime() > MARKET_PRICE_FRESHNESS_MS) {
+    if (currentTime.getTime() - asOf.getTime() > freshnessMs) {
       return { ...quote, unitPrice: null, status: "stale" };
     }
     return quote;

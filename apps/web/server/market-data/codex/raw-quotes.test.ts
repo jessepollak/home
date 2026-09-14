@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
+import { BALANCES_PRICE_MAX_AGE_MS } from "@/shared/balances/types";
 import {
   CODEX_SHARED_READER_MAX,
   codexSharedReaderCountForTests,
@@ -64,19 +65,31 @@ describe("Codex raw quotes", () => {
     ]);
   });
 
-  test("marks stale and duplicate exact-contract records unavailable rather than choosing one", async () => {
-    const stale = String(Number(NOW_SECONDS) - 301);
-    const row = `{"address":"${ADDRESS}","networkId":8453,"priceUsd":1,"timestamp":${stale}}`;
-    const staleResult = await createCodexRawQuotesReader({
+  test.each([
+    ["Invest default", undefined, 3 * 60 * 60 * 1_000, "stale"],
+    ["balances 3 hours", BALANCES_PRICE_MAX_AGE_MS, 3 * 60 * 60 * 1_000, "fresh"],
+    ["balances 30 hours", BALANCES_PRICE_MAX_AGE_MS, 30 * 60 * 60 * 1_000, "stale"],
+  ] as const)("applies the %s freshness window", async (_name, freshnessMs, ageMs, status) => {
+    const timestamp = String((Date.parse(NOW) - ageMs) / 1_000);
+    const row = `{"address":"${ADDRESS}","networkId":8453,"priceUsd":1,"timestamp":${timestamp}}`;
+    const result = await createCodexRawQuotesReader({
       apiKey: "fixture-key",
       inputs: [input],
       now: () => new Date(NOW),
+      ...(freshnessMs === undefined ? {} : { freshnessMs }),
       fetchImpl: (async () =>
         new Response(`{"data":{"getTokenPrices":[${row}]}}`)),
     })();
-    expect(staleResult[0]?.status).toBe("stale");
-    expect(staleResult[0]?.unitPrice).toBeNull();
 
+    expect(result[0]?.status).toBe(status);
+    expect(result[0]?.unitPrice).toEqual(
+      status === "fresh" ? { atoms: "1", scale: 0 } : null,
+    );
+  });
+
+  test("marks duplicate exact-contract records unavailable rather than choosing one", async () => {
+    const stale = String(Number(NOW_SECONDS) - 301);
+    const row = `{"address":"${ADDRESS}","networkId":8453,"priceUsd":1,"timestamp":${stale}}`;
     const duplicate = await createCodexRawQuotesReader({
       apiKey: "fixture-key",
       inputs: [input],

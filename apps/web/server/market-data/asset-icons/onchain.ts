@@ -1,7 +1,7 @@
 import "server-only";
 
 import { decodeFunctionResult, encodeFunctionData } from "viem";
-import { cryptoAssets, stockAssets } from "@/config/invest-assets";
+import { cryptoAssets, memeAssets, stockAssets } from "@/config/invest-assets";
 import { baseRpcBatch, resolveBaseRpcUrl } from "@/server/chain/rpc";
 import { sanitizeImageUrl } from "./image-url";
 
@@ -20,7 +20,7 @@ export const ONCHAIN_METADATA_TIMEOUT_MS = 4_000;
 export const ONCHAIN_METADATA_MAX_BYTES = 64_000;
 export const ONCHAIN_ICON_RPC_BATCH_MAX = 10;
 
-const configuredIconAssets = [...stockAssets, ...cryptoAssets];
+const configuredIconAssets = [...stockAssets, ...cryptoAssets, ...memeAssets];
 
 export type OnchainIconRpcRequest = {
   id: number;

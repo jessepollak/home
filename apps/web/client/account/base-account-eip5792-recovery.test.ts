@@ -9,6 +9,12 @@ const OTHER_ADDRESS = "0x2222222222222222222222222222222222222222";
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 const WALLET_HEX_ID =
   "0x00000000000000000000000000000000000000000000000000000000000000000e670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331";
+const CHALLENGE = {
+  nonce: "a".repeat(48), chainId: 8453, domain: "home.example", uri: "https://home.example",
+  version: "1", statement: "Sign in to Home.", issuedAt: "2026-09-13T12:00:00.000Z",
+  expirationTime: "2026-09-13T12:05:00.000Z",
+} as const;
+
 const CALL = {
   to: OTHER_ADDRESS as `0x${string}`,
   value: BigInt(0),
@@ -61,6 +67,15 @@ class Eip5792ProviderFixture {
     switch (args.method) {
       case "wallet_switchEthereumChain":
         return null;
+      case "wallet_connect":
+        return {
+          accounts: [{
+            address: ADDRESS,
+            capabilities: {
+              signInWithEthereum: { message: "signed SIWE", signature: "0x1234" },
+            },
+          }],
+        };
       case "eth_requestAccounts":
       case "eth_accounts":
         return [ADDRESS];
@@ -110,7 +125,7 @@ function asProvider(provider: Eip5792ProviderFixture) {
 describe("EIP-5792 / Base Account request-id recovery fixtures (#176)", () => {
   test("sends the Home action id as request id and keeps a distinct wallet-returned handle", async () => {
     const provider = new Eip5792ProviderFixture();
-    const connection = await connectWithBaseProvider(asProvider(provider), () => {});
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
 
     const submissionId = await connection.sendCalls?.([CALL], ACTION_ID);
     expect(submissionId).toBe(WALLET_HEX_ID);
@@ -139,7 +154,7 @@ describe("EIP-5792 / Base Account request-id recovery fixtures (#176)", () => {
   test("can recover via the request id only when the wallet echoes it", async () => {
     const provider = new Eip5792ProviderFixture();
     provider.mode = "echo-request-id";
-    const connection = await connectWithBaseProvider(asProvider(provider), () => {});
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
 
     await expect(connection.sendCalls?.([CALL], ACTION_ID)).resolves.toBe(ACTION_ID);
     await expect(connection.getCallsStatus?.(ACTION_ID)).resolves.toEqual({
@@ -150,7 +165,7 @@ describe("EIP-5792 / Base Account request-id recovery fixtures (#176)", () => {
 
   test("maps duplicate-id 5720 to invalid-provider-response, not cancelled", async () => {
     const provider = new Eip5792ProviderFixture();
-    const connection = await connectWithBaseProvider(asProvider(provider), () => {});
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
 
     await connection.sendCalls?.([CALL], ACTION_ID);
     await expect(connection.sendCalls?.([CALL], ACTION_ID)).rejects.toEqual(
@@ -166,7 +181,7 @@ describe("EIP-5792 / Base Account request-id recovery fixtures (#176)", () => {
   test("maps user rejection 4001 to cancelled and other EIP-5792 lookup codes to invalid-provider-response", async () => {
     const rejected = new Eip5792ProviderFixture();
     rejected.sendCallsError = new RpcError(4001, "User rejected the request");
-    const rejectedConnection = await connectWithBaseProvider(asProvider(rejected), () => {});
+    const rejectedConnection = await connectWithBaseProvider(asProvider(rejected), CHALLENGE, () => {});
     await expect(rejectedConnection.sendCalls?.([CALL], ACTION_ID)).rejects.toMatchObject({
       reason: "cancelled",
     });
@@ -174,7 +189,7 @@ describe("EIP-5792 / Base Account request-id recovery fixtures (#176)", () => {
     for (const code of [5730, 4200, -32602]) {
       const provider = new Eip5792ProviderFixture();
       provider.getCallsStatusError = new RpcError(code, `lookup ${code}`);
-      const connection = await connectWithBaseProvider(asProvider(provider), () => {});
+      const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
       await expect(connection.getCallsStatus?.(WALLET_HEX_ID)).rejects.toMatchObject({
         reason: "invalid-provider-response",
       });
@@ -183,7 +198,7 @@ describe("EIP-5792 / Base Account request-id recovery fixtures (#176)", () => {
 
   test("does not treat a preallocated request id as a submission handle when dispatch never starts", async () => {
     const provider = new Eip5792ProviderFixture();
-    const connection = await connectWithBaseProvider(asProvider(provider), () => {});
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
     const expired = new Error("expired before dispatch");
 
     await expect(connection.sendCalls?.([CALL], ACTION_ID, async () => {

@@ -12,12 +12,12 @@ Everything in this document serves that. Anything that does not is deliberately 
 
 ## Where we are
 
-| Route | State | Problem |
+| Route | State | What remains |
 |---|---|---|
-| Coinbase Onramp (US, USDC) | Manifest provider since Sept 12 (`providers/coinbase/`), hosted redirect | Status reconciliation waits on the headless API ([#52](https://github.com/jessepollak/home/issues/52)). |
-| Ripio Ramps (AR wARS, CO wCOP) | Merged ([#253](https://github.com/jessepollak/home/pull/253)), unwired, UI is a synthetic preview | Bespoke store, reconciliation, webhook handler, UI step. |
-| IDRX (ID) | Draft [#120](https://github.com/jessepollak/home/pull/120), blocked on a funded proof | Adapter, handler, and UI candidate. |
-| MXNB, XSGD, TRYB | Blocked ([#56](https://github.com/jessepollak/home/issues/56)–[#58](https://github.com/jessepollak/home/issues/58)) | Nobody on the crew can complete a payment in those countries. |
+| Coinbase Onramp (US, USDC) | Headless Apple Pay provider on the seam (`providers/coinbase/`), embedded orders, core-owned sandbox mode | Awaiting Coinbase's production enablement of embedded orders and the funded end-to-end proof ([#294](https://github.com/jessepollak/home/issues/294)); CDP domain allowlisting for hosted previews. |
+| Ripio Ramps (AR wARS, CO wCOP) | Adapter and Add money flow on `main`; inert until every binding environment variable is set | Ripio must run the per-provider checklist; no live provider call has been made. |
+| IDRX (ID) | Adapter and Add money flow on `main`; inert until every binding environment variable is set | IDRX must run the per-provider checklist; no live provider call has been made. |
+| MXNB, XSGD, TRYB | Issuer scaffolds tracked in [#295](https://github.com/jessepollak/home/issues/295) have not started | Adapter, manifest, fixtures, and issuer confirmation. |
 
 Each route rebuilt the same things. The seam builds them once.
 
@@ -42,6 +42,7 @@ export type FundingProviderManifest = {
   }>;
   apiOrigins: ReadonlyArray<string>;  // ctx.fetch refuses other hosts
   redirectOrigins?: ReadonlyArray<string>;
+  sandbox?: boolean;
   reference: "home" | "provider";     // who assigns the order reference (Ripio: home; IDRX: provider)
   quotes?: boolean;
   kyc?: {
@@ -63,10 +64,11 @@ export type FundingProvider = {
 export type ProviderContext = {
   binding: { region: CountryCode; asset: FundingAsset; paymentMethod: { id: string; label: string } };
   env: Readonly<Record<string, string>>;   // only the manifest's declared variables
+  sandbox: boolean;
   fetch: typeof fetch;                     // origin allowlist, redirect: "manual", timeout
 };
 
-export type QuoteIntent = { destination: `0x${string}`; fiatAmount: string };
+export type QuoteIntent = { destination: `0x${string}`; fiatAmount: string; returnUrl: string };
 export type Quote = { providerQuoteId?: string; fiatAmount: string; tokenAmountAtomic: string; fees: Array<{ label: string; amount: string; currency: string }>; expiresAt: string };
 
 export type OrderIntent = {
@@ -75,6 +77,7 @@ export type OrderIntent = {
   fiatAmount: string;
   quote?: Quote;                           // the core-verified quote, never a client-supplied ID
   customerRef?: string;
+  clientIp?: string;
   returnUrl: string;
 };
 
@@ -104,6 +107,7 @@ export type ProviderOrder = {
 
 export type Instruction =
   | { kind: "redirect"; url: string }
+  | { kind: "embed"; url: string; presentation: "apple-pay"; amount: string; currency: string }
   | { kind: "bank-transfer"; rail: string; accountNumber: string; accountName?: string; bank?: string; alias?: string; reference?: string; amount: string; currency: string }
   | { kind: "qr"; scheme: "pix" | "qris" | "promptpay" | "other"; payload: string; amount: string; currency: string }
   | { kind: "payment-key"; scheme: string; key: string; amount: string; currency: string };
@@ -147,7 +151,7 @@ Add money → method list: `Receive crypto`, one `Deposit {currency}` row per co
 
 ## How an issuer tests the completed seam
 
-These steps describe the target after the core/routes, UI, sign-in, and local Postgres delivery items land; they cannot be completed from the unwired contract/IDRX candidate alone.
+These steps can now be completed from a clone of `main`; use the exact commands and environment names in [`docs/integrations/README.md`](integrations/README.md).
 
 1. `git clone`, `bun install`, `bun run db:up`, `bun dev`.
 2. Open Home, pick your country, sign in with Base Account.
@@ -189,6 +193,20 @@ Cut after review to keep the first version small. Each is a follow-up if a real 
 - Lint rule for `providers/**` — convention plus review.
 - Choosing between multiple ramps in one country — all configured bindings are listed; ordering and selection UX is P2.
 - Hosted-session provider kind — Coinbase moves to the headless API instead.
+
+## Implementation notes (#294)
+
+- `Instruction` now has a distinct `embed` kind. The first presentation is `apple-pay`; the instruction carries the allowlisted iframe URL and the fee-inclusive fiat amount/currency the payer will authorize.
+- `QuoteIntent.returnUrl` gives quote-capable adapters the same request-origin context already supplied to order creation. Coinbase derives its required web `domain` from that URL without reading browser-visible environment variables.
+- After a provider reports `created`, the core validates every `redirect` and `embed` URL before persisting instructions: HTTPS, an origin declared by `manifest.redirectOrigins`, no username/password/fragment, and at most 4096 characters. Failure is `dispatch-ambiguous` because the provider request may have succeeded.
+- If a provider cannot lock a quote, the adapter requests the exact quoted token amount on create and reports the resulting fiat total on the instruction. Coinbase follows this rule by pinning USDC `purchaseAmount`; a changed USD total is reviewed in Home and authorized again in Apple Pay.
+- Coinbase's hosted redirect and `/platform/v2/onramp/sessions` path were removed. Migration `003_coinbase_hosted_retired.sql` terminalizes any remaining open `coinbase` / `hosted` rows so they no longer block or resume the US flow.
+- Live sandbox validation found that Coinbase requires `clientIp` on order creation even though its reference marks the field optional. The orders route passes the first `x-forwarded-for` hop (falling back to `x-real-ip`) through the core as an ephemeral `OrderIntent.clientIp`; it is never persisted, signed into quote claims, logged, or returned publicly.
+- Sandbox mode is core-owned and enabled only by `FUNDING_SANDBOX=1`: the core lists only providers declaring `manifest.sandbox: true`, passes `ctx.sandbox`, binds the mode into signed quote tokens and persisted orders, and exposes it to the client. Sandbox orders never run receipt verification; when a provider reports `sent`, the client treats `sent-unverified` as complete and the row is excluded from open-order resume.
+
+The design originally cut sandbox from v1, then reversed that decision on September 13, 2026 because production embedded create returned `Email is required`. The core owns the mode shape: provider eligibility through `manifest.sandbox`, adapter context through `ProviderContext.sandbox`, quote-mode binding, persisted `FundingOrder.sandbox`, receipt-verification suppression, and client presentation.
+
+`fundingRequestOrigin` prefers the platform/proxy-owned `x-forwarded-host` and `x-forwarded-proto` over the server bind address, while client IP uses `x-forwarded-for` before `x-real-ip`. Home relies on the platform or proxy owning those headers; Vercel does. Do not expose a bare `next start` server directly to untrusted clients.
 
 ## Implementation notes and deviations (#301)
 

@@ -46,8 +46,20 @@ export type MoneyAssetOption = {
   id: string;
   label: string;
   description?: string;
+  currency?: string | null;
   mark?: AssetMarkPresentation;
 };
+
+export function matchesMoneyAssetOption(
+  option: MoneyAssetOption,
+  query: string,
+): boolean {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return true;
+  return `${option.currency ?? ""} ${option.description ?? ""} ${option.label}`
+    .toLocaleLowerCase()
+    .includes(normalized);
+}
 
 export function shouldAnimatePrimaryAmount(
   previousAmount: string,
@@ -197,6 +209,7 @@ export function MoneyAmountDisplay({
   onAmountChange,
   availableLabel,
   availableAmount,
+  availableSuffix,
   assetId,
   assetLabel,
   assetCurrency,
@@ -206,6 +219,7 @@ export function MoneyAmountDisplay({
   chipSet = "none",
   pricing,
   nativeSymbol,
+  fiatCurrency,
   initialUnit = "local",
   amountChangeSource = "programmatic",
 }: {
@@ -213,6 +227,7 @@ export function MoneyAmountDisplay({
   onAmountChange?: (value: string, source: MoneyAmountChangeSource) => void;
   availableLabel?: string;
   availableAmount?: string | null;
+  availableSuffix?: string;
   assetId?: string;
   assetLabel?: string;
   assetCurrency?: string | null;
@@ -222,6 +237,7 @@ export function MoneyAmountDisplay({
   chipSet?: MoneyChipSet;
   pricing: MoneyAssetPricing;
   nativeSymbol: string;
+  fiatCurrency?: string;
   initialUnit?: MoneyPrimaryUnit;
   amountChangeSource?: MoneyAmountChangeSource;
 }) {
@@ -245,14 +261,16 @@ export function MoneyAmountDisplay({
 
   return (
     <div className="grid justify-items-center gap-3 py-3">
-      <MoneyAssetPicker
-        assetId={assetId}
-        assetLabel={assetLabel}
-        assetCurrency={assetCurrency}
-        assetOptions={assetOptions}
-        onAssetChange={onAssetChange}
-        locked={assetLocked}
-      />
+      {assetLabel ? (
+        <MoneyAssetPicker
+          assetId={assetId}
+          assetLabel={assetLabel}
+          assetCurrency={assetCurrency}
+          assetOptions={assetOptions}
+          onAssetChange={onAssetChange}
+          locked={assetLocked}
+        />
+      ) : null}
       {onAmountChange ? (
         <MoneyQuickChips
           chipSet={chipSet}
@@ -267,6 +285,7 @@ export function MoneyAmountDisplay({
         changeSource={amountChangeSource}
         unit={primaryUnit}
         pricing={pricing}
+        fiatCurrency={fiatCurrency}
       />
       <div className="grid justify-items-center gap-1">
         {pricing.status === "priced" ? (
@@ -277,7 +296,12 @@ export function MoneyAmountDisplay({
             }
           />
         ) : null}
-        {availableLine ? <div className="text-center text-sm text-muted-foreground"><MoneyTicker value={availableLine} /></div> : null}
+        {availableLine ? (
+          <div className="text-center text-sm text-muted-foreground">
+            <MoneyTicker value={availableLine} reserveDigits={false} />
+            {availableSuffix ? ` · ${availableSuffix}` : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -288,13 +312,15 @@ export function MoneyPrimaryAmount({
   changeSource,
   unit,
   pricing,
+  fiatCurrency,
 }: {
   amount: string;
   changeSource: MoneyAmountChangeSource;
   unit: MoneyPrimaryUnit;
   pricing: MoneyAssetPricing;
+  fiatCurrency?: string;
 }) {
-  const text = formatPrimaryAmount(amount, unit, pricing);
+  const text = formatPrimaryAmount(amount, unit, pricing, fiatCurrency);
   const [rendered, setRendered] = useState({ amount, text, animated: true });
   let animated = rendered.animated;
   if (rendered.amount !== amount || rendered.text !== text) {
@@ -345,56 +371,78 @@ export function MoneyAssetPicker({
   onAssetChange?: (assetId: string) => void;
   locked?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
   if (!assetLabel) return <span />;
   const markCurrency = assetCurrency ?? (assetId === "usdc" ? "USD" : null);
+  const options = assetOptions ?? [];
   const canPick = Boolean(!locked && assetId && assetOptions && onAssetChange);
 
   if (!canPick) {
     return (
       <div className="flex h-9 items-center gap-2 rounded-md border bg-background px-2 text-sm font-medium" aria-label={assetLabel}>
-        <CurrencyMark currency={markCurrency} symbol={assetLabel} />
+        <CurrencyMark currency={markCurrency} symbol={assetLabel} size="sm" />
         <span>{assetLabel}</span>
       </div>
     );
   }
 
-  const selected = assetOptions?.find((option) => option.id === assetId) ?? null;
+  const selected = options.find((option) => option.id === assetId) ?? null;
   return (
     <Combobox
-      items={assetOptions}
+      items={options}
       value={selected}
-      onValueChange={(option) => { if (option) onAssetChange?.(option.id); }}
-      itemToStringValue={(option) => option.label}
+      open={open}
+      autoHighlight
+      onOpenChange={setOpen}
+      onValueChange={(option) => {
+        if (!option) return;
+        onAssetChange?.(option.id);
+        setOpen(false);
+      }}
+      itemToStringLabel={(option) => option.currency ?? option.description ?? option.label}
+      itemToStringValue={(option) => option.id}
+      filter={matchesMoneyAssetOption}
     >
-      <ComboboxInput aria-label="Asset" placeholder={assetLabel} className="h-11 w-auto min-w-28">
+      <ComboboxInput
+        aria-label="Asset"
+        groupRef={anchorRef}
+        placeholder={selected?.currency ?? selected?.description ?? assetLabel}
+        className="h-11 w-72 max-w-full"
+      >
         {selected?.mark ? (
-          <InputGroupAddon align="inline-start" className="[&_[data-mark]]:size-6">
+          <InputGroupAddon align="inline-start">
             <CurrencyMark
               currency={selected.mark.currency}
               symbol={selected.mark.symbol}
               src={selected.mark.imageUrl}
               pending={selected.mark.pending}
+              size="sm"
             />
           </InputGroupAddon>
         ) : null}
       </ComboboxInput>
-      <ComboboxContent>
+      <ComboboxContent anchor={anchorRef}>
         <ComboboxEmpty>No assets found.</ComboboxEmpty>
         <ComboboxList>
           {(option) => (
             <ComboboxItem key={option.id} value={option}>
               {option.mark ? (
-                <span className="shrink-0 [&_[data-mark]]:size-6">
+                <span className="shrink-0">
                   <CurrencyMark
                     currency={option.mark.currency}
                     symbol={option.mark.symbol}
                     src={option.mark.imageUrl}
                     pending={option.mark.pending}
+                    size="sm"
                   />
                 </span>
               ) : null}
-              <span className="min-w-0 truncate">
-                {option.description ? `${option.label} — ${option.description}` : option.label}
+              <span className="flex min-w-0 items-baseline gap-2 truncate">
+                <span className="truncate">{option.currency ?? option.description ?? option.label}</span>
+                {option.description ? (
+                  <span className="shrink-0 text-muted-foreground">{option.label}</span>
+                ) : null}
               </span>
             </ComboboxItem>
           )}

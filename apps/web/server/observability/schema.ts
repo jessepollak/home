@@ -36,6 +36,24 @@ export type PortfolioBalanceSourceReason =
   | "partial"
   | "read-failed";
 
+export const BALANCES_READ_OUTCOMES = [
+  "served-row",
+  "registry-only",
+  "full",
+  "stale-fallback",
+  "error",
+] as const;
+export type BalancesReadOutcome = (typeof BALANCES_READ_OUTCOMES)[number];
+export type BalancesReadDurations = {
+  "store-read": number;
+  enumerate: number;
+  "registry-read": number;
+  resolve: number;
+  price: number;
+  "store-write": number;
+  total: number;
+};
+
 export const SERVER_EVENT_KINDS = [
   "action-prepare",
   "action-confirm",
@@ -44,6 +62,10 @@ export const SERVER_EVENT_KINDS = [
   "borrow-overview",
   "funding-order",
   "funding-webhook",
+  "balances-webhook",
+  "balances-webhook-subscription",
+  "balances-store",
+  "balances-signal",
 ] as const;
 export const SERVER_EVENT_OUTCOMES = [
   "failed",
@@ -53,6 +75,18 @@ export const SERVER_EVENT_OUTCOMES = [
   "invalid",
   "unmatched",
   "unavailable",
+  "accepted",
+  "ignored",
+] as const;
+export const FUNDING_ORDER_CODES = [
+  "ORDER_UNAVAILABLE",
+  "QUOTE_ECHO_MISMATCH",
+  "ORDER_ECHO_MISMATCH",
+  "ORDER_AMBIGUOUS",
+  "STATUS_ECHO_MISMATCH",
+  "PROVIDER_HTTP_4XX",
+  "PROVIDER_HTTP_5XX",
+  "PROVIDER_TRANSPORT",
 ] as const;
 export type ServerEventKind = (typeof SERVER_EVENT_KINDS)[number];
 export type ServerEventOutcome = (typeof SERVER_EVENT_OUTCOMES)[number];
@@ -78,6 +112,18 @@ export type ObservabilityEvent =
       stage: "inventory";
       outcome: "incomplete" | "unavailable";
       reason: PortfolioBalanceSourceReason;
+      pageCount?: number;
+      durationMs?: number;
+    }
+  | {
+      kind: "balances-read";
+      route: "/api/balances";
+      outcome: BalancesReadOutcome;
+      durationMs: BalancesReadDurations;
+      coverage: {
+        registry: "complete" | "partial" | "unknown";
+        catalog: "complete" | "incomplete" | "unavailable" | "unknown";
+      };
     }
   | {
       kind: "activity-read";
@@ -131,6 +177,19 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         stage: "inventory";
         outcome: "incomplete" | "unavailable";
         reason: PortfolioBalanceSourceReason;
+        pageCount: number;
+        durationMs: number;
+      }
+    | {
+        level: "error" | "info";
+        kind: "balances-read";
+        code: "BALANCES_READ";
+        outcome: BalancesReadOutcome;
+        durationMs: BalancesReadDurations;
+        coverage: {
+          registry: "complete" | "partial" | "unknown";
+          catalog: "complete" | "incomplete" | "unavailable" | "unknown";
+        };
       }
     | {
         level: "error" | "info";
@@ -172,6 +231,30 @@ export function normalizeObservabilityEvent(
     route: sanitizeRoutePath(event.route),
   };
 
+  if (event.kind === "balances-read") {
+    const outcome = allowedValue(event.outcome, BALANCES_READ_OUTCOMES, "error");
+    return {
+      ...base,
+      level: outcome === "error" ? "error" : "info",
+      kind: event.kind,
+      code: "BALANCES_READ",
+      outcome,
+      durationMs: normalizeBalancesReadDurations(event.durationMs),
+      coverage: {
+        registry: allowedValue(
+          event.coverage.registry,
+          ["complete", "partial", "unknown"] as const,
+          "unknown",
+        ),
+        catalog: allowedValue(
+          event.coverage.catalog,
+          ["complete", "incomplete", "unavailable", "unknown"] as const,
+          "unknown",
+        ),
+      },
+    };
+  }
+
   if (event.kind === "activity-read") {
     const outcome = allowedValue(event.outcome, ACTIVITY_READ_OUTCOMES, "failed");
     return {
@@ -193,9 +276,11 @@ export function normalizeObservabilityEvent(
 
   if (isServerEvent(event)) {
     const outcome = allowedValue(event.outcome, SERVER_EVENT_OUTCOMES, "failed");
-    const code = /^[A-Z][A-Z0-9_]{0,63}$/.test(event.code)
-      ? event.code
-      : "SERVER_EVENT";
+    const code = event.kind === "funding-order"
+      ? allowedValue(event.code, FUNDING_ORDER_CODES, "ORDER_UNAVAILABLE")
+      : /^[A-Z][A-Z0-9_]{0,63}$/.test(event.code)
+        ? event.code
+        : "SERVER_EVENT";
     const provider = event.provider
       ? sanitizeIdentifier(event.provider, "unknown").slice(0, 64)
       : undefined;
@@ -204,7 +289,7 @@ export function normalizeObservabilityEvent(
       : undefined;
     return {
       ...base,
-      level: outcome === "unmatched" || outcome === "ok" ||
+      level: outcome === "unmatched" || outcome === "ok" || outcome === "accepted" || outcome === "ignored" ||
         (event.kind === "action-reconcile" && outcome === "unavailable")
         ? "info"
         : "error",
@@ -227,6 +312,8 @@ export function normalizeObservabilityEvent(
       stage: event.stage,
       outcome: event.outcome,
       reason: event.reason,
+      pageCount: boundedInteger(event.pageCount ?? 0, 32),
+      durationMs: boundedInteger(event.durationMs ?? 0, 60_000),
     };
   }
 
@@ -262,6 +349,20 @@ function isServerEvent(
   event: ObservabilityEvent,
 ): event is Extract<ObservabilityEvent, { kind: ServerEventKind }> {
   return SERVER_EVENT_KINDS.includes(event.kind as ServerEventKind);
+}
+
+function normalizeBalancesReadDurations(
+  durations: BalancesReadDurations,
+): BalancesReadDurations {
+  return {
+    "store-read": boundedInteger(durations["store-read"], 60_000),
+    enumerate: boundedInteger(durations.enumerate, 60_000),
+    "registry-read": boundedInteger(durations["registry-read"], 60_000),
+    resolve: boundedInteger(durations.resolve, 60_000),
+    price: boundedInteger(durations.price, 60_000),
+    "store-write": boundedInteger(durations["store-write"], 60_000),
+    total: boundedInteger(durations.total, 60_000),
+  };
 }
 
 function boundedInteger(value: number, maximum: number): number {

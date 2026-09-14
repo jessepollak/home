@@ -9,6 +9,7 @@ import {
 } from "../../shared/savings/config";
 import {
   balancesSnapshot,
+  CBBTC_IMAGE_URL,
   RECOGNIZED_IMAGE_URL,
   rowAnatomySnapshot,
   scrollableBalancesSnapshot,
@@ -323,7 +324,7 @@ async function visibleBalanceRowLayout(page: Page) {
   }));
 }
 
-test("catalog token appears on Home and Balances with its image, but never enters Send availability", async ({ page }) => {
+test("holding icons and hidden dust stay consistent across Home, Balances, and Send", async ({ page }) => {
   const fixture = balancesSnapshot();
   parseBalancesSnapshot(fixture, {
     subject: "playwright-smoke-subject",
@@ -331,7 +332,7 @@ test("catalog token appears on Home and Balances with its image, but never enter
     chainId: 8453,
   }, "US");
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
-  await page.route(RECOGNIZED_IMAGE_URL, (route) =>
+  await page.route("https://images.example.test/**", (route) =>
     route.fulfill({
       status: 200,
       contentType: "image/svg+xml",
@@ -349,6 +350,7 @@ test("catalog token appears on Home and Balances with its image, but never enter
   await expect(homeCatalogRow.getByText("1 RCG", { exact: true })).toBeVisible();
   await expect(homeCatalogRow.locator(`img[src="${RECOGNIZED_IMAGE_URL}"]`)).toBeVisible();
   await expect(homeCatalogRow.locator('[data-mark="image"]')).toBeVisible();
+  await expect(page.getByText("Dust Coin", { exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Your money" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
@@ -358,8 +360,36 @@ test("catalog token appears on Home and Balances with its image, but never enter
   await expect(balancesCatalogRow).toBeVisible();
   await expect(balancesCatalogRow.getByText("1 RCG", { exact: true })).toBeVisible();
   await expect(balancesCatalogRow.locator(`img[src="${RECOGNIZED_IMAGE_URL}"]`)).toBeVisible();
+  const balancesCbbtcRow = page.locator('[data-shell-panel]:not([hidden]) li', {
+    hasText: "Bitcoin",
+  });
+  await expect(balancesCbbtcRow.locator(`img[src="${CBBTC_IMAGE_URL}"]`)).toBeVisible();
+  await expect(balancesCbbtcRow.locator('[data-shimmer="mark"]')).toHaveCount(0);
+  await expect(page.getByText("1 small balance hidden", { exact: false })).toBeVisible();
+  await expect(page.getByText("Dust Coin", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Show", exact: true }).click();
+  await expect(page.getByText("Dust Coin", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hide small balances" })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
+  await expect(page.getByText("Dust Coin", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("1 small balance hidden", { exact: false })).toBeVisible();
+
+  await page.getByRole("button", { name: "Account" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Account" })).toBeVisible();
+  await page.getByRole("switch", { name: "Show small balances" }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Dust Coin", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 small balance hidden", { exact: false })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Back" }).click();
+  await expect(page.locator(
+    '[data-shell-panel]:not([hidden]) [data-balance-list] li',
+    { hasText: "Dust Coin" },
+  )).toHaveCount(0);
   await page.getByRole("button", { name: "Send" }).click();
   const send = page.getByRole("dialog", { name: "Send" });
   await expect(send.getByText("Recognized Coin", { exact: true })).toHaveCount(0);
@@ -488,6 +518,7 @@ test("recent operations open transaction details", async ({ page }) => {
 });
 
 test("sends a held catalog cbBTC balance with one asset selector indicator", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   const fixture = balancesSnapshot();
   parseBalancesSnapshot(fixture, {
     subject: "playwright-smoke-subject",
@@ -502,9 +533,22 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
   const send = page.getByRole("dialog", { name: "Send" });
   const selector = send.getByRole("combobox", { name: "Asset" });
   await expect(selector).toBeVisible();
+  await expect(selector).toHaveValue("USD");
   await expect(send.locator('[data-slot="input-group-button"]')).toHaveCount(1);
   await selector.click();
-  await page.getByRole("option", { name: /cbBTC/ }).click();
+  await expect(page.getByRole("option", { name: "USD USDC" })).toBeVisible();
+  const selectorGroup = selector.locator("xpath=ancestor::*[@data-slot='input-group']");
+  const popup = page.locator('[data-slot="combobox-content"]');
+  const [selectorWidth, popupWidth] = await Promise.all([
+    selectorGroup.evaluate((element) => (element as HTMLElement).offsetWidth),
+    popup.evaluate((element) => (element as HTMLElement).offsetWidth),
+  ]);
+  expect(popupWidth).toBe(selectorWidth);
+  await selector.fill("cbBTC");
+  const cbBtcOption = page.getByRole("option", { name: "Bitcoin cbBTC" });
+  await expect(cbBtcOption).toBeVisible();
+  await selector.press("Enter");
+  await expect(selector).toHaveValue("Bitcoin");
   await expect(send.getByRole("img", { name: "0.001 cbBTC available" })).toBeVisible();
   await typeAmount(page, "0.001");
   await send.getByRole("button", { name: "Continue" }).click();
@@ -906,16 +950,23 @@ async function openScrolledBalances(page: Page) {
   await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
   await expect(page).toHaveURL(/[?&]panel=balances/);
 
+  // A fresh open reveals the first batch plus whatever the observer can already see at this
+  // viewport (dense rows may not fill it). Capture that count: "reset" means returning to it.
+  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBeGreaterThanOrEqual(10);
+  await page.waitForTimeout(150);
+  const freshCount = await page.evaluate(countVisibleBalanceRows);
+
   const maxTop = await page.evaluate(() => {
     const main = document.querySelector<HTMLElement>(".app-main-authenticated");
     return main ? Math.max(0, main.scrollHeight - main.clientHeight) : 0;
   });
   expect(maxTop).toBeGreaterThan(0);
 
+  // A real user scroll — a good way down the current range, not to the sentinel itself.
   const target = await page.evaluate((max) => {
     const main = document.querySelector<HTMLElement>(".app-main-authenticated");
     if (!main) return 0;
-    const next = Math.min(240, max);
+    const next = Math.min(max, Math.max(240, Math.round(max * 0.6)));
     main.scrollTop = next;
     main.dispatchEvent(new Event("scroll", { bubbles: true }));
     return next;
@@ -923,27 +974,18 @@ async function openScrolledBalances(page: Page) {
   expect(target).toBeGreaterThan(0);
 
   // The real IntersectionObserver reveals at least one more batch on scroll.
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          document.querySelectorAll(
-            '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
-          ).length,
-      ),
-    )
-    .toBeGreaterThan(10);
+  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBeGreaterThan(freshCount);
   const revealedCount = await page.evaluate(
     () =>
       document.querySelectorAll(
         '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
       ).length,
   );
-  return { target, revealedCount, maxTop };
+  return { target, revealedCount, maxTop, freshCount };
 }
 
 async function openInvestAssetDetail(page: Page) {
-  await page.getByRole("button", { name: "Invest" }).click();
+  await page.getByRole("button", { name: "Invest", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
   await expect(page).toHaveURL(/[?&]panel=invest/);
   // Forward Invest entry clears the saved offset before any asset opens.
@@ -1000,12 +1042,18 @@ async function clickForwardAndWaitForUrl(
   // Right after a route change the button can render before its handler is
   // hydrated, so a click that produced no navigation is retried (#383).
   await expect(async () => {
-    await page.getByRole("button", { name }).click({ force: true });
+    await page.getByRole("button", { name, exact: true }).click({ force: true });
     await expect(page).toHaveURL(expectedUrl, { timeout: 1_500 });
   }).toPass({ timeout: 15_000 });
 }
 
-async function expectBalancesReset(page: Page) {
+function countVisibleBalanceRows(): number {
+  return document.querySelectorAll(
+    '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
+  ).length;
+}
+
+async function expectBalancesReset(page: Page, freshCount: number) {
   await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
   await expect
     .poll(() =>
@@ -1016,16 +1064,7 @@ async function expectBalancesReset(page: Page) {
       ),
     )
     .toBe(0);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          document.querySelectorAll(
-            '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
-          ).length,
-      ),
-    )
-    .toBe(10);
+  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBe(freshCount);
 }
 
 test("Balances restores scroll and reveal after app Back from an opened asset", async ({ page }) => {
@@ -1059,29 +1098,29 @@ test("Balances restores scroll and reveal after Account Done", async ({ page }) 
 });
 
 test("Balances starts at the top after browser Back from generic Invest", async ({ page }) => {
-  await openScrolledBalances(page);
+  const state = await openScrolledBalances(page);
   await clickForwardAndWaitForUrl(page, "Invest", /[?&]panel=invest/);
   await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
   await page.goBack();
-  await expectBalancesReset(page);
+  await expectBalancesReset(page, state.freshCount);
 });
 
 test("Balances starts at the top after browser Back from Home", async ({ page }) => {
-  await openScrolledBalances(page);
+  const state = await openScrolledBalances(page);
   await clickForwardAndWaitForUrl(page, "Back", /\/dashboard$/);
   await page.goBack();
-  await expectBalancesReset(page);
+  await expectBalancesReset(page, state.freshCount);
 });
 
 test("Balances starts at the top after Activity and browser Back", async ({ page }) => {
-  await openScrolledBalances(page);
+  const state = await openScrolledBalances(page);
   await clickForwardAndWaitForUrl(page, "Back", /\/dashboard$/);
   await clickForwardAndWaitForUrl(page, "Activity", /[?&]panel=activity/);
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await page.goBack();
   await expect(page).not.toHaveURL(/[?&]panel=activity/);
   await page.goBack();
-  await expectBalancesReset(page);
+  await expectBalancesReset(page, state.freshCount);
 });
 
 test("account sign-in and settings stay reachable at 390px, 320px, and 200% text", async ({ page }) => {
@@ -1181,8 +1220,10 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
   await installApiFixtures(page);
   await signIn(page);
   await page.getByRole("button", { name: "Add money" }).click();
-  const method = page.getByRole("button", { name: /Deposit IDR with IDRX/ });
+  // The row title is "Deposit IDR"; the provider and rail live in its description.
+  const method = page.getByRole("button", { name: /Deposit IDR/ });
   await expect(method).toBeVisible();
+  await expect(method).toContainText("IDRX · Bank transfer · Mandiri");
   await method.click();
   await typeAmount(page, "20000");
   await page.getByRole("button", { name: "Review quote", exact: true }).click();

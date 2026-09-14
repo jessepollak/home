@@ -190,6 +190,7 @@ export function parseBalancesSnapshot(
       fail("total status");
   }
   if (quoteCurrency === null && total.status !== "no-quote-currency") fail("total status vs currency");
+  if (value.stale !== undefined && value.stale !== true) fail("stale flag");
 
   return {
     version: BALANCES_VERSION,
@@ -212,6 +213,7 @@ export function parseBalancesSnapshot(
       value: total.value as ExactDecimal | null,
       currency: total.currency as FiatCurrencyCode | null,
     },
+    ...(value.stale === true ? { stale: true as const } : {}),
   };
 }
 
@@ -242,7 +244,8 @@ function validateHolding(
       raw.decimals !== expected.decimals ||
       normalizeNullableAddress(raw.contractAddress) !== expected.contractAddress ||
       (raw.cashCurrency ?? null) !== expected.cashCurrency ||
-      raw.imageUrl !== undefined
+      (raw.imageUrl !== undefined && !validateHttpsImage(raw.imageUrl)) ||
+      (raw.imageUrl !== undefined && (expected.kind !== "erc20" || expected.cashCurrency !== null))
     ) {
       fail(`registry holding mismatch: ${raw.id}`);
     }
@@ -256,6 +259,7 @@ function validateHolding(
       decimals: expected.decimals,
       contractAddress: expected.contractAddress as Holding["contractAddress"],
       cashCurrency: expected.cashCurrency,
+      ...(raw.imageUrl !== undefined ? { imageUrl: raw.imageUrl as string } : {}),
       balance,
       value,
     };

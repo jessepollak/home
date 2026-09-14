@@ -12,6 +12,7 @@ const publicRoutes = new Set([
   "market-prices/history/route.ts",
   "market-prices/route.ts",
   "savings/vaults/route.ts",
+  "webhooks/cdp/route.ts",
 ]);
 const privateRoutes = routePaths.filter((path) => !publicRoutes.has(path));
 const httpVerbs = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] as const;

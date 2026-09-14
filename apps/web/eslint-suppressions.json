@@ -1,0 +1,117 @@
+{
+  "app/dev/ui/page.tsx": {
+    "shadcn/no-restyle": {
+      "count": 1
+    }
+  },
+  "client/account/account-screen.tsx": {
+    "shadcn/no-restyle": {
+      "count": 4
+    }
+  },
+  "client/account/account-settings.tsx": {
+    "shadcn/no-restyle": {
+      "count": 13
+    }
+  },
+  "client/account/sign-in-otp.tsx": {
+    "shadcn/no-restyle": {
+      "count": 4
+    }
+  },
+  "client/actions/recent-operations.tsx": {
+    "shadcn/no-restyle": {
+      "count": 6
+    }
+  },
+  "client/actions/review.tsx": {
+    "shadcn/no-restyle": {
+      "count": 2
+    }
+  },
+  "client/activity/activity-panel.tsx": {
+    "shadcn/no-restyle": {
+      "count": 4
+    }
+  },
+  "client/funding/add-money-dialog.tsx": {
+    "shadcn/no-restyle": {
+      "count": 14
+    }
+  },
+  "client/funding/order-flow.tsx": {
+    "shadcn/no-restyle": {
+      "count": 2
+    }
+  },
+  "client/home/balances-panel.tsx": {
+    "shadcn/no-restyle": {
+      "count": 9
+    }
+  },
+  "client/home/panel-shared.tsx": {
+    "shadcn/no-restyle": {
+      "count": 3
+    }
+  },
+  "client/invest/category-screen.tsx": {
+    "shadcn/no-restyle": {
+      "count": 1
+    }
+  },
+  "client/invest/discover-asset-row.tsx": {
+    "shadcn/no-restyle": {
+      "count": 9
+    }
+  },
+  "client/invest/discover-shelf.tsx": {
+    "shadcn/no-restyle": {
+      "count": 1
+    }
+  },
+  "client/money-modal/amount.tsx": {
+    "shadcn/no-restyle": {
+      "count": 2
+    }
+  },
+  "client/money-modal/money-modal.tsx": {
+    "shadcn/no-restyle": {
+      "count": 12
+    }
+  },
+  "client/savings/savings-experience.tsx": {
+    "shadcn/no-restyle": {
+      "count": 15
+    }
+  },
+  "client/savings/savings-teaser.tsx": {
+    "shadcn/no-restyle": {
+      "count": 8
+    }
+  },
+  "components/address-field.tsx": {
+    "shadcn/no-restyle": {
+      "count": 2
+    }
+  },
+  "components/copyable-value.tsx": {
+    "shadcn/no-restyle": {
+      "count": 12
+    }
+  },
+  "components/country-select.tsx": {
+    "shadcn/no-restyle": {
+      "count": 1
+    }
+  },
+  "components/finance-rows.tsx": {
+    "shadcn/no-restyle": {
+      "count": 17
+    }
+  },
+  "components/primary-navigation.tsx": {
+    "shadcn/no-restyle": {
+      "count": 5
+    }
+  }
+}

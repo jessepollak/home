@@ -1,5 +1,5 @@
 import { presentationRegions, type RegionId } from "@/config/regions";
-import { presentationCurrencySymbol } from "@/shared/portfolio/valuation-format";
+import { presentationCurrencyMetadata } from "@/shared/formatting";
 
 const integerPattern = /^(?:0|[1-9]\d*)$/;
 const decimalPattern = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
@@ -63,7 +63,7 @@ export function resolvePrimaryUnit(
 }
 
 export function formatChipLabel(units: 10 | 25, currency: string): string {
-  const symbol = presentationCurrencySymbol(currency);
+  const symbol = presentationCurrencyMetadata(currency).symbol;
   return prefixSymbols.has(symbol) ? `${symbol}${units}` : `${symbol} ${units}`;
 }
 
@@ -71,11 +71,12 @@ export function formatPrimaryAmount(
   amount: string,
   unit: MoneyPrimaryUnit,
   pricing: MoneyAssetPricing,
+  fiatCurrency?: string,
 ): string {
   const figure = amount || "0";
+  if (fiatCurrency) return formatLocalDisplay(figure, fiatCurrency);
   if (unit === "native" || pricing.status === "unpriced") return figure;
-  const symbol = presentationCurrencySymbol(pricing.localCurrency);
-  return prefixSymbols.has(symbol) ? `${symbol}${figure}` : `${figure} ${symbol}`;
+  return formatLocalDisplay(figure, pricing.localCurrency);
 }
 
 export function formatSecondaryAmount(
@@ -157,7 +158,7 @@ export function convertDisplayAmount(
 }
 
 function formatLocalDisplay(amount: string, currency: string): string {
-  const symbol = presentationCurrencySymbol(currency);
+  const symbol = presentationCurrencyMetadata(currency).symbol;
   return prefixSymbols.has(symbol) ? `${symbol}${amount}` : `${symbol} ${amount}`;
 }
 

@@ -1,4 +1,6 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
+import { createSiweMessage } from "viem/siwe";
+import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import {
   ACCOUNT_PROVIDER_HEADER,
   type VerifiedAccountSession,
@@ -160,12 +162,18 @@ async function createSessionCookie(): Promise<string> {
   };
   const nonce = createNativeBaseNonceHandler(dependencies);
   const verify = createNativeBaseVerifyHandler(dependencies);
-  const nonceResponse = await nonce(jsonRequest("/api/auth/base/nonce", { address: ADDRESS }));
+  const nonceResponse = await nonce(jsonRequest("/api/auth/base/nonce", {}));
   const challengeCookie = responseCookie(nonceResponse, HOME_CHALLENGE_COOKIE);
-  const { message } = await nonceResponse.json() as { message: string };
+  const challenge = await nonceResponse.json() as NativeBaseChallenge;
+  const message = createSiweMessage({
+    ...challenge,
+    address: ADDRESS,
+    issuedAt: new Date(challenge.issuedAt),
+    expirationTime: new Date(challenge.expirationTime),
+  });
   const verifyResponse = await verify(jsonRequest(
     "/api/auth/base/verify",
-    { message, signature: "0x1234" },
+    { address: ADDRESS, message, signature: "0x1234" },
     challengeCookie,
   ));
   expect(verifyResponse.status).toBe(200);

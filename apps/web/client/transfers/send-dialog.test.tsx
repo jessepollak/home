@@ -73,6 +73,32 @@ describe("SendDialog availability", () => {
     expect(amountField?.getAttribute("aria-label")).not.toContain("display copy only");
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
   });
+
+  test("appends a stale snapshot age to the available label", () => {
+    const usdc = getTransferAsset("usdc");
+    if (!usdc) throw new Error("missing USDC transfer asset");
+
+    render(
+      <SendDialog
+        open
+        immediate
+        address={ACCOUNT}
+        ownerBoundary="owner-a"
+        availableAssets={[{
+          ...usdc,
+          balanceBaseUnits: "1234567",
+          balanceLabel: "$1.23",
+          balanceAgeLabel: "Updated 3 min ago",
+        }]}
+        prepareMoneyAction={async () => resumedAction()}
+        resumeMoneyAction={async () => resumedAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(page().getByText("Updated 3 min ago", { exact: false })).toBeTruthy();
+  });
 });
 
 describe("SendDialog resume", () => {

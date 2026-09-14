@@ -17,11 +17,13 @@ export const coinbaseManifest = {
     {
       region: "US",
       assetId: "base:usdc",
-      paymentMethods: [{ id: "hosted", label: "Coinbase" }],
+      paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }],
       env: COINBASE_ONRAMP_ENV,
     },
   ],
   apiOrigins: [COINBASE_ONRAMP_API_ORIGIN],
   redirectOrigins: [COINBASE_ONRAMP_REDIRECT_ORIGIN],
+  sandbox: true,
   reference: "provider",
+  quotes: true,
 } as const satisfies FundingProviderManifest;

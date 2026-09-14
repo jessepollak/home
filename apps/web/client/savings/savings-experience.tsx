@@ -35,6 +35,7 @@ import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { selectBalanceBaseUnits, selectVaultPositions } from "@/shared/balances/select";
 import {
   formatPresentationPercentage,
+  formatRelativeTime,
   formatUsdStablecoinAmount,
 } from "@/shared/formatting";
 import {
@@ -81,6 +82,7 @@ type SavingsExperienceProps = {
   balancePositions?: ReturnType<typeof selectVaultPositions> | null;
   balanceStatus?: "idle" | "loading" | "ready" | "error";
   balanceRevalidating?: boolean;
+  balanceAgeLabel?: string;
   prepareMoneyAction?: (
     endpoint: string,
     input: unknown,
@@ -132,6 +134,9 @@ export function AuthenticatedSavingsExperience() {
       balancePositions={balancePositions}
       balanceStatus={balances.status === "unavailable" ? "idle" : balances.status}
       balanceRevalidating={balances.revalidating === true}
+      balanceAgeLabel={balances.snapshot?.stale === true
+        ? `Updated ${formatRelativeTime(balances.snapshot.fetchedAt)}`
+        : undefined}
       prepareMoneyAction={account.prepareMoneyAction}
       executeMoneyAction={account.executeMoneyAction}
     />
@@ -147,6 +152,7 @@ export function SavingsExperience({
   balancePositions = null,
   balanceStatus,
   balanceRevalidating = false,
+  balanceAgeLabel,
   prepareMoneyAction,
   executeMoneyAction,
   onBack,
@@ -573,6 +579,7 @@ export function SavingsExperience({
                 ? `${formatUsdStablecoinAmount(selectedAmount.toString())} available`
                 : undefined
           }
+          balanceAgeLabel={balanceAgeLabel}
           availableBaseUnits={
             visibleActionMode === "deposit"
               ? availableUsdcBaseUnits

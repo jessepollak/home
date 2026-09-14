@@ -21,13 +21,14 @@ Review every generated copy before committing it. Stock Tailwind scale utilities
 
 Use the stock system sans and monospace stacks: there is no `next/font` setup or font asset directory. Money and other aligned numbers use `tabular-nums`; monospace is reserved for addresses, hashes, and code. Use the stock Tailwind type scale and component spacing.
 
-Country selection uses the searchable `Combobox`. Other pickers use Base UI `Select`. Financial rows stay on `Item`; do not introduce Data Table on mobile.
+Country selection and searchable asset selection use the `Combobox`; simple non-searchable pickers use Base UI `Select`. Financial rows stay on `Item`; do not introduce Data Table on mobile.
 
 ## Rules
 
 1. Style components and product surfaces with Tailwind utilities. ESLint bans hex/rgba, arbitrary-pixel, and raw palette classes; use semantic tokens instead.
 2. Raw `@base-ui/react` imports are allowed only in `apps/web/components/ui`.
 3. Raw `button`, `input`, and `select` elements outside `components/ui` are banned except for the shrinking audited allowlist. Use the owned wrappers.
+4. `@shadcn/lint` rejects new restyling of owned UI components in product code. Existing violations are baselined in `apps/web/eslint-suppressions.json`; move styling into variants or explicit contracts, then run `bun run --cwd apps/web lint:prune` to shrink the baseline.
 
 ## Home-owned product pieces
 

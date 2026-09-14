@@ -1,11 +1,20 @@
 import { selectSendable } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
-import { formatPresentationTokenAmount } from "@/shared/formatting";
+import { formatPresentationTokenAmount, formatRelativeTime } from "@/shared/formatting";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 
-export type SendAvailability = readonly TransferAssetAvailability[];
+export type SendAvailability = readonly (TransferAssetAvailability & {
+  balanceAgeLabel?: string;
+  imageUrl?: string;
+})[];
 
-export function deriveSendAvailability(snapshot: BalancesSnapshot): SendAvailability {
+export function deriveSendAvailability(
+  snapshot: BalancesSnapshot,
+  nowMs = Date.now(),
+): SendAvailability {
+  const balanceAgeLabel = snapshot.stale === true
+    ? `Updated ${formatRelativeTime(snapshot.fetchedAt, nowMs)}`
+    : undefined;
   return selectSendable(snapshot).map((asset) => ({
     ...asset,
     balanceLabel: formatPresentationTokenAmount(
@@ -18,5 +27,6 @@ export function deriveSendAvailability(snapshot: BalancesSnapshot): SendAvailabi
         regionId: snapshot.region,
       },
     ),
+    ...(balanceAgeLabel ? { balanceAgeLabel } : {}),
   }));
 }

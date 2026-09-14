@@ -12,7 +12,7 @@ import {
   addFractions,
   exactDecimalToFraction,
   roundFractionPreservingPositive,
-} from "@/shared/portfolio/valuation-math";
+} from "@/shared/balances/math";
 import type { BalancesRead } from "./types";
 
 export function assembleBalancesSnapshot({
@@ -20,13 +20,13 @@ export function assembleBalancesSnapshot({
   region,
   read,
   holdings,
-  now = () => new Date(),
+  stale = false,
 }: {
   owner: BalancesAddress;
   region: RegionId;
   read: BalancesRead;
   holdings: Holding[];
-  now?: () => Date;
+  stale?: boolean;
 }): BalancesSnapshot {
   const quoteCurrency = presentationRegions[region].currency.code;
   const registry = holdings.filter((holding) => holding.source === "registry");
@@ -77,9 +77,10 @@ export function assembleBalancesSnapshot({
     region,
     quoteCurrency,
     block: read.block,
-    fetchedAt: now().toISOString(),
+    fetchedAt: read.observedAt,
     holdings,
     coverage: read.coverage,
     total,
+    ...(stale ? { stale: true as const } : {}),
   };
 }

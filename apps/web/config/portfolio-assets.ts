@@ -104,7 +104,7 @@ export const verifiedLocalCashAssets = {
     id: "idrx",
     assetKey:
       "eip155:8453/erc20:0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
-    name: "Indonesian rupiah",
+    name: "Rupiah",
     symbol: "IDRX",
     decimals: 2,
     kind: "erc20",

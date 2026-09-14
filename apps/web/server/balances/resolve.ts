@@ -1,9 +1,14 @@
 import "server-only";
 
+import { getResolvedAssetIcons } from "@/server/market-data/asset-icons/resolve";
 import {
   getCodexRecognizedTokenCatalog,
   type RecognizedTokenCatalogResult,
 } from "@/server/market-data/codex/recognized-catalog";
+import {
+  getCodexTokenLookup,
+  type CodexTokenLookupEntry,
+} from "@/server/market-data/codex/token-lookup";
 import {
   catalogHoldingId,
   erc20AssetKey,
@@ -17,35 +22,52 @@ import type {
 
 type Dependencies = {
   readCatalog?: () => Promise<RecognizedTokenCatalogResult>;
+  readAssetIcons?: () => Promise<Record<string, string | null>>;
+  lookupTokens?: (
+    addresses: readonly `0x${string}`[],
+  ) => Promise<Map<string, CodexTokenLookupEntry>>;
 };
 
 export function createBalancesResolver(dependencies: Dependencies = {}) {
   const readCatalog = dependencies.readCatalog ??
     (() => getCodexRecognizedTokenCatalog());
+  const readAssetIcons = dependencies.readAssetIcons ?? getResolvedAssetIcons;
+  const lookupTokens = dependencies.lookupTokens ?? getCodexTokenLookup;
 
   return async function resolveBalances(
     registryRead: BalancesRead,
     enumeration: BalancesEnumeration,
   ): Promise<BalancesRead> {
+    const iconsRequest = readAssetIcons().catch(() => ({}));
+    const catalogRequest = enumeration.status === "unavailable"
+      ? null
+      : readCatalog().catch((): RecognizedTokenCatalogResult => ({
+          status: "incomplete",
+          entries: [],
+        }));
+    const registryHoldings = attachRegistryIcons(
+      registryRead.holdings,
+      await iconsRequest,
+    );
+    const readWithIcons = {
+      ...registryRead,
+      holdings: registryHoldings,
+    };
+
     if (enumeration.status === "unavailable") {
       return {
-        ...registryRead,
+        ...readWithIcons,
         coverage: {
-          ...registryRead.coverage,
+          ...readWithIcons.coverage,
           catalog: "unavailable",
         },
       };
     }
 
-    let catalog: RecognizedTokenCatalogResult;
-    try {
-      catalog = await readCatalog();
-    } catch {
-      catalog = { status: "incomplete", entries: [] };
-    }
+    const catalog = await catalogRequest!;
 
     const registryContracts = new Set(
-      registryRead.holdings.flatMap((holding) =>
+      registryHoldings.flatMap((holding) =>
         holding.source === "registry" && holding.contractAddress
           ? [holding.contractAddress.toLowerCase()]
           : [],
@@ -54,6 +76,21 @@ export function createBalancesResolver(dependencies: Dependencies = {}) {
     const catalogByContract = new Map(
       catalog.entries.map((entry) => [entry.address.toLowerCase(), entry]),
     );
+    const candidateAddresses = [...new Set(enumeration.rows.flatMap((row) => {
+      const address = row.contractAddress.toLowerCase() as `0x${string}`;
+      return !registryContracts.has(address) &&
+          !catalogByContract.has(address) &&
+          isPositive(row.amountBaseUnits)
+        ? [address]
+        : [];
+    }))];
+    let tokenLookup = new Map<string, CodexTokenLookupEntry>();
+    try {
+      tokenLookup = await lookupTokens(candidateAddresses);
+    } catch {
+      // Contract lookup is optional enrichment. CDP metadata remains usable.
+    }
+
     const seen = new Set<string>();
     const discovered: ReadHolding[] = [];
     let incomplete =
@@ -99,6 +136,41 @@ export function createBalancesResolver(dependencies: Dependencies = {}) {
         continue;
       }
 
+      const enriched = tokenLookup.get(address);
+      if (enriched) {
+        if (
+          row.decimals !== undefined &&
+          row.decimals !== enriched.decimals
+        ) {
+          incomplete = true;
+          continue;
+        }
+        discovered.push({
+          key: erc20AssetKey(address),
+          id: walletHoldingId(address),
+          kind: "erc20",
+          source: "wallet",
+          name: enriched.name,
+          symbol: enriched.symbol,
+          decimals: enriched.decimals,
+          contractAddress: address,
+          cashCurrency: null,
+          ...(enriched.imageUrl ? { imageUrl: enriched.imageUrl } : {}),
+          ...(enriched.liquidityUsd
+            ? { liquidityUsd: enriched.liquidityUsd }
+            : {}),
+          ...(enriched.volume24Usd
+            ? { volume24Usd: enriched.volume24Usd }
+            : {}),
+          marketDataResolved: true,
+          balance: {
+            status: "ready",
+            baseUnits: row.amountBaseUnits,
+          },
+        });
+        continue;
+      }
+
       if (
         !isBoundedText(row.name) ||
         !isBoundedText(row.symbol) ||
@@ -124,10 +196,10 @@ export function createBalancesResolver(dependencies: Dependencies = {}) {
     }
 
     return {
-      ...registryRead,
-      holdings: [...registryRead.holdings, ...discovered],
+      ...readWithIcons,
+      holdings: [...registryHoldings, ...discovered],
       coverage: {
-        ...registryRead.coverage,
+        ...readWithIcons.coverage,
         catalog: incomplete ? "incomplete" : "complete",
       },
     };
@@ -135,6 +207,20 @@ export function createBalancesResolver(dependencies: Dependencies = {}) {
 }
 
 export const resolveBalances = createBalancesResolver();
+
+function attachRegistryIcons(
+  holdings: readonly ReadHolding[],
+  icons: Readonly<Record<string, string | null>>,
+): ReadHolding[] {
+  return holdings.map((holding) => {
+    const imageUrl = holding.source === "registry" &&
+        holding.kind === "erc20" &&
+        holding.cashCurrency === null
+      ? icons[holding.id]
+      : null;
+    return imageUrl ? { ...holding, imageUrl } : holding;
+  });
+}
 
 function isPositive(value: string): boolean {
   return /^(?:0|[1-9]\d*)$/.test(value) && BigInt(value) > BigInt(0);

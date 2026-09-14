@@ -3,13 +3,16 @@ import { createPostgresSqlExecutor } from "./sql";
 
 type QueryCall = { text: string; values: unknown[] };
 
-function fakePool() {
+function fakePool(multiStatementText?: string) {
   const calls: QueryCall[] = [];
   let ended = false;
   let releases = 0;
   const client = {
     async query(text: string, values: unknown[] = []) {
       calls.push({ text, values });
+      if (text === multiStatementText) {
+        return [{ rows: [], rowCount: null }, { rows: [], rowCount: null }];
+      }
       return { rows: [], rowCount: 0 };
     },
     release() {
@@ -54,6 +57,19 @@ describe("PostgreSQL executor", () => {
       { text: "COMMIT", values: [] },
     ]);
     expect(pool.releases).toBe(1);
+  });
+
+  test("accepts pg's result array for multi-statement migration files", async () => {
+    const migration = "CREATE TABLE one(id int); CREATE TABLE two(id int);";
+    const pool = fakePool(migration);
+    const sql = createPostgresSqlExecutor("postgresql://example.test/home", {
+      poolFactory: () => pool,
+    });
+
+    await expect(sql.transaction((tx) => tx.query(migration))).resolves.toEqual({
+      rows: [],
+      rowCount: 0,
+    });
   });
 
   test("rolls back and releases the client when a transaction throws", async () => {

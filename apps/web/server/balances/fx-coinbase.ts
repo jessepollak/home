@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { FiatCurrencyCode } from "@/config/regions";
-import { parseExactDecimal } from "@/shared/portfolio/valuation-math";
+import { parseExactDecimal } from "@/shared/balances/math";
 import type { FxQuote, NativeEthQuote, ValuationSource } from "@/shared/balances/quotes";
 
 export const COINBASE_EXCHANGE_RATES_URL =

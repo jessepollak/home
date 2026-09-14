@@ -67,7 +67,7 @@ A secret shorter than 32 characters silently disables the Base Account button. K
 
 Actions require PostgreSQL through `DATABASE_URL`. The current action contract is [Actions](docs/actions.md) under [Architecture](docs/architecture.md): Home keeps one confirmed action record; the server authors calldata; the client dispatches through CDP or Base; provider and chain data determine status.
 
-For a local database, run `bun run db:up` (Docker), set `DATABASE_URL=postgresql://home:home@127.0.0.1:54320/home_local` in `apps/web/.env.local`, then run `bun run db:migrate`.
+For a local database, run `bun run db:up` (Docker), set `DATABASE_URL=postgresql://home:home@127.0.0.1:54320/home_local` in `apps/web/.env.local`, then run `bun run dev`, which applies migrations automatically when `DATABASE_URL` is set.
 
 ### Useful commands
 

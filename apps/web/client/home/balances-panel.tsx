@@ -5,14 +5,17 @@ import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { ItemGroup } from "@/components/ui/item";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemTitle,
+} from "@/components/ui/item";
 import { MoneyTicker } from "@/components/money-ticker";
 import { CurrencyMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
-import {
-  presentPortfolioAssetMark,
-  type AssetMarkResolution,
-} from "@/client/asset-mark/presentation";
+import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import type { RegionId } from "@/config/regions";
 import {
   HOME_MONEY_GROUP_PREVIEW_COUNT,
@@ -85,21 +88,24 @@ export function useBalancesRevealWindow(
 export function BalancesPage({
   active,
   assetBalances,
-  assetMarkResolution,
+  showSmallBalances,
+  revealSmallBalances,
+  onRevealSmallBalancesChange,
   isChecking,
   revealedCount,
   onRevealMore,
 }: {
   active: boolean;
   assetBalances?: BalancesPresentation;
-  assetMarkResolution?: AssetMarkResolution;
+  showSmallBalances: boolean;
+  revealSmallBalances: boolean;
+  onRevealSmallBalancesChange: (value: boolean) => void;
   isChecking: boolean;
   revealedCount: number;
   onRevealMore: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading" || isChecking;
-  const balanceStatusLabel =
-    assetBalances?.totalStatus === "partial" ? undefined : assetBalances?.statusLabel;
+  const balanceStatusLabel = assetBalances?.statusLabel;
   const showBalanceStatus =
     assetBalances?.status !== "loading" && Boolean(balanceStatusLabel);
   return (
@@ -116,7 +122,10 @@ export function BalancesPage({
             groups={assetBalances?.groups ?? []}
             isLoading={isLoading}
             isUnavailable={assetBalances?.status === "unavailable"}
-            assetMarkResolution={assetMarkResolution}
+            hiddenCount={assetBalances?.hiddenCount ?? 0}
+            showSmallBalances={showSmallBalances}
+            revealSmallBalances={revealSmallBalances}
+            onRevealSmallBalancesChange={onRevealSmallBalancesChange}
             revealedCount={revealedCount}
             onRevealMore={onRevealMore}
           />
@@ -128,30 +137,34 @@ export function BalancesPage({
 
 export function HomeMoneyGroups({
   groups,
+  hiddenRows = [],
   isLoading,
   isUnavailable = false,
-  assetMarkResolution,
   onOpenGroup,
 }: {
   groups: readonly MoneyGroupPresentation[];
+  hiddenRows?: readonly BalanceRowModel[];
   isLoading: boolean;
   isUnavailable?: boolean;
-  assetMarkResolution?: AssetMarkResolution;
   onOpenGroup: (group: MoneyGroupPresentation["id"]) => void;
 }) {
   if (groups.length > 0) {
+    // Preview each group the snapshot presents; hidden dust rows never reach Home, and an absent
+    // group (no investments yet) stays hidden rather than showing a header and a More row.
+    const hiddenKeys = new Set(hiddenRows.map((row) => row.key));
+    const previewGroups = groups
+      .map((group) => ({
+        ...group,
+        rows: group.rows.filter((row) => !hiddenKeys.has(row.key)),
+      }))
+      .filter((group) => group.id === "cash" || group.rows.length > 0);
     return (
       <GroupedBalancesList
-        groups={groups.map((group) => ({
+        groups={previewGroups.map((group) => ({
           ...group,
           rows: group.rows.slice(0, HOME_MONEY_GROUP_PREVIEW_COUNT),
         }))}
-        assetMarkResolution={assetMarkResolution}
-        moreGroups={new Set(
-          groups
-            .filter((group) => group.rows.length > HOME_MONEY_GROUP_PREVIEW_COUNT)
-            .map((group) => group.id),
-        )}
+        moreGroups={new Set(previewGroups.map((group) => group.id))}
         onOpenGroup={onOpenGroup}
       />
     );
@@ -173,15 +186,13 @@ export function HomeBalancesList({
   rows,
   isLoading,
   isUnavailable = false,
-  assetMarkResolution,
 }: {
   rows: readonly BalanceRowModel[];
   isLoading: boolean;
   isUnavailable?: boolean;
-  assetMarkResolution?: AssetMarkResolution;
 }) {
   if (rows.length > 0) {
-    return <BalancesList rows={rows} assetMarkResolution={assetMarkResolution} />;
+    return <BalancesList rows={rows} />;
   }
   if (isLoading) return <ShimmerRows count={2} />;
   if (isUnavailable) return null;
@@ -193,7 +204,10 @@ function IncrementalBalancesList({
   groups,
   isLoading,
   isUnavailable = false,
-  assetMarkResolution,
+  hiddenCount,
+  showSmallBalances,
+  revealSmallBalances,
+  onRevealSmallBalancesChange,
   revealedCount,
   onRevealMore,
 }: {
@@ -201,7 +215,10 @@ function IncrementalBalancesList({
   groups: readonly MoneyGroupPresentation[];
   isLoading: boolean;
   isUnavailable?: boolean;
-  assetMarkResolution?: AssetMarkResolution;
+  hiddenCount: number;
+  showSmallBalances: boolean;
+  revealSmallBalances: boolean;
+  onRevealSmallBalancesChange: (value: boolean) => void;
   revealedCount: number;
   onRevealMore: () => void;
 }) {
@@ -242,13 +259,21 @@ function IncrementalBalancesList({
 
   return (
     <>
-      <GroupedBalancesList
-        groups={visibleGroups}
-        assetMarkResolution={assetMarkResolution}
-        withAnchors
-      />
+      <GroupedBalancesList groups={visibleGroups} withAnchors />
+      {!hasMore && !showSmallBalances && hiddenCount > 0 ? (
+        <SmallBalancesControl
+          hiddenCount={hiddenCount}
+          revealSmallBalances={revealSmallBalances}
+          onRevealSmallBalancesChange={onRevealSmallBalancesChange}
+        />
+      ) : null}
       {active && hasMore ? (
-        <div ref={sentinelRef} className="h-px" aria-hidden="true" />
+        <div
+          ref={sentinelRef}
+          className="h-px"
+          data-balances-sentinel=""
+          aria-hidden="true"
+        />
       ) : null}
     </>
   );
@@ -256,13 +281,11 @@ function IncrementalBalancesList({
 
 function GroupedBalancesList({
   groups,
-  assetMarkResolution,
   moreGroups = new Set(),
   onOpenGroup,
   withAnchors = false,
 }: {
   groups: readonly MoneyGroupPresentation[];
-  assetMarkResolution?: AssetMarkResolution;
   moreGroups?: ReadonlySet<MoneyGroupPresentation["id"]>;
   onOpenGroup?: (group: MoneyGroupPresentation["id"]) => void;
   withAnchors?: boolean;
@@ -282,21 +305,22 @@ function GroupedBalancesList({
             label={group.label}
             subtotal={group.displaySubtotal}
           />
-          {group.rows.length > 0 ? (
-            <BalancesList rows={group.rows} assetMarkResolution={assetMarkResolution} />
-          ) : null}
+          {group.rows.length > 0 ? <BalancesList rows={group.rows} /> : null}
           {moreGroups.has(group.id) && onOpenGroup ? (
-            <Button
-              type="button"
+            <Item
+              render={<Button type="button" variant="ghost" />}
               size="sm"
-              variant="ghost"
-              className="ml-1"
+              className="min-h-10 flex-nowrap border-0 py-2 text-left"
               onClick={() => onOpenGroup(group.id)}
               aria-label={`More ${group.label}`}
             >
-              More
-              <ChevronRight className="size-4" aria-hidden="true" />
-            </Button>
+              <ItemContent>
+                <ItemTitle className="text-muted-foreground">More</ItemTitle>
+              </ItemContent>
+              <ItemActions className="text-muted-foreground" aria-hidden="true">
+                <ChevronRight className="size-4" />
+              </ItemActions>
+            </Item>
           ) : null}
         </section>
       ))}
@@ -314,9 +338,15 @@ function MoneyGroupHeader({
   subtotal: string | null;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-3 py-2 text-sm font-medium text-muted-foreground">
+    <div className="flex items-center justify-between gap-3 px-3 pt-3 pb-1 text-xs font-medium tracking-wider text-muted-foreground uppercase">
       <h3 id={id}>{label}</h3>
-      {subtotal ? <MoneyTicker value={subtotal} reserveDigits={false} /> : null}
+      {subtotal ? (
+        <MoneyTicker
+          className="text-right tracking-normal normal-case"
+          value={subtotal}
+          reserveDigits={false}
+        />
+      ) : null}
     </div>
   );
 }
@@ -330,25 +360,51 @@ function LoadingMoneyGroup({ label }: { label: string }) {
   );
 }
 
-function BalancesList({
-  rows,
-  assetMarkResolution,
-}: {
-  rows: readonly BalanceRowModel[];
-  assetMarkResolution?: AssetMarkResolution;
-}) {
+function BalancesList({ rows }: { rows: readonly BalanceRowModel[] }) {
   return (
     <ItemGroup className="gap-0">
       <ul className="list-none p-0" data-balance-list="">
-        {rows.map((row) => (
-          <HomeBalanceRowView
-            key={row.key}
-            row={row}
-            assetMarkResolution={assetMarkResolution}
-          />
-        ))}
+        {rows.map((row) => <HomeBalanceRowView key={row.key} row={row} />)}
       </ul>
     </ItemGroup>
+  );
+}
+
+function SmallBalancesControl({
+  hiddenCount,
+  revealSmallBalances,
+  onRevealSmallBalancesChange,
+}: {
+  hiddenCount: number;
+  revealSmallBalances: boolean;
+  onRevealSmallBalancesChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex min-h-16 items-center justify-center px-3 text-sm text-muted-foreground">
+      {revealSmallBalances ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => onRevealSmallBalancesChange(false)}
+        >
+          Hide small balances
+        </Button>
+      ) : (
+        <p>
+          {hiddenCount} small {hiddenCount === 1 ? "balance" : "balances"} hidden ·{" "}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-auto px-1 py-0"
+            onClick={() => onRevealSmallBalancesChange(true)}
+          >
+            Show
+          </Button>
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -362,13 +418,7 @@ function BalancesEmpty() {
   );
 }
 
-export function HomeBalanceRowView({
-  row,
-  assetMarkResolution,
-}: {
-  row: BalanceRowModel;
-  assetMarkResolution?: AssetMarkResolution;
-}) {
+export function HomeBalanceRowView({ row }: { row: BalanceRowModel }) {
   const symbolMark = row.mark.kind === "symbol"
     ? presentPortfolioAssetMark(
         {
@@ -377,7 +427,6 @@ export function HomeBalanceRowView({
           symbol: row.mark.symbol,
           currency: null,
         },
-        assetMarkResolution,
       )
     : null;
   const icon = row.mark.kind === "flag"

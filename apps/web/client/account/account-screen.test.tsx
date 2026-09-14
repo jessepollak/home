@@ -82,11 +82,12 @@ function SheetHarness({
       ownerKey: initiallySignedIn ? "existing-owner" : null,
       signInWithEmail: requestEmailCode,
       verifyEmailOTP: async () => {},
-      signInWithSiwe: async () => ({
-        flowId: "unused-siwe-flow",
-        message: "unused SIWE message",
+      requestBaseAccountChallenge: async () => ({
+        nonce: "a".repeat(48), chainId: 8453, domain: "home.example", uri: "https://home.example",
+        version: "1", statement: "Sign in to Home.", issuedAt: "2026-09-13T12:00:00.000Z",
+        expirationTime: "2026-09-13T12:05:00.000Z",
       }),
-      verifySiweSignature: async () => {},
+      verifyBaseAccountProof: async () => {},
       getAccessToken: async () => initiallySignedIn ? "fixture-token" : null,
       signOut: signOut ?? noopSignOut,
     }),

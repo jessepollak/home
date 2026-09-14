@@ -79,24 +79,43 @@ function FundingExperienceBoundary({
   const onStepChangeRef = useRef(onStepChange);
   onStepChangeRef.current = onStepChange;
 
-  const fundingQuery = useHomeQuery({
+  const queryEnabled = Boolean(
+    open && !signedOut && regionId !== "GLOBAL" && queryOwnerKey,
+  );
+  const providerQuery = useHomeQuery({
     queryKey: queryOwnerKey
-      ? ownerQueryKey(queryOwnerKey, "funding", regionId)
-      : ["unauthenticated", "funding-disabled", regionId],
-    enabled: Boolean(open && !signedOut && regionId !== "GLOBAL" && queryOwnerKey),
+      ? ownerQueryKey(queryOwnerKey, "funding-providers", regionId)
+      : ["unauthenticated", "funding-providers-disabled", regionId],
+    enabled: queryEnabled,
     staleTime: 15_000,
     retry: false,
     refetchOnWindowFocus: false,
     meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
-    queryFn: async ({ signal }) => Promise.all([
-      wallet.fetchAccountResource(`/api/funding/providers?region=${encodeURIComponent(regionId)}`, { signal }),
-      wallet.fetchAccountResource(`/api/funding/orders?region=${encodeURIComponent(regionId)}`, { signal }),
-    ]),
+    queryFn: ({ signal }) =>
+      wallet.fetchAccountResource(
+        `/api/funding/providers?region=${encodeURIComponent(regionId)}`,
+        { signal },
+      ),
+  });
+  const ordersQuery = useHomeQuery({
+    queryKey: queryOwnerKey
+      ? ownerQueryKey(queryOwnerKey, "funding-open-order", regionId)
+      : ["unauthenticated", "funding-open-order-disabled", regionId],
+    enabled: queryEnabled,
+    staleTime: 15_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
+    queryFn: ({ signal }) =>
+      wallet.fetchAccountResource(
+        `/api/funding/orders?region=${encodeURIComponent(regionId)}`,
+        { signal },
+      ),
   });
 
   const providerBindings = useMemo(
-    () => fundingQuery.data ? readProviderBindings(fundingQuery.data[0]) : [],
-    [fundingQuery.data],
+    () => providerQuery.data ? readProviderBindings(providerQuery.data) : [],
+    [providerQuery.data],
   );
 
   useEffect(() => {
@@ -112,9 +131,8 @@ function FundingExperienceBoundary({
   }, [open, startStep]);
 
   useEffect(() => {
-    const values = fundingQuery.data;
-    if (!values) return;
-    const [, orderValue] = values;
+    const orderValue = ordersQuery.data;
+    if (!orderValue) return;
     const navigationEpoch = navigationEpochRef.current;
     const resumed = readFundingOrder(orderValue);
     if (!resumed || stepRef.current !== "method") return;
@@ -131,7 +149,7 @@ function FundingExperienceBoundary({
       setInitialOrder(resumed);
       navigateTo("order", false);
     });
-  }, [fundingQuery.data, providerBindings]);
+  }, [ordersQuery.data, providerBindings]);
 
   function navigateTo(next: AddMoneyStep, explicit = true) {
     if (explicit) navigationEpochRef.current += 1;
@@ -163,6 +181,20 @@ function FundingExperienceBoundary({
       onBack={goBack}
       onSelectReceive={() => navigateTo("receive")}
       providerBindings={providerBindings}
+      providerBindingsDisabled={!ordersQuery.isSuccess}
+      fundingReadError={
+        providerQuery.isError
+          ? {
+              message: "Funding methods are unavailable. Try again.",
+              retry: () => void providerQuery.refetch(),
+            }
+          : ordersQuery.isError
+            ? {
+                message: "Home couldn't check for an open deposit. Retry.",
+                retry: () => void ordersQuery.refetch(),
+              }
+            : null
+      }
       selectedBinding={selectedBinding}
       initialOrder={initialOrder}
       fetchAccountResource={wallet.fetchAccountResource}

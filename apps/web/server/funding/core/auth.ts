@@ -57,3 +57,24 @@ export function withPrivateFundingHeaders(response: Response): Response {
   );
   return new Response(response.body, { status: response.status, headers });
 }
+
+/**
+ * The origin the browser actually used. `request.url` carries the server's
+ * bind address (Next dev on `127.0.0.1` reports it even for `localhost`
+ * requests), and providers allowlist hostnames, so prefer the forwarded host
+ * the platform or dev server set for this request. Only well-formed
+ * `host[:port]` values are accepted; anything else falls back to the URL.
+ */
+export function fundingRequestOrigin(request: Request): string {
+  const url = new URL(request.url);
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const host = forwardedHost && /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::\d{1,5})?$/i.test(forwardedHost) ? forwardedHost : url.host;
+  const protocol = forwardedProto === "https" || forwardedProto === "http" ? `${forwardedProto}:` : url.protocol;
+  const candidate = `${protocol}//${host}`;
+  try {
+    return new URL(candidate).origin;
+  } catch {
+    return url.origin;
+  }
+}

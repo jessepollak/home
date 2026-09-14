@@ -57,6 +57,7 @@ type Dependencies = {
   hosted?: () => boolean;
   log?: (event: ObservabilityEvent) => unknown;
   deadlineMs?: number;
+  now?: () => Date;
 };
 
 type ReadOnceResult =
@@ -78,6 +79,7 @@ export function createBalancesReader(dependencies: Dependencies = {}) {
   );
   const log = dependencies.log ?? writeObservabilityEvent;
   const deadlineMs = dependencies.deadlineMs ?? BALANCES_READ_DEADLINE_MS;
+  const now = dependencies.now ?? (() => new Date());
 
   return async function readBalances(
     universe: BalancesUniverse,
@@ -116,6 +118,7 @@ export function createBalancesReader(dependencies: Dependencies = {}) {
           owner.toLowerCase() as PortfolioAddress,
           readSignal,
           guardRegistry,
+          now,
         );
         if (!result.changed) return result.read;
         lastChangeReason = result.reason;
@@ -138,10 +141,12 @@ async function readOnce(
   owner: PortfolioAddress,
   signal: AbortSignal,
   guardRegistry: boolean,
+  now: () => Date,
 ): Promise<ReadOnceResult> {
   const block = parseBlock(
     await rpc.request("eth_getBlockByNumber", ["latest", false], signal),
   );
+  const observedAt = now().toISOString();
   const blockTag = `0x${BigInt(block.number).toString(16)}`;
   const registry = universe.entries.filter(
     (entry) => entry.source === "registry",
@@ -265,6 +270,7 @@ async function readOnce(
     changed: false,
     read: {
       block,
+      observedAt,
       holdings: registryHoldings,
       coverage: {
         registry: registryUnavailable ? "partial" : "complete",
