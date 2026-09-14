@@ -100,9 +100,9 @@ describe("balance presentation", () => {
       },
     });
 
-    const idrx = presentBalanceRows(snapshot).find((row) => row.name === "Indonesian rupiah");
+    const idrx = presentBalanceRows(snapshot).find((row) => row.name === "Rupiah");
     expect(idrx).toMatchObject({
-      primary: "234,327.00 IDRX",
+      primary: "234,327.00 IDR",
       tone: "default",
     });
   });

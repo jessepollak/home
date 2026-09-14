@@ -252,6 +252,7 @@ describe("presentation money formatting", () => {
     expect(formatFiatValue({ atoms: "4", scale: 3 }, "USD")).toBe("USD <0.01");
     expect(formatFiatValue({ atoms: "0", scale: 18 }, "USD")).toBe("USD 0.00");
     expect(presentationCurrencyName("USD")).toBe("US dollar");
+    expect(presentationCurrencyName("IDR")).toBe("Rupiah");
     expect(formatPresentationFiat({ atoms: "481240", scale: 2 }, "IDR", 2, "ID")).toBe(
       "Rp\u00A04.812,40",
     );

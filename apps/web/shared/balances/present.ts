@@ -176,7 +176,7 @@ function presentCash(entry: CashSelection, snapshot: BalancesSnapshot): BalanceR
     group: "cash",
     name: presentationCurrencyName(currency),
     mark: { kind: "flag", currency },
-    primary: tokenQuantity(holding, snapshot),
+    primary: tokenQuantity(holding, snapshot, currency),
     secondary: null,
     tone: "default",
   };
@@ -243,12 +243,16 @@ function sumExactDecimals(values: readonly ExactDecimal[]): ExactDecimal {
   return { atoms: atoms.toString(), scale };
 }
 
-function tokenQuantity(holding: Holding, snapshot: BalancesSnapshot): string {
+function tokenQuantity(
+  holding: Holding,
+  snapshot: BalancesSnapshot,
+  symbol = holding.symbol,
+): string {
   if (holding.balance.status !== "ready") return "Unavailable";
   return formatPresentationTokenAmount(
     BigInt(holding.balance.baseUnits),
     holding.decimals,
-    holding.symbol,
+    symbol,
     {
       cashCurrency: holding.cashCurrency,
       category: holding.kind === "native" ? "crypto" : undefined,

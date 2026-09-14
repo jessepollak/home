@@ -106,6 +106,7 @@ export function SendDialog({
       id: asset.id,
       label: asset.symbol,
       description: asset.name,
+      currency: asset.cashCurrency,
       mark: presentPortfolioAssetMark(
         {
           assetKey: asset.assetKey,

@@ -46,6 +46,7 @@ export type MoneyAssetOption = {
   id: string;
   label: string;
   description?: string;
+  currency?: string | null;
   mark?: AssetMarkPresentation;
 };
 
@@ -55,7 +56,7 @@ export function matchesMoneyAssetOption(
 ): boolean {
   const normalized = query.trim().toLocaleLowerCase();
   if (!normalized) return true;
-  return `${option.description ?? ""} ${option.label}`
+  return `${option.currency ?? ""} ${option.description ?? ""} ${option.label}`
     .toLocaleLowerCase()
     .includes(normalized);
 }
@@ -288,7 +289,7 @@ export function MoneyAmountDisplay({
             }
           />
         ) : null}
-        {availableLine ? <div className="text-center text-sm text-muted-foreground"><MoneyTicker value={availableLine} /></div> : null}
+        {availableLine ? <div className="text-center text-sm text-muted-foreground"><MoneyTicker value={availableLine} reserveDigits={false} /></div> : null}
       </div>
     </div>
   );
@@ -357,6 +358,7 @@ export function MoneyAssetPicker({
   locked?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
   if (!assetLabel) return <span />;
   const markCurrency = assetCurrency ?? (assetId === "usdc" ? "USD" : null);
   const options = assetOptions ?? [];
@@ -384,14 +386,15 @@ export function MoneyAssetPicker({
         onAssetChange?.(option.id);
         setOpen(false);
       }}
-      itemToStringLabel={(option) => option.description ?? option.label}
+      itemToStringLabel={(option) => option.currency ?? option.description ?? option.label}
       itemToStringValue={(option) => option.id}
       filter={matchesMoneyAssetOption}
     >
       <ComboboxInput
         aria-label="Asset"
-        placeholder={selected?.description ?? assetLabel}
-        className="h-11 w-auto min-w-28"
+        groupRef={anchorRef}
+        placeholder={selected?.currency ?? selected?.description ?? assetLabel}
+        className="h-11 w-72 max-w-full"
       >
         {selected?.mark ? (
           <InputGroupAddon align="inline-start">
@@ -405,7 +408,7 @@ export function MoneyAssetPicker({
           </InputGroupAddon>
         ) : null}
       </ComboboxInput>
-      <ComboboxContent>
+      <ComboboxContent anchor={anchorRef}>
         <ComboboxEmpty>No assets found.</ComboboxEmpty>
         <ComboboxList>
           {(option) => (
@@ -422,7 +425,7 @@ export function MoneyAssetPicker({
                 </span>
               ) : null}
               <span className="flex min-w-0 items-baseline gap-2 truncate">
-                <span className="truncate">{option.description ?? option.label}</span>
+                <span className="truncate">{option.currency ?? option.description ?? option.label}</span>
                 {option.description ? (
                   <span className="shrink-0 text-muted-foreground">{option.label}</span>
                 ) : null}

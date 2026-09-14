@@ -488,6 +488,7 @@ test("recent operations open transaction details", async ({ page }) => {
 });
 
 test("sends a held catalog cbBTC balance with one asset selector indicator", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   const fixture = balancesSnapshot();
   parseBalancesSnapshot(fixture, {
     subject: "playwright-smoke-subject",
@@ -502,8 +503,17 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
   const send = page.getByRole("dialog", { name: "Send" });
   const selector = send.getByRole("combobox", { name: "Asset" });
   await expect(selector).toBeVisible();
+  await expect(selector).toHaveValue("USD");
   await expect(send.locator('[data-slot="input-group-button"]')).toHaveCount(1);
   await selector.click();
+  await expect(page.getByRole("option", { name: "USD USDC" })).toBeVisible();
+  const selectorGroup = selector.locator("xpath=ancestor::*[@data-slot='input-group']");
+  const popup = page.locator('[data-slot="combobox-content"]');
+  const [selectorWidth, popupWidth] = await Promise.all([
+    selectorGroup.evaluate((element) => (element as HTMLElement).offsetWidth),
+    popup.evaluate((element) => (element as HTMLElement).offsetWidth),
+  ]);
+  expect(popupWidth).toBe(selectorWidth);
   await selector.fill("cbBTC");
   const cbBtcOption = page.getByRole("option", { name: "Bitcoin cbBTC" });
   await expect(cbBtcOption).toBeVisible();

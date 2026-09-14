@@ -116,11 +116,22 @@ describe("MoneyAmountDisplay", () => {
     expect(ticker?.style.minInlineSize).toBe("");
   });
 
-  test("renders names before tickers, searches both fields, and uses small marks", async () => {
+  test("centers the available amount without a synthetic character width", () => {
+    render(<AmountHarness />);
+
+    const ticker = document.querySelector<HTMLElement>(
+      "[data-slot='money-ticker'][aria-label='$1,240.00 available']",
+    );
+    expect(ticker?.style.minInlineSize).toBe("");
+    expect(ticker?.dataset.reserveDigits).toBe("false");
+  });
+
+  test("renders currency codes before stablecoin tickers, searches all labels, and uses small marks", async () => {
     const usdc = {
       id: "usdc",
       label: "USDC",
       description: "US dollar",
+      currency: "USD",
       mark: {
         assetKey: "usdc",
         name: "US dollar",
@@ -134,6 +145,7 @@ describe("MoneyAmountDisplay", () => {
       id: "eurc",
       label: "EURC",
       description: "Euro",
+      currency: "EUR",
       mark: {
         assetKey: "eurc",
         name: "Euro",
@@ -145,6 +157,7 @@ describe("MoneyAmountDisplay", () => {
     };
     expect(matchesMoneyAssetOption(euro, "Euro")).toBe(true);
     expect(matchesMoneyAssetOption(euro, "eurc")).toBe(true);
+    expect(matchesMoneyAssetOption(euro, "EUR")).toBe(true);
     expect(matchesMoneyAssetOption(euro, "dollar")).toBe(false);
 
     const onAssetChange = mock(() => {});
@@ -158,14 +171,14 @@ describe("MoneyAmountDisplay", () => {
       />,
     );
     const input = view.getByRole("combobox", { name: "Asset" });
-    expect((input as HTMLInputElement).value).toBe("US dollar");
+    expect((input as HTMLInputElement).value).toBe("USD");
     const trigger = input.parentElement?.querySelector("button");
     expect(trigger).toBeTruthy();
 
     fireEvent.click(trigger!);
     await waitFor(() => expect(input.getAttribute("aria-expanded")).toBe("true"));
-    const option = await view.findByRole("option", { name: "Euro EURC" });
-    expect(option.textContent).toBe("EuroEURC");
+    const option = await view.findByRole("option", { name: "EUR EURC" });
+    expect(option.textContent).toBe("EUREURC");
     expect(document.querySelectorAll("[data-size='sm']").length).toBeGreaterThanOrEqual(2);
 
     fireEvent.click(option);
