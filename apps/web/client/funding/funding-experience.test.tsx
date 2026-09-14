@@ -25,6 +25,22 @@ function redirectBinding() {
   return { providerId: "coinbase", displayName: "Coinbase", region: "US", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6, currency: "USD", paymentMethods: [{ id: "hosted", label: "Coinbase" }], quotes: false, kyc: null };
 }
 
+function multiMethodBinding() {
+  return {
+    ...fundingBinding(),
+    region: "CO",
+    assetId: "base:wcop",
+    assetSymbol: "wCOP",
+    currency: "COP",
+    paymentMethods: [
+      { id: "bank_transfer", label: "Bank transfer" },
+      { id: "breb", label: "Bre-B" },
+      { id: "bancolombia", label: "Bancolombia" },
+      { id: "nequi", label: "Nequi" },
+    ],
+  };
+}
+
 function verifiedWallet(address: `0x${string}` = ADDRESS_A): FundingWallet {
   return {
     ownerKey: `owner-${address}`,
@@ -71,6 +87,24 @@ describe("FundingExperience", () => {
     expect(supportedAssets.textContent).not.toContain("BRZ");
   });
 
+  test("derives provider row copy from the binding and summarizes extra methods", async () => {
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [multiMethodBinding()] };
+        if (path.startsWith("/api/funding/orders?")) return { order: null };
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="CO" />);
+
+    const provider = await page().findByRole("button", { name: /Deposit COP/ });
+    expect(provider.textContent).toContain("Deposit COP");
+    expect(provider.textContent).toContain("Ripio · Bank transfer · Bre-B · +2");
+    expect(provider.textContent).not.toContain("Deposit COP with Ripio");
+  });
+
   test("lists configured provider bindings and creates an order with only the quote token", async () => {
     const requests: Array<{ path: string; body: unknown }> = [];
     const wallet = {
@@ -85,7 +119,7 @@ describe("FundingExperience", () => {
       },
     };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
-    const provider = await page().findByRole("button", { name: /Deposit ARS with Ripio/ });
+    const provider = await page().findByRole("button", { name: /Deposit ARS/ });
     fireEvent.click(provider);
     expect(page().getByRole("dialog", { name: "Deposit ARS" })).toBeTruthy();
     for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
@@ -114,7 +148,7 @@ describe("FundingExperience", () => {
       throw new Error("unexpected request");
     } };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
-    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS with Ripio/ }));
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
     for (const key of ["1", "0", "0", "0"]) fireEvent.click(page().getByRole("button", { name: key }));
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
@@ -164,8 +198,9 @@ describe("FundingExperience", () => {
       />,
     );
 
-    fireEvent.click(await page().findByRole("button", { name: "Deposit USD with Coinbase" }));
+    fireEvent.click(await page().findByRole("button", { name: /Deposit USD/ }));
     for (const key of ["2", "5"]) fireEvent.click(page().getByRole("button", { name: key }));
+    expect(document.querySelector("[data-primary-amount] [role='img']")?.getAttribute("aria-label")).toBe("$25");
     fireEvent.click(page().getByRole("button", { name: "Review quote" }));
     await page().findByRole("heading", { name: "Review quote" });
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));

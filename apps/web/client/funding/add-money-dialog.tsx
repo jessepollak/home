@@ -18,7 +18,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowDownToLine, ChevronRight } from "lucide-react";
+import { ArrowDownToLine, ChevronRight, Landmark } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
   verifiedLocalCashAssets,
@@ -102,7 +102,6 @@ export function AddMoneyDialog({
       {signedOut ? <SignedOutBody /> : null}
       {!signedOut && step === "method" ? (
         <MethodBody
-          regionId={regionId}
           onSelectReceive={onSelectReceive}
           providerBindings={providerBindings}
           onSelectBinding={onSelectBinding}
@@ -137,12 +136,10 @@ export function AddMoneyDialog({
 }
 
 export function MethodBody({
-  regionId,
   onSelectReceive,
   providerBindings,
   onSelectBinding,
 }: {
-  regionId: RegionId;
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
   onSelectBinding: (binding: FundingBinding) => void;
@@ -189,14 +186,12 @@ export function MethodBody({
                   }
                   className="min-h-16 flex-nowrap items-center rounded-none border-0"
                 >
-                  <ItemMedia variant="image" className="size-10 self-center translate-y-0 rounded-full bg-muted">
-                    <CurrencyMark
-                      currency={binding.currency as FiatCurrencyCode}
-                      symbol={presentationRegions[regionId].currency.symbol ?? "$"}
-                    />
+                  <ItemMedia variant="icon" className="size-10 self-center translate-y-0 rounded-full bg-muted">
+                    <Landmark className="size-4" />
                   </ItemMedia>
                   <ItemContent className="min-w-0">
-                    <ItemTitle>{`Deposit ${binding.currency} with ${binding.displayName}`}</ItemTitle>
+                    <ItemTitle>{`Deposit ${binding.currency}`}</ItemTitle>
+                    <ItemDescription>{fundingMethodDescription(binding)}</ItemDescription>
                     <span id={`funding-method-${binding.providerId}-${binding.assetId}`} hidden>Open deposit flow</span>
                   </ItemContent>
                   <ItemActions aria-hidden="true">
@@ -211,6 +206,21 @@ export function MethodBody({
     </MoneyModalBody>
   );
 }
+
+function fundingMethodDescription(binding: FundingBinding): string {
+  // A method labelled like the provider itself ("Coinbase · Coinbase") says nothing twice.
+  const labels = binding.paymentMethods
+    .map((method) => method.label)
+    .filter((label) => label !== binding.displayName);
+  const methods = labels.slice(0, 2);
+  const remaining = labels.length - methods.length;
+  return [
+    binding.displayName,
+    ...methods,
+    ...(remaining > 0 ? [`+${remaining}`] : []),
+  ].join(" · ");
+}
+
 export function ReceiveBody({
   address,
   regionId,
