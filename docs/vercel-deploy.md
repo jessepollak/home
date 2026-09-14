@@ -4,11 +4,11 @@ This is an operator build-settings note, not production authorization.
 
 ## Project settings
 
-Keep **Root Directory** at the repository root so the root lockfile and workspace scripts apply.
+The Vercel project uses **Root Directory** `apps/web`; Vercel runs `bun run build` there, which is `bun run db:migrate && next build`, so migrations run in the production build step (the gate skips previews and unset `DATABASE_URL`).
 
 | Setting | Value |
 | --- | --- |
-| Root Directory | Repository root |
+| Root Directory | `apps/web` |
 | Framework preset | Next.js |
 | Install Command | `bun install --frozen-lockfile` |
 | Build Command | `bun run build` |
