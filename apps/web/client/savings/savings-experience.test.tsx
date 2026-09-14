@@ -9,7 +9,7 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 
-const { act, cleanup, fireEvent, render } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const { SavingsExperience } = await import("./savings-experience");
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111";
@@ -236,7 +236,10 @@ describe("Save simplify", () => {
         balancePositions={balancePositions()}
       />,
     );
-    expect(await page().findByRole("radio", { name: /Gauntlet USDC Prime/ })).toBeTruthy();
+    const vaultGroup = await page().findByRole("radiogroup", { name: "Vault" });
+    expect(
+      within(vaultGroup).getByRole("radio", { name: /Gauntlet USDC Prime/ }),
+    ).toBeTruthy();
 
     cleanup();
     getHomeQueryClient().clear();

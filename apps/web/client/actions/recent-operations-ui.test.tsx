@@ -65,4 +65,21 @@ describe("RecentMoneyActions", () => {
 
     await waitFor(() => expect(within(document.body).queryByText("Send USDC")).toBeNull());
   });
+
+  test("announces when recorded actions are unavailable", async () => {
+    render(
+      <RecentMoneyActions
+        session={session}
+        fetchOperations={async () => {
+          throw new Error("unavailable");
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(within(document.body).getByRole("status").textContent).toContain(
+        "Recorded Home actions are unavailable",
+      );
+    });
+  });
 });
