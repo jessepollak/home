@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
 import {
   flowHref,
   parseInboundUrlIntent,
@@ -16,6 +17,7 @@ describe("shell location", () => {
       shelf: null,
       asset: null,
       group: null,
+      market: null,
     });
     expect(shellHref("/dashboard")).toBe("/dashboard");
   });
@@ -26,6 +28,7 @@ describe("shell location", () => {
       [{ panel: "balances" as const }, "/dashboard?panel=balances"],
       [{ panel: "balances" as const, group: "investments" as const }, "/dashboard?panel=balances&group=investments"],
       [{ panel: "activity" as const }, "/dashboard?panel=activity"],
+      [{ panel: "borrow" as const }, "/dashboard?panel=borrow"],
       [{ panel: "invest" as const, shelf: "crypto" }, "/dashboard?panel=invest&shelf=crypto"],
       [{ panel: "invest" as const, asset: "cbbtc", shelf: "crypto" }, "/dashboard?panel=invest&shelf=crypto&asset=cbbtc"],
       [{ account: "settings" as const }, "/dashboard?account=settings"],
@@ -34,6 +37,8 @@ describe("shell location", () => {
       expect(shellHref("/dashboard", location)).toBe(expected);
     }
     expect(shellHref("/", { account: "signin" })).toBe("/?account=signin");
+    expect(shellHref("/dashboard", { panel: "borrow", market: BORROW_MARKET_ID }))
+      .toBe(`/dashboard?panel=borrow&market=${BORROW_MARKET_ID}`);
   });
 
   test("parses the allowed inbound intents through one schema", () => {
@@ -47,6 +52,7 @@ describe("shell location", () => {
         shelf: "crypto",
         asset: "cbbtc",
         group: null,
+        market: null,
       },
       returnedFromFunding: true,
       addMoney: true,
@@ -91,7 +97,7 @@ describe("shell location", () => {
       action: "not-an-id",
     })).toEqual({
       kind: "inbound-url-intent",
-      location: { panel: "home", account: null, shelf: null, asset: null, group: null },
+      location: { panel: "home", account: null, shelf: null, asset: null, group: null, market: null },
       returnedFromFunding: false,
       addMoney: false,
       flow: null,
@@ -105,9 +111,18 @@ describe("shell location", () => {
     )).actionId).toBeNull();
   });
 
+  test("validates configured Borrow markets and ignores market state elsewhere", () => {
+    expect(parseShellLocation({ panel: "borrow", market: BORROW_MARKET_ID })).toMatchObject({
+      panel: "borrow",
+      market: BORROW_MARKET_ID,
+    });
+    expect(parseShellLocation({ panel: "borrow", market: `0x${"ff".repeat(32)}` }).market).toBeNull();
+    expect(parseShellLocation({ panel: "home", market: BORROW_MARKET_ID }).market).toBeNull();
+  });
+
   test("ignores invest params unless the panel is Invest", () => {
     expect(parseShellLocation({ panel: "save", shelf: "crypto", asset: "cbbtc" }))
-      .toEqual({ panel: "save", account: null, shelf: null, asset: null, group: null });
+      .toEqual({ panel: "save", account: null, shelf: null, asset: null, group: null, market: null });
   });
 });
 

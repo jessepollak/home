@@ -132,6 +132,29 @@ describe("operation transaction details", () => {
     expect(presentOperationDetails(baseOperation({ transactionHash: "0xabc" as `0x${string}` })).explorer).toBeNull();
   });
 
+  test("renders compound Borrow identity from structured metadata without parsing the title", () => {
+    const details = presentOperationDetails(baseOperation({
+      action: {
+        ...baseOperation().action,
+        kind: "repay",
+        title: "Opaque stored label",
+        metadata: {
+          product: "borrow",
+          operation: "close-position",
+          marketId: `0x${"12".repeat(32)}`,
+          loanAsset: { id: "loan", symbol: "USDC" },
+          collateralAsset: { id: "collateral", symbol: "cbBTC" },
+          projectedHealthFactorWad: null,
+          projectedLiquidationPriceRaw: null,
+          borrowAprWad: "0",
+          source: { blockNumber: "1", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1" },
+        },
+      },
+    }));
+    expect(details.rows).toContainEqual({ label: "Type", value: "Close position" });
+    expect(details.rows).toContainEqual({ label: "Market", value: "cbBTC / USDC" });
+  });
+
   test("labels every stored action kind without parsing the title", () => {
     expect(labelForMoneyActionKind("send")).toBe("Send");
     expect(labelForMoneyActionKind("savings-deposit")).toBe("Deposit to Save");

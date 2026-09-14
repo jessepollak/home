@@ -14,6 +14,7 @@ import { MoneyTicker } from "@/components/money-ticker";
 import type { FetchActivity } from "@/client/activity";
 import { FundingActions } from "@/client/funding/funding-actions";
 import { SavingsTeaser } from "@/client/savings/savings-teaser";
+import { AuthenticatedBorrowTeaser } from "@/client/borrowing/borrowing-experience";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { TransferActions } from "@/client/transfers";
 import type { MoneyGroupPresentation } from "@/shared/balances/present";
@@ -57,6 +58,7 @@ export function HomePanel({
   fetchActivity,
   fetchOperations,
   onOpenSave,
+  onOpenBorrow,
   onOpenBalances,
   onOpenActivity,
   initialAddMoney = false,
@@ -71,6 +73,7 @@ export function HomePanel({
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   onOpenSave: () => void;
+  onOpenBorrow: () => void;
   onOpenBalances: (group?: MoneyGroupPresentation["id"]) => void;
   onOpenActivity: () => void;
   initialAddMoney?: boolean;
@@ -102,44 +105,45 @@ export function HomePanel({
   return (
     <div className="space-y-4">
       <Card
-        className="py-0"
         aria-label={heroLabel}
         aria-busy={isLoading || isRevalidating || undefined}
       >
-        <CardContent className="space-y-2 px-4 py-5 sm:px-5 sm:py-6">
-          <p className="text-sm text-muted-foreground">Total balance</p>
-          {isLoading ? (
-            <Skeleton className="h-10 w-48" data-shimmer="hero" />
-          ) : (
-            <div className="text-4xl font-semibold tabular-nums">
-              <MoneyTicker
-                value={assetBalances?.displayTotal ?? "—"}
-                align="start"
-                reserveDigits={false}
-              />
-            </div>
-          )}
-          {assetBalances?.breakdown.length || showBalanceStatus ? (
-            <div className="flex w-full flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
-              {assetBalances?.breakdown.length ? (
-                <p className="flex flex-wrap items-center gap-x-1 text-xs tabular-nums sm:text-sm">
-                  {assetBalances.breakdown.map((item, index) => (
-                    <span className="inline-flex items-center gap-1 whitespace-nowrap" key={item.id}>
-                      <span>{item.label}</span>
-                      <MoneyTicker value={item.value} reserveDigits={false} />
-                      {index < assetBalances.breakdown.length - 1 ? <span aria-hidden="true">·</span> : null}
-                    </span>
-                  ))}
-                </p>
-              ) : <span />}
-              {showBalanceStatus ? (
-                <p className="text-right" data-total-status={assetBalances?.totalStatus}>
-                  {balanceStatusLabel}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-          {isLoading || isRevalidating ? <span className="sr-only">Updating…</span> : null}
+        <CardContent>
+          <div className="space-y-2 py-1 sm:px-1 sm:py-2">
+            <p className="text-sm text-muted-foreground">Total balance</p>
+            {isLoading ? (
+              <Skeleton className="h-10 w-48" data-shimmer="hero" />
+            ) : (
+              <div className="text-4xl font-semibold tabular-nums">
+                <MoneyTicker
+                  value={assetBalances?.displayTotal ?? "—"}
+                  align="start"
+                  reserveDigits={false}
+                />
+              </div>
+            )}
+            {assetBalances?.breakdown.length || showBalanceStatus ? (
+              <div className="flex w-full flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+                {assetBalances?.breakdown.length ? (
+                  <p className="flex flex-wrap items-center gap-x-1 text-xs tabular-nums sm:text-sm">
+                    {assetBalances.breakdown.map((item, index) => (
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap" key={item.id}>
+                        <span>{item.label}</span>
+                        <MoneyTicker value={item.value} reserveDigits={false} />
+                        {index < assetBalances.breakdown.length - 1 ? <span aria-hidden="true">·</span> : null}
+                      </span>
+                    ))}
+                  </p>
+                ) : <span />}
+                {showBalanceStatus ? (
+                  <p className="text-right" data-total-status={assetBalances?.totalStatus}>
+                    {balanceStatusLabel}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {isLoading || isRevalidating ? <span className="sr-only">Updating…</span> : null}
+          </div>
         </CardContent>
       </Card>
 
@@ -168,28 +172,47 @@ export function HomePanel({
               onOpen={() => onOpenBalances()}
             />
           </CardHeader>
-          <CardContent className="px-2">
-            <HomeMoneyGroups
-              groups={moneyGroups}
-              hiddenRows={assetBalances?.hiddenRows}
-              isLoading={isLoading}
-              isUnavailable={assetBalances?.status === "unavailable"}
-              onOpenGroup={onOpenBalances}
-            />
+          <CardContent>
+            <div className="-mx-2">
+              <HomeMoneyGroups
+                groups={moneyGroups}
+                hiddenRows={assetBalances?.hiddenRows}
+                isLoading={isLoading}
+                isUnavailable={assetBalances?.status === "unavailable"}
+                onOpenGroup={onOpenBalances}
+              />
+            </div>
           </CardContent>
         </Card>
       </section>
 
-      <section aria-labelledby="save-heading">
-        <Card>
-          <CardHeader>
-            <CardTitle id="save-heading" role="heading" aria-level={2}>Save</CardTitle>
-          </CardHeader>
-          <CardContent className="px-2">
-            <SavingsTeaser onOpen={onOpenSave} regionId={regionId} />
-          </CardContent>
-        </Card>
-      </section>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <section aria-labelledby="save-heading">
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle id="save-heading" role="heading" aria-level={2}>Save</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="-mx-2">
+                <SavingsTeaser onOpen={onOpenSave} regionId={regionId} />
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section aria-labelledby="borrow-heading">
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle id="borrow-heading" role="heading" aria-level={2}>Borrow</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="-mx-2">
+                <AuthenticatedBorrowTeaser onOpen={onOpenBorrow} regionId={regionId} />
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      </div>
 
       {showSessionShimmer ? (
         <section aria-labelledby="activity-title" aria-busy="true">
@@ -197,7 +220,7 @@ export function HomePanel({
             <CardHeader>
               <SectionHeader headingId="activity-title" title="Activity" onOpen={onOpenActivity} />
             </CardHeader>
-            <CardContent className="px-2"><ShimmerRows count={2} /></CardContent>
+            <CardContent><div className="-mx-2"><ShimmerRows count={2} /></div></CardContent>
           </Card>
         </section>
       ) : (

@@ -4,16 +4,6 @@
       "count": 2
     }
   },
-  "client/borrowing/borrowing-experience.tsx": {
-    "shadcn/no-restyle": {
-      "count": 4
-    }
-  },
-  "client/home/home-panel.tsx": {
-    "shadcn/no-restyle": {
-      "count": 9
-    }
-  },
   "components/copyable-value.tsx": {
     "shadcn/no-restyle": {
       "count": 12

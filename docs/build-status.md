@@ -1,6 +1,6 @@
 # Build status
 
-Snapshot: September 12, 2026.
+Snapshot: September 13, 2026.
 
 Home is a local app, not a production authorization. It has the persistent shell, verified wallet sessions, wallet and savings balances, Activity, send and savings action flows, bounded Borrow, and provider-backed funding surfaces. Availability still depends on the verified session, configured provider credentials, and the relevant product gate.
 

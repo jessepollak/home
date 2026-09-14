@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import type { ShellPanelId } from "@/config/navigation";
+import type { BorrowMarketId } from "@/shared/borrowing/config";
 import {
   parseInboundUrlIntent,
   parseShellLocation,
@@ -81,6 +82,7 @@ export function homePanelHref(
   shellPath: "/" | "/dashboard",
   panel: ShellPanelId,
   group: MoneyGroupId | null = null,
+  market: BorrowMarketId | null = null,
 ): string {
-  return shellHref(shellPath, { panel, group });
+  return shellHref(shellPath, { panel, group, market });
 }

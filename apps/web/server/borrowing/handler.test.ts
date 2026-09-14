@@ -1,114 +1,83 @@
 import { describe, expect, test } from "bun:test";
 import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/shared/account/session-types";
-import {
-  BORROW_COLLATERAL_TOKEN,
-  BORROW_IRM_ADDRESS,
-  BORROW_LLTV_WAD,
-  BORROW_LOAN_TOKEN,
-  BORROW_MARKET_ID,
-  BORROW_ORACLE_ADDRESS,
-  MORPHO_BLUE_ADDRESS,
-} from "@/shared/borrowing/config";
+import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
-import { createBorrowHandler } from "./handler";
-import { ORACLE_PRICE_SCALE } from "./math";
+import { createBorrowHandler, createBorrowMarketHandler } from "./handler";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
+import type { BorrowRpcReader } from "./rpc";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
-const BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;
-
-function session(): VerifiedAccountSession {
-  return {
-    user: { subject: "borrow-test-user" },
-    smartAccount: { address: OWNER, chainId: 8453 },
-    accountProvider: "cdp-embedded",
-  };
-}
-
+const BLOCK_HASH = `0x${"ab".repeat(32)}` as const;
+const market = DEFAULT_BORROW_MARKET;
+function session(): VerifiedAccountSession { return { user: { subject: "borrow-test-user" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }; }
 function snapshot(): BorrowMarketSnapshot {
-  const oraclePrice = BigInt("80000") * ORACLE_PRICE_SCALE * BigInt("1000000") / BigInt("100000000");
   return {
-    chainId: 8453,
-    walletAddress: OWNER,
-    market: {
-      id: BORROW_MARKET_ID,
-      morpho: MORPHO_BLUE_ADDRESS,
-      loanToken: BORROW_LOAN_TOKEN,
-      collateralToken: BORROW_COLLATERAL_TOKEN,
-      oracle: BORROW_ORACLE_ADDRESS,
-      irm: BORROW_IRM_ADDRESS,
-      lltvWad: BORROW_LLTV_WAD.toString(),
-    },
-    source: { provider: "Base JSON-RPC", blockNumber: "100", blockHash: BLOCK_HASH, blockTimestamp: "1788897600", fetchedAt: "2026-09-08T12:00:00.000Z" },
-    state: {
-      oraclePriceRaw: oraclePrice.toString(), borrowRatePerSecondWad: "0", borrowAprWad: "0",
-      totalSupplyAssetsRaw: "2000000000", totalBorrowAssetsRaw: "500000000", totalBorrowSharesRaw: "500000000",
-      liquidityAssetsRaw: "1500000000", lastUpdateTimestamp: "1788897600",
-    },
-    wallet: {
-      collateralBalanceRaw: "10000000", loanBalanceRaw: "1000000000",
-      collateralAllowanceRaw: "0", loanAllowanceRaw: "0",
-    },
-    position: {
-      collateralRaw: "1000000", borrowSharesRaw: "100000000", debtAssetsRaw: "100000000",
-      borrowCapacityAssetsRaw: "500000000", withdrawableCollateralRaw: "800000",
-      healthFactorWad: "6880000000000000000", liquidationPriceRaw: "116279069767441860465116279069767441861",
-    },
+    version: "1", chainId: 8453, walletAddress: OWNER,
+    market: { id: market.marketId, morpho: market.morpho, loanToken: market.loanToken, collateralToken: market.collateralToken, oracle: market.oracle, irm: market.irm, lltvWad: market.lltvWad.toString(), rank: market.rank },
+    eligibility: { mode: "enabled", newRisk: true, reason: null },
+    source: { provider: "Base JSON-RPC", blockNumber: "100", blockHash: BLOCK_HASH, blockTimestamp: "1789329600", fetchedAt: "2026-09-13T12:00:00.000Z" },
+    state: { oraclePriceRaw: "1", borrowRatePerSecondWad: "0", borrowAprWad: "0", totalSupplyAssetsRaw: "2", totalBorrowAssetsRaw: "1", totalBorrowSharesRaw: "1", liquidityAssetsRaw: "1", lastUpdateTimestamp: "1" },
+    wallet: { collateralBalanceRaw: "1", loanBalanceRaw: "1", collateralAllowanceRaw: "0", loanAllowanceRaw: "0" },
+    position: { collateralRaw: "1", borrowSharesRaw: "1", debtAssetsRaw: "1", rawBorrowCapacityAssetsRaw: "1", borrowCapacityAssetsRaw: "0", rawWithdrawableCollateralRaw: "0", withdrawableCollateralRaw: "0", healthFactorWad: "1", liquidationPriceRaw: "1" },
   };
 }
+function request(path = "/api/borrow") { return new Request(`https://home.test${path}`, { headers: { [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded" } }); }
+function rpc(readSnapshot: BorrowRpcReader["readSnapshot"]): BorrowRpcReader { return { readSnapshot, simulateBatch: async () => {} }; }
 
-function request() {
-  return new Request("https://home.test/api/borrow", {
-    headers: { [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded" },
-  });
-}
-
-describe("borrow API handler", () => {
-  test("returns the current borrowing snapshot for the verified owner", async () => {
-    const handler = createBorrowHandler({
-      authorize: async () => Response.json(session()),
-      rpc: { readSnapshot: async () => snapshot(), simulateBatch: async () => {} },
-    });
-
+describe("borrow API handlers", () => {
+  test("returns a versioned private overview with configured opportunity and verified position", async () => {
+    const handler = createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc(async () => snapshot()), now: () => new Date("2026-09-13T12:00:00.000Z") });
     const response = await handler(request());
     const value = await response.json();
-
     expect(response.status).toBe(200);
-    expect(value.walletAddress).toBe(OWNER);
+    expect(response.headers.get("cache-control")).toContain("private");
+    expect(value).toMatchObject({ version: "1", owner: { address: OWNER }, discovery: { status: "complete", verifiedCount: 1 } });
+    expect(value.opportunities).toHaveLength(1);
+    expect(value.positions).toHaveLength(1);
   });
 
-  test("relays authentication failure without reading market state", async () => {
+  test("represents an RPC failure as unavailable and emits redacted bounded observability", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    try {
+      const handler = createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc(async () => { throw new Error("offline"); }) });
+      const response = await handler(request());
+      const value = await response.json();
+      expect(response.status).toBe(200);
+      expect(value.discovery.status).toBe("partial");
+      expect(value.opportunities[0].availability).toMatchObject({ status: "unavailable", source: null });
+      expect(value.positions).toEqual([]);
+      expect(JSON.stringify(value.opportunities[0])).not.toContain("collateralRaw");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0])).toMatchObject({
+        kind: "borrow-overview",
+        route: "/api/borrow",
+        code: "BORROW_MARKET_READ_UNAVAILABLE",
+        outcome: "unavailable",
+        provider: "base-rpc",
+      });
+      expect(lines[0]).not.toContain(OWNER);
+      expect(lines[0]).not.toContain(market.marketId);
+      expect(lines[0]).not.toContain("amount");
+      expect(lines[0]).not.toContain("calldata");
+    } finally {
+      setObservabilityLogWriterForTests();
+    }
+  });
+
+  test("returns versioned detail only for a configured market", async () => {
+    const handler = createBorrowMarketHandler({ authorize: async () => Response.json(session()), rpc: rpc(async (_owner, ref) => { expect(ref.marketId).toBe(market.marketId); return snapshot(); }) });
+    const ok = await handler(request(`/api/borrow/markets/${market.marketId}`), { params: Promise.resolve({ marketId: market.marketId }) });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toMatchObject({ version: "1", walletAddress: OWNER });
+    const missing = await handler(request("/api/borrow/markets/0xdead"), { params: Promise.resolve({ marketId: "0xdead" }) });
+    expect(missing.status).toBe(404);
+  });
+
+  test("relays authentication failure without reading chain state", async () => {
     let reads = 0;
-    const handler = createBorrowHandler({
-      authorize: async () => Response.json({ error: { code: "UNAUTHENTICATED" } }, { status: 401 }),
-      rpc: {
-        readSnapshot: async () => { reads += 1; return snapshot(); },
-        simulateBatch: async () => {},
-      },
-    });
-
-    const response = await handler(request());
-
-    expect(response.status).toBe(401);
+    const handler = createBorrowHandler({ authorize: async () => Response.json({ error: { code: "UNAUTHENTICATED" } }, { status: 401 }), rpc: rpc(async () => { reads += 1; return snapshot(); }) });
+    expect((await handler(request())).status).toBe(401);
     expect(reads).toBe(0);
-  });
-
-  test("maps snapshot failures to the private unavailable response", async () => {
-    const handler = createBorrowHandler({
-      authorize: async () => Response.json(session()),
-      rpc: {
-        readSnapshot: async () => { throw new Error("rpc unavailable"); },
-        simulateBatch: async () => {},
-      },
-    });
-
-    const response = await handler(request());
-
-    expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({
-      error: {
-        code: "BORROW_STATE_UNAVAILABLE",
-        message: "Current Morpho position, oracle, liquidity, or limit state is unavailable.",
-      },
-    });
   });
 });

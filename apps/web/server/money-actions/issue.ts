@@ -8,6 +8,7 @@ import {
   type MoneyActionAmount,
   type MoneyActionCall,
   type MoneyActionDraft,
+  type MoneyActionMetadata,
   type PreparedMoneyAction,
 } from "@/shared/money-actions/types";
 import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
@@ -74,6 +75,7 @@ export async function issueMoneyAction(
       warnings: action.warnings,
       expiresAt: action.expiresAt,
       ...(action.quoteId ? { quoteId: action.quoteId } : {}),
+      ...(action.metadata ? { metadata: action.metadata } : {}),
     },
     pending: { calls: action.calls },
     createdAt: action.createdAt,
@@ -120,6 +122,7 @@ function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
   }
   const calls = draft.calls.map(normalizeCall);
   const amounts = draft.amounts.map(normalizeAmount);
+  const metadata = draft.metadata === undefined ? undefined : normalizeMetadata(draft.metadata);
   assertExactApprovalCaps(calls, amounts);
   return {
     kind: draft.kind,
@@ -129,8 +132,35 @@ function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
     warnings,
     expiresAt: new Date(draft.expiresAt).toISOString(),
     ...(draft.quoteId ? { quoteId: draft.quoteId } : {}),
+    ...(metadata ? { metadata } : {}),
   };
 }
+
+function normalizeMetadata(value: MoneyActionMetadata): MoneyActionMetadata {
+  if (!value || value.product !== "borrow" ||
+    !["supply-collateral", "borrow", "supply-and-borrow", "repay", "repay-all", "withdraw-collateral", "close-position"].includes(value.operation) ||
+    typeof value.marketId !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.marketId) ||
+    !validSummaryAsset(value.loanAsset) || !validSummaryAsset(value.collateralAsset) ||
+    !validNullableInteger(value.projectedHealthFactorWad) || !validNullableInteger(value.projectedLiquidationPriceRaw) ||
+    typeof value.borrowAprWad !== "string" || !integerPattern.test(value.borrowAprWad) ||
+    !value.source || typeof value.source.blockNumber !== "string" || !integerPattern.test(value.source.blockNumber) ||
+    typeof value.source.blockTimestamp !== "string" || !integerPattern.test(value.source.blockTimestamp) ||
+    typeof value.source.blockHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.source.blockHash)) {
+    throw new MoneyActionIssueError("invalid-draft");
+  }
+  return {
+    ...value,
+    marketId: value.marketId.toLowerCase() as `0x${string}`,
+    loanAsset: { id: value.loanAsset.id.trim(), symbol: value.loanAsset.symbol.trim() },
+    collateralAsset: { id: value.collateralAsset.id.trim(), symbol: value.collateralAsset.symbol.trim() },
+    source: { ...value.source, blockHash: value.source.blockHash.toLowerCase() as `0x${string}` },
+  };
+}
+function validSummaryAsset(value: { id: string; symbol: string } | undefined) {
+  return Boolean(value && typeof value.id === "string" && value.id.trim().length > 0 && value.id.length <= 200 &&
+    typeof value.symbol === "string" && value.symbol.trim().length > 0 && value.symbol.length <= 24);
+}
+function validNullableInteger(value: string | null) { return value === null || (typeof value === "string" && integerPattern.test(value)); }
 
 function normalizeCall(call: MoneyActionCall): MoneyActionCall {
   if (

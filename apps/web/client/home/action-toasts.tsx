@@ -16,12 +16,14 @@ type ToastAction = {
   kind: string;
   status: "pending" | "confirmed";
   summary: {
+    metadata?: { product: "borrow"; operation: string };
     amounts: Array<{
       symbol: string;
       decimals: number;
       amountBaseUnits: string;
       direction: "spend" | "receive";
       estimated?: boolean;
+      maximum?: boolean;
     }>;
     warnings: string[];
   };
@@ -113,6 +115,7 @@ function parseToastActions(value: unknown): ToastAction[] {
         amountBaseUnits: amount.amountBaseUnits,
         direction: amount.direction as "spend" | "receive",
         ...(amount.estimated === true ? { estimated: true } : {}),
+        ...(amount.maximum === true ? { maximum: true } : {}),
       }];
     });
     return [{
@@ -120,6 +123,9 @@ function parseToastActions(value: unknown): ToastAction[] {
       kind: item.kind,
       status: item.status,
       summary: {
+        ...(isRecord(item.summary.metadata) && item.summary.metadata.product === "borrow" && typeof item.summary.metadata.operation === "string"
+          ? { metadata: { product: "borrow" as const, operation: item.summary.metadata.operation } }
+          : {}),
         amounts,
         warnings: item.summary.warnings.filter((warning): warning is string => typeof warning === "string"),
       },
@@ -128,9 +134,18 @@ function parseToastActions(value: unknown): ToastAction[] {
 }
 
 function actionToastMessage(action: ToastAction, status: ToastAction["status"]): string | null {
-  const operation = operationKind(action.kind);
+  const borrowOperation = action.summary.metadata?.operation;
+  const operation = operationKind(action.kind, borrowOperation);
+  if (borrowOperation === "repay-all") {
+    return status === "pending" ? "Repaying all Borrow debt" : "Repaid all Borrow debt";
+  }
+  if (borrowOperation === "close-position") {
+    return status === "pending" ? "Closing Borrow position" : "Closed Borrow position";
+  }
   const amount = action.summary.amounts.find((candidate) =>
-    operation === "withdraw" ? candidate.direction === "receive" && !candidate.estimated : candidate.direction === "spend" && !candidate.estimated,
+    operation === "withdraw" || operation === "borrow"
+      ? candidate.direction === "receive" && !candidate.estimated && !candidate.maximum
+      : candidate.direction === "spend" && !candidate.estimated && !candidate.maximum,
   );
   if (!amount) return null;
   const formatted = amount.symbol === "USDC"
@@ -145,15 +160,25 @@ function actionToastMessage(action: ToastAction, status: ToastAction["status"]):
   if (operation === "withdraw") return `${status === "pending" ? "Withdrawing" : "Withdrawn"} ${formatted}`;
   if (operation === "supply-collateral") return `${status === "pending" ? "Adding collateral" : "Added collateral"} ${formatted}`;
   if (operation === "withdraw-collateral") return `${status === "pending" ? "Withdrawing collateral" : "Withdrew collateral"} ${formatted}`;
+  if (operation === "borrow") return `${status === "pending" ? "Borrowing" : "Borrowed"} ${formatted}`;
+  if (operation === "repay") return `${status === "pending" ? "Repaying" : "Repaid"} ${formatted}`;
+  if (operation === "close-position") return status === "pending" ? "Closing Borrow position" : "Closed Borrow position";
   return null;
 }
 
-function operationKind(kind: string): "send" | "deposit" | "withdraw" | "supply-collateral" | "withdraw-collateral" | null {
+function operationKind(kind: string, borrowOperation?: string): "send" | "deposit" | "withdraw" | "supply-collateral" | "withdraw-collateral" | "borrow" | "repay" | "close-position" | null {
+  if (borrowOperation === "borrow" || borrowOperation === "supply-and-borrow") return "borrow";
+  if (borrowOperation === "repay" || borrowOperation === "repay-all") return "repay";
+  if (borrowOperation === "close-position") return "close-position";
+  if (borrowOperation === "supply-collateral") return "supply-collateral";
+  if (borrowOperation === "withdraw-collateral") return "withdraw-collateral";
   if (kind === "send") return "send";
   if (kind === "savings-deposit") return "deposit";
   if (kind === "savings-withdraw") return "withdraw";
   if (kind === "supply-collateral") return "supply-collateral";
   if (kind === "withdraw-collateral") return "withdraw-collateral";
+  if (kind === "borrow") return "borrow";
+  if (kind === "repay") return "repay";
   return null;
 }
 

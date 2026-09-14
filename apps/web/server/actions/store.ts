@@ -5,6 +5,7 @@ import {
   isActionKind,
   type ActionKind,
   type MoneyActionCall,
+  type MoneyActionMetadata,
   type MoneyActionOwner,
 } from "@/shared/money-actions/types";
 import type { AccountProvider } from "@/shared/account/session-types";
@@ -16,6 +17,7 @@ export type ActionSummary = {
   warnings: string[];
   expiresAt: string;
   quoteId?: string;
+  metadata?: MoneyActionMetadata;
 };
 
 export type PendingAction = {

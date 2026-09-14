@@ -1,4 +1,5 @@
 import { isShellPanelId, type ShellPanelId } from "./navigation";
+import { getBorrowMarketRef, type BorrowMarketId } from "@/shared/borrowing/config";
 import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 
 export const SHELL_PANEL_PARAM = "panel";
@@ -8,6 +9,7 @@ export const SHELL_ASSET_PARAM = "asset";
 export const SHELL_GROUP_PARAM = "group";
 export const SHELL_FLOW_PARAM = "flow";
 export const SHELL_ACTION_PARAM = "action";
+export const SHELL_MARKET_PARAM = "market";
 
 export type ShellAccount = "signin" | "settings";
 export type MoneyGroupId = "cash" | "investments";
@@ -24,6 +26,7 @@ export type ShellLocation = {
   shelf: string | null;
   asset: string | null;
   group: MoneyGroupId | null;
+  market: BorrowMarketId | null;
 };
 
 export type InboundUrlIntent = {
@@ -102,6 +105,10 @@ function parseMoneyGroup(value: string | undefined): MoneyGroupId | null {
   return value && moneyGroups.has(value as MoneyGroupId) ? value as MoneyGroupId : null;
 }
 
+function parseBorrowMarket(value: string | undefined): BorrowMarketId | null {
+  return (value && getBorrowMarketRef(value)?.marketId) || null;
+}
+
 function parseShellFlow(value: string | undefined): ShellFlow | null {
   return value && shellFlows.has(value as ShellFlow) ? value as ShellFlow : null;
 }
@@ -131,6 +138,9 @@ export function parseInboundUrlIntent(
       group: panel === "balances"
         ? parseMoneyGroup(readSearchValue(search, SHELL_GROUP_PARAM))
         : null,
+      market: panel === "borrow"
+        ? parseBorrowMarket(readSearchValue(search, SHELL_MARKET_PARAM))
+        : null,
     },
     returnedFromFunding: readSearchValue(search, "return") === "funding",
     addMoney: readSearchValue(search, "add-money") === "1",
@@ -151,6 +161,7 @@ export function shellHref(
     shelf = null,
     asset = null,
     group = null,
+    market = null,
   }: Partial<ShellLocation> = {},
 ): string {
   const params = new URLSearchParams();
@@ -161,6 +172,10 @@ export function shellHref(
     if (asset) params.set(SHELL_ASSET_PARAM, asset);
   }
   if (panel === "balances" && group) params.set(SHELL_GROUP_PARAM, group);
+  const configuredMarket = market ? getBorrowMarketRef(market) : null;
+  if (panel === "borrow" && configuredMarket) {
+    params.set(SHELL_MARKET_PARAM, configuredMarket.marketId);
+  }
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }

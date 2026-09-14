@@ -14,7 +14,7 @@ create table actions (
   owner_key          text not null,             -- verified subject + smart account + provider
   provider           text not null,             -- 'cdp-embedded' | 'base-account'
   kind               text not null,             -- 'send' | 'savings-deposit' | 'savings-withdraw' | 'trade' | 'borrow' ...
-  summary            jsonb not null,            -- what to render: amounts, asset, target, label
+  summary            jsonb not null,            -- what to render: amounts, asset, target, label, typed product metadata
   pending            jsonb,                     -- server-built calls and (trades) permit fields for unconfirmed actions; cleared on confirm
   created_at         timestamptz not null default now(),
   confirmed_at       timestamptz,               -- set by POST /confirm; unconfirmed rows are invisible
@@ -35,7 +35,7 @@ create index actions_owner_recent on actions (owner_key, confirmed_at desc) wher
 
 ## Flow
 
-1. `POST /api/actions/prepare` `{kind, params}` → server verifies scope, builds calldata, inserts an unconfirmed `actions` row, and stores the draft calls in `pending` for every kind. It returns `{id, calls, summary, expiresAt}`. Trades return `{id, summary, permit2Typed, expiresAt}` and additionally store the permit hash, swapCallIndex, and quote expiry in `pending`.
+1. `POST /api/actions/prepare` `{kind, params}` → server verifies scope, builds calldata, inserts an unconfirmed `actions` row, and stores the draft calls in `pending` for every kind. Borrow summaries also store typed operation and market identity so compound actions render without title parsing. It returns `{id, calls, summary, expiresAt}`. Trades return `{id, summary, permit2Typed, expiresAt}` and additionally store the permit hash, swapCallIndex, and quote expiry in `pending`.
 2. Client shows review. `GET /api/actions/:id` is owner-scoped and returns the unconfirmed summary plus `pending.calls`, so a reload mid-review can resume. On confirm: `POST /api/actions/:id/confirm` (sets `confirmed_at`, returns the final `calls`, and clears `pending`; for trades the body carries the Permit2 `signature`, the server verifies the signer is the owner and splices it — this is the kept half of `finalize`). The client dispatches only on 2xx. Reload-resume is intended only before confirm; after confirm the tab owns dispatch and any live retry.
 3. Dispatch: CDP `sendUserOperation({ idempotencyKey: id, calls })` → `provider_handle = userOperationHash`. Base `wallet_sendCalls({ id, calls, atomicRequired: true })` → `provider_handle` = the bundle id the wallet returns (not the request `id`; Base generates its own, and `wallet_getCallsStatus` only accepts that one).
 4. `POST /api/actions/:id/handle` `{providerHandle}` and later `{transactionHash}` once the client resolves it from `getUserOperation` / `wallet_getCallsStatus`. Retried while the tab lives; late posts are accepted. CDP status is readable only with end-user credentials, so the server derives CDP rows from receipts alone; Base handles can also be reconciled server-side (below).

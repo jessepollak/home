@@ -7,6 +7,7 @@ import type {
   DerivedActionStatus,
   MoneyActionCall,
   MoneyActionAmount,
+  MoneyActionMetadata,
   MoneyActionOwner,
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
@@ -17,6 +18,7 @@ export type ActionSummaryResponse = {
   warnings: string[];
   expiresAt: string;
   quoteId?: string;
+  metadata?: MoneyActionMetadata;
 };
 
 export type GetActionPendingResponse = {

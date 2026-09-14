@@ -71,6 +71,75 @@ describe("action toast owner fence", () => {
     await waitFor(() => expect(view.getAllByText("Sent $1.00 to 0x2222…222222")).toHaveLength(1));
   });
 
+  test("never presents a repay-all cap as the amount actually repaid", async () => {
+    const queryKey = ownerQueryKey(activityOwnerKey(session), "actions");
+    const repayAll = {
+      ...row,
+      id: "33333333-3333-4333-8333-333333333333",
+      kind: "repay",
+      summary: {
+        ...row.summary,
+        metadata: { product: "borrow", operation: "repay-all" },
+        amounts: [
+          { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "100000000", direction: "spend", estimated: true },
+          { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "125000000", direction: "spend", maximum: true },
+        ],
+        warnings: [],
+      },
+    };
+    const view = render(
+      <ActionToasts
+        session={session}
+        fetchOperations={async () => ({ actions: [] })}
+        dismissAfterMs={0}
+      />,
+    );
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(queryKey)).toBeTruthy());
+
+    act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [repayAll] }));
+    await waitFor(() => expect(view.getByText("Repaying all Borrow debt")).toBeTruthy());
+    expect(view.queryByText("Repaying $125.00")).toBeNull();
+
+    act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [{ ...repayAll, status: "confirmed" }] }));
+    await waitFor(() => expect(view.getByText("Repaid all Borrow debt")).toBeTruthy());
+    expect(view.queryByText("Repaid $125.00")).toBeNull();
+  });
+
+  test("uses position semantics for close instead of displaying its repay cap", async () => {
+    const queryKey = ownerQueryKey(activityOwnerKey(session), "actions");
+    const closePosition = {
+      ...row,
+      id: "44444444-4444-4444-8444-444444444444",
+      kind: "repay",
+      summary: {
+        ...row.summary,
+        metadata: { product: "borrow", operation: "close-position" },
+        amounts: [
+          { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "100000000", direction: "spend", estimated: true },
+          { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "125000000", direction: "spend", maximum: true },
+          { assetId: "cbbtc", symbol: "cbBTC", decimals: 8, amountBaseUnits: "100000000", direction: "receive" },
+        ],
+        warnings: [],
+      },
+    };
+    const view = render(
+      <ActionToasts
+        session={session}
+        fetchOperations={async () => ({ actions: [] })}
+        dismissAfterMs={0}
+      />,
+    );
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(queryKey)).toBeTruthy());
+
+    act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [closePosition] }));
+    await waitFor(() => expect(view.getByText("Closing Borrow position")).toBeTruthy());
+    expect(view.queryByText("Repaying $125.00")).toBeNull();
+
+    act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [{ ...closePosition, status: "confirmed" }] }));
+    await waitFor(() => expect(view.getByText("Closed Borrow position")).toBeTruthy());
+    expect(view.queryByText("Repaid $125.00")).toBeNull();
+  });
+
   test("closes all active toasts when the owner boundary changes", async () => {
     const view = render(
       <ActionToasts

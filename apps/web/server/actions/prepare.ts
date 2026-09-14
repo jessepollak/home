@@ -3,7 +3,7 @@ import "server-only";
 import { emitServerEvent } from "@/server/observability/log";
 import type { PrepareActionResponse } from "@/shared/actions/contracts/prepare";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { BorrowPreviewRequest } from "@/shared/borrowing/types";
+import { actionKindForBorrowOperation, parseBorrowActionIntent } from "@/shared/borrowing/types";
 import type { SavingsActionInput } from "@/server/savings/types";
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import { isActionKind, type ActionKind } from "@/shared/money-actions/types";
@@ -13,6 +13,7 @@ import { issueMoneyAction } from "@/server/money-actions/issue";
 import { prepareSavingsAction, SavingsActionError } from "@/server/savings/prepare";
 import { prepareBorrowAction, BorrowPreparationError } from "@/server/borrowing/prepare";
 import { getBaseBorrowing } from "@/server/borrowing/rpc";
+import { getBorrowMarketRef } from "@/shared/borrowing/config";
 import type { ActionAuthorizer } from "./handler";
 
 const privateHeaders = {
@@ -67,7 +68,7 @@ export function createPrepareActionHandler(dependencies: {
         }
       }
       if (error instanceof BorrowPreparationError) {
-        return fail(error.code.toUpperCase().replaceAll("-", "_"), error.message, error.code === "stale-state" ? 409 : 400);
+        return fail(error.code.toUpperCase().replaceAll("-", "_"), error.message, error.code === "limit-exceeded" ? 409 : 400);
       }
       if (error instanceof TransferExecutionError && error.reason === "invalid-request") {
         return fail("INVALID_SEND_REQUEST", "Use a valid Base recipient, asset, and integer amount.", 400);
@@ -98,19 +99,15 @@ async function prepare(
   }
   if (kind === "supply-collateral" || kind === "borrow" || kind === "repay" || kind === "withdraw-collateral") {
     if (!session.smartAccount) throw new BorrowPreparationError("invalid-input", "A verified Base account is required.");
-    const request = params as unknown as BorrowPreviewRequest;
-    const requestedKind = request.operation === "repay-all" ? "repay" : request.operation;
-    if (requestedKind !== kind) {
-      throw new BorrowPreparationError("invalid-input", "The borrowing operation does not match the action kind.");
+    const request = parseBorrowActionIntent(params);
+    if (!request || actionKindForBorrowOperation(request.operation) !== kind) {
+      throw new BorrowPreparationError("invalid-input", "The borrowing operation or exact base-unit amounts are invalid.");
     }
+    const market = getBorrowMarketRef(request.marketId);
+    if (!market) throw new BorrowPreparationError("unsupported-market", "The borrowing market is not configured.");
     const rpc = getBaseBorrowing;
-    const snapshot = await rpc.readSnapshot(session.smartAccount.address, signal);
-    const preparation = await prepareBorrowAction({
-      request,
-      snapshot,
-      rpc,
-      signal,
-    });
+    const snapshot = await rpc.readSnapshot(session.smartAccount.address, market, signal);
+    const preparation = await prepareBorrowAction({ request, market, snapshot, rpc, signal });
     if (!preparation.fullySimulated) throw new BorrowPreparationError("simulation-failed", preparation.simulationGap ?? "Borrow execution is unavailable.");
     return issueMoneyAction(session, preparation.draft);
   }

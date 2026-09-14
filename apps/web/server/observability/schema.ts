@@ -59,6 +59,7 @@ export const SERVER_EVENT_KINDS = [
   "action-confirm",
   "action-handle",
   "action-reconcile",
+  "borrow-overview",
   "funding-order",
   "funding-webhook",
   "balances-webhook",

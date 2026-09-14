@@ -26,7 +26,7 @@ Status: **G1 CDP-first server, G2 deletion, G3 server observation, G3b productio
 
 ## Boundary: display snapshot vs action-time reads
 
-`GET /api/balances` is the **display and client-availability** source: what rows to paint, what a user *can* start (Send max, Save deposit max). It is not action authority. Where calldata depends on chain state, the action's server `prepare` reads it at a pinned block and validates the amount (`server/borrowing/prepare.ts:96,119,144` via `/api/borrow` `wallet.*Raw`; `server/savings/prepare.ts:135,201` via `savings/rpc.ts`); a plain Send is checked by the chain at execution. Those reads stay exactly as they are. This is two responsibilities, not two sources of truth.
+`GET /api/balances` is the **display and client-availability** source: what rows to paint, what a user *can* start (Send max, Save deposit max). It is not action authority. Where calldata depends on chain state, the action's server `prepare` reads it at a pinned block and validates the amount (`server/borrowing/prepare.ts` via the market-parameterized `BorrowRpcReader.readSnapshot`, exposed for detail display at `/api/borrow/markets/:marketId`; `server/savings/prepare.ts` via `savings/rpc.ts`); a plain Send is checked by the chain at execution. Those reads stay exactly as they are. This is two responsibilities, not two sources of truth.
 
 ## Design
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
 import { homePanelHref, readHomeInboundPanelState } from "./panel-routing";
 
 const inboundCases = [
@@ -7,7 +8,7 @@ const inboundCases = [
     expected: {
       panel: "balances",
       account: null,
-      location: { panel: "balances", account: null, shelf: null, asset: null, group: null },
+      location: { panel: "balances", account: null, shelf: null, asset: null, group: null, market: null },
       addMoney: false,
       returnedFromProvider: false,
       flow: null,
@@ -20,7 +21,7 @@ const inboundCases = [
     expected: {
       panel: "activity",
       account: "settings",
-      location: { panel: "activity", account: "settings", shelf: null, asset: null, group: null },
+      location: { panel: "activity", account: "settings", shelf: null, asset: null, group: null, market: null },
       addMoney: false,
       returnedFromProvider: false,
       flow: null,
@@ -33,7 +34,7 @@ const inboundCases = [
     expected: {
       panel: "home",
       account: null,
-      location: { panel: "home", account: null, shelf: null, asset: null, group: null },
+      location: { panel: "home", account: null, shelf: null, asset: null, group: null, market: null },
       addMoney: true,
       returnedFromProvider: true,
       flow: null,
@@ -46,7 +47,7 @@ const inboundCases = [
     expected: {
       panel: "home",
       account: null,
-      location: { panel: "home", account: null, shelf: null, asset: null, group: null },
+      location: { panel: "home", account: null, shelf: null, asset: null, group: null, market: null },
       addMoney: false,
       returnedFromProvider: false,
       flow: "send",
@@ -59,7 +60,7 @@ const inboundCases = [
     expected: {
       panel: "save",
       account: null,
-      location: { panel: "save", account: null, shelf: null, asset: null, group: null },
+      location: { panel: "save", account: null, shelf: null, asset: null, group: null, market: null },
       addMoney: false,
       returnedFromProvider: false,
       flow: "save-deposit",
@@ -80,5 +81,7 @@ describe("home panel routing", () => {
     expect(homePanelHref("/dashboard", "home")).toBe("/dashboard");
     expect(homePanelHref("/dashboard", "balances")).toBe("/dashboard?panel=balances");
     expect(homePanelHref("/", "invest")).toBe("/?panel=invest");
+    expect(homePanelHref("/dashboard", "borrow", null, BORROW_MARKET_ID))
+      .toBe(`/dashboard?panel=borrow&market=${BORROW_MARKET_ID}`);
   });
 });

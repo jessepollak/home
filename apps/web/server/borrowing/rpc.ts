@@ -16,15 +16,9 @@ import {
 } from "./abi";
 import {
   BASE_CHAIN_ID,
-  BORROW_COLLATERAL_TOKEN,
-  BORROW_IRM_ADDRESS,
-  BORROW_LLTV_WAD,
-  BORROW_LOAN_TOKEN,
-  BORROW_MARKET_ID,
-  BORROW_MARKET_PARAMS,
-  BORROW_ORACLE_ADDRESS,
-  MORPHO_BLUE_ADDRESS,
+  BORROW_HEALTH_FLOOR_WAD,
   type BorrowAddress,
+  type BorrowMarketRef,
 } from "@/shared/borrowing/config";
 import {
   SECONDS_PER_YEAR,
@@ -34,6 +28,8 @@ import {
   healthFactorWad,
   liquidationPriceRaw,
   minimumCollateralForDebt,
+  minimumCollateralForHealthFactor,
+  policyMaximumDebtAssets,
   toAssetsUp,
 } from "./math";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
@@ -75,7 +71,7 @@ export class BorrowRpcError extends Error {
 }
 
 export type BorrowRpcReader = {
-  readSnapshot(account: BorrowAddress, signal?: AbortSignal): Promise<BorrowMarketSnapshot>;
+  readSnapshot(account: BorrowAddress, marketRef: BorrowMarketRef, signal?: AbortSignal): Promise<BorrowMarketSnapshot>;
   simulateBatch(
     calls: readonly MoneyActionCall[],
     account: BorrowAddress,
@@ -121,7 +117,7 @@ export function createBorrowRpcReader(options: {
   }
 
   return {
-    async readSnapshot(account, externalSignal) {
+    async readSnapshot(account, marketRef, externalSignal) {
       assertAddress(account, "account");
       return withTimeout(externalSignal, async (signal) => {
         const chain = await rpc(fetchImpl, rpcUrl, request(1, "eth_chainId", []), signal);
@@ -135,17 +131,17 @@ export function createBorrowRpcReader(options: {
           signal,
         )).result);
         const calls = await rpcBatch(fetchImpl, rpcUrl, [
-          callRequest(3, MORPHO_BLUE_ADDRESS, encodeMarketParams(BORROW_MARKET_ID), block.numberHex),
-          callRequest(4, MORPHO_BLUE_ADDRESS, encodeMarket(BORROW_MARKET_ID), block.numberHex),
-          callRequest(5, MORPHO_BLUE_ADDRESS, encodePosition(BORROW_MARKET_ID, account), block.numberHex),
-          callRequest(6, BORROW_ORACLE_ADDRESS, encodePrice(), block.numberHex),
-          callRequest(7, BORROW_COLLATERAL_TOKEN.address, encodeBalanceOf(account), block.numberHex),
-          callRequest(8, BORROW_LOAN_TOKEN.address, encodeBalanceOf(account), block.numberHex),
-          callRequest(9, BORROW_COLLATERAL_TOKEN.address, encodeAllowance(account, MORPHO_BLUE_ADDRESS), block.numberHex),
-          callRequest(10, BORROW_LOAN_TOKEN.address, encodeAllowance(account, MORPHO_BLUE_ADDRESS), block.numberHex),
+          callRequest(3, marketRef.morpho, encodeMarketParams(marketRef.marketId), block.numberHex),
+          callRequest(4, marketRef.morpho, encodeMarket(marketRef.marketId), block.numberHex),
+          callRequest(5, marketRef.morpho, encodePosition(marketRef.marketId, account), block.numberHex),
+          callRequest(6, marketRef.oracle, encodePrice(), block.numberHex),
+          callRequest(7, marketRef.collateralToken.address, encodeBalanceOf(account), block.numberHex),
+          callRequest(8, marketRef.loanToken.address, encodeBalanceOf(account), block.numberHex),
+          callRequest(9, marketRef.collateralToken.address, encodeAllowance(account, marketRef.morpho), block.numberHex),
+          callRequest(10, marketRef.loanToken.address, encodeAllowance(account, marketRef.morpho), block.numberHex),
         ], signal);
 
-        verifyMarketParams(decodeWords(resultById(calls, 3), 5, "market params"));
+        verifyMarketParams(decodeWords(resultById(calls, 3), 5, "market params"), marketRef);
         const market = decodeWords(resultById(calls, 4), 6, "market");
         market.forEach((word) => assertMaximum(word, UINT128_MAX, "market word"));
         const position = decodeWords(resultById(calls, 5), 3, "position");
@@ -156,7 +152,7 @@ export function createBorrowRpcReader(options: {
         const rateResponse = await rpc(
           fetchImpl,
           rpcUrl,
-          callRequest(11, BORROW_IRM_ADDRESS, encodeBorrowRateView(market), block.numberHex),
+          callRequest(11, marketRef.irm, encodeBorrowRateView(marketRef, market), block.numberHex),
           signal,
         );
         const confirmationResponse = await rpc(
@@ -184,32 +180,47 @@ export function createBorrowRpcReader(options: {
           : BigInt("0");
         const [, borrowShares, collateral] = position;
         const debt = toAssetsUp(borrowShares, currentBorrowAssets, totalBorrowShares);
-        const maxDebt = borrowCapacityAssets(collateral, oraclePrice, BORROW_LLTV_WAD);
+        const rawMaxDebt = borrowCapacityAssets(collateral, oraclePrice, marketRef.lltvWad);
+        const policyMaxDebt = policyMaximumDebtAssets(rawMaxDebt, BORROW_HEALTH_FLOOR_WAD);
+        const rawAvailableBorrow = availableBorrowAssets({
+          positionBorrowShares: borrowShares,
+          totalBorrowAssets: currentBorrowAssets,
+          totalBorrowShares,
+          maxDebtAssets: rawMaxDebt,
+          liquidityAssets: liquidity,
+        });
         const availableBorrow = availableBorrowAssets({
           positionBorrowShares: borrowShares,
           totalBorrowAssets: currentBorrowAssets,
           totalBorrowShares,
-          maxDebtAssets: maxDebt,
+          maxDebtAssets: policyMaxDebt,
           liquidityAssets: liquidity,
         });
-        const requiredCollateral = minimumCollateralForDebt(debt, oraclePrice, BORROW_LLTV_WAD);
-        const withdrawableCollateral = collateral > requiredCollateral
-          ? collateral - requiredCollateral
-          : BigInt("0");
+        const rawRequiredCollateral = minimumCollateralForDebt(debt, oraclePrice, marketRef.lltvWad);
+        const policyRequiredCollateral = minimumCollateralForHealthFactor(debt, oraclePrice, marketRef.lltvWad, BORROW_HEALTH_FLOOR_WAD);
+        const rawWithdrawableCollateral = collateral > rawRequiredCollateral ? collateral - rawRequiredCollateral : BigInt("0");
+        const withdrawableCollateral = collateral > policyRequiredCollateral ? collateral - policyRequiredCollateral : BigInt("0");
         const fetchedAt = now();
         if (Number.isNaN(fetchedAt.getTime())) throw new BorrowRpcError("The borrowing fetch time is invalid.");
 
         return {
           chainId: BASE_CHAIN_ID,
           walletAddress: account.toLowerCase() as BorrowAddress,
+          version: "1",
           market: {
-            id: BORROW_MARKET_ID,
-            morpho: MORPHO_BLUE_ADDRESS,
-            loanToken: BORROW_LOAN_TOKEN,
-            collateralToken: BORROW_COLLATERAL_TOKEN,
-            oracle: BORROW_ORACLE_ADDRESS,
-            irm: BORROW_IRM_ADDRESS,
-            lltvWad: BORROW_LLTV_WAD.toString(10),
+            id: marketRef.marketId,
+            morpho: marketRef.morpho,
+            loanToken: marketRef.loanToken,
+            collateralToken: marketRef.collateralToken,
+            oracle: marketRef.oracle,
+            irm: marketRef.irm,
+            lltvWad: marketRef.lltvWad.toString(10),
+            rank: marketRef.rank,
+          },
+          eligibility: {
+            mode: marketRef.availability,
+            newRisk: marketRef.availability === "enabled",
+            reason: marketRef.availability === "enabled" ? null : "This verified market is available only for risk reduction.",
           },
           source: {
             provider: "Base JSON-RPC",
@@ -238,10 +249,12 @@ export function createBorrowRpcReader(options: {
             collateralRaw: collateral.toString(10),
             borrowSharesRaw: borrowShares.toString(10),
             debtAssetsRaw: debt.toString(10),
+            rawBorrowCapacityAssetsRaw: rawAvailableBorrow.toString(10),
             borrowCapacityAssetsRaw: availableBorrow.toString(10),
+            rawWithdrawableCollateralRaw: rawWithdrawableCollateral.toString(10),
             withdrawableCollateralRaw: withdrawableCollateral.toString(10),
-            healthFactorWad: healthFactorWad(maxDebt, debt)?.toString(10) ?? null,
-            liquidationPriceRaw: liquidationPriceRaw(debt, collateral, BORROW_LLTV_WAD)?.toString(10) ?? null,
+            healthFactorWad: healthFactorWad(rawMaxDebt, debt)?.toString(10) ?? null,
+            liquidationPriceRaw: liquidationPriceRaw(debt, collateral, marketRef.lltvWad)?.toString(10) ?? null,
           },
         } satisfies BorrowMarketSnapshot;
       });
@@ -345,11 +358,11 @@ export function createBorrowRpcReader(options: {
 
 export const getBaseBorrowing = createBorrowRpcReader();
 
-function verifyMarketParams(words: bigint[]) {
+function verifyMarketParams(words: bigint[], marketRef: BorrowMarketRef) {
   const [loan, collateral, oracle, irm, lltv] = words;
   const actual = [decodeAddressWord(loan), decodeAddressWord(collateral), decodeAddressWord(oracle), decodeAddressWord(irm)];
-  const expected = [BORROW_MARKET_PARAMS.loanToken, BORROW_MARKET_PARAMS.collateralToken, BORROW_MARKET_PARAMS.oracle, BORROW_MARKET_PARAMS.irm];
-  if (actual.some((address, index) => address.toLowerCase() !== expected[index].toLowerCase()) || lltv !== BORROW_LLTV_WAD) {
+  const expected = [marketRef.loanToken.address, marketRef.collateralToken.address, marketRef.oracle, marketRef.irm];
+  if (actual.some((address, index) => address.toLowerCase() !== expected[index].toLowerCase()) || lltv !== marketRef.lltvWad) {
     throw new BorrowRpcError("The configured Morpho market parameters do not match Base state.");
   }
 }

@@ -52,8 +52,14 @@ export function presentOperationDetails(
 ): TransactionDetails {
   const rows: TransactionDetailRow[] = [
     { label: "Status", value: labelForOperationStatus(operation.status) },
-    { label: "Type", value: labelForMoneyActionKind(operation.action.kind) },
+    { label: "Type", value: labelForStoredOperation(operation) },
   ];
+  if (operation.action.metadata?.product === "borrow") {
+    rows.push({
+      label: "Market",
+      value: `${operation.action.metadata.collateralAsset.symbol} / ${operation.action.metadata.loanAsset.symbol}`,
+    });
+  }
 
   for (const amount of orderedOperationAmounts(operation.action.amounts)) {
     rows.push({
@@ -88,6 +94,20 @@ export function presentOperationDetails(
     rows,
     explorer: transactionExplorerLink(operation.transactionHash),
   };
+}
+
+function labelForStoredOperation(operation: RecentMoneyActionOperation): string {
+  const borrow = operation.action.metadata?.product === "borrow" ? operation.action.metadata.operation : null;
+  switch (borrow) {
+    case "supply-collateral": return "Add collateral";
+    case "borrow": return "Borrow";
+    case "supply-and-borrow": return "Supply and borrow";
+    case "repay": return "Repay";
+    case "repay-all": return "Repay all";
+    case "withdraw-collateral": return "Withdraw collateral";
+    case "close-position": return "Close position";
+    default: return labelForMoneyActionKind(operation.action.kind);
+  }
 }
 
 function orderedOperationAmounts(

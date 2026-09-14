@@ -5,7 +5,10 @@ import {
   accrueBorrowAssets,
   availableBorrowAssets,
   borrowCapacityAssets,
+  minimumCollateralForHealthFactor,
+  policyMaximumDebtAssets,
   healthFactorWad,
+  liquidationBufferBps,
   liquidationPriceRaw,
   minimumCollateralForDebt,
   parseTokenAmount,
@@ -34,6 +37,35 @@ describe("Morpho borrowing integer math", () => {
 
     expect(accrued).toBeGreaterThan(totalBorrowAssets);
     expect(accrued.toString()).toBe("1000086403732");
+  });
+
+  test.each([
+    { raw: BigInt("1000000"), floor: BigInt("1250000000000000000"), expected: BigInt("800000") },
+    { raw: BigInt("1"), floor: BigInt("1250000000000000000"), expected: BigInt("0") },
+    { raw: BigInt("3441"), floor: BigInt("1500000000000000000"), expected: BigInt("2294") },
+  ])("derives policy-adjusted capacity with downward rounding: $raw", ({ raw, floor, expected }) => {
+    expect(policyMaximumDebtAssets(raw, floor)).toBe(expected);
+  });
+
+  test.each([
+    {
+      name: "8-decimal cbBTC collateral",
+      debt: BigInt("1000000"),
+      price: BigInt("800000000000000000000000000000000000000"),
+      lltv: BigInt("860000000000000000"),
+    },
+    {
+      name: "18-decimal collateral at the nested-floor boundary",
+      debt: BigInt("1"),
+      price: BigInt("1000000000000000000000000"),
+      lltv: BigInt("700000000000000000"),
+    },
+  ])("advertises only collateral boundaries that satisfy the exact 1.25 check: $name", ({ debt, price, lltv }) => {
+    const required = minimumCollateralForHealthFactor(debt, price, lltv, BigInt("1250000000000000000"));
+    const maximumDebt = borrowCapacityAssets(required, price, lltv);
+    expect(healthFactorWad(maximumDebt, debt)).toBeGreaterThanOrEqual(BigInt("1250000000000000000"));
+    expect(borrowCapacityAssets(required - BigInt("1"), price, lltv) * WAD)
+      .toBeLessThan(debt * BigInt("1250000000000000000"));
   });
 
   test("accounts for borrow-share rounding when reporting current available capacity", () => {
@@ -98,4 +130,11 @@ describe("Morpho borrowing integer math", () => {
     expect(() => parseTokenAmount("1.0000001", 6)).toThrow("at most 6");
     expect(() => parseTokenAmount("1e3", 6)).toThrow();
   });
+  test("converts health factor to price-drop liquidation buffer bps", () => {
+    expect(liquidationBufferBps(null)).toBeNull();
+    expect(liquidationBufferBps(BigInt("1000000000000000000"))).toBe(BigInt(0));
+    expect(liquidationBufferBps(BigInt("1250000000000000000"))).toBe(BigInt(2000));
+    expect(liquidationBufferBps(BigInt("1500000000000000000"))).toBe(BigInt(3333));
+  });
+
 });

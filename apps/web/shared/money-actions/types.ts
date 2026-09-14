@@ -37,6 +37,26 @@ export type MoneyActionAmount = {
   maximum?: boolean;
 };
 
+export type BorrowMoneyActionMetadata = {
+  product: "borrow";
+  operation:
+    | "supply-collateral"
+    | "borrow"
+    | "supply-and-borrow"
+    | "repay"
+    | "repay-all"
+    | "withdraw-collateral"
+    | "close-position";
+  marketId: `0x${string}`;
+  loanAsset: { id: string; symbol: string };
+  collateralAsset: { id: string; symbol: string };
+  projectedHealthFactorWad: string | null;
+  projectedLiquidationPriceRaw: string | null;
+  borrowAprWad: string;
+  source: { blockNumber: string; blockHash: `0x${string}`; blockTimestamp: string };
+};
+export type MoneyActionMetadata = BorrowMoneyActionMetadata;
+
 export type MoneyActionDraft = {
   kind: ActionKind;
   title: string;
@@ -45,6 +65,7 @@ export type MoneyActionDraft = {
   warnings: string[];
   expiresAt: string;
   quoteId?: string;
+  metadata?: MoneyActionMetadata;
 };
 
 export type MoneyActionOwner = {
