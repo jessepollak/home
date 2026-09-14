@@ -49,7 +49,7 @@ async function prepare(request: { marketId: typeof market.marketId; operation: "
 }
 
 describe("direct Morpho lending preparation", () => {
-  test("supplies with an exact loan-token approval only when allowance is insufficient", async () => {
+  test("supplies with an exact loan-token approval whenever allowance differs from the request", async () => {
     const { result, simulations } = await prepare({ marketId: market.marketId, operation: "supply", amountBaseUnits: "25000000" });
     expect(result.draft.kind).toBe("lend-supply");
     expect(result.draft.calls.map((call) => call.data.slice(0, 10))).toEqual(["0x095ea7b3", "0xa99aad89"]);
@@ -58,11 +58,18 @@ describe("direct Morpho lending preparation", () => {
     expect(result.draft.expiresAt).toBe("2026-09-14T12:02:00.000Z");
     expect(simulations[0]).toMatchObject({ blockNumber: "100", blockHash: BLOCK_HASH });
 
-    const sufficient = await prepare(
+    const exact = await prepare(
+      { marketId: market.marketId, operation: "supply", amountBaseUnits: "25000000" },
+      snapshot({ wallet: { loanAllowanceRaw: "25000000" } }),
+    );
+    expect(exact.result.draft.calls.map((call) => call.data.slice(0, 10))).toEqual(["0xa99aad89"]);
+
+    const leftoverLargerAllowance = await prepare(
       { marketId: market.marketId, operation: "supply", amountBaseUnits: "25000000" },
       snapshot({ wallet: { loanAllowanceRaw: "25000001" } }),
     );
-    expect(sufficient.result.draft.calls.map((call) => call.data.slice(0, 10))).toEqual(["0xa99aad89"]);
+    expect(leftoverLargerAllowance.result.draft.calls.map((call) => call.data.slice(0, 10))).toEqual(["0x095ea7b3", "0xa99aad89"]);
+    expect(leftoverLargerAllowance.result.draft.calls[0]?.data.endsWith(BigInt("25000000").toString(16).padStart(64, "0"))).toBe(true);
   });
 
   test("bounds exact withdrawal by both verified position and current liquidity", async () => {
@@ -86,6 +93,13 @@ describe("direct Morpho lending preparation", () => {
     expect(data).toContain(BigInt("100000000000000").toString(16).padStart(64, "0"));
     expect(result.draft.amounts[0]).toMatchObject({ amountBaseUnits: "100000000", direction: "receive", estimated: true });
     expect(result.draft.metadata).toMatchObject({ product: "lend", operation: "withdraw-all", supplySharesRaw: "100000000000000" });
+    expect(result.draft.warnings).toContain("Morpho withdraws all current supply shares, so the received asset amount can change before submission.");
+
+    const consumesLiquidity = await prepare(
+      { marketId: market.marketId, operation: "withdraw-all" },
+      snapshot({ state: { liquidityAssetsRaw: "100000000" }, position: { suppliedAssetsRaw: "100000000", withdrawableSupplyAssetsRaw: "100000000" } }),
+    );
+    expect(consumesLiquidity.result.draft.warnings).toContain("This review uses all currently indexed market liquidity; the call can fail if liquidity changes.");
 
     await expect(prepare(
       { marketId: market.marketId, operation: "withdraw-all" },

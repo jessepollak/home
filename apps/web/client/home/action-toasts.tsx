@@ -136,12 +136,16 @@ function parseToastActions(value: unknown): ToastAction[] {
 function actionToastMessage(action: ToastAction, status: ToastAction["status"]): string | null {
   const metadataOperation = action.summary.metadata?.operation;
   const borrowOperation = action.summary.metadata?.product === "borrow" ? metadataOperation : undefined;
+  const lendOperation = action.summary.metadata?.product === "lend" ? metadataOperation : undefined;
   const operation = operationKind(action.kind, borrowOperation);
   if (borrowOperation === "repay-all") {
     return status === "pending" ? "Repaying all Borrow debt" : "Repaid all Borrow debt";
   }
   if (borrowOperation === "close-position") {
     return status === "pending" ? "Closing Borrow position" : "Closed Borrow position";
+  }
+  if (lendOperation === "withdraw-all") {
+    return status === "pending" ? "Withdrawing all Lend supply" : "Withdrew all Lend supply";
   }
   const amount = action.summary.amounts.find((candidate) =>
     operation === "withdraw" || operation === "lend-withdraw" || operation === "borrow"

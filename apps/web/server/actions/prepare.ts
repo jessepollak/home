@@ -15,8 +15,8 @@ import { prepareSavingsAction, SavingsActionError } from "@/server/savings/prepa
 import { prepareBorrowAction, BorrowPreparationError } from "@/server/borrowing/prepare";
 import { getBaseBorrowing } from "@/server/borrowing/rpc";
 import { getBorrowMarketRef } from "@/shared/borrowing/config";
-import { getVerifiedMorphoMarket } from "@/shared/morpho-markets/config";
-import { getBaseMorphoMarkets } from "@/server/morpho-markets/rpc";
+import { getVerifiedMorphoMarket, type VerifiedMorphoMarketRef } from "@/shared/morpho-markets/config";
+import { getBaseMorphoMarkets, type MorphoMarketRpcReader } from "@/server/morpho-markets/rpc";
 import { LendPreparationError, prepareLendAction } from "@/server/lending/prepare";
 import type { ActionAuthorizer } from "./handler";
 
@@ -26,10 +26,16 @@ const privateHeaders = {
   Vary: "Authorization, X-Home-Account-Provider",
 } as const;
 
-export function createPrepareActionHandler(dependencies: {
+type PrepareActionDependencies = {
   authorize: ActionAuthorizer;
   prepareSavings?: typeof prepareSavingsAction;
-}) {
+  prepareLend?: typeof prepareLendAction;
+  morphoRpc?: MorphoMarketRpcReader;
+  getMorphoMarket?: (marketId: string) => VerifiedMorphoMarketRef | null;
+  issue?: typeof issueMoneyAction;
+};
+
+export function createPrepareActionHandler(dependencies: PrepareActionDependencies) {
   return async function POST(request: Request): Promise<Response> {
     const session = await authorizeSession(request, dependencies.authorize);
     if (session instanceof Response) return session;
@@ -90,7 +96,7 @@ async function prepare(
   kind: ActionKind,
   params: Record<string, unknown>,
   signal: AbortSignal,
-  dependencies: { prepareSavings?: typeof prepareSavingsAction },
+  dependencies: PrepareActionDependencies,
 ) {
   if (kind === "send") {
     return issueSendMoneyAction(session, params as TransferRequest);
@@ -124,12 +130,13 @@ async function prepare(
     if (!lendRequest || actionKindForLendOperation(lendRequest.operation) !== kind) {
       throw new LendPreparationError("invalid-input", "The lending operation or exact base-unit amount is invalid.");
     }
-    const market = getVerifiedMorphoMarket(lendRequest.marketId);
+    const market = (dependencies.getMorphoMarket ?? getVerifiedMorphoMarket)(lendRequest.marketId);
     if (!market) throw new LendPreparationError("unsupported-market", "The lending market is not configured.");
-    const snapshot = await getBaseMorphoMarkets.readSnapshot(session.smartAccount.address, market, signal);
-    const preparation = await prepareLendAction({ request: lendRequest, market, owner: session.smartAccount.address, snapshot, rpc: getBaseMorphoMarkets, signal });
+    const rpc = dependencies.morphoRpc ?? getBaseMorphoMarkets;
+    const snapshot = await rpc.readSnapshot(session.smartAccount.address, market, signal);
+    const preparation = await (dependencies.prepareLend ?? prepareLendAction)({ request: lendRequest, market, owner: session.smartAccount.address, snapshot, rpc, signal });
     if (!preparation.fullySimulated) throw new LendPreparationError("simulation-failed", preparation.simulationGap ?? "Lending execution is unavailable.");
-    return issueMoneyAction(session, preparation.draft);
+    return (dependencies.issue ?? issueMoneyAction)(session, preparation.draft);
   }
   if (kind === "trade") {
     throw new Error("Hosted trades are unavailable.");

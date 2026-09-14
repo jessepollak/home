@@ -50,7 +50,7 @@ export async function prepareLendAction(input: {
     }
     const supplied = required(amount);
     requireAtMost(supplied, BigInt(snapshot.wallet.loanBalanceRaw), `Your verified wallet does not currently hold that much ${market.loanToken.symbol}.`);
-    if (BigInt(snapshot.wallet.loanAllowanceRaw) < supplied) calls.push(approveCall(market.loanToken, market.morpho, supplied));
+    if (BigInt(snapshot.wallet.loanAllowanceRaw) !== supplied) calls.push(approveCall(market.loanToken, market.morpho, supplied));
     calls.push(supplyCall(market, supplied, owner));
     amounts.push(actionAmount(market, supplied, "spend"));
   } else {
@@ -72,6 +72,7 @@ export async function prepareLendAction(input: {
       calls.push(withdrawSharesCall(market, supplyShares, owner));
       amounts.push({ ...actionAmount(market, suppliedAssets, "receive"), estimated: true });
       warnings.push("Morpho withdraws all current supply shares, so the received asset amount can change before submission.");
+      if (suppliedAssets === liquidity) warnings.push("This review uses all currently indexed market liquidity; the call can fail if liquidity changes.");
     }
   }
 

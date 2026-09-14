@@ -105,6 +105,39 @@ describe("action toast owner fence", () => {
     expect(view.queryByText("Repaid $125.00")).toBeNull();
   });
 
+  test("uses position semantics for withdraw-all instead of suppressing its estimated receive amount", async () => {
+    const queryKey = ownerQueryKey(activityOwnerKey(session), "actions");
+    const withdrawAll = {
+      ...row,
+      id: "55555555-5555-4555-8555-555555555555",
+      kind: "lend-withdraw",
+      summary: {
+        ...row.summary,
+        metadata: { product: "lend", operation: "withdraw-all" },
+        amounts: [
+          { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "100000000", direction: "receive", estimated: true },
+        ],
+        warnings: [],
+      },
+    };
+    const view = render(
+      <ActionToasts
+        session={session}
+        fetchOperations={async () => ({ actions: [] })}
+        dismissAfterMs={0}
+      />,
+    );
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(queryKey)).toBeTruthy());
+
+    act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [withdrawAll] }));
+    await waitFor(() => expect(view.getByText("Withdrawing all Lend supply")).toBeTruthy());
+    expect(view.queryByText("Withdrawing $100.00 from Lend")).toBeNull();
+
+    act(() => getHomeQueryClient().setQueryData(queryKey, { actions: [{ ...withdrawAll, status: "confirmed" }] }));
+    await waitFor(() => expect(view.getByText("Withdrew all Lend supply")).toBeTruthy());
+    expect(view.queryByText("Withdrew $100.00 from Lend")).toBeNull();
+  });
+
   test("uses position semantics for close instead of displaying its repay cap", async () => {
     const queryKey = ownerQueryKey(activityOwnerKey(session), "actions");
     const closePosition = {

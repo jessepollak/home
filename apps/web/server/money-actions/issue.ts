@@ -144,7 +144,7 @@ function normalizeMetadata(value: MoneyActionMetadata): MoneyActionMetadata {
   if (value.product === "borrow") {
     if (!["supply-collateral", "borrow", "supply-and-borrow", "repay", "repay-all", "withdraw-collateral", "close-position"].includes(value.operation) ||
       !validSummaryAsset(value.collateralAsset) || !validNullableInteger(value.projectedHealthFactorWad) ||
-      !validNullableInteger(value.projectedLiquidationPriceRaw) || !integerPattern.test(value.borrowAprWad)) {
+      !validNullableInteger(value.projectedLiquidationPriceRaw) || typeof value.borrowAprWad !== "string" || !integerPattern.test(value.borrowAprWad)) {
       throw new MoneyActionIssueError("invalid-draft");
     }
     return {
@@ -156,7 +156,8 @@ function normalizeMetadata(value: MoneyActionMetadata): MoneyActionMetadata {
     };
   }
   if (value.product !== "lend" || !["supply", "withdraw", "withdraw-all"].includes(value.operation) ||
-    ![value.supplySharesRaw, value.suppliedAssetsRaw, value.withdrawableAssetsRaw, value.supplyAprWad].every((field) => integerPattern.test(field))) {
+    ![value.supplySharesRaw, value.suppliedAssetsRaw, value.withdrawableAssetsRaw, value.supplyAprWad]
+      .every((field) => typeof field === "string" && integerPattern.test(field))) {
     throw new MoneyActionIssueError("invalid-draft");
   }
   return {

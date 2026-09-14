@@ -15,6 +15,7 @@ import {
   type MorphoMarketRpcReader,
   type MorphoMarketSnapshot,
 } from "@/server/morpho-markets/rpc";
+import { projectLendingDetail } from "@/server/lending/project";
 
 export { MorphoMarketRpcError as BorrowRpcError } from "@/server/morpho-markets/rpc";
 
@@ -45,7 +46,7 @@ function projectBorrowReader(reader: MorphoMarketRpcReader): BorrowRpcReader {
   return {
     async readSnapshot(account, marketRef, signal) {
       const snapshot = await reader.readSnapshot(account, marketRef, signal);
-      return projectBorrowSnapshot(snapshot, marketRef.availability);
+      return projectBorrowSnapshot(snapshot, marketRef);
     },
     simulateBatch(calls, account, blockNumber, expectedBlockHash, signal) {
       return reader.simulateBatch(calls, account, blockNumber, expectedBlockHash, signal);
@@ -53,10 +54,13 @@ function projectBorrowReader(reader: MorphoMarketRpcReader): BorrowRpcReader {
   };
 }
 
-function projectBorrowSnapshot(
+export function projectBorrowSnapshot(
   snapshot: MorphoMarketSnapshot,
-  borrowMode: BorrowMarketRef["availability"],
+  market: BorrowMarketRef,
 ): BorrowMarketSnapshot {
+  const borrowMode = market.availability;
+  let lending: BorrowMarketSnapshot["lending"];
+  try { lending = projectLendingDetail(snapshot, market); } catch { lending = undefined; }
   const collateral = BigInt(snapshot.position.collateralRaw);
   const debt = BigInt(snapshot.position.debtAssetsRaw);
   const oraclePrice = BigInt(snapshot.state.oraclePriceRaw);
@@ -119,34 +123,6 @@ function projectBorrowSnapshot(
       healthFactorWad: snapshot.position.healthFactorWad,
       liquidationPriceRaw: snapshot.position.liquidationPriceRaw,
     },
-    lending: {
-      version: "1",
-      mode: lendingMode(snapshot.capabilities.lend),
-      canSupply: snapshot.capabilities.lend === "enabled",
-      canWithdraw: BigInt(snapshot.position.supplySharesRaw) > BigInt(0),
-      reason: snapshot.capabilities.lend === "enabled"
-        ? null
-        : snapshot.capabilities.lend === "reducing-only"
-          ? "This verified market permits withdrawal but not new supply."
-          : "This verified market is not approved for new lending supply.",
-      state: {
-        totalSupplyAssetsRaw: snapshot.state.totalSupplyAssetsRaw,
-        totalSupplySharesRaw: snapshot.state.totalSupplySharesRaw,
-        totalBorrowAssetsRaw: snapshot.state.totalBorrowAssetsRaw,
-        liquidityAssetsRaw: snapshot.state.liquidityAssetsRaw,
-        feeWad: snapshot.state.feeWad,
-        utilizationWad: snapshot.state.utilizationWad,
-        supplyAprWad: snapshot.state.supplyAprWad,
-      },
-      position: {
-        supplySharesRaw: snapshot.position.supplySharesRaw,
-        suppliedAssetsRaw: snapshot.position.suppliedAssetsRaw,
-        withdrawableAssetsRaw: snapshot.position.withdrawableSupplyAssetsRaw,
-      },
-    },
+    ...(lending ? { lending } : {}),
   };
-}
-
-function lendingMode(capability: MorphoMarketSnapshot["capabilities"]["lend"]): "enabled" | "reducing-only" | "withdraw-only" {
-  return capability ?? "withdraw-only";
 }
