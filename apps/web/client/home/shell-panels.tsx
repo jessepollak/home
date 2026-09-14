@@ -12,6 +12,7 @@ import {
   balancesPanelId,
   isHomeNestedPanelId,
   borrowPanelId,
+  lendPanelId,
   savePanelId,
   type ShellPanelId,
 } from "@/config/navigation";
@@ -20,6 +21,7 @@ import type { MoneyGroupId } from "@/config/shell-location";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketId } from "@/shared/borrowing/config";
 import { AuthenticatedBorrowExperience } from "@/client/borrowing/borrowing-experience";
+import { AuthenticatedLendExperience } from "@/client/lending/lending-experience";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import { ActivityPage } from "./activity-panel";
 import { BalancesPage } from "./balances-panel";
@@ -168,6 +170,7 @@ export function DashboardShell({
                     fetchOperations={fetchOperations}
                     onOpenSave={() => navigateTo(savePanelId)}
                     onOpenBorrow={() => navigateTo(borrowPanelId)}
+                    onOpenLend={() => navigateTo(lendPanelId)}
                     onOpenBalances={(group) => navigateTo(balancesPanelId, group ?? null)}
                     onOpenActivity={() => navigateTo(activityPanelId)}
                     initialAddMoney={urlAddMoney}
@@ -212,6 +215,11 @@ export function DashboardShell({
                     isChecking={isChecking}
                     content={savingsContent}
                   />
+                </MountedShellPanel>
+              ) : null}
+              {mountedPanels.has(lendPanelId) ? (
+                <MountedShellPanel active={activeNavigation === lendPanelId}>
+                  <AuthenticatedLendExperience regionId={regionId} />
                 </MountedShellPanel>
               ) : null}
               {mountedPanels.has(borrowPanelId) ? (

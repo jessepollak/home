@@ -108,6 +108,14 @@ export function parseLendingOverviewResponse(value: unknown, expectedOwner: `0x$
   return value.lending;
 }
 
+export function parseLendingMarketDetailEnvelopeResponse(value: unknown, expectedOwner: `0x${string}`): LendingMarketDetailResponse | null {
+  if (!isRecord(value) || value.version !== LENDING_CONTRACT_VERSION || value.chainId !== 8453 || typeof value.walletAddress !== "string" ||
+    value.walletAddress.toLowerCase() !== expectedOwner.toLowerCase() || !isRecord(value.market) ||
+    typeof value.market.id !== "string" || !marketMatches(value.market) || !validSource(value.source) || !validWallet(value.wallet) ||
+    !validDetail(value.lending)) return null;
+  return value as LendingMarketDetailResponse;
+}
+
 export function parseLendingMarketDetailResponse(value: unknown, expectedOwner: `0x${string}`): LendingMarketDetail | null {
   if (!isRecord(value) || value.version !== LENDING_CONTRACT_VERSION || value.chainId !== 8453 || typeof value.walletAddress !== "string" ||
     value.walletAddress.toLowerCase() !== expectedOwner.toLowerCase() || !isRecord(value.market) ||
@@ -146,6 +154,10 @@ function validDetail(value: unknown): value is LendingMarketDetail {
     typeof value.canSupply === "boolean" && typeof value.canWithdraw === "boolean" &&
     (value.reason === null || typeof value.reason === "string") && validState(value.state) && isRecord(value.position) &&
     decimal(value.position.supplySharesRaw) && decimal(value.position.suppliedAssetsRaw) && decimal(value.position.withdrawableAssetsRaw);
+}
+
+function validWallet(value: unknown): value is LendingMarketDetailResponse["wallet"] {
+  return isRecord(value) && [value.collateralBalanceRaw, value.loanBalanceRaw, value.collateralAllowanceRaw, value.loanAllowanceRaw].every(decimal);
 }
 
 function validState(value: unknown): value is LendingMarketState {

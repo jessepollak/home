@@ -29,6 +29,7 @@ Start with [Architecture](architecture.md), the one normative design document; [
 | [Issuer integration guide](integrations/README.md) | Funding-provider adapter walkthrough. |
 | [Invest data](invest-data.md) | Invest asset identity and data notes. |
 | [Morpho setup](morpho-setup.md) | Morpho vault configuration and verification. |
+| [Lend](lend.md) | Direct verified-market lending UI and action semantics. |
 | [Verified Morpho markets](morpho-markets.md) | Shared registry, math, pinned RPC reader, and product projection boundary for isolated markets. |
 | [Observability](observability.md) | Privacy-safe application observability. |
 | [Operating manual](operating-manual.md) | Team workflow, labels, and proof bar. |

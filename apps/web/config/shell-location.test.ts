@@ -29,6 +29,7 @@ describe("shell location", () => {
       [{ panel: "balances" as const, group: "investments" as const }, "/dashboard?panel=balances&group=investments"],
       [{ panel: "activity" as const }, "/dashboard?panel=activity"],
       [{ panel: "borrow" as const }, "/dashboard?panel=borrow"],
+      [{ panel: "lend" as const }, "/dashboard?panel=lend"],
       [{ panel: "invest" as const, shelf: "crypto" }, "/dashboard?panel=invest&shelf=crypto"],
       [{ panel: "invest" as const, asset: "cbbtc", shelf: "crypto" }, "/dashboard?panel=invest&shelf=crypto&asset=cbbtc"],
       [{ account: "settings" as const }, "/dashboard?account=settings"],

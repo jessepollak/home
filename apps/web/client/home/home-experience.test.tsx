@@ -398,6 +398,16 @@ describe("Home shell routing and intents", () => {
     expect(page().getByRole("heading", { name: "Your money" })).toBeTruthy();
   });
 
+  test("opens Lend from the Home card as a dedicated shell panel", async () => {
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    await waitForVerifiedShell();
+
+    fireEvent.click(page().getByRole("button", { name: /Lend/ }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/dashboard?panel=lend");
+    expect(await page().findByText("Earn a variable rate by lending your dollars directly on Base.")).toBeTruthy();
+    expect(within(page().getByRole("navigation", { name: "Main navigation" })).queryByRole("button", { name: "Lend" })).toBeNull();
+  });
+
   test("opens Borrow from the Home card without adding a bottom navigation item", async () => {
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
     await waitForVerifiedShell();

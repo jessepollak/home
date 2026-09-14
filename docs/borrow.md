@@ -36,7 +36,7 @@ Repay is one smart flow. An amount below current estimated debt prepares an exac
 - `GET /api/borrow/markets/:marketId` returns version `1`: exact market identity, pinned source block, market state, wallet state, accrued position, raw protocol limits, and Home policy-adjusted limits. Its additive `lending` section reports accrued supply shares/assets, liquidity-bounded withdrawal, utilization, protocol fee, and net supply APR without changing the existing Borrow fields or their order. The product uses this data to power the card and direct modal, not a detail inspector.
 - `POST /api/actions/prepare` supports add collateral, borrow, atomic supply-and-borrow, partial repay, capped share-based repay-all, collateral withdrawal, and atomic close. Borrow prepared metadata includes the fresh `borrowAprWad` used by confirmation.
 
-Confirmation stays the shared thin commit of the stored calls. It performs no Borrow-only preflight. The shared prepare route also accepts strict `lend-supply` and `lend-withdraw` intents for verified direct markets; withdraw-all is a share-based `lend-withdraw` operation. This backend phase does not add a Lend route or product UI.
+Confirmation stays the shared thin commit of the stored calls. It performs no Borrow-only preflight. The shared prepare route also accepts strict `lend-supply` and `lend-withdraw` intents for verified direct markets; withdraw-all is a share-based `lend-withdraw` operation. The separate Lend product consumes those additive contracts at `/dashboard?panel=lend`; Borrow semantics and routes remain unchanged.
 
 ## Risk and approvals
 

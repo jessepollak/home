@@ -16,6 +16,7 @@ import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { FundingActions } from "@/client/funding/funding-actions";
 import { SavingsTeaser } from "@/client/savings/savings-teaser";
 import { AuthenticatedBorrowTeaser } from "@/client/borrowing/borrowing-experience";
+import { AuthenticatedLendTeaser } from "@/client/lending/lending-experience";
 import { TransferActions } from "@/client/transfers";
 import type { MoneyGroupPresentation } from "@/shared/balances/present";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
@@ -59,6 +60,7 @@ export function HomePanel({
   fetchOperations,
   onOpenSave,
   onOpenBorrow,
+  onOpenLend,
   onOpenBalances,
   onOpenActivity,
   initialAddMoney = false,
@@ -75,6 +77,7 @@ export function HomePanel({
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   onOpenSave: () => void;
   onOpenBorrow: () => void;
+  onOpenLend: () => void;
   onOpenBalances: (group?: MoneyGroupPresentation["id"]) => void;
   onOpenActivity: () => void;
   initialAddMoney?: boolean;
@@ -172,7 +175,7 @@ export function HomePanel({
         </Card>
       </section>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-3">
         <section aria-labelledby="save-heading">
           <Card className="h-full">
             <CardHeader>
@@ -180,6 +183,17 @@ export function HomePanel({
             </CardHeader>
             <CardContent className="px-2">
               <SavingsTeaser onOpen={onOpenSave} />
+            </CardContent>
+          </Card>
+        </section>
+
+        <section aria-labelledby="lend-heading">
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle id="lend-heading" role="heading" aria-level={2}>Lend</CardTitle>
+            </CardHeader>
+            <CardContent className="px-2">
+              <AuthenticatedLendTeaser onOpen={onOpenLend} regionId={regionId} />
             </CardContent>
           </Card>
         </section>
