@@ -49,6 +49,8 @@ export type ChainDataSource = {
 export type BaseErc20TransferPage = {
   transfers: BaseErc20Transfer[];
   nextCursor: string | null;
+  /** Server-internal count of valid source rows omitted as unclassified. */
+  droppedRowCount?: number;
   source: ChainDataSource;
 };
 
