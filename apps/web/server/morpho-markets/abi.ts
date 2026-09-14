@@ -3,6 +3,11 @@ import "server-only";
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { MorphoAddress, VerifiedMorphoMarketRef } from "@/shared/morpho-markets/config";
 
+export {
+  encodeCoinbaseExecuteBatch,
+  encodeImplementation,
+} from "@/server/chain/coinbase-smart-account";
+
 export type MorphoMoneyActionCall = MoneyActionCall & {
   approval?: { assetId: string; spender: MorphoAddress };
 };
@@ -11,7 +16,6 @@ const SELECTOR = {
   position: "93c52062", market: "5c60e39a", idToMarketParams: "2c3c9157", price: "a035b1fe",
   borrowRateView: "8c00bf6b", balanceOf: "70a08231", allowance: "dd62ed3e", approve: "095ea7b3",
   supplyCollateral: "238d6579", borrow: "50d8cd4b", repay: "20b76e81", withdrawCollateral: "8720316d",
-  executeBatch: "34fcd5be", implementation: "5c60da1b",
 } as const;
 
 export function encodePosition(marketId: `0x${string}`, account: MorphoAddress) { return data(SELECTOR.position, bytes32Word(marketId), addressWord(account)); }
@@ -40,19 +44,6 @@ export function withdrawCollateralCall(ref: VerifiedMorphoMarketRef, amount: big
   return { to: ref.morpho, data: data(SELECTOR.withdrawCollateral, ...marketParamWords(ref), uintWord(amount), addressWord(owner), addressWord(owner)), value: "0" };
 }
 
-export function encodeCoinbaseExecuteBatch(calls: readonly MoneyActionCall[]): `0x${string}` {
-  if (calls.length === 0) throw new TypeError("Coinbase executeBatch requires at least one call.");
-  const tupleBodies = calls.map((call) => {
-    if (!/^0x(?:[0-9a-fA-F]{2})*$/.test(call.data)) throw new TypeError("Invalid call data.");
-    const callData = call.data.slice(2).toLowerCase();
-    const paddedData = callData.padEnd(Math.ceil(callData.length / 64) * 64, "0");
-    return [addressWord(call.to as MorphoAddress), uintWord(BigInt(call.value)), uintWord(BigInt(96)), uintWord(BigInt(callData.length / 2)), paddedData].join("");
-  });
-  let offset = BigInt(calls.length * 32);
-  const offsets = tupleBodies.map((body) => { const word = uintWord(offset); offset += BigInt(body.length / 2); return word; });
-  return data(SELECTOR.executeBatch, uintWord(BigInt(32)), uintWord(BigInt(calls.length)), ...offsets, ...tupleBodies);
-}
-export function encodeImplementation() { return data(SELECTOR.implementation); }
 export function decodeWords(value: unknown, expectedWords: number, label: string): bigint[] {
   if (typeof value !== "string" || !/^0x(?:[0-9a-fA-F]{64})+$/.test(value) || (value.length - 2) / 64 !== expectedWords) throw new TypeError(`Base RPC returned invalid ${label} data.`);
   const words: bigint[] = [];
