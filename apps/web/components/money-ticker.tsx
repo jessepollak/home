@@ -88,7 +88,7 @@ export function MoneyTicker({
   let digitIndex = 0;
   const tickerStyle = {
     ...style,
-    minInlineSize: `${reservesWidth ? reservedCharacters : characterCount}ch`,
+    minInlineSize: reservesWidth ? `${reservedCharacters}ch` : undefined,
   } satisfies CSSProperties;
 
   return (

@@ -14,7 +14,7 @@ import {
 import { MoneyTicker } from "@/components/money-ticker";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { useBalances } from "@/client/balances";
-import { usePresentationRegionId } from "@/client/invest/presentation-quote";
+import type { RegionId } from "@/config/regions";
 import {
   publicQueryKey,
   useHomeQuery,
@@ -32,7 +32,10 @@ import {
   nextSavingsRateExpiryAt,
   summarizeSavingsPortfolio,
 } from "./portfolio-summary";
-import { savingsTeaserApyLabel } from "./savings-teaser-apy";
+import {
+  savingsTeaserApyLabel,
+  savingsTeaserBalanceLabel,
+} from "./savings-teaser-apy";
 import { ShimmerRows } from "@/client/home/panel-shared";
 
 const BASE_USDC_ASSET = {
@@ -41,9 +44,14 @@ const BASE_USDC_ASSET = {
   decimals: BASE_USDC_DECIMALS,
 } as const;
 
-export function SavingsTeaser({ onOpen }: { onOpen: () => void }) {
+export function SavingsTeaser({
+  onOpen,
+  regionId,
+}: {
+  onOpen: () => void;
+  regionId: RegionId;
+}) {
   const account = useAccountWallet();
-  const region = usePresentationRegionId();
   const session = account.status === "verified" ? account.session : null;
   const sessionKey = session?.smartAccount ? session.smartAccount.address : null;
   const balancesSession = session?.smartAccount
@@ -54,7 +62,7 @@ export function SavingsTeaser({ onOpen }: { onOpen: () => void }) {
         accountProvider: session.accountProvider,
       }
     : null;
-  const balances = useBalances(balancesSession, region, account.fetchBalances);
+  const balances = useBalances(balancesSession, regionId, account.fetchBalances);
   const positions = balances.snapshot ? selectVaultPositions(balances.snapshot) : null;
   const [rateNowMs, setRateNowMs] = useState(() => Date.now());
 
@@ -113,10 +121,15 @@ export function SavingsTeaser({ onOpen }: { onOpen: () => void }) {
   const balance = summary?.balance.status === "available" ? summary.balance : null;
   const isEmpty = balance?.totalBaseUnits === "0" || !sessionKey;
   const savedSubtotal = balances.snapshot ? presentSavedSubtotal(balances.snapshot) : null;
+  const savingsAmount = savingsTeaserBalanceLabel({
+    summary,
+    savedSubtotal,
+    regionId,
+  });
   const title = isEmpty
     ? "Nothing saved yet"
     : balance
-      ? <MoneyTicker value={savedSubtotal ?? "—"} align="start" reserveDigits={false} />
+      ? <MoneyTicker value={savingsAmount} align="start" reserveDigits={false} />
       : <MoneyTicker value="—" align="start" reserveDigits={false} />;
   const description = metadataQuery.data && (summary || !sessionKey)
     ? savingsTeaserApyLabel({
@@ -130,18 +143,17 @@ export function SavingsTeaser({ onOpen }: { onOpen: () => void }) {
   return (
     <Item
       render={<Button variant="ghost" type="button" />}
-      size="sm"
-      className="flex-nowrap cursor-pointer items-center border-0 py-2 text-left hover:bg-muted"
+      className="min-h-16 flex-nowrap cursor-pointer items-center border-0 text-left hover:bg-muted"
       onClick={onOpen}
       aria-describedby="save-teaser-hint"
     >
       <span id="save-teaser-hint" hidden>Open Save</span>
-      <ItemMedia variant="image" className="size-8 self-center translate-y-0 rounded-full bg-muted">
+      <ItemMedia variant="image" className="size-10 self-center translate-y-0 rounded-full bg-muted">
         <PiggyBank className="size-4 text-muted-foreground" aria-hidden="true" />
       </ItemMedia>
       <ItemContent className="min-w-0">
         <ItemTitle className="tabular-nums">{title}</ItemTitle>
-        {description ? <ItemDescription className="text-xs text-muted-foreground">{description}</ItemDescription> : null}
+        {description ? <ItemDescription>{description}</ItemDescription> : null}
       </ItemContent>
       <ItemActions className="shrink-0 text-sm font-medium text-muted-foreground" aria-hidden="true">
         Earn <span>›</span>

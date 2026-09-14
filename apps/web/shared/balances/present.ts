@@ -236,7 +236,11 @@ function presentBreakdown(
 }
 
 export function presentSavedSubtotal(snapshot: BalancesSnapshot): string | null {
-  const vaultShares = snapshot.holdings.filter((holding) => holding.kind === "vault-share");
+  const vaultShares = snapshot.holdings.filter((holding) =>
+    holding.kind === "vault-share" &&
+    holding.balance.status === "ready" &&
+    holding.balance.baseUnits !== "0"
+  );
   return vaultShares.length > 0 ? presentHoldingsSubtotal(vaultShares, snapshot) : null;
 }
 
@@ -281,9 +285,9 @@ function presentCash(entry: CashSelection, snapshot: BalancesSnapshot): BalanceR
     group: "cash",
     name: presentationCurrencyName(currency),
     mark: { kind: "flag", currency },
-    primary: tokenQuantity(holding, snapshot),
+    primary: tokenQuantity(holding, snapshot, currency),
     secondary: null,
-    tone: "muted",
+    tone: "default",
   };
 }
 
@@ -348,12 +352,16 @@ function sumExactDecimals(values: readonly ExactDecimal[]): ExactDecimal {
   return { atoms: atoms.toString(), scale };
 }
 
-function tokenQuantity(holding: Holding, snapshot: BalancesSnapshot): string {
+function tokenQuantity(
+  holding: Holding,
+  snapshot: BalancesSnapshot,
+  symbol = holding.symbol,
+): string {
   if (holding.balance.status !== "ready") return "Unavailable";
   return formatPresentationTokenAmount(
     BigInt(holding.balance.baseUnits),
     holding.decimals,
-    holding.symbol,
+    symbol,
     {
       cashCurrency: holding.cashCurrency,
       category: holding.kind === "native" ? "crypto" : undefined,

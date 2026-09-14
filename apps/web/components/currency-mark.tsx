@@ -13,6 +13,7 @@ type CurrencyMarkProps = {
   /** Resolved asset image. Wins over a cash flag. Not a shipped SVG mark. */
   src?: string | null;
   pending?: boolean;
+  size?: "default" | "sm";
 };
 
 function isNativeEthGlyph(glyph: string): boolean {
@@ -24,6 +25,7 @@ export function CurrencyMark({
   symbol,
   src: imageSrc,
   pending = false,
+  size = "default",
 }: CurrencyMarkProps) {
   const image = imageSrc?.trim() || null;
   const flag = pending || image ? null : presentationCurrencyFlag(currency);
@@ -38,6 +40,7 @@ export function CurrencyMark({
       glyph={glyph}
       resolvedKind={image ? "image" : "flag"}
       eth={eth}
+      size={size}
     />
   );
 }
@@ -48,12 +51,14 @@ function CurrencyMarkSlot({
   glyph,
   resolvedKind,
   eth,
+  size,
 }: {
   src: string | null;
   pending: boolean;
   glyph: string;
   resolvedKind: "flag" | "image";
   eth: boolean;
+  size: "default" | "sm";
 }) {
   const imageRef = useRef<HTMLImageElement | null>(null);
   const [imageStatus, setImageStatus] = useState<"loading" | "ready" | "failed">(
@@ -80,6 +85,7 @@ function CurrencyMarkSlot({
       className={`${styles.mark} ${showShimmer ? "shimmer" : ""}`}
       data-mark={showShimmer ? "shimmer" : readyKind}
       data-shimmer={showShimmer ? "mark" : undefined}
+      data-size={size}
       aria-hidden="true"
     >
       {showImage && src ? (

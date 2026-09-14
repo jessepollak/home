@@ -5,6 +5,7 @@ import type { TransferAssetAvailability } from "@/shared/transfers/types";
 
 export type SendAvailability = readonly (TransferAssetAvailability & {
   balanceAgeLabel?: string;
+  imageUrl?: string;
 })[];
 
 export function deriveSendAvailability(

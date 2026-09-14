@@ -61,10 +61,10 @@ function FinanceRow({
   const hintId = useId();
   const content = (
     <>
-      <ItemMedia variant="image" className="size-8 self-center translate-y-0 rounded-full bg-muted" aria-hidden="true">
+      <ItemMedia variant="image" className="size-10 self-center translate-y-0 rounded-full bg-muted" aria-hidden="true">
         <span
           className={cn(
-            "grid size-8 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground",
+            "grid size-10 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground",
             iconTone === "incoming" && "text-muted-foreground",
             iconTone === "outgoing" && "text-muted-foreground",
             iconTone === "self" && "text-muted-foreground",
@@ -77,9 +77,9 @@ function FinanceRow({
         </span>
       </ItemMedia>
       <ItemContent className="min-w-0">
-        <ItemTitle className="w-full text-sm font-medium text-foreground">{label}</ItemTitle>
+        <ItemTitle className="w-full text-foreground">{label}</ItemTitle>
         {context === undefined ? null : (
-          <ItemDescription className="line-clamp-1 text-xs text-muted-foreground" title={contextTitle}>
+          <ItemDescription className="line-clamp-1" title={contextTitle}>
             {context}
           </ItemDescription>
         )}
@@ -97,7 +97,7 @@ function FinanceRow({
         </ItemTitle>
         {valueContext === undefined ? null : (
           <ItemDescription
-            className="line-clamp-1 w-full text-right text-xs text-muted-foreground"
+            className="line-clamp-1 w-full text-right text-sm text-muted-foreground"
             title={valueContextTitle}
           >
             {valueContext}
@@ -116,8 +116,7 @@ function FinanceRow({
     <li>
       <Item
         data-kind={kind}
-        size="sm"
-        className={cn("flex-nowrap items-center border-0 py-2", onActivate && "cursor-pointer hover:bg-muted")}
+        className={cn("min-h-16 flex-nowrap items-center border-0", onActivate && "cursor-pointer hover:bg-muted")}
         {...(onActivate
           ? {
               render: (

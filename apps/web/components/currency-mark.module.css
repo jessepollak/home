@@ -15,6 +15,12 @@
   line-height: 1;
 }
 
+.mark[data-size="sm"] {
+  width: 2rem;
+  height: 2rem;
+  font-size: 0.64rem;
+}
+
 .mark > * {
   grid-area: 1 / 1;
 }

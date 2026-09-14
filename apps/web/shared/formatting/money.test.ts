@@ -248,6 +248,7 @@ describe("presentation money formatting", () => {
 
   test("formats presentation fiat through the shared formatting barrel", () => {
     expect(presentationCurrencyName("USD")).toBe("US dollar");
+    expect(presentationCurrencyName("IDR")).toBe("Rupiah");
     expect(formatPresentationFiat({ atoms: "481240", scale: 2 }, "IDR", 2, "ID")).toBe(
       "Rp\u00A04.812,40",
     );

@@ -16,6 +16,7 @@ import {
   presentBalanceRows,
   presentBalances,
   presentMoneyGroups,
+  presentSavedSubtotal,
   previewBalanceRows,
 } from "./present";
 
@@ -155,6 +156,23 @@ describe("balance presentation", () => {
     expect(idrRows).toHaveLength(1);
   });
 
+  test("keeps an available unpriced cash quantity in the default foreground", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: {
+        idrx: {
+          balance: ready("23432700"),
+          cashValue: { status: "unpriced", reason: "price-unavailable" },
+        },
+      },
+    });
+
+    const idrx = presentBalanceRows(snapshot).find((row) => row.name === "Rupiah");
+    expect(idrx).toMatchObject({
+      primary: "234,327.00 IDR",
+      tone: "default",
+    });
+  });
+
   test("uses each cash holding's native denomination in another region", () => {
     const snapshot = buildBalancesSnapshotFixture({
       region: "DE",
@@ -214,6 +232,30 @@ describe("balance presentation", () => {
       kind: "symbol",
       symbol: "cbBTC",
     });
+  });
+
+  test("does not let priced zero vaults mask funded unpriced savings", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: {
+        "morpho-gauntlet-usdc": {
+          balance: ready("312000000000000000000"),
+          underlyingBalance: ready("320000000"),
+          value: { status: "unpriced", reason: "price-unavailable" },
+        },
+      },
+    });
+
+    expect(presentSavedSubtotal(snapshot)).toBeNull();
+  });
+
+  test("omits all-zero savings from the hero breakdown", () => {
+    const presentation = presentBalances({
+      status: "ready",
+      snapshot: buildBalancesSnapshotFixture(),
+      error: null,
+    });
+
+    expect(presentation.breakdown.some((item) => item.id === "saved")).toBeFalse();
   });
 
   test("maps loading, partial and unavailable total states without sentinel rows", () => {

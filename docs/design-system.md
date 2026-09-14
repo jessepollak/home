@@ -21,7 +21,7 @@ Review every generated copy before committing it. Stock Tailwind scale utilities
 
 Use the stock system sans and monospace stacks: there is no `next/font` setup or font asset directory. Money and other aligned numbers use `tabular-nums`; monospace is reserved for addresses, hashes, and code. Use the stock Tailwind type scale and component spacing.
 
-Country selection uses the searchable `Combobox`. Other pickers use Base UI `Select`. Financial rows stay on `Item`; do not introduce Data Table on mobile.
+Country selection and searchable asset selection use the `Combobox`; simple non-searchable pickers use Base UI `Select`. Financial rows stay on `Item`; do not introduce Data Table on mobile.
 
 ## Rules
 

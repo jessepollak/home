@@ -87,7 +87,7 @@ export const BASE_FUNDING_ASSETS = {
     id: "base:idrx",
     fundingId: "base:idrx",
     chainId: BASE_CHAIN_ID,
-    name: "Indonesian rupiah",
+    name: "Rupiah",
     symbol: "IDRX",
     decimals: 2,
     address: "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",

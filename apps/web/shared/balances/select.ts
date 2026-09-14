@@ -5,7 +5,7 @@ import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import type { TransferAsset } from "@/shared/transfers/types";
 import type { BalancesSnapshot, ExactDecimal, Holding } from "./types";
 
-export type SendableBalance = TransferAsset & { balanceBaseUnits: string };
+export type SendableBalance = TransferAsset & { balanceBaseUnits: string; imageUrl?: string };
 
 export type CashSelection =
   | { kind: "holding"; holding: Holding }
@@ -55,7 +55,13 @@ export function selectSendable(snapshot: BalancesSnapshot): SendableBalance[] {
       holding.balance.baseUnits === "0"
     ) return [];
     const asset = getTransferAsset(holding.id);
-    return asset ? [{ ...asset, balanceBaseUnits: holding.balance.baseUnits }] : [];
+    return asset
+      ? [{
+          ...asset,
+          balanceBaseUnits: holding.balance.baseUnits,
+          ...(holding.imageUrl ? { imageUrl: holding.imageUrl } : {}),
+        }]
+      : [];
   });
 }
 
