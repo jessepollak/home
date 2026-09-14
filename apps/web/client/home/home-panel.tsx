@@ -172,16 +172,14 @@ export function HomePanel({
               onOpen={() => onOpenBalances()}
             />
           </CardHeader>
-          <CardContent>
-            <div className="-mx-2">
-              <HomeMoneyGroups
-                groups={moneyGroups}
-                hiddenRows={assetBalances?.hiddenRows}
-                isLoading={isLoading}
-                isUnavailable={assetBalances?.status === "unavailable"}
-                onOpenGroup={onOpenBalances}
-              />
-            </div>
+          <CardContent inset="list">
+            <HomeMoneyGroups
+              groups={moneyGroups}
+              hiddenRows={assetBalances?.hiddenRows}
+              isLoading={isLoading}
+              isUnavailable={assetBalances?.status === "unavailable"}
+              onOpenGroup={onOpenBalances}
+            />
           </CardContent>
         </Card>
       </section>
@@ -192,10 +190,8 @@ export function HomePanel({
             <CardHeader>
               <CardTitle id="save-heading" role="heading" aria-level={2}>Save</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="-mx-2">
-                <SavingsTeaser onOpen={onOpenSave} regionId={regionId} />
-              </div>
+            <CardContent inset="list">
+              <SavingsTeaser onOpen={onOpenSave} regionId={regionId} />
             </CardContent>
           </Card>
         </section>
@@ -205,10 +201,8 @@ export function HomePanel({
             <CardHeader>
               <CardTitle id="borrow-heading" role="heading" aria-level={2}>Borrow</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="-mx-2">
-                <AuthenticatedBorrowTeaser onOpen={onOpenBorrow} regionId={regionId} />
-              </div>
+            <CardContent inset="list">
+              <AuthenticatedBorrowTeaser onOpen={onOpenBorrow} regionId={regionId} />
             </CardContent>
           </Card>
         </section>
@@ -220,7 +214,7 @@ export function HomePanel({
             <CardHeader>
               <SectionHeader headingId="activity-title" title="Activity" onOpen={onOpenActivity} />
             </CardHeader>
-            <CardContent><div className="-mx-2"><ShimmerRows count={2} /></div></CardContent>
+            <CardContent inset="list"><ShimmerRows count={2} /></CardContent>
           </Card>
         </section>
       ) : (

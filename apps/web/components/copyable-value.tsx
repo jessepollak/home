@@ -98,10 +98,11 @@ function CopyableValueControl({
     <>
       <Button
         variant="ghost"
+        size="inline"
         className={cn(
-          "inline h-auto min-h-0 min-w-0 border-0 bg-transparent p-0 font-mono text-inherit no-underline transition-colors hover:bg-transparent active:translate-y-0",
-          presentation === "full" && "flex min-h-11 w-full max-w-full items-center justify-start gap-2 overflow-hidden py-2 text-left text-sm",
-          status === "copied" && "text-primary",
+          "min-w-0",
+          presentation === "full" &&
+            "min-h-11 w-full max-w-full justify-start overflow-hidden text-left",
           className,
         )}
         title={value}
@@ -110,15 +111,24 @@ function CopyableValueControl({
       >
         <span
           className={cn(
+            "font-mono text-inherit",
             presentation === "full" &&
-              "min-w-0 flex-1 overflow-x-auto pr-2 whitespace-nowrap",
+              "flex min-w-0 flex-1 items-center gap-2 overflow-hidden py-2 text-sm",
+            status === "copied" && "text-primary",
           )}
         >
-          {status === "copied" ? copiedLabel : shown}
+          <span
+            className={cn(
+              presentation === "full" &&
+                "min-w-0 flex-1 overflow-x-auto pr-2 whitespace-nowrap",
+            )}
+          >
+            {status === "copied" ? copiedLabel : shown}
+          </span>
+          {presentation === "full" ? (
+            <Copy className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          ) : null}
         </span>
-        {presentation === "full" ? (
-          <Copy className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        ) : null}
       </Button>
       <span className="sr-only" aria-live="polite" aria-atomic="true">
         {status === "copied" ? copiedLabel : ""}

@@ -75,61 +75,63 @@ function MoneyActionReviewContent({
           {action.title}
         </h2>
       </CardHeader>
-      <CardContent className="grid gap-4">
-        <dl className="m-0 grid border-t">
-          {action.amounts.map((amount, index) => {
-            const formattedAmount = formatExactPresentationTokenAmount(
-              amount.amountBaseUnits,
-              amount.decimals,
-              amount.symbol,
-            );
-            return (
-              <div
-                className="grid min-h-11 grid-cols-1 items-start gap-1 border-b py-2 text-sm last:border-b-0 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
-                key={`${amount.assetId}-${amount.direction}-${index}`}
-              >
-                <dt className="text-muted-foreground">
-                  {amount.maximum ? "Up to" : amount.direction === "spend" ? "You spend" : "You receive"}
-                </dt>
-                <dd className="m-0 wrap-anywhere font-medium tabular-nums sm:text-right">
-                  {amount.estimated ? "Estimated " : ""}
-                  <MoneyTicker className="inline-flex align-bottom" value={formattedAmount} />
-                </dd>
-              </div>
-            );
-          })}
-          <ReviewRow label="Network">Base (8453)</ReviewRow>
-          <ReviewRow label="Valid until">
-            {formatPresentationDate(action.expiresAt, { style: "date-time-zone" })}
-          </ReviewRow>
-        </dl>
-        {action.warnings.map((warning) => (
-          <Alert role="status" key={warning}>
-            <AlertDescription>{presentReviewWarning(warning)}</AlertDescription>
-          </Alert>
-        ))}
-        {expired && !attempted ? (
-          <Alert variant="destructive" role="alert">
-            <AlertDescription>
-              This prepared action expired. Prepare and review a fresh action.
-            </AlertDescription>
-          </Alert>
-        ) : null}
-        {error ? (
-          <Alert variant="destructive" role="alert">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-2">
-          <Button className="h-11 w-full" variant="secondary" disabled={pending} onClick={onClose}>Back</Button>
-          <Button
-            className="h-11 w-full aria-busy:opacity-60"
-            disabled={pending || (expired && !attempted)}
-            aria-busy={pending}
-            onClick={() => void confirm()}
-          >
-            {attempted ? "Retry" : action.kind === "trade" ? "Confirm trade" : "Confirm action"}
-          </Button>
+      <CardContent>
+        <div className="grid gap-4">
+          <dl className="m-0 grid border-t">
+            {action.amounts.map((amount, index) => {
+              const formattedAmount = formatExactPresentationTokenAmount(
+                amount.amountBaseUnits,
+                amount.decimals,
+                amount.symbol,
+              );
+              return (
+                <div
+                  className="grid min-h-11 grid-cols-1 items-start gap-1 border-b py-2 text-sm last:border-b-0 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
+                  key={`${amount.assetId}-${amount.direction}-${index}`}
+                >
+                  <dt className="text-muted-foreground">
+                    {amount.maximum ? "Up to" : amount.direction === "spend" ? "You spend" : "You receive"}
+                  </dt>
+                  <dd className="m-0 wrap-anywhere font-medium tabular-nums sm:text-right">
+                    {amount.estimated ? "Estimated " : ""}
+                    <MoneyTicker className="inline-flex align-bottom" value={formattedAmount} />
+                  </dd>
+                </div>
+              );
+            })}
+            <ReviewRow label="Network">Base (8453)</ReviewRow>
+            <ReviewRow label="Valid until">
+              {formatPresentationDate(action.expiresAt, { style: "date-time-zone" })}
+            </ReviewRow>
+          </dl>
+          {action.warnings.map((warning) => (
+            <Alert role="status" key={warning}>
+              <AlertDescription>{presentReviewWarning(warning)}</AlertDescription>
+            </Alert>
+          ))}
+          {expired && !attempted ? (
+            <Alert variant="destructive" role="alert">
+              <AlertDescription>
+                This prepared action expired. Prepare and review a fresh action.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {error ? (
+            <Alert variant="destructive" role="alert">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-2">
+            <Button className="h-11 w-full" variant="secondary" disabled={pending} onClick={onClose}>Back</Button>
+            <Button
+              className="h-11 w-full"
+              disabled={pending || (expired && !attempted)}
+              aria-busy={pending}
+              onClick={() => void confirm()}
+            >
+              {attempted ? "Retry" : action.kind === "trade" ? "Confirm trade" : "Confirm action"}
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>

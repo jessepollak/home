@@ -140,8 +140,7 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
-  // Existing no-restyle violations are tracked in eslint-suppressions.json.
-  // New violations fail lint; prune the baseline as callers move styling into variants.
+  // Product code may only use layout classes on owned UI components.
   {
     files: [
       "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",

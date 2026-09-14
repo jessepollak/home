@@ -7,7 +7,6 @@
     "build": "bun run db:migrate && next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
-    "lint:prune": "eslint . --prune-suppressions --max-warnings 0",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "bun test --max-concurrency 1",
     "test:browser-smoke": "playwright test --config playwright.config.ts",
