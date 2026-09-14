@@ -30,6 +30,9 @@ describe("MoneyModal dismissal contract", () => {
       </MoneyModal>,
     );
 
+    const dialog = page().getByRole("dialog", { name: "Blocked" });
+    expect(dialog.getAttribute("data-immediate")).toBe("");
+
     await act(async () => {
       fireEvent.keyDown(document, { key: "Escape" });
     });

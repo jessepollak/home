@@ -21,7 +21,14 @@ Review every generated copy before committing it. Stock Tailwind scale utilities
 
 Use the stock system sans and monospace stacks: there is no `next/font` setup or font asset directory. Money and other aligned numbers use `tabular-nums`; monospace is reserved for addresses, hashes, and code. Use the stock Tailwind type scale and component spacing.
 
-Country selection and searchable asset selection use the `Combobox`; simple non-searchable pickers use Base UI `Select`. Financial rows stay on `Item`; do not introduce Data Table on mobile.
+Country selection and searchable asset selection use the `Combobox`; its value truncates by default. Simple non-searchable pickers use Base UI `Select`. Financial rows stay on `Item`; do not introduce Data Table on mobile.
+
+Use the owned component contracts rather than restyling their slots:
+- `ItemMedia variant="avatar"` owns the standard circular row media. `ItemTitle` accepts `tone` and `numeric`; `ItemDescription` accepts `lines={1 | 2}`.
+- `CardContent inset="list"` owns list-card horizontal insets; put screen-specific flow spacing on a plain inner wrapper.
+- `Button variant="navigation"` owns primary-navigation presentation, and `size="inline"` is for small actions embedded in prose.
+- `Input variant="otp" | "code"` owns verification-code and monospace input typography. `InputGroupInput` forwards the same variant.
+- `Switch` is the semantic on/off control. Drawer surface, title, header, footer, safe-area, shadow, and immediate-motion treatment are owned defaults.
 
 ## Rules
 

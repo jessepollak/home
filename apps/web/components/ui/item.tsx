@@ -89,6 +89,8 @@ const itemMediaVariants = cva(
         icon: "[&_svg:not([class*='size-'])]:size-4",
         image:
           "size-10 overflow-hidden rounded-sm group-data-[size=sm]/item:size-8 group-data-[size=xs]/item:size-6 [&_img]:size-full [&_img]:object-cover",
+        avatar:
+          "size-10 self-center translate-y-0 overflow-hidden rounded-full bg-muted text-muted-foreground group-data-[size=sm]/item:size-8 [&_img]:size-full [&_img]:object-cover [&_svg:not([class*='size-'])]:size-4",
       },
     },
     defaultVariants: {
@@ -125,27 +127,67 @@ function ItemContent({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function ItemTitle({ className, ...props }: React.ComponentProps<"div">) {
+const itemTitleVariants = cva(
+  "line-clamp-1 flex w-fit items-center gap-2 text-sm leading-snug font-medium underline-offset-4",
+  {
+    variants: {
+      tone: {
+        default: "text-foreground",
+        muted: "text-muted-foreground",
+        primary: "text-primary",
+        destructive: "text-destructive",
+      },
+      numeric: {
+        true: "tabular-nums",
+        false: "",
+      },
+    },
+    defaultVariants: {
+      tone: "default",
+      numeric: false,
+    },
+  }
+)
+
+function ItemTitle({
+  className,
+  tone = "default",
+  numeric = false,
+  ...props
+}: React.ComponentProps<"div"> & VariantProps<typeof itemTitleVariants>) {
   return (
     <div
       data-slot="item-title"
-      className={cn(
-        "line-clamp-1 flex w-fit items-center gap-2 text-sm leading-snug font-medium underline-offset-4",
-        className
-      )}
+      className={cn(itemTitleVariants({ tone, numeric, className }))}
       {...props}
     />
   )
 }
 
-function ItemDescription({ className, ...props }: React.ComponentProps<"p">) {
+const itemDescriptionVariants = cva(
+  "text-left text-sm leading-normal font-normal text-muted-foreground group-data-[size=xs]/item:text-xs [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
+  {
+    variants: {
+      lines: {
+        1: "line-clamp-1",
+        2: "line-clamp-2",
+      },
+    },
+    defaultVariants: {
+      lines: 2,
+    },
+  }
+)
+
+function ItemDescription({
+  className,
+  lines = 2,
+  ...props
+}: React.ComponentProps<"p"> & VariantProps<typeof itemDescriptionVariants>) {
   return (
     <p
       data-slot="item-description"
-      className={cn(
-        "line-clamp-2 text-left text-sm leading-normal font-normal text-muted-foreground group-data-[size=xs]/item:text-xs [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
-        className
-      )}
+      className={cn(itemDescriptionVariants({ lines, className }))}
       {...props}
     />
   )

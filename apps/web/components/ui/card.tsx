@@ -68,11 +68,19 @@ function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+function CardContent({
+  className,
+  inset = "default",
+  ...props
+}: React.ComponentProps<"div"> & { inset?: "default" | "list" }) {
   return (
     <div
       data-slot="card-content"
-      className={cn("px-(--card-spacing)", className)}
+      data-inset={inset}
+      className={cn(
+        inset === "list" ? "px-2" : "px-(--card-spacing)",
+        className
+      )}
       {...props}
     />
   )

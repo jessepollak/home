@@ -10,7 +10,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { ItemGroup } from "@/components/ui/item";
 import { MoneyTicker } from "@/components/money-ticker";
 import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
@@ -101,7 +100,7 @@ export function ActivityPanel({
   return (
     <ActivitySurface heading={heading} leading={null} labelledBy={labelledBy} label={labelled}>
       {isEmpty && !suppressEmpty && !leading ? <ActivityEmpty /> : null}
-      <ItemGroup className="gap-1">
+      <div className="flex flex-col gap-1">
         {leading}
         {isEmpty ? null : (
           <ol className="list-none p-0 space-y-1">
@@ -115,7 +114,7 @@ export function ActivityPanel({
             ))}
           </ol>
         )}
-      </ItemGroup>
+      </div>
 
       {density === "page" ? (
         <ActivityPagination
@@ -158,9 +157,11 @@ function ActivitySurface({
     <section aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
       <Card>
         {heading ? <CardHeader>{heading}</CardHeader> : null}
-        <CardContent className="space-y-3 px-2">
-          {leading}
-          {children}
+        <CardContent inset="list">
+          <div className="space-y-3">
+            {leading}
+            {children}
+          </div>
         </CardContent>
       </Card>
     </section>
@@ -240,7 +241,7 @@ function ActivityPagination({
 
 function ActivityEmpty() {
   return (
-    <Empty className="items-start justify-start p-0 text-left">
+    <Empty className="items-start justify-start text-left">
       <EmptyHeader className="items-start">
         <EmptyTitle>No activity yet</EmptyTitle>
       </EmptyHeader>

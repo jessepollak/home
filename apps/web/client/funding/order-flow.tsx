@@ -525,7 +525,7 @@ function OrderStatus({
         ) : null}
       </MoneyModalBody>
       {order.state !== "dispatch-ambiguous" ? (
-        <DrawerFooter className="p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        <DrawerFooter>
           <Button className="h-11" size="lg" variant="ghost" onClick={onBack}>
             Back
           </Button>

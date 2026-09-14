@@ -17,6 +17,7 @@ import { CopyableValue } from "@/components/copyable-value";
 import { CountrySelect } from "@/components/country-select";
 import { CurrencyMark } from "@/components/currency-mark";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
 import {
   presentationRegions,
@@ -68,7 +69,7 @@ export function AccountSettings({
           Preferences
         </h2>
         <Card>
-          <CardContent className="px-2">
+          <CardContent inset="list">
             <Item className="min-w-0 flex-nowrap items-center">
               <ItemMedia className="self-center translate-y-0">
                 <CurrencyMark
@@ -78,7 +79,7 @@ export function AccountSettings({
               </ItemMedia>
               <ItemContent className="min-w-0 flex-1">
                 <ItemTitle>Country</ItemTitle>
-                <ItemDescription id="country-help" className="line-clamp-1">
+                <ItemDescription id="country-help">
                   Sets how money is shown
                 </ItemDescription>
               </ItemContent>
@@ -97,21 +98,11 @@ export function AccountSettings({
                 <ItemTitle>Show small balances</ItemTitle>
               </ItemContent>
               <ItemActions>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  role="switch"
-                  aria-checked={showSmallBalances}
+                <Switch
+                  checked={showSmallBalances}
+                  onCheckedChange={onShowSmallBalancesChange}
                   aria-label="Show small balances"
-                  className="relative h-7 w-12 rounded-full bg-muted p-0 transition-colors aria-checked:bg-primary"
-                  onClick={() => onShowSmallBalancesChange(!showSmallBalances)}
-                >
-                  <span
-                    aria-hidden="true"
-                    className="absolute left-1 top-1 size-5 rounded-full bg-background shadow-sm transition-transform aria-hidden:translate-x-0"
-                    style={{ transform: showSmallBalances ? "translateX(1.25rem)" : undefined }}
-                  />
-                </Button>
+                />
               </ItemActions>
             </Item>
           </CardContent>
@@ -131,7 +122,7 @@ export function AccountSettings({
           Account
         </h2>
         <Card>
-          <CardContent className="px-2">
+          <CardContent inset="list">
             <ul className="m-0 list-none p-0">
               <li className="min-w-0">
                 <Item className="min-w-0">
@@ -139,21 +130,19 @@ export function AccountSettings({
                     {accountAddress && basenameProfile.isPending ? (
                       <Skeleton className="h-4 w-28" aria-label="Loading Basename" />
                     ) : (
-                      <ItemTitle className={basename ? undefined : "font-normal text-muted-foreground"}>
-                        {basename ?? "Base account"}
+                      <ItemTitle tone={basename ? "default" : "muted"}>
+                        {basename ? basename : <span className="font-normal">Base account</span>}
                       </ItemTitle>
                     )}
-                    <ItemDescription className="line-clamp-none text-foreground">
-                      {accountAddress ? (
-                        <CopyableValue
-                          value={accountAddress}
-                          presentation="full"
-                          valueKind="address"
-                        />
-                      ) : (
-                        "Setup in progress"
-                      )}
-                    </ItemDescription>
+                    {accountAddress ? (
+                      <CopyableValue
+                        value={accountAddress}
+                        presentation="full"
+                        valueKind="address"
+                      />
+                    ) : (
+                      <ItemDescription>Setup in progress</ItemDescription>
+                    )}
                   </ItemContent>
                 </Item>
               </li>
@@ -179,7 +168,7 @@ export function AccountSettings({
           Disclosures &amp; terms
         </h2>
         <Card>
-          <CardContent className="p-4">
+          <CardContent>
             <p className="text-sm text-muted-foreground">
               Features and providers vary by country.{" "}
               <a className="font-medium text-primary" href="https://terms.ripio.com/" target="_blank" rel="noreferrer">

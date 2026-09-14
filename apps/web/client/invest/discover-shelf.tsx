@@ -42,7 +42,7 @@ export function DiscoverShelf({
             </Button>
           </CardAction>
         </CardHeader>
-        <CardContent className="px-2">
+        <CardContent inset="list">
           {assets.length > 0 ? (
             <ul className="m-0 list-none p-0">
               {assets.map((asset) => (

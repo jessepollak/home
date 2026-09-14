@@ -67,7 +67,7 @@ export function CategoryScreen({
       )}
       {assets.length > 0 ? (
         <Card>
-          <CardContent className="px-2">
+          <CardContent inset="list">
             <ul className="m-0 list-none p-0">
               {assets.map((asset) => (
                 <DiscoverAssetRow

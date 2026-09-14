@@ -40,15 +40,17 @@ export default function UiThemePreviewPage() {
 
       <Card>
         <CardHeader><CardTitle>Stock type scale</CardTitle></CardHeader>
-        <CardContent className="grid gap-3">
-          <div className="text-4xl font-semibold tabular-nums">$1,234.56</div>
-          <div className="text-2xl font-semibold tracking-tight">Page title</div>
-          <div className="text-lg font-semibold">Section title</div>
-          <div className="text-sm font-medium">Row title</div>
-          <div className="text-sm tabular-nums">1,234.56 USDC</div>
-          <div className="text-sm">Body copy</div>
-          <div className="text-sm text-muted-foreground">Description</div>
-          <div className="text-xs text-muted-foreground">Metadata</div>
+        <CardContent>
+          <div className="grid gap-3">
+            <div className="text-4xl font-semibold tabular-nums">$1,234.56</div>
+            <div className="text-2xl font-semibold tracking-tight">Page title</div>
+            <div className="text-lg font-semibold">Section title</div>
+            <div className="text-sm font-medium">Row title</div>
+            <div className="text-sm tabular-nums">1,234.56 USDC</div>
+            <div className="text-sm">Body copy</div>
+            <div className="text-sm text-muted-foreground">Description</div>
+            <div className="text-xs text-muted-foreground">Metadata</div>
+          </div>
         </CardContent>
       </Card>
 

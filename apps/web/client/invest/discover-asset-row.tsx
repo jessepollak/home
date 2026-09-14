@@ -40,11 +40,11 @@ export function DiscoverAssetRow({
     <li>
       <Item
         render={<Button variant="ghost" />}
-        className="min-h-16 flex-nowrap cursor-pointer items-center border-0 text-left hover:bg-muted"
+        className="min-h-16 flex-nowrap cursor-pointer items-center text-left"
         onClick={onOpen}
         aria-describedby={`${asset.id}-action-hint`}
       >
-        <ItemMedia variant="image" className="size-10 self-center translate-y-0 rounded-full bg-muted">
+        <ItemMedia variant="avatar">
           <AssetIcon mark={mark} />
         </ItemMedia>
         <ItemContent className="min-w-0">
@@ -52,20 +52,20 @@ export function DiscoverAssetRow({
           <ItemDescription>{asset.displaySymbol}</ItemDescription>
         </ItemContent>
         <ItemContent className="items-end text-right">
-          <ItemTitle className="text-sm font-medium tabular-nums">{price.value}</ItemTitle>
+          <ItemTitle numeric>{price.value}</ItemTitle>
           {change !== "—" ? (
-            <ItemDescription
+            <span
               className={
                 changeTone === "positive"
-                  ? "text-[var(--market-gain)]"
+                  ? "text-sm text-market-gain"
                   : changeTone === "negative"
-                    ? "text-[var(--market-loss)]"
-                    : undefined
+                    ? "text-sm text-market-loss"
+                    : "text-sm text-muted-foreground"
               }
               data-money-change={changeTone}
             >
               {change}
-            </ItemDescription>
+            </span>
           ) : null}
         </ItemContent>
         <ItemActions aria-hidden="true">

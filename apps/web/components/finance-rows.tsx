@@ -61,7 +61,7 @@ function FinanceRow({
   const hintId = useId();
   const content = (
     <>
-      <ItemMedia variant="image" className="size-10 self-center translate-y-0 rounded-full bg-muted" aria-hidden="true">
+      <ItemMedia variant="avatar" aria-hidden="true">
         <span
           className={cn(
             "grid size-10 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground",
@@ -77,27 +77,33 @@ function FinanceRow({
         </span>
       </ItemMedia>
       <ItemContent className="min-w-0">
-        <ItemTitle className="w-full text-foreground">{label}</ItemTitle>
+        <ItemTitle className="w-full">{label}</ItemTitle>
         {context === undefined ? null : (
-          <ItemDescription className="line-clamp-1" title={contextTitle}>
+          <ItemDescription lines={1} title={contextTitle}>
             {context}
           </ItemDescription>
         )}
       </ItemContent>
-      <ItemContent
-        className={cn(
-          "min-w-0 items-end text-right",
-          (valueTone === "success" || valueTone === "accent") && "text-primary",
-          valueTone === "error" && "text-destructive",
-          valueTone === "muted" && "text-muted-foreground",
-        )}
-      >
-        <ItemTitle className="w-full justify-end text-sm font-medium tabular-nums text-inherit">
+      <ItemContent className="min-w-0 items-end text-right">
+        <ItemTitle
+          className="w-full justify-end"
+          numeric
+          tone={
+            valueTone === "success" || valueTone === "accent"
+              ? "primary"
+              : valueTone === "error"
+                ? "destructive"
+                : valueTone === "muted"
+                  ? "muted"
+                  : "default"
+          }
+        >
           {value}
         </ItemTitle>
         {valueContext === undefined ? null : (
           <ItemDescription
-            className="line-clamp-1 w-full text-right text-sm text-muted-foreground"
+            lines={1}
+            className="w-full text-right"
             title={valueContextTitle}
           >
             {valueContext}
@@ -105,8 +111,8 @@ function FinanceRow({
         )}
       </ItemContent>
       {onActivate ? (
-        <ItemActions className="text-muted-foreground" aria-hidden="true">
-          <ChevronRight className="size-4" />
+        <ItemActions aria-hidden="true">
+          <ChevronRight className="size-4 text-muted-foreground" />
         </ItemActions>
       ) : null}
     </>
@@ -116,7 +122,7 @@ function FinanceRow({
     <li>
       <Item
         data-kind={kind}
-        className={cn("min-h-16 flex-nowrap items-center border-0", onActivate && "cursor-pointer hover:bg-muted")}
+        className={cn("min-h-16 flex-nowrap items-center", onActivate && "cursor-pointer")}
         {...(onActivate
           ? {
               render: (

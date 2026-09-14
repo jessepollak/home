@@ -143,20 +143,20 @@ export function SavingsTeaser({
   return (
     <Item
       render={<Button variant="ghost" type="button" />}
-      className="min-h-16 flex-nowrap cursor-pointer items-center border-0 text-left hover:bg-muted"
+      className="min-h-16 flex-nowrap cursor-pointer items-center text-left"
       onClick={onOpen}
       aria-describedby="save-teaser-hint"
     >
       <span id="save-teaser-hint" hidden>Open Save</span>
-      <ItemMedia variant="image" className="size-10 self-center translate-y-0 rounded-full bg-muted">
+      <ItemMedia variant="avatar">
         <PiggyBank className="size-4 text-muted-foreground" aria-hidden="true" />
       </ItemMedia>
       <ItemContent className="min-w-0">
-        <ItemTitle className="tabular-nums">{title}</ItemTitle>
+        <ItemTitle numeric>{title}</ItemTitle>
         {description ? <ItemDescription>{description}</ItemDescription> : null}
       </ItemContent>
-      <ItemActions className="shrink-0 text-sm font-medium text-muted-foreground" aria-hidden="true">
-        Earn <span>›</span>
+      <ItemActions className="shrink-0" aria-hidden="true">
+        <span className="text-sm font-medium text-muted-foreground">Earn ›</span>
       </ItemActions>
     </Item>
   );

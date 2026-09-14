@@ -543,7 +543,7 @@ export function MoneyNumpad({
       {KEYS.map((key) => (
         <Button
           key={key}
-          className="h-14 text-xl tabular-nums"
+          className="h-14"
           variant="ghost"
           disabled={disabled}
           aria-label={key === "backspace" ? "Delete last digit" : key === "." ? "Decimal point" : key}
@@ -557,7 +557,7 @@ export function MoneyNumpad({
           {key === "backspace" ? (
             <Delete size={22} strokeWidth={1.8} aria-hidden="true" />
           ) : (
-            key
+            <span className="text-xl tabular-nums">{key}</span>
           )}
         </Button>
       ))}

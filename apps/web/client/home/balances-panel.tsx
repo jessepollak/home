@@ -9,7 +9,6 @@ import {
   Item,
   ItemActions,
   ItemContent,
-  ItemGroup,
   ItemTitle,
 } from "@/components/ui/item";
 import { MoneyTicker } from "@/components/money-ticker";
@@ -116,7 +115,7 @@ export function BalancesPage({
         </p>
       ) : null}
       <Card>
-        <CardContent className="px-2">
+        <CardContent inset="list">
           <IncrementalBalancesList
             active={active}
             groups={assetBalances?.groups ?? []}
@@ -310,15 +309,15 @@ function GroupedBalancesList({
             <Item
               render={<Button type="button" variant="ghost" />}
               size="sm"
-              className="min-h-10 flex-nowrap border-0 py-2 text-left"
+              className="min-h-10 flex-nowrap text-left"
               onClick={() => onOpenGroup(group.id)}
               aria-label={`More ${group.label}`}
             >
               <ItemContent>
-                <ItemTitle className="text-muted-foreground">More</ItemTitle>
+                <ItemTitle tone="muted">More</ItemTitle>
               </ItemContent>
-              <ItemActions className="text-muted-foreground" aria-hidden="true">
-                <ChevronRight className="size-4" />
+              <ItemActions aria-hidden="true">
+                <ChevronRight className="size-4 text-muted-foreground" />
               </ItemActions>
             </Item>
           ) : null}
@@ -362,11 +361,9 @@ function LoadingMoneyGroup({ label }: { label: string }) {
 
 function BalancesList({ rows }: { rows: readonly BalanceRowModel[] }) {
   return (
-    <ItemGroup className="gap-0">
-      <ul className="list-none p-0" data-balance-list="">
-        {rows.map((row) => <HomeBalanceRowView key={row.key} row={row} />)}
-      </ul>
-    </ItemGroup>
+    <ul className="list-none p-0" data-balance-list="">
+      {rows.map((row) => <HomeBalanceRowView key={row.key} row={row} />)}
+    </ul>
   );
 }
 
@@ -396,8 +393,7 @@ function SmallBalancesControl({
           <Button
             type="button"
             variant="ghost"
-            size="sm"
-            className="h-auto px-1 py-0"
+            size="inline"
             onClick={() => onRevealSmallBalancesChange(true)}
           >
             Show
@@ -410,7 +406,7 @@ function SmallBalancesControl({
 
 function BalancesEmpty() {
   return (
-    <Empty className="p-4">
+    <Empty>
       <EmptyHeader>
         <EmptyTitle>No money yet</EmptyTitle>
       </EmptyHeader>

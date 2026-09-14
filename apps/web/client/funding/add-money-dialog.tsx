@@ -12,7 +12,6 @@ import {
   ItemActions,
   ItemContent,
   ItemDescription,
-  ItemGroup,
   ItemMedia,
   ItemSeparator,
   ItemTitle,
@@ -128,7 +127,7 @@ export function AddMoneyDialog({
       ) : null}
 
       {signedOut ? (
-        <DrawerFooter className="p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        <DrawerFooter>
           <Link
             className={buttonVariants({ size: "lg", className: "h-11" })}
             href="/?account=signin"
@@ -165,8 +164,8 @@ export function MethodBody({
         </Alert>
       ) : null}
       <Card>
-        <CardContent className="px-2">
-          <ItemGroup className="gap-0">
+        <CardContent inset="list">
+          <div>
             <Item
               render={
                 <Button
@@ -176,9 +175,9 @@ export function MethodBody({
                   aria-describedby="receive-method-hint"
                 />
               }
-              className="min-h-16 flex-nowrap items-center rounded-none border-0"
+              className="min-h-16 flex-nowrap items-center"
             >
-              <ItemMedia variant="icon" className="size-10 self-center translate-y-0 rounded-full bg-muted">
+              <ItemMedia variant="avatar">
                 <ArrowDownToLine className="size-4" />
               </ItemMedia>
               <ItemContent className="min-w-0">
@@ -203,9 +202,9 @@ export function MethodBody({
                       aria-describedby={`funding-method-${binding.providerId}-${binding.assetId}`}
                     />
                   }
-                  className="min-h-16 flex-nowrap items-center rounded-none border-0"
+                  className="min-h-16 flex-nowrap items-center"
                 >
-                  <ItemMedia variant="icon" className="size-10 self-center translate-y-0 rounded-full bg-muted">
+                  <ItemMedia variant="avatar">
                     <Landmark className="size-4" />
                   </ItemMedia>
                   <ItemContent className="min-w-0">
@@ -219,7 +218,7 @@ export function MethodBody({
                 </Item>
               </Fragment>
             ))}
-          </ItemGroup>
+          </div>
         </CardContent>
       </Card>
     </MoneyModalBody>
@@ -308,7 +307,7 @@ function ReceiveAddress({ address }: { address: `0x${string}` }) {
     <>
       <Button
         variant="ghost"
-        className="select-text px-2 font-medium"
+        className="select-text"
         size="lg"
         title={address}
         aria-label={copyStatus === "copied" ? "Copied" : `Copy ${condensed}`}

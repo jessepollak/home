@@ -265,9 +265,9 @@ export function AccountSignInSheet({
         initialFocusRef={initialFocusRef}
         immediate
       >
-        <DrawerHeader className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 text-left">
+        <DrawerHeader className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center text-left">
           <span />
-          <DrawerTitle id="account-sign-in-title" className="text-center text-base font-semibold leading-none">
+          <DrawerTitle id="account-sign-in-title" className="text-center">
             {flowId ? "Check your email" : "Sign in to Home"}
           </DrawerTitle>
           <Button

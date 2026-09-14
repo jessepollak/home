@@ -41,5 +41,10 @@ describe("AccountSettings", () => {
     fireEvent.click(preferenceSwitch);
     expect(preferenceSwitch.getAttribute("aria-checked")).toBe("false");
     expect(window.localStorage.getItem(showSmallBalancesPreferenceKey)).toBe("false");
+
+    fireEvent.keyDown(preferenceSwitch, { key: " ", code: "Space" });
+    fireEvent.keyUp(preferenceSwitch, { key: " ", code: "Space" });
+    expect(preferenceSwitch.getAttribute("aria-checked")).toBe("true");
+    expect(window.localStorage.getItem(showSmallBalancesPreferenceKey)).toBe("true");
   });
 });

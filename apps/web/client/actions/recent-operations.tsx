@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, CircleQuestionMark, X } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ItemGroup } from "@/components/ui/item";
 import { MoneyTicker } from "@/components/money-ticker";
 import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
@@ -65,11 +63,9 @@ export function RecentMoneyActions({
   if (operations.length === 0 && (!unavailable || !showUnavailableNotice)) return null;
 
   const rows = unavailable ? (
-    <Alert role="status" className="border-0 bg-transparent p-0">
-      <AlertDescription className="text-sm text-muted-foreground">
-        Recorded Home actions are unavailable. Onchain transfers are still shown.
-      </AlertDescription>
-    </Alert>
+    <p role="status" className="text-sm text-muted-foreground">
+      Recorded Home actions are unavailable. Onchain transfers are still shown.
+    </p>
   ) : (
     <ol className="list-none p-0">
       {operations.map((operation) => (
@@ -95,7 +91,7 @@ export function RecentMoneyActions({
   return (
     <section className="space-y-3" aria-labelledby="home-operations-title">
       <h3 id="home-operations-title" className="text-lg font-semibold">Home actions</h3>
-      {unavailable ? rows : <ItemGroup className="gap-0">{rows}</ItemGroup>}
+      {rows}
       {modal}
     </section>
   );

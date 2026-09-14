@@ -50,7 +50,8 @@ export function AddressField({
         <InputGroupAddon align="inline-start">{label}</InputGroupAddon>
         <InputGroupInput
           id={id}
-          className="h-11 font-mono text-sm"
+          className="h-11"
+          variant="code"
           value={display}
           onChange={(event) => onChange(event.target.value)}
           onFocus={() => setFocused(true)}

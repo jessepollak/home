@@ -12,10 +12,8 @@ import {
 } from "@/components/ui/empty";
 import {
   Item,
-  ItemActions,
   ItemContent,
   ItemDescription,
-  ItemGroup,
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item";
@@ -353,7 +351,8 @@ export function SavingsExperience({
       )}
 
       <Card aria-busy={coldLoading || refreshing || undefined}>
-        <CardContent className="flex flex-col items-center gap-2 text-center">
+        <CardContent>
+          <div className="flex flex-col items-center gap-2 text-center">
           {coldLoading ? (
             <>
               <Skeleton
@@ -426,6 +425,7 @@ export function SavingsExperience({
               </p>
             </>
           )}
+          </div>
         </CardContent>
       </Card>
 
@@ -441,8 +441,8 @@ export function SavingsExperience({
       ) : !coldLoading && !positionFailed && candidates.length > 0 ? (
         <section className="space-y-4" aria-label="Vaults">
           <Card>
-            <CardContent className="px-2">
-              <ItemGroup className="gap-0" role="radiogroup" aria-label="Vault">
+            <CardContent inset="list">
+              <div role="radiogroup" aria-label="Vault">
                 {candidates.map((candidate) => {
               const isSelected =
                 selected?.vaultAddress === candidate.vaultAddress;
@@ -468,7 +468,7 @@ export function SavingsExperience({
                   <Item
                     key={candidate.vaultAddress}
                     variant={isSelected ? "muted" : "default"}
-                    className="min-h-16 flex-nowrap cursor-pointer items-center border-0 hover:bg-muted"
+                    className="min-h-16 flex-nowrap cursor-pointer items-center"
                     render={
                       <Button
                         variant="ghost"
@@ -483,8 +483,10 @@ export function SavingsExperience({
                       />
                     }
                   >
-                    <ItemMedia variant="image" aria-hidden="true" className="size-10 self-center translate-y-0 rounded-full bg-muted text-xs font-semibold">
-                      {vaultInitials(candidate.name)}
+                    <ItemMedia variant="avatar" aria-hidden="true">
+                      <span className="text-xs font-semibold">
+                        {vaultInitials(candidate.name)}
+                      </span>
                     </ItemMedia>
                     <ItemContent className="min-w-0">
                       <ItemTitle>{candidate.name}</ItemTitle>
@@ -498,13 +500,13 @@ export function SavingsExperience({
                         </ItemDescription>
                       ) : null}
                     </ItemContent>
-                    <ItemActions className="justify-end text-right text-sm font-medium tabular-nums">
-                      {rowValue}
-                    </ItemActions>
+                    <ItemContent className="items-end text-right">
+                      <ItemTitle numeric>{rowValue}</ItemTitle>
+                    </ItemContent>
                   </Item>
               );
             })}
-              </ItemGroup>
+              </div>
             </CardContent>
           </Card>
           {selected ? (
@@ -659,9 +661,7 @@ function SavingsEmpty({
   return (
     <Empty className={className}>
       <EmptyHeader>
-        <EmptyTitle className="text-muted-foreground font-normal">
-          {title}
-        </EmptyTitle>
+        <EmptyTitle>{title}</EmptyTitle>
         {description ? (
           <EmptyDescription>{description}</EmptyDescription>
         ) : null}
@@ -697,9 +697,11 @@ function VaultListSkeleton() {
     <div className="space-y-3" aria-hidden="true">
       {[0, 1].map((index) => (
         <Card key={index} size="sm" data-shimmer="vault-row">
-          <CardContent className="flex items-center justify-between gap-3">
-            <Skeleton className="h-4 w-2/5" />
-            <Skeleton className="h-4 w-14" />
+          <CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <Skeleton className="h-4 w-2/5" />
+              <Skeleton className="h-4 w-14" />
+            </div>
           </CardContent>
         </Card>
       ))}

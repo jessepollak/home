@@ -41,9 +41,9 @@ export function PrimaryNavigation({
           <Button
             key={item.id}
             id={`${item.id}-nav`}
-            variant="ghost"
+            variant="navigation"
             size="lg"
-            className="relative h-full min-h-11 min-w-0 rounded-none text-muted-foreground transition-colors aria-[current=page]:text-foreground motion-reduce:transition-none"
+            className="relative h-full min-h-11 min-w-0"
             onClick={() => onNavigate(item.id)}
             aria-current={isActive ? "page" : undefined}
             aria-controls="navigation-panel"

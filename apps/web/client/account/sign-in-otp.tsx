@@ -38,7 +38,8 @@ export function SignInOtp({
           <Input
             ref={inputRef}
             id="account-otp"
-            className="h-11 min-w-0 flex-1 text-center text-xl font-medium tracking-[0.24em] tabular-nums"
+            className="h-11 min-w-0 flex-1"
+            variant="otp"
             type="text"
             inputMode="numeric"
             autoComplete="one-time-code"

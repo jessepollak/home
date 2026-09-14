@@ -30,7 +30,7 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
         initialFocus={initialFocusRef ?? (() => popupRef.current?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)") ?? true)}
         data-money-sheet=""
         data-immediate={immediate ? "" : undefined}
-        className="max-h-[88svh] bg-background text-foreground shadow-lg data-[immediate]:duration-0 sm:mx-auto sm:max-w-md sm:rounded-t-xl"
+        className="max-h-[88svh] sm:mx-auto sm:max-w-md"
       >
         <DrawerSwipeHandle data-money-sheet-grabber="" />
         {children}
@@ -51,9 +51,9 @@ export function MoneyModalHeader({ title, titleId, onBack, onClose, closeDisable
   closeDisabled?: boolean; closeLabel?: string;
 }) {
   return (
-    <DrawerHeader className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 pb-0 text-left">
+    <DrawerHeader className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center text-left">
       {onBack ? <Button variant="ghost" size="icon-lg" className="size-11" aria-label="Back" onClick={onBack}><ArrowLeft className="size-4" aria-hidden="true" /></Button> : <span />}
-      <DrawerTitle id={titleId} className="text-center text-base font-semibold leading-none">{title}</DrawerTitle>
+      <DrawerTitle id={titleId} className="text-center">{title}</DrawerTitle>
       <Button variant="ghost" size="icon-lg" className="size-11" aria-label={closeLabel} disabled={closeDisabled} onClick={onClose}><X className="size-4" aria-hidden="true" /></Button>
     </DrawerHeader>
   );
@@ -72,7 +72,7 @@ export function MoneyModalFooter({ primaryLabel, onPrimary, primaryDisabled = fa
   secondaryLabel?: ReactNode; onSecondary?: () => void; secondaryDisabled?: boolean;
 }) {
   return (
-    <DrawerFooter className="p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+    <DrawerFooter>
       <Button size="lg" className="h-11" type={primaryType} disabled={primaryDisabled} onClick={onPrimary}>{primaryLabel}</Button>
       {secondaryLabel && onSecondary ? <Button size="lg" variant="ghost" className="h-11" disabled={secondaryDisabled} onClick={onSecondary}>{secondaryLabel}</Button> : null}
     </DrawerFooter>
