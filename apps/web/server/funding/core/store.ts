@@ -70,6 +70,7 @@ export interface FundingOrderStore {
     providerStatus: string;
     providerTransactionHash?: `0x${string}` | null;
     expectedTokenAmountAtomic?: string;
+    fees?: Quote["fees"];
     expectedVersion: number;
     updatedAt: string;
   }): Promise<FundingOrder | null>;
@@ -171,6 +172,7 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
       providerStatus: input.providerStatus,
       ...(input.providerTransactionHash ? { providerTransactionHash: input.providerTransactionHash } : {}),
       ...(input.expectedTokenAmountAtomic ? { expectedTokenAmountAtomic: input.expectedTokenAmountAtomic } : {}),
+      ...(input.fees ? { fees: input.fees } : {}),
       updatedAt: input.updatedAt,
       version: order.version + 1,
     });

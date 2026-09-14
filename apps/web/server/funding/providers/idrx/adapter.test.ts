@@ -224,8 +224,43 @@ describe("IDRX adapter behavior", () => {
       state: "sent",
       providerStatus: "MINTED:PAID",
       settledTokenAmountAtomic: "1986000",
+      fees: [
+        { label: "VA INA", amount: "3000", currency: "IDR" },
+        { label: "QRIS Fee (0.7%)", amount: "140", currency: "IDR" },
+      ],
       transactionHash: liveRecord.txHash as `0x${string}`,
     });
+  });
+
+  test("keeps a lowered mint unresolved unless itemized fees cover a bounded shortfall", async () => {
+    const liveRecord = historyMintedQrisLiveFixture.records[0];
+    const liveIntent = {
+      ...reconciliationIntent,
+      providerOrderId: liveRecord.merchantOrderId,
+      destination: liveRecord.destinationWalletAddress as `0x${string}`,
+      expectedTokenAmountAtomic: "2000000",
+    } satisfies ReconciliationIntent;
+    const cases: Array<{ name: string; record: Record<string, unknown> }> = [
+      { name: "lowered without payment echoes", record: { ...liveRecord, paymentAmount: undefined, fees: undefined, fee: undefined } },
+      { name: "lowered to 0.01 with fees absorbing the rest", record: { ...liveRecord, toBeMinted: 0.01, paymentAmount: 23000, fees: [{ name: "Absorb", amount: "22999.99" }] } },
+      { name: "lowered with no fee lines", record: { ...liveRecord, toBeMinted: 19860, paymentAmount: 19860, fees: [] } },
+      { name: "shortfall larger than the itemized fees", record: { ...liveRecord, toBeMinted: 19000, paymentAmount: 19140, fees: [{ name: "QRIS Fee (0.7%)", amount: "140" }] } },
+      { name: "shortfall above the 5% cap even when fees cover it", record: { ...liveRecord, toBeMinted: 18000, paymentAmount: 21000, fees: [{ name: "Deducted", amount: "2000" }, { name: "VA INA", amount: "1000" }] } },
+    ];
+    for (const fixture of cases) {
+      const ctx = createProviderContext({
+        manifest: vaManifest,
+        region: "ID",
+        paymentMethodId: "qris",
+        env,
+        fetchImplementation: (async () =>
+          Response.json({ ...historyMintedQrisLiveFixture, records: [fixture.record] })) as unknown as typeof fetch,
+      });
+      await expect(vaProvider.getOrder(liveIntent, ctx), fixture.name).resolves.toMatchObject({
+        state: "unknown",
+        providerStatus: "INTENT_MISMATCH",
+      });
+    }
   });
 
   test("never lets the settled amount exceed the requested amount", async () => {
@@ -269,7 +304,7 @@ describe("IDRX adapter behavior", () => {
     });
     await expect(vaProvider.onramp!.createOrder(intent, ctx)).resolves.toEqual({
       outcome: "rejected",
-      message: "Please register your MANDIRI bank account first before paying via MANDIRI Virtual Account.",
+      message: "This bank transfer option is not available for this account yet. Choose another way to pay.",
     });
     expect(calls).toBe(1);
   });

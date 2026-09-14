@@ -490,7 +490,7 @@ export class FundingCore {
       state: nextState,
       providerStatus: observation.providerStatus,
       providerTransactionHash: observation.transactionHash,
-      ...(settled ? { expectedTokenAmountAtomic: settled } : {}),
+      ...(settled ? { expectedTokenAmountAtomic: settled, ...(observation.fees ? { fees: observation.fees } : {}) } : {}),
       expectedVersion: order.version,
       updatedAt: this.now().toISOString(),
     });
