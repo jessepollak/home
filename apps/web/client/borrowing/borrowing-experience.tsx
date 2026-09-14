@@ -151,7 +151,7 @@ export function AuthenticatedBorrowTeaser({ onOpen, regionId = "GLOBAL" }: { onO
   return (
     <ItemGroup className="gap-0">
       <Item
-        className="min-h-16 flex-nowrap cursor-pointer items-center border-0 text-left hover:bg-muted"
+        className="min-h-16 flex-nowrap cursor-pointer items-center whitespace-normal border-0 text-left hover:bg-muted"
         render={<Button variant="ghost" type="button" />}
         onClick={onOpen}
       >
@@ -289,7 +289,7 @@ function BorrowDirectMarket({
       ) : null}
       {snapshot && !canOpen ? (
         <Card className="overflow-hidden">
-          <CardContent className="space-y-4 p-4 sm:p-5">
+          <CardContent className="space-y-4 px-4 py-0 sm:px-5">
             <BorrowMarketHeading market={snapshot.market} />
             <p className="text-sm text-muted-foreground">
               {BigInt(snapshot.wallet.collateralBalanceRaw) === BigInt(0) && !hasCollateral
@@ -341,7 +341,7 @@ function BorrowMarketCard({
 
   return (
     <Card className="overflow-hidden" data-testid="borrow-market-card">
-      <CardContent className="space-y-4 p-4 sm:p-5">
+      <CardContent className="space-y-4 px-4 py-0 sm:px-5">
         <BorrowMarketHeading market={opportunity.market} />
         {opportunity.availability.status === "unavailable" ? (
           <div className="space-y-3">
@@ -396,22 +396,28 @@ function BorrowMarketHeading({ market }: { market: BorrowMarketIdentity }) {
 
 function BitcoinMark() {
   return (
-    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground shadow-sm" role="img" aria-label="Bitcoin icon" data-testid="bitcoin-mark">
+    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground shadow-sm" aria-hidden="true" data-testid="bitcoin-mark">
       ₿
     </span>
   );
 }
 
 function BorrowOpenSummary({ snapshot, regionId }: { snapshot: BorrowMarketSnapshot; regionId: RegionId }) {
-  const available = openingBorrowAvailableBaseUnits(snapshot);
+  const hasSuppliedCollateral = BigInt(snapshot.position.collateralRaw) > BigInt(0);
   const hasWalletCollateral = BigInt(snapshot.wallet.collateralBalanceRaw) > BigInt(0);
+  const available = hasSuppliedCollateral
+    ? snapshot.position.borrowCapacityAssetsRaw
+    : openingBorrowAvailableBaseUnits(snapshot);
+  const collateralCopy = hasSuppliedCollateral
+    ? `${formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} locked as collateral`
+    : hasWalletCollateral
+      ? `Backed by ${formatToken(snapshot.wallet.collateralBalanceRaw, snapshot.market.collateralToken, regionId)} in your wallet`
+      : "You need cbBTC in this wallet before you can borrow.";
   return (
     <div className="space-y-1">
-      <p className="text-xl font-semibold tabular-nums"><MoneyTicker value={formatToken(available, snapshot.market.loanToken, regionId)} /> available</p>
+      <p className="overflow-wrap-anywhere text-xl font-semibold tabular-nums"><MoneyTicker value={formatToken(available, snapshot.market.loanToken, regionId)} /> available</p>
       <p className="text-sm text-muted-foreground">
-        {hasWalletCollateral
-          ? `Backed by ${formatToken(snapshot.wallet.collateralBalanceRaw, snapshot.market.collateralToken, regionId)} in your wallet · ${formatWadPercent(snapshot.state.borrowAprWad, regionId)} variable rate`
-          : "You need cbBTC in this wallet before you can borrow."}
+        {collateralCopy}{hasSuppliedCollateral || hasWalletCollateral ? ` · ${formatWadPercent(snapshot.state.borrowAprWad, regionId)} variable rate` : ""}
       </p>
     </div>
   );
@@ -420,14 +426,14 @@ function BorrowOpenSummary({ snapshot, regionId }: { snapshot: BorrowMarketSnaps
 function BorrowPositionSummary({ snapshot, regionId }: { snapshot: BorrowMarketSnapshot; regionId: RegionId }) {
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="min-w-0 rounded-lg bg-muted/50 p-3">
           <p className="text-xs text-muted-foreground">Borrowed</p>
-          <p className="truncate font-semibold tabular-nums"><MoneyTicker value={formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId)} /></p>
+          <p className="overflow-wrap-anywhere font-semibold tabular-nums"><MoneyTicker value={formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId)} /></p>
         </div>
         <div className="min-w-0 rounded-lg bg-muted/50 p-3">
           <p className="text-xs text-muted-foreground">Bitcoin locked</p>
-          <p className="truncate font-semibold tabular-nums"><MoneyTicker value={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} /></p>
+          <p className="overflow-wrap-anywhere font-semibold tabular-nums"><MoneyTicker value={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} /></p>
         </div>
       </div>
       <LiquidationBufferMeter
@@ -461,7 +467,7 @@ function BorrowCardActions({ snapshot, urgent, onOpen }: { snapshot: BorrowMarke
           { label: "Repay", operation: "repay" as const, disabled: !hasWalletLoan },
         ]
       : [
-          { label: "Borrow", operation: "supply-and-borrow" as const, disabled: !canBorrow },
+          { label: "Borrow", operation: hasCollateral ? "borrow" as const : "supply-and-borrow" as const, disabled: !canBorrow },
         ];
   return (
     <div className="space-y-3">
@@ -473,10 +479,10 @@ function BorrowCardActions({ snapshot, urgent, onOpen }: { snapshot: BorrowMarke
       {hasDebt || hasCollateral ? (
         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
           <span className="mr-1 text-xs font-medium text-muted-foreground">Manage</span>
-          {!urgent ? <Button size="sm" variant="outline" disabled={!hasWalletCollateral} onClick={() => onOpen("supply-collateral")}>Add collateral</Button> : null}
-          {hasDebt ? <Button size="sm" variant="outline" disabled={!hasWalletLoan} onClick={() => onOpen("repay-all")}>Repay all</Button> : null}
-          <Button size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>Withdraw</Button>
-          <Button size="sm" variant="outline" disabled={!hasCollateral && !hasDebt || (hasDebt && !hasWalletLoan)} onClick={() => onOpen("close-position")}>Close</Button>
+          {!urgent ? <Button className="min-h-11 h-auto whitespace-normal py-2" size="sm" variant="outline" disabled={!hasWalletCollateral} onClick={() => onOpen("supply-collateral")}>Add collateral</Button> : null}
+          {hasDebt ? <Button className="min-h-11 h-auto whitespace-normal py-2" size="sm" variant="outline" disabled={!hasWalletLoan} onClick={() => onOpen("repay-all")}>Repay all</Button> : null}
+          <Button className="min-h-11 h-auto whitespace-normal py-2" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>Withdraw</Button>
+          <Button className="min-h-11 h-auto whitespace-normal py-2" size="sm" variant="outline" disabled={!hasCollateral && !hasDebt || (hasDebt && !hasWalletLoan)} onClick={() => onOpen("close-position")}>Close</Button>
         </div>
       ) : null}
       {snapshot.eligibility.mode === "reducing-only" || !snapshot.eligibility.newRisk ? (
@@ -694,10 +700,14 @@ function BorrowPreparedReview({ action, snapshot, regionId }: { action: Prepared
   const amount = primary
     ? `${primary.maximum ? "Up to " : ""}${formatExactPresentationTokenAmount(primary.amountBaseUnits, primary.decimals, primary.symbol)}`
     : action.title;
-  const movementRows = action.amounts.map((entry) => ({
-    label: `${entry.maximum ? "Maximum repayment" : entry.direction === "spend" ? "You spend" : "You receive"} (${entry.symbol})`,
-    value: `${entry.estimated ? "Estimated " : ""}${formatExactPresentationTokenAmount(entry.amountBaseUnits, entry.decimals, entry.symbol)}`,
-  }));
+  const movementRows = action.amounts.map((entry) => {
+    const suppliedCollateral = entry.direction === "spend" && entry.assetId === metadata?.collateralAsset.id &&
+      (metadata.operation === "supply-collateral" || metadata.operation === "supply-and-borrow");
+    return {
+      label: `${entry.maximum ? "Maximum repayment" : suppliedCollateral ? "Locked as collateral" : entry.direction === "spend" ? "You spend" : "You receive"} (${entry.symbol})`,
+      value: `${entry.estimated ? "Estimated " : ""}${formatExactPresentationTokenAmount(entry.amountBaseUnits, entry.decimals, entry.symbol)}`,
+    };
+  });
   return (
     <div className="space-y-3">
       <MoneyConfirmSummary
@@ -717,7 +727,13 @@ function BorrowPreparedReview({ action, snapshot, regionId }: { action: Prepared
           regionId={regionId}
         />
       ) : null}
-      {action.warnings.map((warning, index) => <BorrowNotice key={`${index}:${warning}`} title="Review warning">{warning}</BorrowNotice>)}
+      {action.warnings.length > 0 ? (
+        <BorrowNotice title="Review warnings">
+          <ul className="list-disc space-y-1 pl-4">
+            {action.warnings.map((warning, index) => <li key={`${index}:${warning}`}>{warning}</li>)}
+          </ul>
+        </BorrowNotice>
+      ) : null}
     </div>
   );
 }
@@ -735,14 +751,18 @@ function LiquidationBufferMeter({
   regionId: RegionId;
   showHealth?: boolean;
 }) {
-  const bps = liquidationBufferBps(healthFactorWad === null ? null : BigInt(healthFactorWad));
-  if (bps === null) return null;
+  const healthFactor = healthFactorWad === null ? null : BigInt(healthFactorWad);
+  const bps = liquidationBufferBps(healthFactor);
+  if (bps === null || healthFactor === null) return null;
   const visualBps = bps > BigInt(5000) ? BigInt(5000) : bps;
-  const copy = `Bitcoin can fall ${formatBufferPercent(bps)} before liquidation`;
+  const belowFloor = healthFactor < BORROW_HEALTH_FLOOR_WAD;
+  const copy = healthFactor <= WAD
+    ? "Immediate liquidation risk"
+    : `Bitcoin can fall ${formatBufferPercent(bps)} before liquidation`;
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <p className="text-sm font-medium">{copy}</p>
+        <p className={`text-sm font-medium ${belowFloor ? "text-destructive" : ""}`}>{copy}</p>
         {showHealth ? <span className="text-xs text-muted-foreground">HF {formatHealthFactor(healthFactorWad, regionId)}</span> : null}
       </div>
       <div
@@ -754,7 +774,7 @@ function LiquidationBufferMeter({
         aria-valuenow={Number(visualBps) / 100}
         aria-valuetext={copy}
       >
-        <div className="h-full rounded-full bg-primary" style={{ width: `${Number(visualBps) / 50}%` }} />
+        <div className={`h-full rounded-full ${belowFloor ? "bg-destructive" : "bg-primary"}`} style={{ width: `${Number(visualBps) / 50}%` }} />
         <span className="absolute -top-0.5 h-3 w-0.5 bg-muted-foreground/60" style={{ left: "40%" }} aria-hidden="true" />
         <span className="absolute -top-0.5 h-3 w-0.5 bg-muted-foreground/60" style={{ left: "66%" }} aria-hidden="true" />
       </div>
@@ -883,8 +903,10 @@ function formatBufferPercent(bps: bigint): string {
 }
 
 function bufferCopy(healthFactorWad: string | null): string {
-  const bps = liquidationBufferBps(healthFactorWad === null ? null : BigInt(healthFactorWad));
-  return bps === null ? "No debt" : `Bitcoin can fall ${formatBufferPercent(bps)}`;
+  const healthFactor = healthFactorWad === null ? null : BigInt(healthFactorWad);
+  const bps = liquidationBufferBps(healthFactor);
+  if (bps === null || healthFactor === null) return "No debt";
+  return healthFactor <= WAD ? "Immediate liquidation risk" : `Bitcoin can fall ${formatBufferPercent(bps)}`;
 }
 
 export function parseClientTokenAmount(value: string, decimals: number): string {

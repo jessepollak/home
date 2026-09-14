@@ -402,7 +402,10 @@ describe("Home shell routing and intents", () => {
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
     await waitForVerifiedShell();
 
-    fireEvent.click(page().getByRole("button", { name: /Borrow against Bitcoin/ }));
+    const borrowTeaser = page().getByRole("button", { name: "Borrow against Bitcoin Borrow USDC with cbBTC on Base" });
+    expect(borrowTeaser.className).toContain("whitespace-normal");
+    expect(within(borrowTeaser).getByTestId("bitcoin-mark").getAttribute("aria-hidden")).toBe("true");
+    fireEvent.click(borrowTeaser);
     expect(`${window.location.pathname}${window.location.search}`).toBe("/dashboard?panel=borrow");
     expect(await page().findByText("Borrow USDC using your Bitcoin on Base.")).toBeTruthy();
     expect(within(page().getByRole("navigation", { name: "Main navigation" })).queryByRole("button", { name: "Borrow" })).toBeNull();

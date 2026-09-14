@@ -111,7 +111,8 @@ describe("BorrowExperience redesign", () => {
     const body = within(document.body);
     expect(await body.findByRole("heading", { level: 3, name: "Bitcoin" })).toBeTruthy();
     expect(body.getAllByTestId("borrow-market-card")).toHaveLength(1);
-    expect(body.getByRole("img", { name: "Bitcoin icon" })).toBeTruthy();
+    expect(body.getByTestId("bitcoin-mark").getAttribute("aria-hidden")).toBe("true");
+    expect(body.queryByRole("img", { name: "Bitcoin icon" })).toBeNull();
     expect(body.getByText("Borrow USDC with cbBTC")).toBeTruthy();
     expect(body.getByText("Borrowed")).toBeTruthy();
     expect(body.getByRole("meter", { name: "Liquidation buffer" }).getAttribute("aria-valuetext")).toBe("Bitcoin can fall 37.5% before liquidation");
@@ -134,9 +135,41 @@ describe("BorrowExperience redesign", () => {
     await dialog.findByText("Network");
     expect(dialog.getByText("Base")).toBeTruthy();
     expect(dialog.getByText("Variable rate")).toBeTruthy();
+    expect(dialog.getByText("Locked as collateral (cbBTC)")).toBeTruthy();
+    expect(dialog.queryByText("You spend (cbBTC)")).toBeNull();
     expect(dialog.queryByText("LLTV")).toBeNull();
     expect(dialog.getByRole("meter", { name: "Liquidation buffer" })).toBeTruthy();
     expect(requests).toEqual([{ kind: "borrow", params: { marketId: BORROW_MARKET_ID, operation: "supply-and-borrow", amountBaseUnits: "1000000", collateralAmountBaseUnits: recommendedOpeningCollateralBaseUnits(snapshot, "1000000") } }]);
+  });
+
+  test("uses supplied collateral for a zero-debt position without requiring or locking more wallet cbBTC", async () => {
+    const base = detail();
+    const snapshot = detail({
+      wallet: { ...base.wallet, collateralBalanceRaw: "0" },
+      position: {
+        ...base.position,
+        borrowSharesRaw: "0",
+        debtAssetsRaw: "0",
+        healthFactorWad: null,
+        liquidationPriceRaw: null,
+      },
+    });
+    const requests: Array<{ kind: string; params: unknown }> = [];
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot, overview({ position: false }))} prepareMoneyAction={async (kind, params) => { requests.push({ kind, params }); return prepared("borrow"); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body);
+    expect(await body.findByRole("img", { name: "150.00 USDC" })).toBeTruthy();
+    expect(body.getByText(/0\.5000 cbBTC locked as collateral/)).toBeTruthy();
+    expect(body.queryByText("You need cbBTC in this wallet before you can borrow.")).toBeNull();
+    const borrow = body.getByRole("button", { name: "Borrow" }) as HTMLButtonElement;
+    expect(borrow.disabled).toBe(false);
+    fireEvent.click(borrow);
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    expect(dialog.getByRole("img", { name: /\$150\.00 available/ })).toBeTruthy();
+    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    await dialog.findByText("Network");
+    expect(requests).toEqual([{ kind: "borrow", params: { marketId: BORROW_MARKET_ID, operation: "borrow", amountBaseUnits: "1000000" } }]);
+    expect(dialog.queryByText(/Locked as collateral/)).toBeNull();
   });
 
   test("opens a configured market query directly into the Borrow modal instead of a detail inspector", async () => {
@@ -162,9 +195,16 @@ describe("BorrowExperience redesign", () => {
     const body = within(document.body);
     const card = await body.findByTestId("borrow-market-card");
     expect(card.className).toContain("overflow-hidden");
+    expect(card.querySelector("[data-slot='card-content']")?.className).toContain("py-0");
+    const borrowedSummary = body.getByText("Borrowed").parentElement?.parentElement;
+    expect(borrowedSummary?.className).toContain("grid-cols-1");
+    expect(borrowedSummary?.className).toContain("sm:grid-cols-2");
+    expect(body.getByText("Borrowed").nextElementSibling?.className).not.toContain("truncate");
     const borrow = body.getByRole("button", { name: "Borrow more" });
     expect(borrow.parentElement?.className).toContain("grid-cols-1");
     expect(borrow.className).toContain("min-h-11");
+    expect(body.getByRole("button", { name: "Withdraw" }).className).toContain("min-h-11");
+    expect(body.getByRole("button", { name: "Close" }).className).toContain("min-h-11");
     expect(card.className).not.toContain("hover:bg-muted");
   });
 
@@ -175,6 +215,56 @@ describe("BorrowExperience redesign", () => {
     const buttons = await body.findAllByRole("button");
     expect(buttons.slice(0, 2).map((button) => button.textContent)).toEqual(["Repay", "Add collateral"]);
     expect(body.queryByRole("button", { name: "Borrow more" })).toBeNull();
+  });
+
+  test("uses destructive buffer treatment below the 1.25 floor and immediate-risk copy at liquidation", async () => {
+    const belowFloor = detail({ position: { ...detail().position, healthFactorWad: "1200000000000000000" } });
+    const view = render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(belowFloor)} />);
+    const body = within(document.body);
+    const meter = await body.findByRole("meter", { name: "Liquidation buffer" });
+    expect(meter.previousElementSibling?.querySelector("p")?.className).toContain("text-destructive");
+    expect(meter.firstElementChild?.className).toContain("bg-destructive");
+
+    view.unmount();
+    getHomeQueryClient().clear();
+    const liquidatable = detail({ position: { ...detail().position, healthFactorWad: "1000000000000000000" } });
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(liquidatable)} />);
+    const nextBody = within(document.body);
+    const immediateMeter = await nextBody.findByRole("meter", { name: "Liquidation buffer" });
+    expect(immediateMeter.getAttribute("aria-valuetext")).toBe("Immediate liquidation risk");
+    expect(nextBody.queryByText(/can fall 0%/)).toBeNull();
+  });
+
+  test("keeps healthy buffer treatment on existing neutral tokens", async () => {
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} />);
+    const body = within(document.body);
+    const meter = await body.findByRole("meter", { name: "Liquidation buffer" });
+    expect(meter.previousElementSibling?.querySelector("p")?.className).not.toContain("text-destructive");
+    expect(meter.firstElementChild?.className).toContain("bg-primary");
+  });
+
+  test("compacts prepared warnings into one accessible warning list", async () => {
+    const warnings = ["This review leaves a limited liquidation buffer.", "This review uses all currently indexed market liquidity."];
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async () => prepared("borrow", { warnings })} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body);
+    fireEvent.click(await body.findByRole("button", { name: "Borrow more" }));
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(await dialog.findByText("Review warnings")).toBeTruthy();
+    expect(dialog.getAllByRole("listitem").map((item) => item.textContent)).toEqual(warnings);
+    expect(dialog.queryByText("Review warning")).toBeNull();
+  });
+
+  test("surfaces sanitized typed prepare errors without transport details", async () => {
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async () => { throw Object.assign(new Error("submission-pending"), { status: 409, code: "LIMIT_EXCEEDED", serverMessage: "The amount exceeds the current Home-adjusted collateral and liquidity limit." }); }} executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />);
+    const body = within(document.body);
+    fireEvent.click(await body.findByRole("button", { name: "Borrow more" }));
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect((await dialog.findByRole("alert")).textContent).toContain("The amount exceeds the current Home-adjusted collateral and liquidity limit. No transaction was submitted.");
+    expect(document.body.textContent).not.toContain("submission-pending");
   });
 
   test("preserves unavailable and stale truthfulness", async () => {
@@ -195,6 +285,18 @@ describe("BorrowExperience redesign", () => {
     expect(within(document.body).queryByText("Borrowed")).toBeNull();
     resolveB(overview({ owner: OWNER_B }));
     await waitFor(() => expect(within(document.body).getByRole("heading", { name: "Bitcoin" })).toBeTruthy());
+  });
+
+  test("handles server ACTION_EXPIRED as an expired review without ambiguous retry copy", async () => {
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} prepareMoneyAction={async () => prepared()} executeMoneyAction={async () => { throw Object.assign(new Error("gone"), { code: "ACTION_EXPIRED", status: 410 }); }} />);
+    const body = within(document.body);
+    fireEvent.click(await body.findByRole("button", { name: "Borrow more" }));
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.click(dialog.getByRole("button", { name: "1" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    fireEvent.click(await dialog.findByRole("button", { name: "Confirm action" }));
+    expect(await dialog.findByText(/This Borrow review expired/)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("dispatch outcome is unresolved");
   });
 
   test("reactively expires prepared review", async () => {

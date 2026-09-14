@@ -31,6 +31,7 @@ export type BorrowActionSummaryMetadata = {
   collateralAsset: Pick<BorrowAssetRef, "id" | "symbol">;
   projectedHealthFactorWad: string | null;
   projectedLiquidationPriceRaw: string | null;
+  borrowAprWad: string;
   source: {
     blockNumber: string;
     blockHash: `0x${string}`;

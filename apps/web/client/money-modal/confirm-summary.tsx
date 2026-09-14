@@ -8,8 +8,8 @@ export type MoneyConfirmRow = { label: string; value: ReactNode; fullValue?: boo
 export function MoneyConfirmSummary({ amount, lead, rows }: { amount: string; lead: string; rows: readonly MoneyConfirmRow[] }) {
   return (
     <div className="space-y-6">
-      <div className="space-y-1 text-center">
-        <div className="text-4xl font-semibold tabular-nums"><MoneyTicker value={amount} /></div>
+      <div className="min-w-0 space-y-1 text-center">
+        <div className="overflow-wrap-anywhere text-4xl font-semibold tabular-nums"><MoneyTicker value={amount} /></div>
         <p className="text-sm text-muted-foreground">{lead}</p>
       </div>
       <dl>
@@ -17,11 +17,11 @@ export function MoneyConfirmSummary({ amount, lead, rows }: { amount: string; le
           <div
             className={row.fullValue
               ? "grid items-start gap-1 border-b py-3 text-sm last:border-b-0 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
-              : "flex items-start justify-between gap-4 border-b py-3 text-sm last:border-b-0"}
+              : "grid grid-cols-1 items-start gap-1 border-b py-3 text-sm last:border-b-0 sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"}
             key={row.label}
           >
             <dt className="text-muted-foreground">{row.label}</dt>
-            <dd className={row.fullValue ? "min-w-0 sm:text-right" : "min-w-0 text-right font-medium tabular-nums"}>
+            <dd className={row.fullValue ? "min-w-0 overflow-wrap-anywhere sm:text-right" : "min-w-0 overflow-wrap-anywhere font-medium tabular-nums sm:text-right"}>
               {row.value}
             </dd>
           </div>
