@@ -28,6 +28,7 @@ Country selection and searchable asset selection use the `Combobox`; simple non-
 1. Style components and product surfaces with Tailwind utilities. ESLint bans hex/rgba, arbitrary-pixel, and raw palette classes; use semantic tokens instead.
 2. Raw `@base-ui/react` imports are allowed only in `apps/web/components/ui`.
 3. Raw `button`, `input`, and `select` elements outside `components/ui` are banned except for the shrinking audited allowlist. Use the owned wrappers.
+4. `@shadcn/lint` rejects new restyling of owned UI components in product code. Existing violations are baselined in `apps/web/eslint-suppressions.json`; move styling into variants or explicit contracts, then run `bun run --cwd apps/web lint:prune` to shrink the baseline.
 
 ## Home-owned product pieces
 

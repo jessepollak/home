@@ -1,4 +1,5 @@
 import { defineConfig, globalIgnores } from "eslint/config";
+import { plugin as shadcn } from "@shadcn/lint";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
@@ -139,6 +140,31 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  // Existing no-restyle violations are tracked in eslint-suppressions.json.
+  // New violations fail lint; prune the baseline as callers move styling into variants.
+  {
+    files: [
+      "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+    ],
+    ignores: ["**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}", "**/tests/**"],
+    plugins: { shadcn },
+    rules: {
+      "shadcn/no-restyle": [
+        "error",
+        {
+          allow: ["layout"],
+        },
+      ],
+    },
+  },
+  {
+    files: ["components/ui/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+    rules: {
+      "shadcn/no-restyle": "off",
+    },
+  },
   {
     files: [
       "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
