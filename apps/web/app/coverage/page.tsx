@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
+import {
+  coverageGlobeCountries,
+  coverageGlobeDescription,
+  coverageGlobePointCount,
+  coverageIntegratedLabels,
+  coverageOnrampLabels,
+} from "@/client/coverage/coverage-globe";
 import { CoverageFilters } from "@/client/coverage/coverage-filters";
 import { SupportedGlobeDynamic } from "@/client/landing/supported-globe-dynamic";
-import { countryFlag, locateCountries, type GlobeCountry, type GlobeMarkerTone } from "@/client/landing/globe-geometry";
+import { countryFlag } from "@/client/landing/globe-geometry";
 import {
   COVERAGE_REGISTRY_CHECKED_AT,
   coverageHomeStatuses,
@@ -19,40 +26,8 @@ import { CoverageTable, type CoverageTableRow } from "@/components/ui/coverage-t
 
 export const metadata: Metadata = {
   title: "Local money coverage | Home",
-  description: "Documented local-money routes and their separate Home implementation status.",
+  description: "Documented local-money coverage signals: stablecoin candidates, 1:1 onramp research, and integration status.",
 };
-
-const issuerLabels: Record<CoverageIssuerStatus, string> = {
-  documented: "Documented",
-  conditional: "Conditional",
-  "not-found": "Not found",
-  "not-researched": "Not researched",
-};
-const homeLabels: Record<CoverageHomeStatus, string> = {
-  none: "No Home route",
-  planned: "Planned",
-  "in-build": "In build",
-  sandbox: "Sandbox",
-  live: "Live",
-};
-const issuerTones: Record<CoverageIssuerStatus, GlobeMarkerTone> = {
-  documented: "positive",
-  conditional: "caution",
-  "not-found": "negative",
-  "not-researched": "neutral",
-};
-
-const coverageGlobeCountries: readonly GlobeCountry[] = coverageRegistry.map((record) => ({
-  countryCode: record.countryCode,
-  countryName: record.countryName,
-  currency: {
-    code: record.currencyCodes.join(", ") || null,
-    name: record.currencyCodes.join(", ") || "No current tender currency",
-  },
-  markerTone: issuerTones[record.issuerRoute.status],
-  detail: `${issuerLabels[record.issuerRoute.status]} issuer route; ${homeLabels[record.homeRoute.status]}`,
-}));
-const coverageGlobePointCount = locateCountries(coverageGlobeCountries).length;
 
 function queryValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
@@ -86,6 +61,13 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
       currencies: record.currencyCodes.join(", ") || "No current tender currency",
       asset: region?.candidateAsset?.symbol ?? (record.configuredInHome ? "No candidate" : "Not configured"),
       issuerName: region?.candidateAsset?.issuer ?? (record.configuredInHome ? "No candidate" : "Not configured"),
+      stablecoin: {
+        candidate: region?.candidateAsset ? {
+          symbol: region.candidateAsset.symbol,
+          issuer: region.candidateAsset.issuer,
+          verification: region.candidateAsset.verificationStatus,
+        } : null,
+      },
       issuer: {
         status: record.issuerRoute.status,
         rail: record.issuerRoute.rail,
@@ -126,7 +108,7 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
             countries={coverageGlobeCountries}
             showRoutes={false}
             ariaLabel="Interactive globe of local-money coverage research"
-            description={`${coverageGlobePointCount} sourced inventory points. Marker tones describe issuer-route research, not eligibility.`}
+            description={`${coverageGlobePointCount} sourced inventory points. ${coverageGlobeDescription}`}
             interactiveMarkerTones={["positive", "caution", "negative"]}
           />
         </div>
@@ -136,8 +118,8 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
       <section aria-label="Countries and territories" className="mx-auto w-full max-w-5xl space-y-4">
         <CoverageFilters
           values={{ q: queryValue(query.q), issuer: issuer ?? "", home: home ?? "", sort }}
-          issuerOptions={coverageIssuerStatuses.map((status) => ({ value: status, label: issuerLabels[status] }))}
-          homeOptions={coverageHomeStatuses.map((status) => ({ value: status, label: homeLabels[status] }))}
+          issuerOptions={coverageIssuerStatuses.map((status) => ({ value: status, label: coverageOnrampLabels[status] }))}
+          homeOptions={coverageHomeStatuses.map((status) => ({ value: status, label: coverageIntegratedLabels[status] }))}
         />
         <p aria-live="polite" className="text-sm text-muted-foreground">Showing {records.length} of {coverageRegistry.length} countries and territories.</p>
         <div id="coverage-table" className="rounded-lg border">
