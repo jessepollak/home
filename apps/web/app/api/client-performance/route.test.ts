@@ -64,7 +64,7 @@ function request(
 }
 
 describe("POST /api/client-performance", () => {
-  test("budgets both expected performance reports per document", () => {
+  test("budgets startup, auth restore, and occasional signout reports", () => {
     expect(CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW).toBe(60);
   });
 
@@ -115,6 +115,33 @@ describe("POST /api/client-performance", () => {
       { ...authReady, sessionSettledMs: undefined },
       { ...authReady, cdpInitializedMs: "900" },
     ]) expect(parseClientPerformanceReport(invalid)).toBeNull();
+  });
+
+  test("normalizes the closed signout schema", () => {
+    const signout = {
+      version: 1,
+      kind: "home-auth-phase",
+      route: "/home",
+      flow: "signout",
+      outcome: "timeout",
+      visibleNavigationMs: 12,
+      nativeLogoutAttempted: true,
+      nativeLogoutMs: 81,
+      walletDisconnectAttempted: true,
+      walletDisconnectMs: 49,
+      cdpSignOutAttempted: true,
+      cdpSignOutMs: 2_500,
+      totalMs: 2_511,
+    } as const;
+    expect(parseClientPerformanceReport(signout)).toEqual({
+      ...signout,
+      visibleNavigationMs: 0,
+      nativeLogoutMs: 100,
+      walletDisconnectMs: 50,
+      totalMs: 2_500,
+    });
+    expect(parseClientPerformanceReport({ ...signout, provider: "cdp" })).toBeNull();
+    expect(parseClientPerformanceReport({ ...signout, cdpSignOutAttempted: "yes" })).toBeNull();
   });
 
   test("enforces same-origin, JSON-only, no-encoding, bounded body, and rate shedding", async () => {

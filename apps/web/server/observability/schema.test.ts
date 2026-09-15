@@ -79,6 +79,32 @@ describe("observability schema", () => {
     })).toMatchObject({ level: "error", code: "HOME_AUTH_PHASE" });
   });
 
+  test("normalizes closed auth signout events with fixed attempts and timings", () => {
+    expect(normalizeObservabilityEvent({
+      version: 1,
+      kind: "home-auth-phase",
+      route: "/home",
+      flow: "signout",
+      outcome: "success",
+      visibleNavigationMs: 50,
+      nativeLogoutAttempted: true,
+      nativeLogoutMs: 100,
+      walletDisconnectAttempted: false,
+      cdpSignOutAttempted: true,
+      cdpSignOutMs: 250,
+      totalMs: 300,
+    })).toMatchObject({
+      schema: "home.observability.v2",
+      code: "HOME_AUTH_PHASE",
+      level: "info",
+      flow: "signout",
+      outcome: "success",
+      nativeLogoutAttempted: true,
+      cdpSignOutAttempted: true,
+      totalMs: 300,
+    });
+  });
+
   test.each([
     "FUNDING_SANDBOX_MIGRATION_REQUIRED",
     "OFFRAMP_DISCOVERY_CONFIGURATION",

@@ -7,6 +7,7 @@ import {
 } from "@/shared/observability/scrub";
 import type {
   HomeAuthRestoreReport,
+  HomeAuthSignOutReport,
   HomeStartupReport,
 } from "@/shared/observability/client-performance.contract";
 
@@ -101,6 +102,7 @@ export type ServerEventOutcome = (typeof SERVER_EVENT_OUTCOMES)[number];
 export type ObservabilityEvent =
   | HomeStartupReport
   | HomeAuthRestoreReport
+  | HomeAuthSignOutReport
   | {
       kind: "unhandled-server-error";
       route: string;
@@ -188,6 +190,22 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         cdpInitializedMs?: number;
         nativeSettledMs?: number;
         sessionSettledMs: number;
+        totalMs: number;
+      }
+    | {
+        level: "info" | "error";
+        kind: "home-auth-phase";
+        code: "HOME_AUTH_PHASE";
+        version: 1;
+        flow: "signout";
+        outcome: HomeAuthSignOutReport["outcome"];
+        visibleNavigationMs?: number;
+        nativeLogoutAttempted: boolean;
+        nativeLogoutMs?: number;
+        walletDisconnectAttempted: boolean;
+        walletDisconnectMs?: number;
+        cdpSignOutAttempted: boolean;
+        cdpSignOutMs?: number;
         totalMs: number;
       }
     | {
@@ -292,6 +310,34 @@ export function normalizeObservabilityEvent(
   }
 
   if (event.kind === "home-auth-phase") {
+    if (event.flow === "signout") {
+      return {
+        schema: OBSERVABILITY_SCHEMA,
+        route: event.route,
+        level: event.outcome === "success" ? "info" : "error",
+        kind: event.kind,
+        code: "HOME_AUTH_PHASE",
+        version: 1,
+        flow: "signout",
+        outcome: event.outcome,
+        ...(event.visibleNavigationMs === undefined ? {} : {
+          visibleNavigationMs: boundedInteger(event.visibleNavigationMs, 30_000),
+        }),
+        nativeLogoutAttempted: event.nativeLogoutAttempted,
+        ...(event.nativeLogoutMs === undefined ? {} : {
+          nativeLogoutMs: boundedInteger(event.nativeLogoutMs, 30_000),
+        }),
+        walletDisconnectAttempted: event.walletDisconnectAttempted,
+        ...(event.walletDisconnectMs === undefined ? {} : {
+          walletDisconnectMs: boundedInteger(event.walletDisconnectMs, 30_000),
+        }),
+        cdpSignOutAttempted: event.cdpSignOutAttempted,
+        ...(event.cdpSignOutMs === undefined ? {} : {
+          cdpSignOutMs: boundedInteger(event.cdpSignOutMs, 30_000),
+        }),
+        totalMs: boundedInteger(event.totalMs, 30_000),
+      };
+    }
     return {
       schema: OBSERVABILITY_SCHEMA,
       route: event.route,
