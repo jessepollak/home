@@ -552,6 +552,7 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
   await expect(send.getByRole("img", { name: "0.001 cbBTC available" })).toBeVisible();
   await typeAmount(page, "0.001");
   await send.getByRole("button", { name: "Continue" }).click();
+  await send.getByRole("button", { name: "Base address" }).click();
   await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
   await send.getByRole("button", { name: "Continue" }).click();
   const confirm = page.getByRole("dialog", { name: "Confirm" });
@@ -577,6 +578,7 @@ test("ambiguous handle response retries without a second wallet dispatch", async
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { name: "1", exact: true }).click();
   await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Base address" }).click();
   await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Send $1.00" }).click();
