@@ -169,6 +169,39 @@ describe("owner query hydration lifecycle", () => {
     expect(view.getByTestId("valuation").textContent).toBe("none");
   });
 
+  test("different live settlement clears render-seeded owner cache", async () => {
+    const seededSession = verifiedSession("subject-a", ADDRESS_A);
+    const seededOwnerKey = dataOwnerKey(seededSession);
+    const liveSession = verifiedSession("subject-b", ADDRESS_B);
+    persistValuation(seededOwnerKey, "12340000");
+    let resolveSession!: (response: Response) => void;
+    const sessionResponse = new Promise<Response>((resolve) => { resolveSession = resolve; });
+    const owner = (ownerSdk: AccountWalletSdkBoundary) => (
+      <AccountWalletSessionOwner
+        sdk={ownerSdk}
+        renderSeed={{ session: seededSession, source: "cdp-hint" }}
+        sessionFetch={async () => sessionResponse}
+      >
+        <HydrationProbe fetchValuation={async () => ({ amount: "20000000" })} />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(owner({ ...sdk(null), isInitialized: false }));
+    await waitFor(() => expect(view.getByTestId("valuation").textContent).toBe("12340000"));
+
+    await act(async () => { view.rerender(owner(sdk("subject-b", liveSession))); });
+    await waitFor(() => expect(observedClient?.verification).toBe("provisional"));
+    expect(view.getByTestId("valuation").textContent).toBe("none");
+    expect(getHomeQueryClient().getQueryData(ownerQueryKey(seededOwnerKey, "valuation", "US"))).toBeUndefined();
+    expect(window.localStorage.getItem(ownerQueryStorageKey(seededOwnerKey)!)).toBeNull();
+
+    resolveSession(Response.json(liveSession));
+    await waitFor(() => expect(observedClient?.verification).toBe("server"));
+    await waitFor(() => expect(view.getByTestId("valuation").textContent).toBe("20000000"));
+    expect(view.getByTestId("valuation").textContent).not.toBe("12340000");
+    expect(getHomeQueryClient().getQueryData(ownerQueryKey(seededOwnerKey, "valuation", "US"))).toBeUndefined();
+    expect(window.localStorage.getItem(ownerQueryStorageKey(seededOwnerKey)!)).toBeNull();
+  });
+
   test("matching CDP subject settlement retains render-seeded cache", async () => {
     const seededSession = verifiedSession("subject-a", ADDRESS_A);
     const seededOwnerKey = dataOwnerKey(seededSession);
