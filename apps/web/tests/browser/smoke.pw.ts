@@ -545,8 +545,8 @@ test("shows the integrated Peer destination at 390px", async ({ page }) => {
 
   await expect(send.getByRole("textbox", { name: "To" })).toBeVisible();
   await expect(send.getByText("Or", { exact: true })).toBeVisible();
-  await expect(send.getByRole("button", { name: /Available payout apps: Cash App, Zelle.*Cash out with Peer.*Receive money in a payment app/ })).toBeVisible();
-  await expect(send.getByText("Receive money in a payment app", { exact: true })).toBeVisible();
+  await expect(send.getByRole("button", { name: /Available payout apps: Cash App, Zelle.*Send to Zelle, Venmo, Cash App and more.*Use Peer to send via app/ })).toBeVisible();
+  await expect(send.getByText("Use Peer to send via app", { exact: true })).toBeVisible();
   await expect(send.getByRole("img", { name: "Available payout apps: Cash App, Zelle" })).toBeVisible();
   await send.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
   await send.getByRole("button", { name: "Continue" }).click();

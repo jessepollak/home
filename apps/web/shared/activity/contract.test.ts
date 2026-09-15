@@ -83,6 +83,33 @@ describe("activity response parser", () => {
   });
 
 
+  test("accepts ZORA metadata with canonical contract identity and no registry id", () => {
+    const base = validPage();
+    const zoraAddress = "0x1111111111166b7fe7bd91427724b487980afc69";
+    const zora = {
+      ...base.transfers[0],
+      id: `8453:${zoraAddress}:zora-log`,
+      logId: "zora-log",
+      assetId: null,
+      tokenAddress: zoraAddress,
+      tokenSymbol: "ZORA",
+      tokenDecimals: 18,
+      amountBaseUnits: "1000000000000000001",
+    };
+    const parsed = parseActivityPage(
+      { ...base, transfers: [zora], nextCursor: null },
+      session,
+      TO,
+    );
+    expect(parsed.transfers[0]).toMatchObject({
+      assetId: null,
+      tokenAddress: zoraAddress,
+      tokenSymbol: "ZORA",
+      tokenDecimals: 18,
+      amountBaseUnits: "1000000000000000001",
+    });
+  });
+
   test("accepts an unknown contract with honest null metadata", () => {
     const base = validPage();
     const unknownAddress = "0x4444444444444444444444444444444444444444";
@@ -115,7 +142,15 @@ describe("activity response parser", () => {
       { ...base, walletAddress: OTHER },
       {
         ...base,
+        transfers: [{ ...base.transfers[0], assetId: null }],
+      },
+      {
+        ...base,
         transfers: [{ ...base.transfers[0], tokenSymbol: "FAKE" }],
+      },
+      {
+        ...base,
+        transfers: [{ ...base.transfers[0], tokenDecimals: 18 }],
       },
       {
         ...base,
@@ -135,6 +170,43 @@ describe("activity response parser", () => {
       expect(() => parseActivityPage(value, session, TO)).toThrow(
         ActivityResponseError,
       );
+    }
+  });
+
+  test("rejects forged dynamic metadata, unsafe symbols, collisions, and invalid decimals", () => {
+    const base = validPage();
+    const address = "0x4444444444444444444444444444444444444444";
+    const dynamic = {
+      ...base.transfers[0],
+      id: `8453:${address}:dynamic-log`,
+      logId: "dynamic-log",
+      assetId: null,
+      tokenAddress: address,
+      tokenSymbol: "TOKEN",
+      tokenDecimals: 18,
+    };
+    const cases = [
+      { ...dynamic, assetId: "usdc" },
+      { ...dynamic, tokenSymbol: null },
+      { ...dynamic, tokenDecimals: null },
+      { ...dynamic, tokenSymbol: " BAD " },
+      { ...dynamic, tokenSymbol: "BAD\u0001" },
+      { ...dynamic, tokenSymbol: "BAD\u0085" },
+      { ...dynamic, tokenSymbol: "BAD\u2028" },
+      { ...dynamic, tokenSymbol: "BAD\u2029" },
+      { ...dynamic, tokenSymbol: "BAD\u202e" },
+      { ...dynamic, tokenSymbol: "BAD\u200b" },
+      { ...dynamic, tokenSymbol: "usdc" },
+      { ...dynamic, tokenDecimals: -1 },
+      { ...dynamic, tokenDecimals: 256 },
+      { ...dynamic, tokenDecimals: 1.5 },
+    ];
+    for (const transfer of cases) {
+      expect(() => parseActivityPage(
+        { ...base, transfers: [transfer], nextCursor: null },
+        session,
+        TO,
+      )).toThrow(ActivityResponseError);
     }
   });
 

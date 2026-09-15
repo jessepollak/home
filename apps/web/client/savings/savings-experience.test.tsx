@@ -330,7 +330,7 @@ describe("Save simplify", () => {
       />,
     );
 
-    expect(await page().findByText("Refreshing…")).toBeTruthy();
+    expect(page().queryByText("Refreshing…")).toBeNull();
     expect(page().getAllByText("$99.00").length).toBeGreaterThan(0);
   });
 

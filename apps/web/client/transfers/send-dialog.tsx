@@ -407,8 +407,8 @@ function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; on
   >
     <ItemMedia><PayoutMethodMarks methods={binding.paymentMethods} /></ItemMedia>
     <ItemContent className="min-w-0">
-      <ItemTitle>{`Cash out with ${binding.displayName}`}</ItemTitle>
-      <ItemDescription lines={1}>Receive money in a payment app</ItemDescription>
+      <ItemTitle>Send to Zelle, Venmo, Cash App and more</ItemTitle>
+      <ItemDescription lines={1}>Use Peer to send via app</ItemDescription>
     </ItemContent>
     <ItemActions aria-hidden="true"><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>
   </Item>;

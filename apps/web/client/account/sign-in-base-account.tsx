@@ -1,7 +1,6 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { RefObject } from "react";
 import type { BaseAccountLoginPhase } from "./cdp-client";
@@ -14,48 +13,44 @@ export function baseAccountPhaseMessage(phase: BaseAccountLoginPhase): string {
   }
 }
 
+export function BaseAccountButtonContent({ phase }: { phase: BaseAccountLoginPhase | null }) {
+  if (!phase) return "Sign in with Base Account";
+  return (
+    <>
+      <LoaderCircle
+        className="size-4 animate-spin motion-reduce:animate-none"
+        aria-hidden="true"
+        data-icon="inline-start"
+      />
+      {baseAccountPhaseMessage(phase)}
+    </>
+  );
+}
+
 export function BaseAccountOnlySignIn({
   buttonRef,
+  phase,
   onSignIn,
 }: {
   buttonRef: RefObject<HTMLButtonElement | null>;
+  phase: BaseAccountLoginPhase | null;
   onSignIn: () => void;
 }) {
   return (
     <div className="mt-4">
       <Button
         ref={buttonRef}
-        className="h-11 w-full"
+        className={phase ? "h-11 w-full whitespace-normal" : "h-11 w-full"}
         size="lg"
         variant="secondary"
         onClick={onSignIn}
+        aria-busy={phase ? true : undefined}
+        aria-disabled={phase ? true : undefined}
         autoFocus
         data-initial-focus
       >
-        Sign in with Base Account
+        <BaseAccountButtonContent phase={phase} />
       </Button>
     </div>
-  );
-}
-
-export function BaseAccountHandoff({
-  phase,
-  onCancel,
-}: {
-  phase: BaseAccountLoginPhase | null;
-  onCancel: () => void;
-}) {
-  return (
-    <Alert className="fixed right-4 bottom-4 left-4 z-20 mx-auto max-w-xl sm:right-6 sm:bottom-6 sm:left-auto" aria-live="polite" role="status">
-      {phase ? (
-        <>
-          <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-          <AlertDescription>{baseAccountPhaseMessage(phase)}</AlertDescription>
-        </>
-      ) : null}
-      <Button className="mt-2 w-full" size="lg" variant="secondary" onClick={onCancel}>
-        Cancel sign in
-      </Button>
-    </Alert>
   );
 }

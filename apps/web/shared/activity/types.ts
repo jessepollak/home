@@ -1,5 +1,8 @@
-import { cryptoAssets } from "@/config/invest-assets";
-import { BASE_CHAIN_ID, BASE_USDC } from "@/shared/assets/base";
+import {
+  getDirectPortfolioAssets,
+  portfolioVaults,
+} from "@/config/portfolio-assets";
+import { BASE_CHAIN_ID } from "@/shared/assets/base";
 
 export const ACTIVITY_BASE_CHAIN_ID = BASE_CHAIN_ID;
 export const ACTIVITY_PAGE_SIZE = 25 as const;
@@ -9,17 +12,21 @@ export const ACTIVITY_TEASER_LIMIT = 5 as const;
 export type ActivityPanelDensity = "teaser" | "page";
 
 export const activityAssets = [
-  {
-    id: "usdc" as const,
-    symbol: "USDC" as const,
-    decimals: BASE_USDC.decimals,
-    tokenAddress: BASE_USDC.address,
-  },
-  ...cryptoAssets.map((asset) => ({
-    id: asset.id,
-    symbol: asset.representation.tokenSymbol,
-    decimals: asset.representation.decimals,
-    tokenAddress: asset.contractAddress,
+  ...getDirectPortfolioAssets().flatMap((asset) =>
+    asset.contractAddress
+      ? [{
+          id: asset.id,
+          symbol: asset.symbol,
+          decimals: asset.decimals,
+          tokenAddress: asset.contractAddress,
+        }]
+      : [],
+  ),
+  ...portfolioVaults.map((vault) => ({
+    id: vault.id,
+    symbol: vault.symbol,
+    decimals: vault.decimals,
+    tokenAddress: vault.address,
   })),
 ] as const;
 

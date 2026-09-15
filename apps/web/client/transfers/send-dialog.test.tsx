@@ -168,7 +168,7 @@ describe("SendDialog Peer cash-out", () => {
 
     fireEvent.click(page().getByRole("button", { name: "1" }));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    const peer = await page().findByRole("button", { name: /Available payout apps: Cash App.*Cash out with Peer.*Receive money in a payment app/ });
+    const peer = await page().findByRole("button", { name: /Available payout apps: Cash App.*Send to Zelle, Venmo, Cash App and more.*Use Peer to send via app/ });
     expect(peer).toBeTruthy();
     fireEvent.click(peer);
     fireEvent.click(page().getByRole("button", { name: "Cash App" }));
@@ -195,7 +195,7 @@ describe("SendDialog Peer cash-out", () => {
     );
     fireEvent.click(page().getByRole("button", { name: "1" }));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    expect(page().queryByRole("button", { name: /Cash out with Peer/ })).toBeNull();
+    expect(page().queryByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ })).toBeNull();
     expect(page().queryByRole("button", { name: "Recover a Peer cash-out" })).toBeNull();
     expect(page().getByLabelText("To")).toBeTruthy();
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
@@ -245,7 +245,7 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     const recovery = await page().findByRole("button", { name: /Withdraw 2 USDC.*Peer cash-out.*awaiting-buyer/ });
     expect(recovery).toBeTruthy();
-    expect(page().queryByRole("button", { name: /Cash out with Peer/ })).toBeNull();
+    expect(page().queryByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ })).toBeNull();
     fireEvent.click(recovery);
     expect(await page().findByRole("button", { name: "Withdraw 2 USDC" })).toBeTruthy();
     expect(prepares).toEqual([{

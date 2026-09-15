@@ -6,7 +6,6 @@ import { DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { AppDrawer, MoneyModalBody } from "@/client/money-modal";
 import { X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
-import { flushSync } from "react-dom";
 import { classifyEmailCodeError } from "./auth-errors";
 import {
   BaseAccountLoginError,
@@ -15,10 +14,7 @@ import {
 } from "./cdp-client";
 import { SignInEmail } from "./sign-in-email";
 import { SignInOtp } from "./sign-in-otp";
-import {
-  BaseAccountHandoff,
-  BaseAccountOnlySignIn,
-} from "./sign-in-base-account";
+import { BaseAccountOnlySignIn } from "./sign-in-base-account";
 import { SignInBlockedPanel, SignInStatus } from "./sign-in-shell";
 
 const RESEND_COOLDOWN_SECONDS = 30;
@@ -94,7 +90,6 @@ export function AccountSignInSheet({
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [baseAccountPhase, setBaseAccountPhase] = useState<BaseAccountLoginPhase | null>(null);
-  const [isProviderHandoff, setIsProviderHandoff] = useState(false);
   const [completedAttemptSequence, setCompletedAttemptSequence] = useState<number | null>(null);
   const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
   const [resendSeconds, setResendSeconds] = useState(0);
@@ -111,15 +106,16 @@ export function AccountSignInSheet({
     signInAvailability === "provider-unavailable";
   const isCleaningUp = !signInBlocked && status === "signing-out";
   const isChecking = !signInBlocked && (status === "restoring" || status === "validating");
-  const sheetOpen = open && (!isProviderHandoff || baseAccountFailed);
   const initialFocusRef = flowId
     ? otpInputRef
     : projectConfigured
       ? emailInputRef
       : baseAccountButtonRef;
+  // The sign-in form stays mounted during a pending Base Account attempt; the
+  // phase surface lives inside the Base Account button. This status gate covers
+  // only cleanup, validation, and error states that replace the form.
   const hasStatus = Boolean(
-    (activeBaseAccountPhase && !isProviderHandoff) || isCleaningUp || isChecking ||
-    status === "signout-error" || status === "unavailable",
+    isCleaningUp || isChecking || status === "signout-error" || status === "unavailable",
   );
 
   useEffect(() => {
@@ -129,8 +125,8 @@ export function AccountSignInSheet({
   }, [isInitialized, open, retrySessionValidation, signInAvailability]);
 
   useLayoutEffect(() => {
-    if (sheetOpen && flowId) otpInputRef.current?.focus({ preventScroll: true });
-  }, [flowId, sheetOpen]);
+    if (open && flowId) otpInputRef.current?.focus({ preventScroll: true });
+  }, [flowId, open]);
 
   useEffect(() => {
     if (
@@ -139,6 +135,7 @@ export function AccountSignInSheet({
       consumedVerifiedAttempt.current !== completedAttemptSequence
     ) {
       consumedVerifiedAttempt.current = completedAttemptSequence;
+      setBaseAccountPhase(null);
       onClose();
       onVerified?.();
     }
@@ -163,7 +160,6 @@ export function AccountSignInSheet({
     setIsSendingCode(false);
     setIsVerifyingCode(false);
     setBaseAccountPhase(null);
-    setIsProviderHandoff(false);
     setResendAvailableAt(null);
     setResendSeconds(0);
   }
@@ -236,13 +232,11 @@ export function AccountSignInSheet({
   }
 
   async function handleBaseAccountSignIn() {
+    if (activeBaseAccountPhase !== null) return;
     const sequence = ++uiAttemptSequence.current;
-    flushSync(() => {
-      setCompletedAttemptSequence(null);
-      setAuthError(null);
-      setBaseAccountPhase("connecting");
-      setIsProviderHandoff(true);
-    });
+    setCompletedAttemptSequence(null);
+    setAuthError(null);
+    setBaseAccountPhase("connecting");
     try {
       await signInWithBaseAccount((phase) => {
         if (sequence === uiAttemptSequence.current) setBaseAccountPhase(phase);
@@ -251,84 +245,86 @@ export function AccountSignInSheet({
     } catch (error) {
       if (sequence !== uiAttemptSequence.current) return;
       setBaseAccountPhase(null);
-      setIsProviderHandoff(false);
       setAuthError(messageForBaseAccountError(error));
     }
   }
 
+  if (!open) return null;
+
   return (
-    <>
-      {sheetOpen ? <AppDrawer
-        open
-        labelledBy="account-sign-in-title"
-        onCancel={closeAndCancelAttempt}
-        initialFocusRef={initialFocusRef}
-        immediate
-      >
-        <DrawerHeader className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center text-left">
-          <span />
-          <DrawerTitle id="account-sign-in-title" className="text-center">
-            {flowId ? "Check your email" : "Sign in to Home"}
-          </DrawerTitle>
-          <Button
-            className="size-11 shrink-0"
-            size="icon-lg"
-            variant="secondary"
-            onClick={closeAndCancelAttempt}
-            aria-label="Close sign in"
-          >
-            <X aria-hidden="true" />
-          </Button>
-        </DrawerHeader>
-        <MoneyModalBody>
-          {signInBlocked ? (
-            <SignInBlockedPanel reason={signInAvailability === "provider-unavailable" ? "provider-unavailable" : "unconfigured"} />
-          ) : (
-            <>
-              {message ? <StatusMessage className="mt-4">{message}</StatusMessage> : null}
-              {authError ? <StatusMessage className="mt-4" tone="error" role="alert">{authError}</StatusMessage> : null}
-              <SignInStatus
-                phase={isProviderHandoff ? null : activeBaseAccountPhase}
-                cleaningUp={isCleaningUp}
-                checking={isChecking}
-                signOutError={status === "signout-error"}
-                unavailable={status === "unavailable"}
-                onRetrySignOut={() => void signOut().catch(() => {})}
-                onRetryValidation={() => void retrySessionValidation()}
+    <AppDrawer
+      open
+      labelledBy="account-sign-in-title"
+      onCancel={closeAndCancelAttempt}
+      initialFocusRef={initialFocusRef}
+      immediate
+    >
+      <DrawerHeader className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center text-left">
+        <span />
+        <DrawerTitle id="account-sign-in-title" className="text-center">
+          {flowId ? "Check your email" : "Sign in to Home"}
+        </DrawerTitle>
+        <Button
+          className="size-11 shrink-0"
+          size="icon-lg"
+          variant="secondary"
+          onClick={closeAndCancelAttempt}
+          aria-label="Close sign in"
+        >
+          <X aria-hidden="true" />
+        </Button>
+      </DrawerHeader>
+      <MoneyModalBody>
+        {signInBlocked ? (
+          <SignInBlockedPanel reason={signInAvailability === "provider-unavailable" ? "provider-unavailable" : "unconfigured"} />
+        ) : (
+          <>
+            {message ? <StatusMessage className="mt-4">{message}</StatusMessage> : null}
+            {authError ? <StatusMessage className="mt-4" tone="error" role="alert">{authError}</StatusMessage> : null}
+            <SignInStatus
+              cleaningUp={isCleaningUp}
+              checking={isChecking}
+              signOutError={status === "signout-error"}
+              unavailable={status === "unavailable"}
+              onRetrySignOut={() => void signOut().catch(() => {})}
+              onRetryValidation={() => void retrySessionValidation()}
+            />
+            {hasStatus ? null : !projectConfigured ? (
+              baseAccountEnabled ? (
+                <BaseAccountOnlySignIn
+                  buttonRef={baseAccountButtonRef}
+                  phase={activeBaseAccountPhase}
+                  onSignIn={() => void handleBaseAccountSignIn()}
+                />
+              ) : null
+            ) : flowId ? (
+              <SignInOtp
+                email={email}
+                otp={otp}
+                isSendingCode={isSendingCode}
+                isVerifyingCode={isVerifyingCode}
+                resendSeconds={resendSeconds}
+                inputRef={otpInputRef}
+                onOtpChange={setOtp}
+                onSubmit={handleOtpSubmit}
+                onChangeEmail={changeEmail}
+                onResend={() => { setOtp(""); void sendCode(email); }}
               />
-              {!hasStatus && !projectConfigured && baseAccountEnabled ? (
-                <BaseAccountOnlySignIn buttonRef={baseAccountButtonRef} onSignIn={() => void handleBaseAccountSignIn()} />
-              ) : !hasStatus && projectConfigured && flowId ? (
-                <SignInOtp
-                  email={email}
-                  otp={otp}
-                  isSendingCode={isSendingCode}
-                  isVerifyingCode={isVerifyingCode}
-                  resendSeconds={resendSeconds}
-                  inputRef={otpInputRef}
-                  onOtpChange={setOtp}
-                  onSubmit={handleOtpSubmit}
-                  onChangeEmail={changeEmail}
-                  onResend={() => { setOtp(""); void sendCode(email); }}
-                />
-              ) : !hasStatus && projectConfigured ? (
-                <SignInEmail
-                  email={email}
-                  isSendingCode={isSendingCode}
-                  baseAccountEnabled={baseAccountEnabled}
-                  inputRef={emailInputRef}
-                  onEmailChange={setEmail}
-                  onSubmit={handleEmailSubmit}
-                  onBaseAccountSignIn={() => void handleBaseAccountSignIn()}
-                />
-              ) : null}
-            </>
-          )}
-        </MoneyModalBody>
-      </AppDrawer> : null}
-      {open && isProviderHandoff && !baseAccountFailed ? (
-        <BaseAccountHandoff phase={activeBaseAccountPhase} onCancel={closeAndCancelAttempt} />
-      ) : null}
-    </>
+            ) : (
+              <SignInEmail
+                email={email}
+                isSendingCode={isSendingCode}
+                baseAccountEnabled={baseAccountEnabled}
+                baseAccountPhase={activeBaseAccountPhase}
+                inputRef={emailInputRef}
+                onEmailChange={setEmail}
+                onSubmit={handleEmailSubmit}
+                onBaseAccountSignIn={() => void handleBaseAccountSignIn()}
+              />
+            )}
+          </>
+        )}
+      </MoneyModalBody>
+    </AppDrawer>
   );
 }
