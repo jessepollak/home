@@ -25,8 +25,7 @@ function holding(
   sourceKind: "registry" | "catalog" | "wallet",
   options: {
     cash?: "USD";
-    liquidity?: string;
-    volume?: string;
+    liquidity?: string | null;
     baseUnits?: string;
     marketDataResolved?: true;
   } = {},
@@ -48,14 +47,9 @@ function holding(
     ...(
       sourceKind === "catalog" || options.marketDataResolved
         ? {
-            liquidityUsd: {
-              atoms: options.liquidity ?? "100000",
-              scale: 0,
-            },
-            volume24Usd: {
-              atoms: options.volume ?? "10000",
-              scale: 0,
-            },
+            liquidityUsd: options.liquidity === null
+              ? undefined
+              : { atoms: options.liquidity ?? "100000", scale: 0 },
           }
         : {}
     ),
@@ -73,7 +67,7 @@ const dust = holding(
   "0x2222222222222222222222222222222222222222",
   "catalog:dust",
   "catalog",
-  { liquidity: "99999" },
+  { liquidity: "24999" },
 );
 const stale = holding(
   "0x3333333333333333333333333333333333333333",
@@ -296,7 +290,7 @@ describe("balances pricing", () => {
       "0x5555555555555555555555555555555555555555",
       "wallet:gated",
       "wallet",
-      { marketDataResolved: true, liquidity: "99999" },
+      { marketDataResolved: true, liquidity: "24999" },
     );
     const batches: string[][] = [];
     const price = createTestPricer({
@@ -314,6 +308,49 @@ describe("balances pricing", () => {
       currency: "USD",
     });
     expect(result[1]?.value).toEqual({
+      status: "unpriced",
+      reason: "below-market-gate",
+    });
+  });
+
+  test("admits inclusive $25k liquidity without volume and fails closed below or without it", async () => {
+    const atThreshold = holding(
+      "0x7777777777777777777777777777777777777777",
+      "catalog:at-threshold",
+      "catalog",
+      { liquidity: "25000" },
+    );
+    const belowThreshold = holding(
+      "0x8888888888888888888888888888888888888888",
+      "catalog:below-threshold",
+      "catalog",
+      { liquidity: "24999" },
+    );
+    const missingLiquidity = holding(
+      "0x9999999999999999999999999999999999999999",
+      "catalog:missing-liquidity",
+      "catalog",
+      { liquidity: null },
+    );
+    const price = createTestPricer({
+      readPrices: async (inputs) =>
+        inputs.map((input) => quote(input.assetKey, "fresh")),
+      readExchangeRates: async () => rates(),
+    });
+
+    const result = await price(
+      { ...read, holdings: [atThreshold, belowThreshold, missingLiquidity] },
+      "US",
+    );
+    expect(result[0]?.value).toMatchObject({
+      status: "priced",
+      currency: "USD",
+    });
+    expect(result[1]?.value).toEqual({
+      status: "unpriced",
+      reason: "below-market-gate",
+    });
+    expect(result[2]?.value).toEqual({
       status: "unpriced",
       reason: "below-market-gate",
     });

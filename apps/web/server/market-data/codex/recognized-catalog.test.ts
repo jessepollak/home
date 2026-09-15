@@ -15,7 +15,6 @@ function row(
 ): Record<string, unknown> {
   return {
     liquidity: "1000000",
-    volume24: "50000",
     token: {
       address,
       name: "Recognized",
@@ -80,6 +79,7 @@ describe("Codex recognized-token catalog", () => {
       withToken(row("0x4444444444444444444444444444444444444444"), { networkId: "1" }),
       row("0x5555555555555555555555555555555555555555", { liquidity: "0" }),
       row("0x6666666666666666666666666666666666666666", { volume24: "invalid" }),
+      row("0x8888888888888888888888888888888888888888", { volume24: 0 }),
       withToken(row("0x7777777777777777777777777777777777777777"), {
         symbol: "SAFE",
         info: { imageSmallUrl: "http://unsafe.example.test/token.png" },
@@ -100,14 +100,39 @@ describe("Codex recognized-token catalog", () => {
       symbol: "RCG",
       decimals: 18,
       liquidityUsd: { atoms: "1000000", scale: 0 },
-      volume24Usd: { atoms: "50000", scale: 0 },
       imageUrl: "https://images.example.test/token.png",
     });
     expect(normalized[1]).toMatchObject({
+      address: "0x6666666666666666666666666666666666666666",
+    });
+    expect(normalized[2]).toMatchObject({
+      address: "0x8888888888888888888888888888888888888888",
+    });
+    expect(normalized[3]).toMatchObject({
       address: "0x7777777777777777777777777777777777777777",
       symbol: "SAFE",
     });
-    expect(normalized[1]).not.toHaveProperty("imageUrl");
+    expect(normalized[3]).not.toHaveProperty("imageUrl");
     expect(new Set(normalized.map(({ address }) => address)).size).toBe(normalized.length);
+    for (const entry of normalized) {
+      expect(entry).not.toHaveProperty("volume24Usd");
+    }
+  });
+
+  test("admits rows with missing or invalid volume so it cannot change row identity", () => {
+    const normalized = normalizeRecognizedTokenCatalog([
+      row("0x6666666666666666666666666666666666666666", { volume24: "invalid" }),
+      row("0x8888888888888888888888888888888888888888", { volume24: 0 }),
+      row("0x9999999999999999999999999999999999999999"),
+    ]);
+
+    expect(normalized.map(({ address }) => address)).toEqual([
+      "0x6666666666666666666666666666666666666666",
+      "0x8888888888888888888888888888888888888888",
+      "0x9999999999999999999999999999999999999999",
+    ]);
+    for (const entry of normalized) {
+      expect(entry).not.toHaveProperty("volume24Usd");
+    }
   });
 });
