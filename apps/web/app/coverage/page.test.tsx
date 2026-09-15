@@ -1,3 +1,5 @@
+import "@/client/account/dom-test-harness";
+
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import CoveragePage, { metadata } from "./page";
