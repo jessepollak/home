@@ -2,6 +2,7 @@
 
 Repository checks run without provider or funded-wallet secrets:
 
+- `bun run factory:preflight` before a factory pilot run (pinned repository, `agent/*` branch, and secret-free worktree/ambient environment)
 - `bun check`
 - Chromium product smoke
 - delivery automation tests (`bun run gates`: repository gate canaries plus PR-metadata algorithms; also run inside `bun check`)
