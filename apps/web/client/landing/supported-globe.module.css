@@ -14,11 +14,12 @@
   aspect-ratio: 1;
   border-radius: 50%;
   user-select: none;
-  /* The browser keeps vertical scrolling and multi-touch zoom, including cancel. */
   touch-action: pan-y pinch-zoom;
 }
 
 .stage[tabindex] {
+  /* The ready globe uses one finger for two-axis rotation; two fingers remain browser pinch zoom. */
+  touch-action: pinch-zoom;
   cursor: grab;
 }
 

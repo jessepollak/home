@@ -1,5 +1,5 @@
-/** Degrees per millisecond. Inertia approaches the gentle default, never zero. */
-export const DEFAULT_VELOCITY = .005;
+/** Degrees per millisecond. Longitude inertia approaches this gentle auto-spin. */
+export const DEFAULT_VELOCITY = .0075;
 export const MAX_VELOCITY = .18;
 const DECAY_TIME = 900;
 
@@ -8,12 +8,12 @@ export function boundedVelocity(value: number) {
 }
 
 /** Exact exponential integration keeps decay independent of the frame rate. */
-export function advanceMotion(velocity: number, elapsed: number) {
+export function advanceMotion(velocity: number, elapsed: number, targetVelocity = DEFAULT_VELOCITY) {
   const time = Math.max(0, Math.min(elapsed, 100));
   const decay = Math.exp(-time / DECAY_TIME);
   return {
-    velocity: DEFAULT_VELOCITY + (velocity - DEFAULT_VELOCITY) * decay,
-    distance: DEFAULT_VELOCITY * time + (velocity - DEFAULT_VELOCITY) * DECAY_TIME * (1 - decay),
+    velocity: targetVelocity + (velocity - targetVelocity) * decay,
+    distance: targetVelocity * time + (velocity - targetVelocity) * DECAY_TIME * (1 - decay),
   };
 }
 

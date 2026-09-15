@@ -14,6 +14,7 @@ import {
   configuredGlobeCountries,
   countryFlag,
   INITIAL_LONGITUDE,
+  INITIAL_VIEW_LATITUDE,
   locateCountries,
   NETWORK_CYCLE_MS,
   projectCountry,
@@ -58,8 +59,8 @@ function subscribeMotion(callback: () => void) {
 function motionSnapshot() { return window.matchMedia(motionQuery).matches; }
 function serverMotionSnapshot() { return true; }
 
-function selectionForPoint(point: GlobePoint, longitude: number): GlobePopoverSelection {
-  return { country: point, position: projectCountry(point.longitude, point.latitude, longitude) };
+function selectionForPoint(point: GlobePoint, longitude: number, latitude: number): GlobePopoverSelection {
+  return { country: point, position: projectCountry(point.longitude, point.latitude, longitude, latitude) };
 }
 
 /** A centerpiece only: composition, headline and sign-in remain with the landing. */
@@ -82,6 +83,7 @@ export function SupportedGlobe({
   const rendererRef = useRef<GlobeRenderer | null>(null);
   const motionRef = useRef(false);
   const longitudeRef = useRef(INITIAL_LONGITUDE);
+  const latitudeRef = useRef(INITIAL_VIEW_LATITUDE);
   const points = useMemo(() => locateCountries(countries), [countries]);
   const interactivePoints = useMemo(() => interactiveMarkerTones
     ? points.filter((point) => point.markerTone && interactiveMarkerTones.includes(point.markerTone))
@@ -115,8 +117,8 @@ export function SupportedGlobe({
       ? interactivePoints.find((point) => point.countryCode === activeCountryRef.current)
       : undefined;
     const selection = activePoint
-      ? selectionForPoint(activePoint, longitudeRef.current)
-      : selectGlobePopoverCountry(interactivePoints, longitudeRef.current);
+      ? selectionForPoint(activePoint, longitudeRef.current, latitudeRef.current)
+      : selectGlobePopoverCountry(interactivePoints, longitudeRef.current, null, Number.POSITIVE_INFINITY, latitudeRef.current);
     selectedCountryRef.current = selection?.country.countryCode ?? null;
     selectedAtRef.current = performance.now();
     setSelectedPopover(selection);
@@ -148,17 +150,18 @@ export function SupportedGlobe({
       }
     }
 
-    function project(longitude: number, frameTime = performance.now()) {
+    function project(longitude: number, latitude: number, frameTime = performance.now()) {
       longitudeRef.current = longitude;
+      latitudeRef.current = latitude;
       for (const point of pointsRef.current) {
-        const position = projectCountry(point.longitude, point.latitude, longitude);
+        const position = projectCountry(point.longitude, point.latitude, longitude, latitude);
         const marker = markerRefs.current.get(point.countryCode);
         marker?.setAttribute("cx", position.x.toFixed(3));
         marker?.setAttribute("cy", position.y.toFixed(3));
         marker?.setAttribute("visibility", position.visible ? "visible" : "hidden");
       }
       for (const point of interactivePointsRef.current) {
-        const position = projectCountry(point.longitude, point.latitude, longitude);
+        const position = projectCountry(point.longitude, point.latitude, longitude, latitude);
         const button = countryButtonRefs.current.get(point.countryCode);
         button?.style.setProperty("--country-x", `${position.x.toFixed(3)}%`);
         button?.style.setProperty("--country-y", `${position.y.toFixed(3)}%`);
@@ -168,7 +171,7 @@ export function SupportedGlobe({
         const progress = motionRef.current
           ? frameTime / NETWORK_CYCLE_MS + route.phase
           : route.phase;
-        const projection = projectGlobeRoute(route, longitude, progress);
+        const projection = projectGlobeRoute(route, longitude, progress, latitude);
         const nodes = routeRefs.current.get(route.id);
         nodes?.path?.setAttribute("d", projection.path);
         nodes?.path?.style.setProperty(
@@ -195,7 +198,7 @@ export function SupportedGlobe({
       const activePoint = activeCountryRef.current
         ? pointsRef.current.find((point) => point.countryCode === activeCountryRef.current)
         : undefined;
-      const activeSelection = activePoint ? selectionForPoint(activePoint, longitude) : null;
+      const activeSelection = activePoint ? selectionForPoint(activePoint, longitude, latitude) : null;
       const activeIsVisible = Boolean(
         activeSelection?.position.visible && activeSelection.position.depth > 0.12,
       );
@@ -206,7 +209,7 @@ export function SupportedGlobe({
         }
         activeCountryRef.current = null;
         setActiveCountryCode(null);
-        const fallback = selectGlobePopoverCountry(interactivePointsRef.current, longitude);
+        const fallback = selectGlobePopoverCountry(interactivePointsRef.current, longitude, null, Number.POSITIVE_INFINITY, latitude);
         setRovingCountryCode(fallback?.country.countryCode ?? interactivePointsRef.current[0]?.countryCode ?? null);
         positionPopover(fallback);
       } else {
@@ -217,6 +220,7 @@ export function SupportedGlobe({
               longitude,
               selectedCountryRef.current,
               performance.now() - selectedAtRef.current,
+              latitude,
             ));
       }
     }
@@ -224,7 +228,7 @@ export function SupportedGlobe({
     function unavailable() {
       if (cancelled) return;
       rendererRef.current = null;
-      project(INITIAL_LONGITUDE);
+      project(INITIAL_LONGITUDE, INITIAL_VIEW_LATITUDE);
       setStatus("unavailable");
     }
 
@@ -258,7 +262,7 @@ export function SupportedGlobe({
     activeCountryRef.current = point.countryCode;
     setActiveCountryCode(point.countryCode);
     setRovingCountryCode(point.countryCode);
-    const selection = selectionForPoint(point, longitudeRef.current);
+    const selection = selectionForPoint(point, longitudeRef.current, latitudeRef.current);
     selectedCountryRef.current = point.countryCode;
     selectedAtRef.current = 0;
     setSelectedPopover(selection);
@@ -268,7 +272,7 @@ export function SupportedGlobe({
     if (!activeCountryRef.current) return;
     activeCountryRef.current = null;
     setActiveCountryCode(null);
-    const selection = selectGlobePopoverCountry(interactivePoints, longitudeRef.current);
+    const selection = selectGlobePopoverCountry(interactivePoints, longitudeRef.current, null, Number.POSITIVE_INFINITY, latitudeRef.current);
     selectedCountryRef.current = selection?.country.countryCode ?? null;
     selectedAtRef.current = 0;
     setSelectedPopover(selection);
@@ -277,7 +281,7 @@ export function SupportedGlobe({
 
   function focusAdjacentCountry(current: GlobePoint, direction: -1 | 1) {
     const visible = interactivePoints.filter((point) => {
-      const position = projectCountry(point.longitude, point.latitude, longitudeRef.current);
+      const position = projectCountry(point.longitude, point.latitude, longitudeRef.current, latitudeRef.current);
       return position.visible && position.depth > 0.12;
     }).sort((a, b) => a.longitude - b.longitude || a.latitude - b.latitude);
     const index = visible.findIndex((point) => point.countryCode === current.countryCode);
@@ -294,7 +298,7 @@ export function SupportedGlobe({
         aria-label={ariaLabel}
         aria-describedby={`${descriptionId} ${motionId}`}
         tabIndex={status === "ready" ? 0 : undefined}
-        aria-keyshortcuts={status === "ready" ? "Space ArrowLeft ArrowRight Escape" : undefined}
+        aria-keyshortcuts={status === "ready" ? "Space ArrowLeft ArrowRight ArrowUp ArrowDown Escape" : undefined}
         onPointerDown={(event) => {
           if (event.target === event.currentTarget) clearActiveCountry();
         }}
@@ -306,6 +310,9 @@ export function SupportedGlobe({
           } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
             event.preventDefault();
             rendererRef.current?.rotate(event.key === "ArrowLeft" ? 12 : -12);
+          } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && event.target === event.currentTarget) {
+            event.preventDefault();
+            rendererRef.current?.rotate(0, event.key === "ArrowUp" ? -8 : 8);
           } else if (event.key === "Escape") {
             event.preventDefault();
             clearActiveCountry();
@@ -412,7 +419,7 @@ export function SupportedGlobe({
       <div className={styles.srOnly}>
         <p id={descriptionId}>
           {description ?? `${countries.length} country and currency profiles${showRoutes ? " connected by a small illustrative route set" : " shown as sourced inventory points"}.`}
-          {status === "ready" && " Drag horizontally to spin. Space pauses or resumes rotation; Left and Right arrows rotate the globe. Tab to a country point; Up and Down arrows move between visible country points."}
+          {status === "ready" && " Drag in any direction to rotate and tilt; one-finger gestures rotate the globe while two-finger pinch zoom remains available. Space pauses or resumes rotation; arrow keys rotate and tilt when the globe is focused. Tab to a country point; Up and Down arrows move between visible country points."}
         </p>
         <p id={motionId} role="status">
           {status === "ready" ? playing ? "Globe and route motion on." : "Globe and route motion paused." : "Static globe and route view."}

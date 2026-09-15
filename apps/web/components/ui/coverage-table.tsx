@@ -28,30 +28,30 @@ const columns: ColumnDef<CoverageTableRow>[] = [
   { accessorKey: "currencies", header: "Currency" },
   { accessorKey: "asset", header: "Asset" },
   { accessorKey: "issuerName", header: "Issuer" },
-  { id: "issuer", header: "Issuer route", cell: ({ row }) => {
+  { id: "issuer", header: () => <span className={styles.statusColumn}>Issuer route</span>, cell: ({ row }) => {
     const value = row.original;
     const status = value.issuer.status;
-    return <CoverageStatusPreview status={issuerTraffic[status]} indicatorVariant={status === "not-researched" ? "hollow" : "solid"} accessibleName={`${issuerTraffic[status]} — ${issuerLabels[status]} issuer route`} heading={`${value.countryName} issuer route`} details={[
+    return <div className={styles.statusColumn}><CoverageStatusPreview status={issuerTraffic[status]} indicatorVariant={status === "not-researched" ? "hollow" : "solid"} accessibleName={`${issuerTraffic[status]} — ${issuerLabels[status]} issuer route`} heading={`${value.countryName} issuer route`} details={[
       { label: "Status", value: issuerLabels[status] },
       { label: "Rail", value: value.issuer.rail },
       { label: "Audience", value: value.issuer.audience },
       value.issuer.evidence ? { label: "Evidence", value: `Checked ${value.issuer.evidence.checkedAt}`, href: value.issuer.evidence.url } : { label: "Evidence", value: "No evidence recorded" },
       value.quote ? { label: "Quote observation", value: `Observed ${value.quote.quotedAt}; spread ${value.quote.spreadBps === null ? "not recorded" : `${value.quote.spreadBps} bps`}; fees: ${value.quote.feeSummary}`, href: value.quote.sourceUrl } : { label: "Quote observation", value: "None recorded" },
-    ]} />;
+    ]} /></div>;
   } },
-  { id: "home", header: "Home route", cell: ({ row }) => {
+  { id: "home", header: () => <span className={styles.statusColumn}>Home route</span>, cell: ({ row }) => {
     const value = row.original;
     const status = value.home.status;
-    return <CoverageStatusPreview status={homeTraffic[status]} accessibleName={`${homeTraffic[status]} — ${homeLabels[status]}${status === "none" ? "" : " Home route"}`} heading={`${value.countryName} Home route`} details={[
+    return <div className={styles.statusColumn}><CoverageStatusPreview status={homeTraffic[status]} accessibleName={`${homeTraffic[status]} — ${homeLabels[status]}${status === "none" ? "" : " Home route"}`} heading={`${value.countryName} Home route`} details={[
       { label: "Status", value: homeLabels[status] },
       { label: "Provider", value: value.home.provider ?? "None" },
       { label: "Asset", value: value.home.asset ?? "None" },
       { label: "Payment methods", value: value.home.paymentMethods.join(", ") || "None" },
       value.home.evidence ? { label: "Hosted production", value: `${value.home.evidence.proofRef}; checked ${value.home.evidence.checkedAt}` } : { label: "Hosted production", value: `No evidence recorded; registry checked ${value.registryCheckedAt}` },
-    ]} />;
+    ]} /></div>;
   } },
 ];
 
 export function CoverageTable({ rows }: { rows: CoverageTableRow[] }) {
-  return <DataTable columns={columns} data={rows} caption="Country local-money issuer routes and separate Home routes" />;
+  return <DataTable columns={columns} data={rows} caption="Country local-money issuer routes and separate Home routes" density="compact" />;
 }

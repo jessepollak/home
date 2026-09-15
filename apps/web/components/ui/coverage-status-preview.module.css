@@ -2,8 +2,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 2.25rem;
+  height: 2.25rem;
   border: 0;
   padding: 0;
   background: transparent;
@@ -14,8 +14,8 @@
 }
 
 .trigger::before {
-  width: 0.55rem;
-  height: 0.55rem;
+  width: 0.75rem;
+  height: 0.75rem;
   flex: 0 0 auto;
   border-radius: 999px;
   background: var(--muted-foreground);

@@ -289,15 +289,67 @@ test("coverage fixture keeps public chrome and automatic GET filters usable", as
   await expect(page.getByRole("button", { name: "Apply" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Reset" })).toHaveCount(0);
 
-  await page.getByRole("textbox", { name: "Search" }).fill("Indonesia");
+  const globe = page.getByRole("group", { name: "Interactive globe of local-money coverage research" });
+  await expect(globe).toBeVisible();
+  await globe.focus();
+  await globe.press("Space");
+  const marker = page.locator("circle[data-country='US']");
+  const initialMarker = await marker.evaluate((node) => ({ x: node.getAttribute("cx"), y: node.getAttribute("cy") }));
+  const globeBox = await globe.boundingBox();
+  expect(globeBox).not.toBeNull();
+  await page.mouse.move(globeBox!.x + globeBox!.width / 2, globeBox!.y + globeBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(globeBox!.x + globeBox!.width * .65, globeBox!.y + globeBox!.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => marker.getAttribute("cx")).not.toBe(initialMarker.x);
+  const horizontalY = await marker.getAttribute("cy");
+  await page.mouse.move(globeBox!.x + globeBox!.width / 2, globeBox!.y + globeBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(globeBox!.x + globeBox!.width / 2, globeBox!.y + globeBox!.height * .65, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => marker.getAttribute("cy")).not.toBe(horizontalY);
+
+  const search = page.getByRole("textbox", { name: "Search" });
+  await search.scrollIntoViewIfNeeded();
+  await search.pressSequentially("Indonesia", { delay: 300 });
   await expect(page).toHaveURL(/q=Indonesia/);
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue("Indonesia");
   await expect(page.getByText("Showing 1 of 250 countries and territories.")).toBeVisible();
+  const searchTop = await search.evaluate((input) => input.getBoundingClientRect().top);
+  expect(searchTop).toBeGreaterThanOrEqual(0);
+  expect(searchTop).toBeLessThan(752);
 
   await page.getByRole("combobox", { name: "Issuer route" }).selectOption("documented");
   await expect(page).toHaveURL(/issuer=documented/);
   await page.goBack();
   await expect(page).not.toHaveURL(/issuer=documented/);
-  await expect(page.getByRole("textbox", { name: "Search" })).toHaveValue("Indonesia");
+  await expect(search).toHaveValue("Indonesia");
+  await expect(page.getByText("Showing 1 of 250 countries and territories.")).toBeVisible();
+
+  await page.setViewportSize({ width: 1374, height: 752 });
+  const filterMetrics = await page.locator("form[action='/coverage']").evaluate((form) => ({
+    bottom: form.getBoundingClientRect().bottom,
+    selects: [...form.querySelectorAll("select")].map((select) => ({
+      clientWidth: select.clientWidth,
+      scrollWidth: select.scrollWidth,
+    })),
+  }));
+  expect(filterMetrics.selects.every(({ clientWidth, scrollWidth }) => clientWidth >= scrollWidth)).toBe(true);
+  const statusLayout = await page.locator("#country-ID").evaluate((row) => {
+    const statusCells = [...row.querySelectorAll("td")].slice(-2);
+    return statusCells.map((cell) => {
+      const trigger = cell.querySelector("button")!.getBoundingClientRect();
+      const bounds = cell.getBoundingClientRect();
+      return { triggerWidth: trigger.width, centerDelta: Math.abs(trigger.x + trigger.width / 2 - (bounds.x + bounds.width / 2)), rowHeight: row.getBoundingClientRect().height };
+    });
+  });
+  expect(statusLayout.every(({ triggerWidth, centerDelta, rowHeight }) => triggerWidth >= 36 && centerDelta < 2 && rowHeight <= 38)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1374);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("combobox", { name: "Sort" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
 
 test("a valid Home session redirects the landing route before rendering", async ({ context }) => {

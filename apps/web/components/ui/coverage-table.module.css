@@ -9,3 +9,11 @@
   color: var(--muted-foreground);
   font-weight: 400;
 }
+
+.statusColumn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}

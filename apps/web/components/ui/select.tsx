@@ -191,7 +191,7 @@ function NativeSelect({
   wrapperClassName,
   children,
   ...props
-}: React.SelectHTMLAttributes<HTMLSelectElement> & { wrapperClassName?: string }) {
+}: React.ComponentPropsWithRef<"select"> & { wrapperClassName?: string }) {
   return (
     <div className={cn("relative", wrapperClassName)}>
       <select

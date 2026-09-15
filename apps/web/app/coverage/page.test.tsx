@@ -31,6 +31,8 @@ describe("public coverage page", () => {
     expect(html).not.toContain("Home routes live");
     expect(html).not.toContain("How to read status");
     expect(html).not.toContain("The 250-entry universe");
+    expect(html).not.toContain(">Countries and territories</h2>");
+    expect(html).toContain('aria-label="Countries and territories"');
     expect(html).not.toContain("coverage-map-title");
     expect(html).not.toContain("World Bank");
     expect(html).not.toContain("<footer");
@@ -43,8 +45,8 @@ describe("public coverage page", () => {
     expect(html).toContain(">Currency</th>");
     expect(html).toContain(">Asset</th>");
     expect(html).toContain(">Issuer</th>");
-    expect(html).toContain(">Issuer route</th>");
-    expect(html).toContain(">Home route</th>");
+    expect(html).toMatch(/<th[^>]+scope="col"><span[^>]*>Issuer route<\/span><\/th>/);
+    expect(html).toMatch(/<th[^>]+scope="col"><span[^>]*>Home route<\/span><\/th>/);
     expect(html).not.toContain(">GDP (2024)</th>");
     expect(html).toMatch(/aria-hidden="true"[^>]*>🇺🇸<\/span>/);
 
@@ -96,9 +98,17 @@ describe("public coverage page", () => {
     expect(html).not.toContain("$11,203,038,332");
   });
 
+  test("searches visible issuer names", async () => {
+    const html = await renderCoverage({ q: "Ripio" });
+    expect(html).toContain("Showing 4 of 250 countries and territories");
+    expect(html).toContain("Argentina");
+    expect(html).toContain("Colombia");
+    expect(html).toContain("Country, code, currency, asset, or issuer");
+  });
+
   test("applies GET search, status filters, and alphabetical sorting", async () => {
     const html = await renderCoverage({ q: "rupiah", issuer: "documented", home: "in-build", sort: "alphabetical" });
-    expect(html).toContain("method=\"get\"");
+    expect(html).not.toContain("method=\"post\"");
     expect(html).not.toContain(">Apply</button>");
     expect(html).not.toContain(">Reset</a>");
     expect(html).toContain("Showing 1 of 250 countries and territories");

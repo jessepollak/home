@@ -74,7 +74,7 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
   const home = isHomeStatus(homeValue) ? homeValue : null;
   const records = sortCoverage(coverageRegistry.filter((record) => {
     const region = record.configuredInHome ? presentationRegions[record.countryCode as CountryCode] : null;
-    const searchable = `${record.countryName} ${record.countryCode} ${record.currencyCodes.join(" ")} ${region?.currency.name ?? ""} ${region?.candidateAsset?.symbol ?? ""}`.toLocaleLowerCase();
+    const searchable = `${record.countryName} ${record.countryCode} ${record.currencyCodes.join(" ")} ${region?.currency.name ?? ""} ${region?.candidateAsset?.symbol ?? ""} ${region?.candidateAsset?.issuer ?? ""}`.toLocaleLowerCase();
     return (!search || searchable.includes(search)) && (!issuer || record.issuerRoute.status === issuer) && (!home || record.homeRoute.status === home);
   }), sort);
   const tableRows: CoverageTableRow[] = records.map((record) => {
@@ -133,8 +133,7 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">Local money coverage</h1>
       </header>
 
-      <section aria-labelledby="countries-heading" className="space-y-4">
-        <h2 id="countries-heading" className="text-2xl font-semibold">Countries and territories</h2>
+      <section aria-label="Countries and territories" className="mx-auto w-full max-w-5xl space-y-4">
         <CoverageFilters
           values={{ q: queryValue(query.q), issuer: issuer ?? "", home: home ?? "", sort }}
           issuerOptions={coverageIssuerStatuses.map((status) => ({ value: status, label: issuerLabels[status] }))}

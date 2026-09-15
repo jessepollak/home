@@ -1,5 +1,5 @@
 import land from "./globe-land-points.json";
-import { geographicVector, INITIAL_LONGITUDE, VIEW_LATITUDE } from "./globe-geometry";
+import { clampViewLatitude, geographicVector, INITIAL_LONGITUDE, INITIAL_VIEW_LATITUDE } from "./globe-geometry";
 import { advanceMotion, boundedVelocity, DEFAULT_VELOCITY, wrapLongitude } from "./globe-motion";
 
 const vertex = `
@@ -53,7 +53,7 @@ void main() {
 
 export type GlobeRenderer = {
   setMotion: (playing: boolean) => void;
-  rotate: (degrees: number) => void;
+  rotate: (longitudeDegrees: number, latitudeDegrees?: number) => void;
   dispose: () => void;
 };
 
@@ -61,7 +61,7 @@ export type GlobeRenderer = {
 export function createGlobeRenderer(
   canvas: HTMLCanvasElement,
   stage: HTMLDivElement,
-  onFrame: (longitude: number, frameTime: number) => void,
+  onFrame: (longitude: number, latitude: number, frameTime: number) => void,
   onUnavailable: () => void,
 ): GlobeRenderer {
   const gl = canvas.getContext("webgl", {
@@ -82,11 +82,14 @@ export function createGlobeRenderer(
   let playing = false;
   let visible = true;
   let longitude = INITIAL_LONGITUDE;
+  let latitude = INITIAL_VIEW_LATITUDE;
   let presentedLongitude = INITIAL_LONGITUDE;
+  let presentedLatitude = INITIAL_VIEW_LATITUDE;
   let lastTime = 0;
   let dirty = false;
-  let velocity = DEFAULT_VELOCITY;
-  let drag: { id: number; startX: number; startY: number; x: number; time: number; horizontal: boolean } | null = null;
+  let longitudeVelocity = DEFAULT_VELOCITY;
+  let latitudeVelocity = 0;
+  let drag: { id: number; startX: number; startY: number; x: number; y: number; time: number; active: boolean } | null = null;
   let resizeObserver: ResizeObserver | undefined;
   let intersectionObserver: IntersectionObserver | undefined;
 
@@ -156,9 +159,12 @@ export function createGlobeRenderer(
     // Includes pointer updates: at most 30fps, with no inactive-time catch-up.
     if (time - lastTime >= 1000 / 30) {
       if (playing && !drag) {
-        const next = advanceMotion(velocity, time - lastTime);
-        velocity = next.velocity;
-        longitude = wrapLongitude(longitude + next.distance);
+        const nextLongitude = advanceMotion(longitudeVelocity, time - lastTime);
+        const nextLatitude = advanceMotion(latitudeVelocity, time - lastTime, 0);
+        longitudeVelocity = nextLongitude.velocity;
+        latitudeVelocity = nextLatitude.velocity;
+        longitude = wrapLongitude(longitude + nextLongitude.distance);
+        latitude = clampViewLatitude(latitude + nextLatitude.distance);
       }
       lastTime = time;
       dirty = false;
@@ -178,8 +184,9 @@ export function createGlobeRenderer(
     const previous = drag;
     drag = null;
     stage.removeAttribute("data-dragging");
-    if (!inertia || !playing || !previous?.horizontal || performance.now() - previous.time > 100) {
-      velocity = DEFAULT_VELOCITY;
+    if (!inertia || !playing || !previous?.active || performance.now() - previous.time > 100) {
+      longitudeVelocity = DEFAULT_VELOCITY;
+      latitudeVelocity = 0;
     }
     if (previous && stage.hasPointerCapture(previous.id)) stage.releasePointerCapture(previous.id);
     syncMotion();
@@ -190,7 +197,7 @@ export function createGlobeRenderer(
     if (!event.isPrimary) { endDrag(false); return; }
     if (event.button !== 0 || disposed || !visible || document.hidden) return;
     endDrag(false);
-    drag = { id: event.pointerId, startX: event.clientX, startY: event.clientY, x: event.clientX, time: performance.now(), horizontal: false };
+    drag = { id: event.pointerId, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, time: performance.now(), active: false };
     try { stage.setPointerCapture(event.pointerId); }
     catch { drag = null; return; }
     syncMotion();
@@ -198,20 +205,26 @@ export function createGlobeRenderer(
 
   function pointerMove(event: PointerEvent) {
     if (!drag || event.pointerId !== drag.id) return;
-    if (!drag.horizontal) {
+    if (!drag.active) {
       const dx = event.clientX - drag.startX;
       const dy = event.clientY - drag.startY;
       if (Math.max(Math.abs(dx), Math.abs(dy)) < 4) return;
-      if (Math.abs(dy) > Math.abs(dx)) { endDrag(false); return; }
-      drag.horizontal = true;
+      drag.active = true;
       stage.setAttribute("data-dragging", "true");
     }
     const now = performance.now();
-    const distance = -(event.clientX - drag.x) / Math.max(1, stage.getBoundingClientRect().width) * 180;
-    longitude = wrapLongitude(longitude + distance);
-    const sample = boundedVelocity(distance / Math.max(8, now - drag.time));
-    velocity = boundedVelocity(velocity * .25 + sample * .75);
+    const width = Math.max(1, stage.getBoundingClientRect().width);
+    const longitudeDistance = -(event.clientX - drag.x) / width * 180;
+    const latitudeDistance = (event.clientY - drag.y) / width * 180;
+    longitude = wrapLongitude(longitude + longitudeDistance);
+    latitude = clampViewLatitude(latitude + latitudeDistance);
+    const elapsed = Math.max(8, now - drag.time);
+    const longitudeSample = boundedVelocity(longitudeDistance / elapsed);
+    const latitudeSample = boundedVelocity(latitudeDistance / elapsed);
+    longitudeVelocity = boundedVelocity(longitudeVelocity * .25 + longitudeSample * .75);
+    latitudeVelocity = boundedVelocity(latitudeVelocity * .25 + latitudeSample * .75);
     drag.x = event.clientX;
+    drag.y = event.clientY;
     drag.time = now;
     dirty = true;
     requestFrame();
@@ -230,6 +243,7 @@ export function createGlobeRenderer(
     // A pointer move may be waiting for the 30fps draw. Resume from what was
     // actually displayed, not from an unseen final gesture update.
     longitude = presentedLongitude;
+    latitude = presentedLatitude;
     dirty = false;
   }
 
@@ -285,12 +299,13 @@ export function createGlobeRenderer(
       gl.enableVertexAttribArray(pointPosition);
       gl.vertexAttribPointer(pointPosition, 3, gl.FLOAT, false, 0, 0);
       gl.uniform1f(longitudeUniform, longitude * Math.PI / 180);
-      gl.uniform1f(tiltUniform, VIEW_LATITUDE * Math.PI / 180);
+      gl.uniform1f(tiltUniform, latitude * Math.PI / 180);
       gl.uniform1f(sizeUniform, Math.max(1.5, canvas.width * .0038));
       gl.drawArrays(gl.POINTS, 0, positions.length / 3);
       gl.disableVertexAttribArray(pointPosition);
       presentedLongitude = longitude;
-      onFrame(longitude, performance.now());
+      presentedLatitude = latitude;
+      onFrame(longitude, latitude, performance.now());
     };
 
     stage.addEventListener("pointerdown", pointerDown);
@@ -315,13 +330,17 @@ export function createGlobeRenderer(
     return {
       setMotion(value) {
         playing = value;
-        if (!value) velocity = DEFAULT_VELOCITY;
+        if (!value) {
+          longitudeVelocity = DEFAULT_VELOCITY;
+          latitudeVelocity = 0;
+        }
         syncMotion();
       },
-      rotate(degrees) {
+      rotate(longitudeDegrees, latitudeDegrees = 0) {
         if (disposed) return;
         endDrag(false);
-        longitude = wrapLongitude(longitude + degrees);
+        longitude = wrapLongitude(longitude + longitudeDegrees);
+        latitude = clampViewLatitude(latitude + latitudeDegrees);
         dirty = true;
         requestFrame();
       },
