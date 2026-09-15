@@ -5,6 +5,7 @@ import { TransferExecutionError } from "@/shared/transfers/types";
 
 export type ConfirmedPlan = {
   calls: Array<{ to: `0x${string}`; data: `0x${string}`; value: string }>;
+  batchGasLimit?: string;
 };
 
 type GenerationGuard = Pick<OwnerGenerationFence, "assertCurrent">;

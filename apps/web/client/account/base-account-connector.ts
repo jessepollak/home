@@ -54,6 +54,7 @@ type ConnectedBaseAccountCommon = {
     calls: BaseAccountTransaction[],
     requestId: string,
     beforeDispatch?: () => Promise<void>,
+    batchGasLimit?: string,
   ) => Promise<string>;
   getCallsStatus?: (submissionId: string) => Promise<BaseAccountCallStatus>;
   release?: () => void;
@@ -78,6 +79,15 @@ type BaseAccountProvider = Pick<
   ProviderInterface,
   "request" | "on" | "removeListener" | "disconnect"
 >;
+
+function isValidBatchGasLimit(value: string): boolean {
+  if (!/^[1-9]\d*$/.test(value)) return false;
+  try {
+    return BigInt(value) <= BigInt(2_000_000);
+  } catch {
+    return false;
+  }
+}
 
 function providerErrorCode(error: unknown): number | null {
   if (
@@ -359,9 +369,12 @@ async function openBaseProvider(
       }
       return signature.toLowerCase() as `0x${string}`;
     },
-    async sendCalls(calls, requestId, beforeDispatch) {
+    async sendCalls(calls, requestId, beforeDispatch, batchGasLimit) {
       await assertUnchanged();
-      if (calls.length < 1 || calls.length > 8 || !requestId) {
+      if (
+        calls.length < 1 || calls.length > 8 || !requestId ||
+        (batchGasLimit !== undefined && !isValidBatchGasLimit(batchGasLimit))
+      ) {
         throw new BaseAccountConnectorError("invalid-provider-response");
       }
       await beforeDispatch?.();
@@ -375,10 +388,13 @@ async function openBaseProvider(
             from: connectedAddress,
             atomicRequired: true,
             id: requestId,
-            calls: calls.map((call) => ({
+            calls: calls.map((call, index) => ({
               to: call.to,
               value: `0x${call.value.toString(16)}`,
               data: call.data,
+              ...(batchGasLimit !== undefined && index === calls.length - 1
+                ? { capabilities: { gasLimitOverride: { value: `0x${BigInt(batchGasLimit).toString(16)}` } } }
+                : {}),
             })),
           }],
         });

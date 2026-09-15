@@ -153,7 +153,10 @@ export function useMoneyActionExecution({
             await fetchAccountResource(`/api/actions/${action.id}/confirm`, { method: "POST", body: {} }),
           );
           if (!response) throw new TransferExecutionError("unavailable");
-          return { calls: response.calls as ConfirmedPlan["calls"] };
+          return {
+            calls: response.calls as ConfirmedPlan["calls"],
+            ...(response.batchGasLimit ? { batchGasLimit: response.batchGasLimit } : {}),
+          };
         },
         dispatch: async (plan) => {
           const calls = plan.calls.map((call) => ({ ...call, value: BigInt(call.value) }));
@@ -162,7 +165,12 @@ export function useMoneyActionExecution({
             if (!connection?.sendCalls || connection.address.toLowerCase() !== action.owner.address.toLowerCase()) {
               throw new TransferExecutionError("stale-session");
             }
-            return connection.sendCalls(calls, action.id, async () => ownerFence.assertCurrent(generation));
+            return connection.sendCalls(
+              calls,
+              action.id,
+              async () => ownerFence.assertCurrent(generation),
+              plan.batchGasLimit,
+            );
           }
           if (!sdkSendUserOperation) throw new TransferExecutionError("unavailable");
           ownerFence.assertCurrent(generation);

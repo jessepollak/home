@@ -200,6 +200,35 @@ describe("Base Account connector boundary", () => {
     ).toHaveLength(1);
   });
 
+  test("adds the aggregate gas override only to the final call and guards invalid hints", async () => {
+    const provider = new ProviderFixture();
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
+    const calls = [
+      { to: OTHER_ADDRESS as `0x${string}`, value: BigInt(0), data: "0x095ea7b3" as `0x${string}` },
+      { to: ADDRESS as `0x${string}`, value: BigInt(0), data: "0x1234" as `0x${string}` },
+    ];
+
+    await connection.sendCalls?.(calls, "hinted-action", undefined, "150000");
+    const request = provider.requests.find(({ method }) => method === "wallet_sendCalls");
+    const sentCalls = (request?.params as Array<{ calls: unknown[] }> | undefined)?.[0]?.calls;
+    expect(sentCalls).toEqual([
+      { to: OTHER_ADDRESS, value: "0x0", data: "0x095ea7b3" },
+      {
+        to: ADDRESS,
+        value: "0x0",
+        data: "0x1234",
+        capabilities: { gasLimitOverride: { value: "0x249f0" } },
+      },
+    ]);
+
+    for (const hint of ["0", "0x10", "2000001"]) {
+      await expect(connection.sendCalls?.(calls, "bad-hint", undefined, hint)).rejects.toMatchObject({
+        reason: "invalid-provider-response",
+      });
+    }
+    expect(provider.requests.filter(({ method }) => method === "wallet_sendCalls")).toHaveLength(1);
+  });
+
   test("returns the Base submission handle before a later account-state read could discard it", async () => {
     const provider = new ProviderFixture();
     provider.accountsAfterSendCalls = [OTHER_ADDRESS];
