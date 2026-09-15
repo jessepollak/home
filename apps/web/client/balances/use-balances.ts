@@ -19,24 +19,36 @@ export const balancesStaleTimeMs = 15_000;
 export const balancesStaleRefetchMs = 3_000;
 export const balancesStaleRefetchLimit = 4;
 
-type StalePollingState = { fetchedAt: string; attempts: number };
+type StalePollingState = {
+  identity: string;
+  dataUpdatedAt: number;
+  completedRefetches: number;
+};
 
 export function nextStaleRefetchDelay(
   polling: StalePollingState,
   snapshot: BalancesSnapshot | undefined,
+  identity: string,
+  dataUpdatedAt: number,
 ): number | false {
   if (snapshot?.stale !== true) {
-    polling.fetchedAt = "";
-    polling.attempts = 0;
+    polling.identity = "";
+    polling.dataUpdatedAt = 0;
+    polling.completedRefetches = 0;
     return false;
   }
-  if (polling.fetchedAt !== snapshot.fetchedAt) {
-    polling.fetchedAt = snapshot.fetchedAt;
-    polling.attempts = 0;
+  const observationIdentity = `${identity}\u0000${snapshot.fetchedAt}`;
+  if (polling.identity !== observationIdentity) {
+    polling.identity = observationIdentity;
+    polling.dataUpdatedAt = dataUpdatedAt;
+    polling.completedRefetches = 0;
+  } else if (polling.dataUpdatedAt !== dataUpdatedAt) {
+    polling.dataUpdatedAt = dataUpdatedAt;
+    polling.completedRefetches += 1;
   }
-  if (polling.attempts >= balancesStaleRefetchLimit) return false;
-  polling.attempts += 1;
-  return balancesStaleRefetchMs;
+  return polling.completedRefetches >= balancesStaleRefetchLimit
+    ? false
+    : balancesStaleRefetchMs;
 }
 
 export function useBalances(
@@ -47,7 +59,7 @@ export function useBalances(
 ): BalancesState & { revalidating?: true } {
   const validSession = isBalancesSession(session) ? session : null;
   const ownerKey = validSession ? dataOwnerKey(validSession) : null;
-  const stalePolling = useRef({ fetchedAt: "", attempts: 0 });
+  const stalePolling = useRef({ identity: "", dataUpdatedAt: 0, completedRefetches: 0 });
   const query = useHomeQuery<BalancesSnapshot>({
     queryKey: ownerKey
       ? ownerQueryKey(ownerKey, "balances", region)
@@ -56,8 +68,14 @@ export function useBalances(
     staleTime: balancesStaleTimeMs,
     retry: false,
     refetchOnWindowFocus: true,
-    refetchInterval: (queryState) =>
-      nextStaleRefetchDelay(stalePolling.current, queryState.state.data),
+    refetchInterval: (queryState) => queryState.state.status === "error"
+      ? false
+      : nextStaleRefetchDelay(
+        stalePolling.current,
+        queryState.state.data,
+        `${ownerKey ?? "unauthenticated"}\u0000${region}`,
+        queryState.state.dataUpdatedAt,
+      ),
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[0] === ownerKey ? keepPreviousData(previousData) : undefined,
