@@ -1,4 +1,4 @@
-export { ActivityPanel } from "./activity-panel";
+export { ActivityPanel, ActivityPanelView } from "./activity-panel";
 export type {
   ActivityPanelDensity,
   ActivityPanelProps,

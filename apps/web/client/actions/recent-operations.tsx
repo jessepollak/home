@@ -1,9 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, CircleQuestionMark, X } from "lucide-react";
-import { MoneyTicker } from "@/components/money-ticker";
-import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
@@ -12,11 +9,8 @@ import {
   type RecentMoneyActionOperation,
 } from "@/shared/actions/contracts/list";
 export type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
-import {
-  formatPresentationDate,
-  formatPresentationTokenAmount,
-} from "@/shared/formatting";
-import { labelForOperationStatus, presentOperationDetails, primaryOperationAmount } from "./operation-details";
+import { presentOperationDetails } from "./operation-details";
+import { OperationActivityRow } from "./operation-row";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import { activityOwnerKey } from "@/client/activity/use-activity";
 
@@ -69,7 +63,7 @@ export function RecentMoneyActions({
   ) : (
     <ol className="list-none p-0">
       {operations.map((operation) => (
-        <OperationRow
+        <OperationActivityRow
           key={operation.action.id}
           operation={operation}
           onActivate={() => setSelected(operation)}
@@ -95,20 +89,5 @@ export function RecentMoneyActions({
       {modal}
     </section>
   );
-}
-
-function OperationRow({ operation, onActivate }: { operation: RecentMoneyActionOperation; onActivate: () => void }) {
-  const amount = primaryOperationAmount(operation);
-  const status = labelForOperationStatus(operation.status);
-  const date = formatPresentationDate(operation.updatedAt, { style: "activity-short" });
-  const value = amount ? `${amount.direction === "spend" ? "−" : "+"}${amount.estimated ? "~" : ""}${formatPresentationTokenAmount(amount.amountBaseUnits, amount.decimals, amount.symbol, { cashCurrency: amount.symbol === "USDC" ? "USD" : null })}` : null;
-  const icon = operation.status === "failed"
-    ? <X className="size-4" />
-    : operation.status === "unknown"
-        ? <CircleQuestionMark className="size-4" />
-        : amount?.direction === "receive"
-          ? <ArrowDown className="size-4" />
-          : <ArrowUp className="size-4" />;
-  return <ActivityRow icon={icon} iconTone={operation.status === "failed" ? "outlined" : amount?.direction === "receive" ? "incoming" : "outgoing"} label={operation.action.title} context={<><time dateTime={operation.updatedAt}>{date}</time> · {status}</>} value={value ? <MoneyTicker value={value} /> : status} valueTone={operation.status === "failed" ? "error" : operation.status === "unknown" ? "muted" : "default"} onActivate={onActivate} activateLabel={`View ${operation.action.title} transaction details`} />;
 }
 

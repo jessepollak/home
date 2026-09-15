@@ -1,18 +1,13 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
-  ACTIVITY_TEASER_LIMIT,
-  ActivityPanel,
+  ActivityPanelView,
   type ActivityPanelDensity,
   type FetchActivity,
 } from "@/client/activity";
 import { activityOwnerKey, useActivity } from "@/client/activity/use-activity";
-import {
-  RecentMoneyActions,
-  dedupeRecentMoneyActions,
-  parseRecentMoneyActions,
-} from "@/client/actions";
+import { parseRecentMoneyActions } from "@/client/actions";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
@@ -87,32 +82,17 @@ export function ConnectedActivityPanel({
       ? parseRecentMoneyActions(value, activitySession)
       : [],
   });
-  const indexedTransactionHashes = useMemo(() => activity.status === "ready"
-    ? new Set(activity.page.transfers.map((transfer) => transfer.transactionHash.toLowerCase()))
-    : new Set<string>(), [activity]);
-  const visibleActions = useMemo(() => dedupeRecentMoneyActions(
-    actions.data ?? [],
-    indexedTransactionHashes,
-  ), [actions.data, indexedTransactionHashes]);
+  const actionStatus = actions.isPending ? "loading" : actions.isError ? "error" : "ready";
 
   return (
-    <ActivityPanel
-      session={activitySession}
-      fetchActivity={fetchActivity}
+    <ActivityPanelView
+      key={ownerKey ?? "signed-out"}
+      activity={activity}
+      operations={actions.data ?? []}
+      actionsStatus={actionStatus}
       regionId={regionId}
-      suppressEmpty={visibleActions.length > 0}
       density={density}
       header={header}
-      leading={
-        <RecentMoneyActions
-          session={activitySession}
-          fetchOperations={fetchOperations}
-          excludeTransactionHashes={indexedTransactionHashes}
-          embedded
-          showUnavailableNotice={false}
-          limit={density === "teaser" ? ACTIVITY_TEASER_LIMIT : undefined}
-        />
-      }
     />
   );
 }
