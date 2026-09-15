@@ -313,6 +313,8 @@ describe("FundingExperience", () => {
     expect(page().getByRole("button", { name: "Back" }).hasAttribute("disabled")).toBe(true);
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
     await page().findByText("Check Activity before trying again");
+    expect(page().queryByRole("button", { name: "Back" })).toBeNull();
+    expect(page().getByRole("button", { name: "Close add money" })).toBeTruthy();
     expect(quoteCalls).toBe(1);
     expect(orderBodies).toEqual([{ quoteToken: "original-signed-token" }, { quoteToken: "original-signed-token" }]);
   });

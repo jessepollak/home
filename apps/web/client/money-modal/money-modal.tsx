@@ -46,18 +46,30 @@ export function MoneyModal({ open, labelledBy, describedBy, immediate = false, o
   return <AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate} onCancel={onCancel} onClose={onClose}>{children}</AppDrawer>;
 }
 
-export function MoneyModalHeader({ title, titleId, onBack, onClose, assetControl, backDisabled = false, closeDisabled = false, closeLabel = "Close" }: {
-  title: string; titleId: string; onBack?: () => void; onClose: () => void; assetControl?: ReactNode;
-  backDisabled?: boolean; closeDisabled?: boolean; closeLabel?: string;
-}) {
+type MoneyModalHeaderProps = {
+  title: string;
+  titleId: string;
+  onClose: () => void;
+  closeDisabled?: boolean;
+  closeLabel?: string;
+} & (
+  | { onBack: () => void; backDisabled?: boolean; assetControl?: never }
+  | { onBack?: never; backDisabled?: never; assetControl?: ReactNode }
+);
+
+export function MoneyModalHeader(props: MoneyModalHeaderProps) {
+  const { title, titleId, onClose, closeDisabled = false, closeLabel = "Close" } = props;
+  const onBack = "onBack" in props ? props.onBack : undefined;
+  const backDisabled = "backDisabled" in props ? props.backDisabled ?? false : false;
+  const assetControl = "assetControl" in props ? props.assetControl : undefined;
   return (
     <DrawerHeader className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center text-left">
       <div className="flex min-w-0 justify-start overflow-hidden">
-        {onBack ? <Button data-initial-focus={!backDisabled ? "" : undefined} variant="ghost" size="icon-lg" className="size-11" aria-label="Back" disabled={backDisabled} onClick={onBack}><ArrowLeft className="size-4" aria-hidden="true" /></Button> : assetControl ?? <span />}
+        {onBack ? <Button autoFocus={!backDisabled} data-initial-focus={!backDisabled ? "" : undefined} variant="ghost" size="icon-lg" className="size-11" aria-label="Back" disabled={backDisabled} onClick={onBack}><ArrowLeft className="size-4" aria-hidden="true" /></Button> : assetControl ?? <span />}
       </div>
       <DrawerTitle id={titleId} variant="money">{title}</DrawerTitle>
       <div className="flex min-w-0 justify-end overflow-hidden">
-        <Button data-initial-focus={!onBack || backDisabled ? "" : undefined} variant="ghost" size="icon-lg" className="size-11 shrink-0" aria-label={closeLabel} disabled={closeDisabled} onClick={onClose}><X className="size-4" aria-hidden="true" /></Button>
+        <Button autoFocus={!onBack || backDisabled} data-initial-focus={!onBack || backDisabled ? "" : undefined} variant="ghost" size="icon-lg" className="size-11 shrink-0" aria-label={closeLabel} disabled={closeDisabled} onClick={onClose}><X className="size-4" aria-hidden="true" /></Button>
       </div>
     </DrawerHeader>
   );

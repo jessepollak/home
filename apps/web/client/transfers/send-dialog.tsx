@@ -349,7 +349,16 @@ export function SendDialog({
   };
   return (
     <MoneyModal open={open} labelledBy="send-title" immediate={immediate} onCancel={close} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
-      <MoneyModalHeader title={modalTitle} titleId="send-title" onBack={step === "amount" || step === "pending" ? undefined : back} onClose={close} assetControl={step === "amount" ? <MoneyAssetPicker {...amountAssetProps} /> : undefined} closeDisabled={step === "pending"} closeLabel="Close send dialog" />
+      <MoneyModalHeader
+        title={modalTitle}
+        titleId="send-title"
+        {...(step === "amount"
+          ? { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
+          : step === "pending" ? {} : { onBack: back })}
+        onClose={close}
+        closeDisabled={step === "pending"}
+        closeLabel="Close send dialog"
+      />
       <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">
         {step === "amount" ? <>
           <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(selectedAvailability.balanceBaseUnits, selectedAvailability.decimals) : null} availableSuffix={selectedAvailability?.balanceAgeLabel} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />

@@ -390,8 +390,7 @@ export function MoneyAssetPicker({
 
   if (!canPick) {
     return (
-      <div className="flex h-9 max-w-[7.25rem] items-center gap-1 rounded-md border bg-background px-1.5 text-sm font-medium" aria-label="Asset">
-        <span className="contents" aria-label={assetLabel}>
+      <div role="group" className="flex h-9 max-w-[7.25rem] items-center gap-1 rounded-md border bg-background px-1.5 text-sm font-medium" aria-label={assetLabel}>
         <CurrencyMark
           currency={assetMark?.currency ?? markCurrency}
           symbol={assetMark?.symbol ?? assetLabel}
@@ -400,7 +399,6 @@ export function MoneyAssetPicker({
           presentation="selector"
         />
         <span className="truncate">{assetLabel}</span>
-        </span>
       </div>
     );
   }

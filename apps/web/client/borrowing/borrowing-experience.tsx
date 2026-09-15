@@ -705,7 +705,16 @@ function BorrowMoneyDialog({
 
   return (
     <MoneyModal open labelledBy="borrow-action-title" describedBy={step === "pending" ? "borrow-action-pending" : undefined} onCancel={closeIfAllowed} onClose={onClose}>
-      <MoneyModalHeader title={title} titleId="borrow-action-title" onBack={step === "amount" || step === "pending" ? undefined : goBack} onClose={closeIfAllowed} assetControl={step === "amount" && !closesWithoutDebt ? <MoneyAssetPicker {...amountAssetProps} /> : undefined} closeDisabled={step === "pending"} closeLabel="Close Borrow action" />
+      <MoneyModalHeader
+        title={title}
+        titleId="borrow-action-title"
+        {...(step === "amount"
+          ? closesWithoutDebt ? {} : { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
+          : step === "pending" ? {} : { onBack: goBack })}
+        onClose={closeIfAllowed}
+        closeDisabled={step === "pending"}
+        closeLabel="Close Borrow action"
+      />
       <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
         {step === "amount" ? (
           <>

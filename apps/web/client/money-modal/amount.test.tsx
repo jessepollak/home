@@ -265,7 +265,8 @@ describe("MoneyAmountDisplay", () => {
       />,
     );
 
-    expect(page().getByLabelText("Asset")).toBeTruthy();
+    expect(page().getByRole("group", { name: "USDC" })).toBeTruthy();
+    expect(page().queryByLabelText("Asset")).toBeNull();
     expect(page().queryByRole("combobox", { name: "Asset" })).toBeNull();
     expect(page().queryByRole("button", { name: "$10" })).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Max" }));

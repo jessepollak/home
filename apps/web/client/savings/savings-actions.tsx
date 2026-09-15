@@ -188,8 +188,11 @@ export function SavingsMoneyDialog({
         <MoneyModalHeader
           title={title}
           titleId="savings-action-title"
-          assetControl={step === "amount" ? <MoneyAssetPicker {...amountAssetProps} /> : undefined}
-          onBack={step === "amount" || step === "pending" ? undefined : goBack}
+          {...(step === "amount"
+            ? { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
+            : step === "pending"
+              ? {}
+              : { onBack: goBack })}
           onClose={closeIfAllowed}
           closeDisabled={step === "pending"}
           closeLabel={`Close ${mode} dialog`}

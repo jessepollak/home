@@ -213,7 +213,13 @@ export function FundingOrderFlow({
   if (currentOrder) {
     return (
       <>
-        <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" />
+        <MoneyModalHeader
+          title={`Deposit ${binding.currency}`}
+          titleId={titleId}
+          {...(currentOrder.state === "dispatch-ambiguous" ? {} : { onBack })}
+          onClose={onClose}
+          closeLabel="Close add money"
+        />
         <OrderStatus order={currentOrder} onRefetch={orderQuery.refetch} />
       </>
     );

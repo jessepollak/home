@@ -1,8 +1,17 @@
 import { createHash, createHmac } from "node:crypto";
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import type { RegionId } from "../../config/regions";
 import { parseBalancesSnapshot } from "../../shared/balances/contract";
 import type { BalancesSnapshot } from "../../shared/balances/types";
+import {
+  BORROW_COLLATERAL_TOKEN,
+  BORROW_IRM_ADDRESS,
+  BORROW_LLTV_WAD,
+  BORROW_LOAN_TOKEN,
+  BORROW_MARKET_ID,
+  BORROW_ORACLE_ADDRESS,
+  MORPHO_BLUE_ADDRESS,
+} from "../../shared/borrowing/config";
 import {
   BASE_USDC_ADDRESS,
   MORPHO_V1_CANDIDATE_ADDRESSES,
@@ -49,6 +58,20 @@ function action(transfer: { assetId: "usdc" | "cbbtc"; amountBaseUnits: string }
     warnings: [`Recipient: ${RECIPIENT}`, "Network fee shown by wallet."],
     createdAt: CREATED_AT,
     expiresAt: EXPIRES_AT,
+  };
+}
+
+function borrowDetail() {
+  return {
+    version: "1",
+    chainId: 8453,
+    walletAddress: OWNER,
+    market: { id: BORROW_MARKET_ID, morpho: MORPHO_BLUE_ADDRESS, loanToken: BORROW_LOAN_TOKEN, collateralToken: BORROW_COLLATERAL_TOKEN, oracle: BORROW_ORACLE_ADDRESS, irm: BORROW_IRM_ADDRESS, lltvWad: BORROW_LLTV_WAD.toString(), rank: 1 },
+    eligibility: { mode: "enabled", newRisk: true, reason: null },
+    source: { provider: "Base JSON-RPC", blockNumber: "100", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1788897600", fetchedAt: "2026-09-13T12:00:00.000Z" },
+    state: { oraclePriceRaw: "800000000000000000000000000000000000000", borrowRatePerSecondWad: "1000000000", borrowAprWad: "31536000000000000", totalSupplyAssetsRaw: "1000000000", totalBorrowAssetsRaw: "500000000", totalBorrowSharesRaw: "500000000", liquidityAssetsRaw: "500000000", lastUpdateTimestamp: "1788897500" },
+    wallet: { collateralBalanceRaw: "100000000", loanBalanceRaw: "200000000", collateralAllowanceRaw: "0", loanAllowanceRaw: "0" },
+    position: { collateralRaw: "0", borrowSharesRaw: "0", debtAssetsRaw: "0", rawBorrowCapacityAssetsRaw: "0", borrowCapacityAssetsRaw: "0", rawWithdrawableCollateralRaw: "0", withdrawableCollateralRaw: "0", healthFactorWad: null, liquidationPriceRaw: null },
   };
 }
 
@@ -185,6 +208,7 @@ async function installApiFixtures(
       return json(route, { walletAddress: OWNER, chainId: 8453, window: { from, to }, transfers, nextCursor: null, source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to } });
     }
     if (path === "/api/savings/vaults") return json(route, savingsVaults());
+    if (path === `/api/borrow/markets/${BORROW_MARKET_ID}`) return json(route, borrowDetail());
     if (path === "/api/funding/providers") {
       if (url.searchParams.get("direction") === "offramp" && url.searchParams.get("region") === "US") return json(route, {
         version: 2,
@@ -249,6 +273,18 @@ async function typeAmount(page: Page, value: string) {
     const name = char === "." ? "Decimal point" : char;
     await page.getByRole("button", { name, exact: true }).click();
   }
+}
+
+async function expectReachableMoneyFooter(page: Page, dialog: Locator) {
+  const lastKey = dialog.getByRole("button", { name: "0", exact: true });
+  const footer = dialog.locator('[data-slot="drawer-footer"]');
+  await lastKey.scrollIntoViewIfNeeded();
+  await expect(lastKey).toBeVisible();
+  await expect(footer).toBeVisible();
+  const [keyBox, footerBox] = await Promise.all([lastKey.boundingBox(), footer.boundingBox()]);
+  expect(keyBox ? keyBox.y + keyBox.height : Number.POSITIVE_INFINITY).toBeLessThanOrEqual((footerBox?.y ?? 0) + 1);
+  expect(footerBox?.y ?? -1).toBeGreaterThanOrEqual(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 }
 
 async function amountMetrics(page: Page) {
@@ -635,6 +671,39 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem("home:playwright-smoke:dispatch-count"))).toBe("1");
 });
 
+test("locked Save amount keeps its keypad and footer visible at 320 by 720", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+  await page.goto("/save?flow=save-deposit");
+
+  const dialog = page.getByRole("dialog", { name: "Deposit" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("group", { name: "USDC" })).toHaveCount(1);
+  await expect(dialog.getByRole("combobox", { name: "Asset" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Close deposit dialog" })).toBeFocused();
+  await expect(dialog.getByRole("button", { name: "Continue" })).toBeVisible();
+  await expectReachableMoneyFooter(page, dialog);
+});
+
+test("Borrow amount remains reachable at 320 by 568 and 200% text", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+  await page.goto(`/borrow/${BORROW_MARKET_ID}`);
+  await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+
+  const dialog = page.getByRole("dialog", { name: "Borrow" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("group", { name: "USDC" })).toHaveCount(1);
+  await expect(dialog.getByRole("button", { name: "Close Borrow action" })).toBeFocused();
+  await expect(dialog.getByTestId("borrow-collateral-preview")).toBeVisible();
+  await expectReachableMoneyFooter(page, dialog);
+  await expect(dialog.getByRole("button", { name: "Continue" })).toBeVisible();
+});
+
 test("ambiguous handle response retries without a second wallet dispatch", async ({ page }) => {
   parseBalancesSnapshot(balancesSnapshot(), {
     subject: "playwright-smoke-subject",
@@ -894,6 +963,13 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   await page.setViewportSize({ width: 320, height: 720 });
   await signIn(page);
   await page.getByRole("button", { name: "Send" }).click();
+
+  const sendDialog = page.getByRole("dialog", { name: "Send" });
+  await expect(sendDialog.getByRole("combobox", { name: "Asset" })).toHaveCount(1);
+  await expect(sendDialog.getByRole("button", { name: "Close send dialog" })).toBeFocused();
+  await expect(sendDialog.getByRole("button", { name: "0", exact: true })).toBeInViewport();
+  await expect(sendDialog.getByRole("button", { name: "Continue" })).toBeInViewport();
+  await expectReachableMoneyFooter(page, sendDialog);
 
   const amount = page.locator("[data-primary-amount]");
   await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$0");
@@ -1309,9 +1385,15 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
   await expect(method).toBeVisible();
   await expect(method).toContainText("IDRX · Bank transfer · Mandiri");
   await method.click();
+  const orderDialog = page.getByRole("dialog", { name: "Deposit IDR" });
+  await expect(orderDialog.getByRole("group", { name: "IDR" })).toHaveCount(1);
+  await expect(orderDialog.getByLabel("Asset")).toHaveCount(0);
+  await expect(orderDialog.getByRole("button", { name: "Close add money" })).toBeFocused();
   await typeAmount(page, "20000");
   await page.getByRole("button", { name: "Review quote", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Review quote" })).toBeVisible();
+  await expect(orderDialog.getByRole("group", { name: "IDR" })).toHaveCount(0);
+  await expect(orderDialog.getByRole("button", { name: "Back" })).toBeVisible();
   await expect(
     page.getByText("Receive", { exact: true }).locator(".."),
   ).toContainText("20.000,00\u00A0IDRX");
