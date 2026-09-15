@@ -108,8 +108,8 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
-      - name: Test delivery metadata algorithms with fixtures
-        run: node --test scripts/delivery/tests/*.test.mjs
+      - name: Test repository gates and delivery metadata algorithms
+        run: bun run gates
 
   postgres-store-contract:
     name: real PostgreSQL actions and funding contracts (PostgreSQL 14)
