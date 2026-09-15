@@ -137,6 +137,61 @@ describe("FundingExperience", () => {
     expect(page().queryByRole("alert")).toBeNull();
   });
 
+  test("hides an open-order read error when there are no provider bindings", async () => {
+    let orderReads = 0;
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [] };
+        if (path.startsWith("/api/funding/orders?")) {
+          orderReads += 1;
+          throw new Error("ORDER_UNAVAILABLE");
+        }
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(
+      <FundingExperienceForWallet
+        wallet={wallet}
+        navigateToRedirect={() => {}}
+        regionId="AR"
+      />,
+    );
+
+    const receive = await page().findByRole("button", { name: /Receive crypto/ });
+    await waitFor(() => expect(orderReads).toBe(1));
+    expect(receive.hasAttribute("disabled")).toBe(false);
+    expect(page().queryByRole("alert")).toBeNull();
+  });
+
+  test("keeps a provider-list failure visible for retry", async () => {
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) {
+          throw new Error("PROVIDERS_UNAVAILABLE");
+        }
+        if (path.startsWith("/api/funding/orders?")) return { order: null };
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(
+      <FundingExperienceForWallet
+        wallet={wallet}
+        navigateToRedirect={() => {}}
+        regionId="AR"
+      />,
+    );
+
+    expect((await page().findByRole("alert")).textContent).toContain(
+      "Funding methods are unavailable. Try again.",
+    );
+    expect(page().getByRole("button", { name: /Receive crypto/ })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
   test("derives provider row copy from the binding and summarizes extra methods", async () => {
     const wallet = {
       ...verifiedWallet(),

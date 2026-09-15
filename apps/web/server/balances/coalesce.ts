@@ -110,10 +110,8 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     );
     const expired = row !== null &&
       current.getTime() - Date.parse(row.observedAt) > backstopMs;
-    const needsResume = row?.enumerationCursor !== null &&
-      row?.enumerationCursor !== undefined;
 
-    if (row && !hot && !signaled && !expired && !needsResume) {
+    if (row && !hot && !signaled && !expired) {
       return {
         read: readFromRow(row),
         stale: false,
@@ -123,7 +121,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     }
 
     try {
-      const registryOnly = Boolean(hot && row && !signaled && !expired && !needsResume);
+      const registryOnly = Boolean(hot && row && !signaled && !expired);
       const observed = registryOnly
         ? await observeRegistryOnly(owner, row!, durationMs)
         : await observeFull(owner, row, durationMs);

@@ -426,16 +426,17 @@ export function HomeBalanceRowView({ row }: { row: BalanceRowModel }) {
       )
     : null;
   const icon = row.mark.kind === "flag"
-    ? <CurrencyMark currency={row.mark.currency} />
+    ? <CurrencyMark currency={row.mark.currency} size="sm" />
     : row.mark.kind === "image"
-      ? <CurrencyMark src={row.mark.url} symbol={row.mark.fallbackSymbol} />
+      ? <CurrencyMark src={row.mark.url} symbol={row.mark.fallbackSymbol} size="sm" />
       : row.mark.kind === "eth"
-        ? <CurrencyMark symbol="ETH" />
+        ? <CurrencyMark symbol="ETH" size="sm" />
         : (
             <CurrencyMark
               src={symbolMark?.imageUrl}
               symbol={symbolMark?.symbol}
               pending={symbolMark?.pending}
+              size="sm"
             />
           );
   return (

@@ -216,14 +216,51 @@ export function withoutFlowHref(
   return `${current.pathname}${current.search}`;
 }
 
+const SHELL_SCROLL_TOP_STATE_KEY = "__homeShellScrollTop";
+const SHELL_CLIENT_ENTRY_STATE_KEY = "__homeShellClientEntry";
+const beforeClientUrlCommitListeners = new Set<() => void>();
+
+function historyStateWithScrollTop(state: unknown, scrollTop: number): Record<string, unknown> {
+  const current = state && typeof state === "object" ? state as Record<string, unknown> : {};
+  return { ...current, [SHELL_SCROLL_TOP_STATE_KEY]: Math.max(0, scrollTop) };
+}
+
+export function readClientScrollTop(state: unknown = window.history.state): number | null {
+  if (!state || typeof state !== "object") return null;
+  const value = (state as Record<string, unknown>)[SHELL_SCROLL_TOP_STATE_KEY];
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : null;
+}
+
+export function isClientHistoryEntry(state: unknown = window.history.state): boolean {
+  return Boolean(
+    state &&
+    typeof state === "object" &&
+    (state as Record<string, unknown>)[SHELL_CLIENT_ENTRY_STATE_KEY] === true,
+  );
+}
+
+export function replaceClientScrollTop(scrollTop: number): void {
+  if (typeof window === "undefined") return;
+  window.history.replaceState(historyStateWithScrollTop(window.history.state, scrollTop), "");
+}
+
+export function subscribeBeforeClientUrlCommit(listener: () => void): () => void {
+  beforeClientUrlCommitListeners.add(listener);
+  return () => beforeClientUrlCommitListeners.delete(listener);
+}
+
 export function commitClientUrl(
   href: string,
   mode: "push" | "replace" = "push",
 ): void {
   if (typeof window === "undefined") return;
+  for (const listener of beforeClientUrlCommitListeners) listener();
   if (mode === "replace") {
     window.history.replaceState(window.history.state, "", href);
   } else {
-    window.history.pushState(window.history.state, "", href);
+    window.history.pushState({
+      ...historyStateWithScrollTop(window.history.state, 0),
+      [SHELL_CLIENT_ENTRY_STATE_KEY]: true,
+    }, "", href);
   }
 }

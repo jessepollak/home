@@ -32,8 +32,9 @@ export type MoneyGroupPresentation = {
 
 export type MoneyBreakdownItem = {
   id: "cash" | "investments" | "saved";
-  label: "Cash" | "Investments" | "Saved";
+  label: "Cash" | "Investments" | "Savings";
   value: string;
+  weight: number;
 };
 
 export type BalancesPresentation = {
@@ -222,26 +223,70 @@ function presentBreakdown(
   cashSelections: readonly CashSelection[],
   investmentHoldings: readonly Holding[],
 ): MoneyBreakdownItem[] {
-  const breakdown: MoneyBreakdownItem[] = [];
-  const cashSubtotal = presentCashSubtotal(cashSelections, snapshot);
-  if (cashSubtotal) breakdown.push({ id: "cash", label: "Cash", value: cashSubtotal });
-  const investmentsSubtotal = presentHoldingsSubtotal(investmentHoldings, snapshot);
-  if (investmentsSubtotal) {
-    breakdown.push({ id: "investments", label: "Investments", value: investmentsSubtotal });
+  const items: Array<Omit<MoneyBreakdownItem, "weight"> & { amount: ExactDecimal }> = [];
+  const cashHoldings = cashSelections.flatMap((entry) =>
+    entry.kind === "holding" ? [entry.holding] : [],
+  );
+  appendBreakdownItem(items, "cash", "Cash", cashHoldings, snapshot);
+  const savedHoldings = selectSavedHoldings(snapshot);
+  if (savedHoldings.length > 0) {
+    appendBreakdownItem(items, "saved", "Savings", savedHoldings, snapshot);
   }
-  // Saved shares the quote-currency subtotal rule with Cash and Investments (omitted, never 0).
-  const savedSubtotal = presentSavedSubtotal(snapshot);
-  if (savedSubtotal) breakdown.push({ id: "saved", label: "Saved", value: savedSubtotal });
-  return breakdown;
+  appendBreakdownItem(items, "investments", "Investments", investmentHoldings, snapshot);
+
+  const normalizedAtoms = normalizedBreakdownAtoms(items);
+  const maximumAtoms = normalizedAtoms.reduce(
+    (maximum, atoms) => atoms > maximum ? atoms : maximum,
+    BigInt(0),
+  );
+
+  return items.map((item, index) => ({
+    id: item.id,
+    label: item.label,
+    value: item.value,
+    weight: maximumAtoms === BigInt(0)
+      ? 1
+      : Math.max(1, Number((normalizedAtoms[index]! * BigInt(1_000)) / maximumAtoms)),
+  }));
+}
+
+function appendBreakdownItem(
+  items: Array<Omit<MoneyBreakdownItem, "weight"> & { amount: ExactDecimal }>,
+  id: MoneyBreakdownItem["id"],
+  label: MoneyBreakdownItem["label"],
+  holdings: readonly Holding[],
+  snapshot: BalancesSnapshot,
+): void {
+  const amount = holdingsSubtotalAmount(holdings, snapshot);
+  if (!amount || !snapshot.quoteCurrency) return;
+  items.push({
+    id,
+    label,
+    value: formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region),
+    amount,
+  });
+}
+
+function normalizedBreakdownAtoms(
+  items: readonly { amount: ExactDecimal }[],
+): bigint[] {
+  const scale = items.reduce((maximum, item) => Math.max(maximum, item.amount.scale), 0);
+  return items.map(({ amount }) =>
+    BigInt(amount.atoms) * BigInt(10) ** BigInt(scale - amount.scale),
+  );
 }
 
 export function presentSavedSubtotal(snapshot: BalancesSnapshot): string | null {
-  const vaultShares = snapshot.holdings.filter((holding) =>
+  const holdings = selectSavedHoldings(snapshot);
+  return holdings.length > 0 ? presentHoldingsSubtotal(holdings, snapshot) : null;
+}
+
+function selectSavedHoldings(snapshot: BalancesSnapshot): Holding[] {
+  return snapshot.holdings.filter((holding) =>
     holding.kind === "vault-share" &&
     holding.balance.status === "ready" &&
     holding.balance.baseUnits !== "0"
   );
-  return vaultShares.length > 0 ? presentHoldingsSubtotal(vaultShares, snapshot) : null;
 }
 
 function presentCash(entry: CashSelection, snapshot: BalancesSnapshot): BalanceRowModel {
@@ -334,13 +379,22 @@ function presentHoldingsSubtotal(
   holdings: readonly Holding[],
   snapshot: BalancesSnapshot,
 ): string | null {
+  const amount = holdingsSubtotalAmount(holdings, snapshot);
+  return amount && snapshot.quoteCurrency
+    ? formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region)
+    : null;
+}
+
+function holdingsSubtotalAmount(
+  holdings: readonly Holding[],
+  snapshot: BalancesSnapshot,
+): ExactDecimal | null {
   if (!snapshot.quoteCurrency) return null;
   const values = holdings.flatMap((holding) =>
     holding.value.status === "priced" ? [holding.value.amount] : []
   );
   if (values.length === 0 && holdings.length > 0) return null;
-  const sum = sumExactDecimals(values);
-  return formatPresentationFiat(sum, snapshot.quoteCurrency, 2, snapshot.region);
+  return sumExactDecimals(values);
 }
 
 function sumExactDecimals(values: readonly ExactDecimal[]): ExactDecimal {

@@ -21,14 +21,22 @@ import {
 import {
   commitClientUrl,
   flowHref,
+  isClientHistoryEntry,
   parseShellLocation,
+  readClientScrollTop,
+  replaceClientScrollTop,
   shellHref,
   withoutFlowHref,
   type MoneyGroupId,
+  subscribeBeforeClientUrlCommit,
   type ShellFlow,
 } from "@/config/shell-location";
 import { useOptionalAppChrome } from "@/components/app-chrome";
-import { markHomePerformance } from "@/client/observability/perf-marks";
+import {
+  markHomePerformance,
+  markHomeStartupOutcome,
+  startHomePerformance,
+} from "@/client/observability/perf-marks";
 import {
   balancesListKey,
   clampHomeScrollTop,
@@ -120,6 +128,7 @@ export function HomeShell({
   const [forwardRequest, setForwardRequest] = useState(0);
   const pendingBalancesRestoreRef = useRef(false);
   const balancesReturnScrollRef = useRef(0);
+  const pendingHistoryScrollRestoreRef = useRef<number | null>(null);
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
   const landingRedirectedRef = useRef(false);
@@ -136,6 +145,7 @@ export function HomeShell({
   const [settingsOpenedInApp, setSettingsOpenedInApp] = useState(false);
   const [borrowMarketOpenedInApp, setBorrowMarketOpenedInApp] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
   const shellPath = routeMode === "landing" ? "/" : "/dashboard";
   const investChrome = useOptionalAppChrome();
   const scrollContextId = account.ownerKey && account.session?.user.subject
@@ -150,20 +160,68 @@ export function HomeShell({
   const previousScrollContextRef = useRef(scrollContextId);
 
   useEffect(() => {
+    startHomePerformance(shellPath);
     const frame = window.requestAnimationFrame(() => markHomePerformance("shell:paint"));
     return () => window.cancelAnimationFrame(frame);
-  }, []);
+  }, [shellPath]);
   useEffect(() => {
     if (previousScrollContextRef.current === scrollContextId) return;
     previousScrollContextRef.current = scrollContextId;
     mainRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [scrollContextId]);
   useEffect(() => {
+    const shell = shellRef.current;
+    const main = mainRef.current;
+    if (!shell || !main || routeMode !== "dashboard") return;
+
+    const syncScrollbarWidth = () => {
+      const width = Math.max(0, main.offsetWidth - main.clientWidth);
+      shell.style.setProperty("--shell-scrollbar-width", `${width}px`);
+    };
+    syncScrollbarWidth();
+
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(syncScrollbarWidth);
+    observer?.observe(main);
+    window.addEventListener("resize", syncScrollbarWidth);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", syncScrollbarWidth);
+    };
+  }, [routeMode]);
+
+  useEffect(() => {
     if (!("scrollRestoration" in window.history)) return;
     const previous = window.history.scrollRestoration;
     window.history.scrollRestoration = "manual";
     return () => { window.history.scrollRestoration = previous; };
   }, []);
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main || routeMode !== "dashboard") return;
+    let persistFrame: number | null = null;
+    const persistScroll = () => {
+      if (persistFrame !== null) {
+        window.cancelAnimationFrame(persistFrame);
+        persistFrame = null;
+      }
+      replaceClientScrollTop(main.scrollTop);
+    };
+    const schedulePersist = () => {
+      if (persistFrame !== null) return;
+      persistFrame = window.requestAnimationFrame(persistScroll);
+    };
+    if (readClientScrollTop() === null) replaceClientScrollTop(main.scrollTop);
+    const unsubscribe = subscribeBeforeClientUrlCommit(persistScroll);
+    main.addEventListener("scroll", schedulePersist, { passive: true });
+    return () => {
+      if (persistFrame !== null) window.cancelAnimationFrame(persistFrame);
+      persistScroll();
+      unsubscribe();
+      main.removeEventListener("scroll", schedulePersist);
+    };
+  }, [routeMode]);
 
   const applyUrlState = useCallback((intent: ReturnType<typeof readHomeInboundPanelState>) => {
     setActiveNavigation(intent.panel);
@@ -224,16 +282,22 @@ export function HomeShell({
   useEffect(() => {
     const onPopState = () => {
       const intent = readHomeInboundPanelState(new URLSearchParams(window.location.search));
+      // Balances restores only proven asset/account returns; ordinary history returns reset it.
+      pendingHistoryScrollRestoreRef.current = intent.panel === balancesPanelId
+        ? null
+        : readClientScrollTop();
       const restoresBalances = intent.panel === balancesPanelId && isBalancesRestoreArmed();
       pendingBalancesRestoreRef.current = restoresBalances;
       setBorrowMarketOpenedInApp(false);
       applyUrlState(intent);
       setPopRevision((revision) => revision + 1);
-      if (intent.panel === balancesPanelId && !restoresBalances) {
+      if (intent.panel === balancesPanelId &&
+        pendingHistoryScrollRestoreRef.current === null &&
+        !restoresBalances) {
         mainRef.current?.scrollTo({ top: 0, behavior: "auto" });
         setBalancesRevealReset((resetSignal) => resetSignal + 1);
       }
-      if (restoresBalances) setNavigationRequest((request) => request + 1);
+      setNavigationRequest((request) => request + 1);
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -241,6 +305,7 @@ export function HomeShell({
 
   useEffect(() => {
     if (forwardRequest !== 0) pendingBalancesRestoreRef.current = false;
+    if (forwardRequest !== 0) pendingHistoryScrollRestoreRef.current = null;
   }, [forwardRequest]);
 
   const isChecking = account.status === "restoring" || account.status === "validating";
@@ -248,8 +313,7 @@ export function HomeShell({
   const mayPaintBalances = account.verification !== null;
   useEffect(() => {
     if (isVerified) markHomePerformance("session:verified");
-    if (isVerified && account.session?.smartAccount) markHomePerformance("wallet:ready");
-  }, [account.session?.smartAccount, isVerified]);
+  }, [isVerified]);
   useEffect(() => {
     if (
       !applyInboundUrlIntent ||
@@ -265,9 +329,17 @@ export function HomeShell({
   }, [account.session?.smartAccount, applyInboundUrlIntent, applyUrlState, isVerified, routeMode]);
   const isUnavailable = account.status === "unavailable";
   const isSignedOut = account.status === "signed-out" || account.status === "signout-error";
-  const paintedAssetBalances = mayPaintBalances
-    ? (presentAssetBalances?.(showSmallBalances || revealSmallBalances) ?? assetBalances ?? loadingAssetBalances)
-    : loadingAssetBalances;
+  useEffect(() => {
+    if (isUnavailable) markHomeStartupOutcome("unavailable");
+    else if (isSignedOut) markHomeStartupOutcome("signed-out");
+  }, [isSignedOut, isUnavailable]);
+  const showAllAssetBalances = showSmallBalances || revealSmallBalances;
+  const paintedAssetBalances = useMemo(
+    () => mayPaintBalances
+      ? (presentAssetBalances?.(showAllAssetBalances) ?? assetBalances ?? loadingAssetBalances)
+      : loadingAssetBalances,
+    [assetBalances, mayPaintBalances, presentAssetBalances, showAllAssetBalances],
+  );
   useEffect(() => {
     if (mayPaintBalances && paintedAssetBalances.status === "ready") {
       markHomePerformance("balances:painted");
@@ -286,7 +358,10 @@ export function HomeShell({
     paintedAssetBalances.rows,
     balancesRevealReset,
   );
-  const balancesListId = balancesListKey(paintedAssetBalances.rows);
+  const balancesListId = useMemo(
+    () => balancesListKey(paintedAssetBalances.rows),
+    [paintedAssetBalances.rows],
+  );
   const previousBalancesListIdRef = useRef(balancesListId);
   const previousNavigationRef = useRef(activeNavigation);
   useEffect(() => {
@@ -299,6 +374,24 @@ export function HomeShell({
     if (navigationRequest === 0 || !panelStageRef.current) return;
     panelStageRef.current.focus({ preventScroll: true });
     let restoreFrame: number | null = null;
+    const historyScrollTop = pendingHistoryScrollRestoreRef.current;
+    pendingHistoryScrollRestoreRef.current = null;
+    if (historyScrollTop !== null) {
+      const restoreHistoryScroll = () => {
+        mainRef.current?.scrollTo({
+          top: clampHomeScrollTop(mainRef.current, historyScrollTop),
+          behavior: "auto",
+        });
+      };
+      restoreHistoryScroll();
+      restoreFrame = window.requestAnimationFrame(restoreHistoryScroll);
+      pendingBalancesRestoreRef.current = false;
+      if (activeNavigation === balancesPanelId) disarmBalancesRestore();
+      previousNavigationRef.current = activeNavigation;
+      return () => {
+        if (restoreFrame !== null) window.cancelAnimationFrame(restoreFrame);
+      };
+    }
     const isBalances = activeNavigation === balancesPanelId;
     const shouldPreserveBalances = isBalances && pendingBalancesRestoreRef.current;
     if (isBalances) {
@@ -482,10 +575,20 @@ export function HomeShell({
   const nestedChromeBackLabel = isHomeNestedPanelId(activeNavigation)
     ? "Back"
     : investChrome?.nested?.backLabel ?? "Back";
+  function leaveHomeNestedPanel() {
+    // Home is a forward visit from Balances so browser Back can reopen a fresh Balances panel.
+    if (activeNavigation === balancesPanelId || !isClientHistoryEntry()) {
+      navigateTo("home");
+      return;
+    }
+    replaceClientScrollTop(mainRef.current?.scrollTop ?? 0);
+    window.history.back();
+  }
+
   const onNestedChromeBack = isHomeNestedPanelId(activeNavigation)
     ? activeNavigation === "borrow" && urlIntent.location.market
       ? () => selectBorrowMarket(null)
-      : () => navigateTo("home")
+      : leaveHomeNestedPanel
     : investChrome?.nested?.onBack ?? (() => {});
 
   const routingValue = useMemo(() => ({
@@ -498,8 +601,9 @@ export function HomeShell({
   return (
     <HomeShellRoutingProvider value={routingValue}>
       <div
+        ref={shellRef}
         className={routeMode === "dashboard"
-          ? "flex h-svh max-h-svh flex-col overflow-hidden bg-muted"
+          ? "flex h-svh max-h-svh flex-col overflow-hidden bg-muted [--shell-scrollbar-width:0px]"
           : "flex min-h-svh flex-col bg-background"}
       >
       <ShellHeader

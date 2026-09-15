@@ -163,7 +163,7 @@ export function MethodBody({
           </AlertAction>
         </Alert>
       ) : null}
-      <Card>
+      <Card variant="flush">
         <CardContent inset="list">
           <div>
             <Item
@@ -175,7 +175,7 @@ export function MethodBody({
                   aria-describedby="receive-method-hint"
                 />
               }
-              className="min-h-16 flex-nowrap items-center"
+              className="flex-nowrap items-center"
             >
               <ItemMedia variant="avatar">
                 <ArrowDownToLine className="size-4" />
@@ -202,7 +202,7 @@ export function MethodBody({
                       aria-describedby={`funding-method-${binding.providerId}-${binding.assetId}`}
                     />
                   }
-                  className="min-h-16 flex-nowrap items-center"
+                  className="flex-nowrap items-center"
                 >
                   <ItemMedia variant="avatar">
                     <Landmark className="size-4" />

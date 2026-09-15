@@ -26,6 +26,10 @@ import { SavingsPanel, InvestPanel } from "./feature-panels";
 import { HomePanel } from "./home-panel";
 import type { HomeAssetBalancesPresentation } from "./home-types";
 import { MountedShellPanel } from "./panel-shared";
+import {
+  shellContentFrameClassName,
+  shellScrollContainerClassName,
+} from "@/components/shell-layout";
 
 export function DashboardShell({
   mainRef,
@@ -114,9 +118,9 @@ export function DashboardShell({
     <>
       <main
         ref={mainRef}
-        className="app-main-authenticated order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden overflow-y-auto bg-muted pb-4 scroll-pb-4 sm:order-2"
+        className={`app-main-authenticated order-1 min-h-0 flex-1 overscroll-contain overflow-x-hidden bg-muted pb-4 scroll-pb-4 sm:order-2 ${shellScrollContainerClassName}`}
       >
-        <div className="mx-auto w-full max-w-2xl px-4 py-4 sm:py-6">
+        <div className={`${shellContentFrameClassName} py-4 sm:py-6`}>
         {isUnavailable ? (
           <Alert className="mb-4" role="alert">
             <AlertDescription>{unavailableMessage ?? "Account check unavailable."}</AlertDescription>

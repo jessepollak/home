@@ -188,7 +188,7 @@ function FundingExperienceBoundary({
               message: "Funding methods are unavailable. Try again.",
               retry: () => void providerQuery.refetch(),
             }
-          : ordersQuery.isError
+          : ordersQuery.isError && providerBindings.length > 0
             ? {
                 message: "Home couldn't check for an open deposit. Retry.",
                 retry: () => void ordersQuery.refetch(),

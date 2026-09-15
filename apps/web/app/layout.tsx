@@ -4,6 +4,7 @@ import { CdpAccountProvider } from "@/client/account/cdp-client";
 import { normalizeProjectId } from "@/client/account/session-client";
 import { isHomeSessionConfigured } from "@/server/auth/native-base-session";
 import { HomeQueryClientProvider } from "@/client/query/query-client";
+import { HomeSpeedInsights } from "@/client/observability/home-speed-insights";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full">
         <HomeQueryClientProvider>{accountProvider}</HomeQueryClientProvider>
+        <HomeSpeedInsights />
       </body>
     </html>
   );

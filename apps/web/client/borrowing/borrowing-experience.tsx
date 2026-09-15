@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
-import { ArrowRight, LoaderCircle } from "lucide-react";
+import { Bitcoin, LoaderCircle } from "lucide-react";
 import { useAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import {
@@ -24,16 +24,10 @@ import {
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
+import { HomeProductTile } from "@/client/home/product-tile";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemTitle,
-} from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyTicker } from "@/components/money-ticker";
 import type { RegionId } from "@/config/regions";
@@ -132,7 +126,15 @@ export function AuthenticatedBorrowExperience({
   );
 }
 
-export function AuthenticatedBorrowTeaser({ onOpen, regionId = "GLOBAL" }: { onOpen: () => void; regionId?: RegionId }) {
+export function AuthenticatedBorrowTeaser({
+  headingId = "borrow-heading",
+  onOpen,
+  regionId = "GLOBAL",
+}: {
+  headingId?: string;
+  onOpen: () => void;
+  regionId?: RegionId;
+}) {
   const account = useAccountWallet();
   const session = account.status === "verified" ? account.session : null;
   const overview = useBorrowOverview(session, account.fetchAccountResource);
@@ -140,28 +142,42 @@ export function AuthenticatedBorrowTeaser({ onOpen, regionId = "GLOBAL" }: { onO
   const leading = overview.data?.opportunities
     .slice()
     .sort((a, b) => a.market.rank - b.market.rank)[0] ?? null;
-  const title = active ? "Bitcoin position" : "Borrow against Bitcoin";
-  const description = active
-    ? borrowTeaserPositionDescription(active, regionId)
-    : leading?.availability.status === "unavailable"
-      ? "Bitcoin borrowing is currently unavailable"
-      : "Borrow USDC with cbBTC on Base";
+  const hasDebt = Boolean(active && BigInt(active.debtAssetsRaw) > BigInt(0));
+  const detail = useBorrowDetail(
+    session,
+    active?.market.id ?? null,
+    account.fetchAccountResource,
+    hasDebt,
+  );
+  const unavailable = leading?.availability.status === "unavailable";
+  const primary = hasDebt && active
+    ? <MoneyTicker
+        value={formatToken(active.debtAssetsRaw, active.market.loanToken, regionId)}
+        align="start"
+        reserveDigits={false}
+      />
+    : "Borrow";
+  const secondary = hasDebt
+    ? detail.data
+      ? `${formatWadPercent(detail.data.state.borrowAprWad, regionId)} variable APR`
+      : detail.isError
+        ? "Borrow cost unavailable"
+        : "Loading borrow cost…"
+    : unavailable
+      ? "Bitcoin borrowing unavailable"
+      : "Against Bitcoin";
 
   return (
-    <div>
-      <Item
-        className="min-h-16 flex-nowrap cursor-pointer items-center whitespace-normal text-left"
-        render={<Button variant="ghost" type="button" />}
-        onClick={onOpen}
-      >
-        <span className="shrink-0"><BitcoinMark /></span>
-        <ItemContent className="min-w-0">
-          <ItemTitle>{overview.isPending ? "Borrow" : title}</ItemTitle>
-          <ItemDescription>{overview.isPending ? "Loading borrowing market…" : description}</ItemDescription>
-        </ItemContent>
-        <ItemActions className="shrink-0"><ArrowRight className="size-4" aria-hidden="true" /></ItemActions>
-      </Item>
-    </div>
+    <HomeProductTile
+      actionLabel={hasDebt ? "Manage" : "Borrow"}
+      busy={overview.isPending || (hasDebt && detail.isPending)}
+      headingId={headingId}
+      icon={<Bitcoin className="size-4" aria-hidden="true" />}
+      onOpen={onOpen}
+      primary={primary}
+      secondary={overview.isPending ? "Loading borrowing market…" : secondary}
+      title="Borrow"
+    />
   );
 }
 
@@ -840,17 +856,18 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
   });
 }
 
-function useBorrowDetail(session: VerifiedAccountSession | null, marketId: BorrowMarketId, fetchAccountResource: FetchAccountResource | undefined, enabled: boolean) {
+function useBorrowDetail(session: VerifiedAccountSession | null, marketId: BorrowMarketId | null, fetchAccountResource: FetchAccountResource | undefined, enabled: boolean) {
   const owner = session?.smartAccount?.address ?? null;
   const key = session?.smartAccount ? ownerDataKey(session) : null;
   return useHomeQuery({
-    queryKey: key ? ownerQueryKey(key, "borrow", "detail", marketId) : ["unauthenticated", "borrow-detail-disabled", marketId],
-    enabled: Boolean(enabled && key && owner && fetchAccountResource),
+    queryKey: key && marketId ? ownerQueryKey(key, "borrow", "detail", marketId) : ["unauthenticated", "borrow-detail-disabled"],
+    enabled: Boolean(enabled && marketId && key && owner && fetchAccountResource),
     staleTime: 15_000,
     retry: false,
     refetchOnWindowFocus: true,
     meta: key ? ownerQueryMeta(key, "owner") : undefined,
     queryFn: ({ signal }) => {
+      if (!marketId) throw new Error("Borrow market is unavailable.");
       if (!fetchAccountResource) throw new Error("Borrow is unavailable.");
       return fetchAccountResource(`/api/borrow/markets/${marketId}`, { signal });
     },

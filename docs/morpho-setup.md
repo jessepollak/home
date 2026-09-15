@@ -1,12 +1,12 @@
 # Morpho USDC savings read integration
 
-Status: this file is the read-only Morpho V1 candidate comparison (verified 2026-09-07). Local deposit and withdrawal against the three configured USDC vaults is now integrated; live vault execution has not been performed. Current delivery: [build status](build-status.md).
+Status: this file documents Save's Morpho V1 vault adapter and the candidate comparison verified 2026-09-07. Save is Home's only user-facing lending product. Local deposit and withdrawal preparation against the three configured USDC vaults is integrated with pinned reads and ordered smart-account batch simulation; live vault execution has not been performed. Current delivery: [build status](build-status.md).
 
 Verified (read path): 2026-09-07 UTC.
 
 ## Supported contract
 
-Home supports **Morpho Vault V1 data only** in this slice.
+Home supports **Morpho Vault V1 data only** in this slice. The typed transaction-authority registry in `shared/savings/config.ts` contains only the existing `BASE_MORPHO_USDC_VAULTS`; it is separate from the isolated Morpho Blue market registry used by Borrow. There is no standalone Lend route or direct Morpho Blue supply action.
 
 - Network: Base mainnet (`chainId: 8453`)
 - Underlying: canonical Circle USDC
@@ -51,9 +51,9 @@ Interpretation limits:
 - Total assets are vault-wide, not a user balance.
 - Indexed vault liquidity is not the same as a particular account's currently withdrawable maximum.
 - Indexed position assets are not an authorization source for withdrawal.
-- A current onchain `maxWithdraw` read, exact vault review, transaction simulation, and a verified deposit/withdrawal smoke test are still required before enabling actions.
+- Each prepared action uses current onchain limits and previews pinned to one Base block, simulates the exact approval/deposit or withdrawal call order through the verified smart account, and reconfirms the source block hash. A funded live deposit/withdrawal smoke test has not been performed.
 
-Before selecting one product, the parent should ask the user/operator to approve the exact vault after reviewing its curator, allocation strategy, warnings, fees, exit behavior, and desired risk posture. The current shortlist size/liquidity rationale is useful for comparison but is not sufficient selection evidence.
+The configured vault registry is transaction authority; the public Morpho listing remains display data and cannot activate another vault. New deposits require `capabilities.save: "enabled"`; `"reducing-only"` preserves withdrawals while blocking deposits, and an omitted capability fails closed.
 
 ## Server contracts
 

@@ -178,6 +178,81 @@ describe("CDP Onchain Data Token Balances client", () => {
     });
   });
 
+  test("keeps a slow successful first page even when it finishes after the soft start budget", async () => {
+    let clock = 0;
+    let calls = 0;
+    const client = createCdpTokenBalancesClient({
+      env: configuredEnv,
+      generateJwtImpl: async () => "signed-jwt",
+      pageStartBudgetMs: 2_500,
+      now: () => clock,
+      fetchImpl: async () => {
+        calls += 1;
+        clock = 3_000;
+        return Response.json({
+          balances: [token(USDC, "1")],
+          nextPageToken: "page-two",
+        });
+      },
+    });
+
+    const listed = await client.listBalances({ address: ADDRESS });
+    expect(calls).toBe(1);
+    expect(listed).toMatchObject({
+      complete: false,
+      nextPageToken: "page-two",
+      pagesRead: 1,
+      durationMs: 3_000,
+      balances: [{ amountBaseUnits: "1" }],
+    });
+  });
+
+  test("lets a healthy in-flight page finish after the soft budget then stops", async () => {
+    let clock = 0;
+    let calls = 0;
+    const client = createCdpTokenBalancesClient({
+      env: configuredEnv,
+      generateJwtImpl: async () => "signed-jwt",
+      pageStartBudgetMs: 2_500,
+      now: () => clock,
+      fetchImpl: async () => {
+        calls += 1;
+        if (calls === 1) {
+          clock = 2_000;
+          return Response.json({ balances: [token(USDC, "1")], nextPageToken: "page-two" });
+        }
+        clock = 3_000;
+        return Response.json({ balances: [token(IDRX, "2")], nextPageToken: "page-three" });
+      },
+    });
+
+    const listed = await client.listBalances({ address: ADDRESS });
+    expect(calls).toBe(2);
+    expect(listed).toMatchObject({
+      complete: false,
+      nextPageToken: "page-three",
+      pagesRead: 2,
+      durationMs: 3_000,
+    });
+    expect(listed.balances.map(({ amountBaseUnits }) => amountBaseUnits)).toEqual(["1", "2"]);
+  });
+
+  test("bounds a stalled first page with the hard page ceiling", async () => {
+    const client = createCdpTokenBalancesClient({
+      env: configuredEnv,
+      generateJwtImpl: async () => "signed-jwt",
+      timeoutMs: 10,
+      pageAttempts: 1,
+      fetchImpl: (_input, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      }),
+    });
+
+    await expect(client.listBalances({ address: ADDRESS })).rejects.toMatchObject({
+      code: "timed-out",
+    });
+  });
+
   test("returns every collected row as incomplete when the page budget is exhausted", async () => {
     let pages = 0;
     const client = createCdpTokenBalancesClient({

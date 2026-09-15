@@ -33,18 +33,21 @@ type RpcSuccess = { id: number; result: unknown };
 export class BaseRpcError extends Error {
   readonly code: "aborted" | "http" | "invalid-response" | "rpc" | "transport";
   readonly rpcCode: number | null;
+  readonly httpStatus: number | null;
 
   constructor(
     message: string,
     options: ErrorOptions & {
       code?: BaseRpcError["code"];
       rpcCode?: number | null;
+      httpStatus?: number | null;
     } = {},
   ) {
     super(message, options);
     this.name = "BaseRpcError";
     this.code = options.code ?? "invalid-response";
     this.rpcCode = options.rpcCode ?? null;
+    this.httpStatus = options.httpStatus ?? null;
   }
 }
 
@@ -230,6 +233,7 @@ async function postRpc(
     if (!response.ok) {
       throw new BaseRpcError(`Base RPC returned HTTP ${response.status}.`, {
         code: "http",
+        httpStatus: response.status,
       });
     }
     try {

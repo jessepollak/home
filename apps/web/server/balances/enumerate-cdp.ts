@@ -13,7 +13,8 @@ export const CDP_TOKEN_BALANCES_PAGE_SIZE = 100;
 /** Hard request budget: enough for dusty wallets while preventing unbounded scans. */
 export const CDP_TOKEN_BALANCES_MAX_PAGES = 32;
 export const CDP_TOKEN_BALANCES_PAGE_ATTEMPTS = 2;
-export const CDP_TOKEN_BALANCES_TIMEOUT_MS = 10_000;
+export const CDP_TOKEN_BALANCES_SOFT_PAGE_START_MS = 2_500;
+export const CDP_TOKEN_BALANCES_TIMEOUT_MS = 4_000;
 
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -98,12 +99,16 @@ export function createCdpTokenBalancesClient(options: {
   generateJwtImpl?: JwtGenerator;
   timeoutMs?: number;
   pageAttempts?: number;
+  pageStartBudgetMs?: number;
+  now?: () => number;
 } = {}) {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
   const generateJwtImpl = options.generateJwtImpl ?? generateJwt;
   const timeoutMs = options.timeoutMs ?? CDP_TOKEN_BALANCES_TIMEOUT_MS;
   const pageAttempts = options.pageAttempts ?? CDP_TOKEN_BALANCES_PAGE_ATTEMPTS;
+  const pageStartBudgetMs = options.pageStartBudgetMs ?? CDP_TOKEN_BALANCES_SOFT_PAGE_START_MS;
+  const now = options.now ?? Date.now;
 
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
     throw new CdpTokenBalancesError(
@@ -115,6 +120,12 @@ export function createCdpTokenBalancesClient(options: {
     throw new CdpTokenBalancesError(
       "not-configured",
       "The CDP Token Balances page attempt budget must be 1-3.",
+    );
+  }
+  if (!Number.isSafeInteger(pageStartBudgetMs) || pageStartBudgetMs <= 0 || pageStartBudgetMs > 30_000) {
+    throw new CdpTokenBalancesError(
+      "not-configured",
+      "The CDP Token Balances page-start budget must be 1-30000ms.",
     );
   }
   return {
@@ -134,12 +145,13 @@ export function createCdpTokenBalancesClient(options: {
       let nextPageToken: string | null = pageToken ?? null;
       let complete = false;
       let pagesRead = 0;
-      const startedAt = Date.now();
+      const startedAt = now();
 
       for (let page = 0; page < CDP_TOKEN_BALANCES_MAX_PAGES; page += 1) {
+        if (page > 0 && now() - startedAt >= pageStartBudgetMs) break;
         let balances: Awaited<ReturnType<typeof fetchPage>>;
         try {
-          balances = await fetchPageWithRetry({
+          balances = await fetchPageWithinCeiling({
             attempts: pageAttempts,
             address,
             pageToken,
@@ -181,7 +193,7 @@ export function createCdpTokenBalancesClient(options: {
         complete,
         nextPageToken,
         pagesRead,
-        durationMs: Date.now() - startedAt,
+        durationMs: Math.max(0, now() - startedAt),
       };
     },
   };
@@ -190,6 +202,25 @@ export function createCdpTokenBalancesClient(options: {
 export type CdpTokenBalancesClient = ReturnType<
   typeof createCdpTokenBalancesClient
 >;
+
+async function fetchPageWithinCeiling(
+  options: Parameters<typeof fetchPage>[0] & { attempts: number },
+): Promise<Awaited<ReturnType<typeof fetchPage>>> {
+  throwIfAborted(options.signal);
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(options.signal?.reason);
+  options.signal?.addEventListener("abort", onAbort, { once: true });
+  const timeout = setTimeout(
+    () => controller.abort("token-balances-page-ceiling"),
+    options.timeoutMs,
+  );
+  try {
+    return await fetchPageWithRetry({ ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", onAbort);
+  }
+}
 
 async function fetchPageWithRetry(
   options: Parameters<typeof fetchPage>[0] & { attempts: number },

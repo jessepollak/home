@@ -4,6 +4,10 @@ import { ChartNoAxesCombined, House } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import {
+  shellChromeCompensationClassName,
+  shellWidthClassName,
+} from "@/components/shell-layout";
+import {
   isHomeNestedPanelId,
   navigationItems,
   type NavigationId,
@@ -27,8 +31,11 @@ export function PrimaryNavigation({
   const reducedMotion = useReducedMotion();
 
   return (
-    <nav
-      className="order-2 grid min-h-14 w-full shrink-0 grid-cols-2 border-t bg-background pb-[env(safe-area-inset-bottom)] sm:order-1 sm:mx-auto sm:max-w-2xl sm:border-x sm:border-b sm:pb-0"
+    <div
+      className={`order-2 w-full shrink-0 bg-background pb-[env(safe-area-inset-bottom)] sm:order-1 sm:pb-0 ${shellChromeCompensationClassName}`}
+    >
+      <nav
+        className={`${shellWidthClassName} grid min-h-14 grid-cols-2 border-t sm:border-x sm:border-b`}
       aria-label="Main navigation"
     >
       {navigationItems.map((item) => {
@@ -52,7 +59,7 @@ export function PrimaryNavigation({
               <motion.span
                 layoutId="primary-navigation-indicator"
                 className="absolute inset-x-6 bottom-1 h-0.5 rounded-full bg-primary"
-                transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 500, damping: 40 }}
+                transition={reducedMotion ? { duration: 0 } : { duration: 0.12, ease: "easeOut" }}
                 aria-hidden="true"
               />
             ) : null}
@@ -61,6 +68,7 @@ export function PrimaryNavigation({
           </Button>
         );
       })}
-    </nav>
+      </nav>
+    </div>
   );
 }

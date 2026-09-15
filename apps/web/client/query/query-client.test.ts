@@ -10,6 +10,7 @@ import {
   ownerQueryCachePrefix,
   ownerQueryKey,
   ownerQueryMeta,
+  ownerRestoreCacheState,
   restoreOwnerQueries,
   shouldPersistOwnerQuery,
 } from "./query-client";
@@ -27,6 +28,12 @@ function memoryStorage(): Storage {
 }
 
 describe("owner query cache boundary", () => {
+  test("maps restore provenance without retaining the owner key", () => {
+    expect(ownerRestoreCacheState("private-owner-key", true)).toBe("restored");
+    expect(ownerRestoreCacheState("private-owner-key", false)).toBe("cold");
+    expect(ownerRestoreCacheState(null, false)).toBe("unknown");
+  });
+
   test("owner switch clears memory and every persisted owner store", () => {
     const client = createHomeQueryClient();
     const storage = memoryStorage();

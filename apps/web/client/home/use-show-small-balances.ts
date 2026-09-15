@@ -5,6 +5,7 @@ import { useCallback, useSyncExternalStore } from "react";
 export const showSmallBalancesPreferenceKey = "home.show-small-balances.v1";
 
 const preferenceListeners = new Set<() => void>();
+let optimisticPreference: boolean | null = null;
 
 type PreferenceStorage = Pick<Storage, "getItem" | "setItem">;
 type PreferenceStorageGetter<
@@ -39,6 +40,7 @@ function notifyPreferenceListeners() {
 
 function onStorage(event: StorageEvent) {
   if (event.key !== null && event.key !== showSmallBalancesPreferenceKey) return;
+  optimisticPreference = null;
   notifyPreferenceListeners();
 }
 
@@ -52,7 +54,10 @@ function subscribeToShowSmallBalancesPreference(listener: () => void) {
 }
 
 function getShowSmallBalancesPreference() {
-  return readShowSmallBalancesPreference(() => window.localStorage);
+  return (
+    optimisticPreference ??
+    readShowSmallBalancesPreference(() => window.localStorage)
+  );
 }
 
 function getServerShowSmallBalancesPreference() {
@@ -66,8 +71,18 @@ export function useShowSmallBalances(): readonly [boolean, (value: boolean) => v
     getServerShowSmallBalancesPreference,
   );
   const update = useCallback((next: boolean) => {
-    writeShowSmallBalancesPreference(() => window.localStorage, next);
+    const previous = getShowSmallBalancesPreference();
+    optimisticPreference = next;
     notifyPreferenceListeners();
+
+    window.setTimeout(() => {
+      if (writeShowSmallBalancesPreference(() => window.localStorage, next)) {
+        optimisticPreference = null;
+        return;
+      }
+      optimisticPreference = previous;
+      notifyPreferenceListeners();
+    }, 0);
   }, []);
 
   return [value, update] as const;

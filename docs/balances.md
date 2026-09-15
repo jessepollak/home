@@ -34,7 +34,7 @@ Status: **G1 CDP-first server, G2 deletion, G3 server observation, G3b productio
 
 The server has two bounded inputs with different freshness and authority:
 
-1. **Enumerate per owner.** CDP Token Balances scans up to 32 pages at the documented maximum of 100 rows per page (3,200 rows). It returns lowercase ERC-20 contract addresses, decimal-integer-string amounts, and optional trimmed `name`, `symbol`, and `decimals`. The native `0xeeee…` sentinel is excluded because ETH is read from the registry path. One in-flight scan is shared per owner, detached from route caller aborts, and bounded by its own 8 s deadline. A deadline after one or more pages preserves those rows, marks the scan incomplete, and stores the next page cursor so the next full observation resumes instead of restarting.
+1. **Enumerate per owner.** CDP Token Balances scans up to 32 pages at the documented maximum of 100 rows per page (3,200 rows). It returns lowercase ERC-20 contract addresses, decimal-integer-string amounts, and optional trimmed `name`, `symbol`, and `decimals`. The native `0xeeee…` sentinel is excluded because ETH is read from the registry path. One in-flight scan is shared per owner and detached from route caller aborts. It starts pages inside a 2.5 s soft budget, lets a healthy in-flight page finish, and enforces a 4 s hard ceiling per page including retries. Stopping after one or more pages preserves those rows, marks the scan incomplete, and stores the next page cursor so a stale signal or 120 s backstop resumes instead of restarting.
 2. **Read the registry.** `server/balances/universe.ts` contains only configured direct assets and vault shares from `config/portfolio-assets.ts`. Registry ordering stays cash → native → other direct assets → vaults. It never expands to the Codex catalog and never performs a 512-contract `decimals()` verification.
 
 CDP supplies display-grade quantities only for positive non-registry rows. Registry quantities, including ETH and vault shares, always come from the pinned Base read. This deliberately gives action-relevant assets a coherent block while allowing Home to show tokens discovered by the wallet index.
@@ -86,7 +86,7 @@ Coverage now means:
 | `coverage.registry` | `complete` | Every configured registry quantity was read successfully. |
 | `coverage.registry` | `partial` | At least one registry quantity is unavailable. |
 | `coverage.catalog` | `complete` | The CDP scan completed, the Codex catalog cache is complete, and no enumerated catalog row was skipped for a decimals disagreement. |
-| `coverage.catalog` | `incomplete` | The scan hit its page/deadline bound, Codex returned a partial catalog, or a CDP/Codex decimals disagreement caused a skip. |
+| `coverage.catalog` | `incomplete` | The scan hit its page or soft page-start bound, Codex returned a partial catalog, or a CDP/Codex decimals disagreement caused a skip. |
 | `coverage.catalog` | `unavailable` | CDP enumeration was unavailable; the response is a full registry-only snapshot. |
 
 CDP unavailability never turns `/api/balances` into a 502. A registry read failure retains the existing fail-closed registry row semantics and can still cause the route-level read failure behavior when the pinned pass itself cannot complete.
@@ -216,7 +216,7 @@ Actions remain registry-only until a separate product decision extends Send.
 | Read dedupe (per instance) | in-flight only | concurrent regions/tabs share one owner observation; no completed-value TTL |
 | CDP enumeration dedupe | in-flight only | completed enumeration lives only in `balance_snapshots` |
 | Read deadline | 4 s | shorter than the 6 s per-call RPC timeout; a timeout fails the read and the client keeps previous data |
-| Enumeration deadline | 8 s + resume cursor | returns collected rows with `incomplete`; the next full observation continues from the stored page token |
+| Enumeration budgets | 2.5 s soft page-start; 4 s hard in-flight page | returns collected rows with `incomplete`; stale signals and the 120 s backstop continue from the stored page token |
 | Price batch concurrency | 4 | bounds concurrent Codex batches while avoiding sequential latency |
 | Hot window | 60 s | set by `/confirm` and `/handle`; registry re-read on every request |
 | Backstop | 120 s | full re-observe when no signal arrived |
@@ -229,7 +229,7 @@ Actions remain registry-only until a separate product decision extends Send.
 1. **Instant paint.** Playwright: persist a v3 snapshot with cash + registry + 3 catalog rows → reload → all rows visible before the stubbed `/api/balances` responds; `balances:painted` < budget; no layout shift when the response lands with identical data.
 2. **One read.** Network log across Home → Save → Balances → Home shows exactly one `/api/balances` per region per 15 s; zero `/api/portfolio/valuation`, `/api/savings/positions` after B4.
 3. **One shape.** After B4, `rg "recognized|cashBuckets|nativeCashValuations|inventory.holdings" apps/web` → 0; the route contract test asserts `holdings[]` is the only balance carrier.
-4. **Fail closed.** Table-driven: CDP down → registry-only snapshot, `coverage.catalog: "unavailable"`, one event; CDP page/deadline bound or Codex partial → resolved rows retained, `coverage.catalog: "incomplete"`; registry chunk failure after retry → those rows `unavailable`, `coverage.registry: "partial"`, never `"0"`; RPC down → every registry row `unavailable`, total `unavailable`; hosted + public-default RPC → registry unavailable + one observability event.
+4. **Fail closed.** Table-driven: CDP down → registry-only snapshot, `coverage.catalog: "unavailable"`, one event; CDP page/page-start bound or Codex partial → resolved rows retained, `coverage.catalog: "incomplete"`; registry chunk failure after retry → those rows `unavailable`, `coverage.registry: "partial"`, never `"0"`; RPC down → every registry row `unavailable`, total `unavailable`; hosted + public-default RPC → registry unavailable + one observability event.
 5. **Cash denomination.** USDC row in a DE view renders in USD; IDRX row in a US view renders in IDR; the total renders in the region currency.
 6. **Consistent rows.** DOM test: a cash row, a priced catalog row, an unpriced registry row, an unavailable cash row render through one `BalanceRow`; snapshot test on `presentBalanceRows` ordering and membership (vault shares absent, zero non-cash absent, catalog present).
 7. **Selectors.** Send availability from a fixture with USDC `0`, cbBTC positive, a catalog token positive → exactly `[cbbtc]` with base units; `summarizeSavingsPortfolio(selectVaultPositions(fixture))` matches today's `portfolio-summary.test.ts` expectations.

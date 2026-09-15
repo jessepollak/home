@@ -14,6 +14,30 @@ const minusSign = "−";
 
 const NBSP = "\u00A0";
 const anySpace = /[\s\u00A0\u2007\u2009\u202F]+/g;
+const numberFormatCache = new Map<string, Intl.NumberFormat>();
+const numberFormatCacheLimit = 256;
+
+function cachedNumberFormat(
+  locale: string,
+  options: Intl.NumberFormatOptions = {},
+): Intl.NumberFormat {
+  const key = JSON.stringify([
+    locale,
+    Object.entries(options)
+      .filter(([, value]) => value !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  ]);
+  const cached = numberFormatCache.get(key);
+  if (cached) return cached;
+
+  const formatter = new Intl.NumberFormat(locale, options);
+  if (numberFormatCache.size >= numberFormatCacheLimit) {
+    const oldestKey = numberFormatCache.keys().next().value;
+    if (oldestKey !== undefined) numberFormatCache.delete(oldestKey);
+  }
+  numberFormatCache.set(key, formatter);
+  return formatter;
+}
 
 /**
  * ICU builds disagree on the whitespace they emit (U+0020 vs U+00A0 vs U+202F)
@@ -574,7 +598,7 @@ export function formatPercentage(
     return "Unavailable";
   }
   return normalizeMinus(
-    new Intl.NumberFormat(presentationLocale(regionId), {
+    cachedNumberFormat(presentationLocale(regionId), {
       style: "percent",
       minimumFractionDigits: value === 0 ? 0 : 2,
       maximumFractionDigits: 2,
@@ -599,7 +623,7 @@ export function formatSignedPercentChange(
     percent = match[1] === "-" || match[1] === minusSign ? -absolute : absolute;
   }
 
-  const formatted = new Intl.NumberFormat(presentationLocale(regionId), {
+  const formatted = cachedNumberFormat(presentationLocale(regionId), {
     style: "percent",
     signDisplay: "always",
     minimumFractionDigits: 2,
@@ -859,7 +883,7 @@ function roundDigits(digits: string, scale: number, fractionDigits: number): str
 }
 
 function localizeWhole(value: string, regionId: RegionId): string {
-  return new Intl.NumberFormat(presentationLocale(regionId), {
+  return cachedNumberFormat(presentationLocale(regionId), {
     maximumFractionDigits: 0,
   }).format(BigInt(value));
 }
@@ -868,14 +892,14 @@ function localizeCanonicalDecimal(value: string, regionId: RegionId): string {
   const [whole = "0", fraction] = value.split(".");
   const grouped = localizeWhole(whole, regionId);
   if (fraction === undefined) return grouped;
-  const decimalSeparator = new Intl.NumberFormat(presentationLocale(regionId))
+  const decimalSeparator = cachedNumberFormat(presentationLocale(regionId))
     .formatToParts(1.1)
     .find((part) => part.type === "decimal")?.value ?? ".";
   return `${grouped}${decimalSeparator}${localizeDigits(fraction, regionId)}`;
 }
 
 function localizeDigits(value: string, regionId: RegionId): string {
-  const digitFormatter = new Intl.NumberFormat(presentationLocale(regionId), {
+  const digitFormatter = cachedNumberFormat(presentationLocale(regionId), {
     useGrouping: false,
   });
   const digits = Array.from({ length: 10 }, (_, digit) => digitFormatter.format(digit));
@@ -890,7 +914,7 @@ function formatCurrencyDecimal(
   const localizedAmount = localizeCanonicalDecimal(amount, regionId);
   let parts: Intl.NumberFormatPart[];
   try {
-    parts = new Intl.NumberFormat(presentationLocale(regionId), {
+    parts = cachedNumberFormat(presentationLocale(regionId), {
       style: "currency",
       currency,
       currencyDisplay: "narrowSymbol",
@@ -925,7 +949,7 @@ function formatCompactPrice(
   ) ?? 3;
   const scaled = { ...decimal, scale: decimal.scale + exponent };
   const amount = formatDecimal(scaled, 2, 2);
-  const compactParts = new Intl.NumberFormat(presentationLocale(regionId), {
+  const compactParts = cachedNumberFormat(presentationLocale(regionId), {
     notation: "compact",
     compactDisplay: "short",
     maximumFractionDigits: 0,
@@ -998,7 +1022,7 @@ function padLocalizedFractionDigits(
   regionId: RegionId = "GLOBAL",
 ): string {
   if (minimumFractionDigits === 0 || value.includes("<")) return value;
-  const decimalSeparator = new Intl.NumberFormat(presentationLocale(regionId))
+  const decimalSeparator = cachedNumberFormat(presentationLocale(regionId))
     .formatToParts(1.1)
     .find((part) => part.type === "decimal")?.value ?? ".";
   const sign = value.startsWith(minusSign) ? minusSign : "";

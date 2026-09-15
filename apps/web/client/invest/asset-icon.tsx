@@ -14,6 +14,7 @@ export function AssetIcon({ mark }: AssetIconProps) {
         src={mark.imageUrl}
         symbol={mark.symbol}
         pending={mark.pending}
+        size="sm"
       />
     </span>
   );

@@ -37,7 +37,7 @@ export function DiscoverShelf({
         <CardHeader>
           <CardTitle id={titleId} role="heading" aria-level={3}>{title}</CardTitle>
           <CardAction>
-            <Button variant="ghost" size="sm" onClick={onSeeAll}>
+            <Button variant="ghost" size="card-action" onClick={onSeeAll}>
               See all ›
             </Button>
           </CardAction>

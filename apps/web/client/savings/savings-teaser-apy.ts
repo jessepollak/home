@@ -39,12 +39,10 @@ export function savingsTeaserApyLabel({
   metadata: MorphoVaultsResult;
   nowMs: number;
 }): string | null {
-  if (summary?.funded) {
-    if (summary.apy.status === "available") {
-      return `${formatExactSavingsApy(summary.apy.value)} APY`;
-    }
-    return summary.apy.status === "stale" ? "APY stale" : "APY unavailable";
+  if (summary?.funded && summary.apy.status === "available") {
+    return `${formatExactSavingsApy(summary.apy.value)} APY`;
   }
+  if (summary?.funded && summary.apy.status === "stale") return "APY stale";
 
   const rates = candidates.map((candidate) =>
     getSavingsRateState(candidate, {

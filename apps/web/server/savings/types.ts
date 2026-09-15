@@ -1,8 +1,9 @@
 import "server-only";
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { MoneyActionDraft } from "@/shared/money-actions/types";
+import type { MoneyActionCall, MoneyActionDraft } from "@/shared/money-actions/types";
 import type { Address } from "@/shared/savings/types";
+import type { PinnedBlockSource } from "@/server/chain/coinbase-smart-account";
 
 export type SavingsActionKind = "deposit" | "withdraw";
 
@@ -40,6 +41,13 @@ export type SavingsActionStateReader = (
   },
   signal?: AbortSignal,
 ) => Promise<SavingsActionState>;
+
+export type SavingsActionBatchSimulator = (
+  calls: readonly MoneyActionCall[],
+  accountAddress: Address,
+  source: PinnedBlockSource,
+  signal?: AbortSignal,
+) => Promise<void>;
 
 export type PrepareSavingsAction = (input: {
   session: VerifiedAccountSession;

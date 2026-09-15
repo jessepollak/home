@@ -123,6 +123,23 @@ describe("presentation money formatting", () => {
     }
   });
 
+  test("keeps cached number formatters isolated by locale, currency, and options", () => {
+    const formatCases = [
+      () => formatFiatAmount("1234.5", "USD", { regionId: "US", fractionDigits: 2 }),
+      () => formatFiatAmount("1234.5", "ARS", { regionId: "AR", fractionDigits: 2 }),
+      () => formatFiatAmount("1234.5", "IDR", { regionId: "ID", fractionDigits: 0 }),
+      () => formatPresentationTokenAmount("1234500", 6, "USDC", {
+        cashCurrency: "USD",
+        regionId: "BR",
+      }),
+    ];
+    const expected = ["$1,234.50", "$1.234,50", "Rp\u00A01.234", "1,23 USDC"];
+
+    for (let pass = 0; pass < 3; pass += 1) {
+      expect(formatCases.map((format) => format())).toEqual(expected);
+    }
+  });
+
   test("derives locale and currency metadata from presentation regions", () => {
     expect(presentationMoneyMetadata()).toMatchObject({
       regionId: "GLOBAL",

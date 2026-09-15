@@ -6,9 +6,14 @@ import {
   BASE_CHAIN_ID,
   BASE_USDC_ADDRESS,
   BASE_USDC_DECIMALS,
-  isConfiguredMorphoVault,
+  getVerifiedSaveVault,
+  isSaveActionAllowed,
 } from "@/shared/savings/config";
 import type { Address } from "@/shared/savings/types";
+import {
+  CoinbaseSmartAccountBatchSimulationError,
+  getBaseCoinbaseSmartAccountBatch,
+} from "@/server/chain/coinbase-smart-account";
 import {
   SavingsActionAbiError,
   encodeApproveCall,
@@ -22,6 +27,7 @@ import {
 } from "./rpc";
 import type {
   PrepareSavingsAction,
+  SavingsActionBatchSimulator,
   SavingsActionInput,
   SavingsActionStateReader,
 } from "./types";
@@ -31,6 +37,7 @@ const WAD = BigInt("1000000000000000000");
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const integerPattern = /^(?:0|[1-9][0-9]*)$/;
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
+const RATE_LIMITED_RPC_CODES = new Set([-32016, -32005]);
 
 export type SavingsActionErrorReason =
   | "invalid-input"
@@ -53,11 +60,14 @@ export class SavingsActionError extends Error {
 
 export function createPrepareSavingsAction(options: {
   readState?: SavingsActionStateReader;
+  simulateBatch?: SavingsActionBatchSimulator;
   now?: () => Date;
   retryDelayMs?: number;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 } = {}): PrepareSavingsAction {
   const readState = options.readState ?? getSavingsActionState;
+  const simulateBatch = options.simulateBatch ??
+    getBaseCoinbaseSmartAccountBatch.simulateBatch;
   const now = options.now ?? (() => new Date());
   const retryDelayMs = options.retryDelayMs ?? SAVINGS_ACTION_RPC_RETRY_DELAY_MS;
   const sleep = options.sleep ?? wait;
@@ -114,9 +124,27 @@ export function createPrepareSavingsAction(options: {
     }
     const expiresAt = new Date(preparedAt.getTime() + ACTION_VALIDITY_MS).toISOString();
 
-    return normalizedAction.kind === "deposit"
+    const draft = normalizedAction.kind === "deposit"
       ? prepareDeposit(normalizedAction, accountAddress, amount, state, expiresAt)
       : prepareWithdrawal(normalizedAction, accountAddress, amount, state, expiresAt);
+
+    const simulationSource = {
+      blockNumber: state.block.number,
+      blockHash: state.block.hash,
+    };
+    try {
+      await simulateBatch(draft.calls, accountAddress, simulationSource, signal);
+    } catch (error) {
+      const mapped = mapSimulationError(error);
+      if (mapped.reason !== "rate-limited") throw mapped;
+      if (retryDelayMs > 0) await sleep(retryDelayMs, signal);
+      try {
+        await simulateBatch(draft.calls, accountAddress, simulationSource, signal);
+      } catch (retryError) {
+        throw mapSimulationError(retryError);
+      }
+    }
+    return draft;
   };
 }
 
@@ -252,10 +280,19 @@ function normalizeAction(action: SavingsActionInput): SavingsActionInput {
   if (typeof action.vaultAddress !== "string" || !addressPattern.test(action.vaultAddress)) {
     throw new SavingsActionError("invalid-input", "A valid vault address is required.");
   }
-  if (!isConfiguredMorphoVault(action.vaultAddress)) {
+  const vault = getVerifiedSaveVault(action.vaultAddress);
+  if (!vault) {
     throw new SavingsActionError(
       "unsupported-vault",
       "Savings actions are limited to the configured Morpho USDC vaults.",
+    );
+  }
+  if (!isSaveActionAllowed(vault.capabilities.save, action.kind)) {
+    throw new SavingsActionError(
+      "unsupported-vault",
+      action.kind === "deposit"
+        ? "This savings vault is not available for new deposits."
+        : "This savings vault is not available for withdrawals.",
     );
   }
   if (
@@ -273,6 +310,34 @@ function normalizeAction(action: SavingsActionInput): SavingsActionInput {
     vaultAddress: action.vaultAddress.toLowerCase() as Address,
     amountBaseUnits: amount.toString(10),
   };
+}
+
+function mapSimulationError(error: unknown): SavingsActionError {
+  if (error instanceof SavingsActionError) return error;
+  if (error instanceof CoinbaseSmartAccountBatchSimulationError) {
+    if (error.code === "account-capability") {
+      return new SavingsActionError(
+        "unavailable",
+        "Savings actions require a deployed Coinbase smart account that supports ordered batch simulation.",
+        { cause: error },
+      );
+    }
+    if (
+      error.httpStatus === 429 ||
+      (error.rpcCode !== null && RATE_LIMITED_RPC_CODES.has(error.rpcCode))
+    ) {
+      return new SavingsActionError(
+        "rate-limited",
+        "Base RPC is rate limited. Try again shortly.",
+        { cause: error },
+      );
+    }
+  }
+  return new SavingsActionError(
+    "rpc",
+    "The savings action could not be simulated safely against the pinned Base state.",
+    { cause: error },
+  );
 }
 
 function mapReadStateError(error: unknown): SavingsActionError {

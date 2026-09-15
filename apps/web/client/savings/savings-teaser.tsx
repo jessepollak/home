@@ -2,15 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { PiggyBank } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemMedia,
-  ItemTitle,
-} from "@/components/ui/item";
+import { HomeProductTile } from "@/client/home/product-tile";
 import { MoneyTicker } from "@/components/money-ticker";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { useBalances } from "@/client/balances";
@@ -36,7 +28,6 @@ import {
   savingsTeaserApyLabel,
   savingsTeaserBalanceLabel,
 } from "./savings-teaser-apy";
-import { ShimmerRows } from "@/client/home/panel-shared";
 
 const BASE_USDC_ASSET = {
   address: BASE_USDC_ADDRESS,
@@ -45,9 +36,11 @@ const BASE_USDC_ASSET = {
 } as const;
 
 export function SavingsTeaser({
+  headingId = "save-heading",
   onOpen,
   regionId,
 }: {
+  headingId?: string;
   onOpen: () => void;
   regionId: RegionId;
 }) {
@@ -116,22 +109,33 @@ export function SavingsTeaser({
     (!metadataQuery.data && !metadataQuery.isError) ||
     Boolean(sessionKey && balances.status === "loading");
 
-  if (loading) return <ShimmerRows count={1} />;
+  if (loading) {
+    return (
+      <HomeProductTile
+        actionLabel="Earn"
+        busy
+        headingId={headingId}
+        icon={<PiggyBank className="size-4" aria-hidden="true" />}
+        onOpen={onOpen}
+        primary="Earn"
+        secondary="Loading savings rate…"
+        title="Save"
+      />
+    );
+  }
 
   const balance = summary?.balance.status === "available" ? summary.balance : null;
-  const isEmpty = balance?.totalBaseUnits === "0" || !sessionKey;
+  const hasSavings = Boolean(
+    sessionKey && balance && BigInt(balance.totalBaseUnits) > BigInt(0),
+  );
+  const knownEmpty = !sessionKey || balance?.totalBaseUnits === "0";
   const savedSubtotal = balances.snapshot ? presentSavedSubtotal(balances.snapshot) : null;
   const savingsAmount = savingsTeaserBalanceLabel({
     summary,
     savedSubtotal,
     regionId,
   });
-  const title = isEmpty
-    ? "Nothing saved yet"
-    : balance
-      ? <MoneyTicker value={savingsAmount} align="start" reserveDigits={false} />
-      : <MoneyTicker value="—" align="start" reserveDigits={false} />;
-  const description = metadataQuery.data && (summary || !sessionKey)
+  const description = metadataQuery.data
     ? savingsTeaserApyLabel({
         summary,
         candidates: metadataQuery.data.candidates,
@@ -139,25 +143,22 @@ export function SavingsTeaser({
         nowMs: rateNowMs,
       })
     : null;
+  const primary = hasSavings
+    ? <MoneyTicker value={savingsAmount} align="start" reserveDigits={false} />
+    : knownEmpty
+      ? "Earn"
+      : "Save";
+  const secondary = description ?? (metadataQuery.isError ? "Savings unavailable" : "Savings rate unavailable");
 
   return (
-    <Item
-      render={<Button variant="ghost" type="button" />}
-      className="min-h-16 flex-nowrap cursor-pointer items-center text-left"
-      onClick={onOpen}
-      aria-describedby="save-teaser-hint"
-    >
-      <span id="save-teaser-hint" hidden>Open Save</span>
-      <ItemMedia variant="avatar">
-        <PiggyBank className="size-4 text-muted-foreground" aria-hidden="true" />
-      </ItemMedia>
-      <ItemContent className="min-w-0">
-        <ItemTitle numeric>{title}</ItemTitle>
-        {description ? <ItemDescription>{description}</ItemDescription> : null}
-      </ItemContent>
-      <ItemActions className="shrink-0" aria-hidden="true">
-        <span className="text-sm font-medium text-muted-foreground">Earn ›</span>
-      </ItemActions>
-    </Item>
+    <HomeProductTile
+      actionLabel={hasSavings ? "Manage" : "Earn"}
+      headingId={headingId}
+      icon={<PiggyBank className="size-4" aria-hidden="true" />}
+      onOpen={onOpen}
+      primary={primary}
+      secondary={secondary}
+      title="Save"
+    />
   );
 }

@@ -93,9 +93,9 @@ describe("savings teaser APY", () => {
       expected: "Up to 6.00% APY",
     },
     {
-      name: "fails closed when a funded contributing rate is unavailable",
+      name: "falls back to the best public offer when a funded rate is incomplete",
       input: { balances: ["100000000", "300000000"], rates: [0.04, null] },
-      expected: "APY unavailable",
+      expected: "Up to 4.00% APY",
     },
   ] as const;
 
@@ -104,6 +104,24 @@ describe("savings teaser APY", () => {
       expect(scenario(entry.input).label).toBe(entry.expected);
     });
   }
+
+  test("uses the public offer when account positions are not yet available", () => {
+    const metadata = {
+      version: "v1",
+      chainId: 8453,
+      asset: ASSET,
+      candidates: [candidate(VAULT_A, 0.04), candidate(VAULT_B, 0.06)],
+      source: candidate(VAULT_A, 0.04).source,
+      stale: false,
+    } satisfies MorphoVaultsResult;
+
+    expect(savingsTeaserApyLabel({
+      summary: null,
+      candidates: metadata.candidates,
+      metadata,
+      nowMs: NOW,
+    })).toBe("Up to 6.00% APY");
+  });
 });
 
 describe("savings teaser balance", () => {
