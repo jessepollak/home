@@ -323,10 +323,23 @@ export function HomeShell({
       appliedUrlIntentRef.current
     ) return;
     appliedUrlIntentRef.current = true;
-    applyUrlState(pendingUrlIntentRef.current);
+    const intent = pendingUrlIntentRef.current;
+    applyUrlState(intent);
     setSettingsOpenedInApp(false);
-    setNavigationRequest((request) => request + 1);
-  }, [account.session?.smartAccount, applyInboundUrlIntent, applyUrlState, isVerified, routeMode]);
+    // The server-selected panel already painted this destination on first render
+    // (initialPanel); reapplying the same panel must not refocus the panel stage
+    // or reset its scroll (#460). Only a panel change is a navigation event.
+    if (intent.panel !== activeNavigation) {
+      setNavigationRequest((request) => request + 1);
+    }
+  }, [
+    account.session?.smartAccount,
+    activeNavigation,
+    applyInboundUrlIntent,
+    applyUrlState,
+    isVerified,
+    routeMode,
+  ]);
   const isUnavailable = account.status === "unavailable";
   const isSignedOut = account.status === "signed-out" || account.status === "signout-error";
   useEffect(() => {
