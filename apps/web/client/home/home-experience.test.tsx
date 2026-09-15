@@ -195,32 +195,14 @@ async function waitForVerifiedShell() {
   });
 }
 
-function BalancesAssetFixture() {
+function NestedInvestFixture({ balancesReturn = false }: { balancesReturn?: boolean }) {
   const [assetOpen, setAssetOpen] = useState(false);
   useNestedAppChrome(
     assetOpen
       ? {
           title: "US dollar",
-          backLabel: "Back",
-          onBack: () => setAssetOpen(false),
-        }
-      : null,
-  );
-
-  return (
-    <section aria-label="Invest module">
-      <button type="button" onClick={() => setAssetOpen(true)}>Open asset details</button>
-    </section>
-  );
-}
-
-function NestedInvestFixture() {
-  const [assetOpen, setAssetOpen] = useState(false);
-  useNestedAppChrome(
-    assetOpen
-      ? {
-          title: "US dollar",
-          backLabel: "Back to Invest",
+          // "Back" is the production invariant that arms Balances asset-return provenance.
+          backLabel: balancesReturn ? "Back" : "Back to Invest",
           onBack: () => setAssetOpen(false),
         }
       : null,
@@ -256,37 +238,25 @@ HTMLElement.prototype.scrollTo = function scrollTo(
     : optionsOrX?.top ?? 0;
 };
 
-let restoreControlledAnimationFrames: (() => void) | null = null;
-
+let restoreAnimationFrames: (() => void) | null = null;
 function controlAnimationFrames() {
-  restoreControlledAnimationFrames?.();
-  const request = window.requestAnimationFrame.bind(window);
-  const cancel = window.cancelAnimationFrame.bind(window);
-  let nextId = 10_000;
+  const request = window.requestAnimationFrame;
+  const cancel = window.cancelAnimationFrame;
+  let id = 0;
   const queued = new Map<number, FrameRequestCallback>();
-  window.requestAnimationFrame = (callback) => {
-    const id = nextId++;
-    queued.set(id, callback);
-    return id;
-  };
-  window.cancelAnimationFrame = (id) => { queued.delete(id); };
-  const restore = () => {
+  window.requestAnimationFrame = (callback) => (queued.set(++id, callback), id);
+  window.cancelAnimationFrame = (frame) => { queued.delete(frame); };
+  restoreAnimationFrames = () => {
     window.requestAnimationFrame = request;
     window.cancelAnimationFrame = cancel;
     queued.clear();
-    if (restoreControlledAnimationFrames === restore) {
-      restoreControlledAnimationFrames = null;
-    }
+    restoreAnimationFrames = null;
   };
-  restoreControlledAnimationFrames = restore;
-  return {
-    pending: () => queued.size,
-    flush: () => {
-      const callbacks = [...queued.values()];
-      queued.clear();
-      for (const callback of callbacks) callback(performance.now());
-    },
-  };
+  return { pending: () => queued.size, flush: () => {
+    const callbacks = [...queued.values()];
+    queued.clear();
+    callbacks.forEach((callback) => callback(performance.now()));
+  } };
 }
 
 function resetHistory() {
@@ -299,7 +269,7 @@ function resetHistory() {
 }
 
 afterEach(() => {
-  restoreControlledAnimationFrames?.();
+  restoreAnimationFrames?.();
   cleanup();
   getHomeQueryClient().clear();
   window.localStorage.clear();
@@ -738,6 +708,23 @@ describe("Home shell routing and intents", () => {
     );
     await page().findAllByText("Ethereum");
     expect(main.scrollTop).toBe(275);
+
+    const dust = { ...cashRow, key: "dust", name: "Dust dollar", primary: "$0.01" };
+    view.rerender(<HomeHarness accountSdk={accountSdk} initialPanel="balances"
+      presentAssetBalances={(show) => ({
+        ...presentation,
+        groups: [{ ...presentation.groups[0]!, rows: show ? [cashRow, dust] : [cashRow] }],
+        rows: show ? [cashRow, dust] : [cashRow],
+        hiddenRows: show ? [] : [dust],
+        hiddenCount: 1,
+      })}
+    />);
+    fireEvent.click(page().getByRole("button", { name: "Show" }));
+    await page().findAllByText("Dust dollar");
+    expect(main.scrollTop).toBe(275);
+    fireEvent.click(page().getByRole("button", { name: "Hide small balances" }));
+    await waitFor(() => expect(page().queryByText("Dust dollar")).toBeNull());
+    expect(main.scrollTop).toBe(275);
   });
 
   test("a group's More row opens the panel anchored to that group; absent groups show no row", async () => {
@@ -887,184 +874,94 @@ describe("Home shell routing and intents", () => {
   });
 });
 
-
 describe("Balances scope scroll interleavings (#485)", () => {
   const balancesLocation = {
-    panel: "balances" as const,
-    account: null,
-    shelf: null,
-    asset: null,
-    group: null,
-    market: null,
+    panel: "balances" as const, account: null, shelf: null, asset: null, group: null, market: null,
   };
-
-  test("persisted-region hydration establishes a baseline before an explicit region reset", async () => {
+  for (const mode of ["Account", "asset", "history"] as const) {
+    test(`scope change cancels the queued ${mode} restore`, async () => {
+      window.localStorage.setItem("home.country.v1", "US");
+      const startsInBalances = mode !== "history";
+      syncLocation(startsInBalances ? "/balances" : "/home");
+      historyEntries = [window.location.pathname];
+      const pending = deferred<Response>();
+      const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        initialPanel={startsInBalances ? "balances" : "home"}
+        initialLocation={startsInBalances ? balancesLocation : undefined}
+        investContent={<NestedInvestFixture balancesReturn />}
+      />);
+      await waitForVerifiedShell();
+      const frames = controlAnimationFrames();
+      const main = page().getByRole("main");
+      main.scrollTop = 280;
+      if (mode === "Account") {
+        fireEvent.click(page().getByRole("button", { name: "Account" }));
+        await page().findByRole("combobox", { name: "Country" });
+        fireEvent.click(page().getByRole("button", { name: "Done" }));
+      } else {
+        if (mode === "history") {
+          fireEvent.scroll(main);
+          act(() => frames.flush());
+        }
+        fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
+        if (mode === "asset") {
+          fireEvent.click(page().getByRole("button", { name: "Open asset details" }));
+          fireEvent.click(page().getByRole("button", { name: "Back" }));
+        }
+        act(() => popHistory());
+      }
+      await waitFor(() => expect(main.scrollTop).toBe(280));
+      expect(frames.pending()).toBeGreaterThan(0);
+      view.rerender(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })}
+        sessionFetch={() => pending.promise}
+        initialPanel={startsInBalances ? "balances" : "home"}
+        initialLocation={startsInBalances ? balancesLocation : undefined}
+        investContent={<NestedInvestFixture balancesReturn />}
+      />);
+      await act(async () => {
+        pending.resolve(Response.json(session(ADDRESS_B, "subject-home-b"))); await pending.promise;
+      });
+      await waitForVerifiedShell();
+      await waitFor(() => expect(main.scrollTop).toBe(0));
+      act(() => frames.flush());
+      expect(main.scrollTop).toBe(0);
+    });
+  }
+  test("readiness, explicit scope, sign-out, and new baseline stay ordered", async () => {
     window.localStorage.setItem("home.country.v1", "GB");
     const frames = controlAnimationFrames();
     const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
-    const view = render(
-      <HomeHarness accountSdk={accountSdk} initialPanel="balances" initialLocation={balancesLocation} />,
-    );
+    const view = render(<HomeHarness accountSdk={accountSdk} initialPanel="balances" />);
     const main = page().getByRole("main");
     main.scrollTop = 260;
-
     act(() => frames.flush());
     await waitForVerifiedShell();
     expect(main.scrollTop).toBe(260);
-
-    view.rerender(
-      <HomeHarness
-        accountSdk={accountSdk}
-        initialPanel="balances"
-        initialLocation={balancesLocation}
-        selectedRegionId="US"
-      />,
-    );
+    view.rerender(<HomeHarness accountSdk={accountSdk} initialPanel="balances" selectedRegionId="US" />);
     await waitFor(() => expect(main.scrollTop).toBe(0));
-  });
-
-  test("scope change cancels an Account return's queued second restore", async () => {
-    window.localStorage.setItem("home.country.v1", "US");
-    syncLocation("/balances");
-    historyEntries = ["/balances"];
-    const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
-    const view = render(
-      <HomeHarness accountSdk={accountSdk} initialPanel="balances" initialLocation={balancesLocation} />,
-    );
+    view.rerender(<HomeHarness accountSdk={sdk()} initialPanel="balances" />);
+    await page().findByLabelText("Signed out");
+    main.scrollTop = 190;
+    view.rerender(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })} sessionFetch={async () => Response.json(session(ADDRESS_B, "subject-home-b"))} initialPanel="balances" />);
     await waitForVerifiedShell();
-    const frames = controlAnimationFrames();
-    const main = page().getByRole("main");
-    main.scrollTop = 280;
-    fireEvent.click(page().getByRole("button", { name: "Account" }));
-    await page().findByRole("combobox", { name: "Country" });
-    fireEvent.click(page().getByRole("button", { name: "Done" }));
-    await waitFor(() => expect(main.scrollTop).toBe(280));
-    expect(frames.pending()).toBeGreaterThan(0);
-
+    expect(main.scrollTop).toBe(190);
+  });
+  test("canonical A to B cancels the old group RAF, re-anchors once, and consumes", async () => {
+    window.localStorage.setItem("home.country.v1", "US");
     const pending = deferred<Response>();
-    view.rerender(
-      <HomeHarness
-        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })}
-        sessionFetch={() => pending.promise}
-        initialPanel="balances"
-        initialLocation={balancesLocation}
-      />,
-    );
-    await act(async () => {
-      pending.resolve(Response.json(session(ADDRESS_B, "subject-home-b")));
-      await pending.promise;
-    });
-    await waitForVerifiedShell();
-    await waitFor(() => expect(main.scrollTop).toBe(0));
-    act(() => frames.flush());
-    expect(main.scrollTop).toBe(0);
-  });
-
-  test("scope change cancels an asset return's queued second restore", async () => {
-    window.localStorage.setItem("home.country.v1", "US");
-    syncLocation("/balances");
-    historyEntries = ["/balances"];
-    const view = render(
-      <HomeHarness
-        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
-        initialPanel="balances"
-        initialLocation={balancesLocation}
-        investContent={<BalancesAssetFixture />}
-      />,
-    );
-    await waitForVerifiedShell();
-    const frames = controlAnimationFrames();
-    const main = page().getByRole("main");
-    main.scrollTop = 285;
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
-    fireEvent.click(page().getByRole("button", { name: "Open asset details" }));
-    fireEvent.click(page().getByRole("button", { name: "Back" }));
-    act(() => popHistory());
-    await waitFor(() => expect(main.scrollTop).toBe(285));
-    expect(frames.pending()).toBeGreaterThan(0);
-
-    const pending = deferred<Response>();
-    view.rerender(
-      <HomeHarness
-        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })}
-        sessionFetch={() => pending.promise}
-        initialPanel="balances"
-        initialLocation={balancesLocation}
-        investContent={<BalancesAssetFixture />}
-      />,
-    );
-    await act(async () => {
-      pending.resolve(Response.json(session(ADDRESS_B, "subject-home-b")));
-      await pending.promise;
-    });
-    await waitForVerifiedShell();
-    await waitFor(() => expect(main.scrollTop).toBe(0));
-    act(() => frames.flush());
-    expect(main.scrollTop).toBe(0);
-  });
-
-  test("scope change cancels a queued same-scope history restore", async () => {
-    window.localStorage.setItem("home.country.v1", "US");
-    syncLocation("/home");
-    historyEntries = ["/home"];
-    const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
-    const view = render(<HomeHarness accountSdk={accountSdk} />);
-    await waitForVerifiedShell();
-    const frames = controlAnimationFrames();
-    const main = page().getByRole("main");
-    main.scrollTop = 310;
-    fireEvent.scroll(main);
-    act(() => frames.flush());
-    fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
-    await waitFor(() => expect(main.scrollTop).toBe(0));
-    act(() => popHistory());
-    await waitFor(() => expect(main.scrollTop).toBe(310));
-    expect(frames.pending()).toBeGreaterThan(0);
-
-    const pending = deferred<Response>();
-    view.rerender(
-      <HomeHarness
-        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })}
-        sessionFetch={() => pending.promise}
-      />,
-    );
-    await act(async () => {
-      pending.resolve(Response.json(session(ADDRESS_B, "subject-home-b")));
-      await pending.promise;
-    });
-    await waitForVerifiedShell();
-    await waitFor(() => expect(main.scrollTop).toBe(0));
-    act(() => frames.flush());
-    expect(main.scrollTop).toBe(0);
-  });
-
-  test("scope change cancels the old explicit-group RAF and runs only the new scope anchor", async () => {
-    window.localStorage.setItem("home.country.v1", "US");
-    const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
-    const view = render(<HomeHarness accountSdk={accountSdk} />);
+    const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
     await waitForVerifiedShell();
     const frames = controlAnimationFrames();
     const main = page().getByRole("main");
     let anchors = 0;
-    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-    HTMLElement.prototype.scrollIntoView = function scrollIntoView() {
-      anchors += 1;
-      main.scrollTop = 440;
-    };
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = () => { anchors += 1; main.scrollTop = 440; };
     try {
       fireEvent.click(page().getByRole("button", { name: "More Cash" }));
       expect(frames.pending()).toBeGreaterThan(0);
-
-      const pending = deferred<Response>();
-      view.rerender(
-        <HomeHarness
-          accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })}
-          sessionFetch={() => pending.promise}
-        />,
-      );
+      view.rerender(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })} sessionFetch={() => pending.promise} />);
       await act(async () => {
-        pending.resolve(Response.json(session(ADDRESS_B, "subject-home-b")));
-        await pending.promise;
+        pending.resolve(Response.json(session(ADDRESS_B, "subject-home-b"))); await pending.promise;
       });
       await waitForVerifiedShell();
       await waitFor(() => expect(anchors).toBe(1));
@@ -1072,120 +969,7 @@ describe("Balances scope scroll interleavings (#485)", () => {
       expect(anchors).toBe(1);
       expect(main.scrollTop).toBe(440);
     } finally {
-      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+      HTMLElement.prototype.scrollIntoView = original;
     }
-  });
-
-  test("a cold canonical group re-arms once for B and consumes with unchanged topology", async () => {
-    window.localStorage.setItem("home.country.v1", "US");
-    syncLocation("/balances/cash");
-    historyEntries = ["/balances/cash"];
-    const location = { ...balancesLocation, group: "cash" as const };
-    const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
-    const view = render(
-      <HomeHarness accountSdk={accountSdk} initialPanel="balances" initialLocation={location} />,
-    );
-    let anchors = 0;
-    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-    HTMLElement.prototype.scrollIntoView = () => { anchors += 1; };
-    try {
-      await waitForVerifiedShell();
-      await waitFor(() => expect(anchors).toBeGreaterThan(0));
-      anchors = 0;
-      const pending = deferred<Response>();
-      const accountSdkB = sdk({ isSignedIn: true, ownerKey: OWNER_B });
-      const sessionFetchB = () => pending.promise;
-      view.rerender(
-        <HomeHarness
-          accountSdk={accountSdkB}
-          sessionFetch={sessionFetchB}
-          initialPanel="balances"
-          initialLocation={location}
-        />,
-      );
-      await act(async () => {
-        pending.resolve(Response.json(session(ADDRESS_B, "subject-home-b")));
-        await pending.promise;
-      });
-      await waitForVerifiedShell();
-      await waitFor(() => expect(anchors).toBe(1));
-      await act(async () => { await Promise.resolve(); });
-      expect(anchors).toBe(1);
-    } finally {
-      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
-    }
-  });
-
-  test("Show and Hide preserve the exact stable shell offset", async () => {
-    window.localStorage.setItem("home.country.v1", "US");
-    const visibleRow: BalanceRowModel = {
-      key: "visible",
-      group: "cash",
-      name: "Visible dollar",
-      mark: { kind: "flag", currency: "USD" },
-      primary: "$12.00",
-      secondary: null,
-      tone: "default",
-    };
-    const hiddenRow: BalanceRowModel = {
-      ...visibleRow,
-      key: "dust",
-      name: "Dust dollar",
-      primary: "$0.01",
-    };
-    const present = (show: boolean): BalancesPresentation => ({
-      status: "ready",
-      displayTotal: "$12.01",
-      totalStatus: "complete",
-      groups: [{
-        id: "cash",
-        label: "Cash",
-        displaySubtotal: "$12.01",
-        rows: show ? [visibleRow, hiddenRow] : [visibleRow],
-      }],
-      breakdown: [],
-      rows: show ? [visibleRow, hiddenRow] : [visibleRow],
-      hiddenRows: show ? [] : [hiddenRow],
-      hiddenCount: 1,
-    });
-    render(
-      <HomeHarness
-        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
-        initialPanel="balances"
-        presentAssetBalances={present}
-      />,
-    );
-    await waitForVerifiedShell();
-    const main = page().getByRole("main");
-    main.scrollTop = 245;
-    fireEvent.click(page().getByRole("button", { name: "Show" }));
-    await page().findAllByText("Dust dollar");
-    expect(main.scrollTop).toBe(245);
-    fireEvent.click(page().getByRole("button", { name: "Hide small balances" }));
-    await waitFor(() => expect(page().queryByText("Dust dollar")).toBeNull());
-    expect(main.scrollTop).toBe(245);
-  });
-
-  test("confirmed sign-out makes the next sign-in a new baseline", async () => {
-    window.localStorage.setItem("home.country.v1", "US");
-    const view = render(
-      <HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} initialPanel="balances" />,
-    );
-    await waitForVerifiedShell();
-    const main = page().getByRole("main");
-    main.scrollTop = 330;
-    view.rerender(<HomeHarness accountSdk={sdk()} initialPanel="balances" />);
-    await page().findByLabelText("Signed out");
-    main.scrollTop = 190;
-
-    view.rerender(
-      <HomeHarness
-        accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })}
-        sessionFetch={async () => Response.json(session(ADDRESS_B, "subject-home-b"))}
-        initialPanel="balances"
-      />,
-    );
-    await waitForVerifiedShell();
-    expect(main.scrollTop).toBe(190);
   });
 });
