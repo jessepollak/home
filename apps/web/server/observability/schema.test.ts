@@ -6,7 +6,7 @@ describe("observability schema", () => {
     expect(normalizeObservabilityEvent({
       version: 1,
       kind: "home-startup",
-      route: "/dashboard",
+      route: "/home",
       outcome: "ready",
       cache: "cold",
       shellMs: 1,
@@ -20,7 +20,7 @@ describe("observability schema", () => {
       kind: "home-startup",
       code: "HOME_STARTUP",
       version: 1,
-      route: "/dashboard",
+      route: "/home",
       outcome: "ready",
       cache: "cold",
       shellMs: 1,
@@ -70,7 +70,7 @@ describe("observability schema", () => {
     expect(normalizeObservabilityEvent({
       version: 1,
       kind: "home-auth-phase",
-      route: "/dashboard",
+      route: "/home",
       flow: "restore",
       hint: "cdp",
       outcome: "timeout",

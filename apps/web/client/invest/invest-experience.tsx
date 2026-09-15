@@ -24,7 +24,6 @@ import { InvestHub } from "./invest-hub";
 import {
   investHref,
   investViewFromLocation,
-  investViewFromSearch,
   type InvestView,
 } from "./invest-location";
 import { resetHostScroll } from "./reset-host-scroll";
@@ -57,15 +56,12 @@ export function InvestExperience({
   onRetryLoadMoreMemes,
 }: InvestExperienceProps = {}) {
   const routing = useOptionalHomeShellRouting();
-  const [view, setView] = useState<InvestView>(() => {
-    if (typeof window !== "undefined") {
-      const fromUrl = investViewFromSearch(
-        new URLSearchParams(window.location.search),
-      );
-      if (fromUrl.screen !== "hub") return fromUrl;
-    }
-    return initialView ?? { screen: "hub" };
-  });
+  // initialView comes from the server-supplied dashboard query, so SSR and the
+  // first hydrated render agree on hub/category/detail. Reading window.location
+  // here made the client diverge from the server HTML (hydration mismatch) and
+  // let a stale URL override the server-selected view (#460). Later URL changes
+  // are applied by the routing pop effect below.
+  const [view, setView] = useState<InvestView>(() => initialView ?? { screen: "hub" });
   const [inAppChildDepth, setInAppChildDepth] = useState(0);
   const hostRef = useRef<HTMLDivElement>(null);
   const currentViewKey = viewKey(view);
@@ -84,7 +80,16 @@ export function InvestExperience({
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
-      setView(investViewFromLocation(routing.state.location));
+      setView((previous) => {
+        const next = investViewFromLocation(routing.state.location);
+        // History carries only the flat asset path, so a Forward into a detail
+        // restores the category context of the immediately preceding view; a
+        // cold flat reload has none and returns to /invest.
+        if (next.screen === "detail" && previous.screen === "category" && !routing.state.location.shelf) {
+          return { ...next, from: previous.shelfId };
+        }
+        return next;
+      });
       setInAppChildDepth((depth) => Math.max(0, depth - 1));
     });
     return () => { active = false; };

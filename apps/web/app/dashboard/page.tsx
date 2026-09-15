@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
-import { DashboardExperience } from "@/client/home/dashboard-experience";
-import { searchParamsToString } from "@/config/shell-location";
+import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
-  title: "Dashboard · Home",
-  description: "Your verified Home account dashboard.",
+  title: "Home · Home",
+  description: "Your verified Home account.",
 };
 
-export default async function DashboardPage({ searchParams }: PageProps<"/dashboard">) {
-  const query = await searchParams;
-  return <DashboardExperience initialSearch={searchParamsToString(query)} />;
+// Legacy fallback: the old query-parameter dashboard preserves and translates
+// nothing. Every canonical page state lives on its real path.
+export default function DashboardPage() {
+  redirect("/home");
 }

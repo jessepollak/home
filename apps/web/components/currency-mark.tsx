@@ -82,7 +82,11 @@ function CurrencyMarkSlot({
 
   return (
     <span
-      className={`${styles.mark} ${showShimmer ? "shimmer" : ""}`}
+      className={`${styles.mark} ${showShimmer
+        // Owned pulse animation; the legacy global `.shimmer` CSS was removed
+        // (82cc4fba), so the old class name had no effect (#460).
+        ? "animate-pulse motion-reduce:animate-none"
+        : ""}`}
       data-mark={showShimmer ? "shimmer" : readyKind}
       data-shimmer={showShimmer ? "mark" : undefined}
       data-size={size}

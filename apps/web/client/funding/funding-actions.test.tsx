@@ -12,7 +12,7 @@ mock.module("next/navigation", () => ({
   useRouter: () => ({
     replace: (href: string) => replaceCalls.push(href),
   }),
-  usePathname: () => "/dashboard",
+  usePathname: () => "/home",
 }));
 
 const { act } = await import("@testing-library/react");

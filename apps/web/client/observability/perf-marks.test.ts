@@ -32,10 +32,10 @@ function fixture() {
 }
 
 describe("Home startup recorder", () => {
-  test("emits dashboard ready once and preserves observed numeric order", () => {
+  test("emits the shell ready once and preserves observed numeric order", () => {
     const value = fixture();
     value.recorder.setCache("restored");
-    value.recorder.start("/dashboard");
+    value.recorder.start("/home");
     value.at(10); value.recorder.mark("shell:paint");
     value.at(25); value.recorder.mark("balances:painted");
     value.at(40); value.recorder.mark("session:verified");
@@ -45,7 +45,7 @@ describe("Home startup recorder", () => {
     expect(value.sent).toEqual([{
       version: 1,
       kind: "home-startup",
-      route: "/dashboard",
+      route: "/home",
       outcome: "ready",
       cache: "restored",
       shellMs: 10,
@@ -57,7 +57,7 @@ describe("Home startup recorder", () => {
   });
 
   test("emits signed-out on either route after shell paint and forces unknown cache", () => {
-    for (const route of ["/", "/dashboard"] as const) {
+    for (const route of ["/", "/home"] as const) {
       const value = fixture();
       value.recorder.setCache("cold");
       value.recorder.start(route);
@@ -79,7 +79,7 @@ describe("Home startup recorder", () => {
 
   test("emits unavailable and timeout terminal reports once", () => {
     const unavailable = fixture();
-    unavailable.recorder.start("/dashboard");
+    unavailable.recorder.start("/home");
     unavailable.at(2); unavailable.recorder.mark("shell:paint");
     unavailable.at(5); unavailable.recorder.terminate("unavailable");
     unavailable.timeout();
@@ -87,7 +87,7 @@ describe("Home startup recorder", () => {
     expect(unavailable.sent[0]).toMatchObject({ outcome: "unavailable", totalMs: 5 });
 
     const timedOut = fixture();
-    timedOut.recorder.start("/dashboard");
+    timedOut.recorder.start("/home");
     timedOut.at(1); timedOut.recorder.mark("shell:paint");
     timedOut.at(4); timedOut.recorder.mark("balances:painted");
     timedOut.at(15_000); timedOut.timeout();
@@ -95,7 +95,7 @@ describe("Home startup recorder", () => {
     expect(timedOut.sent).toEqual([{
       version: 1,
       kind: "home-startup",
-      route: "/dashboard",
+      route: "/home",
       outcome: "timeout",
       cache: "unknown",
       shellMs: 1,
@@ -119,7 +119,7 @@ describe("Home startup recorder", () => {
 
   test("drops a timeout without shell paint and ignores later marks", () => {
     const value = fixture();
-    value.recorder.start("/dashboard");
+    value.recorder.start("/home");
     value.at(15_000); value.timeout();
     value.at(45_000); value.recorder.mark("shell:paint");
     value.recorder.mark("session:verified");
@@ -132,7 +132,7 @@ describe("Home startup recorder", () => {
   test("buffers marks received before route start", () => {
     const value = fixture();
     value.at(5); value.recorder.mark("action:first-interactive");
-    value.at(10); value.recorder.start("/dashboard");
+    value.at(10); value.recorder.start("/home");
     value.at(20); value.recorder.mark("shell:paint");
     value.at(30); value.recorder.mark("session:verified");
     value.at(40); value.recorder.mark("balances:painted");
@@ -140,7 +140,7 @@ describe("Home startup recorder", () => {
     expect(value.sent).toEqual([{
       version: 1,
       kind: "home-startup",
-      route: "/dashboard",
+      route: "/home",
       outcome: "ready",
       cache: "unknown",
       shellMs: 20,

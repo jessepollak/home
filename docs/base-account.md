@@ -31,7 +31,7 @@ Account or chain changes during connection, signing, or verification invalidate 
 
 ## CDP render hint
 
-A successful Bearer-validated email session with a Base smart account also receives a 24-hour render-hint pair signed by `HOME_SESSION_SECRET`: HttpOnly `home-cdp-session` contains the validated session and a nonce, while readable `home-cdp-live` contains the same nonce. Both halves must be present and valid. The readable half also conservatively keeps client restore pending until CDP initializes, but it has no API authority by itself; private API routes still require a fresh CDP access token. Server Components read a valid Home session first and then the complete hint pair, so a signed-in visit to `/` redirects before rendering to `/dashboard` while `/?account=signin` remains a loop-breaking sign-in destination.
+A successful Bearer-validated email session with a Base smart account also receives a 24-hour render-hint pair signed by `HOME_SESSION_SECRET`: HttpOnly `home-cdp-session` contains the validated session and a nonce, while readable `home-cdp-live` contains the same nonce. Both halves must be present and valid. The readable half also conservatively keeps client restore pending until CDP initializes, but it has no API authority by itself; private API routes still require a fresh CDP access token. Server Components read a valid Home session first and then the complete hint pair, so a signed-in visit to `/` redirects before rendering to `/home` while `/?account=signin` remains a loop-breaking sign-in destination.
 
 ## Operator setup
 
@@ -53,7 +53,7 @@ No automated agent should perform this smoke because it opens a real wallet and 
 6. If testing an explicitly unsupported wallet, confirm only a documented unsupported code enters the legacy signing phase and that `personal_sign` occurs once. Missing proof or any other error must fail rather than fall back.
 7. Confirm `/api/session` returns `accountProvider: "base-account"` and the selected address using the `home-session` cookie, with no Authorization header.
 8. Confirm subsequent private API requests carry `X-Home-Account-Provider: base-account` and scope data to that verified address.
-9. Reload `/` and confirm the server redirects to `/dashboard`. Open `/?account=signin` and confirm it still renders the sign-in sheet.
+9. Reload `/` and confirm the server redirects to `/home`. Open `/?account=signin` and confirm it still renders the sign-in sheet.
 10. Change account or chain during a second attempt and confirm the flow fails closed.
 11. Sign out and confirm private details disappear, all four Home cookies are cleared, and reloading remains signed out.
 

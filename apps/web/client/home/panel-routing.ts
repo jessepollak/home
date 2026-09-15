@@ -7,15 +7,8 @@ import {
   type ReactNode,
 } from "react";
 import type { ShellPanelId } from "@/config/navigation";
-import type { BorrowMarketId } from "@/shared/borrowing/config";
-import {
-  parseInboundUrlIntent,
-  parseShellLocation,
-  shellHref,
-  type MoneyGroupId,
-  type ShellFlow,
-  type ShellLocation,
-} from "@/config/shell-location";
+import type { ShellFlow, ShellLocation } from "@/config/shell-location";
+import { parseShellOverlayIntent } from "@/config/shell-location";
 
 export type HomeInboundPanelState = {
   panel: ShellPanelId;
@@ -57,32 +50,25 @@ export function useOptionalHomeShellRouting(): HomeShellRouting | null {
   return useContext(HomeShellRoutingContext);
 }
 
+/**
+ * Combines the explicit page location (parsed from the authoritative canonical
+ * pathname by the server page or by reparsing `window.location` on popstate)
+ * with the allowlisted ephemeral overlay query state.
+ */
 export function readHomeInboundPanelState(
+  location: ShellLocation,
   search: URLSearchParams,
 ): HomeInboundPanelState {
-  const intent = parseInboundUrlIntent(search);
+  const overlay = parseShellOverlayIntent(search);
   return {
-    panel: intent.location.panel,
-    account: intent.location.account,
-    location: intent.location,
-    addMoney: intent.addMoney || intent.returnedFromFunding ||
-      intent.flow === "add-money" || intent.flow === "receive",
-    returnedFromProvider: intent.returnedFromFunding,
-    flow: intent.flow,
-    sendFlow: intent.flow === "send",
-    actionId: intent.actionId,
+    panel: location.panel,
+    account: overlay.account,
+    location,
+    addMoney: overlay.addMoney || overlay.returnedFromFunding ||
+      overlay.flow === "add-money" || overlay.flow === "receive",
+    returnedFromProvider: overlay.returnedFromFunding,
+    flow: overlay.flow,
+    sendFlow: overlay.flow === "send",
+    actionId: overlay.actionId,
   };
-}
-
-export function readHomePanel(search: URLSearchParams): ShellPanelId {
-  return parseShellLocation(search).panel;
-}
-
-export function homePanelHref(
-  shellPath: "/" | "/dashboard",
-  panel: ShellPanelId,
-  group: MoneyGroupId | null = null,
-  market: BorrowMarketId | null = null,
-): string {
-  return shellHref(shellPath, { panel, group, market });
 }

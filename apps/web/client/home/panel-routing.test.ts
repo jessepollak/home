@@ -1,87 +1,60 @@
 import { describe, expect, test } from "bun:test";
 import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
-import { homePanelHref, readHomeInboundPanelState } from "./panel-routing";
+import type { ShellLocation } from "@/config/shell-location";
+import { readHomeInboundPanelState } from "./panel-routing";
 
-const inboundCases = [
-  {
-    search: "panel=balances",
-    expected: {
-      panel: "balances",
-      account: null,
-      location: { panel: "balances", account: null, shelf: null, asset: null, group: null, market: null },
-      addMoney: false,
-      returnedFromProvider: false,
-      flow: null,
-      sendFlow: false,
-      actionId: null,
-    },
-  },
-  {
-    search: "panel=activity&account=settings",
-    expected: {
-      panel: "activity",
-      account: "settings",
-      location: { panel: "activity", account: "settings", shelf: null, asset: null, group: null, market: null },
-      addMoney: false,
-      returnedFromProvider: false,
-      flow: null,
-      sendFlow: false,
-      actionId: null,
-    },
-  },
-  {
-    search: "return=funding",
-    expected: {
-      panel: "home",
-      account: null,
-      location: { panel: "home", account: null, shelf: null, asset: null, group: null, market: null },
-      addMoney: true,
-      returnedFromProvider: true,
-      flow: null,
-      sendFlow: false,
-      actionId: null,
-    },
-  },
-  {
-    search: "flow=send&action=11111111-1111-4111-8111-111111111111",
-    expected: {
-      panel: "home",
-      account: null,
-      location: { panel: "home", account: null, shelf: null, asset: null, group: null, market: null },
-      addMoney: false,
-      returnedFromProvider: false,
-      flow: "send",
-      sendFlow: true,
-      actionId: "11111111-1111-4111-8111-111111111111",
-    },
-  },
-  {
-    search: "flow=save-deposit",
-    expected: {
-      panel: "save",
-      account: null,
-      location: { panel: "save", account: null, shelf: null, asset: null, group: null, market: null },
-      addMoney: false,
-      returnedFromProvider: false,
-      flow: "save-deposit",
-      sendFlow: false,
-      actionId: null,
-    },
-  },
-] as const;
+function location(panel: ShellLocation["panel"], rest: Partial<ShellLocation> = {}): ShellLocation {
+  return { panel, account: null, shelf: null, asset: null, group: null, market: null, ...rest };
+}
+
+const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 
 describe("home panel routing", () => {
-  for (const entry of inboundCases) {
-    test(`parses ${entry.search}`, () => {
-      expect(readHomeInboundPanelState(new URLSearchParams(entry.search))).toEqual(entry.expected);
+  test("combines the explicit page location with empty overlays", () => {
+    expect(readHomeInboundPanelState(location("balances"), new URLSearchParams())).toEqual({
+      panel: "balances",
+      account: null,
+      location: location("balances"),
+      addMoney: false,
+      returnedFromProvider: false,
+      flow: null,
+      sendFlow: false,
+      actionId: null,
     });
-  }
+  });
 
-  test("maps panels to shallow shell URLs", () => {
-    expect(homePanelHref("/dashboard", "home")).toBe("/dashboard");
-    expect(homePanelHref("/dashboard", "balances")).toBe("/dashboard?panel=balances");
-    expect(homePanelHref("/", "invest")).toBe("/?panel=invest");
-    expect(homePanelHref("/dashboard", "borrow", null, BORROW_MARKET_ID))
-      .toBe(`/dashboard?panel=borrow&market=${BORROW_MARKET_ID}`);
+  test("carries the account overlay without changing the page", () => {
+    expect(readHomeInboundPanelState(location("activity"), new URLSearchParams("account=settings")))
+      .toEqual({
+        panel: "activity",
+        account: "settings",
+        location: location("activity"),
+        addMoney: false,
+        returnedFromProvider: false,
+        flow: null,
+        sendFlow: false,
+        actionId: null,
+      });
+  });
+
+  test("treats a funding provider return as an add-money intent", () => {
+    expect(readHomeInboundPanelState(location("home"), new URLSearchParams("return=funding")))
+      .toMatchObject({ panel: "home", addMoney: true, returnedFromProvider: true, flow: null });
+    expect(readHomeInboundPanelState(location("home"), new URLSearchParams("add-money=1")))
+      .toMatchObject({ addMoney: true, returnedFromProvider: false });
+  });
+
+  test("maps send flows and their action id, and save flows to Save", () => {
+    expect(readHomeInboundPanelState(
+      location("home"),
+      new URLSearchParams(`flow=send&action=${ACTION_ID}`),
+    )).toMatchObject({ panel: "home", flow: "send", sendFlow: true, actionId: ACTION_ID });
+    expect(readHomeInboundPanelState(location("save"), new URLSearchParams("flow=save-deposit")))
+      .toMatchObject({ panel: "save", flow: "save-deposit", sendFlow: false, actionId: null });
+    // The market segment is page state; unrelated query keys never touch it.
+    expect(readHomeInboundPanelState(
+      location("borrow", { market: BORROW_MARKET_ID }),
+      new URLSearchParams("panel=home&group=cash"),
+    ).location).toEqual(location("borrow", { market: BORROW_MARKET_ID }));
   });
 });

@@ -2,14 +2,12 @@ import { isShellPanelId, type ShellPanelId } from "./navigation";
 import { getBorrowMarketRef, type BorrowMarketId } from "@/shared/borrowing/config";
 import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 
-export const SHELL_PANEL_PARAM = "panel";
+// The pathname is authoritative for page state. Only the ephemeral account and
+// flow overlays below may appear as query keys; obsolete `panel`, `shelf`,
+// `asset`, `group`, and `market` query values never select a page.
 export const SHELL_ACCOUNT_PARAM = "account";
-export const SHELL_SHELF_PARAM = "shelf";
-export const SHELL_ASSET_PARAM = "asset";
-export const SHELL_GROUP_PARAM = "group";
 export const SHELL_FLOW_PARAM = "flow";
 export const SHELL_ACTION_PARAM = "action";
-export const SHELL_MARKET_PARAM = "market";
 
 export type ShellAccount = "signin" | "settings";
 export type MoneyGroupId = "cash" | "investments";
@@ -43,7 +41,10 @@ export type ShellSearchInput = URLSearchParams | Record<
   string | string[] | undefined
 >;
 
-const discoverShelfIds = new Set(["stocks", "crypto", "memes"]);
+// Reserved Invest category segments match before asset resolution, so they can
+// never be parsed as asset ids. Kept as literals: `config/` may not import the
+// client discover module that owns the shelf catalog.
+const investCategories = new Set<string>(["stocks", "crypto", "memes"]);
 const moneyGroups = new Set<MoneyGroupId>(["cash", "investments"]);
 const shellFlows = new Set<ShellFlow>([
   "send",
@@ -62,7 +63,7 @@ export function firstQueryValue(
 
 /**
  * Serializes a server page's `searchParams` so the shell can derive its initial
- * URL intent identically on the server and on the client (no hydration mismatch).
+ * overlay intent identically on the server and on the client (no hydration mismatch).
  */
 export function searchParamsToString(
   query: Record<string, string | string[] | undefined>,
@@ -76,25 +77,29 @@ export function searchParamsToString(
   return search.toString();
 }
 
+function splitPathname(pathname: string): (string | null)[] {
+  return pathname.split("/").filter((segment) => segment.length > 0).map((segment) => {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      return null;
+    }
+  });
+}
+
 export function parseShellAccount(
   value: string | null | undefined,
 ): ShellAccount | null {
   return value === "signin" || value === "settings" ? value : null;
 }
 
-export function parseShellPanel(
-  value: string | null | undefined,
-): ShellPanelId {
-  return value && isShellPanelId(value) ? value : "home";
+export function readShellAccountParam(search: ShellSearchInput): ShellAccount | null {
+  return parseShellAccount(readSearchValue(search, SHELL_ACCOUNT_PARAM));
 }
 
 function readSearchValue(search: ShellSearchInput, key: string) {
   if (search instanceof URLSearchParams) return search.get(key) ?? undefined;
   return firstQueryValue(search[key]);
-}
-
-function parseShelf(value: string | undefined): string | null {
-  return value && discoverShelfIds.has(value) ? value : null;
 }
 
 function parseAsset(value: string | undefined): string | null {
@@ -113,35 +118,57 @@ function parseShellFlow(value: string | undefined): ShellFlow | null {
   return value && shellFlows.has(value as ShellFlow) ? value as ShellFlow : null;
 }
 
-export function parseInboundUrlIntent(
+function emptyLocation(panel: ShellPanelId): ShellLocation {
+  return { panel, account: null, shelf: null, asset: null, group: null, market: null };
+}
+
+/**
+ * Parses only canonical route segments into page state. Exact L1 routes match
+ * first; invalid or extra L2 segments fall back to their canonical parent,
+ * unknown top-level segments (including the legacy `/dashboard`) fall back to
+ * `/home`, and reserved Invest categories match before asset resolution.
+ */
+export function parseShellLocation(pathname: string): ShellLocation {
+  const segments = splitPathname(pathname);
+  if (segments.length === 0) return emptyLocation("home");
+  const [first, second, ...extra] = segments;
+  if (first === null || !isShellPanelId(first)) return emptyLocation("home");
+  if (second === undefined) return emptyLocation(first);
+  // Reject extra path segments and malformed encodings to the canonical parent.
+  if (extra.length > 0 || second === null) return emptyLocation(first);
+  if (first === "balances") {
+    return { ...emptyLocation("balances"), group: parseMoneyGroup(second) };
+  }
+  if (first === "borrow") {
+    return { ...emptyLocation("borrow"), market: parseBorrowMarket(second) };
+  }
+  if (first === "invest") {
+    if (investCategories.has(second)) {
+      return { ...emptyLocation("invest"), shelf: second };
+    }
+    return { ...emptyLocation("invest"), asset: parseAsset(second) };
+  }
+  // `/home`, `/save`, and `/activity` take no L2 segment; an unknown second
+  // segment already fell back to the parent above.
+  return emptyLocation(first);
+}
+
+export type ShellOverlayIntent = {
+  account: ShellAccount | null;
+  returnedFromFunding: boolean;
+  addMoney: boolean;
+  flow: ShellFlow | null;
+  actionId: string | null;
+};
+
+/** Reads only the allowlisted ephemeral overlay keys; never page state. */
+export function parseShellOverlayIntent(
   search: ShellSearchInput,
-): InboundUrlIntent {
+): ShellOverlayIntent {
   const flow = parseShellFlow(readSearchValue(search, SHELL_FLOW_PARAM));
-  const requestedPanel = readSearchValue(search, SHELL_PANEL_PARAM);
-  // Save flows always live on the Save panel: the dialog renders in place, so it
-  // must not open inside another (hidden, inert) panel.
-  const panel = flow === "save-deposit" || flow === "save-withdraw"
-    ? "save"
-    : parseShellPanel(requestedPanel);
   const action = readSearchValue(search, SHELL_ACTION_PARAM);
   return {
-    kind: "inbound-url-intent",
-    location: {
-      panel,
-      account: parseShellAccount(readSearchValue(search, SHELL_ACCOUNT_PARAM)),
-      shelf: panel === "invest"
-        ? parseShelf(readSearchValue(search, SHELL_SHELF_PARAM))
-        : null,
-      asset: panel === "invest"
-        ? parseAsset(readSearchValue(search, SHELL_ASSET_PARAM))
-        : null,
-      group: panel === "balances"
-        ? parseMoneyGroup(readSearchValue(search, SHELL_GROUP_PARAM))
-        : null,
-      market: panel === "borrow"
-        ? parseBorrowMarket(readSearchValue(search, SHELL_MARKET_PARAM))
-        : null,
-    },
+    account: readShellAccountParam(search),
     returnedFromFunding: readSearchValue(search, "return") === "funding",
     addMoney: readSearchValue(search, "add-money") === "1",
     flow,
@@ -149,35 +176,42 @@ export function parseInboundUrlIntent(
   };
 }
 
-export function parseShellLocation(search: ShellSearchInput): ShellLocation {
-  return parseInboundUrlIntent(search).location;
+export function parseInboundUrlIntent(
+  pathname: string,
+  search: ShellSearchInput,
+): InboundUrlIntent {
+  const overlay = parseShellOverlayIntent(search);
+  return {
+    kind: "inbound-url-intent",
+    location: { ...parseShellLocation(pathname), account: overlay.account },
+    returnedFromFunding: overlay.returnedFromFunding,
+    addMoney: overlay.addMoney,
+    flow: overlay.flow,
+    actionId: overlay.actionId,
+  };
 }
 
-export function shellHref(
-  path: string,
-  {
-    panel = "home",
-    account = null,
-    shelf = null,
-    asset = null,
-    group = null,
-    market = null,
-  }: Partial<ShellLocation> = {},
-): string {
-  const params = new URLSearchParams();
-  if (panel !== "home") params.set(SHELL_PANEL_PARAM, panel);
-  if (account) params.set(SHELL_ACCOUNT_PARAM, account);
+/**
+ * Emits the canonical pathname for a shell location plus its account overlay.
+ * No page-routing query keys are ever emitted.
+ */
+export function shellHref(location: Partial<ShellLocation> = {}): string {
+  const panel = location.panel ?? "home";
+  let pathname = `/${panel}`;
+  if (panel === "balances" && location.group) pathname += `/${location.group}`;
+  if (panel === "borrow" && location.market) {
+    const configuredMarket = getBorrowMarketRef(location.market);
+    if (configuredMarket) pathname += `/${configuredMarket.marketId}`;
+  }
   if (panel === "invest") {
-    if (shelf) params.set(SHELL_SHELF_PARAM, shelf);
-    if (asset) params.set(SHELL_ASSET_PARAM, asset);
+    // One L2 segment: a flat asset path wins; categories are only emitted alone.
+    if (location.asset) pathname += `/${location.asset}`;
+    else if (location.shelf) pathname += `/${location.shelf}`;
   }
-  if (panel === "balances" && group) params.set(SHELL_GROUP_PARAM, group);
-  const configuredMarket = market ? getBorrowMarketRef(market) : null;
-  if (panel === "borrow" && configuredMarket) {
-    params.set(SHELL_MARKET_PARAM, configuredMarket.marketId);
-  }
+  const params = new URLSearchParams();
+  if (location.account) params.set(SHELL_ACCOUNT_PARAM, location.account);
   const query = params.toString();
-  return query ? `${path}?${query}` : path;
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 export function flowHref(
@@ -214,6 +248,29 @@ export function withoutFlowHref(
   current.searchParams.delete(SHELL_FLOW_PARAM);
   current.searchParams.delete(SHELL_ACTION_PARAM);
   return `${current.pathname}${current.search}`;
+}
+
+/** The closed set of canonical shell routes the in-shell overlays commit to. */
+export function isCanonicalShellPathname(pathname: string): boolean {
+  const first = pathname.split("/").filter((segment) => segment.length > 0)[0];
+  return first !== undefined && isShellPanelId(first);
+}
+
+/**
+ * `/home` carrying only allowlisted ephemeral overlay intent; obsolete
+ * page-routing query keys and malformed values never survive the verified
+ * root redirect. Callers keep `/?account=signin` at the root themselves.
+ */
+export function homeHrefWithOverlays(search: ShellSearchInput): string {
+  const overlay = parseShellOverlayIntent(search);
+  const params = new URLSearchParams();
+  if (overlay.account) params.set(SHELL_ACCOUNT_PARAM, overlay.account);
+  if (overlay.flow) params.set(SHELL_FLOW_PARAM, overlay.flow);
+  if (overlay.actionId) params.set(SHELL_ACTION_PARAM, overlay.actionId);
+  if (overlay.returnedFromFunding) params.set("return", "funding");
+  if (overlay.addMoney) params.set("add-money", "1");
+  const query = params.toString();
+  return query ? `/home?${query}` : "/home";
 }
 
 const SHELL_SCROLL_TOP_STATE_KEY = "__homeShellScrollTop";
