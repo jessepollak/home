@@ -784,8 +784,8 @@ function stateCopy(state: string, sandbox = false) {
     };
   if (state === "dispatch-ambiguous")
     return {
-      title: "Check Activity before trying again",
-      body: "The provider may have received this request. Home retained the original order and will not send it twice.",
+      title: "Don't try again yet",
+      body: "Home could not confirm whether the provider created this deposit. It kept the original order and will not send it twice. Contact the operator before starting another deposit.",
     };
   if (state === "sent-unverified")
     return sandbox

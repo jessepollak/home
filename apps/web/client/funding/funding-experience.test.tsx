@@ -312,7 +312,10 @@ describe("FundingExperience", () => {
     await page().findByRole("alert");
     expect(page().getByRole("button", { name: "Back" }).hasAttribute("disabled")).toBe(true);
     fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
-    await page().findByText("Check Activity before trying again");
+    await page().findByText("Don't try again yet");
+    await page().findByText(
+      "Home could not confirm whether the provider created this deposit. It kept the original order and will not send it twice. Contact the operator before starting another deposit.",
+    );
     expect(page().queryByRole("button", { name: "Back" })).toBeNull();
     expect(page().getByRole("button", { name: "Close add money" })).toBeTruthy();
     expect(quoteCalls).toBe(1);
@@ -332,7 +335,7 @@ describe("FundingExperience", () => {
     expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
     await act(async () => { resolveOrder({ order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "dispatch-ambiguous", fiatAmount: "1000", providerStatus: null, instructions: null } }); await pendingOrder; });
     expect(page().getByRole("dialog", { name: "Receive" })).toBeTruthy();
-    expect(page().queryByText("Check Activity before trying again")).toBeNull();
+    expect(page().queryByText("Don't try again yet")).toBeNull();
   });
 
   test("keeps the generic redirect renderer for non-Coinbase providers", async () => {
