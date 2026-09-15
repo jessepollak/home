@@ -369,14 +369,18 @@ describe("Home shell auth and privacy", () => {
     await waitForVerifiedShell();
   });
 
-  test("navigates only after dashboard sign-out resolves", async () => {
+  test("waits for native logout before dashboard navigation", async () => {
     const pending = deferred<void>();
     render(
       <HomeHarness
         accountSdk={sdk({
+          authentication: "native-base",
           isSignedIn: true,
           ownerKey: OWNER,
-          signOut: () => pending.promise,
+          signOut: async (onPhase) => {
+            await pending.promise;
+            onPhase?.({ phase: "native-logout", outcome: "success", durationMs: 1 });
+          },
         })}
       />,
     );
@@ -410,13 +414,13 @@ describe("Home shell auth and privacy", () => {
     fireEvent.click(await waitForVerifiedShell());
     fireEvent.click(page().getByRole("button", { name: "Sign out" }));
     await page().findByRole("button", { name: "Retry sign out" });
-    expect(replaceCalls).toEqual([]);
+    expect(replaceCalls).toEqual(["/"]);
     expect(page().queryByText("$12.34")).toBeNull();
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
 
     fireEvent.click(page().getByRole("button", { name: "Retry sign out" }));
     await waitFor(() => expect(signOutCalls).toBe(2));
-    await waitFor(() => expect(replaceCalls).toEqual(["/"]));
+    await waitFor(() => expect(replaceCalls).toEqual(["/", "/"]));
   });
 
   test("recovers a failed session check without revealing balances early", async () => {

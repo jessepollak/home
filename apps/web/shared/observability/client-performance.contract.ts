@@ -22,12 +22,14 @@ export const HOME_STARTUP_OUTCOMES = [
 export const HOME_STARTUP_CACHE_STATES = ["restored", "cold", "unknown"] as const;
 export const HOME_AUTH_HINTS = ["none", "cdp", "base"] as const;
 export const HOME_AUTH_OUTCOMES = ["signed-out", "verified", "unavailable", "timeout"] as const;
+export const HOME_AUTH_SIGNOUT_OUTCOMES = ["success", "error", "timeout"] as const;
 
 export type HomeStartupRoute = (typeof HOME_STARTUP_ROUTES)[number];
 export type HomeStartupOutcome = (typeof HOME_STARTUP_OUTCOMES)[number];
 export type HomeStartupCacheState = (typeof HOME_STARTUP_CACHE_STATES)[number];
 export type HomeAuthHint = (typeof HOME_AUTH_HINTS)[number];
 export type HomeAuthOutcome = (typeof HOME_AUTH_OUTCOMES)[number];
+export type HomeAuthSignOutOutcome = (typeof HOME_AUTH_SIGNOUT_OUTCOMES)[number];
 
 export type HomeStartupReport = {
   version: typeof HOME_STARTUP_VERSION;
@@ -56,7 +58,23 @@ export type HomeAuthRestoreReport = {
   totalMs: number;
 };
 
-export type ClientPerformanceReport = HomeStartupReport | HomeAuthRestoreReport;
+export type HomeAuthSignOutReport = {
+  version: typeof HOME_STARTUP_VERSION;
+  kind: "home-auth-phase";
+  route: HomeStartupRoute;
+  flow: "signout";
+  outcome: HomeAuthSignOutOutcome;
+  visibleNavigationMs?: number;
+  nativeLogoutAttempted: boolean;
+  nativeLogoutMs?: number;
+  walletDisconnectAttempted: boolean;
+  walletDisconnectMs?: number;
+  cdpSignOutAttempted: boolean;
+  cdpSignOutMs?: number;
+  totalMs: number;
+};
+
+export type ClientPerformanceReport = HomeStartupReport | HomeAuthRestoreReport | HomeAuthSignOutReport;
 
 const startupAllowedKeys = new Set([
   "version",
@@ -92,6 +110,32 @@ const authAllowedKeys = new Set([
   "sessionSettledMs",
   "totalMs",
 ]);
+const authSignOutAllowedKeys = new Set([
+  "version",
+  "kind",
+  "route",
+  "flow",
+  "outcome",
+  "visibleNavigationMs",
+  "nativeLogoutAttempted",
+  "nativeLogoutMs",
+  "walletDisconnectAttempted",
+  "walletDisconnectMs",
+  "cdpSignOutAttempted",
+  "cdpSignOutMs",
+  "totalMs",
+]);
+const authSignOutRequiredKeys = new Set([
+  "version",
+  "kind",
+  "route",
+  "flow",
+  "outcome",
+  "nativeLogoutAttempted",
+  "walletDisconnectAttempted",
+  "cdpSignOutAttempted",
+  "totalMs",
+]);
 const authRequiredKeys = new Set([
   "version",
   "kind",
@@ -107,7 +151,11 @@ export function parseClientPerformanceReport(value: unknown): ClientPerformanceR
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (record.kind === "home-startup") return parseHomeStartupReport(record);
-  if (record.kind === "home-auth-phase") return parseHomeAuthRestoreReport(record);
+  if (record.kind === "home-auth-phase") {
+    return record.flow === "signout"
+      ? parseHomeAuthSignOutReport(record)
+      : parseHomeAuthRestoreReport(record);
+  }
   return null;
 }
 
@@ -181,6 +229,42 @@ function parseHomeAuthRestoreReport(record: Record<string, unknown>): HomeAuthRe
     outcome: record.outcome,
     ...optionalDurations,
     sessionSettledMs,
+    totalMs,
+  };
+}
+
+function parseHomeAuthSignOutReport(record: Record<string, unknown>): HomeAuthSignOutReport | null {
+  if (
+    !hasExactShape(record, authSignOutAllowedKeys, authSignOutRequiredKeys) ||
+    record.version !== HOME_STARTUP_VERSION ||
+    record.flow !== "signout" ||
+    !isAllowed(record.route, HOME_STARTUP_ROUTES) ||
+    !isAllowed(record.outcome, HOME_AUTH_SIGNOUT_OUTCOMES) ||
+    typeof record.nativeLogoutAttempted !== "boolean" ||
+    typeof record.walletDisconnectAttempted !== "boolean" ||
+    typeof record.cdpSignOutAttempted !== "boolean"
+  ) return null;
+  const totalMs = normalizeDuration(record.totalMs, 50, 30_000);
+  if (totalMs === null) return null;
+  const durations: Partial<Pick<HomeAuthSignOutReport,
+    "visibleNavigationMs" | "nativeLogoutMs" | "walletDisconnectMs" | "cdpSignOutMs"
+  >> = {};
+  for (const key of ["visibleNavigationMs", "nativeLogoutMs", "walletDisconnectMs", "cdpSignOutMs"] as const) {
+    if (!Object.hasOwn(record, key)) continue;
+    const normalized = normalizeDuration(record[key], 50, 30_000);
+    if (normalized === null) return null;
+    durations[key] = normalized;
+  }
+  return {
+    version: HOME_STARTUP_VERSION,
+    kind: "home-auth-phase",
+    route: record.route,
+    flow: "signout",
+    outcome: record.outcome,
+    ...durations,
+    nativeLogoutAttempted: record.nativeLogoutAttempted,
+    walletDisconnectAttempted: record.walletDisconnectAttempted,
+    cdpSignOutAttempted: record.cdpSignOutAttempted,
     totalMs,
   };
 }
