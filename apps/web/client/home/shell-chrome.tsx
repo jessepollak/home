@@ -181,7 +181,7 @@ export function SignedOutLanding({
   return (
     <main className="flex flex-1 flex-col md:grid md:grid-cols-2">
       {landingVisual ? (
-        <div className="min-h-64 overflow-hidden bg-muted md:min-h-0">{landingVisual}</div>
+        <div className="flex min-h-64 items-center justify-center overflow-hidden bg-muted md:min-h-0">{landingVisual}</div>
       ) : null}
       <section className="flex items-center p-6 md:p-12" aria-labelledby="landing-title">
         <div className="mx-auto flex w-full max-w-lg flex-col gap-6">
