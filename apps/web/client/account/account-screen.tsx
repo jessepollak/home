@@ -135,6 +135,7 @@ export function AccountSignInSheet({
       consumedVerifiedAttempt.current !== completedAttemptSequence
     ) {
       consumedVerifiedAttempt.current = completedAttemptSequence;
+      setBaseAccountPhase(null);
       onClose();
       onVerified?.();
     }
