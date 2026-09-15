@@ -77,5 +77,7 @@ function echoMismatchCode(stage: RipioFailureStage): RipioFailureCode {
 }
 
 function httpFailureCode(status: number): RipioFailureCode {
-  return status >= 500 ? "PROVIDER_HTTP_5XX" : "PROVIDER_HTTP_4XX";
+  if (status >= 500) return "PROVIDER_HTTP_5XX";
+  if (status >= 400) return "PROVIDER_HTTP_4XX";
+  return "PROVIDER_TRANSPORT";
 }

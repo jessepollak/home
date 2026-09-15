@@ -10,6 +10,7 @@ describe("Ripio failure classification", () => {
       ["status", new RipioProviderError("unavailable", 503), "PROVIDER_HTTP_5XX"],
       ["status", new RipioProviderError("unauthorized", 401), "FUNDING_PROVIDER_CONFIGURATION"],
       ["status", new RipioProviderError("unavailable"), "PROVIDER_TRANSPORT"],
+      ["quote", new RipioProviderError("ambiguous-create", 302), "PROVIDER_TRANSPORT"],
       ["status", new RipioProviderError("invalid-response"), "PROVIDER_INVALID_RESPONSE"],
       ["status", new RipioProviderError("invalid-response", 200), "PROVIDER_INVALID_RESPONSE"],
       ["customer", new RipioProviderError("invalid-request"), null],
