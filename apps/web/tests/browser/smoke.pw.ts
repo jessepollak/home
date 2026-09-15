@@ -595,17 +595,26 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
   const send = page.getByRole("dialog", { name: "Send" });
   const selector = send.getByRole("combobox", { name: "Asset" });
   await expect(selector).toBeVisible();
+  await expect(send.getByRole("button", { name: "Close send dialog" })).toBeFocused();
   await expect(selector).toHaveValue("USD");
   await expect(send.locator('[data-slot="input-group-button"]')).toHaveCount(1);
   await selector.click();
   await expect(page.getByRole("option", { name: "USD USDC" })).toBeVisible();
   const selectorGroup = selector.locator("xpath=ancestor::*[@data-slot='input-group']");
   const popup = page.locator('[data-slot="combobox-content"]');
-  const [selectorWidth, popupWidth] = await Promise.all([
+  const [selectorWidth, popupWidth, popupBox] = await Promise.all([
     selectorGroup.evaluate((element) => (element as HTMLElement).offsetWidth),
     popup.evaluate((element) => (element as HTMLElement).offsetWidth),
+    popup.boundingBox(),
   ]);
-  expect(popupWidth).toBe(selectorWidth);
+  expect(selectorWidth).toBeLessThanOrEqual(116);
+  expect(popupWidth).toBeGreaterThanOrEqual(280);
+  expect(popupWidth).toBeLessThanOrEqual(358);
+  expect(popupBox?.x ?? -1).toBeGreaterThanOrEqual(16);
+  const mark = selectorGroup.locator("[data-presentation='selector']").first();
+  const innerMark = mark.locator("[data-mark-inner]");
+  await expect(mark).toHaveCSS("width", "32px");
+  await expect(innerMark).toHaveCSS("width", "16px");
   await selector.fill("cbBTC");
   const cbBtcOption = page.getByRole("option", { name: "Bitcoin cbBTC" });
   await expect(cbBtcOption).toBeVisible();
@@ -614,6 +623,7 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
   await expect(send.getByRole("img", { name: "0.001 cbBTC available" })).toBeVisible();
   await typeAmount(page, "0.001");
   await send.getByRole("button", { name: "Continue" }).click();
+  await expect(send.getByRole("combobox", { name: "Asset" })).toHaveCount(0);
   await expect(send.getByRole("textbox", { name: "To" })).toBeVisible();
   await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
   await send.getByRole("button", { name: "Continue" }).click();
