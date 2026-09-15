@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const EXPECTED_REPOSITORY = "jessepollak/home";
+const EXPECTED_GIT_EMAIL = "1097953+jessepollak@users.noreply.github.com";
 const FACTORY_BRANCH = /^agent\/[A-Za-z0-9._/-]+$/;
 const ENV_FILE_PATHS = [".env.local", "apps/web/.env.local"];
 const ALLOWED_GITHUB_CREDENTIALS = new Set(["GH_TOKEN", "GITHUB_TOKEN"]);
@@ -53,7 +54,7 @@ export function prohibitedEnvironmentNames(environment) {
     .sort();
 }
 
-export function evaluateFactoryPreflight({ remote, branch, envFilePaths = [], environment = {} }) {
+export function evaluateFactoryPreflight({ remote, branch, gitEmail, envFilePaths = [], environment = {} }) {
   const failures = [];
   const repository = typeof remote === "string" ? normalizeRepository(remote) : null;
 
@@ -61,6 +62,7 @@ export function evaluateFactoryPreflight({ remote, branch, envFilePaths = [], en
   if (typeof branch !== "string" || !FACTORY_BRANCH.test(branch) || branch.includes("..")) {
     failures.push("branch must match agent/*");
   }
+  if (gitEmail !== EXPECTED_GIT_EMAIL) failures.push("git user.email is not Jesse's GitHub noreply identity");
   if (envFilePaths.length > 0) failures.push(`local environment file present: ${envFilePaths.join(", ")}`);
 
   const prohibitedNames = prohibitedEnvironmentNames(environment);
@@ -93,9 +95,11 @@ function git(...args) {
 export async function runFactoryPreflight() {
   let remote;
   let branch;
+  let gitEmail;
   try {
     remote = git("remote", "get-url", "origin");
     branch = git("branch", "--show-current");
+    gitEmail = git("config", "--worktree", "--get", "user.email");
   } catch {
     console.error("Factory preflight failed: repository metadata is unavailable.");
     return 1;
@@ -104,6 +108,7 @@ export async function runFactoryPreflight() {
   const result = evaluateFactoryPreflight({
     remote,
     branch,
+    gitEmail,
     envFilePaths: await existingEnvFiles(),
     environment: process.env,
   });

@@ -44,6 +44,20 @@ jobs:
       - name: Check
         run: bun check
 
+  commit-metadata:
+    name: public commit metadata
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'jessepollak/home'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout full pull request history
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Check pull request commit metadata
+        run: node scripts/delivery/check-commit-metadata.mjs '${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}'
+
   browser-smoke:
     name: Chromium smoke
     runs-on: ubuntu-latest

@@ -16,6 +16,7 @@ const PREFLIGHT_PATH = fileURLToPath(new URL("../factory-preflight.mjs", import.
 const SAFE_INPUT = {
   remote: "https://github.com/jessepollak/home.git",
   branch: "agent/factory-candidate",
+  gitEmail: "1097953+jessepollak@users.noreply.github.com",
   envFilePaths: [],
   environment: { GITHUB_TOKEN: "allowed-repo-scoped-credential" },
 };
@@ -37,6 +38,13 @@ test("fails closed for the wrong repository or branch", () => {
   ]) {
     assert.equal(evaluateFactoryPreflight(input).allowed, false);
   }
+});
+
+test("requires Jesse's GitHub noreply identity", () => {
+  const result = evaluateFactoryPreflight({ ...SAFE_INPUT, gitEmail: "private@example.test" });
+  assert.equal(result.allowed, false);
+  assert.match(result.failures.join("\n"), /git user\.email/);
+  assert.doesNotMatch(result.failures.join("\n"), /private@example\.test/);
 });
 
 test("runs checks when invoked through a symlink", async () => {
