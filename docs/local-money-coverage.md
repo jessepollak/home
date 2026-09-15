@@ -26,7 +26,7 @@ Nominal GDP is the checked-in [`coverage-gdp-2024.json`](../apps/web/config/cove
 
 2024 is the latest sufficiently complete fixed year under the recorded rule: choose the latest year no more than 2% of the 250-entry universe below the most complete preceding candidate year. The download had 203 figures for 2023, 200 for 2024 (a 1.2% universe decline), and 186 for 2025. Missing values remain visible and sort after known values.
 
-The map reuses Natural Earth v5.1.2 label points documented in `apps/web/client/landing/GEOGRAPHY.md`; each point links to its inventory row. Inventory entries without a Natural Earth point (`BQ`, `BV`, `CC`, `CX`, `GF`, `GP`, `MQ`, `RE`, `SJ`, `TK`, `YT`) remain available in the table and CSV. Polygons remain deferred.
+The globe reuses Natural Earth v5.1.2 label points documented in `apps/web/client/landing/GEOGRAPHY.md`. All 239 sourced points render as markers; countries with explicit issuer-route research are interactive and show a status summary. The complete 250-entry inventory remains available in the table and CSV, including entries without Natural Earth points (`BQ`, `BV`, `CC`, `CX`, `GF`, `GP`, `MQ`, `RE`, `SJ`, `TK`, `YT`). Polygons remain deferred.
 
 When changing provider manifests or coverage records, run `bun check`. Consistency tests require both sides to use the same country, asset, provider, and payment-method identities. CSV output at `/coverage.csv` is generated deterministically from the full registry.
 
