@@ -83,10 +83,13 @@ export function ActivityPanelView({
   const labelled = header === null ? "Activity" : undefined;
   const transfers = activity.status === "ready" ? activity.page.transfers : [];
   const nextCursor = activity.status === "ready" ? activity.page.nextCursor : null;
-  const items = mergeActivityFeed({ transfers, nextCursor, operations });
+  const items = mergeActivityFeed({ transfers, nextCursor, operations, teaser: density === "teaser" });
   const visibleItems = density === "teaser" ? items.slice(0, ACTIVITY_TEASER_LIMIT) : items;
   const hasRows = visibleItems.length > 0;
-  const waitingWithoutRows = !hasRows && (activity.status === "loading" || actionsStatus === "loading");
+  // Initial load waits for both Activity sources to settle so the panel never
+  // presents whichever source resolved first as the whole feed. Load-more is
+  // separate (status stays "ready" while loading more) and keeps existing rows.
+  const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
 
   if (activity.status === "unavailable" && !hasRows) {
     return (
@@ -96,7 +99,7 @@ export function ActivityPanelView({
     );
   }
 
-  if (waitingWithoutRows) {
+  if (sourcesPending) {
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} busy>
         <ShimmerRows count={density === "teaser" ? 2 : 4} />

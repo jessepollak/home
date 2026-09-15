@@ -35,17 +35,36 @@ function transfer(id: string, minute: number): ActivityTransfer {
   };
 }
 
-function operation(id: string, minute: number): RecentMoneyActionOperation {
+function operation(id: string, minute: number, transactionHash?: `0x${string}`): RecentMoneyActionOperation {
   const updatedAt = `2026-09-15T12:${String(minute).padStart(2, "0")}:30.000Z`;
   return {
     action: { id, kind: "send", title: id, amounts: [], warnings: [], expiresAt: updatedAt, createdAt: updatedAt },
     status: "confirmed",
     createdAt: updatedAt,
     updatedAt,
+    ...(transactionHash ? { transactionHash } : {}),
   };
 }
 
-function ready(transfers: ActivityTransfer[], nextCursor: string | null = null): UseActivityResult {
+function loading(): UseActivityResult {
+  return {
+    status: "loading",
+    page: null,
+    loadingMore: false,
+    loadMoreError: false,
+    autoLoadPaused: false,
+    retry: noop,
+    refresh: noop,
+    loadMore: noop,
+    retryLoadMore: noop,
+  };
+}
+
+function ready(
+  transfers: ActivityTransfer[],
+  nextCursor: string | null = null,
+  overrides: { loadingMore?: boolean } = {},
+): UseActivityResult {
   const page: ActivityPage = {
     walletAddress: WALLET,
     chainId: 8453,
@@ -64,7 +83,7 @@ function ready(transfers: ActivityTransfer[], nextCursor: string | null = null):
   return {
     status: "ready",
     page,
-    loadingMore: false,
+    loadingMore: overrides.loadingMore === true,
     loadMoreError: false,
     autoLoadPaused: false,
     retry: noop,
@@ -125,5 +144,111 @@ describe("combined Activity panel", () => {
     expect(view.getByText("Received")).toBeTruthy();
     expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy();
     expect(within(view.getByRole("list")).getAllByRole("button")).toHaveLength(1);
+  });
+
+  test("waits for both sources to settle when transfers resolve before actions", () => {
+    const view = render(
+      <ActivityPanelView activity={ready([transfer("onchain", 5)], "cursor-1")} actionsStatus="loading" />,
+    );
+
+    expect(view.getByText("Loading recent activity…")).toBeTruthy();
+    expect(view.queryByRole("list")).toBeNull();
+
+    view.rerender(
+      <ActivityPanelView
+        activity={ready([transfer("onchain", 5)], "cursor-1")}
+        operations={[operation("recorded-action", 6)]}
+      />,
+    );
+    expect(view.queryByText("Loading recent activity…")).toBeNull();
+    expect(view.getByText("Received")).toBeTruthy();
+    expect(view.getByText("recorded-action")).toBeTruthy();
+
+    view.rerender(
+      <ActivityPanelView
+        activity={ready([transfer("onchain", 5)], "cursor-1", { loadingMore: true })}
+        operations={[operation("recorded-action", 6)]}
+      />,
+    );
+    expect(view.getByText("recorded-action")).toBeTruthy();
+    expect(view.queryByText("Loading recent activity…")).toBeNull();
+  });
+
+  test("waits for both sources to settle when actions resolve before transfers", () => {
+    const view = render(
+      <ActivityPanelView activity={loading()} operations={[operation("recorded-action", 5)]} />,
+    );
+
+    expect(view.getByText("Loading recent activity…")).toBeTruthy();
+    expect(view.queryByText("recorded-action")).toBeNull();
+
+    view.rerender(
+      <ActivityPanelView
+        activity={ready([transfer("onchain", 6)])}
+        operations={[operation("recorded-action", 5)]}
+      />,
+    );
+    expect(view.queryByText("Loading recent activity…")).toBeNull();
+    expect(view.getByText("Received")).toBeTruthy();
+    expect(view.getByText("recorded-action")).toBeTruthy();
+  });
+
+  test("teaser shows sparse recorded actions while the transfer cursor is unresolved", () => {
+    const view = render(
+      <ActivityPanelView
+        activity={ready([], "cursor-1")}
+        operations={[operation("twin-action", 6, `0x${"d".repeat(64)}` as const), operation("recorded-action", 4)]}
+        density="teaser"
+      />,
+    );
+
+    expect(view.getByText("recorded-action")).toBeTruthy();
+    expect(view.getByText("twin-action")).toBeTruthy();
+    expect(view.queryByText("No activity yet")).toBeNull();
+  });
+
+  test("teaser still dedupes actions whose transfer is loaded", () => {
+    const view = render(
+      <ActivityPanelView
+        activity={ready([transfer("onchain", 5)], "cursor-1")}
+        operations={[operation("twin", 6, `0x${(5).toString(16).padStart(64, "0")}` as const), operation("recorded-action", 4)]}
+        density="teaser"
+      />,
+    );
+
+    expect(view.getByText("Received")).toBeTruthy();
+    expect(view.getByText("recorded-action")).toBeTruthy();
+    expect(view.queryByText("twin")).toBeNull();
+  });
+
+  test("withholds unloaded hashed actions in page mode until the cursor exhausts, but shows them in teaser", () => {
+    // The action is confirmed 30s after the oldest loaded block timestamp, so
+    // the old timestamp frontier would have exposed it; its transfer is on a
+    // later page and must not be shadowed by a timestamp comparison.
+    const operations = [
+      operation("unloaded", 1, `0x${"d".repeat(64)}` as const),
+      operation("hashless", 1),
+    ];
+    const page = render(
+      <ActivityPanelView activity={ready([transfer("onchain", 1)], "cursor-1")} operations={operations} />,
+    );
+    expect(within(page.container).queryByText("unloaded")).toBeNull();
+    expect(within(page.container).getByText("hashless")).toBeTruthy();
+
+    const exhausted = render(
+      <ActivityPanelView activity={ready([transfer("onchain", 1)])} operations={operations} />,
+    );
+    expect(within(exhausted.container).getByText("unloaded")).toBeTruthy();
+    expect(within(exhausted.container).getByText("hashless")).toBeTruthy();
+
+    const teaser = render(
+      <ActivityPanelView
+        activity={ready([transfer("onchain", 1)], "cursor-1")}
+        operations={operations}
+        density="teaser"
+      />,
+    );
+    expect(within(teaser.container).getByText("unloaded")).toBeTruthy();
+    expect(within(teaser.container).getByText("hashless")).toBeTruthy();
   });
 });

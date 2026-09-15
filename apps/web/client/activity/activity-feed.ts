@@ -19,19 +19,25 @@ export function mergeActivityFeed(input: {
   transfers: readonly ActivityTransfer[];
   nextCursor: string | null;
   operations: readonly RecentMoneyActionOperation[];
+  /** Teaser feeds never resolve the transfer cursor, so unmatched actions stay visible there. */
+  teaser?: boolean;
 }): ActivityFeedItem[] {
   const transactionHashes = new Set(
     input.transfers.map((transfer) => transfer.transactionHash.toLowerCase()),
   );
-  const frontier = input.nextCursor && input.transfers.length > 0
-    ? Math.min(...input.transfers.map((transfer) => Date.parse(transfer.blockTimestamp)))
-    : null;
-  const frontierPending = input.nextCursor !== null && input.transfers.length === 0;
-  const actions = input.operations.filter((operation) =>
-    !frontierPending &&
-    (!operation.transactionHash || !transactionHashes.has(operation.transactionHash.toLowerCase())) &&
-    (frontier === null || Date.parse(operation.updatedAt) >= frontier),
-  );
+  const transferPagesRemain = input.nextCursor !== null;
+  const actions = input.operations.filter((operation) => {
+    // A loaded transaction hash is already on screen as its transfer row.
+    if (operation.transactionHash && transactionHashes.has(operation.transactionHash.toLowerCase())) return false;
+    // A hashless action can never collide with a later transfer page, so it cannot be shadowed.
+    if (!operation.transactionHash) return true;
+    // While transfer pages remain, an unmatched hashed action may still gain its
+    // onchain twin, so page mode withholds it until the cursor is exhausted.
+    // Timestamps are not consulted: block time and confirmation time are
+    // different clocks and may share a block boundary. Teaser never exhausts
+    // the cursor and shows the action instead of an empty feed.
+    return !transferPagesRemain || input.teaser === true;
+  });
 
   return [
     ...input.transfers.map((transfer): ActivityFeedItem => ({

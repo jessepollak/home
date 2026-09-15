@@ -74,27 +74,83 @@ describe("combined Activity feed", () => {
     ]);
   });
 
-  test("deduplicates loaded transaction hashes and withholds actions behind the loaded frontier", () => {
+  test("deduplicates loaded transaction hashes and withholds unmatched hashed actions while pages remain", () => {
     const transfers = [
       transfer("page-1", "2026-09-15T12:02:00.000Z", HASH_A),
       transfer("frontier", "2026-09-15T12:01:00.000Z", HASH_B),
     ];
     const operations = [
       operation("deduped", "2026-09-15T12:03:00.000Z", HASH_A),
-      operation("visible", "2026-09-15T12:01:30.000Z"),
-      operation("withheld", "2026-09-15T12:00:00.000Z"),
-      operation("late-twin", "2026-09-15T11:59:00.000Z", HASH_C),
+      operation("hashless", "2026-09-15T12:01:30.000Z"),
+      operation("unloaded-twin", "2026-09-15T11:59:00.000Z", HASH_C),
     ];
 
+    // Page mode: loaded hashes dedupe, hashless actions cannot be shadowed and
+    // remain, and an unmatched hashed action waits for its transfer page even
+    // though it was confirmed after the oldest loaded block.
     expect(mergeActivityFeed({ transfers, nextCursor: "next", operations })
-      .filter(({ kind }) => kind === "action").map(({ id }) => id)).toEqual(["visible"]);
+      .filter(({ kind }) => kind === "action").map(({ id }) => id)).toEqual(["hashless"]);
+    // Once the cursor is exhausted, every unmatched action is shown.
     expect(mergeActivityFeed({ transfers, nextCursor: null, operations })
-      .filter(({ kind }) => kind === "action").map(({ id }) => id)).toEqual(["visible", "withheld", "late-twin"]);
-    expect(mergeActivityFeed({ transfers: [], nextCursor: "sparse-next", operations })).toEqual([]);
+      .filter(({ kind }) => kind === "action").map(({ id }) => id)).toEqual(["hashless", "unloaded-twin"]);
+    // A later page carrying the twin removes the action instead of duplicating it.
     expect(mergeActivityFeed({
       transfers: [...transfers, transfer("page-2-twin", "2026-09-15T11:58:00.000Z", HASH_C)],
       nextCursor: null,
       operations,
-    }).filter(({ kind }) => kind === "action").map(({ id }) => id)).toEqual(["visible", "withheld"]);
+    }).filter(({ kind }) => kind === "action").map(({ id }) => id)).toEqual(["hashless"]);
+  });
+
+  test("shows a useful feed in teaser mode while the transfer cursor is unresolved", () => {
+    const operations = [
+      operation("hashless", "2026-09-15T12:01:30.000Z"),
+      operation("unloaded-twin", "2026-09-15T11:59:00.000Z", HASH_C),
+    ];
+
+    // Sparse teaser: no transfers loaded yet and the teaser never mounts
+    // pagination, so recorded actions are shown instead of a permanent empty state.
+    expect(mergeActivityFeed({ transfers: [], nextCursor: "sparse-next", operations, teaser: true })
+      .filter(({ kind }) => kind === "action").map(({ id }) => id)).toEqual(["hashless", "unloaded-twin"]);
+    // Page mode stays conservative for hashed actions on the same sparse page.
+    expect(mergeActivityFeed({ transfers: [], nextCursor: "sparse-next", operations })
+      .filter(({ kind }) => kind === "action").map(({ id }) => id)).toEqual(["hashless"]);
+  });
+
+  test("still deduplicates loaded hashes in teaser mode", () => {
+    const items = mergeActivityFeed({
+      transfers: [transfer("page-1", "2026-09-15T12:02:00.000Z", HASH_A)],
+      nextCursor: "next",
+      operations: [
+        operation("deduped", "2026-09-15T12:03:00.000Z", HASH_A),
+        operation("hashless", "2026-09-15T12:01:30.000Z"),
+        operation("unloaded-twin", "2026-09-15T11:59:00.000Z", HASH_C),
+      ],
+      teaser: true,
+    });
+
+    expect(items.map(({ kind, id }) => `${kind}:${id}`)).toEqual([
+      `transfer:8453:${TOKEN}:page-1`,
+      "action:hashless",
+      "action:unloaded-twin",
+    ]);
+  });
+
+  test("does not infer cursor order from timestamps at a same-block boundary", () => {
+    const transfers = [transfer("boundary", "2026-09-15T12:01:00.000Z", HASH_A)];
+    const operations = [
+      operation("same-block", "2026-09-15T12:01:00.000Z", HASH_B),
+      operation("later-confirmation", "2026-09-15T12:05:00.000Z", HASH_C),
+      operation("hashless-before-block", "2026-09-15T12:00:00.000Z"),
+    ];
+
+    // While pages remain, page mode withholds unmatched hashed actions even
+    // when their confirmation time sits at or after the oldest loaded block
+    // timestamp; a hashless action remains visible.
+    expect(mergeActivityFeed({ transfers, nextCursor: "next", operations })
+      .filter(({ kind }) => kind === "action").map(({ id }) => id)).toEqual(["hashless-before-block"]);
+    // Exhausting the cursor reveals the withheld actions.
+    expect(mergeActivityFeed({ transfers, nextCursor: null, operations })
+      .filter(({ kind }) => kind === "action").map(({ id }) => id))
+      .toEqual(["later-confirmation", "same-block", "hashless-before-block"]);
   });
 });
