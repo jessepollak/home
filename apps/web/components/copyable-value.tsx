@@ -11,7 +11,12 @@ type CopyableValueProps = {
   value: string;
   /** Condensed label shown in the control. Defaults to the full value. */
   display?: string;
-  presentation?: "inline" | "full";
+  /**
+   * `inline` (default) is a plain text control, `full` is a full-width control
+   * with a comfortable hit target, and `compact` is the same full-width control
+   * without the inner vertical padding.
+   */
+  presentation?: "inline" | "full" | "compact";
   className?: string;
   copiedLabel?: string;
   copyLabelPrefix?: string;
@@ -54,6 +59,7 @@ function CopyableValueControl({
   copiedResetMs = 1600,
 }: CopyableValueProps) {
   const shown = display ?? value;
+  const isFullWidth = presentation === "full" || presentation === "compact";
   const [status, setStatus] = useState<CopyStatus>("idle");
   const resetTimer = useRef<number | null>(null);
 
@@ -101,8 +107,9 @@ function CopyableValueControl({
         size="inline"
         className={cn(
           "min-w-0",
-          presentation === "full" &&
-            "min-h-11 w-full max-w-full justify-start overflow-hidden text-left",
+          isFullWidth &&
+            "w-full max-w-full justify-start overflow-hidden text-left",
+          (presentation === "full" || presentation === "compact") && "min-h-11",
           className,
         )}
         title={value}
@@ -112,20 +119,21 @@ function CopyableValueControl({
         <span
           className={cn(
             "font-mono text-inherit",
-            presentation === "full" &&
-              "flex min-w-0 flex-1 items-center gap-2 overflow-hidden py-2 text-sm",
+            isFullWidth &&
+              "flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-sm",
+            presentation === "full" && "py-2",
             status === "copied" && "text-primary",
           )}
         >
           <span
             className={cn(
-              presentation === "full" &&
+              isFullWidth &&
                 "min-w-0 flex-1 overflow-x-auto pr-2 whitespace-nowrap",
             )}
           >
             {status === "copied" ? copiedLabel : shown}
           </span>
-          {presentation === "full" ? (
+          {isFullWidth ? (
             <Copy className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           ) : null}
         </span>

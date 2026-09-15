@@ -10,10 +10,14 @@ export const HOME_STARTUP_OUTCOMES = [
   "timeout",
 ] as const;
 export const HOME_STARTUP_CACHE_STATES = ["restored", "cold", "unknown"] as const;
+export const HOME_AUTH_HINTS = ["none", "cdp", "base"] as const;
+export const HOME_AUTH_OUTCOMES = ["signed-out", "verified", "unavailable", "timeout"] as const;
 
 export type HomeStartupRoute = (typeof HOME_STARTUP_ROUTES)[number];
 export type HomeStartupOutcome = (typeof HOME_STARTUP_OUTCOMES)[number];
 export type HomeStartupCacheState = (typeof HOME_STARTUP_CACHE_STATES)[number];
+export type HomeAuthHint = (typeof HOME_AUTH_HINTS)[number];
+export type HomeAuthOutcome = (typeof HOME_AUTH_OUTCOMES)[number];
 
 export type HomeStartupReport = {
   version: typeof HOME_STARTUP_VERSION;
@@ -28,7 +32,23 @@ export type HomeStartupReport = {
   totalMs: number;
 };
 
-const allowedKeys = new Set([
+export type HomeAuthRestoreReport = {
+  version: typeof HOME_STARTUP_VERSION;
+  kind: "home-auth-phase";
+  route: HomeStartupRoute;
+  flow: "restore";
+  hint: HomeAuthHint;
+  outcome: HomeAuthOutcome;
+  sdkActivateMs?: number;
+  cdpInitializedMs?: number;
+  nativeSettledMs?: number;
+  sessionSettledMs: number;
+  totalMs: number;
+};
+
+export type ClientPerformanceReport = HomeStartupReport | HomeAuthRestoreReport;
+
+const startupAllowedKeys = new Set([
   "version",
   "kind",
   "route",
@@ -40,7 +60,7 @@ const allowedKeys = new Set([
   "interactiveMs",
   "totalMs",
 ]);
-const requiredKeys = new Set([
+const startupRequiredKeys = new Set([
   "version",
   "kind",
   "route",
@@ -49,25 +69,49 @@ const requiredKeys = new Set([
   "shellMs",
   "totalMs",
 ]);
+const authAllowedKeys = new Set([
+  "version",
+  "kind",
+  "route",
+  "flow",
+  "hint",
+  "outcome",
+  "sdkActivateMs",
+  "cdpInitializedMs",
+  "nativeSettledMs",
+  "sessionSettledMs",
+  "totalMs",
+]);
+const authRequiredKeys = new Set([
+  "version",
+  "kind",
+  "route",
+  "flow",
+  "hint",
+  "outcome",
+  "sessionSettledMs",
+  "totalMs",
+]);
 
-export function parseClientPerformanceReport(value: unknown): HomeStartupReport | null {
+export function parseClientPerformanceReport(value: unknown): ClientPerformanceReport | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  const keys = Object.keys(record);
+  if (record.kind === "home-startup") return parseHomeStartupReport(record);
+  if (record.kind === "home-auth-phase") return parseHomeAuthRestoreReport(record);
+  return null;
+}
+
+function parseHomeStartupReport(record: Record<string, unknown>): HomeStartupReport | null {
   if (
-    keys.some((key) => !allowedKeys.has(key)) ||
-    [...requiredKeys].some((key) => !Object.hasOwn(record, key)) ||
+    !hasExactShape(record, startupAllowedKeys, startupRequiredKeys) ||
     record.version !== HOME_STARTUP_VERSION ||
-    record.kind !== "home-startup" ||
     !isAllowed(record.route, HOME_STARTUP_ROUTES) ||
     !isAllowed(record.outcome, HOME_STARTUP_OUTCOMES) ||
     !isAllowed(record.cache, HOME_STARTUP_CACHE_STATES)
-  ) {
-    return null;
-  }
+  ) return null;
 
-  const shellMs = normalizeDuration(record.shellMs);
-  const totalMs = normalizeDuration(record.totalMs);
+  const shellMs = normalizeDuration(record.shellMs, 1, 60_000);
+  const totalMs = normalizeDuration(record.totalMs, 1, 60_000);
   if (shellMs === null || totalMs === null) return null;
 
   const optionalDurations: Partial<Pick<
@@ -76,7 +120,7 @@ export function parseClientPerformanceReport(value: unknown): HomeStartupReport 
   >> = {};
   for (const key of ["sessionMs", "balancesMs", "interactiveMs"] as const) {
     if (!Object.hasOwn(record, key)) continue;
-    const normalized = normalizeDuration(record[key]);
+    const normalized = normalizeDuration(record[key], 1, 60_000);
     if (normalized === null) return null;
     optionalDurations[key] = normalized;
   }
@@ -93,9 +137,58 @@ export function parseClientPerformanceReport(value: unknown): HomeStartupReport 
   };
 }
 
-function normalizeDuration(value: unknown): number | null {
+function parseHomeAuthRestoreReport(record: Record<string, unknown>): HomeAuthRestoreReport | null {
+  if (
+    !hasExactShape(record, authAllowedKeys, authRequiredKeys) ||
+    record.version !== HOME_STARTUP_VERSION ||
+    record.flow !== "restore" ||
+    !isAllowed(record.route, HOME_STARTUP_ROUTES) ||
+    !isAllowed(record.hint, HOME_AUTH_HINTS) ||
+    !isAllowed(record.outcome, HOME_AUTH_OUTCOMES)
+  ) return null;
+
+  const sessionSettledMs = normalizeDuration(record.sessionSettledMs, 50, 30_000);
+  const totalMs = normalizeDuration(record.totalMs, 50, 30_000);
+  if (sessionSettledMs === null || totalMs === null) return null;
+
+  const optionalDurations: Partial<Pick<
+    HomeAuthRestoreReport,
+    "sdkActivateMs" | "cdpInitializedMs" | "nativeSettledMs"
+  >> = {};
+  for (const key of ["sdkActivateMs", "cdpInitializedMs", "nativeSettledMs"] as const) {
+    if (!Object.hasOwn(record, key)) continue;
+    const normalized = normalizeDuration(record[key], 50, 30_000);
+    if (normalized === null) return null;
+    optionalDurations[key] = normalized;
+  }
+
+  return {
+    version: HOME_STARTUP_VERSION,
+    kind: "home-auth-phase",
+    route: record.route,
+    flow: "restore",
+    hint: record.hint,
+    outcome: record.outcome,
+    ...optionalDurations,
+    sessionSettledMs,
+    totalMs,
+  };
+}
+
+function hasExactShape(
+  record: Record<string, unknown>,
+  allowedKeys: ReadonlySet<string>,
+  requiredKeys: ReadonlySet<string>,
+): boolean {
+  const keys = Object.keys(record);
+  return !keys.some((key) => !allowedKeys.has(key)) &&
+    ![...requiredKeys].some((key) => !Object.hasOwn(record, key));
+}
+
+function normalizeDuration(value: unknown, increment: number, maximum: number): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  return Math.min(60_000, Math.max(0, Math.round(value)));
+  const rounded = Math.round(value / increment) * increment;
+  return Math.min(maximum, Math.max(0, rounded));
 }
 
 function isAllowed<const T extends readonly string[]>(value: unknown, allowed: T): value is T[number] {

@@ -7,11 +7,33 @@ import {
 } from "./base-account-connector";
 import type { AccountProvider } from "@/shared/account/session-types";
 
-type AccountProviderHint = AccountProvider | `pending:${AccountProvider}`;
+export type AccountProviderHint = AccountProvider | `pending:${AccountProvider}`;
 
 export const ACCOUNT_PROVIDER_HINT_KEY = "home:account-provider";
+export const CDP_RESTORE_MARKER_KEY = "home:cdp-restore";
+
+export function writeCdpRestoreMarker(): void {
+  try {
+    window.localStorage.setItem(CDP_RESTORE_MARKER_KEY, "1");
+  } catch {
+    // This identity-free hint may only delay settlement; it grants no auth.
+  }
+}
+
+export function hasCdpRestoreMarker(): boolean {
+  try {
+    return window.localStorage.getItem(CDP_RESTORE_MARKER_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export function clearCdpRenderHint(): void {
+  try {
+    window.localStorage.removeItem(CDP_RESTORE_MARKER_KEY);
+  } catch {
+    // Continue clearing the readable cookie when storage is unavailable.
+  }
   if (typeof document === "undefined") return;
   try {
     document.cookie = "home-cdp-live=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; SameSite=Lax" +
@@ -21,14 +43,44 @@ export function clearCdpRenderHint(): void {
   }
 }
 
-export function hasAccountProviderHint(): boolean {
+export function readAccountProviderHint(): AccountProviderHint | null {
   try {
     const hint = window.sessionStorage.getItem(ACCOUNT_PROVIDER_HINT_KEY);
     return hint === "cdp-embedded" || hint === "base-account" ||
-      hint === "pending:cdp-embedded" || hint === "pending:base-account";
+      hint === "pending:cdp-embedded" || hint === "pending:base-account"
+      ? hint
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasReadableCdpCookie(): boolean {
+  try {
+    const values = document.cookie.split(";").flatMap((part) => {
+      const [name, ...value] = part.trim().split("=");
+      return name === "home-cdp-live" ? [value.join("=")] : [];
+    });
+    return values.length === 1 && /^[0-9a-f]{48}$/.test(values[0]);
   } catch {
     return false;
   }
+}
+
+export function hasCdpRestoreHint(): boolean {
+  const hint = readAccountProviderHint();
+  return hint === "cdp-embedded" || hint === "pending:cdp-embedded" ||
+    hasCdpRestoreMarker() || hasReadableCdpCookie();
+}
+
+export function readHomeAuthRestoreHint(): "none" | "cdp" | "base" {
+  if (hasCdpRestoreHint()) return "cdp";
+  const hint = readAccountProviderHint();
+  return hint === "base-account" || hint === "pending:base-account" ? "base" : "none";
+}
+
+export function hasAccountProviderHint(): boolean {
+  return readAccountProviderHint() !== null || hasCdpRestoreMarker() || hasReadableCdpCookie();
 }
 
 export function writeAccountProviderHint(provider: AccountProviderHint | null) {

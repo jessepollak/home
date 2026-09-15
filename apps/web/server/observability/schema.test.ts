@@ -40,6 +40,45 @@ describe("observability schema", () => {
     })).toMatchObject({ level: "error", code: "HOME_STARTUP" });
   });
 
+  test("normalizes closed auth restore events at the expected level", () => {
+    expect(normalizeObservabilityEvent({
+      version: 1,
+      kind: "home-auth-phase",
+      route: "/",
+      flow: "restore",
+      hint: "none",
+      outcome: "signed-out",
+      sdkActivateMs: 150,
+      nativeSettledMs: 950,
+      sessionSettledMs: 1_000,
+      totalMs: 1_000,
+    })).toEqual({
+      schema: "home.observability.v2",
+      level: "info",
+      kind: "home-auth-phase",
+      code: "HOME_AUTH_PHASE",
+      version: 1,
+      route: "/",
+      flow: "restore",
+      hint: "none",
+      outcome: "signed-out",
+      sdkActivateMs: 150,
+      nativeSettledMs: 950,
+      sessionSettledMs: 1_000,
+      totalMs: 1_000,
+    });
+    expect(normalizeObservabilityEvent({
+      version: 1,
+      kind: "home-auth-phase",
+      route: "/dashboard",
+      flow: "restore",
+      hint: "cdp",
+      outcome: "timeout",
+      sessionSettledMs: 15_000,
+      totalMs: 15_000,
+    })).toMatchObject({ level: "error", code: "HOME_AUTH_PHASE" });
+  });
+
   test("normalizes out-of-enum funding-order codes to ORDER_UNAVAILABLE", () => {
     expect(normalizeObservabilityEvent({
       kind: "funding-order",
