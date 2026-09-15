@@ -195,7 +195,10 @@ function instructionsFor(order: RipioOrderReference, quote: Quote, ctx: Provider
 
 function earlierExpiry(quoteExpiry: string, instructionExpiry?: string): string {
   if (!instructionExpiry) return quoteExpiry;
-  return Date.parse(instructionExpiry) < Date.parse(quoteExpiry) ? instructionExpiry : quoteExpiry;
+  const instructionExpiryMs = Date.parse(instructionExpiry);
+  return instructionExpiryMs < Date.parse(quoteExpiry)
+    ? new Date(instructionExpiryMs).toISOString()
+    : quoteExpiry;
 }
 
 function observationFor(status: string, hash: string | null, refund: { status: string; rejectionReason: string | null } | null): Observation {

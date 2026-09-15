@@ -92,7 +92,7 @@ describe("Ripio production REST client", () => {
     });
     const quote = await client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION });
     expect(quote.fees[0]).toMatchObject({ amount: "10", appliesOnFromAmount: true });
-    const order = await client.createOnramp({ customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION, fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", paymentMethodType: "bank_transfer", finalToAmount: "2100" });
+    const order = await client.createOnramp({ customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION, fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", paymentMethodType: "bank_transfer", finalToAmount: "2100", fiatAmount: "2110" });
     expect(order.instructions).toEqual({ kind: "ar-bank-transfer", cvu: "1234567890123456789012", alias: "home.ripio" });
   });
 
@@ -138,11 +138,16 @@ describe("Ripio production REST client", () => {
     }).createOnramp({ customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION, fromCurrency: "BRL", toCurrency: "wBRL", chain: "BASE", paymentMethodType: "pix", finalToAmount: "100", fiatAmount: "100.00" });
 
     await expect(create({ brCode: PIX_CODE, paymentUrl: "https://skala.ripio.com/pix", expiresAt: "2098-12-31T23:00:00.000Z" })).resolves.toMatchObject({ instructions: { kind: "br-pix", brCode: PIX_CODE, expiresAt: "2098-12-31T23:00:00.000Z" } });
+    await expect(create({ brCode: PIX_CODE, paymentUrl: null, expiresAt: null })).resolves.toMatchObject({ instructions: { kind: "br-pix", brCode: PIX_CODE } });
+    const uppercaseGui = PIX_CODE.replace("br.gov.bcb.pix", "BR.GOV.BCB.PIX");
+    await expect(create({ brCode: uppercaseGui })).resolves.toMatchObject({ instructions: { kind: "br-pix", brCode: uppercaseGui } });
     for (const instructions of [
       {},
       { brCode: PIX_CODE.replace("5406100.00", "5406101.00") },
+      { brCode: PIX_CODE.replace("5406100.00", "") },
       { brCode: `${PIX_CODE.slice(0, -1)}Z` },
       { brCode: PIX_CODE.replace("2632", "2699") },
+      { brCode: PIX_CODE.replace("6004HOME6304BEEF", "6012HOME6304BEEF") },
       { cvu: "1234567890123456789012" },
       { brCode: PIX_CODE, paymentUrl: "http://skala.ripio.com/pix" },
       { brCode: PIX_CODE, expiresAt: "not-a-date" },
@@ -213,7 +218,7 @@ describe("Ripio production REST client", () => {
       if (call === 1) return token();
       return Response.json({ transaction: productionTransaction({ customerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }), fiatPaymentInstructions: { cvu: "1234567890123456789012" } }, { status: 201 });
     } });
-    await expect(client.createOnramp({ customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION, fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", paymentMethodType: "bank_transfer", finalToAmount: "2100" })).rejects.toMatchObject({ code: "ambiguous-create" });
+    await expect(client.createOnramp({ customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION, fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", paymentMethodType: "bank_transfer", finalToAmount: "2100", fiatAmount: "2100" })).rejects.toMatchObject({ code: "ambiguous-create" });
     expect(call).toBe(2);
   });
 

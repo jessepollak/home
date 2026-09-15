@@ -72,11 +72,41 @@ describe("Ripio funding adapter", () => {
       env: brEnv,
       fetchImplementation: (async (input: RequestInfo | URL) => new URL(String(input)).pathname === "/oauth2/token/"
         ? tokenResponse()
-        : Response.json({ transaction: { ...transaction(), fromCurrency: "BRL", toCurrency: "wBRL", paymentMethodType: "pix" }, fiatPaymentInstructions: { brCode, paymentUrl: "https://skala.ripio.com/pix", expiresAt: "2098-12-31T23:00:00.000Z" } })) as unknown as typeof fetch,
+        : Response.json({ transaction: { ...transaction(), fromCurrency: "BRL", toCurrency: "wBRL", paymentMethodType: "pix" }, fiatPaymentInstructions: { brCode, paymentUrl: "https://skala.ripio.com/pix", expiresAt: "2098-12-31T20:00:00-03:00" } })) as unknown as typeof fetch,
     });
     const result = await ripioProvider.onramp!.createOrder(intent, ctx);
     expect(result).toMatchObject({ outcome: "created", order: { expiresAt: "2098-12-31T23:00:00.000Z", instructions: { kind: "qr", scheme: "pix", payload: brCode, amount: "1000", currency: "BRL" } } });
     expect(JSON.stringify(result)).not.toContain("paymentUrl");
+  });
+
+  test("retains the quote expiry when Pix expires later and accepts a parseable past Pix expiry", async () => {
+    const brEnv = { ...env, RIPIO_CLIENT_ID_BR: "client-expiry", RIPIO_CLIENT_SECRET_BR: "secret" };
+    const brCode = "00020126320014br.gov.bcb.pix0110abcdefghij52040000530398654071000.005802BR5904HOME6004HOME6304BEEF";
+    const create = (expiresAt: string) => ripioProvider.onramp!.createOrder(intent, createProviderContext({
+      manifest: ripioManifest,
+      region: "BR",
+      paymentMethodId: "pix",
+      env: brEnv,
+      fetchImplementation: (async (input: RequestInfo | URL) => new URL(String(input)).pathname === "/oauth2/token/"
+        ? tokenResponse()
+        : Response.json({ transaction: { ...transaction(), fromCurrency: "BRL", toCurrency: "wBRL", paymentMethodType: "pix" }, fiatPaymentInstructions: { brCode, expiresAt } })) as unknown as typeof fetch,
+    }));
+    await expect(create("2100-01-01T00:00:00.000Z")).resolves.toMatchObject({ outcome: "created", order: { expiresAt: intent.quote.expiresAt } });
+    await expect(create("2020-01-01T00:00:00-03:00")).resolves.toMatchObject({ outcome: "created", order: { expiresAt: "2020-01-01T03:00:00.000Z" } });
+  });
+
+  test("polls a Brazil Pix order with the full BR binding", async () => {
+    const brEnv = { ...env, RIPIO_CLIENT_ID_BR: "client-poll", RIPIO_CLIENT_SECRET_BR: "secret" };
+    const ctx = createProviderContext({
+      manifest: ripioManifest,
+      region: "BR",
+      paymentMethodId: "pix",
+      env: brEnv,
+      fetchImplementation: (async (input: RequestInfo | URL) => new URL(String(input)).pathname === "/oauth2/token/"
+        ? tokenResponse()
+        : Response.json({ ...transaction("PENDING"), fromCurrency: "BRL", toCurrency: "wBRL", paymentMethodType: "pix" })) as unknown as typeof fetch,
+    });
+    await expect(ripioProvider.onramp!.getOrder!({ homeOrderId, providerOrderId, providerQuoteId: quoteId, customerRef, transactionType: "MINT", chainId: 8453, tokenAddress: "0xD76f5Faf6888e24D9F04Bf92a0c8B921FE4390e0", destination: intent.destination, fiatAmount: "1000", expectedTokenAmountAtomic: intent.quote.tokenAmountAtomic, tokenDecimals: 18 }, ctx)).resolves.toMatchObject({ state: "awaiting-payment", providerStatus: "PENDING" });
   });
 
   test("rejects a provider rail that does not match the selected payment method", async () => {

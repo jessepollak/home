@@ -133,7 +133,7 @@ export type RipioClient = {
     chain: "BASE";
     paymentMethodType: string;
     finalToAmount: string;
-    fiatAmount?: string;
+    fiatAmount: string;
     extraData?: Record<string, string>;
   }): Promise<RipioOrderReference>;
   getTransaction(transactionId: string, expected?: RipioTransactionBinding): Promise<RipioTransactionReference>;
@@ -400,8 +400,8 @@ function assertTransactionBinding(transaction: RipioTransactionReference, expect
 function parseInstructions(value: Record<string, unknown>, country: RipioEnabledCountry, expectedFiatAmount?: string): RipioRailInstructions {
   if (country === "AR" && typeof value.cvu === "string" && /^\d{22}$/.test(value.cvu)) return { kind: "ar-bank-transfer", cvu: value.cvu, ...(typeof value.alias === "string" && value.alias.length <= 128 ? { alias: value.alias } : {}) };
   if (country === "BR" && expectedFiatAmount && typeof value.brCode === "string" && validPixCode(value.brCode, expectedFiatAmount)) {
-    if (value.paymentUrl !== undefined && (typeof value.paymentUrl !== "string" || value.paymentUrl.length > 4096 || !safeHttps(value.paymentUrl))) throw new RipioProviderError("invalid-response");
-    if (value.expiresAt !== undefined && !validDate(value.expiresAt)) throw new RipioProviderError("invalid-response");
+    if (value.paymentUrl !== undefined && value.paymentUrl !== null && (typeof value.paymentUrl !== "string" || value.paymentUrl.length > 4096 || !safeHttps(value.paymentUrl))) throw new RipioProviderError("invalid-response");
+    if (value.expiresAt !== undefined && value.expiresAt !== null && !validDate(value.expiresAt)) throw new RipioProviderError("invalid-response");
     return { kind: "br-pix", brCode: value.brCode, ...(typeof value.expiresAt === "string" ? { expiresAt: value.expiresAt } : {}) };
   }
   if (country === "CO" && typeof value.paymentUrl === "string" && value.paymentUrl.length <= 4096 && safeHttps(value.paymentUrl)) return { kind: "co-payment-url", paymentUrl: value.paymentUrl };
@@ -500,9 +500,10 @@ function sameDecimal(left: string, right: string): boolean {
   return normalize(left) === normalize(right);
 }
 function validPixCode(value: string, expectedAmount: string): boolean {
-  if (value.length < 20 || value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value) || !value.includes("br.gov.bcb.pix") || !/6304[0-9A-Fa-f]{4}$/.test(value)) return false;
+  if (value.length < 20 || value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value) || !value.toLowerCase().includes("br.gov.bcb.pix")) return false;
   let offset = 0;
   let amount: string | undefined;
+  let hasCrc = false;
   while (offset < value.length) {
     if (offset + 4 > value.length) return false;
     const tag = value.slice(offset, offset + 2);
@@ -511,14 +512,18 @@ function validPixCode(value: string, expectedAmount: string): boolean {
     const length = Number(lengthText);
     const end = offset + 4 + length;
     if (end > value.length) return false;
+    const content = value.slice(offset + 4, end);
     if (tag === "54") {
       if (amount !== undefined) return false;
-      amount = value.slice(offset + 4, end);
+      amount = content;
     }
-    if (tag === "63" && end !== value.length) return false;
+    if (tag === "63") {
+      if (hasCrc || length !== 4 || !/^[0-9A-Fa-f]{4}$/.test(content) || end !== value.length) return false;
+      hasCrc = true;
+    }
     offset = end;
   }
-  return offset === value.length && amount !== undefined && sameDecimal(amount, expectedAmount);
+  return offset === value.length && hasCrc && amount !== undefined && sameDecimal(amount, expectedAmount);
 }
 function validDate(value: unknown): value is string { return typeof value === "string" && Number.isFinite(Date.parse(value)); }
 function validEmail(value: string): boolean { return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
