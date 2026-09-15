@@ -7,7 +7,7 @@ import {
   ready,
   unavailableBalance,
 } from "@/shared/balances/fixtures";
-import { deriveSendAvailability } from "./send-availability";
+import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availability";
 
 const cases: Array<{
   name: string;
@@ -42,6 +42,31 @@ const cases: Array<{
     expected: [],
   },
 ];
+
+describe("deriveAssetMarkResolution", () => {
+  test("maps every validated holding, including zero and unavailable balances", () => {
+    const fixture = buildBalancesSnapshotFixture({
+      registry: {
+        usdc: { balance: ready("0") },
+        cbbtc: { balance: unavailableBalance },
+      },
+    });
+    const snapshot = {
+      ...fixture,
+      holdings: fixture.holdings.map((holding) => holding.id === "cbbtc"
+        ? { ...holding, imageUrl: "https://assets.example.invalid/cbbtc.png" }
+        : holding),
+    };
+
+    const resolution = deriveAssetMarkResolution(snapshot);
+    const usdc = snapshot.holdings.find((holding) => holding.id === "usdc")!;
+    const cbbtc = snapshot.holdings.find((holding) => holding.id === "cbbtc")!;
+    expect(resolution.images?.[usdc.key]).toBeNull();
+    expect(resolution.images?.[cbbtc.key]).toBe("https://assets.example.invalid/cbbtc.png");
+    expect(resolution.pending).toBe(false);
+    expect(deriveAssetMarkResolution(null, true)).toEqual({ images: {}, pending: true });
+  });
+});
 
 describe("deriveSendAvailability", () => {
   for (const entry of cases) {

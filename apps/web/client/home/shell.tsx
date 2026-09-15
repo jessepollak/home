@@ -97,6 +97,7 @@ export function HomeShell({
   balancesRevalidating: balancesRevalidatingProp,
   presentAssetBalances,
   sendAvailability = [],
+  assetMarkResolution,
   showSmallBalances = false,
   onShowSmallBalancesChange = () => {},
   landingVisual,
@@ -713,6 +714,7 @@ export function HomeShell({
           signOut={signOut}
           paintedAssetBalances={paintedAssetBalances}
           sendAvailability={sendAvailability}
+          assetMarkResolution={assetMarkResolution}
           showSmallBalances={showSmallBalances}
           onShowSmallBalancesChange={onShowSmallBalancesChange}
           revealSmallBalances={revealSmallBalances}

@@ -20,6 +20,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketId } from "@/shared/borrowing/config";
 import { AuthenticatedBorrowExperience } from "@/client/borrowing/borrowing-experience";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
+import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { ActivityPage } from "./activity-panel";
 import { BalancesPage } from "./balances-panel";
 import { SavingsPanel, InvestPanel } from "./feature-panels";
@@ -53,6 +54,7 @@ export function DashboardShell({
   signOut,
   paintedAssetBalances,
   sendAvailability,
+  assetMarkResolution,
   showSmallBalances,
   onShowSmallBalancesChange,
   revealSmallBalances,
@@ -94,6 +96,7 @@ export function DashboardShell({
   signOut: () => void;
   paintedAssetBalances: HomeAssetBalancesPresentation;
   sendAvailability: readonly TransferAssetAvailability[];
+  assetMarkResolution?: AssetMarkResolution;
   showSmallBalances: boolean;
   onShowSmallBalancesChange: (value: boolean) => void;
   revealSmallBalances: boolean;
@@ -174,6 +177,7 @@ export function DashboardShell({
                     assetBalances={paintedAssetBalances}
                     activitySession={activitySession}
                     sendAvailability={sendAvailability}
+                    assetMarkResolution={assetMarkResolution}
                     fetchActivity={fetchActivity}
                     fetchOperations={fetchOperations}
                     onOpenSave={() => navigateTo(savePanelId)}
@@ -232,6 +236,7 @@ export function DashboardShell({
                     selectedMarketId={borrowMarket}
                     onSelectMarket={onSelectBorrowMarket}
                     regionId={regionId}
+                    assetMarkResolution={assetMarkResolution}
                   />
                 </MountedShellPanel>
               ) : null}
