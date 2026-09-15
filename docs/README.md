@@ -27,7 +27,6 @@ Start with [Architecture](architecture.md), the one normative design document; [
 | [Balances](balances.md) | One balances pipeline and snapshot: enumerate → resolve → read → price; device and server caching. |
 | [Implementation plan](implementation-plan.md) | Redirect to the archived livestream plan. |
 | [Issuer integration guide](integrations/README.md) | Funding-provider adapter walkthrough. |
-| [Ripio acceptance playbook](integrations/ripio-acceptance.md) | Phase-by-phase provider acceptance: local-first gates, hosted final proof, recovery checklists. |
 | [Invest data](invest-data.md) | Invest asset identity and data notes. |
 | [Local money coverage](local-money-coverage.md) | Global country, currency, issuer-research, Home-route, GDP, and map inventory. |
 | [Morpho setup](morpho-setup.md) | Morpho vault configuration and verification. |

@@ -1,6 +1,6 @@
 # Issuer integration guide
 
-Status: issuer walkthrough for the funding-provider seam on `main`, September 13, 2026. This page does not authorize a funded test, deployment, provider enablement, or merge. Provider hosted acceptance is a separate loop; see [local development versus provider hosted acceptance](#local-development-versus-provider-hosted-acceptance) and the [Ripio acceptance playbook](ripio-acceptance.md).
+Status: issuer walkthrough for the funding-provider seam on `main`, September 13, 2026. This page does not authorize a funded test, deployment, provider enablement, or merge. Provider hosted acceptance is a separate loop; see [local development versus provider hosted acceptance](#local-development-versus-provider-hosted-acceptance).
 
 ## Current status and prerequisites
 
@@ -42,13 +42,13 @@ The seam contract is [`apps/web/shared/funding/provider-contract.ts`](../../apps
 
 6. **Walk the flow only with operator authorization.** Add money → select the configured deposit method → complete KYC when requested → review the quote → create the order → follow its instructions → keep the Add money order screen open (it polls status) and watch it reach the provider-reported state and, after exact Base receipt evidence, **Money received** (`received`). Closing the drawer does not lose the order: reopening Add money for that country resumes it. Activity does not list funding orders; it reads the CDP transfer feed, which is unconfigured in this setup. `POST /api/funding/webhooks/ripio` cannot reach a local run without an external tunnel; local testing still progresses through status polling (the client polls every four seconds and the core limits refreshes to one per three seconds). Do not make a payment without explicit funded-test approval.
 
-7. **Open a bounded upstream PR.** Include the adapter, manifest, synthetic fixtures/tests, and README. Attach one 390px clip of the local flow and add a dated local-development line — for Ripio, exactly `Local development completed against Ripio production API on YYYY-MM-DD` — without credentials, customer data, payment details, or wallet secrets. That line records that local development happened; it is not a validated claim (see [claim semantics](ripio-acceptance.md#claim-semantics)). Run `bun check`; fresh review is required, and only Jesse approves and merges.
+7. **Open a bounded upstream PR.** Include the adapter, manifest, synthetic fixtures/tests, and README. Attach one 390px clip of the local flow and add a dated local-development line — for Ripio, exactly `Local development completed against Ripio production API on YYYY-MM-DD` — without credentials, customer data, payment details, or wallet secrets. That line records that local development happened; it is not a validated claim. Run `bun check`; fresh review is required, and only Jesse approves and merges.
 
 ## Local development versus provider hosted acceptance
 
 The seven steps complete **local adapter development**: a local clone walk of the flow is the development proof, and it is where issuer iteration happens. It is not release acceptance. Acceptance for a provider integrating with Home's own hosted deployment is a separate loop with its own gates — sequential funded tests per rail on Home's protected production alias, explicit approval for every payment, and a recorded evidence trail.
 
-The [Ripio acceptance playbook](ripio-acceptance.md) ([#512](https://github.com/jessepollak/home/issues/512)) is the worked example: phase-by-phase checkbox gates with owners and approvers, the six-rail matrix, local recovery checklists, and claim semantics. Follow it for Ripio and model future providers on it; this page does not duplicate it.
+Provider-specific acceptance playbooks belong beside their adapters so implementation details, operational gates, and recovery procedures stay together. The Ripio provider folder contains the worked example: phase-by-phase checkbox gates with owners and approvers, the six-rail matrix, local recovery checklists, and claim semantics.
 
 ## What the seam core enforces
 

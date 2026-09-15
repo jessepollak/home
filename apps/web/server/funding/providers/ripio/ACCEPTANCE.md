@@ -2,7 +2,7 @@
 
 Status: phase-by-phase acceptance runbook for the Ripio funding adapter (AR wARS, BR wBRL, CO wCOP). Tracking: [#512](https://github.com/jessepollak/home/issues/512). Audience: the Ripio team completing the adapter, and the Home operators who run the acceptance environments. This page is process, not authorization: no step grants access to credentials, wallets, deployments, or merge authority, and nothing here claims that a live or funded result has passed.
 
-Related: [issuer integration guide](README.md), [Ripio adapter checklist](../../apps/web/server/funding/providers/ripio/README.md), [funding provider seam](../funding-provider-seam.md), observability prerequisite [#520](https://github.com/jessepollak/home/issues/520).
+Related: [issuer integration guide](../../../../../../docs/integrations/README.md), [Ripio adapter checklist](README.md), [funding provider seam](../../../../../../docs/funding-provider-seam.md), observability prerequisite [#520](https://github.com/jessepollak/home/issues/520).
 
 ## Two loops, one acceptance
 
@@ -76,7 +76,7 @@ Required; blocking for Phase 2. Owner: Ripio lead. Approver: Jesse signs off on 
 
 Performed outside Home: Home has no read-only provider UI, and **Get quote** in Home is already a write sequence. Use an approved API client that does not expose or store secrets — never credentials on a command line or in shell history.
 
-- [ ] Walk checklist items 1, 2, and 4 of the [adapter README](../../apps/web/server/funding/providers/ripio/README.md) against production, read-only: `POST /oauth2/token/`, `GET /api/v1/termsAndConditions/`, `GET /api/v1/depositNetworks/`, `GET /api/v1/withdrawalNetworks/`. Item 2's `POST /api/v1/customers/{customerId}/acceptTerms/` is a write and is not performed here — only the terms read is probed; acceptance happens in Phase 2.
+- [ ] Walk checklist items 1, 2, and 4 of the [adapter README](README.md) against production, read-only: `POST /oauth2/token/`, `GET /api/v1/termsAndConditions/`, `GET /api/v1/depositNetworks/`, `GET /api/v1/withdrawalNetworks/`. Item 2's `POST /api/v1/customers/{customerId}/acceptTerms/` is a write and is not performed here — only the terms read is probed; acceptance happens in Phase 2.
 - [ ] Observed shapes recorded without credentials or PII
 - [ ] Open questions answered and recorded:
   - [ ] Exact Colombia redirect origins for `bank_transfer` and `r2p_bancolombia` — the only CO rails Home renders as redirects — plus confirmation that `breb` returns `brebKey` and `r2p_nequi` returns `phoneNumber` rather than substituting a payment URL
