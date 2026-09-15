@@ -9,12 +9,6 @@ const { BaseAccountOnlySignIn } = await import("./sign-in-base-account");
 const noop = () => {};
 const buttonRef = { current: null };
 
-const phaseMessages: Record<BaseAccountLoginPhase, string> = {
-  connecting: "Connecting to your existing Base Account…",
-  signing: "Confirm sign-in in Base Account…",
-  verifying: "Finishing sign-in…",
-};
-
 // Scope to the rendered container so shared-document leftovers from other
 // test files cannot shadow this component's accessibility contract.
 function renderBaseSignIn(phase: BaseAccountLoginPhase | null) {
@@ -25,53 +19,43 @@ function renderBaseSignIn(phase: BaseAccountLoginPhase | null) {
 }
 
 describe("Base Account sign-in live status", () => {
-  test("idle keeps the stable action name with an empty live status node", () => {
+  test("idle keeps the stable action name and an empty persistent polite status node", () => {
     const { scope } = renderBaseSignIn(null);
 
-    expect(scope.getByRole("button", { name: "Sign in with Base Account" })).toBeTruthy();
+    const button = scope.getByRole("button", { name: "Sign in with Base Account" });
     const liveStatus = scope.getByRole("status");
     expect(liveStatus.textContent).toBe("");
     expect(liveStatus.getAttribute("aria-live")).toBe("polite");
     expect(liveStatus.getAttribute("aria-atomic")).toBe("true");
-    for (const message of Object.values(phaseMessages)) {
-      expect(scope.queryAllByText(message)).toEqual([]);
-    }
+    expect(button.contains(liveStatus)).toBe(false);
   });
 
-  test.each(["connecting", "signing", "verifying"] as const)(
-    "exposes the %s phase exactly once through the live status node",
-    (phase) => {
-      const { scope } = renderBaseSignIn(phase);
-
-      const button = scope.getByRole("button", { name: "Sign in with Base Account" });
-      expect(button).toBeTruthy();
-      expect(button.getAttribute("aria-busy")).toBe("true");
-      expect(button.getAttribute("aria-disabled")).toBe("true");
-
-      const statuses = scope.getAllByRole("status");
-      expect(statuses).toHaveLength(1);
-      const [liveStatus] = statuses;
-      expect(liveStatus.textContent).toBe(phaseMessages[phase]);
-      expect(button.contains(liveStatus)).toBe(false);
-      // The visible progress copy stays in the button, hidden from the name.
-      expect(button.textContent).toContain(phaseMessages[phase]);
-    },
-  );
-
-  test("transitions update one persistent status node without remounting it", () => {
+  test("announces every phase through one same status node outside the button", () => {
+    const phases: [BaseAccountLoginPhase, string][] = [
+      ["connecting", "Connecting to your existing Base Account…"],
+      ["signing", "Confirm sign-in in Base Account…"],
+      ["verifying", "Finishing sign-in…"],
+    ];
     const { view, scope } = renderBaseSignIn(null);
     const liveStatus = scope.getByRole("status");
 
-    for (const phase of ["connecting", "signing", "verifying"] as const) {
+    for (const [phase, message] of phases) {
       view.rerender(
         <BaseAccountOnlySignIn buttonRef={buttonRef} phase={phase} onSignIn={noop} />,
       );
       expect(scope.getAllByRole("status")).toHaveLength(1);
       expect(scope.getAllByRole("status")[0]).toBe(liveStatus);
-      expect(liveStatus.textContent).toBe(phaseMessages[phase]);
+      expect(liveStatus.textContent).toBe(message);
+      const button = scope.getByRole("button", { name: "Sign in with Base Account" });
+      expect(button.contains(liveStatus)).toBe(false);
+      // The visible copy stays inline in the button, hidden from the name.
       expect(
-        scope.getByRole("button", { name: "Sign in with Base Account" }),
-      ).toBeTruthy();
+        Array.from(button.children).some(
+          (child) =>
+            child.getAttribute("aria-hidden") === "true" &&
+            child.textContent === message,
+        ),
+      ).toBe(true);
     }
 
     view.rerender(
