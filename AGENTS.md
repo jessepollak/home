@@ -28,6 +28,7 @@ Pointers, not new rules. Each line is the shortest path to the doc or file that 
 
 ## UI direction
 
+- For scoped motion or mobile-web work, use the Home-owned skills in `.agents/skills/{animate,review-animations,mobile-native}/SKILL.md`.
 - Keep the interface direct and minimal. Avoid decorative kickers such as "Secure account" above an already clear "Sign in to Home" heading, redundant explanations, and generic reassurance copy.
 - Remove prose that does not help the user make a decision or complete the current action. Preserve essential field labels, actionable errors/recovery instructions, and accessibility text. Removing copy must not change authentication or privacy behavior.
 - Do not put legal disclosures, eligibility essays, contract lists, source roster walls, "not an endorsement," or similar compliance copy on product screens (Home, Save, Invest, Borrow, Fund, etc.). Those belong only in **Account → Disclosures / Terms** (or an equivalent settings section). Account should gain that Disclosures / Terms destination if it is missing; do not park the copy on product surfaces in the meantime.
