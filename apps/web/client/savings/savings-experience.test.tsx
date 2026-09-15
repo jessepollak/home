@@ -334,6 +334,54 @@ describe("Save simplify", () => {
     expect(page().getAllByText("$99.00").length).toBeGreaterThan(0);
   });
 
+  test("advances only the hero while withdrawal Max and prepared base units stay authoritative", async () => {
+    const authoritative = "1000000000000000";
+    const prepares: unknown[] = [];
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session()}
+        balanceStatus="ready"
+        balancePositions={balancePositions({ [GAUNTLET]: authoritative })}
+        growthAuthority={{
+          accountIdentity: `subject-a:${ADDRESS_A}`,
+          assetIdentity: `${BASE_USDC_ADDRESS.toLowerCase()}:8453:6`,
+          blockNumber: "51026404",
+          blockHash: "0xabc",
+          blockTimestamp: String(Math.floor((TEST_NOW - 60_000) / 1000)),
+          snapshotStale: false,
+          registryCoverageComplete: true,
+        }}
+        prepareMoneyAction={async (_endpoint, input) => {
+          prepares.push(input);
+          return preparedAction("savings-withdraw");
+        }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
+      />,
+    );
+
+    const authoritativeLabel = "$1,000,000,000.00";
+    expect(await page().findByRole("img", { name: authoritativeLabel })).toBeTruthy();
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(page().queryByRole("img", { name: authoritativeLabel })).not.toBeNull();
+    const save = page().getByRole("region", { name: "Save" });
+    const hero = save.querySelector("[data-slot='money-ticker']");
+    expect(hero?.getAttribute("aria-label")).not.toBe(authoritativeLabel);
+    expect(hero?.getAttribute("role")).toBe("img");
+    expect(hero?.hasAttribute("aria-live")).toBe(false);
+    expect(hero?.closest("p")?.hasAttribute("aria-live")).toBe(false);
+
+    fireEvent.click(page().getByRole("button", { name: "Withdraw" }));
+    expect(await page().findByText(`${authoritativeLabel} available`)).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await page().findByRole("dialog", { name: "Confirm" });
+    expect(prepares).toEqual([
+      { kind: "withdraw", vaultAddress: GAUNTLET, amountBaseUnits: authoritative },
+    ]);
+  });
+
   test("shows metadata failure beside a verified funded balance", async () => {
     render(
       <SavingsExperience

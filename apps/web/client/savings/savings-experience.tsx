@@ -57,6 +57,11 @@ import {
   shortVaultLabel,
 } from "./format";
 import {
+  createSavingsGrowthAnchor,
+  useEstimatedSavingsGrowth,
+  type SavingsGrowthAuthority,
+} from "./use-estimated-growth";
+import {
   formatExactSavingsApy,
   getSavingsRateState,
   nextSavingsRateExpiryAt,
@@ -80,6 +85,7 @@ type SavingsExperienceProps = {
   balanceStatus?: "idle" | "loading" | "ready" | "error";
   balanceRevalidating?: boolean;
   balanceAgeLabel?: string;
+  growthAuthority?: SavingsGrowthAuthority | null;
   prepareMoneyAction?: (
     endpoint: string,
     input: unknown,
@@ -123,6 +129,17 @@ export function AuthenticatedSavingsExperience() {
     ? selectBalanceBaseUnits(balances.snapshot, "usdc")
     : null;
   const balancePositions = balances.snapshot ? selectVaultPositions(balances.snapshot) : null;
+  const growthAuthority: SavingsGrowthAuthority | null = balances.snapshot && session
+    ? {
+        accountIdentity: `${session.user.subject}:${balances.snapshot.owner.address.toLowerCase()}`,
+        assetIdentity: `${BASE_USDC_ADDRESS.toLowerCase()}:8453:${BASE_USDC_DECIMALS}`,
+        blockNumber: balances.snapshot.block.number,
+        blockHash: balances.snapshot.block.hash,
+        blockTimestamp: balances.snapshot.block.timestamp,
+        snapshotStale: balances.snapshot.stale === true,
+        registryCoverageComplete: balances.snapshot.coverage.registry === "complete",
+      }
+    : null;
 
   return (
     <SavingsExperience
@@ -134,6 +151,7 @@ export function AuthenticatedSavingsExperience() {
       balanceAgeLabel={balances.snapshot?.stale === true
         ? `Updated ${formatRelativeTime(balances.snapshot.fetchedAt)}`
         : undefined}
+      growthAuthority={growthAuthority}
       prepareMoneyAction={account.prepareMoneyAction}
       executeMoneyAction={account.executeMoneyAction}
     />
@@ -150,6 +168,7 @@ export function SavingsExperience({
   balanceStatus,
   balanceRevalidating = false,
   balanceAgeLabel,
+  growthAuthority = null,
   prepareMoneyAction,
   executeMoneyAction,
   onBack,
@@ -258,6 +277,26 @@ export function SavingsExperience({
       nowMs: rateNowMs,
     });
   }, [loadState, positionState, rateNowMs]);
+  const growthAnchor = useMemo(() => {
+    if (!growthAuthority || !portfolioSummary || loadState.status !== "ready") {
+      return {
+        identity: `unavailable:${portfolioSummary?.balance.status === "available" ? portfolioSummary.balance.totalBaseUnits : "0"}`,
+        authoritativeBaseUnits: portfolioSummary?.balance.status === "available"
+          ? BigInt(portfolioSummary.balance.totalBaseUnits)
+          : BigInt(0),
+        estimate: null,
+      };
+    }
+    return createSavingsGrowthAnchor({
+      authority: growthAuthority,
+      candidates: loadState.data.candidates,
+      metadataFetchedAt: loadState.data.source.fetchedAt,
+      metadataStale: loadState.data.stale,
+      nowMs: rateNowMs,
+      summary: portfolioSummary,
+    });
+  }, [growthAuthority, loadState, portfolioSummary, rateNowMs]);
+  const estimatedBalanceBaseUnits = useEstimatedSavingsGrowth(growthAnchor, now);
   const balances = collectVaultBalances(candidates, positionState);
   const coldLoading = hasSession && positionState.status === "loading";
   const positionFailed = hasSession && positionState.status === "error";
@@ -358,7 +397,7 @@ export function SavingsExperience({
               >
                 <MoneyTicker
                   value={formatUsdStablecoinAmount(
-                    availableBalance.totalBaseUnits,
+                    estimatedBalanceBaseUnits.toString(),
                   )}
                 />
               </p>

@@ -64,6 +64,10 @@ export function splitMoneyTickerValue(value: string): MoneyTickerParts {
   };
 }
 
+export function moneyTickerAnimationsEnabled(animated: boolean, reducedMotion: boolean): boolean {
+  return animated && !reducedMotion;
+}
+
 export function MoneyTicker({
   value,
   animated = true,
@@ -137,7 +141,7 @@ export function MoneyTicker({
           return (
             <NumberFlow
               aria-hidden="true"
-              animated={animated && !reducedMotion}
+              animated={moneyTickerAnimationsEnabled(animated, reducedMotion)}
               className="inline-block w-[1ch] flex-[0_0_1ch] text-center [--number-flow-mask-width:0px]"
               format={{ useGrouping: false, maximumFractionDigits: 0 }}
               isolate={false}
