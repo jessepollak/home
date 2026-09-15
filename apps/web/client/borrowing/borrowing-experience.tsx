@@ -13,6 +13,7 @@ import { useAccountWallet, type AccountWalletClient } from "@/client/account/cdp
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import {
   MoneyAmountDisplay,
+  MoneyAssetPicker,
   MoneyConfirmSummary,
   MoneyModal,
   MoneyModalBody,
@@ -694,11 +695,27 @@ function BorrowMoneyDialog({
           : snapshot.position.borrowCapacityAssetsRaw;
   const availableAmount = availableBaseUnits === null ? null : decimalFromBaseUnits(availableBaseUnits, primaryAsset.decimals);
   const availableLabel = availableBaseUnits === null ? undefined : `${formatToken(availableBaseUnits, primaryAsset, regionId)} available`;
+  const amountAssetProps = {
+    assetId: primaryAsset.id,
+    assetLabel: primaryAsset.symbol,
+    assetCurrency: primaryAssetMark.currency,
+    assetMark: primaryAssetMark,
+    locked: true,
+  };
 
   return (
     <MoneyModal open labelledBy="borrow-action-title" describedBy={step === "pending" ? "borrow-action-pending" : undefined} onCancel={closeIfAllowed} onClose={onClose}>
-      <MoneyModalHeader title={title} titleId="borrow-action-title" onBack={step === "amount" || step === "pending" ? undefined : goBack} onClose={closeIfAllowed} closeDisabled={step === "pending"} closeLabel="Close Borrow action" />
-      <MoneyModalBody className="gap-4 pt-4">
+      <MoneyModalHeader
+        title={title}
+        titleId="borrow-action-title"
+        {...(step === "amount"
+          ? closesWithoutDebt ? {} : { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
+          : step === "pending" ? {} : { onBack: goBack })}
+        onClose={closeIfAllowed}
+        closeDisabled={step === "pending"}
+        closeLabel="Close Borrow action"
+      />
+      <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
         {step === "amount" ? (
           <>
             {closesWithoutDebt ? (
@@ -714,8 +731,7 @@ function BorrowMoneyDialog({
                   assetId={primaryAsset.id}
                   assetLabel={primaryAsset.symbol}
                   assetCurrency={primaryAssetMark.currency}
-                  assetMark={primaryAssetMark}
-                  assetLocked
+                  assetControl="header"
                   chipSet={availableBaseUnits === null ? "none" : "max"}
                   pricing={primaryPricing}
                   nativeSymbol={primaryAsset.symbol}

@@ -1,10 +1,15 @@
 import coordinates from "./globe-country-coordinates.json";
 import { presentationRegions, regionIds } from "@/config/regions";
 
+export type GlobeMarkerTone = "positive" | "caution" | "negative" | "neutral";
+
 export type GlobeCountry = {
   countryCode: string;
   countryName: string;
   currency: { code: string | null; name: string };
+  /** Optional presentation data for inventory-style globe variants. */
+  detail?: string;
+  markerTone?: GlobeMarkerTone;
 };
 
 export type GlobePoint = GlobeCountry & {
@@ -27,7 +32,8 @@ export type ProjectedGlobeRoute = {
 };
 
 export const INITIAL_LONGITUDE = -28;
-export const VIEW_LATITUDE = 12;
+export const INITIAL_VIEW_LATITUDE = 12;
+export const MAX_VIEW_LATITUDE = 55;
 export const GLOBE_RADIUS = 44;
 export const NETWORK_CYCLE_MS = 6_800;
 const ROUTE_SAMPLES = 20;
@@ -66,15 +72,20 @@ export function geographicVector(longitude: number, latitude: number) {
   return [Math.cos(lat) * Math.sin(lon), Math.sin(lat), Math.cos(lat) * Math.cos(lon)] as const;
 }
 
+export function clampViewLatitude(value: number) {
+  return Math.max(-MAX_VIEW_LATITUDE, Math.min(MAX_VIEW_LATITUDE, value));
+}
+
 function projectVector(
   [sourceX, sourceY, sourceZ]: readonly number[],
   viewLongitude: number,
+  viewLatitude: number,
   elevation = 1,
 ) {
   const longitude = viewLongitude * RAD;
   const x = Math.cos(longitude) * sourceX - Math.sin(longitude) * sourceZ;
   const z = Math.sin(longitude) * sourceX + Math.cos(longitude) * sourceZ;
-  const tilt = VIEW_LATITUDE * RAD;
+  const tilt = clampViewLatitude(viewLatitude) * RAD;
   const screenY = sourceY * Math.cos(tilt) - z * Math.sin(tilt);
   const depth = sourceY * Math.sin(tilt) + z * Math.cos(tilt);
   return {
@@ -86,8 +97,13 @@ function projectVector(
 }
 
 /** Orthographic projection shared by the GPU and static markers. */
-export function projectCountry(longitude: number, latitude: number, viewLongitude = INITIAL_LONGITUDE) {
-  return projectVector(geographicVector(longitude, latitude), viewLongitude);
+export function projectCountry(
+  longitude: number,
+  latitude: number,
+  viewLongitude = INITIAL_LONGITUDE,
+  viewLatitude = INITIAL_VIEW_LATITUDE,
+) {
+  return projectVector(geographicVector(longitude, latitude), viewLongitude, viewLatitude);
 }
 
 export function configureGlobeRoutes(points: readonly GlobePoint[]): GlobeRoute[] {
@@ -118,6 +134,7 @@ export function projectGlobeRoute(
   route: GlobeRoute,
   viewLongitude: number,
   cycleProgress = route.phase,
+  viewLatitude = INITIAL_VIEW_LATITUDE,
 ): ProjectedGlobeRoute {
   const from = geographicVector(route.from.longitude, route.from.latitude);
   const to = geographicVector(route.to.longitude, route.to.latitude);
@@ -126,7 +143,7 @@ export function projectGlobeRoute(
   for (let index = 0; index <= ROUTE_SAMPLES; index++) {
     const progress = index / ROUTE_SAMPLES;
     const elevation = 1 + Math.sin(progress * Math.PI) * 0.075;
-    const point = projectVector(routeVector(from, to, progress), viewLongitude, elevation);
+    const point = projectVector(routeVector(from, to, progress), viewLongitude, viewLatitude, elevation);
     if (!point.visible) {
       drawing = false;
       continue;
@@ -138,9 +155,10 @@ export function projectGlobeRoute(
   const pulse = projectVector(
     routeVector(from, to, progress),
     viewLongitude,
+    viewLatitude,
     1 + Math.sin(progress * Math.PI) * 0.075,
   );
-  const arrival = projectCountry(route.to.longitude, route.to.latitude, viewLongitude);
+  const arrival = projectCountry(route.to.longitude, route.to.latitude, viewLongitude, viewLatitude);
   const arrivalProgress = progress >= 0.88 ? (progress - 0.88) / 0.12 : 0;
   return { path: segments.join(" "), pulse, arrival, arrivalProgress };
 }
@@ -160,9 +178,10 @@ export function selectGlobePopoverCountry(
   viewLongitude: number,
   currentCountryCode: string | null = null,
   elapsedSinceChange = Number.POSITIVE_INFINITY,
+  viewLatitude = INITIAL_VIEW_LATITUDE,
 ): GlobePopoverSelection | null {
   const candidates = points.flatMap((country) => {
-    const position = projectCountry(country.longitude, country.latitude, viewLongitude);
+    const position = projectCountry(country.longitude, country.latitude, viewLongitude, viewLatitude);
     const distance = Math.abs(position.x - 50) + Math.abs(position.y - 50) * 0.06;
     return position.visible && position.depth > 0.55 && distance <= POPOVER_CENTRAL_DISTANCE
       ? [{ country, position, distance }]

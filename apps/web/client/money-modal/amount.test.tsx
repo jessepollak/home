@@ -182,7 +182,12 @@ describe("MoneyAmountDisplay", () => {
     await waitFor(() => expect(input.getAttribute("aria-expanded")).toBe("true"));
     const option = await view.findByRole("option", { name: "EUR EURC" });
     expect(option.textContent).toBe("EUREURC");
-    expect(document.querySelectorAll("[data-size='sm']").length).toBeGreaterThanOrEqual(2);
+    const selectorMarks = document.querySelectorAll("[data-presentation='selector']");
+    expect(selectorMarks.length).toBeGreaterThanOrEqual(2);
+    for (const mark of selectorMarks) {
+      expect(mark.getAttribute("data-size")).toBe("default");
+      expect(mark.querySelector("[data-mark-inner]")).toBeTruthy();
+    }
 
     fireEvent.click(option);
 
@@ -260,7 +265,9 @@ describe("MoneyAmountDisplay", () => {
       />,
     );
 
+    expect(page().getByRole("group", { name: "USDC" })).toBeTruthy();
     expect(page().queryByLabelText("Asset")).toBeNull();
+    expect(page().queryByRole("combobox", { name: "Asset" })).toBeNull();
     expect(page().queryByRole("button", { name: "$10" })).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Max" }));
     expect(page().getByLabelText("Native amount").textContent).toBe("1240");

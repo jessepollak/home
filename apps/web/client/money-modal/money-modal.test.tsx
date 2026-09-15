@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { useState } from "react";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
-const { MoneyModal } = await import("./money-modal");
+const { MoneyModal, MoneyModalBody, MoneyModalHeader } = await import("./money-modal");
 
 afterEach(async () => {
   cleanup();
@@ -14,6 +14,33 @@ afterEach(async () => {
   document.body.style.overflowX = "";
   document.body.style.overflowY = "";
   document.documentElement.style.scrollbarGutter = "";
+});
+
+describe("MoneyModal layout contract", () => {
+  test("keeps the asset control in the leading track while Close owns initial focus", () => {
+    render(
+      <MoneyModal open labelledBy="layout-title" immediate onCancel={() => {}} onClose={() => {}}>
+        <MoneyModalHeader
+          title="A deliberately long centered title"
+          titleId="layout-title"
+          assetControl={<input aria-label="Asset" />}
+          onClose={() => {}}
+        />
+      </MoneyModal>,
+    );
+
+    expect(page().getByLabelText("Asset")).toBeTruthy();
+    expect(document.querySelectorAll("[data-initial-focus]")).toHaveLength(1);
+    expect(page().getByRole("button", { name: "Close" }).hasAttribute("data-initial-focus")).toBe(true);
+  });
+
+  test("gives bottom safe-area ownership to either the body or following footer", () => {
+    const view = render(<MoneyModalBody hasFooter={false}>No footer</MoneyModalBody>);
+    expect(view.getByText("No footer").className).toContain("safe-area-inset-bottom");
+    view.rerender(<MoneyModalBody hasFooter>Footer follows</MoneyModalBody>);
+    expect(view.getByText("Footer follows").className).not.toContain("safe-area-inset-bottom");
+    expect(view.getByText("Footer follows").className).toContain("pb-4");
+  });
 });
 
 describe("MoneyModal dismissal contract", () => {

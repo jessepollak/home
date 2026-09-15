@@ -8,6 +8,7 @@ import { HomeMark } from "@/components/home-mark";
 import { ProfileMark } from "@/components/profile-mark";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import {
+  publicHeaderFrameClassName,
   shellChromeCompensationClassName,
   shellContentFrameClassName,
 } from "@/components/shell-layout";
@@ -48,9 +49,16 @@ export function ShellHeader({
     : nestedChromeTitle ?? (activeNavigation === "invest" ? "Invest" : "Home");
   const hasNestedChrome = !isAccountSettingsOpen && nestedChromeTitle !== null;
 
+  const headerFrameClassName = routeMode === "landing"
+    ? publicHeaderFrameClassName
+    : shellContentFrameClassName;
+
   return (
     <header className={`order-0 w-full shrink-0 bg-background ${shellChromeCompensationClassName}`}>
-      <div className={`${shellContentFrameClassName} flex min-h-14 items-center justify-between gap-4 border-b py-2`}>
+      <div
+        className={`${headerFrameClassName} flex min-h-14 items-center justify-between gap-4 border-b py-2`}
+        data-shell-header-frame={routeMode}
+      >
       {routeMode === "dashboard" ? (
         <div className="flex min-w-0 items-center gap-2" data-shell-header-main="">
           {hasNestedChrome ? (

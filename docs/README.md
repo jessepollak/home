@@ -28,6 +28,7 @@ Start with [Architecture](architecture.md), the one normative design document; [
 | [Implementation plan](implementation-plan.md) | Redirect to the archived livestream plan. |
 | [Issuer integration guide](integrations/README.md) | Funding-provider adapter walkthrough. |
 | [Invest data](invest-data.md) | Invest asset identity and data notes. |
+| [Local money coverage](local-money-coverage.md) | Global country, currency, issuer-research, Home-route, GDP, and map inventory. |
 | [Morpho setup](morpho-setup.md) | Morpho vault configuration and verification. |
 | [Verified Morpho markets](morpho-markets.md) | Shared registry, math, pinned RPC reader, and product projection boundary for isolated markets. |
 | [Observability](observability.md) | Privacy-safe application observability. |

@@ -223,6 +223,7 @@ export function MoneyAmountDisplay({
   fiatCurrency,
   initialUnit = "local",
   amountChangeSource = "programmatic",
+  assetControl = "body",
 }: {
   amount: string;
   onAmountChange?: (value: string, source: MoneyAmountChangeSource) => void;
@@ -242,6 +243,8 @@ export function MoneyAmountDisplay({
   fiatCurrency?: string;
   initialUnit?: MoneyPrimaryUnit;
   amountChangeSource?: MoneyAmountChangeSource;
+  /** The header owns the sole picker when set to `header`. */
+  assetControl?: "body" | "header";
 }) {
   const [requestedUnit, setRequestedUnit] = useState<MoneyPrimaryUnit>(initialUnit);
   const lastAssetId = useRef(assetId);
@@ -263,7 +266,7 @@ export function MoneyAmountDisplay({
 
   return (
     <div className="grid justify-items-center gap-3 py-3">
-      {assetLabel ? (
+      {assetControl === "body" && assetLabel ? (
         <MoneyAssetPicker
           assetId={assetId}
           assetLabel={assetLabel}
@@ -359,6 +362,16 @@ export function MoneyPrimaryAmount({
   );
 }
 
+export type MoneyAssetPickerProps = {
+  assetId?: string;
+  assetLabel?: string;
+  assetCurrency?: string | null;
+  assetMark?: AssetMarkPresentation;
+  assetOptions?: ReadonlyArray<MoneyAssetOption>;
+  onAssetChange?: (assetId: string) => void;
+  locked?: boolean;
+};
+
 export function MoneyAssetPicker({
   assetId,
   assetLabel,
@@ -367,15 +380,7 @@ export function MoneyAssetPicker({
   assetOptions,
   onAssetChange,
   locked = false,
-}: {
-  assetId?: string;
-  assetLabel?: string;
-  assetCurrency?: string | null;
-  assetMark?: AssetMarkPresentation;
-  assetOptions?: ReadonlyArray<MoneyAssetOption>;
-  onAssetChange?: (assetId: string) => void;
-  locked?: boolean;
-}) {
+}: MoneyAssetPickerProps) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
   if (!assetLabel) return <span />;
@@ -385,15 +390,15 @@ export function MoneyAssetPicker({
 
   if (!canPick) {
     return (
-      <div className="flex h-9 items-center gap-2 rounded-md border bg-background px-2 text-sm font-medium" aria-label={assetLabel}>
+      <div role="group" className="flex h-9 max-w-[7.25rem] items-center gap-1 rounded-md border bg-background px-1.5 text-sm font-medium" aria-label={assetLabel}>
         <CurrencyMark
           currency={assetMark?.currency ?? markCurrency}
           symbol={assetMark?.symbol ?? assetLabel}
           src={assetMark?.imageUrl}
           pending={assetMark?.pending}
-          size="sm"
+          presentation="selector"
         />
-        <span>{assetLabel}</span>
+        <span className="truncate">{assetLabel}</span>
       </div>
     );
   }
@@ -419,7 +424,7 @@ export function MoneyAssetPicker({
         aria-label="Asset"
         groupRef={anchorRef}
         placeholder={selected?.currency ?? selected?.description ?? assetLabel}
-        className="h-11 w-72 max-w-full"
+        className="h-11 w-[7.25rem] max-w-full"
       >
         {selected?.mark ? (
           <InputGroupAddon align="inline-start">
@@ -428,12 +433,12 @@ export function MoneyAssetPicker({
               symbol={selected.mark.symbol}
               src={selected.mark.imageUrl}
               pending={selected.mark.pending}
-              size="sm"
+              presentation="selector"
             />
           </InputGroupAddon>
         ) : null}
       </ComboboxInput>
-      <ComboboxContent anchor={anchorRef}>
+      <ComboboxContent anchor={anchorRef} className="w-[min(18rem,calc(100vw-2rem))] min-w-[min(18rem,calc(100vw-2rem))]">
         <ComboboxEmpty>No assets found.</ComboboxEmpty>
         <ComboboxList>
           {(option) => (
@@ -445,7 +450,7 @@ export function MoneyAssetPicker({
                     symbol={option.mark.symbol}
                     src={option.mark.imageUrl}
                     pending={option.mark.pending}
-                    size="sm"
+                    presentation="selector"
                   />
                 </span>
               ) : null}

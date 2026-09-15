@@ -7,6 +7,7 @@ import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   MoneyAmountDisplay,
+  MoneyAssetPicker,
   MoneyConfirmSummary,
   MoneyModal,
   MoneyModalBody,
@@ -170,6 +171,8 @@ export function SavingsMoneyDialog({
     }
   }
 
+  const amountAssetProps = { assetId: "usdc", assetLabel: "USDC", locked: true };
+
   return (
     <>
       <MoneyModal
@@ -185,13 +188,17 @@ export function SavingsMoneyDialog({
         <MoneyModalHeader
           title={title}
           titleId="savings-action-title"
-          onBack={step === "amount" || step === "pending" ? undefined : goBack}
+          {...(step === "amount"
+            ? { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
+            : step === "pending"
+              ? {}
+              : { onBack: goBack })}
           onClose={closeIfAllowed}
           closeDisabled={step === "pending"}
           closeLabel={`Close ${mode} dialog`}
         />
 
-        <MoneyModalBody className="gap-4 pt-4">
+        <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
           {step === "amount" ? (
             <>
               <MoneyAmountDisplay
@@ -203,7 +210,7 @@ export function SavingsMoneyDialog({
                 availableSuffix={balanceAgeLabel}
                 assetId="usdc"
                 assetLabel="USDC"
-                assetLocked
+                assetControl="header"
                 chipSet="max"
                 pricing={pricing}
                 nativeSymbol="USDC"

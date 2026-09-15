@@ -14,6 +14,7 @@ type CurrencyMarkProps = {
   src?: string | null;
   pending?: boolean;
   size?: "default" | "sm";
+  presentation?: "default" | "selector";
 };
 
 function isNativeEthGlyph(glyph: string): boolean {
@@ -26,6 +27,7 @@ export function CurrencyMark({
   src: imageSrc,
   pending = false,
   size = "default",
+  presentation = "default",
 }: CurrencyMarkProps) {
   const image = imageSrc?.trim() || null;
   const flag = pending || image ? null : presentationCurrencyFlag(currency);
@@ -41,6 +43,7 @@ export function CurrencyMark({
       resolvedKind={image ? "image" : "flag"}
       eth={eth}
       size={size}
+      presentation={presentation}
     />
   );
 }
@@ -52,6 +55,7 @@ function CurrencyMarkSlot({
   resolvedKind,
   eth,
   size,
+  presentation,
 }: {
   src: string | null;
   pending: boolean;
@@ -59,6 +63,7 @@ function CurrencyMarkSlot({
   resolvedKind: "flag" | "image";
   eth: boolean;
   size: "default" | "sm";
+  presentation: "default" | "selector";
 }) {
   const imageRef = useRef<HTMLImageElement | null>(null);
   const [imageStatus, setImageStatus] = useState<"loading" | "ready" | "failed">(
@@ -90,27 +95,30 @@ function CurrencyMarkSlot({
       data-mark={showShimmer ? "shimmer" : readyKind}
       data-shimmer={showShimmer ? "mark" : undefined}
       data-size={size}
+      data-presentation={presentation}
       aria-hidden="true"
     >
-      {showImage && src ? (
-        // Token metadata URLs and local flag SVGs are not in the Next allowlist.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          ref={imageRef}
-          className={styles.flag}
-          src={src}
-          alt=""
-          referrerPolicy="no-referrer"
-          draggable={false}
-          hidden={imageStatus !== "ready"}
-          onLoad={() => setImageStatus("ready")}
-          onError={() => setImageStatus("failed")}
-        />
-      ) : null}
-      {showEth ? <EthMark /> : null}
-      {!showShimmer && !showEth && !(showImage && imageStatus === "ready") ? (
-        <span className={styles.fallback}>{glyph}</span>
-      ) : null}
+      <span className={styles.inner} data-mark-inner="">
+        {showImage && src ? (
+          // Token metadata URLs and local flag SVGs are not in the Next allowlist.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            ref={imageRef}
+            className={styles.flag}
+            src={src}
+            alt=""
+            referrerPolicy="no-referrer"
+            draggable={false}
+            hidden={imageStatus !== "ready"}
+            onLoad={() => setImageStatus("ready")}
+            onError={() => setImageStatus("failed")}
+          />
+        ) : null}
+        {showEth ? <EthMark /> : null}
+        {!showShimmer && !showEth && !(showImage && imageStatus === "ready") ? (
+          <span className={styles.fallback}>{glyph}</span>
+        ) : null}
+      </span>
     </span>
   );
 }

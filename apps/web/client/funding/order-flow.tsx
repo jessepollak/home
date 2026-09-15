@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { DrawerFooter } from "@/components/ui/drawer";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -25,8 +24,10 @@ import {
 } from "@/shared/formatting";
 import {
   MoneyAmountDisplay,
+  MoneyAssetPicker,
   MoneyModalBody,
   MoneyModalFooter,
+  MoneyModalHeader,
   MoneyNumpad,
   type MoneyAmountChangeSource,
 } from "@/client/money-modal";
@@ -60,14 +61,18 @@ export function FundingOrderFlow({
   binding,
   fetchAccountResource,
   queryOwnerKey,
+  titleId,
   onBack,
+  onClose,
   onOpenRedirect,
   initialOrder,
 }: {
   binding: FundingBinding;
   fetchAccountResource: AccountFetch;
   queryOwnerKey?: string | null;
+  titleId: string;
   onBack: () => void;
+  onClose: () => void;
   onOpenRedirect: (url: string) => void;
   initialOrder?: FundingOrderSummary | null;
 }) {
@@ -190,7 +195,7 @@ export function FundingOrderFlow({
   }
 
   if (currentOrder?.instructions?.kind === "redirect") {
-    return <OrderStatus order={currentOrder} onBack={onBack} />;
+    return <><MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" /><OrderStatus order={currentOrder} /></>;
   }
   if (
     currentOrder?.instructions &&
@@ -199,42 +204,48 @@ export function FundingOrderFlow({
     !terminal(currentOrder.state, currentOrder.sandbox)
   ) {
     return (
-      <ProviderEconomicsReview
-        binding={binding}
-        order={currentOrder}
-        onContinue={() => setShowInstructions(true)}
-      />
+      <>
+        <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" />
+        <ProviderEconomicsReview binding={binding} order={currentOrder} onContinue={() => setShowInstructions(true)} />
+      </>
     );
   }
   if (currentOrder) {
     return (
-      <OrderStatus
-        order={currentOrder}
-        onBack={onBack}
-        onRefetch={orderQuery.refetch}
-      />
+      <>
+        <MoneyModalHeader
+          title={`Deposit ${binding.currency}`}
+          titleId={titleId}
+          {...(currentOrder.state === "dispatch-ambiguous" ? {} : { onBack })}
+          onClose={onClose}
+          closeLabel="Close add money"
+        />
+        <OrderStatus order={currentOrder} onRefetch={orderQuery.refetch} />
+      </>
     );
   }
   if (draft) {
     return (
-      <QuoteReview
-        binding={binding}
-        draft={draft}
-        busy={busy}
-        confirmationAttempted={confirmationAttempted}
-        error={error}
-        onConfirm={() => void confirmOrder()}
-        onBack={() => setDraft(null)}
-      />
+      <>
+        <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={() => setDraft(null)} backDisabled={confirmationAttempted} onClose={onClose} closeLabel="Close add money" />
+        <QuoteReview binding={binding} draft={draft} busy={busy} error={error} onConfirm={() => void confirmOrder()} />
+      </>
     );
   }
 
   const fieldsComplete = !binding.kyc?.fields?.some(
     (field) => !fields[field.name]?.trim(),
   );
+  const amountAssetProps = {
+    assetId: binding.currency.toLocaleLowerCase(),
+    assetLabel: binding.currency,
+    assetCurrency: binding.currency,
+    locked: true,
+  };
   return (
     <>
-      <MoneyModalBody className="gap-4 pt-4">
+      <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onClose={onClose} assetControl={<MoneyAssetPicker {...amountAssetProps} />} closeLabel="Close add money" />
+      <MoneyModalBody hasFooter className="gap-4 pt-4">
         {binding.paymentMethods.length > 1 ? (
           <Field>
             <FieldLabel htmlFor="funding-payment-method">
@@ -309,7 +320,9 @@ export function FundingOrderFlow({
           amount={amount}
           amountChangeSource={amountChangeSource}
           onAmountChange={changeAmount}
-          assetId={binding.assetId}
+          assetId={binding.currency.toLocaleLowerCase()}
+          assetLabel={binding.currency}
+          assetControl="header"
           pricing={{ status: "unpriced" }}
           nativeSymbol={binding.currency}
           fiatCurrency={binding.currency}
@@ -341,18 +354,14 @@ function QuoteReview({
   binding,
   draft,
   busy,
-  confirmationAttempted,
   error,
   onConfirm,
-  onBack,
 }: {
   binding: FundingBinding;
   draft: QuoteDraft;
   busy: boolean;
-  confirmationAttempted: boolean;
   error: string | null;
   onConfirm: () => void;
-  onBack: () => void;
 }) {
   const regionId = presentationCurrencyMetadata(
     binding.currency,
@@ -368,7 +377,7 @@ function QuoteReview({
   );
   return (
     <>
-      <MoneyModalBody className="gap-4 pt-4">
+      <MoneyModalBody hasFooter className="gap-4 pt-4">
         <Card>
           <CardHeader>
             <CardTitle>
@@ -414,9 +423,6 @@ function QuoteReview({
         primaryLabel={busy ? "Confirming same order…" : "Confirm deposit"}
         primaryDisabled={busy}
         onPrimary={onConfirm}
-        secondaryLabel="Back"
-        secondaryDisabled={confirmationAttempted}
-        onSecondary={onBack}
       />
     </>
   );
@@ -450,7 +456,7 @@ function ProviderEconomicsReview({
       : null;
   return (
     <>
-      <MoneyModalBody className="gap-4 pt-4">
+      <MoneyModalBody hasFooter className="gap-4 pt-4">
         <Card>
           <CardHeader>
             <CardTitle>
@@ -497,17 +503,15 @@ function DefinitionRow({ label, value }: { label: string; value: string }) {
 }
 function OrderStatus({
   order,
-  onBack,
   onRefetch,
 }: {
   order: FundingOrderSummary;
-  onBack: () => void;
   onRefetch?: () => Promise<unknown>;
 }) {
   const copy = stateCopy(order.state, order.sandbox);
   return (
     <>
-      <MoneyModalBody className="gap-4 pt-4">
+      <MoneyModalBody hasFooter={false} className="gap-4 pt-4">
         <h3 className="text-lg font-semibold">{copy.title}</h3>
         {order.sandbox ? <SandboxBadge /> : null}
         {copy.body ? <FundingNotice>{copy.body}</FundingNotice> : null}
@@ -524,13 +528,7 @@ function OrderStatus({
           </p>
         ) : null}
       </MoneyModalBody>
-      {order.state !== "dispatch-ambiguous" ? (
-        <DrawerFooter>
-          <Button className="h-11" size="lg" variant="ghost" onClick={onBack}>
-            Back
-          </Button>
-        </DrawerFooter>
-      ) : null}
+
     </>
   );
 }

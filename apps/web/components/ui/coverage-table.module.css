@@ -1,0 +1,19 @@
+.flag {
+  display: inline-block;
+  margin-right: 0.45rem;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.secondary {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+
+.statusColumn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}

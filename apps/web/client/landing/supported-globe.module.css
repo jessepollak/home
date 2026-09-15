@@ -14,11 +14,12 @@
   aspect-ratio: 1;
   border-radius: 50%;
   user-select: none;
-  /* The browser keeps vertical scrolling and multi-touch zoom, including cancel. */
   touch-action: pan-y pinch-zoom;
 }
 
 .stage[tabindex] {
+  /* The ready globe uses one finger for two-axis rotation; two fingers remain browser pinch zoom. */
+  touch-action: pinch-zoom;
   cursor: grab;
 }
 
@@ -95,6 +96,26 @@
 
 .markers {
   z-index: 2;
+}
+
+.marker {
+  fill: #0000ff;
+}
+
+.marker[data-tone="positive"] {
+  fill: #137333;
+}
+
+.marker[data-tone="caution"] {
+  fill: #9a6700;
+}
+
+.marker[data-tone="negative"] {
+  fill: #b42318;
+}
+
+.marker[data-tone="neutral"] {
+  fill: #737373;
 }
 
 .countryTargets {

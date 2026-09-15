@@ -36,7 +36,7 @@ export function TransactionDetailsModal({
         onClose={onClose}
         closeLabel="Close transaction details"
       />
-      <MoneyModalBody className="pt-4">
+      <MoneyModalBody hasFooter={false} className="pt-4">
         <dl>
           {rows.map((row) => (
             <div

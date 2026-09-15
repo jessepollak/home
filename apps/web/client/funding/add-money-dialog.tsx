@@ -94,13 +94,15 @@ export function AddMoneyDialog({
       onCancel={onClose}
       onClose={onClose}
     >
-      <MoneyModalHeader
-        title={title}
-        titleId="add-money-title"
-        onBack={step === "method" || step === "order" ? undefined : onBack}
-        onClose={onClose}
-        closeLabel="Close add money"
-      />
+      {step !== "order" || signedOut ? (
+        <MoneyModalHeader
+          title={title}
+          titleId="add-money-title"
+          onBack={step === "method" || step === "order" ? undefined : onBack}
+          onClose={onClose}
+          closeLabel="Close add money"
+        />
+      ) : null}
 
       {signedOut ? <SignedOutBody /> : null}
       {!signedOut && step === "method" ? (
@@ -120,7 +122,9 @@ export function AddMoneyDialog({
           binding={selectedBinding}
           fetchAccountResource={fetchAccountResource}
           queryOwnerKey={queryOwnerKey}
+          titleId="add-money-title"
           onBack={onBack}
+          onClose={onClose}
           onOpenRedirect={onOpenRedirect}
           initialOrder={initialOrder}
         />
@@ -154,7 +158,7 @@ export function MethodBody({
   onSelectBinding: (binding: FundingBinding) => void;
 }) {
   return (
-    <MoneyModalBody className="pt-4">
+    <MoneyModalBody hasFooter={false} className="pt-4">
       {fundingReadError ? (
         <Alert variant="destructive">
           <AlertDescription>{fundingReadError.message}</AlertDescription>
@@ -247,7 +251,7 @@ export function ReceiveBody({
   regionId: RegionId;
 }) {
   return (
-    <MoneyModalBody className="items-center gap-4 pt-2">
+    <MoneyModalBody hasFooter={false} className="items-center gap-4 pt-2">
       <Badge variant="secondary">Receive on Base</Badge>
       <div className="aspect-square w-full max-w-56 overflow-hidden rounded-xl border bg-background">
         {address ? (
@@ -390,7 +394,7 @@ function supportedRegionalAsset(
 
 function SignedOutBody() {
   return (
-    <MoneyModalBody className="pt-4">
+    <MoneyModalBody hasFooter className="pt-4">
       <p className="text-sm text-muted-foreground">
         Sign in and verify a Base account before showing a funding address.
       </p>

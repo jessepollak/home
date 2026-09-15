@@ -1,8 +1,17 @@
 import { createHash, createHmac } from "node:crypto";
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import type { RegionId } from "../../config/regions";
 import { parseBalancesSnapshot } from "../../shared/balances/contract";
 import type { BalancesSnapshot } from "../../shared/balances/types";
+import {
+  BORROW_COLLATERAL_TOKEN,
+  BORROW_IRM_ADDRESS,
+  BORROW_LLTV_WAD,
+  BORROW_LOAN_TOKEN,
+  BORROW_MARKET_ID,
+  BORROW_ORACLE_ADDRESS,
+  MORPHO_BLUE_ADDRESS,
+} from "../../shared/borrowing/config";
 import {
   BASE_USDC_ADDRESS,
   MORPHO_V1_CANDIDATE_ADDRESSES,
@@ -49,6 +58,20 @@ function action(transfer: { assetId: "usdc" | "cbbtc"; amountBaseUnits: string }
     warnings: [`Recipient: ${RECIPIENT}`, "Network fee shown by wallet."],
     createdAt: CREATED_AT,
     expiresAt: EXPIRES_AT,
+  };
+}
+
+function borrowDetail() {
+  return {
+    version: "1",
+    chainId: 8453,
+    walletAddress: OWNER,
+    market: { id: BORROW_MARKET_ID, morpho: MORPHO_BLUE_ADDRESS, loanToken: BORROW_LOAN_TOKEN, collateralToken: BORROW_COLLATERAL_TOKEN, oracle: BORROW_ORACLE_ADDRESS, irm: BORROW_IRM_ADDRESS, lltvWad: BORROW_LLTV_WAD.toString(), rank: 1 },
+    eligibility: { mode: "enabled", newRisk: true, reason: null },
+    source: { provider: "Base JSON-RPC", blockNumber: "100", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1788897600", fetchedAt: "2026-09-13T12:00:00.000Z" },
+    state: { oraclePriceRaw: "800000000000000000000000000000000000000", borrowRatePerSecondWad: "1000000000", borrowAprWad: "31536000000000000", totalSupplyAssetsRaw: "1000000000", totalBorrowAssetsRaw: "500000000", totalBorrowSharesRaw: "500000000", liquidityAssetsRaw: "500000000", lastUpdateTimestamp: "1788897500" },
+    wallet: { collateralBalanceRaw: "100000000", loanBalanceRaw: "200000000", collateralAllowanceRaw: "0", loanAllowanceRaw: "0" },
+    position: { collateralRaw: "0", borrowSharesRaw: "0", debtAssetsRaw: "0", rawBorrowCapacityAssetsRaw: "0", borrowCapacityAssetsRaw: "0", rawWithdrawableCollateralRaw: "0", withdrawableCollateralRaw: "0", healthFactorWad: null, liquidationPriceRaw: null },
   };
 }
 
@@ -185,6 +208,7 @@ async function installApiFixtures(
       return json(route, { walletAddress: OWNER, chainId: 8453, window: { from, to }, transfers, nextCursor: null, source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to } });
     }
     if (path === "/api/savings/vaults") return json(route, savingsVaults());
+    if (path === `/api/borrow/markets/${BORROW_MARKET_ID}`) return json(route, borrowDetail());
     if (path === "/api/funding/providers") {
       if (url.searchParams.get("direction") === "offramp" && url.searchParams.get("region") === "US") return json(route, {
         version: 2,
@@ -251,6 +275,18 @@ async function typeAmount(page: Page, value: string) {
   }
 }
 
+async function expectReachableMoneyFooter(page: Page, dialog: Locator) {
+  const lastKey = dialog.getByRole("button", { name: "0", exact: true });
+  const footer = dialog.locator('[data-slot="drawer-footer"]');
+  await lastKey.scrollIntoViewIfNeeded();
+  await expect(lastKey).toBeVisible();
+  await expect(footer).toBeVisible();
+  const [keyBox, footerBox] = await Promise.all([lastKey.boundingBox(), footer.boundingBox()]);
+  expect(keyBox ? keyBox.y + keyBox.height : Number.POSITIVE_INFINITY).toBeLessThanOrEqual((footerBox?.y ?? 0) + 1);
+  expect(footerBox?.y ?? -1).toBeGreaterThanOrEqual(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+}
+
 async function amountMetrics(page: Page) {
   return page.evaluate(() => {
     const node = document.querySelector<HTMLElement>("[data-primary-amount]");
@@ -280,6 +316,77 @@ async function amountMetrics(page: Page) {
     };
   });
 }
+
+test("coverage fixture keeps public chrome and automatic GET filters usable", async ({ page }) => {
+  await page.goto("/coverage");
+  await expect(page.getByRole("heading", { name: "Local money coverage" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Home" })).toBeVisible();
+  await expect(page.getByTitle("Start feedback mode")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Apply" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Reset" })).toHaveCount(0);
+
+  const globe = page.getByRole("group", { name: "Interactive globe of local-money coverage research" });
+  await expect(globe).toBeVisible();
+  await globe.focus();
+  await globe.press("Space");
+  const marker = page.locator("circle[data-country='US']");
+  const initialMarker = await marker.evaluate((node) => ({ x: node.getAttribute("cx"), y: node.getAttribute("cy") }));
+  const globeBox = await globe.boundingBox();
+  expect(globeBox).not.toBeNull();
+  await page.mouse.move(globeBox!.x + globeBox!.width / 2, globeBox!.y + globeBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(globeBox!.x + globeBox!.width * .65, globeBox!.y + globeBox!.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => marker.getAttribute("cx")).not.toBe(initialMarker.x);
+  const horizontalY = await marker.getAttribute("cy");
+  await page.mouse.move(globeBox!.x + globeBox!.width / 2, globeBox!.y + globeBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(globeBox!.x + globeBox!.width / 2, globeBox!.y + globeBox!.height * .65, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => marker.getAttribute("cy")).not.toBe(horizontalY);
+
+  const search = page.getByRole("textbox", { name: "Search" });
+  await search.scrollIntoViewIfNeeded();
+  await search.pressSequentially("Indonesia", { delay: 300 });
+  await expect(page).toHaveURL(/q=Indonesia/);
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue("Indonesia");
+  await expect(page.getByText("Showing 1 of 250 countries and territories.")).toBeVisible();
+  const searchTop = await search.evaluate((input) => input.getBoundingClientRect().top);
+  expect(searchTop).toBeGreaterThanOrEqual(0);
+  expect(searchTop).toBeLessThan(752);
+
+  await page.getByRole("combobox", { name: "Issuer route" }).selectOption("documented");
+  await expect(page).toHaveURL(/issuer=documented/);
+  await page.goBack();
+  await expect(page).not.toHaveURL(/issuer=documented/);
+  await expect(search).toHaveValue("Indonesia");
+  await expect(page.getByText("Showing 1 of 250 countries and territories.")).toBeVisible();
+
+  await page.setViewportSize({ width: 1374, height: 752 });
+  const filterMetrics = await page.locator("form[action='/coverage']").evaluate((form) => ({
+    bottom: form.getBoundingClientRect().bottom,
+    selects: [...form.querySelectorAll("select")].map((select) => ({
+      clientWidth: select.clientWidth,
+      scrollWidth: select.scrollWidth,
+    })),
+  }));
+  expect(filterMetrics.selects.every(({ clientWidth, scrollWidth }) => clientWidth >= scrollWidth)).toBe(true);
+  const statusLayout = await page.locator("#country-ID").evaluate((row) => {
+    const statusCells = [...row.querySelectorAll("td")].slice(-2);
+    return statusCells.map((cell) => {
+      const trigger = cell.querySelector("button")!.getBoundingClientRect();
+      const bounds = cell.getBoundingClientRect();
+      return { triggerWidth: trigger.width, centerDelta: Math.abs(trigger.x + trigger.width / 2 - (bounds.x + bounds.width / 2)), rowHeight: row.getBoundingClientRect().height };
+    });
+  });
+  expect(statusLayout.every(({ triggerWidth, centerDelta, rowHeight }) => triggerWidth >= 36 && centerDelta < 2 && rowHeight <= 38)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1374);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("combobox", { name: "Sort" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+});
 
 test("a valid Home session redirects the landing route before rendering", async ({ context }) => {
   const address = "0x1111111111111111111111111111111111111111";
@@ -626,17 +733,26 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
   const send = page.getByRole("dialog", { name: "Send" });
   const selector = send.getByRole("combobox", { name: "Asset" });
   await expect(selector).toBeVisible();
+  await expect(send.getByRole("button", { name: "Close send dialog" })).toBeFocused();
   await expect(selector).toHaveValue("USD");
   await expect(send.locator('[data-slot="input-group-button"]')).toHaveCount(1);
   await selector.click();
   await expect(page.getByRole("option", { name: "USD USDC" })).toBeVisible();
   const selectorGroup = selector.locator("xpath=ancestor::*[@data-slot='input-group']");
   const popup = page.locator('[data-slot="combobox-content"]');
-  const [selectorWidth, popupWidth] = await Promise.all([
+  const [selectorWidth, popupWidth, popupBox] = await Promise.all([
     selectorGroup.evaluate((element) => (element as HTMLElement).offsetWidth),
     popup.evaluate((element) => (element as HTMLElement).offsetWidth),
+    popup.boundingBox(),
   ]);
-  expect(popupWidth).toBe(selectorWidth);
+  expect(selectorWidth).toBeLessThanOrEqual(116);
+  expect(popupWidth).toBeGreaterThanOrEqual(280);
+  expect(popupWidth).toBeLessThanOrEqual(358);
+  expect(popupBox?.x ?? -1).toBeGreaterThanOrEqual(16);
+  const mark = selectorGroup.locator("[data-presentation='selector']").first();
+  const innerMark = mark.locator("[data-mark-inner]");
+  await expect(mark).toHaveCSS("width", "32px");
+  await expect(innerMark).toHaveCSS("width", "16px");
   await selector.fill("cbBTC");
   const cbBtcOption = page.getByRole("option", { name: "Bitcoin cbBTC" });
   await expect(cbBtcOption).toBeVisible();
@@ -645,6 +761,7 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
   await expect(send.getByRole("img", { name: "0.001 cbBTC available" })).toBeVisible();
   await typeAmount(page, "0.001");
   await send.getByRole("button", { name: "Continue" }).click();
+  await expect(send.getByRole("combobox", { name: "Asset" })).toHaveCount(0);
   await expect(send.getByRole("textbox", { name: "To" })).toBeVisible();
   await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
   await send.getByRole("button", { name: "Continue" }).click();
@@ -654,6 +771,39 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
   await expect(confirm).toBeHidden();
   await expect(page.getByText("Sent 0.001 cbBTC to 0x2222…222222", { exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem("home:playwright-smoke:dispatch-count"))).toBe("1");
+});
+
+test("locked Save amount keeps its keypad and footer visible at 320 by 720", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+  await page.goto("/save?flow=save-deposit");
+
+  const dialog = page.getByRole("dialog", { name: "Deposit" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("group", { name: "USDC" })).toHaveCount(1);
+  await expect(dialog.getByRole("combobox", { name: "Asset" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Close deposit dialog" })).toBeFocused();
+  await expect(dialog.getByRole("button", { name: "Continue" })).toBeVisible();
+  await expectReachableMoneyFooter(page, dialog);
+});
+
+test("Borrow amount remains reachable at 320 by 568 and 200% text", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+  await page.goto(`/borrow/${BORROW_MARKET_ID}`);
+  await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+
+  const dialog = page.getByRole("dialog", { name: "Borrow" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("group", { name: "USDC" })).toHaveCount(1);
+  await expect(dialog.getByRole("button", { name: "Close Borrow action" })).toBeFocused();
+  await expect(dialog.getByTestId("borrow-collateral-preview")).toBeVisible();
+  await expectReachableMoneyFooter(page, dialog);
+  await expect(dialog.getByRole("button", { name: "Continue" })).toBeVisible();
 });
 
 test("ambiguous handle response retries without a second wallet dispatch", async ({ page }) => {
@@ -915,6 +1065,13 @@ test("money amount auto-fits the longest local and native values at 320px and 39
   await page.setViewportSize({ width: 320, height: 720 });
   await signIn(page);
   await page.getByRole("button", { name: "Send" }).click();
+
+  const sendDialog = page.getByRole("dialog", { name: "Send" });
+  await expect(sendDialog.getByRole("combobox", { name: "Asset" })).toHaveCount(1);
+  await expect(sendDialog.getByRole("button", { name: "Close send dialog" })).toBeFocused();
+  await expect(sendDialog.getByRole("button", { name: "0", exact: true })).toBeInViewport();
+  await expect(sendDialog.getByRole("button", { name: "Continue" })).toBeInViewport();
+  await expectReachableMoneyFooter(page, sendDialog);
 
   const amount = page.locator("[data-primary-amount]");
   await expect(amount.getByRole("img")).toHaveAttribute("aria-label", "$0");
@@ -1316,7 +1473,7 @@ test("account sign-in and settings stay reachable at 390px, 320px, and 200% text
   await page.setViewportSize({ width: 320, height: 720 });
   await expect(country).toBeVisible();
   await expect(signOut).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
 
 test("IDRX Add money goes from method to VA instructions and verified receipt", async ({ page }) => {
@@ -1330,9 +1487,15 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
   await expect(method).toBeVisible();
   await expect(method).toContainText("IDRX · Bank transfer · Mandiri");
   await method.click();
+  const orderDialog = page.getByRole("dialog", { name: "Deposit IDR" });
+  await expect(orderDialog.getByRole("group", { name: "IDR" })).toHaveCount(1);
+  await expect(orderDialog.getByLabel("Asset")).toHaveCount(0);
+  await expect(orderDialog.getByRole("button", { name: "Close add money" })).toBeFocused();
   await typeAmount(page, "20000");
   await page.getByRole("button", { name: "Review quote", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Review quote" })).toBeVisible();
+  await expect(orderDialog.getByRole("group", { name: "IDR" })).toHaveCount(0);
+  await expect(orderDialog.getByRole("button", { name: "Back" })).toBeVisible();
   await expect(
     page.getByText("Receive", { exact: true }).locator(".."),
   ).toContainText("20.000,00\u00A0IDRX");
