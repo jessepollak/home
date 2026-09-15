@@ -26,10 +26,12 @@ const { AccountWalletSessionOwner } = await import("./cdp-session-lifecycle");
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function SessionStatusProbe() {
@@ -258,7 +260,51 @@ describe("production account sign-in sheet", () => {
     expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
   });
 
-  test("hands off native modal ownership while Base Account connection is pending and permits cancellation", async () => {
+  test("keeps the sheet mounted with one phase message while Base Account connects", async () => {
+    const connection = deferred<never>();
+    let connectorCalls = 0;
+    render(
+      <SheetHarness
+        requestEmailCode={async () => ({ flowId: "unused-flow" })}
+        baseAccountEnabled
+        baseAccountConnector={() => {
+          connectorCalls += 1;
+          return connection.promise;
+        }}
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: "Open account" }));
+    fireEvent.click(
+      await page().findByRole("button", { name: "Sign in with Base Account" }),
+    );
+
+    const phaseButton = await page().findByRole("button", {
+      name: "Connecting to your existing Base Account…",
+    });
+    expect(page().getByRole("dialog", { name: "Sign in to Home" })).toBeTruthy();
+    expect(page().queryAllByText("Connecting to your existing Base Account…")).toHaveLength(1);
+    expect(phaseButton.hasAttribute("disabled")).toBe(false);
+    expect(phaseButton.getAttribute("aria-disabled")).toBe("true");
+    expect(phaseButton.getAttribute("aria-busy")).toBe("true");
+    expect(
+      (page().getByRole("textbox", { name: "Email address" }) as HTMLInputElement).disabled,
+    ).toBe(true);
+    expect(
+      (page().getByRole("button", { name: "Continue with email" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    fireEvent.click(
+      page().getByRole("button", {
+        name: "Connecting to your existing Base Account…",
+      }),
+    );
+    expect(connectorCalls).toBe(1);
+    const dialog = page().getByRole("dialog", { name: "Sign in to Home" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  test("close cancels a pending Base Account attempt and restores focus", async () => {
     const connection = deferred<never>();
     const trigger = render(
       <SheetHarness
@@ -269,22 +315,60 @@ describe("production account sign-in sheet", () => {
     ).getByRole("button", { name: "Open account" });
     trigger.focus();
     fireEvent.click(trigger);
-    expect(page().getByRole("dialog", { name: "Sign in to Home" })).toBeTruthy();
     fireEvent.click(
       await page().findByRole("button", { name: "Sign in with Base Account" }),
     );
-    expect(
-      await page().findByRole("button", { name: "Cancel sign in" }),
-    ).toBeTruthy();
+    await page().findByRole("button", {
+      name: "Connecting to your existing Base Account…",
+    });
+
+    fireEvent.click(page().getByRole("button", { name: "Close sign in" }));
     await waitFor(() =>
       expect(page().queryByRole("dialog", { name: "Sign in to Home" })).toBeNull(),
     );
-
-    fireEvent.click(page().getByRole("button", { name: "Cancel sign in" }));
-    await waitFor(() =>
-      expect(page().queryByRole("button", { name: "Cancel sign in" })).toBeNull(),
-    );
     await waitFor(() => expect(document.activeElement).toBe(trigger));
+
+    fireEvent.click(trigger);
+    expect(
+      await page().findByRole("dialog", { name: "Sign in to Home" }),
+    ).toBeTruthy();
+    expect(page().getByText("Sign-in was canceled.")).toBeTruthy();
+    expect(
+      page().getByRole("button", { name: "Sign in with Base Account" }),
+    ).toBeTruthy();
+  });
+
+  test("shows the preserved error copy when a Base Account attempt fails", async () => {
+    render(
+      <SheetHarness
+        requestEmailCode={async () => ({ flowId: "unused-flow" })}
+        baseAccountEnabled
+        baseAccountConnector={async () => {
+          throw new BaseAccountConnectorError("cancelled");
+        }}
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: "Open account" }));
+    fireEvent.click(
+      await page().findByRole("button", { name: "Sign in with Base Account" }),
+    );
+    await page().findByRole("button", {
+      name: "Connecting to your existing Base Account…",
+    });
+
+    expect(
+      await page().findByText(
+        "Base Account sign-in was canceled. No session was created.",
+      ),
+    ).toBeTruthy();
+    expect(
+      page().getByRole("button", { name: "Sign in with Base Account" }),
+    ).toBeTruthy();
+    expect(
+      page().queryByRole("button", {
+        name: "Connecting to your existing Base Account…",
+      }),
+    ).toBeNull();
   });
 
   test("offers an explicit sign-out retry while failed cleanup keeps details private", async () => {

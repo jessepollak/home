@@ -4,6 +4,8 @@ Status: one Home-native mechanism with one-approval SIWE support as of issue #40
 
 Home can show **Continue with email** and **Continue with Base Account** together in the existing sign-in sheet. Email authenticates through CDP when `NEXT_PUBLIC_CDP_PROJECT_ID` is configured. Base Account always uses Home-native SIWE, regardless of CDP configuration, and is available only when `HOME_SESSION_SECRET` is configured with at least 32 characters.
 
+During a Base Account attempt the sign-in sheet stays open: connection, signing, and verification progress appears once, inside the Base Account button, while the conflicting email controls are disabled. Closing the sheet is the only cancellation action; the Close button, Escape key, and swipe gesture all use the same handler to cancel the pending attempt, close the sheet, and restore focus. There is no separate handoff overlay or modal.
+
 ## Security boundary
 
 The Home-native Base Account flow:
@@ -43,7 +45,7 @@ No automated agent should perform this smoke because it opens a real wallet and 
 
 1. Start Home on the intended origin and open `/?account=signin`.
 2. Confirm email is available when CDP is configured and **Continue with Base Account** is available when `HOME_SESSION_SECRET` is configured.
-3. Select the intended Base Account on Base mainnet (`8453`). Cancel once and verify Home remains signed out.
+3. Select the intended Base Account on Base mainnet (`8453`). While the attempt is pending, confirm the sheet stays open with the phase message inside the Base Account button and no second overlay. Close the sheet to cancel, confirm Home remains signed out, and confirm focus returns to the page.
 4. Retry and confirm the supported path shows one wallet approval. Inspect the SIWE prompt: address, chain, domain, URI, nonce, statement, issue time, and expiry must match the account and current Home origin.
 5. In browser provider diagnostics, confirm the supported request order is `wallet_switchEthereumChain`, `wallet_connect`, `eth_chainId`, with no `eth_requestAccounts` or `personal_sign`.
 6. If testing an explicitly unsupported wallet, confirm only a documented unsupported code enters the legacy signing phase and that `personal_sign` occurs once. Missing proof or any other error must fail rather than fall back.
