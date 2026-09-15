@@ -4,7 +4,7 @@ Status: one Home-native mechanism with one-approval SIWE support as of issue #40
 
 Home can show **Continue with email** and **Continue with Base Account** together in the existing sign-in sheet. Email authenticates through CDP when `NEXT_PUBLIC_CDP_PROJECT_ID` is configured. Base Account always uses Home-native SIWE, regardless of CDP configuration, and is available only when `HOME_SESSION_SECRET` is configured with at least 32 characters.
 
-During a Base Account attempt the sign-in sheet stays open: connection, signing, and verification progress appears once, inside the Base Account button, while the conflicting email controls are disabled. The sheet's Close control is the single cancellation handler/control path; it cancels the pending attempt, closes the sheet, and restores focus. There is no separate handoff overlay or modal.
+During a Base Account attempt the sign-in sheet stays open: connection, signing, and verification progress appears once, inside the Base Account button, while the conflicting email controls are disabled. Closing the sheet is the only cancellation action; the Close button, Escape key, and swipe gesture all use the same handler to cancel the pending attempt, close the sheet, and restore focus. There is no separate handoff overlay or modal.
 
 ## Security boundary
 
