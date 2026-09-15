@@ -533,6 +533,22 @@ test("Activity transaction details keep labels on one line and link to the explo
   const heights = rowHeights.map((row) => row.height);
   expect(Math.min(...heights)).toBeGreaterThanOrEqual(44);
   expect(Math.max(...heights)).toBeLessThan(Math.min(...heights) + 1);
+
+  // The overlay divider covers the bottom pixel of copy controls, so it must
+  // stay out of hit testing there (#487).
+  const copyControl = dialog.locator("dl").getByRole("button", { name: /^Copy / }).first();
+  await expect(copyControl).toBeVisible();
+  expect(
+    await copyControl.evaluate((button) =>
+      getComputedStyle(button.closest("dl > div")!, "::after").pointerEvents),
+  ).toBe("none");
+  await page.context().grantPermissions(["clipboard-write"]);
+  const copyBox = (await copyControl.boundingBox())!;
+  // The drawer keeps a live transform spring, so skip actionability checks and
+  // rely on the real input dispatch itself for hit testing: pre-fix, the row's
+  // divider pseudo-element receives this pixel and the copy never activates.
+  await copyControl.click({ position: { x: copyBox.width / 2, y: copyBox.height - 1 }, force: true });
+  await expect(dialog.getByRole("button", { name: "Copied" })).toBeVisible();
 });
 
 test("recent operations open transaction details", async ({ page }) => {
