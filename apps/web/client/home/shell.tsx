@@ -94,6 +94,7 @@ export function HomeShell({
   initialLocation,
   initialAccountSettingsOpen = false,
   assetBalances,
+  balancesRevalidating: balancesRevalidatingProp,
   presentAssetBalances,
   sendAvailability = [],
   showSmallBalances = false,
@@ -390,6 +391,9 @@ export function HomeShell({
       : loadingAssetBalances,
     [assetBalances, mayPaintBalances, presentAssetBalances, showAllAssetBalances],
   );
+  // The owning experience threads the live revalidation state; presentation
+  // fixtures that carry it directly keep working when the prop is absent.
+  const balancesRevalidating = balancesRevalidatingProp ?? paintedAssetBalances.revalidating === true;
   useEffect(() => {
     if (mayPaintBalances && paintedAssetBalances.status === "ready") {
       markHomePerformance("balances:painted");
@@ -414,26 +418,37 @@ export function HomeShell({
   );
   const previousBalancesListIdRef = useRef(balancesListId);
   const previousNavigationRef = useRef(activeNavigation);
+  const anchorPassRef = useRef(0);
   useEffect(() => {
     if (previousBalancesListIdRef.current === balancesListId) return;
     previousBalancesListIdRef.current = balancesListId;
+    // An armed cold group anchor owns the scroll until it anchors the settled
+    // list: background revalidation must not reset the list to the top (#462).
+    if (coldGroupAnchorRef.current) return;
     mainRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [balancesListId]);
   // Runs after the balances-list reset above so a first balances paint anchors
-  // the cold-loaded group instead of being reset to the top (#460).
+  // the cold-loaded group instead of being reset to the top (#460). A
+  // cached-ready first paint anchors immediately but stays armed: the mount
+  // revalidation may still replace the rows, so only a later settled pass —
+  // or leaving Balances — consumes the anchor (#462).
   useEffect(() => {
     const group = coldGroupAnchorRef.current;
     if (!group || activeNavigation !== balancesPanelId) {
       coldGroupAnchorRef.current = null;
+      anchorPassRef.current = 0;
       return;
     }
     if (paintedAssetBalances.status !== "ready") return;
     const target = document.getElementById(group);
     if (!target) return;
-    coldGroupAnchorRef.current = null;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     target.scrollIntoView({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
-  }, [activeNavigation, paintedAssetBalances.status]);
+    anchorPassRef.current += 1;
+    if (balancesRevalidating || anchorPassRef.current < 2) return;
+    coldGroupAnchorRef.current = null;
+    anchorPassRef.current = 0;
+  }, [activeNavigation, balancesListId, balancesRevalidating, paintedAssetBalances.status]);
 
   useEffect(() => {
     if (navigationRequest === 0 || !panelStageRef.current) return;

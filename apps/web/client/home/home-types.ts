@@ -23,6 +23,8 @@ export type HomeExperienceProps = {
   onShowSmallBalancesChange?: (value: boolean) => void;
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";
+  /** Live balances revalidation state from the owning experience; anchors hold until it settles. */
+  balancesRevalidating?: boolean;
   initialAddMoney?: boolean;
   returnedFromProvider?: boolean;
   initialSendFlow?: boolean;

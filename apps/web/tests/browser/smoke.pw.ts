@@ -1323,27 +1323,92 @@ test("every canonical L1 and representative L2 route SSRs and first-paints cold 
   expect(hydrationErrors).toEqual([]);
 });
 
-test("cold reload of a balances group URL anchors the requested group (#460)", async ({ page }) => {
-  await coldDirectLoad(page, "US");
-  await installApiFixtures(page, { balances: scrollableBalancesSnapshot() });
-  await signIn(page);
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/balances/investments");
-  // The cold anchor waits for the group to render with settled balances, then
-  // anchors it at the top of the scrollport (respecting its scroll margin).
-  const anchoredOffset = () => page.evaluate(() => {
+function anchoredGroupOffset(page: Page) {
+  // The cold anchor puts the group at the top of the scrollport (respecting
+  // its scroll margin) and never reports a reset-to-top scroll as anchored.
+  return page.evaluate(() => {
     const main = document.querySelector<HTMLElement>(".app-main-authenticated");
     const group = document.getElementById("investments");
     return main && group && main.scrollTop > 0
       ? group.getBoundingClientRect().top - main.getBoundingClientRect().top
       : null;
   });
-  await expect.poll(anchoredOffset).toBeGreaterThanOrEqual(14);
+}
+
+test("cold reload of a balances group URL anchors the requested group (#460)", async ({ page }) => {
+  await coldDirectLoad(page, "US");
+  await installApiFixtures(page, { balances: scrollableBalancesSnapshot() });
+  await signIn(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/balances/investments");
+  await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
   // Back still completes and re-anchors through the #452 history path; the cold anchor never refires.
   await page.getByRole("button", { name: "Home", exact: true }).click();
   await page.goBack();
   await expect(page).toHaveURL(/\/balances\/investments$/);
-  await expect.poll(anchoredOffset).toBeGreaterThanOrEqual(14);
+  await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
+});
+
+test("background revalidation of cached-ready balances keeps the cold group anchored (#462)", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  // The first read seeds the persisted owner cache; once the reload is on its
+  // way, the refetch returns changed rows so the settled list identity differs
+  // from the cached list the anchor first saw.
+  let serveRevalidated = false;
+  let revalidatedReads = 0;
+  await page.route((url) => url.pathname === "/api/balances", async (route) => {
+    const region = (new URL(route.request().url()).searchParams.get("region") ?? "US") as RegionId;
+    if (!serveRevalidated) return json(route, scrollableBalancesSnapshot(region));
+    revalidatedReads += 1;
+    return json(route, {
+      ...scrollableBalancesSnapshot(region),
+      holdings: scrollableBalancesSnapshot(region).holdings.map((holding) =>
+        holding.symbol === "USDC"
+          ? {
+              ...holding,
+              ...(holding.value.status === "priced"
+                ? { value: { ...holding.value, amount: { atoms: "1235", scale: 2 } } }
+                : {}),
+              ...(holding.cashValue?.status === "priced"
+                ? { cashValue: { ...holding.cashValue, amount: { atoms: "1235", scale: 2 } } }
+                : {}),
+            }
+          : holding),
+    });
+  });
+  await signIn(page);
+  await expect.poll(() => page.evaluate(() =>
+    Object.keys(localStorage).find((key) => key.startsWith("home.query.v1:")) ?? null,
+  )).not.toBeNull();
+  // Let the persister's trailing throttled writes flush before mutating, so
+  // the staleness edit survives until the reload.
+  await page.waitForTimeout(600);
+  // Force the persisted query stale so the reload first paints cached-ready
+  // rows while a background refetch is in flight.
+  await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((candidate) => candidate.startsWith("home.query.v1:"));
+    if (!key) throw new Error("Persisted owner cache is missing");
+    const persisted = JSON.parse(localStorage.getItem(key) ?? "null") as {
+      clientState?: { queries?: Array<{ state?: { dataUpdatedAt?: number } }> };
+    };
+    for (const query of persisted.clientState?.queries ?? []) {
+      if (query.state) query.state.dataUpdatedAt = 0;
+    }
+    localStorage.setItem(key, JSON.stringify(persisted));
+  });
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  serveRevalidated = true;
+  await page.goto("/balances/investments");
+  // The cached-ready list anchors immediately...
+  await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
+  // ...and the anchor survives the revalidation settling on changed rows.
+  await expect.poll(() => revalidatedReads, { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
+  await expect(
+    page.locator('[data-shell-panel]:not([hidden]) li', { hasText: "$12.35" }).first(),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
 });
 
 test("cross-canonical-route Back/Forward keeps one persistent shell without remount (#462)", async ({ page }) => {
