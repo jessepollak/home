@@ -1,7 +1,6 @@
 "use client";
 
-import { PreviewCard } from "@base-ui/react/preview-card";
-import { useId, useState } from "react";
+import { Popover } from "@base-ui/react/popover";
 import styles from "./coverage-status-preview.module.css";
 
 type TrafficStatus = "Green" | "Yellow" | "Red";
@@ -17,6 +16,7 @@ type CoverageStatusPreviewProps = {
   accessibleName: string;
   heading: string;
   details: readonly DetailItem[];
+  indicatorVariant?: "solid" | "hollow";
 };
 
 export function CoverageStatusPreview({
@@ -24,30 +24,25 @@ export function CoverageStatusPreview({
   accessibleName,
   heading,
   details,
+  indicatorVariant = "solid",
 }: CoverageStatusPreviewProps) {
-  const triggerId = useId();
-  const [open, setOpen] = useState(false);
-
   return (
-    <PreviewCard.Root open={open} onOpenChange={setOpen} triggerId={triggerId}>
-      <PreviewCard.Trigger
-        id={triggerId}
+    <Popover.Root>
+      <Popover.Trigger
         aria-label={accessibleName}
         className={styles.trigger}
+        data-indicator={indicatorVariant}
         data-tone={status.toLowerCase()}
+        openOnHover
         delay={0}
-        onClick={() => setOpen(true)}
-        onPointerUp={(event) => {
-          if (event.pointerType === "touch") setOpen(true);
-        }}
         render={<button type="button" />}
       >
         {status}
-      </PreviewCard.Trigger>
-      <PreviewCard.Portal>
-        <PreviewCard.Positioner className={styles.positioner} sideOffset={8}>
-          <PreviewCard.Popup className={styles.popup}>
-            <PreviewCard.Arrow className={styles.arrow} />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner className={styles.positioner} sideOffset={8}>
+          <Popover.Popup className={styles.popup}>
+            <Popover.Arrow className={styles.arrow} />
             <h3 className={styles.heading}>{heading}</h3>
             <dl className={styles.details}>
               {details.map((detail) => (
@@ -59,9 +54,9 @@ export function CoverageStatusPreview({
                 </div>
               ))}
             </dl>
-          </PreviewCard.Popup>
-        </PreviewCard.Positioner>
-      </PreviewCard.Portal>
-    </PreviewCard.Root>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }

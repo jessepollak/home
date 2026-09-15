@@ -50,6 +50,7 @@ describe("public coverage page", () => {
     expect(visibleText(cells[3] ?? "")).toBe("Yellow");
     expect(cells[2]).toContain("<button type=\"button\"");
     expect(cells[2]).toContain("aria-label=\"Yellow — Conditional issuer route\"");
+    expect(cells[2]).toContain("data-indicator=\"solid\"");
     expect(cells[3]).toContain("aria-label=\"Yellow — Sandbox Home route\"");
     expect(row).not.toContain("<details");
     expect(row).not.toContain("Evidence checked");
@@ -68,6 +69,7 @@ describe("public coverage page", () => {
     const unknown = await renderCoverage({ q: "China" });
     const unknownRow = unknown.match(/<tr[^>]+id="country-CN"[\s\S]*?<\/tr>/)?.[0] ?? "";
     expect(unknownRow).toContain("aria-label=\"Yellow — Not researched issuer route\"");
+    expect(unknownRow).toContain("data-indicator=\"hollow\"");
     expect(unknownRow).toContain("aria-label=\"Red — No Home route\"");
   });
 

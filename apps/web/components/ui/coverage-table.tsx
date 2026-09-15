@@ -30,7 +30,7 @@ const columns: ColumnDef<CoverageTableRow>[] = [
   { id: "issuer", header: "Issuer route", cell: ({ row }) => {
     const value = row.original;
     const status = value.issuer.status;
-    return <CoverageStatusPreview status={issuerTraffic[status]} accessibleName={`${issuerTraffic[status]} — ${issuerLabels[status]} issuer route`} heading={`${value.countryName} issuer route`} details={[
+    return <CoverageStatusPreview status={issuerTraffic[status]} indicatorVariant={status === "not-researched" ? "hollow" : "solid"} accessibleName={`${issuerTraffic[status]} — ${issuerLabels[status]} issuer route`} heading={`${value.countryName} issuer route`} details={[
       { label: "Status", value: issuerLabels[status] },
       { label: "Rail", value: value.issuer.rail },
       { label: "Audience", value: value.issuer.audience },

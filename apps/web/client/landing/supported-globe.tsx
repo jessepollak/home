@@ -207,7 +207,7 @@ export function SupportedGlobe({
         activeCountryRef.current = null;
         setActiveCountryCode(null);
         const fallback = selectGlobePopoverCountry(interactivePointsRef.current, longitude);
-        setRovingCountryCode(fallback?.country.countryCode ?? pointsRef.current[0]?.countryCode ?? null);
+        setRovingCountryCode(fallback?.country.countryCode ?? interactivePointsRef.current[0]?.countryCode ?? null);
         positionPopover(fallback);
       } else {
         positionPopover(activeIsVisible

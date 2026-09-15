@@ -85,7 +85,15 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
       currencies: record.currencyCodes.join(", ") || "No current tender currency",
       candidateAsset: region?.candidateAsset ? { symbol: region.candidateAsset.symbol, issuer: region.candidateAsset.issuer } : null,
       candidateFallback: record.configuredInHome ? "No candidate asset" : "Not configured in Home",
-      issuer: record.issuerRoute,
+      issuer: {
+        status: record.issuerRoute.status,
+        rail: record.issuerRoute.rail,
+        audience: record.issuerRoute.audience,
+        evidence: record.issuerRoute.evidence ? {
+          url: record.issuerRoute.evidence.url,
+          checkedAt: record.issuerRoute.evidence.checkedAt,
+        } : null,
+      },
       home: {
         status: record.homeRoute.status,
         provider: record.homeRoute.providerId,
