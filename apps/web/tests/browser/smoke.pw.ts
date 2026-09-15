@@ -1396,10 +1396,34 @@ test("cold reload of a balances group URL anchors the requested group (#460)", a
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/balances/investments");
   await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
-  // A fresh server-verified settled load consumes the anchor: a later list
-  // identity change resets normally instead of re-anchoring (#462).
+  await expect.poll(() => page.evaluate(() =>
+    performance.getEntriesByName("session:verified", "mark").length,
+  )).toBeGreaterThan(0);
+  await page.waitForTimeout(500);
+  // A fresh server-verified settled load consumes the anchor. Show/Hide changes
+  // rendered topology without owning scroll, and a second change after a manual
+  // reset proves the consumed cold anchor never refires (#462, #485).
   await page.getByRole("button", { name: "Show", exact: true }).click();
-  await expect.poll(() => anchoredGroupOffset(page)).toBe(null);
+  await expect(page.getByRole("button", { name: "Hide small balances" })).toBeVisible();
+  // Native scroll anchoring may move the numeric offset as rows appear above,
+  // but the shell must not force the refreshed list back to zero.
+  await expect.poll(() => page.evaluate(() =>
+    document.querySelector<HTMLElement>(".app-main-authenticated")?.scrollTop ?? 0,
+  )).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>(".app-main-authenticated");
+    if (main) {
+      main.style.overflowAnchor = "none";
+      main.scrollTop = 0;
+    }
+  });
+  await page.getByRole("button", { name: "Hide small balances" }).evaluate(
+    (button: HTMLButtonElement) => button.click(),
+  );
+  await expect(page.getByRole("button", { name: "Hide small balances" })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() =>
+    document.querySelector<HTMLElement>(".app-main-authenticated")?.scrollTop ?? 0,
+  )).toBe(0);
   // Back still completes and re-anchors through the #452 history path; the cold anchor never refires.
   await page.getByRole("button", { name: "Home", exact: true }).click();
   await page.goBack();

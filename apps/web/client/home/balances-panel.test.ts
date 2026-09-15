@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { RegionId } from "@/config/regions";
-import { clampHomeScrollTop, homeBalancesRestoreScope } from "./balances-panel";
+import type { BalancesPresentation } from "@/shared/balances/present";
+import {
+  balancesAnchorTopologyKey,
+  clampHomeScrollTop,
+  homeBalancesRestoreScope,
+} from "./balances-panel";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 
@@ -15,6 +20,44 @@ describe("balances restoration helpers", () => {
     expect(clampHomeScrollTop(flat, 480)).toBe(480);
     expect(clampHomeScrollTop(null, 480)).toBe(480);
     expect(clampHomeScrollTop(tall, 0)).toBe(0);
+  });
+
+  test("uses only rendered group and row topology for anchor readiness", () => {
+    const presentation = {
+      status: "ready",
+      displayTotal: "$1",
+      totalStatus: "complete",
+      groups: [{
+        id: "cash",
+        label: "Cash",
+        displaySubtotal: "$1",
+        rows: [],
+      }],
+      breakdown: [],
+      rows: [{
+        key: "usdc",
+        group: "cash",
+        name: "US dollar",
+        mark: { kind: "flag", currency: "USD" },
+        primary: "$1",
+        secondary: null,
+        tone: "default",
+      }],
+      hiddenRows: [],
+      hiddenCount: 0,
+    } satisfies BalancesPresentation;
+    const topology = balancesAnchorTopologyKey(presentation);
+
+    expect(balancesAnchorTopologyKey({
+      ...presentation,
+      displayTotal: "$2",
+      rows: [{ ...presentation.rows[0]!, name: "Dollar", primary: "$2" }],
+    })).toBe(topology);
+    expect(balancesAnchorTopologyKey({
+      ...presentation,
+      groups: [{ ...presentation.groups[0]!, id: "investments" }],
+      rows: [{ ...presentation.rows[0]!, group: "asset" }],
+    })).not.toBe(topology);
   });
 
   test("fences restoration by every owner identity field", () => {

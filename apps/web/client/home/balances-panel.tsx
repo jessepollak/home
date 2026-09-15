@@ -54,6 +54,13 @@ export function balancesListKey(rows: readonly BalanceRowModel[]): string {
   return JSON.stringify(rows);
 }
 
+export function balancesAnchorTopologyKey(presentation: BalancesPresentation): string {
+  return JSON.stringify({
+    groups: presentation.groups.map((group) => group.id),
+    rows: presentation.rows.map(({ key, group }) => ({ key, group })),
+  });
+}
+
 export function useBalancesRevealWindow(
   scope: string | null,
   rows: readonly BalanceRowModel[],

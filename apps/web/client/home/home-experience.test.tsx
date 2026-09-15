@@ -6,6 +6,7 @@ import { useState, type ComponentProps } from "react";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
 import type { SessionFetch, VerifiedAccountSession } from "@/client/account/session-client";
 import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
+import type { BalanceRowModel, BalancesPresentation } from "@/shared/balances/present";
 
 const replaceCalls: string[] = [];
 const pushCalls: string[] = [];
@@ -352,6 +353,8 @@ describe("Home shell auth and privacy", () => {
     );
     await waitForVerifiedShell();
     expect(page().getAllByText("$12.34").length).toBeGreaterThan(0);
+    const main = page().getByRole("main");
+    main.scrollTop = 300;
 
     view.rerender(
       <HomeHarness
@@ -367,6 +370,7 @@ describe("Home shell auth and privacy", () => {
       await pendingSession.promise;
     });
     await waitForVerifiedShell();
+    await waitFor(() => expect(main.scrollTop).toBe(0));
   });
 
   test("navigates only after dashboard sign-out resolves", async () => {
@@ -598,6 +602,89 @@ describe("Home shell routing and intents", () => {
     expect(await page().findByRole("combobox", { name: "Country" })).toBeTruthy();
 
     expect(presentationCalls).toBe(0);
+  });
+
+  test("preserves Balances offset across background value and topology refreshes", async () => {
+    window.localStorage.setItem("home.country.v1", "US");
+    const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
+    const cashRow: BalanceRowModel = {
+      key: "usdc",
+      group: "cash",
+      name: "US dollar",
+      mark: { kind: "flag", currency: "USD" },
+      primary: "$12.34",
+      secondary: null,
+      tone: "default",
+    };
+    const presentation: BalancesPresentation = {
+      status: "ready",
+      displayTotal: "$12.34",
+      totalStatus: "complete",
+      groups: [{
+        id: "cash",
+        label: "Cash",
+        displaySubtotal: "$12.34",
+        rows: [cashRow],
+      }],
+      breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
+      rows: [cashRow],
+      hiddenRows: [],
+      hiddenCount: 0,
+    };
+    const view = render(
+      <HomeHarness accountSdk={accountSdk} initialPanel="balances" assetBalances={presentation} />,
+    );
+    await waitForVerifiedShell();
+    const main = page().getByRole("main");
+    main.scrollTop = 275;
+
+    view.rerender(
+      <HomeHarness
+        accountSdk={accountSdk}
+        initialPanel="balances"
+        assetBalances={{
+          ...presentation,
+          displayTotal: "$99.00",
+          groups: [{
+            ...presentation.groups[0]!,
+            displaySubtotal: "$99.00",
+            rows: [{ ...cashRow, name: "US Dollar", primary: "$99.00" }],
+          }],
+          rows: [{ ...cashRow, name: "US Dollar", primary: "$99.00" }],
+        }}
+      />,
+    );
+    await waitFor(() => expect(page().getAllByText("$99.00").length).toBeGreaterThan(0));
+    expect(main.scrollTop).toBe(275);
+
+    const investmentRow: BalanceRowModel = {
+      ...cashRow,
+      key: "eth",
+      group: "asset",
+      name: "Ethereum",
+      primary: "$50.00",
+    };
+    view.rerender(
+      <HomeHarness
+        accountSdk={accountSdk}
+        initialPanel="balances"
+        assetBalances={{
+          ...presentation,
+          groups: [
+            ...presentation.groups,
+            {
+              id: "investments",
+              label: "Investments",
+              displaySubtotal: "$50.00",
+              rows: [investmentRow],
+            },
+          ],
+          rows: [cashRow, investmentRow],
+        }}
+      />,
+    );
+    await page().findAllByText("Ethereum");
+    expect(main.scrollTop).toBe(275);
   });
 
   test("a group's More row opens the panel anchored to that group; absent groups show no row", async () => {

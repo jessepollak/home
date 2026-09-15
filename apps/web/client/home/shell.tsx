@@ -41,7 +41,7 @@ import {
 } from "@/client/observability/perf-marks";
 import type { HomeStartupRoute } from "@/shared/observability/client-performance.contract";
 import {
-  balancesListKey,
+  balancesAnchorTopologyKey,
   clampHomeScrollTop,
   homeBalancesRestoreScope,
   useBalancesRevealWindow,
@@ -149,6 +149,9 @@ export function HomeShell({
   const pendingBalancesRestoreRef = useRef(false);
   const balancesReturnScrollRef = useRef(0);
   const pendingHistoryScrollRestoreRef = useRef<number | null>(null);
+  const pendingShellScrollFrameRef = useRef<number | null>(null);
+  const lastNonNullBalancesScopeRef = useRef<string | null>(null);
+  const signedOutBoundaryClearedRef = useRef(false);
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
   const landingRedirectedRef = useRef(false);
@@ -176,16 +179,20 @@ export function HomeShell({
   const mainRef = useRef<HTMLElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const investChrome = useOptionalAppChrome();
-  const scrollContextId = account.ownerKey && account.session?.user.subject
-    ? [
-        account.ownerKey,
-        account.session.accountProvider,
-        account.session.user.subject,
-        account.session.smartAccount?.address.toLowerCase() ?? "none",
-        regionId,
-      ].join("\u0000")
-    : null;
-  const previousScrollContextRef = useRef(scrollContextId);
+  const cancelPendingShellScroll = useCallback(() => {
+    if (pendingShellScrollFrameRef.current === null) return;
+    window.cancelAnimationFrame(pendingShellScrollFrameRef.current);
+    pendingShellScrollFrameRef.current = null;
+  }, []);
+  const scheduleShellScroll = useCallback((scroll: () => void) => {
+    cancelPendingShellScroll();
+    pendingShellScrollFrameRef.current = window.requestAnimationFrame(() => {
+      pendingShellScrollFrameRef.current = null;
+      scroll();
+    });
+  }, [cancelPendingShellScroll]);
+
+  useEffect(() => () => cancelPendingShellScroll(), [cancelPendingShellScroll]);
 
   useEffect(() => {
     // Dynamic L2 paths normalize to their low-cardinality L1 page label.
@@ -193,11 +200,6 @@ export function HomeShell({
     const frame = window.requestAnimationFrame(() => markHomePerformance("shell:paint"));
     return () => window.cancelAnimationFrame(frame);
   }, [initialPanel, routeMode]);
-  useEffect(() => {
-    if (previousScrollContextRef.current === scrollContextId) return;
-    previousScrollContextRef.current = scrollContextId;
-    mainRef.current?.scrollTo({ top: 0, behavior: "auto" });
-  }, [scrollContextId]);
   useEffect(() => {
     const shell = shellRef.current;
     const main = mainRef.current;
@@ -412,31 +414,74 @@ export function HomeShell({
     paintedAssetBalances.rows,
     balancesRevealReset,
   );
-  const balancesListId = useMemo(
-    () => balancesListKey(paintedAssetBalances.rows),
-    [paintedAssetBalances.rows],
+  const balancesAnchorKey = useMemo(
+    () => balancesAnchorTopologyKey(paintedAssetBalances),
+    [paintedAssetBalances],
   );
-  const previousBalancesListIdRef = useRef(balancesListId);
   const previousNavigationRef = useRef(activeNavigation);
+
+  // This is the sole scope boundary for Balances scroll provenance. Preference
+  // hydration settles before the first baseline so a persisted region is not
+  // mistaken for an explicit region switch.
   useEffect(() => {
-    if (previousBalancesListIdRef.current === balancesListId) return;
-    previousBalancesListIdRef.current = balancesListId;
-    // An armed cold group anchor owns the scroll until it anchors the settled
-    // list: background revalidation must not reset the list to the top (#462).
-    if (coldGroupAnchorRef.current) return;
+    if (isSignedOut) {
+      if (signedOutBoundaryClearedRef.current) return;
+      signedOutBoundaryClearedRef.current = true;
+      cancelPendingShellScroll();
+      const hadScope = lastNonNullBalancesScopeRef.current !== null;
+      lastNonNullBalancesScopeRef.current = null;
+      disarmBalancesRestore();
+      pendingBalancesRestoreRef.current = false;
+      balancesReturnScrollRef.current = 0;
+      pendingHistoryScrollRestoreRef.current = null;
+      coldGroupAnchorRef.current = null;
+      if (hadScope) setBalancesRevealReset((resetSignal) => resetSignal + 1);
+      return;
+    }
+    signedOutBoundaryClearedRef.current = false;
+    if (!isPreferenceReady || balancesScope === null) return;
+
+    const previousScope = lastNonNullBalancesScopeRef.current;
+    lastNonNullBalancesScopeRef.current = balancesScope;
+    if (previousScope === null) {
+      if (activeNavigation === balancesPanelId) {
+        coldGroupAnchorRef.current = urlIntent.location.group;
+      }
+      return;
+    }
+    if (previousScope === balancesScope) return;
+
+    cancelPendingShellScroll();
+    disarmBalancesRestore();
+    pendingBalancesRestoreRef.current = false;
+    balancesReturnScrollRef.current = 0;
+    pendingHistoryScrollRestoreRef.current = null;
+    coldGroupAnchorRef.current = activeNavigation === balancesPanelId
+      ? urlIntent.location.group
+      : null;
+    setBalancesRevealReset((resetSignal) => resetSignal + 1);
     mainRef.current?.scrollTo({ top: 0, behavior: "auto" });
-  }, [balancesListId]);
-  // Runs after the balances-list reset above so a first balances paint anchors
-  // the cold-loaded group instead of being reset to the top (#460). A
-  // provisional cached paint may anchor but stays armed until the session is
+  }, [
+    activeNavigation,
+    balancesScope,
+    cancelPendingShellScroll,
+    disarmBalancesRestore,
+    isPreferenceReady,
+    isSignedOut,
+    urlIntent.location.group,
+  ]);
+
+  // A provisional cached paint may anchor but stays armed until the session is
   // server-verified; once verified, an in-flight revalidation retains it and
-  // the first settled pass consumes it (#462).
+  // the first settled pass consumes it (#462). Scope precedes this effect so a
+  // canonical group re-armed for a new scope is observed in the same commit.
   useEffect(() => {
     const group = coldGroupAnchorRef.current;
     if (!group || activeNavigation !== balancesPanelId) {
       coldGroupAnchorRef.current = null;
       return;
     }
+    if (!isPreferenceReady || balancesScope === null) return;
     if (paintedAssetBalances.status !== "ready") return;
     const target = document.getElementById(group);
     if (!target) return;
@@ -444,12 +489,20 @@ export function HomeShell({
     target.scrollIntoView({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
     if (balancesRevalidating || !isVerified) return;
     coldGroupAnchorRef.current = null;
-  }, [activeNavigation, balancesListId, balancesRevalidating, isVerified, paintedAssetBalances.status]);
+  }, [
+    activeNavigation,
+    balancesAnchorKey,
+    balancesRevalidating,
+    balancesScope,
+    isPreferenceReady,
+    isVerified,
+    paintedAssetBalances.status,
+  ]);
 
   useEffect(() => {
     if (navigationRequest === 0 || !panelStageRef.current) return;
     panelStageRef.current.focus({ preventScroll: true });
-    let restoreFrame: number | null = null;
+    cancelPendingShellScroll();
     const historyScrollTop = pendingHistoryScrollRestoreRef.current;
     pendingHistoryScrollRestoreRef.current = null;
     if (historyScrollTop !== null) {
@@ -460,13 +513,11 @@ export function HomeShell({
         });
       };
       restoreHistoryScroll();
-      restoreFrame = window.requestAnimationFrame(restoreHistoryScroll);
+      scheduleShellScroll(restoreHistoryScroll);
       pendingBalancesRestoreRef.current = false;
       if (activeNavigation === balancesPanelId) disarmBalancesRestore();
       previousNavigationRef.current = activeNavigation;
-      return () => {
-        if (restoreFrame !== null) window.cancelAnimationFrame(restoreFrame);
-      };
+      return cancelPendingShellScroll;
     }
     const isBalances = activeNavigation === balancesPanelId;
     const shouldPreserveBalances = isBalances && pendingBalancesRestoreRef.current;
@@ -480,7 +531,7 @@ export function HomeShell({
           });
         };
         restoreBalancesScroll();
-        restoreFrame = window.requestAnimationFrame(restoreBalancesScroll);
+        scheduleShellScroll(restoreBalancesScroll);
       }
       disarmBalancesRestore();
     }
@@ -491,7 +542,7 @@ export function HomeShell({
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const targetGroup = isBalances ? urlIntent.location.group : null;
       if (targetGroup) {
-        restoreFrame = window.requestAnimationFrame(() => {
+        scheduleShellScroll(() => {
           document.getElementById(targetGroup)?.scrollIntoView({
             block: "start",
             behavior: reducedMotion ? "auto" : "smooth",
@@ -501,10 +552,15 @@ export function HomeShell({
         mainRef.current?.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
       }
     }
-    return () => {
-      if (restoreFrame !== null) window.cancelAnimationFrame(restoreFrame);
-    };
-  }, [activeNavigation, disarmBalancesRestore, navigationRequest, urlIntent.location.group]);
+    return cancelPendingShellScroll;
+  }, [
+    activeNavigation,
+    cancelPendingShellScroll,
+    disarmBalancesRestore,
+    navigationRequest,
+    scheduleShellScroll,
+    urlIntent.location.group,
+  ]);
 
   const activitySession: VerifiedAccountSession | null =
     isVerified && account.session?.smartAccount ? account.session : null;
@@ -624,6 +680,12 @@ export function HomeShell({
     explicitLogoutRef.current = true;
     setIsAccountSettingsOpen(false);
     setForwardRequest((request) => request + 1);
+    cancelPendingShellScroll();
+    lastNonNullBalancesScopeRef.current = null;
+    pendingBalancesRestoreRef.current = false;
+    balancesReturnScrollRef.current = 0;
+    pendingHistoryScrollRestoreRef.current = null;
+    coldGroupAnchorRef.current = null;
     disarmBalancesRestore();
     setBalancesRevealReset((resetSignal) => resetSignal + 1);
     void account.signOut()
