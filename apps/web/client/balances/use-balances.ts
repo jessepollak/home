@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
@@ -16,6 +16,28 @@ import type {
 type BalancesQuerySession = BalancesSession & { accountProvider?: string };
 
 export const balancesStaleTimeMs = 15_000;
+export const balancesStaleRefetchMs = 3_000;
+export const balancesStaleRefetchLimit = 4;
+
+type StalePollingState = { fetchedAt: string; attempts: number };
+
+export function nextStaleRefetchDelay(
+  polling: StalePollingState,
+  snapshot: BalancesSnapshot | undefined,
+): number | false {
+  if (snapshot?.stale !== true) {
+    polling.fetchedAt = "";
+    polling.attempts = 0;
+    return false;
+  }
+  if (polling.fetchedAt !== snapshot.fetchedAt) {
+    polling.fetchedAt = snapshot.fetchedAt;
+    polling.attempts = 0;
+  }
+  if (polling.attempts >= balancesStaleRefetchLimit) return false;
+  polling.attempts += 1;
+  return balancesStaleRefetchMs;
+}
 
 export function useBalances(
   session: BalancesQuerySession | null,
@@ -25,6 +47,7 @@ export function useBalances(
 ): BalancesState & { revalidating?: true } {
   const validSession = isBalancesSession(session) ? session : null;
   const ownerKey = validSession ? dataOwnerKey(validSession) : null;
+  const stalePolling = useRef({ fetchedAt: "", attempts: 0 });
   const query = useHomeQuery<BalancesSnapshot>({
     queryKey: ownerKey
       ? ownerQueryKey(ownerKey, "balances", region)
@@ -33,6 +56,8 @@ export function useBalances(
     staleTime: balancesStaleTimeMs,
     retry: false,
     refetchOnWindowFocus: true,
+    refetchInterval: (queryState) =>
+      nextStaleRefetchDelay(stalePolling.current, queryState.state.data),
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[0] === ownerKey ? keepPreviousData(previousData) : undefined,

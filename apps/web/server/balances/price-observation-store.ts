@@ -13,7 +13,7 @@ export type PriceObservation = {
 
 export interface PriceObservationStore {
   getMany(assetKeys: readonly string[]): Promise<PriceObservation[]>;
-  /** Upserts by source time; an older observation never replaces a newer one. */
+  /** Upserts by source time; equal source time refreshes fetchedAt, older never wins. */
   putMany(observations: readonly PriceObservation[]): Promise<void>;
 }
 
@@ -55,7 +55,9 @@ export class PostgresPriceObservationStore implements PriceObservationStore {
          unit_price_scale=EXCLUDED.unit_price_scale,
          as_of=EXCLUDED.as_of,
          fetched_at=EXCLUDED.fetched_at
-       WHERE EXCLUDED.as_of > price_observations.as_of`,
+       WHERE EXCLUDED.as_of > price_observations.as_of
+          OR (EXCLUDED.as_of = price_observations.as_of
+              AND EXCLUDED.fetched_at > price_observations.fetched_at)`,
       values,
     );
   }

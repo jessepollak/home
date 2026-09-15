@@ -54,6 +54,8 @@ type Dependencies = {
   nowMs?: () => number;
   backstopMs?: number;
   log?: (event: ObservabilityEvent) => unknown;
+  /** Starts detached work immediately; the composition root may retain it with `after()`. */
+  schedule?: (task: Promise<unknown> | (() => Promise<unknown>)) => void;
 };
 
 type ObservedResult = {
@@ -77,7 +79,11 @@ export function createBalancesService(dependencies: Dependencies = {}) {
   const nowMs = dependencies.nowMs ?? (() => Date.now());
   const backstopMs = dependencies.backstopMs ?? BALANCES_BACKSTOP_MS;
   const log = dependencies.log ?? writeObservabilityEvent;
+  const schedule = dependencies.schedule ?? ((task) => {
+    void (typeof task === "function" ? task() : task);
+  });
   const inFlight = new Map<string, Promise<ObservedResult>>();
+  const revalidating = new Set<string>();
 
   async function getObserved(owner: PortfolioAddress): Promise<ObservedResult> {
     const address = owner.toLowerCase() as PortfolioAddress;
@@ -100,67 +106,106 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       observeStoreFailure("BALANCE_STORE_READ_FAILED");
     }
     const current = now();
-    const hot = row !== null && (
-      (Boolean(row.hotUntil) && Date.parse(row.hotUntil!) > current.getTime()) ||
-      row.coverage.registry === "partial"
-    );
-    const signaled = row !== null && (
-      (Boolean(row.staleAt) && Date.parse(row.staleAt!) > Date.parse(row.observedAt)) ||
-      row.coverage.catalog === "unavailable"
-    );
+    const hot = row !== null && Boolean(row.hotUntil) &&
+      Date.parse(row.hotUntil!) > current.getTime();
+    const signaled = row !== null && Boolean(row.staleAt) &&
+      Date.parse(row.staleAt!) > Date.parse(row.observedAt);
     const expired = row !== null &&
       current.getTime() - Date.parse(row.observedAt) > backstopMs;
+    const degraded = row !== null && (
+      row.coverage.catalog === "unavailable" || row.coverage.registry === "partial"
+    );
+    const required = signaled || expired || degraded;
 
-    if (row && !hot && !signaled && !expired) {
+    if (row && !hot) {
+      if (required) scheduleRevalidation(owner, row, "background-full");
+      else if (row.enumerationCursor) scheduleRevalidation(owner, row, "background-resume");
       return {
         read: readFromRow(row),
-        stale: false,
-        outcome: "served-row",
+        stale: required,
+        outcome: required ? "revalidating" : "served-row",
         durationMs,
       };
     }
 
     try {
-      const registryOnly = Boolean(hot && row && !signaled && !expired);
+      const registryOnly = Boolean(hot && row);
       const observed = registryOnly
         ? await observeRegistryOnly(owner, row!, durationMs)
         : await observeFull(owner, row, durationMs);
-      try {
-        const wrote = await timeStage(nowMs, durationMs, "store-write", () =>
-          store.putObservation(observationFromRead(owner, observed)));
-        if (!wrote) {
-          try {
-            const winner = await timeStage(nowMs, durationMs, "store-read", () =>
-              store.get(BALANCES_CHAIN_ID, owner));
-            if (winner) {
-              return {
-                read: readFromRow(winner),
-                stale: false,
-                outcome: registryOnly ? "registry-only" : "full",
-                durationMs,
-              };
-            }
-          } catch {
-            observeStoreFailure("BALANCE_STORE_READ_FAILED");
-          }
-        }
-      } catch {
-        observeStoreFailure("BALANCE_STORE_WRITE_FAILED");
-      }
+      const winner = await persistObserved(owner, observed, durationMs);
+      if (registryOnly && required) scheduleRevalidation(owner, row!, "background-full");
       return {
-        read: observed,
-        stale: false,
+        read: winner ?? observed,
+        stale: registryOnly && required,
         outcome: registryOnly ? "registry-only" : "full",
         durationMs,
       };
     } catch (error) {
       if (!row) throw error;
+      if (required) scheduleRevalidation(owner, row, "background-full");
       return {
         read: readFromRow(row),
         stale: true,
         outcome: "stale-fallback",
         durationMs,
       };
+    }
+  }
+
+  async function persistObserved(
+    owner: PortfolioAddress,
+    observed: BalancesRead,
+    durationMs: ObservationDurations,
+  ): Promise<BalancesRead | null> {
+    try {
+      const wrote = await timeStage(nowMs, durationMs, "store-write", () =>
+        store.putObservation(observationFromRead(owner, observed)));
+      if (!wrote) {
+        const winner = await timeStage(nowMs, durationMs, "store-read", () =>
+          store.get(BALANCES_CHAIN_ID, owner));
+        return winner ? readFromRow(winner) : null;
+      }
+    } catch {
+      observeStoreFailure("BALANCE_STORE_WRITE_FAILED");
+    }
+    return null;
+  }
+
+  function scheduleRevalidation(
+    owner: PortfolioAddress,
+    row: BalanceSnapshotRow,
+    outcome: "background-full" | "background-resume",
+  ): void {
+    const address = owner.toLowerCase() as PortfolioAddress;
+    if (revalidating.has(address)) return;
+    revalidating.add(address);
+    const task = async () => {
+      const startedAt = nowMs();
+      const durationMs = emptyObservationDurations();
+      try {
+        const observed = await observeFull(address, row, durationMs);
+        await persistObserved(address, observed, durationMs);
+        emitBalancesRead(log, outcome, {
+          ...durationMs,
+          price: 0,
+          total: Math.max(0, nowMs() - startedAt),
+        }, observed.coverage);
+      } catch {
+        emitBalancesRead(log, "background-error", {
+          ...durationMs,
+          price: 0,
+          total: Math.max(0, nowMs() - startedAt),
+        }, row.coverage);
+      } finally {
+        revalidating.delete(address);
+      }
+    };
+    try {
+      schedule(task);
+    } catch {
+      revalidating.delete(address);
+      // Scheduling failure never changes the cached response.
     }
   }
 

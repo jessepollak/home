@@ -424,9 +424,40 @@ describe("balances pricing", () => {
     } else {
       expect(result[0]?.value).toEqual({
         status: "unpriced",
-        reason: "price-unavailable",
+        reason: "price-stale",
       });
     }
+  });
+
+  test("serves an expiring stored observation and refreshes it in the background", async () => {
+    const now = new Date("2026-09-13T12:00:00.000Z");
+    const store = new MemoryPriceObservationStore();
+    await store.putMany([{
+      assetKey: usdc.key,
+      unitPrice: { atoms: "1", scale: 0 },
+      asOf: "2026-09-13T11:59:00.000Z",
+      fetchedAt: "2026-09-13T11:58:00.000Z",
+    }]);
+    const scheduled: Array<() => Promise<unknown>> = [];
+    let reads = 0;
+    const price = createTestPricer({
+      priceStore: store,
+      now: () => now,
+      schedule: (task) => scheduled.push(typeof task === "function" ? task : () => task),
+      readPrices: async (inputs) => {
+        reads += 1;
+        return inputs.map((input) => quote(input.assetKey, "fresh"));
+      },
+      readExchangeRates: async () => rates(),
+    });
+
+    const result = await price({ ...read, holdings: [usdc] }, "US");
+    expect(result[0]?.value.status).toBe("priced");
+    expect(reads).toBe(0);
+    expect(scheduled).toHaveLength(1);
+    await scheduled[0]!();
+    expect(reads).toBe(1);
+    expect((await store.getMany([usdc.key]))[0]?.fetchedAt).toBe(source.fetchedAt);
   });
 
   test("dedupes observations by asset key using the newest source time", async () => {

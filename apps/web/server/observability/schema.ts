@@ -45,6 +45,10 @@ export const BALANCES_READ_OUTCOMES = [
   "served-row",
   "registry-only",
   "full",
+  "revalidating",
+  "background-full",
+  "background-resume",
+  "background-error",
   "stale-fallback",
   "error",
 ] as const;

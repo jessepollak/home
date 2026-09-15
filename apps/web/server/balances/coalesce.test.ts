@@ -84,6 +84,7 @@ function setup(options: {
   let reads = 0;
   let enumerations = 0;
   let clock = 0;
+  const scheduled: Array<() => Promise<unknown>> = [];
   const service = createBalancesService({
     store,
     now: typeof configuredNow === "function"
@@ -91,6 +92,7 @@ function setup(options: {
       : () => new Date(configuredNow ?? "2026-09-13T12:00:30.000Z"),
     nowMs: () => clock++,
     log: (event) => events.push(event),
+    schedule: (task) => scheduled.push(typeof task === "function" ? task : () => task),
     readUniverse: async () => ({ entries: [] }),
     readBalances: async () => {
       reads += 1;
@@ -129,6 +131,7 @@ function setup(options: {
     events,
     reads: () => reads,
     enumerations: () => enumerations,
+    flush: async () => { await Promise.all(scheduled.splice(0).map((task) => task())); },
   };
 }
 
@@ -198,13 +201,14 @@ describe("balance observations", () => {
     await fixture.store.putObservation(observation({ enumerationCursor: "page-two" }));
 
     const snapshot = await fixture.service(owner, "US");
-    expect(cursors).toEqual(["page-two"]);
+    expect(snapshot.stale).toBeTrue();
+    expect(cursors).toEqual([]);
     expect(snapshot.holdings.map(({ contractAddress }) => contractAddress)).toContain(
       catalog.contractAddress,
     );
-    expect(snapshot.holdings.map(({ contractAddress }) => contractAddress)).toContain(
-      nextAddress,
-    );
+    await fixture.flush();
+    expect(cursors).toEqual(["page-two"]);
+    expect((await fixture.store.get(8453, owner))?.holdings.map(({ contractAddress }) => contractAddress)).toContain(nextAddress);
     expect((await fixture.store.get(8453, owner))?.enumerationCursor).toBeNull();
 
     await fixture.service(owner, "DE");
@@ -241,7 +245,9 @@ describe("balance observations", () => {
     expect(fixture.enumerations()).toBe(0);
 
     current = new Date("2026-09-13T12:02:01.000Z");
-    await fixture.service(owner, "US");
+    const stale = await fixture.service(owner, "US");
+    expect(stale.stale).toBeTrue();
+    await fixture.flush();
     expect(fixture.enumerations()).toBe(1);
   });
 
@@ -249,7 +255,11 @@ describe("balance observations", () => {
     const fixture = setup({});
     await fixture.store.putObservation(observation());
     await fixture.store.markStale(8453, owner, new Date("2026-09-13T12:00:20.000Z"));
-    await fixture.service(owner, "US");
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.stale).toBeTrue();
+    expect(fixture.reads()).toBe(0);
+    expect(fixture.enumerations()).toBe(0);
+    await fixture.flush();
     expect(fixture.reads()).toBe(1);
     expect(fixture.enumerations()).toBe(1);
   });
@@ -259,8 +269,12 @@ describe("balance observations", () => {
     await fixture.store.putObservation(observation());
     await fixture.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
     await fixture.store.markStale(8453, owner, new Date("2026-09-13T12:00:20.000Z"));
-    await fixture.service(owner, "US");
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.stale).toBeTrue();
     expect(fixture.reads()).toBe(1);
+    expect(fixture.enumerations()).toBe(0);
+    await fixture.flush();
+    expect(fixture.reads()).toBe(2);
     expect(fixture.enumerations()).toBe(1);
   });
 
@@ -270,26 +284,35 @@ describe("balance observations", () => {
       ...observation(),
       coverage: { registry: "complete", catalog: "unavailable" },
     });
-    await fixture.service(owner, "US");
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.stale).toBeTrue();
+    expect(fixture.enumerations()).toBe(0);
+    await fixture.flush();
     expect(fixture.enumerations()).toBe(1);
   });
 
-  test("partial registry coverage behaves as hot without extending its lease", async () => {
+  test("partial registry coverage is served stale and revalidated in the background", async () => {
     const fixture = setup({});
     await fixture.store.putObservation({
       ...observation(),
       coverage: { registry: "partial", catalog: "complete" },
     });
-    await fixture.service(owner, "US");
-    expect(fixture.reads()).toBe(1);
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.stale).toBeTrue();
+    expect(fixture.reads()).toBe(0);
     expect(fixture.enumerations()).toBe(0);
-    expect((await fixture.store.get(8453, owner))?.observedAt).toBe(observedAt);
+    await fixture.flush();
+    expect(fixture.reads()).toBe(1);
+    expect(fixture.enumerations()).toBe(1);
   });
 
   test("the 120 second backstop causes a full re-observe", async () => {
     const fixture = setup({ now: "2026-09-13T12:02:01.000Z" });
     await fixture.store.putObservation(observation());
-    await fixture.service(owner, "US");
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.stale).toBeTrue();
+    expect(fixture.reads()).toBe(0);
+    await fixture.flush();
     expect(fixture.reads()).toBe(1);
     expect(fixture.enumerations()).toBe(1);
   });
@@ -307,6 +330,8 @@ describe("balance observations", () => {
     expect(snapshot.stale).toBeTrue();
     expect(snapshot.coverage).toEqual({ registry: "partial", catalog: "incomplete" });
     expect(snapshot.fetchedAt).toBe(observedAt);
+    await fixture.flush();
+    expect(fixture.events).toContainEqual(expect.objectContaining({ outcome: "background-error" }));
   });
 
   test("a snapshot read failure falls through to a fresh observation", async () => {
@@ -381,16 +406,16 @@ describe("balance observations", () => {
     await fixture.store.putObservation(observation());
 
     const first = await fixture.service(owner, "US");
-    expect(first.holdings.map(({ id }) => id)).toEqual([registry.id, catalog.id]);
-    expect(first.holdings[0]?.balance).toEqual({ status: "ready", baseUnits: "9" });
-    expect(first.coverage).toEqual({ registry: "complete", catalog: "complete" });
-    expect(first.fetchedAt).toBe(observedAt);
+    expect(first.stale).toBeTrue();
+    expect(first.holdings[0]?.balance).toEqual({ status: "ready", baseUnits: "1" });
+    await fixture.flush();
     expect(await fixture.store.get(8453, owner)).toMatchObject({
       observedAt,
       enumerationCursor: null,
     });
 
     await fixture.service(owner, "US");
+    await fixture.flush();
     expect(fixture.enumerations()).toBe(2);
   });
 
@@ -409,6 +434,7 @@ describe("balance observations", () => {
 
     const snapshot = await fixture.service(owner, "US");
     expect(snapshot.holdings.map(({ id }) => id)).toContain(catalog.id);
+    await fixture.flush();
     expect((await fixture.store.get(8453, owner))?.enumerationCursor).toBe("page-two");
   });
 

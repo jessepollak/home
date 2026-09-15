@@ -106,7 +106,7 @@ export type BalancesSnapshot = {
   holdings: Holding[];
   coverage: BalancesCoverage;
   total: BalancesTotal;
-  /** Set when a required re-observe failed and the last observation is served as it was (balances.md §8). */
+  /** Set while a required re-observe is pending or failed and is not included in this response (balances.md §8). */
   stale?: true;
 };
 

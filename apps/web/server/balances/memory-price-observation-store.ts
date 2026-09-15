@@ -18,9 +18,11 @@ export class MemoryPriceObservationStore implements PriceObservationStore {
   async putMany(observations: readonly PriceObservation[]): Promise<void> {
     for (const observation of observations) {
       const existing = this.rows.get(observation.assetKey);
-      if (existing && Date.parse(observation.asOf) <= Date.parse(existing.asOf)) {
-        continue;
-      }
+      if (existing && (
+        Date.parse(observation.asOf) < Date.parse(existing.asOf) ||
+        (observation.asOf === existing.asOf &&
+          Date.parse(observation.fetchedAt) <= Date.parse(existing.fetchedAt))
+      )) continue;
       this.rows.set(observation.assetKey, structuredClone(observation));
     }
   }

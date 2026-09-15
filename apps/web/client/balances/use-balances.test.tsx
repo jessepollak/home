@@ -9,7 +9,11 @@ import {
 } from "@/client/query/query-client";
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
 import type { BalancesState, FetchBalances } from "@/shared/balances/types";
-import { useBalances } from "./use-balances";
+import {
+  balancesStaleRefetchMs,
+  nextStaleRefetchDelay,
+  useBalances,
+} from "./use-balances";
 
 const session = {
   subject: "subject-a",
@@ -42,6 +46,18 @@ afterEach(() => {
 });
 
 describe("useBalances", () => {
+  test("bounds stale snapshot polling and resets for a new observation", () => {
+    const polling = { fetchedAt: "", attempts: 0 };
+    const stale = { ...balancesSnapshotFixture, stale: true as const };
+    expect(Array.from({ length: 4 }, () => nextStaleRefetchDelay(polling, stale)))
+      .toEqual(Array(4).fill(balancesStaleRefetchMs));
+    expect(nextStaleRefetchDelay(polling, stale)).toBeFalse();
+    expect(nextStaleRefetchDelay(polling, {
+      ...stale,
+      fetchedAt: "2026-09-13T12:01:00.000Z",
+    })).toBe(balancesStaleRefetchMs);
+    expect(nextStaleRefetchDelay(polling, balancesSnapshotFixture)).toBeFalse();
+  });
   test("uses the owner balances key and persists the whole snapshot", async () => {
     render(<Harness fetchBalances={async () => balancesSnapshotFixture} />);
     await waitFor(() => expect(document.body.textContent).toBe("US:3"));

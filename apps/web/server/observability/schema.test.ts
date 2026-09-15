@@ -2,6 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { normalizeObservabilityEvent } from "./schema";
 
 describe("observability schema", () => {
+  test("preserves cache-first balance outcomes and rejects unknown ones", () => {
+    const event = {
+      kind: "balances-read" as const,
+      route: "/api/balances" as const,
+      outcome: "revalidating" as const,
+      durationMs: { "store-read": 1, enumerate: 0, "registry-read": 0, resolve: 0, price: 1, "store-write": 0, total: 2 },
+      coverage: { registry: "complete" as const, catalog: "complete" as const },
+    };
+    expect(normalizeObservabilityEvent(event)).toMatchObject({ outcome: "revalidating" });
+    expect(normalizeObservabilityEvent({ ...event, outcome: "surprise" as never })).toMatchObject({ outcome: "error" });
+  });
   test("normalizes closed Home startup events at the expected level", () => {
     expect(normalizeObservabilityEvent({
       version: 1,

@@ -35,6 +35,20 @@ export function priceObservationStoreContract(options: {
       }]);
     });
 
+    test("equal source time refreshes fetchedAt", async () => {
+      await store.putMany([observation("2026-09-13T12:00:00.000Z", "1")]);
+      await store.putMany([{
+        ...observation("2026-09-13T12:00:00.000Z", "2"),
+        fetchedAt: "2026-09-13T12:01:01.000Z",
+      }]);
+
+      expect(await store.getMany([ASSET_KEY])).toEqual([expect.objectContaining({
+        unitPrice: { atoms: "2", scale: 0 },
+        asOf: "2026-09-13T12:00:00.000Z",
+        fetchedAt: "2026-09-13T12:01:01.000Z",
+      })]);
+    });
+
     test("returns only requested observations", async () => {
       await store.putMany([observation("2026-09-13T12:00:00.000Z", "2")]);
       expect(await store.getMany(["missing"])).toEqual([]);

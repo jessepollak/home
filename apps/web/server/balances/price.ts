@@ -39,6 +39,7 @@ import {
 
 const PRICE_BATCH_SIZE = 25;
 export const BALANCES_PRICE_CONCURRENCY = 4;
+export const BALANCES_PRICE_REFRESH_MS = 60_000;
 const LIQUIDITY_GATE = {
   numerator: BigInt(25_000),
   denominator: BigInt(1),
@@ -57,20 +58,27 @@ type Dependencies = {
   readExchangeRates?: () => Promise<ExchangeRates>;
   priceStore?: PriceObservationStore;
   now?: () => Date;
+  schedule?: (task: Promise<unknown> | (() => Promise<unknown>)) => void;
 };
 
-export function createBalancesPricer(dependencies: Dependencies = {}) {
+export function createBalancesPricer(
+  dependencies: Dependencies = {},
+): (read: BalancesRead, region: RegionId) => Promise<Holding[]> {
   const readPrices = dependencies.readPrices ?? getCodexRawQuotes;
   const readExchangeRates = dependencies.readExchangeRates
     ?? getCoinbaseExchangeRates;
   const priceStore = dependencies.priceStore ?? getPriceObservationStore();
   const now = dependencies.now ?? (() => new Date());
-  const lastWrittenAsOf = new Map<string, number>();
+  const schedule = dependencies.schedule ?? ((task) => {
+    void (typeof task === "function" ? task() : task);
+  });
+  const lastWrittenFetchedAt = new Map<string, number>();
+  const refreshing = new Set<string>();
 
-  return async function priceBalances(
+  const priceRead = async (
     read: BalancesRead,
     region: RegionId,
-  ): Promise<Holding[]> {
+  ): Promise<Holding[]> => {
     const quoteCurrency = presentationRegions[region].currency.code;
     const registryInputs = uniqueInputs(
       read.holdings
@@ -87,44 +95,52 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
         )
         .map(pricingInput),
     );
-    const inputBatches: CodexRawQuoteInput[][] = [];
-
-    if (registryInputs.length > 0) {
-      inputBatches.push(registryInputs);
-    }
-    for (
-      let index = 0;
-      index < discoveredInputs.length;
-      index += PRICE_BATCH_SIZE
-    ) {
-      inputBatches.push(discoveredInputs.slice(index, index + PRICE_BATCH_SIZE));
-    }
-    const priceBatches = await mapWithConcurrency(
-      inputBatches,
-      BALANCES_PRICE_CONCURRENCY,
-      (inputs) => readPriceBatch(readPrices, inputs),
-    );
-
-    let rates: ExchangeRates | null = null;
-    if (read.holdings.some(positivePricingAmount)) {
-      try {
-        rates = await readExchangeRates();
-      } catch {
-        rates = null;
-      }
-    }
-
+    const inputs = uniqueInputs([...registryInputs, ...discoveredInputs]);
+    const ratesRequest: Promise<ExchangeRates | null> = read.holdings.some(positivePricingAmount)
+      ? readExchangeRates().catch(() => null)
+      : Promise.resolve(null);
+    const storedRequest = priceStore.getMany(inputs.map(({ assetKey }) => assetKey))
+      .catch(() => [] as PriceObservation[]);
+    const [stored, rates] = await Promise.all([storedRequest, ratesRequest]);
     const currentTime = now();
-    const prices = await persistAndRestorePrices(
-      priceBatches.flat(),
-      priceStore,
-      currentTime,
-      lastWrittenAsOf,
-    );
+    const storedByKey = new Map(stored.map((observation) => [observation.assetKey, observation]));
+    const missing = inputs.filter(({ assetKey }) => !storedByKey.has(assetKey));
+    const foreground = await fetchPriceInputs(readPrices, missing);
+    await persistPrices(foreground, priceStore, lastWrittenFetchedAt);
+
+    const expiring = inputs.filter(({ assetKey }) => {
+      const observation = storedByKey.get(assetKey);
+      return observation && currentTime.getTime() - Date.parse(observation.fetchedAt) > BALANCES_PRICE_REFRESH_MS;
+    });
+    schedulePriceRefresh(expiring);
+    const foregroundByKey = new Map(foreground.map((price) => [price.assetKey, price]));
+    const prices = inputs.map((input) => foregroundByKey.get(input.assetKey)
+      ?? quoteFromObservation(storedByKey.get(input.assetKey)!, currentTime));
     return read.holdings.map((holding) =>
       priceHolding(holding, quoteCurrency, prices, rates, currentTime),
     );
   };
+
+  function schedulePriceRefresh(inputs: readonly CodexRawQuoteInput[]): void {
+    const pending = inputs.filter(({ assetKey }) => !refreshing.has(assetKey));
+    if (pending.length === 0) return;
+    for (const { assetKey } of pending) refreshing.add(assetKey);
+    const task = async () => {
+      try {
+        const prices = await fetchPriceInputs(readPrices, pending);
+        await persistPrices(prices, priceStore, lastWrittenFetchedAt);
+      } catch {
+        // Background price refresh never changes the cached response.
+      } finally {
+        for (const { assetKey } of pending) refreshing.delete(assetKey);
+      }
+    };
+    try { schedule(task); } catch {
+      for (const { assetKey } of pending) refreshing.delete(assetKey);
+    }
+  }
+
+  return priceRead;
 }
 
 export const priceBalances = createBalancesPricer();
@@ -381,76 +397,77 @@ function uniqueInputs(
   return [...byKey.values()];
 }
 
-async function persistAndRestorePrices(
+async function fetchPriceInputs(
+  readPrices: NonNullable<Dependencies["readPrices"]>,
+  inputs: readonly CodexRawQuoteInput[],
+): Promise<PriceQuote[]> {
+  const batches: CodexRawQuoteInput[][] = [];
+  for (let index = 0; index < inputs.length; index += PRICE_BATCH_SIZE) {
+    batches.push(inputs.slice(index, index + PRICE_BATCH_SIZE));
+  }
+  return (await mapWithConcurrency(
+    batches,
+    BALANCES_PRICE_CONCURRENCY,
+    (batch) => readPriceBatch(readPrices, batch),
+  )).flat();
+}
+
+async function persistPrices(
   prices: readonly PriceQuote[],
   store: PriceObservationStore,
-  currentTime: Date,
-  lastWrittenAsOf: Map<string, number>,
-): Promise<PriceQuote[]> {
-  const byKey = new Map<string, { observation: PriceObservation; asOfMs: number }>();
+  lastWrittenFetchedAt: Map<string, number>,
+): Promise<void> {
+  const byKey = new Map<string, PriceObservation>();
   for (const price of prices) {
     if (price.status !== "fresh" || !price.unitPrice || !price.source.asOf) continue;
-    const asOfMs = Date.parse(price.source.asOf);
-    if (!Number.isFinite(asOfMs) || asOfMs <= (lastWrittenAsOf.get(price.assetKey) ?? Number.NEGATIVE_INFINITY)) continue;
+    const fetchedAtMs = Date.parse(price.source.fetchedAt);
+    if (!Number.isFinite(fetchedAtMs) ||
+      fetchedAtMs <= (lastWrittenFetchedAt.get(price.assetKey) ?? Number.NEGATIVE_INFINITY)) continue;
+    const observation = {
+      assetKey: price.assetKey,
+      unitPrice: price.unitPrice,
+      asOf: price.source.asOf,
+      fetchedAt: price.source.fetchedAt,
+    };
     const existing = byKey.get(price.assetKey);
-    if (existing && existing.asOfMs >= asOfMs) continue;
-    byKey.set(price.assetKey, {
-      asOfMs,
-      observation: {
-        assetKey: price.assetKey,
-        unitPrice: price.unitPrice,
-        asOf: price.source.asOf,
-        fetchedAt: price.source.fetchedAt,
-      },
-    });
-  }
-  const pending = [...byKey.values()];
-  if (pending.length > 0) {
-    try {
-      await store.putMany(pending.map(({ observation }) => observation));
-      for (const { observation, asOfMs } of pending) {
-        lastWrittenAsOf.set(observation.assetKey, asOfMs);
-      }
-    } catch {
-      // Persistence is a best-effort cross-instance fallback, never a read failure.
+    if (!existing || Date.parse(observation.asOf) > Date.parse(existing.asOf) ||
+      (observation.asOf === existing.asOf && fetchedAtMs > Date.parse(existing.fetchedAt))) {
+      byKey.set(price.assetKey, observation);
     }
   }
-
-  const fallbackKeys = prices.flatMap((price) =>
-    price.status === "fresh" ? [] : [price.assetKey]);
-  if (fallbackKeys.length === 0) return [...prices];
-
-  let stored: PriceObservation[];
+  const observations = [...byKey.values()];
+  if (observations.length === 0) return;
   try {
-    stored = await store.getMany(fallbackKeys);
+    await store.putMany(observations);
+    for (const observation of observations) {
+      lastWrittenFetchedAt.set(observation.assetKey, Date.parse(observation.fetchedAt));
+    }
   } catch {
-    return [...prices];
+    // Persistence is best effort and never changes the price response.
   }
-  const storedByKey = new Map(stored.flatMap((observation) => {
-    const asOfMs = Date.parse(observation.asOf);
-    return Number.isFinite(asOfMs) &&
-        currentTime.getTime() - asOfMs <= BALANCES_PRICE_MAX_AGE_MS
-      ? [[observation.assetKey, observation] as const]
-      : [];
-  }));
+}
 
-  return prices.map((price) => {
-    if (price.status === "fresh") return price;
-    const observation = storedByKey.get(price.assetKey);
-    if (!observation) return price;
-    return {
-      ...price,
-      unitPrice: observation.unitPrice,
-      status: "fresh",
-      source: {
-        provider: "Codex",
-        method: "Stored price observation",
-        fetchedAt: observation.fetchedAt,
-        asOf: observation.asOf,
-        timeBasis: "provider-as-of",
-      },
-    };
-  });
+function quoteFromObservation(
+  observation: PriceObservation,
+  currentTime: Date,
+): PriceQuote {
+  const stale = currentTime.getTime() - Date.parse(observation.asOf) > BALANCES_PRICE_MAX_AGE_MS;
+  const address = observation.assetKey.split(":").at(-1) as `0x${string}`;
+  return {
+    assetKey: observation.assetKey as `eip155:8453/erc20:${string}`,
+    contractAddress: address,
+    quoteCurrency: "USD",
+    unitPrice: observation.unitPrice,
+    sourceValue: null,
+    status: stale ? "stale" : "fresh",
+    source: {
+      provider: "Codex",
+      method: "Stored price observation",
+      fetchedAt: observation.fetchedAt,
+      asOf: observation.asOf,
+      timeBasis: "provider-as-of",
+    },
+  };
 }
 
 export async function mapWithConcurrency<T, R>(

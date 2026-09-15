@@ -35,8 +35,8 @@ In Vercel logs, search `home.observability.v2`, then use:
 - `kind=home-auth-phase flow=signout` grouped by `outcome`: compare `visibleNavigationMs` (target p50 below 1 second and p95 below 2.5 seconds) with native, wallet, CDP, and total timings; verify attempted booleans match clean Base-only versus known-CDP sessions;
 - a native/Base logout Network recording: confirm landing navigation follows successful native logout while bounded CDP cleanup can remain in flight, and confirm no `/` to `/home` bounce;
 - `kind=home-auth-phase outcome=timeout` for incomplete restore rate (partial phase fields show the last fixed milestone reached);
-- `kind=balances-read` and `outcome=served-row` for warm-read ratio;
-- `kind=balances-read` with `durationMs.total` and `durationMs.enumerate` for p50/p75/p95 and removal of the eight-second mode;
+- `kind=balances-read` and `outcome in (served-row,revalidating)` for warm cache-first read ratio;
+- foreground `kind=balances-read` outcomes with `durationMs.total` for p50/p75/p95; use `background-full`, `background-resume`, and `background-error` separately for revalidation health and stage timing;
 - `kind=portfolio-balance-source` for incomplete or unavailable enumeration reason and page count.
 
 Verify after at least 200 balance reads or seven days, whichever is later. Capture warm versus cold distributions, catalog coverage, unavailable/stale rates, `/home` startup split by cache provenance, and Speed Insights LCP/INP for only `/` and the canonical L1 labels. Runtime log retention is plan-dependent, so record the before/after summary on the tracking issues during that window.
