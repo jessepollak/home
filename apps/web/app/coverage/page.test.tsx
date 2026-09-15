@@ -21,11 +21,22 @@ describe("public coverage page", () => {
     expect(html).toContain("No current tender currency");
     expect(html).toContain("United States");
     expect(html).toContain("Production-proven live");
-    expect(html).toContain("Home routes live</dt><dd class=\"text-3xl font-semibold\">0");
+    expect(html).toContain("Home routes live</dt><dd><span class=\"block text-3xl font-semibold\">0");
     expect(html).toContain("Natural Earth v5.1.2");
     expect(html).toContain("World Bank");
-    expect(html).toContain("role=\"img\"");
+    expect(html).not.toContain("role=\"img\"");
+    expect(html).toContain("Skip map and go to country table");
+    expect(html).toContain("href=\"#coverage-table\"");
+    expect(html).toContain("tabindex=\"-1\"");
     expect(html).toContain("<title id=\"coverage-map-title\"");
+    expect(html).toContain("<title>United States: Conditional route</title>");
+    expect(html).toContain("239 linked label points. 11 small territories");
+    expect(html).toContain("39 configured in Home");
+    expect(html).toContain("No Home route");
+    expect(html).toContain("Country, code, currency code, or asset");
+    expect(html).toContain("Issue #15 also records currency-level euro-area research");
+    expect(html).toContain("$11,203,038,332");
+    expect(html).not.toContain("$11,203,038,332.34");
   });
 
   test("applies server-side search, status filters, and alphabetical sorting", async () => {

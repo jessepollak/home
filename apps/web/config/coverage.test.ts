@@ -69,8 +69,10 @@ describe("local money coverage registry", () => {
   test("uses a complete global 2024 GDP snapshot and sorts preserved nulls last", () => {
     expect(coverageGdpSnapshot.year).toBe(2024);
     expect(Object.keys(coverageGdpSnapshot.rows)).toHaveLength(250);
-    expect(coverageGdpSnapshot.completeness).toMatchObject({ universeCount: 250, valueCount: 199 });
+    expect(coverageGdpSnapshot.completeness).toMatchObject({ universeCount: 250, valueCount: 200, percent: 80, comparison: { 2023: 203, 2025: 186 } });
     expect(coverageGdpSnapshot.rows.US).toBeGreaterThan(1_000_000_000_000);
+    expect(typeof coverageGdpSnapshot.rows.XK).toBe("number");
+    expect(coverageGdpSnapshot.rows.XK).toBe(11203038332.3359);
     expect(coverageGdpSnapshot.rows.TW).toBeNull();
     const known = byCode.get("US") as CoverageRecord;
     const missing = byCode.get("TW") as CoverageRecord;
@@ -87,6 +89,16 @@ describe("local money coverage registry", () => {
     expect(normal).toContain("PS,Palestinian Territories,ILS|JOD,false,");
     expect(normal).toContain("XK,Kosovo,EUR,false,");
     expect(normal).not.toContain("undefined");
-    expect(new Bun.CryptoHasher("sha256").update(normal).digest("hex")).toBe("1ab942c1ed20ceb5078b6e742a74c751700711df90a49190d55b4394f383ee4a");
+    expect(normal.split("\n")[0]).toContain("quote_observed_at,quote_spread_bps,quote_fee_summary,quote_source_url");
+    expect(new Bun.CryptoHasher("sha256").update(normal).digest("hex")).toBe("71ee320c4e9447ba1363e0a9ee0c5d1f01de8bb70fd53e991562b2767b59aef1");
+  });
+
+  test("exports dated quote observations without turning them into route promises", () => {
+    const observed: CoverageRecord = {
+      ...coverageRegistry[0],
+      quoteObservation: { quotedAt: "2026-09-15", spreadBps: 25, feeSummary: "Variable provider fee", sourceUrl: "https://example.com/quote" },
+    };
+    const csv = coverageCsv([observed]);
+    expect(csv).toContain("2026-09-15,25,Variable provider fee,https://example.com/quote");
   });
 });

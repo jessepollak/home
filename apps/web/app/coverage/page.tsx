@@ -12,10 +12,10 @@ import {
   type CoverageIssuerStatus,
   type CoverageSort,
 } from "@/config/coverage";
-import { presentationRegions, type CountryCode } from "@/config/regions";
+import { countryRegionIds, presentationRegions, type CountryCode } from "@/config/regions";
 import coordinatesJson from "@/client/landing/globe-country-coordinates.json";
 import { Button } from "@/components/ui/button";
-import { formatUsdPrice } from "@/shared/formatting";
+import { formatFiatAmount } from "@/shared/formatting";
 
 export const metadata: Metadata = {
   title: "Local money coverage | Home",
@@ -29,7 +29,7 @@ const issuerLabels: Record<CoverageIssuerStatus, string> = {
   "not-researched": "Not researched",
 };
 const homeLabels: Record<CoverageHomeStatus, string> = {
-  none: "Not planned",
+  none: "No Home route",
   planned: "Planned",
   "in-build": "In build",
   sandbox: "Sandbox",
@@ -52,16 +52,18 @@ function isHomeStatus(value: string): value is CoverageHomeStatus {
   return coverageHomeStatuses.includes(value as CoverageHomeStatus);
 }
 function formatGdp(value: number | null) {
-  if (value === null) return "No World Bank figure";
-  return formatUsdPrice(value) ?? "No World Bank figure";
+  return value === null ? "No World Bank figure" : formatFiatAmount(String(value), "USD", { fractionDigits: 0 });
 }
 
 function CoverageMap() {
   const coordinates = coordinatesJson as unknown as Record<string, readonly [number, number]>;
+  const pointCount = Object.keys(coordinates).length;
+  const missingPointCount = coverageRegistry.length - pointCount;
   const inventory = new Map(coverageRegistry.map((record) => [record.countryCode, record]));
   return (
     <figure className="overflow-hidden rounded-lg border bg-muted/30 p-3">
-      <svg viewBox="0 0 720 360" role="img" aria-labelledby="coverage-map-title coverage-map-description" className="h-auto w-full">
+      <a href="#coverage-table" className="text-sm font-medium text-primary underline-offset-4 hover:underline">Skip map and go to country table</a>
+      <svg viewBox="0 0 720 360" aria-labelledby="coverage-map-title coverage-map-description" className="mt-2 h-auto w-full">
         <title id="coverage-map-title">Local-money route research by country</title>
         <desc id="coverage-map-description">Dots link to country details. Grey dots are not researched; green and amber dots show documented and conditional issuer-route research. Map position is not eligibility.</desc>
         <rect width="720" height="360" rx="8" fill="currentColor" opacity="0.04" />
@@ -71,10 +73,10 @@ function CoverageMap() {
           const y = ((90 - latitude) / 180) * 360;
           const researched = record && record.issuerRoute.status !== "not-researched";
           const dot = <circle cx={x} cy={y} r={researched ? 4.5 : 2} fill={record ? issuerColors[record.issuerRoute.status] : "#a3a3a3"} opacity={researched ? 1 : 0.55} />;
-          return record ? <a key={code} href={`#country-${code}`} aria-label={`${record.countryName}: ${issuerLabels[record.issuerRoute.status]}`}>{dot}</a> : <g key={code} aria-hidden="true">{dot}</g>;
+          return record ? <a key={code} href={`#country-${code}`} tabIndex={-1}><title>{`${record.countryName}: ${issuerLabels[record.issuerRoute.status]}`}</title>{dot}</a> : <g key={code} aria-hidden="true">{dot}</g>;
         })}
       </svg>
-      <figcaption className="mt-2 text-sm text-muted-foreground">Natural Earth v5.1.2 provides 239 linked label points. Eleven small territories in the inventory have no source point. Neutral dots are not researched and do not inherit status from a shared currency.</figcaption>
+      <figcaption className="mt-2 text-sm text-muted-foreground">Natural Earth v5.1.2 provides {pointCount} linked label points. {missingPointCount} small territories in the inventory have no source point. Neutral dots are not researched and do not inherit status from a shared currency.</figcaption>
     </figure>
   );
 }
@@ -104,9 +106,9 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
           <p className="text-lg text-muted-foreground">Issuer-route research and Home route status are tracked separately. Documentation does not establish eligibility, a current quote, or production availability.</p>
         </div>
         <dl className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border p-4"><dt className="text-sm text-muted-foreground">Documented issuer routes</dt><dd className="text-3xl font-semibold">{documentedCount}</dd><p className="text-xs text-muted-foreground">Issue #15 research · checked {COVERAGE_RESEARCH_SOURCE.checkedAt}</p></div>
-          <div className="rounded-lg border p-4"><dt className="text-sm text-muted-foreground">Home routes live</dt><dd className="text-3xl font-semibold">{liveCount}</dd><p className="text-xs text-muted-foreground">Coverage registry · checked {COVERAGE_REGISTRY_CHECKED_AT}</p></div>
-          <div className="rounded-lg border p-4"><dt className="text-sm text-muted-foreground">Country / territory inventory</dt><dd className="text-3xl font-semibold">{coverageRegistry.length}</dd><p className="text-xs text-muted-foreground">ISO 3166-1 + XK; 39 configured in Home</p></div>
+          <div className="rounded-lg border p-4"><dt className="text-sm text-muted-foreground">Documented issuer routes</dt><dd><span className="block text-3xl font-semibold">{documentedCount}</span><span className="block text-xs text-muted-foreground">Issue #15 research · checked {COVERAGE_RESEARCH_SOURCE.checkedAt}</span></dd></div>
+          <div className="rounded-lg border p-4"><dt className="text-sm text-muted-foreground">Home routes live</dt><dd><span className="block text-3xl font-semibold">{liveCount}</span><span className="block text-xs text-muted-foreground">Coverage registry · checked {COVERAGE_REGISTRY_CHECKED_AT}</span></dd></div>
+          <div className="rounded-lg border p-4"><dt className="text-sm text-muted-foreground">Country / territory inventory</dt><dd><span className="block text-3xl font-semibold">{coverageRegistry.length}</span><span className="block text-xs text-muted-foreground">ISO 3166-1 + XK; {countryRegionIds.length} configured in Home</span></dd></div>
         </dl>
       </header>
 
@@ -118,19 +120,20 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
           <div className="rounded-lg border p-4"><h3 className="font-semibold">Issuer / local rail evidence</h3><ul className="mt-2 space-y-1 text-sm text-muted-foreground">{coverageIssuerStatuses.map((status) => <li key={status}><strong className="text-foreground">{issuerLabels[status]}:</strong> {status === "documented" ? "issuer or partner materials describe the selected token, Base, and a local rail" : status === "conditional" ? "a route exists but has an audience, chain, token, or verification limitation" : status === "not-found" ? "research found no documented route" : "no completed research"}</li>)}</ul></div>
           <div className="rounded-lg border p-4"><h3 className="font-semibold">Home implementation</h3><ul className="mt-2 space-y-1 text-sm text-muted-foreground">{coverageHomeStatuses.map((status) => <li key={status}><strong className="text-foreground">{homeLabels[status]}:</strong> {status === "live" ? "requires dated hosted-production evidence" : status === "sandbox" ? "tested or configured only outside production" : status === "in-build" ? "a provider binding exists without production proof" : status === "planned" ? "planned without a provider binding" : "no Home route"}</li>)}</ul></div>
         </div>
+        <p className="text-sm text-muted-foreground">Issue #15 also records currency-level euro-area research. It is intentionally not inherited by individual countries, because country coverage requires country-explicit evidence.</p>
       </section>
 
       <section aria-labelledby="countries-heading" className="space-y-4">
         <div><h2 id="countries-heading" className="text-2xl font-semibold">Countries and territories</h2><p className="text-sm text-muted-foreground">The 250-entry universe is all 249 ISO 3166-1 assignments plus CLDR XK (Kosovo). Exceptional reservations, user-assigned, deprecated, and macroregion codes are excluded. GDP is {coverageGdpSnapshot.indicatorName}, indicator {coverageGdpSnapshot.indicator}, reference year {coverageGdpSnapshot.year}. Missing figures remain listed and sort last.</p></div>
         <form method="get" action="/coverage" className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2 lg:grid-cols-5">
-          <label className="flex flex-col gap-1 text-sm font-medium lg:col-span-2">Search<input name="q" defaultValue={queryValue(query.q)} placeholder="Country, code, currency, or asset" className="h-10 rounded-md border bg-background px-3 font-normal" /></label>
+          <label className="flex flex-col gap-1 text-sm font-medium lg:col-span-2">Search<input name="q" defaultValue={queryValue(query.q)} placeholder="Country, code, currency code, or asset" className="h-10 rounded-md border bg-background px-3 font-normal" /></label>
           <label className="flex flex-col gap-1 text-sm font-medium">Issuer evidence<select name="issuer" defaultValue={issuerValue} className="h-10 rounded-md border bg-background px-2 font-normal"><option value="">All</option>{coverageIssuerStatuses.map((status) => <option key={status} value={status}>{issuerLabels[status]}</option>)}</select></label>
           <label className="flex flex-col gap-1 text-sm font-medium">Home status<select name="home" defaultValue={homeValue} className="h-10 rounded-md border bg-background px-2 font-normal"><option value="">All</option>{coverageHomeStatuses.map((status) => <option key={status} value={status}>{homeLabels[status]}</option>)}</select></label>
           <label className="flex flex-col gap-1 text-sm font-medium">Sort<select name="sort" defaultValue={sort} className="h-10 rounded-md border bg-background px-2 font-normal"><option value="gdp">GDP, highest first</option><option value="alphabetical">Alphabetical</option></select></label>
           <div className="flex gap-3 sm:col-span-2 lg:col-span-5"><Button type="submit">Apply</Button><Link href="/coverage" className="flex h-10 items-center rounded-md border px-4 text-sm font-medium">Reset</Link></div>
         </form>
         <p aria-live="polite" className="text-sm text-muted-foreground">Showing {records.length} of {coverageRegistry.length} countries and territories.</p>
-        <div className="overflow-x-auto rounded-lg border">
+        <div id="coverage-table" className="overflow-x-auto rounded-lg border">
           <table className="w-full min-w-3xl border-collapse text-left text-sm">
             <caption className="sr-only">Country local-money issuer evidence and separate Home implementation status</caption>
             <thead className="bg-muted/50"><tr><th scope="col" className="p-3">Country</th><th scope="col" className="p-3">Currency / candidate</th><th scope="col" className="p-3">Issuer evidence</th><th scope="col" className="p-3">Home status</th><th scope="col" className="p-3">GDP ({coverageGdpSnapshot.year})</th></tr></thead>
@@ -138,7 +141,7 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
               const region = record.configuredInHome ? presentationRegions[record.countryCode as CountryCode] : null;
               const evidence = record.issuerRoute.evidence;
               return <tr key={record.countryCode} id={`country-${record.countryCode}`} className="border-t align-top">
-                <th scope="row" className="p-3"><details><summary className="font-semibold">{record.countryName} <span className="font-normal text-muted-foreground">{record.countryCode}</span></summary><dl className="mt-3 space-y-1 font-normal"><div><dt className="inline font-medium">Local rail: </dt><dd className="inline">{record.issuerRoute.rail}</dd></div><div><dt className="inline font-medium">Audience: </dt><dd className="inline">{record.issuerRoute.audience}</dd></div><div><dt className="inline font-medium">Provider identity: </dt><dd className="inline">{record.homeRoute.providerId ?? "None"}</dd></div><div><dt className="inline font-medium">Payment method identities: </dt><dd className="inline">{record.homeRoute.paymentMethodIds.join(", ") || "None"}</dd></div><div><dt className="inline font-medium">Quote observation: </dt><dd className="inline">None recorded</dd></div></dl></details></th>
+                <th scope="row" className="p-3"><details><summary className="font-semibold">{record.countryName} <span className="font-normal text-muted-foreground">{record.countryCode}</span></summary><dl className="mt-3 space-y-1 font-normal"><div><dt className="inline font-medium">Local rail: </dt><dd className="inline">{record.issuerRoute.rail}</dd></div><div><dt className="inline font-medium">Audience: </dt><dd className="inline">{record.issuerRoute.audience}</dd></div><div><dt className="inline font-medium">Provider identity: </dt><dd className="inline">{record.homeRoute.providerId ?? "None"}</dd></div><div><dt className="inline font-medium">Payment method identities: </dt><dd className="inline">{record.homeRoute.paymentMethodIds.join(", ") || "None"}</dd></div><div><dt className="inline font-medium">Quote observation: </dt><dd className="inline">{record.quoteObservation ? <><a href={record.quoteObservation.sourceUrl} className="underline">Observed {record.quoteObservation.quotedAt}</a>; spread {record.quoteObservation.spreadBps === null ? "not recorded" : `${record.quoteObservation.spreadBps} bps`}; fees: {record.quoteObservation.feeSummary}</> : "None recorded"}</dd></div></dl></details></th>
                 <td className="p-3">{record.currencyCodes.join(", ") || "No current tender currency"}<br /><span className="text-muted-foreground">{region?.candidateAsset ? `${region.candidateAsset.symbol} · ${region.candidateAsset.issuer}` : record.configuredInHome ? "No candidate asset" : "Not configured in Home"}</span></td>
                 <td className="p-3"><span className="font-medium">{issuerLabels[record.issuerRoute.status]}</span><br />{evidence ? <a href={evidence.url} className="text-muted-foreground underline">Evidence checked {evidence.checkedAt}</a> : <span className="text-muted-foreground">No evidence recorded</span>}</td>
                 <td className="p-3"><span className="font-medium">{homeLabels[record.homeRoute.status]}</span>{record.homeRoute.assetId ? <><br /><span className="text-muted-foreground">{record.homeRoute.assetId}</span></> : null}<br /><span className="text-muted-foreground">Registry checked {record.homeRoute.evidence?.checkedAt ?? COVERAGE_REGISTRY_CHECKED_AT}</span></td>

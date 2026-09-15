@@ -97,13 +97,13 @@ export const coverageGdpSnapshot = gdpSnapshotJson as {
 export type CoverageSort = "gdp" | "alphabetical";
 export function sortCoverage(records: readonly CoverageRecord[], sort: CoverageSort) {
   return [...records].sort((a, b) => {
-    if (sort === "alphabetical") return a.countryName.localeCompare(b.countryName) || a.countryCode.localeCompare(b.countryCode);
+    if (sort === "alphabetical") return a.countryName.localeCompare(b.countryName, "en") || a.countryCode.localeCompare(b.countryCode, "en");
     const aGdp = coverageGdpSnapshot.rows[a.countryCode] ?? null;
     const bGdp = coverageGdpSnapshot.rows[b.countryCode] ?? null;
-    if (aGdp === null && bGdp === null) return a.countryCode.localeCompare(b.countryCode);
+    if (aGdp === null && bGdp === null) return a.countryCode.localeCompare(b.countryCode, "en");
     if (aGdp === null) return 1;
     if (bGdp === null) return -1;
-    return bGdp - aGdp || a.countryCode.localeCompare(b.countryCode);
+    return bGdp - aGdp || a.countryCode.localeCompare(b.countryCode, "en");
   });
 }
 
@@ -113,10 +113,10 @@ function csvCell(value: string | number | null) {
 }
 
 export function coverageCsv(records: readonly CoverageRecord[] = coverageRegistry) {
-  const header = ["country_code", "country", "currencies", "configured_in_home", "candidate_asset", "candidate_issuer", "issuer_route_status", "issuer_rail", "issuer_evidence_checked_at", "issuer_evidence_url", "home_route_status", "home_provider_id", "home_asset_id", "home_payment_method_ids", "home_live_checked_at", "gdp_current_usd", "gdp_year"];
+  const header = ["country_code", "country", "currencies", "configured_in_home", "candidate_asset", "candidate_issuer", "issuer_route_status", "issuer_rail", "issuer_evidence_checked_at", "issuer_evidence_url", "home_route_status", "home_provider_id", "home_asset_id", "home_payment_method_ids", "home_live_checked_at", "quote_observed_at", "quote_spread_bps", "quote_fee_summary", "quote_source_url", "gdp_current_usd", "gdp_year"];
   const rows = sortCoverage(records, "alphabetical").map((record) => {
     const region = record.configuredInHome ? presentationRegions[record.countryCode as CountryCode] : null;
-    return [record.countryCode, record.countryName, record.currencyCodes.join("|"), record.configuredInHome ? "true" : "false", region?.candidateAsset?.symbol ?? "", region?.candidateAsset?.issuer ?? "", record.issuerRoute.status, record.issuerRoute.rail, record.issuerRoute.evidence?.checkedAt ?? "", record.issuerRoute.evidence?.url ?? "", record.homeRoute.status, record.homeRoute.providerId ?? "", record.homeRoute.assetId ?? "", record.homeRoute.paymentMethodIds.join("|"), record.homeRoute.evidence?.checkedAt ?? "", coverageGdpSnapshot.rows[record.countryCode] ?? null, coverageGdpSnapshot.year].map(csvCell).join(",");
+    return [record.countryCode, record.countryName, record.currencyCodes.join("|"), record.configuredInHome ? "true" : "false", region?.candidateAsset?.symbol ?? "", region?.candidateAsset?.issuer ?? "", record.issuerRoute.status, record.issuerRoute.rail, record.issuerRoute.evidence?.checkedAt ?? "", record.issuerRoute.evidence?.url ?? "", record.homeRoute.status, record.homeRoute.providerId ?? "", record.homeRoute.assetId ?? "", record.homeRoute.paymentMethodIds.join("|"), record.homeRoute.evidence?.checkedAt ?? "", record.quoteObservation?.quotedAt ?? "", record.quoteObservation?.spreadBps ?? null, record.quoteObservation?.feeSummary ?? "", record.quoteObservation?.sourceUrl ?? "", coverageGdpSnapshot.rows[record.countryCode] ?? null, coverageGdpSnapshot.year].map(csvCell).join(",");
   });
   return `${header.join(",")}\n${rows.join("\n")}\n`;
 }
