@@ -73,6 +73,12 @@ export function hasCdpRestoreHint(): boolean {
     hasCdpRestoreMarker() || hasReadableCdpCookie();
 }
 
+export function readHomeAuthRestoreHint(): "none" | "cdp" | "base" {
+  if (hasCdpRestoreHint()) return "cdp";
+  const hint = readAccountProviderHint();
+  return hint === "base-account" || hint === "pending:base-account" ? "base" : "none";
+}
+
 export function hasAccountProviderHint(): boolean {
   return readAccountProviderHint() !== null || hasCdpRestoreMarker() || hasReadableCdpCookie();
 }

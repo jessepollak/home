@@ -11,7 +11,8 @@ import {
 import type { AccountWalletSdkBoundary } from "./cdp-client";
 import { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
 import type { VerifiedAccountSession } from "./session-client";
-import { markHomeAuthRestore } from "@/client/observability/auth-performance";
+import { markHomeAuthRestore, startHomeAuthRestore } from "@/client/observability/auth-performance";
+import { readHomeAuthRestoreHint } from "./cdp-wallet-provider-capabilities";
 import {
   clearNativeBaseSession,
   nativeOwnerKey,
@@ -96,6 +97,9 @@ export function useNativeBaseIdentity(): NativeBaseIdentity {
 
 export default function NativeBaseAccountBridge({ children }: { children: ReactNode }) {
   const { boundary } = useNativeBaseIdentity();
+  useEffect(() => {
+    startHomeAuthRestore(readHomeAuthRestoreHint());
+  }, []);
 
   return (
     <AccountWalletSessionOwner sdk={boundary} baseAccountEnabled projectConfigured={false}>

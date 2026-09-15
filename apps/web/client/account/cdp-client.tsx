@@ -27,8 +27,8 @@ import type { OperationResult, PreparedMoneyAction } from "@/shared/money-action
 import { TransferExecutionError } from "@/shared/transfers/types";
 import {
   BaseAccountLoginError,
-  hasCdpRestoreHint,
   readAccountProviderHint,
+  readHomeAuthRestoreHint,
 } from "./cdp-wallet-provider-capabilities";
 import {
   markHomeAuthRestore,
@@ -235,12 +235,8 @@ function LazyConfiguredAccountProvider({
   const captureRestorePlan = useCallback(() => {
     if (restorePlanRef.current) return restorePlanRef.current;
     const providerHint = readAccountProviderHint();
-    const waitForCdpRestore = hasCdpRestoreHint();
-    const reportHint = waitForCdpRestore
-      ? "cdp"
-      : providerHint === "base-account" || providerHint === "pending:base-account"
-        ? "base"
-        : "none";
+    const reportHint = readHomeAuthRestoreHint();
+    const waitForCdpRestore = reportHint === "cdp";
     const plan = {
       hasHint: providerHint !== null || waitForCdpRestore,
       waitForCdpRestore,

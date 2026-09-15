@@ -3,6 +3,7 @@ import { parseClientPerformanceReport } from "@/shared/observability/client-perf
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import {
   CLIENT_PERFORMANCE_MAX_BODY_BYTES,
+  CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW,
   createClientPerformanceHandler,
 } from "@/server/observability/client-performance";
 
@@ -63,6 +64,10 @@ function request(
 }
 
 describe("POST /api/client-performance", () => {
+  test("budgets both expected performance reports per document", () => {
+    expect(CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW).toBe(60);
+  });
+
   test("normalizes the exact closed startup schema without reordering phases", () => {
     expect(parseClientPerformanceReport(ready)).toEqual({
       ...ready,

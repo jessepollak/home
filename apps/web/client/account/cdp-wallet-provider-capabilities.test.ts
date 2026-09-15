@@ -9,6 +9,7 @@ import {
   hasCdpRestoreHint,
   hasCdpRestoreMarker,
   readAccountProviderHint,
+  readHomeAuthRestoreHint,
   writeCdpRestoreMarker,
 } from "./cdp-wallet-provider-capabilities";
 
@@ -47,6 +48,9 @@ describe("account provider restore hints", () => {
       window.sessionStorage.setItem(ACCOUNT_PROVIDER_HINT_KEY, hint);
       expect(readAccountProviderHint()).toBe(hint);
       expect(hasAccountProviderHint()).toBe(true);
+      expect(readHomeAuthRestoreHint()).toBe(
+        hint === "cdp-embedded" || hint === "pending:cdp-embedded" ? "cdp" : "base",
+      );
     }
 
     window.sessionStorage.setItem(ACCOUNT_PROVIDER_HINT_KEY, "cdp-embedded:owner-secret");
@@ -70,6 +74,7 @@ describe("account provider restore hints", () => {
     document.cookie = `home-cdp-live=${LIVE_NONCE}; Path=/`;
     expect(hasCdpRestoreHint()).toBe(true);
     expect(hasAccountProviderHint()).toBe(true);
+    expect(readHomeAuthRestoreHint()).toBe("cdp");
   });
 
   test("rejects malformed, empty, differently named, and duplicate live cookies", () => {
@@ -98,11 +103,13 @@ describe("account provider restore hints", () => {
     window.sessionStorage.clear();
     expect(hasCdpRestoreHint()).toBe(true);
     expect(hasAccountProviderHint()).toBe(true);
+    expect(readHomeAuthRestoreHint()).toBe("cdp");
 
     clearCdpRenderHint();
     expect(window.localStorage.getItem(CDP_RESTORE_MARKER_KEY)).toBeNull();
     expect(hasCdpRestoreMarker()).toBe(false);
     expect(hasCdpRestoreHint()).toBe(false);
+    expect(readHomeAuthRestoreHint()).toBe("none");
   });
 
   test("fails open for readiness when browser storage is unavailable", () => {
