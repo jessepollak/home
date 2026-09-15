@@ -5,10 +5,13 @@ import type { RegionId } from "@/config/regions";
 import {
   BALANCES_CHAIN_ID,
   type BalancesSnapshot,
-  type Holding,
 } from "@/shared/balances/types";
 import { enumerateBalances as defaultEnumerateBalances } from "./enumerate";
-import { priceBalances as defaultPriceBalances } from "./price";
+import {
+  priceBalances as defaultPriceBalances,
+  type PriceBalancesResult,
+  type ValuationMode,
+} from "./price";
 import { readBalances as defaultReadBalances } from "./read";
 import { resolveBalances as defaultResolveBalances } from "./resolve";
 import { assembleBalancesSnapshot } from "./snapshot";
@@ -49,7 +52,11 @@ type Dependencies = {
     read: BalancesRead,
     enumeration: BalancesEnumeration,
   ) => Promise<BalancesRead>;
-  priceBalances?: (read: BalancesRead, region: RegionId) => Promise<Holding[]>;
+  priceBalances?: (
+    read: BalancesRead,
+    region: RegionId,
+    mode: ValuationMode,
+  ) => Promise<PriceBalancesResult>;
   now?: () => Date;
   nowMs?: () => number;
   backstopMs?: number;
@@ -62,7 +69,10 @@ type ObservedResult = {
   read: BalancesRead;
   stale: boolean;
   outcome: Exclude<BalancesReadOutcome, "error">;
-  durationMs: Omit<BalancesReadDurations, "price" | "total">;
+  durationMs: Omit<
+    BalancesReadDurations,
+    "price" | "valuation-store" | "codex" | "coinbase" | "total"
+  >;
 };
 
 type ObservationDurations = ObservedResult["durationMs"];
@@ -189,12 +199,18 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         emitBalancesRead(log, outcome, {
           ...durationMs,
           price: 0,
+          "valuation-store": 0,
+          codex: 0,
+          coinbase: 0,
           total: Math.max(0, nowMs() - startedAt),
         }, observed.coverage);
       } catch {
         emitBalancesRead(log, "background-error", {
           ...durationMs,
           price: 0,
+          "valuation-store": 0,
+          codex: 0,
+          coinbase: 0,
           total: Math.max(0, nowMs() - startedAt),
         }, row.coverage);
       } finally {
@@ -282,18 +298,25 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       const observed = await getObserved(owner);
       coverage = observed.read.coverage;
       const priceStartedAt = nowMs();
-      const holdings = await priceBalances(observed.read, region);
+      const priced = await priceBalances(
+        observed.read,
+        region,
+        observed.outcome === "full" ? "bootstrap" : "cached",
+      );
       const priceDuration = Math.max(0, nowMs() - priceStartedAt);
       const snapshot = assembleBalancesSnapshot({
         owner,
         region,
         read: observed.read,
-        holdings,
-        stale: observed.stale,
+        holdings: priced.holdings,
+        stale: observed.stale || priced.revalidating,
       });
       emitBalancesRead(log, observed.outcome, {
         ...observed.durationMs,
         price: priceDuration,
+        "valuation-store": priced.durationMs.store,
+        codex: priced.durationMs.codex,
+        coinbase: priced.durationMs.coinbase,
         total: Math.max(0, nowMs() - startedAt),
       }, coverage);
       return snapshot;
@@ -301,6 +324,9 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       emitBalancesRead(log, "error", {
         ...emptyObservationDurations(),
         price: 0,
+        "valuation-store": 0,
+        codex: 0,
+        coinbase: 0,
         total: Math.max(0, nowMs() - startedAt),
       }, coverage);
       throw error;

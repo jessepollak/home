@@ -22,6 +22,8 @@ A fresh stored observation is served immediately even when it has an enumeration
 
 CDP enumeration starts pages only inside a 2.5-second soft budget. A page that started while the budget was open may finish successfully after it closes. Each in-flight page, including retries, has a four-second hard ceiling. Successful rows and the advanced cursor are retained; unavailable enumeration preserves prior rows and cursor. This trades foreground catalog completion speed for predictable response latency without changing truthful coverage.
 
+Valuation follows the same stale-while-revalidate boundary. A request serving any existing balance observation reads only global stored token/FX values; it records zero foreground `codex` and `coinbase` duration and retains needed refreshes with `after()`. Provider bootstrap is synchronous only for the `full` outcome that creates a missing balance observation. `durationMs.valuation-store`, `durationMs.codex`, and `durationMs.coinbase` separate valuation storage and provider time. A degraded visible valuation sets the snapshot stale flag only when its needed refresh was actually scheduled or is already in flight, allowing the client's bounded refetch to converge; refreshing a safe value is silent.
+
 ## Production verification
 
 After deployment, enable Speed Insights for the `home-web` Vercel project. This hosted setting can affect usage and is not changed by source code.
@@ -36,7 +38,7 @@ In Vercel logs, search `home.observability.v2`, then use:
 - a native/Base logout Network recording: confirm landing navigation follows successful native logout while bounded CDP cleanup can remain in flight, and confirm no `/` to `/home` bounce;
 - `kind=home-auth-phase outcome=timeout` for incomplete restore rate (partial phase fields show the last fixed milestone reached);
 - `kind=balances-read` and `outcome in (served-row,revalidating)` for warm cache-first read ratio;
-- foreground `kind=balances-read` outcomes with `durationMs.total` for p50/p75/p95; use `background-full`, `background-resume`, and `background-error` separately for revalidation health and stage timing;
+- foreground `kind=balances-read` outcomes with `durationMs.total` for p50/p75/p95; split `durationMs.valuation-store`, `durationMs.codex`, and `durationMs.coinbase`, and verify cached outcomes keep both provider fields at zero; use `background-full`, `background-resume`, and `background-error` separately for revalidation health and stage timing;
 - `kind=portfolio-balance-source` for incomplete or unavailable enumeration reason and page count.
 
 Verify after at least 200 balance reads or seven days, whichever is later. Capture warm versus cold distributions, catalog coverage, unavailable/stale rates, `/home` startup split by cache provenance, and Speed Insights LCP/INP for only `/` and the canonical L1 labels. Runtime log retention is plan-dependent, so record the before/after summary on the tracking issues during that window.

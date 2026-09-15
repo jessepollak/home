@@ -123,7 +123,11 @@ function setup(options: {
         catalog: enumeration.status === "unavailable" ? "unavailable" : "complete",
       },
     }),
-    priceBalances: async (value) => priced(value.holdings),
+    priceBalances: async (value) => ({
+      holdings: priced(value.holdings),
+      revalidating: false,
+      durationMs: { store: 0, codex: 0, coinbase: 0 },
+    } as never),
   });
   return {
     store,
@@ -160,6 +164,9 @@ describe("balance observations", () => {
         "registry-read": 0,
         resolve: 0,
         price: 1,
+        "valuation-store": 0,
+        codex: 0,
+        coinbase: 0,
         "store-write": 0,
         total: expect.any(Number),
       },

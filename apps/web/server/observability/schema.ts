@@ -59,6 +59,9 @@ export type BalancesReadDurations = {
   "registry-read": number;
   resolve: number;
   price: number;
+  "valuation-store": number;
+  codex: number;
+  coinbase: number;
   "store-write": number;
   total: number;
 };
@@ -75,6 +78,7 @@ export const SERVER_EVENT_KINDS = [
   "balances-webhook-subscription",
   "balances-store",
   "balances-signal",
+  "balances-valuation",
 ] as const;
 export const SERVER_EVENT_OUTCOMES = [
   "failed",
@@ -495,6 +499,9 @@ function normalizeBalancesReadDurations(
     "registry-read": boundedInteger(durations["registry-read"], 60_000),
     resolve: boundedInteger(durations.resolve, 60_000),
     price: boundedInteger(durations.price, 60_000),
+    "valuation-store": boundedInteger(durations["valuation-store"], 60_000),
+    codex: boundedInteger(durations.codex, 60_000),
+    coinbase: boundedInteger(durations.coinbase, 60_000),
     "store-write": boundedInteger(durations["store-write"], 60_000),
     total: boundedInteger(durations.total, 60_000),
   };

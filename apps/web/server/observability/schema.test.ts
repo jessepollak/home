@@ -7,7 +7,7 @@ describe("observability schema", () => {
       kind: "balances-read" as const,
       route: "/api/balances" as const,
       outcome: "revalidating" as const,
-      durationMs: { "store-read": 1, enumerate: 0, "registry-read": 0, resolve: 0, price: 1, "store-write": 0, total: 2 },
+      durationMs: { "store-read": 1, enumerate: 0, "registry-read": 0, resolve: 0, price: 1, "valuation-store": 1, codex: 0, coinbase: 0, "store-write": 0, total: 2 },
       coverage: { registry: "complete" as const, catalog: "complete" as const },
     };
     expect(normalizeObservabilityEvent(event)).toMatchObject({ outcome: "revalidating" });

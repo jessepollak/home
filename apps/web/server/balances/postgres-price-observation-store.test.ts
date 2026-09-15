@@ -22,11 +22,18 @@ describePostgres("PostgresPriceObservationStore production contract", () => {
       resolve(import.meta.dir, "../db/migrations/005_balances.sql"),
       "utf8",
     );
+    const attemptsMigration = await readFile(
+      resolve(import.meta.dir, "../db/migrations/006_valuation_attempts.sql"),
+      "utf8",
+    );
+    await client.unsafe("DROP TABLE IF EXISTS valuation_attempts");
     await client.unsafe("DROP TABLE IF EXISTS price_observations");
     await client.unsafe(migration);
+    await client.unsafe(attemptsMigration);
     executor = bunExecutor(client);
   });
   afterAll(async () => {
+    await client?.unsafe("DROP TABLE IF EXISTS valuation_attempts");
     await client?.unsafe("DROP TABLE IF EXISTS price_observations");
     await client?.close();
   });
@@ -34,7 +41,7 @@ describePostgres("PostgresPriceObservationStore production contract", () => {
   priceObservationStoreContract({
     name: "Postgres",
     createStore: () => new PostgresPriceObservationStore(executor),
-    reset: async () => { await client.unsafe("TRUNCATE price_observations"); },
+    reset: async () => { await client.unsafe("TRUNCATE price_observations, valuation_attempts"); },
   });
 });
 

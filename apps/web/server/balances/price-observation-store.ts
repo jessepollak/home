@@ -11,10 +11,27 @@ export type PriceObservation = {
   fetchedAt: string;
 };
 
+export const VALUATION_ATTEMPT_STATUSES = [
+  "fresh",
+  "missing",
+  "invalid",
+  "stale",
+  "unavailable",
+] as const;
+export type ValuationAttemptStatus = (typeof VALUATION_ATTEMPT_STATUSES)[number];
+export type ValuationAttempt = {
+  assetKey: string;
+  attemptAt: string;
+  status: ValuationAttemptStatus;
+};
+
 export interface PriceObservationStore {
   getMany(assetKeys: readonly string[]): Promise<PriceObservation[]>;
   /** Upserts by source time; equal source time refreshes fetchedAt, older never wins. */
   putMany(observations: readonly PriceObservation[]): Promise<void>;
+  getAttempts(assetKeys: readonly string[]): Promise<ValuationAttempt[]>;
+  /** Upserts by attempt time; an older attempt never wins. */
+  putAttempts(attempts: readonly ValuationAttempt[]): Promise<void>;
 }
 
 type DatabaseRow = Record<string, unknown>;
@@ -31,6 +48,16 @@ export class PostgresPriceObservationStore implements PriceObservationStore {
       [postgresTextArray(assetKeys)],
     );
     return result.rows.map((row) => fromDatabaseRow(row as DatabaseRow));
+  }
+
+  async getAttempts(assetKeys: readonly string[]): Promise<ValuationAttempt[]> {
+    if (assetKeys.length === 0) return [];
+    const result = await this.sql.query(
+      `SELECT asset_key,attempt_at,status FROM valuation_attempts
+       WHERE asset_key = ANY($1::text[])`,
+      [postgresTextArray(assetKeys)],
+    );
+    return result.rows.map((row) => attemptFromDatabaseRow(row as DatabaseRow));
   }
 
   async putMany(observations: readonly PriceObservation[]): Promise<void> {
@@ -61,6 +88,28 @@ export class PostgresPriceObservationStore implements PriceObservationStore {
       values,
     );
   }
+
+  async putAttempts(attempts: readonly ValuationAttempt[]): Promise<void> {
+    if (attempts.length === 0) return;
+    const values = attempts.flatMap((attempt) => [
+      attempt.assetKey,
+      attempt.attemptAt,
+      attempt.status,
+    ]);
+    const rows = attempts.map((_, index) => {
+      const first = index * 3 + 1;
+      return `($${first},$${first + 1},$${first + 2})`;
+    });
+    await this.sql.query(
+      `INSERT INTO valuation_attempts (asset_key,attempt_at,status)
+       VALUES ${rows.join(",")}
+       ON CONFLICT (asset_key) DO UPDATE SET
+         attempt_at=EXCLUDED.attempt_at,
+         status=EXCLUDED.status
+       WHERE EXCLUDED.attempt_at > valuation_attempts.attempt_at`,
+      values,
+    );
+  }
 }
 
 let runtimeStore: PriceObservationStore | null = null;
@@ -84,6 +133,18 @@ function fromDatabaseRow(row: DatabaseRow): PriceObservation {
     },
     asOf: timestamp(row.as_of),
     fetchedAt: timestamp(row.fetched_at),
+  };
+}
+
+function attemptFromDatabaseRow(row: DatabaseRow): ValuationAttempt {
+  const status = String(row.status);
+  if (!VALUATION_ATTEMPT_STATUSES.includes(status as ValuationAttemptStatus)) {
+    throw new Error("Invalid valuation attempt status.");
+  }
+  return {
+    assetKey: String(row.asset_key),
+    attemptAt: timestamp(row.attempt_at),
+    status: status as ValuationAttemptStatus,
   };
 }
 

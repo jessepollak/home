@@ -53,6 +53,34 @@ export function priceObservationStoreContract(options: {
       await store.putMany([observation("2026-09-13T12:00:00.000Z", "2")]);
       expect(await store.getMany(["missing"])).toEqual([]);
     });
+
+    test("round-trips attempts and keeps the latest attempt", async () => {
+      await store.putAttempts([{
+        assetKey: ASSET_KEY,
+        attemptAt: "2026-09-13T12:00:00.000Z",
+        status: "unavailable",
+      }]);
+      await store.putAttempts([{
+        assetKey: ASSET_KEY,
+        attemptAt: "2026-09-13T11:59:00.000Z",
+        status: "fresh",
+      }]);
+      expect(await store.getAttempts([ASSET_KEY])).toEqual([{
+        assetKey: ASSET_KEY,
+        attemptAt: "2026-09-13T12:00:00.000Z",
+        status: "unavailable",
+      }]);
+    });
+
+    test("failed attempts never erase the last-good observation", async () => {
+      await store.putMany([observation("2026-09-13T12:00:00.000Z", "2")]);
+      await store.putAttempts([{
+        assetKey: ASSET_KEY,
+        attemptAt: "2026-09-13T12:01:00.000Z",
+        status: "missing",
+      }]);
+      expect(await store.getMany([ASSET_KEY])).toHaveLength(1);
+    });
   });
 }
 
