@@ -14,7 +14,7 @@ const brEnv = {
   RIPIO_CLIENT_ID_BR: "client-br",
   RIPIO_CLIENT_SECRET_BR: "secret-br-long-enough",
 };
-const PIX_CODE = "00020126320014br.gov.bcb.pix0110abcdefghij5204000053039865406100.005802BR5904HOME6004HOME6304BEEF";
+const PIX_CODE = "00020126320014br.gov.bcb.pix0110abcdefghij5204000053039865406100.005802BR5904HOME6004HOME6304C027";
 
 function token() {
   return Response.json({ access_token: "provider-access-token", expires_in: 36000, scope: "read write" });
@@ -139,15 +139,18 @@ describe("Ripio production REST client", () => {
 
     await expect(create({ brCode: PIX_CODE, paymentUrl: "https://skala.ripio.com/pix", expiresAt: "2098-12-31T23:00:00.000Z" })).resolves.toMatchObject({ instructions: { kind: "br-pix", brCode: PIX_CODE, expiresAt: "2098-12-31T23:00:00.000Z" } });
     await expect(create({ brCode: PIX_CODE, paymentUrl: null, expiresAt: null })).resolves.toMatchObject({ instructions: { kind: "br-pix", brCode: PIX_CODE } });
-    const uppercaseGui = PIX_CODE.replace("br.gov.bcb.pix", "BR.GOV.BCB.PIX");
+    const uppercaseGui = PIX_CODE.replace("br.gov.bcb.pix", "BR.GOV.BCB.PIX").replace("C027", "AAA4");
     await expect(create({ brCode: uppercaseGui })).resolves.toMatchObject({ instructions: { kind: "br-pix", brCode: uppercaseGui } });
+    const lowercaseChecksum = PIX_CODE.replace("C027", "c027");
+    await expect(create({ brCode: lowercaseChecksum })).resolves.toMatchObject({ instructions: { kind: "br-pix", brCode: lowercaseChecksum } });
+    await expect(create({ brCode: PIX_CODE.replace("C027", "BEEF") })).rejects.toMatchObject({ code: "ambiguous-create" });
     for (const instructions of [
       {},
       { brCode: PIX_CODE.replace("5406100.00", "5406101.00") },
       { brCode: PIX_CODE.replace("5406100.00", "") },
       { brCode: `${PIX_CODE.slice(0, -1)}Z` },
       { brCode: PIX_CODE.replace("2632", "2699") },
-      { brCode: PIX_CODE.replace("6004HOME6304BEEF", "6012HOME6304BEEF") },
+      { brCode: PIX_CODE.replace("6004HOME6304C027", "6012HOME6304C027") },
       { cvu: "1234567890123456789012" },
       { brCode: PIX_CODE, paymentUrl: "http://skala.ripio.com/pix" },
       { brCode: PIX_CODE, expiresAt: "not-a-date" },

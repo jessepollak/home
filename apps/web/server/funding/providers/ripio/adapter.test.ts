@@ -64,7 +64,7 @@ describe("Ripio funding adapter", () => {
 
   test("maps Brazil Pix to the shared QR contract and stores the earlier Pix expiry", async () => {
     const brEnv = { ...env, RIPIO_CLIENT_ID_BR: "client", RIPIO_CLIENT_SECRET_BR: "secret" };
-    const brCode = "00020126320014br.gov.bcb.pix0110abcdefghij52040000530398654071000.005802BR5904HOME6004HOME6304BEEF";
+    const brCode = "00020126320014br.gov.bcb.pix0110abcdefghij52040000530398654071000.005802BR5904HOME6004HOME63040CF7";
     const ctx = createProviderContext({
       manifest: ripioManifest,
       region: "BR",
@@ -81,7 +81,7 @@ describe("Ripio funding adapter", () => {
 
   test("retains the quote expiry when Pix expires later and accepts a parseable past Pix expiry", async () => {
     const brEnv = { ...env, RIPIO_CLIENT_ID_BR: "client-expiry", RIPIO_CLIENT_SECRET_BR: "secret" };
-    const brCode = "00020126320014br.gov.bcb.pix0110abcdefghij52040000530398654071000.005802BR5904HOME6004HOME6304BEEF";
+    const brCode = "00020126320014br.gov.bcb.pix0110abcdefghij52040000530398654071000.005802BR5904HOME6004HOME63040CF7";
     const create = (expiresAt: string) => ripioProvider.onramp!.createOrder(intent, createProviderContext({
       manifest: ripioManifest,
       region: "BR",

@@ -499,6 +499,16 @@ function sameDecimal(left: string, right: string): boolean {
   const normalize = (value: string) => value.replace(/\.0+$/, "").replace(/(\.[0-9]*?)0+$/, "$1");
   return normalize(left) === normalize(right);
 }
+function pixCrc16(payload: string): number {
+  let crc = 0xffff;
+  for (const byte of Buffer.from(payload, "utf8")) {
+    crc ^= byte << 8;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+    }
+  }
+  return crc;
+}
 function validPixCode(value: string, expectedAmount: string): boolean {
   if (value.length < 20 || value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value) || !value.toLowerCase().includes("br.gov.bcb.pix")) return false;
   let offset = 0;
@@ -519,6 +529,7 @@ function validPixCode(value: string, expectedAmount: string): boolean {
     }
     if (tag === "63") {
       if (hasCrc || length !== 4 || !/^[0-9A-Fa-f]{4}$/.test(content) || end !== value.length) return false;
+      if (pixCrc16(value.slice(0, offset + 4)) !== Number.parseInt(content, 16)) return false;
       hasCrc = true;
     }
     offset = end;
