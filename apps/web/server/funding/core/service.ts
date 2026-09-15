@@ -20,7 +20,7 @@ export type FundingCoreDependencies = {
   fetchImplementation?: typeof fetch;
   currentBaseBlock: () => Promise<string>;
   verifyReceipt: (order: FundingOrder, hash: `0x${string}`) => Promise<ReceiptMatch>;
-  logUnmatchedWebhook?: (event: { providerId: string; reason: "invalid" | "unmatched" }) => void;
+  logUnmatchedWebhook?: (event: { providerId: string; reason: "invalid" | "unmatched" | "region-mismatch" }) => void;
   logProviderDiscoveryFailure?: (event: { providerId: string; reason: "configuration" | "provider"; code: FundingConfigurationCode }) => void;
   markStale?: (address: `0x${string}`, at: Date) => Promise<void>;
   now?: () => Date;
@@ -279,7 +279,8 @@ export class FundingCore {
             verifiedRegion = binding.region;
             break;
           }
-        } catch {
+        } catch (error) {
+          if (!(error instanceof FundingProviderConfigurationError)) throw error;
           // A webhook is only a trigger. Invalid binding configuration cannot
           // turn an unverified request into an order refresh.
         }
@@ -297,13 +298,19 @@ export class FundingCore {
     }
     if (order.region !== verifiedRegion) {
       const binding = findBinding(provider, order.region, "onramp", order.paymentMethod, order.assetId);
+      if (!binding || !environmentAvailable(binding.directions.onramp!.env, this.env)) {
+        this.deps.logUnmatchedWebhook?.({ providerId, reason: "region-mismatch" });
+        return { accepted: true, matched: false };
+      }
+      let verified;
       try {
-        if (!binding || !environmentAvailable(binding.directions.onramp!.env, this.env)) throw new Error("unavailable binding");
         const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
-        const verified = onramp.verifyWebhook(raw, headers, ctx);
-        if (verified?.providerOrderId !== providerOrderId) throw new Error("signature region mismatch");
-      } catch {
-        this.deps.logUnmatchedWebhook?.({ providerId, reason: "unmatched" });
+        verified = onramp.verifyWebhook(raw, headers, ctx);
+      } catch (error) {
+        if (!(error instanceof FundingProviderConfigurationError)) throw error;
+      }
+      if (verified?.providerOrderId !== providerOrderId) {
+        this.deps.logUnmatchedWebhook?.({ providerId, reason: "region-mismatch" });
         return { accepted: true, matched: false };
       }
     }

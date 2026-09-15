@@ -83,6 +83,23 @@ describe("funding provider registry validation", () => {
     expect(() => validateFundingProviders([undeclared])).toThrow("webhook secret");
   });
 
+  test("rejects an onramp binding that declares another mapped region's webhook secret", () => {
+    const invalid = fixture();
+    invalid.manifest.onramp!.webhook = {
+      signatureHeader: "x-signature",
+      env: { US: "US_WEBHOOK_SECRET", BR: "BR_WEBHOOK_SECRET" },
+    };
+    invalid.manifest.bindings[0]!.directions.onramp!.env = ["FIXTURE_KEY", "US_WEBHOOK_SECRET", "BR_WEBHOOK_SECRET"];
+    invalid.manifest.bindings = [...invalid.manifest.bindings, {
+      region: "BR",
+      assetId: "base:usdc",
+      currency: "BRL",
+      directions: { onramp: { paymentMethods: [{ id: "pix", label: "Pix" }], env: ["FIXTURE_KEY", "BR_WEBHOOK_SECRET"] } },
+    }];
+
+    expect(() => validateFundingProviders([invalid])).toThrow("must not declare another region's webhook secret");
+  });
+
   test("rejects ambiguous direction methods, duplicate origins, and webhook env gaps", () => {
     const duplicateMethod = fixture();
     duplicateMethod.manifest.bindings = [...duplicateMethod.manifest.bindings, {

@@ -49,6 +49,14 @@ export function validateFundingProviders(providers: ReadonlyArray<FundingProvide
         if (direction === "onramp" && requiredWebhookEnvironment && !env.has(requiredWebhookEnvironment)) {
           fail(`${manifest.id} webhook secret must be declared by every onramp binding.`);
         }
+        if (direction === "onramp" && webhookEnvironment && typeof webhookEnvironment !== "string") {
+          const otherWebhookEnvironments = Object.entries(webhookEnvironment)
+            .filter(([region]) => region !== binding.region)
+            .map(([, name]) => name);
+          if (otherWebhookEnvironments.some((name) => env.has(name))) {
+            fail(`${manifest.id} onramp binding must not declare another region's webhook secret.`);
+          }
+        }
       }
     }
   }

@@ -22,8 +22,10 @@ export function getFundingCore(): FundingCore {
     logUnmatchedWebhook: ({ providerId, reason }) => {
       emitServerEvent("funding-webhook", {
         route: "/api/funding/webhooks/:provider",
-        code: reason === "invalid" ? "WEBHOOK_INVALID" : "WEBHOOK_UNMATCHED",
-        outcome: reason,
+        code: reason === "invalid"
+          ? "WEBHOOK_INVALID"
+          : reason === "region-mismatch" ? "WEBHOOK_REGION_MISMATCH" : "WEBHOOK_UNMATCHED",
+        outcome: reason === "region-mismatch" ? "unmatched" : reason,
         provider: providerId,
       });
     },
