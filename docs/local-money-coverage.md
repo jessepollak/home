@@ -1,11 +1,12 @@
 # Local money coverage registry
 
-The public [`/coverage`](../apps/web/app/coverage/page.tsx) page is a sourced inventory, not an eligibility or availability promise. It presents two independent facts:
+The public [`/coverage`](../apps/web/app/coverage/page.tsx) page is a sourced inventory, not an eligibility or availability promise. It presents three distinct signals:
 
-- **Issuer/local-rail evidence** records what issuer or partner documentation described for an explicit country when research was checked. `documented` and `conditional` do not mean that a user is eligible or that Home can execute the route. Research is never inherited by another country that shares a currency.
-- **Home route status** records implementation maturity. Only `live` means a funded route was proven in a hosted production environment. A `live` record must include a proof reference and checked date.
+- **Stablecoin** records whether Home has identified a configured candidate asset for the country. Identified candidates still carry pending or additional verification and remain funding-disabled, so an identified candidate is a research lead, not an available asset. Countries without a candidate asset are reported as not identified.
+- **1:1 onramp evidence** records what issuer or partner documentation described for an explicit country when research was checked. `documented` and `conditional` do not mean that a user is eligible or that Home can execute the route. Research is never inherited by another country that shares a currency.
+- **Integrated status** records implementation maturity. Only `live` means a funded route was proven in a hosted production environment. A `live` record must include a proof reference and checked date.
 
-Quote price, spread, and fees are observations tied to a dated quote. They are never permanent properties of a route. The initial registry contains no quote observations and no live Home routes.
+Quote price, spread, and fees are observations tied to a dated quote. They are never permanent properties of a route. The initial registry contains no quote observations and no live integrations.
 
 ## Country and currency snapshot
 
@@ -26,9 +27,9 @@ Nominal GDP is the checked-in [`coverage-gdp-2024.json`](../apps/web/config/cove
 
 2024 is the latest sufficiently complete fixed year under the recorded rule: choose the latest year no more than 2% of the 250-entry universe below the most complete preceding candidate year. The download had 203 figures for 2023, 200 for 2024 (a 1.2% universe decline), and 186 for 2025. Missing values remain visible and sort after known values.
 
-The globe reuses Natural Earth v5.1.2 label points documented in `apps/web/client/landing/GEOGRAPHY.md`. All 239 sourced points render as markers; countries with explicit issuer-route research are interactive and show a status summary. The complete 250-entry inventory remains available in the table and CSV, including entries without Natural Earth points (`BQ`, `BV`, `CC`, `CX`, `GF`, `GP`, `MQ`, `RE`, `SJ`, `TK`, `YT`). Polygons remain deferred.
+The globe reuses Natural Earth v5.1.2 label points documented in `apps/web/client/landing/GEOGRAPHY.md`. All 239 sourced points render as markers; countries with explicit 1:1 onramp research are interactive and show a three-signal status summary. Marker tones describe onramp research only, not stablecoin availability or integration status. The complete 250-entry inventory remains available in the table and CSV, including entries without Natural Earth points (`BQ`, `BV`, `CC`, `CX`, `GF`, `GP`, `MQ`, `RE`, `SJ`, `TK`, `YT`). Polygons remain deferred.
 
-When changing provider manifests or coverage records, run `bun check`. Consistency tests require both sides to use the same country, asset, provider, and payment-method identities. CSV output at `/coverage.csv` is generated deterministically from the full registry.
+When changing provider manifests or coverage records, run `bun check`. Consistency tests require both sides to use the same country, asset, provider, and payment-method identities. CSV output at `/coverage.csv` is generated deterministically from the full registry; its field names (`issuer_route_status`, `home_route_status`, …) are internal registry identifiers and intentionally unchanged.
 
 ## Local Agentation feedback
 

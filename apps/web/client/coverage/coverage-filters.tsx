@@ -103,14 +103,14 @@ export function CoverageFilters({ values, issuerOptions, homeOptions }: Coverage
         />
       </label>
       <label className="flex w-44 flex-col gap-1 text-xs font-medium">
-        Issuer route
+        1:1 onramp
         <NativeSelect ref={issuerRef} name="issuer" defaultValue={values.issuer} onChange={submitNow}>
           <option value="">All</option>
           {issuerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </NativeSelect>
       </label>
       <label className="flex w-44 flex-col gap-1 text-xs font-medium">
-        Home route
+        Integrated
         <NativeSelect ref={homeRef} name="home" defaultValue={values.home} onChange={submitNow}>
           <option value="">All</option>
           {homeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}

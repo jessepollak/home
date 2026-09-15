@@ -356,7 +356,7 @@ test("coverage fixture keeps public chrome and automatic GET filters usable", as
   expect(searchTop).toBeGreaterThanOrEqual(0);
   expect(searchTop).toBeLessThan(752);
 
-  await page.getByRole("combobox", { name: "Issuer route" }).selectOption("documented");
+  await page.getByRole("combobox", { name: "1:1 onramp" }).selectOption("documented");
   await expect(page).toHaveURL(/issuer=documented/);
   await page.goBack();
   await expect(page).not.toHaveURL(/issuer=documented/);
