@@ -518,6 +518,21 @@ test("Activity transaction details keep labels on one line and link to the explo
     await page.setViewportSize({ width, height: 720 });
     expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   }
+
+  // Copy rows wrap a 44px min-height control; the decorative divider must not add
+  // layout height, so copy rows and text rows share one 44px rhythm (#484).
+  const rowHeights = await dialog.locator("dl > div").evaluateAll((rows) =>
+    rows.map((row) => ({
+      copy: row.querySelector(".lucide-copy") !== null,
+      height: row.getBoundingClientRect().height,
+    })),
+  );
+  expect(rowHeights.length).toBeGreaterThanOrEqual(2);
+  expect(rowHeights.some((row) => row.copy)).toBe(true);
+  expect(rowHeights.some((row) => !row.copy)).toBe(true);
+  const heights = rowHeights.map((row) => row.height);
+  expect(Math.min(...heights)).toBeGreaterThanOrEqual(44);
+  expect(Math.max(...heights)).toBeLessThan(Math.min(...heights) + 1);
 });
 
 test("recent operations open transaction details", async ({ page }) => {
