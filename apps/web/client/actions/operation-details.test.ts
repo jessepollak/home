@@ -155,8 +155,36 @@ describe("operation transaction details", () => {
     expect(details.rows).toContainEqual({ label: "Market", value: "cbBTC / USDC" });
   });
 
+  test("uses cash-out presentation metadata and omits an unavailable handle on withdrawal", () => {
+    const metadata = {
+      product: "cashout" as const,
+      providerId: "peer",
+      providerName: "Peer",
+      environment: "production" as const,
+      platform: "cashapp",
+      platformLabel: "Cash App",
+      currency: "USD",
+      approximateFiatAmount: "1",
+      etaSeconds: null,
+      minConversionRate: "1",
+      intentAmountRange: { min: "1000000", max: "1000000" },
+      estimateAsOf: "2026-09-14T12:00:00.000Z",
+      escrow: "0x777777779d229cdF3110e9de47943791c26300Ef" as const,
+    };
+    const deposit = presentOperationDetails(baseOperation({ action: { ...baseOperation().action, metadata: { ...metadata, operation: "deposit", canonicalHandle: "alice" } } }));
+    expect(deposit.rows).toContainEqual({ label: "Payout app", value: "Cash App" });
+    expect(deposit.rows).toContainEqual({ label: "Payout handle", value: "alice" });
+    expect(deposit.rows).not.toContainEqual(expect.objectContaining({ label: "Escrow" }));
+
+    const withdrawal = presentOperationDetails(baseOperation({ action: { ...baseOperation().action, metadata: { ...metadata, operation: "withdraw", depositId: "0xescrow_7" } } }));
+    expect(withdrawal.rows).not.toContainEqual(expect.objectContaining({ label: "Payout handle" }));
+    expect(withdrawal.rows).not.toContainEqual(expect.objectContaining({ label: "Approximate receive" }));
+  });
+
   test("labels every stored action kind without parsing the title", () => {
     expect(labelForMoneyActionKind("send")).toBe("Send");
+    expect(labelForMoneyActionKind("cash-out")).toBe("Cash out");
+    expect(labelForMoneyActionKind("cash-out-withdraw")).toBe("Withdraw cash-out");
     expect(labelForMoneyActionKind("savings-deposit")).toBe("Deposit to Save");
     expect(labelForMoneyActionKind("savings-withdraw")).toBe("Withdraw from Save");
     expect(labelForMoneyActionKind("trade")).toBe("Trade");

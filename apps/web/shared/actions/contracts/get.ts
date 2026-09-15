@@ -50,7 +50,7 @@ export function parsePendingActionResponse(
   if (
     !isRecord(value) ||
     value.id !== id ||
-    value.kind !== "send" ||
+    (value.kind !== "send" && value.kind !== "cash-out" && value.kind !== "cash-out-withdraw") ||
     !isRecord(value.summary) ||
     typeof value.summary.title !== "string" ||
     !Array.isArray(value.summary.amounts) ||
@@ -75,8 +75,24 @@ export function parsePendingActionResponse(
     amounts: value.summary.amounts as PreparedMoneyAction["amounts"],
     warnings: value.summary.warnings as string[],
     expiresAt: value.expiresAt,
+    ...(isMoneyActionMetadata(value.summary.metadata) ? { metadata: value.summary.metadata } : {}),
     createdAt: new Date().toISOString(),
   };
+}
+
+function isMoneyActionMetadata(value: unknown): value is MoneyActionMetadata {
+  if (!isRecord(value)) return false;
+  if (value.product === "cashout") {
+    return (value.operation === "deposit" || value.operation === "withdraw") &&
+      typeof value.providerId === "string" && typeof value.providerName === "string" && typeof value.environment === "string" &&
+      typeof value.platform === "string" && typeof value.platformLabel === "string" && typeof value.currency === "string" &&
+      (value.operation === "deposit" ? typeof value.canonicalHandle === "string" && value.depositId === undefined : value.canonicalHandle === undefined && typeof value.depositId === "string") &&
+      typeof value.approximateFiatAmount === "string" &&
+      typeof value.minConversionRate === "string" && isRecord(value.intentAmountRange) &&
+      typeof value.intentAmountRange.min === "string" && typeof value.intentAmountRange.max === "string" &&
+      typeof value.estimateAsOf === "string" && typeof value.escrow === "string";
+  }
+  return value.product === "borrow";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -18,13 +18,12 @@ export const CODEX_TOKEN_LOOKUP_BATCH_MAX = 100;
 export const CODEX_TOKEN_LOOKUP_CACHE_MAX = 2_048;
 
 export const CODEX_TOKEN_LOOKUP_QUERY = `query BaseTokensByAddress(
-  $filters: TokenFilters
+  $tokens: [String!]
   $limit: Int
 ) {
-  filterTokens(filters: $filters, limit: $limit) {
+  filterTokens(tokens: $tokens, limit: $limit) {
     results {
       liquidity
-      volume24
       token {
         address
         name
@@ -48,7 +47,6 @@ export type CodexTokenLookupEntry = {
   decimals: number;
   imageUrl?: string;
   liquidityUsd?: ExactDecimal;
-  volume24Usd?: ExactDecimal;
 };
 
 type CacheEntry = {
@@ -177,9 +175,7 @@ async function fetchTokenBatch({
     apiKey,
     query: CODEX_TOKEN_LOOKUP_QUERY,
     variables: {
-      filters: {
-        tokens: addresses.map((address) => `${address}:8453`),
-      },
+      tokens: addresses.map((address) => `${address}:8453`),
       limit: addresses.length,
     },
     fetchImpl,
@@ -231,7 +227,6 @@ export function normalizeTokenLookupEntry(
   }
 
   const liquidityUsd = readNonNegativeExactDecimal(row.liquidity);
-  const volume24Usd = readNonNegativeExactDecimal(row.volume24);
   const info = readRecord(token.info);
   const imageUrl =
     sanitizeImageUrl(info?.imageSmallUrl) ??
@@ -244,7 +239,6 @@ export function normalizeTokenLookupEntry(
     decimals,
     ...(imageUrl ? { imageUrl } : {}),
     ...(liquidityUsd ? { liquidityUsd } : {}),
-    ...(volume24Usd ? { volume24Usd } : {}),
   };
 }
 

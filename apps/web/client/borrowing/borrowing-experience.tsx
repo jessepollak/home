@@ -494,16 +494,13 @@ function BorrowCardActions({ snapshot, onOpen }: { snapshot: BorrowMarketSnapsho
         ))}
       </div>
       {hasDebt || hasCollateral ? (
-        <div className="space-y-2 border-t pt-3" role="group" aria-label="Manage Bitcoin position">
-          <span className="text-xs font-medium text-muted-foreground">Manage</span>
-          <div className="grid grid-cols-2 gap-2">
-            <Button className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasWalletCollateral} onClick={() => onOpen("supply-collateral")}>
-              <span className="py-2">Add collateral</span>
-            </Button>
-            <Button aria-label="Withdraw collateral from Bitcoin position" className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>
-              <span className="py-2">Withdraw</span>
-            </Button>
-          </div>
+        <div className="grid grid-cols-2 gap-2" role="group" aria-label="Manage Bitcoin position">
+          <Button className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasWalletCollateral} onClick={() => onOpen("supply-collateral")}>
+            <span className="py-2">Add collateral</span>
+          </Button>
+          <Button aria-label="Withdraw collateral from Bitcoin position" className="min-h-11 h-auto w-full whitespace-normal" size="sm" variant="outline" disabled={!hasCollateral || (hasDebt && !canNewRisk) || BigInt(snapshot.position.withdrawableCollateralRaw) === BigInt(0)} onClick={() => onOpen("withdraw-collateral")}>
+            <span className="py-2">Withdraw</span>
+          </Button>
         </div>
       ) : null}
       {snapshot.eligibility.mode === "reducing-only" || !snapshot.eligibility.newRisk ? (

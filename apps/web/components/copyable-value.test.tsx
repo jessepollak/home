@@ -65,6 +65,16 @@ describe("CopyableValue", () => {
     await waitFor(() => expect(copied).toBe(VALUE));
   });
 
+  test("renders the compact presentation with a 44px hit target, copy icon, and no inner padding", () => {
+    const view = render(<CopyableValue value={VALUE} display={DISPLAY} presentation="compact" valueKind="address" />);
+    const control = view.getByRole("button", { name: `Copy ${DISPLAY}` });
+
+    expect(control.title).toBe(VALUE);
+    expect(control.querySelector(".lucide-copy")).toBeTruthy();
+    expect(control.className).toContain("min-h-11");
+    expect(control.firstElementChild?.className).not.toContain("py-2");
+  });
+
   test("exposes the selectable full value and a truthful error when clipboard is unavailable", async () => {
     const view = render(<CopyableValue value={VALUE} display={DISPLAY} valueKind="address" />);
     fireEvent.click(view.getByRole("button", { name: `Copy ${DISPLAY}` }));

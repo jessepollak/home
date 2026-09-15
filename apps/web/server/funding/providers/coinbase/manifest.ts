@@ -13,17 +13,25 @@ export const coinbaseManifest = {
   id: "coinbase",
   displayName: "Coinbase",
   docsUrl: "https://docs.cdp.coinbase.com/onramp/additional-resources/faq",
+  onramp: {
+    modeEnv: "COINBASE_ONRAMP_MODE",
+    apiOrigins: [COINBASE_ONRAMP_API_ORIGIN],
+    redirectOrigins: [COINBASE_ONRAMP_REDIRECT_ORIGIN],
+    sandbox: true,
+    reference: "provider",
+    quotes: true,
+  },
   bindings: [
     {
       region: "US",
       assetId: "base:usdc",
-      paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }],
-      env: COINBASE_ONRAMP_ENV,
+      currency: "USD",
+      directions: {
+        onramp: {
+          paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }],
+          env: COINBASE_ONRAMP_ENV,
+        },
+      },
     },
   ],
-  apiOrigins: [COINBASE_ONRAMP_API_ORIGIN],
-  redirectOrigins: [COINBASE_ONRAMP_REDIRECT_ORIGIN],
-  sandbox: true,
-  reference: "provider",
-  quotes: true,
 } as const satisfies FundingProviderManifest;

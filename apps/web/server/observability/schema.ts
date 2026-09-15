@@ -5,7 +5,10 @@ import {
   sanitizeRoutePath,
   scrubString,
 } from "@/shared/observability/scrub";
-import type { HomeStartupReport } from "@/shared/observability/client-performance.contract";
+import type {
+  HomeAuthRestoreReport,
+  HomeStartupReport,
+} from "@/shared/observability/client-performance.contract";
 
 export const OBSERVABILITY_SCHEMA = "home.observability.v2" as const;
 
@@ -81,6 +84,9 @@ export const SERVER_EVENT_OUTCOMES = [
 ] as const;
 export const FUNDING_ORDER_CODES = [
   "ORDER_UNAVAILABLE",
+  "FUNDING_SANDBOX_MIGRATION_REQUIRED",
+  "OFFRAMP_DISCOVERY_CONFIGURATION",
+  "OFFRAMP_DISCOVERY_PROVIDER",
   "QUOTE_ECHO_MISMATCH",
   "ORDER_ECHO_MISMATCH",
   "ORDER_AMBIGUOUS",
@@ -94,6 +100,7 @@ export type ServerEventOutcome = (typeof SERVER_EVENT_OUTCOMES)[number];
 
 export type ObservabilityEvent =
   | HomeStartupReport
+  | HomeAuthRestoreReport
   | {
       kind: "unhandled-server-error";
       route: string;
@@ -167,6 +174,20 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         sessionMs?: number;
         balancesMs?: number;
         interactiveMs?: number;
+        totalMs: number;
+      }
+    | {
+        level: "info" | "error";
+        kind: "home-auth-phase";
+        code: "HOME_AUTH_PHASE";
+        version: 1;
+        flow: "restore";
+        hint: HomeAuthRestoreReport["hint"];
+        outcome: HomeAuthRestoreReport["outcome"];
+        sdkActivateMs?: number;
+        cdpInitializedMs?: number;
+        nativeSettledMs?: number;
+        sessionSettledMs: number;
         totalMs: number;
       }
     | {
@@ -267,6 +288,31 @@ export function normalizeObservabilityEvent(
         ? {}
         : { interactiveMs: boundedInteger(event.interactiveMs, 60_000) }),
       totalMs: boundedInteger(event.totalMs, 60_000),
+    };
+  }
+
+  if (event.kind === "home-auth-phase") {
+    return {
+      schema: OBSERVABILITY_SCHEMA,
+      route: event.route,
+      level: event.outcome === "signed-out" || event.outcome === "verified" ? "info" : "error",
+      kind: event.kind,
+      code: "HOME_AUTH_PHASE",
+      version: 1,
+      flow: "restore",
+      hint: event.hint,
+      outcome: event.outcome,
+      ...(event.sdkActivateMs === undefined
+        ? {}
+        : { sdkActivateMs: boundedInteger(event.sdkActivateMs, 30_000) }),
+      ...(event.cdpInitializedMs === undefined
+        ? {}
+        : { cdpInitializedMs: boundedInteger(event.cdpInitializedMs, 30_000) }),
+      ...(event.nativeSettledMs === undefined
+        ? {}
+        : { nativeSettledMs: boundedInteger(event.nativeSettledMs, 30_000) }),
+      sessionSettledMs: boundedInteger(event.sessionSettledMs, 30_000),
+      totalMs: boundedInteger(event.totalMs, 30_000),
     };
   }
 

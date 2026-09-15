@@ -6,6 +6,8 @@ Home can show **Continue with email** and **Continue with Base Account** togethe
 
 During a Base Account attempt the sign-in sheet stays open: connection, signing, and verification progress appears once, inside the Base Account button, while the conflicting email controls are disabled. Closing the sheet is the only cancellation action; the Close button, Escape key, and swipe gesture all use the same handler to cancel the pending attempt, close the sheet, and restore focus. There is no separate handoff overlay or modal.
 
+On restore, Home reads the closed `home:account-provider` tab hint, the identity-free cross-tab `home:cdp-restore` marker, and the readable `home-cdp-live` cookie. Only `cdp-embedded`, `pending:cdp-embedded`, the durable marker, or an exact lowercase 48-hex `home-cdp-live` nonce makes Home wait for CDP initialization. A Base Account hint or no hint lets a settled native restore expose its verified identity—or settle signed out—while CDP continues initializing. Hints only restrict restore timing: they never establish identity or grant API authority. A CDP identity still requires the SDK to be initialized and signed in, a native identity retains precedence, and either provider remains provisional until `/api/session` verifies it.
+
 ## Security boundary
 
 The Home-native Base Account flow:
@@ -29,7 +31,7 @@ Account or chain changes during connection, signing, or verification invalidate 
 
 ## CDP render hint
 
-A successful Bearer-validated email session with a Base smart account also receives a 24-hour render-hint pair signed by `HOME_SESSION_SECRET`: HttpOnly `home-cdp-session` contains the validated session and a nonce, while readable `home-cdp-live` contains the same nonce. Both halves must be present and valid. The hint has no API authority; private API routes still require a fresh CDP access token. Server Components read a valid Home session first and then the hint, so a signed-in visit to `/` redirects before rendering to `/dashboard` while `/?account=signin` remains a loop-breaking sign-in destination.
+A successful Bearer-validated email session with a Base smart account also receives a 24-hour render-hint pair signed by `HOME_SESSION_SECRET`: HttpOnly `home-cdp-session` contains the validated session and a nonce, while readable `home-cdp-live` contains the same nonce. Both halves must be present and valid. The readable half also conservatively keeps client restore pending until CDP initializes, but it has no API authority by itself; private API routes still require a fresh CDP access token. Server Components read a valid Home session first and then the complete hint pair, so a signed-in visit to `/` redirects before rendering to `/dashboard` while `/?account=signin` remains a loop-breaking sign-in destination.
 
 ## Operator setup
 

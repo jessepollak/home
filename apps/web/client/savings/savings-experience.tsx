@@ -426,7 +426,7 @@ export function SavingsExperience({
         </SavingsNotice>
       ) : !coldLoading && !positionFailed && candidates.length > 0 ? (
         <section className="space-y-4" aria-label="Vaults">
-          <div className="space-y-3" role="radiogroup" aria-label="Vault">
+          <div className="space-y-4" role="radiogroup" aria-label="Vault">
             {candidates.map((candidate) => {
               const isSelected =
                 selected?.vaultAddress === candidate.vaultAddress;
@@ -452,7 +452,7 @@ export function SavingsExperience({
               return (
                 <div
                   key={candidate.vaultAddress}
-                  className={`overflow-hidden rounded-xl border bg-card transition-colors ${
+                  className={`overflow-hidden rounded-xl border bg-card pt-1 transition-colors ${
                     isSelected ? "border-primary" : "border-border"
                   }`}
                 >

@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   CODEX_TOKEN_LOOKUP_BATCH_MAX,
+  CODEX_TOKEN_LOOKUP_QUERY,
   createCodexTokenLookup,
 } from "./token-lookup";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
+const OTHER = "0x2222222222222222222222222222222222222222" as const;
 
 function result(address: string) {
   return {
@@ -33,23 +35,31 @@ describe("Codex token lookup", () => {
       fetchImpl: async (_input, init) => {
         calls += 1;
         const body = JSON.parse(String(init?.body)) as {
-          variables: { filters: { tokens: string[] }; limit: number };
+          query: string;
+          variables: { tokens: string[]; limit: number };
         };
-        const tokens = body.variables.filters.tokens;
+        const tokens = body.variables.tokens;
         batchSizes.push(tokens.length);
+        expect(body.query).toBe(CODEX_TOKEN_LOOKUP_QUERY);
+        expect(body.query).toContain("filterTokens(tokens: $tokens, limit: $limit)");
+        expect(Object.keys(body.variables).sort()).toEqual(["limit", "tokens"]);
         expect(body.variables.limit).toBe(tokens.length);
         expect(tokens.every((token) => token.endsWith(":8453"))).toBeTrue();
         const results = tokens.flatMap((token) => {
           const address = token.slice(0, 42);
-          return address === ADDRESS ? [result(address)] : [];
+          if (address === ADDRESS) return [result(address)];
+          return address === OTHER
+            ? [result(address), result(address), { token: { address } }]
+            : [];
         });
         return Response.json({ data: { filterTokens: { results } } });
       },
     });
     const addresses = [
       ADDRESS,
+      OTHER,
       ...Array.from(
-        { length: CODEX_TOKEN_LOOKUP_BATCH_MAX },
+        { length: CODEX_TOKEN_LOOKUP_BATCH_MAX - 1 },
         (_, index) => `0x${(index + 1).toString(16).padStart(40, "0")}` as `0x${string}`,
       ),
     ];
@@ -66,9 +76,9 @@ describe("Codex token lookup", () => {
       decimals: 18,
       imageUrl: "https://images.example.test/codex.png",
       liquidityUsd: { atoms: "1000005", scale: 1 },
-      volume24Usd: { atoms: "10000", scale: 0 },
     });
     expect(second).toEqual(first);
+    expect(first.has(OTHER)).toBeFalse();
   });
 
   test("deduplicates concurrent requests per lowercase address and degrades failed lookups", async () => {

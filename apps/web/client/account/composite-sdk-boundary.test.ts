@@ -40,6 +40,7 @@ function boundary(overrides: Partial<AccountWalletSdkBoundary> = {}): AccountWal
 }
 
 function input(overrides: {
+  waitForCdpRestore?: boolean;
   cdp?: Partial<AccountWalletSdkBoundary>;
   identity?: VerifiedAccountSession | null;
   native?: Partial<AccountWalletSdkBoundary>;
@@ -53,6 +54,7 @@ function input(overrides: {
   const identity = overrides.identity ?? null;
   const isSettled = overrides.isSettled ?? true;
   return {
+    waitForCdpRestore: overrides.waitForCdpRestore ?? false,
     cdp: boundary(overrides.cdp),
     native: {
       boundary: boundary({
@@ -85,29 +87,56 @@ const cdpSession = session("cdp-embedded", "cdp-subject", CDP_ADDRESS);
 
 const rows: Array<{ name: string; run: () => Promise<void> }> = [
   {
-    name: "exports no identity until both providers settle",
+    name: "settles signed out without a CDP hint after native restore",
     run: async () => {
-      for (const unsettled of [
-        input({ cdp: { isInitialized: false, isSignedIn: true, ownerKey: "cdp-owner", provisionalSession: cdpSession }, identity: nativeSession }),
-        input({ cdp: { isSignedIn: true, ownerKey: "cdp-owner", provisionalSession: cdpSession }, identity: nativeSession, isSettled: false, hasSettled: false }),
-      ]) {
-        const sdk = composeSdkBoundaries(unsettled);
-        expect({
-          authentication: sdk.authentication,
-          isInitialized: sdk.isInitialized,
-          isSignedIn: sdk.isSignedIn,
-          ownerKey: sdk.ownerKey,
-          provisionalSession: sdk.provisionalSession,
-        }).toEqual({
-          authentication: "cdp",
-          isInitialized: false,
-          isSignedIn: false,
-          ownerKey: null,
-          provisionalSession: null,
-        });
-      }
+      const sdk = composeSdkBoundaries(input({
+        cdp: { isInitialized: false, isSignedIn: true, ownerKey: "cdp-owner", provisionalSession: cdpSession },
+      }));
+      expect({
+        isInitialized: sdk.isInitialized,
+        isSignedIn: sdk.isSignedIn,
+        ownerKey: sdk.ownerKey,
+      }).toEqual({ isInitialized: true, isSignedIn: false, ownerKey: null });
     },
   },
+  {
+    name: "surfaces native identity before CDP initializes",
+    run: async () => {
+      const sdk = composeSdkBoundaries(input({
+        waitForCdpRestore: true,
+        cdp: { isInitialized: false, isSignedIn: true, ownerKey: "cdp-owner", provisionalSession: cdpSession },
+        identity: nativeSession,
+      }));
+      expect({
+        authentication: sdk.authentication,
+        isInitialized: sdk.isInitialized,
+        isSignedIn: sdk.isSignedIn,
+        ownerKey: sdk.ownerKey,
+      }).toEqual({
+        authentication: "native-base",
+        isInitialized: true,
+        isSignedIn: true,
+        ownerKey: "native-owner",
+      });
+    },
+  },
+  {
+    name: "waits for CDP initialization only when a CDP restore hint exists",
+    run: async () => {
+      const waiting = composeSdkBoundaries(input({
+        waitForCdpRestore: true,
+        cdp: { isInitialized: false },
+      }));
+      expect(waiting.isInitialized).toBe(false);
+      const settled = composeSdkBoundaries(input({
+        waitForCdpRestore: true,
+        cdp: { isInitialized: true, isSignedIn: false },
+      }));
+      expect(settled.isInitialized).toBe(true);
+      expect(settled.isSignedIn).toBe(false);
+    },
+  },
+
   {
     name: "gives native identity fixed priority without side effects",
     run: async () => {
@@ -217,31 +246,45 @@ const rows: Array<{ name: string; run: () => Promise<void> }> = [
     },
   },
   {
-    name: "exports native retry only for a native initialization failure",
+    name: "keeps email viable only while CDP initialization is pending",
     run: async () => {
       const restore = async () => {};
-      expect(composeSdkBoundaries(input({ restore })).retryInitialization).toBeUndefined();
-      expect(composeSdkBoundaries(input({
+      const cdpPending = composeSdkBoundaries(input({
+        cdp: { isInitialized: false },
         initializationError: "provider-unavailable",
         restore,
-      })).retryInitialization).toBe(restore);
-      expect(composeSdkBoundaries(input({
+      }));
+      const cdpReadySignedOut = composeSdkBoundaries(input({
+        initializationError: "provider-unavailable",
+        restore,
+      }));
+      const cdpReadySignedIn = composeSdkBoundaries(input({
         cdp: { isSignedIn: true, ownerKey: "cdp-owner" },
         initializationError: "provider-unavailable",
         restore,
-      })).retryInitialization).toBeUndefined();
+      }));
+      expect(cdpPending.isInitialized).toBe(true);
+      expect(cdpPending.initializationError).toBeUndefined();
+      expect(cdpPending.retryInitialization).toBeUndefined();
+      expect(cdpReadySignedOut.initializationError).toBe("provider-unavailable");
+      expect(cdpReadySignedOut.retryInitialization).toBe(restore);
+      expect(cdpReadySignedIn.initializationError).toBeUndefined();
+      expect(cdpReadySignedIn.retryInitialization).toBeUndefined();
     },
   },
   {
-    name: "suppresses native initialization failure for a healthy CDP identity",
+    name: "exports provider unavailable only when both configured paths fail",
     run: async () => {
-      const healthy = composeSdkBoundaries(input({
-        cdp: { isSignedIn: true, ownerKey: "cdp-owner" },
+      const restore = async () => {};
+      const unavailable = composeSdkBoundaries(input({
+        waitForCdpRestore: true,
+        cdp: { isInitialized: false, initializationError: "provider-unavailable" },
         initializationError: "provider-unavailable",
+        restore,
       }));
-      const signedOut = composeSdkBoundaries(input({ initializationError: "provider-unavailable" }));
-      expect(healthy.initializationError).toBeUndefined();
-      expect(signedOut.initializationError).toBe("provider-unavailable");
+      expect(unavailable.isInitialized).toBe(true);
+      expect(unavailable.initializationError).toBe("provider-unavailable");
+      expect(unavailable.retryInitialization).toBe(restore);
     },
   },
   {

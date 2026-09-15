@@ -55,8 +55,8 @@ The hosted public-default guard is unchanged: preview/production never uses an i
 After enumeration and the pinned registry read finish concurrently, `server/balances/resolve.ts` joins `registry ∪ Codex 512 catalog ∪ wallet`:
 
 - Registry contracts found in CDP are ignored; their quantity remains the pinned registry quantity.
-- A positive enumerated contract in the cached Codex 512 catalog becomes a `catalog` holding. Catalog `name`, `symbol`, `decimals`, image, liquidity, and 24 h volume win; the CDP amount supplies the display quantity. If CDP supplies decimals and they disagree with Codex, the row is skipped and coverage becomes incomplete.
-- A positive contract outside registry and catalog is looked up on Codex by contract address in batches of 100 (global 60 s, 2,048-address LRU). Codex name, symbol, image, liquidity, and 24 h volume win; a CDP/Codex decimals disagreement skips the row and makes coverage incomplete. Unknown or failed lookups remain quantity-only `wallet` rows with valid CDP metadata.
+- A positive enumerated contract in the cached Codex 512 catalog becomes a `catalog` holding. Catalog `name`, `symbol`, `decimals`, image, and liquidity win; the CDP amount supplies the display quantity. If CDP supplies decimals and they disagree with Codex, the row is skipped and coverage becomes incomplete.
+- A positive contract outside registry and catalog is looked up on Codex by contract address in batches of 100 (global 60 s, 2,048-address LRU). Codex name, symbol, image, and liquidity win; a CDP/Codex decimals disagreement skips the row and makes coverage incomplete. Unknown or failed lookups remain quantity-only `wallet` rows with valid CDP metadata.
 - Registry non-cash ERC-20s receive `imageUrl` from the one-hour configured-asset icon resolver; icon failure is ignored. Cash, ETH, and vault shares never receive an image.
 - Zero rows are skipped and contracts are deduped by lowercase address.
 
@@ -67,7 +67,7 @@ The Codex catalog reader remains the three-page, 512-entry, 60 s shared cache. I
 `server/balances/price.ts` prices positive holdings as follows:
 
 - The full registry ERC-20/vault-underlying input set remains one stable batch on every pricing pass.
-- Positive `catalog` rows are priced in batches of 25 and retain the ≥ $100k liquidity, ≥ $10k 24 h volume market gate for the total.
+- Positive `catalog` rows are priced in batches of 25 and retain the ≥ $25k exact-contract liquidity market gate for the total; 24 h volume is not an admission dependency (#470).
 - A Codex price is usable for display valuation when its `asOf` is within `BALANCES_PRICE_MAX_AGE_MS` (24 h); older → `price-stale`. Fresh quotes are stored once per asset in `price_observations`, and a cold instance or failed Codex batch may reuse the newest stored quote inside that bound. Trade/borrow authorization keep the 5-minute market-prices rule (decision 7).
 - Codex-enriched `wallet` rows share the catalog 25-token price batches and market gate; unknown quantity-only rows return `value: { status: "unpriced", reason: "below-market-gate" }` and never enter the total.
 - ETH and FX continue to use Coinbase exchange rates. Cash rows still get `cashValue` in their own denomination.
@@ -222,7 +222,7 @@ Actions remain registry-only until a separate product decision extends Send.
 | Backstop | 120 s | full re-observe when no signal arrived |
 | Price maximum age | 24 h | newest per-asset observation inside this bound may value balances |
 | Codex prices / Coinbase FX | 45 s / 60 s | global, shared across users |
-| Market gate | ≥ $100k liquidity, ≥ $10k 24 h volume, fresh price | catalog rows enter the total (#337) |
+| Market gate | ≥ $25k exact-contract liquidity, fresh price; no volume requirement | priced catalog/wallet rows enter the total (#337; #470 removed the ≥ $10k 24 h volume gate and set liquidity to $25k) |
 
 ## Acceptance
 
@@ -246,3 +246,4 @@ Actions remain registry-only until a separate product decision extends Send.
 6. **Icons ride on the holding, not on Invest.** Production showed registry Invest rows (cbBTC, DEGEN, stocks) as pending discs because Balances borrowed `assetMarkResolution` from the Invest discover query (public, unpersisted, gated on Codex trending). The server attaches `imageUrl` to registry ERC-20 holdings from the asset icon resolver (1 h cache; configured memes added to its set); catalog and wallet rows keep their Codex image; the presenter uses `holding.imageUrl` for every source and Balances no longer depends on Invest — Jesse, 2026-09-13.
 7. **Display valuation accepts prices up to 24 h old** (`BALANCES_PRICE_MAX_AGE_MS`), carrying `asOf`; older is `price-stale`. The 5-minute rule (`MARKET_PRICE_FRESHNESS_MS`) stays for trade and borrow authorization. Production showed IDRX and low-volume tokens unpriced only because their last Codex trade was older than five minutes — Jesse, 2026-09-13.
 8. **`wallet` rows are enriched and priced.** Resolve looks up enumerated contracts outside the registry and the 512 catalog on Codex by contract address (batched; global cache keyed by address, 60 s): liquidity, 24 h volume, image, name/symbol/decimals cross-check. Enriched wallet rows are priced and gated exactly like catalog rows; contracts Codex does not know stay quantity-only with CDP metadata — Jesse, 2026-09-13.
+9. **24 h volume is not an admission dependency; the exact-contract liquidity gate is $25k.** Pricing a catalog or enriched `wallet` row requires a fresh exact-contract quote and ≥ $25,000 liquidity (inclusive). 24 h volume no longer gates pricing or Codex catalog membership, and Codex volume is no longer read, so provider volume presence cannot change a row's catalog-vs-wallet identity — Jesse, 2026-09-14 (#470).
