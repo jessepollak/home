@@ -80,7 +80,16 @@ export function InvestExperience({
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
-      setView(investViewFromLocation(routing.state.location));
+      setView((previous) => {
+        const next = investViewFromLocation(routing.state.location);
+        // History carries only the flat asset path, so a Forward into a detail
+        // restores the category context of the immediately preceding view; a
+        // cold flat reload has none and returns to /invest.
+        if (next.screen === "detail" && previous.screen === "category" && !routing.state.location.shelf) {
+          return { ...next, from: previous.shelfId };
+        }
+        return next;
+      });
       setInAppChildDepth((depth) => Math.max(0, depth - 1));
     });
     return () => { active = false; };

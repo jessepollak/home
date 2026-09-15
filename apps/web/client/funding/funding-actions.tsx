@@ -9,6 +9,7 @@ import type { RegionId } from "@/config/regions";
 import {
   commitClientUrl,
   flowHref,
+  isCanonicalShellPathname,
   withoutFlowHref,
   type ShellFlow,
 } from "@/config/shell-location";
@@ -70,7 +71,7 @@ export function FundingActionsForWallet({
       routing.setFlow(flow, { mode });
       return;
     }
-    commitClientUrl(flowHref("/dashboard", flow), mode);
+    commitClientUrl(flowHref(pathname, flow), mode);
   }
 
   function close() {
@@ -80,14 +81,14 @@ export function FundingActionsForWallet({
       openedInAppRef.current = false;
       window.history.back();
     } else if (
-      pathname === "/dashboard" &&
+      isCanonicalShellPathname(pathname) &&
       (requestedFlow !== null || initialOpen || returnedFromProvider)
     ) {
       if (routing) {
         routing.clearFlow({ mode: "replace", fundingReturn: true });
       } else {
         const next = new URL(
-          withoutFlowHref("/dashboard", new URLSearchParams(window.location.search)),
+          withoutFlowHref(pathname, new URLSearchParams(window.location.search)),
           window.location.origin,
         );
         next.searchParams.delete("return");

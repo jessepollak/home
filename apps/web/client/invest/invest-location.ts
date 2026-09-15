@@ -1,9 +1,5 @@
-import {
-  parseShellLocation,
-  shellHref,
-  type ShellLocation,
-  type ShellSearchInput,
-} from "@/config/shell-location";
+import type { ShellLocation } from "@/config/shell-location";
+import { shellHref } from "@/config/shell-location";
 import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 import { getDiscoverShelf, type DiscoverShelfId } from "./discover";
 
@@ -28,20 +24,17 @@ export function investViewFromLocation(location: Pick<ShellLocation, "shelf" | "
   return { screen: "hub" };
 }
 
-export function investViewFromSearch(search: ShellSearchInput): InvestView {
-  return investViewFromLocation(parseShellLocation(search));
-}
-
+/**
+ * Emits flat canonical Invest paths: /invest, /invest/<category>, or
+ * /invest/<assetId>. The category context of an in-app detail view is local
+ * state, not a path segment, so history carries one low-cardinality segment.
+ */
 export function investHref(view: InvestView): string {
   if (view.screen === "category") {
-    return shellHref("/dashboard", { panel: "invest", shelf: view.shelfId });
+    return shellHref({ panel: "invest", shelf: view.shelfId });
   }
   if (view.screen === "detail") {
-    return shellHref("/dashboard", {
-      panel: "invest",
-      asset: view.assetId,
-      shelf: view.from === "hub" ? null : view.from,
-    });
+    return shellHref({ panel: "invest", asset: view.assetId });
   }
-  return shellHref("/dashboard", { panel: "invest" });
+  return shellHref({ panel: "invest" });
 }

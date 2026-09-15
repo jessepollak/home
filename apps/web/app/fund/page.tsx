@@ -11,9 +11,10 @@ export default async function FundPage({
   searchParams,
 }: PageProps<"/fund">) {
   const query = await searchParams;
+  // Overlay query keys survive; the canonical parent page is /home.
   const params = new URLSearchParams({ "add-money": "1" });
   if (firstQueryValue(query.return) === "funding") {
     params.set("return", "funding");
   }
-  redirect(`/dashboard?${params.toString()}`);
+  redirect(`/home?${params.toString()}`);
 }

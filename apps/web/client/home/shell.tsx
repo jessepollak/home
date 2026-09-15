@@ -24,6 +24,7 @@ import {
   isClientHistoryEntry,
   parseShellLocation,
   readClientScrollTop,
+  readShellAccountParam,
   replaceClientScrollTop,
   shellHref,
   withoutFlowHref,
@@ -37,6 +38,7 @@ import {
   markHomeStartupOutcome,
   startHomePerformance,
 } from "@/client/observability/perf-marks";
+import type { HomeStartupRoute } from "@/shared/observability/client-performance.contract";
 import {
   balancesListKey,
   clampHomeScrollTop,
@@ -46,7 +48,6 @@ import {
 import type { HomeExperienceProps, HomeAssetBalancesPresentation } from "./home-types";
 import {
   HomeShellRoutingProvider,
-  homePanelHref,
   readHomeInboundPanelState,
   type HomeInboundPanelState,
 } from "./panel-routing";
@@ -72,12 +73,24 @@ type HomeShellProps = HomeExperienceProps & {
   isBalancesRestoreArmed: () => boolean;
 };
 
+// Startup telemetry keeps closed low-cardinality route labels: dynamic L2
+// paths normalize to their canonical L1 page.
+const panelStartupRoutes: Record<ShellPanelId, Exclude<HomeStartupRoute, "/">> = {
+  home: "/home",
+  balances: "/balances",
+  activity: "/activity",
+  save: "/save",
+  borrow: "/borrow",
+  invest: "/invest",
+};
+
 export function HomeShell({
   detectedCountry = null,
   investContent,
   savingsContent,
   initialAccountOpen = false,
   initialPanel = "home",
+  initialLocation,
   initialAccountSettingsOpen = false,
   assetBalances,
   presentAssetBalances,
@@ -101,9 +114,14 @@ export function HomeShell({
 }: HomeShellProps) {
   const router = useRouter();
   const account = useAccountWallet();
-  // Prefer the server-supplied query string: reading window.location here made the
-  // server render with empty params and the client with the real ones (hydration mismatch).
+  // The pathname is authoritative for page state and the query string only ever
+  // carries ephemeral overlays. The server page passes its validated canonical
+  // location so SSR and the first hydrated render agree; the client falls back
+  // to parsing window.location for mounts without an explicit location (landing).
   const [initialUrlIntent] = useState(() => readHomeInboundPanelState(
+    initialLocation ?? (typeof window === "undefined"
+      ? parseShellLocation("/")
+      : parseShellLocation(window.location.pathname)),
     new URLSearchParams(
       initialSearch ?? (typeof window === "undefined" ? "" : window.location.search),
     ),
@@ -132,7 +150,7 @@ export function HomeShell({
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
   const landingRedirectedRef = useRef(false);
-  // A cold load that lands directly on ?panel=balances&group=<id> must anchor the
+  // A cold load that lands directly on /balances/<group> must anchor the
   // requested group exactly like the in-app More action: navigationRequest is
   // still 0 and balances paint only after the session verifies, so the armed
   // group is anchored once the target section first renders (#460).
@@ -155,7 +173,6 @@ export function HomeShell({
   const [borrowMarketOpenedInApp, setBorrowMarketOpenedInApp] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
-  const shellPath = routeMode === "landing" ? "/" : "/dashboard";
   const investChrome = useOptionalAppChrome();
   const scrollContextId = account.ownerKey && account.session?.user.subject
     ? [
@@ -169,10 +186,11 @@ export function HomeShell({
   const previousScrollContextRef = useRef(scrollContextId);
 
   useEffect(() => {
-    startHomePerformance(shellPath);
+    // Dynamic L2 paths normalize to their low-cardinality L1 page label.
+    startHomePerformance(routeMode === "landing" ? "/" : panelStartupRoutes[initialPanel]);
     const frame = window.requestAnimationFrame(() => markHomePerformance("shell:paint"));
     return () => window.cancelAnimationFrame(frame);
-  }, [shellPath]);
+  }, [initialPanel, routeMode]);
   useEffect(() => {
     if (previousScrollContextRef.current === scrollContextId) return;
     previousScrollContextRef.current = scrollContextId;
@@ -248,26 +266,33 @@ export function HomeShell({
     setUrlIntent(intent);
   }, []);
 
+  // Overlays commit on top of the current canonical pathname; the pathname is
+  // never changed by overlay state.
+  const currentUrlIntent = useCallback(() => readHomeInboundPanelState(
+    parseShellLocation(window.location.pathname),
+    new URLSearchParams(window.location.search),
+  ), []);
+
   const setFlow = useCallback((
     flow: ShellFlow,
     options: { actionId?: string | null; mode?: "push" | "replace" } = {},
   ) => {
     const href = flowHref(
-      shellPath,
+      window.location.pathname,
       flow,
       options.actionId ?? null,
       new URLSearchParams(window.location.search),
     );
     commitClientUrl(href, options.mode ?? "push");
-    applyUrlState(readHomeInboundPanelState(new URLSearchParams(window.location.search)));
-  }, [applyUrlState, shellPath]);
+    applyUrlState(currentUrlIntent());
+  }, [applyUrlState, currentUrlIntent]);
 
   const clearFlow = useCallback((options: {
     mode?: "push" | "replace";
     fundingReturn?: boolean;
   } = {}) => {
     const next = new URL(
-      withoutFlowHref(shellPath, new URLSearchParams(window.location.search)),
+      withoutFlowHref(window.location.pathname, new URLSearchParams(window.location.search)),
       window.location.origin,
     );
     if (options.fundingReturn) {
@@ -275,13 +300,12 @@ export function HomeShell({
       next.searchParams.delete("add-money");
     }
     commitClientUrl(`${next.pathname}${next.search}`, options.mode ?? "replace");
-    applyUrlState(readHomeInboundPanelState(new URLSearchParams(window.location.search)));
-  }, [applyUrlState, shellPath]);
+    applyUrlState(currentUrlIntent());
+  }, [applyUrlState, currentUrlIntent]);
 
   const closeAccount = useCallback(() => {
     setIsAccountOpen(false);
-    const location = parseShellLocation(new URLSearchParams(window.location.search));
-    if (initialAccountOpen || location.account === "signin") {
+    if (initialAccountOpen || readShellAccountParam(new URLSearchParams(window.location.search)) === "signin") {
       commitClientUrl("/", "replace");
       return;
     }
@@ -290,7 +314,8 @@ export function HomeShell({
 
   useEffect(() => {
     const onPopState = () => {
-      const intent = readHomeInboundPanelState(new URLSearchParams(window.location.search));
+      // The pathname is authoritative: reparsed on every history entry.
+      const intent = currentUrlIntent();
       // Balances restores only proven asset/account returns; ordinary history returns reset it.
       // History navigation owns its own scroll behavior: never fire the cold-load group anchor.
       coldGroupAnchorRef.current = null;
@@ -312,7 +337,7 @@ export function HomeShell({
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [applyUrlState, isBalancesRestoreArmed]);
+  }, [applyUrlState, currentUrlIntent, isBalancesRestoreArmed]);
 
   useEffect(() => {
     if (forwardRequest !== 0) pendingBalancesRestoreRef.current = false;
@@ -475,11 +500,11 @@ export function HomeShell({
     if (
       routeMode === "landing" &&
       account.verification !== null &&
-      parseShellLocation(new URLSearchParams(window.location.search)).account !== "signin" &&
+      readShellAccountParam(new URLSearchParams(window.location.search)) !== "signin" &&
       !landingRedirectedRef.current
     ) {
       landingRedirectedRef.current = true;
-      router.replace("/dashboard", { scroll: false });
+      router.replace("/home", { scroll: false });
     }
   }, [account.verification, routeMode, router]);
   useEffect(() => {
@@ -518,8 +543,8 @@ export function HomeShell({
     if (nextNavigation === balancesPanelId) setBalancesMounted(true);
     setNavigationRequest((request) => request + 1);
     if (!skipHistory) {
-      commitClientUrl(homePanelHref(shellPath, nextNavigation, group, market));
-      setUrlIntent(readHomeInboundPanelState(new URLSearchParams(window.location.search)));
+      commitClientUrl(shellHref({ panel: nextNavigation, group, market }));
+      setUrlIntent(currentUrlIntent());
     }
   }
 
@@ -534,8 +559,8 @@ export function HomeShell({
       window.history.back();
       return;
     }
-    commitClientUrl(homePanelHref(shellPath, "borrow"), "replace");
-    applyUrlState(readHomeInboundPanelState(new URLSearchParams(window.location.search)));
+    commitClientUrl(shellHref({ panel: "borrow" }), "replace");
+    applyUrlState(currentUrlIntent());
     setNavigationRequest((request) => request + 1);
   }
 
@@ -550,14 +575,9 @@ export function HomeShell({
     }
     setIsAccountSettingsOpen(true);
     setSettingsOpenedInApp(true);
-    const current = parseShellLocation(new URLSearchParams(window.location.search));
-    commitClientUrl(shellHref(shellPath, {
-      panel: activeNavigation,
+    commitClientUrl(shellHref({
+      ...parseShellLocation(window.location.pathname),
       account: "settings",
-      shelf: current.shelf,
-      asset: current.asset,
-      group: current.group,
-      market: current.market,
     }));
   }
 
@@ -567,8 +587,8 @@ export function HomeShell({
       return;
     }
     setIsAccountOpen(true);
-    if (parseShellLocation(new URLSearchParams(window.location.search)).account !== "signin") {
-      commitClientUrl(shellHref("/", { account: "signin" }));
+    if (readShellAccountParam(new URLSearchParams(window.location.search)) !== "signin") {
+      commitClientUrl("/?account=signin");
     }
   }
 
@@ -581,14 +601,7 @@ export function HomeShell({
     setForwardRequest((request) => request + 1);
     disarmBalancesRestore();
     setBalancesRevealReset((resetSignal) => resetSignal + 1);
-    const current = parseShellLocation(new URLSearchParams(window.location.search));
-    commitClientUrl(shellHref(shellPath, {
-      panel: activeNavigation,
-      shelf: current.shelf,
-      asset: current.asset,
-      group: current.group,
-      market: current.market,
-    }), "replace");
+    commitClientUrl(shellHref(parseShellLocation(window.location.pathname)), "replace");
   }
 
   function signOut() {
@@ -655,7 +668,7 @@ export function HomeShell({
         isVerified={isVerified}
         account={account}
         onHome={() => navigateTo("home")}
-        onDashboard={() => router.replace("/dashboard")}
+        onDashboard={() => router.replace("/home")}
         onSignIn={openAccount}
         onSignOut={signOut}
         onOpenSettings={openAccountSettings}
@@ -710,7 +723,7 @@ export function HomeShell({
           signOutError={account.status === "signout-error" ? account.message : null}
           landingVisual={landingVisual}
           showCreateAccount={account.signInAvailability === "ready"}
-          onDashboard={() => router.replace("/dashboard")}
+          onDashboard={() => router.replace("/home")}
           onSignIn={openAccount}
           onRetrySignOut={() => void account.signOut().catch(() => {})}
         />
@@ -721,7 +734,7 @@ export function HomeShell({
         <AccountSignInSheet
           open={isAccountOpen}
           onClose={closeAccount}
-          onVerified={() => router.replace("/dashboard")}
+          onVerified={() => router.replace("/home")}
         />
       </div>
     </HomeShellRoutingProvider>
