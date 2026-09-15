@@ -29,3 +29,16 @@ Nominal GDP is the checked-in [`coverage-gdp-2024.json`](../apps/web/config/cove
 The map reuses Natural Earth v5.1.2 label points documented in `apps/web/client/landing/GEOGRAPHY.md`; each point links to its inventory row. Inventory entries without a Natural Earth point (`BQ`, `BV`, `CC`, `CX`, `GF`, `GP`, `MQ`, `RE`, `SJ`, `TK`, `YT`) remain available in the table and CSV. Polygons remain deferred.
 
 When changing provider manifests or coverage records, run `bun check`. Consistency tests require both sides to use the same country, asset, provider, and payment-method identities. CSV output at `/coverage.csv` is generated deterministically from the full registry.
+
+## Local Agentation feedback
+
+For local visual comments on the coverage page (issue #480), Home mounts a development-only [Agentation](https://agentation.com) toolbar; it never renders in production builds.
+
+1. Start the app: `bun run dev`, then open the `/coverage` page (default `http://localhost:3000/coverage`, or your worktree's assigned port).
+2. Start the local annotation server: `npx -y agentation-mcp@1.2.0 server --port 4747`.
+3. Annotate elements or text with the toolbar, then copy or send the structured output to your agent.
+4. Stop the annotation server when the feedback session ends.
+
+Pi picks up the Agentation MCP tools from the user-global MCP configuration (`~/.config/mcp/mcp.json`, configured outside this repository); reload Pi if the tools do not appear after starting the server.
+
+Security caveat: `agentation-mcp@1.2.0` serves its HTTP annotation API on port 4747 with permissive CORS and no local authentication. Use it only during local feedback sessions on a trusted network, and stop it afterward.

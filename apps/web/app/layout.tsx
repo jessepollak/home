@@ -5,6 +5,7 @@ import { normalizeProjectId } from "@/client/account/session-client";
 import { isHomeSessionConfigured } from "@/server/auth/native-base-session";
 import { HomeQueryClientProvider } from "@/client/query/query-client";
 import { HomeSpeedInsights } from "@/client/observability/home-speed-insights";
+import { AgentationOverlay } from "@/client/observability/agentation-overlay";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full">
         <HomeQueryClientProvider>{accountProvider}</HomeQueryClientProvider>
         <HomeSpeedInsights />
+        <AgentationOverlay />
       </body>
     </html>
   );
