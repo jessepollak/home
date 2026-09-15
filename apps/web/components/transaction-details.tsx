@@ -49,7 +49,7 @@ export function TransactionDetailsModal({
                   <CopyableValue
                     value={row.value}
                     display={row.display}
-                    presentation="full"
+                    presentation="compact"
                     valueKind={row.label === "Transaction" ? "transaction hash" : "address"}
                     className="justify-end text-right"
                   />
