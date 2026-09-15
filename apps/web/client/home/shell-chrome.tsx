@@ -197,6 +197,9 @@ export function SignedOutLanding({
               </>
             )}
           </div>
+          <a href="/coverage" className="w-fit text-sm font-medium text-primary underline-offset-4 hover:underline">
+            Explore local money coverage
+          </a>
           {signOutError ? (
             <Alert variant="destructive" role="alert">
               <AlertDescription>{signOutError}</AlertDescription>
