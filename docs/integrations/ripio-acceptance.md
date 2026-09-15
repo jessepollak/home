@@ -54,11 +54,11 @@ Use role labels in evidence, not personal names.
 | AR | `bank_transfer` (CVU) | wARS | CVU plus optional alias shown and copyable | Payment to a mistyped CVU or alias | ☐ | ☐ |
 | BR | `pix` | wBRL | `brCode` parses as TLV with a valid CRC and amount tag `54` equal to `finalFromAmount` exactly | Malformed TLV/CRC or wrong amount charges the wrong value | ☐ | ☐ |
 | CO | `bank_transfer` | wCOP | Payment URL redirects only to a Ripio-confirmed bank origin | Unexpected redirect origin | ☐ | ☐ |
-| CO | `breb` (Bre-B) | wCOP | Bre-B key returned and usable; payment URL redirects only to a Ripio-confirmed origin | Missing/invalid key or unexpected origin | ☐ | ☐ |
+| CO | `breb` (Bre-B) | wCOP | Bre-B key returned by the provider, accepted by Home's validation, and shown on the order screen | Missing or invalid key | ☐ | ☐ |
 | CO | `r2p_bancolombia` (Bancolombia R2P) | wCOP | Redirect lands on the confirmed Bancolombia R2P origin | Unexpected redirect origin | ☐ | ☐ |
-| CO | `r2p_nequi` (Nequi R2P) | wCOP | Nequi phone number present; R2P flow as implemented; payment URL redirects only to a Ripio-confirmed origin | Missing/invalid phone or unexpected origin | ☐ | ☐ |
+| CO | `r2p_nequi` (Nequi R2P) | wCOP | Nequi phone number returned by the provider, accepted by Home's validation, and shown on the order screen with the R2P flow as implemented | Missing or invalid phone | ☐ | ☐ |
 
-"Instruction to verify" is the instruction shape a tester checks on the order screen; "Known risk" is the failure mode to watch for. "Local loop complete" means the rail finished local development; only "Hosted funded proof" supports the word *validated* (see [claim semantics](#claim-semantics)).
+"Instruction to verify" is the instruction shape a tester checks on the order screen; "Known risk" is the failure mode to watch for. For Bre-B and Nequi R2P, Home validates the Bre-B key and the Nequi phone/R2P shape; any payment URL or redirect origin behind those rails is a provider-side Phase 1 schema question (below), not an order-screen expectation — no redirect-allowlist check runs for those rails. "Local loop complete" means the rail finished local development; only "Hosted funded proof" supports the word *validated* (see [claim semantics](#claim-semantics)).
 
 ## Phase 0 — setup and synthetic validation (no provider network, no provider writes)
 
@@ -76,7 +76,7 @@ Required; blocking for Phase 2. Owner: Ripio lead. Approver: Jesse signs off on 
 
 Performed outside Home: Home has no read-only provider UI, and **Get quote** in Home is already a write sequence. Use an approved API client that does not expose or store secrets — never credentials on a command line or in shell history.
 
-- [ ] Walk checklist items 1 and 4 of the [adapter README](../../apps/web/server/funding/providers/ripio/README.md) against production: `POST /oauth2/token/`, `GET /api/v1/depositNetworks/`, `GET /api/v1/withdrawalNetworks/`, `GET /api/v1/termsAndConditions/`
+- [ ] Walk checklist items 1, 2, and 4 of the [adapter README](../../apps/web/server/funding/providers/ripio/README.md) against production, read-only: `POST /oauth2/token/`, `GET /api/v1/termsAndConditions/`, `GET /api/v1/depositNetworks/`, `GET /api/v1/withdrawalNetworks/`. Item 2's `POST /api/v1/customers/{customerId}/acceptTerms/` is a write and is not performed here — only the terms read is probed; acceptance happens in Phase 2.
 - [ ] Observed shapes recorded without credentials or PII
 - [ ] Open questions answered and recorded:
   - [ ] Exact Colombia redirect origins behind `bank_transfer`, `breb`, `r2p_bancolombia`, and `r2p_nequi` payment URLs — Home's redirect allowlist must match them
@@ -125,7 +125,7 @@ Required for any code change. Owner: Ripio engineer. Approver: Jesse (only Jesse
 
 Required for any *validated* claim. Owners: the Home operator runs and observes the hosted environment; Ripio testers drive the browser and the payments. Approver: Jesse per country and rail.
 
-The host is Home's protected production alias. The Home operator privately supplies the browser URL and the webhook bypass URL to named participants. **Bypass tokens never enter the repo, docs, or evidence.**
+The host is Home's protected production alias. The **webhook bypass URL** is Home's private webhook callback URL with a Vercel Protection Bypass for Automation token appended; the production alias is protected, so the callback needs the bypass to receive webhooks. Never print it or commit it. The Home operator privately supplies the browser URL and the webhook bypass URL to named participants. **Bypass tokens never enter the repo, docs, or evidence.**
 
 - [ ] Hosted run starts only after the Phase 4 merge, with #520 deployed
 - [ ] Jesse approves each funded order in advance, per country and rail
@@ -194,7 +194,7 @@ The guards pin one row, one pre-state, and one observed version; the update cann
 
 ## Webhook bypass rotation (hosted)
 
-Rotate an embedded webhook bypass only in this order, never all at once:
+Rotate an embedded webhook bypass (the webhook bypass URL defined in Phase 5: Home's private callback URL with a Vercel Protection Bypass for Automation token) only in this order, never all at once:
 
 - [ ] 1. Create the new bypass.
 - [ ] 2. Update the three country dashboards (AR, BR, CO) to use it.
@@ -234,5 +234,5 @@ Until evidence exists in a recorded run, the standing statement is: **no live pr
 ## Stop/rollback and the kill switch
 
 - Stop the run on: any second open order, any `dispatch-ambiguous` on hosted, any unexpected provider state, or any privacy breach in evidence.
-- **Kill switch:** before removing a country's Ripio environment variables, drain (complete or terminalize) all open orders for that country. Removing the variables while orders are open leaves them unable to refresh (503) and the binding inert.
+- **Kill switch:** drain (complete or terminalize) all open orders for a country before removing its Ripio environment variables. Without the variables the binding disappears under **Add money**, order refreshes fail closed (the order endpoints return 503 and the stored order never advances), so open orders stall at their last state. Drain first.
 - Adapter code rollback follows the normal PR/revert path; there is no separate acceptance deployment to roll back.
