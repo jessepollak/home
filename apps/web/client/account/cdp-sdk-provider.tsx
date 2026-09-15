@@ -14,7 +14,7 @@ import {
   useSignOut,
   useVerifyEmailOTP,
 } from "@coinbase/cdp-hooks";
-import { Component, useMemo, type ReactNode } from "react";
+import { Component, useLayoutEffect, useMemo, type ReactNode } from "react";
 import {
   AccountWalletClientProvider,
   createBlockedAccountWalletClient,
@@ -22,6 +22,7 @@ import {
 } from "./cdp-client";
 import { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
+import { markHomeAuthRestore } from "@/client/observability/auth-performance";
 
 const providerUnavailableClient = createBlockedAccountWalletClient(
   "provider-unavailable",
@@ -59,6 +60,10 @@ export function useCdpSdkBoundary(): CdpSdkBoundary {
     /^0x[0-9a-fA-F]{40}$/.test(sdkSmartAccountAddress)
     ? sdkSmartAccountAddress as `0x${string}`
     : null;
+
+  useLayoutEffect(() => {
+    if (isInitialized) markHomeAuthRestore("cdp-initialized");
+  }, [isInitialized]);
 
   return useMemo<CdpSdkBoundary>(
     () => ({

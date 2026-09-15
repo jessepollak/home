@@ -40,7 +40,7 @@ export function TransactionDetailsModal({
         <dl>
           {rows.map((row) => (
             <div
-              className="grid grid-cols-[minmax(6rem,0.65fr)_minmax(0,1.35fr)] items-center gap-3 border-b py-3 text-sm last:border-b-0"
+              className="grid min-h-11 grid-cols-[minmax(6rem,0.65fr)_minmax(0,1.35fr)] items-center gap-3 border-b text-sm last:border-b-0"
               key={row.label}
             >
               <dt className="text-sm text-muted-foreground">{row.label}</dt>
@@ -49,7 +49,7 @@ export function TransactionDetailsModal({
                   <CopyableValue
                     value={row.value}
                     display={row.display}
-                    presentation="full"
+                    presentation="compact"
                     valueKind={row.label === "Transaction" ? "transaction hash" : "address"}
                     className="justify-end text-right"
                   />

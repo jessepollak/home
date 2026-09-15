@@ -3,6 +3,11 @@ import "./dom-test-harness";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import type { AccountWalletClient } from "./cdp-client";
+import {
+  hasCdpRestoreHint,
+  hasCdpRestoreMarker,
+  writeCdpRestoreMarker,
+} from "./cdp-wallet-provider-capabilities";
 import type { VerifiedAccountSession } from "./session-client";
 
 const NATIVE_SESSION: VerifiedAccountSession = {
@@ -86,7 +91,10 @@ mock.module("@coinbase/cdp-hooks", () => ({
     };
   },
   useSignInWithEmail: () => ({
-    signInWithEmail: async () => ({ flowId: "email-flow" }),
+    signInWithEmail: async () => {
+      events.push("cdp-email");
+      return { flowId: "email-flow" };
+    },
   }),
   useVerifyEmailOTP: () => ({
     verifyEmailOTP: async () => {
@@ -173,16 +181,21 @@ mock.module("@base-org/account", () => ({
   }),
 }));
 
-const { act, cleanup, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { getHomeQueryClient } = await import("@/client/query/query-client");
 const { useAccountWallet } = await import("./cdp-client");
 const CompositeAccountProvider = (await import("./composite-account-provider")).default;
+const { AccountSignInSheet } = await import("./account-screen");
 
 let observedClient: AccountWalletClient | null = null;
+let observedStatuses: AccountWalletClient["status"][] = [];
 
 function ClientProbe() {
   const client = useAccountWallet();
-  useEffect(() => { observedClient = client; }, [client]);
+  useEffect(() => {
+    observedClient = client;
+    observedStatuses.push(client.status);
+  }, [client]);
   return null;
 }
 
@@ -191,10 +204,11 @@ function currentClient(): AccountWalletClient {
   return observedClient;
 }
 
-function renderProvider() {
+function renderProvider(showSignIn = false, waitForCdpRestore = false) {
   return render(
-    <CompositeAccountProvider projectId="project-id">
+    <CompositeAccountProvider projectId="project-id" waitForCdpRestore={waitForCdpRestore}>
       <ClientProbe />
+      {showSignIn ? <AccountSignInSheet open onClose={() => {}} /> : null}
     </CompositeAccountProvider>,
   );
 }
@@ -217,6 +231,7 @@ function deferred() {
 afterEach(() => {
   cleanup();
   observedClient = null;
+  observedStatuses = [];
   cdpListeners.clear();
   nativeListeners.clear();
   cdpState = { isInitialized: true, isSignedIn: false, userId: null };
@@ -230,6 +245,58 @@ afterEach(() => {
 });
 
 describe("composite account provider switches", () => {
+  test("shows both sign-in choices while CDP is pending and keeps email server-verified", async () => {
+    cdpState = { isInitialized: false, isSignedIn: false, userId: null };
+    installSessionFetch();
+    const view = renderProvider(true);
+
+    await waitFor(() => expect(currentClient().status).toBe("signed-out"));
+    expect(await view.findByRole("textbox", { name: "Email address" })).toBeTruthy();
+    expect(view.getByRole("button", { name: "Sign in with Base Account" })).toBeTruthy();
+
+    fireEvent.input(view.getByRole("textbox", { name: "Email address" }), {
+      target: { value: "person@example.com" },
+    });
+    fireEvent.click(view.getByRole("button", { name: "Continue with email" }));
+    await view.findByRole("textbox", { name: "Verification code" });
+    fireEvent.input(view.getByRole("textbox", { name: "Verification code" }), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(view.getByRole("button", { name: "Verify and continue" }));
+
+    await waitFor(() => expect(events).toEqual(["cdp-email", "cdp-verify"]));
+    expect(currentClient().verification).toBeNull();
+    expect(currentClient().session).toBeNull();
+    expect(hasCdpRestoreMarker()).toBe(false);
+
+    act(() => setCdpState({ isInitialized: true }));
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    expect(currentClient().verification).toBe("server");
+    expect(currentClient().session?.accountProvider).toBe("cdp-embedded");
+    expect(hasCdpRestoreMarker()).toBe(true);
+  });
+
+  test("a returning CDP marker waits through initialization without settling signed out", async () => {
+    cdpState = { isInitialized: false, isSignedIn: false, userId: null };
+    writeCdpRestoreMarker();
+    window.sessionStorage.clear();
+    installSessionFetch();
+    renderProvider(false, hasCdpRestoreHint());
+
+    await act(async () => { await Promise.resolve(); });
+    expect(currentClient().status).toBe("restoring");
+    expect(observedStatuses).not.toContain("signed-out");
+
+    act(() => setCdpState({
+      isInitialized: true,
+      isSignedIn: true,
+      userId: CDP_SESSION.user.subject,
+    }));
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    expect(currentClient().session?.accountProvider).toBe("cdp-embedded");
+    expect(observedStatuses).not.toContain("signed-out");
+  });
+
   test("native to email preserves the newly verified CDP identity", async () => {
     const nativeClear = deferred();
     nativeIdentity = NATIVE_SESSION;
@@ -249,14 +316,14 @@ describe("composite account provider switches", () => {
     let verification!: Promise<void>;
     act(() => { verification = currentClient().verifyEmailCode(flowId, "123456"); });
 
-    await waitFor(() => expect(events).toEqual(["cdp-verify", "clear-native-start"]));
+    await waitFor(() => expect(events).toEqual(["cdp-email", "cdp-verify", "clear-native-start"]));
     expect(cdpSignOuts).toBe(0);
 
     nativeClear.resolve();
     await act(async () => { await verification; });
     await waitFor(() => expect(currentClient().status).toBe("verified"));
     expect(currentClient().session?.accountProvider).toBe("cdp-embedded");
-    expect(events).toEqual(["cdp-verify", "clear-native-start", "clear-native-done"]);
+    expect(events).toEqual(["cdp-email", "cdp-verify", "clear-native-start", "clear-native-done"]);
     expect(cdpSignOuts).toBe(0);
   });
 

@@ -10,6 +10,7 @@ import {
   createContext,
   lazy,
   Suspense,
+  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -26,8 +27,13 @@ import type { OperationResult, PreparedMoneyAction } from "@/shared/money-action
 import { TransferExecutionError } from "@/shared/transfers/types";
 import {
   BaseAccountLoginError,
-  hasAccountProviderHint,
+  readAccountProviderHint,
+  readHomeAuthRestoreHint,
 } from "./cdp-wallet-provider-capabilities";
+import {
+  markHomeAuthRestore,
+  startHomeAuthRestore,
+} from "@/client/observability/auth-performance";
 export {
   BaseAccountLoginError,
   type BaseAccountLoginFailure,
@@ -213,30 +219,66 @@ function LazyConfiguredAccountProvider({
   children: ReactNode;
 }) {
   const [active, setActive] = useState(false);
+  const [restorePlan, setRestorePlan] = useState<{
+    hasHint: boolean;
+    waitForCdpRestore: boolean;
+    reportHint: "none" | "cdp" | "base";
+  } | null>(null);
   const activeClientRef = useRef<AccountWalletClient | null>(null);
   const readyResolversRef = useRef<Array<(client: AccountWalletClient) => void>>([]);
+  const restorePlanRef = useRef<{
+    hasHint: boolean;
+    waitForCdpRestore: boolean;
+    reportHint: "none" | "cdp" | "base";
+  } | null>(null);
+
+  const captureRestorePlan = useCallback(() => {
+    if (restorePlanRef.current) return restorePlanRef.current;
+    const providerHint = readAccountProviderHint();
+    const reportHint = readHomeAuthRestoreHint();
+    const waitForCdpRestore = reportHint === "cdp";
+    const plan = {
+      hasHint: providerHint !== null || waitForCdpRestore,
+      waitForCdpRestore,
+      reportHint,
+    } as const;
+    restorePlanRef.current = plan;
+    return plan;
+  }, []);
+
+  const activateSdk = useCallback(() => {
+    const plan = captureRestorePlan();
+    startHomeAuthRestore(plan.reportHint);
+    markHomeAuthRestore("sdk-activate");
+    setRestorePlan(plan);
+    setActive(true);
+  }, [captureRestorePlan]);
 
   const activate = useMemo(() => () => {
     if (activeClientRef.current) return Promise.resolve(activeClientRef.current);
-    setActive(true);
+    activateSdk();
     return new Promise<AccountWalletClient>((resolve) => {
       readyResolversRef.current.push(resolve);
     });
-  }, []);
+  }, [activateSdk]);
 
   // The SDK chunk is deferred, never omitted: with a provider hint (this tab
   // signed in before) it mounts immediately so session restore is not delayed;
   // otherwise it mounts once the first paint has settled, so a returning user in
   // a new tab is still restored and an anonymous visitor gets a live Sign in.
-  useEffect(() => scheduleSdkActivation(() => setActive(true), {
-    hasHint: hasAccountProviderHint(),
-    requestIdle: typeof window.requestIdleCallback === "function"
-      ? (callback) => {
-          const id = window.requestIdleCallback(callback, { timeout: 1_500 });
-          return () => window.cancelIdleCallback?.(id);
-        }
-      : null,
-  }), []);
+  useEffect(() => {
+    const plan = captureRestorePlan();
+    startHomeAuthRestore(plan.reportHint);
+    return scheduleSdkActivation(activateSdk, {
+      hasHint: plan.hasHint,
+      requestIdle: typeof window.requestIdleCallback === "function"
+        ? (callback) => {
+            const id = window.requestIdleCallback(callback, { timeout: 1_500 });
+            return () => window.cancelIdleCallback?.(id);
+          }
+        : null,
+    });
+  }, [activateSdk, captureRestorePlan]);
 
   const onClient = useMemo(() => (client: AccountWalletClient) => {
     activeClientRef.current = client;
@@ -278,7 +320,10 @@ function LazyConfiguredAccountProvider({
     )}>
       {provider === "composite"
         ? (
-            <LazyCompositeAccountProvider projectId={projectId}>
+            <LazyCompositeAccountProvider
+              projectId={projectId}
+              waitForCdpRestore={restorePlan?.waitForCdpRestore ?? false}
+            >
               {providerChildren}
             </LazyCompositeAccountProvider>
           )

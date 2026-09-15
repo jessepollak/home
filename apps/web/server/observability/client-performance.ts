@@ -7,7 +7,7 @@ import type { ObservabilityEvent } from "@/server/observability/schema";
 
 export const CLIENT_PERFORMANCE_MAX_BODY_BYTES = 2_048;
 export const CLIENT_PERFORMANCE_WINDOW_MS = 60_000;
-export const CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW = 30;
+export const CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW = 60;
 
 const responseHeaders = {
   "cache-control": "no-store, max-age=0",

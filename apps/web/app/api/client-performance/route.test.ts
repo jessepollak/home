@@ -3,6 +3,7 @@ import { parseClientPerformanceReport } from "@/shared/observability/client-perf
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import {
   CLIENT_PERFORMANCE_MAX_BODY_BYTES,
+  CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW,
   createClientPerformanceHandler,
 } from "@/server/observability/client-performance";
 
@@ -23,6 +24,18 @@ const ready = {
   balancesMs: 20.2,
   interactiveMs: 50,
   totalMs: 50.1,
+} as const;
+const authReady = {
+  version: 1,
+  kind: "home-auth-phase",
+  route: "/",
+  flow: "restore",
+  hint: "none",
+  outcome: "signed-out",
+  sdkActivateMs: 126,
+  nativeSettledMs: 974,
+  sessionSettledMs: 1_024,
+  totalMs: 1_024,
 } as const;
 
 function request(
@@ -51,6 +64,10 @@ function request(
 }
 
 describe("POST /api/client-performance", () => {
+  test("budgets both expected performance reports per document", () => {
+    expect(CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW).toBe(60);
+  });
+
   test("normalizes the exact closed startup schema without reordering phases", () => {
     expect(parseClientPerformanceReport(ready)).toEqual({
       ...ready,
@@ -78,6 +95,25 @@ describe("POST /api/client-performance", () => {
       { ...ready, shellMs: "12" },
       { ...ready, sessionMs: undefined },
       { ...ready, totalMs: Number.NaN },
+    ]) expect(parseClientPerformanceReport(invalid)).toBeNull();
+  });
+
+  test("normalizes and closes the auth restore schema", () => {
+    expect(parseClientPerformanceReport(authReady)).toEqual({
+      ...authReady,
+      sdkActivateMs: 150,
+      nativeSettledMs: 950,
+      sessionSettledMs: 1_000,
+      totalMs: 1_000,
+    });
+    for (const invalid of [
+      { ...authReady, identity: "secret-subject" },
+      { ...authReady, hint: "cdp:owner" },
+      { ...authReady, outcome: "error" },
+      { ...authReady, flow: "email" },
+      { ...authReady, route: "/?account=signin" },
+      { ...authReady, sessionSettledMs: undefined },
+      { ...authReady, cdpInitializedMs: "900" },
     ]) expect(parseClientPerformanceReport(invalid)).toBeNull();
   });
 

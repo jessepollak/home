@@ -4,6 +4,10 @@ Status: one Home-native mechanism with one-approval SIWE support as of issue #40
 
 Home can show **Continue with email** and **Continue with Base Account** together in the existing sign-in sheet. Email authenticates through CDP when `NEXT_PUBLIC_CDP_PROJECT_ID` is configured. Base Account always uses Home-native SIWE, regardless of CDP configuration, and is available only when `HOME_SESSION_SECRET` is configured with at least 32 characters.
 
+During a Base Account attempt the sign-in sheet stays open: connection, signing, and verification progress appears once, inside the Base Account button, while the conflicting email controls are disabled. Closing the sheet is the only cancellation action; the Close button, Escape key, and swipe gesture all use the same handler to cancel the pending attempt, close the sheet, and restore focus. There is no separate handoff overlay or modal.
+
+On restore, Home reads the closed `home:account-provider` tab hint, the identity-free cross-tab `home:cdp-restore` marker, and the readable `home-cdp-live` cookie. Only `cdp-embedded`, `pending:cdp-embedded`, the durable marker, or an exact lowercase 48-hex `home-cdp-live` nonce makes Home wait for CDP initialization. A Base Account hint or no hint lets a settled native restore expose its verified identity—or settle signed out—while CDP continues initializing. Hints only restrict restore timing: they never establish identity or grant API authority. A CDP identity still requires the SDK to be initialized and signed in, a native identity retains precedence, and either provider remains provisional until `/api/session` verifies it.
+
 ## Security boundary
 
 The Home-native Base Account flow:
@@ -27,7 +31,7 @@ Account or chain changes during connection, signing, or verification invalidate 
 
 ## CDP render hint
 
-A successful Bearer-validated email session with a Base smart account also receives a 24-hour render-hint pair signed by `HOME_SESSION_SECRET`: HttpOnly `home-cdp-session` contains the validated session and a nonce, while readable `home-cdp-live` contains the same nonce. Both halves must be present and valid. The hint has no API authority; private API routes still require a fresh CDP access token. Server Components read a valid Home session first and then the hint, so a signed-in visit to `/` redirects before rendering to `/home` while `/?account=signin` remains a loop-breaking sign-in destination.
+A successful Bearer-validated email session with a Base smart account also receives a 24-hour render-hint pair signed by `HOME_SESSION_SECRET`: HttpOnly `home-cdp-session` contains the validated session and a nonce, while readable `home-cdp-live` contains the same nonce. Both halves must be present and valid. The readable half also conservatively keeps client restore pending until CDP initializes, but it has no API authority by itself; private API routes still require a fresh CDP access token. Server Components read a valid Home session first and then the complete hint pair, so a signed-in visit to `/` redirects before rendering to `/home` while `/?account=signin` remains a loop-breaking sign-in destination.
 
 ## Operator setup
 
@@ -43,7 +47,7 @@ No automated agent should perform this smoke because it opens a real wallet and 
 
 1. Start Home on the intended origin and open `/?account=signin`.
 2. Confirm email is available when CDP is configured and **Continue with Base Account** is available when `HOME_SESSION_SECRET` is configured.
-3. Select the intended Base Account on Base mainnet (`8453`). Cancel once and verify Home remains signed out.
+3. Select the intended Base Account on Base mainnet (`8453`). While the attempt is pending, confirm the sheet stays open with the phase message inside the Base Account button and no second overlay. Close the sheet to cancel, confirm Home remains signed out, and confirm focus returns to the page.
 4. Retry and confirm the supported path shows one wallet approval. Inspect the SIWE prompt: address, chain, domain, URI, nonce, statement, issue time, and expiry must match the account and current Home origin.
 5. In browser provider diagnostics, confirm the supported request order is `wallet_switchEthereumChain`, `wallet_connect`, `eth_chainId`, with no `eth_requestAccounts` or `personal_sign`.
 6. If testing an explicitly unsupported wallet, confirm only a documented unsupported code enters the legacy signing phase and that `personal_sign` occurs once. Missing proof or any other error must fail rather than fall back.
