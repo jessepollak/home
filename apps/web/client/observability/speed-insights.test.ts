@@ -8,16 +8,24 @@ describe("Speed Insights route boundary", () => {
     expect(filterSpeedInsightsEvent({
       ...vital,
       url: "https://home.example/?account=signin#secret",
-      route: "/?account=signin",
-    })).toEqual({ ...vital, url: "/", route: "/" });
+      route: "/",
+    })).toEqual({ ...vital, url: "https://home.example/", route: "/" });
     expect(filterSpeedInsightsEvent({
       ...vital,
       url: "https://home.example/dashboard?panel=balances#asset",
-    })).toEqual({ ...vital, url: "/dashboard", route: "/dashboard" });
+      route: "/dashboard",
+    })).toEqual({ ...vital, url: "https://home.example/dashboard", route: "/dashboard" });
+    expect(filterSpeedInsightsEvent({
+      ...vital,
+      url: "https://alice:secret@home.example/dashboard?panel=balances#asset",
+      route: "/dashboard",
+    })).toEqual({ ...vital, url: "https://home.example/dashboard", route: "/dashboard" });
   });
 
-  test("drops unobserved and malformed URLs", () => {
-    expect(filterSpeedInsightsEvent({ ...vital, url: "/activity?token=secret" })).toBeNull();
+  test("drops unobserved, relative, and malformed URLs", () => {
+    expect(filterSpeedInsightsEvent({ ...vital, url: "https://home.example/activity?token=secret" }))
+      .toBeNull();
+    expect(filterSpeedInsightsEvent({ ...vital, url: "/?token=secret" })).toBeNull();
     expect(filterSpeedInsightsEvent({ ...vital, url: "http://[" })).toBeNull();
   });
 });
