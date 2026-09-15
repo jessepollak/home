@@ -90,6 +90,7 @@ describe("combined Activity feed", () => {
       .filter(({ kind }) => kind === "action").map(({ id }) => id)).toEqual(["visible"]);
     expect(mergeActivityFeed({ transfers, nextCursor: null, operations })
       .filter(({ kind }) => kind === "action").map(({ id }) => id)).toEqual(["visible", "withheld", "late-twin"]);
+    expect(mergeActivityFeed({ transfers: [], nextCursor: "sparse-next", operations })).toEqual([]);
     expect(mergeActivityFeed({
       transfers: [...transfers, transfer("page-2-twin", "2026-09-15T11:58:00.000Z", HASH_C)],
       nextCursor: null,

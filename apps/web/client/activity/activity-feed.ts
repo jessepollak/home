@@ -26,7 +26,9 @@ export function mergeActivityFeed(input: {
   const frontier = input.nextCursor && input.transfers.length > 0
     ? Math.min(...input.transfers.map((transfer) => Date.parse(transfer.blockTimestamp)))
     : null;
+  const frontierPending = input.nextCursor !== null && input.transfers.length === 0;
   const actions = input.operations.filter((operation) =>
+    !frontierPending &&
     (!operation.transactionHash || !transactionHashes.has(operation.transactionHash.toLowerCase())) &&
     (frontier === null || Date.parse(operation.updatedAt) >= frontier),
   );
