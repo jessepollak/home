@@ -63,6 +63,7 @@ export function HomePanel({
   assetBalances,
   activitySession,
   sendAvailability,
+  assetMarkResolution,
   fetchActivity,
   fetchOperations,
   onOpenSave,
@@ -78,6 +79,7 @@ export function HomePanel({
   assetBalances?: HomeAssetBalancesPresentation;
   activitySession: VerifiedAccountSession | null;
   sendAvailability: readonly (TransferAssetAvailability & { imageUrl?: string })[];
+  assetMarkResolution?: AssetMarkResolution;
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   onOpenSave: () => void;
@@ -91,8 +93,9 @@ export function HomePanel({
   regionId: RegionId;
 }) {
   const isLoading = assetBalances?.status === "loading";
-  // Send's asset picker takes its marks from the same holdings the rows do (no Invest dependency).
-  const sendAssetMarkResolution: AssetMarkResolution = {
+  // Direct mounts retain Send's existing availability-derived marks; the owning
+  // portfolio experience supplies the complete validated holdings resolution.
+  const resolvedAssetMarks: AssetMarkResolution = assetMarkResolution ?? {
     images: Object.fromEntries(
       sendAvailability.map((asset) => [asset.assetKey, asset.imageUrl ?? null]),
     ),
@@ -218,7 +221,7 @@ export function HomePanel({
             initialOpen={initialSendFlow}
             initialActionId={initialSendActionId}
             availableAssets={sendAvailability}
-            assetMarkResolution={sendAssetMarkResolution}
+            assetMarkResolution={resolvedAssetMarks}
             regionId={regionId}
           />
         </PresentationRegionProvider>

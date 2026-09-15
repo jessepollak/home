@@ -2,11 +2,24 @@ import { selectSendable } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import { formatPresentationTokenAmount, formatRelativeTime } from "@/shared/formatting";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
+import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 
 export type SendAvailability = readonly (TransferAssetAvailability & {
   balanceAgeLabel?: string;
   imageUrl?: string;
 })[];
+
+export function deriveAssetMarkResolution(
+  snapshot: BalancesSnapshot | null,
+  pending = false,
+): AssetMarkResolution {
+  return {
+    images: Object.fromEntries(
+      (snapshot?.holdings ?? []).map((holding) => [holding.key, holding.imageUrl ?? null]),
+    ),
+    pending,
+  };
+}
 
 export function deriveSendAvailability(
   snapshot: BalancesSnapshot,

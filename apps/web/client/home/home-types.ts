@@ -4,6 +4,7 @@ import type { RegionId } from "@/config/regions";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { BalancesPresentation } from "@/shared/balances/present";
 import type { ShellLocation } from "@/config/shell-location";
+import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 
 export type HomeAssetBalancesPresentation = BalancesPresentation;
 
@@ -19,6 +20,7 @@ export type HomeExperienceProps = {
   assetBalances?: HomeAssetBalancesPresentation;
   presentAssetBalances?: (showSmallBalances: boolean) => HomeAssetBalancesPresentation;
   sendAvailability?: readonly TransferAssetAvailability[];
+  assetMarkResolution?: AssetMarkResolution;
   showSmallBalances?: boolean;
   onShowSmallBalancesChange?: (value: boolean) => void;
   landingVisual?: ReactNode;

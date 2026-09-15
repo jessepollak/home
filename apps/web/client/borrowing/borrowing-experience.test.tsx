@@ -21,14 +21,21 @@ const {
   borrowTeaserPositionDescription,
   openingBorrowAvailableBaseUnits,
   parseClientTokenAmount,
+  presentBorrowAssetMark,
   recommendedOpeningCollateralBaseUnits,
   recommendedRepayMaximumBaseUnits,
+  selectPrimaryBorrowAsset,
   selectUrgentBorrowPosition,
 } = await import("./borrowing-experience");
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const OWNER_B = "0x2222222222222222222222222222222222222222" as const;
 const BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;
+const CBBTC_IMAGE = "https://assets.example/cbbtc.png";
+const assetMarkResolution = {
+  images: { [BORROW_COLLATERAL_TOKEN.id]: CBBTC_IMAGE },
+  pending: false,
+};
 
 function session(address: `0x${string}` = OWNER, subject = "borrow-ui-user"): VerifiedAccountSession {
   return { user: { subject }, smartAccount: { address, chainId: 8453 }, accountProvider: "cdp-embedded" };
@@ -111,13 +118,14 @@ afterEach(() => {
 });
 
 describe("BorrowExperience redesign", () => {
-  test("renders one Bitcoin market card even when the market has an active position", async () => {
-    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} />);
+  test("renders the exact-contract cbBTC image and canonical Bitcoin identity in the market heading", async () => {
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} assetMarkResolution={assetMarkResolution} />);
     const body = within(document.body);
     expect(await body.findByRole("heading", { level: 3, name: "Bitcoin" })).toBeTruthy();
     expect(body.getAllByTestId("borrow-market-card")).toHaveLength(1);
-    expect(body.getByTestId("bitcoin-mark").getAttribute("aria-hidden")).toBe("true");
-    expect(body.queryByRole("img", { name: "Bitcoin icon" })).toBeNull();
+    const headingMark = body.getByRole("heading", { level: 3, name: "Bitcoin" }).parentElement?.previousElementSibling;
+    expect(headingMark?.querySelector("img")?.getAttribute("src")).toBe(CBBTC_IMAGE);
+    expect(headingMark?.textContent).toBe("");
     expect(body.getByText("Borrow USDC with cbBTC")).toBeTruthy();
     expect(body.getByText("Borrowed")).toBeTruthy();
     expect(body.getByRole("meter", { name: "Liquidation buffer" }).getAttribute("aria-valuetext")).toBe("Bitcoin can fall 37.5% before liquidation");
@@ -415,6 +423,57 @@ describe("BorrowExperience redesign", () => {
     const confirm = await dialog.findByRole("button", { name: "Confirm action" });
     await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(true));
     expect(dialog.getByText(/Go back and prepare this action again/)).toBeTruthy();
+  });
+});
+
+describe("Borrow asset identity", () => {
+  test("uses exact asset keys for cash currency and preserves pending and unknown fallbacks", () => {
+    const usdc = presentBorrowAssetMark(BORROW_LOAN_TOKEN, {});
+    expect({ name: usdc.name, symbol: usdc.symbol, currency: usdc.currency }).toEqual({
+      name: BORROW_LOAN_TOKEN.name,
+      symbol: BORROW_LOAN_TOKEN.symbol,
+      currency: "USD",
+    });
+
+    const lookalikeUsdc = presentBorrowAssetMark({
+      ...BORROW_LOAN_TOKEN,
+      id: BORROW_COLLATERAL_TOKEN.id,
+    }, {});
+    expect(lookalikeUsdc.currency).toBeNull();
+
+    const pending = presentBorrowAssetMark(BORROW_COLLATERAL_TOKEN, { pending: true });
+    expect(pending.pending).toBe(true);
+    expect(pending.imageUrl).toBeNull();
+
+    const unknown = presentBorrowAssetMark({
+      ...BORROW_COLLATERAL_TOKEN,
+      id: "eip155:8453/erc20:0x0000000000000000000000000000000000000001",
+      name: "Unknown Bitcoin",
+      symbol: "uBTC",
+    }, {});
+    expect({ imageUrl: unknown.imageUrl, pending: unknown.pending, currency: unknown.currency }).toEqual({
+      imageUrl: null,
+      pending: false,
+      currency: null,
+    });
+  });
+
+  test("selects the canonical primary asset for every Borrow operation", () => {
+    const withDebt = detail();
+    const withoutDebt = noPosition();
+    const expected = {
+      "supply-collateral": BORROW_COLLATERAL_TOKEN.id,
+      borrow: BORROW_LOAN_TOKEN.id,
+      "supply-and-borrow": BORROW_LOAN_TOKEN.id,
+      repay: BORROW_LOAN_TOKEN.id,
+      "repay-all": BORROW_LOAN_TOKEN.id,
+      "withdraw-collateral": BORROW_COLLATERAL_TOKEN.id,
+      "close-position": BORROW_LOAN_TOKEN.id,
+    } as const;
+    for (const [operation, assetId] of Object.entries(expected)) {
+      expect(selectPrimaryBorrowAsset(withDebt, operation as keyof typeof expected).id).toBe(assetId);
+    }
+    expect(selectPrimaryBorrowAsset(withoutDebt, "close-position").id).toBe(BORROW_COLLATERAL_TOKEN.id);
   });
 });
 
