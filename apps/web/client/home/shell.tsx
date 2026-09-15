@@ -132,6 +132,15 @@ export function HomeShell({
   const panelStageRef = useRef<HTMLElement>(null);
   const explicitLogoutRef = useRef(false);
   const landingRedirectedRef = useRef(false);
+  // A cold load that lands directly on ?panel=balances&group=<id> must anchor the
+  // requested group exactly like the in-app More action: navigationRequest is
+  // still 0 and balances paint only after the session verifies, so the armed
+  // group is anchored once the target section first renders (#460).
+  const coldGroupAnchorRef = useRef<MoneyGroupId | null>(
+    routeMode === "dashboard" && initialPanel === balancesPanelId
+      ? initialUrlIntent.location.group
+      : null,
+  );
   const [isAccountOpen, setIsAccountOpen] = useState(
     initialAccountOpen || (routeMode === "landing" && initialUrlIntent.account === "signin"),
   );
@@ -283,6 +292,8 @@ export function HomeShell({
     const onPopState = () => {
       const intent = readHomeInboundPanelState(new URLSearchParams(window.location.search));
       // Balances restores only proven asset/account returns; ordinary history returns reset it.
+      // History navigation owns its own scroll behavior: never fire the cold-load group anchor.
+      coldGroupAnchorRef.current = null;
       pendingHistoryScrollRestoreRef.current = intent.panel === balancesPanelId
         ? null
         : readClientScrollTop();
@@ -382,6 +393,21 @@ export function HomeShell({
     previousBalancesListIdRef.current = balancesListId;
     mainRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [balancesListId]);
+  // Runs after the balances-list reset above so a first balances paint anchors
+  // the cold-loaded group instead of being reset to the top (#460).
+  useEffect(() => {
+    const group = coldGroupAnchorRef.current;
+    if (!group || activeNavigation !== balancesPanelId) {
+      coldGroupAnchorRef.current = null;
+      return;
+    }
+    if (paintedAssetBalances.status !== "ready") return;
+    const target = document.getElementById(group);
+    if (!target) return;
+    coldGroupAnchorRef.current = null;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    target.scrollIntoView({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
+  }, [activeNavigation, paintedAssetBalances.status]);
 
   useEffect(() => {
     if (navigationRequest === 0 || !panelStageRef.current) return;

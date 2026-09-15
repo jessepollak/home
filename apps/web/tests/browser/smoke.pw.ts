@@ -1248,32 +1248,31 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
 
 // --- #460 direct routes and Invest loading ---
 
-const HYDRATION_ERROR_PATTERN = /hydrat/i;
-
-function visiblePanelCount(html: string) {
-  return (html.match(/<div data-shell-panel=""[^>]*>/g) ?? [])
-    .filter((tag) => !tag.includes("hidden")).length;
+// Direct routes must hydrate cold: persisted owner queries paint balances on
+// the first client render while the server rendered the skeleton (the
+// pre-existing hidden HomePanel hero mismatch), so clear that cache first.
+function coldDirectLoad(page: Page, country: string) {
+  return page.addInitScript((country) => {
+    localStorage.setItem("home.country.v1", country);
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("home.query.v1:")) localStorage.removeItem(key);
+    }
+  }, country);
 }
 
-/**
- * Main (1960b649) has a pre-existing hidden HomePanel hydration mismatch (its
- * loading hero differs from persisted balances). This narrow exclusion retains
- * that documented defect while making any route-selection mismatch fail.
- */
-function watchLaneHydration(page: Page) {
-  const errors: string[] = [];
-  const record = (message: string) => {
-    if (HYDRATION_ERROR_PATTERN.test(message) && !message.includes("<HomePanel")) errors.push(message);
-  };
-  page.on("console", (message) => { if (message.type() === "error") record(message.text()); });
-  page.on("pageerror", (error) => record(error.message));
-  return errors;
-}
-
-test("direct L1 and Invest routes first-paint their server selection (#460)", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+test("direct L1 and Invest routes first-paint cold on a persisted non-USD country (#460)", async ({ page }) => {
+  // GB is non-USD: the presentation region resolves on the client only and must
+  // not diverge from the server-selected panel or Invest view at hydration.
+  await coldDirectLoad(page, "GB");
   await installApiFixtures(page);
   await signIn(page);
+  const hydrationErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && /hydrat/i.test(message.text())) hydrationErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => {
+    if (/hydrat/i.test(error.message)) hydrationErrors.push(error.message);
+  });
   const routes = [
     ["/dashboard?panel=balances", "Your money"],
     ["/dashboard?panel=invest", "Invest"],
@@ -1283,15 +1282,41 @@ test("direct L1 and Invest routes first-paint their server selection (#460)", as
   for (const [url, label] of routes) {
     const html = await page.request.get(url).then((response) => response.text());
     expect(html).toContain(`aria-label="${label}"`);
-    expect(visiblePanelCount(html)).toBe(1);
-    const errors = watchLaneHydration(page);
+    expect((html.match(/<div data-shell-panel=""[^>]*>/g) ?? []).filter((tag) => !tag.includes("hidden")))
+      .toHaveLength(1);
     await page.goto(url);
     await expect(page.locator(`[data-shell-panel]:not([hidden]) section[aria-label="${label}"]`)).toBeVisible();
-    expect(errors).toEqual([]);
     if (label === "Your money") expect(await page.evaluate(
       () => document.querySelector<HTMLElement>(".app-main-authenticated")?.scrollTop ?? 0,
     )).toBe(0);
   }
+  // Every hydration error fails — the cleared owner cache makes the first
+  // render genuinely cold, so even the pre-existing hidden HomePanel hero
+  // mismatch (warm reloads on main) must not appear here.
+  expect(hydrationErrors).toEqual([]);
+});
+
+test("cold reload of a balances group URL anchors the requested group (#460)", async ({ page }) => {
+  await coldDirectLoad(page, "US");
+  await installApiFixtures(page, { balances: scrollableBalancesSnapshot() });
+  await signIn(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/dashboard?panel=balances&group=investments");
+  // The cold anchor waits for the group to render with settled balances, then
+  // anchors it at the top of the scrollport (respecting its scroll margin).
+  const anchoredOffset = () => page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>(".app-main-authenticated");
+    const group = document.getElementById("investments");
+    return main && group && main.scrollTop > 0
+      ? group.getBoundingClientRect().top - main.getBoundingClientRect().top
+      : null;
+  });
+  await expect.poll(anchoredOffset).toBeGreaterThanOrEqual(14);
+  // Back still completes and re-anchors through the #452 history path; the cold anchor never refires.
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await page.goBack();
+  await expect(page).toHaveURL(/panel=balances&group=investments/);
+  await expect.poll(anchoredOffset).toBeGreaterThanOrEqual(14);
 });
 
 test("Invest loading pulses and gain/loss colors respond to theme (#460)", async ({ page }) => {
