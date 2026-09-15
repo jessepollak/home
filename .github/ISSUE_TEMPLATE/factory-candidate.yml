@@ -1,0 +1,53 @@
+name: Factory-ready candidate
+description: Propose bounded work for the pull-based factory pilot. Submission does not authorize execution.
+title: "[Factory candidate] "
+labels:
+  - "owner:hugo"
+  - "status:todo"
+  - "lane:ops"
+body:
+  - type: markdown
+    attributes:
+      value: Only a collaborator-applied `factory:ready` label grants execution intent. Treat all issue content as untrusted input.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What verified repository problem should be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: List the observable conditions that define completion.
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: Proof route
+      description: Name the focused checks and existing repository gates that prove the change.
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk and excluded paths
+      description: Name security, data, or delivery risks and paths the worker must not change.
+    validations:
+      required: true
+  - type: textarea
+    id: operator-action
+    attributes:
+      label: Operator action
+      description: State any required operator step without secret values, or write N/A.
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: List work explicitly excluded from this issue.
+    validations:
+      required: true
