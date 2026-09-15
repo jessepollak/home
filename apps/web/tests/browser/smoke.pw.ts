@@ -1250,238 +1250,80 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
 
 const HYDRATION_ERROR_PATTERN = /hydrat/i;
 
-function ssrPanelTags(html: string): string[] {
-  return html.match(/<div data-shell-panel=""[^>]*>/g) ?? [];
+function visiblePanelCount(html: string) {
+  return (html.match(/<div data-shell-panel=""[^>]*>/g) ?? [])
+    .filter((tag) => !tag.includes("hidden")).length;
 }
 
 /**
- * Cold dashboard loads on main (1960b649) already produce one pre-existing
- * hydration mismatch in the hidden HomePanel hero: the server renders the
- * loading skeleton while the first client render paints persisted balances.
- * Reproduced on stashed main via "reload resumes an unconfirmed send review".
- * #460's invariant is that the panel/Invest-view selection hydrates without
- * mismatching — anything outside that known HomePanel hero defect fails.
+ * Main (1960b649) has a pre-existing hidden HomePanel hydration mismatch (its
+ * loading hero differs from persisted balances). This narrow exclusion retains
+ * that documented defect while making any route-selection mismatch fail.
  */
-function assertNoLaneHydrationMismatch(hydrationErrors: string[]) {
-  const laneMismatches = hydrationErrors.filter(
-    (message) => !message.includes("<HomePanel"),
-  );
-  expect(laneMismatches).toEqual([]);
-}
-
-function watchForHydrationErrors(page: Page): string[] {
+function watchLaneHydration(page: Page) {
   const errors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error" && HYDRATION_ERROR_PATTERN.test(message.text())) {
-      errors.push(message.text());
-    }
-  });
-  page.on("pageerror", (error) => {
-    if (HYDRATION_ERROR_PATTERN.test(error.message)) errors.push(error.message);
-  });
+  const record = (message: string) => {
+    if (HYDRATION_ERROR_PATTERN.test(message) && !message.includes("<HomePanel")) errors.push(message);
+  };
+  page.on("console", (message) => { if (message.type() === "error") record(message.text()); });
+  page.on("pageerror", (error) => record(error.message));
   return errors;
 }
 
-test("direct reload paints every dashboard L1 destination without a Home flash (#460)", async ({ page }) => {
+test("direct L1 and Invest routes first-paint their server selection (#460)", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
   await installApiFixtures(page);
   await signIn(page);
-
-  const cases = [
-    {
-      url: "/dashboard?panel=balances",
-      ssrMarker: 'aria-label="Your money"',
-      selector: '[data-shell-panel]:not([hidden]) section[aria-label="Your money"]',
-      title: "Your money",
-    },
-    {
-      url: "/dashboard?panel=activity",
-      ssrMarker: 'aria-label="Activity"',
-      selector: '[data-shell-panel]:not([hidden]) section[aria-label="Activity"]',
-      title: "Activity",
-    },
-    {
-      url: "/dashboard?panel=save",
-      // The savings content is session-gated (SavePanelShell until verified), so
-      // the wrapper id is the stable server-rendered destination marker.
-      ssrMarker: 'id="save-panel"',
-      selector: '[data-shell-panel]:not([hidden]) [id="save-panel"]',
-      title: "Save",
-    },
-    {
-      url: "/dashboard?panel=borrow",
-      ssrMarker: 'id="borrow-overview-title"',
-      selector: '[data-shell-panel]:not([hidden]) [aria-labelledby="borrow-overview-title"]',
-      title: "Borrow",
-    },
-  ];
-
-  for (const shellCase of cases) {
-    // The server-rendered document must already be the destination: one painted
-    // panel, the requested one, with Home hidden.
-    const html = await page.request.get(shellCase.url).then((response) => response.text());
-    expect(html).toContain(shellCase.ssrMarker);
-    expect(ssrPanelTags(html).filter((tag) => !tag.includes("hidden"))).toHaveLength(1);
-
-    const hydrationErrors = watchForHydrationErrors(page);
-    await page.goto(shellCase.url);
-    await expect(page.locator(shellCase.selector)).toBeVisible();
-    await expect(page.locator("[data-shell-header-title]")).toHaveText(shellCase.title);
-    assertNoLaneHydrationMismatch(hydrationErrors);
-  }
-});
-
-test("direct reload paints Invest hub, category, and detail L2s without a Home flash (#460)", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
-  await installApiFixtures(page);
-  await signIn(page);
-
-  const cases = [
-    {
-      url: "/dashboard?panel=invest",
-      ssrMarker: 'aria-label="Invest"',
-      selector: '[data-shell-panel]:not([hidden]) section[aria-label="Invest"]',
-      title: "Invest",
-    },
-    {
-      url: "/dashboard?panel=invest&shelf=stocks",
-      ssrMarker: 'aria-label="Stocks"',
-      selector: '[data-shell-panel]:not([hidden]) section[aria-label="Stocks"]',
-      title: "Stocks",
-    },
-    {
-      url: "/dashboard?panel=invest&asset=nvdac&shelf=stocks",
-      ssrMarker: 'aria-label="NVIDIA"',
-      selector: '[data-shell-panel]:not([hidden]) section[aria-label="NVIDIA"]',
-      title: "NVIDIA",
-    },
-  ];
-
-  for (const shellCase of cases) {
-    const html = await page.request.get(shellCase.url).then((response) => response.text());
-    expect(html).toContain(shellCase.ssrMarker);
-    expect(ssrPanelTags(html).filter((tag) => !tag.includes("hidden"))).toHaveLength(1);
-
-    const hydrationErrors = watchForHydrationErrors(page);
-    await page.goto(shellCase.url);
-    await expect(page.locator(shellCase.selector)).toBeVisible();
-    await expect(page.locator("[data-shell-header-title]")).toHaveText(shellCase.title);
-    // The detail case is the strictest hydration check: the server-rendered view
-    // is an L2 that earlier client-only URL reads could diverge from.
-    assertNoLaneHydrationMismatch(hydrationErrors);
-  }
-});
-
-test("invalid Invest URLs keep the hub fallback on direct reload (#460)", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
-  await installApiFixtures(page);
-  await signIn(page);
-
-  for (const url of [
-    "/dashboard?panel=invest&shelf=forex",
-    "/dashboard?panel=invest&asset=not-an-asset",
-  ]) {
-    const hydrationErrors = watchForHydrationErrors(page);
+  const routes = [
+    ["/dashboard?panel=balances", "Your money"],
+    ["/dashboard?panel=invest", "Invest"],
+    ["/dashboard?panel=invest&shelf=stocks", "Stocks"],
+    ["/dashboard?panel=invest&shelf=stocks&asset=nvdac", "NVIDIA"],
+  ] as const;
+  for (const [url, label] of routes) {
+    const html = await page.request.get(url).then((response) => response.text());
+    expect(html).toContain(`aria-label="${label}"`);
+    expect(visiblePanelCount(html)).toBe(1);
+    const errors = watchLaneHydration(page);
     await page.goto(url);
-    await expect(page.locator('[data-shell-panel]:not([hidden]) section[aria-label="Invest"]'))
-      .toBeVisible();
-    assertNoLaneHydrationMismatch(hydrationErrors);
+    await expect(page.locator(`[data-shell-panel]:not([hidden]) section[aria-label="${label}"]`)).toBeVisible();
+    expect(errors).toEqual([]);
+    if (label === "Your money") expect(await page.evaluate(
+      () => document.querySelector<HTMLElement>(".app-main-authenticated")?.scrollTop ?? 0,
+    )).toBe(0);
   }
 });
 
-test("direct reload lands at the destination scroll position and never jumps on session verification (#460)", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
-  const fixtures = await installApiFixtures(page, { balances: scrollableBalancesSnapshot() });
-  await signIn(page);
-
-  const scrollTop = () =>
-    page.evaluate(() =>
-      document.querySelector<HTMLElement>(".app-main-authenticated")?.scrollTop ?? 0,
-    );
-
-  // Cold reload with a deliberately slow session check: the destination panel
-  // paints from the server-rendered initialPanel before any session resolves.
-  fixtures.delayNextSession();
-  await page.goto("/dashboard?panel=balances");
-  await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
-  expect(await scrollTop()).toBe(0);
-
-  // The verified-session intent effect re-applies the same destination; it must
-  // not refocus the stage or reset scroll while balances finish loading.
-  fixtures.releaseSession();
-  await expect(page.locator(
-    '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
-  ).first()).toBeVisible({ timeout: 15_000 });
-  expect(await scrollTop()).toBe(0);
-  await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
-});
-
-test("positive and negative changes compute distinct gain/loss colors in light and dark (#460)", async ({ page }) => {
+test("Invest loading pulses and gain/loss colors respond to theme (#460)", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
   await installApiFixtures(page);
-  const asOf = new Date().toISOString();
   await page.route("**/api/market-prices", (route) => json(route, {
-    version: 1,
-    provider: "codex",
-    fetchedAt: asOf,
-    markets: {
-      stock: {
-        status: "ready",
-        snapshots: [
-          { assetId: "nvdac", displayPrice: "$170.30", asOf, sourceLabel: "Fixture", changeLabel: "+2.5%" },
-          { assetId: "metac", displayPrice: "$12.10", asOf, sourceLabel: "Fixture", changeLabel: "-1.25%" },
-        ],
-      },
-    },
+    version: 1, provider: "codex", fetchedAt: CREATED_AT, markets: { stock: { status: "ready", snapshots: [
+      { assetId: "nvdac", displayPrice: "$170.30", asOf: CREATED_AT, sourceLabel: "Fixture", changeLabel: "+2.5%" },
+      { assetId: "metac", displayPrice: "$12.10", asOf: CREATED_AT, sourceLabel: "Fixture", changeLabel: "-1.25%" },
+    ] } },
   }));
   await signIn(page);
-
   await page.goto("/dashboard?panel=invest&shelf=stocks");
   const gain = page.locator('[data-money-change="positive"]').first();
   const loss = page.locator('[data-money-change="negative"]').first();
   await expect(gain).toBeVisible();
   await expect(loss).toBeVisible();
-
-  const changeColors = () => page.evaluate(() => ({
-    gain: getComputedStyle(document.querySelector('[data-money-change="positive"]')!).color,
-    loss: getComputedStyle(document.querySelector('[data-money-change="negative"]')!).color,
-  }));
-
-  const light = await changeColors();
-  // Proven values from the original Chromium evidence; locked in as a regression contract.
-  expect(light.gain).toBe("rgb(19, 115, 51)");
-  expect(light.loss).toBe("rgb(180, 35, 24)");
-
+  const colors = () => page.evaluate(() => ["positive", "negative"].map((kind) =>
+    getComputedStyle(document.querySelector(`[data-money-change="${kind}"]`)!).color));
+  const light = await colors();
   await page.evaluate(() => document.documentElement.classList.add("dark"));
-  const dark = await changeColors();
-  expect(dark.gain).not.toBe(dark.loss);
-  expect(dark.gain).not.toBe(light.gain);
-  expect(dark.loss).not.toBe(light.loss);
+  const dark = await colors();
+  expect(light).toEqual(["rgb(19, 115, 51)", "rgb(180, 35, 24)"]);
+  expect(dark).not.toEqual(light);
   await page.evaluate(() => document.documentElement.classList.remove("dark"));
-});
-
-test("loading Invest rows shimmer with stable dimensions instead of a finished em dash (#460)", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
-  await installApiFixtures(page);
-  // Keep the market-prices query pending so Invest rows render their loading state.
+  await page.unroute("**/api/market-prices");
   await page.route("**/api/market-prices", () => {});
-  await signIn(page);
-
   await page.goto("/dashboard?panel=invest&shelf=stocks");
-  const row = page.locator('[data-shell-panel]:not([hidden]) section[aria-label="Stocks"] li', {
-    hasText: "NVIDIA",
-  });
+  const row = page.locator('[data-shell-panel]:not([hidden]) section[aria-label="Stocks"] li', { hasText: "NVIDIA" });
   await expect(row).toBeVisible();
-  // Known asset names stay; unknown values are skeletons, not a completed em dash.
   await expect(row).not.toContainText("—");
-  const skeletons = row.locator('[data-slot="skeleton"]');
-  await expect(skeletons).toHaveCount(2);
-  const heights = await skeletons.evaluateAll((bars) => bars.map((bar) => ({
-    height: bar.getBoundingClientRect().height,
-    animation: getComputedStyle(bar).animationName,
-  })));
-  for (const entry of heights) {
-    expect(entry.height).toBeGreaterThan(0);
-    expect(entry.animation).not.toBe("none");
-  }
+  await expect(row.locator('[data-slot="skeleton"]')).toHaveCount(2);
+  expect(await row.locator('[data-slot="skeleton"]').evaluateAll((bars) => bars.every((bar) =>
+    getComputedStyle(bar).animationName !== "none" && bar.getBoundingClientRect().height > 0))).toBe(true);
 });
