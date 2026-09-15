@@ -9,6 +9,7 @@ export const CDP_SIGN_OUT_TIMEOUT_MS = 2_500;
 export type CompositeSdkBoundaryInput = {
   restorePlanCaptured: boolean;
   waitForCdpRestore: boolean;
+  waitForBaseRestore: boolean;
   cdp: AccountWalletSdkBoundary & { isInitialized: boolean };
   native: {
     boundary: AccountWalletSdkBoundary;
@@ -27,6 +28,7 @@ export type CompositeSdkBoundaryInput = {
 export function composeSdkBoundaries({
   restorePlanCaptured,
   waitForCdpRestore,
+  waitForBaseRestore,
   cdp,
   native,
   clearNative,
@@ -43,7 +45,11 @@ export function composeSdkBoundaries({
   const isInitialized = restorePlanCaptured && native.isSettled && !cdpRestorePending;
   const providersUnavailable = restorePlanCaptured && (
     cdpRestoreUnavailable ||
-    (native.initializationError && (cdp.initializationError || (cdp.isInitialized && !cdp.isSignedIn)))
+    (native.initializationError && (
+      waitForBaseRestore ||
+      cdp.initializationError ||
+      (cdp.isInitialized && !cdp.isSignedIn)
+    ))
   )
     ? "provider-unavailable" as const
     : undefined;

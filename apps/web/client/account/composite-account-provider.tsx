@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  lazy,
   Suspense,
   useCallback,
   useEffect,
@@ -21,17 +20,41 @@ import { createSdkActivationGate } from "./sdk-activation";
 import {
   clearCdpRenderHint,
   readHomeAuthRestoreHint,
+  writeCdpRestoreMarker,
 } from "./cdp-wallet-provider-capabilities";
+import {
+  createLazyCdpSdkIsland,
+  LazyCdpErrorBoundary,
+  LazyCdpFailure,
+} from "./lazy-cdp-sdk-island";
 import {
   markHomeAuthRestore,
   startHomeAuthRestore,
 } from "@/client/observability/auth-performance";
 
-const LazyCdpSdkIsland = lazy(() => import("./cdp-sdk-provider").then((module) => ({
-  default: module.CdpSdkIsland,
-})));
-
 type CdpBoundary = AccountWalletSdkBoundary & { isInitialized: boolean };
+
+function CdpSdkIslandAttempt({
+  projectId,
+  onBoundary,
+  onError,
+}: {
+  projectId: string;
+  onBoundary: (boundary: CdpBoundary) => void;
+  onError: () => void;
+}) {
+  const [LazyCdpSdkIsland] = useState(
+    () => createLazyCdpSdkIsland(() => import("./cdp-sdk-provider")),
+  );
+  return (
+    <LazyCdpSdkIsland
+      projectId={projectId}
+      onBoundary={onBoundary}
+      onError={onError}
+    />
+  );
+}
+
 function createCdpCleanupObligation(initiallyRequired: boolean) {
   let required = initiallyRequired;
   return {
@@ -59,7 +82,11 @@ export default function CompositeAccountProvider({
   baseAccountEnabled: boolean;
   children: ReactNode;
 }) {
-  const [restorePlan, setRestorePlan] = useState({ captured: false, cdpHint: false });
+  const [restorePlan, setRestorePlan] = useState({
+    captured: false,
+    cdpHint: false,
+    baseHint: false,
+  });
   const [cdpCleanup] = useState(() => createCdpCleanupObligation(false));
   const [isCdpActive, setIsCdpActive] = useState(false);
   const [activationFailed, setActivationFailed] = useState(false);
@@ -113,7 +140,7 @@ export default function CompositeAccountProvider({
       const hint = readHomeAuthRestoreHint();
       const cdpHint = hint === "cdp";
       startHomeAuthRestore(hint);
-      setRestorePlan({ captured: true, cdpHint });
+      setRestorePlan({ captured: true, cdpHint, baseHint: hint === "base" });
       if (cdpHint) void activate().catch(() => {});
     });
     return () => { current = false; };
@@ -198,6 +225,7 @@ export default function CompositeAccountProvider({
     const composed = composeSdkBoundaries({
       restorePlanCaptured: restorePlan.captured,
       waitForCdpRestore: restorePlan.cdpHint,
+      waitForBaseRestore: restorePlan.baseHint,
       cdp,
       native,
       clearNative: native.boundary.signOut,
@@ -230,7 +258,7 @@ export default function CompositeAccountProvider({
     ) return;
     cdpCleanupInFlightRef.current = true;
     void cdpSignOut()
-      .catch(() => {})
+      .catch(() => { writeCdpRestoreMarker(); })
       .finally(() => { cdpCleanupInFlightRef.current = false; });
   }, [cdpBoundary?.isSignedIn, cdpSignOut, native.identity]);
 
@@ -241,16 +269,20 @@ export default function CompositeAccountProvider({
       projectConfigured
     >
       {isCdpActive ? (
-        <Suspense fallback={null}>
-          {/* Callers await activationGate while this island is suspended; the
-              restoring status also hides sign-in forms on initial load. */}
-          <LazyCdpSdkIsland
-            key={islandAttempt}
-            projectId={projectId}
-            onBoundary={onCdpBoundary}
-            onError={onCdpError}
-          />
-        </Suspense>
+        <LazyCdpErrorBoundary
+          key={islandAttempt}
+          fallback={<LazyCdpFailure onError={onCdpError} />}
+        >
+          <Suspense fallback={null}>
+            {/* Callers await activationGate while this island is suspended; the
+                restoring status also hides sign-in forms on initial load. */}
+            <CdpSdkIslandAttempt
+              projectId={projectId}
+              onBoundary={onCdpBoundary}
+              onError={onCdpError}
+            />
+          </Suspense>
+        </LazyCdpErrorBoundary>
       ) : null}
       {children}
     </AccountWalletSessionOwner>

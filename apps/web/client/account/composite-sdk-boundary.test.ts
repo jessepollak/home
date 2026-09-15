@@ -41,6 +41,7 @@ function boundary(overrides: Partial<AccountWalletSdkBoundary> = {}): AccountWal
 
 function input(overrides: {
   waitForCdpRestore?: boolean;
+  waitForBaseRestore?: boolean;
   cdp?: Partial<AccountWalletSdkBoundary>;
   identity?: VerifiedAccountSession | null;
   native?: Partial<AccountWalletSdkBoundary>;
@@ -58,6 +59,7 @@ function input(overrides: {
   return {
     restorePlanCaptured: true,
     waitForCdpRestore: overrides.waitForCdpRestore ?? false,
+    waitForBaseRestore: overrides.waitForBaseRestore ?? false,
     cdp: boundary(overrides.cdp),
     native: {
       boundary: boundary({
@@ -351,6 +353,38 @@ const rows: Array<{ name: string; run: () => Promise<void> }> = [
       expect(nativeRestores).toBe(1);
       expect(cdpReadySignedIn.initializationError).toBeUndefined();
       expect(cdpReadySignedIn.retryInitialization).toBeUndefined();
+    },
+  },
+  {
+    name: "fails closed for a captured Base hint when native restoration fails",
+    run: async () => {
+      let nativeRestores = 0;
+      const unavailable = composeSdkBoundaries(input({
+        waitForBaseRestore: true,
+        cdp: { isInitialized: false },
+        initializationError: "provider-unavailable",
+        restore: async () => { nativeRestores += 1; },
+      }));
+
+      expect(unavailable.isInitialized).toBe(true);
+      expect(unavailable.isSignedIn).toBe(false);
+      expect(unavailable.initializationError).toBe("provider-unavailable");
+      await unavailable.retryInitialization?.();
+      expect(nativeRestores).toBe(1);
+    },
+  },
+  {
+    name: "fails open for an anonymous native error without a restore hint",
+    run: async () => {
+      const anonymous = composeSdkBoundaries(input({
+        cdp: { isInitialized: false },
+        initializationError: "provider-unavailable",
+      }));
+
+      expect(anonymous.isInitialized).toBe(true);
+      expect(anonymous.isSignedIn).toBe(false);
+      expect(anonymous.initializationError).toBeUndefined();
+      expect(anonymous.retryInitialization).toBeUndefined();
     },
   },
   {

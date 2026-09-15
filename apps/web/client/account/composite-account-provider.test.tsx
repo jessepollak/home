@@ -7,6 +7,7 @@ import type { AccountWalletClient } from "./cdp-client";
 import {
   hasCdpRestoreHint,
   hasCdpRestoreMarker,
+  writeAccountProviderHint,
   writeCdpRestoreMarker,
 } from "./cdp-wallet-provider-capabilities";
 import type { VerifiedAccountSession } from "./session-client";
@@ -355,6 +356,36 @@ describe("composite account provider switches", () => {
     expect(events).toEqual(["cdp-email", "cdp-email"]);
   });
 
+  test("keeps a captured Base restore failure unavailable until retry recovers", async () => {
+    nativeInitializationError = "provider-unavailable";
+    writeAccountProviderHint("base-account");
+    installSessionFetch();
+    renderProvider();
+
+    await waitFor(() => expect(currentClient().status).toBe("unavailable"));
+    expect(currentClient().isSignedIn).toBe(false);
+    expect(currentClient().message).toBe("Account verification is unavailable.");
+
+    restoreNative = async () => {
+      nativeInitializationError = undefined;
+      setNativeIdentity(NATIVE_SESSION);
+    };
+    await act(async () => { await currentClient().retrySessionValidation(); });
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    expect(currentClient().session?.accountProvider).toBe("base-account");
+    expect(nativeRestores).toBe(1);
+  });
+
+  test("fails open after an anonymous native restore error without a hint", async () => {
+    nativeInitializationError = "provider-unavailable";
+    installSessionFetch();
+    renderProvider();
+
+    await waitFor(() => expect(currentClient().status).toBe("signed-out"));
+    expect(currentClient().message).toBeNull();
+    expect(currentClient().signInAvailability).toBe("ready");
+  });
+
   test("skips unavailable native restoration in a CDP-only deployment", async () => {
     nativeInitializationError = "provider-unavailable";
     installSessionFetch();
@@ -365,6 +396,7 @@ describe("composite account provider switches", () => {
     expect(nativeRestores).toBe(0);
     let request!: Promise<{ flowId: string }>;
     act(() => { request = currentClient().requestEmailCode("person@example.com"); });
+    await waitFor(() => expect(cdpProviderMounts).toBe(1));
     let result!: { flowId: string };
     await act(async () => { result = await request; });
     expect(result).toEqual({ flowId: "email-flow" });
@@ -400,6 +432,7 @@ describe("composite account provider switches", () => {
     for (const email of ["first@example.com", "second@example.com"]) {
       let request!: Promise<{ flowId: string }>;
       act(() => { request = currentClient().requestEmailCode(email); });
+      await waitFor(() => expect(cdpProviderMounts).toBe(1));
       const { flowId } = await act(async () => request);
       await act(async () => { await currentClient().verifyEmailCode(flowId, "123456"); });
       await waitFor(() => expect(currentClient().status).toBe("verified"));
@@ -558,11 +591,11 @@ describe("composite account provider switches", () => {
     installSessionFetch();
     renderProvider(false, hasCdpRestoreHint());
 
-    await act(async () => { await Promise.resolve(); });
-    expect(currentClient().status).toBe("restoring");
+    await waitFor(() => expect(currentClient().status).toBe("restoring"));
     expect(observedStatuses).not.toContain("signed-out");
+    await waitFor(() => expect(cdpProviderMounts).toBe(1));
 
-    act(() => setCdpState({
+    await act(async () => setCdpState({
       isInitialized: true,
       isSignedIn: true,
       userId: CDP_SESSION.user.subject,
@@ -610,6 +643,7 @@ describe("composite account provider switches", () => {
 
     let emailRequest!: Promise<{ flowId: string }>;
     act(() => { emailRequest = currentClient().requestEmailCode("person@example.com"); });
+    await waitFor(() => expect(cdpProviderMounts).toBe(1));
     const { flowId } = await act(async () => emailRequest);
     let verification!: Promise<void>;
     act(() => { verification = currentClient().verifyEmailCode(flowId, "123456"); });
@@ -623,6 +657,24 @@ describe("composite account provider switches", () => {
     expect(currentClient().session?.accountProvider).toBe("cdp-embedded");
     expect(events).toEqual(["cdp-email", "cdp-verify", "clear-native-start", "clear-native-done"]);
     expect(cdpSignOuts).toBe(0);
+  });
+
+  test("retains automatic CDP cleanup failures for a later retry", async () => {
+    setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });
+    cdpSignOutError = new Error("CDP cleanup failed.");
+    installSessionFetch();
+    renderProvider(false, true);
+
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    await act(async () => { await currentClient().signInWithBaseAccount(() => {}); });
+    await waitFor(() => expect(currentClient().session?.accountProvider).toBe("base-account"));
+    await waitFor(() => expect(hasCdpRestoreMarker()).toBe(true));
+    expect(cdpSignOuts).toBe(1);
+
+    cdpSignOutError = null;
+    await act(async () => { await currentClient().signOut(); });
+    expect(cdpSignOuts).toBe(2);
+    expect(hasCdpRestoreMarker()).toBe(false);
   });
 
   test("email to Base signs CDP out once without a stale session", async () => {
