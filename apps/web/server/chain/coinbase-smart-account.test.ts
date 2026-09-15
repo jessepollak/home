@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   CoinbaseSmartAccountBatchSimulationError,
+  applyCoinbaseBatchGasHeadroom,
+  createCoinbaseSmartAccountBatchEstimator,
   createCoinbaseSmartAccountBatchSimulator,
   encodeCoinbaseExecuteBatch,
 } from "./coinbase-smart-account";
@@ -39,6 +41,64 @@ function sourceFetch(options: {
   };
   return { requests, fetchImpl: fetchImpl as typeof fetch };
 }
+
+describe("Coinbase smart-account confirm-time gas estimate", () => {
+  test("estimates the exact ordered executeBatch envelope at latest", async () => {
+    const requests: Array<{ id: number; method: string; params: unknown[] }> = [];
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as { id: number; method: string; params: unknown[] };
+      requests.push(request);
+      return Response.json({ jsonrpc: "2.0", id: request.id, result: request.id === 31 ? "0x6001" : "0x186a0" });
+    }) as typeof fetch;
+    const calls = [
+      { to: IMPLEMENTATION, value: "1", data: "0x1234" as const },
+      { to: ACCOUNT, value: "0", data: "0xabcd" as const },
+    ];
+
+    await expect(createCoinbaseSmartAccountBatchEstimator({
+      fetchImpl,
+      rpcUrl: "https://rpc.example.test",
+    }).estimateBatch(calls, ACCOUNT)).resolves.toBe(BigInt(100_000));
+    expect(requests.map(({ id, method, params }) => ({ id, method, params }))).toEqual([
+      { id: 31, method: "eth_getCode", params: [ACCOUNT, "latest"] },
+      { id: 32, method: "eth_estimateGas", params: [{
+        from: ACCOUNT,
+        to: ACCOUNT,
+        data: encodeCoinbaseExecuteBatch(calls),
+        value: "0x0",
+      }, "latest"] },
+    ]);
+  });
+
+  test("applies percentage, absolute floor, cap, and rejects raw estimates over cap", () => {
+    expect(applyCoinbaseBatchGasHeadroom(BigInt(100_000))).toBe(BigInt(150_000));
+    expect(applyCoinbaseBatchGasHeadroom(BigInt(500_001))).toBe(BigInt(600_002));
+    expect(applyCoinbaseBatchGasHeadroom(BigInt(1_900_000))).toBe(BigInt(2_000_000));
+    expect(applyCoinbaseBatchGasHeadroom(BigInt(2_000_000))).toBe(BigInt(2_000_000));
+    expect(applyCoinbaseBatchGasHeadroom(BigInt(2_000_001))).toBeNull();
+  });
+
+  test("rejects undeployed accounts, malformed calls, and RPC failures", async () => {
+    const undeployed = createCoinbaseSmartAccountBatchEstimator({
+      rpcUrl: "https://rpc.example.test",
+      fetchImpl: (async (_input, init) => {
+        const { id } = JSON.parse(String(init?.body)) as { id: number };
+        return Response.json({ jsonrpc: "2.0", id, result: "0x" });
+      }) as typeof fetch,
+    });
+    await expect(undeployed.estimateBatch([{ to: ACCOUNT, value: "0", data: "0x" }], ACCOUNT))
+      .rejects.toMatchObject({ code: "account-capability" });
+    await expect(undeployed.estimateBatch([{ to: "bad" as `0x${string}`, value: "0", data: "0x" }], ACCOUNT))
+      .rejects.toBeInstanceOf(TypeError);
+
+    const failed = createCoinbaseSmartAccountBatchEstimator({
+      rpcUrl: "https://rpc.example.test",
+      fetchImpl: (async () => new Response("no", { status: 503 })) as unknown as typeof fetch,
+    });
+    await expect(failed.estimateBatch([{ to: ACCOUNT, value: "0", data: "0x" }], ACCOUNT))
+      .rejects.toMatchObject({ code: "rpc", rpcErrorCode: "http", httpStatus: 503 });
+  });
+});
 
 describe("Coinbase smart-account ordered batch simulation", () => {
   test("simulates the exact ordered calls at the pinned block and reconfirms its hash", async () => {

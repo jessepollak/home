@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { ActionRow } from "./store";
 import { createConfirmActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler } from "./handler";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
+import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
@@ -117,6 +118,68 @@ describe("actions HTTP handlers", () => {
     expect(response.status).toBe(200);
     expect(confirmedCalls).toEqual([CALL]);
     expect((await response.json()).calls).toEqual([CALL]);
+  });
+
+  test("Base confirm returns a padded batch gas hint and estimator failure remains non-blocking", async () => {
+    const estimatedCalls: unknown[] = [];
+    const writes: string[] = [];
+    setObservabilityLogWriterForTests((line) => writes.push(line));
+    const store = {
+      get: async () => ({ ...row, provider: "base-account" as const }),
+      confirm: async (_owner: MoneyActionOwner, _id: string, calls?: MoneyActionCall[]) => ({
+        ...row,
+        provider: "base-account" as const,
+        confirmed_at: "2026-09-12T12:05:00.000Z",
+        pending: { calls: calls as typeof CALL[] },
+      }),
+    };
+    const success = createConfirmActionHandler({
+      authorize: authorize("owner-a", "base-account"),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store,
+      estimateBaseBatch: async (calls, account) => {
+        estimatedCalls.push({ calls, account });
+        return BigInt(100_000);
+      },
+    });
+    const response = await success(baseRequest(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ calls: [CALL], batchGasLimit: "150000" });
+    expect(estimatedCalls).toEqual([{ calls: [CALL], account: ADDRESS }]);
+    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
+      kind: "action-confirm",
+      code: "BASE_BATCH_GAS_HINT_APPLIED",
+      outcome: "ok",
+    });
+
+    const unavailable = createConfirmActionHandler({
+      authorize: authorize("owner-a", "base-account"),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store,
+      estimateBaseBatch: async () => { throw new Error("rpc unavailable"); },
+    });
+    const fallback = await unavailable(baseRequest(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(fallback.status).toBe(200);
+    expect(await fallback.json()).not.toHaveProperty("batchGasLimit");
+    expect(JSON.parse(writes[1] ?? "{}")).toMatchObject({
+      code: "BASE_BATCH_GAS_HINT_UNAVAILABLE",
+      outcome: "unavailable",
+    });
+  });
+
+  test("CDP confirm never invokes the Base estimator", async () => {
+    let estimates = 0;
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      estimateBaseBatch: async () => { estimates += 1; return BigInt(100_000); },
+      store: {
+        get: async () => row,
+        confirm: async (_owner, _id, calls) => ({ ...row, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }),
+      },
+    });
+    expect((await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
+    expect(estimates).toBe(0);
   });
 
   test("confirm awaits the owner balance hot signal exactly once only after success", async () => {
@@ -286,8 +349,10 @@ describe("actions HTTP handlers", () => {
       },
     } satisfies ActionRow;
     let confirmedCalls: unknown;
+    let estimatedCalls: unknown;
     const handler = createConfirmActionHandler({
       authorize: authorize("owner-a", "base-account"), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      estimateBaseBatch: async (calls) => { estimatedCalls = calls; return BigInt(100_000); },
       store: { get: async () => trade, confirm: async (_owner, _id, calls) => {
         confirmedCalls = calls;
         return { ...trade, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } };
@@ -296,6 +361,7 @@ describe("actions HTTP handlers", () => {
     const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", headers: { "X-Home-Account-Provider": "base-account" }, body: JSON.stringify({ signature }) }), context());
     expect(response.status).toBe(200);
     expect(confirmedCalls).toEqual([{ ...CALL, data: `0x1234${"41".padStart(64, "0")}${signature.slice(2)}` }]);
+    expect(estimatedCalls).toEqual(confirmedCalls);
   });
 
   test("list does not reconcile a candidate inside the client grace period", async () => {

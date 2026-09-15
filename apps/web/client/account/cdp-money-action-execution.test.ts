@@ -161,7 +161,7 @@ describe("thin action dispatch", () => {
             expiresAt: "2099-01-01T00:00:00.000Z",
           };
         }
-        if (path === `/api/actions/${id}/confirm`) return { calls: plan.calls };
+        if (path === `/api/actions/${id}/confirm`) return { calls: plan.calls, batchGasLimit: "150000" };
         if (path === `/api/actions/${id}/handle`) {
           handlePosts.push({ path, body: options?.body });
           return {};
@@ -176,8 +176,9 @@ describe("thin action dispatch", () => {
       assertUnchanged: async () => {},
       signMessage: async () => "0x12",
       signTypedData: async () => "0x12",
-      sendCalls: async (_calls, requestId, beforeDispatch) => {
+      sendCalls: async (_calls, requestId, beforeDispatch, batchGasLimit) => {
         expect(requestId).toBe(id);
+        expect(batchGasLimit).toBe("150000");
         await beforeDispatch?.();
         return walletHandle;
       },

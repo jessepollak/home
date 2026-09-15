@@ -24,6 +24,14 @@ export type PinnedBlockSource = {
   blockHash: `0x${string}`;
 };
 
+export type CoinbaseSmartAccountBatchEstimator = {
+  estimateBatch(
+    calls: readonly MoneyActionCall[],
+    account: ChainAddress,
+    signal?: AbortSignal,
+  ): Promise<bigint>;
+};
+
 export type CoinbaseSmartAccountBatchSimulator = {
   simulateBatch(
     calls: readonly MoneyActionCall[],
@@ -183,14 +191,73 @@ export function createCoinbaseSmartAccountBatchSimulator(options: {
 export const getBaseCoinbaseSmartAccountBatch =
   createCoinbaseSmartAccountBatchSimulator();
 
+export function createCoinbaseSmartAccountBatchEstimator(options: {
+  fetchImpl?: FetchLike;
+  rpcUrl?: string;
+  timeoutMs?: number;
+} = {}): CoinbaseSmartAccountBatchEstimator {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const rpcUrl = resolveBaseRpcUrl(options.rpcUrl);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_SIMULATION_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
+    throw new CoinbaseSmartAccountBatchSimulationError(
+      "The Base RPC timeout must be 1-30000ms.",
+    );
+  }
+  const client = createBaseRpcClient({ fetchImpl, rpcUrl, timeoutMs });
+
+  return {
+    async estimateBatch(calls, account, externalSignal) {
+      assertAddress(account, "account");
+      validateCalls(calls, "Estimation");
+      return withTimeout(timeoutMs, externalSignal, async (signal) => {
+        const accountCode = readCode(
+          await rpc(client, "eth_getCode", [account, "latest"], signal, 31),
+          "smart account",
+        );
+        if (!hasExecutableCode(accountCode)) {
+          throw new CoinbaseSmartAccountBatchSimulationError(
+            "This verified account is not deployed, so Home cannot estimate Coinbase executeBatch for it.",
+            "account-capability",
+          );
+        }
+        const result = await rpc(client, "eth_estimateGas", [{
+          from: account,
+          to: account,
+          data: encodeCoinbaseExecuteBatch(calls),
+          value: "0x0",
+        }, "latest"], signal, 32);
+        try {
+          return parseRpcQuantity(result, "batch gas estimate", UINT256_MAX);
+        } catch (error) {
+          throw new CoinbaseSmartAccountBatchSimulationError(
+            "Base RPC returned an invalid batch gas estimate.",
+            { cause: error },
+          );
+        }
+      });
+    },
+  };
+}
+
+export const getBaseCoinbaseSmartAccountBatchEstimator =
+  createCoinbaseSmartAccountBatchEstimator();
+
+const BATCH_GAS_LIMIT_CAP = BigInt(2_000_000);
+export function applyCoinbaseBatchGasHeadroom(raw: bigint): bigint | null {
+  if (raw < BigInt(0)) throw new RangeError("Gas estimate cannot be negative.");
+  if (raw > BATCH_GAS_LIMIT_CAP) return null;
+  const percentage = (raw * BigInt(120) + BigInt(99)) / BigInt(100);
+  const floor = raw + BigInt(50_000);
+  const padded = percentage > floor ? percentage : floor;
+  return padded > BATCH_GAS_LIMIT_CAP ? BATCH_GAS_LIMIT_CAP : padded;
+}
+
 export function encodeCoinbaseExecuteBatch(
   calls: readonly MoneyActionCall[],
 ): `0x${string}` {
-  if (calls.length === 0) {
-    throw new TypeError("Coinbase executeBatch requires at least one call.");
-  }
+  validateCalls(calls, "Coinbase executeBatch");
   const tupleBodies = calls.map((call) => {
-    if (!hexDataPattern.test(call.data)) throw new TypeError("Invalid call data.");
     const callData = call.data.slice(2).toLowerCase();
     const paddedData = callData.padEnd(Math.ceil(callData.length / 64) * 64, "0");
     return [
@@ -313,6 +380,17 @@ function readBlock(value: unknown): { number: bigint; hash: `0x${string}` } {
       "Base RPC returned malformed block number.",
       { cause: error },
     );
+  }
+}
+
+function validateCalls(calls: readonly MoneyActionCall[], label: string): void {
+  if (calls.length === 0) throw new TypeError(`${label} requires at least one call.`);
+  for (const call of calls) {
+    if (!addressPattern.test(call.to)) throw new TypeError("Invalid call address.");
+    if (!hexDataPattern.test(call.data)) throw new TypeError("Invalid call data.");
+    if (!/^\d+$/.test(call.value)) throw new TypeError("Invalid call value.");
+    const value = BigInt(call.value);
+    if (value > UINT256_MAX) throw new RangeError("Call value is out of range.");
   }
 }
 

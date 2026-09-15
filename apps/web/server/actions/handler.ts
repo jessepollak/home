@@ -17,6 +17,11 @@ import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-type
 import { emitServerEvent } from "@/server/observability/log";
 import { awaitBalanceSignal } from "@/server/balances/signal";
 import {
+  applyCoinbaseBatchGasHeadroom,
+  getBaseCoinbaseSmartAccountBatchEstimator,
+  type CoinbaseSmartAccountBatchEstimator,
+} from "@/server/chain/coinbase-smart-account";
+import {
   createActionHandleResolver,
   type ActionHandleResolver,
   type HandleResolution,
@@ -100,6 +105,7 @@ export function createConfirmActionHandler(dependencies: {
   store?: Pick<ActionsStore, "get" | "confirm">;
   verifySmartAccountSignature?: SmartAccountSignatureVerifier;
   markHot?: (address: `0x${string}`, until: Date) => Promise<void>;
+  estimateBaseBatch?: CoinbaseSmartAccountBatchEstimator["estimateBatch"];
   now?: () => Date;
 }) {
   return async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
@@ -151,14 +157,46 @@ export function createConfirmActionHandler(dependencies: {
       }
     }
 
+    let batchGasLimit: string | undefined;
+    let gasHintCode: "BASE_BATCH_GAS_HINT_APPLIED" | "BASE_BATCH_GAS_HINT_UNAVAILABLE" | undefined;
+    if (owner.accountProvider === "base-account") {
+      try {
+        const raw = await (dependencies.estimateBaseBatch ??
+          getBaseCoinbaseSmartAccountBatchEstimator.estimateBatch)(calls, owner.address, request.signal);
+        const padded = applyCoinbaseBatchGasHeadroom(raw);
+        if (padded !== null) batchGasLimit = padded.toString();
+        gasHintCode = batchGasLimit
+          ? "BASE_BATCH_GAS_HINT_APPLIED"
+          : "BASE_BATCH_GAS_HINT_UNAVAILABLE";
+      } catch {
+        gasHintCode = "BASE_BATCH_GAS_HINT_UNAVAILABLE";
+      }
+    }
+
     const row = await store.confirm(owner, id, calls);
     if (!row || !row.pending?.calls?.length) return fail("ACTION_NOT_FOUND", "The action is unavailable or already confirmed.", 404);
+    if (gasHintCode) {
+      emitServerEvent("action-confirm", {
+        route: "/api/actions/:id/confirm",
+        code: gasHintCode,
+        outcome: batchGasLimit ? "ok" : "unavailable",
+        provider: owner.accountProvider,
+        owner,
+        durationMs: Date.now() - startedAt,
+      });
+    }
     const signalTime = dependencies.now?.() ?? new Date();
     await awaitBalanceSignal(() => dependencies.markHot?.(
       owner.address,
       new Date(signalTime.getTime() + BALANCES_HOT_WINDOW_MS),
     ), { timeoutMs: 2_000 });
-    return privateJson({ id: row.id, calls: row.pending.calls, summary: row.summary, expiresAt: row.summary.expiresAt } satisfies ConfirmActionResponse, 200);
+    return privateJson({
+      id: row.id,
+      calls: row.pending.calls,
+      summary: row.summary,
+      expiresAt: row.summary.expiresAt,
+      ...(batchGasLimit ? { batchGasLimit } : {}),
+    } satisfies ConfirmActionResponse, 200);
   };
 }
 
