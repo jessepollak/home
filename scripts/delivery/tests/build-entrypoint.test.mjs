@@ -27,6 +27,14 @@ test("synthetic passing control delegates and migrates before building", () => {
     }),
     [],
   );
+  // Harmless whitespace around the join is allowed.
+  assert.deepEqual(
+    evaluateBuildEntrypoints({
+      rootBuild: "bun run --cwd apps/web build  ",
+      appBuild: "  bun run db:migrate   &&   next build ",
+    }),
+    [],
+  );
 });
 
 test("synthetic broken controls fail the contract", () => {
@@ -50,4 +58,20 @@ test("synthetic broken controls fail the contract", () => {
   });
   assert.equal(migrationAfterBuild.length, 1);
   assert.match(migrationAfterBuild[0], /before next build, not after/);
+
+  // A `;` chain is not a successful join: a failed migration must stop the build.
+  const semicolonChain = evaluateBuildEntrypoints({
+    rootBuild: "bun run --cwd apps/web build",
+    appBuild: "bun run db:migrate; next build",
+  });
+  assert.ok(semicolonChain.length >= 1);
+  assert.match(semicolonChain.join("\n"), /must not chain commands with ";"/);
+
+  // `|| true` masks a failed migration and must fail the contract.
+  const maskedFailure = evaluateBuildEntrypoints({
+    rootBuild: "bun run --cwd apps/web build",
+    appBuild: "bun run db:migrate || true && next build",
+  });
+  assert.equal(maskedFailure.length, 1);
+  assert.match(maskedFailure[0], /must not mask a failed migration with "\|\|"/);
 });

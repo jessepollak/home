@@ -8,23 +8,32 @@ import test from "node:test";
 // representative file paths, so removing or replacing a rule while editing the
 // config fails here even though real sources may be clean (the 17942b04 drift).
 //
-// In-memory fixtures cannot pin resolvers, so static relative imports (enforced
-// by import/no-restricted-paths against real files during `bun run lint`) are not
-// asserted here; the alias, dynamic-import, syntax, and plugin rules are.
+// Fixtures execute with apps/web as process.cwd: the import plugin's resolver
+// (basePath ".") resolves against the process cwd, not the ESLint cwd option, and
+// node --test isolates the chdir to this file's process. That keeps static
+// relative imports resolvable, so import/no-restricted-paths is asserted here
+// alongside the alias, dynamic-import, syntax, and plugin rules.
 
 const appsWebDir = fileURLToPath(new URL("../../../apps/web", import.meta.url));
+
+process.chdir(appsWebDir);
+
 const { ESLint } = createRequire(`${appsWebDir}/package.json`)("eslint");
 
 const eslint = new ESLint({ cwd: appsWebDir });
 
-// Lint in-memory source as if it lived at apps/web/<filePath> and return the
-// error-severity messages, failing loudly on parse faults.
-async function lintErrors(filePath, code) {
+// Lint in-memory source as if it lived at apps/web/<filePath> and return all
+// messages, failing loudly on parse faults.
+async function lintMessages(filePath, code) {
   const results = await eslint.lintText(code, { filePath: `${appsWebDir}/${filePath}` });
   const messages = results.flatMap((result) => result.messages);
   const fatal = messages.filter((message) => message.fatal);
   assert.deepEqual(fatal, [], `fixture ${filePath} failed to parse`);
-  return messages.filter((message) => message.severity === 2);
+  return messages;
+}
+
+async function lintErrors(filePath, code) {
+  return (await lintMessages(filePath, code)).filter((message) => message.severity === 2);
 }
 
 // Failing canary: expect exactly one message from the pinned ruleId matching the
@@ -41,9 +50,18 @@ async function assertRestricted(filePath, code, ruleId, messagePart) {
   );
 }
 
-// Passing control: expect no error-severity messages at all.
+// Passing control: expect no error-severity messages and no ignored/no-config
+// notice (ruleId null), so a fixture the config stopped covering cannot pass
+// vacuously.
 async function assertClean(filePath, code) {
-  const errors = await lintErrors(filePath, code);
+  const messages = await lintMessages(filePath, code);
+  const notices = messages.filter((message) => message.ruleId === null);
+  assert.deepEqual(
+    notices,
+    [],
+    `fixture ${filePath} must be covered by the config (ignored/no-config notice makes this control vacuous); got ${JSON.stringify(notices)}`,
+  );
+  const errors = messages.filter((message) => message.severity === 2);
   assert.deepEqual(errors, [], `expected ${filePath} to be clean; got ${JSON.stringify(errors)}`);
 }
 
@@ -73,6 +91,17 @@ test("client modules must not import the server layer", async () => {
     "client/gates-fixture.tsx",
     'import { x } from "@/server/anything";\nexport const y = x;\n',
     "no-restricted-imports",
+    "client modules must not import the server layer",
+  );
+});
+
+test("client modules must not import the server layer by relative path", async () => {
+  // import/no-restricted-paths only reports resolvable imports, so the fixture
+  // pins a real server module.
+  await assertRestricted(
+    "client/gates-fixture.tsx",
+    'import { migrationGateDecision } from "../server/db/migration-gate";\nexport const y = migrationGateDecision;\n',
+    "import/no-restricted-paths",
     "client modules must not import the server layer",
   );
 });
