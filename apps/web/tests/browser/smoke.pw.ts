@@ -1402,7 +1402,7 @@ test("account sign-in and settings stay reachable at 390px, 320px, and 200% text
   await page.setViewportSize({ width: 320, height: 720 });
   await expect(country).toBeVisible();
   await expect(signOut).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
 
 test("IDRX Add money goes from method to VA instructions and verified receipt", async ({ page }) => {
