@@ -10,8 +10,8 @@ export type CoverageTableRow = {
   countryName: string;
   flag: string;
   currencies: string;
-  candidateAsset: { symbol: string; issuer: string } | null;
-  candidateFallback: string;
+  asset: string;
+  issuerName: string;
   issuer: { status: "documented" | "conditional" | "not-found" | "not-researched"; rail: string; audience: string; evidence: { url: string; checkedAt: string } | null };
   home: { status: "none" | "planned" | "in-build" | "sandbox" | "live"; provider: string | null; asset: string | null; paymentMethods: readonly string[]; evidence: { proofRef: string; checkedAt: string } | null };
   quote: { quotedAt: string; spreadBps: number | null; feeSummary: string; sourceUrl: string } | null;
@@ -26,7 +26,8 @@ const homeTraffic = { live: "Green", planned: "Yellow", "in-build": "Yellow", sa
 const columns: ColumnDef<CoverageTableRow>[] = [
   { accessorKey: "countryName", header: "Country", cell: ({ row }) => <><span aria-hidden="true" className={styles.flag}>{row.original.flag}</span>{row.original.countryName} <span className={styles.secondary}>{row.original.countryCode}</span></> },
   { accessorKey: "currencies", header: "Currency" },
-  { id: "candidateAsset", header: "Candidate asset", cell: ({ row }) => row.original.candidateAsset ? <>{row.original.candidateAsset.symbol}<br /><span className={styles.secondary}>{row.original.candidateAsset.issuer}</span></> : row.original.candidateFallback },
+  { accessorKey: "asset", header: "Asset" },
+  { accessorKey: "issuerName", header: "Issuer" },
   { id: "issuer", header: "Issuer route", cell: ({ row }) => {
     const value = row.original;
     const status = value.issuer.status;

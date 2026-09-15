@@ -21,7 +21,7 @@ describe("CoverageStatusPreview", () => {
   test("opens an ARIA-related dialog on click and allows its evidence link to receive focus", async () => {
     const view = render(<CoverageStatusPreview {...props} />);
     const trigger = view.getByRole("button", { name: props.accessibleName });
-    expect(trigger.textContent).toBe("Yellow");
+    expect(trigger.textContent).toBe("");
     expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(view.queryByRole("dialog")).toBeNull();
@@ -29,6 +29,8 @@ describe("CoverageStatusPreview", () => {
     fireEvent.click(trigger);
 
     const popup = await view.findByRole("dialog");
+    expect(popup.textContent).toContain("Traffic colorYellow");
+    expect(popup.textContent).toContain("StatusConditional");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(trigger.getAttribute("aria-controls")).toBe(popup.id);
     expect(popup.getAttribute("aria-labelledby")).toBeTruthy();

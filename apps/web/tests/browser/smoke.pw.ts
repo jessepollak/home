@@ -281,10 +281,23 @@ async function amountMetrics(page: Page) {
   });
 }
 
-test("coverage fixture does not expose the Agentation feedback toolbar", async ({ page }) => {
+test("coverage fixture keeps public chrome and automatic GET filters usable", async ({ page }) => {
   await page.goto("/coverage");
   await expect(page.getByRole("heading", { name: "Local money coverage" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Home" })).toBeVisible();
   await expect(page.getByTitle("Start feedback mode")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Apply" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Reset" })).toHaveCount(0);
+
+  await page.getByRole("textbox", { name: "Search" }).fill("Indonesia");
+  await expect(page).toHaveURL(/q=Indonesia/);
+  await expect(page.getByText("Showing 1 of 250 countries and territories.")).toBeVisible();
+
+  await page.getByRole("combobox", { name: "Issuer route" }).selectOption("documented");
+  await expect(page).toHaveURL(/issuer=documented/);
+  await page.goBack();
+  await expect(page).not.toHaveURL(/issuer=documented/);
+  await expect(page.getByRole("textbox", { name: "Search" })).toHaveValue("Indonesia");
 });
 
 test("a valid Home session redirects the landing route before rendering", async ({ context }) => {

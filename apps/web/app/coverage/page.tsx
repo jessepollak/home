@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { CoverageFilters } from "@/client/coverage/coverage-filters";
 import { SupportedGlobeDynamic } from "@/client/landing/supported-globe-dynamic";
 import { countryFlag, locateCountries, type GlobeCountry, type GlobeMarkerTone } from "@/client/landing/globe-geometry";
 import {
@@ -13,7 +13,8 @@ import {
   type CoverageSort,
 } from "@/config/coverage";
 import { presentationRegions, type CountryCode } from "@/config/regions";
-import { Button } from "@/components/ui/button";
+import { HomeMark } from "@/components/home-mark";
+import { publicHeaderFrameClassName } from "@/components/shell-layout";
 import { CoverageTable, type CoverageTableRow } from "@/components/ui/coverage-table";
 
 export const metadata: Metadata = {
@@ -83,8 +84,8 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
       countryName: record.countryName,
       flag: countryFlag(record.countryCode),
       currencies: record.currencyCodes.join(", ") || "No current tender currency",
-      candidateAsset: region?.candidateAsset ? { symbol: region.candidateAsset.symbol, issuer: region.candidateAsset.issuer } : null,
-      candidateFallback: record.configuredInHome ? "No candidate asset" : "Not configured in Home",
+      asset: region?.candidateAsset?.symbol ?? (record.configuredInHome ? "No candidate" : "Not configured"),
+      issuerName: region?.candidateAsset?.issuer ?? (record.configuredInHome ? "No candidate" : "Not configured"),
       issuer: {
         status: record.issuerRoute.status,
         rail: record.issuerRoute.rail,
@@ -107,12 +108,18 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
   });
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
-      <nav aria-label="Coverage navigation" className="flex items-center justify-between gap-4">
-        <Link href="/" className="font-semibold">Home</Link>
-        <a href="/coverage.csv" className="text-sm font-medium text-primary underline-offset-4 hover:underline">Download CSV</a>
-      </nav>
-
+    <>
+      <header className="w-full bg-background">
+        <nav
+          aria-label="Coverage navigation"
+          className={`${publicHeaderFrameClassName} flex min-h-14 items-center justify-between gap-4 border-b py-2`}
+          data-public-header-frame=""
+        >
+          <HomeMark href="/" />
+          <a href="/coverage.csv" className="text-sm font-medium text-primary underline-offset-4 hover:underline">Download CSV</a>
+        </nav>
+      </header>
+      <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
       <header className="flex flex-col items-center gap-2 text-center">
         <div className="w-full max-w-xl">
           <SupportedGlobeDynamic
@@ -128,19 +135,17 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
 
       <section aria-labelledby="countries-heading" className="space-y-4">
         <h2 id="countries-heading" className="text-2xl font-semibold">Countries and territories</h2>
-        <form method="get" action="/coverage" className="flex flex-wrap items-end gap-2 rounded-lg border p-3">
-          <label className="flex min-w-56 flex-1 flex-col gap-1 text-xs font-medium">Search<input name="q" defaultValue={queryValue(query.q)} placeholder="Country, code, currency, or asset" className="h-8 rounded-md border bg-background px-2 text-sm font-normal" /></label>
-          <label className="flex flex-col gap-1 text-xs font-medium">Issuer route<select name="issuer" defaultValue={issuerValue} className="h-8 rounded-md border bg-background px-2 text-sm font-normal"><option value="">All</option>{coverageIssuerStatuses.map((status) => <option key={status} value={status}>{issuerLabels[status]}</option>)}</select></label>
-          <label className="flex flex-col gap-1 text-xs font-medium">Home route<select name="home" defaultValue={homeValue} className="h-8 rounded-md border bg-background px-2 text-sm font-normal"><option value="">All</option>{coverageHomeStatuses.map((status) => <option key={status} value={status}>{homeLabels[status]}</option>)}</select></label>
-          <label className="flex flex-col gap-1 text-xs font-medium">Sort<select name="sort" defaultValue={sort} className="h-8 rounded-md border bg-background px-2 text-sm font-normal"><option value="gdp">GDP, highest first</option><option value="alphabetical">Alphabetical</option></select></label>
-          <Button type="submit">Apply</Button>
-          <Button variant="outline" render={<Link href="/coverage" />}>Reset</Button>
-        </form>
+        <CoverageFilters
+          values={{ q: queryValue(query.q), issuer: issuer ?? "", home: home ?? "", sort }}
+          issuerOptions={coverageIssuerStatuses.map((status) => ({ value: status, label: issuerLabels[status] }))}
+          homeOptions={coverageHomeStatuses.map((status) => ({ value: status, label: homeLabels[status] }))}
+        />
         <p aria-live="polite" className="text-sm text-muted-foreground">Showing {records.length} of {coverageRegistry.length} countries and territories.</p>
         <div id="coverage-table" className="rounded-lg border">
           <CoverageTable rows={tableRows} />
         </div>
       </section>
-    </main>
+      </main>
+    </>
   );
 }

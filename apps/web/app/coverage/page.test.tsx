@@ -15,6 +15,10 @@ describe("public coverage page", () => {
     expect(metadata.title).toBe("Local money coverage | Home");
     expect(html).toContain("Interactive globe of local-money coverage research");
     expect(html).toContain("Local money coverage");
+    expect(html).toContain("data-public-header-frame");
+    expect(html).toContain("data-home-mark");
+    expect(html).toMatch(/<a[^>]+href="\/"[^>]+aria-label="Home"/);
+    expect(html).toContain("Download CSV");
     expect(html.indexOf("Interactive globe")).toBeLessThan(html.indexOf("<h1"));
     expect(html).toContain("<table");
     expect(html).toContain("<caption");
@@ -32,12 +36,13 @@ describe("public coverage page", () => {
     expect(html).not.toContain("<footer");
   });
 
-  test("keeps five columns and renders only accessible traffic-light triggers in status cells", async () => {
+  test("keeps six split columns and renders icon-only accessible traffic-light triggers in status cells", async () => {
     const html = await renderCoverage({ q: "United States" });
     expect(html).toContain("data-slot=\"table\"");
     expect(html).toMatch(/<th[^>]+scope="col">Country<\/th>/);
     expect(html).toContain(">Currency</th>");
-    expect(html).toContain(">Candidate asset</th>");
+    expect(html).toContain(">Asset</th>");
+    expect(html).toContain(">Issuer</th>");
     expect(html).toContain(">Issuer route</th>");
     expect(html).toContain(">Home route</th>");
     expect(html).not.toContain(">GDP (2024)</th>");
@@ -46,18 +51,29 @@ describe("public coverage page", () => {
     const row = html.match(/<tr[^>]+id="country-US"[\s\S]*?<\/tr>/)?.[0] ?? "";
     const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1]);
     const visibleText = (cell: string) => cell.replace(/<[^>]+>/g, "");
-    expect(visibleText(cells[2] ?? "")).toBe("Yellow");
-    expect(visibleText(cells[3] ?? "")).toBe("Yellow");
-    expect(cells[2]).toContain("<button type=\"button\"");
-    expect(cells[2]).toContain("aria-label=\"Yellow — Conditional issuer route\"");
-    expect(cells[2]).toContain("data-indicator=\"solid\"");
-    expect(cells[3]).toContain("aria-label=\"Yellow — Sandbox Home route\"");
+    expect(visibleText(cells[3] ?? "")).toBe("");
+    expect(visibleText(cells[4] ?? "")).toBe("");
+    expect(cells[3]).toContain("<button type=\"button\"");
+    expect(cells[3]).toContain("aria-label=\"Yellow — Conditional issuer route\"");
+    expect(cells[3]).toContain("data-indicator=\"solid\"");
+    expect(cells[4]).toContain("aria-label=\"Yellow — Sandbox Home route\"");
     expect(row).not.toContain("<details");
     expect(row).not.toContain("Evidence checked");
     expect(row).not.toContain("Registry checked");
     expect(row).not.toContain("2026-09");
     expect(row).not.toContain("base:usdc");
     expect(row).not.toContain("Quote observation");
+  });
+
+  test("splits configured asset and issuer values with concise unconfigured fallbacks", async () => {
+    const configured = await renderCoverage({ q: "United States" });
+    const configuredRow = configured.match(/<tr[^>]+id="country-US"[\s\S]*?<\/tr>/)?.[0] ?? "";
+    expect(configuredRow).toContain(">USDC</td>");
+    expect(configuredRow).toContain(">Circle</td>");
+
+    const unconfigured = await renderCoverage({ q: "Kosovo" });
+    const unconfiguredRow = unconfigured.match(/<tr[^>]+id="country-XK"[\s\S]*?<\/tr>/)?.[0] ?? "";
+    expect(unconfiguredRow.match(/>Not configured<\/td>/g)).toHaveLength(2);
   });
 
   test("maps researched and absent routes without presenting unknown coverage as unavailable", async () => {
@@ -83,6 +99,8 @@ describe("public coverage page", () => {
   test("applies GET search, status filters, and alphabetical sorting", async () => {
     const html = await renderCoverage({ q: "rupiah", issuer: "documented", home: "in-build", sort: "alphabetical" });
     expect(html).toContain("method=\"get\"");
+    expect(html).not.toContain(">Apply</button>");
+    expect(html).not.toContain(">Reset</a>");
     expect(html).toContain("Showing 1 of 250 countries and territories");
     expect(html).toContain("Indonesia");
     expect(html).not.toContain("United States <span");

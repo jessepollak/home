@@ -36,15 +36,17 @@ export function CoverageStatusPreview({
         openOnHover
         delay={0}
         render={<button type="button" />}
-      >
-        {status}
-      </Popover.Trigger>
+      />
       <Popover.Portal>
         <Popover.Positioner className={styles.positioner} sideOffset={8}>
           <Popover.Popup className={styles.popup}>
             <Popover.Arrow className={styles.arrow} />
             <Popover.Title className={styles.heading} render={<h3 />}>{heading}</Popover.Title>
             <dl className={styles.details}>
+              <div className={styles.detail}>
+                <dt>Traffic color</dt>
+                <dd>{status}</dd>
+              </div>
               {details.map((detail) => (
                 <div className={styles.detail} key={detail.label}>
                   <dt>{detail.label}</dt>

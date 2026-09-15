@@ -261,6 +261,11 @@ describe("Home shell auth and privacy", () => {
     expect(await page().findByRole("heading", { name: "One home for your money." })).toBeTruthy();
     expect(page().queryByText("$12.34")).toBeNull();
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
+    expect(page().queryByRole("link", { name: "Explore local money coverage" })).toBeNull();
+
+    const landingHeader = document.querySelector<HTMLElement>('[data-shell-header-frame="landing"]');
+    expect(landingHeader?.className).not.toContain("max-w-2xl");
+    expect(landingHeader?.className).toContain("lg:px-8");
 
     fireEvent.click(within(page().getByRole("main")).getByRole("button", { name: "Sign in" }));
     expect(await page().findByRole("dialog", { name: "Sign in to Home" })).toBeTruthy();
@@ -426,6 +431,15 @@ describe("Home shell auth and privacy", () => {
 });
 
 describe("Home shell routing and intents", () => {
+  test("keeps the dashboard header constrained while only the landing header is full width", async () => {
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    await waitForVerifiedShell();
+
+    const dashboardHeader = document.querySelector<HTMLElement>('[data-shell-header-frame="dashboard"]');
+    expect(dashboardHeader?.className).toContain("max-w-2xl");
+    expect(dashboardHeader?.className).not.toContain("lg:px-8");
+  });
+
   test("keeps one stable title slot while L2 destinations replace the Home mark with Back", async () => {
     const cases: Array<{
       title: string;
