@@ -154,29 +154,26 @@ describe("Base ERC20 transfer query", () => {
     ).toThrow("cache age");
   });
 
-  test("Home activity allowlist stays CoinbaSeQL-safe and returns an empty page", async () => {
+  test("Home all-contract activity stays CoinbaSeQL-safe and returns an empty page", async () => {
     const productionAssets = activityAssets.map((asset) => ({
       id: asset.id,
       chainId: 8453 as const,
       address: asset.tokenAddress,
     }));
     const from = "2026-08-07T12:00:00.000Z";
-    const { sql } = buildBaseErc20TransferQuery(
-      {
-        verifiedWalletAddress: WALLET,
-        assetIds: activityAssets.map((asset) => asset.id),
-        from,
-        to: "2026-09-07T12:00:00.000Z",
-        limit: 25,
-      },
-      productionAssets,
-      NOW,
-    );
+    const request = {
+      verifiedWalletAddress: WALLET,
+      assetIds: [],
+      includeUnknownAssets: true,
+      from,
+      to: "2026-09-07T12:00:00.000Z",
+      limit: 25,
+    } as const;
+    const { sql } = buildBaseErc20TransferQuery(request, productionAssets, NOW);
 
-    expect(productionAssets.length).toBeGreaterThan(0);
-    expect(productionAssets.length).toBeLessThanOrEqual(20);
+    expect(productionAssets.length).toBeGreaterThan(20);
     expect(sql.length).toBeLessThanOrEqual(10_000);
-    expect(sql).toContain("address IN (");
+    expect(sql).not.toContain("address IN (");
     expect(sql).not.toContain("lower(toString(address))");
     expect(sql).toContain("sum(toInt8(action)) AS net_action");
     expect(sql).toContain("WHERE net_action > 0");
@@ -189,13 +186,7 @@ describe("Base ERC20 transfer query", () => {
       transport: transportFor([]),
       now: () => NOW,
     });
-    const page = await history.listTransfers({
-      verifiedWalletAddress: WALLET,
-      assetIds: activityAssets.map((asset) => asset.id),
-      from,
-      to: "2026-09-07T12:00:00.000Z",
-      limit: 25,
-    });
+    const page = await history.listTransfers(request);
     expect(page.transfers).toEqual([]);
     expect(page.nextCursor).toBeNull();
   });
@@ -423,6 +414,101 @@ describe("Base ERC20 transfer adapter", () => {
     });
   });
 
+  test("drops present unclassified decoded amounts only in all-contract mode", async () => {
+    const rows = [
+      row({ log_id: "valid", amount_base_units: "42", log_index: "4" }),
+      row({ log_id: "null", amount_base_units: null, log_index: "3" }),
+      row({ log_id: "empty", amount_base_units: "", log_index: "2" }),
+      row({ log_id: "non-decimal", amount_base_units: "1.5", log_index: "1" }),
+    ];
+    const history = createBaseErc20TransferHistory({
+      assets,
+      transport: transportFor(rows),
+      now: () => NOW,
+    });
+
+    const page = await history.listTransfers(input({
+      assetIds: [],
+      includeUnknownAssets: true,
+    }));
+    expect(page.transfers.map(({ logId, amountBaseUnits }) => ({ logId, amountBaseUnits }))).toEqual([
+      { logId: "valid", amountBaseUnits: "42" },
+    ]);
+    expect(page.droppedRowCount).toBe(3);
+
+    for (const amount of [null, "", "1.5"]) {
+      const strict = createBaseErc20TransferHistory({
+        assets,
+        transport: transportFor([row({ amount_base_units: amount })]),
+        now: () => NOW,
+      });
+      await expect(strict.listTransfers(input())).rejects.toMatchObject({
+        code: "invalid-response",
+      });
+    }
+  });
+
+  test("rejects a missing amount response key in all-contract mode", async () => {
+    const missingAmount = row({ log_id: "missing" });
+    delete (missingAmount as { amount_base_units?: unknown }).amount_base_units;
+    const history = createBaseErc20TransferHistory({
+      assets,
+      transport: transportFor([missingAmount]),
+      now: () => NOW,
+    });
+
+    await expect(history.listTransfers(input({
+      assetIds: [],
+      includeUnknownAssets: true,
+    }))).rejects.toMatchObject({ code: "invalid-response" });
+  });
+
+  test("uses the last limited source row for cursors even when rows are dropped", async () => {
+    const allDropped = Array.from({ length: 26 }, (_, index) =>
+      row({
+        log_id: `drop:${index}`,
+        log_index: String(26 - index),
+        amount_base_units: null,
+      }),
+    );
+    const history = createBaseErc20TransferHistory({
+      assets,
+      transport: transportFor(allDropped),
+      now: () => NOW,
+    });
+    const page = await history.listTransfers(input({
+      assetIds: [],
+      includeUnknownAssets: true,
+      limit: 25,
+    }));
+    expect(page.transfers).toEqual([]);
+    expect(page.droppedRowCount).toBe(25);
+    expect(decodeTransferCursor(page.nextCursor!)).toMatchObject({
+      logId: "drop:24",
+      logIndex: "2",
+    });
+
+    const lastDropped = createBaseErc20TransferHistory({
+      assets,
+      transport: transportFor([
+        row({ log_id: "visible", log_index: "3", amount_base_units: "1" }),
+        row({ log_id: "last-dropped", log_index: "2", amount_base_units: null }),
+        row({ log_id: "lookahead", log_index: "1", amount_base_units: "1" }),
+      ]),
+      now: () => NOW,
+    });
+    const second = await lastDropped.listTransfers(input({
+      assetIds: [],
+      includeUnknownAssets: true,
+      limit: 2,
+    }));
+    expect(second.transfers.map(({ logId }) => logId)).toEqual(["visible"]);
+    expect(decodeTransferCursor(second.nextCursor!)).toMatchObject({
+      logId: "last-dropped",
+      logIndex: "2",
+    });
+  });
+
   test("preserves an unknown contract as unknown when explicitly requested", async () => {
     const unknownToken = "0x5555555555555555555555555555555555555555";
     const history = createBaseErc20TransferHistory({
@@ -472,6 +558,20 @@ describe("Base ERC20 transfer adapter", () => {
     await expect(unscopedWallet.listTransfers(input())).rejects.toMatchObject({
       code: "invalid-response",
     });
+    await expect(unscopedWallet.listTransfers(input({
+      assetIds: [],
+      includeUnknownAssets: true,
+    }))).rejects.toMatchObject({ code: "invalid-response" });
+
+    const malformedEnvelope = createBaseErc20TransferHistory({
+      assets,
+      transport: transportFor([row({ token_address: "not-an-address" })]),
+      now: () => NOW,
+    });
+    await expect(malformedEnvelope.listTransfers(input({
+      assetIds: [],
+      includeUnknownAssets: true,
+    }))).rejects.toMatchObject({ code: "invalid-response" });
 
     const unscopedAsset = createBaseErc20TransferHistory({
       assets,

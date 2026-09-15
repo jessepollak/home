@@ -58,7 +58,7 @@ type TransferRow = {
   token_address: string;
   from_address: string;
   to_address: string;
-  amount_base_units: string;
+  amount_base_units: string | null;
 };
 
 export function normalizeBaseAddress(value: string): HexAddress {
@@ -167,28 +167,26 @@ export function createBaseErc20TransferHistory({
         signal: input.signal,
       });
       const metadata = parseMetadata(response);
-      const parsedRows = response.result.map((row) => parseTransferRow(row));
+      const parsedRows = response.result.map((row) =>
+        parseTransferRow(row, request.includeUnknownAssets),
+      );
       const pageRows = parsedRows.slice(0, request.limit);
       const addressToAsset = new Map(
         request.assets.map((asset) => [asset.address, asset]),
       );
-      const transfers = pageRows.map((row) =>
-        normalizeTransfer(
+      const transfers = pageRows.flatMap((row) => {
+        const transfer = normalizeTransfer(
           row,
           request.walletAddress,
           addressToAsset,
           request.includeUnknownAssets,
-        ),
-      );
+        );
+        return transfer ? [transfer] : [];
+      });
+      const lastSourceRow = pageRows.at(-1);
       const nextCursor =
-        parsedRows.length > request.limit && transfers.length > 0
-          ? encodeTransferCursor({
-              blockNumber: transfers.at(-1)!.blockNumber,
-              transactionHash: transfers.at(-1)!.transactionHash,
-              logIndex: transfers.at(-1)!.logIndex,
-              tokenAddress: transfers.at(-1)!.tokenAddress,
-              logId: transfers.at(-1)!.logId,
-            })
+        parsedRows.length > request.limit && lastSourceRow
+          ? encodeTransferCursor(cursorFromRow(lastSourceRow))
           : null;
       const executionTimestamp = normalizeTimestamp(
         metadata.executionTimestamp,
@@ -198,6 +196,7 @@ export function createBaseErc20TransferHistory({
       return {
         transfers,
         nextCursor,
+        droppedRowCount: pageRows.length - transfers.length,
         source: {
           provider: "cdp-sql",
           cached: metadata.cached,
@@ -347,9 +346,15 @@ function validateAllowlist(
   });
 }
 
-function parseTransferRow(value: unknown): TransferRow {
+function parseTransferRow(
+  value: unknown,
+  allowUnclassifiedAmount: boolean,
+): TransferRow {
   if (!isRecord(value)) {
     throw invalidResponse("CDP SQL returned a non-object transfer row.");
+  }
+  if (!Object.hasOwn(value, "amount_base_units")) {
+    throw invalidResponse("CDP SQL response omitted amount_base_units.");
   }
   const row = {
     log_id: requiredString(value, "log_id"),
@@ -361,7 +366,7 @@ function parseTransferRow(value: unknown): TransferRow {
     token_address: requiredString(value, "token_address"),
     from_address: requiredString(value, "from_address"),
     to_address: requiredString(value, "to_address"),
-    amount_base_units: requiredString(value, "amount_base_units"),
+    amount_base_units: parseAmount(value.amount_base_units, allowUnclassifiedAmount),
   };
   if (row.log_id.length === 0 || row.log_id.length > MAX_LOG_ID_LENGTH) {
     throw invalidResponse("CDP SQL returned an invalid log ID.");
@@ -369,7 +374,6 @@ function parseTransferRow(value: unknown): TransferRow {
   for (const [name, decimal] of [
     ["block_number", row.block_number],
     ["log_index", row.log_index],
-    ["amount_base_units", row.amount_base_units],
   ] as const) {
     if (!DECIMAL_INTEGER_PATTERN.test(decimal)) {
       throw invalidResponse(`CDP SQL returned a non-decimal ${name}.`);
@@ -389,7 +393,7 @@ function normalizeTransfer(
   walletAddress: HexAddress,
   addressToAsset: ReadonlyMap<HexAddress, BaseErc20Asset>,
   includeUnknownAssets: boolean,
-): BaseErc20Transfer {
+): BaseErc20Transfer | null {
   const tokenAddress = normalizeBaseAddressResponse(row.token_address);
   const asset = addressToAsset.get(tokenAddress) ?? null;
   if (!asset && !includeUnknownAssets) {
@@ -400,6 +404,7 @@ function normalizeTransfer(
   if (fromAddress !== walletAddress && toAddress !== walletAddress) {
     throw invalidResponse("CDP SQL returned a transfer outside the verified wallet scope.");
   }
+  if (row.amount_base_units === null) return null;
   const direction =
     fromAddress === walletAddress && toAddress === walletAddress
       ? "self"
@@ -423,6 +428,16 @@ function normalizeTransfer(
     transactionHash: normalizeHash(row.transaction_hash, "transaction_hash"),
     logIndex: row.log_index,
     blockTimestamp: normalizeTimestamp(row.source_timestamp, "source_timestamp"),
+  };
+}
+
+function cursorFromRow(row: TransferRow): TransferHistoryCursor {
+  return {
+    blockNumber: row.block_number,
+    transactionHash: normalizeHash(row.transaction_hash, "transaction_hash"),
+    logIndex: row.log_index,
+    tokenAddress: normalizeBaseAddressResponse(row.token_address),
+    logId: row.log_id,
   };
 }
 
@@ -505,6 +520,17 @@ function normalizeHash(value: string, field: string): TransactionHash {
     throw invalidResponse(`CDP SQL returned an invalid ${field}.`);
   }
   return normalized as TransactionHash;
+}
+
+function parseAmount(value: unknown, allowUnclassified: boolean): string | null {
+  if (typeof value === "string" && DECIMAL_INTEGER_PATTERN.test(value)) {
+    return value;
+  }
+  if (allowUnclassified) return null;
+  if (typeof value !== "string") {
+    throw invalidResponse("CDP SQL field amount_base_units must be a string.");
+  }
+  throw invalidResponse("CDP SQL returned a non-decimal amount_base_units.");
 }
 
 function requiredString(record: Record<string, unknown>, key: string): string {

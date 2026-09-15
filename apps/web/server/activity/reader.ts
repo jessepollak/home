@@ -4,9 +4,9 @@ import {
   ACTIVITY_PAGE_SIZE,
   ACTIVITY_WINDOW_DAYS,
   activityAssets,
-  type ActivityAsset,
   type ActivityPage,
 } from "@/shared/activity/types";
+import { registryActivityTokenMetadata } from "@/shared/activity/metadata";
 import { createBaseErc20TransferHistory } from "@/server/chain-data/base-erc20-transfers";
 import {
   createCdpSqlAuthFromEnv,
@@ -18,6 +18,10 @@ import type {
   ActivityReader,
   VerifiedActivityAccount,
 } from "./types";
+import {
+  resolveActivityTokenMetadata,
+  type ActivityTokenMetadataResolution,
+} from "./token-metadata";
 
 type TransferLister = (input: {
   verifiedWalletAddress: string;
@@ -33,11 +37,15 @@ type TransferLister = (input: {
 }) => Promise<BaseErc20TransferPage>;
 
 const windowMs = ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-const assetsByContract = new Map<string, ActivityAsset>(
-  activityAssets.map((asset) => [asset.tokenAddress.toLowerCase(), asset]),
-);
+type MetadataResolver = (
+  addresses: readonly `0x${string}`[],
+  signal?: AbortSignal,
+) => Promise<ActivityTokenMetadataResolution>;
 
-export function createActivityReader(listTransfers: TransferLister): ActivityReader {
+export function createActivityReader(
+  listTransfers: TransferLister,
+  resolveMetadata: MetadataResolver = resolveActivityTokenMetadata,
+): ActivityReader {
   return async function readActivity(
     account: VerifiedActivityAccount,
     request: ActivityReadRequest,
@@ -47,7 +55,8 @@ export function createActivityReader(listTransfers: TransferLister): ActivityRea
     const from = new Date(to.getTime() - windowMs).toISOString();
     const page = await listTransfers({
       verifiedWalletAddress: account.address,
-      assetIds: activityAssets.map((asset) => asset.id),
+      assetIds: [],
+      includeUnknownAssets: true,
       from,
       to: request.to,
       limit: ACTIVITY_PAGE_SIZE,
@@ -57,18 +66,39 @@ export function createActivityReader(listTransfers: TransferLister): ActivityRea
       signal,
     });
 
+    const addresses = [...new Set(page.transfers.map((transfer) =>
+      transfer.tokenAddress.toLowerCase() as `0x${string}`,
+    ))];
+    let resolution: ActivityTokenMetadataResolution;
+    try {
+      resolution = await resolveMetadata(addresses, signal);
+    } catch {
+      resolution = {
+        metadata: new Map(addresses.map((address) => [
+          address,
+          registryActivityTokenMetadata(address) ?? {
+            assetId: null,
+            tokenSymbol: null,
+            tokenDecimals: null,
+          },
+        ])),
+        nftLikeContracts: new Set(),
+      };
+    }
+
     return {
       walletAddress: account.address.toLowerCase() as `0x${string}`,
       chainId: 8453,
       window: { from, to: request.to },
-      transfers: page.transfers.map((transfer) => {
-        const asset = assetsByContract.get(transfer.tokenAddress.toLowerCase());
-        return {
-          ...transfer,
-          assetId: asset?.id ?? null,
-          tokenSymbol: asset?.symbol ?? null,
-          tokenDecimals: asset?.decimals ?? null,
+      transfers: page.transfers.flatMap((transfer) => {
+        const address = transfer.tokenAddress.toLowerCase();
+        if (resolution.nftLikeContracts.has(address)) return [];
+        const token = resolution.metadata.get(address) ?? {
+          assetId: null,
+          tokenSymbol: null,
+          tokenDecimals: null,
         };
+        return [{ ...transfer, ...token }];
       }),
       nextCursor: page.nextCursor,
       source: page.source,

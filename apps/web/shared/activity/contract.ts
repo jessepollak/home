@@ -6,11 +6,14 @@ import {
   ACTIVITY_BASE_CHAIN_ID,
   ACTIVITY_PAGE_SIZE,
   ACTIVITY_WINDOW_DAYS,
-  activityAssets,
   type ActivityAsset,
   type ActivityPage,
   type ActivityTransfer,
 } from "@/shared/activity/types";
+import {
+  activityAssetsByContract,
+  sanitizeDynamicActivityTokenMetadata,
+} from "@/shared/activity/metadata";
 
 export type ActivityResponse = ActivityPage;
 export type ActivityRequestQuery = { to: string; cursor?: string };
@@ -20,10 +23,6 @@ const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const uint256Max = (BigInt(1) << BigInt(256)) - BigInt(1);
 const maxWindowMs = ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-const assetsByContract = new Map<string, ActivityAsset>(
-  activityAssets.map((asset) => [asset.tokenAddress.toLowerCase(), asset]),
-);
-
 export class ActivityResponseError extends Error {
   constructor() {
     super("The activity response is invalid.");
@@ -116,10 +115,8 @@ function parseTransfer(
   const transferWallet = readAddress(value.walletAddress);
   const tokenAddress = readAddress(value.tokenAddress);
   const normalizedTokenAddress = tokenAddress.toLowerCase();
-  const asset = assetsByContract.get(normalizedTokenAddress);
-  const expectedAssetId = asset?.id ?? null;
-  const expectedSymbol = asset?.symbol ?? null;
-  const expectedDecimals = asset?.decimals ?? null;
+  const asset = activityAssetsByContract.get(normalizedTokenAddress);
+  const tokenMetadata = parseTokenMetadata(value, asset);
   const fromAddress = readAddress(value.fromAddress);
   const toAddress = readAddress(value.toAddress);
   const transactionHash = readHash(value.transactionHash);
@@ -146,9 +143,6 @@ function parseTransfer(
     value.id !== `${ACTIVITY_BASE_CHAIN_ID}:${normalizedTokenAddress}:${value.logId}` ||
     value.id.length > 512 ||
     value.chainId !== ACTIVITY_BASE_CHAIN_ID ||
-    value.assetId !== expectedAssetId ||
-    value.tokenSymbol !== expectedSymbol ||
-    value.tokenDecimals !== expectedDecimals ||
     transferWallet.toLowerCase() !== normalizedWallet ||
     direction !== expectedDirection ||
     typeof value.amountBaseUnits !== "string" ||
@@ -168,10 +162,10 @@ function parseTransfer(
     id: value.id,
     logId: value.logId,
     chainId: ACTIVITY_BASE_CHAIN_ID,
-    assetId: expectedAssetId,
+    assetId: tokenMetadata.assetId,
     tokenAddress: normalizedTokenAddress as `0x${string}`,
-    tokenSymbol: expectedSymbol,
-    tokenDecimals: expectedDecimals,
+    tokenSymbol: tokenMetadata.tokenSymbol,
+    tokenDecimals: tokenMetadata.tokenDecimals,
     walletAddress: transferWallet.toLowerCase() as `0x${string}`,
     fromAddress: fromAddress.toLowerCase() as `0x${string}`,
     toAddress: toAddress.toLowerCase() as `0x${string}`,
@@ -183,6 +177,46 @@ function parseTransfer(
     logIndex: value.logIndex as string,
     blockTimestamp,
   };
+}
+
+function parseTokenMetadata(
+  value: Record<string, unknown>,
+  asset: ActivityAsset | undefined,
+): Pick<ActivityTransfer, "assetId" | "tokenSymbol" | "tokenDecimals"> {
+  if (asset) {
+    if (
+      value.assetId !== asset.id ||
+      value.tokenSymbol !== asset.symbol ||
+      value.tokenDecimals !== asset.decimals
+    ) {
+      throw new ActivityResponseError();
+    }
+    return {
+      assetId: asset.id,
+      tokenSymbol: asset.symbol,
+      tokenDecimals: asset.decimals,
+    };
+  }
+
+  if (value.assetId !== null) throw new ActivityResponseError();
+  if (value.tokenSymbol === null && value.tokenDecimals === null) {
+    return { assetId: null, tokenSymbol: null, tokenDecimals: null };
+  }
+  if (value.tokenSymbol === null || value.tokenDecimals === null) {
+    throw new ActivityResponseError();
+  }
+  const sanitized = sanitizeDynamicActivityTokenMetadata({
+    symbol: value.tokenSymbol,
+    decimals: value.tokenDecimals,
+  });
+  if (
+    sanitized.tokenSymbol === null ||
+    sanitized.tokenSymbol !== value.tokenSymbol ||
+    sanitized.tokenDecimals !== value.tokenDecimals
+  ) {
+    throw new ActivityResponseError();
+  }
+  return sanitized;
 }
 
 function parseSource(value: unknown): ActivityPage["source"] {

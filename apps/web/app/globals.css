@@ -106,6 +106,14 @@
 }
 
 @layer utilities {
+  .shell-scroll-container {
+    scrollbar-width: none;
+  }
+
+  .shell-scroll-container::-webkit-scrollbar {
+    display: none;
+  }
+
   .shell-scrollbar-compensated {
     padding-inline-end: var(--shell-scrollbar-width, 0px);
   }

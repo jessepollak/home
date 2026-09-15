@@ -99,6 +99,32 @@ describe("presentActivityTransferRow", () => {
     ).toBe("−1.2345 cbBTC");
   });
 
+  test("presents incoming ZORA with exact contract and dynamic decimals", () => {
+    const tokenAddress = "0x1111111111166b7fe7bd91427724b487980afc69" as const;
+    const zora = transfer("incoming", {
+      id: `8453:${tokenAddress}:zora-log`,
+      logId: "zora-log",
+      assetId: null,
+      tokenAddress,
+      tokenSymbol: "ZORA",
+      tokenDecimals: 18,
+      amountBaseUnits: "1000000000000000001",
+    });
+
+    expect(presentActivityTransferRow(zora, UTC).value).toBe("+1 ZORA");
+    const details = presentActivityTransferDetails(zora, UTC);
+    expect(details.title).toBe("Received ZORA");
+    expect(details.rows).toContainEqual({
+      label: "Amount",
+      value: "+1.000000000000000001 ZORA",
+    });
+    expect(details.rows).toContainEqual({
+      label: "Token contract",
+      value: tokenAddress,
+      display: "0x1111…0afc69",
+    });
+  });
+
   test("presents unknown contracts honestly without a USDC fallback", () => {
     const tokenAddress = "0x4444444444444444444444444444444444444444" as const;
     const unknown = transfer("incoming", {
