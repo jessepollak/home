@@ -43,7 +43,7 @@ export function CoverageStatusPreview({
         <Popover.Positioner className={styles.positioner} sideOffset={8}>
           <Popover.Popup className={styles.popup}>
             <Popover.Arrow className={styles.arrow} />
-            <h3 className={styles.heading}>{heading}</h3>
+            <Popover.Title className={styles.heading} render={<h3 />}>{heading}</Popover.Title>
             <dl className={styles.details}>
               {details.map((detail) => (
                 <div className={styles.detail} key={detail.label}>

@@ -31,6 +31,7 @@ describe("CoverageStatusPreview", () => {
     const popup = await view.findByRole("dialog");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(trigger.getAttribute("aria-controls")).toBe(popup.id);
+    expect(popup.getAttribute("aria-labelledby")).toBeTruthy();
     const evidence = view.getByRole("link", { name: "Checked 2026-03-19" });
     evidence.focus();
     expect(document.activeElement).toBe(evidence);
