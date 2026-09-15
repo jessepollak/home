@@ -130,6 +130,14 @@ describe("Save simplify", () => {
       />,
     );
 
+    const vaultGroup = await page().findByRole("radiogroup", { name: "Vault" });
+    const selectedVault = within(vaultGroup).getByRole("radio", {
+      name: /Gauntlet USDC Prime/,
+    });
+    expect(vaultGroup.className).toContain("space-y-4");
+    expect(selectedVault.parentElement?.className).toContain("pt-1");
+    expect(selectedVault.getAttribute("aria-checked")).toBe("true");
+
     await page().findByRole("button", { name: "Get started" });
     fireEvent.click(page().getByRole("button", { name: "Get started" }));
     fireEvent.click(page().getByRole("button", { name: "1" }));
