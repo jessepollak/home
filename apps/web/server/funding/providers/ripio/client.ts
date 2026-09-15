@@ -248,7 +248,7 @@ export function createRipioClient(country: RipioCountry, options: {
       const depositCatalog = await request("/api/v1/depositNetworks/?include_currency=true");
       const withdrawalCatalog = await request("/api/v1/withdrawalNetworks/?include_currency=true");
       if (!catalogEntitles(depositCatalog, country) || !catalogEntitles(withdrawalCatalog, country)) {
-        throw new RipioProviderError("invalid-request");
+        throw new RipioProviderError("binding-conflict");
       }
       const providerInput = {
         fromCurrency: input.fromCurrency,

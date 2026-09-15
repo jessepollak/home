@@ -107,7 +107,7 @@ describe("Ripio production REST client", () => {
         return Response.json([{ network_name: "ETHEREUM_SEPOLIA", assets: [{ name: "RTEST", contract_address: "0x0472eDf217331A7809e33AA0920b8ab864EEB437" }] }]);
       },
     });
-    await expect(client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "invalid-request" });
+    await expect(client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "binding-conflict" });
     expect(calls).toBe(3);
   });
 

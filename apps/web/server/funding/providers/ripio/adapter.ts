@@ -17,6 +17,7 @@ import {
   type RipioOrderReference,
 } from "./client";
 import { ripioManifest } from "./manifest";
+import { emitRipioFailure } from "./observability";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -24,112 +25,132 @@ export const ripioProvider: FundingProvider = {
   manifest: ripioManifest,
   onramp: {
     async ensureCustomer(input, ctx) {
-    const email = input.fields.email?.trim();
-    if (!email) throw new RipioProviderError("invalid-request");
-    const client = clientFor(ctx);
-    const customer = await client.createCustomer({ email });
-    const terms = await client.getTerms();
-    const termsId = readTermsId(terms);
-    if (!termsId) throw new RipioProviderError("invalid-response");
-    await client.acceptTerms(customer.customerId, termsId);
-    const kyc = Object.fromEntries(
-      Object.entries(input.fields).filter(([name]) => name !== "email"),
-    );
-    if (Object.keys(kyc).length > 0) await client.submitKyc(customer.customerId, kyc);
-    return { customerRef: customer.customerId };
-  },
+      const startedAt = Date.now();
+      try {
+        const email = input.fields.email?.trim();
+        if (!email) throw new RipioProviderError("invalid-request");
+        const client = clientFor(ctx);
+        const customer = await client.createCustomer({ email });
+        const terms = await client.getTerms();
+        const termsId = readTermsId(terms);
+        if (!termsId) throw new RipioProviderError("invalid-response");
+        await client.acceptTerms(customer.customerId, termsId);
+        const kyc = Object.fromEntries(
+          Object.entries(input.fields).filter(([name]) => name !== "email"),
+        );
+        if (Object.keys(kyc).length > 0) await client.submitKyc(customer.customerId, kyc);
+        return { customerRef: customer.customerId };
+      } catch (error) {
+        emitRipioFailure("customer", error, startedAt, ctx.binding.region);
+        throw error;
+      }
+    },
 
-  async createQuote(input, ctx) {
-    const quote = await clientFor(ctx).createQuote({
-      country: countryFor(ctx),
-      fromCurrency: ctx.binding.asset.fiatCurrency as "ARS" | "BRL" | "COP",
-      toCurrency: ctx.binding.asset.symbol as "wARS" | "wBRL" | "wCOP",
-      fromAmount: input.fiatAmount,
-      chain: "BASE",
-      paymentMethodType: ctx.binding.paymentMethod.id as "bank_transfer" | "pix" | "breb" | "r2p_bancolombia" | "r2p_nequi",
-      destination: input.destination,
-    });
-    return {
-      providerQuoteId: quote.quoteId,
-      fiatAmount: quote.finalFromAmount,
-      tokenAmountAtomic: ripioDecimalToAtomic(quote.finalToAmount, ctx.binding.asset.decimals, "invalid-response"),
-      fees: quote.fees.map((fee) => ({
-        label: fee.type,
-        amount: fee.amount,
-        currency: fee.currency,
-      })),
-      feesKnown: true,
-      expiresAt: quote.expiration,
-    };
-  },
+    async createQuote(input, ctx) {
+      const startedAt = Date.now();
+      try {
+        const quote = await clientFor(ctx).createQuote({
+          country: countryFor(ctx),
+          fromCurrency: ctx.binding.asset.fiatCurrency as "ARS" | "BRL" | "COP",
+          toCurrency: ctx.binding.asset.symbol as "wARS" | "wBRL" | "wCOP",
+          fromAmount: input.fiatAmount,
+          chain: "BASE",
+          paymentMethodType: ctx.binding.paymentMethod.id as "bank_transfer" | "pix" | "breb" | "r2p_bancolombia" | "r2p_nequi",
+          destination: input.destination,
+        });
+        return {
+          providerQuoteId: quote.quoteId,
+          fiatAmount: quote.finalFromAmount,
+          tokenAmountAtomic: ripioDecimalToAtomic(quote.finalToAmount, ctx.binding.asset.decimals, "invalid-response"),
+          fees: quote.fees.map((fee) => ({
+            label: fee.type,
+            amount: fee.amount,
+            currency: fee.currency,
+          })),
+          feesKnown: true,
+          expiresAt: quote.expiration,
+        };
+      } catch (error) {
+        emitRipioFailure("quote", error, startedAt, ctx.binding.region);
+        throw error;
+      }
+    },
 
-  async createOrder(input, ctx) {
-    if (!input.quote?.providerQuoteId || !input.customerRef || !UUID.test(input.homeOrderId)) {
-      return { outcome: "rejected", message: "A current quote and verified customer are required." };
-    }
-    try {
-      const order = await clientFor(ctx).createOnramp({
-        customerId: input.customerRef,
-        quoteId: input.quote.providerQuoteId,
-        externalRef: input.homeOrderId,
-        destination: input.destination,
-        fromCurrency: ctx.binding.asset.fiatCurrency,
-        toCurrency: ctx.binding.asset.symbol,
-        chain: "BASE",
-        paymentMethodType: ctx.binding.paymentMethod.id,
-        finalToAmount: ripioAtomicToDecimal(input.quote.tokenAmountAtomic, ctx.binding.asset.decimals),
-        fiatAmount: input.quote.fiatAmount,
-      });
-      return {
-        outcome: "created",
-        order: {
-          providerOrderId: order.transactionId,
-          tokenAddress: ctx.binding.asset.address,
-          expectedTokenAmountAtomic: input.quote.tokenAmountAtomic,
-          fees: input.quote.fees,
-          expiresAt: earlierExpiry(input.quote.expiresAt, order.instructions.kind === "br-pix" ? order.instructions.expiresAt : undefined),
-          instructions: instructionsFor(order, input.quote, ctx),
-        },
-      };
-    } catch (error) {
-      if (error instanceof RipioProviderError && error.code === "ambiguous-create") {
+    async createOrder(input, ctx) {
+      const startedAt = Date.now();
+      if (!input.quote?.providerQuoteId || !input.customerRef || !UUID.test(input.homeOrderId)) {
+        return { outcome: "rejected", message: "A current quote and verified customer are required." };
+      }
+      try {
+        const order = await clientFor(ctx).createOnramp({
+          customerId: input.customerRef,
+          quoteId: input.quote.providerQuoteId,
+          externalRef: input.homeOrderId,
+          destination: input.destination,
+          fromCurrency: ctx.binding.asset.fiatCurrency,
+          toCurrency: ctx.binding.asset.symbol,
+          chain: "BASE",
+          paymentMethodType: ctx.binding.paymentMethod.id,
+          finalToAmount: ripioAtomicToDecimal(input.quote.tokenAmountAtomic, ctx.binding.asset.decimals),
+          fiatAmount: input.quote.fiatAmount,
+        });
+        return {
+          outcome: "created",
+          order: {
+            providerOrderId: order.transactionId,
+            tokenAddress: ctx.binding.asset.address,
+            expectedTokenAmountAtomic: input.quote.tokenAmountAtomic,
+            fees: input.quote.fees,
+            expiresAt: earlierExpiry(input.quote.expiresAt, order.instructions.kind === "br-pix" ? order.instructions.expiresAt : undefined),
+            instructions: instructionsFor(order, input.quote, ctx),
+          },
+        };
+      } catch (error) {
+        emitRipioFailure("order", error, startedAt, ctx.binding.region);
+        if (error instanceof RipioProviderError && error.code === "ambiguous-create") {
+          return { outcome: "ambiguous" };
+        }
+        if (error instanceof RipioProviderError && error.code === "invalid-request") {
+          return { outcome: "rejected", message: "Ripio rejected this order." };
+        }
         return { outcome: "ambiguous" };
       }
-      if (error instanceof RipioProviderError && error.code === "invalid-request") {
-        return { outcome: "rejected", message: "Ripio rejected this order." };
-      }
-      return { outcome: "ambiguous" };
-    }
-  },
+    },
 
-  async getOrder(input, ctx) {
-    if (!input.homeOrderId || !input.customerRef || !input.providerQuoteId) throw new RipioProviderError("binding-conflict");
-    const transaction = await clientFor(ctx).getTransaction(input.providerOrderId, {
-      customerId: input.customerRef,
-      quoteId: input.providerQuoteId,
-      externalRef: input.homeOrderId,
-      destination: input.destination,
-      fromCurrency: ctx.binding.asset.fiatCurrency,
-      toCurrency: ctx.binding.asset.symbol,
-      chain: "BASE",
-      paymentMethodType: ctx.binding.paymentMethod.id,
-      finalToAmount: ripioAtomicToDecimal(input.expectedTokenAmountAtomic, input.tokenDecimals),
-    });
-    if (
-      transaction.customerId !== input.customerRef
-      || transaction.quoteId !== input.providerQuoteId
-      || transaction.externalRef !== input.homeOrderId
-      || transaction.destination?.toLowerCase() !== input.destination.toLowerCase()
-      || transaction.operationType !== "ON_RAMP"
-      || transaction.chain !== "BASE"
-      || transaction.fromCurrency !== ctx.binding.asset.fiatCurrency
-      || transaction.toCurrency !== ctx.binding.asset.symbol
-      || transaction.paymentMethodType !== ctx.binding.paymentMethod.id
-      || transaction.amount === undefined
-      || ripioDecimalToAtomic(transaction.amount, input.tokenDecimals, "invalid-response") !== input.expectedTokenAmountAtomic
-    ) throw new RipioProviderError("binding-conflict");
-    return observationFor(transaction.status, transaction.txnHash, transaction.latestRefund);
-  },
+    async getOrder(input, ctx) {
+      const startedAt = Date.now();
+      try {
+        if (!input.homeOrderId || !input.customerRef || !input.providerQuoteId) throw new RipioProviderError("binding-conflict");
+        const transaction = await clientFor(ctx).getTransaction(input.providerOrderId, {
+          customerId: input.customerRef,
+          quoteId: input.providerQuoteId,
+          externalRef: input.homeOrderId,
+          destination: input.destination,
+          fromCurrency: ctx.binding.asset.fiatCurrency,
+          toCurrency: ctx.binding.asset.symbol,
+          chain: "BASE",
+          paymentMethodType: ctx.binding.paymentMethod.id,
+          finalToAmount: ripioAtomicToDecimal(input.expectedTokenAmountAtomic, input.tokenDecimals),
+        });
+        if (
+          transaction.customerId !== input.customerRef
+          || transaction.quoteId !== input.providerQuoteId
+          || transaction.externalRef !== input.homeOrderId
+          || transaction.destination?.toLowerCase() !== input.destination.toLowerCase()
+          || transaction.operationType !== "ON_RAMP"
+          || transaction.chain !== "BASE"
+          || transaction.fromCurrency !== ctx.binding.asset.fiatCurrency
+          || transaction.toCurrency !== ctx.binding.asset.symbol
+          || transaction.paymentMethodType !== ctx.binding.paymentMethod.id
+          || transaction.amount === undefined
+          || ripioDecimalToAtomic(transaction.amount, input.tokenDecimals, "invalid-response") !== input.expectedTokenAmountAtomic
+        ) throw new RipioProviderError("binding-conflict");
+        return observationFor(transaction.status, transaction.txnHash, transaction.latestRefund);
+      } catch (error) {
+        emitRipioFailure("status", error, startedAt, ctx.binding.region);
+        throw error;
+      }
+    },
 
   verifyWebhook(raw, headers, ctx) {
     const supplied = headers.get(ripioManifest.onramp.webhook.signatureHeader)?.trim().replace(/^sha256=/i, "");

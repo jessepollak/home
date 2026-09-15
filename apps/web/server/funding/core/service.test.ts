@@ -292,6 +292,7 @@ describe("FundingCore", () => {
   test("binds webhook signatures to the order region while preserving shared-secret manifests", async () => {
     const run = async (webhookEnv: string | { US: string; ID: string }, signature: string, removeOrderRegionSecret = false) => {
       let refreshes = 0;
+      const matchedEvents: Array<{ providerId: string; region: string }> = [];
       const store = new MemoryFundingOrderStore();
       const bindings = [
         { region: "US" as const, assetId: "base:usdc", currency: "USD" as const, directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: [typeof webhookEnv === "string" ? webhookEnv : webhookEnv.US] } } },
@@ -313,15 +314,15 @@ describe("FundingCore", () => {
       const runtimeEnv = removeOrderRegionSecret && typeof webhookEnv !== "string"
         ? { [quoteSecretName]: "q".repeat(32), [webhookEnv.US]: "us-secret" }
         : fullEnv;
-      const core = new FundingCore({ providers: [provider], store, env: runtimeEnv, currentBaseBlock: async () => "1", verifyReceipt: async () => null });
+      const core = new FundingCore({ providers: [provider], store, env: runtimeEnv, currentBaseBlock: async () => "1", verifyReceipt: async () => null, logMatchedWebhook: (event) => matchedEvents.push(event) });
       const result = await core.handleWebhook("regional", new Uint8Array(), new Headers({ "x-signature": signature }));
-      return { result, refreshes };
+      return { result, refreshes, matchedEvents };
     };
 
-    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "id-secret")).toEqual({ result: { accepted: true, matched: true }, refreshes: 1 });
-    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "us-secret")).toEqual({ result: { accepted: true, matched: false }, refreshes: 0 });
-    expect(await run("SHARED_HOOK", "us-secret")).toEqual({ result: { accepted: true, matched: true }, refreshes: 1 });
-    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "us-secret", true)).toEqual({ result: { accepted: true, matched: false }, refreshes: 0 });
+    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "id-secret")).toEqual({ result: { accepted: true, matched: true }, refreshes: 1, matchedEvents: [{ providerId: "regional", region: "ID" }] });
+    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "us-secret")).toEqual({ result: { accepted: true, matched: false }, refreshes: 0, matchedEvents: [] });
+    expect(await run("SHARED_HOOK", "us-secret")).toEqual({ result: { accepted: true, matched: true }, refreshes: 1, matchedEvents: [{ providerId: "regional", region: "ID" }] });
+    expect(await run({ US: "US_HOOK", ID: "ID_HOOK" }, "us-secret", true)).toEqual({ result: { accepted: true, matched: false }, refreshes: 0, matchedEvents: [] });
   });
 
   test("propagates unexpected webhook verification errors while treating missing binding configuration as invalid", async () => {
@@ -373,12 +374,17 @@ describe("FundingCore", () => {
     await creatingCore.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
 
     const events: Array<{ providerId: string; reason: "invalid" | "unmatched" | "region-mismatch" }> = [];
-    const core = new FundingCore({ providers: [provider], store, env, currentBaseBlock: async () => "1", verifyReceipt: async () => null, logUnmatchedWebhook: (event) => events.push(event) });
+    const matchedEvents: Array<{ providerId: string; region: string }> = [];
+    const core = new FundingCore({ providers: [provider], store, env, currentBaseBlock: async () => "1", verifyReceipt: async () => null, logUnmatchedWebhook: (event) => events.push(event), logMatchedWebhook: (event) => matchedEvents.push(event) });
     const raw = new TextEncoder().encode("private-body");
     expect(await core.handleWebhook("regional", raw, new Headers({ "x-signature": "us-secret" }))).toEqual({ accepted: true, matched: false });
     expect(events).toEqual([{ providerId: "regional", reason: "region-mismatch" }]);
     expect(JSON.stringify(events)).not.toContain("private-regional-order");
     expect(JSON.stringify(events)).not.toContain("private-body");
+    expect(await core.handleWebhook("regional", raw, new Headers({ "x-signature": "id-secret" }))).toEqual({ accepted: true, matched: true });
+    expect(matchedEvents).toEqual([{ providerId: "regional", region: "ID" }]);
+    expect(JSON.stringify(matchedEvents)).not.toContain("private-regional-order");
+    expect(JSON.stringify(matchedEvents)).not.toContain("private-body");
 
     orderRegionError = new FundingProviderConfigurationError("missing binding configuration");
     expect(await core.handleWebhook("regional", raw, new Headers({ "x-signature": "us-secret" }))).toEqual({ accepted: true, matched: false });

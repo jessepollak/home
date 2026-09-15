@@ -29,6 +29,15 @@ export function getFundingCore(): FundingCore {
         provider: providerId,
       });
     },
+    logMatchedWebhook: ({ providerId, region }) => {
+      emitServerEvent("funding-webhook", {
+        route: "/api/funding/webhooks/:provider",
+        code: "WEBHOOK_MATCHED",
+        outcome: "accepted",
+        provider: providerId,
+        region,
+      });
+    },
     logProviderDiscoveryFailure: ({ providerId, reason, code }) => {
       emitServerEvent("funding-order", {
         route: "/api/funding/providers",
