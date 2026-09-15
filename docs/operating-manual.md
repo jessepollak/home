@@ -105,13 +105,14 @@ Jesse-locked, September 11, 2026. This replaces the earlier pipelines, calibrate
 1. **One issue, one writer, one worktree, one PR.** Small scope, one lane, one owner, ordinary branch. If an issue needs more than one lane, split the issue. Run as many lanes as the backlog has disjoint issues (5–10 is normal); the shared limit is heavy jobs — at most four concurrent `bun check` / Playwright runs on one machine — not writers. Lanes are self-contained: the coordinator picks the next issue, launches the lane, and reads the result. A blocked lane names its dependency on the issue and the coordinator moves on.
 2. **The loop:** implement → `bun check` → one fresh independent review → fix blocking findings → push → CI green → attach the preview ([UI PR previews](ui-pr-previews.md)) → undraft and `status:needs-jesse`. Any PR that needs an operator action to work after merge — a new environment variable, migration command, provider-dashboard change, or Vercel setting — states it under an **Operator action required** heading in the PR body with exact environment variable names, non-secret setting values, and exact commands. Never include secret values, credentials, tokens, private keys, or customer data in the PR or ready comment. It goes to `status:needs-jesse` with that step named in the ready comment; merging is not done until Jesse completes it, and the lane verifies the production path after Jesse confirms. Every PR is created with its labels (`owner:*`, `lane:*`, `priority:*`, `status:working`); a PR without labels is not on the board.
 3. **Blocking findings** are correctness, security, privacy, data loss, and the money-loop gates below. Everything else becomes a follow-up issue, not another review round. Hard cap: two review rounds per PR; a third round never happens silently. After two, if any blocking finding is still unresolved the PR goes to Jesse with the open question; otherwise it ships with the follow-ups filed.
-4. **Routing:** choose a writer and reviewer appropriate to the change's risk and scope. Reviews are read-only and time-boxed; an unfinished review is not a pass.
+4. **Routing and cost:** standard implementation uses the routine worker and independent review uses the default reviewer. The Sol worker is reserved for cross-cutting or difficult implementation. Fable is an oracle, not the default reviewer: one call at most per issue/PR, only for a material unresolved architecture, security, privacy, or money-movement question, or when Jesse explicitly requests it. A blocking fix gets at most one re-review, by the default reviewer. Every delegated workflow sets a cost usage budget; no workflow may launch unbudgeted children.
 5. **Tests are proportional.** For UI fixes, test code should not exceed product code. Reuse the existing Playwright config and unit patterns. No new `/dev` harness routes or bespoke servers unless the feature itself needs them.
 6. **Preview is the proof.** The Vercel preview link plus one screenshot or one short video in the PR description. No manifests, hashes, tiles, or publication reviews.
 7. **Git:** ordinary pushes to the owned branch; append fixes. Never rewrite published history or force-update `main`; a rewrite needs Jesse's explicit exception.
 8. **PR + CI is the status.** No progress comments, checkpoints, or receipts on GitHub. Comment only for a blocker, a decision for Jesse, or a handoff to another owner.
 9. **Authority:** the coordinator may undraft and mark `status:needs-jesse` when the loop is complete. Jesse alone approves and merges. Nothing here grants deployment, funded, destructive, or Neon-cleanup authority.
 10. **Jesse's review is a mandatory round.** Everything posts from Jesse's account, so the crew marks every comment, thread reply, and review it writes with a trailing `<!-- hugo -->`. Any comment from `jessepollak` without that marker is Jesse; the [review pickup workflow](../.github/workflows/jesse-review.yml) flips the PR to `status:working` and adds `review:jesse`. The lane's writer applies his items, replies once (with the marker) naming the commit, gets CI green, removes `review:jesse`, and returns the PR to `status:needs-jesse`. This round does not count against the two-round cap.
+11. **Session boundary:** one coordinator session owns one user feature or tightly coupled PR stack and ends after it ships or after two hours, whichever comes first. It does not become a standing land queue. The project launch cap is a circuit breaker: hitting it means hand off with current state, not open a new session to continue the same loop.
 
 ## 1:1s and learning retros
 
@@ -188,7 +189,7 @@ Jesse-locked, September 8, 2026 (~9:14pm PT); launch path confirmed September 9,
 
 ## PR land chatter diet
 
-Jesse-locked, September 10, 2026. Land-queue and babysitter GitHub listeners stay on a slim event set. This diet is the contract — do not keep it only in bot memory.
+Jesse-locked, September 10, 2026; cost controls added September 15. PR polling is metadata-only, but every notification wake starts a paid parent turn. Home therefore tracks PRs passively (`notify=false`) by default. Enable notifications only while actively delivering that PR, disarm before the turn ends, and use `babysit=true` only when Jesse explicitly requests hands-off babysitting.
 
 **Wake:** `pr-opened`, `pr-pushed`, `pr-merged`, `pr-closed`, `review-requested`, `review-changes-requested`, `ci-failed`.
 
@@ -200,7 +201,7 @@ Jesse-locked, September 10, 2026. Land-queue and babysitter GitHub listeners sta
 - **Jesse-only approval and merge.** Never ask Hannah or the coordinator to approve or merge. See [Merge policy](#merge-policy).
 - **Message Jesse only when he must decide, +1, or unblock.** If nothing for him: send nothing. Never narrate “quiet to Jesse”.
 - **One CloudAgent.** Max one CloudAgent per PR unless Jesse marks P0. No tip-churn after Eng LGTM unless HOLD or CI fail. See [CloudAgent / Auto-review](#cloudagent--auto-review).
-- **Quiet hours.** Prefer 10pm–8am PT for non-critical land wakes when a standing listener exists.
+- **Quiet hours are hard quiet.** From 10pm–8am PT, no non-critical PR notifications or babysit cycles. Passive polling may update metadata without waking an agent.
 
 ## Daily domain quality reviews
 

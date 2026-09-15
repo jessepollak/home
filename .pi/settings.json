@@ -1,0 +1,22 @@
+{
+  "subagents": {
+    "maxSubagentSpawnsPerSession": 12,
+    "maxSubagentSpawnsPerRun": 8,
+    "maxActiveAsyncRunsPerSession": 4,
+    "modelScope": {
+      "enforce": true,
+      "strict": true,
+      "agents": {
+        "scout": {
+          "allow": ["cbhq-openai/gpt-5.6-luna"]
+        },
+        "routine-worker": {
+          "allow": ["cbhq-zai/glm-5.3-flash"]
+        },
+        "reviewer": {
+          "allow": ["cbhq-zai/glm-5.3-flash"]
+        }
+      }
+    }
+  }
+}
