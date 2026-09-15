@@ -145,6 +145,19 @@
       "source": "https://dune.com/queries/4780995",
       "verification": "dashboard-listed",
       "enabled": false,
+      "selectedProduct": false
+    },
+    {
+      "chainId": 8453,
+      "address": "0xd76f5faf6888e24d9f04bf92a0c8b921fe4390e0",
+      "symbol": "wBRL",
+      "currency": "BRL",
+      "decimals": 18,
+      "region": "Brazil",
+      "countryCode": "BR",
+      "source": "https://basescan.org/token/0xD76f5Faf6888e24D9F04Bf92a0c8B921FE4390e0",
+      "verification": "explorer-listed; provider-confirmation-pending",
+      "enabled": false,
       "selectedProduct": true
     },
     {

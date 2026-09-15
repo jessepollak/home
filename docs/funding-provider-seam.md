@@ -133,7 +133,7 @@ export type Observation = { state: ReportedState; providerStatus: string; transa
 export type OrderState = ReportedState | "reserving" | "dispatch-ambiguous" | "sent-unverified" | "received";
 ```
 
-How the ports fit: Ripio is `reference: "home"`, `quotes: true`, `kyc: { terms, fields }`, webhook, `bank-transfer`/`payment-key`/`redirect` instructions, per-country env. IDRX is `reference: "provider"`, no quotes, no per-user KYC (the operator's issuer account), polling only, `bank-transfer` (VA) or `redirect` (QRIS), 2-decimal asset.
+How the ports fit: Ripio is `reference: "home"`, `quotes: true`, `kyc: { terms, fields }`, webhook, `bank-transfer`/`payment-key`/`redirect`/`qr` instructions, per-country env. IDRX is `reference: "provider"`, no quotes, no per-user KYC (the operator's issuer account), polling only, `bank-transfer` (VA) or `redirect` (QRIS), 2-decimal asset.
 
 `shared/funding/assets.ts` is the crew-owned token registry (`base:usdc`, `base:wars`, `base:wbrl`, `base:wcop`, `base:idrx` to start): chain ID, address, decimals, symbol, issuer doc URL. `docs/stablecoin-candidates.json` stays a research file; it is not read at runtime.
 
