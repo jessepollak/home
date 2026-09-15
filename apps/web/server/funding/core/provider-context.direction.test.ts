@@ -2,7 +2,7 @@ import "server-only";
 
 import { describe, expect, test } from "bun:test";
 import type { FundingProviderManifest } from "@/shared/funding/provider-contract";
-import { FundingProviderConfigurationError, FundingProviderFetchError, createProviderContext } from "./provider-context";
+import { FundingProviderConfigurationError, FundingProviderFetchError, createProviderContext, resolveWebhookEnvironment } from "./provider-context";
 
 const manifest = {
   id: "both",
@@ -35,6 +35,20 @@ describe("directional funding provider context", () => {
     await expect(off.fetch("https://off.example/path")).rejects.toBeInstanceOf(FundingProviderFetchError);
     await off.fetch("https://sandbox-off.example/path");
     expect(calls).toHaveLength(1);
+  });
+
+  test("resolves string and country webhook environment declarations without exposing other bindings", () => {
+    expect(resolveWebhookEnvironment({ signatureHeader: "x-signature", env: "SHARED_SECRET" }, "US")).toBe("SHARED_SECRET");
+    expect(resolveWebhookEnvironment({ signatureHeader: "x-signature", env: { US: "US_SECRET", BR: "BR_SECRET" } }, "US")).toBe("US_SECRET");
+    expect(resolveWebhookEnvironment({ signatureHeader: "x-signature", env: { BR: "BR_SECRET" } }, "US")).toBeUndefined();
+
+    const regional = {
+      ...manifest,
+      onramp: { ...manifest.onramp, webhook: { signatureHeader: "x-signature", env: { US: "US_SECRET" } } },
+      bindings: [{ ...manifest.bindings[0], directions: { ...manifest.bindings[0].directions, onramp: { ...manifest.bindings[0].directions.onramp, env: ["ON_KEY", "US_SECRET"] } } }],
+    } as const satisfies FundingProviderManifest;
+    const ctx = createProviderContext({ manifest: regional, region: "US", paymentMethodId: "shared", env: { ON_KEY: "on", US_SECRET: "us", BR_SECRET: "br" } });
+    expect(ctx.env).toEqual({ ON_KEY: "on", US_SECRET: "us" });
   });
 
   test("fails sandbox context creation when a direction has no sandbox", () => {

@@ -59,7 +59,7 @@ export type FundingProviderManifest = {
     terms?: { url: string };
     fields?: ReadonlyArray<{ name: string; label: string; type: "text" | "email" | "date" | "select"; options?: string[] }>;
   };
-  webhook?: { signatureHeader: string; env: string };
+  webhook?: { signatureHeader: string; env: string | Partial<Record<CountryCode, string>> };
 };
 
 export type FundingProvider = {
@@ -222,7 +222,7 @@ The design originally cut sandbox from v1, then reversed that decision on Septem
 
 - `FundingProvider.getOrder` receives a core-owned `ReconciliationIntent`, rather than only a provider order ID, so adapters can reject contradictory asset, destination, amount, chain, and transaction-type echoes before the core considers receipt evidence.
 - `POST /api/funding/quotes` also accepts ephemeral manifest KYC fields when no stored customer reference exists. The fields go directly to `ensureCustomer` and are not persisted; the returned customer reference is bound into the signed quote token. `POST /api/funding/orders` accepts only that token.
-- Ripio keeps its existing per-country client credentials and uses one shared `RIPIO_WEBHOOK_SECRET`, declared by each enabled binding, because the v1 manifest has one webhook environment name per provider.
+- Ripio keeps per-country client credentials and webhook secrets. Configure the same `POST /api/funding/webhooks/ripio` URL in each AR, BR, and CO dashboard, then place each generated secret in the matching `RIPIO_WEBHOOK_SECRET_AR`, `_BR`, or `_CO` Vercel variable. There is no shared fallback.
 - `GET /api/funding/orders?region=` is added as the owner-scoped resume endpoint used when Add money opens. It has the same private/no-store response contract as the specified status route.
 - Coinbase moved behind the manifest seam on Sept 12 (`providers/coinbase/{manifest,adapter}.ts`, registered in `providers/index.ts`); the legacy Ripio store/reconciliation files are tracked for removal in #293.
 

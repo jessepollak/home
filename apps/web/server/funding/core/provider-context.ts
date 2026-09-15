@@ -5,6 +5,7 @@ import type {
   FundingDirection,
   FundingOfframpDeployment,
   FundingProviderManifest,
+  FundingWebhookManifest,
   OfframpContext,
   ProviderContext,
 } from "@/shared/funding/provider-contract";
@@ -234,6 +235,13 @@ function capabilityFor(
     );
   }
   return { apiOrigins: deployment.apiOrigins, deployment };
+}
+
+export function resolveWebhookEnvironment(
+  webhook: FundingWebhookManifest,
+  region: ProviderContext["binding"]["region"],
+): string | undefined {
+  return typeof webhook.env === "string" ? webhook.env : webhook.env[region];
 }
 
 export function environmentAvailable(names: ReadonlyArray<string>, env: Environment): boolean {

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { FundingDirection, FundingProvider } from "@/shared/funding/provider-contract";
+import type { FundingDirection, FundingProvider, FundingWebhookManifest } from "@/shared/funding/provider-contract";
 import { normalizeFundingOrigins, FundingProviderConfigurationError } from "../core/provider-context";
 
 export function validateFundingProviders(providers: ReadonlyArray<FundingProvider>): void {
@@ -15,6 +15,7 @@ export function validateFundingProviders(providers: ReadonlyArray<FundingProvide
       validateModeEnvironment(manifest.id, "onramp", manifest.onramp.modeEnv, manifest.onramp.sandbox === true, modeEnvironments);
       normalizeFundingOrigins(manifest.onramp.apiOrigins);
       validateRedirectOrigins(manifest.onramp.redirectOrigins);
+      validateWebhookEnvironment(manifest.id, manifest.onramp.webhook?.env, manifest.bindings);
     }
     if (manifest.offramp) {
       validateModeEnvironment(manifest.id, "offramp", manifest.offramp.modeEnv, Boolean(manifest.offramp.sandbox), modeEnvironments);
@@ -41,11 +42,35 @@ export function validateFundingProviders(providers: ReadonlyArray<FundingProvide
           if (!/^[A-Z][A-Z0-9_]*$/.test(name) || env.has(name)) fail(`${manifest.id} ${direction} binding environment names are invalid or duplicated.`);
           env.add(name);
         }
-        if (direction === "onramp" && manifest.onramp?.webhook && !env.has(manifest.onramp.webhook.env)) {
+        const webhookEnvironment = manifest.onramp?.webhook?.env;
+        const requiredWebhookEnvironment = typeof webhookEnvironment === "string"
+          ? webhookEnvironment
+          : webhookEnvironment?.[binding.region];
+        if (direction === "onramp" && requiredWebhookEnvironment && !env.has(requiredWebhookEnvironment)) {
           fail(`${manifest.id} webhook secret must be declared by every onramp binding.`);
         }
       }
     }
+  }
+}
+
+function validateWebhookEnvironment(
+  providerId: string,
+  environment: FundingWebhookManifest["env"] | undefined,
+  bindings: FundingProvider["manifest"]["bindings"],
+): void {
+  if (!environment || typeof environment === "string") return;
+  const entries = Object.entries(environment);
+  if (entries.length === 0) fail(`${providerId} webhook environment map must not be empty.`);
+  const onrampRegions = new Set(bindings.filter((binding) => binding.directions.onramp).map((binding) => binding.region));
+  for (const [region, name] of entries) {
+    if (!onrampRegions.has(region as typeof bindings[number]["region"])) {
+      fail(`${providerId} webhook environment map has a region without an onramp binding.`);
+    }
+    if (!/^[A-Z][A-Z0-9_]*$/.test(name)) fail(`${providerId} webhook environment name is invalid.`);
+  }
+  for (const region of onrampRegions) {
+    if (!environment[region]) fail(`${providerId} webhook environment map is missing an onramp region.`);
   }
 }
 

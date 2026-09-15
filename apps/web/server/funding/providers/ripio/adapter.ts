@@ -9,7 +9,7 @@ import type {
   ReportedState,
 } from "@/shared/funding/provider-contract";
 import { atomicToDecimal, decimalToAtomic } from "@/shared/formatting/atomic";
-import { providerFetchImplementation } from "../../core/provider-context";
+import { providerFetchImplementation, resolveWebhookEnvironment } from "../../core/provider-context";
 import {
   createRipioClient,
   RipioProviderError,
@@ -134,7 +134,10 @@ export const ripioProvider: FundingProvider = {
   verifyWebhook(raw, headers, ctx) {
     const supplied = headers.get(ripioManifest.onramp.webhook.signatureHeader)?.trim().replace(/^sha256=/i, "");
     if (!supplied || supplied.length > 128 || !/^[0-9a-f]{64}$/i.test(supplied)) return null;
-    const expected = createHmac("sha256", ctx.env.RIPIO_WEBHOOK_SECRET).update(raw).digest();
+    const secretName = resolveWebhookEnvironment(ripioManifest.onramp.webhook, ctx.binding.region);
+    const secret = secretName ? ctx.env[secretName] : undefined;
+    if (!secret) return null;
+    const expected = createHmac("sha256", secret).update(raw).digest();
     const actual = Buffer.from(supplied, "hex");
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
     const event = parseRipioWebhook(raw);

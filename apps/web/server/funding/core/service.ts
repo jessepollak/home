@@ -265,18 +265,28 @@ export class FundingCore {
     const onramp = provider ? provider.onramp : null;
     if (!provider || !onramp?.verifyWebhook) return { accepted: true, matched: false };
     let providerOrderId: string | null = null;
+    let verifiedRegion: FundingOrder["region"] | null = null;
     for (const binding of provider.manifest.bindings) {
       const directional = binding.directions.onramp;
       if (!directional || !environmentAvailable(directional.env, this.env)) continue;
       for (const method of directional.paymentMethods) {
-        const sandbox = resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox";
-        const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: method.id, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox });
-        const verified = onramp.verifyWebhook(raw, headers, ctx);
-        if (verified) { providerOrderId = verified.providerOrderId; break; }
+        try {
+          const sandbox = resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox";
+          const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: method.id, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox });
+          const verified = onramp.verifyWebhook(raw, headers, ctx);
+          if (verified) {
+            providerOrderId = verified.providerOrderId;
+            verifiedRegion = binding.region;
+            break;
+          }
+        } catch {
+          // A webhook is only a trigger. Invalid binding configuration cannot
+          // turn an unverified request into an order refresh.
+        }
       }
       if (providerOrderId) break;
     }
-    if (!providerOrderId) {
+    if (!providerOrderId || !verifiedRegion) {
       this.deps.logUnmatchedWebhook?.({ providerId, reason: "invalid" });
       return { accepted: true, matched: false };
     }
@@ -284,6 +294,18 @@ export class FundingCore {
     if (!order) {
       this.deps.logUnmatchedWebhook?.({ providerId, reason: "unmatched" });
       return { accepted: true, matched: false };
+    }
+    if (order.region !== verifiedRegion) {
+      const binding = findBinding(provider, order.region, "onramp", order.paymentMethod, order.assetId);
+      try {
+        if (!binding || !environmentAvailable(binding.directions.onramp!.env, this.env)) throw new Error("unavailable binding");
+        const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
+        const verified = onramp.verifyWebhook(raw, headers, ctx);
+        if (verified?.providerOrderId !== providerOrderId) throw new Error("signature region mismatch");
+      } catch {
+        this.deps.logUnmatchedWebhook?.({ providerId, reason: "unmatched" });
+        return { accepted: true, matched: false };
+      }
     }
     await this.refresh(order, true);
     return { accepted: true, matched: true };

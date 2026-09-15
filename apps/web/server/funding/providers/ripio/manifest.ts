@@ -26,7 +26,14 @@ export const ripioManifest = {
     reference: "home",
     quotes: true,
     kyc,
-    webhook: { signatureHeader: "http-x-wh-signature-256", env: "RIPIO_WEBHOOK_SECRET" },
+    webhook: {
+      signatureHeader: "http-x-wh-signature-256",
+      env: {
+        AR: "RIPIO_WEBHOOK_SECRET_AR",
+        BR: "RIPIO_WEBHOOK_SECRET_BR",
+        CO: "RIPIO_WEBHOOK_SECRET_CO",
+      },
+    },
   },
   bindings: [
     {
@@ -36,7 +43,7 @@ export const ripioManifest = {
       directions: {
         onramp: {
           paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }],
-          env: ["RIPIO_CLIENT_ID_AR", "RIPIO_CLIENT_SECRET_AR", "RIPIO_WEBHOOK_SECRET"],
+          env: ["RIPIO_CLIENT_ID_AR", "RIPIO_CLIENT_SECRET_AR", "RIPIO_WEBHOOK_SECRET_AR"],
         },
       },
     },
@@ -47,7 +54,7 @@ export const ripioManifest = {
       directions: {
         onramp: {
           paymentMethods: [{ id: "pix", label: "Pix" }],
-          env: ["RIPIO_CLIENT_ID_BR", "RIPIO_CLIENT_SECRET_BR", "RIPIO_WEBHOOK_SECRET"],
+          env: ["RIPIO_CLIENT_ID_BR", "RIPIO_CLIENT_SECRET_BR", "RIPIO_WEBHOOK_SECRET_BR"],
         },
       },
     },
@@ -63,7 +70,7 @@ export const ripioManifest = {
             { id: "r2p_bancolombia", label: "Bancolombia" },
             { id: "r2p_nequi", label: "Nequi" },
           ],
-          env: ["RIPIO_CLIENT_ID_CO", "RIPIO_CLIENT_SECRET_CO", "RIPIO_WEBHOOK_SECRET"],
+          env: ["RIPIO_CLIENT_ID_CO", "RIPIO_CLIENT_SECRET_CO", "RIPIO_WEBHOOK_SECRET_CO"],
         },
       },
     },

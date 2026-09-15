@@ -15,7 +15,10 @@ export type FundingKycManifest = {
   }>;
 };
 
-export type FundingWebhookManifest = { signatureHeader: string; env: string };
+export type FundingWebhookManifest = {
+  signatureHeader: string;
+  env: string | Readonly<Partial<Record<CountryCode, string>>>;
+};
 
 export type FundingOfframpDeployment = {
   apiOrigins: ReadonlyArray<string>;
