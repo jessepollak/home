@@ -3,9 +3,9 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { getFundingAsset } from "@/shared/funding/assets";
-import type { FundingProvider, Instruction, Observation, Quote } from "@/shared/funding/provider-contract";
+import type { FundingDirection, FundingProvider, Instruction, Observation, Quote } from "@/shared/funding/provider-contract";
 import { decimalToAtomic } from "@/shared/formatting/atomic";
-import { createProviderContext } from "./provider-context";
+import { FUNDING_CONFIGURATION_CODE, FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode, type FundingConfigurationCode } from "./provider-context";
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
 import { awaitBalanceSignal } from "@/server/balances/signal";
@@ -21,6 +21,7 @@ export type FundingCoreDependencies = {
   currentBaseBlock: () => Promise<string>;
   verifyReceipt: (order: FundingOrder, hash: `0x${string}`) => Promise<ReceiptMatch>;
   logUnmatchedWebhook?: (event: { providerId: string; reason: "invalid" | "unmatched" }) => void;
+  logProviderDiscoveryFailure?: (event: { providerId: string; reason: "configuration" | "provider"; code: FundingConfigurationCode }) => void;
   markStale?: (address: `0x${string}`, at: Date) => Promise<void>;
   now?: () => Date;
 };
@@ -33,31 +34,112 @@ export class FundingCore {
     this.now = deps.now ?? (() => new Date());
   }
 
-  async listProviders(region: string, session: VerifiedAccountSession) {
-    const sandbox = this.sandbox();
-    const listed = this.deps.providers.flatMap((provider) => provider.manifest.bindings.flatMap((binding) => {
-      if (binding.region !== region || (sandbox && provider.manifest.sandbox !== true) || !binding.env.every((name) => Boolean(this.env[name]?.trim()))) return [];
+  async listProviders(
+    region: string,
+    session: VerifiedAccountSession,
+    direction: FundingDirection = "onramp",
+  ) {
+    const listed = this.deps.providers.flatMap((provider) => {
+      let sandbox: boolean;
+      try {
+        sandbox = resolveFundingMode(provider.manifest, direction, this.env) === "sandbox";
+      } catch (error) {
+        this.deps.logProviderDiscoveryFailure?.({
+          providerId: provider.manifest.id,
+          reason: "configuration",
+          code: error instanceof FundingProviderConfigurationError ? error.code : FUNDING_CONFIGURATION_CODE,
+        });
+        return [];
+      }
+      return provider.manifest.bindings.flatMap((binding) => {
+      const directional = binding.directions[direction];
+      if (
+        binding.region !== region ||
+        !directional ||
+        !(direction === "onramp" ? provider.onramp : provider.offramp) ||
+        !directionAvailable(provider, direction, sandbox) ||
+        !environmentAvailable(directional.env, this.env)
+      ) return [];
       const asset = getFundingAsset(binding.assetId);
       if (!asset) return [];
-      return [{ provider, binding, asset }];
+      return [{ provider, binding, directional, asset, sandbox }];
+      });
+    });
+    const results = await Promise.all(listed.map(async ({ provider, binding, directional, asset, sandbox }) => {
+      if (direction === "onramp") {
+        const manifest = provider.manifest.onramp;
+        if (!manifest || !provider.onramp) return [];
+        const existingCustomer = manifest.kyc
+          ? await this.deps.store.findCustomerRef(ownerFor(session), provider.manifest.id, binding.region)
+          : null;
+        return [{
+          direction,
+          providerId: provider.manifest.id,
+          displayName: provider.manifest.displayName,
+          region: binding.region,
+          assetId: asset.id,
+          assetSymbol: asset.symbol,
+          assetDecimals: asset.decimals,
+          currency: binding.currency,
+          paymentMethods: directional.paymentMethods,
+          quotes: manifest.quotes === true,
+          kyc: existingCustomer ? null : manifest.kyc ?? null,
+        }];
+      }
+      if (!provider.offramp || !session.smartAccount) return [];
+      try {
+        const firstMethod = directional.paymentMethods[0];
+        if (!firstMethod) return [];
+        const ctx = createProviderContext({
+          manifest: provider.manifest,
+          region: binding.region,
+          direction: "offramp",
+          paymentMethodId: firstMethod.id,
+          env: this.env,
+          fetchImplementation: this.deps.fetchImplementation,
+          sandbox,
+        });
+        const catalog = await provider.offramp.capabilities(ctx);
+        if (!capabilityIsFresh(catalog.asOf, catalog.maxAgeSeconds, this.now())) return [];
+        const platforms = directional.paymentMethods.flatMap((method) => {
+          const capability = catalog.platforms.find((candidate) => candidate.id === method.id);
+          if (!capability || !capability.currencies.includes(binding.currency)) return [];
+          return [{
+            id: method.id,
+            label: method.label,
+            platform: capability.id,
+            handleHint: capability.handleHint,
+            minimumAmountAtomic: capability.minimumAmountAtomic,
+            maximumAmountAtomic: capability.maximumAmountAtomic,
+            estimateSemantics: capability.estimateSemantics,
+            etaSemantics: capability.etaSemantics,
+            corridorConfirmedBy: "confirmedBy" in directional ? directional.confirmedBy : "",
+          }];
+        });
+        if (platforms.length === 0) return [];
+        return [{
+          direction,
+          providerId: provider.manifest.id,
+          displayName: provider.manifest.displayName,
+          region: binding.region,
+          assetId: asset.id,
+          assetSymbol: asset.symbol,
+          assetDecimals: asset.decimals,
+          currency: binding.currency,
+          paymentMethods: platforms,
+          quotes: false,
+          kyc: null,
+        }];
+      } catch (error) {
+        this.deps.logProviderDiscoveryFailure?.({
+          providerId: provider.manifest.id,
+          reason: error instanceof FundingProviderConfigurationError ? "configuration" : "provider",
+          code: error instanceof FundingProviderConfigurationError ? error.code : FUNDING_CONFIGURATION_CODE,
+        });
+        return [];
+      }
     }));
-    return Promise.all(listed.map(async ({ provider, binding, asset }) => {
-      const existingCustomer = provider.manifest.kyc
-        ? await this.deps.store.findCustomerRef(ownerFor(session), provider.manifest.id, binding.region)
-        : null;
-      return {
-        providerId: provider.manifest.id,
-        displayName: provider.manifest.displayName,
-        region: binding.region,
-        assetId: asset.id,
-        assetSymbol: asset.symbol,
-        assetDecimals: asset.decimals,
-        currency: asset.fiatCurrency,
-        paymentMethods: binding.paymentMethods,
-        quotes: provider.manifest.quotes === true,
-        kyc: existingCustomer ? null : provider.manifest.kyc ?? null,
-      };
-    }));
+    return results.flat();
   }
 
   async createQuote(
@@ -69,24 +151,27 @@ export class FundingCore {
     if (quoteSecret.length < 32) throw new FundingCoreError("FUNDING_NOT_CONFIGURED", 424);
     const parsed = parseQuoteRequest(body);
     const provider = parsed ? this.provider(parsed.providerId) : null;
-    const binding = provider?.manifest.bindings.find((candidate) => candidate.region === parsed?.region && candidate.paymentMethods.some((method) => method.id === parsed.paymentMethod));
+    const binding = provider && parsed ? findBinding(provider, parsed.region, "onramp", parsed.paymentMethod) : null;
     const asset = binding ? getFundingAsset(binding.assetId) : null;
-    const sandbox = this.sandbox();
-    if (!parsed || !provider || !binding || !asset || !session.smartAccount || (sandbox && provider.manifest.sandbox !== true) || !binding.env.every((name) => Boolean(this.env[name]?.trim()))) {
+    const sandbox = provider ? resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox" : false;
+    const onramp = provider ? provider.onramp : null;
+    const onrampManifest = provider?.manifest.onramp;
+    const directional = binding?.directions.onramp;
+    if (!parsed || !provider || !binding || !directional || !asset || !onramp || !onrampManifest || !session.smartAccount || !directionAvailable(provider, "onramp", sandbox) || !environmentAvailable(directional.env, this.env) || (!onramp.createQuote && binding.currency !== asset.fiatCurrency)) {
       throw new FundingCoreError("INVALID_QUOTE_REQUEST", 400);
     }
-    if (parsed.kycFields && !validKycFields(parsed.kycFields, provider.manifest.kyc?.fields ?? [])) {
+    if (parsed.kycFields && !validKycFields(parsed.kycFields, onrampManifest.kyc?.fields ?? [])) {
       throw new FundingCoreError("INVALID_KYC_FIELDS", 400);
     }
-    const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, paymentMethodId: parsed.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox });
+    const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: parsed.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox });
     const owner = ownerFor(session);
     let customerRef = await this.deps.store.findCustomerRef(owner, provider.manifest.id, binding.region);
-    if (provider.manifest.kyc && !customerRef) {
-      if (!provider.ensureCustomer || !parsed.kycFields) throw new FundingCoreError("KYC_REQUIRED", 400);
-      customerRef = (await provider.ensureCustomer({ subject: session.user.subject, fields: parsed.kycFields }, ctx)).customerRef;
+    if (onrampManifest.kyc && !customerRef) {
+      if (!onramp.ensureCustomer || !parsed.kycFields) throw new FundingCoreError("KYC_REQUIRED", 400);
+      customerRef = (await onramp.ensureCustomer({ subject: session.user.subject, fields: parsed.kycFields }, ctx)).customerRef;
     }
-    const quote: Quote = provider.createQuote
-      ? await provider.createQuote({
+    const quote: Quote = onramp.createQuote
+      ? await onramp.createQuote({
           destination: session.smartAccount.address,
           fiatAmount: parsed.fiatAmount,
           returnUrl: `${returnOrigin}/fund?return=funding`,
@@ -113,10 +198,13 @@ export class FundingCore {
     if (!record(body) || Object.keys(body).length !== 1 || typeof body.quoteToken !== "string" || !session.smartAccount) throw new FundingCoreError("INVALID_ORDER_REQUEST", 400);
     const authenticated = authenticateFundingQuote(body.quoteToken, this.quoteSecret());
     const claims = authenticated?.claims;
-    if (!authenticated || !claims || claims.subject !== session.user.subject || claims.accountProvider !== session.accountProvider || claims.destination !== session.smartAccount.address || claims.sandbox !== this.sandbox()) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
+    if (!authenticated || !claims || claims.subject !== session.user.subject || claims.accountProvider !== session.accountProvider || claims.destination !== session.smartAccount.address) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
     const provider = this.provider(claims.providerId);
-    const binding = provider?.manifest.bindings.find((candidate) => candidate.region === claims.region && candidate.assetId === claims.assetId && candidate.paymentMethods.some((method) => method.id === claims.paymentMethod));
-    if (!provider || !binding || !getFundingAsset(claims.assetId)) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
+    const binding = provider ? findBinding(provider, claims.region, "onramp", claims.paymentMethod, claims.assetId) : null;
+    const onramp = provider ? provider.onramp : null;
+    if (!provider || !onramp || !binding || !getFundingAsset(claims.assetId)) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
+    const sandbox = resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox";
+    if (claims.sandbox !== sandbox) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
     const owner = ownerFor(session);
     const intentDigest = createHash("sha256").update(authenticated.canonicalToken).digest("hex");
     const existing = await this.deps.store.getByIntent(owner, intentDigest);
@@ -125,7 +213,8 @@ export class FundingCore {
       return publicOrder(existing);
     }
     if (isFundingQuoteExpired(claims, this.now().getTime())) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
-    if (!binding.env.every((name) => Boolean(this.env[name]?.trim()))) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
+    const directional = binding.directions.onramp;
+    if (!directional || !environmentAvailable(directional.env, this.env)) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
     const id = randomUUID();
     const timestamp = this.now().toISOString();
     const reserved = await this.deps.store.reserve({
@@ -136,8 +225,8 @@ export class FundingCore {
       sandbox: claims.sandbox, creationBlock: await this.deps.currentBaseBlock(), createdAt: timestamp,
     });
     if (!reserved.created) return publicOrder(reserved.order);
-    const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, paymentMethodId: claims.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: claims.sandbox });
-    const result = await provider.createOrder({ homeOrderId: id, destination: session.smartAccount.address, fiatAmount: claims.fiatAmount, quote: claims.quote, customerRef: claims.customerRef ?? undefined, clientIp: resolveClientIp(headers, this.env, claims.sandbox), returnUrl: `${returnOrigin}/fund?return=funding` }, ctx);
+    const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: claims.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: claims.sandbox });
+    const result = await onramp.createOrder({ homeOrderId: id, destination: session.smartAccount.address, fiatAmount: claims.fiatAmount, quote: claims.quote, customerRef: claims.customerRef ?? undefined, clientIp: resolveClientIp(headers, this.env, claims.sandbox), returnUrl: `${returnOrigin}/fund?return=funding` }, ctx);
     if (result.outcome === "ambiguous") return publicOrder(await this.deps.store.markDispatchAmbiguous(id, reserved.order.version, this.now().toISOString()));
     if (result.outcome === "rejected") {
       const rejected = await this.deps.store.applyObservation(id, { state: "failed", providerStatus: result.message, expectedVersion: reserved.order.version, updatedAt: this.now().toISOString() });
@@ -150,7 +239,7 @@ export class FundingCore {
       result.order.expectedTokenAmountAtomic !== claims.quote.tokenAmountAtomic ||
       !instructionUrlIsSafe(
         result.order.instructions,
-        provider.manifest.redirectOrigins,
+        provider.manifest.onramp?.redirectOrigins,
       )
     ) {
       // The create reached the provider, so a contradictory echo is an ambiguous
@@ -173,13 +262,16 @@ export class FundingCore {
 
   async handleWebhook(providerId: string, raw: Uint8Array, headers: Headers) {
     const provider = this.provider(providerId);
-    if (!provider?.verifyWebhook) return { accepted: true, matched: false };
+    const onramp = provider ? provider.onramp : null;
+    if (!provider || !onramp?.verifyWebhook) return { accepted: true, matched: false };
     let providerOrderId: string | null = null;
     for (const binding of provider.manifest.bindings) {
-      if (!binding.env.every((name) => Boolean(this.env[name]?.trim()))) continue;
-      for (const method of binding.paymentMethods) {
-        const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, paymentMethodId: method.id, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: this.sandbox() });
-        const verified = provider.verifyWebhook(raw, headers, ctx);
+      const directional = binding.directions.onramp;
+      if (!directional || !environmentAvailable(directional.env, this.env)) continue;
+      for (const method of directional.paymentMethods) {
+        const sandbox = resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox";
+        const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: method.id, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox });
+        const verified = onramp.verifyWebhook(raw, headers, ctx);
         if (verified) { providerOrderId = verified.providerOrderId; break; }
       }
       if (providerOrderId) break;
@@ -201,14 +293,15 @@ export class FundingCore {
     if (["reserving", "dispatch-ambiguous", "received", "expired", "cancelled", "failed", "refunded"].includes(order.state) || !order.providerOrderId || !order.expectedTokenAmountAtomic) return order;
     if (!force && this.now().getTime() - Date.parse(order.updatedAt) < 3_000) return order;
     const provider = this.provider(order.providerId);
-    const binding = provider?.manifest.bindings.find((candidate) => candidate.region === order.region && candidate.assetId === order.assetId && candidate.paymentMethods.some((method) => method.id === order.paymentMethod));
-    if (!provider || !binding) return order;
+    const binding = provider ? findBinding(provider, order.region, "onramp", order.paymentMethod, order.assetId) : null;
+    const onramp = provider ? provider.onramp : null;
+    if (!provider || !onramp || !binding) return order;
     const asset = getFundingAsset(order.assetId);
     if (!asset) return order;
-    const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
+    const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
     let observation: Observation;
     try {
-      observation = await provider.getOrder({
+      observation = await onramp.getOrder({
         homeOrderId: order.id,
         providerOrderId: order.providerOrderId,
         providerQuoteId: order.quote.providerQuoteId,
@@ -256,7 +349,6 @@ export class FundingCore {
 
   private provider(id: string) { return this.deps.providers.find((provider) => provider.manifest.id === id); }
   private quoteSecret() { return this.env.FUNDING_QUOTE_SECRET?.trim() ?? ""; }
-  private sandbox() { return this.env.FUNDING_SANDBOX === "1"; }
 }
 
 export class FundingCoreError extends Error { constructor(readonly code: string, readonly status: number) { super(code); } }
@@ -265,6 +357,28 @@ export function publicOrder(order: FundingOrder) {
   return { id: order.id, providerId: order.providerId, region: order.region, assetId: order.assetId, paymentMethod: order.paymentMethod, fiatAmount: order.fiatAmount, quote: order.quote, quoteToken: order.quoteToken, sandbox: order.sandbox, state: order.state, expectedTokenAmountAtomic: order.expectedTokenAmountAtomic, fees: order.fees, expiresAt: order.expiresAt, instructions: order.instructions, providerStatus: order.providerStatus, transactionHash: order.transactionHash, createdAt: order.createdAt, updatedAt: order.updatedAt };
 }
 function ownerFor(session: VerifiedAccountSession): FundingOrderOwner { return { subject: session.user.subject, accountProvider: session.accountProvider }; }
+function findBinding(
+  provider: FundingProvider,
+  region: string,
+  direction: FundingDirection,
+  paymentMethodId: string,
+  assetId?: string,
+) {
+  const matches = provider.manifest.bindings.filter((binding) =>
+    binding.region === region &&
+    (!assetId || binding.assetId === assetId) &&
+    binding.directions[direction]?.paymentMethods.some((method) => method.id === paymentMethodId),
+  );
+  return matches.length === 1 ? matches[0] : null;
+}
+function directionAvailable(provider: FundingProvider, direction: FundingDirection, sandbox: boolean): boolean {
+  if (direction === "onramp") return Boolean(provider.manifest.onramp && (!sandbox || provider.manifest.onramp.sandbox === true));
+  return Boolean(sandbox ? provider.manifest.offramp?.sandbox : provider.manifest.offramp?.production);
+}
+function capabilityIsFresh(asOf: string, maxAgeSeconds: number, now: Date): boolean {
+  const timestamp = Date.parse(asOf);
+  return Number.isFinite(timestamp) && Number.isSafeInteger(maxAgeSeconds) && maxAgeSeconds > 0 && timestamp <= now.getTime() && now.getTime() - timestamp <= maxAgeSeconds * 1_000;
+}
 function localOneToOneQuote(fiatAmount: string, decimals: number, now: Date): Quote {
   try {
     if (!/[1-9]/.test(fiatAmount)) throw new Error("Amount must be positive.");

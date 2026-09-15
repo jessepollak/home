@@ -29,15 +29,50 @@ describe("funding route privacy and rejection", () => {
         databaseUrl: undefined,
         listProviders: async () => {
           listCalls += 1;
-          return [{ providerId: "ripio" }];
+          return [];
         },
       },
     );
 
     expect(response.status).toBe(200);
     assertPrivate(response);
-    expect(await response.json()).toEqual({ providers: [] });
+    expect(await response.json()).toEqual({
+      version: 2,
+      direction: "onramp",
+      providers: [],
+    });
     expect(listCalls).toBe(0);
+  });
+
+  test("passes the requested funding direction to provider discovery", async () => {
+    let requestedDirection: string | undefined;
+    const response = await handleFundingProvidersRequest(
+      new Request("https://home.example/api/funding/providers?region=US&direction=offramp"),
+      {
+        authorize: async () => ({
+          user: { subject: "funding-user" },
+          smartAccount: {
+            address: "0x1111111111111111111111111111111111111111",
+            chainId: 8453,
+          },
+          accountProvider: "cdp-embedded",
+        }),
+        databaseUrl: "postgres://configured",
+        listProviders: async (_region, _session, direction) => {
+          requestedDirection = direction;
+          return [];
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    assertPrivate(response);
+    expect(requestedDirection).toBe("offramp");
+    expect(await response.json()).toEqual({
+      version: 2,
+      direction: "offramp",
+      providers: [],
+    });
   });
 
   test("keeps provider-list failures visible as a transient service error", async () => {

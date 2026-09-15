@@ -14,6 +14,11 @@ import { prepareSavingsAction, SavingsActionError } from "@/server/savings/prepa
 import { prepareBorrowAction, BorrowPreparationError } from "@/server/borrowing/prepare";
 import { getBaseBorrowing } from "@/server/borrowing/rpc";
 import { getBorrowMarketRef } from "@/shared/borrowing/config";
+import {
+  CashoutPreparationError,
+  prepareCashoutAction,
+  prepareCashoutWithdrawAction,
+} from "@/server/funding/cash-out";
 import type { ActionAuthorizer } from "./handler";
 
 const privateHeaders = {
@@ -73,6 +78,12 @@ export function createPrepareActionHandler(dependencies: {
       if (error instanceof TransferExecutionError && error.reason === "invalid-request") {
         return fail("INVALID_SEND_REQUEST", "Use a valid Base recipient, asset, and integer amount.", 400);
       }
+      if (error instanceof CashoutPreparationError) {
+        const status = error.code === "duplicate-unknown" || error.code === "order-in-flight" ? 409
+          : error.code === "identity-mismatch" || error.code === "invalid-input" ? 400
+          : error.code === "not-withdrawable" ? 422 : 502;
+        return fail(`CASHOUT_${error.code.toUpperCase().replaceAll("-", "_")}`, error.message, status);
+      }
       return fail("ACTION_PREPARE_UNAVAILABLE", "The action could not be prepared safely.", 502);
     }
   };
@@ -87,6 +98,12 @@ async function prepare(
 ) {
   if (kind === "send") {
     return issueSendMoneyAction(session, params as TransferRequest);
+  }
+  if (kind === "cash-out") {
+    return issueMoneyAction(session, await prepareCashoutAction(session, params, signal));
+  }
+  if (kind === "cash-out-withdraw") {
+    return issueMoneyAction(session, await prepareCashoutWithdrawAction(session, params));
   }
   if (kind === "savings-deposit" || kind === "savings-withdraw") {
     const input: SavingsActionInput = {

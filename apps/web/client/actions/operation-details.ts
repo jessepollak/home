@@ -30,6 +30,8 @@ export function labelForOperationStatus(
 export function labelForMoneyActionKind(kind: ActionKind): string {
   switch (kind) {
     case "send": return "Send";
+    case "cash-out": return "Cash out";
+    case "cash-out-withdraw": return "Withdraw cash-out";
     case "trade": return "Trade";
     case "savings-deposit": return "Deposit to Save";
     case "savings-withdraw": return "Withdraw from Save";
@@ -59,6 +61,16 @@ export function presentOperationDetails(
       label: "Market",
       value: `${operation.action.metadata.collateralAsset.symbol} / ${operation.action.metadata.loanAsset.symbol}`,
     });
+  } else if (operation.action.metadata?.product === "cashout") {
+    rows.push(
+      { label: "Provider", value: operation.action.metadata.providerName },
+      { label: "Payout app", value: operation.action.metadata.platformLabel },
+      ...(operation.action.metadata.operation === "deposit" ? [
+        { label: "Payout handle", value: operation.action.metadata.canonicalHandle },
+        { label: "Approximate receive", value: `≈ ${operation.action.metadata.approximateFiatAmount} ${operation.action.metadata.currency}` },
+        ...(operation.action.metadata.etaSeconds === undefined ? [] : [{ label: "Estimated delivery", value: operation.action.metadata.etaSeconds === null ? "Unavailable" : `${Math.ceil(operation.action.metadata.etaSeconds / 60)} min (historical)` }]),
+      ] : []),
+    );
   }
 
   for (const amount of orderedOperationAmounts(operation.action.amounts)) {

@@ -219,6 +219,7 @@ export function HomePanel({
             initialActionId={initialSendActionId}
             availableAssets={sendAvailability}
             assetMarkResolution={sendAssetMarkResolution}
+            regionId={regionId}
           />
         </PresentationRegionProvider>
       </div>

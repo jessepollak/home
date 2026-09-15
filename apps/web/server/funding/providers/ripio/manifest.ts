@@ -20,29 +20,41 @@ export const ripioManifest = {
   id: "ripio",
   displayName: "Ripio",
   docsUrl: "https://docs.ripio.com/",
+  onramp: {
+    apiOrigins: [RIPIO_API_ORIGIN],
+    redirectOrigins: [RIPIO_API_ORIGIN],
+    reference: "home",
+    quotes: true,
+    kyc,
+    webhook: { signatureHeader: "http-x-wh-signature-256", env: "RIPIO_WEBHOOK_SECRET" },
+  },
   bindings: [
     {
       region: "AR",
       assetId: "base:wars",
-      paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }],
-      env: ["RIPIO_CLIENT_ID_AR", "RIPIO_CLIENT_SECRET_AR", "RIPIO_WEBHOOK_SECRET"],
+      currency: "ARS",
+      directions: {
+        onramp: {
+          paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }],
+          env: ["RIPIO_CLIENT_ID_AR", "RIPIO_CLIENT_SECRET_AR", "RIPIO_WEBHOOK_SECRET"],
+        },
+      },
     },
     {
       region: "CO",
       assetId: "base:wcop",
-      paymentMethods: [
-        { id: "bank_transfer", label: "Bank transfer" },
-        { id: "breb", label: "Bre-B" },
-        { id: "r2p_bancolombia", label: "Bancolombia" },
-        { id: "r2p_nequi", label: "Nequi" },
-      ],
-      env: ["RIPIO_CLIENT_ID_CO", "RIPIO_CLIENT_SECRET_CO", "RIPIO_WEBHOOK_SECRET"],
+      currency: "COP",
+      directions: {
+        onramp: {
+          paymentMethods: [
+            { id: "bank_transfer", label: "Bank transfer" },
+            { id: "breb", label: "Bre-B" },
+            { id: "r2p_bancolombia", label: "Bancolombia" },
+            { id: "r2p_nequi", label: "Nequi" },
+          ],
+          env: ["RIPIO_CLIENT_ID_CO", "RIPIO_CLIENT_SECRET_CO", "RIPIO_WEBHOOK_SECRET"],
+        },
+      },
     },
   ],
-  apiOrigins: [RIPIO_API_ORIGIN],
-  redirectOrigins: [RIPIO_API_ORIGIN],
-  reference: "home",
-  quotes: true,
-  kyc,
-  webhook: { signatureHeader: "http-x-wh-signature-256", env: "RIPIO_WEBHOOK_SECRET" },
 } as const satisfies FundingProviderManifest;

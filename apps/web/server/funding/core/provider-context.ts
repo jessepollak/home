@@ -2,16 +2,28 @@ import "server-only";
 
 import { getFundingAsset } from "@/shared/funding/assets";
 import type {
+  FundingDirection,
+  FundingOfframpDeployment,
   FundingProviderManifest,
+  OfframpContext,
   ProviderContext,
 } from "@/shared/funding/provider-contract";
 
 export const PROVIDER_FETCH_TIMEOUT_MS = 6_000;
 
+export const FUNDING_CONFIGURATION_CODE = "FUNDING_PROVIDER_CONFIGURATION" as const;
+export const FUNDING_SANDBOX_MIGRATION_CODE = "FUNDING_SANDBOX_MIGRATION_REQUIRED" as const;
+export type FundingConfigurationCode =
+  | typeof FUNDING_CONFIGURATION_CODE
+  | typeof FUNDING_SANDBOX_MIGRATION_CODE;
+
 export class FundingProviderConfigurationError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  readonly code: FundingConfigurationCode;
+
+  constructor(message: string, options?: ErrorOptions & { code?: FundingConfigurationCode }) {
     super(message, options);
     this.name = "FundingProviderConfigurationError";
+    this.code = options?.code ?? FUNDING_CONFIGURATION_CODE;
   }
 }
 
@@ -23,34 +35,71 @@ export class FundingProviderFetchError extends Error {
 }
 
 type Environment = Readonly<Record<string, string | undefined>>;
+export type FundingMode = "production" | "sandbox";
+
+const LEGACY_MODE_MIGRATION = "FUNDING_SANDBOX is no longer supported; use COINBASE_ONRAMP_MODE or PEER_OFFRAMP_MODE instead.";
+
+export function resolveFundingMode(
+  manifest: FundingProviderManifest,
+  direction: FundingDirection,
+  env: Environment,
+): FundingMode {
+  if (Object.prototype.hasOwnProperty.call(env, "FUNDING_SANDBOX")) {
+    throw new FundingProviderConfigurationError(LEGACY_MODE_MIGRATION, {
+      code: FUNDING_SANDBOX_MIGRATION_CODE,
+    });
+  }
+  const capability = manifest[direction];
+  const modeEnv = capability?.modeEnv;
+  if (!modeEnv) return "production";
+  const value = env[modeEnv]?.trim();
+  if (!value) return "production";
+  if (value !== "sandbox") {
+    throw new FundingProviderConfigurationError(`${modeEnv} must be exactly sandbox when set.`);
+  }
+  const supportsSandbox = direction === "onramp"
+    ? manifest.onramp?.sandbox === true
+    : Boolean(manifest.offramp?.sandbox);
+  if (!supportsSandbox) {
+    throw new FundingProviderConfigurationError(`${modeEnv} selects sandbox, but ${manifest.id} ${direction} does not declare sandbox support.`);
+  }
+  return "sandbox";
+}
+
+type ContextOptions = {
+  manifest: FundingProviderManifest;
+  region: ProviderContext["binding"]["region"];
+  direction?: FundingDirection;
+  paymentMethodId: string;
+  env?: Environment;
+  fetchImplementation?: typeof fetch;
+  timeoutMs?: number;
+  sandbox?: boolean;
+};
 const providerFetchImplementations = new WeakMap<typeof fetch, typeof fetch>();
 
 export function providerFetchImplementation(providerFetch: typeof fetch): typeof fetch {
   return providerFetchImplementations.get(providerFetch) ?? providerFetch;
 }
 
-export function createProviderContext(options: {
-  manifest: FundingProviderManifest;
-  region: ProviderContext["binding"]["region"];
-  paymentMethodId: string;
-  env?: Environment;
-  fetchImplementation?: typeof fetch;
-  timeoutMs?: number;
-  sandbox?: boolean;
-}): ProviderContext {
+export function createProviderContext(options: ContextOptions & { direction: "offramp" }): OfframpContext;
+export function createProviderContext(options: ContextOptions): ProviderContext;
+export function createProviderContext(options: ContextOptions): ProviderContext | OfframpContext {
+  const direction = options.direction ?? "onramp";
   const matchingBindings = options.manifest.bindings.flatMap((binding) => {
     if (binding.region !== options.region) return [];
-    const paymentMethod = binding.paymentMethods.find(
+    const directional = binding.directions[direction];
+    const paymentMethod = directional?.paymentMethods.find(
       (candidate) => candidate.id === options.paymentMethodId,
     );
-    return paymentMethod ? [{ binding, paymentMethod }] : [];
+    return directional && paymentMethod ? [{ binding, directional, paymentMethod }] : [];
   });
   if (matchingBindings.length !== 1) {
     throw new FundingProviderConfigurationError(
       "The requested funding provider binding is missing or ambiguous.",
     );
   }
-  const { binding, paymentMethod } = matchingBindings[0];
+  const { binding, directional, paymentMethod } = matchingBindings[0];
 
   const asset = getFundingAsset(binding.assetId);
   if (!asset || asset.chainId !== 8453) {
@@ -59,16 +108,17 @@ export function createProviderContext(options: {
     );
   }
 
+  const selectedCapability = capabilityFor(options.manifest, direction, options.sandbox === true);
   const source = options.env ?? process.env;
   const declaredEnvironment: Record<string, string> = {};
-  for (const name of binding.env) {
+  for (const name of directional.env) {
     const value = source[name]?.trim();
-    if (!value) {
+    if (!environmentAvailable([name], source)) {
       throw new FundingProviderConfigurationError(
         `The funding provider is missing required environment variable ${name}.`,
       );
     }
-    declaredEnvironment[name] = value;
+    declaredEnvironment[name] = value!;
   }
 
   const timeoutMs = options.timeoutMs ?? PROVIDER_FETCH_TIMEOUT_MS;
@@ -77,7 +127,7 @@ export function createProviderContext(options: {
       "The funding provider timeout must be between 1 and 30000ms.",
     );
   }
-  const allowedOrigins = normalizeOrigins(options.manifest.apiOrigins);
+  const allowedOrigins = normalizeOrigins(selectedCapability.apiOrigins);
   const fetchImplementation = options.fetchImplementation ?? fetch;
 
   const boundedFetch = (async (
@@ -143,16 +193,58 @@ export function createProviderContext(options: {
   }) as typeof fetch;
 
   providerFetchImplementations.set(boundedFetch, fetchImplementation);
-  return Object.freeze({
+  const common = {
     binding: Object.freeze({
       region: binding.region,
+      direction,
+      currency: binding.currency,
       asset,
       paymentMethod: Object.freeze({ ...paymentMethod }),
+      paymentMethods: Object.freeze(directional.paymentMethods.map((method) => Object.freeze({ ...method }))),
     }),
     env: Object.freeze(declaredEnvironment),
     sandbox: options.sandbox === true,
     fetch: boundedFetch,
+  };
+  return Object.freeze(
+    direction === "offramp"
+      ? { ...common, deployment: selectedCapability.deployment }
+      : common,
+  ) as ProviderContext | OfframpContext;
+}
+
+function capabilityFor(
+  manifest: FundingProviderManifest,
+  direction: FundingDirection,
+  sandbox: boolean,
+): { apiOrigins: ReadonlyArray<string>; deployment?: FundingOfframpDeployment } {
+  if (direction === "onramp") {
+    const capability = manifest.onramp;
+    if (!capability || (sandbox && capability.sandbox !== true)) {
+      throw new FundingProviderConfigurationError(
+        "The funding provider direction is unavailable in the selected mode.",
+      );
+    }
+    return { apiOrigins: capability.apiOrigins };
+  }
+  const deployment = sandbox ? manifest.offramp?.sandbox : manifest.offramp?.production;
+  if (!deployment) {
+    throw new FundingProviderConfigurationError(
+      "The funding provider direction is unavailable in the selected mode.",
+    );
+  }
+  return { apiOrigins: deployment.apiOrigins, deployment };
+}
+
+export function environmentAvailable(names: ReadonlyArray<string>, env: Environment): boolean {
+  return names.every((name) => {
+    const value = env[name]?.trim();
+    return name.endsWith("_ENABLED") ? value === "1" : Boolean(value);
   });
+}
+
+export function normalizeFundingOrigins(origins: ReadonlyArray<string>): ReadonlySet<string> {
+  return normalizeOrigins(origins);
 }
 
 function normalizeOrigins(origins: ReadonlyArray<string>): ReadonlySet<string> {
@@ -176,6 +268,11 @@ function normalizeOrigins(origins: ReadonlyArray<string>): ReadonlySet<string> {
     ) {
       throw new FundingProviderConfigurationError(
         `Funding provider API origin ${origin} must be a bare HTTPS origin.`,
+      );
+    }
+    if (normalized.has(url.origin)) {
+      throw new FundingProviderConfigurationError(
+        `Funding provider API origin ${origin} is duplicated.`,
       );
     }
     normalized.add(url.origin);
