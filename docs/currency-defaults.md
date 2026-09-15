@@ -15,7 +15,7 @@ All selections are confirmed product defaults. “Verification pending” means 
 | USD · United States | USDC · Circle | Verification pending | Matches our CDP funding/saving stack; issuer-published Base contract. [Circle](https://developers.circle.com/stablecoins/usdc-contract-addresses) |
 | EUR · Euro area | EURC · Circle | Verification pending | Same issuer integration as USD, documented Base support and clear euro denomination. Prefer over EURAU/VEUR for the initial stack. [Circle](https://www.circle.com/eurc) |
 | GBP · United Kingdom | tGBP · BCP Technologies | Verification pending | Issuer publishes Base evidence, reserve attestations and contract audits. Prefer over VGBP for the local-pound account. This is BCP's token, not unrelated assets with a similar ticker. [Issuer](https://www.tokenisedgbp.com/transparency) |
-| BRL · Brazil | BRZ · Transfero | Verification pending | Documented Base support and established payment/conversion infrastructure. BRLA is the alternative if its actual funding route is better. Do not select BRLY as a cash default. [Transfero](https://transfero.com/brz-stablecoin) |
+| BRL · Brazil | wBRL · Ripio | Additional verification | Selected for the Ripio direct-API Pix route. Confirm the exact Base contract, decimals, reserves/redemption, and production API schema before funded use. [Ripio](https://docs.ripio.com/) |
 | MXN · Mexico | MXNB · Juno / Bitso | Verification pending | Mexican financial-rail integration is a good fit for Home. Prefer over MXNE as the default; check actual route availability. Issuer transparency page lists Base despite an older FAQ omitting it. [Juno](https://mxnb.mx/en-US/transparency), [issuer model](https://mxnb.mx/whitepaper.pdf) |
 | ARS · Argentina | wARS · Ripio | Additional verification | Selected default; aligns with the Ripio local-currency suite used for COP/CLP/PEN. Verify Base contract, reserves/redemption and funding route. [Ripio](https://www.ripio.com/es/assets/wars/whitepaper), [Base registry](https://dune.com/queries/4780995) |
 | AUD · Australia | AUDD · AUDC | Verification pending | Issuer explicitly supports Base, buying/selling and reserve transparency. Prefer over AUDF for this first integration. [AUDD](https://www.audd.digital/) |
@@ -37,7 +37,7 @@ All selections are confirmed product defaults. “Verification pending” means 
 
 ## Selection rationale and remaining checks
 
-**Brazil: BRZ.** Crown's current whitepaper calls BRLY a rebasing representation of reserves used in the background, and identifies BRLV as its customer-facing token. The dashboard's large BRLY supply therefore does not make it Home's appropriate default cash asset. Crown could be a separate later integration; BRLA remains a plausible funding-driven alternative. [Crown whitepaper](https://crown-2b36dce9.mintlify.app/whitepaper)
+**Brazil: wBRL.** This supersedes the earlier BRZ/Transfero default so Brazil uses Ripio consistently for BRL → wBRL on Base via Pix. The registered address and 18-decimal precision still require provider and on-chain confirmation before order-creating or funded validation.
 
 **Argentina: wARS.** Confirmed product choice. Preserve the actual Base asset identity; Ripio's deployment on another chain is not evidence of Home's Base funding route.
 
@@ -49,4 +49,4 @@ All selections are confirmed product defaults. “Verification pending” means 
 
 These selections establish product defaults for implementation; they do not assert that providers are integrated or automatically enable live routes. Bind confirmed defaults to Base chain ID and verified contract/decimals, then test the exact funding route. No issuer changes happen silently after confirmation.
 
-Suggested first demo candidates: USD/USDC, BRL/BRZ and IDR/IDRX. EUR/EURC is the simpler fallback if either local funding integration is not ready. This balances the local-money story with the existing CDP dollar flow; the choice of demo regions remains separate from approving the full mapping.
+Suggested first demo candidates: USD/USDC, BRL/wBRL and IDR/IDRX. EUR/EURC is the simpler fallback if either local funding integration is not ready. This balances the local-money story with the existing CDP dollar flow; the choice of demo regions remains separate from approving the full mapping.

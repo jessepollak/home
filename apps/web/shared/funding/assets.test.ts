@@ -5,6 +5,7 @@ import { FUNDING_CHAIN_ID, fundingAssets, getFundingAsset } from "./assets";
 const regionByAsset = {
   "base:usdc": "US",
   "base:wars": "AR",
+  "base:wbrl": "BR",
   "base:wcop": "CO",
   "base:idrx": "ID",
 } as const;
@@ -23,6 +24,12 @@ describe("funding asset registry", () => {
         address: "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d",
         decimals: 18,
         symbol: "wARS",
+      }),
+      "base:wbrl": expect.objectContaining({
+        chainId: 8453,
+        address: "0xD76f5Faf6888e24D9F04Bf92a0c8B921FE4390e0",
+        decimals: 18,
+        symbol: "wBRL",
       }),
       "base:wcop": expect.objectContaining({
         chainId: 8453,

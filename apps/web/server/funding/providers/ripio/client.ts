@@ -6,11 +6,11 @@ const RIPIO_PRODUCTION_ORIGIN = "https://skala.ripio.com";
 const RIPIO_BASE_CHAIN = "BASE" as const;
 type RipioCountry = "AR" | "BR" | "CO";
 type RipioEnabledCountry = keyof typeof RIPIO_ASSETS;
-type RipioPaymentMethod = "bank_transfer" | "breb" | "r2p_bancolombia" | "r2p_nequi";
+type RipioPaymentMethod = "bank_transfer" | "pix" | "breb" | "r2p_bancolombia" | "r2p_nequi";
 type RipioQuoteRequest = {
   country: RipioEnabledCountry;
-  fromCurrency: "ARS" | "COP";
-  toCurrency: "wARS" | "wCOP";
+  fromCurrency: "ARS" | "BRL" | "COP";
+  toCurrency: "wARS" | "wBRL" | "wCOP";
   fromAmount: string;
   chain: typeof RIPIO_BASE_CHAIN;
   paymentMethodType: RipioPaymentMethod;
@@ -30,6 +30,7 @@ type RipioQuote = {
 };
 type RipioRailInstructions =
   | { kind: "ar-bank-transfer"; cvu: string; alias?: string }
+  | { kind: "br-pix"; brCode: string; expiresAt?: string }
   | { kind: "co-payment-url"; paymentUrl: string }
   | { kind: "co-breb"; brebKey: string }
   | { kind: "co-r2p-nequi"; phoneNumber: string };
@@ -40,6 +41,12 @@ const RIPIO_ASSETS = {
     token: "wARS",
     tokenAddress: fundingAssets["base:wars"].address,
     paymentMethods: ["bank_transfer"] as const,
+  },
+  BR: {
+    fiatCurrency: "BRL",
+    token: "wBRL",
+    tokenAddress: fundingAssets["base:wbrl"].address,
+    paymentMethods: ["pix"] as const,
   },
   CO: {
     fiatCurrency: "COP",
@@ -126,6 +133,7 @@ export type RipioClient = {
     chain: "BASE";
     paymentMethodType: string;
     finalToAmount: string;
+    fiatAmount?: string;
     extraData?: Record<string, string>;
   }): Promise<RipioOrderReference>;
   getTransaction(transactionId: string, expected?: RipioTransactionBinding): Promise<RipioTransactionReference>;
@@ -234,7 +242,7 @@ export function createRipioClient(country: RipioCountry, options: {
       );
     },
     async createQuote(input) {
-      if (country === "BR" || input.country !== country || !exactRipioEntitlement(input)) {
+      if (input.country !== country || !exactRipioEntitlement(input)) {
         throw new RipioProviderError("invalid-request");
       }
       const depositCatalog = await request("/api/v1/depositNetworks/?include_currency=true");
@@ -258,7 +266,7 @@ export function createRipioClient(country: RipioCountry, options: {
       );
     },
     async createOnramp(input) {
-      if (country === "BR" || ![input.customerId, input.quoteId, input.externalRef].every(validUuid) || !validAddress(input.destination)) {
+      if (![input.customerId, input.quoteId, input.externalRef].every(validUuid) || !validAddress(input.destination) || (country === "BR" && !validDecimal(input.fiatAmount))) {
         throw new RipioProviderError("invalid-request");
       }
       return parseCreateResponse(
@@ -272,7 +280,7 @@ export function createRipioClient(country: RipioCountry, options: {
             ...(input.extraData ? { extraData: input.extraData } : {}),
           }),
         }, true),
-        (value) => parseOrder(value, country as RipioEnabledCountry, input),
+        (value) => parseOrder(value, country, input),
       );
     },
     async getTransaction(transactionId, expected) {
@@ -325,13 +333,13 @@ function parseQuote(value: unknown, request: RipioQuoteRequest): RipioQuote {
   return { quoteId: value.quoteId, fromCurrency: request.fromCurrency, toCurrency: request.toCurrency, fromAmount: value.fromAmount as string, finalFromAmount: value.finalFromAmount as string, toAmount: value.toAmount as string, finalToAmount: value.finalToAmount as string, rate: value.rate as string, expiration: value.expiration, fees };
 }
 
-type ExpectedOrderBinding = RipioTransactionBinding;
+type ExpectedOrderBinding = RipioTransactionBinding & { fiatAmount?: string };
 
 function parseOrder(value: unknown, country: RipioEnabledCountry, expected: ExpectedOrderBinding): RipioOrderReference {
   if (!isRecord(value) || !isRecord(value.transaction) || !isRecord(value.fiatPaymentInstructions)) throw new RipioProviderError("invalid-response");
   const transaction = parseTransaction(value.transaction);
   assertTransactionBinding(transaction, expected);
-  return { ...transaction, instructions: parseInstructions(value.fiatPaymentInstructions, country) };
+  return { ...transaction, instructions: parseInstructions(value.fiatPaymentInstructions, country, expected.fiatAmount) };
 }
 
 function parseTransaction(value: unknown, expectedTransactionId?: string): RipioTransactionReference {
@@ -389,8 +397,13 @@ function assertTransactionBinding(transaction: RipioTransactionReference, expect
   ) throw new RipioProviderError("binding-conflict");
 }
 
-function parseInstructions(value: Record<string, unknown>, country: RipioEnabledCountry): RipioRailInstructions {
+function parseInstructions(value: Record<string, unknown>, country: RipioEnabledCountry, expectedFiatAmount?: string): RipioRailInstructions {
   if (country === "AR" && typeof value.cvu === "string" && /^\d{22}$/.test(value.cvu)) return { kind: "ar-bank-transfer", cvu: value.cvu, ...(typeof value.alias === "string" && value.alias.length <= 128 ? { alias: value.alias } : {}) };
+  if (country === "BR" && expectedFiatAmount && typeof value.brCode === "string" && validPixCode(value.brCode, expectedFiatAmount)) {
+    if (value.paymentUrl !== undefined && (typeof value.paymentUrl !== "string" || value.paymentUrl.length > 4096 || !safeHttps(value.paymentUrl))) throw new RipioProviderError("invalid-response");
+    if (value.expiresAt !== undefined && !validDate(value.expiresAt)) throw new RipioProviderError("invalid-response");
+    return { kind: "br-pix", brCode: value.brCode, ...(typeof value.expiresAt === "string" ? { expiresAt: value.expiresAt } : {}) };
+  }
   if (country === "CO" && typeof value.paymentUrl === "string" && value.paymentUrl.length <= 4096 && safeHttps(value.paymentUrl)) return { kind: "co-payment-url", paymentUrl: value.paymentUrl };
   if (country === "CO" && typeof value.brebKey === "string" && value.brebKey.length > 0 && value.brebKey.length <= 256) return { kind: "co-breb", brebKey: value.brebKey };
   if (country === "CO" && typeof value.phoneNumber === "string" && value.phoneNumber.length > 0 && value.phoneNumber.length <= 64) return { kind: "co-r2p-nequi", phoneNumber: value.phoneNumber };
@@ -485,6 +498,27 @@ function sameDecimal(left: string, right: string): boolean {
   if (!validDecimal(left) || !validDecimal(right)) return false;
   const normalize = (value: string) => value.replace(/\.0+$/, "").replace(/(\.[0-9]*?)0+$/, "$1");
   return normalize(left) === normalize(right);
+}
+function validPixCode(value: string, expectedAmount: string): boolean {
+  if (value.length < 20 || value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value) || !value.includes("br.gov.bcb.pix") || !/6304[0-9A-Fa-f]{4}$/.test(value)) return false;
+  let offset = 0;
+  let amount: string | undefined;
+  while (offset < value.length) {
+    if (offset + 4 > value.length) return false;
+    const tag = value.slice(offset, offset + 2);
+    const lengthText = value.slice(offset + 2, offset + 4);
+    if (!/^\d{2}$/.test(tag) || !/^\d{2}$/.test(lengthText)) return false;
+    const length = Number(lengthText);
+    const end = offset + 4 + length;
+    if (end > value.length) return false;
+    if (tag === "54") {
+      if (amount !== undefined) return false;
+      amount = value.slice(offset + 4, end);
+    }
+    if (tag === "63" && end !== value.length) return false;
+    offset = end;
+  }
+  return offset === value.length && amount !== undefined && sameDecimal(amount, expectedAmount);
 }
 function validDate(value: unknown): value is string { return typeof value === "string" && Number.isFinite(Date.parse(value)); }
 function validEmail(value: string): boolean { return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }

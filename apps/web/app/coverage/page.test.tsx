@@ -100,8 +100,9 @@ describe("public coverage page", () => {
 
   test("searches visible issuer names", async () => {
     const html = await renderCoverage({ q: "Ripio" });
-    expect(html).toContain("Showing 4 of 250 countries and territories");
+    expect(html).toContain("Showing 5 of 250 countries and territories");
     expect(html).toContain("Argentina");
+    expect(html).toContain("Brazil");
     expect(html).toContain("Colombia");
     expect(html).toContain("Country, code, currency, asset, or issuer");
   });

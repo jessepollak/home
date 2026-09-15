@@ -41,6 +41,17 @@ export const ripioManifest = {
       },
     },
     {
+      region: "BR",
+      assetId: "base:wbrl",
+      currency: "BRL",
+      directions: {
+        onramp: {
+          paymentMethods: [{ id: "pix", label: "Pix" }],
+          env: ["RIPIO_CLIENT_ID_BR", "RIPIO_CLIENT_SECRET_BR", "RIPIO_WEBHOOK_SECRET"],
+        },
+      },
+    },
+    {
       region: "CO",
       assetId: "base:wcop",
       currency: "COP",

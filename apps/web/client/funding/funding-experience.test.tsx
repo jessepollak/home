@@ -94,7 +94,7 @@ describe("FundingExperience", () => {
       name: "Supported receive assets on Base",
     });
     expect(supportedAssets.textContent).toContain("USDC");
-    expect(supportedAssets.textContent).not.toContain("BRZ");
+    expect(supportedAssets.textContent).not.toContain("wBRL");
   });
 
   test("keeps provider bindings visible and disabled until a failed open-order read is retried", async () => {

@@ -78,7 +78,7 @@ describe("balance selectors", () => {
   test("adds an unsupported local placeholder ahead of USDC", () => {
     const snapshot = buildBalancesSnapshotFixture({ region: "BR" });
     expect(selectCash(snapshot).map((entry) => entry.kind)).toEqual(["unsupported", "holding"]);
-    expect(selectCash(snapshot)[0]).toMatchObject({ currency: "BRL", symbol: "BRZ" });
+    expect(selectCash(snapshot)[0]).toMatchObject({ currency: "BRL", symbol: "wBRL" });
   });
 
   test("the cash group keeps the authored regional order even when USD is larger", () => {

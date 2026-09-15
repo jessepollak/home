@@ -10,6 +10,11 @@ const env = {
   RIPIO_CLIENT_ID_AR: "client-ar",
   RIPIO_CLIENT_SECRET_AR: "secret-ar-long-enough",
 };
+const brEnv = {
+  RIPIO_CLIENT_ID_BR: "client-br",
+  RIPIO_CLIENT_SECRET_BR: "secret-br-long-enough",
+};
+const PIX_CODE = "00020126320014br.gov.bcb.pix0110abcdefghij5204000053039865406100.005802BR5904HOME6004HOME6304BEEF";
 
 function token() {
   return Response.json({ access_token: "provider-access-token", expires_in: 36000, scope: "read write" });
@@ -104,6 +109,44 @@ describe("Ripio production REST client", () => {
     });
     await expect(client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "invalid-request" });
     expect(calls).toBe(3);
+  });
+
+  test("enforces Brazil country input and the exact wBRL Base catalog address", async () => {
+    let calls = 0;
+    const client = createRipioClient("BR", {
+      env: brEnv,
+      fetchImplementation: async () => {
+        calls += 1;
+        if (calls === 1) return token();
+        if (calls === 2 || calls === 3) return Response.json([{ network_name: "BASE", assets: [{ name: "wBRL", contract_address: RIPIO_PRODUCTION_ASSETS.BR.tokenAddress }] }]);
+        return Response.json({ quoteId: QUOTE, fromCurrency: "BRL", toCurrency: "wBRL", fromAmount: "100.00", finalFromAmount: "100.00", toAmount: "100", finalToAmount: "100", rate: "1", expiration: "2099-01-01T00:00:00.000Z", fees: [] });
+      },
+    });
+    await expect(client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "invalid-request" });
+    expect(calls).toBe(0);
+    await expect(client.createQuote({ country: "BR", fromCurrency: "BRL", toCurrency: "wBRL", fromAmount: "100.00", chain: "BASE", paymentMethodType: "pix", destination: DESTINATION })).resolves.toMatchObject({ finalToAmount: "100" });
+    expect(calls).toBe(4);
+  });
+
+  test("parses Brazil Pix instructions and fails malformed or mismatched instructions closed as ambiguous", async () => {
+    const brTransaction = productionTransaction({ fromCurrency: "BRL", toCurrency: "wBRL", paymentMethodType: "pix", amount: "100" });
+    const create = (instructions: Record<string, unknown>) => createRipioClient("BR", {
+      env: brEnv,
+      fetchImplementation: async (input) => new URL(String(input)).pathname === "/oauth2/token/"
+        ? token()
+        : Response.json({ transaction: brTransaction, fiatPaymentInstructions: instructions }),
+    }).createOnramp({ customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION, fromCurrency: "BRL", toCurrency: "wBRL", chain: "BASE", paymentMethodType: "pix", finalToAmount: "100", fiatAmount: "100.00" });
+
+    await expect(create({ brCode: PIX_CODE, paymentUrl: "https://skala.ripio.com/pix", expiresAt: "2098-12-31T23:00:00.000Z" })).resolves.toMatchObject({ instructions: { kind: "br-pix", brCode: PIX_CODE, expiresAt: "2098-12-31T23:00:00.000Z" } });
+    for (const instructions of [
+      {},
+      { brCode: PIX_CODE.replace("5406100.00", "5406101.00") },
+      { brCode: `${PIX_CODE.slice(0, -1)}Z` },
+      { brCode: PIX_CODE.replace("2632", "2699") },
+      { cvu: "1234567890123456789012" },
+      { brCode: PIX_CODE, paymentUrl: "http://skala.ripio.com/pix" },
+      { brCode: PIX_CODE, expiresAt: "not-a-date" },
+    ]) await expect(create(instructions)).rejects.toMatchObject({ code: "ambiguous-create" });
   });
 
   test("uses documented exact order retrieval instead of a paginated list filter", async () => {

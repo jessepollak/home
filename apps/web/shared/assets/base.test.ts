@@ -18,6 +18,7 @@ describe("Base asset catalog", () => {
     expect(Object.keys(BASE_FUNDING_ASSETS)).toEqual([
       "base:usdc",
       "base:wars",
+      "base:wbrl",
       "base:wcop",
       "base:idrx",
     ]);

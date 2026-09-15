@@ -90,7 +90,7 @@ describe("local money coverage registry", () => {
     expect(normal).toContain("XK,Kosovo,EUR,false,");
     expect(normal).not.toContain("undefined");
     expect(normal.split("\n")[0]).toContain("quote_observed_at,quote_spread_bps,quote_fee_summary,quote_source_url");
-    expect(new Bun.CryptoHasher("sha256").update(normal).digest("hex")).toBe("71ee320c4e9447ba1363e0a9ee0c5d1f01de8bb70fd53e991562b2767b59aef1");
+    expect(new Bun.CryptoHasher("sha256").update(normal).digest("hex")).toBe("b4e710cd3ae1d6c2b133d0c0db1a667e980f5bb8345da6d48c17ae4f65f126d4");
   });
 
   test("exports dated quote observations without turning them into route promises", () => {

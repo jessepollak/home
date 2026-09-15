@@ -154,7 +154,7 @@ const currencyPresentations = {
     code: "BRL",
     name: "Brazilian real",
     symbol: "R$",
-    candidateAsset: candidateAsset("BRZ", "Transfero", "Verification pending"),
+    candidateAsset: candidateAsset("wBRL", "Ripio", "Additional verification"),
   },
   CAD: {
     code: "CAD",

@@ -1,7 +1,7 @@
 import type { FiatCurrencyCode } from "@/config/regions";
 
 export type BaseAddress = `0x${string}`;
-export type FundingAssetId = "base:usdc" | "base:wars" | "base:wcop" | "base:idrx";
+export type FundingAssetId = "base:usdc" | "base:wars" | "base:wbrl" | "base:wcop" | "base:idrx";
 
 export const BASE_CHAIN_ID = 8453 as const;
 
@@ -71,6 +71,17 @@ export const BASE_FUNDING_ASSETS = {
     address: "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d",
     fiatCurrency: "ARS",
     issuerDocsUrl: "https://www.ripio.com/es/assets/wars/whitepaper",
+  },
+  "base:wbrl": {
+    id: "base:wbrl",
+    fundingId: "base:wbrl",
+    chainId: BASE_CHAIN_ID,
+    name: "Wrapped Brazilian real",
+    symbol: "wBRL",
+    decimals: 18,
+    address: "0xD76f5Faf6888e24D9F04Bf92a0c8B921FE4390e0",
+    fiatCurrency: "BRL",
+    issuerDocsUrl: "https://docs.ripio.com/",
   },
   "base:wcop": {
     id: "base:wcop",

@@ -42,11 +42,11 @@ export const ripioProvider: FundingProvider = {
   async createQuote(input, ctx) {
     const quote = await clientFor(ctx).createQuote({
       country: countryFor(ctx),
-      fromCurrency: ctx.binding.asset.fiatCurrency as "ARS" | "COP",
-      toCurrency: ctx.binding.asset.symbol as "wARS" | "wCOP",
+      fromCurrency: ctx.binding.asset.fiatCurrency as "ARS" | "BRL" | "COP",
+      toCurrency: ctx.binding.asset.symbol as "wARS" | "wBRL" | "wCOP",
       fromAmount: input.fiatAmount,
       chain: "BASE",
-      paymentMethodType: ctx.binding.paymentMethod.id as "bank_transfer" | "breb" | "r2p_bancolombia" | "r2p_nequi",
+      paymentMethodType: ctx.binding.paymentMethod.id as "bank_transfer" | "pix" | "breb" | "r2p_bancolombia" | "r2p_nequi",
       destination: input.destination,
     });
     return {
@@ -78,6 +78,7 @@ export const ripioProvider: FundingProvider = {
         chain: "BASE",
         paymentMethodType: ctx.binding.paymentMethod.id,
         finalToAmount: ripioAtomicToDecimal(input.quote.tokenAmountAtomic, ctx.binding.asset.decimals),
+        fiatAmount: input.quote.fiatAmount,
       });
       return {
         outcome: "created",
@@ -86,7 +87,7 @@ export const ripioProvider: FundingProvider = {
           tokenAddress: ctx.binding.asset.address,
           expectedTokenAmountAtomic: input.quote.tokenAmountAtomic,
           fees: input.quote.fees,
-          expiresAt: input.quote.expiresAt,
+          expiresAt: earlierExpiry(input.quote.expiresAt, order.instructions.kind === "br-pix" ? order.instructions.expiresAt : undefined),
           instructions: instructionsFor(order, input.quote, ctx),
         },
       };
@@ -162,8 +163,8 @@ function clientFor(ctx: ProviderContext): RipioClient {
   return client;
 }
 
-function countryFor(ctx: ProviderContext): "AR" | "CO" {
-  if (ctx.binding.region !== "AR" && ctx.binding.region !== "CO") {
+function countryFor(ctx: ProviderContext): "AR" | "BR" | "CO" {
+  if (ctx.binding.region !== "AR" && ctx.binding.region !== "BR" && ctx.binding.region !== "CO") {
     throw new RipioProviderError("invalid-request");
   }
   return ctx.binding.region;
@@ -176,6 +177,9 @@ function instructionsFor(order: RipioOrderReference, quote: Quote, ctx: Provider
   if (method === "bank_transfer" && ctx.binding.region === "AR" && order.instructions.kind === "ar-bank-transfer") {
     return { kind: "bank-transfer" as const, rail: "CVU", accountNumber: order.instructions.cvu, alias: order.instructions.alias, amount, currency };
   }
+  if (method === "pix" && ctx.binding.region === "BR" && order.instructions.kind === "br-pix") {
+    return { kind: "qr" as const, scheme: "pix" as const, payload: order.instructions.brCode, amount, currency };
+  }
   if ((method === "bank_transfer" || method === "r2p_bancolombia") && ctx.binding.region === "CO" && order.instructions.kind === "co-payment-url") {
     assertRedirectOrigin(order.instructions.paymentUrl);
     return { kind: "redirect" as const, url: order.instructions.paymentUrl };
@@ -187,6 +191,11 @@ function instructionsFor(order: RipioOrderReference, quote: Quote, ctx: Provider
     return { kind: "payment-key" as const, scheme: "Nequi", key: order.instructions.phoneNumber, amount, currency };
   }
   throw new RipioProviderError("binding-conflict");
+}
+
+function earlierExpiry(quoteExpiry: string, instructionExpiry?: string): string {
+  if (!instructionExpiry) return quoteExpiry;
+  return Date.parse(instructionExpiry) < Date.parse(quoteExpiry) ? instructionExpiry : quoteExpiry;
 }
 
 function observationFor(status: string, hash: string | null, refund: { status: string; rejectionReason: string | null } | null): Observation {
