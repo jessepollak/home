@@ -246,10 +246,12 @@ describe("BorrowExperience redesign", () => {
     expect(borrow.className).toContain("min-h-11");
     expect(body.getByRole("list", { name: "Borrow markets" })).toBeTruthy();
     expect(body.getByRole("listitem")).toBe(card);
+    expect(body.queryByText("Manage", { exact: true })).toBeNull();
     const manage = body.getByRole("group", { name: "Manage Bitcoin position" });
     const manageButtons = within(manage).getAllByRole("button");
+    expect(manage.className).toContain("grid-cols-2");
+    expect(manage.className).not.toContain("border-t");
     expect(manageButtons.map((button) => button.textContent)).toEqual(["Add collateral", "Withdraw"]);
-    expect(manageButtons[0]?.parentElement?.className).toContain("grid-cols-2");
     expect(manageButtons.every((button) => button.className.includes("min-h-11") && button.className.includes("w-full"))).toBe(true);
     expect(body.queryByRole("button", { name: "Repay all" })).toBeNull();
     expect(body.queryByRole("button", { name: "Close Bitcoin position" })).toBeNull();
