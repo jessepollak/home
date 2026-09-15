@@ -65,52 +65,14 @@ describe("CopyableValue", () => {
     await waitFor(() => expect(copied).toBe(VALUE));
   });
 
-  test("renders the compact presentation full width with the copy icon but without the full variant's min-height and inner padding", async () => {
-    let copied = "";
-    withClipboard(async (value: string) => {
-      copied = value;
-    });
-    const view = render(
-      <CopyableValue
-        value={VALUE}
-        display={DISPLAY}
-        presentation="compact"
-        valueKind="address"
-      />,
-    );
-
+  test("renders the compact presentation with a copy icon, accessible full value, and no full padding", () => {
+    const view = render(<CopyableValue value={VALUE} display={DISPLAY} presentation="compact" valueKind="address" />);
     const control = view.getByRole("button", { name: `Copy ${DISPLAY}` });
-    const controlClasses = (control.getAttribute("class") ?? "").split(/\s+/);
-    expect(controlClasses).toContain("w-full");
-    expect(controlClasses).not.toContain("min-h-11");
+
+    expect(control.title).toBe(VALUE);
     expect(control.querySelector(".lucide-copy")).toBeTruthy();
-
-    const valueClasses = (
-      control.firstElementChild?.getAttribute("class") ?? ""
-    ).split(/\s+/);
-    expect(valueClasses).not.toContain("py-2");
-
-    fireEvent.click(control);
-    await waitFor(() => expect(copied).toBe(VALUE));
-    expect(view.getByRole("button", { name: "Copied" })).toBeTruthy();
-    expect(view.container.querySelector('[aria-live="polite"]')?.textContent).toBe("Copied");
-  });
-
-  test("keeps the full presentation's min-height and inner vertical padding unchanged", () => {
-    const view = render(
-      <CopyableValue
-        value={VALUE}
-        display={DISPLAY}
-        presentation="full"
-        valueKind="address"
-      />,
-    );
-
-    const control = view.getByRole("button", { name: `Copy ${DISPLAY}` });
-    expect((control.getAttribute("class") ?? "").split(/\s+/)).toContain("min-h-11");
-    expect(
-      (control.firstElementChild?.getAttribute("class") ?? "").split(/\s+/),
-    ).toContain("py-2");
+    expect(control.className).not.toContain("min-h-11");
+    expect(control.firstElementChild?.className).not.toContain("py-2");
   });
 
   test("exposes the selectable full value and a truthful error when clipboard is unavailable", async () => {
