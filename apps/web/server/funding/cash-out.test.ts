@@ -131,7 +131,12 @@ describe("Peer cash-out action preparation", () => {
   test("lists owner recovery orders with provider labels while discovery is disabled", async () => {
     installClients(true);
     for (const disabled of [undefined, "0", "false"]) {
-      const orders = await listCashoutOrders(session, { region: "US", inFlight: true }, { PEER_OFFRAMP_ENABLED: disabled });
+      const orders = await listCashoutOrders(
+        session,
+        { region: "US", inFlight: true },
+        { PEER_OFFRAMP_ENABLED: disabled },
+        { store: { hasCashoutHistory: async () => true, cashoutRecoveryModes: async () => ["production"] } },
+      );
       expect(orders).toHaveLength(1);
       expect(orders[0]).toMatchObject({
         providerId: "peer", providerName: "Peer", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6,
@@ -140,6 +145,13 @@ describe("Peer cash-out action preparation", () => {
       expect(orders[0]).not.toHaveProperty("owner");
       expect(orders[0]).not.toHaveProperty("payeeHash");
     }
+  });
+
+  test("does not query disabled Peer recovery without owner history or an explicit request", async () => {
+    installClients(true);
+    const store = { hasCashoutHistory: async () => false, cashoutRecoveryModes: async () => [] };
+    expect(await listCashoutOrders(session, { region: "US" }, { PEER_OFFRAMP_ENABLED: "0" }, { store })).toEqual([]);
+    expect(await listCashoutOrders(session, { region: "US", recover: true }, { PEER_OFFRAMP_ENABLED: "0" }, { store })).toHaveLength(1);
   });
 
   test("keeps withdrawal recovery available while new Peer cash-outs are disabled", async () => {

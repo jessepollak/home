@@ -5,16 +5,19 @@ import { normalizeFundingOrigins, FundingProviderConfigurationError } from "../c
 
 export function validateFundingProviders(providers: ReadonlyArray<FundingProvider>): void {
   const ids = new Set<string>();
+  const modeEnvironments = new Set<string>();
   for (const provider of providers) {
     const { manifest } = provider;
     if (!manifest.onramp && !manifest.offramp) fail(`${manifest.id} must declare at least one direction.`);
     if (!manifest.id || ids.has(manifest.id)) fail(`Funding provider id ${manifest.id || "<empty>"} is invalid or duplicated.`);
     ids.add(manifest.id);
     if (manifest.onramp) {
+      validateModeEnvironment(manifest.id, "onramp", manifest.onramp.modeEnv, manifest.onramp.sandbox === true, modeEnvironments);
       normalizeFundingOrigins(manifest.onramp.apiOrigins);
       validateRedirectOrigins(manifest.onramp.redirectOrigins);
     }
     if (manifest.offramp) {
+      validateModeEnvironment(manifest.id, "offramp", manifest.offramp.modeEnv, Boolean(manifest.offramp.sandbox), modeEnvironments);
       normalizeFundingOrigins(manifest.offramp.production.apiOrigins);
       if (manifest.offramp.sandbox) normalizeFundingOrigins(manifest.offramp.sandbox.apiOrigins);
       if (manifest.offramp.sandbox?.contracts.escrow.toLowerCase() === manifest.offramp.production.contracts.escrow.toLowerCase()) {
@@ -63,6 +66,21 @@ function validateDirection(provider: FundingProvider, direction: FundingDirectio
       keys.add(key);
     }
   }
+}
+
+function validateModeEnvironment(
+  providerId: string,
+  direction: FundingDirection,
+  name: string | undefined,
+  supportsSandbox: boolean,
+  names: Set<string>,
+): void {
+  if (!name) return;
+  if (!/^[A-Z][A-Z0-9_]*$/.test(name) || names.has(name)) {
+    fail(`${providerId} ${direction} mode environment name is invalid or duplicated.`);
+  }
+  if (!supportsSandbox) fail(`${providerId} ${direction} mode environment requires sandbox capability.`);
+  names.add(name);
 }
 
 function validateRedirectOrigins(origins: ReadonlyArray<string> | undefined): void {

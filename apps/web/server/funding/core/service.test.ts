@@ -8,6 +8,7 @@ import type {
 } from "@/shared/funding/provider-contract";
 import { MemoryFundingOrderStore } from "./store";
 import { FundingCore, resolveClientIp, isPrivateIp } from "./service";
+import { resolveFundingMode } from "./provider-context";
 
 const session: VerifiedAccountSession = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
 const manifest = { id: "fixture", displayName: "Fixture", docsUrl: "https://example.com", onramp: { apiOrigins: ["https://example.com"], reference: "home" }, bindings: [{ region: "ID", assetId: "base:idrx", currency: "IDR", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["FIXTURE_KEY"] } } }] } as const satisfies FundingProviderManifest;
@@ -24,7 +25,7 @@ function setup(
   let date = new Date("2026-09-12T00:00:00.000Z");
   const staleSignals: Array<{ address: string; at: string }> = [];
   const provider: FundingProvider = {
-    manifest: options.providerSandbox ? { ...manifest, onramp: { ...manifest.onramp, sandbox: true } } : manifest,
+    manifest: options.providerSandbox ? { ...manifest, onramp: { ...manifest.onramp, sandbox: true, modeEnv: "FIXTURE_ONRAMP_MODE" } } : manifest,
     onramp: {
       async createOrder(input, ctx) {
       dispatches += 1;
@@ -38,14 +39,14 @@ function setup(
       },
     },
   };
-  const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), ...(options.sandbox ? { FUNDING_SANDBOX: "1" } : {}) }, currentBaseBlock: async () => { blockReads += 1; return "500"; }, verifyReceipt: async (_order, hash) => { receiptVerifications += 1; return { transactionHash: hash, logIndex: 4 }; }, markStale: async (address, at) => { staleSignals.push({ address, at: at.toISOString() }); }, now: () => date });
+  const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), ...(options.sandbox ? { FIXTURE_ONRAMP_MODE: "sandbox" } : {}) }, currentBaseBlock: async () => { blockReads += 1; return "500"; }, verifyReceipt: async (_order, hash) => { receiptVerifications += 1; return { transactionHash: hash, logIndex: 4 }; }, markStale: async (address, at) => { staleSignals.push({ address, at: at.toISOString() }); }, now: () => date });
   return { core, dispatches: () => dispatches, blockReads: () => blockReads, receiptVerifications: () => receiptVerifications, getOrderSandboxes: () => getOrderSandboxes, staleSignals: () => staleSignals, advance(minutes: number) { date = new Date(date.getTime() + minutes * 60_000); }, sent() { observation = "sent"; date = new Date("2026-09-12T00:00:10.000Z"); } };
 }
 
 describe("FundingCore", () => {
-  test("lists only sandbox-capable providers in sandbox mode and leaves normal listing unchanged", async () => {
+  test("scopes sandbox mode to the declaring provider and leaves production providers listed", async () => {
     const sandboxProvider: FundingProvider = {
-      manifest: { ...manifest, id: "sandbox-fixture", onramp: { ...manifest.onramp, sandbox: true } },
+      manifest: { ...manifest, id: "sandbox-fixture", onramp: { ...manifest.onramp, sandbox: true, modeEnv: "SANDBOX_FIXTURE_MODE" } },
       onramp: {
         async createOrder() { return { outcome: "ambiguous" }; },
         async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
@@ -66,15 +67,24 @@ describe("FundingCore", () => {
     };
     const sandboxCore = new FundingCore({
       ...dependencies,
-      env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), FUNDING_SANDBOX: "1" },
+      env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), SANDBOX_FIXTURE_MODE: "sandbox" },
     });
     const liveCore = new FundingCore({
       ...dependencies,
       env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32) },
     });
 
-    expect((await sandboxCore.listProviders("ID", session)).map((item) => item.providerId)).toEqual(["sandbox-fixture"]);
+    expect((await sandboxCore.listProviders("ID", session)).map((item) => item.providerId)).toEqual(["sandbox-fixture", "live-fixture"]);
     expect((await liveCore.listProviders("ID", session)).map((item) => item.providerId)).toEqual(["sandbox-fixture", "live-fixture"]);
+  });
+
+  test("rejects legacy and invalid provider mode values", () => {
+    expect(() => resolveFundingMode(manifest, "onramp", { FUNDING_SANDBOX: "" }))
+      .toThrow("COINBASE_ONRAMP_MODE or PEER_OFFRAMP_MODE");
+    const sandboxManifest = { ...manifest, onramp: { ...manifest.onramp, sandbox: true, modeEnv: "FIXTURE_ONRAMP_MODE" } };
+    expect(resolveFundingMode(sandboxManifest, "onramp", {})).toBe("production");
+    expect(() => resolveFundingMode(sandboxManifest, "onramp", { FIXTURE_ONRAMP_MODE: "1" }))
+      .toThrow("must be exactly sandbox");
   });
 
   test("reports hidden offramp discovery failures without request data", async () => {
@@ -115,7 +125,7 @@ describe("FundingCore", () => {
   test("rejects sandbox quotes for providers that do not declare sandbox support", async () => {
     let providerCalls = 0;
     const provider: FundingProvider = {
-      manifest: { ...manifest, onramp: { ...manifest.onramp, quotes: true } },
+      manifest: { ...manifest, onramp: { ...manifest.onramp, quotes: true, modeEnv: "FIXTURE_ONRAMP_MODE" } },
       onramp: {
         async createQuote() { providerCalls += 1; throw new Error("unexpected provider call"); },
         async createOrder() { providerCalls += 1; return { outcome: "ambiguous" }; },
@@ -125,12 +135,12 @@ describe("FundingCore", () => {
     const core = new FundingCore({
       providers: [provider],
       store: new MemoryFundingOrderStore(),
-      env: { FIXTURE_KEY: "set", FUNDING_SANDBOX: "1", ["FUNDING_" + "QUOTE_SECRET"]: "q".repeat(32) },
+      env: { FIXTURE_KEY: "set", FIXTURE_ONRAMP_MODE: "sandbox", ["FUNDING_" + "QUOTE_SECRET"]: "q".repeat(32) },
       currentBaseBlock: async () => "1",
       verifyReceipt: async () => null,
     });
 
-    await expect(core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example")).rejects.toMatchObject({ code: "INVALID_QUOTE_REQUEST" });
+    await expect(core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example")).rejects.toThrow("does not declare sandbox support");
     expect(providerCalls).toBe(0);
   });
 

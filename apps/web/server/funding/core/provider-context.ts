@@ -26,6 +26,35 @@ export class FundingProviderFetchError extends Error {
 }
 
 type Environment = Readonly<Record<string, string | undefined>>;
+export type FundingMode = "production" | "sandbox";
+
+const LEGACY_MODE_MIGRATION = "FUNDING_SANDBOX is no longer supported; use COINBASE_ONRAMP_MODE or PEER_OFFRAMP_MODE instead.";
+
+export function resolveFundingMode(
+  manifest: FundingProviderManifest,
+  direction: FundingDirection,
+  env: Environment,
+): FundingMode {
+  if (Object.prototype.hasOwnProperty.call(env, "FUNDING_SANDBOX")) {
+    throw new FundingProviderConfigurationError(LEGACY_MODE_MIGRATION);
+  }
+  const capability = manifest[direction];
+  const modeEnv = capability?.modeEnv;
+  if (!modeEnv) return "production";
+  const value = env[modeEnv]?.trim();
+  if (!value) return "production";
+  if (value !== "sandbox") {
+    throw new FundingProviderConfigurationError(`${modeEnv} must be exactly sandbox when set.`);
+  }
+  const supportsSandbox = direction === "onramp"
+    ? manifest.onramp?.sandbox === true
+    : Boolean(manifest.offramp?.sandbox);
+  if (!supportsSandbox) {
+    throw new FundingProviderConfigurationError(`${modeEnv} selects sandbox, but ${manifest.id} ${direction} does not declare sandbox support.`);
+  }
+  return "sandbox";
+}
+
 type ContextOptions = {
   manifest: FundingProviderManifest;
   region: ProviderContext["binding"]["region"];

@@ -32,6 +32,7 @@ export type FundingProviderManifest = {
   displayName: string;
   docsUrl: string;
   onramp?: {
+    modeEnv?: string;
     apiOrigins: ReadonlyArray<string>;
     redirectOrigins?: ReadonlyArray<string>;
     sandbox?: boolean;
@@ -41,6 +42,7 @@ export type FundingProviderManifest = {
     webhook?: FundingWebhookManifest;
   };
   offramp?: {
+    modeEnv?: string;
     production: FundingOfframpDeployment;
     sandbox?: FundingOfframpDeployment;
   };

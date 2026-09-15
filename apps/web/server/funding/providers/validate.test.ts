@@ -35,6 +35,27 @@ describe("funding provider registry validation", () => {
     expect(() => validateFundingProviders([invalid])).toThrow("manifest and port must be declared together");
   });
 
+  test("validates provider-direction mode environment declarations", () => {
+    const valid = fixture();
+    valid.manifest.onramp = { ...valid.manifest.onramp!, sandbox: true, modeEnv: "FIXTURE_ONRAMP_MODE" };
+    expect(() => validateFundingProviders([valid])).not.toThrow();
+
+    const unsupported = fixture();
+    unsupported.manifest.onramp = { ...unsupported.manifest.onramp!, modeEnv: "FIXTURE_ONRAMP_MODE" };
+    expect(() => validateFundingProviders([unsupported])).toThrow("requires sandbox capability");
+
+    const invalid = fixture();
+    invalid.manifest.onramp = { ...invalid.manifest.onramp!, sandbox: true, modeEnv: "fixture-mode" };
+    expect(() => validateFundingProviders([invalid])).toThrow("invalid or duplicated");
+
+    const duplicateA = fixture();
+    duplicateA.manifest.onramp = { ...duplicateA.manifest.onramp!, sandbox: true, modeEnv: "SHARED_MODE" };
+    const duplicateB = fixture();
+    duplicateB.manifest.id = "fixture-two";
+    duplicateB.manifest.onramp = { ...duplicateB.manifest.onramp!, sandbox: true, modeEnv: "SHARED_MODE" };
+    expect(() => validateFundingProviders([duplicateA, duplicateB])).toThrow("invalid or duplicated");
+  });
+
   test("rejects ambiguous direction methods, duplicate origins, and webhook env gaps", () => {
     const duplicateMethod = fixture();
     duplicateMethod.manifest.bindings = [...duplicateMethod.manifest.bindings, {

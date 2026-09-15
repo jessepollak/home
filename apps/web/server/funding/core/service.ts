@@ -5,7 +5,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { getFundingAsset } from "@/shared/funding/assets";
 import type { FundingDirection, FundingProvider, Instruction, Observation, Quote } from "@/shared/funding/provider-contract";
 import { decimalToAtomic } from "@/shared/formatting/atomic";
-import { FundingProviderConfigurationError, createProviderContext, environmentAvailable } from "./provider-context";
+import { FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode } from "./provider-context";
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
 import { awaitBalanceSignal } from "@/server/balances/signal";
@@ -39,8 +39,9 @@ export class FundingCore {
     session: VerifiedAccountSession,
     direction: FundingDirection = "onramp",
   ) {
-    const sandbox = this.sandbox();
-    const listed = this.deps.providers.flatMap((provider) => provider.manifest.bindings.flatMap((binding) => {
+    const listed = this.deps.providers.flatMap((provider) => {
+      const sandbox = resolveFundingMode(provider.manifest, direction, this.env) === "sandbox";
+      return provider.manifest.bindings.flatMap((binding) => {
       const directional = binding.directions[direction];
       if (
         binding.region !== region ||
@@ -51,9 +52,10 @@ export class FundingCore {
       ) return [];
       const asset = getFundingAsset(binding.assetId);
       if (!asset) return [];
-      return [{ provider, binding, directional, asset }];
-    }));
-    const results = await Promise.all(listed.map(async ({ provider, binding, directional, asset }) => {
+      return [{ provider, binding, directional, asset, sandbox }];
+      });
+    });
+    const results = await Promise.all(listed.map(async ({ provider, binding, directional, asset, sandbox }) => {
       if (direction === "onramp") {
         const manifest = provider.manifest.onramp;
         if (!manifest || !provider.onramp) return [];
@@ -140,7 +142,7 @@ export class FundingCore {
     const provider = parsed ? this.provider(parsed.providerId) : null;
     const binding = provider && parsed ? findBinding(provider, parsed.region, "onramp", parsed.paymentMethod) : null;
     const asset = binding ? getFundingAsset(binding.assetId) : null;
-    const sandbox = this.sandbox();
+    const sandbox = provider ? resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox" : false;
     const onramp = provider ? provider.onramp : null;
     const onrampManifest = provider?.manifest.onramp;
     const directional = binding?.directions.onramp;
@@ -185,11 +187,13 @@ export class FundingCore {
     if (!record(body) || Object.keys(body).length !== 1 || typeof body.quoteToken !== "string" || !session.smartAccount) throw new FundingCoreError("INVALID_ORDER_REQUEST", 400);
     const authenticated = authenticateFundingQuote(body.quoteToken, this.quoteSecret());
     const claims = authenticated?.claims;
-    if (!authenticated || !claims || claims.subject !== session.user.subject || claims.accountProvider !== session.accountProvider || claims.destination !== session.smartAccount.address || claims.sandbox !== this.sandbox()) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
+    if (!authenticated || !claims || claims.subject !== session.user.subject || claims.accountProvider !== session.accountProvider || claims.destination !== session.smartAccount.address) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
     const provider = this.provider(claims.providerId);
     const binding = provider ? findBinding(provider, claims.region, "onramp", claims.paymentMethod, claims.assetId) : null;
     const onramp = provider ? provider.onramp : null;
     if (!provider || !onramp || !binding || !getFundingAsset(claims.assetId)) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
+    const sandbox = resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox";
+    if (claims.sandbox !== sandbox) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
     const owner = ownerFor(session);
     const intentDigest = createHash("sha256").update(authenticated.canonicalToken).digest("hex");
     const existing = await this.deps.store.getByIntent(owner, intentDigest);
@@ -254,7 +258,8 @@ export class FundingCore {
       const directional = binding.directions.onramp;
       if (!directional || !environmentAvailable(directional.env, this.env)) continue;
       for (const method of directional.paymentMethods) {
-        const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: method.id, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: this.sandbox() });
+        const sandbox = resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox";
+        const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: method.id, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox });
         const verified = onramp.verifyWebhook(raw, headers, ctx);
         if (verified) { providerOrderId = verified.providerOrderId; break; }
       }
@@ -333,7 +338,6 @@ export class FundingCore {
 
   private provider(id: string) { return this.deps.providers.find((provider) => provider.manifest.id === id); }
   private quoteSecret() { return this.env.FUNDING_QUOTE_SECRET?.trim() ?? ""; }
-  private sandbox() { return this.env.FUNDING_SANDBOX === "1"; }
 }
 
 export class FundingCoreError extends Error { constructor(readonly code: string, readonly status: number) { super(code); } }

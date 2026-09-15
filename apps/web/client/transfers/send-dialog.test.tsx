@@ -195,7 +195,8 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.click(page().getByRole("button", { name: "1" }));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(page().queryByRole("button", { name: "Cash out with Peer" })).toBeNull();
-    expect(page().getByRole("button", { name: "Base address" })).toBeTruthy();
+    expect(page().getByLabelText("To")).toBeTruthy();
+    expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
   });
 
@@ -214,9 +215,9 @@ describe("SendDialog Peer cash-out", () => {
 
     fireEvent.click(page().getByRole("button", { name: "1" }));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    expect(await page().findByText("Peer: awaiting-buyer.")).toBeTruthy();
+    expect(await page().findByText("Peer cash-out · awaiting-buyer")).toBeTruthy();
     expect(page().queryByRole("button", { name: "Cash out with Peer" })).toBeNull();
-    fireEvent.click(page().getByRole("button", { name: "Withdraw USDC" }));
+    fireEvent.click(page().getByRole("button", { name: "Withdraw 2 USDC" }));
     expect(await page().findByRole("button", { name: "Withdraw 2 USDC" })).toBeTruthy();
     expect(prepares).toEqual([{
       kind: "cash-out-withdraw",
@@ -266,12 +267,28 @@ describe("SendDialog resume", () => {
     expect(invalidResumes).toBe(1);
   });
 
-  test("resumes a pending cash-out withdrawal review from typed metadata and receive amount", async () => {
+  test("offers withdrawal recovery on the amount step when there are no sendable balances", async () => {
+    render(
+      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-empty-recovery" regionId="US"
+        availableAssets={[]}
+        fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
+          ? { version: 2, direction: "offramp", providers: [] }
+          : { version: 2, orders: [recoveryOrder] }}
+        prepareMoneyAction={async () => withdrawAction()} resumeMoneyAction={async () => withdrawAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
+    );
+
+    expect(await page().findByRole("button", { name: "Withdraw 2 USDC" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Withdraw 2 USDC" }));
+    expect(await page().findByText("You're withdrawing from Peer")).toBeTruthy();
+  });
+
+  test("resumes a pending USDC withdrawal exactly when only ETH is sendable", async () => {
     let invalidResumes = 0;
     render(
       <SendDialog
         open immediate address={ACCOUNT} ownerBoundary="owner-withdraw-resume" resumeActionId={ACTION_ID}
-        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        availableAssets={[{ ...getTransferAsset("eth")!, balanceBaseUnits: "1000000000000000000", balanceLabel: "$4,000.00" }]}
         prepareMoneyAction={async () => withdrawAction()} resumeMoneyAction={async () => withdrawAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
         onInvalidResume={() => { invalidResumes += 1; }} onClose={() => {}}

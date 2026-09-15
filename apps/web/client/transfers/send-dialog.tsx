@@ -8,8 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { presentPortfolioAssetMark, type AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode, useMemo } from "react";
-import { LoaderCircle } from "lucide-react";
+import { ChevronRight, LoaderCircle } from "lucide-react";
 import { AddressField } from "@/components/address";
+import { FieldSeparator } from "@/components/ui/field";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { CopyableValue } from "@/components/copyable-value";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
@@ -41,12 +43,14 @@ import {
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 
-type SendStep = "amount" | "destination" | "address" | "payout" | "handle" | "handle-confirm" | "confirm" | "pending" | "error";
+type SendStep = "amount" | "destination" | "payout" | "handle" | "handle-confirm" | "confirm" | "pending" | "error";
 type CashoutRequest = {
   operation: "deposit" | "withdraw";
   providerId: string;
   providerName: string;
   assetId: string;
+  symbol: string;
+  decimals: number;
   amountBaseUnits: string;
   platform: string;
   platformLabel: string;
@@ -100,6 +104,7 @@ export function SendDialog({
   const [cashout, setCashout] = useState<CashoutRequest | null>(null);
   const [offramps, setOfframps] = useState<ReadonlyArray<FundingOfframpBinding>>([]);
   const [activeOrders, setActiveOrders] = useState<ReadonlyArray<CashoutOrderSummary>>([]);
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
   const [selectedOfframp, setSelectedOfframp] = useState<FundingOfframpBinding | null>(null);
   const [selectedPlatform, setSelectedPlatform] = useState<FundingOfframpBinding["paymentMethods"][number] | null>(null);
   const [payoutHandle, setPayoutHandle] = useState("");
@@ -121,7 +126,7 @@ export function SendDialog({
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);
   const eligibleOfframps = offramps.filter((binding) => selectedAsset?.symbol === "USDC" && binding.assetId === "base:usdc");
-  const visibleActiveOrders = activeOrders.filter((order) => order.assetSymbol === selectedAsset?.symbol);
+  const visibleActiveOrders = activeOrders;
   const assetOptions = useMemo(() => availableAssets?.map((asset) => ({
     id: asset.id, label: asset.symbol, description: asset.name, currency: asset.cashCurrency,
     mark: presentPortfolioAssetMark({ assetKey: asset.assetKey, name: asset.name, symbol: asset.symbol, currency: asset.cashCurrency }, assetMarkResolution),
@@ -140,8 +145,8 @@ export function SendDialog({
     if (!open || !ownerBoundary || !fetchAccountResource) return;
     let cancelled = false;
     void fetchAccountResource(`/api/funding/offramp/orders?region=${encodeURIComponent(regionId)}&inFlight=1`)
-      .then((value) => { if (!cancelled) setActiveOrders(readCashoutOrders(value)); })
-      .catch(() => { if (!cancelled) setActiveOrders([]); });
+      .then((value) => { if (!cancelled) { setActiveOrders(readCashoutOrders(value)); setOrdersLoaded(true); } })
+      .catch(() => { if (!cancelled) { setActiveOrders([]); setOrdersLoaded(true); } });
     return () => { cancelled = true; };
   }, [fetchAccountResource, open, ownerBoundary, regionId]);
 
@@ -160,9 +165,10 @@ export function SendDialog({
         const spent = resumed.amounts.find((item) => item.direction === "spend");
         if (!spent) throw new TransferExecutionError("unavailable");
         const metadata = resumed.metadata;
-        setAssetId(availableAssets?.find((asset) => asset.id === spent.assetId || asset.symbol === spent.symbol)?.id ?? null); setRequest(null);
+        setRequest(null);
         setCashout({
-          operation: "deposit", providerId: metadata.providerId, providerName: metadata.providerName, assetId: spent.assetId, amountBaseUnits: spent.amountBaseUnits,
+          operation: "deposit", providerId: metadata.providerId, providerName: metadata.providerName, assetId: spent.assetId,
+          symbol: spent.symbol, decimals: spent.decimals, amountBaseUnits: spent.amountBaseUnits,
           platform: metadata.platform, platformLabel: metadata.platformLabel, currency: metadata.currency,
           payoutHandle: metadata.canonicalHandle, canonicalHandle: metadata.canonicalHandle,
           approximateFiatAmount: metadata.approximateFiatAmount, etaSeconds: metadata.etaSeconds ?? null,
@@ -171,9 +177,10 @@ export function SendDialog({
         const received = resumed.amounts.find((item) => item.direction === "receive");
         if (!received) throw new TransferExecutionError("unavailable");
         const metadata = resumed.metadata;
-        setAssetId(availableAssets?.find((asset) => asset.id === received.assetId || asset.symbol === received.symbol)?.id ?? null); setRequest(null);
+        setRequest(null);
         setCashout({
-          operation: "withdraw", providerId: metadata.providerId, providerName: metadata.providerName, assetId: received.assetId, amountBaseUnits: received.amountBaseUnits,
+          operation: "withdraw", providerId: metadata.providerId, providerName: metadata.providerName, assetId: received.assetId,
+          symbol: received.symbol, decimals: received.decimals, amountBaseUnits: received.amountBaseUnits,
           platform: metadata.platform, platformLabel: metadata.platformLabel, currency: metadata.currency,
           payoutHandle: "", canonicalHandle: null, approximateFiatAmount: "0", etaSeconds: null, depositId: metadata.depositId,
         });
@@ -195,12 +202,25 @@ export function SendDialog({
   function back() {
     setError(null);
     if (step === "destination") setStep("amount");
-    else if (step === "address" || step === "payout") setStep("destination");
+    else if (step === "payout") setStep("destination");
     else if (step === "handle") setStep("payout");
     else if (step === "handle-confirm") setStep("handle");
     else if (step === "confirm" || step === "error") {
       setAction(null);
-      setStep(cashout?.operation === "withdraw" ? "destination" : cashout ? "handle-confirm" : "address");
+      setStep(cashout?.operation === "withdraw" ? "destination" : cashout ? "handle-confirm" : "destination");
+    }
+  }
+
+  async function recoverCashouts() {
+    if (!fetchAccountResource) return;
+    setOrdersLoaded(false);
+    try {
+      const value = await fetchAccountResource(`/api/funding/offramp/orders?region=${encodeURIComponent(regionId)}&inFlight=1&recover=1`);
+      setActiveOrders(readCashoutOrders(value));
+    } catch {
+      setActiveOrders([]);
+    } finally {
+      setOrdersLoaded(true);
     }
   }
 
@@ -212,7 +232,7 @@ export function SendDialog({
       const prepared = await prepareMoneyAction("send", next);
       setAction(prepared); onReview?.(prepared.id); setStep("confirm");
     } catch {
-      setError("Enter a valid Base address and positive amount, then try again."); setStep("address");
+      setError("Enter a valid Base address and positive amount, then try again."); setStep("destination");
     }
   }
 
@@ -228,9 +248,12 @@ export function SendDialog({
       });
       if (prepared.kind !== "cash-out" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "deposit") throw new Error("invalid");
       const metadata = prepared.metadata;
+      const spent = prepared.amounts.find((item) => item.direction === "spend");
+      if (!spent) throw new Error("invalid");
       setCashout({
-        operation: "deposit", providerId: selectedOfframp.providerId, providerName: selectedOfframp.displayName, assetId: selectedOfframp.assetId,
-        amountBaseUnits, platform: selectedPlatform.platform, platformLabel: selectedPlatform.label, currency: selectedOfframp.currency,
+        operation: "deposit", providerId: selectedOfframp.providerId, providerName: selectedOfframp.displayName, assetId: spent.assetId,
+        symbol: spent.symbol, decimals: spent.decimals, amountBaseUnits: spent.amountBaseUnits,
+        platform: selectedPlatform.platform, platformLabel: selectedPlatform.label, currency: selectedOfframp.currency,
         payoutHandle, canonicalHandle: metadata.canonicalHandle, approximateFiatAmount: metadata.approximateFiatAmount, etaSeconds: metadata.etaSeconds ?? null,
       });
       setRequest(null); setAction(prepared); onReview?.(prepared.id); setStep("confirm");
@@ -245,9 +268,12 @@ export function SendDialog({
       setStep("pending"); setError(null);
       const prepared = await prepareMoneyAction("cash-out-withdraw", { providerId: order.providerId, region: regionId, depositId: order.depositId });
       if (prepared.kind !== "cash-out-withdraw" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "withdraw") throw new Error("invalid");
+      const received = prepared.amounts.find((item) => item.direction === "receive");
+      if (!received) throw new Error("invalid");
       setCashout({
-        operation: "withdraw", providerId: order.providerId, providerName: order.providerName, assetId: order.assetId,
-        amountBaseUnits: order.remainingAmountAtomic, platform: order.platform, platformLabel: order.platformLabel,
+        operation: "withdraw", providerId: order.providerId, providerName: order.providerName, assetId: received.assetId,
+        symbol: received.symbol, decimals: received.decimals, amountBaseUnits: received.amountBaseUnits,
+        platform: order.platform, platformLabel: order.platformLabel,
         currency: order.currency, payoutHandle: order.canonicalHandle ?? "", canonicalHandle: order.canonicalHandle,
         approximateFiatAmount: "0", etaSeconds: null, depositId: order.depositId,
       });
@@ -284,7 +310,7 @@ export function SendDialog({
   }
 
   const confirmAmount = request ? formatSendConfirmAmount(request.amountBaseUnits, request.assetId)
-    : cashout && selectedAsset ? `${atomicToDecimal(cashout.amountBaseUnits, selectedAsset.decimals)} ${selectedAsset.symbol}` : "";
+    : cashout ? `${atomicToDecimal(cashout.amountBaseUnits, cashout.decimals)} ${cashout.symbol}` : "";
   const requestAsset = request ? getTransferAsset(request.assetId) : selectedAsset;
   const offrampName = cashout?.providerName ?? selectedOfframp?.displayName;
   const modalTitle = step === "confirm" || step === "pending" || step === "error" ? "Confirm" : cashout || ["payout", "handle", "handle-confirm"].includes(step) ? `Cash out${offrampName ? ` with ${offrampName}` : ""}` : "Send";
@@ -295,16 +321,18 @@ export function SendDialog({
         {step === "amount" ? <>
           <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(selectedAvailability.balanceBaseUnits, selectedAvailability.decimals) : null} availableSuffix={selectedAvailability?.balanceAgeLabel} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetCurrency={selectedAsset?.cashCurrency} assetOptions={assetOptions} onAssetChange={(next) => { setAssetId(next); changeAmount("", "programmatic"); }} chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
           {selectedAsset ? <MoneyNumpad value={amount} maxDecimals={selectedAsset.decimals} onChange={changeAmount} /> : <StatusMessage>No catalog balance is available to send.</StatusMessage>}
+          {visibleActiveOrders.length > 0 ? <div className="grid gap-1">{visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}</div> : null}
+          {!selectedAsset && ordersLoaded && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
         </> : null}
-        {step === "destination" ? <div className="grid gap-2">
-          {visibleActiveOrders.map((order) => <div className="grid gap-2" key={order.depositId}>
-            <StatusMessage>{order.providerName}: {order.state}.</StatusMessage>
-            {order.nextActions.includes("withdraw") ? <Button variant="outline" onClick={() => void prepareWithdraw(order)}>Withdraw USDC</Button> : null}
-          </div>)}
-          <Button variant="outline" onClick={() => setStep("address")}>Base address</Button>
-          {eligibleOfframps.length > 0 && visibleActiveOrders.length === 0 ? <Button variant="outline" onClick={() => { setSelectedOfframp(eligibleOfframps[0]!); setStep("payout"); }}>Cash out with {eligibleOfframps[0]!.displayName}</Button> : null}
+        {step === "destination" ? <div className="grid gap-4">
+          <AddressField id="send-recipient" label="To" value={recipient} onChange={setRecipient} />
+          <FieldSeparator>Or</FieldSeparator>
+          <div className="grid gap-1">
+            {visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}
+            {eligibleOfframps.length > 0 ? <CashoutItem binding={eligibleOfframps[0]!} onSelect={() => { setSelectedOfframp(eligibleOfframps[0]!); setStep("payout"); }} /> : null}
+            {ordersLoaded && offramps.length === 0 && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
+          </div>
         </div> : null}
-        {step === "address" ? <AddressField id="send-recipient" label="To" value={recipient} onChange={setRecipient} /> : null}
         {step === "payout" && selectedOfframp ? <div className="grid gap-2">
           {selectedOfframp.paymentMethods.map((method) => <Button key={method.id} variant="outline" onClick={() => { setSelectedPlatform(method); setStep("handle"); }}>{method.label}</Button>)}
         </div> : null}
@@ -317,8 +345,8 @@ export function SendDialog({
           <Label htmlFor="peer-payout-confirmation">Re-enter handle</Label>
           <Input id="peer-payout-confirmation" value={handleConfirmation} onInput={(event) => setHandleConfirmation(event.currentTarget.value)} />
         </div> : null}
-        {(request || cashout) && requestAsset && (step === "confirm" || step === "pending" || step === "error") ? <>
-          <MoneyConfirmSummary amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset.symbol}`} rows={cashout ? [
+        {(request || cashout) && (!request || requestAsset) && (step === "confirm" || step === "pending" || step === "error") ? <>
+          <MoneyConfirmSummary amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [
             { label: "Provider", value: cashout.providerName },
             { label: "Payout app", value: cashout.platformLabel },
             ...(cashout.canonicalHandle ? [{ label: "Payout handle", value: cashout.canonicalHandle }] : []),
@@ -329,7 +357,7 @@ export function SendDialog({
             { label: "Network", value: "Base" },
           ] : [
             { label: "To", value: <CopyableValue value={request!.recipient} presentation="full" valueKind="address" className="sm:justify-end" />, fullValue: true },
-            { label: "Asset", value: requestAsset.symbol }, { label: "Network", value: "Base" },
+            { label: "Asset", value: requestAsset?.symbol ?? "" }, { label: "Network", value: "Base" },
           ]} />
           {cashout ? <StatusMessage>The fiat amount and delivery time are approximate, not guaranteed.</StatusMessage> : null}
           {step === "pending" ? <StatusMessage><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Waiting for your wallet…</span></StatusMessage> : null}
@@ -337,13 +365,65 @@ export function SendDialog({
         {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
       </MoneyModalBody>
       {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!selectedAsset || !isPositiveDecimalAmount(amount)} onPrimary={() => { setError(null); setStep("destination"); }} /> : null}
-      {step === "address" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!isTransferRecipient(recipient)} onPrimary={() => void prepareSend()} /> : null}
+      {step === "destination" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!isTransferRecipient(recipient)} onPrimary={() => void prepareSend()} /> : null}
       {step === "handle" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!payoutHandle.trim()} onPrimary={() => { const normalized = canonicalizeCashPayee(selectedPlatform?.platform ?? "", payoutHandle); setCanonicalHandle(normalized); setHandleConfirmation(""); setStep("handle-confirm"); }} /> : null}
       {step === "handle-confirm" ? <MoneyModalFooter primaryLabel="Review" primaryDisabled={!canonicalHandle || handleConfirmation !== canonicalHandle} onPrimary={() => void prepareCashout()} /> : null}
       {step === "confirm" ? <MoneyModalFooter primaryLabel={cashout ? <>{cashout.operation === "withdraw" ? "Withdraw" : "Cash out"} <MoneyTicker value={confirmAmount} /></> : <>Send <MoneyTicker value={confirmAmount} /></>} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}
       {step === "error" ? <MoneyModalFooter primaryLabel="Try again" onPrimary={() => { setError(null); setStep("confirm"); }} secondaryLabel="Back" onSecondary={back} /> : null}
     </MoneyModal>
   );
+}
+
+function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; onSelect: () => void }) {
+  return <Item
+    render={<Button variant="ghost" aria-label={`Cash out with ${binding.displayName}`} />}
+    className="flex-nowrap items-center text-left"
+    onClick={onSelect}
+  >
+    <ItemMedia><PaymentMethodMarks methods={binding.paymentMethods} /></ItemMedia>
+    <ItemContent className="min-w-0">
+      <ItemTitle>{`Cash out with ${binding.displayName}`}</ItemTitle>
+      <ItemDescription lines={1}>Receive money in a payment app</ItemDescription>
+    </ItemContent>
+    <ItemActions aria-hidden="true"><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>
+  </Item>;
+}
+
+function RecoveryItem({ order, onWithdraw }: { order: CashoutOrderSummary; onWithdraw: () => void }) {
+  const amount = `${atomicToDecimal(order.remainingAmountAtomic, order.assetDecimals)} ${order.assetSymbol}`;
+  return <Item
+    render={<Button variant="ghost" aria-label={`Withdraw ${amount}`} />}
+    className="flex-nowrap items-center text-left"
+    onClick={onWithdraw}
+  >
+    <ItemContent className="min-w-0">
+      <ItemTitle>{`Withdraw ${amount}`}</ItemTitle>
+      <ItemDescription lines={1}>{`${order.providerName} cash-out · ${order.state}`}</ItemDescription>
+    </ItemContent>
+    <ItemActions aria-hidden="true"><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>
+  </Item>;
+}
+
+function PaymentMethodMarks({ methods }: { methods: FundingOfframpBinding["paymentMethods"] }) {
+  const visible = methods.slice(0, 4);
+  const labels = methods.map((method) => method.label).join(", ");
+  return <span className="flex -space-x-2" role="img" aria-label={`Available payout apps: ${labels}`}>
+    {visible.map((method) => {
+      const mark = payoutMark(method.platform, method.label);
+      return <span key={method.id} className={`relative flex size-7 items-center justify-center rounded-full border-2 border-background text-xs font-bold ${mark.className}`} aria-hidden="true">{mark.text}</span>;
+    })}
+    {methods.length > visible.length ? <span className="relative flex size-7 items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium text-muted-foreground" aria-hidden="true">+{methods.length - visible.length}</span> : null}
+  </span>;
+}
+
+function payoutMark(platform: string, label: string): { text: string; className: string } {
+  switch (platform.toLowerCase()) {
+    case "cashapp": return { text: "$", className: "bg-[#00d64f] text-black" };
+    case "zelle": return { text: "Z", className: "bg-[#6d1ed4] text-white" };
+    case "monzo": return { text: "M", className: "bg-[#14233c] text-white" };
+    case "revolut": return { text: "R", className: "bg-black text-white" };
+    default: return { text: label.trim().charAt(0).toUpperCase() || "?", className: "bg-muted text-foreground" };
+  }
 }
 
 function formatEta(seconds: number): string {

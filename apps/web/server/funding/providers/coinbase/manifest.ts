@@ -14,6 +14,7 @@ export const coinbaseManifest = {
   displayName: "Coinbase",
   docsUrl: "https://docs.cdp.coinbase.com/onramp/additional-resources/faq",
   onramp: {
+    modeEnv: "COINBASE_ONRAMP_MODE",
     apiOrigins: [COINBASE_ONRAMP_API_ORIGIN],
     redirectOrigins: [COINBASE_ONRAMP_REDIRECT_ORIGIN],
     sandbox: true,

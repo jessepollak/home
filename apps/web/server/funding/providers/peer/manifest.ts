@@ -31,6 +31,7 @@ export const peerManifest = {
   displayName: "Peer",
   docsUrl: "https://github.com/zkp2p/peer-cash",
   offramp: {
+    modeEnv: "PEER_OFFRAMP_MODE",
     production: {
       apiOrigins: [PEER_CURATOR_PRODUCTION_ORIGIN, PEER_INDEXER_ORIGIN],
       contracts: PEER_PRODUCTION_CONTRACTS,

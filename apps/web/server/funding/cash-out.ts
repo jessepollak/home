@@ -6,10 +6,11 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { BASE_USDC } from "@/shared/assets/base";
 import type { FiatCurrencyCode } from "@/config/regions";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
+import type { FundingProviderManifest } from "@/shared/funding/provider-contract";
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
 import { getActionsStore, type ActionRow, type ActionsStore } from "@/server/actions/store";
 import { moneyActionOwner } from "@/server/money-actions/session";
-import { createProviderContext, environmentAvailable } from "@/server/funding/core/provider-context";
+import { createProviderContext, environmentAvailable, resolveFundingMode, type FundingMode } from "@/server/funding/core/provider-context";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
 import { fundingProviders, getFundingProvider } from "@/server/funding/providers";
 import { assertPeerDepositCall } from "@/server/funding/providers/peer/offramp";
@@ -79,8 +80,8 @@ export async function prepareCashoutAction(
   );
   const direction = binding?.directions.offramp;
   const env = dependencies.env ?? process.env;
-  const sandbox = env.FUNDING_SANDBOX === "1";
   if (!provider?.offramp || !binding || !direction || !environmentAvailable(direction.env, env)) unavailable();
+  const sandbox = resolveFundingMode(provider.manifest, "offramp", env) === "sandbox";
   const canonicalHandle = canonicalizeCashPayee(input.platform, input.payoutHandle);
   if (!canonicalHandle || input.canonicalHandleConfirmation !== canonicalHandle) {
     throw new CashoutPreparationError("identity-mismatch", "Confirm the canonical payout handle exactly as shown.");
@@ -187,10 +188,12 @@ export async function prepareCashoutWithdrawAction(
   );
   const method = binding?.directions.offramp?.paymentMethods[0];
   const env = dependencies.env ?? process.env;
-  const sandbox = env.FUNDING_SANDBOX === "1";
   // Recovery stays available after discovery/preparation is disabled so owners
   // can withdraw USDC already held by the pinned escrow.
   if (!provider?.offramp || !binding || !method) unavailable();
+  const currentMode = resolveFundingMode(provider.manifest, "offramp", env);
+  const mode = modeForDeposit(provider.manifest, input.depositId) ?? currentMode;
+  const sandbox = mode === "sandbox";
   const recoveryEnv = {
     ...env,
     ...Object.fromEntries(binding.directions.offramp!.env.filter((name) => name.endsWith("_ENABLED")).map((name) => [name, "1"])),
@@ -221,40 +224,48 @@ export async function prepareCashoutWithdrawAction(
 
 export async function listCashoutOrders(
   session: VerifiedAccountSession,
-  input: { providerId?: string; region: string; inFlight?: boolean },
+  input: { providerId?: string; region: string; inFlight?: boolean; recover?: boolean },
   env: Readonly<Record<string, string | undefined>> = process.env,
+  dependencies: { store?: Pick<ActionsStore, "hasCashoutHistory" | "cashoutRecoveryModes"> } = {},
 ) {
-  if (!session.smartAccount) unavailable();
+  const actionOwner = moneyActionOwner(session);
+  if (!session.smartAccount || !actionOwner) unavailable();
   const owner = session.smartAccount.address;
-  const sandbox = env.FUNDING_SANDBOX === "1";
+  const store = dependencies.store ?? getActionsStore();
+  const hasHistory = await store.hasCashoutHistory(actionOwner);
+  const historicalModes = hasHistory ? await store.cashoutRecoveryModes(actionOwner) : [];
   const candidates = fundingProviders.flatMap((provider) => {
     if (input.providerId && provider.manifest.id !== input.providerId) return [];
     const offramp = provider.offramp;
     if (!offramp) return [];
+    const currentMode = resolveFundingMode(provider.manifest, "offramp", env);
     return provider.manifest.bindings.flatMap((binding) => {
       const direction = binding.directions.offramp;
       const method = direction?.paymentMethods[0];
       if (binding.region !== input.region || !direction || !method) return [];
       const requiredCredentials = direction.env.filter((name) => !name.endsWith("_ENABLED"));
       if (!environmentAvailable(requiredCredentials, env)) return [];
-      return [{ provider, offramp, binding, direction, method }];
+      const enabled = environmentAvailable(direction.env, env);
+      if (!enabled && !hasHistory && !input.recover) return [];
+      const modes = supportedRecoveryModes(provider.manifest, [currentMode, ...historicalModes]);
+      return modes.map((mode) => ({ provider, offramp, binding, direction, method, mode }));
     });
   });
-  if (input.providerId && candidates.length === 0) unavailable();
+  if (input.providerId && candidates.length === 0 && (hasHistory || input.recover)) unavailable();
   const recoveryEnv = {
     ...env,
     ...Object.fromEntries(candidates.flatMap(({ direction }) =>
       direction.env.filter((name) => name.endsWith("_ENABLED")).map((name) => [name, "1"]),
     )),
   };
-  const results = await Promise.all(candidates.map(async ({ provider, offramp, binding, method }) => {
+  const results = await Promise.all(candidates.map(async ({ provider, offramp, binding, method, mode }) => {
     const ctx = createProviderContext({
       manifest: provider.manifest,
       region: binding.region,
       direction: "offramp",
       paymentMethodId: method.id,
       env: recoveryEnv,
-      sandbox,
+      sandbox: mode === "sandbox",
     });
     const orders = await offramp.listOrders({ owner, inFlight: input.inFlight }, ctx);
     return orders.map((order) => ({
@@ -274,7 +285,25 @@ export async function listCashoutOrders(
       nextActions: order.nextActions,
     }));
   }));
-  return results.flat();
+  return [...new Map(results.flat().map((order) => [`${order.providerId}:${order.depositId}`, order])).values()];
+}
+
+function supportedRecoveryModes(
+  manifest: FundingProviderManifest,
+  modes: ReadonlyArray<FundingMode>,
+): FundingMode[] {
+  return [...new Set(modes)].filter((mode) => mode === "production" || Boolean(manifest.offramp?.sandbox));
+}
+
+function modeForDeposit(
+  manifest: FundingProviderManifest,
+  depositId: string,
+): FundingMode | null {
+  const escrow = depositId.split("_")[0]?.toLowerCase();
+  if (!escrow) return null;
+  if (manifest.offramp?.sandbox?.contracts.escrow.toLowerCase() === escrow) return "sandbox";
+  if (manifest.offramp?.production.contracts.escrow.toLowerCase() === escrow) return "production";
+  return null;
 }
 
 export function hasRecentHashlessCashout(rows: readonly ActionRow[], now: Date): boolean {
