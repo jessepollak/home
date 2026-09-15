@@ -506,6 +506,75 @@ describe("balances pricing", () => {
     expect(writes).toHaveLength(1);
   });
 
+  test("retries an identical observation after transient persistence failure", async () => {
+    let currentTime = new Date("2026-09-13T12:00:00.000Z");
+    const memory = new MemoryPriceObservationStore();
+    let writes = 0;
+    const priceStore: PriceObservationStore = {
+      getMany: (keys) => memory.getMany(keys),
+      getAttempts: (keys) => memory.getAttempts(keys),
+      putAttempts: (attempts) => memory.putAttempts(attempts),
+      putMany: async (observations) => {
+        writes += 1;
+        if (writes === 1) throw new Error("transient write failure");
+        await memory.putMany(observations);
+      },
+    };
+    const price = createBalancesPricer({
+      priceStore,
+      now: () => currentTime,
+      readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "fresh")),
+    });
+
+    await price({ ...read, holdings: [usdc] }, "US");
+    currentTime = new Date("2026-09-13T12:01:01.000Z");
+    const retried = await price({ ...read, holdings: [usdc] }, "US");
+
+    expect(writes).toBe(2);
+    expect(await memory.getMany([usdc.key])).toHaveLength(1);
+    expect(retried.holdings[0]?.value.status).toBe("priced");
+  });
+
+  test("keeps concurrent bootstrap FX available when its storage write is deduplicated", async () => {
+    const memory = new MemoryPriceObservationStore();
+    const readsReady = deferred<void>();
+    let reads = 0;
+    const emptyConcurrentReads = async () => {
+      reads += 1;
+      if (reads === 4) readsReady.resolve();
+      await readsReady.promise;
+      return [];
+    };
+    const store: PriceObservationStore = {
+      getMany: emptyConcurrentReads,
+      getAttempts: emptyConcurrentReads,
+      putMany: (observations) => memory.putMany(observations),
+      putAttempts: (attempts) => memory.putAttempts(attempts),
+    };
+    const fxReads = [deferred<ReturnType<typeof rates>>(), deferred<ReturnType<typeof rates>>()];
+    let fxIndex = 0;
+    const price = createBalancesPricer({
+      priceStore: store,
+      now: () => new Date("2026-09-13T12:00:00.000Z"),
+      readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "fresh")),
+      readExchangeRates: () => fxReads[fxIndex++]!.promise,
+    });
+
+    const first = price({ ...read, holdings: [usdc] }, "DE");
+    await Promise.resolve();
+    const second = price({ ...read, holdings: [usdc] }, "DE");
+    await Promise.resolve();
+    fxReads[0]!.resolve(rates());
+    await first;
+    fxReads[1]!.resolve(rates());
+    const secondResult = await second;
+
+    expect(secondResult.holdings[0]?.value).toMatchObject({
+      status: "priced",
+      currency: "EUR",
+    });
+  });
+
   test("falls back to a stored quote when a Codex batch fails", async () => {
     const store = new MemoryPriceObservationStore();
     await store.putMany([{

@@ -180,22 +180,26 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
       observations.push(...mapped.observations);
       attempts.push(...mapped.attempts);
     }
-    const dedupedObservations = newestObservations(observations).filter((observation) =>
-      Date.parse(observation.fetchedAt) > (lastWrittenFetchedAt.get(observation.assetKey) ?? Number.NEGATIVE_INFINITY));
+    const currentObservations = newestObservations(observations);
+    const observationsToWrite = currentObservations.filter((observation) =>
+      Date.parse(observation.fetchedAt) >
+        (lastWrittenFetchedAt.get(observation.assetKey) ?? Number.NEGATIVE_INFINITY));
     const storeStarted = nowMs();
-    await Promise.all([
-      dedupedObservations.length > 0
-        ? priceStore.putMany(dedupedObservations).catch(() => undefined)
-        : Promise.resolve(undefined),
+    const [observationsWritten] = await Promise.all([
+      observationsToWrite.length > 0
+        ? priceStore.putMany(observationsToWrite).then(() => true, () => false)
+        : Promise.resolve(false),
       attempts.length > 0
         ? priceStore.putAttempts?.(attempts).catch(() => undefined) ?? Promise.resolve(undefined)
         : Promise.resolve(undefined),
     ]);
     durations.store += Math.max(0, nowMs() - storeStarted);
-    for (const observation of dedupedObservations) {
-      lastWrittenFetchedAt.set(observation.assetKey, Date.parse(observation.fetchedAt));
+    if (observationsWritten) {
+      for (const observation of observationsToWrite) {
+        lastWrittenFetchedAt.set(observation.assetKey, Date.parse(observation.fetchedAt));
+      }
     }
-    return { observations: dedupedObservations, attempts, quotes: providerQuotes };
+    return { observations: currentObservations, attempts, quotes: providerQuotes };
   }
 }
 
