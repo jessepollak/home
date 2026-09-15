@@ -5,6 +5,7 @@ import {
   createBaseErc20TransferHistory,
   decodeTransferCursor,
   encodeTransferCursor,
+  MAX_ASSETS_PER_QUERY,
 } from "./base-erc20-transfers";
 import { ChainDataError } from "./errors";
 import type { BaseErc20Asset, CdpSqlTransport } from "./types";
@@ -154,7 +155,7 @@ describe("Base ERC20 transfer query", () => {
     ).toThrow("cache age");
   });
 
-  test("Home all-contract activity stays CoinbaSeQL-safe and returns an empty page", async () => {
+  test("Home activity requests every configured contract inside the per-query guard", async () => {
     const productionAssets = activityAssets.map((asset) => ({
       id: asset.id,
       chainId: 8453 as const,
@@ -163,18 +164,25 @@ describe("Base ERC20 transfer query", () => {
     const from = "2026-08-07T12:00:00.000Z";
     const request = {
       verifiedWalletAddress: WALLET,
-      assetIds: [],
-      includeUnknownAssets: true,
+      assetIds: activityAssets.map((asset) => asset.id),
       from,
       to: "2026-09-07T12:00:00.000Z",
       limit: 25,
     } as const;
-    const { sql } = buildBaseErc20TransferQuery(request, productionAssets, NOW);
 
-    expect(productionAssets.length).toBeGreaterThan(20);
-    expect(sql.length).toBeLessThanOrEqual(10_000);
-    expect(sql).not.toContain("address IN (");
+    // The configured registry must stay inside the finite per-query guard so
+    // production SQL remains address-bounded and CoinbaSeQL-safe (#509).
+    expect(productionAssets.length).toBeGreaterThan(0);
+    expect(productionAssets.length).toBeLessThanOrEqual(MAX_ASSETS_PER_QUERY);
+    expect("includeUnknownAssets" in request).toBe(false);
+
+    const { sql } = buildBaseErc20TransferQuery(request, productionAssets, NOW);
+    expect(sql).toContain("address IN (");
+    for (const asset of productionAssets) {
+      expect(sql).toContain(`'${asset.address.toLowerCase()}'`);
+    }
     expect(sql).not.toContain("lower(toString(address))");
+    expect(sql.length).toBeLessThanOrEqual(10_000);
     expect(sql).toContain("sum(toInt8(action)) AS net_action");
     expect(sql).toContain("WHERE net_action > 0");
     expect(sql).not.toMatch(/\bHAVING\b/);
@@ -189,6 +197,22 @@ describe("Base ERC20 transfer query", () => {
     const page = await history.listTransfers(request);
     expect(page.transfers).toEqual([]);
     expect(page.nextCursor).toBeNull();
+  });
+
+  test("rejects asset sets beyond MAX_ASSETS_PER_QUERY", () => {
+    const many = Array.from({ length: MAX_ASSETS_PER_QUERY + 1 }, (_, index) => ({
+      id: `synthetic-${index}`,
+      chainId: 8453 as const,
+      address: `0x${String(index + 1).padStart(40, "0")}` as const,
+    }));
+
+    expect(() =>
+      buildBaseErc20TransferQuery(
+        input({ assetIds: many.map((asset) => asset.id) }),
+        many,
+        NOW,
+      ),
+    ).toThrow(`${MAX_ASSETS_PER_QUERY} allowlisted assets`);
   });
 });
 

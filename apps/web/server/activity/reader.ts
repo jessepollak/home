@@ -26,7 +26,6 @@ import {
 type TransferLister = (input: {
   verifiedWalletAddress: string;
   assetIds: readonly string[];
-  includeUnknownAssets?: boolean;
   from: string;
   to: string;
   limit: number;
@@ -55,8 +54,10 @@ export function createActivityReader(
     const from = new Date(to.getTime() - windowMs).toISOString();
     const page = await listTransfers({
       verifiedWalletAddress: account.address,
-      assetIds: [],
-      includeUnknownAssets: true,
+      // Request exactly the configured activity contracts so the generated
+      // SQL stays address-bounded; the 31-day all-contract query was rejected
+      // by CoinbaSeQL's memory limit (#509).
+      assetIds: activityAssets.map((asset) => asset.id),
       from,
       to: request.to,
       limit: ACTIVITY_PAGE_SIZE,

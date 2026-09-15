@@ -54,7 +54,7 @@ function transferPage(
 }
 
 describe("recent activity reader", () => {
-  test("requests one stable bounded page for the reviewed asset contracts", async () => {
+  test("requests one stable bounded page for every configured activity contract", async () => {
     let received: Parameters<Parameters<typeof createActivityReader>[0]>[0] | undefined;
     const signal = new AbortController().signal;
     const result: BaseErc20TransferPage = {
@@ -82,8 +82,7 @@ describe("recent activity reader", () => {
 
     expect(received).toEqual({
       verifiedWalletAddress: WALLET,
-      assetIds: [],
-      includeUnknownAssets: true,
+      assetIds: activityAssets.map((asset) => asset.id),
       from: "2026-08-07T12:00:00.000Z",
       to: TO,
       limit: 25,
@@ -92,6 +91,8 @@ describe("recent activity reader", () => {
       staleAfterMs: 60_000,
       signal,
     });
+    // Production never opts into unbounded all-contract scanning (#509).
+    expect(Object.hasOwn(received ?? {}, "includeUnknownAssets")).toBe(false);
     expect(page.window).toEqual({
       from: "2026-08-07T12:00:00.000Z",
       to: TO,

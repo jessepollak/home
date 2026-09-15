@@ -10,7 +10,7 @@ Home uses CDP SQL only as a read-only indexed history source. It is **not** a sp
 `apps/web/server/chain-data` provides:
 
 - A fixed Base mainnet ERC-20 `Transfer(address,address,uint256)` history template over `base.events`.
-- Runtime validation for a session-verified wallet address, optional operator-supplied asset allowlists, all-contract wallet scope, a maximum 31-day time window, page sizes of 1–200, and cache ages of 500–900,000 ms. Activity uses all-contract mode with `includeUnknownAssets: true` and no static asset IDs.
+- Runtime validation for a session-verified wallet address, asset allowlists bounded at 50 contracts per query, an adapter-level all-contract wallet scope reserved for #511, a maximum 31-day time window, page sizes of 1–200, and cache ages of 500–900,000 ms. Production Activity requests every configured activity contract by ID, so the generated SQL is bounded by the contract `address IN (...)` predicate; arbitrary unknown-contract discovery is deferred to #511.
 - Deterministic descending keyset pagination by block number, transaction hash, log index, and CDP log ID.
 - Re-org-aware event selection using `sum(toInt8(action)) AS net_action` in the grouped subquery and `WHERE net_action > 0` outside it. CoinbaSeQL's published `selectStatement` has no `HAVING`. The adapter does not filter naively to added rows.
 - Numeric ordering and cursor comparisons use distinct internal aliases before block numbers and log indexes are cast to lossless public strings. Runtime parsing rejects numeric block/index values. Numeric token amounts are rejected in allowlist mode and omitted as unclassified in all-contract mode, so already-rounded JavaScript numbers are never accepted as base units.
@@ -23,7 +23,7 @@ The intended parent integration is:
 1. Validate the browser session on the server.
 2. Resolve the session's smart-account address from trusted provider data.
 3. Pass that address as `verifiedWalletAddress`; never accept an unverified browser wallet as authority.
-4. For Activity, request all wallet-scoped decoded transfers with `includeUnknownAssets: true` and `assetIds: []`. Resolve token metadata after the single SQL request by exact contract: Home's full Base registry first, then Codex, then a bounded fail-soft Base RPC multicall for unresolved contracts. Activity-specific enrichment caps Codex and Base RPC at 3 seconds each so the serial SQL-plus-enrichment path stays within the route's 30-second budget.
+4. For Activity, request exactly the configured activity contracts by ID in one bounded query; the generated SQL carries the contract `address IN (...)` predicate. Do not set `includeUnknownAssets` in production: the 31-day all-contract query was rejected for exceeding CoinbaSeQL's memory limit (#509), so arbitrary discovery is deferred to #511. Resolve token metadata after the single SQL request by exact contract: Home's full Base registry first, then Codex, then a bounded fail-soft Base RPC multicall for unresolved contracts. Activity-specific enrichment caps Codex and Base RPC at 3 seconds each so the serial SQL-plus-enrichment path stays within the route's 30-second budget.
 5. Return the normalized page to the authenticated caller with private/no-shared-cache response policy. Unknown metadata remains null; only an individual `decimals()` revert positively classifies an unresolved contract as NFT-like and allows its rows to be omitted.
 
 The chain-data adapter itself remains read-only and does not own authentication, database state, balance reads, or mutations; the private Activity route composes it with session authorization and token metadata resolution.
@@ -70,7 +70,7 @@ The template uses the currently documented `base.events` columns: `log_id`, bloc
 
 The live basic-table response reported `action` as a string field, but its actual value was intentionally not inspected or retained. The transfer template currently uses `sum(toInt8(action))`; whether live values are numeric strings compatible with that expression is unresolved. Do not silently change this to an `added`-only filter: the operator must inspect only the minimum action value/type needed to validate CDP's documented net-action semantics.
 
-The query covers decoded ERC-20 transfer events only. It relies on the provider's decoded `from`, `to`, and `value` parameter names. Non-standard ERC-20 events that use names such as WETH-style `src`, `dst`, and `wad` may therefore be omitted until provider decoding behavior for those contracts is verified. No live probe for those non-standard parameter names was run as part of the all-contract Activity change.
+The query covers decoded ERC-20 transfer events only. It relies on the provider's decoded `from`, `to`, and `value` parameter names. Non-standard ERC-20 events that use names such as WETH-style `src`, `dst`, and `wad` may therefore be omitted until provider decoding behavior for those contracts is verified. No live probe for those non-standard parameter names has been run.
 
 It does not cover:
 

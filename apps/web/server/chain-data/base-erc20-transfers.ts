@@ -21,7 +21,14 @@ const HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const DECIMAL_INTEGER_PATTERN = /^(0|[1-9][0-9]*)$/;
 const MAX_PAGE_SIZE = 200;
 const DEFAULT_PAGE_SIZE = 50;
-const MAX_ASSETS_PER_QUERY = 20;
+// CoinbaSeQL memory scales with the scanned contract set: the 31-day
+// all-contract activity query was rejected after exceeding the provider's
+// memory limit, while one address-bounded query over all 23 configured
+// activity contracts succeeded live (#509). Production requests every
+// configured contract, so this bound keeps that finite `address IN (...)`
+// clause with headroom; arbitrary unknown-contract discovery stays deferred
+// to #511.
+export const MAX_ASSETS_PER_QUERY = 50;
 const MAX_TIME_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_CACHE_AGE_MS = 15 * 60 * 1000;
 const DEFAULT_STALE_AFTER_MS = 60 * 1000;
