@@ -186,14 +186,17 @@ export function ownerRestoreCacheState(
 
 export function OwnerQueryPersistence({ ownerKey }: { ownerKey: string | null }) {
   const queryClient = useQueryClient(browserHomeQueryClient());
-  useState(() => {
-    const restored = Boolean(
-      ownerKey && typeof window !== "undefined" &&
-      restoreOwnerQueries(queryClient, window.localStorage, ownerKey),
-    );
+  // Restore runs in the first passive effect: the SSR/initial hydration render
+  // shows the loading shell, and the owner-scoped cache hydrates immediately
+  // after hydration — never during render, where mutating the query client
+  // could diverge from the server HTML (hydration mismatch).
+  useEffect(() => {
+    if (!ownerKey || typeof window === "undefined") return;
+    const restored = restoreOwnerQueries(queryClient, window.localStorage, ownerKey);
     recordHomeStartupCache(ownerRestoreCacheState(ownerKey, restored));
-    return ownerKey;
-  });
+  }, [ownerKey, queryClient]);
+  // Persistence subscribes in the following effect so hydration happens
+  // before the cache subscription starts writing.
   useEffect(() => {
     if (!ownerKey || typeof window === "undefined") return;
     const persister = createOwnerQueryPersister(window.localStorage, ownerKey);

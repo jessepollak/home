@@ -675,6 +675,9 @@ test("reload paints persisted balances before stale balances respond without shi
   await expect.poll(() => page.evaluate(() =>
     Object.keys(localStorage).find((key) => key.startsWith("home.query.v1:")) ?? null,
   )).not.toBeNull();
+  // Let the persister's trailing throttled writes flush before zeroing, so
+  // the staleness edit survives into the reload instead of being overwritten.
+  await page.waitForTimeout(600);
   const persistedFacts = await page.evaluate(() => {
     const key = Object.keys(localStorage).find((candidate) => candidate.startsWith("home.query.v1:"));
     if (!key) throw new Error("Persisted owner cache is missing");
@@ -691,7 +694,9 @@ test("reload paints persisted balances before stale balances respond without shi
       (query) => query.queryKey?.[1] === "balances",
     );
     for (const query of persisted.clientState?.queries ?? []) {
-      if (query.state) query.state.dataUpdatedAt = 0;
+      // Stale (older than the 15s staleTime) but still hydratable: a zeroed
+      // dataUpdatedAt would make hydrate skip the pending query entirely.
+      if (query.state) query.state.dataUpdatedAt = Date.now() - 60_000;
     }
     localStorage.setItem(key, JSON.stringify(persisted));
     return {
@@ -709,6 +714,7 @@ test("reload paints persisted balances before stale balances respond without shi
     "US",
   ]);
   expect(persistedFacts.hasCatalog).toBe(true);
+  const hydrationErrors = trackHydrationErrors(page);
 
   const delayedSessionRead = fixtures.delayNextSession();
   const delayedBalancesRead = fixtures.delayNextBalances();
@@ -731,17 +737,21 @@ test("reload paints persisted balances before stale balances respond without shi
   await expect.poll(() => page.evaluate(() =>
     performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
   ), { timeout: 15_000 }).toBeLessThan(Number.POSITIVE_INFINITY);
+
   const verifiedPaint = await page.evaluate(() =>
     performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
   );
   expect(provisionalPaint.balances).toBeLessThan(verifiedPaint);
-  await expect.poll(fixtures.balancesReads).toBeGreaterThanOrEqual(delayedBalancesRead);
+  await expect.poll(fixtures.balancesReads, { timeout: 15_000 }).toBeGreaterThanOrEqual(delayedBalancesRead);
   await expect(page.getByText("Recognized Coin", { exact: true }).first()).toBeVisible();
 
   fixtures.releaseBalances();
   await expect(page.locator('[data-shell-panel]:not([hidden]) [aria-label="Total balance"]')).not.toHaveAttribute("aria-busy", "true");
   const settledLayout = await visibleBalanceRowLayout(page);
   expect(settledLayout).toEqual(provisionalLayout);
+  // Zero hydration errors only once the delayed verification and balances
+  // settle: the restored cache paints after hydration, never during render.
+  expect(hydrationErrors).toEqual([]);
 });
 
 test("reload resumes an unconfirmed send review from its URL action", async ({ page }) => {
@@ -1312,9 +1322,10 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
 
 // --- #460 direct routes and Invest loading ---
 
-// Direct routes must hydrate cold: persisted owner queries paint balances on
-// the first client render while the server rendered the skeleton (the
-// pre-existing hidden HomePanel hero mismatch), so clear that cache first.
+// Direct routes must hydrate cold: the persisted owner cache restores in the
+// first passive effect — after hydration, never during render — so a warm
+// cache cannot diverge from the server's loading shell. Clearing it makes the
+// measured renders genuinely cold.
 function coldDirectLoad(page: Page, country: string) {
   return page.addInitScript((country) => {
     localStorage.setItem("home.country.v1", country);
@@ -1360,9 +1371,9 @@ test("every canonical L1 and representative L2 route SSRs and first-paints cold 
   await page.goto("/home?panel=balances&group=investments");
   await expect(page.locator('[aria-label="Total balance"]')).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toHaveCount(0);
-  // Every hydration error fails — the cleared owner cache makes the first
-  // render genuinely cold, so even the pre-existing hidden HomePanel hero
-  // mismatch (warm reloads on main) must not appear here.
+  // Every hydration error fails — SSR and the initial hydration render the
+  // loading shell and the owner cache restores after hydration, so the first
+  // render must never diverge from the server HTML.
   expect(hydrationErrors).toEqual([]);
 });
 
@@ -1440,7 +1451,9 @@ test("background revalidation of cached-ready balances keeps the cold group anch
       clientState?: { queries?: Array<{ state?: { dataUpdatedAt?: number } }> };
     };
     for (const query of persisted.clientState?.queries ?? []) {
-      if (query.state) query.state.dataUpdatedAt = 0;
+      // Stale so the reload revalidates, but hydratable so the cached rows
+      // paint first (a zeroed dataUpdatedAt makes hydrate skip the query).
+      if (query.state) query.state.dataUpdatedAt = Date.now() - 60_000;
     }
     localStorage.setItem(key, JSON.stringify(persisted));
   });
