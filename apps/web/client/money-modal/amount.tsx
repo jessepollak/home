@@ -213,6 +213,7 @@ export function MoneyAmountDisplay({
   assetId,
   assetLabel,
   assetCurrency,
+  assetMark,
   assetOptions,
   onAssetChange,
   assetLocked = false,
@@ -231,6 +232,7 @@ export function MoneyAmountDisplay({
   assetId?: string;
   assetLabel?: string;
   assetCurrency?: string | null;
+  assetMark?: AssetMarkPresentation;
   assetOptions?: ReadonlyArray<MoneyAssetOption>;
   onAssetChange?: (assetId: string) => void;
   assetLocked?: boolean;
@@ -266,6 +268,7 @@ export function MoneyAmountDisplay({
           assetId={assetId}
           assetLabel={assetLabel}
           assetCurrency={assetCurrency}
+          assetMark={assetMark}
           assetOptions={assetOptions}
           onAssetChange={onAssetChange}
           locked={assetLocked}
@@ -360,6 +363,7 @@ export function MoneyAssetPicker({
   assetId,
   assetLabel,
   assetCurrency,
+  assetMark,
   assetOptions,
   onAssetChange,
   locked = false,
@@ -367,6 +371,7 @@ export function MoneyAssetPicker({
   assetId?: string;
   assetLabel?: string;
   assetCurrency?: string | null;
+  assetMark?: AssetMarkPresentation;
   assetOptions?: ReadonlyArray<MoneyAssetOption>;
   onAssetChange?: (assetId: string) => void;
   locked?: boolean;
@@ -381,7 +386,13 @@ export function MoneyAssetPicker({
   if (!canPick) {
     return (
       <div className="flex h-9 items-center gap-2 rounded-md border bg-background px-2 text-sm font-medium" aria-label={assetLabel}>
-        <CurrencyMark currency={markCurrency} symbol={assetLabel} size="sm" />
+        <CurrencyMark
+          currency={assetMark?.currency ?? markCurrency}
+          symbol={assetMark?.symbol ?? assetLabel}
+          src={assetMark?.imageUrl}
+          pending={assetMark?.pending}
+          size="sm"
+        />
         <span>{assetLabel}</span>
       </div>
     );

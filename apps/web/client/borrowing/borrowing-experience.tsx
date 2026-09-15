@@ -2,6 +2,13 @@
 
 import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { Bitcoin, LoaderCircle } from "lucide-react";
+import { CurrencyMark } from "@/components/currency-mark";
+import {
+  presentPortfolioAssetMark,
+  type AssetMarkPresentation,
+  type AssetMarkResolution,
+} from "@/client/asset-mark/presentation";
+import { canonicalUsdcAsset } from "@/config/portfolio-assets";
 import { useAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import {
@@ -36,6 +43,7 @@ import {
   BORROW_HEALTH_BUFFER_WAD,
   BORROW_HEALTH_FLOOR_WAD,
   getBorrowMarketRef,
+  type BorrowAssetRef,
   type BorrowMarketId,
 } from "@/shared/borrowing/config";
 import {
@@ -86,6 +94,7 @@ type BorrowExperienceProps = {
   selectedMarketId?: BorrowMarketId | null;
   onSelectMarket?: (marketId: BorrowMarketId | null) => void;
   regionId?: RegionId;
+  assetMarkResolution?: AssetMarkResolution;
 };
 
 type BorrowDialogState = {
@@ -107,10 +116,12 @@ export function AuthenticatedBorrowExperience({
   selectedMarketId = null,
   onSelectMarket,
   regionId = "GLOBAL",
+  assetMarkResolution,
 }: {
   selectedMarketId?: BorrowMarketId | null;
   onSelectMarket?: (marketId: BorrowMarketId | null) => void;
   regionId?: RegionId;
+  assetMarkResolution?: AssetMarkResolution;
 }) {
   const account = useAccountWallet();
   return (
@@ -122,6 +133,7 @@ export function AuthenticatedBorrowExperience({
       selectedMarketId={selectedMarketId}
       onSelectMarket={onSelectMarket}
       regionId={regionId}
+      assetMarkResolution={assetMarkResolution}
     />
   );
 }
@@ -194,6 +206,7 @@ function BorrowExperienceInner({
   selectedMarketId = null,
   onSelectMarket,
   regionId = "GLOBAL",
+  assetMarkResolution,
 }: BorrowExperienceProps) {
   const overview = useBorrowOverview(session, fetchAccountResource);
   const configuredSelection = selectedMarketId && getBorrowMarketRef(selectedMarketId) ? selectedMarketId : null;
@@ -209,6 +222,7 @@ function BorrowExperienceInner({
         marketId={configuredSelection}
         onClose={() => onSelectMarket?.(null)}
         regionId={regionId}
+        assetMarkResolution={assetMarkResolution}
       />
     );
   }
@@ -256,6 +270,7 @@ function BorrowExperienceInner({
                   prepareMoneyAction={prepareMoneyAction}
                   executeMoneyAction={executeMoneyAction}
                   regionId={regionId}
+                  assetMarkResolution={assetMarkResolution}
                 />
               ))}
           </div>
@@ -273,6 +288,7 @@ function BorrowDirectMarket({
   marketId,
   onClose,
   regionId,
+  assetMarkResolution,
 }: {
   session: VerifiedAccountSession | null;
   fetchAccountResource?: FetchAccountResource;
@@ -281,6 +297,7 @@ function BorrowDirectMarket({
   marketId: BorrowMarketId;
   onClose: () => void;
   regionId: RegionId;
+  assetMarkResolution?: AssetMarkResolution;
 }) {
   const detail = useBorrowDetail(session, marketId, fetchAccountResource, true);
   const snapshot = detail.data ?? null;
@@ -309,7 +326,7 @@ function BorrowDirectMarket({
         <Card className="overflow-hidden">
           <CardContent>
             <div className="space-y-4 sm:px-1">
-              <BorrowMarketHeading market={snapshot.market} />
+              <BorrowMarketHeading market={snapshot.market} assetMarkResolution={assetMarkResolution} />
               <p className="text-sm text-muted-foreground">
                 {BigInt(snapshot.wallet.collateralBalanceRaw) === BigInt(0) && !hasCollateral
                   ? "You need cbBTC in this wallet before you can borrow."
@@ -329,6 +346,7 @@ function BorrowDirectMarket({
           executeMoneyAction={executeMoneyAction}
           regionId={regionId}
           onClose={onClose}
+          assetMarkResolution={assetMarkResolution}
         />
       ) : null}
     </section>
@@ -343,6 +361,7 @@ function BorrowMarketCard({
   prepareMoneyAction,
   executeMoneyAction,
   regionId,
+  assetMarkResolution,
 }: {
   opportunity: BorrowOverviewOpportunity;
   position: BorrowOverviewPosition | null;
@@ -351,6 +370,7 @@ function BorrowMarketCard({
   prepareMoneyAction?: PrepareMoneyAction;
   executeMoneyAction?: ExecuteMoneyAction;
   regionId: RegionId;
+  assetMarkResolution?: AssetMarkResolution;
 }) {
   const detail = useBorrowDetail(session, opportunity.market.id, fetchAccountResource, opportunity.availability.status === "available");
   const [dialog, setDialog] = useState<BorrowDialogState>(null);
@@ -361,7 +381,7 @@ function BorrowMarketCard({
     <Card className="overflow-hidden" data-testid="borrow-market-card" role="listitem">
       <CardContent>
         <div className="space-y-4 sm:px-1">
-          <BorrowMarketHeading market={opportunity.market} />
+          <BorrowMarketHeading market={opportunity.market} assetMarkResolution={assetMarkResolution} />
           {opportunity.availability.status === "unavailable" ? (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">{opportunity.availability.reason}</p>
@@ -396,30 +416,47 @@ function BorrowMarketCard({
           executeMoneyAction={executeMoneyAction}
           regionId={regionId}
           onClose={() => setDialog(null)}
+          assetMarkResolution={assetMarkResolution}
         />
       ) : null}
     </Card>
   );
 }
 
-function BorrowMarketHeading({ market }: { market: BorrowMarketIdentity }) {
+function BorrowMarketHeading({
+  market,
+  assetMarkResolution,
+}: {
+  market: BorrowMarketIdentity;
+  assetMarkResolution?: AssetMarkResolution;
+}) {
+  const mark = presentBorrowAssetMark(market.collateralToken, assetMarkResolution);
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <BitcoinMark />
+      <CurrencyMark
+        currency={mark.currency}
+        symbol={mark.symbol}
+        src={mark.imageUrl}
+        pending={mark.pending}
+      />
       <div className="min-w-0">
-        <h3 className="truncate text-base font-semibold">Bitcoin</h3>
+        <h3 className="truncate text-base font-semibold">{mark.name}</h3>
         <p className="truncate text-sm text-muted-foreground">Borrow {market.loanToken.symbol} with {market.collateralToken.symbol}</p>
       </div>
     </div>
   );
 }
 
-function BitcoinMark() {
-  return (
-    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground shadow-sm" aria-hidden="true" data-testid="bitcoin-mark">
-      ₿
-    </span>
-  );
+export function presentBorrowAssetMark(
+  asset: BorrowAssetRef,
+  resolution: AssetMarkResolution = {},
+): AssetMarkPresentation {
+  return presentPortfolioAssetMark({
+    assetKey: asset.id,
+    name: asset.name,
+    symbol: asset.symbol,
+    currency: asset.id === canonicalUsdcAsset.assetKey ? canonicalUsdcAsset.cashCurrency : null,
+  }, resolution);
 }
 
 function BorrowOpenSummary({ snapshot, regionId }: { snapshot: BorrowMarketSnapshot; regionId: RegionId }) {
@@ -518,6 +555,7 @@ function BorrowMoneyDialog({
   executeMoneyAction,
   regionId,
   onClose,
+  assetMarkResolution,
 }: {
   session: VerifiedAccountSession;
   snapshot: BorrowMarketSnapshot;
@@ -526,15 +564,14 @@ function BorrowMoneyDialog({
   executeMoneyAction: ExecuteMoneyAction;
   regionId: RegionId;
   onClose: () => void;
+  assetMarkResolution?: AssetMarkResolution;
 }) {
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const dataOwnerKey = ownerDataKey(session);
   const closesWithoutDebt = operation === "close-position" && BigInt(snapshot.position.debtAssetsRaw) === BigInt(0);
   const fixedMaximumOperation = operation === "repay-all" || (operation === "close-position" && !closesWithoutDebt);
   const repayOperation = operation === "repay" || fixedMaximumOperation;
-  const primaryAsset = operation === "supply-collateral" || operation === "withdraw-collateral" || closesWithoutDebt
-    ? snapshot.market.collateralToken
-    : snapshot.market.loanToken;
+  const primaryAsset = selectPrimaryBorrowAsset(snapshot, operation);
   const maximumRepayBaseUnits = repayOperation
     ? recommendedRepayMaximumBaseUnits(snapshot.position.debtAssetsRaw, snapshot.wallet.loanBalanceRaw, snapshot.state.borrowRatePerSecondWad)
     : null;
@@ -542,6 +579,7 @@ function BorrowMoneyDialog({
     ? decimalFromBaseUnits(maximumRepayBaseUnits, snapshot.market.loanToken.decimals) ?? ""
     : "";
   const primaryPricing = useMoneyAssetPricing(primaryAsset.symbol);
+  const primaryAssetMark = presentBorrowAssetMark(primaryAsset, assetMarkResolution);
   const [amount, setAmount] = useState(initialAmount);
   const [amountChangeSource, setAmountChangeSource] = useState<MoneyAmountChangeSource>("programmatic");
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
@@ -675,7 +713,8 @@ function BorrowMoneyDialog({
                   availableAmount={availableAmount}
                   assetId={primaryAsset.id}
                   assetLabel={primaryAsset.symbol}
-                  assetCurrency={primaryAsset.symbol === "USDC" ? "USD" : null}
+                  assetCurrency={primaryAssetMark.currency}
+                  assetMark={primaryAssetMark}
                   assetLocked
                   chipSet={availableBaseUnits === null ? "none" : "max"}
                   pricing={primaryPricing}
@@ -722,6 +761,16 @@ function BorrowMoneyDialog({
       {step === "error" || step === "failed" ? <MoneyModalFooter primaryLabel="Back" onPrimary={goBack} secondaryLabel="Close" onSecondary={closeIfAllowed} /> : null}
     </MoneyModal>
   );
+}
+
+export function selectPrimaryBorrowAsset(
+  snapshot: BorrowMarketSnapshot,
+  operation: BorrowOperation,
+): BorrowAssetRef {
+  const closesWithoutDebt = operation === "close-position" && BigInt(snapshot.position.debtAssetsRaw) === BigInt(0);
+  return operation === "supply-collateral" || operation === "withdraw-collateral" || closesWithoutDebt
+    ? snapshot.market.collateralToken
+    : snapshot.market.loanToken;
 }
 
 function BorrowPreparedReview({ action, snapshot, regionId }: { action: PreparedMoneyAction; snapshot: BorrowMarketSnapshot; regionId: RegionId }) {

@@ -213,6 +213,43 @@ describe("MoneyAmountDisplay", () => {
     expect(page().getByLabelText("Native amount").textContent).toBe("1240.00");
   });
 
+  test("renders canonical locked marks with loaded, pending, broken-image, and legacy Save fallbacks", () => {
+    const canonicalMark = {
+      assetKey: "eip155:8453/erc20:0xcbbtc",
+      name: "Bitcoin",
+      symbol: "BT",
+      imageUrl: "https://assets.example/cbbtc.png",
+      pending: false,
+      currency: null,
+    };
+    const view = render(
+      <MoneyAssetPicker assetId="cbbtc" assetLabel="cbBTC" assetMark={canonicalMark} locked />,
+    );
+    const locked = view.getByLabelText("cbBTC");
+    const image = locked.querySelector("img")!;
+    expect(image.getAttribute("src")).toBe(canonicalMark.imageUrl);
+    fireEvent.load(image);
+    expect(locked.querySelector("[data-mark='image']")).toBeTruthy();
+
+    view.rerender(
+      <MoneyAssetPicker
+        assetId="cbbtc"
+        assetLabel="cbBTC"
+        assetMark={{ ...canonicalMark, imageUrl: null, pending: true }}
+        locked
+      />,
+    );
+    expect(view.getByLabelText("cbBTC").querySelector("[data-mark='shimmer']")).toBeTruthy();
+
+    view.rerender(<MoneyAssetPicker assetId="cbbtc" assetLabel="cbBTC" assetMark={canonicalMark} locked />);
+    const brokenImage = view.getByLabelText("cbBTC").querySelector("img")!;
+    fireEvent.error(brokenImage);
+    expect(view.getByLabelText("cbBTC").querySelector("[data-mark='symbol']")?.textContent).toBe("BT");
+
+    view.rerender(<MoneyAssetPicker assetId="usdc" assetLabel="USDC" locked />);
+    expect(view.getByLabelText("USDC").querySelector("img")?.getAttribute("src")).toBe("/currency-flags/us.svg");
+  });
+
   test("keeps a locked asset fixed and limits shortcuts to Max", () => {
     render(
       <AmountHarness
