@@ -14,7 +14,7 @@ type CopyableValueProps = {
   /**
    * `inline` (default) is a plain text control, `full` is a full-width control
    * with a comfortable hit target, and `compact` is the same full-width control
-   * without the extra minimum height and inner vertical padding.
+   * without the inner vertical padding.
    */
   presentation?: "inline" | "full" | "compact";
   className?: string;
@@ -109,7 +109,7 @@ function CopyableValueControl({
           "min-w-0",
           isFullWidth &&
             "w-full max-w-full justify-start overflow-hidden text-left",
-          presentation === "full" && "min-h-11",
+          (presentation === "full" || presentation === "compact") && "min-h-11",
           className,
         )}
         title={value}
