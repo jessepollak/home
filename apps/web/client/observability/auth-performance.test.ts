@@ -33,7 +33,7 @@ function fixture() {
 describe("Home auth restore performance recorder", () => {
   test("emits one closed navigation-relative restore report", () => {
     const value = fixture();
-    value.at(120); value.recorder.start("/dashboard", "base");
+    value.at(120); value.recorder.start("/home", "base");
     value.at(180); value.recorder.mark("sdk-activate");
     value.at(525); value.recorder.mark("native-settled");
     value.at(980); value.recorder.mark("cdp-initialized");
@@ -44,7 +44,7 @@ describe("Home auth restore performance recorder", () => {
     expect(value.sent).toEqual([{
       version: 1,
       kind: "home-auth-phase",
-      route: "/dashboard",
+      route: "/home",
       flow: "restore",
       hint: "base",
       outcome: "verified",

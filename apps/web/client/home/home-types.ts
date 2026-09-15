@@ -3,6 +3,7 @@ import type { ShellPanelId } from "@/config/navigation";
 import type { RegionId } from "@/config/regions";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { BalancesPresentation } from "@/shared/balances/present";
+import type { ShellLocation } from "@/config/shell-location";
 
 export type HomeAssetBalancesPresentation = BalancesPresentation;
 
@@ -12,6 +13,8 @@ export type HomeExperienceProps = {
   savingsContent?: ReactNode;
   initialAccountOpen?: boolean;
   initialPanel?: ShellPanelId;
+  /** The server-validated canonical page location for this URL; the shell otherwise parses window.location. */
+  initialLocation?: ShellLocation;
   initialAccountSettingsOpen?: boolean;
   assetBalances?: HomeAssetBalancesPresentation;
   presentAssetBalances?: (showSmallBalances: boolean) => HomeAssetBalancesPresentation;
@@ -20,6 +23,8 @@ export type HomeExperienceProps = {
   onShowSmallBalancesChange?: (value: boolean) => void;
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";
+  /** Live balances revalidation state from the owning experience; anchors hold until it settles. */
+  balancesRevalidating?: boolean;
   initialAddMoney?: boolean;
   returnedFromProvider?: boolean;
   initialSendFlow?: boolean;

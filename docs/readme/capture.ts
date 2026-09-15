@@ -255,7 +255,7 @@ async function signIn(page: Page) {
   await page.getByRole("button", { name: "Continue with email" }).click();
   await page.getByLabel("Verification code").fill("123456");
   await page.getByRole("button", { name: "Verify and continue" }).click();
-  await page.waitForURL(/\/dashboard/);
+  await page.waitForURL(/\/home/);
 }
 
 async function capture(page: Page, name: string) {
@@ -281,18 +281,18 @@ await installFixtures(context);
 try {
   await signIn(page);
 
-  await page.goto(`${BASE_URL}/dashboard`);
+  await page.goto(`${BASE_URL}/home`);
   await page.getByText("$4,280.32", { exact: true }).waitFor();
   await page.getByText("$2,676.32", { exact: true }).waitFor();
   await page.waitForTimeout(1_000);
   await capture(page, "home.png");
 
-  await page.goto(`${BASE_URL}/dashboard?panel=save`);
+  await page.goto(`${BASE_URL}/save`);
   await page.getByText("$320.00", { exact: true }).first().waitFor();
   await page.getByText("Gauntlet USDC Prime", { exact: true }).first().waitFor();
   await capture(page, "save.png");
 
-  await page.goto(`${BASE_URL}/dashboard?panel=invest`);
+  await page.goto(`${BASE_URL}/invest`);
   await page.getByRole("heading", { name: "Stocks" }).waitFor();
   await page.getByText("$184.32", { exact: true }).waitFor();
   await capture(page, "invest.png");
@@ -303,7 +303,7 @@ try {
   await page.evaluate(() => window.scrollTo(0, 0));
   await capture(page, "borrow.png");
 
-  await page.goto(`${BASE_URL}/dashboard`);
+  await page.goto(`${BASE_URL}/home`);
   await page.getByText("$4,280.32", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("dialog", { name: "Send" }).waitFor();

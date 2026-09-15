@@ -6,6 +6,7 @@ import { connectBaseAccount, restoreBaseAccount, BaseAccountConnectorError, type
 import { SessionValidationError, validateAccountSession, type SessionFetch, type VerifiedAccountSession } from "./session-client";
 import { createSiweMessage } from "viem/siwe";
 import { type AccountProvider, type AccountProviderRequest } from "@/shared/account/session-types";
+import { normalizeHomeStartupRoute } from "@/shared/observability/client-performance.contract";
 import {
   clearOwnerQueryBoundary,
   clearOwnerQueryMemory,
@@ -354,7 +355,7 @@ export function AccountWalletSessionOwner({
   const signOut = useCallback(async (options?: { onNavigationSafe?: () => void }) => {
     if (cleanupRef.current) return cleanupRef.current;
     const startedAt = performance.now();
-    const route = window.location.pathname;
+    const route = normalizeHomeStartupRoute(window.location.pathname);
     const walletDisconnectAttempted = baseConnectionRef.current !== null;
     let walletDisconnectMs: number | undefined;
     let nativeLogoutAttempted = false;
@@ -417,7 +418,7 @@ export function AccountWalletSessionOwner({
       throw new Error("Account sign-out did not finish.");
     } finally {
       cleanupRef.current = null;
-      if (route === "/" || route === "/dashboard") {
+      if (route) {
         sendHomeAuthSignOut({
           route,
           flow: "signout",

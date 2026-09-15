@@ -85,18 +85,8 @@ export function composeSdkBoundaries({
     getUserOperation: cdp.getUserOperation,
     signOut: async (onPhase) => {
       const nativeCleanup = clearNative(onPhase);
-      let cdpTimedOut = false;
       const cdpCleanup = shouldSignOutCdp()
-        ? withTimeout(cdpSignOut((phase) => {
-            if (!cdpTimedOut) onPhase?.(phase);
-          }), CDP_SIGN_OUT_TIMEOUT_MS, () => {
-            cdpTimedOut = true;
-            onPhase?.({
-              phase: "cdp-signout",
-              outcome: "timeout",
-              durationMs: CDP_SIGN_OUT_TIMEOUT_MS,
-            });
-          })
+        ? boundedCdpSignOut(cdpSignOut, onPhase)
         : Promise.resolve();
       const results = await Promise.allSettled([nativeCleanup, cdpCleanup]);
       const failure = results.find(
@@ -105,6 +95,23 @@ export function composeSdkBoundaries({
       if (failure) throw failure.reason;
     },
   };
+}
+
+export function boundedCdpSignOut(
+  cdpSignOut: CompositeSdkBoundaryInput["cdpSignOut"],
+  onPhase?: (phase: AccountSignOutPhase) => void,
+): Promise<void> {
+  let timedOut = false;
+  return withTimeout(cdpSignOut((phase) => {
+    if (!timedOut) onPhase?.(phase);
+  }), CDP_SIGN_OUT_TIMEOUT_MS, () => {
+    timedOut = true;
+    onPhase?.({
+      phase: "cdp-signout",
+      outcome: "timeout",
+      durationMs: CDP_SIGN_OUT_TIMEOUT_MS,
+    });
+  });
 }
 
 function withTimeout(

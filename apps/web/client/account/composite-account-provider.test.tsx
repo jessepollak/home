@@ -677,6 +677,32 @@ describe("composite account provider switches", () => {
     expect(hasCdpRestoreMarker()).toBe(false);
   });
 
+  test("bounds hanging automatic CDP cleanup and permits retry before late success", async () => {
+    const lateCleanup = deferred();
+    setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });
+    cdpSignOutPending = lateCleanup.promise;
+    installSessionFetch();
+    renderProvider(false, true);
+
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    await act(async () => { await currentClient().signInWithBaseAccount(() => {}); });
+    await waitFor(() => expect(currentClient().session?.accountProvider).toBe("base-account"));
+    await waitFor(() => expect(cdpSignOuts).toBe(1));
+    await waitFor(() => expect(hasCdpRestoreMarker()).toBe(true), { timeout: 4_000 });
+
+    await act(async () => {
+      setCdpState({ isSignedIn: false, userId: null });
+    });
+    await act(async () => {
+      setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });
+    });
+    await waitFor(() => expect(cdpSignOuts).toBe(2));
+
+    lateCleanup.resolve();
+    await waitFor(() => expect(hasCdpRestoreMarker()).toBe(false));
+    expect(currentClient().session?.accountProvider).toBe("base-account");
+  }, 6_000);
+
   test("email to Base signs CDP out once without a stale session", async () => {
     setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });
     installSessionFetch();

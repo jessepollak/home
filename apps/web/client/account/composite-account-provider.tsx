@@ -14,7 +14,7 @@ import {
   AccountWalletSessionOwner,
 } from "./cdp-session-lifecycle";
 import type { AccountWalletSdkBoundary } from "./cdp-client";
-import { composeSdkBoundaries } from "./composite-sdk-boundary";
+import { boundedCdpSignOut, composeSdkBoundaries } from "./composite-sdk-boundary";
 import { useNativeBaseIdentity } from "./native-base-bridge";
 import { createSdkActivationGate } from "./sdk-activation";
 import {
@@ -257,7 +257,7 @@ export default function CompositeAccountProvider({
       emailSwitchInFlightRef.current
     ) return;
     cdpCleanupInFlightRef.current = true;
-    void cdpSignOut()
+    void boundedCdpSignOut(cdpSignOut)
       .catch(() => { writeCdpRestoreMarker(); })
       .finally(() => { cdpCleanupInFlightRef.current = false; });
   }, [cdpBoundary?.isSignedIn, cdpSignOut, native.identity]);
