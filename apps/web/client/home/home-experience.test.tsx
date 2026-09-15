@@ -290,7 +290,7 @@ describe("Home shell auth and privacy", () => {
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
   });
 
-  test("redirects a verified landing session to the dashboard", async () => {
+  test("redirects a verified landing session to Home, keeping only overlay intent", async () => {
     render(
       <HomeHarness
         accountSdk={sdk({
@@ -301,8 +301,24 @@ describe("Home shell auth and privacy", () => {
         routeMode="landing"
       />,
     );
+    await waitFor(() => expect(replaceCalls).toEqual(["/home"]));
 
-    await waitFor(() => expect(replaceCalls).toEqual(["/dashboard"]));
+    cleanup();
+    getHomeQueryClient().clear();
+    replaceCalls.length = 0;
+    syncLocation("/?flow=send&panel=balances&group=investments");
+    render(
+      <HomeHarness
+        accountSdk={sdk({
+          isSignedIn: true,
+          ownerKey: OWNER,
+          provisionalSession: session(),
+        })}
+        routeMode="landing"
+      />,
+    );
+    // Obsolete page-routing params never survive the redirect.
+    await waitFor(() => expect(replaceCalls).toEqual(["/home?flow=send"]));
   });
 
   test("keeps a verified landing session on an explicit sign-in intent", async () => {
@@ -593,7 +609,7 @@ describe("Home shell routing and intents", () => {
     fireEvent.click(page().getByRole("button", { name: "More Cash" }));
 
     expect(`${window.location.pathname}${window.location.search}`).toBe(
-      "/dashboard?panel=balances&group=cash",
+      "/balances/cash",
     );
     expect(page().getByRole("heading", { name: "Your money" })).toBeTruthy();
   });
@@ -603,12 +619,12 @@ describe("Home shell routing and intents", () => {
     await waitForVerifiedShell();
 
     fireEvent.click(page().getByRole("button", { name: "Your money" }));
-    expect(`${window.location.pathname}${window.location.search}`).toBe("/dashboard?panel=balances");
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/balances");
     expect(page().getByRole("heading", { name: "Your money" })).toBeTruthy();
 
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     fireEvent.click(within(page().getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: "Invest" }));
-    expect(`${window.location.pathname}${window.location.search}`).toBe("/dashboard?panel=invest");
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/invest");
     expect(page().getByRole("region", { name: "Invest module" })).toBeTruthy();
 
     act(() => popHistory());
@@ -623,9 +639,9 @@ describe("Home shell routing and intents", () => {
     const pushesBeforeBack = pushCalls.length;
     fireEvent.click(page().getByRole("button", { name: "Back" }));
 
-    expect(`${window.location.pathname}${window.location.search}`).toBe("/dashboard");
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/home");
     expect(pushCalls).toHaveLength(pushesBeforeBack + 1);
-    expect(pushCalls.at(-1)).toBe("/dashboard");
+    expect(pushCalls.at(-1)).toBe("/home");
     expect(page().getByLabelText("Total balance")).toBeTruthy();
   });
 
@@ -658,18 +674,25 @@ describe("Home shell routing and intents", () => {
     expect(borrowTeaser.className).toContain("whitespace-normal");
     expect(borrowTeaser.querySelector(".lucide-bitcoin")).toBeTruthy();
     fireEvent.click(borrowTeaser);
-    expect(`${window.location.pathname}${window.location.search}`).toBe("/dashboard?panel=borrow");
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/borrow");
     expect(await page().findByText("Borrow USDC using your Bitcoin on Base.")).toBeTruthy();
     expect(within(page().getByRole("navigation", { name: "Main navigation" })).queryByRole("button", { name: "Borrow" })).toBeNull();
   });
 
   test("renders a validated Borrow market deep link inside the existing main landmark", async () => {
-    syncLocation(`/dashboard?panel=borrow&market=${BORROW_MARKET_ID}`);
-    historyEntries = [`/dashboard?panel=borrow&market=${BORROW_MARKET_ID}`];
+    syncLocation(`/borrow/${BORROW_MARKET_ID}`);
+    historyEntries = [`/borrow/${BORROW_MARKET_ID}`];
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
-        initialSearch={`panel=borrow&market=${BORROW_MARKET_ID}`}
+        initialLocation={{
+          panel: "borrow",
+          account: null,
+          shelf: null,
+          asset: null,
+          group: null,
+          market: BORROW_MARKET_ID,
+        }}
         applyInboundUrlIntent
       />,
     );
@@ -678,7 +701,7 @@ describe("Home shell routing and intents", () => {
     expect(page().getAllByRole("main")).toHaveLength(1);
     expect(await page().findByText("Borrow USDC using your Bitcoin on Base.")).toBeTruthy();
     expect(page().queryByText("Market and position")).toBeNull();
-    expect(`${window.location.pathname}${window.location.search}`).toBe(`/dashboard?panel=borrow&market=${BORROW_MARKET_ID}`);
+    expect(`${window.location.pathname}${window.location.search}`).toBe(`/borrow/${BORROW_MARKET_ID}`);
   });
 
   test("honors server-selected panel state without adding history", async () => {
@@ -704,13 +727,13 @@ describe("Home shell routing and intents", () => {
 
     expect(await page().findByRole("combobox", { name: "Country" })).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Done" }));
-    expect(replaceCalls).toEqual(["/dashboard"]);
+    expect(replaceCalls).toEqual(["/home"]);
     expect(await page().findByRole("heading", { name: "Your money" })).toBeTruthy();
   });
 
   test("applies a verified inbound send intent once", async () => {
-    syncLocation("/dashboard?flow=send");
-    historyEntries = ["/dashboard?flow=send"];
+    syncLocation("/home?flow=send");
+    historyEntries = ["/home?flow=send"];
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}

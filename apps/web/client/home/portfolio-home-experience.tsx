@@ -41,6 +41,7 @@ export function PortfolioHomeExperience(
   return (
     <HomeExperience
       {...props}
+      balancesRevalidating={balances.revalidating === true}
       presentAssetBalances={presentAssetBalances}
       sendAvailability={sendAvailability}
       showSmallBalances={showSmallBalances}

@@ -78,8 +78,10 @@ export function createHomeStartupRecorder(dependencies: RecorderDependencies) {
     if (route === null || terminal || !marks.has("shell:paint") || !marks.has("session:verified")) {
       return null;
     }
+    // Every canonical shell route paints the same authenticated balances shell;
+    // the landing route reports as soon as it is painted.
     if (
-      route === "/dashboard" &&
+      route !== "/" &&
       (!marks.has("balances:painted") || !marks.has("action:first-interactive"))
     ) {
       return null;

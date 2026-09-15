@@ -241,7 +241,7 @@ async function signIn(page: Page) {
   await page.getByLabel("Email address").press("Enter");
   await page.getByLabel("Verification code").fill("123456");
   await page.getByRole("button", { name: "Verify and continue" }).click();
-  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page).toHaveURL(/\/home/);
 }
 
 async function typeAmount(page: Page, value: string) {
@@ -313,11 +313,32 @@ test("a valid Home session redirects the landing route before rendering", async 
 
   const redirected = await context.request.get("/", { maxRedirects: 0 });
   expect(redirected.status()).toBe(307);
-  expect(redirected.headers().location).toBe("/dashboard");
+  expect(redirected.headers().location).toBe("/home");
 
   const signIn = await context.request.get("/?account=signin", { maxRedirects: 0 });
   expect(signIn.status()).toBe(200);
+
+  // Obsolete dashboard query routing has no authority: the legacy page falls
+  // back to /home and translates nothing.
+  const legacy = await context.request.get("/dashboard?panel=balances&group=investments", { maxRedirects: 0 });
+  expect(legacy.status()).toBe(307);
+  expect(legacy.headers().location).toBe("/home");
+  // The verified root redirect keeps only allowlisted ephemeral overlay intent.
+  const overlays = await context.request.get("/?flow=send&panel=balances&group=investments", { maxRedirects: 0 });
+  expect(overlays.status()).toBe(307);
+  expect(overlays.headers().location).toBe("/home?flow=send");
 });
+
+function trackHydrationErrors(page: Page): string[] {
+  const hydrationErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && /hydrat/i.test(message.text())) hydrationErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => {
+    if (/hydrat/i.test(error.message)) hydrationErrors.push(error.message);
+  });
+  return hydrationErrors;
+}
 
 function expectTickerInsideAmount(metrics: NonNullable<Awaited<ReturnType<typeof amountMetrics>>>) {
   expect(metrics.tickerLeft).toBeGreaterThanOrEqual(metrics.containerLeft - 0.5);
@@ -421,7 +442,7 @@ test("Home More opens Your money at the requested group", async ({ page }) => {
   await expect(investments.locator('[data-kind="balance"]')).toHaveCount(3);
   await investments.getByRole("button", { name: "More Investments" }).click();
 
-  await expect(page).toHaveURL(/\/dashboard\?panel=balances&group=investments$/);
+  await expect(page).toHaveURL(/\/balances\/investments$/);
   await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
   await expect(page.locator('#investments[data-money-group="investments"]')).toBeVisible();
 });
@@ -654,6 +675,9 @@ test("reload paints persisted balances before stale balances respond without shi
   await expect.poll(() => page.evaluate(() =>
     Object.keys(localStorage).find((key) => key.startsWith("home.query.v1:")) ?? null,
   )).not.toBeNull();
+  // Let the persister's trailing throttled writes flush before zeroing, so
+  // the staleness edit survives into the reload instead of being overwritten.
+  await page.waitForTimeout(600);
   const persistedFacts = await page.evaluate(() => {
     const key = Object.keys(localStorage).find((candidate) => candidate.startsWith("home.query.v1:"));
     if (!key) throw new Error("Persisted owner cache is missing");
@@ -670,7 +694,9 @@ test("reload paints persisted balances before stale balances respond without shi
       (query) => query.queryKey?.[1] === "balances",
     );
     for (const query of persisted.clientState?.queries ?? []) {
-      if (query.state) query.state.dataUpdatedAt = 0;
+      // Stale (older than the 15s staleTime) but still hydratable: a zeroed
+      // dataUpdatedAt would make hydrate skip the pending query entirely.
+      if (query.state) query.state.dataUpdatedAt = Date.now() - 60_000;
     }
     localStorage.setItem(key, JSON.stringify(persisted));
     return {
@@ -688,6 +714,7 @@ test("reload paints persisted balances before stale balances respond without shi
     "US",
   ]);
   expect(persistedFacts.hasCatalog).toBe(true);
+  const hydrationErrors = trackHydrationErrors(page);
 
   const delayedSessionRead = fixtures.delayNextSession();
   const delayedBalancesRead = fixtures.delayNextBalances();
@@ -710,17 +737,21 @@ test("reload paints persisted balances before stale balances respond without shi
   await expect.poll(() => page.evaluate(() =>
     performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
   ), { timeout: 15_000 }).toBeLessThan(Number.POSITIVE_INFINITY);
+
   const verifiedPaint = await page.evaluate(() =>
     performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Number.POSITIVE_INFINITY,
   );
   expect(provisionalPaint.balances).toBeLessThan(verifiedPaint);
-  await expect.poll(fixtures.balancesReads).toBeGreaterThanOrEqual(delayedBalancesRead);
+  await expect.poll(fixtures.balancesReads, { timeout: 15_000 }).toBeGreaterThanOrEqual(delayedBalancesRead);
   await expect(page.getByText("Recognized Coin", { exact: true }).first()).toBeVisible();
 
   fixtures.releaseBalances();
   await expect(page.locator('[data-shell-panel]:not([hidden]) [aria-label="Total balance"]')).not.toHaveAttribute("aria-busy", "true");
   const settledLayout = await visibleBalanceRowLayout(page);
   expect(settledLayout).toEqual(provisionalLayout);
+  // Zero hydration errors only once the delayed verification and balances
+  // settle: the restored cache paints after hydration, never during render.
+  expect(hydrationErrors).toEqual([]);
 });
 
 test("reload resumes an unconfirmed send review from its URL action", async ({ page }) => {
@@ -728,7 +759,7 @@ test("reload resumes an unconfirmed send review from its URL action", async ({ p
   await installApiFixtures(page);
   await signIn(page);
 
-  await page.goto(`/dashboard?flow=send&action=${ACTION_ID}`);
+  await page.goto(`/home?flow=send&action=${ACTION_ID}`);
   await page.reload();
 
   const review = page.getByRole("dialog", { name: "Confirm" });
@@ -745,17 +776,19 @@ test("shallow-routed money flows open from URLs and Back closes them", async ({ 
   await signIn(page);
 
   const cases = [
-    { flow: "add-money", dialog: "Add money" },
-    { flow: "receive", dialog: "Receive" },
-    { flow: "save-deposit", dialog: "Deposit" },
+    { flow: "add-money", path: "/home", dialog: "Add money" },
+    { flow: "receive", path: "/home", dialog: "Receive" },
+    // Save flows keep their canonical parent: /save?flow=save-deposit.
+    { flow: "save-deposit", path: "/save", dialog: "Deposit" },
   ] as const;
 
   for (const entry of cases) {
-    await page.goto(`/dashboard?flow=${entry.flow}`);
+    await page.goto(`${entry.path}?flow=${entry.flow}`);
     await expect(page.getByRole("dialog", { name: entry.dialog })).toBeVisible();
     await page.goBack();
     await expect(page.locator('[role="dialog"][data-open]')).toHaveCount(0);
-    await expect(page).toHaveURL(/\/dashboard$/);
+    // Back returns to the shell entry the visit started from.
+    await expect(page).toHaveURL(/\/home$/);
   }
 });
 
@@ -770,14 +803,14 @@ test("Add money routes Receive, handles the Back state, and reopens the method l
   await expect(page.getByRole("dialog", { name: "Receive" })).toBeVisible();
   await expect(page).toHaveURL(/[?&]flow=receive/);
   await page.evaluate(() => {
-    window.history.replaceState(window.history.state, "", "/dashboard");
+    window.history.replaceState(window.history.state, "", "/home");
     window.dispatchEvent(new PopStateEvent("popstate"));
   });
   await expect(page.locator('[role="dialog"][data-open]')).toHaveCount(0);
-  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page).toHaveURL(/\/home$/);
 
   await page.getByRole("button", { name: "Add money", exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard\?flow=add-money$/);
+  await expect(page).toHaveURL(/\/home\?flow=add-money$/);
   await expect(page.getByRole("dialog", { name: "Add money" })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Receive crypto/ })).toBeVisible();
 });
@@ -788,16 +821,16 @@ test("Add money close preserves the active panel", async ({ page }) => {
   await signIn(page);
 
   await page.getByRole("button", { name: "Your money", exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard\?panel=balances$/);
+  await expect(page).toHaveURL(/\/balances$/);
   await page.evaluate(() => {
-    window.history.pushState(null, "", "/dashboard?panel=balances&flow=add-money");
+    window.history.pushState(null, "", "/balances?flow=add-money");
     window.dispatchEvent(new PopStateEvent("popstate"));
   });
-  await expect(page).toHaveURL(/\/dashboard\?panel=balances&flow=add-money$/);
+  await expect(page).toHaveURL(/\/balances\?flow=add-money$/);
   await expect(page.getByRole("dialog", { name: "Add money" })).toBeVisible();
   await page.getByRole("button", { name: "Close add money" }).click();
   await expect(page.locator('[role="dialog"][data-open]')).toHaveCount(0);
-  await expect(page).toHaveURL(/\/dashboard\?panel=balances$/);
+  await expect(page).toHaveURL(/\/balances$/);
 });
 
 test("Invest discovery navigation preserves category and asset Back behavior", async ({ page }) => {
@@ -808,20 +841,18 @@ test("Invest discovery navigation preserves category and asset Back behavior", a
   await page.getByRole("button", { name: "Invest", exact: true }).click();
   const stocksHeading = page.getByRole("heading", { name: "Stocks" });
   await stocksHeading.locator("..").getByRole("button", { name: "See all ›" }).click();
-  await expect(page).toHaveURL(/[?&]panel=invest/);
-  await expect(page).toHaveURL(/[?&]shelf=stocks/);
+  await expect(page).toHaveURL(/\/invest\/stocks$/);
   await page.getByRole("button", { name: /^NVIDIA/ }).click();
   await expect(page.getByRole("heading", { name: "NVIDIA" })).toBeVisible();
-  await expect(page).toHaveURL(/[?&]asset=nvdac/);
-  await expect(page).toHaveURL(/[?&]shelf=stocks/);
+  await expect(page).toHaveURL(/\/invest\/nvdac$/);
   await expect(page.getByRole("note")).toHaveText("Stocks aren't available yet.");
 
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Stocks" })).toBeVisible();
-  await expect(page).not.toHaveURL(/[?&]asset=/);
+  await expect(page).toHaveURL(/\/invest\/stocks$/);
   await page.getByRole("button", { name: "Back to Invest", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
-  await expect(page).not.toHaveURL(/[?&](?:shelf|asset)=/);
+  await expect(page).toHaveURL(/\/invest$/);
 });
 
 test("visited Invest and Activity panels stay mounted across tab changes", async ({ page }) => {
@@ -991,7 +1022,7 @@ async function openScrolledBalances(page: Page) {
 
   await page.getByRole("button", { name: "Your money" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
-  await expect(page).toHaveURL(/[?&]panel=balances/);
+  await expect(page).toHaveURL(/\/balances$/);
 
   // A fresh open reveals the first batch plus whatever the observer can already see at this
   // viewport (dense rows may not fill it). Capture that count: "reset" means returning to it.
@@ -1030,7 +1061,7 @@ async function openScrolledBalances(page: Page) {
 async function openInvestAssetDetail(page: Page) {
   await page.getByRole("button", { name: "Invest", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
-  await expect(page).toHaveURL(/[?&]panel=invest/);
+  await expect(page).toHaveURL(/\/invest$/);
   // Forward Invest entry clears the saved offset before any asset opens.
   await expect
     .poll(() =>
@@ -1044,7 +1075,7 @@ async function openInvestAssetDetail(page: Page) {
 
   await page.getByRole("button", { name: /^NVIDIA/ }).click();
   await expect(page.getByRole("heading", { name: "NVIDIA" })).toBeVisible();
-  await expect(page).toHaveURL(/[?&]asset=nvdac/);
+  await expect(page).toHaveURL(/\/invest\/nvdac$/);
 }
 
 async function expectBalancesRestored(
@@ -1142,7 +1173,7 @@ test("Balances restores scroll and reveal after Account Done", async ({ page }) 
 
 test("Balances starts at the top after browser Back from generic Invest", async ({ page }) => {
   const state = await openScrolledBalances(page);
-  await clickForwardAndWaitForUrl(page, "Invest", /[?&]panel=invest/);
+  await clickForwardAndWaitForUrl(page, "Invest", /\/invest$/);
   await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
   await page.goBack();
   await expectBalancesReset(page, state.freshCount);
@@ -1150,18 +1181,18 @@ test("Balances starts at the top after browser Back from generic Invest", async 
 
 test("Balances starts at the top after browser Back from Home", async ({ page }) => {
   const state = await openScrolledBalances(page);
-  await clickForwardAndWaitForUrl(page, "Back", /\/dashboard$/);
+  await clickForwardAndWaitForUrl(page, "Back", /\/home$/);
   await page.goBack();
   await expectBalancesReset(page, state.freshCount);
 });
 
 test("Balances starts at the top after Activity and browser Back", async ({ page }) => {
   const state = await openScrolledBalances(page);
-  await clickForwardAndWaitForUrl(page, "Back", /\/dashboard$/);
-  await clickForwardAndWaitForUrl(page, "Activity", /[?&]panel=activity/);
+  await clickForwardAndWaitForUrl(page, "Back", /\/home$/);
+  await clickForwardAndWaitForUrl(page, "Activity", /\/activity$/);
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await page.goBack();
-  await expect(page).not.toHaveURL(/[?&]panel=activity/);
+  await expect(page).not.toHaveURL(/\/activity/);
   await page.goBack();
   await expectBalancesReset(page, state.freshCount);
 });
@@ -1237,7 +1268,7 @@ test("account sign-in and settings stay reachable at 390px, 320px, and 200% text
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByLabel("Verification code").fill("123456");
   await page.getByRole("button", { name: "Verify and continue" }).click();
-  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page).toHaveURL(/\/home/);
 
   await page.getByRole("button", { name: "Account" }).click();
   await expect(page.getByRole("heading", { level: 2, name: "Preferences" })).toBeVisible();
@@ -1287,4 +1318,236 @@ test("IDRX Add money goes from method to VA instructions and verified receipt", 
   await expect(page.getByText("Deposit pending")).toBeVisible();
   await expect(page.getByText("123456789012", { exact: true })).toBeVisible();
   await expect(page.getByText("Money received")).toBeVisible({ timeout: 7_000 });
+});
+
+// --- #460 direct routes and Invest loading ---
+
+// Direct routes must hydrate cold: the persisted owner cache restores in the
+// first passive effect — after hydration, never during render — so a warm
+// cache cannot diverge from the server's loading shell. Clearing it makes the
+// measured renders genuinely cold.
+function coldDirectLoad(page: Page, country: string) {
+  return page.addInitScript((country) => {
+    localStorage.setItem("home.country.v1", country);
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith("home.query.v1:")) localStorage.removeItem(key);
+    }
+  }, country);
+}
+
+test("every canonical L1 and representative L2 route SSRs and first-paints cold on a persisted non-USD country (#460, #462)", async ({ page }) => {
+  // GB is non-USD: the presentation region resolves on the client only and must
+  // not diverge from the server-selected panel or Invest view at hydration.
+  await coldDirectLoad(page, "GB");
+  await installApiFixtures(page);
+  await signIn(page);
+  const hydrationErrors = trackHydrationErrors(page);
+  const routes = [
+    ["/home", ">Total balance<", "Home"],
+    ["/balances", "aria-label=\"Your money\"", "Your money"],
+    ["/balances/investments", "aria-label=\"Your money\"", "Your money"],
+    ["/activity", "aria-label=\"Activity\"", "Activity"],
+    ["/save", "aria-label=\"Savings\"", "Save"],
+    ["/borrow", "aria-label=\"Borrow\"", "Borrow"],
+    ["/invest", "aria-label=\"Invest\"", "Invest"],
+    ["/invest/stocks", "aria-label=\"Stocks\"", "Stocks"],
+    ["/invest/nvdac", "aria-label=\"NVIDIA\"", "NVIDIA"],
+  ] as const;
+  for (const [url, ssrMarker, title] of routes) {
+    // The catch-all SSRs the validated target: exactly one visible panel.
+    const html = await page.request.get(url).then((response) => response.text());
+    expect(html).toContain(ssrMarker);
+    expect((html.match(/<div data-shell-panel=""[^>]*>/g) ?? []).filter((tag) => !tag.includes("hidden")))
+      .toHaveLength(1);
+    await page.goto(url);
+    // The shell header title is derived from the same active-panel state that
+    // selects the visible panel, so it proves the target first-painted.
+    await expect(page.locator("[data-shell-header-title]").first()).toHaveText(title);
+    if (url === "/home") expect(await page.evaluate(
+      () => document.querySelector<HTMLElement>(".app-main-authenticated")?.scrollTop ?? 0,
+    )).toBe(0);
+  }
+  // Obsolete dashboard query routing has no authority on a canonical path.
+  await page.goto("/home?panel=balances&group=investments");
+  await expect(page.locator('[aria-label="Total balance"]')).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toHaveCount(0);
+  // Every hydration error fails — SSR and the initial hydration render the
+  // loading shell and the owner cache restores after hydration, so the first
+  // render must never diverge from the server HTML.
+  expect(hydrationErrors).toEqual([]);
+});
+
+function anchoredGroupOffset(page: Page) {
+  // The cold anchor puts the group at the top of the scrollport (respecting
+  // its scroll margin) and never reports a reset-to-top scroll as anchored.
+  return page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>(".app-main-authenticated");
+    const group = document.getElementById("investments");
+    return main && group && main.scrollTop > 0
+      ? group.getBoundingClientRect().top - main.getBoundingClientRect().top
+      : null;
+  });
+}
+
+test("cold reload of a balances group URL anchors the requested group (#460)", async ({ page }) => {
+  await coldDirectLoad(page, "US");
+  await installApiFixtures(page, { balances: scrollableBalancesSnapshot() });
+  await signIn(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/balances/investments");
+  await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
+  // A fresh server-verified settled load consumes the anchor: a later list
+  // identity change resets normally instead of re-anchoring (#462).
+  await page.getByRole("button", { name: "Show", exact: true }).click();
+  await expect.poll(() => anchoredGroupOffset(page)).toBe(null);
+  // Back still completes and re-anchors through the #452 history path; the cold anchor never refires.
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/balances\/investments$/);
+  await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
+});
+
+test("background revalidation of cached-ready balances keeps the cold group anchored (#462)", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  // The first read seeds the persisted owner cache; once the reload is on its
+  // way, the refetch returns changed rows so the settled list identity differs
+  // from the cached list the anchor first saw.
+  let serveRevalidated = false;
+  let revalidatedReads = 0;
+  await page.route((url) => url.pathname === "/api/balances", async (route) => {
+    const region = (new URL(route.request().url()).searchParams.get("region") ?? "US") as RegionId;
+    if (!serveRevalidated) return json(route, scrollableBalancesSnapshot(region));
+    revalidatedReads += 1;
+    return json(route, {
+      ...scrollableBalancesSnapshot(region),
+      holdings: scrollableBalancesSnapshot(region).holdings.map((holding) =>
+        holding.symbol === "USDC"
+          ? {
+              ...holding,
+              ...(holding.value.status === "priced"
+                ? { value: { ...holding.value, amount: { atoms: "1235", scale: 2 } } }
+                : {}),
+              ...(holding.cashValue?.status === "priced"
+                ? { cashValue: { ...holding.cashValue, amount: { atoms: "1235", scale: 2 } } }
+                : {}),
+            }
+          : holding),
+    });
+  });
+  await signIn(page);
+  await expect.poll(() => page.evaluate(() =>
+    Object.keys(localStorage).find((key) => key.startsWith("home.query.v1:")) ?? null,
+  )).not.toBeNull();
+  // Let the persister's trailing throttled writes flush before mutating, so
+  // the staleness edit survives until the reload.
+  await page.waitForTimeout(600);
+  // Force the persisted query stale so the reload first paints cached-ready
+  // rows while a background refetch is in flight.
+  await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((candidate) => candidate.startsWith("home.query.v1:"));
+    if (!key) throw new Error("Persisted owner cache is missing");
+    const persisted = JSON.parse(localStorage.getItem(key) ?? "null") as {
+      clientState?: { queries?: Array<{ state?: { dataUpdatedAt?: number } }> };
+    };
+    for (const query of persisted.clientState?.queries ?? []) {
+      // Stale so the reload revalidates, but hydratable so the cached rows
+      // paint first (a zeroed dataUpdatedAt makes hydrate skip the query).
+      if (query.state) query.state.dataUpdatedAt = Date.now() - 60_000;
+    }
+    localStorage.setItem(key, JSON.stringify(persisted));
+  });
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  serveRevalidated = true;
+  await page.goto("/balances/investments");
+  // The cached-ready list anchors immediately...
+  await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
+  // ...and the anchor survives the revalidation settling on changed rows.
+  await expect.poll(() => revalidatedReads, { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
+  await expect(
+    page.locator('[data-shell-panel]:not([hidden]) li', { hasText: "$12.35" }).first(),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
+});
+
+test("cross-canonical-route Back/Forward keeps one persistent shell without remount (#462)", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+  const hydrationErrors = trackHydrationErrors(page);
+
+  // Cross canonical routes through in-app optimistic navigation only.
+  await page.getByRole("button", { name: "Your money", exact: true }).click();
+  await expect(page).toHaveURL(/\/balances$/);
+  await page.getByRole("button", { name: "Invest", exact: true }).click();
+  await expect(page).toHaveURL(/\/invest$/);
+
+  // A shell remount (a stale page-module tree) would replace these nodes; the
+  // probe must survive two Back and two Forward crossings across /home,
+  // /balances, and /invest within the single catch-all route tree.
+  await page.evaluate(() => {
+    const nodes = [
+      document.querySelector<HTMLElement>(".app-main-authenticated"),
+      document.querySelector<HTMLElement>("header"),
+    ];
+    for (const node of nodes) {
+      if (node) (node as HTMLElement & { __shellProbe?: boolean }).__shellProbe = true;
+    }
+  });
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/balances$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/home$/);
+  await page.goForward();
+  await expect(page).toHaveURL(/\/balances$/);
+  await page.goForward();
+  await expect(page).toHaveURL(/\/invest$/);
+  await expect(page.getByRole("heading", { name: "Invest" })).toBeVisible();
+
+  const probeSurvived = await page.evaluate(() => {
+    const nodes = [
+      document.querySelector<HTMLElement>(".app-main-authenticated"),
+      document.querySelector<HTMLElement>("header"),
+    ];
+    return nodes.every((node) => node && (node as HTMLElement & { __shellProbe?: boolean }).__shellProbe === true);
+  });
+  expect(probeSurvived).toBe(true);
+  expect(hydrationErrors).toEqual([]);
+});
+
+test("Invest loading pulses and gain/loss colors respond to theme (#460)", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await page.route("**/api/market-prices", (route) => json(route, {
+    version: 1, provider: "codex", fetchedAt: CREATED_AT, markets: { stock: { status: "ready", snapshots: [
+      { assetId: "nvdac", displayPrice: "$170.30", asOf: CREATED_AT, sourceLabel: "Fixture", changeLabel: "+2.5%" },
+      { assetId: "metac", displayPrice: "$12.10", asOf: CREATED_AT, sourceLabel: "Fixture", changeLabel: "-1.25%" },
+    ] } },
+  }));
+  await signIn(page);
+  await page.goto("/invest/stocks");
+  const gain = page.locator('[data-money-change="positive"]').first();
+  const loss = page.locator('[data-money-change="negative"]').first();
+  await expect(gain).toBeVisible();
+  await expect(loss).toBeVisible();
+  const colors = () => page.evaluate(() => ["positive", "negative"].map((kind) =>
+    getComputedStyle(document.querySelector(`[data-money-change="${kind}"]`)!).color));
+  const light = await colors();
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  const dark = await colors();
+  expect(light).toEqual(["rgb(19, 115, 51)", "rgb(180, 35, 24)"]);
+  expect(dark).not.toEqual(light);
+  await page.evaluate(() => document.documentElement.classList.remove("dark"));
+  await page.unroute("**/api/market-prices");
+  await page.route("**/api/market-prices", () => {});
+  await page.goto("/invest/stocks");
+  const row = page.locator('[data-shell-panel]:not([hidden]) section[aria-label="Stocks"] li', { hasText: "NVIDIA" });
+  await expect(row).toBeVisible();
+  await expect(row).not.toContainText("—");
+  await expect(row.locator('[data-slot="skeleton"]')).toHaveCount(2);
+  expect(await row.locator('[data-slot="skeleton"]').evaluateAll((bars) => bars.every((bar) =>
+    getComputedStyle(bar).animationName !== "none" && bar.getBoundingClientRect().height > 0))).toBe(true);
 });

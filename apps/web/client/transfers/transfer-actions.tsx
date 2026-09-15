@@ -97,7 +97,7 @@ export function TransferActionsForWallet({
     setModalOwner(boundary);
     setSendOpen(true);
     if (routing) routing.setFlow("send");
-    else commitClientUrl(flowHref("/dashboard", "send"));
+    else commitClientUrl(flowHref(window.location.pathname, "send"));
   };
   const close = () => {
     setSendOpen(false);
@@ -107,7 +107,7 @@ export function TransferActionsForWallet({
     } else if (routing) {
       routing.clearFlow({ mode: "replace" });
     } else {
-      commitClientUrl(withoutFlowHref("/dashboard"), "replace");
+      commitClientUrl(withoutFlowHref(window.location.pathname), "replace");
     }
   };
   const finishClose = () => {
@@ -116,11 +116,11 @@ export function TransferActionsForWallet({
   };
   const showReview = useCallback((actionId: string) => {
     if (routing) routing.setFlow("send", { actionId, mode: "replace" });
-    else commitClientUrl(flowHref("/dashboard", "send", actionId), "replace");
+    else commitClientUrl(flowHref(window.location.pathname, "send", actionId), "replace");
   }, [routing]);
   const showFirstStep = useCallback(() => {
     if (routing) routing.setFlow("send", { mode: "replace" });
-    else commitClientUrl(flowHref("/dashboard", "send"), "replace");
+    else commitClientUrl(flowHref(window.location.pathname, "send"), "replace");
   }, [routing]);
 
   return (

@@ -12,7 +12,7 @@ Every market read and action prepare verifies `idToMarketParams` against the tru
 
 ## Borrow interface
 
-Signed-in users open Borrow at `/dashboard?panel=borrow`. The overview shows one friendly card for every enabled registry market, whether or not the owner has debt. The Bitcoin card uses the Bitcoin display name while exact token amounts continue to say `cbBTC`. A missing cbBTC balance leaves the market visible but disables Borrow; it does not redirect to another product.
+Signed-in users open Borrow at `/borrow`. The overview shows one friendly card for every enabled registry market, whether or not the owner has debt. The Bitcoin card uses the Bitcoin display name while exact token amounts continue to say `cbBTC`. A missing cbBTC balance leaves the market visible but disables Borrow; it does not redirect to another product.
 
 An active position stays on the same market card. Borrow more and Repay are the primary actions; Add collateral and Withdraw are the only management actions. The same minimum action set remains visible when liquidation risk is urgent, with risk-increasing actions disabled. Partial and unavailable reads remain explicit and are never presented as zero.
 

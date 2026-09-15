@@ -2,7 +2,17 @@
 // POST /api/client-performance → 204
 
 export const HOME_STARTUP_VERSION = 1 as const;
-export const HOME_STARTUP_ROUTES = ["/", "/dashboard"] as const;
+// Closed low-cardinality page labels: the root landing plus the canonical L1
+// shell routes. Dynamic L2 paths normalize to their L1 label before sending.
+export const HOME_STARTUP_ROUTES = [
+  "/",
+  "/home",
+  "/balances",
+  "/activity",
+  "/save",
+  "/borrow",
+  "/invest",
+] as const;
 export const HOME_STARTUP_OUTCOMES = [
   "ready",
   "signed-out",
@@ -193,4 +203,14 @@ function normalizeDuration(value: unknown, increment: number, maximum: number): 
 
 function isAllowed<const T extends readonly string[]>(value: unknown, allowed: T): value is T[number] {
   return typeof value === "string" && allowed.includes(value);
+}
+
+/**
+ * Normalizes an arbitrary pathname to its low-cardinality startup route label:
+ * the L1 page for every canonical and L2 path, `null` for anything else.
+ */
+export function normalizeHomeStartupRoute(pathname: string): HomeStartupRoute | null {
+  if (pathname === "/") return "/";
+  const first = pathname.split("/").filter((segment) => segment.length > 0)[0];
+  return HOME_STARTUP_ROUTES.find((route) => route !== "/" && route === `/${first}`) ?? null;
 }

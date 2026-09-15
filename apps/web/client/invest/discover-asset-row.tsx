@@ -2,6 +2,7 @@
 
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Item,
   ItemActions,
@@ -35,6 +36,7 @@ export function DiscoverAssetRow({
   const mark = presentInvestAssetMark(asset, assetMarkResolution);
   const change = price.changeLabel ?? "—";
   const changeTone = moneyChangeTone(change);
+  const isMarketLoading = market.status === "loading";
 
   return (
     <li>
@@ -52,21 +54,33 @@ export function DiscoverAssetRow({
           <ItemDescription>{asset.displaySymbol}</ItemDescription>
         </ItemContent>
         <ItemContent className="items-end text-right">
-          <ItemTitle numeric>{price.value}</ItemTitle>
-          {change !== "—" ? (
-            <span
-              className={
-                changeTone === "positive"
-                  ? "text-sm text-market-gain"
-                  : changeTone === "negative"
-                    ? "text-sm text-market-loss"
-                    : "text-sm text-muted-foreground"
-              }
-              data-money-change={changeTone}
-            >
-              {change}
-            </span>
-          ) : null}
+          {isMarketLoading ? (
+            // Loading rows keep the known asset name and the settled row's
+            // dimensions: stable Skeleton bars instead of a finished-looking
+            // em dash (#460).
+            <>
+              <Skeleton className="h-5 w-16" data-shimmer="price" />
+              <Skeleton className="h-5 w-12" data-shimmer="change" />
+            </>
+          ) : (
+            <>
+              <ItemTitle numeric>{price.value}</ItemTitle>
+              {change !== "—" ? (
+                <span
+                  className={
+                    changeTone === "positive"
+                      ? "text-sm text-market-gain"
+                      : changeTone === "negative"
+                        ? "text-sm text-market-loss"
+                        : "text-sm text-muted-foreground"
+                  }
+                  data-money-change={changeTone}
+                >
+                  {change}
+                </span>
+              ) : null}
+            </>
+          )}
         </ItemContent>
         <ItemActions aria-hidden="true">
           <ChevronRight className="size-4" />
