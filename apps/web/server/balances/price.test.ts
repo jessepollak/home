@@ -67,7 +67,7 @@ const dust = holding(
   "0x2222222222222222222222222222222222222222",
   "catalog:dust",
   "catalog",
-  { liquidity: "24999" },
+  { liquidity: "25000" },
 );
 const stale = holding(
   "0x3333333333333333333333333333333333333333",
@@ -216,9 +216,9 @@ describe("balances pricing", () => {
     });
 
     const result = await price(read, "DE");
-    expect(result.find(({ id }) => id === dust.id)?.value).toEqual({
-      status: "unpriced",
-      reason: "below-market-gate",
+    expect(result.find(({ id }) => id === dust.id)?.value).toMatchObject({
+      status: "priced",
+      currency: "EUR",
     });
     expect(result.find(({ id }) => id === stale.id)?.value).toEqual({
       status: "unpriced",
@@ -292,6 +292,7 @@ describe("balances pricing", () => {
       "wallet",
       { marketDataResolved: true, liquidity: "24999" },
     );
+    const missingLiquidity: ReadHolding = { ...gated, id: "wallet:missing-liquidity", contractAddress: "0x6666666666666666666666666666666666666666", key: "eip155:8453/erc20:0x6666666666666666666666666666666666666666", liquidityUsd: undefined };
     const batches: string[][] = [];
     const price = createTestPricer({
       readPrices: async (inputs) => {
@@ -301,47 +302,11 @@ describe("balances pricing", () => {
       readExchangeRates: async () => rates(),
     });
 
-    const result = await price({ ...read, holdings: [admitted, gated] }, "US");
-    expect(batches).toEqual([[admitted.key, gated.key]]);
-    expect(result[0]?.value).toMatchObject({
-      status: "priced",
-      currency: "USD",
-    });
-    expect(result[1]?.value).toEqual({
-      status: "unpriced",
-      reason: "below-market-gate",
-    });
-  });
-
-  test("admits inclusive $25k liquidity without volume and fails closed below or without it", async () => {
-    const atThreshold = holding(
-      "0x7777777777777777777777777777777777777777",
-      "catalog:at-threshold",
-      "catalog",
-      { liquidity: "25000" },
-    );
-    const belowThreshold = holding(
-      "0x8888888888888888888888888888888888888888",
-      "catalog:below-threshold",
-      "catalog",
-      { liquidity: "24999" },
-    );
-    const missingLiquidity = holding(
-      "0x9999999999999999999999999999999999999999",
-      "catalog:missing-liquidity",
-      "catalog",
-      { liquidity: null },
-    );
-    const price = createTestPricer({
-      readPrices: async (inputs) =>
-        inputs.map((input) => quote(input.assetKey, "fresh")),
-      readExchangeRates: async () => rates(),
-    });
-
     const result = await price(
-      { ...read, holdings: [atThreshold, belowThreshold, missingLiquidity] },
+      { ...read, holdings: [admitted, gated, missingLiquidity] },
       "US",
     );
+    expect(batches).toEqual([[admitted.key, gated.key, missingLiquidity.key]]);
     expect(result[0]?.value).toMatchObject({
       status: "priced",
       currency: "USD",

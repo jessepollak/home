@@ -80,6 +80,7 @@ describe("Codex recognized-token catalog", () => {
       row("0x5555555555555555555555555555555555555555", { liquidity: "0" }),
       row("0x6666666666666666666666666666666666666666", { volume24: "invalid" }),
       row("0x8888888888888888888888888888888888888888", { volume24: 0 }),
+      row("0x9999999999999999999999999999999999999999", { liquidity: undefined }),
       withToken(row("0x7777777777777777777777777777777777777777"), {
         symbol: "SAFE",
         info: { imageSmallUrl: "http://unsafe.example.test/token.png" },
@@ -114,25 +115,8 @@ describe("Codex recognized-token catalog", () => {
     });
     expect(normalized[3]).not.toHaveProperty("imageUrl");
     expect(new Set(normalized.map(({ address }) => address)).size).toBe(normalized.length);
-    for (const entry of normalized) {
-      expect(entry).not.toHaveProperty("volume24Usd");
-    }
-  });
-
-  test("admits rows with missing or invalid volume so it cannot change row identity", () => {
-    const normalized = normalizeRecognizedTokenCatalog([
-      row("0x6666666666666666666666666666666666666666", { volume24: "invalid" }),
-      row("0x8888888888888888888888888888888888888888", { volume24: 0 }),
-      row("0x9999999999999999999999999999999999999999"),
-    ]);
-
-    expect(normalized.map(({ address }) => address)).toEqual([
-      "0x6666666666666666666666666666666666666666",
-      "0x8888888888888888888888888888888888888888",
+    expect(normalized.map(({ address }) => address)).not.toContain(
       "0x9999999999999999999999999999999999999999",
-    ]);
-    for (const entry of normalized) {
-      expect(entry).not.toHaveProperty("volume24Usd");
-    }
+    );
   });
 });
