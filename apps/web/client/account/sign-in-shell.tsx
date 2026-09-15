@@ -3,14 +3,12 @@
 import { LoaderCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import type { BaseAccountLoginPhase } from "./cdp-client";
 import {
   CDP_SETUP_DOC_HREF,
   CDP_SETUP_DOC_LABEL,
   signInProviderUnavailableCopy,
   signInUnconfiguredCopy,
 } from "./sign-in-copy";
-import { baseAccountPhaseMessage } from "./sign-in-base-account";
 
 export function SignInBlockedPanel({
   reason,
@@ -43,7 +41,6 @@ export function SignInBlockedPanel({
 }
 
 export function SignInStatus({
-  phase,
   cleaningUp,
   checking,
   signOutError,
@@ -51,7 +48,6 @@ export function SignInStatus({
   onRetrySignOut,
   onRetryValidation,
 }: {
-  phase: BaseAccountLoginPhase | null;
   cleaningUp: boolean;
   checking: boolean;
   signOutError: boolean;
@@ -59,13 +55,11 @@ export function SignInStatus({
   onRetrySignOut: () => void;
   onRetryValidation: () => void;
 }) {
-  const pending = phase
-    ? baseAccountPhaseMessage(phase)
-    : cleaningUp
-      ? "Finishing sign-out…"
-      : checking
-        ? "Verifying your session…"
-        : null;
+  const pending = cleaningUp
+    ? "Finishing sign-out…"
+    : checking
+      ? "Verifying your session…"
+      : null;
   if (pending) {
     return (
       <Alert className="mt-4" aria-live="polite" role="status">
