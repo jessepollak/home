@@ -40,11 +40,7 @@ import {
 const PRICE_BATCH_SIZE = 25;
 export const BALANCES_PRICE_CONCURRENCY = 4;
 const LIQUIDITY_GATE = {
-  numerator: BigInt(100_000),
-  denominator: BigInt(1),
-};
-const VOLUME_GATE = {
-  numerator: BigInt(10_000),
+  numerator: BigInt(25_000),
   denominator: BigInt(1),
 };
 const ZERO: Fraction = {
@@ -289,10 +285,7 @@ function valueFraction(
   }
   if (
     (holding.source === "catalog" || holding.source === "wallet") &&
-    (
-      !meetsGate(holding.liquidityUsd, LIQUIDITY_GATE) ||
-      !meetsGate(holding.volume24Usd, VOLUME_GATE)
-    )
+    !meetsGate(holding.liquidityUsd, LIQUIDITY_GATE)
   ) {
     return failed("below-market-gate", currentTime);
   }

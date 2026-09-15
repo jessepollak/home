@@ -127,7 +127,6 @@ export function createBalancesResolver(dependencies: Dependencies = {}) {
             ? { imageUrl: catalogEntry.imageUrl }
             : {}),
           liquidityUsd: catalogEntry.liquidityUsd,
-          volume24Usd: catalogEntry.volume24Usd,
           balance: {
             status: "ready",
             baseUnits: row.amountBaseUnits,
@@ -158,9 +157,6 @@ export function createBalancesResolver(dependencies: Dependencies = {}) {
           ...(enriched.imageUrl ? { imageUrl: enriched.imageUrl } : {}),
           ...(enriched.liquidityUsd
             ? { liquidityUsd: enriched.liquidityUsd }
-            : {}),
-          ...(enriched.volume24Usd
-            ? { volume24Usd: enriched.volume24Usd }
             : {}),
           marketDataResolved: true,
           balance: {

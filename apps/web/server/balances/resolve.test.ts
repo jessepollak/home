@@ -18,7 +18,6 @@ const catalog: RecognizedTokenCatalogEntry = {
   decimals: 6,
   imageUrl: "https://images.test/cat.png",
   liquidityUsd: { atoms: "100000", scale: 0 },
-  volume24Usd: { atoms: "10000", scale: 0 },
 };
 const registryRead: BalancesRead = {
   block: {
@@ -61,7 +60,6 @@ describe("balances resolution", () => {
         decimals: 18,
         imageUrl: "https://images.test/wallet.png",
         liquidityUsd: { atoms: "100000", scale: 0 },
-        volume24Usd: { atoms: "10000", scale: 0 },
       }]]),
     });
     const result = await resolve(registryRead, enumeration([
@@ -133,7 +131,6 @@ describe("balances resolution", () => {
         cashCurrency: null,
         imageUrl: "https://images.test/wallet.png",
         liquidityUsd: { atoms: "100000", scale: 0 },
-        volume24Usd: { atoms: "10000", scale: 0 },
         marketDataResolved: true,
         balance: { status: "ready", baseUnits: "25" },
       });

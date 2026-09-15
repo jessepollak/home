@@ -33,7 +33,6 @@ export const CODEX_RECOGNIZED_CATALOG_QUERY = `query RecognizedBaseTokens(
   filterTokens(filters: $filters, rankings: $rankings, limit: $limit, offset: $offset) {
     results {
       liquidity
-      volume24
       token {
         address
         name
@@ -58,7 +57,6 @@ export type RecognizedTokenCatalogEntry = {
   symbol: string;
   decimals: number;
   liquidityUsd: ExactDecimal;
-  volume24Usd: ExactDecimal;
   imageUrl?: string;
 };
 
@@ -205,9 +203,7 @@ export function normalizeRecognizedTokenCatalog(
     const symbol = readBoundedText(token.symbol);
     const decimals = readInteger(token.decimals);
     const rawLiquidity = readPositiveDecimal(row.liquidity);
-    const rawVolume24 = readNonNegativeDecimal(row.volume24);
     const liquidityUsd = rawLiquidity ? parseExactDecimal(rawLiquidity) : null;
-    const volume24Usd = rawVolume24 ? parseExactDecimal(rawVolume24) : null;
     if (
       !address ||
       networkId !== 8453 ||
@@ -217,8 +213,7 @@ export function normalizeRecognizedTokenCatalog(
       decimals < 0 ||
       decimals > 255 ||
       !liquidityUsd ||
-      BigInt(liquidityUsd.atoms) === BigInt(0) ||
-      !volume24Usd
+      BigInt(liquidityUsd.atoms) === BigInt(0)
     ) {
       continue;
     }
@@ -245,7 +240,6 @@ export function normalizeRecognizedTokenCatalog(
       symbol,
       decimals,
       liquidityUsd,
-      volume24Usd,
       ...(imageUrl ? { imageUrl } : {}),
     });
     if (entries.length === CODEX_RECOGNIZED_CATALOG_LIMIT) break;
@@ -271,14 +265,4 @@ function readBoundedText(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 && trimmed.length <= 64 ? trimmed : null;
-}
-
-function readNonNegativeDecimal(value: unknown): string | null {
-  if (typeof value === "number") {
-    return Number.isFinite(value) && value >= 0 ? String(value) : null;
-  }
-  if (typeof value !== "string" || value !== value.trim()) return null;
-  return /^(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(value)
-    ? value
-    : null;
 }

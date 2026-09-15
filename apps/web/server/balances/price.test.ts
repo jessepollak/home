@@ -25,8 +25,7 @@ function holding(
   sourceKind: "registry" | "catalog" | "wallet",
   options: {
     cash?: "USD";
-    liquidity?: string;
-    volume?: string;
+    liquidity?: string | null;
     baseUnits?: string;
     marketDataResolved?: true;
   } = {},
@@ -48,14 +47,9 @@ function holding(
     ...(
       sourceKind === "catalog" || options.marketDataResolved
         ? {
-            liquidityUsd: {
-              atoms: options.liquidity ?? "100000",
-              scale: 0,
-            },
-            volume24Usd: {
-              atoms: options.volume ?? "10000",
-              scale: 0,
-            },
+            liquidityUsd: options.liquidity === null
+              ? undefined
+              : { atoms: options.liquidity ?? "100000", scale: 0 },
           }
         : {}
     ),
@@ -73,7 +67,7 @@ const dust = holding(
   "0x2222222222222222222222222222222222222222",
   "catalog:dust",
   "catalog",
-  { liquidity: "99999" },
+  { liquidity: "25000" },
 );
 const stale = holding(
   "0x3333333333333333333333333333333333333333",
@@ -222,9 +216,9 @@ describe("balances pricing", () => {
     });
 
     const result = await price(read, "DE");
-    expect(result.find(({ id }) => id === dust.id)?.value).toEqual({
-      status: "unpriced",
-      reason: "below-market-gate",
+    expect(result.find(({ id }) => id === dust.id)?.value).toMatchObject({
+      status: "priced",
+      currency: "EUR",
     });
     expect(result.find(({ id }) => id === stale.id)?.value).toEqual({
       status: "unpriced",
@@ -296,8 +290,9 @@ describe("balances pricing", () => {
       "0x5555555555555555555555555555555555555555",
       "wallet:gated",
       "wallet",
-      { marketDataResolved: true, liquidity: "99999" },
+      { marketDataResolved: true, liquidity: "24999" },
     );
+    const missingLiquidity: ReadHolding = { ...gated, id: "wallet:missing-liquidity", contractAddress: "0x6666666666666666666666666666666666666666", key: "eip155:8453/erc20:0x6666666666666666666666666666666666666666", liquidityUsd: undefined };
     const batches: string[][] = [];
     const price = createTestPricer({
       readPrices: async (inputs) => {
@@ -307,13 +302,20 @@ describe("balances pricing", () => {
       readExchangeRates: async () => rates(),
     });
 
-    const result = await price({ ...read, holdings: [admitted, gated] }, "US");
-    expect(batches).toEqual([[admitted.key, gated.key]]);
+    const result = await price(
+      { ...read, holdings: [admitted, gated, missingLiquidity] },
+      "US",
+    );
+    expect(batches).toEqual([[admitted.key, gated.key, missingLiquidity.key]]);
     expect(result[0]?.value).toMatchObject({
       status: "priced",
       currency: "USD",
     });
     expect(result[1]?.value).toEqual({
+      status: "unpriced",
+      reason: "below-market-gate",
+    });
+    expect(result[2]?.value).toEqual({
       status: "unpriced",
       reason: "below-market-gate",
     });
