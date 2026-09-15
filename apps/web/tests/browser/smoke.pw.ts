@@ -951,6 +951,34 @@ test("reload resumes an unconfirmed send review from its URL action", async ({ p
   await expect(page).toHaveURL(new RegExp(`flow=send.*action=${ACTION_ID}`));
 });
 
+test("drawer transitions are instant when reduced motion is requested", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+
+  await page.getByRole("button", { name: "Send" }).click();
+  const slots = ["drawer-overlay", "drawer-popup", "drawer-content"];
+  const transitionDurations = () => page.locator(
+    slots.map((slot) => `[data-slot="${slot}"]`).join(","),
+  ).evaluateAll((elements) => elements.map((element) => getComputedStyle(element).transitionDuration));
+  expect(await transitionDurations()).toEqual(["0s", "0s", "0s"]);
+
+  const closingDurations = page.evaluate(() => new Promise<string[]>((resolve) => {
+    const observer = new MutationObserver(() => {
+      const overlay = document.querySelector('[data-slot="drawer-overlay"][data-ending-style]');
+      const popup = document.querySelector('[data-slot="drawer-popup"][data-ending-style]');
+      if (!overlay || !popup) return;
+      observer.disconnect();
+      resolve([overlay, popup, document.querySelector('[data-slot="drawer-content"]')!]
+        .map((element) => getComputedStyle(element).transitionDuration));
+    });
+    observer.observe(document.body, { attributes: true, subtree: true });
+  }));
+  await page.getByRole("button", { name: "Close send dialog" }).click();
+  expect(await closingDurations).toEqual(["0s", "0s", "0s"]);
+});
+
 test("shallow-routed money flows open from URLs and Back closes them", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
   await installApiFixtures(page);
