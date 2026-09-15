@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   evaluateFactoryPreflight,
   prohibitedEnvironmentNames,
 } from "../factory-preflight.mjs";
+
+const PREFLIGHT_PATH = fileURLToPath(new URL("../factory-preflight.mjs", import.meta.url));
 
 const SAFE_INPUT = {
   remote: "https://github.com/jessepollak/home.git",
@@ -29,6 +36,24 @@ test("fails closed for the wrong repository or branch", () => {
     { ...SAFE_INPUT, branch: "" },
   ]) {
     assert.equal(evaluateFactoryPreflight(input).allowed, false);
+  }
+});
+
+test("runs checks when invoked through a symlink", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "factory-preflight-"));
+  const symlinkPath = join(directory, "factory-preflight.mjs");
+
+  try {
+    await symlink(PREFLIGHT_PATH, symlinkPath);
+    const result = spawnSync(process.execPath, [symlinkPath], {
+      cwd: directory,
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Factory preflight failed: repository metadata is unavailable\./);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { access } from "node:fs/promises";
+import { access, realpath } from "node:fs/promises";
 import { constants } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const EXPECTED_REPOSITORY = "jessepollak/home";
 const FACTORY_BRANCH = /^agent\/[A-Za-z0-9._/-]+$/;
@@ -117,6 +117,18 @@ export async function runFactoryPreflight() {
   return 0;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+let isDirectExecution = false;
+try {
+  const [modulePath, invocationPath] = await Promise.all([
+    realpath(fileURLToPath(import.meta.url)),
+    realpath(process.argv[1]),
+  ]);
+  isDirectExecution = modulePath === invocationPath;
+} catch {
+  console.error("Factory preflight failed: invocation path is unavailable.");
+  process.exitCode = 1;
+}
+
+if (isDirectExecution) {
   process.exitCode = await runFactoryPreflight();
 }
