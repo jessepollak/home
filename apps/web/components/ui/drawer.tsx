@@ -195,7 +195,7 @@ function DrawerTitle({ className, variant = "default", ...props }: DrawerPrimiti
       data-slot="drawer-title"
       className={cn(
         "text-base leading-none font-semibold text-foreground",
-        variant === "money" && "truncate px-2 text-center",
+        variant === "money" && "max-w-[calc(100vw-7.5rem)] truncate px-2 text-center",
         className
       )}
       {...props}
