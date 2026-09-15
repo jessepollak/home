@@ -38,8 +38,8 @@ describe("Home startup recorder", () => {
     value.recorder.start("/home");
     value.at(10); value.recorder.mark("shell:paint");
     value.at(25); value.recorder.mark("balances:painted");
+    value.at(30); value.recorder.mark("action:first-interactive");
     value.at(40); value.recorder.mark("session:verified");
-    value.at(50); value.recorder.mark("action:first-interactive");
     value.at(60); value.recorder.mark("action:first-interactive");
 
     expect(value.sent).toEqual([{
@@ -51,8 +51,8 @@ describe("Home startup recorder", () => {
       shellMs: 10,
       balancesMs: 25,
       sessionMs: 40,
-      interactiveMs: 50,
-      totalMs: 50,
+      interactiveMs: 30,
+      totalMs: 40,
     }]);
   });
 
@@ -158,6 +158,21 @@ describe("Home startup recorder", () => {
 
     expect(performance.getEntriesByName("session:verified", "mark")).toHaveLength(1);
     performance.clearMarks("session:verified");
+  });
+
+  test("authenticated ready does not wait for first interaction", () => {
+    const value = fixture();
+    value.recorder.start("/home");
+    value.at(1); value.recorder.mark("shell:paint");
+    value.at(2); value.recorder.mark("session:verified");
+    value.at(3); value.recorder.mark("balances:painted");
+
+    expect(value.sent).toEqual([expect.objectContaining({
+      route: "/home",
+      outcome: "ready",
+      totalMs: 3,
+    })]);
+    expect(value.sent[0]).not.toHaveProperty("interactiveMs");
   });
 
   test("landing ready needs shell and verified session only", () => {

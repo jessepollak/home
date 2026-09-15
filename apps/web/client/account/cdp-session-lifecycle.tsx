@@ -5,7 +5,11 @@ import { AccountWalletContext, type AccountSessionStatus, type AccountWalletClie
 import { connectBaseAccount, restoreBaseAccount, BaseAccountConnectorError, type BaseAccountConnector, type BaseAccountInvalidation, type BaseAccountRestorer, type ConnectedBaseAccount } from "./base-account-connector";
 import { SessionValidationError, validateAccountSession, type SessionFetch, type VerifiedAccountSession } from "./session-client";
 import { createSiweMessage } from "viem/siwe";
-import { type AccountProvider, type AccountProviderRequest } from "@/shared/account/session-types";
+import {
+  type AccountProvider,
+  type AccountProviderRequest,
+  type AccountRenderSeed,
+} from "@/shared/account/session-types";
 import { normalizeHomeStartupRoute } from "@/shared/observability/client-performance.contract";
 import {
   clearOwnerQueryBoundary,
@@ -20,6 +24,13 @@ import { BaseAccountLoginError, baseLoginFailureFromConnector, clearCdpRenderHin
 import { dataOwnerKey, ownerSessionBoundary } from "./owner-keys";
 import { useOwnerGenerationFence } from "./owner-generation-fence";
 import { finishHomeAuthRestore, sendHomeAuthSignOut } from "@/client/observability/auth-performance";
+import { nativeOwnerKey } from "./native-base-session-client";
+
+function renderSeedSdkOwnerKey(seed: AccountRenderSeed): string {
+  return seed.source === "home-session"
+    ? nativeOwnerKey(seed.session)
+    : seed.session.user.subject;
+}
 
 export type { OwnerGenerationFence, OwnerGenerationIdentity } from "./owner-generation-fence";
 
@@ -31,6 +42,7 @@ export function AccountWalletSessionOwner({
   projectConfigured = true,
   baseAccountConnector = connectBaseAccount,
   baseAccountRestorer = restoreBaseAccount,
+  renderSeed = null,
 }: {
   children: ReactNode;
   sdk: AccountWalletSdkBoundary;
@@ -39,6 +51,7 @@ export function AccountWalletSessionOwner({
   projectConfigured?: boolean;
   baseAccountConnector?: BaseAccountConnector;
   baseAccountRestorer?: BaseAccountRestorer;
+  renderSeed?: AccountRenderSeed | null;
 }) {
   const {
     authentication = "cdp",
@@ -58,6 +71,17 @@ export function AccountWalletSessionOwner({
     signOut: sdkSignOut,
   } = sdk;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const [initialRenderSeed] = useState(
+    () => renderSeed?.session.smartAccount ? renderSeed : null,
+  );
+  const seedActiveRef = useRef(initialRenderSeed !== null);
+  const seededSdkOwnerKey = initialRenderSeed
+    ? renderSeedSdkOwnerKey(initialRenderSeed)
+    : null;
+  const seededDataOwnerKey = initialRenderSeed
+    ? dataOwnerKey(initialRenderSeed.session)
+    : null;
+  const seedBoundaryInitializedRef = useRef(false);
   const ownerBoundaryResetRef = useRef<() => void>(() => {});
   const clearQueryBoundary = useCallback((preserveOwnerKey?: string | null) => {
     ownerBoundaryResetRef.current();
@@ -71,21 +95,31 @@ export function AccountWalletSessionOwner({
       preserveOwnerKey,
     );
   }, [queryClient]);
-  const fence = useOwnerGenerationFence(clearQueryBoundary);
+  const fence = useOwnerGenerationFence(clearQueryBoundary, {
+    ownerKey: seededSdkOwnerKey,
+    boundary: initialRenderSeed
+      ? ownerSessionBoundary({
+          ownerKey: seededSdkOwnerKey,
+          session: initialRenderSeed.session,
+        })
+      : null,
+  });
   const baseConnectionRef = useRef<ConnectedBaseAccount | null>(null);
   const providerRef = useRef<AccountProviderRequest>("restore");
   const cleanupRef = useRef<Promise<void> | null>(null);
   const validationRef = useRef<AbortController | null>(null);
-  const previousOwner = useRef(ownerKey);
-  const initialProvisionalSession = isInitialized && isSignedIn && ownerKey && provisionalSession?.smartAccount
-    ? provisionalSession
-    : null;
+  const previousOwner = useRef(seededSdkOwnerKey ?? ownerKey);
+  const initialProvisionalSession = initialRenderSeed?.session ?? (
+    isInitialized && isSignedIn && ownerKey && provisionalSession?.smartAccount
+      ? provisionalSession
+      : null
+  );
   const [session, setSession] = useState<VerifiedAccountSession | null>(initialProvisionalSession);
   const [verification, setVerification] = useState<"provisional" | "server" | null>(
     initialProvisionalSession ? "provisional" : null,
   );
   const [status, setStatus] = useState<AccountSessionStatus>(
-    initialProvisionalSession ? "validating" : "restoring",
+    initialRenderSeed ? "restoring" : initialProvisionalSession ? "validating" : "restoring",
   );
   const [message, setMessage] = useState<string | null>(null);
   const [validationRequest, requestValidation] = useState(0);
@@ -94,6 +128,12 @@ export function AccountWalletSessionOwner({
   );
 
   useLayoutEffect(() => {
+    if (seedActiveRef.current && !seedBoundaryInitializedRef.current) {
+      seedBoundaryInitializedRef.current = true;
+      clearQueryBoundary(seededDataOwnerKey);
+    }
+    if (seedActiveRef.current && !isInitialized) return;
+    if (isInitialized) seedActiveRef.current = false;
     const nextProvisional = isSignedIn && ownerKey && provisionalSession?.smartAccount
       ? provisionalSession
       : null;
@@ -118,9 +158,10 @@ export function AccountWalletSessionOwner({
     }
     previousOwner.current = ownerKey;
     previousProvisionalOwnerKey.current = provisionalOwnerKey;
-  }, [fence, isSignedIn, ownerKey, provisionalSession]);
+  }, [clearQueryBoundary, fence, isInitialized, isSignedIn, ownerKey, provisionalSession, seededDataOwnerKey]);
 
   const clearPrivate = useCallback((preserveCdpRenderHint = false) => {
+    seedActiveRef.current = false;
     if (!preserveCdpRenderHint) clearCdpRenderHint();
     validationRef.current?.abort();
     setSession(null);

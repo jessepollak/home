@@ -1,6 +1,6 @@
 import "server-only";
 
-import { type VerifiedAccountSession } from "@/shared/account/session-types";
+import { type AccountRenderSeed } from "@/shared/account/session-types";
 import {
   HOME_SESSION_COOKIE,
   readNativeBaseSessionToken,
@@ -10,10 +10,7 @@ import {
   type RenderCookieStore,
 } from "@/server/auth/cdp-render-session";
 
-export type RenderSession = {
-  session: VerifiedAccountSession;
-  source: "home-session" | "cdp-hint";
-};
+export type RenderSession = AccountRenderSeed;
 
 export function readRenderSession(
   cookies: RenderCookieStore,

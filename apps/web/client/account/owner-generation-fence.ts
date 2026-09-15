@@ -22,10 +22,14 @@ export type OwnerGenerationFence = {
 
 export function useOwnerGenerationFence(
   onAdvance: (preserveOwnerKey?: string | null) => void,
+  initial?: {
+    ownerKey: string | null;
+    boundary: string | null;
+  },
 ): OwnerGenerationFence {
   const generationRef = useRef(0);
-  const boundaryRef = useRef<string | null>(null);
-  const ownerKeyRef = useRef<string | null>(null);
+  const boundaryRef = useRef<string | null>(initial?.boundary ?? null);
+  const ownerKeyRef = useRef<string | null>(initial?.ownerKey ?? null);
   const advance = useCallback((preserveOwnerKey?: string | null) => {
     generationRef.current += 1;
     onAdvance(preserveOwnerKey);

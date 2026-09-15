@@ -14,6 +14,7 @@ import {
   AccountWalletSessionOwner,
 } from "./cdp-session-lifecycle";
 import type { AccountWalletSdkBoundary } from "./cdp-client";
+import type { AccountRenderSeed } from "@/shared/account/session-types";
 import { boundedCdpSignOut, composeSdkBoundaries } from "./composite-sdk-boundary";
 import { useNativeBaseIdentity } from "./native-base-bridge";
 import { createSdkActivationGate } from "./sdk-activation";
@@ -76,10 +77,12 @@ function sameCdpIdentityState(current: CdpBoundary | null, next: CdpBoundary): b
 export default function CompositeAccountProvider({
   projectId,
   baseAccountEnabled,
+  renderSeed = null,
   children,
 }: {
   projectId: string;
   baseAccountEnabled: boolean;
+  renderSeed?: AccountRenderSeed | null;
   children: ReactNode;
 }) {
   const [restorePlan, setRestorePlan] = useState({
@@ -267,6 +270,7 @@ export default function CompositeAccountProvider({
       sdk={sdk}
       baseAccountEnabled={baseAccountEnabled}
       projectConfigured
+      renderSeed={renderSeed}
     >
       {isCdpActive ? (
         <LazyCdpErrorBoundary

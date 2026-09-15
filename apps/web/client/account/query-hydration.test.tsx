@@ -4,6 +4,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { dehydrate } from "@tanstack/react-query";
 import type { AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client";
 import type { VerifiedAccountSession } from "./session-client";
+import type { AccountRenderSeed } from "@/shared/account/session-types";
 import {
   createHomeQueryClient,
   createOwnerQueryPersister,
@@ -107,6 +108,127 @@ afterEach(() => {
 });
 
 describe("owner query hydration lifecycle", () => {
+  test("render seed paints signed cache before SDK restore without gaining authority", async () => {
+    const seededSession = verifiedSession("subject-a", ADDRESS_A);
+    const seededOwnerKey = dataOwnerKey(seededSession);
+    const renderSeed: AccountRenderSeed = { session: seededSession, source: "cdp-hint" };
+    persistValuation(seededOwnerKey, "12340000");
+    const otherOwnerKey = dataOwnerKey(verifiedSession("subject-b", ADDRESS_B));
+    persistValuation(otherOwnerKey, "999");
+    let sessionReads = 0;
+    let tokenReads = 0;
+    let valuationFetches = 0;
+    const unsettledSdk = {
+      ...sdk(null),
+      isInitialized: false,
+      getAccessToken: async () => { tokenReads += 1; return "token"; },
+    };
+    const owner = (ownerSdk: AccountWalletSdkBoundary) => (
+      <AccountWalletSessionOwner
+        sdk={ownerSdk}
+        renderSeed={renderSeed}
+        sessionFetch={async () => {
+          sessionReads += 1;
+          return new Promise<Response>(() => {});
+        }}
+      >
+        <HydrationProbe fetchValuation={async () => {
+          valuationFetches += 1;
+          return {};
+        }} />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(owner(unsettledSdk));
+
+    await waitFor(() => expect(view.getByTestId("valuation").textContent).toBe("12340000"));
+    expect(observedClient).toMatchObject({
+      status: "restoring",
+      verification: "provisional",
+      isInitialized: false,
+      isSignedIn: false,
+      ownerKey: null,
+    });
+    expect({ sessionReads, tokenReads, valuationFetches }).toEqual({
+      sessionReads: 0,
+      tokenReads: 0,
+      valuationFetches: 0,
+    });
+    expect(window.localStorage.getItem(ownerQueryStorageKey(otherOwnerKey)!)).toBeNull();
+    await expect(observedClient!.fetchAccountResource("/api/actions"))
+      .rejects.toMatchObject({ reason: "stale-session" });
+
+    await act(async () => { view.rerender(owner({ ...unsettledSdk, isInitialized: true })); });
+    await waitFor(() => expect(observedClient?.status).toBe("signed-out"));
+    expect(view.getByTestId("valuation").textContent).toBe("none");
+    expect(window.localStorage.getItem(ownerQueryStorageKey(seededOwnerKey)!)).toBeNull();
+
+    // The persistent layout prop is one-shot and cannot restore private data
+    // after a live signed-out settlement.
+    await act(async () => { view.rerender(owner({ ...unsettledSdk, isInitialized: true })); });
+    expect(observedClient?.verification).toBeNull();
+    expect(view.getByTestId("valuation").textContent).toBe("none");
+  });
+
+  test("matching CDP subject settlement retains render-seeded cache", async () => {
+    const seededSession = verifiedSession("subject-a", ADDRESS_A);
+    const seededOwnerKey = dataOwnerKey(seededSession);
+    persistValuation(seededOwnerKey, "12340000");
+    let resolveSession!: (response: Response) => void;
+    const sessionResponse = new Promise<Response>((resolve) => { resolveSession = resolve; });
+    const owner = (ownerSdk: AccountWalletSdkBoundary) => (
+      <AccountWalletSessionOwner
+        sdk={ownerSdk}
+        renderSeed={{ session: seededSession, source: "cdp-hint" }}
+        sessionFetch={async () => sessionResponse}
+      >
+        <HydrationProbe fetchValuation={async () => new Promise<unknown>(() => {})} />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(owner({ ...sdk(null), isInitialized: false }));
+    await waitFor(() => expect(view.getByTestId("valuation").textContent).toBe("12340000"));
+
+    // CDP's SDK owner key is currentUser.userId, equal to the session subject.
+    await act(async () => { view.rerender(owner(sdk("subject-a", seededSession))); });
+    await waitFor(() => expect(observedClient?.status).toBe("validating"));
+    expect(view.getByTestId("valuation").textContent).toBe("12340000");
+    resolveSession(Response.json(seededSession));
+    await waitFor(() => expect(observedClient?.verification).toBe("server"));
+    expect(view.getByTestId("valuation").textContent).toBe("12340000");
+  });
+
+  test("matching native owner settlement retains render-seeded cache", async () => {
+    const seededSession: VerifiedAccountSession = {
+      ...verifiedSession("subject-a", ADDRESS_A),
+      accountProvider: "base-account",
+    };
+    const seededOwnerKey = dataOwnerKey(seededSession);
+    const nativeSdkOwnerKey = `subject-a\u0000${ADDRESS_A}\u00008453`;
+    persistValuation(seededOwnerKey, "12340000");
+    const owner = (ownerSdk: AccountWalletSdkBoundary) => (
+      <AccountWalletSessionOwner
+        sdk={ownerSdk}
+        renderSeed={{ session: seededSession, source: "home-session" }}
+        sessionFetch={async () => Response.json(seededSession)}
+        baseAccountEnabled
+        baseAccountRestorer={async () => new Promise<never>(() => {})}
+      >
+        <HydrationProbe fetchValuation={async () => new Promise<unknown>(() => {})} />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(owner({ ...sdk(null), authentication: "native-base", isInitialized: false }));
+    await waitFor(() => expect(view.getByTestId("valuation").textContent).toBe("12340000"));
+
+    await act(async () => {
+      view.rerender(owner({
+        ...sdk(nativeSdkOwnerKey, seededSession),
+        authentication: "native-base",
+        getAccessToken: async () => null,
+      }));
+    });
+    await waitFor(() => expect(observedClient?.status).toBe("validating"));
+    expect(view.getByTestId("valuation").textContent).toBe("12340000");
+  });
+
   test("provisional identity preserves only its own cache and cannot use authenticated transport", async () => {
     const rows = [
       { name: "matching", cached: verifiedSession("subject-a", ADDRESS_A), incoming: verifiedSession("subject-a", ADDRESS_A), expected: "12340000" },

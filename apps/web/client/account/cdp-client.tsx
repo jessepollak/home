@@ -17,6 +17,7 @@ import { signInProviderUnavailableCopy, type SignInAvailability } from "./sign-i
 import { BaseAccountConnectorError } from "./base-account-connector";
 import type { VerifiedAccountSession } from "./session-client";
 import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
+import type { AccountRenderSeed } from "@/shared/account/session-types";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { BaseAccountLoginError } from "./cdp-wallet-provider-capabilities";
@@ -176,10 +177,12 @@ function createLoadingAccountWalletClient(baseAccountEnabled: boolean): AccountW
 function LazyConfiguredAccountProvider({
   projectId,
   baseAccountEnabled,
+  renderSeed,
   children,
 }: {
   projectId: string;
   baseAccountEnabled: boolean;
+  renderSeed: AccountRenderSeed | null;
   children: ReactNode;
 }) {
   return (
@@ -191,6 +194,7 @@ function LazyConfiguredAccountProvider({
       <LazyCompositeAccountProvider
         projectId={projectId}
         baseAccountEnabled={baseAccountEnabled}
+        renderSeed={renderSeed}
       >
         {children}
       </LazyCompositeAccountProvider>
@@ -202,11 +206,13 @@ export function CdpAccountProvider({
   projectId,
   baseAccountEnabled = false,
   smokeFixture = false,
+  renderSeed = null,
   children,
 }: {
   projectId: string | null;
   baseAccountEnabled?: boolean;
   smokeFixture?: boolean;
+  renderSeed?: AccountRenderSeed | null;
   children: ReactNode;
 }) {
   if (smokeFixture) {
@@ -223,6 +229,7 @@ export function CdpAccountProvider({
       <LazyConfiguredAccountProvider
         projectId={projectId}
         baseAccountEnabled
+        renderSeed={renderSeed}
       >
         {children}
       </LazyConfiguredAccountProvider>
@@ -233,6 +240,7 @@ export function CdpAccountProvider({
       <LazyConfiguredAccountProvider
         projectId={projectId}
         baseAccountEnabled={false}
+        renderSeed={renderSeed}
       >
         {children}
       </LazyConfiguredAccountProvider>
@@ -243,7 +251,7 @@ export function CdpAccountProvider({
       <Suspense fallback={(
         <AccountWalletClientProvider client={unconfiguredClient}>{children}</AccountWalletClientProvider>
       )}>
-        <LazyNativeBaseAccountBridge>{children}</LazyNativeBaseAccountBridge>
+        <LazyNativeBaseAccountBridge renderSeed={renderSeed}>{children}</LazyNativeBaseAccountBridge>
       </Suspense>
     );
   }
