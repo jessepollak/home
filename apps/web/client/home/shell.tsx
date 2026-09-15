@@ -558,11 +558,11 @@ export function HomeShell({
     setForwardRequest((request) => request + 1);
     disarmBalancesRestore();
     setBalancesRevealReset((resetSignal) => resetSignal + 1);
-    void account.signOut()
-      .then(() => {
+    void account.signOut({
+      onNavigationSafe: () => {
         if (routeMode === "dashboard") router.replace("/", { scroll: false });
-      })
-      .catch(() => {});
+      },
+    }).catch(() => {});
   }
 
   const nestedChromeTitle = isAccountSettingsOpen
