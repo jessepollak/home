@@ -38,15 +38,39 @@ describe("public coverage page", () => {
     expect(html).not.toContain("<footer");
   });
 
-  test("keeps six split columns and renders icon-only accessible traffic-light triggers in status cells", async () => {
+  test("globe detail and description use the stablecoin, 1:1 onramp, and integrated signal labels", async () => {
+    const { SupportedGlobe } = await import("@/client/landing/supported-globe");
+    const { coverageGlobeCountries, coverageGlobeDescription, coverageGlobePointCount } = await import("@/client/coverage/coverage-globe");
+    const { coverageRegistry } = await import("@/config/coverage");
+    const html = renderToStaticMarkup(
+      <SupportedGlobe
+        countries={coverageGlobeCountries}
+        showRoutes={false}
+        ariaLabel="Interactive globe of local-money coverage research"
+        description={`${coverageGlobePointCount} sourced inventory points. ${coverageGlobeDescription}`}
+        interactiveMarkerTones={["positive", "caution", "negative"]}
+      />,
+    );
+
+    expect(html).toContain("239 sourced inventory points. Marker tones describe 1:1 onramp research, not stablecoin availability or integration status.");
+    expect(html).toContain("Stablecoin candidate identified; 1:1 onramp research: Conditional; Integrated: Sandbox");
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "US")?.detail).toBe("Stablecoin candidate identified; 1:1 onramp research: Conditional; Integrated: Sandbox");
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "CN")?.detail).toBe("No stablecoin candidate identified; 1:1 onramp research: Not researched; Not integrated");
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "BR")?.markerTone).toBe("positive");
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "CN")?.markerTone).toBe("neutral");
+    expect((html.match(/<button/g) ?? []).length).toBe(coverageRegistry.filter((record) => record.issuerRoute.status !== "not-researched").length);
+  });
+
+  test("keeps seven split columns and renders icon-only accessible traffic-light triggers in status cells", async () => {
     const html = await renderCoverage({ q: "United States" });
     expect(html).toContain("data-slot=\"table\"");
     expect(html).toMatch(/<th[^>]+scope="col">Country<\/th>/);
     expect(html).toContain(">Currency</th>");
     expect(html).toContain(">Asset</th>");
     expect(html).toContain(">Issuer</th>");
-    expect(html).toMatch(/<th[^>]+scope="col"><span[^>]*>Issuer route<\/span><\/th>/);
-    expect(html).toMatch(/<th[^>]+scope="col"><span[^>]*>Home route<\/span><\/th>/);
+    expect(html).toMatch(/<th[^>]+scope="col"><span[^>]*>Stablecoin<\/span><\/th>/);
+    expect(html).toMatch(/<th[^>]+scope="col"><span[^>]*>1:1 onramp<\/span><\/th>/);
+    expect(html).toMatch(/<th[^>]+scope="col"><span[^>]*>Integrated<\/span><\/th>/);
     expect(html).not.toContain(">GDP (2024)</th>");
     expect(html).toMatch(/aria-hidden="true"[^>]*>🇺🇸<\/span>/);
 
@@ -55,10 +79,12 @@ describe("public coverage page", () => {
     const visibleText = (cell: string) => cell.replace(/<[^>]+>/g, "");
     expect(visibleText(cells[3] ?? "")).toBe("");
     expect(visibleText(cells[4] ?? "")).toBe("");
+    expect(visibleText(cells[5] ?? "")).toBe("");
     expect(cells[3]).toContain("<button type=\"button\"");
-    expect(cells[3]).toContain("aria-label=\"Yellow — Conditional issuer route\"");
+    expect(cells[3]).toContain("aria-label=\"Yellow — Stablecoin candidate identified\"");
     expect(cells[3]).toContain("data-indicator=\"solid\"");
-    expect(cells[4]).toContain("aria-label=\"Yellow — Sandbox Home route\"");
+    expect(cells[4]).toContain("aria-label=\"Yellow — Conditional 1:1 onramp\"");
+    expect(cells[5]).toContain("aria-label=\"Yellow — Sandbox integration\"");
     expect(row).not.toContain("<details");
     expect(row).not.toContain("Evidence checked");
     expect(row).not.toContain("Registry checked");
@@ -81,14 +107,16 @@ describe("public coverage page", () => {
   test("maps researched and absent routes without presenting unknown coverage as unavailable", async () => {
     const documented = await renderCoverage({ q: "Indonesia" });
     const documentedRow = documented.match(/<tr[^>]+id="country-ID"[\s\S]*?<\/tr>/)?.[0] ?? "";
-    expect(documentedRow).toContain("aria-label=\"Green — Documented issuer route\"");
-    expect(documentedRow).toContain("aria-label=\"Yellow — In build Home route\"");
+    expect(documentedRow).toContain("aria-label=\"Yellow — Stablecoin candidate identified\"");
+    expect(documentedRow).toContain("aria-label=\"Green — Documented 1:1 onramp\"");
+    expect(documentedRow).toContain("aria-label=\"Yellow — In build integration\"");
 
     const unknown = await renderCoverage({ q: "China" });
     const unknownRow = unknown.match(/<tr[^>]+id="country-CN"[\s\S]*?<\/tr>/)?.[0] ?? "";
-    expect(unknownRow).toContain("aria-label=\"Yellow — Not researched issuer route\"");
+    expect(unknownRow).toContain("aria-label=\"Red — No stablecoin candidate identified\"");
+    expect(unknownRow).toContain("aria-label=\"Yellow — Not researched 1:1 onramp\"");
     expect(unknownRow).toContain("data-indicator=\"hollow\"");
-    expect(unknownRow).toContain("aria-label=\"Red — No Home route\"");
+    expect(unknownRow).toContain("aria-label=\"Red — Not integrated\"");
   });
 
   test("keeps GDP as default ordering without displaying the GDP column", async () => {

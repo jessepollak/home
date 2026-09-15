@@ -19,7 +19,7 @@ const props = {
     { value: "conditional", label: "Conditional" },
   ],
   homeOptions: [
-    { value: "none", label: "No Home route" },
+    { value: "none", label: "Not integrated" },
     { value: "live", label: "Live" },
   ],
 };
@@ -56,7 +56,7 @@ describe("CoverageFilters", () => {
   test("submits select changes immediately with the complete URL-addressable query", () => {
     const view = render(<CoverageFilters {...props} values={{ q: "yen", issuer: "", home: "live", sort: "gdp" }} />);
 
-    fireEvent.change(view.getByRole("combobox", { name: "Issuer route" }), {
+    fireEvent.change(view.getByRole("combobox", { name: "1:1 onramp" }), {
       target: { value: "documented" },
     });
 
@@ -68,7 +68,7 @@ describe("CoverageFilters", () => {
   test("syncs uncontrolled controls without replacing or blurring a focused select", () => {
     const view = render(<CoverageFilters {...props} values={{ q: "yen", issuer: "documented", home: "live", sort: "alphabetical" }} />);
     const search = view.getByRole("textbox", { name: "Search" });
-    const issuer = view.getByRole("combobox", { name: "Issuer route" }) as HTMLSelectElement;
+    const issuer = view.getByRole("combobox", { name: "1:1 onramp" }) as HTMLSelectElement;
     expect((search as HTMLInputElement).value).toBe("yen");
     expect(issuer.value).toBe("documented");
 
@@ -76,11 +76,11 @@ describe("CoverageFilters", () => {
     issuer.focus();
     view.rerender(<CoverageFilters {...props} values={{ q: "peso", issuer: "conditional", home: "none", sort: "gdp" }} />);
 
-    expect(view.getByRole("combobox", { name: "Issuer route" })).toBe(issuer);
+    expect(view.getByRole("combobox", { name: "1:1 onramp" })).toBe(issuer);
     expect(document.activeElement).toBe(issuer);
     expect(issuer.value).toBe("conditional");
     expect((search as HTMLInputElement).value).toBe("peso");
-    expect((view.getByRole("combobox", { name: "Home route" }) as HTMLSelectElement).value).toBe("none");
+    expect((view.getByRole("combobox", { name: "Integrated" }) as HTMLSelectElement).value).toBe("none");
     expect((view.getByRole("combobox", { name: "Sort" }) as HTMLSelectElement).value).toBe("gdp");
   });
 
@@ -108,16 +108,16 @@ describe("CoverageFilters", () => {
     window.dispatchEvent(new PopStateEvent("popstate"));
 
     expect(search.value).toBe("back");
-    expect((view.getByRole("combobox", { name: "Issuer route" }) as HTMLSelectElement).value).toBe("conditional");
-    expect((view.getByRole("combobox", { name: "Home route" }) as HTMLSelectElement).value).toBe("none");
+    expect((view.getByRole("combobox", { name: "1:1 onramp" }) as HTMLSelectElement).value).toBe("conditional");
+    expect((view.getByRole("combobox", { name: "Integrated" }) as HTMLSelectElement).value).toBe("none");
     expect((view.getByRole("combobox", { name: "Sort" }) as HTMLSelectElement).value).toBe("alphabetical");
     jest.advanceTimersByTime(250);
     expect(submissions).toHaveLength(0);
 
     window.history.pushState({}, "", "/coverage?issuer=bogus&home=bogus&sort=bogus");
     window.dispatchEvent(new PopStateEvent("popstate"));
-    expect((view.getByRole("combobox", { name: "Issuer route" }) as HTMLSelectElement).value).toBe("");
-    expect((view.getByRole("combobox", { name: "Home route" }) as HTMLSelectElement).value).toBe("");
+    expect((view.getByRole("combobox", { name: "1:1 onramp" }) as HTMLSelectElement).value).toBe("");
+    expect((view.getByRole("combobox", { name: "Integrated" }) as HTMLSelectElement).value).toBe("");
     expect((view.getByRole("combobox", { name: "Sort" }) as HTMLSelectElement).value).toBe("gdp");
   });
 });

@@ -419,7 +419,7 @@ export function SupportedGlobe({
       <div className={styles.srOnly}>
         <p id={descriptionId}>
           {description ?? `${countries.length} country and currency profiles${showRoutes ? " connected by a small illustrative route set" : " shown as sourced inventory points"}.`}
-          {status === "ready" && " Drag in any direction to rotate and tilt; one-finger gestures rotate the globe while two-finger pinch zoom remains available. Space pauses or resumes rotation; arrow keys rotate and tilt when the globe is focused. Tab to a country point; Up and Down arrows move between visible country points."}
+          {status === "ready" && ` Drag in any direction to rotate and tilt; one-finger gestures rotate the globe while two-finger pinch zoom remains available. ${reducedMotion ? "Automatic motion remains paused by your reduced-motion preference;" : "Space pauses or resumes rotation;"} arrow keys rotate and tilt when the globe is focused. Tab to a country point; Up and Down arrows move between visible country points.`}
         </p>
         <p id={motionId} role="status">
           {status === "ready" ? playing ? "Globe and route motion on." : "Globe and route motion paused." : "Static globe and route view."}

@@ -5,6 +5,7 @@ import {
   INITIAL_VIEW_LATITUDE,
   MAX_VIEW_LATITUDE,
   projectCountry,
+  shouldAnimateGlobe,
 } from "./globe-geometry";
 import { advanceMotion, DEFAULT_VELOCITY } from "./globe-motion";
 
@@ -48,4 +49,20 @@ describe("two-axis globe view", () => {
     const vector = geographicVector(45, 30);
     expect(Math.hypot(...vector)).toBeCloseTo(1);
   });
+});
+
+describe("globe motion preference", () => {
+  test.each([
+    { reducedMotion: false, userPlaying: null, expected: true },
+    { reducedMotion: false, userPlaying: false, expected: false },
+    { reducedMotion: false, userPlaying: true, expected: true },
+    { reducedMotion: true, userPlaying: null, expected: false },
+    { reducedMotion: true, userPlaying: false, expected: false },
+    { reducedMotion: true, userPlaying: true, expected: false },
+  ])(
+    "returns $expected for reducedMotion=$reducedMotion and userPlaying=$userPlaying",
+    ({ reducedMotion, userPlaying, expected }) => {
+      expect(shouldAnimateGlobe(reducedMotion, userPlaying)).toBe(expected);
+    },
+  );
 });
