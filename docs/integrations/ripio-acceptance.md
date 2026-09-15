@@ -79,7 +79,7 @@ Performed outside Home: Home has no read-only provider UI, and **Get quote** in 
 - [ ] Walk checklist items 1, 2, and 4 of the [adapter README](../../apps/web/server/funding/providers/ripio/README.md) against production, read-only: `POST /oauth2/token/`, `GET /api/v1/termsAndConditions/`, `GET /api/v1/depositNetworks/`, `GET /api/v1/withdrawalNetworks/`. Item 2's `POST /api/v1/customers/{customerId}/acceptTerms/` is a write and is not performed here — only the terms read is probed; acceptance happens in Phase 2.
 - [ ] Observed shapes recorded without credentials or PII
 - [ ] Open questions answered and recorded:
-  - [ ] Exact Colombia redirect origins behind `bank_transfer`, `breb`, `r2p_bancolombia`, and `r2p_nequi` payment URLs — Home's redirect allowlist must match them
+  - [ ] Exact Colombia redirect origins for `bank_transfer` and `r2p_bancolombia` — the only CO rails Home renders as redirects — plus confirmation that `breb` returns `brebKey` and `r2p_nequi` returns `phoneNumber` rather than substituting a payment URL
   - [ ] Quote TTL: how long the quote `expiration` lasts
   - [ ] Exact onchain amount: the Base `Transfer` amount equals the quote's `finalToAmount` exactly (wARS/wBRL/wCOP)
   - [ ] Unpaid orders: when and how Ripio expires or cancels an order that is never paid
@@ -135,8 +135,15 @@ The host is Home's protected production alias. The **webhook bypass URL** is Hom
 - [ ] For the all-six-rails claim: one funded order per rail at provider minimum, strictly sequentially per country
 - [ ] For a country-level claim only: at least one funded rail per country, and every untested rail is recorded as explicitly unvalidated
 - [ ] Each order shows exact received proof (checklist below)
-- [ ] A `dispatch-ambiguous` on hosted is a stop: run the recovery checklist, then Jesse decides whether the run continues
+- [ ] A `dispatch-ambiguous` on hosted is a stop: follow the hosted recovery checklist below; never use the local SQL procedure against production Neon
 - [ ] Any payment incident: stop, record, and have Ripio look up and cancel by `externalRef`
+
+### Hosted recovery checklist (`dispatch-ambiguous`)
+
+1. [ ] **Stop.** Do not retry, pay, navigate back, or create another order. Record the Home order UUID, country, rail, amount, and timestamp.
+2. [ ] **Ripio searches by `externalRef`** (the Home order UUID), reports the actual provider state, and cancels the transaction if it is open and unpaid.
+3. [ ] **Home escalates to Jesse.** Only Jesse may inspect or reconcile the production Neon row; the guarded SQL in the local recovery section is never run against production.
+4. [ ] Resume only after the Ripio transaction and Home row are reconciled and Jesse explicitly approves another attempt.
 
 ## Phase 6 — closeout
 
