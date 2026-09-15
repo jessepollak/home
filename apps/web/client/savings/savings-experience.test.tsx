@@ -9,6 +9,14 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 
+const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
+window.matchMedia = ((query: string) => ({
+  matches: query === reducedMotionQuery,
+  media: query,
+  onchange: null,
+  addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+  dispatchEvent: () => true,
+})) as typeof window.matchMedia;
 const { act, cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const { SavingsExperience } = await import("./savings-experience");
 
@@ -368,6 +376,7 @@ describe("Save simplify", () => {
     const save = page().getByRole("region", { name: "Save" });
     const hero = save.querySelector("[data-slot='money-ticker']");
     expect(hero?.getAttribute("aria-label")).not.toBe(authoritativeLabel);
+    expect(hero?.getAttribute("data-animated")).toBe("false");
     expect(hero?.getAttribute("role")).toBe("img");
     expect(hero?.hasAttribute("aria-live")).toBe(false);
     expect(hero?.closest("p")?.hasAttribute("aria-live")).toBe(false);

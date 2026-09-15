@@ -6,6 +6,7 @@ import type { SavingsPortfolioSummary } from "./portfolio-summary";
 import { nextSavingsRateExpiryAt } from "./portfolio-summary";
 import {
   estimateSavingsGrowthBaseUnits,
+  isValidSavingsGrowthApy,
   parseSavingsSnapshotTime,
   type SavingsGrowthEstimate,
 } from "./estimated-growth";
@@ -82,6 +83,8 @@ export function createSavingsGrowthAnchor({
     authoritativeBaseUnits > BigInt(0) &&
     summary.balance.status === "available" &&
     summary.apy.status === "available" &&
+    isValidSavingsGrowthApy(summary.apy.value) &&
+    fundedCandidates.every((candidate) => candidate !== undefined) &&
     snapshotTimeMs !== null &&
     authority.snapshotStale !== true &&
     authority.registryCoverageComplete &&

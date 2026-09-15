@@ -13,6 +13,12 @@ export type SavingsGrowthEstimate = {
   eligibleUntilMs: number;
 };
 
+export function isValidSavingsGrowthApy(apy: ExactSavingsApy): boolean {
+  return apy.numerator >= BigInt(0) &&
+    apy.denominator > BigInt(0) &&
+    apy.numerator <= BigInt(10) * apy.denominator;
+}
+
 /**
  * Applies a bounded binary64 compounding approximation only at the display
  * boundary. The authoritative amount and all final base-unit arithmetic remain
@@ -36,9 +42,7 @@ export function estimateSavingsGrowthBaseUnits(
   if (
     elapsedMs < 0 ||
     elapsedMs > SAVINGS_GROWTH_MAX_ELAPSED_MS ||
-    apy.numerator < BigInt(0) ||
-    apy.denominator <= BigInt(0) ||
-    apy.numerator > BigInt(10) * apy.denominator
+    !isValidSavingsGrowthApy(apy)
   ) {
     return authoritativeBaseUnits;
   }

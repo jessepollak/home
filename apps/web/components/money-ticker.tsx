@@ -109,6 +109,7 @@ export function MoneyTicker({
       role="img"
       aria-label={props["aria-label"] ?? value}
       data-slot="money-ticker"
+      data-animated={moneyTickerAnimationsEnabled(animated, reducedMotion) ? "true" : "false"}
       data-align={align}
       data-reserve-digits={reservesWidth ? "true" : "false"}
       data-reserved-digits={digitCount}

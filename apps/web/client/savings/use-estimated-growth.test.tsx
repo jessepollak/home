@@ -2,7 +2,9 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
-import { useEstimatedSavingsGrowth, type SavingsGrowthAnchor } from "./use-estimated-growth";
+import type { MorphoVaultCandidate } from "@/shared/savings/types";
+import type { SavingsPortfolioSummary } from "./portfolio-summary";
+import { createSavingsGrowthAnchor, useEstimatedSavingsGrowth, type SavingsGrowthAnchor, type SavingsGrowthAuthority } from "./use-estimated-growth";
 
 let hidden = false;
 Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
@@ -30,7 +32,27 @@ afterEach(() => {
   cleanup();
 });
 
+const authority: SavingsGrowthAuthority = { accountIdentity: "owner", assetIdentity: "usdc", blockNumber: "1", blockHash: "0x1", blockTimestamp: "2000000000", snapshotStale: false, registryCoverageComplete: true };
+const candidate = { vaultAddress: "0xvault", netApy: 0.1, stateAsOf: "2033-05-18T03:33:00.000Z", source: { fetchedAt: "2033-05-18T03:33:00.000Z" } } as unknown as MorphoVaultCandidate;
+const summary: SavingsPortfolioSummary = { balance: { status: "available", asset: { address: "usdc", symbol: "USDC", decimals: 6 }, totalBaseUnits: "100" }, apy: { status: "available", value: { numerator: BigInt(1), denominator: BigInt(10) } }, funded: true, vaults: [{ vaultAddress: "0xvault", balanceBaseUnits: "100" }] };
+function built(overrides: { authority?: Partial<SavingsGrowthAuthority>; candidates?: MorphoVaultCandidate[]; summary?: SavingsPortfolioSummary } = {}) {
+  return createSavingsGrowthAnchor({ authority: { ...authority, ...overrides.authority }, candidates: overrides.candidates ?? [candidate], metadataFetchedAt: "2033-05-18T03:33:00.000Z", metadataStale: false, nowMs: 2_000_000_060_000, summary: overrides.summary ?? summary });
+}
+
 describe("Save estimated-growth owner", () => {
+  test("anchor identity follows authority, funded composition, and rates but not unfunded selection", () => {
+    const base = built().identity;
+    for (const authorityChange of [{ accountIdentity: "other" }, { assetIdentity: "other" }, { blockNumber: "2" }, { blockHash: "0x2" }]) expect(built({ authority: authorityChange }).identity).not.toBe(base);
+    expect(built({ candidates: [{ ...candidate, netApy: 0.2 }] }).identity).not.toBe(base);
+    expect(built({ summary: { ...summary, balance: { status: "available", asset: { address: "usdc", symbol: "USDC", decimals: 6 }, totalBaseUnits: "101" }, vaults: [{ vaultAddress: "0xvault", balanceBaseUnits: "101" }] } }).identity).not.toBe(base);
+    expect(built({ candidates: [candidate, { ...candidate, vaultAddress: "0xselected", netApy: 0.9 }] }).identity).toBe(base);
+  });
+
+  test("anchor disables estimates for stale, incomplete, missing, partial, and malformed inputs", () => {
+    const partial = { ...summary, apy: { status: "partial", value: null } } as SavingsPortfolioSummary;
+    const malformed = { ...summary, apy: { status: "available", value: { numerator: BigInt(11), denominator: BigInt(1) } } } as SavingsPortfolioSummary;
+    expect([built({ authority: { snapshotStale: true } }), built({ authority: { registryCoverageComplete: false } }), built({ candidates: [] }), built({ summary: partial }), built({ summary: malformed })].every((value) => value.estimate === null)).toBe(true);
+  });
   test("does not schedule while initially hidden and resumes with one immediate recomputation", () => {
     jest.useFakeTimers();
     hidden = true;

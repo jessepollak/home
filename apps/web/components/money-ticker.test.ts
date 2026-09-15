@@ -1,5 +1,9 @@
+import "@/client/account/dom-test-harness";
+
 import { expect, test } from "bun:test";
-import { moneyTickerAnimationsEnabled, splitMoneyTickerValue } from "./money-ticker";
+
+window.matchMedia = ((query: string) => ({ matches: query === "(prefers-reduced-motion: reduce)", media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => true })) as typeof window.matchMedia;
+const { moneyTickerAnimationsEnabled, splitMoneyTickerValue } = await import("./money-ticker");
 
 const trickyValues = [
   "R$ 1.234,56",
