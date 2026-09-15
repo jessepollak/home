@@ -260,7 +260,7 @@ describe("production account sign-in sheet", () => {
     expect(window.sessionStorage.getItem("home:account-provider")).toBeNull();
   });
 
-  test("keeps the sheet mounted with one phase message while Base Account connects", async () => {
+  test("keeps the sheet mounted with one live phase announcement while Base Account connects", async () => {
     const connection = deferred<never>();
     let connectorCalls = 0;
     render(
@@ -279,10 +279,13 @@ describe("production account sign-in sheet", () => {
     );
 
     const phaseButton = await page().findByRole("button", {
-      name: "Connecting to your existing Base Account…",
+      name: "Sign in with Base Account",
     });
+    const liveStatus = await page().findByRole("status");
     expect(page().getByRole("dialog", { name: "Sign in to Home" })).toBeTruthy();
-    expect(page().queryAllByText("Connecting to your existing Base Account…")).toHaveLength(1);
+    expect(liveStatus.textContent).toBe("Connecting to your existing Base Account…");
+    expect(page().getAllByRole("status")).toHaveLength(1);
+    expect(page().getAllByText("Connecting to your existing Base Account…")).toHaveLength(2);
     expect(phaseButton.hasAttribute("disabled")).toBe(false);
     expect(phaseButton.getAttribute("aria-disabled")).toBe("true");
     expect(phaseButton.getAttribute("aria-busy")).toBe("true");
@@ -295,9 +298,7 @@ describe("production account sign-in sheet", () => {
     ).toBe(true);
 
     fireEvent.click(
-      page().getByRole("button", {
-        name: "Connecting to your existing Base Account…",
-      }),
+      page().getByRole("button", { name: "Sign in with Base Account" }),
     );
     expect(connectorCalls).toBe(1);
     const dialog = page().getByRole("dialog", { name: "Sign in to Home" });
@@ -318,9 +319,7 @@ describe("production account sign-in sheet", () => {
     fireEvent.click(
       await page().findByRole("button", { name: "Sign in with Base Account" }),
     );
-    await page().findByRole("button", {
-      name: "Connecting to your existing Base Account…",
-    });
+    await page().findByRole("status");
 
     fireEvent.click(page().getByRole("button", { name: "Close sign in" }));
     await waitFor(() =>
@@ -352,9 +351,7 @@ describe("production account sign-in sheet", () => {
     fireEvent.click(
       await page().findByRole("button", { name: "Sign in with Base Account" }),
     );
-    await page().findByRole("button", {
-      name: "Connecting to your existing Base Account…",
-    });
+    await page().findByRole("status");
 
     expect(
       await page().findByText(
@@ -365,10 +362,10 @@ describe("production account sign-in sheet", () => {
       page().getByRole("button", { name: "Sign in with Base Account" }),
     ).toBeTruthy();
     expect(
-      page().queryByRole("button", {
-        name: "Connecting to your existing Base Account…",
-      }),
-    ).toBeNull();
+      page()
+        .getAllByRole("status")
+        .some((node) => node.textContent === "Connecting to your existing Base Account…"),
+    ).toBe(false);
   });
 
   test("offers an explicit sign-out retry while failed cleanup keeps details private", async () => {
