@@ -8,6 +8,17 @@ export {
   normalizeBaseAddress,
 } from "./base-erc20-transfers";
 export {
+  createCdpAddressHistory,
+  createCdpAddressHistoryFromEnv,
+  createCdpAddressHistoryTransport,
+  decodeCdpAddressHistoryCursor,
+  encodeCdpAddressHistoryCursor,
+  mapCdpAddressHistoryStatus,
+  type CdpAddressHistoryCursor,
+  type CdpAddressHistoryKey,
+  type CdpAddressHistoryTransport,
+} from "./cdp-address-history";
+export {
   CDP_SQL_ENDPOINT,
   createCdpSqlAuthFromEnv,
   createCdpSqlHttpTransport,

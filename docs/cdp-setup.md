@@ -16,6 +16,10 @@ Missing, malformed, invalid, expired, or cross-project tokens return `401 UNAUTH
 
 The server SDK's usage tracking and error reporting are disabled by Home before the SDK loads when `DISABLE_CDP_USAGE_TRACKING` and `DISABLE_CDP_ERROR_REPORTING` are unset. Operators may explicitly set either variable to `false` to opt that channel back in after reviewing CDP's data policy. This default applies in production even when `.env.example` was not copied.
 
+## Activity history source
+
+`ACTIVITY_HISTORY_SOURCE` is server-only and accepts `cdp-sql` (the default) or `cdp-address-history`. Invalid values fail closed. Address History also requires an explicitly configured CDP Node Base mainnet `BASE_RPC_URL`; a public/default or non-CDP RPC is rejected. Its current Client API Key returns provider status `code: 16`, so do not enable it outside an authorized smoke environment until the staged auth/order gate in [CDP Address History](cdp-address-history.md) passes. Changing deployment environment variables requires a redeploy.
+
 ## Preview auth
 
 Email OTP is only testable on `http://localhost:3000` and the production alias (`https://home-web-jessepollaks-projects.vercel.app`) right now. Those origins stay on Embedded Wallet CORS. Vercel preview hosts are not allowlisted, so email sign-in fails there (`We could not send a code…`). This is a CDP client rejection after the app loads, not Vercel Deployment Protection. Base Account uses Home-native SIWE and does not depend on CDP origin allowlisting. Background: [#67](https://github.com/jessepollak/home/issues/67). Hosting notes: [Vercel deploy](vercel-deploy.md#preview-auth).

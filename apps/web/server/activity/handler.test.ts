@@ -3,13 +3,25 @@ import { activityAssets, type ActivityPage } from "@/shared/activity/types";
 import { createBaseErc20TransferHistory } from "@/server/chain-data/base-erc20-transfers";
 import { createCdpSqlHttpTransport } from "@/server/chain-data/cdp-sql-client";
 import { ChainDataError } from "@/server/chain-data/errors";
-import { createActivityHandler } from "./handler";
+import { createActivityHandler as createHandler } from "./handler";
 import { createActivityReader } from "./reader";
 import type { ActivityReadRequest, VerifiedActivityAccount } from "./types";
 
 const VERIFIED = "0x1111111111111111111111111111111111111111" as const;
 const ATTACKER = "0x9999999999999999999999999999999999999999";
 const TO = "2026-09-07T12:00:00.000Z";
+
+type HandlerDependencies = Parameters<typeof createHandler>[0];
+function createActivityHandler(
+  dependencies: Omit<HandlerDependencies, "source"> & {
+    source?: HandlerDependencies["source"];
+  },
+) {
+  return createHandler({
+    source: () => "cdp-sql",
+    ...dependencies,
+  });
+}
 
 function sessionResponse(
   address: string = VERIFIED,
@@ -168,9 +180,55 @@ describe("activity route handler", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "ACTIVITY_NOT_CONFIGURED",
-        message: "CDP SQL activity is not configured. Set CDP_SQL_AUTH_MODE and its required server credentials.",
+        message: "Activity history is not configured. Check ACTIVITY_HISTORY_SOURCE and its required server credentials.",
       },
     });
+  });
+
+  test("uses the route-supplied source in activity observations", async () => {
+    const events: Array<{ outcome: string; source: string }> = [];
+    const handler = createActivityHandler({
+      authorize: async () => sessionResponse(),
+      source: () => "cdp-address-history",
+      readActivity: async () => ({
+        ...page(),
+        source: { ...page().source, provider: "cdp-address-history" },
+      }),
+      observe: (event) => events.push({
+        outcome: event.outcome,
+        source: event.source,
+      }),
+      now: () => new Date(TO),
+    });
+
+    const response = await handler(
+      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
+    );
+    expect(response.status).toBe(200);
+    expect(events).toEqual([
+      { outcome: "started", source: "cdp-address-history" },
+      { outcome: "succeeded", source: "cdp-address-history" },
+    ]);
+  });
+
+  test("fails closed when the route cannot derive a configured source", async () => {
+    let readCalls = 0;
+    const handler = createActivityHandler({
+      authorize: async () => sessionResponse(),
+      source: () => {
+        throw new ChainDataError("not-configured", "invalid source");
+      },
+      readActivity: async () => {
+        readCalls += 1;
+        return page();
+      },
+      now: () => new Date(TO),
+    });
+    const response = await handler(
+      new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`),
+    );
+    expect(response.status).toBe(503);
+    expect(readCalls).toBe(0);
   });
 
   test("scopes Base Account activity to the verified SIWE session address", async () => {

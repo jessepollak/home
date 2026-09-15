@@ -26,7 +26,11 @@ export const ACTIVITY_READ_REASONS = [
   "request",
   "primary-source",
 ] as const;
-export const ACTIVITY_READ_SOURCES = ["none", "cdp-sql"] as const;
+export const ACTIVITY_READ_SOURCES = [
+  "none",
+  "cdp-sql",
+  "cdp-address-history",
+] as const;
 export type ActivityReadOutcome = (typeof ACTIVITY_READ_OUTCOMES)[number];
 export type ActivityReadReason = (typeof ACTIVITY_READ_REASONS)[number];
 export type ActivityReadSource = (typeof ACTIVITY_READ_SOURCES)[number];

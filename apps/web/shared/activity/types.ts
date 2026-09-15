@@ -57,7 +57,7 @@ export type ActivityTransfer = {
 };
 
 export type ActivitySource = {
-  provider: "cdp-sql";
+  provider: "cdp-sql" | "cdp-address-history";
   cached: boolean;
   stale: boolean;
   executionTimestamp: string;

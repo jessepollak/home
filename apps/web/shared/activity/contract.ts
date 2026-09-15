@@ -222,7 +222,8 @@ function parseTokenMetadata(
 function parseSource(value: unknown): ActivityPage["source"] {
   if (
     !isRecord(value) ||
-    value.provider !== "cdp-sql" ||
+    (value.provider !== "cdp-sql" &&
+      value.provider !== "cdp-address-history") ||
     typeof value.cached !== "boolean" ||
     typeof value.stale !== "boolean" ||
     !Number.isSafeInteger(value.executionTimeMs) ||
@@ -232,7 +233,7 @@ function parseSource(value: unknown): ActivityPage["source"] {
   }
 
   return {
-    provider: "cdp-sql",
+    provider: value.provider,
     cached: value.cached,
     stale: value.stale,
     executionTimestamp: readTimestamp(value.executionTimestamp),

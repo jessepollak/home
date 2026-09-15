@@ -83,6 +83,31 @@ describe("activity response parser", () => {
   });
 
 
+  test("accepts the staged CDP Address History source discriminator", () => {
+    const parsed = parseActivityPage(
+      {
+        ...validPage(),
+        source: {
+          ...validPage().source,
+          provider: "cdp-address-history",
+          cached: false,
+          stale: false,
+        },
+      },
+      session,
+      TO,
+    );
+    expect(parsed.source.provider).toBe("cdp-address-history");
+    expect(() => parseActivityPage(
+      {
+        ...validPage(),
+        source: { ...validPage().source, provider: "unknown" },
+      },
+      session,
+      TO,
+    )).toThrow(ActivityResponseError);
+  });
+
   test("accepts ZORA metadata with canonical contract identity and no registry id", () => {
     const base = validPage();
     const zoraAddress = "0x1111111111166b7fe7bd91427724b487980afc69";

@@ -4,7 +4,10 @@ import type {
   BaseErc20Transfer,
   BaseErc20TransferPage,
 } from "@/server/chain-data/types";
-import { createActivityReader } from "./reader";
+import {
+  createActivityReader,
+  resolveActivityHistorySource,
+} from "./reader";
 
 const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
@@ -54,7 +57,7 @@ function transferPage(
 }
 
 describe("recent activity reader", () => {
-  test("requests one stable bounded page for the reviewed asset contracts", async () => {
+  test("keeps the current all-contract SQL fallback request bounded", async () => {
     let received: Parameters<Parameters<typeof createActivityReader>[0]>[0] | undefined;
     const signal = new AbortController().signal;
     const result: BaseErc20TransferPage = {
@@ -97,6 +100,19 @@ describe("recent activity reader", () => {
       to: TO,
     });
     expect(page.nextCursor).toBe("next-page");
+  });
+
+  test("selects only accepted sources and defaults safely to SQL", () => {
+    expect(resolveActivityHistorySource({})).toBe("cdp-sql");
+    expect(resolveActivityHistorySource({ ACTIVITY_HISTORY_SOURCE: "cdp-sql" })).toBe("cdp-sql");
+    expect(resolveActivityHistorySource({
+      ACTIVITY_HISTORY_SOURCE: "cdp-address-history",
+    })).toBe("cdp-address-history");
+    for (const configured of ["", " ", "other"]) {
+      expect(() => resolveActivityHistorySource({
+        ACTIVITY_HISTORY_SOURCE: configured,
+      })).toThrow();
+    }
   });
 
   test("resolves identity by contract and preserves unknown contract quantities", async () => {

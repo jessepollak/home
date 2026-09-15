@@ -14,7 +14,8 @@ Start with [Architecture](architecture.md), the one normative design document; [
 | [Architecture audit 2026-09-12](architecture-audit-2026-09-12.md) | Post-reset audit of server, funding seam, and client; ranked cleanup lanes and decisions. |
 | [CDP error reporting](cdp-error-reporting.md) | Default CDP error-reporting policy. |
 | [CDP setup](cdp-setup.md) | CDP project, sessions, and allowed origins. |
-| [CDP SQL](cdp-sql.md) | Indexed Base-history adapter notes. |
+| [CDP Address History](cdp-address-history.md) | Staged wallet-scoped Base Activity source and rollout gate. |
+| [CDP SQL](cdp-sql.md) | Indexed Base-history fallback adapter notes. |
 | [Codex prices](codex-prices.md) | Server-side Invest price integration. |
 | [Currency defaults](currency-defaults.md) | Default asset choices by currency. |
 | [Delivery gates](delivery-gates.md) | Repository and deployment gate boundary. |
