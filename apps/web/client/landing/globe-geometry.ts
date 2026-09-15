@@ -215,5 +215,5 @@ export function countryFlag(countryCode: string): string {
 }
 
 export function shouldAnimateGlobe(reducedMotion: boolean, userPlaying: boolean | null) {
-  return userPlaying ?? !reducedMotion;
+  return !reducedMotion && (userPlaying ?? true);
 }
