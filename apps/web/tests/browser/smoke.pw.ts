@@ -185,7 +185,22 @@ async function installApiFixtures(
       return json(route, { walletAddress: OWNER, chainId: 8453, window: { from, to }, transfers, nextCursor: null, source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to } });
     }
     if (path === "/api/savings/vaults") return json(route, savingsVaults());
-    if (path === "/api/funding/providers") return json(route, url.searchParams.get("region") === "ID" ? { providers: [{ providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx", assetSymbol: "IDRX", assetDecimals: 2, currency: "IDR", paymentMethods: [{ id: "bank-va-mandiri", label: "Bank transfer · Mandiri" }], quotes: false, kyc: null }] } : { providers: [] });
+    if (path === "/api/funding/providers") {
+      if (url.searchParams.get("direction") === "offramp" && url.searchParams.get("region") === "US") return json(route, {
+        version: 2,
+        direction: "offramp",
+        providers: [{
+          direction: "offramp", providerId: "peer", displayName: "Peer", region: "US", assetId: "base:usdc",
+          assetSymbol: "USDC", assetDecimals: 6, currency: "USD", quotes: false, kyc: null,
+          paymentMethods: [
+            { id: "cashapp", label: "Cash App", platform: "cashapp", handleHint: "Cashtag", minimumAmountAtomic: "10000", maximumAmountAtomic: null, estimateSemantics: "approximate", etaSemantics: "historical-not-guaranteed", corridorConfirmedBy: "pending" },
+            { id: "zelle", label: "Zelle", platform: "zelle", handleHint: "Email or phone", minimumAmountAtomic: "10000", maximumAmountAtomic: null, estimateSemantics: "approximate", etaSemantics: "historical-not-guaranteed", corridorConfirmedBy: "pending" },
+          ],
+        }],
+      });
+      return json(route, url.searchParams.get("region") === "ID" ? { providers: [{ providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx", assetSymbol: "IDRX", assetDecimals: 2, currency: "IDR", paymentMethods: [{ id: "bank-va-mandiri", label: "Bank transfer · Mandiri" }], quotes: false, kyc: null }] } : { providers: [] });
+    }
+    if (path === "/api/funding/offramp/orders") return json(route, { version: 3, recoveryEligible: false, orders: [] });
     if (path === "/api/funding/quotes") return json(route, { quoteToken: "fixture-signed-quote", quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: EXPIRES_AT } });
     if (path === "/api/funding/orders" && request.method() === "POST") return json(route, { order: { id: ACTION_ID, providerId: "idrx", region: "ID", assetId: "base:idrx", paymentMethod: "bank-va-mandiri", fiatAmount: "20000", state: "awaiting-payment", expectedTokenAmountAtomic: "2000000", fees: [{ label: "Network", amount: "100", currency: "IDR" }], instructions: { kind: "bank-transfer", rail: "Mandiri virtual account", accountNumber: "123456789012", accountName: "Home Fixture", amount: "20000", currency: "IDR" }, providerStatus: "pending" } });
     if (path === "/api/funding/orders" && request.method() === "GET") return json(route, { order: null });
@@ -517,6 +532,32 @@ test("recent operations open transaction details", async ({ page }) => {
   await expect(dialog.getByRole("link", { name: "View on explorer" })).toBeVisible();
 });
 
+test("shows the integrated Peer destination at 390px", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+
+  await page.getByRole("button", { name: "Send" }).click();
+  const send = page.getByRole("dialog", { name: "Send" });
+  await typeAmount(page, "1");
+  await send.getByRole("button", { name: "Continue" }).click();
+
+  await expect(send.getByRole("textbox", { name: "To" })).toBeVisible();
+  await expect(send.getByText("Or", { exact: true })).toBeVisible();
+  await expect(send.getByRole("button", { name: /Available payout apps: Cash App, Zelle.*Send to Zelle, Venmo, Cash App and more.*Use Peer to send via app/ })).toBeVisible();
+  await expect(send.getByText("Use Peer to send via app", { exact: true })).toBeVisible();
+  await expect(send.getByRole("img", { name: "Available payout apps: Cash App, Zelle" })).toBeVisible();
+  await send.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
+  await send.getByRole("button", { name: "Continue" }).click();
+  const confirm = page.getByRole("dialog", { name: "Confirm" });
+  await expect(confirm.getByRole("button", { name: "Send $1.00" })).toBeVisible();
+  await confirm.getByText("Back", { exact: true }).click();
+  const returnedAddress = send.getByRole("textbox", { name: "To" });
+  await returnedAddress.click();
+  await expect(returnedAddress).toHaveValue(RECIPIENT);
+});
+
 test("sends a held catalog cbBTC balance with one asset selector indicator", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const fixture = balancesSnapshot();
@@ -552,6 +593,7 @@ test("sends a held catalog cbBTC balance with one asset selector indicator", asy
   await expect(send.getByRole("img", { name: "0.001 cbBTC available" })).toBeVisible();
   await typeAmount(page, "0.001");
   await send.getByRole("button", { name: "Continue" }).click();
+  await expect(send.getByRole("textbox", { name: "To" })).toBeVisible();
   await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
   await send.getByRole("button", { name: "Continue" }).click();
   const confirm = page.getByRole("dialog", { name: "Confirm" });
@@ -577,6 +619,7 @@ test("ambiguous handle response retries without a second wallet dispatch", async
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { name: "1", exact: true }).click();
   await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("textbox", { name: "To" })).toBeVisible();
   await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Send $1.00" }).click();

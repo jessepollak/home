@@ -1,35 +1,76 @@
-import type { CountryCode } from "@/config/regions";
+import type { CountryCode, FiatCurrencyCode } from "@/config/regions";
+import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { FundingAsset } from "./assets";
+
+export type FundingDirection = "onramp" | "offramp";
+export type FundingPaymentMethod = { id: string; label: string };
+
+export type FundingKycManifest = {
+  terms?: { url: string };
+  fields?: ReadonlyArray<{
+    name: string;
+    label: string;
+    type: "text" | "email" | "date" | "select";
+    options?: ReadonlyArray<string>;
+  }>;
+};
+
+export type FundingWebhookManifest = { signatureHeader: string; env: string };
+
+export type FundingOfframpDeployment = {
+  apiOrigins: ReadonlyArray<string>;
+  contracts: {
+    escrow: `0x${string}`;
+    intentGuardian: `0x${string}`;
+    intentGatingService: `0x${string}`;
+    rateManager?: `0x${string}`;
+  };
+};
 
 export type FundingProviderManifest = {
   id: string;
   displayName: string;
   docsUrl: string;
+  onramp?: {
+    modeEnv?: string;
+    apiOrigins: ReadonlyArray<string>;
+    redirectOrigins?: ReadonlyArray<string>;
+    sandbox?: boolean;
+    reference: "home" | "provider";
+    quotes?: boolean;
+    kyc?: FundingKycManifest;
+    webhook?: FundingWebhookManifest;
+  };
+  offramp?: {
+    modeEnv?: string;
+    production: FundingOfframpDeployment;
+    sandbox?: FundingOfframpDeployment;
+  };
   bindings: ReadonlyArray<{
     region: CountryCode;
     assetId: string;
-    paymentMethods: ReadonlyArray<{ id: string; label: string }>;
-    env: ReadonlyArray<string>;
+    currency: FiatCurrencyCode;
+    directions: {
+      onramp?: {
+        paymentMethods: ReadonlyArray<FundingPaymentMethod>;
+        env: ReadonlyArray<string>;
+      };
+      offramp?: {
+        paymentMethods: ReadonlyArray<FundingPaymentMethod>;
+        env: ReadonlyArray<string>;
+        confirmedBy: string;
+      };
+    };
   }>;
-  apiOrigins: ReadonlyArray<string>;
-  redirectOrigins?: ReadonlyArray<string>;
-  sandbox?: boolean;
-  reference: "home" | "provider";
-  quotes?: boolean;
-  kyc?: {
-    terms?: { url: string };
-    fields?: ReadonlyArray<{
-      name: string;
-      label: string;
-      type: "text" | "email" | "date" | "select";
-      options?: ReadonlyArray<string>;
-    }>;
-  };
-  webhook?: { signatureHeader: string; env: string };
 };
 
 export type FundingProvider = {
   manifest: FundingProviderManifest;
+  onramp?: FundingOnrampProvider;
+  offramp?: FundingOfframpProvider;
+};
+
+export type FundingOnrampProvider = {
   ensureCustomer?(
     input: { subject: string; fields: Record<string, string> },
     ctx: ProviderContext,
@@ -44,15 +85,125 @@ export type FundingProvider = {
   ): { providerOrderId: string } | null;
 };
 
+export type OfframpCatalog = {
+  platforms: ReadonlyArray<{
+    id: string;
+    label: string;
+    currencies: ReadonlyArray<FiatCurrencyCode>;
+    handleHint: string;
+    minimumAmountAtomic: string;
+    maximumAmountAtomic: string | null;
+    estimateSemantics: "approximate";
+    etaSemantics: "historical-not-guaranteed";
+    requiresIdentityAttestation: boolean;
+    requiresAccessPolicy: boolean;
+  }>;
+  asOf: string;
+  maxAgeSeconds: number;
+};
+
+export type OfframpEstimate = {
+  amountAtomic: string;
+  currency: FiatCurrencyCode;
+  approximateFiatAmount: string;
+  minConversionRate: string;
+  intentAmountRange: { min: string; max: string };
+  etaSeconds: number | null;
+  asOf: string;
+};
+
+export type OfframpOrderState =
+  | "awaiting-buyer"
+  | "matched"
+  | "delivering"
+  | "delivered"
+  | "returned"
+  | "unknown";
+
+export type OfframpOrder = {
+  depositId: string;
+  owner: `0x${string}`;
+  state: OfframpOrderState;
+  platform: string;
+  currency: FiatCurrencyCode;
+  /** Onchain observations cannot recover the private payout handle. */
+  canonicalHandle: string | null;
+  payeeHash: `0x${string}`;
+  amountAtomic: string;
+  remainingAmountAtomic: string;
+  nextActions: ReadonlyArray<"withdraw">;
+  updatedAt: string;
+};
+
+export type OfframpReceipt = {
+  logs: ReadonlyArray<{
+    address: `0x${string}`;
+    topics: ReadonlyArray<`0x${string}`>;
+    data: `0x${string}`;
+  }>;
+};
+
+export type FundingOfframpProvider = {
+  capabilities(ctx: OfframpContext): Promise<OfframpCatalog>;
+  estimate(
+    input: { amountAtomic: bigint; platform: string; currency: FiatCurrencyCode },
+    ctx: OfframpContext,
+  ): Promise<OfframpEstimate>;
+  prepareDeposit(
+    input: {
+      owner: `0x${string}`;
+      amountAtomic: bigint;
+      platform: string;
+      currency: FiatCurrencyCode;
+      payoutHandle: string;
+    },
+    ctx: OfframpContext,
+  ): Promise<{
+    depositCall: MoneyActionCall;
+    payee: {
+      hash: `0x${string}`;
+      canonicalHandle: string;
+      platform: string;
+      currency: FiatCurrencyCode;
+    };
+    accessPolicyPaymentMethods: ReadonlyArray<string>;
+    requiresIdentityAttestation: boolean;
+  }>;
+  prepareWithdraw(
+    input: { owner: `0x${string}`; depositId: string },
+    ctx: OfframpContext,
+  ): Promise<{ calls: ReadonlyArray<MoneyActionCall> }>;
+  readOrder(
+    input: { owner: `0x${string}`; depositId: string },
+    ctx: OfframpContext,
+  ): Promise<OfframpOrder>;
+  listOrders(
+    input: { owner: `0x${string}`; inFlight?: boolean },
+    ctx: OfframpContext,
+  ): Promise<ReadonlyArray<OfframpOrder>>;
+  depositIdFromReceipt(
+    receipt: OfframpReceipt,
+    input: { owner: `0x${string}`; escrow: `0x${string}` },
+  ): string | null;
+};
+
 export type ProviderContext = {
   binding: {
     region: CountryCode;
+    direction: FundingDirection;
+    currency: FiatCurrencyCode;
     asset: FundingAsset;
-    paymentMethod: { id: string; label: string };
+    paymentMethod: FundingPaymentMethod;
+    paymentMethods: ReadonlyArray<FundingPaymentMethod>;
   };
   env: Readonly<Record<string, string>>;
   sandbox: boolean;
   fetch: typeof fetch;
+};
+
+export type OfframpContext = ProviderContext & {
+  binding: ProviderContext["binding"] & { direction: "offramp" };
+  deployment: FundingOfframpDeployment;
 };
 
 export type QuoteIntent = {

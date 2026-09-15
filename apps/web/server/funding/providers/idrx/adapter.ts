@@ -29,8 +29,8 @@ type JsonRecord = Record<string, unknown>;
 
 export const idrxProvider: FundingProvider = {
   manifest: idrxManifest,
-
-  async createOrder(input, ctx) {
+  onramp: {
+    async createOrder(input, ctx) {
     const atomic = input.fiatAmount.length <= MAX_IDRX_DECIMAL_LENGTH
       ? idrxAtomicAmount(input.fiatAmount, ctx.binding.asset.decimals)
       : null;
@@ -180,6 +180,7 @@ export const idrxProvider: FundingProvider = {
     } catch {
       return unknown("INVALID_RESPONSE");
     }
+    },
   },
 };
 

@@ -10,6 +10,7 @@ import {
 } from "@/shared/money-actions/types";
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
+import type { FundingMode } from "@/server/funding/core/provider-context";
 
 export type ActionSummary = {
   title: string;
@@ -158,6 +159,32 @@ export class ActionsStore {
       [id, actionOwnerKey(owner), input.providerHandle ?? null, input.transactionHash ?? null],
     );
     return normalizeActionRowOrNull(result.rows[0]);
+  }
+
+  async hasCashoutHistory(owner: MoneyActionOwner): Promise<boolean> {
+    const result = await this.sql.query<{ present: number }>(
+      `SELECT 1 AS present FROM actions
+       WHERE owner_key = $1 AND confirmed_at IS NOT NULL
+         AND kind IN ('cash-out', 'cash-out-withdraw')
+       LIMIT 1`,
+      [actionOwnerKey(owner)],
+      { timeoutMs: 5_000 },
+    );
+    return result.rows.length > 0;
+  }
+
+  async cashoutRecoveryModes(owner: MoneyActionOwner): Promise<FundingMode[]> {
+    const result = await this.sql.query<{ environment: unknown }>(
+      `SELECT DISTINCT summary->'metadata'->>'environment' AS environment
+       FROM actions
+       WHERE owner_key = $1 AND confirmed_at IS NOT NULL
+         AND kind IN ('cash-out', 'cash-out-withdraw')`,
+      [actionOwnerKey(owner)],
+      { timeoutMs: 5_000 },
+    );
+    return result.rows.flatMap(({ environment }) =>
+      environment === "production" || environment === "sandbox" ? [environment] : [],
+    );
   }
 
   async list(owner: MoneyActionOwner): Promise<ActionRow[]> {
