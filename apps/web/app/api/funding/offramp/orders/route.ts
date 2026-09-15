@@ -10,17 +10,23 @@ export async function GET(request: Request): Promise<Response> {
   const authorized = await authorizeFundingRequest(request, authorizeFundingSession);
   if ("response" in authorized) return authorized.response;
   const search = new URL(request.url).searchParams;
-  const providerId = search.get("providerId");
+  const providerId = search.get("providerId") || undefined;
   const region = search.get("region");
-  if (!providerId || !region) return fundingError("INVALID_OFFRAMP_ORDER_QUERY", "Choose a provider and country.", 400);
+  if (!region) return fundingError("INVALID_OFFRAMP_ORDER_QUERY", "Choose a country.", 400);
   try {
     const orders = await listCashoutOrders(authorized.session, { providerId, region, inFlight: search.get("inFlight") !== "0" });
     return fundingJson({
       version: OFFRAMP_ORDERS_VERSION,
       orders: orders.map((order) => ({
+        providerId: order.providerId,
+        providerName: order.providerName,
+        assetId: order.assetId,
+        assetSymbol: order.assetSymbol,
+        assetDecimals: order.assetDecimals,
         depositId: order.depositId,
         state: order.state,
         platform: order.platform,
+        platformLabel: order.platformLabel,
         currency: order.currency,
         canonicalHandle: order.canonicalHandle,
         amountAtomic: order.amountAtomic,

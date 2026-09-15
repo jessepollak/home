@@ -121,7 +121,7 @@ export function SendDialog({
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);
   const eligibleOfframps = offramps.filter((binding) => selectedAsset?.symbol === "USDC" && binding.assetId === "base:usdc");
-  const visibleActiveOrders = eligibleOfframps.length > 0 ? activeOrders : [];
+  const visibleActiveOrders = activeOrders.filter((order) => order.assetSymbol === selectedAsset?.symbol);
   const assetOptions = useMemo(() => availableAssets?.map((asset) => ({
     id: asset.id, label: asset.symbol, description: asset.name, currency: asset.cashCurrency,
     mark: presentPortfolioAssetMark({ assetKey: asset.assetKey, name: asset.name, symbol: asset.symbol, currency: asset.cashCurrency }, assetMarkResolution),
@@ -137,14 +137,13 @@ export function SendDialog({
   }, [fetchAccountResource, open, ownerBoundary, regionId]);
 
   useEffect(() => {
-    const provider = offramps[0];
-    if (!open || !ownerBoundary || !fetchAccountResource || !provider) return;
+    if (!open || !ownerBoundary || !fetchAccountResource) return;
     let cancelled = false;
-    void fetchAccountResource(`/api/funding/offramp/orders?providerId=${encodeURIComponent(provider.providerId)}&region=${encodeURIComponent(regionId)}&inFlight=1`)
+    void fetchAccountResource(`/api/funding/offramp/orders?region=${encodeURIComponent(regionId)}&inFlight=1`)
       .then((value) => { if (!cancelled) setActiveOrders(readCashoutOrders(value)); })
       .catch(() => { if (!cancelled) setActiveOrders([]); });
     return () => { cancelled = true; };
-  }, [fetchAccountResource, offramps, open, ownerBoundary, regionId]);
+  }, [fetchAccountResource, open, ownerBoundary, regionId]);
 
   useEffect(() => {
     if (!open || !ownerBoundary || !resumeActionId || resumedActionRef.current === resumeActionId) return;
@@ -161,12 +160,22 @@ export function SendDialog({
         const spent = resumed.amounts.find((item) => item.direction === "spend");
         if (!spent) throw new TransferExecutionError("unavailable");
         const metadata = resumed.metadata;
-        setAssetId(availableAssets?.find((asset) => asset.symbol === spent.symbol)?.id ?? null); setRequest(null);
+        setAssetId(availableAssets?.find((asset) => asset.id === spent.assetId || asset.symbol === spent.symbol)?.id ?? null); setRequest(null);
         setCashout({
           operation: "deposit", providerId: metadata.providerId, providerName: metadata.providerName, assetId: spent.assetId, amountBaseUnits: spent.amountBaseUnits,
           platform: metadata.platform, platformLabel: metadata.platformLabel, currency: metadata.currency,
           payoutHandle: metadata.canonicalHandle, canonicalHandle: metadata.canonicalHandle,
           approximateFiatAmount: metadata.approximateFiatAmount, etaSeconds: metadata.etaSeconds ?? null,
+        });
+      } else if (resumed.kind === "cash-out-withdraw" && resumed.metadata?.product === "cashout" && resumed.metadata.operation === "withdraw") {
+        const received = resumed.amounts.find((item) => item.direction === "receive");
+        if (!received) throw new TransferExecutionError("unavailable");
+        const metadata = resumed.metadata;
+        setAssetId(availableAssets?.find((asset) => asset.id === received.assetId || asset.symbol === received.symbol)?.id ?? null); setRequest(null);
+        setCashout({
+          operation: "withdraw", providerId: metadata.providerId, providerName: metadata.providerName, assetId: received.assetId, amountBaseUnits: received.amountBaseUnits,
+          platform: metadata.platform, platformLabel: metadata.platformLabel, currency: metadata.currency,
+          payoutHandle: "", canonicalHandle: null, approximateFiatAmount: "0", etaSeconds: null, depositId: metadata.depositId,
         });
       } else throw new TransferExecutionError("unavailable");
       setAction(resumed); setStep("confirm");
@@ -191,7 +200,7 @@ export function SendDialog({
     else if (step === "handle-confirm") setStep("handle");
     else if (step === "confirm" || step === "error") {
       setAction(null);
-      setStep(cashout ? "handle-confirm" : "address");
+      setStep(cashout?.operation === "withdraw" ? "destination" : cashout ? "handle-confirm" : "address");
     }
   }
 
@@ -232,15 +241,13 @@ export function SendDialog({
 
   async function prepareWithdraw(order: CashoutOrderSummary) {
     try {
-      const provider = offramps[0];
-      if (!provider || !order.nextActions.includes("withdraw")) throw new Error("invalid");
+      if (!order.nextActions.includes("withdraw")) throw new Error("invalid");
       setStep("pending"); setError(null);
-      const prepared = await prepareMoneyAction("cash-out-withdraw", { providerId: provider.providerId, region: regionId, depositId: order.depositId });
-      if (prepared.kind !== "cash-out-withdraw" || prepared.metadata?.product !== "cashout") throw new Error("invalid");
+      const prepared = await prepareMoneyAction("cash-out-withdraw", { providerId: order.providerId, region: regionId, depositId: order.depositId });
+      if (prepared.kind !== "cash-out-withdraw" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "withdraw") throw new Error("invalid");
       setCashout({
-        operation: "withdraw", providerId: provider.providerId, providerName: provider.displayName, assetId: provider.assetId,
-        amountBaseUnits: order.remainingAmountAtomic, platform: order.platform,
-        platformLabel: provider.paymentMethods.find((method) => method.platform === order.platform)?.label ?? order.platform,
+        operation: "withdraw", providerId: order.providerId, providerName: order.providerName, assetId: order.assetId,
+        amountBaseUnits: order.remainingAmountAtomic, platform: order.platform, platformLabel: order.platformLabel,
         currency: order.currency, payoutHandle: order.canonicalHandle ?? "", canonicalHandle: order.canonicalHandle,
         approximateFiatAmount: "0", etaSeconds: null, depositId: order.depositId,
       });
@@ -291,7 +298,7 @@ export function SendDialog({
         </> : null}
         {step === "destination" ? <div className="grid gap-2">
           {visibleActiveOrders.map((order) => <div className="grid gap-2" key={order.depositId}>
-            <StatusMessage>{eligibleOfframps[0]?.displayName ?? "Cash-out"}: {order.state}.</StatusMessage>
+            <StatusMessage>{order.providerName}: {order.state}.</StatusMessage>
             {order.nextActions.includes("withdraw") ? <Button variant="outline" onClick={() => void prepareWithdraw(order)}>Withdraw USDC</Button> : null}
           </div>)}
           <Button variant="outline" onClick={() => setStep("address")}>Base address</Button>

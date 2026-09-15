@@ -5,7 +5,8 @@ import { encodeFunctionData, type Hex } from "viem";
 import { BASE_BUILDER_CODE, currencyInfo, getPaymentMethodsCatalog, getSpreadOracleConfig, resolvePaymentMethodHashFromCatalog } from "@zkp2p/sdk";
 import { BASE_USDC_ADDRESS, CASH_ATTRIBUTION_CODE, buildIntentAmountRange } from "@zkp2p/cash";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { ActionRow } from "@/server/actions/store";
+import { setActionsStoreForTests, type ActionRow, type ActionsStore } from "@/server/actions/store";
+import { issueMoneyAction } from "@/server/money-actions/issue";
 import { createProviderContext } from "@/server/funding/core/provider-context";
 import { peerProvider } from "@/server/funding/providers/peer/adapter";
 import { PEER_CREATE_DEPOSIT_ABI, PEER_WITHDRAW_ABI } from "@/server/funding/providers/peer/abi";
@@ -68,7 +69,10 @@ function row(overrides: Partial<ActionRow> = {}): ActionRow {
     ...overrides,
   };
 }
-afterEach(() => setPeerClientFactoryForTests(null));
+afterEach(() => {
+  setPeerClientFactoryForTests(null);
+  setActionsStoreForTests(null);
+});
 
 describe("Peer cash-out action preparation", () => {
   test("authors an exact approval and preserves reviewed identity/estimate metadata", async () => {
@@ -78,11 +82,28 @@ describe("Peer cash-out action preparation", () => {
     });
     expect(draft.kind).toBe("cash-out");
     expect(draft.calls).toHaveLength(2);
-    expect(draft.calls[0]?.approval).toEqual({ assetId: "base:usdc", spender: PEER_PRODUCTION_CONTRACTS.escrow });
+    expect(draft.calls[0]?.approval).toEqual({ assetId: "usdc", spender: PEER_PRODUCTION_CONTRACTS.escrow });
+    expect(draft.amounts[0]?.assetId).toBe("usdc");
     expect(draft.calls[0]?.data.slice(0, 10)).toBe("0x095ea7b3");
     expect(BigInt(`0x${draft.calls[0]!.data.slice(74)}`)).toBe(BigInt(2_000_000));
     expect(draft.metadata).toMatchObject({ product: "cashout", canonicalHandle: "Alice", approximateFiatAmount: "2", minConversionRate: "1" });
     expect(Date.parse(draft.expiresAt) - Date.now()).toBeLessThanOrEqual(10 * 60 * 1000);
+  });
+
+  test("successfully issues a first-allowance action through canonical approval validation", async () => {
+    installClients();
+    const inserts: unknown[] = [];
+    setActionsStoreForTests({ insert: async (value: unknown) => { inserts.push(value); } } as ActionsStore);
+    const draft = await prepareCashoutAction(session, input(), undefined, {
+      env: { PEER_OFFRAMP_ENABLED: "1" }, store: { list: async () => [] }, readAllowance: async () => BigInt(0),
+    });
+
+    const issued = await issueMoneyAction(session, draft);
+
+    expect(issued.kind).toBe("cash-out");
+    expect(issued.calls[0]?.approval?.assetId).toBe("usdc");
+    expect(issued.amounts[0]?.assetId).toBe("usdc");
+    expect(inserts).toHaveLength(1);
   });
 
   test("omits approval only when allowance already covers the exact reviewed amount", async () => {
@@ -101,10 +122,23 @@ describe("Peer cash-out action preparation", () => {
     })).rejects.toMatchObject({ code: "identity-mismatch" });
   });
 
-  test("requires the exact enablement value for direct preparation and order listing", async () => {
+  test("requires the exact enablement value for direct preparation", async () => {
     for (const disabled of [undefined, "0", "false"]) {
       await expect(prepareCashoutAction(session, input(), undefined, { env: { PEER_OFFRAMP_ENABLED: disabled } })).rejects.toMatchObject({ code: "unavailable" });
-      await expect(listCashoutOrders(session, { providerId: "peer", region: "US" }, { PEER_OFFRAMP_ENABLED: disabled })).rejects.toMatchObject({ code: "unavailable" });
+    }
+  });
+
+  test("lists owner recovery orders with provider labels while discovery is disabled", async () => {
+    installClients(true);
+    for (const disabled of [undefined, "0", "false"]) {
+      const orders = await listCashoutOrders(session, { region: "US", inFlight: true }, { PEER_OFFRAMP_ENABLED: disabled });
+      expect(orders).toHaveLength(1);
+      expect(orders[0]).toMatchObject({
+        providerId: "peer", providerName: "Peer", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6,
+        platform: "cashapp", platformLabel: "Cash App",
+      });
+      expect(orders[0]).not.toHaveProperty("owner");
+      expect(orders[0]).not.toHaveProperty("payeeHash");
     }
   });
 
@@ -114,6 +148,7 @@ describe("Peer cash-out action preparation", () => {
       providerId: "peer", region: "US", depositId: `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_7`,
     }, { env: { PEER_OFFRAMP_ENABLED: "0" } });
     expect(draft.kind).toBe("cash-out-withdraw");
+    expect(draft.amounts[0]?.assetId).toBe("usdc");
     expect(draft.metadata).toMatchObject({ operation: "withdraw", providerName: "Peer", platformLabel: "Cash App" });
     expect(draft.metadata).not.toHaveProperty("canonicalHandle");
   });

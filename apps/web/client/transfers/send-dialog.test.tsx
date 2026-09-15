@@ -44,7 +44,7 @@ function cashoutAction(): PreparedMoneyAction {
     ...resumedAction("cash-out"),
     title: "Cash out with Peer",
     calls: [{ to: "0x777777779d229cdF3110e9de47943791c26300Ef", data: "0x1234", value: "0" }],
-    amounts: [{ assetId: "base:usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }],
+    amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }],
     metadata: {
       product: "cashout", operation: "deposit", providerId: "peer", providerName: "Peer", environment: "production",
       platform: "cashapp", platformLabel: "Cash App", currency: "USD", canonicalHandle: "alice", approximateFiatAmount: "1", etaSeconds: 60,
@@ -53,6 +53,27 @@ function cashoutAction(): PreparedMoneyAction {
     },
   };
 }
+
+function withdrawAction(): PreparedMoneyAction {
+  return {
+    ...resumedAction("cash-out-withdraw"),
+    title: "Withdraw cash-out",
+    calls: [{ to: "0x777777779d229cdF3110e9de47943791c26300Ef", data: "0x1234", value: "0" }],
+    amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "2000000", direction: "receive" }],
+    metadata: {
+      product: "cashout", operation: "withdraw", providerId: "peer", providerName: "Peer", environment: "production",
+      platform: "cashapp", platformLabel: "Cash App", currency: "USD", depositId: "0xescrow_7", approximateFiatAmount: "0", etaSeconds: null,
+      minConversionRate: "1", intentAmountRange: { min: "2000000", max: "2000000" },
+      estimateAsOf: "2026-09-14T12:00:00.000Z", escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",
+    },
+  };
+}
+
+const recoveryOrder = {
+  providerId: "peer", providerName: "Peer", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6,
+  depositId: "0xescrow_7", state: "awaiting-buyer", platform: "cashapp", platformLabel: "Cash App", currency: "USD",
+  canonicalHandle: null, amountAtomic: "2000000", remainingAmountAtomic: "2000000", nextActions: ["withdraw"] as const,
+};
 
 const offrampResponse = {
   version: 2,
@@ -177,6 +198,31 @@ describe("SendDialog Peer cash-out", () => {
     expect(page().getByRole("button", { name: "Base address" })).toBeTruthy();
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
   });
+
+  test("shows and prepares withdrawal recovery without enabled-provider discovery", async () => {
+    const prepares: Array<{ kind: string; params: unknown }> = [];
+    render(
+      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-peer-recovery" regionId="US"
+        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
+          ? { version: 2, direction: "offramp", providers: [] }
+          : { version: 2, orders: [recoveryOrder] }}
+        prepareMoneyAction={async (kind, params) => { prepares.push({ kind, params }); return withdrawAction(); }}
+        resumeMoneyAction={async () => withdrawAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByText("Peer: awaiting-buyer.")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Cash out with Peer" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Withdraw USDC" }));
+    expect(await page().findByRole("button", { name: "Withdraw 2 USDC" })).toBeTruthy();
+    expect(prepares).toEqual([{
+      kind: "cash-out-withdraw",
+      params: { providerId: "peer", region: "US", depositId: "0xescrow_7" },
+    }]);
+  });
 });
 
 describe("SendDialog resume", () => {
@@ -218,6 +264,24 @@ describe("SendDialog resume", () => {
 
     expect(await page().findByRole("button", { name: "Continue" })).toBeTruthy();
     expect(invalidResumes).toBe(1);
+  });
+
+  test("resumes a pending cash-out withdrawal review from typed metadata and receive amount", async () => {
+    let invalidResumes = 0;
+    render(
+      <SendDialog
+        open immediate address={ACCOUNT} ownerBoundary="owner-withdraw-resume" resumeActionId={ACTION_ID}
+        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        prepareMoneyAction={async () => withdrawAction()} resumeMoneyAction={async () => withdrawAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
+        onInvalidResume={() => { invalidResumes += 1; }} onClose={() => {}}
+      />,
+    );
+
+    expect(await page().findByRole("button", { name: "Withdraw 2 USDC" })).toBeTruthy();
+    expect(document.body.textContent).toContain("You're withdrawing from Peer");
+    expect(document.body.textContent).toContain("Cash App");
+    expect(invalidResumes).toBe(0);
   });
 
   test("keeps an ordinary send review open when the wallet resolves rejected", async () => {

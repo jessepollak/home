@@ -11,13 +11,14 @@ import { getActionsStore, type ActionRow, type ActionsStore } from "@/server/act
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { createProviderContext, environmentAvailable } from "@/server/funding/core/provider-context";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
-import { getFundingProvider } from "@/server/funding/providers";
+import { fundingProviders, getFundingProvider } from "@/server/funding/providers";
 import { assertPeerDepositCall } from "@/server/funding/providers/peer/offramp";
 
 const APPROVE_ABI = parseAbi(["function approve(address spender,uint256 amount) returns (bool)"]);
 const ALLOWANCE_ABI = parseAbi(["function allowance(address owner,address spender) view returns (uint256)"]);
 const UNKNOWN_WINDOW_MS = 15 * 60 * 1000;
 const ACTION_EXPIRY_MS = 10 * 60 * 1000;
+const USDC_ACTION_ASSET_ID = BASE_USDC.id;
 
 type CashoutInput = {
   providerId: string;
@@ -136,7 +137,7 @@ export async function prepareCashoutAction(
       to: BASE_USDC.address.toLowerCase() as `0x${string}`,
       data: encodeFunctionData({ abi: APPROVE_ABI, functionName: "approve", args: [ctx.deployment.contracts.escrow, amount] }),
       value: "0",
-      approval: { assetId: BASE_USDC.fundingId, spender: ctx.deployment.contracts.escrow },
+      approval: { assetId: USDC_ACTION_ASSET_ID, spender: ctx.deployment.contracts.escrow },
     });
   }
   calls.push(prepared.depositCall);
@@ -144,7 +145,7 @@ export async function prepareCashoutAction(
     kind: "cash-out",
     title: "Cash out with Peer",
     calls,
-    amounts: [{ assetId: BASE_USDC.fundingId, symbol: BASE_USDC.symbol, decimals: BASE_USDC.decimals, amountBaseUnits: amount.toString(10), direction: "spend" }],
+    amounts: [{ assetId: USDC_ACTION_ASSET_ID, symbol: BASE_USDC.symbol, decimals: BASE_USDC.decimals, amountBaseUnits: amount.toString(10), direction: "spend" }],
     warnings: [
       `Payout app: ${direction.paymentMethods.find((method) => method.id === input.platform)?.label ?? input.platform}`,
       `Payout handle: ${canonicalHandle}`,
@@ -204,7 +205,7 @@ export async function prepareCashoutWithdrawAction(
     kind: "cash-out-withdraw",
     title: "Withdraw cash-out",
     calls: [...prepared.calls],
-    amounts: [{ assetId: BASE_USDC.fundingId, symbol: BASE_USDC.symbol, decimals: BASE_USDC.decimals, amountBaseUnits: order.remainingAmountAtomic, direction: "receive" }],
+    amounts: [{ assetId: USDC_ACTION_ASSET_ID, symbol: BASE_USDC.symbol, decimals: BASE_USDC.decimals, amountBaseUnits: order.remainingAmountAtomic, direction: "receive" }],
     warnings: ["This fully closes the available Peer deposit and returns unfilled USDC to your Home account."],
     expiresAt: new Date(now.getTime() + ACTION_EXPIRY_MS).toISOString(),
     metadata: {
@@ -220,19 +221,60 @@ export async function prepareCashoutWithdrawAction(
 
 export async function listCashoutOrders(
   session: VerifiedAccountSession,
-  input: { providerId: string; region: string; inFlight?: boolean },
+  input: { providerId?: string; region: string; inFlight?: boolean },
   env: Readonly<Record<string, string | undefined>> = process.env,
 ) {
   if (!session.smartAccount) unavailable();
-  const provider = getFundingProvider(input.providerId);
-  const binding = provider?.manifest.bindings.find((candidate) =>
-    candidate.region === input.region && candidate.assetId === BASE_USDC.fundingId && candidate.directions.offramp,
-  );
-  const method = binding?.directions.offramp?.paymentMethods[0];
+  const owner = session.smartAccount.address;
   const sandbox = env.FUNDING_SANDBOX === "1";
-  if (!provider?.offramp || !binding || !method || !binding.directions.offramp || !environmentAvailable(binding.directions.offramp.env, env)) unavailable();
-  const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "offramp", paymentMethodId: method.id, env, sandbox });
-  return provider.offramp.listOrders({ owner: session.smartAccount.address, inFlight: input.inFlight }, ctx);
+  const candidates = fundingProviders.flatMap((provider) => {
+    if (input.providerId && provider.manifest.id !== input.providerId) return [];
+    const offramp = provider.offramp;
+    if (!offramp) return [];
+    return provider.manifest.bindings.flatMap((binding) => {
+      const direction = binding.directions.offramp;
+      const method = direction?.paymentMethods[0];
+      if (binding.region !== input.region || !direction || !method) return [];
+      const requiredCredentials = direction.env.filter((name) => !name.endsWith("_ENABLED"));
+      if (!environmentAvailable(requiredCredentials, env)) return [];
+      return [{ provider, offramp, binding, direction, method }];
+    });
+  });
+  if (input.providerId && candidates.length === 0) unavailable();
+  const recoveryEnv = {
+    ...env,
+    ...Object.fromEntries(candidates.flatMap(({ direction }) =>
+      direction.env.filter((name) => name.endsWith("_ENABLED")).map((name) => [name, "1"]),
+    )),
+  };
+  const results = await Promise.all(candidates.map(async ({ provider, offramp, binding, method }) => {
+    const ctx = createProviderContext({
+      manifest: provider.manifest,
+      region: binding.region,
+      direction: "offramp",
+      paymentMethodId: method.id,
+      env: recoveryEnv,
+      sandbox,
+    });
+    const orders = await offramp.listOrders({ owner, inFlight: input.inFlight }, ctx);
+    return orders.map((order) => ({
+      providerId: provider.manifest.id,
+      providerName: provider.manifest.displayName,
+      assetId: binding.assetId,
+      assetSymbol: ctx.binding.asset.symbol,
+      assetDecimals: ctx.binding.asset.decimals,
+      depositId: order.depositId,
+      state: order.state,
+      platform: order.platform,
+      platformLabel: ctx.binding.paymentMethods.find((candidate) => candidate.id === order.platform)?.label ?? order.platform,
+      currency: order.currency,
+      canonicalHandle: order.canonicalHandle,
+      amountAtomic: order.amountAtomic,
+      remainingAmountAtomic: order.remainingAmountAtomic,
+      nextActions: order.nextActions,
+    }));
+  }));
+  return results.flat();
 }
 
 export function hasRecentHashlessCashout(rows: readonly ActionRow[], now: Date): boolean {
