@@ -131,27 +131,43 @@ describe("Peer cash-out action preparation", () => {
   test("lists owner recovery orders with provider labels while discovery is disabled", async () => {
     installClients(true);
     for (const disabled of [undefined, "0", "false"]) {
-      const orders = await listCashoutOrders(
+      const result = await listCashoutOrders(
         session,
         { region: "US", inFlight: true },
         { PEER_OFFRAMP_ENABLED: disabled },
         { store: { hasCashoutHistory: async () => true, cashoutRecoveryModes: async () => ["production"] } },
       );
-      expect(orders).toHaveLength(1);
-      expect(orders[0]).toMatchObject({
+      expect(result.recoveryEligible).toBe(true);
+      expect(result.orders).toHaveLength(1);
+      expect(result.orders[0]).toMatchObject({
         providerId: "peer", providerName: "Peer", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6,
         platform: "cashapp", platformLabel: "Cash App",
       });
-      expect(orders[0]).not.toHaveProperty("owner");
-      expect(orders[0]).not.toHaveProperty("payeeHash");
+      expect(result.orders[0]).not.toHaveProperty("owner");
+      expect(result.orders[0]).not.toHaveProperty("payeeHash");
     }
   });
 
   test("does not query disabled Peer recovery without owner history or an explicit request", async () => {
     installClients(true);
     const store = { hasCashoutHistory: async () => false, cashoutRecoveryModes: async () => [] };
-    expect(await listCashoutOrders(session, { region: "US" }, { PEER_OFFRAMP_ENABLED: "0" }, { store })).toEqual([]);
-    expect(await listCashoutOrders(session, { region: "US", recover: true }, { PEER_OFFRAMP_ENABLED: "0" }, { store })).toHaveLength(1);
+    expect(await listCashoutOrders(session, { region: "US" }, { PEER_OFFRAMP_ENABLED: "0" }, { store }))
+      .toEqual({ recoveryEligible: false, orders: [] });
+    expect((await listCashoutOrders(session, { region: "US", recover: true }, { PEER_OFFRAMP_ENABLED: "0" }, { store })).orders).toHaveLength(1);
+  });
+
+  test("fails closed on the legacy global sandbox setting before provider reads", async () => {
+    let historyReads = 0;
+    await expect(listCashoutOrders(
+      session,
+      { region: "US" },
+      { FUNDING_SANDBOX: "", PEER_OFFRAMP_ENABLED: "1" },
+      { store: {
+        hasCashoutHistory: async () => { historyReads += 1; return false; },
+        cashoutRecoveryModes: async () => [],
+      } },
+    )).rejects.toMatchObject({ code: "FUNDING_SANDBOX_MIGRATION_REQUIRED" });
+    expect(historyReads).toBe(1);
   });
 
   test("keeps withdrawal recovery available while new Peer cash-outs are disabled", async () => {

@@ -1,7 +1,7 @@
 // Private route contract.
 // GET /api/funding/offramp/orders?region=US&inFlight=1[&providerId=peer]
 
-export const OFFRAMP_ORDERS_VERSION = 2 as const;
+export const OFFRAMP_ORDERS_VERSION = 3 as const;
 
 export type CashoutOrderSummary = {
   providerId: string;
@@ -22,11 +22,19 @@ export type CashoutOrderSummary = {
 
 export type OfframpOrdersResponse = {
   version: typeof OFFRAMP_ORDERS_VERSION;
+  recoveryEligible: boolean;
   orders: ReadonlyArray<CashoutOrderSummary>;
 };
 
-export function readCashoutOrders(value: unknown): ReadonlyArray<CashoutOrderSummary> {
-  if (!isRecord(value) || value.version !== OFFRAMP_ORDERS_VERSION || !Array.isArray(value.orders)) return [];
+const EMPTY_RESPONSE: OfframpOrdersResponse = {
+  version: OFFRAMP_ORDERS_VERSION,
+  recoveryEligible: false,
+  orders: [],
+};
+
+export function readCashoutOrdersResponse(value: unknown): OfframpOrdersResponse {
+  if (!isRecord(value) || value.version !== OFFRAMP_ORDERS_VERSION ||
+    typeof value.recoveryEligible !== "boolean" || !Array.isArray(value.orders)) return EMPTY_RESPONSE;
   const parsed: CashoutOrderSummary[] = [];
   for (const item of value.orders) {
     if (!isRecord(item) || typeof item.providerId !== "string" || typeof item.providerName !== "string" ||
@@ -53,7 +61,11 @@ export function readCashoutOrders(value: unknown): ReadonlyArray<CashoutOrderSum
       nextActions: item.nextActions,
     });
   }
-  return parsed;
+  return {
+    version: OFFRAMP_ORDERS_VERSION,
+    recoveryEligible: value.recoveryEligible,
+    orders: parsed,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

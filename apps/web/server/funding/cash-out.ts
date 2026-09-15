@@ -285,7 +285,10 @@ export async function listCashoutOrders(
       nextActions: order.nextActions,
     }));
   }));
-  return [...new Map(results.flat().map((order) => [`${order.providerId}:${order.depositId}`, order])).values()];
+  return {
+    recoveryEligible: hasHistory,
+    orders: [...new Map(results.flat().map((order) => [`${order.providerId}:${order.depositId}`, order])).values()],
+  };
 }
 
 function supportedRecoveryModes(

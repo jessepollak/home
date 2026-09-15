@@ -157,7 +157,7 @@ describe("SendDialog Peer cash-out", () => {
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => {
           fetches.push(url);
-          return url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, orders: [] };
+          return url.startsWith("/api/funding/providers") ? offrampResponse : { version: 3, recoveryEligible: false, orders: [] };
         }}
         prepareMoneyAction={async (kind, params) => { prepares.push({ kind, params }); return cashoutAction(); }}
         resumeMoneyAction={async () => cashoutAction()}
@@ -168,8 +168,9 @@ describe("SendDialog Peer cash-out", () => {
 
     fireEvent.click(page().getByRole("button", { name: "1" }));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    expect(await page().findByRole("button", { name: "Cash out with Peer" })).toBeTruthy();
-    fireEvent.click(page().getByRole("button", { name: "Cash out with Peer" }));
+    const peer = await page().findByRole("button", { name: /Available payout apps: Cash App.*Cash out with Peer.*Receive money in a payment app/ });
+    expect(peer).toBeTruthy();
+    fireEvent.click(peer);
     fireEvent.click(page().getByRole("button", { name: "Cash App" }));
     fireEvent.input(page().getByLabelText("Cash App handle"), { target: { value: "$alice" } });
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
@@ -194,10 +195,36 @@ describe("SendDialog Peer cash-out", () => {
     );
     fireEvent.click(page().getByRole("button", { name: "1" }));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    expect(page().queryByRole("button", { name: "Cash out with Peer" })).toBeNull();
+    expect(page().queryByRole("button", { name: /Cash out with Peer/ })).toBeNull();
+    expect(page().queryByRole("button", { name: "Recover a Peer cash-out" })).toBeNull();
     expect(page().getByLabelText("To")).toBeTruthy();
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  });
+
+  test("waits for settled reads and hides an empty explicit recovery result", async () => {
+    let resolveProviders!: (value: unknown) => void;
+    const providerRead = new Promise<unknown>((resolve) => { resolveProviders = resolve; });
+    let orderReads = 0;
+    render(
+      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-peer-empty-recovery" regionId="US"
+        availableAssets={[]}
+        fetchAccountResource={async (url) => {
+          if (url.startsWith("/api/funding/providers")) return await providerRead;
+          orderReads += 1;
+          return { version: 3, recoveryEligible: true, orders: [] };
+        }}
+        prepareMoneyAction={async () => withdrawAction()} resumeMoneyAction={async () => withdrawAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
+    );
+
+    await waitFor(() => expect(orderReads).toBe(1));
+    expect(page().queryByRole("button", { name: "Recover a Peer cash-out" })).toBeNull();
+    resolveProviders({ version: 2, direction: "offramp", providers: [] });
+    const recover = await page().findByRole("button", { name: "Recover a Peer cash-out" });
+    fireEvent.click(recover);
+    await waitFor(() => expect(orderReads).toBe(2));
+    expect(page().queryByRole("button", { name: "Recover a Peer cash-out" })).toBeNull();
   });
 
   test("shows and prepares withdrawal recovery without enabled-provider discovery", async () => {
@@ -207,17 +234,19 @@ describe("SendDialog Peer cash-out", () => {
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
           ? { version: 2, direction: "offramp", providers: [] }
-          : { version: 2, orders: [recoveryOrder] }}
+          : { version: 3, recoveryEligible: true, orders: [recoveryOrder] }}
         prepareMoneyAction={async (kind, params) => { prepares.push({ kind, params }); return withdrawAction(); }}
         resumeMoneyAction={async () => withdrawAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
 
     fireEvent.click(page().getByRole("button", { name: "1" }));
+    await waitFor(() => expect(page().queryByRole("button", { name: /Withdraw 2 USDC.*Peer cash-out.*awaiting-buyer/ })).toBeNull());
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    expect(await page().findByText("Peer cash-out · awaiting-buyer")).toBeTruthy();
-    expect(page().queryByRole("button", { name: "Cash out with Peer" })).toBeNull();
-    fireEvent.click(page().getByRole("button", { name: "Withdraw 2 USDC" }));
+    const recovery = await page().findByRole("button", { name: /Withdraw 2 USDC.*Peer cash-out.*awaiting-buyer/ });
+    expect(recovery).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Cash out with Peer/ })).toBeNull();
+    fireEvent.click(recovery);
     expect(await page().findByRole("button", { name: "Withdraw 2 USDC" })).toBeTruthy();
     expect(prepares).toEqual([{
       kind: "cash-out-withdraw",
@@ -273,13 +302,14 @@ describe("SendDialog resume", () => {
         availableAssets={[]}
         fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
           ? { version: 2, direction: "offramp", providers: [] }
-          : { version: 2, orders: [recoveryOrder] }}
+          : { version: 3, recoveryEligible: true, orders: [recoveryOrder] }}
         prepareMoneyAction={async () => withdrawAction()} resumeMoneyAction={async () => withdrawAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
 
-    expect(await page().findByRole("button", { name: "Withdraw 2 USDC" })).toBeTruthy();
-    fireEvent.click(page().getByRole("button", { name: "Withdraw 2 USDC" }));
+    const recovery = await page().findByRole("button", { name: /Withdraw 2 USDC.*Peer cash-out.*awaiting-buyer/ });
+    expect(recovery).toBeTruthy();
+    fireEvent.click(recovery);
     expect(await page().findByText("You're withdrawing from Peer")).toBeTruthy();
   });
 

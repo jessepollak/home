@@ -11,10 +11,19 @@ import type {
 
 export const PROVIDER_FETCH_TIMEOUT_MS = 6_000;
 
+export const FUNDING_CONFIGURATION_CODE = "FUNDING_PROVIDER_CONFIGURATION" as const;
+export const FUNDING_SANDBOX_MIGRATION_CODE = "FUNDING_SANDBOX_MIGRATION_REQUIRED" as const;
+export type FundingConfigurationCode =
+  | typeof FUNDING_CONFIGURATION_CODE
+  | typeof FUNDING_SANDBOX_MIGRATION_CODE;
+
 export class FundingProviderConfigurationError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  readonly code: FundingConfigurationCode;
+
+  constructor(message: string, options?: ErrorOptions & { code?: FundingConfigurationCode }) {
     super(message, options);
     this.name = "FundingProviderConfigurationError";
+    this.code = options?.code ?? FUNDING_CONFIGURATION_CODE;
   }
 }
 
@@ -36,7 +45,9 @@ export function resolveFundingMode(
   env: Environment,
 ): FundingMode {
   if (Object.prototype.hasOwnProperty.call(env, "FUNDING_SANDBOX")) {
-    throw new FundingProviderConfigurationError(LEGACY_MODE_MIGRATION);
+    throw new FundingProviderConfigurationError(LEGACY_MODE_MIGRATION, {
+      code: FUNDING_SANDBOX_MIGRATION_CODE,
+    });
   }
   const capability = manifest[direction];
   const modeEnv = capability?.modeEnv;

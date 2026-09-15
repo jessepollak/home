@@ -40,6 +40,20 @@ describe("observability schema", () => {
     })).toMatchObject({ level: "error", code: "HOME_STARTUP" });
   });
 
+  test("preserves the scrubbed funding sandbox migration diagnostic", () => {
+    expect(normalizeObservabilityEvent({
+      kind: "funding-order",
+      route: "/api/funding/providers",
+      code: "FUNDING_SANDBOX_MIGRATION_REQUIRED",
+      outcome: "unavailable",
+      durationMs: 1,
+    })).toMatchObject({
+      kind: "funding-order",
+      code: "FUNDING_SANDBOX_MIGRATION_REQUIRED",
+      outcome: "unavailable",
+    });
+  });
+
   test("normalizes out-of-enum funding-order codes to ORDER_UNAVAILABLE", () => {
     expect(normalizeObservabilityEvent({
       kind: "funding-order",

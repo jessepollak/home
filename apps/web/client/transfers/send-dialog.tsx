@@ -13,11 +13,12 @@ import { AddressField } from "@/components/address";
 import { FieldSeparator } from "@/components/ui/field";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { CopyableValue } from "@/components/copyable-value";
+import { PayoutMethodMarks } from "@/components/payout-method-marks";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { RegionId } from "@/config/regions";
 import { readProviderBindings, type FundingOfframpBinding } from "@/shared/funding/contracts/providers";
-import { readCashoutOrders, type CashoutOrderSummary } from "@/shared/funding/contracts/offramp-orders";
+import { readCashoutOrdersResponse, type CashoutOrderSummary } from "@/shared/funding/contracts/offramp-orders";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
 import {
   MoneyAmountDisplay,
@@ -103,8 +104,11 @@ export function SendDialog({
   const [request, setRequest] = useState<TransferRequest | null>(null);
   const [cashout, setCashout] = useState<CashoutRequest | null>(null);
   const [offramps, setOfframps] = useState<ReadonlyArray<FundingOfframpBinding>>([]);
+  const [providersLoadedFor, setProvidersLoadedFor] = useState<string | null>(null);
   const [activeOrders, setActiveOrders] = useState<ReadonlyArray<CashoutOrderSummary>>([]);
-  const [ordersLoaded, setOrdersLoaded] = useState(false);
+  const [ordersLoadedFor, setOrdersLoadedFor] = useState<string | null>(null);
+  const [recoveryEligible, setRecoveryEligible] = useState(false);
+  const [recoveryAttemptedFor, setRecoveryAttemptedFor] = useState<string | null>(null);
   const [selectedOfframp, setSelectedOfframp] = useState<FundingOfframpBinding | null>(null);
   const [selectedPlatform, setSelectedPlatform] = useState<FundingOfframpBinding["paymentMethods"][number] | null>(null);
   const [payoutHandle, setPayoutHandle] = useState("");
@@ -125,8 +129,12 @@ export function SendDialog({
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
   const selectedAvailability = availableAssets?.find((asset) => asset.id === activeAssetId);
-  const eligibleOfframps = offramps.filter((binding) => selectedAsset?.symbol === "USDC" && binding.assetId === "base:usdc");
-  const visibleActiveOrders = activeOrders;
+  const resourceBoundary = `${ownerBoundary ?? ""}:${regionId}`;
+  const providersLoaded = providersLoadedFor === resourceBoundary;
+  const ordersLoaded = ordersLoadedFor === resourceBoundary;
+  const eligibleOfframps = (providersLoaded ? offramps : []).filter((binding) => selectedAsset?.symbol === "USDC" && binding.assetId === "base:usdc");
+  const visibleActiveOrders = ordersLoaded ? activeOrders : [];
+  const recoveryAttempted = recoveryAttemptedFor === resourceBoundary;
   const assetOptions = useMemo(() => availableAssets?.map((asset) => ({
     id: asset.id, label: asset.symbol, description: asset.name, currency: asset.cashCurrency,
     mark: presentPortfolioAssetMark({ assetKey: asset.assetKey, name: asset.name, symbol: asset.symbol, currency: asset.cashCurrency }, assetMarkResolution),
@@ -135,20 +143,34 @@ export function SendDialog({
   useEffect(() => {
     if (!open || !ownerBoundary || !fetchAccountResource) return;
     let cancelled = false;
+    const requestedBoundary = resourceBoundary;
     void fetchAccountResource(`/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=offramp`)
       .then((value) => { if (!cancelled) setOfframps(readProviderBindings(value).filter((binding): binding is FundingOfframpBinding => binding.direction === "offramp")); })
-      .catch(() => { if (!cancelled) setOfframps([]); });
+      .catch(() => { if (!cancelled) setOfframps([]); })
+      .finally(() => { if (!cancelled) setProvidersLoadedFor(requestedBoundary); });
     return () => { cancelled = true; };
-  }, [fetchAccountResource, open, ownerBoundary, regionId]);
+  }, [fetchAccountResource, open, ownerBoundary, regionId, resourceBoundary]);
 
   useEffect(() => {
     if (!open || !ownerBoundary || !fetchAccountResource) return;
     let cancelled = false;
+    const requestedBoundary = resourceBoundary;
     void fetchAccountResource(`/api/funding/offramp/orders?region=${encodeURIComponent(regionId)}&inFlight=1`)
-      .then((value) => { if (!cancelled) { setActiveOrders(readCashoutOrders(value)); setOrdersLoaded(true); } })
-      .catch(() => { if (!cancelled) { setActiveOrders([]); setOrdersLoaded(true); } });
+      .then((value) => {
+        if (cancelled) return;
+        const response = readCashoutOrdersResponse(value);
+        setActiveOrders(response.orders);
+        setRecoveryEligible(response.recoveryEligible);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setActiveOrders([]);
+          setRecoveryEligible(false);
+        }
+      })
+      .finally(() => { if (!cancelled) setOrdersLoadedFor(requestedBoundary); });
     return () => { cancelled = true; };
-  }, [fetchAccountResource, open, ownerBoundary, regionId]);
+  }, [fetchAccountResource, open, ownerBoundary, regionId, resourceBoundary]);
 
   useEffect(() => {
     if (!open || !ownerBoundary || !resumeActionId || resumedActionRef.current === resumeActionId) return;
@@ -213,14 +235,17 @@ export function SendDialog({
 
   async function recoverCashouts() {
     if (!fetchAccountResource) return;
-    setOrdersLoaded(false);
+    setRecoveryAttemptedFor(resourceBoundary);
+    setOrdersLoadedFor(null);
     try {
       const value = await fetchAccountResource(`/api/funding/offramp/orders?region=${encodeURIComponent(regionId)}&inFlight=1&recover=1`);
-      setActiveOrders(readCashoutOrders(value));
+      const response = readCashoutOrdersResponse(value);
+      setActiveOrders(response.orders);
+      setRecoveryEligible(response.recoveryEligible);
     } catch {
       setActiveOrders([]);
     } finally {
-      setOrdersLoaded(true);
+      setOrdersLoadedFor(resourceBoundary);
     }
   }
 
@@ -321,8 +346,8 @@ export function SendDialog({
         {step === "amount" ? <>
           <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(selectedAvailability.balanceBaseUnits, selectedAvailability.decimals) : null} availableSuffix={selectedAvailability?.balanceAgeLabel} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetCurrency={selectedAsset?.cashCurrency} assetOptions={assetOptions} onAssetChange={(next) => { setAssetId(next); changeAmount("", "programmatic"); }} chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
           {selectedAsset ? <MoneyNumpad value={amount} maxDecimals={selectedAsset.decimals} onChange={changeAmount} /> : <StatusMessage>No catalog balance is available to send.</StatusMessage>}
-          {visibleActiveOrders.length > 0 ? <div className="grid gap-1">{visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}</div> : null}
-          {!selectedAsset && ordersLoaded && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
+          {!selectedAsset && visibleActiveOrders.length > 0 ? <div className="grid gap-1">{visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}</div> : null}
+          {!selectedAsset && providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
         </> : null}
         {step === "destination" ? <div className="grid gap-4">
           <AddressField id="send-recipient" label="To" value={recipient} onChange={setRecipient} />
@@ -330,7 +355,7 @@ export function SendDialog({
           <div className="grid gap-1">
             {visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}
             {eligibleOfframps.length > 0 ? <CashoutItem binding={eligibleOfframps[0]!} onSelect={() => { setSelectedOfframp(eligibleOfframps[0]!); setStep("payout"); }} /> : null}
-            {ordersLoaded && offramps.length === 0 && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
+            {providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
           </div>
         </div> : null}
         {step === "payout" && selectedOfframp ? <div className="grid gap-2">
@@ -376,11 +401,11 @@ export function SendDialog({
 
 function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; onSelect: () => void }) {
   return <Item
-    render={<Button variant="ghost" aria-label={`Cash out with ${binding.displayName}`} />}
+    render={<Button variant="ghost" />}
     className="flex-nowrap items-center text-left"
     onClick={onSelect}
   >
-    <ItemMedia><PaymentMethodMarks methods={binding.paymentMethods} /></ItemMedia>
+    <ItemMedia><PayoutMethodMarks methods={binding.paymentMethods} /></ItemMedia>
     <ItemContent className="min-w-0">
       <ItemTitle>{`Cash out with ${binding.displayName}`}</ItemTitle>
       <ItemDescription lines={1}>Receive money in a payment app</ItemDescription>
@@ -392,7 +417,7 @@ function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; on
 function RecoveryItem({ order, onWithdraw }: { order: CashoutOrderSummary; onWithdraw: () => void }) {
   const amount = `${atomicToDecimal(order.remainingAmountAtomic, order.assetDecimals)} ${order.assetSymbol}`;
   return <Item
-    render={<Button variant="ghost" aria-label={`Withdraw ${amount}`} />}
+    render={<Button variant="ghost" />}
     className="flex-nowrap items-center text-left"
     onClick={onWithdraw}
   >
@@ -402,28 +427,6 @@ function RecoveryItem({ order, onWithdraw }: { order: CashoutOrderSummary; onWit
     </ItemContent>
     <ItemActions aria-hidden="true"><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>
   </Item>;
-}
-
-function PaymentMethodMarks({ methods }: { methods: FundingOfframpBinding["paymentMethods"] }) {
-  const visible = methods.slice(0, 4);
-  const labels = methods.map((method) => method.label).join(", ");
-  return <span className="flex -space-x-2" role="img" aria-label={`Available payout apps: ${labels}`}>
-    {visible.map((method) => {
-      const mark = payoutMark(method.platform, method.label);
-      return <span key={method.id} className={`relative flex size-7 items-center justify-center rounded-full border-2 border-background text-xs font-bold ${mark.className}`} aria-hidden="true">{mark.text}</span>;
-    })}
-    {methods.length > visible.length ? <span className="relative flex size-7 items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium text-muted-foreground" aria-hidden="true">+{methods.length - visible.length}</span> : null}
-  </span>;
-}
-
-function payoutMark(platform: string, label: string): { text: string; className: string } {
-  switch (platform.toLowerCase()) {
-    case "cashapp": return { text: "$", className: "bg-[#00d64f] text-black" };
-    case "zelle": return { text: "Z", className: "bg-[#6d1ed4] text-white" };
-    case "monzo": return { text: "M", className: "bg-[#14233c] text-white" };
-    case "revolut": return { text: "R", className: "bg-black text-white" };
-    default: return { text: label.trim().charAt(0).toUpperCase() || "?", className: "bg-muted text-foreground" };
-  }
 }
 
 function formatEta(seconds: number): string {

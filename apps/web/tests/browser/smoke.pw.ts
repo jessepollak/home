@@ -200,7 +200,7 @@ async function installApiFixtures(
       });
       return json(route, url.searchParams.get("region") === "ID" ? { providers: [{ providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx", assetSymbol: "IDRX", assetDecimals: 2, currency: "IDR", paymentMethods: [{ id: "bank-va-mandiri", label: "Bank transfer · Mandiri" }], quotes: false, kyc: null }] } : { providers: [] });
     }
-    if (path === "/api/funding/offramp/orders") return json(route, { version: 2, orders: [] });
+    if (path === "/api/funding/offramp/orders") return json(route, { version: 3, recoveryEligible: false, orders: [] });
     if (path === "/api/funding/quotes") return json(route, { quoteToken: "fixture-signed-quote", quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: EXPIRES_AT } });
     if (path === "/api/funding/orders" && request.method() === "POST") return json(route, { order: { id: ACTION_ID, providerId: "idrx", region: "ID", assetId: "base:idrx", paymentMethod: "bank-va-mandiri", fiatAmount: "20000", state: "awaiting-payment", expectedTokenAmountAtomic: "2000000", fees: [{ label: "Network", amount: "100", currency: "IDR" }], instructions: { kind: "bank-transfer", rail: "Mandiri virtual account", accountNumber: "123456789012", accountName: "Home Fixture", amount: "20000", currency: "IDR" }, providerStatus: "pending" } });
     if (path === "/api/funding/orders" && request.method() === "GET") return json(route, { order: null });
@@ -545,7 +545,7 @@ test("shows the integrated Peer destination at 390px", async ({ page }) => {
 
   await expect(send.getByRole("textbox", { name: "To" })).toBeVisible();
   await expect(send.getByText("Or", { exact: true })).toBeVisible();
-  await expect(send.getByRole("button", { name: "Cash out with Peer" })).toBeVisible();
+  await expect(send.getByRole("button", { name: /Available payout apps: Cash App, Zelle.*Cash out with Peer.*Receive money in a payment app/ })).toBeVisible();
   await expect(send.getByText("Receive money in a payment app", { exact: true })).toBeVisible();
   await expect(send.getByRole("img", { name: "Available payout apps: Cash App, Zelle" })).toBeVisible();
   await send.getByRole("textbox", { name: "To" }).fill(RECIPIENT);

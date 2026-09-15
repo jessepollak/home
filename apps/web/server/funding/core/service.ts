@@ -5,7 +5,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { getFundingAsset } from "@/shared/funding/assets";
 import type { FundingDirection, FundingProvider, Instruction, Observation, Quote } from "@/shared/funding/provider-contract";
 import { decimalToAtomic } from "@/shared/formatting/atomic";
-import { FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode } from "./provider-context";
+import { FUNDING_CONFIGURATION_CODE, FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode, type FundingConfigurationCode } from "./provider-context";
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
 import { awaitBalanceSignal } from "@/server/balances/signal";
@@ -21,7 +21,7 @@ export type FundingCoreDependencies = {
   currentBaseBlock: () => Promise<string>;
   verifyReceipt: (order: FundingOrder, hash: `0x${string}`) => Promise<ReceiptMatch>;
   logUnmatchedWebhook?: (event: { providerId: string; reason: "invalid" | "unmatched" }) => void;
-  logProviderDiscoveryFailure?: (event: { providerId: string; reason: "configuration" | "provider" }) => void;
+  logProviderDiscoveryFailure?: (event: { providerId: string; reason: "configuration" | "provider"; code: FundingConfigurationCode }) => void;
   markStale?: (address: `0x${string}`, at: Date) => Promise<void>;
   now?: () => Date;
 };
@@ -40,7 +40,17 @@ export class FundingCore {
     direction: FundingDirection = "onramp",
   ) {
     const listed = this.deps.providers.flatMap((provider) => {
-      const sandbox = resolveFundingMode(provider.manifest, direction, this.env) === "sandbox";
+      let sandbox: boolean;
+      try {
+        sandbox = resolveFundingMode(provider.manifest, direction, this.env) === "sandbox";
+      } catch (error) {
+        this.deps.logProviderDiscoveryFailure?.({
+          providerId: provider.manifest.id,
+          reason: "configuration",
+          code: error instanceof FundingProviderConfigurationError ? error.code : FUNDING_CONFIGURATION_CODE,
+        });
+        return [];
+      }
       return provider.manifest.bindings.flatMap((binding) => {
       const directional = binding.directions[direction];
       if (
@@ -124,6 +134,7 @@ export class FundingCore {
         this.deps.logProviderDiscoveryFailure?.({
           providerId: provider.manifest.id,
           reason: error instanceof FundingProviderConfigurationError ? "configuration" : "provider",
+          code: error instanceof FundingProviderConfigurationError ? error.code : FUNDING_CONFIGURATION_CODE,
         });
         return [];
       }

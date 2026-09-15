@@ -88,7 +88,7 @@ describe("FundingCore", () => {
   });
 
   test("reports hidden offramp discovery failures without request data", async () => {
-    const events: Array<{ providerId: string; reason: "configuration" | "provider" }> = [];
+    const events: Array<{ providerId: string; reason: "configuration" | "provider"; code: string }> = [];
     const provider: FundingProvider = {
       manifest: {
         id: "offramp-fixture", displayName: "Offramp", docsUrl: "https://example.com",
@@ -103,7 +103,37 @@ describe("FundingCore", () => {
       logProviderDiscoveryFailure: (event) => { events.push(event); },
     });
     expect(await core.listProviders("US", session, "offramp")).toEqual([]);
-    expect(events).toEqual([{ providerId: "offramp-fixture", reason: "provider" }]);
+    expect(events).toEqual([{
+      providerId: "offramp-fixture",
+      reason: "provider",
+      code: "FUNDING_PROVIDER_CONFIGURATION",
+    }]);
+  });
+
+  test("fails discovery closed and reports the scrubbed legacy sandbox migration code", async () => {
+    const events: Array<{ providerId: string; reason: string; code: string }> = [];
+    const core = new FundingCore({
+      providers: [{
+        manifest,
+        onramp: {
+          async createOrder() { return { outcome: "ambiguous" }; },
+          async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+        },
+      }],
+      store: new MemoryFundingOrderStore(),
+      env: { FUNDING_SANDBOX: "", FIXTURE_KEY: "secret-value" },
+      currentBaseBlock: async () => "1",
+      verifyReceipt: async () => null,
+      logProviderDiscoveryFailure: (event) => { events.push(event); },
+    });
+
+    expect(await core.listProviders("ID", session)).toEqual([]);
+    expect(events).toEqual([{
+      providerId: "fixture",
+      reason: "configuration",
+      code: "FUNDING_SANDBOX_MIGRATION_REQUIRED",
+    }]);
+    expect(JSON.stringify(events)).not.toContain("secret-value");
   });
 
   test("rejects quote tokens when the core sandbox mode changes", async () => {
