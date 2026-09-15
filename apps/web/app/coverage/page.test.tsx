@@ -30,19 +30,43 @@ describe("public coverage page", () => {
     expect(html).not.toContain("<footer");
   });
 
-  test("uses five requested columns, decorative flags, and accessible text plus tone statuses", async () => {
+  test("keeps five columns and renders only accessible traffic-light triggers in status cells", async () => {
     const html = await renderCoverage({ q: "United States" });
-    expect(html).toContain("<th scope=\"col\" class=\"p-3\">Country</th>");
+    expect(html).toContain("data-slot=\"table\"");
+    expect(html).toMatch(/<th[^>]+scope="col">Country<\/th>/);
     expect(html).toContain(">Currency</th>");
     expect(html).toContain(">Candidate asset</th>");
     expect(html).toContain(">Issuer route</th>");
     expect(html).toContain(">Home route</th>");
     expect(html).not.toContain(">GDP (2024)</th>");
-    expect(html).toContain("aria-hidden=\"true\">🇺🇸</span>");
-    expect(html).toContain("data-tone=\"caution\">Conditional</span>");
-    expect(html).toContain("data-tone=\"caution\">Sandbox</span>");
-    expect(html).toContain("Evidence checked");
-    expect(html).toContain("Quote observation:");
+    expect(html).toMatch(/aria-hidden="true"[^>]*>🇺🇸<\/span>/);
+
+    const row = html.match(/<tr[^>]+id="country-US"[\s\S]*?<\/tr>/)?.[0] ?? "";
+    const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1]);
+    const visibleText = (cell: string) => cell.replace(/<[^>]+>/g, "");
+    expect(visibleText(cells[2] ?? "")).toBe("Yellow");
+    expect(visibleText(cells[3] ?? "")).toBe("Yellow");
+    expect(cells[2]).toContain("<button type=\"button\"");
+    expect(cells[2]).toContain("aria-label=\"Yellow — Conditional issuer route\"");
+    expect(cells[3]).toContain("aria-label=\"Yellow — Sandbox Home route\"");
+    expect(row).not.toContain("<details");
+    expect(row).not.toContain("Evidence checked");
+    expect(row).not.toContain("Registry checked");
+    expect(row).not.toContain("2026-09");
+    expect(row).not.toContain("base:usdc");
+    expect(row).not.toContain("Quote observation");
+  });
+
+  test("maps researched and absent routes without presenting unknown coverage as unavailable", async () => {
+    const documented = await renderCoverage({ q: "Indonesia" });
+    const documentedRow = documented.match(/<tr[^>]+id="country-ID"[\s\S]*?<\/tr>/)?.[0] ?? "";
+    expect(documentedRow).toContain("aria-label=\"Green — Documented issuer route\"");
+    expect(documentedRow).toContain("aria-label=\"Yellow — In build Home route\"");
+
+    const unknown = await renderCoverage({ q: "China" });
+    const unknownRow = unknown.match(/<tr[^>]+id="country-CN"[\s\S]*?<\/tr>/)?.[0] ?? "";
+    expect(unknownRow).toContain("aria-label=\"Yellow — Not researched issuer route\"");
+    expect(unknownRow).toContain("aria-label=\"Red — No Home route\"");
   });
 
   test("keeps GDP as default ordering without displaying the GDP column", async () => {

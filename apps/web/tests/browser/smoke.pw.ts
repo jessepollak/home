@@ -266,6 +266,12 @@ async function amountMetrics(page: Page) {
   });
 }
 
+test("coverage fixture does not expose the Agentation feedback toolbar", async ({ page }) => {
+  await page.goto("/coverage");
+  await expect(page.getByRole("heading", { name: "Local money coverage" })).toBeVisible();
+  await expect(page.getByTitle("Start feedback mode")).toHaveCount(0);
+});
+
 test("a valid Home session redirects the landing route before rendering", async ({ context }) => {
   const address = "0x1111111111111111111111111111111111111111";
   const key = "playwright-smoke-home-session-secret-32-bytes!!";

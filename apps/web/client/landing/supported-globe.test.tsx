@@ -27,6 +27,7 @@ describe("SupportedGlobe variants", () => {
         showRoutes={false}
         ariaLabel="Coverage inventory"
         description="239 mapped inventory points"
+        interactiveMarkerTones={["positive"]}
       />,
     );
     expect(html).toContain('aria-label="Coverage inventory"');
@@ -35,5 +36,8 @@ describe("SupportedGlobe variants", () => {
     expect(html).toContain("documented");
     expect(html).not.toContain("data-route=");
     expect((html.match(/data-country=/g) ?? []).length).toBe(239);
+    expect((html.match(/<button/g) ?? []).length).toBe(
+      coverageRegistry.filter((record) => record.issuerRoute.status === "documented").length,
+    );
   });
 });

@@ -22,6 +22,7 @@ import {
   shouldAnimateGlobe,
   type GlobeCountry,
   type GlobePoint,
+  type GlobeMarkerTone,
   type GlobePopoverSelection,
 } from "./globe-geometry";
 import type { GlobeRenderer } from "./globe-renderer";
@@ -37,6 +38,8 @@ export type SupportedGlobeProps = {
   showRoutes?: boolean;
   ariaLabel?: string;
   description?: string;
+  /** When set, keeps every marker visible but limits focus and pointer targets to these tones. */
+  interactiveMarkerTones?: readonly GlobeMarkerTone[];
 };
 
 type RouteNodes = {
@@ -66,6 +69,7 @@ export function SupportedGlobe({
   showRoutes = true,
   ariaLabel = "Interactive world with illustrative money connections",
   description,
+  interactiveMarkerTones,
 }: SupportedGlobeProps) {
   const descriptionId = useId();
   const motionId = useId();
@@ -79,12 +83,16 @@ export function SupportedGlobe({
   const motionRef = useRef(false);
   const longitudeRef = useRef(INITIAL_LONGITUDE);
   const points = useMemo(() => locateCountries(countries), [countries]);
+  const interactivePoints = useMemo(() => interactiveMarkerTones
+    ? points.filter((point) => point.markerTone && interactiveMarkerTones.includes(point.markerTone))
+    : points, [interactiveMarkerTones, points]);
   const routes = useMemo(() => showRoutes ? configureGlobeRoutes(points) : [], [points, showRoutes]);
   const initialPopover = useMemo(
-    () => selectGlobePopoverCountry(points, INITIAL_LONGITUDE),
-    [points],
+    () => selectGlobePopoverCountry(interactivePoints, INITIAL_LONGITUDE),
+    [interactivePoints],
   );
   const pointsRef = useRef(points);
+  const interactivePointsRef = useRef(interactivePoints);
   const routesRef = useRef(routes);
   const activeCountryRef = useRef<string | null>(null);
   const selectedCountryRef = useRef(initialPopover?.country.countryCode ?? null);
@@ -92,7 +100,7 @@ export function SupportedGlobe({
   const reducedMotion = useSyncExternalStore(subscribeMotion, motionSnapshot, serverMotionSnapshot);
   const [selectedPopover, setSelectedPopover] = useState<GlobePopoverSelection | null>(initialPopover);
   const [activeCountryCode, setActiveCountryCode] = useState<string | null>(null);
-  const [rovingCountryCode, setRovingCountryCode] = useState<string | null>(initialPopover?.country.countryCode ?? points[0]?.countryCode ?? null);
+  const [rovingCountryCode, setRovingCountryCode] = useState<string | null>(initialPopover?.country.countryCode ?? interactivePoints[0]?.countryCode ?? null);
   const [userPlaying, setUserPlaying] = useState<boolean | null>(null);
   const [status, setStatus] = useState<"static" | "ready" | "unavailable">("static");
   const requestedPlaying = shouldAnimateGlobe(reducedMotion, userPlaying);
@@ -101,18 +109,19 @@ export function SupportedGlobe({
 
   useEffect(() => {
     pointsRef.current = points;
+    interactivePointsRef.current = interactivePoints;
     routesRef.current = routes;
     const activePoint = activeCountryRef.current
-      ? points.find((point) => point.countryCode === activeCountryRef.current)
+      ? interactivePoints.find((point) => point.countryCode === activeCountryRef.current)
       : undefined;
     const selection = activePoint
       ? selectionForPoint(activePoint, longitudeRef.current)
-      : selectGlobePopoverCountry(points, longitudeRef.current);
+      : selectGlobePopoverCountry(interactivePoints, longitudeRef.current);
     selectedCountryRef.current = selection?.country.countryCode ?? null;
     selectedAtRef.current = performance.now();
     setSelectedPopover(selection);
-    if (!activePoint) setRovingCountryCode(selection?.country.countryCode ?? points[0]?.countryCode ?? null);
-  }, [points, routes]);
+    if (!activePoint) setRovingCountryCode(selection?.country.countryCode ?? interactivePoints[0]?.countryCode ?? null);
+  }, [interactivePoints, points, routes]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -147,6 +156,9 @@ export function SupportedGlobe({
         marker?.setAttribute("cx", position.x.toFixed(3));
         marker?.setAttribute("cy", position.y.toFixed(3));
         marker?.setAttribute("visibility", position.visible ? "visible" : "hidden");
+      }
+      for (const point of interactivePointsRef.current) {
+        const position = projectCountry(point.longitude, point.latitude, longitude);
         const button = countryButtonRefs.current.get(point.countryCode);
         button?.style.setProperty("--country-x", `${position.x.toFixed(3)}%`);
         button?.style.setProperty("--country-y", `${position.y.toFixed(3)}%`);
@@ -194,14 +206,14 @@ export function SupportedGlobe({
         }
         activeCountryRef.current = null;
         setActiveCountryCode(null);
-        const fallback = selectGlobePopoverCountry(pointsRef.current, longitude);
+        const fallback = selectGlobePopoverCountry(interactivePointsRef.current, longitude);
         setRovingCountryCode(fallback?.country.countryCode ?? pointsRef.current[0]?.countryCode ?? null);
         positionPopover(fallback);
       } else {
         positionPopover(activeIsVisible
           ? activeSelection
           : selectGlobePopoverCountry(
-              pointsRef.current,
+              interactivePointsRef.current,
               longitude,
               selectedCountryRef.current,
               performance.now() - selectedAtRef.current,
@@ -256,15 +268,15 @@ export function SupportedGlobe({
     if (!activeCountryRef.current) return;
     activeCountryRef.current = null;
     setActiveCountryCode(null);
-    const selection = selectGlobePopoverCountry(points, longitudeRef.current);
+    const selection = selectGlobePopoverCountry(interactivePoints, longitudeRef.current);
     selectedCountryRef.current = selection?.country.countryCode ?? null;
     selectedAtRef.current = 0;
     setSelectedPopover(selection);
-    setRovingCountryCode(selection?.country.countryCode ?? points[0]?.countryCode ?? null);
+    setRovingCountryCode(selection?.country.countryCode ?? interactivePoints[0]?.countryCode ?? null);
   }
 
   function focusAdjacentCountry(current: GlobePoint, direction: -1 | 1) {
-    const visible = points.filter((point) => {
+    const visible = interactivePoints.filter((point) => {
       const position = projectCountry(point.longitude, point.latitude, longitudeRef.current);
       return position.visible && position.depth > 0.12;
     }).sort((a, b) => a.longitude - b.longitude || a.latitude - b.latitude);
@@ -342,7 +354,7 @@ export function SupportedGlobe({
           })}
         </svg>
         <div className={styles.countryTargets} data-interactive={status === "ready" ? "true" : "false"}>
-          {points.map((point) => {
+          {interactivePoints.map((point) => {
             const position = projectCountry(point.longitude, point.latitude);
             const currency = point.currency.code ?? point.currency.name;
             return <button
@@ -390,7 +402,7 @@ export function SupportedGlobe({
               <strong>{selectedCountry.countryName}</strong>
               <small>
                 {selectedCountry.currency.code ?? selectedCountry.currency.name}
-                {selectedCountry.currency.code ? ` · ${selectedCountry.currency.name}` : ""}
+                {selectedCountry.currency.code && selectedCountry.currency.name !== selectedCountry.currency.code ? ` · ${selectedCountry.currency.name}` : ""}
                 {selectedCountry.detail ? ` · ${selectedCountry.detail}` : ""}
               </small>
             </span>
