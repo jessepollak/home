@@ -4,7 +4,7 @@ import { filterSpeedInsightsEvent } from "./speed-insights";
 const vital = { type: "vital" as const };
 
 describe("Speed Insights route boundary", () => {
-  test("keeps canonical pages, normalizes L2 paths to the L1 label, and strips query and hash state", () => {
+  test("normalizes url and route to the L1 label and strips query and hash state", () => {
     expect(filterSpeedInsightsEvent({
       ...vital,
       url: "https://home.example/?account=signin#secret",
@@ -14,12 +14,12 @@ describe("Speed Insights route boundary", () => {
       ...vital,
       url: "https://home.example/balances/investments?flow=send#asset",
       route: "/balances/investments",
-    })).toEqual({ ...vital, url: "https://home.example/balances", route: "/balances/investments" });
+    })).toEqual({ ...vital, url: "https://home.example/balances", route: "/balances" });
     expect(filterSpeedInsightsEvent({
       ...vital,
       url: "https://alice:secret@home.example/invest/cbbtc#asset",
       route: "/invest/cbbtc",
-    })).toEqual({ ...vital, url: "https://home.example/invest", route: "/invest/cbbtc" });
+    })).toEqual({ ...vital, url: "https://home.example/invest", route: "/invest" });
   });
 
   test("drops unobserved, legacy, relative, and malformed URLs", () => {

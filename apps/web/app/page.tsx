@@ -2,7 +2,11 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SupportedGlobeDynamic } from "@/client/landing/supported-globe-dynamic";
 import { PortfolioHomeExperience } from "@/client/home/home-experience";
-import { readShellAccountParam, searchParamsToString } from "@/config/shell-location";
+import {
+  homeHrefWithOverlays,
+  readShellAccountParam,
+  searchParamsToString,
+} from "@/config/shell-location";
 import { readRenderSession } from "@/server/auth/render-session";
 
 export default async function HomePage({ searchParams }: PageProps<"/">) {
@@ -10,7 +14,8 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   const search = searchParamsToString(query);
   const rendered = readRenderSession(await cookies());
   if (rendered && readShellAccountParam(query) !== "signin") {
-    redirect("/home");
+    // Only allowlisted ephemeral overlays survive; /?account=signin stays root.
+    redirect(homeHrefWithOverlays(query));
   }
 
   // Server geo can later pass a detected country here. The anonymous persisted

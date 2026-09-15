@@ -290,7 +290,7 @@ describe("Home shell auth and privacy", () => {
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
   });
 
-  test("redirects a verified landing session to Home", async () => {
+  test("redirects a verified landing session to Home, keeping only overlay intent", async () => {
     render(
       <HomeHarness
         accountSdk={sdk({
@@ -301,8 +301,24 @@ describe("Home shell auth and privacy", () => {
         routeMode="landing"
       />,
     );
-
     await waitFor(() => expect(replaceCalls).toEqual(["/home"]));
+
+    cleanup();
+    getHomeQueryClient().clear();
+    replaceCalls.length = 0;
+    syncLocation("/?flow=send&panel=balances&group=investments");
+    render(
+      <HomeHarness
+        accountSdk={sdk({
+          isSignedIn: true,
+          ownerKey: OWNER,
+          provisionalSession: session(),
+        })}
+        routeMode="landing"
+      />,
+    );
+    // Obsolete page-routing params never survive the redirect.
+    await waitFor(() => expect(replaceCalls).toEqual(["/home?flow=send"]));
   });
 
   test("keeps a verified landing session on an explicit sign-in intent", async () => {

@@ -308,7 +308,22 @@ test("a valid Home session redirects the landing route before rendering", async 
   const legacy = await context.request.get("/dashboard?panel=balances&group=investments", { maxRedirects: 0 });
   expect(legacy.status()).toBe(307);
   expect(legacy.headers().location).toBe("/home");
+  // The verified root redirect keeps only allowlisted ephemeral overlay intent.
+  const overlays = await context.request.get("/?flow=send&panel=balances&group=investments", { maxRedirects: 0 });
+  expect(overlays.status()).toBe(307);
+  expect(overlays.headers().location).toBe("/home?flow=send");
 });
+
+function trackHydrationErrors(page: Page): string[] {
+  const hydrationErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && /hydrat/i.test(message.text())) hydrationErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => {
+    if (/hydrat/i.test(error.message)) hydrationErrors.push(error.message);
+  });
+  return hydrationErrors;
+}
 
 function expectTickerInsideAmount(metrics: NonNullable<Awaited<ReturnType<typeof amountMetrics>>>) {
   expect(metrics.tickerLeft).toBeGreaterThanOrEqual(metrics.containerLeft - 0.5);
@@ -1272,13 +1287,7 @@ test("every canonical L1 and representative L2 route SSRs and first-paints cold 
   await coldDirectLoad(page, "GB");
   await installApiFixtures(page);
   await signIn(page);
-  const hydrationErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error" && /hydrat/i.test(message.text())) hydrationErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => {
-    if (/hydrat/i.test(error.message)) hydrationErrors.push(error.message);
-  });
+  const hydrationErrors = trackHydrationErrors(page);
   const routes = [
     ["/home", ">Total balance<", "Home"],
     ["/balances", "aria-label=\"Your money\"", "Your money"],
@@ -1341,13 +1350,7 @@ test("cross-canonical-route Back/Forward keeps one persistent shell without remo
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
   await installApiFixtures(page);
   await signIn(page);
-  const hydrationErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error" && /hydrat/i.test(message.text())) hydrationErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => {
-    if (/hydrat/i.test(error.message)) hydrationErrors.push(error.message);
-  });
+  const hydrationErrors = trackHydrationErrors(page);
 
   // Cross canonical routes through in-app optimistic navigation only.
   await page.getByRole("button", { name: "Your money", exact: true }).click();

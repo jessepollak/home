@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { BORROW_MARKET_ID } from "@/shared/borrowing/config";
 import {
   flowHref,
+  homeHrefWithOverlays,
   isCanonicalShellPathname,
   parseInboundUrlIntent,
   parseShellLocation,
@@ -13,6 +14,7 @@ import {
 } from "./shell-location";
 
 const DYNAMIC_ASSET_ID = "base:0x1111111111111111111111111111111111111111";
+const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 
 function location(panel: ShellLocation["panel"], rest: Partial<ShellLocation> = {}): ShellLocation {
   return { panel, account: null, shelf: null, asset: null, group: null, market: null, ...rest };
@@ -28,57 +30,46 @@ const canonicalLocations: Array<[string, ShellLocation]> = [
   ["/borrow", location("borrow")],
   [`/borrow/${BORROW_MARKET_ID}`, location("borrow", { market: BORROW_MARKET_ID })],
   ["/invest", location("invest")],
+  // Reserved categories and assets share one flat L2 segment; categories match first.
   ["/invest/stocks", location("invest", { shelf: "stocks" })],
   ["/invest/crypto", location("invest", { shelf: "crypto" })],
   ["/invest/memes", location("invest", { shelf: "memes" })],
   ["/invest/cbbtc", location("invest", { asset: "cbbtc" })],
   [`/invest/${DYNAMIC_ASSET_ID}`, location("invest", { asset: DYNAMIC_ASSET_ID })],
+  [`/invest/${encodeURIComponent(DYNAMIC_ASSET_ID)}`, location("invest", { asset: DYNAMIC_ASSET_ID })],
+];
+
+const fallbackLocations: Array<[string, ShellLocation]> = [
+  // Root, the legacy dashboard, unknown top-level segments, and malformed encodings → /home.
+  ["/", location("home")],
+  ["/dashboard", location("home")],
+  ["/unknown", location("home")],
+  ["/dashboard/panel", location("home")],
+  ["/%zz", location("home")],
+  // Invalid or extra L2 segments → the canonical parent.
+  ["/balances/grocery", location("balances")],
+  ["/balances/cash/extra", location("balances")],
+  ["/borrow/not-a-market", location("borrow")],
+  [`/borrow/0x${"ff".repeat(32)}`, location("borrow")],
+  ["/invest/forex", location("invest")],
+  ["/invest/not-an-asset", location("invest")],
+  ["/invest/base:0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", location("invest")],
+  ["/home/nope", location("home")],
+  ["/save/nope", location("save")],
+  ["/activity/nope", location("activity")],
 ];
 
 describe("shell location", () => {
-  test("round-trips every canonical L1 and L2 path", () => {
+  test("round-trips every canonical L1 and L2 path through the parser", () => {
     for (const [pathname, expected] of canonicalLocations) {
       expect(parseShellLocation(pathname)).toEqual(expected);
       expect(parseShellLocation(shellHref(expected))).toEqual(expected);
     }
   });
 
-  test("parses encoded dynamic asset segments once", () => {
-    expect(parseShellLocation(`/invest/${encodeURIComponent(DYNAMIC_ASSET_ID)}`))
-      .toEqual(location("invest", { asset: DYNAMIC_ASSET_ID }));
-  });
-
-  test("falls back to /home for the root, the legacy dashboard, and unknown segments", () => {
-    const fallbacks = ["/", "/dashboard", "/unknown", "/dashboard/panel", "/%zz"];
-    for (const pathname of fallbacks) {
-      expect(parseShellLocation(pathname)).toEqual(location("home"));
-    }
-  });
-
-  test("falls back to the canonical parent for invalid or extra L2 segments", () => {
-    const fallbacks = [
-      ["/balances/grocery", location("balances")],
-      ["/balances/cash/extra", location("balances")],
-      ["/borrow/not-a-market", location("borrow")],
-      [`/borrow/0x${"ff".repeat(32)}`, location("borrow")],
-      ["/invest/forex", location("invest")],
-      ["/invest/not-an-asset", location("invest")],
-      ["/invest/base:0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", location("invest")],
-      ["/home/nope", location("home")],
-      ["/save/nope", location("save")],
-      ["/activity/nope", location("activity")],
-    ] as const;
-    for (const [pathname, expected] of fallbacks) {
+  test("falls back to /home or the canonical parent for non-canonical paths", () => {
+    for (const [pathname, expected] of fallbackLocations) {
       expect(parseShellLocation(pathname)).toEqual(expected);
-    }
-  });
-
-  test("matches reserved Invest categories before asset resolution", () => {
-    // The category names are not asset ids, but the parser must not even reach
-    // asset resolution for them.
-    for (const category of ["stocks", "crypto", "memes"]) {
-      expect(parseShellLocation(`/invest/${category}`))
-        .toEqual(location("invest", { shelf: category }));
     }
   });
 
@@ -88,114 +79,88 @@ describe("shell location", () => {
       [{ panel: "save" as const }, "/save"],
       [{ panel: "balances" as const, group: "cash" as const }, "/balances/cash"],
       [{ panel: "invest" as const, shelf: "stocks" }, "/invest/stocks"],
-      [
-        { panel: "borrow" as const, market: BORROW_MARKET_ID },
-        `/borrow/${BORROW_MARKET_ID}`,
-      ],
+      [{ panel: "borrow" as const, market: BORROW_MARKET_ID }, `/borrow/${BORROW_MARKET_ID}`],
       [{ account: "settings" as const }, "/home?account=settings"],
-      [
-        { panel: "balances" as const, group: "cash" as const, account: "settings" as const },
-        "/balances/cash?account=settings",
-      ],
+      [{ panel: "balances" as const, group: "cash" as const, account: "settings" as const }, "/balances/cash?account=settings"],
+      // A flat asset path wins over the local category context: one L2 segment.
+      [{ panel: "invest" as const, asset: "cbbtc", shelf: "crypto" }, "/invest/cbbtc"],
+      // Unconfigured markets emit the parent path.
+      [{ panel: "borrow" as const, market: `0x${"ff".repeat(32)}` }, "/borrow"],
     ] as const;
     for (const [location_, expected] of cases) {
       expect(shellHref(location_)).toBe(expected);
     }
-    // A flat asset path wins over the local category context: one L2 segment.
-    expect(shellHref({ panel: "invest", asset: "cbbtc", shelf: "crypto" })).toBe("/invest/cbbtc");
-    // Unconfigured markets emit the parent path.
-    expect(shellHref({ panel: "borrow", market: `0x${"ff".repeat(32)}` })).toBe("/borrow");
   });
 
   test("combines pathname page state with allowlisted overlay query state", () => {
     expect(parseInboundUrlIntent("/balances", new URLSearchParams(
-      "account=settings&flow=send&action=11111111-1111-4111-8111-111111111111&return=funding&add-money=1",
+      `account=settings&flow=send&action=${ACTION_ID}&return=funding&add-money=1`,
     ))).toEqual({
       kind: "inbound-url-intent",
       location: location("balances", { account: "settings" }),
       returnedFromFunding: true,
       addMoney: true,
       flow: "send",
-      actionId: "11111111-1111-4111-8111-111111111111",
+      actionId: ACTION_ID,
     });
   });
 
-  test("never lets obsolete or malformed query values select a page", () => {
-    const obsolete = parseInboundUrlIntent("/home", new URLSearchParams(
+  test("never lets obsolete, malformed, or misplaced query values select a page or open flows", () => {
+    expect(parseInboundUrlIntent("/home", new URLSearchParams(
       "panel=balances&shelf=crypto&asset=cbbtc&group=investments&market=not-a-market",
-    ));
-    expect(obsolete.location).toEqual(location("home", { account: null }));
+    )).location).toEqual(location("home"));
     expect(parseInboundUrlIntent("/", {
-      account: "profile",
-      return: "evil",
-      "add-money": "yes",
-      flow: "withdraw",
-      action: "not-an-id",
+      account: "profile", return: "evil", "add-money": "yes", flow: "withdraw", action: "not-an-id",
     }).location).toEqual(location("home"));
+    // Save flows stay overlays: no panel coercion anywhere.
+    expect(parseInboundUrlIntent("/save", new URLSearchParams("flow=save-deposit")).location)
+      .toEqual(location("save"));
+    expect(parseInboundUrlIntent("/home", new URLSearchParams("flow=save-deposit")).location)
+      .toEqual(location("home"));
   });
 
-  test("allowlists every addressable money flow and accepts action ids only for Send", () => {
-    const flows = ["send", "add-money", "receive", "save-deposit", "save-withdraw"] as const;
-    for (const flow of flows) {
-      const overlay = parseShellOverlayIntent(new URLSearchParams(`flow=${flow}`));
-      expect(overlay.flow).toBe(flow);
+  test("allowlists every money flow and accepts action ids only for Send", () => {
+    for (const flow of ["send", "add-money", "receive", "save-deposit", "save-withdraw"] as const) {
+      expect(parseShellOverlayIntent(new URLSearchParams(`flow=${flow}`)).flow).toBe(flow);
     }
-    expect(parseShellOverlayIntent(new URLSearchParams(
-      "flow=receive&action=11111111-1111-4111-8111-111111111111",
-    )).actionId).toBeNull();
-    expect(parseShellOverlayIntent(new URLSearchParams(
-      "flow=send&action=11111111-1111-4111-8111-111111111111",
-    )).actionId).toBe("11111111-1111-4111-8111-111111111111");
+    expect(parseShellOverlayIntent(new URLSearchParams(`flow=receive&action=${ACTION_ID}`)).actionId).toBeNull();
+    expect(parseShellOverlayIntent(new URLSearchParams(`flow=send&action=${ACTION_ID}`)).actionId).toBe(ACTION_ID);
   });
 
-  test("keeps save flows as overlays without panel coercion", () => {
-    // Overlay query parsing must never reintroduce page selection: the flow
-    // opens on whatever canonical page the pathname selects.
-    expect(parseInboundUrlIntent("/save", new URLSearchParams("flow=save-deposit")).location.panel)
-      .toBe("save");
-    expect(parseInboundUrlIntent("/home", new URLSearchParams("flow=save-deposit")).location.panel)
-      .toBe("home");
+  test("keeps only allowlisted overlay intent on the verified home redirect", () => {
+    expect(homeHrefWithOverlays(new URLSearchParams(
+      `account=settings&flow=send&action=${ACTION_ID}&return=funding&add-money=1`,
+    ))).toBe(`/home?account=settings&flow=send&action=${ACTION_ID}&return=funding&add-money=1`);
+    // Obsolete page-routing params and malformed values never survive.
+    expect(homeHrefWithOverlays(new URLSearchParams(
+      "panel=balances&shelf=crypto&asset=cbbtc&group=investments&market=not-a-market&flow=withdraw",
+    ))).toBe("/home");
+    expect(homeHrefWithOverlays(new URLSearchParams())).toBe("/home");
   });
 
   test("recognizes the closed canonical shell route set", () => {
-    const canonical = ["/home", "/balances", "/balances/cash", "/borrow/x", "/invest/cbbtc"];
-    for (const pathname of canonical) expect(isCanonicalShellPathname(pathname)).toBe(true);
-    const outside = ["/", "/dashboard", "/account", "/fund", "/unknown", "/balancesx"];
-    for (const pathname of outside) expect(isCanonicalShellPathname(pathname)).toBe(false);
+    for (const pathname of ["/home", "/balances", "/balances/cash", "/borrow/x", "/invest/cbbtc"]) {
+      expect(isCanonicalShellPathname(pathname)).toBe(true);
+    }
+    for (const pathname of ["/", "/dashboard", "/account", "/fund", "/unknown", "/balancesx"]) {
+      expect(isCanonicalShellPathname(pathname)).toBe(false);
+    }
   });
-});
 
-describe("money flow location", () => {
   test("adds and removes only allowlisted flow state without URL payloads", () => {
-    const overlays = new URLSearchParams("account=settings");
-    expect(flowHref("/balances", "send", null, overlays)).toBe(
+    expect(flowHref("/balances", "send", null, new URLSearchParams("account=settings"))).toBe(
       "/balances?account=settings&flow=send",
     );
-    expect(flowHref(
-      "/home",
-      "send",
-      "11111111-1111-4111-8111-111111111111",
-      new URLSearchParams(),
-    )).toBe("/home?flow=send&action=11111111-1111-4111-8111-111111111111");
-    expect(flowHref(
-      "/home",
-      "receive",
-      "11111111-1111-4111-8111-111111111111",
-      new URLSearchParams(),
-    )).toBe("/home?flow=receive");
-    expect(withoutFlowHref(
-      "/balances/cash",
-      new URLSearchParams("flow=send&action=11111111-1111-4111-8111-111111111111"),
-    )).toBe("/balances/cash");
+    expect(flowHref("/home", "send", ACTION_ID, new URLSearchParams()))
+      .toBe(`/home?flow=send&action=${ACTION_ID}`);
+    expect(flowHref("/home", "receive", ACTION_ID, new URLSearchParams())).toBe("/home?flow=receive");
+    expect(withoutFlowHref("/balances/cash", new URLSearchParams(`flow=send&action=${ACTION_ID}`)))
+      .toBe("/balances/cash");
     // Non-flow overlay keys survive a flow removal.
-    expect(withoutFlowHref(
-      "/balances",
-      new URLSearchParams("return=funding&add-money=1&flow=send"),
-    )).toBe("/balances?return=funding&add-money=1");
+    expect(withoutFlowHref("/balances", new URLSearchParams("return=funding&add-money=1&flow=send")))
+      .toBe("/balances?return=funding&add-money=1");
   });
-});
 
-describe("searchParamsToString", () => {
   test("serializes a server page's searchParams, including repeated keys", () => {
     expect(searchParamsToString({ account: "signin", flow: "send", tags: ["a", "b"], missing: undefined }))
       .toBe("account=signin&flow=send&tags=a&tags=b");

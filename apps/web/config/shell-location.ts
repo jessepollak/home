@@ -256,6 +256,23 @@ export function isCanonicalShellPathname(pathname: string): boolean {
   return first !== undefined && isShellPanelId(first);
 }
 
+/**
+ * `/home` carrying only allowlisted ephemeral overlay intent; obsolete
+ * page-routing query keys and malformed values never survive the verified
+ * root redirect. Callers keep `/?account=signin` at the root themselves.
+ */
+export function homeHrefWithOverlays(search: ShellSearchInput): string {
+  const overlay = parseShellOverlayIntent(search);
+  const params = new URLSearchParams();
+  if (overlay.account) params.set(SHELL_ACCOUNT_PARAM, overlay.account);
+  if (overlay.flow) params.set(SHELL_FLOW_PARAM, overlay.flow);
+  if (overlay.actionId) params.set(SHELL_ACTION_PARAM, overlay.actionId);
+  if (overlay.returnedFromFunding) params.set("return", "funding");
+  if (overlay.addMoney) params.set("add-money", "1");
+  const query = params.toString();
+  return query ? `/home?${query}` : "/home";
+}
+
 const SHELL_SCROLL_TOP_STATE_KEY = "__homeShellScrollTop";
 const SHELL_CLIENT_ENTRY_STATE_KEY = "__homeShellClientEntry";
 const beforeClientUrlCommitListeners = new Set<() => void>();

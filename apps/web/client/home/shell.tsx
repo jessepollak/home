@@ -21,6 +21,7 @@ import {
 import {
   commitClientUrl,
   flowHref,
+  homeHrefWithOverlays,
   isClientHistoryEntry,
   parseShellLocation,
   readClientScrollTop,
@@ -504,7 +505,11 @@ export function HomeShell({
       !landingRedirectedRef.current
     ) {
       landingRedirectedRef.current = true;
-      router.replace("/home", { scroll: false });
+      // Preserve only allowlisted ephemeral overlay intent; /?account=signin stays root.
+      router.replace(
+        homeHrefWithOverlays(new URLSearchParams(window.location.search)),
+        { scroll: false },
+      );
     }
   }, [account.verification, routeMode, router]);
   useEffect(() => {
