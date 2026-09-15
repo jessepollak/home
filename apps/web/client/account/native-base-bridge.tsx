@@ -11,6 +11,7 @@ import {
 import type { AccountWalletSdkBoundary } from "./cdp-client";
 import { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
 import type { VerifiedAccountSession } from "./session-client";
+import { markHomeAuthRestore } from "@/client/observability/auth-performance";
 import {
   clearNativeBaseSession,
   nativeOwnerKey,
@@ -53,6 +54,7 @@ export function useNativeBaseIdentity(): NativeBaseIdentity {
       setInitializationError("provider-unavailable");
     } finally {
       if (!signal?.aborted && sequence === restoreSequence.current) {
+        markHomeAuthRestore("native-settled");
         setIsSettled(true);
         setHasSettled(true);
       }

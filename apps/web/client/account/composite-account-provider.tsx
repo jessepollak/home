@@ -11,13 +11,20 @@ import {
 import { composeSdkBoundaries } from "./composite-sdk-boundary";
 import NativeBaseAccountBridge, { useNativeBaseIdentity } from "./native-base-bridge";
 
-function CompositeAccountBridge({ children }: { children: ReactNode }) {
+function CompositeAccountBridge({
+  waitForCdpRestore,
+  children,
+}: {
+  waitForCdpRestore: boolean;
+  children: ReactNode;
+}) {
   const cdp = useCdpSdkBoundary();
   const native = useNativeBaseIdentity();
   const cdpSignOutInFlight = useRef(false);
   const emailSwitchInFlight = useRef(false);
   const sdk = useMemo(() => {
     const composed = composeSdkBoundaries({
+      waitForCdpRestore,
       cdp,
       native,
       clearNative: native.boundary.signOut,
@@ -34,7 +41,7 @@ function CompositeAccountBridge({ children }: { children: ReactNode }) {
         }
       },
     };
-  }, [cdp, native]);
+  }, [cdp, native, waitForCdpRestore]);
 
   useEffect(() => {
     if (
@@ -58,9 +65,11 @@ function CompositeAccountBridge({ children }: { children: ReactNode }) {
 
 export default function CompositeAccountProvider({
   projectId,
+  waitForCdpRestore,
   children,
 }: {
   projectId: string;
+  waitForCdpRestore: boolean;
   children: ReactNode;
 }) {
   const config = useMemo(() => cdpHooksConfig(projectId), [projectId]);
@@ -68,7 +77,9 @@ export default function CompositeAccountProvider({
   return (
     <CdpHooksErrorBoundary fallback={<NativeBaseAccountBridge>{children}</NativeBaseAccountBridge>}>
       <CDPHooksProvider config={config}>
-        <CompositeAccountBridge>{children}</CompositeAccountBridge>
+        <CompositeAccountBridge waitForCdpRestore={waitForCdpRestore}>
+          {children}
+        </CompositeAccountBridge>
       </CDPHooksProvider>
     </CdpHooksErrorBoundary>
   );

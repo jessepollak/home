@@ -24,6 +24,18 @@ const ready = {
   interactiveMs: 50,
   totalMs: 50.1,
 } as const;
+const authReady = {
+  version: 1,
+  kind: "home-auth-phase",
+  route: "/",
+  flow: "restore",
+  hint: "none",
+  outcome: "signed-out",
+  sdkActivateMs: 126,
+  nativeSettledMs: 974,
+  sessionSettledMs: 1_024,
+  totalMs: 1_024,
+} as const;
 
 function request(
   body: string | Uint8Array | ReadableStream<Uint8Array>,
@@ -78,6 +90,25 @@ describe("POST /api/client-performance", () => {
       { ...ready, shellMs: "12" },
       { ...ready, sessionMs: undefined },
       { ...ready, totalMs: Number.NaN },
+    ]) expect(parseClientPerformanceReport(invalid)).toBeNull();
+  });
+
+  test("normalizes and closes the auth restore schema", () => {
+    expect(parseClientPerformanceReport(authReady)).toEqual({
+      ...authReady,
+      sdkActivateMs: 150,
+      nativeSettledMs: 950,
+      sessionSettledMs: 1_000,
+      totalMs: 1_000,
+    });
+    for (const invalid of [
+      { ...authReady, identity: "secret-subject" },
+      { ...authReady, hint: "cdp:owner" },
+      { ...authReady, outcome: "error" },
+      { ...authReady, flow: "email" },
+      { ...authReady, route: "/?account=signin" },
+      { ...authReady, sessionSettledMs: undefined },
+      { ...authReady, cdpInitializedMs: "900" },
     ]) expect(parseClientPerformanceReport(invalid)).toBeNull();
   });
 

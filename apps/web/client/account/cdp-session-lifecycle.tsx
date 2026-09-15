@@ -15,9 +15,10 @@ import {
 } from "@/client/query/query-client";
 import { useAuthenticatedTransport } from "./cdp-authenticated-transport";
 import { useMoneyActionExecution } from "./cdp-money-action-execution";
-import { BaseAccountLoginError, baseLoginFailureFromConnector, clearCdpRenderHint, invalidationMessage, writeAccountProviderHint } from "./cdp-wallet-provider-capabilities";
+import { BaseAccountLoginError, baseLoginFailureFromConnector, clearCdpRenderHint, invalidationMessage, writeAccountProviderHint, writeCdpRestoreMarker } from "./cdp-wallet-provider-capabilities";
 import { dataOwnerKey, ownerSessionBoundary } from "./owner-keys";
 import { useOwnerGenerationFence } from "./owner-generation-fence";
+import { finishHomeAuthRestore } from "@/client/observability/auth-performance";
 
 export type { OwnerGenerationFence, OwnerGenerationIdentity } from "./owner-generation-fence";
 
@@ -176,6 +177,7 @@ export function AccountWalletSessionOwner({
       } else {
         providerRef.current = "cdp-embedded";
         writeAccountProviderHint("cdp-embedded");
+        writeCdpRestoreMarker();
       }
       const verifiedOwnerKey = verified.smartAccount ? dataOwnerKey(verified) : null;
       fence.updateAuthorizationBoundary(
@@ -249,6 +251,12 @@ export function AccountWalletSessionOwner({
       validationRef.current?.abort();
     };
   }, [authentication, baseAccountEnabled, clearPrivate, initializationError, isInitialized, isSignedIn, loseVerification, ownerKey, sessionFetch, validationRequest]);
+
+  useEffect(() => {
+    if (status === "signed-out" || status === "verified" || status === "unavailable") {
+      finishHomeAuthRestore(status);
+    }
+  }, [status]);
 
   const beginSignIn = useCallback((provider: AccountProvider) => {
     if (cleanupRef.current) throw new Error("Sign-out is still finishing.");
