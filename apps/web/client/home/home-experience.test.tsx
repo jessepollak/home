@@ -875,9 +875,7 @@ describe("Home shell routing and intents", () => {
 });
 
 describe("Balances scope scroll interleavings (#485)", () => {
-  const balancesLocation = {
-    panel: "balances" as const, account: null, shelf: null, asset: null, group: null, market: null,
-  };
+  const balancesLocation = { panel: "balances" as const, account: null, shelf: null, asset: null, group: null, market: null };
   for (const mode of ["Account", "asset", "history"] as const) {
     test(`scope change cancels the queued ${mode} restore`, async () => {
       window.localStorage.setItem("home.country.v1", "US");
@@ -946,10 +944,11 @@ describe("Balances scope scroll interleavings (#485)", () => {
     await waitForVerifiedShell();
     expect(main.scrollTop).toBe(190);
   });
-  test("canonical A to B cancels the old group RAF, re-anchors once, and consumes", async () => {
+  test("cold canonical A to B cancels the old group RAF, re-anchors once, and consumes", async () => {
     window.localStorage.setItem("home.country.v1", "US");
-    const pending = deferred<Response>();
-    const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    syncLocation("/balances/cash"); historyEntries = ["/balances/cash"];
+    const pending = deferred<Response>(); const coldLocation = { ...balancesLocation, group: "cash" as const };
+    const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} initialPanel="balances" initialLocation={coldLocation} />);
     await waitForVerifiedShell();
     const frames = controlAnimationFrames();
     const main = page().getByRole("main");
@@ -957,7 +956,7 @@ describe("Balances scope scroll interleavings (#485)", () => {
     const original = HTMLElement.prototype.scrollIntoView;
     HTMLElement.prototype.scrollIntoView = () => { anchors += 1; main.scrollTop = 440; };
     try {
-      fireEvent.click(page().getByRole("button", { name: "More Cash" }));
+      fireEvent.click(page().getByRole("button", { name: "Back" })); fireEvent.click(page().getByRole("button", { name: "More Cash" }));
       expect(frames.pending()).toBeGreaterThan(0);
       view.rerender(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })} sessionFetch={() => pending.promise} />);
       await act(async () => {
