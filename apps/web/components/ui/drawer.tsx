@@ -189,12 +189,13 @@ function DrawerFooter({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props) {
+function DrawerTitle({ className, variant = "default", ...props }: DrawerPrimitive.Title.Props & { variant?: "default" | "money" }) {
   return (
     <DrawerPrimitive.Title
       data-slot="drawer-title"
       className={cn(
         "text-base leading-none font-semibold text-foreground",
+        variant === "money" && "truncate px-2 text-center",
         className
       )}
       {...props}

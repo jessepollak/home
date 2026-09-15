@@ -274,7 +274,7 @@ export function AccountSignInSheet({
           <X aria-hidden="true" />
         </Button>
       </DrawerHeader>
-      <MoneyModalBody>
+      <MoneyModalBody hasFooter={false}>
         {signInBlocked ? (
           <SignInBlockedPanel reason={signInAvailability === "provider-unavailable" ? "provider-unavailable" : "unconfigured"} />
         ) : (
