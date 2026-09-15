@@ -5,7 +5,7 @@ import { Field, FieldGroup, FieldLabel, FieldSeparator } from "@/components/ui/f
 import { Input } from "@/components/ui/input";
 import type { FormEvent, RefObject } from "react";
 import type { BaseAccountLoginPhase } from "./cdp-client";
-import { BaseAccountButtonContent } from "./sign-in-base-account";
+import { BaseAccountButtonContent, BaseAccountLiveStatus } from "./sign-in-base-account";
 
 export function SignInEmail({
   email,
@@ -69,6 +69,7 @@ export function SignInEmail({
             >
               <BaseAccountButtonContent phase={baseAccountPhase} />
             </Button>
+            <BaseAccountLiveStatus phase={baseAccountPhase} />
           </>
         ) : null}
       </FieldGroup>
