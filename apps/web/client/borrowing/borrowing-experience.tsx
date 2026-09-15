@@ -731,8 +731,6 @@ function BorrowMoneyDialog({
                   assetId={primaryAsset.id}
                   assetLabel={primaryAsset.symbol}
                   assetCurrency={primaryAssetMark.currency}
-                  assetMark={primaryAssetMark}
-                  assetLocked
                   assetControl="header"
                   chipSet={availableBaseUnits === null ? "none" : "max"}
                   pricing={primaryPricing}
