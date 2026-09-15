@@ -9,7 +9,7 @@ Related: [issuer integration guide](README.md), [Ripio adapter checklist](../../
 **Local-first is the development loop. Hosted-final is the release proof.**
 
 - **Local-first (Phases 0–4).** The Ripio team runs Home locally and completes the adapter against the real provider. This is where iteration happens.
-- **Hosted-final (Phases 5–6).** After merge, sequential funded tests run on Home's protected production alias, operated by Home. Ripio does not deploy or host Home. There is no second Vercel project, acceptance flag, CLI adapter, or doctor script.
+- **Hosted-final (Phases 5–6).** After merge, sequential funded tests run on Home's protected production alias. Home operates and observes the environment; Ripio testers drive the browser and initiate the payments. Ripio does not deploy or host Home. There is no second Vercel project, acceptance flag, CLI adapter, or doctor script.
 
 **Ripio has no sandbox.** `https://skala.ripio.com` is production-only. Every Home **Get quote** and **Confirm** — including from a local run — already writes production Ripio records: customer creation, terms acceptance, KYC submission, quote creation, and order creation. Treat every write with production care.
 
@@ -21,7 +21,7 @@ Related: [issuer integration guide](README.md), [Ripio adapter checklist](../../
 - [ ] **One open order per test Base Account per country.** This is an operator rule, not a hard server lock. Never tap **Back** while an order is pending; serialize rails within a country or wait for Ripio expiry/cancel. If two orders exist, record both and stop.
 - [ ] **Dedicated test Base Accounts only.** Never a personal wallet or account.
 - [ ] **Never full-reset the database by default.** `customerRef`/KYC linkage lives in the local database; a reset can create duplicate Ripio customers for the same test identity.
-- [ ] **Never hijack production callbacks.** Permanent per-country webhook callbacks are already registered; never point them at a tunnel or a local run.
+- [ ] **Never hijack production callbacks.** In this acceptance run the permanent per-country callbacks are already registered, so a registered callback is never pointed at a tunnel or a local run. That registration is the current acceptance state, not a universal provider rule: a local tunnel is allowed only with a Ripio dev account, or for a country account before its permanent callback is registered (Phase 3).
 - [ ] **No secrets in docs or evidence.** No credentials, bypass URLs or tokens, callback secret values, names, emails, documents, bank instructions, or raw provider payloads. Use role labels, not personal names. Base transaction hashes only from an approved throwaway account.
 
 ## Roles
@@ -32,6 +32,7 @@ Use role labels in evidence, not personal names.
 | --- | --- | --- |
 | Jesse | Home | Approves every payment, every hosted funded order, schema sign-off, and merge. Only Jesse edits production Neon. |
 | Ripio lead | Provider | Confirms API schema answers, provides a dev account if one exists, owns Ripio-side lookups and cancels by `externalRef`. |
+| Ripio tester | Provider | Drives the acceptance browser in local and hosted runs with a dedicated test Base Account, supplies its production-approved identity/KYC data, and initiates each local-bank, Pix, Bre-B, Bancolombia, and Nequi payment. |
 | Home operator | Environment | Runs the local and hosted environments, privately supplies protected-alias and bypass URLs, may run the guarded local SQL after provider confirmation. |
 | Recorder | Evidence | Keeps the run evidence per template and enforces the privacy rules. |
 
@@ -42,26 +43,26 @@ Use role labels in evidence, not personal names.
 - [ ] Repository clone with Bun (1.3.12) and Docker.
 - [ ] Environment variables configured by name — values are never recorded: `HOME_SESSION_SECRET` (at least 32 characters), `FUNDING_QUOTE_SECRET` (at least 32 characters), local `DATABASE_URL`, and the matching Ripio country variables `RIPIO_CLIENT_ID_AR` / `RIPIO_CLIENT_SECRET_AR` / `RIPIO_WEBHOOK_SECRET_AR` (and the `_BR` / `_CO` variants for the countries in scope).
 - [ ] `BASE_RPC_URL` recommended, so receipt checks — the Base reads behind `received` — use a reliable endpoint instead of the public fallback.
-- [ ] Observability prerequisite [#520](https://github.com/jessepollak/home/issues/520) merged and deployed before live Phase 2 (blocking).
+- [ ] Observability prerequisite [#520](https://github.com/jessepollak/home/issues/520) merged, or applied to the local branch, before live Phase 2; deployed only before hosted Phase 5 (blocking).
 - [ ] Dedicated test Base Account(s) created and labeled by role.
 - [ ] A binding appears under **Add money** for its country only when every manifest variable for that binding is set; restart `bun dev` after changing the environment.
 
 ## Six-rail matrix
 
-| Country | Rail (`paymentMethod`) | Asset | Local loop complete | Hosted funded proof |
-| --- | --- | --- | --- | --- |
-| AR | `bank_transfer` (CVU) | wARS | ☐ | ☐ |
-| BR | `pix` | wBRL | ☐ | ☐ |
-| CO | `bank_transfer` | wCOP | ☐ | ☐ |
-| CO | `breb` (Bre-B) | wCOP | ☐ | ☐ |
-| CO | `r2p_bancolombia` (Bancolombia R2P) | wCOP | ☐ | ☐ |
-| CO | `r2p_nequi` (Nequi R2P) | wCOP | ☐ | ☐ |
+| Country | Rail (`paymentMethod`) | Asset | Instruction to verify | Known risk | Local loop complete | Hosted funded proof |
+| --- | --- | --- | --- | --- | --- | --- |
+| AR | `bank_transfer` (CVU) | wARS | CVU plus optional alias shown and copyable | Payment to a mistyped CVU or alias | ☐ | ☐ |
+| BR | `pix` | wBRL | `brCode` parses as TLV with a valid CRC and amount tag `54` equal to `finalFromAmount` exactly | Malformed TLV/CRC or wrong amount charges the wrong value | ☐ | ☐ |
+| CO | `bank_transfer` | wCOP | Payment URL redirects only to a Ripio-confirmed bank origin | Unexpected redirect origin | ☐ | ☐ |
+| CO | `breb` (Bre-B) | wCOP | Bre-B key returned and usable; payment URL redirects only to a Ripio-confirmed origin | Missing/invalid key or unexpected origin | ☐ | ☐ |
+| CO | `r2p_bancolombia` (Bancolombia R2P) | wCOP | Redirect lands on the confirmed Bancolombia R2P origin | Unexpected redirect origin | ☐ | ☐ |
+| CO | `r2p_nequi` (Nequi R2P) | wCOP | Nequi phone number present; R2P flow as implemented; payment URL redirects only to a Ripio-confirmed origin | Missing/invalid phone or unexpected origin | ☐ | ☐ |
 
-"Local loop complete" means the rail finished local development; only "Hosted funded proof" supports the word *validated* (see [claim semantics](#claim-semantics)).
+"Instruction to verify" is the instruction shape a tester checks on the order screen; "Known risk" is the failure mode to watch for. "Local loop complete" means the rail finished local development; only "Hosted funded proof" supports the word *validated* (see [claim semantics](#claim-semantics)).
 
-## Phase 0 — setup and synthetic validation (no network)
+## Phase 0 — setup and synthetic validation (no provider network, no provider writes)
 
-Required. Owner: Ripio engineer. Approver: none (recorded).
+Required. Owner: Ripio engineer. Approver: none (recorded). The exclusion is the Ripio provider network and any provider write only: local Postgres, Base Account sign-in, and the UI's local/Base network traffic are all fine here.
 
 - [ ] `bun install --frozen-lockfile`
 - [ ] `bun test apps/web/server/funding/providers/ripio/` passes with no network — synthetic fixtures and test doubles only; this is the only tier CI runs
@@ -88,9 +89,9 @@ Performed outside Home: Home has no read-only provider UI, and **Get quote** in 
 
 ## Phase 2 — local live adapter iteration (polling-only)
 
-Required for adapter completion. **Blocking prerequisite: [#520](https://github.com/jessepollak/home/issues/520) (Ripio acceptance observability) merged and deployed — do not start live iteration before it lands.** Owner: Ripio engineer. Approver: Jesse for the first order-creating write per country, and for every payment.
+Required for adapter completion. **Blocking prerequisite: [#520](https://github.com/jessepollak/home/issues/520) (Ripio acceptance observability) merged, or applied to the local branch, before live iteration — do not start live iteration before it lands. Deploying it is required only before hosted Phase 5.** Owner: Ripio engineer. Approver: Jesse for the first order-creating write per country, and for every payment.
 
-- [ ] #520 merged and deployed
+- [ ] #520 merged, or applied to the local branch (deployment is deferred to hosted Phase 5)
 - [ ] Jesse approves the first local order-creating test per country, knowing each write creates production Ripio records
 - [ ] Orders created only from dedicated test Base Accounts; one open order per account per country
 - [ ] No **Back** navigation on pending; rails serialized within a country
@@ -103,7 +104,7 @@ Required for adapter completion. **Blocking prerequisite: [#520](https://github.
 
 Optional. Owner: named tunnel owner. Approver: Jesse.
 
-A local Home cannot receive `POST /api/funding/webhooks/ripio` without an external tunnel, and status polling covers normal local iteration. The current run is therefore polling-only unless Ripio provides a dev account: the permanent per-country callbacks are already registered and must never be hijacked.
+A local Home cannot receive `POST /api/funding/webhooks/ripio` without an external tunnel, and status polling covers normal local iteration. For this acceptance run the permanent per-country callbacks are already registered, so the run is polling-only unless Ripio provides a dev account. That registration is the current acceptance state, not a universal provider rule: a country account whose permanent callback is not yet registered may tunnel under the checklist below.
 
 - [ ] Tunnel permitted only on a Ripio dev account, or before a permanent callback exists for that country
 - [ ] Registered production country callbacks are never redirected at any time
@@ -117,17 +118,19 @@ Required for any code change. Owner: Ripio engineer. Approver: Jesse (only Jesse
 
 - [ ] `bun check` passes
 - [ ] PR includes adapter code, manifest changes, synthetic fixtures/tests, and README updates in the same PR
-- [ ] Clip and dated confirmation line attached without credentials, customer data, payment details, or wallet secrets
+- [ ] Clip and the dated line `Local development completed against Ripio production API on YYYY-MM-DD` attached without credentials, customer data, payment details, or wallet secrets
 - [ ] Fresh review completed; merge by Jesse
 
 ## Phase 5 — hosted final acceptance (protected production alias)
 
-Required for any *validated* claim. Owner: Home operator runs the environment; the Ripio team observes. Approver: Jesse per country and rail.
+Required for any *validated* claim. Owners: the Home operator runs and observes the hosted environment; Ripio testers drive the browser and the payments. Approver: Jesse per country and rail.
 
 The host is Home's protected production alias. The Home operator privately supplies the browser URL and the webhook bypass URL to named participants. **Bypass tokens never enter the repo, docs, or evidence.**
 
-- [ ] Hosted run starts only after the Phase 4 merge
+- [ ] Hosted run starts only after the Phase 4 merge, with #520 deployed
 - [ ] Jesse approves each funded order in advance, per country and rail
+- [ ] Ripio tester drives the browser: dedicated test Base Account, production-approved identity/KYC data, and initiating each local-bank/Pix/Bre-B/Bancolombia/Nequi payment
+- [ ] Home operator runs and observes the hosted environment and records evidence
 - [ ] No separate hosted unfunded matrix: local instruction proof is not repeated as hosted unfunded tests; hosted final goes directly to funded orders
 - [ ] For the all-six-rails claim: one funded order per rail at provider minimum, strictly sequentially per country
 - [ ] For a country-level claim only: at least one funded rail per country, and every untested rail is recorded as explicitly unvalidated
@@ -187,7 +190,7 @@ WHERE id = '<order uuid>'
 RETURNING id, state, version;
 ```
 
-The guards pin one row, one pre-state, and one observed version; the update cannot touch receipt evidence (`transaction_hash`/`log_index` are additionally protected by a database trigger), cannot reopen a terminal order, and cannot affect any other row. Outcomes other than the provider-confirmed cancellation case need Jesse's decision first.
+The guards pin one row, one pre-state, and one observed version; the update cannot touch receipt evidence (`transaction_hash`/`log_index` are additionally protected by a database trigger), cannot reopen a terminal order, and cannot affect any other row. The update may terminalize the row only to the exact terminal state Ripio confirmed — `cancelled`, `expired`, or `failed` — never to a state Ripio did not report; any other outcome needs Jesse's decision first.
 
 ## Webhook bypass rotation (hosted)
 
