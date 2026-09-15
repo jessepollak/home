@@ -1385,6 +1385,10 @@ test("cold reload of a balances group URL anchors the requested group (#460)", a
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/balances/investments");
   await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
+  // A fresh server-verified settled load consumes the anchor: a later list
+  // identity change resets normally instead of re-anchoring (#462).
+  await page.getByRole("button", { name: "Show", exact: true }).click();
+  await expect.poll(() => anchoredGroupOffset(page)).toBe(null);
   // Back still completes and re-anchors through the #452 history path; the cold anchor never refires.
   await page.getByRole("button", { name: "Home", exact: true }).click();
   await page.goBack();

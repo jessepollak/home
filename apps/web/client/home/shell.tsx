@@ -418,7 +418,6 @@ export function HomeShell({
   );
   const previousBalancesListIdRef = useRef(balancesListId);
   const previousNavigationRef = useRef(activeNavigation);
-  const anchorPassRef = useRef(0);
   useEffect(() => {
     if (previousBalancesListIdRef.current === balancesListId) return;
     previousBalancesListIdRef.current = balancesListId;
@@ -429,14 +428,13 @@ export function HomeShell({
   }, [balancesListId]);
   // Runs after the balances-list reset above so a first balances paint anchors
   // the cold-loaded group instead of being reset to the top (#460). A
-  // cached-ready first paint anchors immediately but stays armed: the mount
-  // revalidation may still replace the rows, so only a later settled pass —
-  // or leaving Balances — consumes the anchor (#462).
+  // provisional cached paint may anchor but stays armed until the session is
+  // server-verified; once verified, an in-flight revalidation retains it and
+  // the first settled pass consumes it (#462).
   useEffect(() => {
     const group = coldGroupAnchorRef.current;
     if (!group || activeNavigation !== balancesPanelId) {
       coldGroupAnchorRef.current = null;
-      anchorPassRef.current = 0;
       return;
     }
     if (paintedAssetBalances.status !== "ready") return;
@@ -444,11 +442,9 @@ export function HomeShell({
     if (!target) return;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     target.scrollIntoView({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
-    anchorPassRef.current += 1;
-    if (balancesRevalidating || anchorPassRef.current < 2) return;
+    if (balancesRevalidating || !isVerified) return;
     coldGroupAnchorRef.current = null;
-    anchorPassRef.current = 0;
-  }, [activeNavigation, balancesListId, balancesRevalidating, paintedAssetBalances.status]);
+  }, [activeNavigation, balancesListId, balancesRevalidating, isVerified, paintedAssetBalances.status]);
 
   useEffect(() => {
     if (navigationRequest === 0 || !panelStageRef.current) return;
