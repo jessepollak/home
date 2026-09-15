@@ -10,13 +10,7 @@ import {
   createContext,
   lazy,
   Suspense,
-  useCallback,
   useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
   type ReactNode,
 } from "react";
 import { signInProviderUnavailableCopy, type SignInAvailability } from "./sign-in-copy";
@@ -25,15 +19,7 @@ import type { VerifiedAccountSession } from "./session-client";
 import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
-import {
-  BaseAccountLoginError,
-  readAccountProviderHint,
-  readHomeAuthRestoreHint,
-} from "./cdp-wallet-provider-capabilities";
-import {
-  markHomeAuthRestore,
-  startHomeAuthRestore,
-} from "@/client/observability/auth-performance";
+import { BaseAccountLoginError } from "./cdp-wallet-provider-capabilities";
 export {
   BaseAccountLoginError,
   type BaseAccountLoginFailure,
@@ -86,7 +72,7 @@ export type AccountWalletClient = {
     typedData: unknown,
     options?: { evmAccount: `0x${string}`; idempotencyKey: string },
   ) => Promise<`0x${string}`>;
-  signOut: () => Promise<void>;
+  signOut: (options?: { onNavigationSafe?: () => void }) => Promise<void>;
 };
 
 export const AccountWalletContext = createContext<AccountWalletClient | null>(null);
@@ -147,11 +133,16 @@ export type AccountWalletSdkBoundary = {
   getAccessToken: () => Promise<string | null>;
   sendUserOperation?: (options: SendUserOperationOptions) => Promise<SendUserOperationResult>;
   getUserOperation?: (options: GetUserOperationOptions) => Promise<GetUserOperationResult>;
-  signOut: () => Promise<void>;
+  signOut: (onPhase?: (phase: AccountSignOutPhase) => void) => Promise<void>;
+};
+
+export type AccountSignOutPhase = {
+  phase: "native-logout" | "cdp-signout";
+  outcome: "success" | "error" | "timeout";
+  durationMs: number;
 };
 
 const unconfiguredClient = createBlockedAccountWalletClient("unconfigured");
-const LazyCdpSdkProvider = lazy(() => import("./cdp-sdk-provider"));
 const LazyCompositeAccountProvider = lazy(() => import("./composite-account-provider"));
 const LazyNativeBaseAccountBridge = lazy(() => import("./native-base-bridge"));
 const LazySmokeFixtureAccountProvider = lazy(() =>
@@ -170,122 +161,8 @@ export function AccountWalletClientProvider({
   return <AccountWalletContext.Provider value={client}>{children}</AccountWalletContext.Provider>;
 }
 
-function AccountClientCapture({ onClient }: { onClient: (client: AccountWalletClient) => void }) {
-  const client = useAccountWallet();
-  useLayoutEffect(() => onClient(client), [client, onClient]);
-  return null;
-}
-
-/**
- * When to mount the deferred SDK chunk. Always eventually: a provider hint (this
- * tab signed in before) mounts on the next microtask so restore is not delayed;
- * without one it mounts after first paint settles — never gated on the hint alone,
- * or a returning user in a new tab would sit in "restoring" forever.
- */
-export function scheduleSdkActivation(
-  activate: () => void,
-  options: {
-    hasHint: boolean;
-    requestIdle: ((callback: () => void) => () => void) | null;
-    fallbackDelayMs?: number;
-  },
-): () => void {
-  let cancelled = false;
-  const start = () => { if (!cancelled) activate(); };
-  let cancelScheduled: (() => void) | undefined;
-  if (options.hasHint) {
-    queueMicrotask(start);
-  } else if (options.requestIdle) {
-    cancelScheduled = options.requestIdle(start);
-  } else {
-    const timer = setTimeout(start, options.fallbackDelayMs ?? 250);
-    cancelScheduled = () => clearTimeout(timer);
-  }
-  return () => {
-    cancelled = true;
-    cancelScheduled?.();
-  };
-}
-
-function LazyConfiguredAccountProvider({
-  projectId,
-  baseAccountEnabled,
-  provider,
-  children,
-}: {
-  projectId: string;
-  baseAccountEnabled: boolean;
-  provider: "cdp" | "composite";
-  children: ReactNode;
-}) {
-  const [active, setActive] = useState(false);
-  const [restorePlan, setRestorePlan] = useState<{
-    hasHint: boolean;
-    waitForCdpRestore: boolean;
-    reportHint: "none" | "cdp" | "base";
-  } | null>(null);
-  const activeClientRef = useRef<AccountWalletClient | null>(null);
-  const readyResolversRef = useRef<Array<(client: AccountWalletClient) => void>>([]);
-  const restorePlanRef = useRef<{
-    hasHint: boolean;
-    waitForCdpRestore: boolean;
-    reportHint: "none" | "cdp" | "base";
-  } | null>(null);
-
-  const captureRestorePlan = useCallback(() => {
-    if (restorePlanRef.current) return restorePlanRef.current;
-    const providerHint = readAccountProviderHint();
-    const reportHint = readHomeAuthRestoreHint();
-    const waitForCdpRestore = reportHint === "cdp";
-    const plan = {
-      hasHint: providerHint !== null || waitForCdpRestore,
-      waitForCdpRestore,
-      reportHint,
-    } as const;
-    restorePlanRef.current = plan;
-    return plan;
-  }, []);
-
-  const activateSdk = useCallback(() => {
-    const plan = captureRestorePlan();
-    startHomeAuthRestore(plan.reportHint);
-    markHomeAuthRestore("sdk-activate");
-    setRestorePlan(plan);
-    setActive(true);
-  }, [captureRestorePlan]);
-
-  const activate = useMemo(() => () => {
-    if (activeClientRef.current) return Promise.resolve(activeClientRef.current);
-    activateSdk();
-    return new Promise<AccountWalletClient>((resolve) => {
-      readyResolversRef.current.push(resolve);
-    });
-  }, [activateSdk]);
-
-  // The SDK chunk is deferred, never omitted: with a provider hint (this tab
-  // signed in before) it mounts immediately so session restore is not delayed;
-  // otherwise it mounts once the first paint has settled, so a returning user in
-  // a new tab is still restored and an anonymous visitor gets a live Sign in.
-  useEffect(() => {
-    const plan = captureRestorePlan();
-    startHomeAuthRestore(plan.reportHint);
-    return scheduleSdkActivation(activateSdk, {
-      hasHint: plan.hasHint,
-      requestIdle: typeof window.requestIdleCallback === "function"
-        ? (callback) => {
-            const id = window.requestIdleCallback(callback, { timeout: 1_500 });
-            return () => window.cancelIdleCallback?.(id);
-          }
-        : null,
-    });
-  }, [activateSdk, captureRestorePlan]);
-
-  const onClient = useMemo(() => (client: AccountWalletClient) => {
-    activeClientRef.current = client;
-    for (const resolve of readyResolversRef.current.splice(0)) resolve(client);
-  }, []);
-
-  const bootstrapClient = useMemo<AccountWalletClient>(() => ({
+function createLoadingAccountWalletClient(baseAccountEnabled: boolean): AccountWalletClient {
+  return {
     ...createBlockedAccountWalletClient("provider-unavailable"),
     projectConfigured: true,
     signInAvailability: "ready",
@@ -293,45 +170,30 @@ function LazyConfiguredAccountProvider({
     isInitialized: false,
     status: "restoring",
     message: null,
-    requestEmailCode: async (email) => (await activate()).requestEmailCode(email),
-    verifyEmailCode: async (flowId, otp) => (await activate()).verifyEmailCode(flowId, otp),
-    signInWithBaseAccount: async (onPhase) => (await activate()).signInWithBaseAccount(onPhase),
-    retrySessionValidation: async () => {
-      const current = activeClientRef.current;
-      if (current) await current.retrySessionValidation();
-      else await activate();
-    },
-  }), [activate, baseAccountEnabled]);
+  };
+}
 
-  if (!active) {
-    return <AccountWalletClientProvider client={bootstrapClient}>{children}</AccountWalletClientProvider>;
-  }
-
-  const providerChildren = (
-    <>
-      <AccountClientCapture onClient={onClient} />
-      {children}
-    </>
-  );
-
+function LazyConfiguredAccountProvider({
+  projectId,
+  baseAccountEnabled,
+  children,
+}: {
+  projectId: string;
+  baseAccountEnabled: boolean;
+  children: ReactNode;
+}) {
   return (
     <Suspense fallback={(
-      <AccountWalletClientProvider client={bootstrapClient}>{children}</AccountWalletClientProvider>
+      <AccountWalletClientProvider client={createLoadingAccountWalletClient(baseAccountEnabled)}>
+        {children}
+      </AccountWalletClientProvider>
     )}>
-      {provider === "composite"
-        ? (
-            <LazyCompositeAccountProvider
-              projectId={projectId}
-              waitForCdpRestore={restorePlan?.waitForCdpRestore ?? false}
-            >
-              {providerChildren}
-            </LazyCompositeAccountProvider>
-          )
-        : (
-            <LazyCdpSdkProvider projectId={projectId} baseAccountEnabled={baseAccountEnabled}>
-              {providerChildren}
-            </LazyCdpSdkProvider>
-          )}
+      <LazyCompositeAccountProvider
+        projectId={projectId}
+        baseAccountEnabled={baseAccountEnabled}
+      >
+        {children}
+      </LazyCompositeAccountProvider>
     </Suspense>
   );
 }
@@ -361,7 +223,6 @@ export function CdpAccountProvider({
       <LazyConfiguredAccountProvider
         projectId={projectId}
         baseAccountEnabled
-        provider="composite"
       >
         {children}
       </LazyConfiguredAccountProvider>
@@ -372,7 +233,6 @@ export function CdpAccountProvider({
       <LazyConfiguredAccountProvider
         projectId={projectId}
         baseAccountEnabled={false}
-        provider="cdp"
       >
         {children}
       </LazyConfiguredAccountProvider>

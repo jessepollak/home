@@ -14,10 +14,11 @@ import {
   useSignOut,
   useVerifyEmailOTP,
 } from "@coinbase/cdp-hooks";
-import { Component, useLayoutEffect, useMemo, type ReactNode } from "react";
+import { Component, useEffect, useLayoutEffect, useMemo, type ReactNode } from "react";
 import {
   AccountWalletClientProvider,
   createBlockedAccountWalletClient,
+  type AccountSignOutPhase,
   type AccountWalletSdkBoundary,
 } from "./cdp-client";
 import { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
@@ -91,7 +92,24 @@ export function useCdpSdkBoundary(): CdpSdkBoundary {
       getAccessToken,
       sendUserOperation,
       getUserOperation,
-      signOut,
+      signOut: async (onPhase?: (phase: AccountSignOutPhase) => void) => {
+        const startedAt = performance.now();
+        try {
+          await signOut();
+          onPhase?.({
+            phase: "cdp-signout",
+            outcome: "success",
+            durationMs: performance.now() - startedAt,
+          });
+        } catch (error) {
+          onPhase?.({
+            phase: "cdp-signout",
+            outcome: "error",
+            durationMs: performance.now() - startedAt,
+          });
+          throw error;
+        }
+      },
     }),
     [
       currentUserId,
@@ -120,6 +138,40 @@ function AccountWalletBridge({
       {children}
     </AccountWalletSessionOwner>
   );
+}
+
+function CdpIslandFailure({ onError }: { onError: () => void }) {
+  useEffect(onError, [onError]);
+  return null;
+}
+
+export function CdpSdkIsland({
+  projectId,
+  onBoundary,
+  onError,
+}: {
+  projectId: string;
+  onBoundary: (boundary: CdpSdkBoundary) => void;
+  onError: () => void;
+}) {
+  const config = useMemo(() => cdpHooksConfig(projectId), [projectId]);
+  return (
+    <CdpHooksErrorBoundary fallback={<CdpIslandFailure onError={onError} />}>
+      <CDPHooksProvider config={config}>
+        <CdpSdkBoundaryCapture onBoundary={onBoundary} />
+      </CDPHooksProvider>
+    </CdpHooksErrorBoundary>
+  );
+}
+
+function CdpSdkBoundaryCapture({
+  onBoundary,
+}: {
+  onBoundary: (boundary: CdpSdkBoundary) => void;
+}) {
+  const boundary = useCdpSdkBoundary();
+  useLayoutEffect(() => onBoundary(boundary), [boundary, onBoundary]);
+  return null;
 }
 
 export function cdpHooksConfig(projectId: string) {
