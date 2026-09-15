@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { AccountWalletSdkBoundary } from "./cdp-client";
+import type { AccountSignOutPhase, AccountWalletSdkBoundary } from "./cdp-client";
 import { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
 import type { VerifiedAccountSession } from "./session-client";
 import { markHomeAuthRestore, startHomeAuthRestore } from "@/client/observability/auth-performance";
@@ -30,16 +30,17 @@ export type NativeBaseIdentity = {
   boundary: AccountWalletSdkBoundary;
 };
 
-export function useNativeBaseIdentity(): NativeBaseIdentity {
+export function useNativeBaseIdentity(enabled = true): NativeBaseIdentity {
   const [identity, setIdentity] = useState<VerifiedAccountSession | null>(null);
-  const [isSettled, setIsSettled] = useState(false);
-  const [hasSettled, setHasSettled] = useState(false);
+  const [isSettled, setIsSettled] = useState(!enabled);
+  const [hasSettled, setHasSettled] = useState(!enabled);
   const [initializationError, setInitializationError] = useState<
     "provider-unavailable" | undefined
   >();
   const restoreSequence = useRef(0);
 
   const restore = useCallback(async (signal?: AbortSignal) => {
+    if (!enabled) return;
     const sequence = ++restoreSequence.current;
     await Promise.resolve();
     if (signal?.aborted || sequence !== restoreSequence.current) return;
@@ -60,22 +61,25 @@ export function useNativeBaseIdentity(): NativeBaseIdentity {
         setHasSettled(true);
       }
     }
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     queueMicrotask(() => void restore(controller.signal));
     return () => controller.abort();
-  }, [restore]);
+  }, [enabled, restore]);
 
+  const availableIdentity = enabled ? identity : null;
+  const availableInitializationError = enabled ? initializationError : undefined;
   const boundary = useMemo<AccountWalletSdkBoundary>(() => ({
     authentication: "native-base",
-    initializationError,
-    retryInitialization: restore,
+    initializationError: availableInitializationError,
+    retryInitialization: enabled ? restore : undefined,
     isInitialized: isSettled,
-    isSignedIn: identity !== null,
-    ownerKey: identity ? nativeOwnerKey(identity) : null,
-    provisionalSession: identity,
+    isSignedIn: availableIdentity !== null,
+    ownerKey: availableIdentity ? nativeOwnerKey(availableIdentity) : null,
+    provisionalSession: availableIdentity,
     signInWithEmail: async () => { throw new Error("Email authentication requires a CDP project."); },
     verifyEmailOTP: async () => { throw new Error("Email authentication requires a CDP project."); },
     requestBaseAccountChallenge: () => requestNativeBaseChallenge(),
@@ -83,20 +87,42 @@ export function useNativeBaseIdentity(): NativeBaseIdentity {
       setIdentity(await verifyNativeBaseChallenge(address, message, signature));
     },
     getAccessToken: async () => null,
-    signOut: async () => {
-      await clearNativeBaseSession();
-      setIdentity(null);
+    signOut: async (onPhase?: (phase: AccountSignOutPhase) => void) => {
+      const startedAt = performance.now();
+      try {
+        await clearNativeBaseSession();
+        setIdentity(null);
+        onPhase?.({
+          phase: "native-logout",
+          outcome: "success",
+          durationMs: performance.now() - startedAt,
+        });
+      } catch (error) {
+        onPhase?.({
+          phase: "native-logout",
+          outcome: "error",
+          durationMs: performance.now() - startedAt,
+        });
+        throw error;
+      }
     },
-  }), [identity, initializationError, isSettled, restore]);
+  }), [availableIdentity, availableInitializationError, enabled, isSettled, restore]);
 
   return useMemo(
-    () => ({ identity, isSettled, hasSettled, initializationError, restore, boundary }),
-    [boundary, hasSettled, identity, initializationError, isSettled, restore],
+    () => ({
+      identity: availableIdentity,
+      isSettled,
+      hasSettled,
+      initializationError: availableInitializationError,
+      restore,
+      boundary,
+    }),
+    [availableIdentity, availableInitializationError, boundary, hasSettled, isSettled, restore],
   );
 }
 
 export default function NativeBaseAccountBridge({ children }: { children: ReactNode }) {
-  const { boundary } = useNativeBaseIdentity();
+  const { boundary } = useNativeBaseIdentity(true);
   useEffect(() => {
     startHomeAuthRestore(readHomeAuthRestoreHint());
   }, []);

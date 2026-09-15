@@ -6,6 +6,7 @@ import { connectBaseAccount, restoreBaseAccount, BaseAccountConnectorError, type
 import { SessionValidationError, validateAccountSession, type SessionFetch, type VerifiedAccountSession } from "./session-client";
 import { createSiweMessage } from "viem/siwe";
 import { type AccountProvider, type AccountProviderRequest } from "@/shared/account/session-types";
+import { normalizeHomeStartupRoute } from "@/shared/observability/client-performance.contract";
 import {
   clearOwnerQueryBoundary,
   clearOwnerQueryMemory,
@@ -18,7 +19,7 @@ import { useMoneyActionExecution } from "./cdp-money-action-execution";
 import { BaseAccountLoginError, baseLoginFailureFromConnector, clearCdpRenderHint, invalidationMessage, writeAccountProviderHint, writeCdpRestoreMarker } from "./cdp-wallet-provider-capabilities";
 import { dataOwnerKey, ownerSessionBoundary } from "./owner-keys";
 import { useOwnerGenerationFence } from "./owner-generation-fence";
-import { finishHomeAuthRestore } from "@/client/observability/auth-performance";
+import { finishHomeAuthRestore, sendHomeAuthSignOut } from "@/client/observability/auth-performance";
 
 export type { OwnerGenerationFence, OwnerGenerationIdentity } from "./owner-generation-fence";
 
@@ -119,8 +120,8 @@ export function AccountWalletSessionOwner({
     previousProvisionalOwnerKey.current = provisionalOwnerKey;
   }, [fence, isSignedIn, ownerKey, provisionalSession]);
 
-  const clearPrivate = useCallback(() => {
-    clearCdpRenderHint();
+  const clearPrivate = useCallback((preserveCdpRenderHint = false) => {
+    if (!preserveCdpRenderHint) clearCdpRenderHint();
     validationRef.current?.abort();
     setSession(null);
     setVerification(null);
@@ -137,6 +138,13 @@ export function AccountWalletSessionOwner({
     fence.advance();
     clearPrivate();
     setStatus("signed-out");
+    setMessage(text);
+  }, [clearPrivate, fence]);
+
+  const markUnavailable = useCallback((text: string) => {
+    fence.advance();
+    clearPrivate(true);
+    setStatus("unavailable");
     setMessage(text);
   }, [clearPrivate, fence]);
 
@@ -203,9 +211,17 @@ export function AccountWalletSessionOwner({
         const pendingProvider = missingBaseConnection ? "base-account" : "cdp-embedded";
         providerRef.current = pendingProvider;
         writeAccountProviderHint(`pending:${pendingProvider}`);
+        let cdpCleanupFailed = false;
         const cleanup = (async () => {
-          await disconnectBase();
-          await sdkSignOut();
+          const results = await Promise.allSettled([disconnectBase(), sdkSignOut((phase) => {
+            if (phase.phase === "cdp-signout" && phase.outcome !== "success") {
+              cdpCleanupFailed = true;
+            }
+          })]);
+          const failure = results.find(
+            (result): result is PromiseRejectedResult => result.status === "rejected",
+          );
+          if (failure) throw failure.reason;
           providerRef.current = "restore";
           writeAccountProviderHint(null);
           setStatus("signed-out");
@@ -214,6 +230,7 @@ export function AccountWalletSessionOwner({
         cleanupRef.current = cleanup;
         try { await cleanup; }
         catch {
+          if (cdpCleanupFailed) writeCdpRestoreMarker();
           setStatus("signout-error");
           setMessage("Sign-out did not finish. Retry sign out.");
         } finally { cleanupRef.current = null; }
@@ -236,7 +253,7 @@ export function AccountWalletSessionOwner({
     void Promise.resolve().then(() => {
       if (cancelled || !isInitialized) return;
       if (initializationError) {
-        loseVerification("Account verification is unavailable.");
+        markUnavailable("Account verification is unavailable.");
         return;
       }
       if (!isSignedIn || !ownerKey) {
@@ -250,7 +267,7 @@ export function AccountWalletSessionOwner({
       cancelled = true;
       validationRef.current?.abort();
     };
-  }, [authentication, baseAccountEnabled, clearPrivate, initializationError, isInitialized, isSignedIn, loseVerification, ownerKey, sessionFetch, validationRequest]);
+  }, [authentication, baseAccountEnabled, clearPrivate, initializationError, isInitialized, isSignedIn, markUnavailable, ownerKey, sessionFetch, validationRequest]);
 
   useEffect(() => {
     if (status === "signed-out" || status === "verified" || status === "unavailable") {
@@ -335,27 +352,89 @@ export function AccountWalletSessionOwner({
     setMessage("Sign-in was canceled.");
   }, [clearPrivate, disconnectBase, fence]);
 
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async (options?: { onNavigationSafe?: () => void }) => {
     if (cleanupRef.current) return cleanupRef.current;
+    const startedAt = performance.now();
+    const route = normalizeHomeStartupRoute(window.location.pathname);
+    const walletDisconnectAttempted = baseConnectionRef.current !== null;
+    let walletDisconnectMs: number | undefined;
+    let nativeLogoutAttempted = false;
+    let nativeLogoutMs: number | undefined;
+    let cdpSignOutAttempted = false;
+    let cdpSignOutMs: number | undefined;
+    let cdpCleanupFailed = false;
+    let timedOut = false;
+    let cleanupFailed = false;
+    let visibleNavigationMs: number | undefined;
+    let navigationReported = false;
+    const reportNavigationSafe = () => {
+      if (navigationReported) return;
+      navigationReported = true;
+      visibleNavigationMs = performance.now() - startedAt;
+      options?.onNavigationSafe?.();
+    };
+
+    // This boundary is intentionally synchronous: no old owner query or
+    // authenticated transport can survive until either remote cleanup starts.
     fence.advance();
     clearPrivate();
     setStatus("signing-out");
+    if (authentication === "cdp") reportNavigationSafe();
+
+    const walletStartedAt = performance.now();
+    const walletCleanup = disconnectBase().finally(() => {
+      if (walletDisconnectAttempted) walletDisconnectMs = performance.now() - walletStartedAt;
+    });
+    const sdkCleanup = sdkSignOut((phase) => {
+      if (phase.phase === "native-logout") {
+        nativeLogoutAttempted = true;
+        nativeLogoutMs = phase.durationMs;
+        if (phase.outcome === "success") reportNavigationSafe();
+      } else {
+        cdpSignOutAttempted = true;
+        cdpSignOutMs = phase.durationMs;
+        if (phase.outcome !== "success") cdpCleanupFailed = true;
+      }
+      if (phase.outcome === "timeout") timedOut = true;
+    });
+
     const cleanup = (async () => {
-      await disconnectBase();
-      await sdkSignOut();
+      const results = await Promise.allSettled([walletCleanup, sdkCleanup]);
+      const failed = results.some((result) => result.status === "rejected");
+      if (failed) throw new Error("Account sign-out did not finish.");
       providerRef.current = "restore";
       writeAccountProviderHint(null);
       setStatus("signed-out");
       setMessage("You are signed out.");
     })();
     cleanupRef.current = cleanup;
-    try { await cleanup; }
-    catch {
+    try {
+      await cleanup;
+    } catch {
+      cleanupFailed = true;
+      if (cdpCleanupFailed) writeCdpRestoreMarker();
       setStatus("signout-error");
       setMessage("Sign-out did not finish. Retry sign out.");
-      throw new Error("CDP sign-out did not finish.");
-    } finally { cleanupRef.current = null; }
-  }, [clearPrivate, disconnectBase, fence, sdkSignOut]);
+      throw new Error("Account sign-out did not finish.");
+    } finally {
+      cleanupRef.current = null;
+      if (route) {
+        sendHomeAuthSignOut({
+          route,
+          flow: "signout",
+          outcome: timedOut ? "timeout" : cleanupFailed ? "error" : "success",
+          ...(visibleNavigationMs === undefined ? {} : { visibleNavigationMs }),
+          nativeLogoutAttempted,
+          ...(nativeLogoutMs === undefined ? {} : { nativeLogoutMs }),
+          walletDisconnectAttempted,
+          ...(walletDisconnectMs === undefined ? {} : { walletDisconnectMs }),
+          cdpSignOutAttempted,
+          ...(cdpSignOutMs === undefined ? {} : { cdpSignOutMs }),
+          totalMs: performance.now() - startedAt,
+        });
+      }
+    }
+  }, [authentication, clearPrivate, disconnectBase, fence, sdkSignOut]);
 
   const persistedOwnerKey = session?.smartAccount ? dataOwnerKey(session) : null;
 

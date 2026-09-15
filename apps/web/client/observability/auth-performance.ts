@@ -4,6 +4,7 @@ import {
   type HomeAuthHint,
   type HomeAuthOutcome,
   type HomeAuthRestoreReport,
+  type HomeAuthSignOutReport,
   type HomeStartupRoute,
 } from "@/shared/observability/client-performance.contract";
 import { CLIENT_PERFORMANCE_ENDPOINT } from "./perf-marks";
@@ -99,7 +100,9 @@ function duration(value: number): number {
   return Math.min(30_000, Math.max(0, Math.round(value / 50) * 50));
 }
 
-export async function sendHomeAuthRestoreReport(report: HomeAuthRestoreReport): Promise<void> {
+export async function sendHomeAuthReport(
+  report: HomeAuthRestoreReport | HomeAuthSignOutReport,
+): Promise<void> {
   const parsedReport = parseClientPerformanceReport(report);
   if (!parsedReport || parsedReport.kind !== "home-auth-phase") return;
   try {
@@ -117,12 +120,22 @@ export async function sendHomeAuthRestoreReport(report: HomeAuthRestoreReport): 
   }
 }
 
+export const sendHomeAuthRestoreReport = sendHomeAuthReport;
+
 const recorder = createHomeAuthRestoreRecorder({
   now: () => typeof performance === "undefined" ? 0 : performance.now(),
   scheduleTimeout: (run, delayMs) => setTimeout(run, delayMs),
   clearTimeout: (handle) => clearTimeout(handle),
-  send: sendHomeAuthRestoreReport,
+  send: sendHomeAuthReport,
 });
+
+export function sendHomeAuthSignOut(report: Omit<HomeAuthSignOutReport, "version" | "kind">): void {
+  try {
+    void sendHomeAuthReport({ version: 1, kind: "home-auth-phase", ...report });
+  } catch {
+    // Auth performance reporting never affects authentication.
+  }
+}
 
 export function startHomeAuthRestore(hint: HomeAuthHint): void {
   try {

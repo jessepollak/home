@@ -41,6 +41,7 @@ function boundary(overrides: Partial<AccountWalletSdkBoundary> = {}): AccountWal
 
 function input(overrides: {
   waitForCdpRestore?: boolean;
+  waitForBaseRestore?: boolean;
   cdp?: Partial<AccountWalletSdkBoundary>;
   identity?: VerifiedAccountSession | null;
   native?: Partial<AccountWalletSdkBoundary>;
@@ -48,13 +49,17 @@ function input(overrides: {
   hasSettled?: boolean;
   initializationError?: "provider-unavailable";
   restore?: () => Promise<void>;
-  clearNative?: () => Promise<void>;
-  cdpSignOut?: () => Promise<void>;
+  clearNative?: CompositeSdkBoundaryInput["clearNative"];
+  cdpSignOut?: CompositeSdkBoundaryInput["cdpSignOut"];
+  retryCdp?: CompositeSdkBoundaryInput["retryCdp"];
+  shouldSignOutCdp?: () => boolean;
 } = {}): CompositeSdkBoundaryInput {
   const identity = overrides.identity ?? null;
   const isSettled = overrides.isSettled ?? true;
   return {
+    restorePlanCaptured: true,
     waitForCdpRestore: overrides.waitForCdpRestore ?? false,
+    waitForBaseRestore: overrides.waitForBaseRestore ?? false,
     cdp: boundary(overrides.cdp),
     native: {
       boundary: boundary({
@@ -73,6 +78,8 @@ function input(overrides: {
     },
     clearNative: overrides.clearNative ?? (async () => {}),
     cdpSignOut: overrides.cdpSignOut ?? (async () => {}),
+    retryCdp: overrides.retryCdp ?? (async () => {}),
+    shouldSignOutCdp: overrides.shouldSignOutCdp ?? (() => true),
   };
 }
 
@@ -86,6 +93,16 @@ const nativeSession = session("base-account", "native-subject", NATIVE_ADDRESS);
 const cdpSession = session("cdp-embedded", "cdp-subject", CDP_ADDRESS);
 
 const rows: Array<{ name: string; run: () => Promise<void> }> = [
+  {
+    name: "blocks readiness until the post-mount restore plan is captured",
+    run: async () => {
+      const pending = input();
+      pending.restorePlanCaptured = false;
+      const sdk = composeSdkBoundaries(pending);
+      expect(sdk.isInitialized).toBe(false);
+      expect(sdk.isSignedIn).toBe(false);
+    },
+  },
   {
     name: "settles signed out without a CDP hint after native restore",
     run: async () => {
@@ -225,7 +242,7 @@ const rows: Array<{ name: string; run: () => Promise<void> }> = [
     },
   },
   {
-    name: "keeps a healthy CDP owner exported during later native restores",
+    name: "keeps a healthy CDP owner exported while gating readiness during later native restores",
     run: async () => {
       const retrying = composeSdkBoundaries(input({
         cdp: { isSignedIn: true, ownerKey: "cdp-owner", provisionalSession: cdpSession },
@@ -238,7 +255,7 @@ const rows: Array<{ name: string; run: () => Promise<void> }> = [
         ownerKey: retrying.ownerKey,
         provisionalSession: retrying.provisionalSession,
       }).toEqual({
-        isInitialized: true,
+        isInitialized: false,
         isSignedIn: true,
         ownerKey: "cdp-owner",
         provisionalSession: cdpSession,
@@ -246,9 +263,74 @@ const rows: Array<{ name: string; run: () => Promise<void> }> = [
     },
   },
   {
+    name: "stays restoring through a controlled native retry and recovers with native precedence",
+    run: async () => {
+      const nativeRetry = deferred();
+      let identity: VerifiedAccountSession | null = null;
+      let isSettled = true;
+      let initializationError: "provider-unavailable" | undefined = "provider-unavailable";
+      let cdpSignedIn = false;
+      const restore = async () => {
+        isSettled = false;
+        initializationError = undefined;
+        await nativeRetry.promise;
+        identity = nativeSession;
+        isSettled = true;
+      };
+      const compose = () => composeSdkBoundaries(input({
+        cdp: {
+          isSignedIn: cdpSignedIn,
+          ownerKey: cdpSignedIn ? "cdp-owner" : null,
+          provisionalSession: cdpSignedIn ? cdpSession : null,
+        },
+        identity,
+        isSettled,
+        hasSettled: true,
+        initializationError,
+        restore,
+      }));
+
+      const failed = compose();
+      expect(failed.isInitialized).toBe(true);
+      expect(failed.initializationError).toBe("provider-unavailable");
+
+      const retry = failed.retryInitialization?.();
+      await Promise.resolve();
+      const restoring = compose();
+      expect({
+        isInitialized: restoring.isInitialized,
+        isSignedIn: restoring.isSignedIn,
+        initializationError: restoring.initializationError,
+      }).toEqual({
+        isInitialized: false,
+        isSignedIn: false,
+        initializationError: undefined,
+      });
+
+      cdpSignedIn = true;
+      nativeRetry.resolve();
+      await retry;
+      const recovered = compose();
+      expect({
+        authentication: recovered.authentication,
+        isInitialized: recovered.isInitialized,
+        isSignedIn: recovered.isSignedIn,
+        ownerKey: recovered.ownerKey,
+        provisionalSession: recovered.provisionalSession,
+      }).toEqual({
+        authentication: "native-base",
+        isInitialized: true,
+        isSignedIn: true,
+        ownerKey: "native-owner",
+        provisionalSession: nativeSession,
+      });
+    },
+  },
+  {
     name: "keeps email viable only while CDP initialization is pending",
     run: async () => {
-      const restore = async () => {};
+      let nativeRestores = 0;
+      const restore = async () => { nativeRestores += 1; };
       const cdpPending = composeSdkBoundaries(input({
         cdp: { isInitialized: false },
         initializationError: "provider-unavailable",
@@ -267,24 +349,149 @@ const rows: Array<{ name: string; run: () => Promise<void> }> = [
       expect(cdpPending.initializationError).toBeUndefined();
       expect(cdpPending.retryInitialization).toBeUndefined();
       expect(cdpReadySignedOut.initializationError).toBe("provider-unavailable");
-      expect(cdpReadySignedOut.retryInitialization).toBe(restore);
+      await cdpReadySignedOut.retryInitialization?.();
+      expect(nativeRestores).toBe(1);
       expect(cdpReadySignedIn.initializationError).toBeUndefined();
       expect(cdpReadySignedIn.retryInitialization).toBeUndefined();
     },
   },
   {
-    name: "exports provider unavailable only when both configured paths fail",
+    name: "fails closed for a captured Base hint when native restoration fails",
     run: async () => {
-      const restore = async () => {};
+      let nativeRestores = 0;
+      const unavailable = composeSdkBoundaries(input({
+        waitForBaseRestore: true,
+        cdp: { isInitialized: false },
+        initializationError: "provider-unavailable",
+        restore: async () => { nativeRestores += 1; },
+      }));
+
+      expect(unavailable.isInitialized).toBe(true);
+      expect(unavailable.isSignedIn).toBe(false);
+      expect(unavailable.initializationError).toBe("provider-unavailable");
+      await unavailable.retryInitialization?.();
+      expect(nativeRestores).toBe(1);
+    },
+  },
+  {
+    name: "fails open for an anonymous native error without a restore hint",
+    run: async () => {
+      const anonymous = composeSdkBoundaries(input({
+        cdp: { isInitialized: false },
+        initializationError: "provider-unavailable",
+      }));
+
+      expect(anonymous.isInitialized).toBe(true);
+      expect(anonymous.isSignedIn).toBe(false);
+      expect(anonymous.initializationError).toBeUndefined();
+      expect(anonymous.retryInitialization).toBeUndefined();
+    },
+  },
+  {
+    name: "fails closed when a hinted CDP restore fails after native settles signed out",
+    run: async () => {
+      let nativeRestores = 0;
+      let cdpRetries = 0;
+      const unavailable = composeSdkBoundaries(input({
+        waitForCdpRestore: true,
+        cdp: { isInitialized: false, initializationError: "provider-unavailable" },
+        restore: async () => { nativeRestores += 1; },
+        retryCdp: async () => { cdpRetries += 1; },
+      }));
+
+      expect(unavailable.isInitialized).toBe(true);
+      expect(unavailable.isSignedIn).toBe(false);
+      expect(unavailable.initializationError).toBe("provider-unavailable");
+      await unavailable.retryInitialization?.();
+      expect(nativeRestores).toBe(0);
+      expect(cdpRetries).toBe(1);
+    },
+  },
+  {
+    name: "retries failed native and CDP initialization concurrently",
+    run: async () => {
+      const native = deferred();
+      const cdp = deferred();
+      const events: string[] = [];
       const unavailable = composeSdkBoundaries(input({
         waitForCdpRestore: true,
         cdp: { isInitialized: false, initializationError: "provider-unavailable" },
         initializationError: "provider-unavailable",
-        restore,
+        restore: async () => { events.push("native"); await native.promise; },
+        retryCdp: async () => { events.push("cdp"); await cdp.promise; },
       }));
       expect(unavailable.isInitialized).toBe(true);
       expect(unavailable.initializationError).toBe("provider-unavailable");
-      expect(unavailable.retryInitialization).toBe(restore);
+
+      const retry = unavailable.retryInitialization?.();
+      await Promise.resolve();
+      expect(events).toEqual(["native", "cdp"]);
+      native.resolve();
+      cdp.resolve();
+      await retry;
+    },
+  },
+  {
+    name: "starts native and known-CDP cleanup concurrently",
+    run: async () => {
+      const native = deferred();
+      const cdp = deferred();
+      const events: string[] = [];
+      const sdk = composeSdkBoundaries(input({
+        clearNative: async () => { events.push("native"); await native.promise; },
+        cdpSignOut: async () => { events.push("cdp"); await cdp.promise; },
+      }));
+      const cleanup = sdk.signOut();
+      await Promise.resolve();
+      expect(events).toEqual(["native", "cdp"]);
+      native.resolve();
+      cdp.resolve();
+      await cleanup;
+    },
+  },
+  {
+    name: "skips an unauthenticated CDP sign-out when no cleanup evidence exists",
+    run: async () => {
+      let cdpCalls = 0;
+      const sdk = composeSdkBoundaries(input({
+        shouldSignOutCdp: () => false,
+        cdpSignOut: async () => {
+          cdpCalls += 1;
+          throw new Error("User is not authenticated.");
+        },
+      }));
+      await expect(sdk.signOut()).resolves.toBeUndefined();
+      expect(cdpCalls).toBe(0);
+    },
+  },
+  {
+    name: "times out known-CDP cleanup, ignores its late phase, and allows a later retry",
+    run: async () => {
+      let cdpCalls = 0;
+      const first = deferred();
+      let firstAttempt: Promise<void> | null = null;
+      const phases: string[] = [];
+      const sdk = composeSdkBoundaries(input({
+        cdpSignOut: async (onPhase) => {
+          cdpCalls += 1;
+          if (cdpCalls === 1) {
+            firstAttempt = (async () => {
+              await first.promise;
+              onPhase?.({ phase: "cdp-signout", outcome: "success", durationMs: 3_000 });
+            })();
+            await firstAttempt;
+          }
+        },
+      }));
+      await expect(sdk.signOut((phase) => phases.push(`${phase.phase}:${phase.outcome}`)))
+        .rejects.toThrow("timed out");
+      expect(phases).toEqual(["cdp-signout:timeout"]);
+
+      first.resolve();
+      await firstAttempt;
+      expect(phases).toEqual(["cdp-signout:timeout"]);
+      await expect(sdk.signOut()).resolves.toBeUndefined();
+      expect(cdpCalls).toBe(2);
     },
   },
   {
