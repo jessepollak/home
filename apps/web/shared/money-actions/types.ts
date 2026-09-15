@@ -2,6 +2,8 @@ import type { AccountProvider } from "@/shared/account/session-types";
 
 export const ACTION_KINDS = [
   "send",
+  "cash-out",
+  "cash-out-withdraw",
   "savings-deposit",
   "savings-withdraw",
   "borrow",
@@ -55,7 +57,26 @@ export type BorrowMoneyActionMetadata = {
   borrowAprWad: string;
   source: { blockNumber: string; blockHash: `0x${string}`; blockTimestamp: string };
 };
-export type MoneyActionMetadata = BorrowMoneyActionMetadata;
+type CashoutMoneyActionMetadataBase = {
+  product: "cashout";
+  providerId: string;
+  providerName: string;
+  environment: "production" | "sandbox";
+  platform: string;
+  platformLabel: string;
+  currency: string;
+  approximateFiatAmount: string;
+  etaSeconds?: number | null;
+  minConversionRate: string;
+  intentAmountRange: { min: string; max: string };
+  estimateAsOf: string;
+  escrow: `0x${string}`;
+};
+export type CashoutMoneyActionMetadata = CashoutMoneyActionMetadataBase & (
+  | { operation: "deposit"; canonicalHandle: string; depositId?: never }
+  | { operation: "withdraw"; canonicalHandle?: never; depositId: string }
+);
+export type MoneyActionMetadata = BorrowMoneyActionMetadata | CashoutMoneyActionMetadata;
 
 export type MoneyActionDraft = {
   kind: ActionKind;

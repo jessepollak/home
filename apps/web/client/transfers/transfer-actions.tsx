@@ -24,6 +24,7 @@ import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { SendDialog } from "./send-dialog";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
+import type { RegionId } from "@/config/regions";
 
 const subscribeToMountedState = () => () => {};
 const mountedClientSnapshot = () => true;
@@ -34,6 +35,7 @@ export type TransferActionsProps = {
   initialActionId?: string | null;
   availableAssets?: readonly TransferAssetAvailability[];
   assetMarkResolution?: AssetMarkResolution;
+  regionId?: RegionId;
 };
 
 type TransferWallet = Pick<
@@ -42,6 +44,7 @@ type TransferWallet = Pick<
   | "status"
   | "session"
   | "prepareMoneyAction"
+  | "fetchAccountResource"
   | "resumeMoneyAction"
   | "executeMoneyAction"
 >;
@@ -57,6 +60,7 @@ export function TransferActionsForWallet({
   initialActionId = null,
   availableAssets,
   assetMarkResolution,
+  regionId = "US",
 }: TransferActionsProps & { wallet: TransferWallet }) {
   const routing = useOptionalHomeShellRouting();
   const [sendOpen, setSendOpen] = useState(false);
@@ -141,6 +145,8 @@ export function TransferActionsForWallet({
               availableAssets={availableAssets}
               assetMarkResolution={assetMarkResolution}
               prepareMoneyAction={wallet.prepareMoneyAction}
+              fetchAccountResource={wallet.fetchAccountResource}
+              regionId={regionId}
               resumeMoneyAction={wallet.resumeMoneyAction}
               executeMoneyAction={wallet.executeMoneyAction}
               ownerBoundary={boundary}

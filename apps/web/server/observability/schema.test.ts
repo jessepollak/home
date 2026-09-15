@@ -79,6 +79,28 @@ describe("observability schema", () => {
     })).toMatchObject({ level: "error", code: "HOME_AUTH_PHASE" });
   });
 
+  test.each([
+    "FUNDING_SANDBOX_MIGRATION_REQUIRED",
+    "OFFRAMP_DISCOVERY_CONFIGURATION",
+    "OFFRAMP_DISCOVERY_PROVIDER",
+  ])("preserves the scrubbed closed funding diagnostic %s", (code) => {
+    expect(normalizeObservabilityEvent({
+      kind: "funding-order",
+      route: "/api/funding/providers",
+      code,
+      outcome: "unavailable",
+      durationMs: 1,
+    })).toEqual({
+      schema: "home.observability.v2",
+      level: "error",
+      kind: "funding-order",
+      route: "/api/funding/providers",
+      code,
+      outcome: "unavailable",
+      durationMs: 1,
+    });
+  });
+
   test("normalizes out-of-enum funding-order codes to ORDER_UNAVAILABLE", () => {
     expect(normalizeObservabilityEvent({
       kind: "funding-order",

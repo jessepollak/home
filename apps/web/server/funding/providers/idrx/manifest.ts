@@ -14,19 +14,26 @@ export const idrxManifest = {
   id: "idrx",
   displayName: "IDRX",
   docsUrl: "https://docs.idrx.co/",
+  onramp: {
+    apiOrigins: [IDRX_API_ORIGIN],
+    redirectOrigins: [IDRX_CHECKOUT_ORIGIN],
+    reference: "provider",
+  },
   bindings: [
     {
       region: "ID",
       assetId: "base:idrx",
-      paymentMethods: [
-        { id: "bank-va-mandiri", label: "Bank transfer · Mandiri" },
-        { id: "bank-va-bri", label: "Bank transfer · BRI" },
-        { id: "qris", label: "QRIS" },
-      ],
-      env: IDRX_ENV,
+      currency: "IDR",
+      directions: {
+        onramp: {
+          paymentMethods: [
+            { id: "bank-va-mandiri", label: "Bank transfer · Mandiri" },
+            { id: "bank-va-bri", label: "Bank transfer · BRI" },
+            { id: "qris", label: "QRIS" },
+          ],
+          env: IDRX_ENV,
+        },
+      },
     },
   ],
-  apiOrigins: [IDRX_API_ORIGIN],
-  redirectOrigins: [IDRX_CHECKOUT_ORIGIN],
-  reference: "provider",
 } as const satisfies FundingProviderManifest;

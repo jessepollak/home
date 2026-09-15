@@ -70,10 +70,10 @@ A transaction hash is forwarded only when it is exactly a 32-byte hexadecimal ha
 Sandbox mode is for local dry runs only and must never be enabled on Vercel:
 
 ```sh
-FUNDING_SANDBOX=1
+COINBASE_ONRAMP_MODE=sandbox
 ```
 
-The core lists only sandbox-capable providers in this mode. Coinbase uses the production CDP API key, prefixes `partnerUserRef` with `sandbox-`, sends the request's forwarded client IP, and appends `useApplePaySandbox=true` to the returned payment link. Use `+1000…` phone numbers, `*@sandbox.test` email addresses, and OTP `000000` inside the sandbox flow. Coinbase sandbox never moves real USDC, so Home stops at `sent-unverified` and displays the run as complete without receipt verification. Coinbase rejects loopback/private client IPs, which is all a local run has, so set `FUNDING_SANDBOX_CLIENT_IP` to your public IP for a local dry run; the core substitutes it only in sandbox mode and only when the forwarded IP is missing or private. Production never reads it.
+The mode applies only to Coinbase onramp; other providers and directions keep their own production/default mode. Coinbase uses the production CDP API key, prefixes `partnerUserRef` with `sandbox-`, sends the request's forwarded client IP, and appends `useApplePaySandbox=true` to the returned payment link. Use `+1000…` phone numbers, `*@sandbox.test` email addresses, and OTP `000000` inside the sandbox flow. Coinbase sandbox never moves real USDC, so Home stops at `sent-unverified` and displays the run as complete without receipt verification. Coinbase rejects loopback/private client IPs, which is all a local run has, so set `FUNDING_SANDBOX_CLIENT_IP` to your public IP for a local dry run; the core substitutes it only in sandbox mode and only when the forwarded IP is missing or private. Production never reads it.
 
 ## How to test
 
@@ -97,5 +97,5 @@ Apple Pay in a cross-origin iframe on localhost remains unverified until this ru
 
 - In CDP Portal, allowlist and verify Home's production and preview domains for Apple Pay. `localhost` needs no registration.
 - Confirm the existing CDP API credentials remain configured in Vercel.
-- Never set `FUNDING_SANDBOX` on Vercel; it is only for local dry runs.
+- Never set `COINBASE_ONRAMP_MODE` on production Vercel; it is only for local dry runs.
 - A pre-existing `dispatch-ambiguous` order has no UI recovery and remains resumable; for a local proof, delete that row before retrying.

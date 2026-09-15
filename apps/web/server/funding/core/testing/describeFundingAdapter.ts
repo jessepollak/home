@@ -77,10 +77,10 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
           return new Response(null, { status: 302, headers: { location: "https://evil.example" } });
         }) as unknown as typeof fetch,
       });
-      expect(Object.keys(ctx.env).sort()).toEqual([...(binding?.env ?? [])].sort());
+      expect(Object.keys(ctx.env).sort()).toEqual([...(binding?.directions.onramp?.env ?? [])].sort());
       expect(ctx.env).not.toHaveProperty("UNDECLARED_SECRET");
 
-      const apiOrigin = options.provider.manifest.apiOrigins[0];
+      const apiOrigin = options.provider.manifest.onramp?.apiOrigins[0];
       if (!apiOrigin) throw new Error("Conformance requires an API origin.");
       const allowedUrl = new URL("/conformance", apiOrigin);
       await ctx.fetch(allowedUrl, { redirect: "follow" });
@@ -142,14 +142,14 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
           return options.successResponse(requests.length, input instanceof Request ? input.url : String(input));
         }) as unknown as typeof fetch,
       });
-      const result = await options.provider.createOrder(options.intent, ctx);
+      const result = await options.provider.onramp!.createOrder(options.intent, ctx);
       const createRequests = options.createRequestPath
         ? requests.filter((request) => new URL(request.url).pathname === options.createRequestPath)
         : requests;
       expect(createRequests).toHaveLength(1);
       const body = parseRequestBody(createRequests[0]?.init.body);
       expect(containsValue(body, options.intent.destination)).toBe(true);
-      if (options.provider.manifest.reference === "home") {
+      if (options.provider.manifest.onramp?.reference === "home") {
         expect(containsValue(body, options.intent.homeOrderId)).toBe(true);
       }
 
@@ -162,7 +162,7 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
         options.intent.quote?.tokenAmountAtomic ??
           decimalToAtomic(options.intent.fiatAmount, ctx.binding.asset.decimals),
       );
-      assertInstructionIsSafe(result.order.instructions, options.provider.manifest.redirectOrigins);
+      assertInstructionIsSafe(result.order.instructions, options.provider.manifest.onramp?.redirectOrigins);
     });
 
     test("fails closed on contradictory create echoes without retrying", async () => {
@@ -182,7 +182,7 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
             return scenario.response(calls, url);
           }) as unknown as typeof fetch,
         });
-        const result = await options.provider.createOrder(options.intent, ctx);
+        const result = await options.provider.onramp!.createOrder(options.intent, ctx);
         expect(result, scenario.name).toEqual({ outcome: "ambiguous" });
         expect(createCalls, scenario.name).toBe(1);
       }
@@ -219,7 +219,7 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
             return failure.response();
           }) as unknown as typeof fetch,
         });
-        const result = await options.provider.createOrder(options.intent, ctx);
+        const result = await options.provider.onramp!.createOrder(options.intent, ctx);
         expect(result, failure.name).toEqual({ outcome: "ambiguous" });
         expect(createCalls, failure.name).toBe(1);
       }
@@ -237,7 +237,7 @@ export function describeFundingAdapter(options: ConformanceOptions): void {
           return options.unknownStatusResponse(calls, input instanceof Request ? input.url : String(input));
         }) as unknown as typeof fetch,
       });
-      await expect(options.provider.getOrder(
+      await expect(options.provider.onramp!.getOrder(
         reconciliationIntent(options, ctx.binding.asset),
         ctx,
       )).resolves.toMatchObject({ state: "unknown" });

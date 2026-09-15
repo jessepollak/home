@@ -175,7 +175,7 @@ describe("IDRX adapter behavior", () => {
           }, { status: fixture.status });
         }) as unknown as typeof fetch,
       });
-      const result = await idrxProvider.createOrder(intent, ctx);
+      const result = await idrxProvider.onramp!.createOrder(intent, ctx);
       expect(result.outcome, fixture.name).toBe(fixture.outcome);
       expect(calls, fixture.name).toBe(1);
     }
@@ -204,7 +204,7 @@ describe("IDRX adapter behavior", () => {
       }) as unknown as typeof fetch,
     });
 
-    const result = await idrxProvider.createOrder(intent, ctx);
+    const result = await idrxProvider.onramp!.createOrder(intent, ctx);
     expect(result.outcome).toBe("created");
     expect(requests).toHaveLength(1);
     const body = JSON.parse(String(requests[0]?.init.body));
@@ -262,7 +262,7 @@ describe("IDRX adapter behavior", () => {
         fetchImplementation: (async () =>
           jsonFixture(scenario.response)) as unknown as typeof fetch,
       });
-      const result = await idrxProvider.createOrder(intent, ctx);
+      const result = await idrxProvider.onramp!.createOrder(intent, ctx);
       expect(result.outcome).toBe(scenario.outcome);
     }
   });
@@ -282,7 +282,7 @@ describe("IDRX adapter behavior", () => {
         },
       )) as unknown as typeof fetch,
     });
-    const result = await idrxProvider.createOrder(intent, ctx);
+    const result = await idrxProvider.onramp!.createOrder(intent, ctx);
     expect(result).toMatchObject({
       outcome: "created",
       order: { fees: [{ label: "QRIS", amount: "0.50", currency: "IDR" }] },
@@ -301,7 +301,7 @@ describe("IDRX adapter behavior", () => {
           records: [historyRecord({}, paymentMethodId)],
         })) as unknown as typeof fetch,
       });
-      await expect(idrxProvider.getOrder(reconciliationIntent, ctx)).resolves.toMatchObject({
+      await expect(idrxProvider.onramp!.getOrder(reconciliationIntent, ctx)).resolves.toMatchObject({
         state: "sent",
       });
     }
@@ -329,7 +329,7 @@ describe("IDRX adapter behavior", () => {
           records: [historyRecord({ userMintStatus, paymentStatus })],
         })) as unknown as typeof fetch,
       });
-      const observation = await idrxProvider.getOrder(reconciliationIntent, ctx);
+      const observation = await idrxProvider.onramp!.getOrder(reconciliationIntent, ctx);
       expect(observation.state).toBe(expected);
       expect(observation.state).not.toBe("received");
     }
@@ -354,7 +354,7 @@ describe("IDRX adapter behavior", () => {
           return Response.json({ source: "synthetic", records });
         }) as unknown as typeof fetch,
       });
-      const observation = await idrxProvider.getOrder(reconciliationIntent, ctx);
+      const observation = await idrxProvider.onramp!.getOrder(reconciliationIntent, ctx);
       expect(observation.state, fixture.name).toBe("unknown");
       expect(calls, fixture.name).toBe(1);
     }
@@ -374,7 +374,7 @@ describe("IDRX adapter behavior", () => {
         },
       })) as unknown as typeof fetch,
     });
-    await expect(idrxProvider.createOrder(intent, ctx)).resolves.toEqual({
+    await expect(idrxProvider.onramp!.createOrder(intent, ctx)).resolves.toEqual({
       outcome: "ambiguous",
     });
   });
@@ -400,7 +400,7 @@ describe("IDRX adapter behavior", () => {
         env,
         fetchImplementation: (async () => response()) as unknown as typeof fetch,
       });
-      await expect(idrxProvider.createOrder(intent, ctx)).resolves.toEqual({
+      await expect(idrxProvider.onramp!.createOrder(intent, ctx)).resolves.toEqual({
         outcome: "ambiguous",
       });
     }
@@ -418,7 +418,7 @@ describe("IDRX adapter behavior", () => {
         return jsonFixture(createQrisFixture);
       }) as unknown as typeof fetch,
     });
-    await expect(idrxProvider.createOrder(
+    await expect(idrxProvider.onramp!.createOrder(
       { ...intent, fiatAmount: "20000.501" },
       ctx,
     )).resolves.toMatchObject({ outcome: "rejected" });

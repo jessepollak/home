@@ -2,6 +2,7 @@ import { authorizeFundingRequest, fundingError, fundingJson, fundingRequestOrigi
 import { authorizeFundingSession, getFundingCore } from "@/server/funding/core/runtime";
 import { FundingCoreError } from "@/server/funding/core/service";
 import { emitServerEvent } from "@/server/observability/log";
+import { FundingProviderConfigurationError } from "@/server/funding/core/provider-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export async function POST(request: Request): Promise<Response> {
     if (error instanceof FundingCoreError) return fundingError(error.code, "The funding order could not be created.", error.status);
     emitServerEvent("funding-order", {
       route: "/api/funding/orders",
-      code: "ORDER_UNAVAILABLE",
+      code: error instanceof FundingProviderConfigurationError ? error.code : "ORDER_UNAVAILABLE",
       outcome: "unavailable",
       provider: authorized.session.accountProvider,
       owner: { subject: authorized.session.user.subject, accountProvider: authorized.session.accountProvider },

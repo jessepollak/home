@@ -47,6 +47,36 @@ describe("recent Home action activity", () => {
     expect(dedupeRecentMoneyActions([operation()], new Set([transactionHash]))).toEqual([]);
   });
 
+  test("preserves typed cash-out identity without parsing titles or calldata", () => {
+    const cashout = {
+      ...row(),
+      kind: "cash-out",
+      summary: {
+        ...row().summary,
+        title: "Cash out with Peer",
+        metadata: {
+          product: "cashout",
+          operation: "deposit",
+          providerId: "peer",
+          providerName: "Peer",
+          environment: "sandbox",
+          platform: "cashapp",
+          platformLabel: "Cash App",
+          currency: "USD",
+          canonicalHandle: "$alice",
+          approximateFiatAmount: "10.00",
+          minConversionRate: "1000000000000000000",
+          intentAmountRange: { min: "10000000", max: "10000000" },
+          estimateAsOf: "2026-09-14T12:00:00.000Z",
+          escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",
+        },
+      },
+    };
+    expect(parseRecentMoneyActions({ actions: [cashout] }, session)[0]?.action.metadata).toMatchObject({
+      product: "cashout", providerId: "peer", platform: "cashapp", canonicalHandle: "$alice",
+    });
+  });
+
   test("keeps pending rows without transaction hashes and rejects non-derived statuses", () => {
     const pending = { ...row(undefined, "pending"), transactionHash: undefined };
     const parsed = parseRecentMoneyActions({ actions: [pending] }, session);

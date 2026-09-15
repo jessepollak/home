@@ -5,6 +5,8 @@ import {
   type FundingSessionAuthorizer,
 } from "@/server/funding/core/auth";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
+import type { FundingDirection } from "@/shared/funding/provider-contract";
 
 type FundingProvidersRouteDependencies = {
   authorize: FundingSessionAuthorizer;
@@ -12,6 +14,7 @@ type FundingProvidersRouteDependencies = {
   listProviders: (
     region: string,
     session: VerifiedAccountSession,
+    direction: FundingDirection,
   ) => Promise<unknown>;
 };
 
@@ -21,13 +24,30 @@ export async function handleFundingProvidersRequest(
 ): Promise<Response> {
   const authorized = await authorizeFundingRequest(request, dependencies.authorize);
   if ("response" in authorized) return authorized.response;
-  const region = new URL(request.url).searchParams.get("region");
+  const search = new URL(request.url).searchParams;
+  const region = search.get("region");
   if (!region) return fundingError("INVALID_REGION", "Choose a country first.", 400);
-  if (!dependencies.databaseUrl?.trim()) return fundingJson({ providers: [] });
+  const requestedDirection = search.get("direction") ?? "onramp";
+  if (requestedDirection !== "onramp" && requestedDirection !== "offramp") {
+    return fundingError("INVALID_DIRECTION", "Choose a valid funding direction.", 400);
+  }
+  if (!dependencies.databaseUrl?.trim()) {
+    return fundingJson({
+      version: FUNDING_PROVIDERS_VERSION,
+      direction: requestedDirection,
+      providers: [],
+    });
+  }
 
   try {
     return fundingJson({
-      providers: await dependencies.listProviders(region, authorized.session),
+      version: FUNDING_PROVIDERS_VERSION,
+      direction: requestedDirection,
+      providers: await dependencies.listProviders(
+        region,
+        authorized.session,
+        requestedDirection,
+      ),
     });
   } catch {
     return fundingError(

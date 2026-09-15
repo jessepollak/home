@@ -7,6 +7,7 @@ import { createRuntimeFundingOrderStore } from "./postgres-store";
 import { FundingCore } from "./service";
 import { emitServerEvent } from "@/server/observability/log";
 import { getBalanceSnapshotStore } from "@/server/balances/snapshot-store";
+import { FUNDING_SANDBOX_MIGRATION_CODE } from "./provider-context";
 
 export const authorizeFundingSession = authorizeSession;
 
@@ -23,6 +24,16 @@ export function getFundingCore(): FundingCore {
         route: "/api/funding/webhooks/:provider",
         code: reason === "invalid" ? "WEBHOOK_INVALID" : "WEBHOOK_UNMATCHED",
         outcome: reason,
+        provider: providerId,
+      });
+    },
+    logProviderDiscoveryFailure: ({ providerId, reason, code }) => {
+      emitServerEvent("funding-order", {
+        route: "/api/funding/providers",
+        code: code === FUNDING_SANDBOX_MIGRATION_CODE
+          ? code
+          : reason === "configuration" ? "OFFRAMP_DISCOVERY_CONFIGURATION" : "OFFRAMP_DISCOVERY_PROVIDER",
+        outcome: "unavailable",
         provider: providerId,
       });
     },
