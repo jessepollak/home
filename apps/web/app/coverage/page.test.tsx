@@ -15,7 +15,10 @@ describe("public coverage page", () => {
     expect(html).toContain("Local money coverage");
     expect(html).toContain("<table");
     expect(html).toContain("<caption");
-    expect(html).toContain("Showing 39 of 39 countries");
+    expect(html).toContain("Showing 250 of 250 countries and territories");
+    expect(html).toContain("Japan");
+    expect(html).toContain("Kosovo");
+    expect(html).toContain("No current tender currency");
     expect(html).toContain("United States");
     expect(html).toContain("Production-proven live");
     expect(html).toContain("Home routes live</dt><dd class=\"text-3xl font-semibold\">0");
@@ -27,7 +30,7 @@ describe("public coverage page", () => {
 
   test("applies server-side search, status filters, and alphabetical sorting", async () => {
     const html = await renderCoverage({ q: "rupiah", issuer: "documented", home: "in-build", sort: "alphabetical" });
-    expect(html).toContain("Showing 1 of 39 countries");
+    expect(html).toContain("Showing 1 of 250 countries and territories");
     expect(html).toContain("Indonesia");
     expect(html).not.toContain("<summary class=\"font-semibold\">United States");
     expect(html).toContain("<option value=\"alphabetical\" selected=\"\"");
