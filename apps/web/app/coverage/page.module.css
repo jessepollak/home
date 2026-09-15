@@ -1,0 +1,35 @@
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status::before {
+  width: 0.55rem;
+  height: 0.55rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #737373;
+  content: "";
+}
+
+.status[data-tone="positive"]::before {
+  background: #137333;
+}
+
+.status[data-tone="caution"]::before {
+  background: #9a6700;
+}
+
+.status[data-tone="negative"]::before {
+  background: #b42318;
+}
+
+.flag {
+  display: inline-block;
+  margin-right: 0.45rem;
+  font-size: 1.05rem;
+  line-height: 1;
+}

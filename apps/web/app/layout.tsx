@@ -14,11 +14,12 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
+  const smokeFixture = process.env.HOME_PLAYWRIGHT_SMOKE === "1" && !process.env.VERCEL;
   const accountProvider = (
     <CdpAccountProvider
       projectId={normalizeProjectId(process.env.NEXT_PUBLIC_CDP_PROJECT_ID)}
       baseAccountEnabled={isHomeSessionConfigured(process.env.HOME_SESSION_SECRET)}
-      smokeFixture={process.env.HOME_PLAYWRIGHT_SMOKE === "1" && !process.env.VERCEL}
+      smokeFixture={smokeFixture}
     >
       {children}
     </CdpAccountProvider>
@@ -29,7 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full">
         <HomeQueryClientProvider>{accountProvider}</HomeQueryClientProvider>
         <HomeSpeedInsights />
-        <AgentationOverlay />
+        <AgentationOverlay disabled={smokeFixture} />
       </body>
     </html>
   );

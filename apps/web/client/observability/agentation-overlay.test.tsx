@@ -16,4 +16,11 @@ describe("Agentation overlay boundary", () => {
     expect(container.innerHTML).toBe("");
     cleanup();
   });
+
+  test("renders nothing when the server disables it for Chromium smoke", () => {
+    const { container } = render(<AgentationOverlay disabled />);
+    expect(container.childElementCount).toBe(0);
+    expect(container.innerHTML).toBe("");
+    cleanup();
+  });
 });

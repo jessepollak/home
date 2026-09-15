@@ -33,6 +33,10 @@ export type SupportedGlobeProps = {
   className?: string;
   /** Defaults to every configured non-neutral presentation profile. ISO alpha-2 codes. */
   countries?: readonly GlobeCountry[];
+  /** Landing routes are illustrative and can be omitted for inventory views. */
+  showRoutes?: boolean;
+  ariaLabel?: string;
+  description?: string;
 };
 
 type RouteNodes = {
@@ -56,7 +60,13 @@ function selectionForPoint(point: GlobePoint, longitude: number): GlobePopoverSe
 }
 
 /** A centerpiece only: composition, headline and sign-in remain with the landing. */
-export function SupportedGlobe({ className, countries = defaultCountries }: SupportedGlobeProps) {
+export function SupportedGlobe({
+  className,
+  countries = defaultCountries,
+  showRoutes = true,
+  ariaLabel = "Interactive world with illustrative money connections",
+  description,
+}: SupportedGlobeProps) {
   const descriptionId = useId();
   const motionId = useId();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -69,7 +79,7 @@ export function SupportedGlobe({ className, countries = defaultCountries }: Supp
   const motionRef = useRef(false);
   const longitudeRef = useRef(INITIAL_LONGITUDE);
   const points = useMemo(() => locateCountries(countries), [countries]);
-  const routes = useMemo(() => configureGlobeRoutes(points), [points]);
+  const routes = useMemo(() => showRoutes ? configureGlobeRoutes(points) : [], [points, showRoutes]);
   const initialPopover = useMemo(
     () => selectGlobePopoverCountry(points, INITIAL_LONGITUDE),
     [points],
@@ -269,7 +279,7 @@ export function SupportedGlobe({ className, countries = defaultCountries }: Supp
     <figure className={[styles.globe, className].filter(Boolean).join(" ")} data-renderer={status}>
       <div ref={stageRef} className={styles.stage}
         role={status === "ready" ? "group" : "img"}
-        aria-label="Interactive world with illustrative money connections"
+        aria-label={ariaLabel}
         aria-describedby={`${descriptionId} ${motionId}`}
         tabIndex={status === "ready" ? 0 : undefined}
         aria-keyshortcuts={status === "ready" ? "Space ArrowLeft ArrowRight Escape" : undefined}
@@ -326,7 +336,9 @@ export function SupportedGlobe({ className, countries = defaultCountries }: Supp
               }}
               cx={position.x.toFixed(3)} cy={position.y.toFixed(3)} r=".48"
               visibility={position.visible ? "visible" : "hidden"}
-              fill="#0000FF" stroke="white" strokeWidth=".22" />;
+              data-tone={point.markerTone ?? "default"}
+              className={styles.marker}
+              stroke="white" strokeWidth=".22" />;
           })}
         </svg>
         <div className={styles.countryTargets} data-interactive={status === "ready" ? "true" : "false"}>
@@ -347,7 +359,7 @@ export function SupportedGlobe({ className, countries = defaultCountries }: Supp
               aria-pressed={activeCountryCode === point.countryCode}
               tabIndex={status === "ready" && rovingCountryCode === point.countryCode ? 0 : -1}
               aria-hidden={status === "ready" ? undefined : true}
-              aria-label={`${point.countryName}, ${currency}. Highlight illustrative connections.`}
+              aria-label={`${point.countryName}, ${currency}. ${point.detail ?? (showRoutes ? "Highlight illustrative connections." : "Show coverage details.")}`}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={() => activateCountry(point)}
               onFocus={() => activateCountry(point)}
@@ -379,6 +391,7 @@ export function SupportedGlobe({ className, countries = defaultCountries }: Supp
               <small>
                 {selectedCountry.currency.code ?? selectedCountry.currency.name}
                 {selectedCountry.currency.code ? ` · ${selectedCountry.currency.name}` : ""}
+                {selectedCountry.detail ? ` · ${selectedCountry.detail}` : ""}
               </small>
             </span>
           </div>
@@ -386,7 +399,7 @@ export function SupportedGlobe({ className, countries = defaultCountries }: Supp
       </div>
       <div className={styles.srOnly}>
         <p id={descriptionId}>
-          {countries.length} country &amp; currency profiles connected by a small illustrative route set.
+          {description ?? `${countries.length} country and currency profiles${showRoutes ? " connected by a small illustrative route set" : " shown as sourced inventory points"}.`}
           {status === "ready" && " Drag horizontally to spin. Space pauses or resumes rotation; Left and Right arrows rotate the globe. Tab to a country point; Up and Down arrows move between visible country points."}
         </p>
         <p id={motionId} role="status">

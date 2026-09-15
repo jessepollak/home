@@ -32,13 +32,13 @@ When changing provider manifests or coverage records, run `bun check`. Consisten
 
 ## Local Agentation feedback
 
-For local visual comments on the coverage page (issue #480), Home mounts a development-only [Agentation](https://agentation.com) toolbar; it never renders in production builds.
+For local visual comments (issue #480), Home mounts a development-only [Agentation](https://agentation.com) toolbar on every page in `next dev`, including `/coverage`; it never renders in production builds or Chromium smoke runs.
 
-1. Start the app: `bun run dev`, then open the `/coverage` page (default `http://localhost:3000/coverage`, or your worktree's assigned port).
-2. Start the local annotation server: `npx -y agentation-mcp@1.2.0 server --port 4747`.
+1. Start the app: `bun run dev`, then open the page to annotate (for example, default `http://localhost:3000/coverage`, or your worktree's assigned port).
+2. If Pi is running with the user-global Agentation MCP configuration, it already serves the annotation API on port 4747. Only when working without Pi, start the fallback server manually: `npx -y agentation-mcp@1.2.0 server --port 4747`.
 3. Annotate elements or text with the toolbar, then copy or send the structured output to your agent.
-4. Stop the annotation server when the feedback session ends.
+4. Stop a manually started fallback server when the feedback session ends. Pi-owned port 4747 remains open while the Pi MCP process runs; exit Pi or remove the MCP configuration and reload Pi to close it.
 
-Pi picks up the Agentation MCP tools from the user-global MCP configuration (`~/.config/mcp/mcp.json`, configured outside this repository); reload Pi if the tools do not appear after starting the server.
+Pi picks up the Agentation MCP tools from the user-global MCP configuration (`~/.config/mcp/mcp.json`, configured outside this repository); reload Pi if the tools do not appear after configuring it.
 
-Security caveat: `agentation-mcp@1.2.0` serves its HTTP annotation API on port 4747 with permissive CORS and no local authentication. Use it only during local feedback sessions on a trusted network, and stop it afterward.
+Security caveat: `agentation-mcp@1.2.0` serves its HTTP annotation API on port 4747 with permissive CORS and no local authentication. Use it only during local feedback sessions on a trusted network. A manual fallback closes when stopped; Pi's port remains open until its MCP process exits or the configuration is removed and reloaded.

@@ -1,10 +1,15 @@
 import coordinates from "./globe-country-coordinates.json";
 import { presentationRegions, regionIds } from "@/config/regions";
 
+export type GlobeMarkerTone = "positive" | "caution" | "negative" | "neutral";
+
 export type GlobeCountry = {
   countryCode: string;
   countryName: string;
   currency: { code: string | null; name: string };
+  /** Optional presentation data for inventory-style globe variants. */
+  detail?: string;
+  markerTone?: GlobeMarkerTone;
 };
 
 export type GlobePoint = GlobeCountry & {

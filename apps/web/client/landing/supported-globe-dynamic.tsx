@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
+import type { SupportedGlobeProps } from "./supported-globe";
 import styles from "./supported-globe.module.css";
 
 const DynamicSupportedGlobe = dynamic(
@@ -9,13 +10,19 @@ const DynamicSupportedGlobe = dynamic(
   { ssr: false, loading: () => <SupportedGlobeFallback /> },
 );
 
-function SupportedGlobeFallback({ observeRef }: { observeRef?: (node: HTMLElement | null) => void }) {
+function SupportedGlobeFallback({
+  observeRef,
+  ariaLabel = "World with illustrative money connections",
+}: {
+  observeRef?: (node: HTMLElement | null) => void;
+  ariaLabel?: string;
+}) {
   return (
     <figure ref={observeRef} className={styles.globe} data-renderer="static">
       <div
         className={styles.stage}
         role="img"
-        aria-label="World with illustrative money connections"
+        aria-label={ariaLabel}
       >
         <div className={styles.staticGlobe} aria-hidden="true" />
       </div>
@@ -23,7 +30,7 @@ function SupportedGlobeFallback({ observeRef }: { observeRef?: (node: HTMLElemen
   );
 }
 
-export function SupportedGlobeDynamic() {
+export function SupportedGlobeDynamic(props: SupportedGlobeProps = {}) {
   const targetRef = useRef<HTMLElement | null>(null);
   const [visible, setVisible] = useState(false);
 
@@ -40,6 +47,6 @@ export function SupportedGlobeDynamic() {
   }, []);
 
   return visible
-    ? <DynamicSupportedGlobe />
-    : <SupportedGlobeFallback observeRef={(node) => { targetRef.current = node; }} />;
+    ? <DynamicSupportedGlobe {...props} />
+    : <SupportedGlobeFallback ariaLabel={props.ariaLabel} observeRef={(node) => { targetRef.current = node; }} />;
 }

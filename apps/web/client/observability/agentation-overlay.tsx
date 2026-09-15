@@ -11,8 +11,8 @@ const Agentation = dynamic(
   { ssr: false },
 );
 
-export function AgentationOverlay() {
-  if (!shouldRenderAgentation(process.env.NODE_ENV)) {
+export function AgentationOverlay({ disabled = false }: { disabled?: boolean }) {
+  if (disabled || !shouldRenderAgentation(process.env.NODE_ENV)) {
     return null;
   }
   return <Agentation endpoint={AGENTATION_ENDPOINT} />;

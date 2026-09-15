@@ -8,11 +8,12 @@ async function renderCoverage(searchParams: Record<string, string> = {}) {
 }
 
 describe("public coverage page", () => {
-  test("server renders the complete accessible inventory and disclosures", async () => {
+  test("server renders the globe-led accessible inventory without removed sections", async () => {
     const html = await renderCoverage();
     expect(metadata.title).toBe("Local money coverage | Home");
-    expect(html).toContain("<h1");
+    expect(html).toContain("Interactive globe of local-money coverage research");
     expect(html).toContain("Local money coverage");
+    expect(html.indexOf("Interactive globe")).toBeLessThan(html.indexOf("<h1"));
     expect(html).toContain("<table");
     expect(html).toContain("<caption");
     expect(html).toContain("Showing 250 of 250 countries and territories");
@@ -20,30 +21,43 @@ describe("public coverage page", () => {
     expect(html).toContain("Kosovo");
     expect(html).toContain("No current tender currency");
     expect(html).toContain("United States");
-    expect(html).toContain("Production-proven live");
-    expect(html).toContain("Home routes live</dt><dd><span class=\"block text-3xl font-semibold\">0");
-    expect(html).toContain("Natural Earth v5.1.2");
-    expect(html).toContain("World Bank");
-    expect(html).not.toContain("role=\"img\"");
-    expect(html).toContain("Skip map and go to country table");
-    expect(html).toContain("href=\"#coverage-table\"");
-    expect(html).toContain("tabindex=\"-1\"");
-    expect(html).toContain("<title id=\"coverage-map-title\"");
-    expect(html).toContain("<title>United States: Conditional route</title>");
-    expect(html).toContain("239 linked label points. 11 small territories");
-    expect(html).toContain("39 configured in Home");
-    expect(html).toContain("No Home route");
-    expect(html).toContain("Country, code, currency code, or asset");
-    expect(html).toContain("Issue #15 also records currency-level euro-area research");
-    expect(html).toContain("$11,203,038,332");
-    expect(html).not.toContain("$11,203,038,332.34");
+    expect(html).not.toContain("Documented issuer routes");
+    expect(html).not.toContain("Home routes live");
+    expect(html).not.toContain("How to read status");
+    expect(html).not.toContain("The 250-entry universe");
+    expect(html).not.toContain("coverage-map-title");
+    expect(html).not.toContain("World Bank");
+    expect(html).not.toContain("<footer");
   });
 
-  test("applies server-side search, status filters, and alphabetical sorting", async () => {
+  test("uses five requested columns, decorative flags, and accessible text plus tone statuses", async () => {
+    const html = await renderCoverage({ q: "United States" });
+    expect(html).toContain("<th scope=\"col\" class=\"p-3\">Country</th>");
+    expect(html).toContain(">Currency</th>");
+    expect(html).toContain(">Candidate asset</th>");
+    expect(html).toContain(">Issuer route</th>");
+    expect(html).toContain(">Home route</th>");
+    expect(html).not.toContain(">GDP (2024)</th>");
+    expect(html).toContain("aria-hidden=\"true\">🇺🇸</span>");
+    expect(html).toContain("data-tone=\"caution\">Conditional</span>");
+    expect(html).toContain("data-tone=\"caution\">Sandbox</span>");
+    expect(html).toContain("Evidence checked");
+    expect(html).toContain("Quote observation:");
+  });
+
+  test("keeps GDP as default ordering without displaying the GDP column", async () => {
+    const html = await renderCoverage();
+    expect(html.indexOf("United States <span")).toBeLessThan(html.indexOf("China <span"));
+    expect(html).toContain("<option value=\"gdp\" selected=\"\">GDP, highest first</option>");
+    expect(html).not.toContain("$11,203,038,332");
+  });
+
+  test("applies GET search, status filters, and alphabetical sorting", async () => {
     const html = await renderCoverage({ q: "rupiah", issuer: "documented", home: "in-build", sort: "alphabetical" });
+    expect(html).toContain("method=\"get\"");
     expect(html).toContain("Showing 1 of 250 countries and territories");
     expect(html).toContain("Indonesia");
-    expect(html).not.toContain("<summary class=\"font-semibold\">United States");
-    expect(html).toContain("<option value=\"alphabetical\" selected=\"\"");
+    expect(html).not.toContain("United States <span");
+    expect(html).toContain("<option value=\"alphabetical\" selected=\"\">Alphabetical</option>");
   });
 });
