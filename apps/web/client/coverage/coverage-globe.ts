@@ -47,4 +47,8 @@ export const coverageGlobeCountries: readonly GlobeCountry[] = coverageRegistry.
   };
 });
 
+export const coverageGlobePriorityCountryCodes = coverageRegistry
+  .filter((record) => record.portfolio.status === "priority")
+  .map((record) => record.countryCode);
+
 export const coverageGlobePointCount = locateCountries(coverageGlobeCountries).length;

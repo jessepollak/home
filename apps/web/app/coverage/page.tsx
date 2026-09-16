@@ -3,6 +3,7 @@ import {
   coverageGlobeCountries,
   coverageGlobeDescription,
   coverageGlobePointCount,
+  coverageGlobePriorityCountryCodes,
   coverageIntegratedLabels,
   coverageOnrampLabels,
 } from "@/client/coverage/coverage-globe";
@@ -119,6 +120,7 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
             ariaLabel="Interactive globe of local-money coverage research"
             description={`${coverageGlobePointCount} sourced inventory points. ${coverageGlobeDescription}`}
             interactiveMarkerTones={["positive", "caution", "negative"]}
+            interactiveCountryCodes={coverageGlobePriorityCountryCodes}
           />
         </div>
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">Local money coverage</h1>

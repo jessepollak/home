@@ -40,7 +40,7 @@ describe("public coverage page", () => {
 
   test("globe detail and description use the stablecoin, 1:1 onramp, and integrated signal labels", async () => {
     const { SupportedGlobe } = await import("@/client/landing/supported-globe");
-    const { coverageGlobeCountries, coverageGlobeDescription, coverageGlobePointCount } = await import("@/client/coverage/coverage-globe");
+    const { coverageGlobeCountries, coverageGlobeDescription, coverageGlobePointCount, coverageGlobePriorityCountryCodes } = await import("@/client/coverage/coverage-globe");
     const { coverageRegistry } = await import("@/config/coverage");
     const html = renderToStaticMarkup(
       <SupportedGlobe
@@ -49,6 +49,7 @@ describe("public coverage page", () => {
         ariaLabel="Interactive globe of local-money coverage research"
         description={`${coverageGlobePointCount} sourced inventory points. ${coverageGlobeDescription}`}
         interactiveMarkerTones={["positive", "caution", "negative"]}
+        interactiveCountryCodes={coverageGlobePriorityCountryCodes}
       />,
     );
 
@@ -60,7 +61,9 @@ describe("public coverage page", () => {
     expect(coverageGlobeCountries.find((country) => country.countryCode === "BR")?.markerTone).toBe("positive");
     expect(coverageGlobeCountries.find((country) => country.countryCode === "CL")?.markerTone).toBe("caution");
     expect(coverageGlobeCountries.find((country) => country.countryCode === "CN")?.markerTone).toBe("negative");
-    expect((html.match(/<button/g) ?? []).length).toBe(coverageRegistry.filter((record) => record.issuerRoute.status !== "not-researched").length);
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "MT")?.markerTone).toBe("neutral");
+    expect(html).toContain('aria-label="Malta, EUR.');
+    expect((html.match(/<button/g) ?? []).length).toBe(new Set(coverageRegistry.filter((record) => record.issuerRoute.status !== "not-researched" || record.portfolio.status === "priority").map((record) => record.countryCode)).size);
   });
 
   test("keeps eight split columns and renders icon-only accessible status triggers", async () => {

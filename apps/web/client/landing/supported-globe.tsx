@@ -41,6 +41,8 @@ export type SupportedGlobeProps = {
   description?: string;
   /** When set, keeps every marker visible but limits focus and pointer targets to these tones. */
   interactiveMarkerTones?: readonly GlobeMarkerTone[];
+  /** Adds specific ISO alpha-2 markers to the interaction targets without changing their tone. */
+  interactiveCountryCodes?: readonly string[];
 };
 
 type RouteNodes = {
@@ -71,6 +73,7 @@ export function SupportedGlobe({
   ariaLabel = "Interactive world with illustrative money connections",
   description,
   interactiveMarkerTones,
+  interactiveCountryCodes,
 }: SupportedGlobeProps) {
   const descriptionId = useId();
   const motionId = useId();
@@ -85,9 +88,12 @@ export function SupportedGlobe({
   const longitudeRef = useRef(INITIAL_LONGITUDE);
   const latitudeRef = useRef(INITIAL_VIEW_LATITUDE);
   const points = useMemo(() => locateCountries(countries), [countries]);
-  const interactivePoints = useMemo(() => interactiveMarkerTones
-    ? points.filter((point) => point.markerTone && interactiveMarkerTones.includes(point.markerTone))
-    : points, [interactiveMarkerTones, points]);
+  const interactivePoints = useMemo(() => {
+    const countryCodes = new Set(interactiveCountryCodes?.map((code) => code.trim().toUpperCase()));
+    return interactiveMarkerTones || countryCodes.size > 0
+      ? points.filter((point) => (point.markerTone && interactiveMarkerTones?.includes(point.markerTone)) || countryCodes.has(point.countryCode))
+      : points;
+  }, [interactiveCountryCodes, interactiveMarkerTones, points]);
   const routes = useMemo(() => showRoutes ? configureGlobeRoutes(points) : [], [points, showRoutes]);
   const initialPopover = useMemo(
     () => selectGlobePopoverCountry(interactivePoints, INITIAL_LONGITUDE),
