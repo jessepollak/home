@@ -193,18 +193,23 @@ describe("combined Activity panel", () => {
     expect(view.getByText("recorded-action")).toBeTruthy();
   });
 
-  test("teaser shows sparse recorded actions while the transfer cursor is unresolved", () => {
-    const view = render(
-      <ActivityPanelView
-        activity={ready([], "cursor-1")}
-        operations={[operation("twin-action", 6, `0x${"d".repeat(64)}` as const), operation("recorded-action", 4)]}
-        density="teaser"
-      />,
+  test("shows the same sparse fallbacks in page and teaser modes", () => {
+    const operations = [
+      operation("hashed-fallback", 6, `0x${"d".repeat(64)}` as const),
+      operation("hashless-fallback", 4),
+    ];
+    const page = render(
+      <ActivityPanelView activity={ready([], "cursor-1")} operations={operations} />,
+    );
+    const teaser = render(
+      <ActivityPanelView activity={ready([], "cursor-1")} operations={operations} density="teaser" />,
     );
 
-    expect(view.getByText("recorded-action")).toBeTruthy();
-    expect(view.getByText("twin-action")).toBeTruthy();
-    expect(view.queryByText("No activity yet")).toBeNull();
+    for (const view of [page, teaser]) {
+      expect(within(view.container).getByText("hashed-fallback")).toBeTruthy();
+      expect(within(view.container).getByText("hashless-fallback")).toBeTruthy();
+      expect(within(view.container).queryByText("No activity yet")).toBeNull();
+    }
   });
 
   test("teaser still dedupes actions whose transfer is loaded", () => {
@@ -221,34 +226,28 @@ describe("combined Activity panel", () => {
     expect(view.queryByText("twin")).toBeNull();
   });
 
-  test("withholds unloaded hashed actions in page mode until the cursor exhausts, but shows them in teaser", () => {
-    // The action is confirmed 30s after the oldest loaded block timestamp, so
-    // the old timestamp frontier would have exposed it; its transfer is on a
-    // later page and must not be shadowed by a timestamp comparison.
-    const operations = [
-      operation("unloaded", 1, `0x${"d".repeat(64)}` as const),
-      operation("hashless", 1),
-    ];
-    const page = render(
+  test("keeps an unmatched hashed action while pages remain, then replaces it with a loaded match", () => {
+    const matchingHash = `0x${"d".repeat(64)}` as const;
+    const operations = [operation("hashed-fallback", 2, matchingHash), operation("hashless-fallback", 1)];
+    const view = render(
       <ActivityPanelView activity={ready([transfer("onchain", 1)], "cursor-1")} operations={operations} />,
     );
-    expect(within(page.container).queryByText("unloaded")).toBeNull();
-    expect(within(page.container).getByText("hashless")).toBeTruthy();
 
-    const exhausted = render(
-      <ActivityPanelView activity={ready([transfer("onchain", 1)])} operations={operations} />,
-    );
-    expect(within(exhausted.container).getByText("unloaded")).toBeTruthy();
-    expect(within(exhausted.container).getByText("hashless")).toBeTruthy();
+    expect(view.getByText("hashed-fallback")).toBeTruthy();
+    expect(view.getByText("hashless-fallback")).toBeTruthy();
 
-    const teaser = render(
+    view.rerender(
       <ActivityPanelView
-        activity={ready([transfer("onchain", 1)], "cursor-1")}
+        activity={ready([
+          transfer("onchain", 1),
+          { ...transfer("loaded-match", 0), transactionHash: matchingHash },
+        ], "cursor-2")}
         operations={operations}
-        density="teaser"
       />,
     );
-    expect(within(teaser.container).getByText("unloaded")).toBeTruthy();
-    expect(within(teaser.container).getByText("hashless")).toBeTruthy();
+
+    expect(view.queryByText("hashed-fallback")).toBeNull();
+    expect(view.getByText("hashless-fallback")).toBeTruthy();
+    expect(within(view.getByRole("list")).getAllByText("Received")).toHaveLength(2);
   });
 });

@@ -82,8 +82,7 @@ export function ActivityPanelView({
   const labelledBy = header === null ? undefined : "activity-title";
   const labelled = header === null ? "Activity" : undefined;
   const transfers = activity.status === "ready" ? activity.page.transfers : [];
-  const nextCursor = activity.status === "ready" ? activity.page.nextCursor : null;
-  const items = mergeActivityFeed({ transfers, nextCursor, operations, teaser: density === "teaser" });
+  const items = mergeActivityFeed({ transfers, operations });
   const visibleItems = density === "teaser" ? items.slice(0, ACTIVITY_TEASER_LIMIT) : items;
   const hasRows = visibleItems.length > 0;
   // Initial load waits for both Activity sources to settle so the panel never
