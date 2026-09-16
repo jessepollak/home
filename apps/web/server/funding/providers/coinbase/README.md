@@ -77,6 +77,8 @@ The mode applies only to Coinbase onramp; other providers and directions keep th
 
 ## How to test
 
+For the guarded, headed non-funded Embedded Orders proof, see the [Coinbase Onramp agent-browser sandbox harness](../../../../../../docs/coinbase-onramp-agent-browser.md). It remains opt-in, local-only, and separate from automated tests.
+
 Automated tests use only fixtures marked `source: "synthetic"`:
 
 ```sh

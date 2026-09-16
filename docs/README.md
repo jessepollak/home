@@ -16,6 +16,7 @@ Start with [Architecture](architecture.md), the one normative design document; [
 | [CDP setup](cdp-setup.md) | CDP project, sessions, and allowed origins. |
 | [CDP SQL](cdp-sql.md) | Indexed Base-history adapter notes. |
 | [Codex prices](codex-prices.md) | Server-side Invest price integration. |
+| [Coinbase Onramp agent-browser harness](coinbase-onramp-agent-browser.md) | Local, non-funded Embedded Orders sandbox verification runbook. |
 | [Currency defaults](currency-defaults.md) | Default asset choices by currency. |
 | [Delivery gates](delivery-gates.md) | Repository and deployment gate boundary. |
 | [UI system](design-system.md) | Owned shadcn components, Home theme tokens, lint rules, and testing stance. |
