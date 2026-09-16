@@ -152,7 +152,9 @@ These questions refine delivery; they do not reopen the agreed MVP breadth.
 
 | Question | Next useful output |
 | --- | --- |
-| Which card and identity providers? | Confirm candidates and access, then recommend one of each against the supported audience/regions. Verify the card provider transcribed as “Raid”; StraitsX was also discussed. |
+| Which card provider? | Evaluate Rain (name confirmed by Jesse) and StraitsX, including regional eligibility and partner access; recommend one for MVP. Neither is selected yet. |
+| Which identity provider? | Jesse has no strong preference. Evaluate providers against supported regions/documents, mobile completion and recovery, downstream card/ramp acceptance, privacy/data handling, operator setup, and integration effort; recommend one for MVP. |
+| What needs Peer input? | Jesse is already in contact and can bring Peer in as needed. Consolidate specific unresolved integration and corridor questions before requesting an introduction. |
 | How does dashboard configuration work? | Propose a focused evolution of current typed configuration and deployment secrets, including validation, administrator authority, and upgrade behavior. |
 | What are the exact coverage inventories? | Specify language mappings, existing yield products, stock and meme/major catalog sources, cb-asset identities, market sources, and refresh rules. |
 | Who handles service/support responsibilities? | Name operator/provider/Home responsibilities for failed funding, card issues, account recovery, and updates. Commercial model and pricing remain open. |
