@@ -691,6 +691,30 @@ test("recent operations open transaction details", async ({ page }) => {
   await expect(dialog.getByRole("link", { name: "View on explorer" })).toBeVisible();
 });
 
+test("action toasts clear mobile navigation without blocking it", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
+  await installApiFixtures(page);
+  await signIn(page);
+
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("home:action-failed", {
+    detail: { kind: "send", reason: "Wallet unavailable" },
+  })));
+  const toast = page.locator('[data-slot="toast"]').filter({ hasText: "Send failed: Wallet unavailable" });
+  const navigation = page.getByRole("navigation", { name: "Main navigation" });
+  await expect(toast).toBeVisible();
+  await expect.poll(async () => {
+    const [toastBox, navigationBox] = await Promise.all([toast.boundingBox(), navigation.boundingBox()]);
+    return toastBox && navigationBox
+      ? { clearsNavigation: toastBox.y + toastBox.height <= navigationBox.y + 1, insideViewport: toastBox.y >= 0 && toastBox.y + toastBox.height <= 844 }
+      : null;
+  }).toEqual({ clearsNavigation: true, insideViewport: true });
+
+  await navigation.getByRole("button", { name: "Invest" }).click();
+  await expect(page).toHaveURL(/\/invest$/);
+  await expect(toast).toBeVisible();
+});
+
 test("shows the integrated Peer destination at 390px", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => localStorage.setItem("home.country.v1", "US"));
