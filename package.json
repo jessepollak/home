@@ -19,6 +19,7 @@
     "check": "bun run gates && bun run test && bun run lint && bun run typecheck && bun run build",
     "gates": "node --test scripts/delivery/tests/*.test.mjs",
     "factory:preflight": "node scripts/delivery/factory-preflight.mjs",
+    "factory:run": "node scripts/delivery/factory-run.mjs",
     "db:migrate": "bun run --cwd apps/web db:migrate",
     "db:up": "docker compose up -d --wait postgres",
     "db:down": "docker compose down"

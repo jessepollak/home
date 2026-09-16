@@ -37,9 +37,9 @@ One `status:*` at a time. Swap; do not stack. `status:in-progress` is deprecated
 
 #### Status label hygiene
 
-- `status:ready-for-review`: the [delivery loop](#delivery-loop) is complete except independent review. Never use it on drafts.
-- `status:needs-jesse`: the loop is complete and the PR is undrafted, or Jesse must make a decision or privileged change (state which on the PR).
-- Remove both on `REQUEST_CHANGES`, a HOLD, a return to draft, a close without merge, or a return to `todo`/`working`.
+- `status:ready-for-review`: the [delivery loop](#delivery-loop) is complete except independent review.
+- `status:needs-jesse`: the loop is complete, or Jesse must make a decision or privileged change (state which on the PR).
+- Remove both on `REQUEST_CHANGES`, a HOLD, a close without merge, or a return to `todo`/`working`.
 
 ### `lane:*`
 
@@ -70,7 +70,7 @@ Keep one priority. Jesse's product intent and the [#205 priorities contract](htt
 Issues and PR labels (one `status:*`, one `lane:*`, and one `priority:*`) are the board.
 
 - Blockers, HOLDs, smoke failures, and decisions land on the issue or PR with the matching status change.
-- Every PR that maps to an issue, including drafts, receives the same lane and priority plus `status:working` when it is opened. Drafts stay `status:working`.
+- Every PR that maps to an issue receives the same lane and priority plus `status:working` when it is opened.
 - On close or merge, scrub all `status:*` labels through `issues/{number}/labels`. Leave lane and priority intact.
 - Jesse alone approves and merges every PR.
 
@@ -80,10 +80,16 @@ Issues and PR labels (one `status:*`, one `lane:*`, and one `priority:*`) are th
 
 **Pull requests are mandatory.** All factory changes use an issue, branch, pull request, checks, independent review, and Jesse-only merge. There is no direct-to-`main` exception.
 
-**Factory execution contract.** The factory is pull-based and may start only from an issue Jesse has explicitly marked `factory:ready`. Each run gets one secret-free worktree, an `agent/*` branch, one issue, and one draft PR to `main`. Run `bun run factory:preflight` before work. The only permitted worker credential is the repo-scoped GitHub credential required to push the branch and open the PR; the protected `main` ruleset has no automation bypass. No production, provider, database, funded, destructive, deployment, privileged-setting, or merge authority is granted. Incremental Vercel spend is capped at **$100/month above baseline**; the factory adds no Vercel service or credential.
+**Factory execution contract.** The factory is pull-based and may start only from an issue Jesse has explicitly marked `factory:ready`. Each run gets one secret-free worktree, an `agent/*` branch, one issue, and one normal open PR to `main`. Run `bun run factory:preflight` before work. GitHub credentials stay with the deterministic supervisor, which alone claims the issue, pushes, opens the PR, and publishes status; child model processes receive no GitHub credential in their environment. The protected `main` ruleset has no automation bypass. No production, provider, database, funded, destructive, deployment, privileged-setting, or merge authority is granted. Incremental Vercel spend is capped at **$100/month above baseline**; the factory adds no Vercel service or credential.
+
+### Manual single-issue runner
+
+From an authenticated clone, run `bun run factory:run <issue>`. This is a manual one-issue command, not a queue, scheduler, or daemon. It fails closed unless the issue is open with `factory:ready` and `status:todo` and no open PR references it. An atomic host lock allows one active run; touch `$(git rev-parse --git-common-dir)/factory-stop` to stop at the next stage boundary, then remove that file before a later run. `bun run factory:run <issue> --dry-run` exercises separate bounded worker and reviewer child processes without a model call or GitHub mutation.
+
+The supervisor creates `agent/<issue>-factory-run`, runs preflight before model work, opens one normal PR, and launches fresh no-session worker and read-only reviewer processes with hard timeouts. A timeout, malformed verdict, or incomplete verdict fails review. Two fix/review loops are the mechanical maximum. It never writes `main`, changes draft state, approves, merges, or auto-merges. Concise evidence is retained under the common Git directory's `factory-runs/`; it is run evidence, not a board. The command exits after its bounded run and does not watch for Jesse review comments; those require a later explicitly invoked fix/resume workflow.
 
 1. **One issue, one writer, one secret-free worktree, one PR.** Keep scope small and within one lane. A blocked change names its dependency on the issue and stops rather than widening scope.
-2. **The loop:** implement → focused checks → `bun check` → one fresh independent read-only review → fix blocking findings → push → CI green → attach preview proof when required → undraft and set `status:needs-jesse`.
+2. **The loop:** implement → focused checks → `bun check` → push and open the normal PR → one fresh independent read-only review → fix blocking findings → CI green → attach preview proof when required → set `status:needs-jesse`.
 3. **Operator actions:** if a PR needs an environment variable, migration command, provider-dashboard change, Vercel setting, or other privileged step after merge, put exact non-secret instructions under **Operator action required** in the PR body. Never include secret values, credentials, tokens, private keys, or customer data. Name the step in the ready handoff; the PR remains `status:needs-jesse` until Jesse completes it, and the affected path is verified after Jesse confirms.
 4. **Blocking findings** are correctness, security, privacy, data loss, and the money-loop gates below. Everything else becomes a follow-up issue, not another review round. The factory gets at most two fix loops. If a blocking finding remains after the second loop, stop for Jesse's decision; never start a silent third loop.
 5. **Independent review is required.** It is fresh, read-only, scoped to the current diff, and time-boxed. An unfinished review is not a pass, and the writer cannot review its own change.
@@ -91,7 +97,7 @@ Issues and PR labels (one `status:*`, one `lane:*`, and one `priority:*`) are th
 7. **Preview is user-visible proof.** Include the Vercel preview link plus one screenshot or one short video in the PR description. Docs-only, CI-only, and pure server PRs state why preview proof is not applicable.
 8. **Git:** use ordinary pushes to the owned branch and append fixes. Never rewrite published history or force-update `main`; a rewrite needs Jesse's explicit exception.
 9. **PR + CI is the status.** Do not post progress comments, checkpoints, or receipts. Comment only for a blocker, a Jesse decision, or a required handoff.
-10. **Authority:** the factory may undraft and set `status:needs-jesse` only after the loop is complete. Jesse alone gives final approval and merges.
+10. **Authority:** the factory opens a normal PR and may set `status:needs-jesse` only after the loop is complete. It never toggles draft state. Jesse alone gives final approval and merges.
 
 ### Jesse review pickup
 
@@ -180,7 +186,7 @@ Docs-only, CI-only, and pure server PRs skip screenshots. They still need a clea
 
 The factory's fresh independent read-only review is the engineering gate before Jesse review.
 
-**Only Jesse (`jessepollak`) gives final approval (+1) and merges.** The factory may undraft and mark `status:needs-jesse` when the delivery loop is complete; that grants no approval, merge, deployment, funded, destructive, privileged-setting, or database-cleanup authority.
+**Only Jesse (`jessepollak`) gives final approval (+1) and merges.** The factory may mark its normal open PR `status:needs-jesse` when the delivery loop is complete; that grants no approval, merge, deployment, funded, destructive, privileged-setting, or database-cleanup authority.
 
 Do not merge your own work or treat the independent review as merge permission.
 
