@@ -13,7 +13,6 @@ export {
   createCdpAddressHistoryTransport,
   decodeCdpAddressHistoryCursor,
   encodeCdpAddressHistoryCursor,
-  mapCdpAddressHistoryStatus,
   type CdpAddressHistoryCursor,
   type CdpAddressHistoryKey,
   type CdpAddressHistoryTransport,

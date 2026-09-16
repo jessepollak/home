@@ -6,6 +6,7 @@ import {
   decodeCdpAddressHistoryCursor,
   encodeCdpAddressHistoryCursor,
   type CdpAddressHistoryCursor,
+  type CdpAddressHistoryFetch,
   type CdpAddressHistoryRequest,
   type CdpAddressHistoryTransport,
 } from "./cdp-address-history";
@@ -19,6 +20,9 @@ const KNOWN_TOKEN = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
 const FROM = "2026-08-07T12:00:00.000Z";
 const TO = "2026-09-07T12:00:00.000Z";
 const UINT256_OVERFLOW = (BigInt(1) << BigInt(256)).toString();
+const FAKE_API_KEY_ID = "test-key-id";
+const FAKE_API_KEY_SECRET = "test-key-secret";
+const FAKE_JWT = "signed.jwt.value";
 
 function hash(character: string): `0x${string}` {
   return `0x${character.repeat(64)}`;
@@ -26,56 +30,48 @@ function hash(character: string): `0x${string}` {
 
 function tokenTransfer(overrides: Record<string, unknown> = {}) {
   return {
-    tokenAddress: TOKEN,
-    fromAddress: OTHER,
-    toAddress: OWNER,
+    contract_address: TOKEN,
+    from_address: OTHER,
+    log_index: 1,
+    to_address: OWNER,
+    token_transfer_type: "erc20",
     value: "1",
-    transactionIndex: "1",
-    transactionHash: hash("a"),
-    logIndex: "1",
-    blockHash: hash("b"),
-    blockNumber: "100",
     ...overrides,
   };
 }
 
 function transaction(options: {
   block?: string;
-  index?: string;
+  index?: unknown;
   transactionHash?: `0x${string}`;
   blockHash?: `0x${string}`;
   timestamp?: string;
   status?: string;
+  networkId?: string;
   transfers?: unknown[];
 } = {}) {
   const transactionHash = options.transactionHash ?? hash("a");
   const blockHash = options.blockHash ?? hash("b");
-  const block = options.block ?? "100";
   return {
-    name: `networks/base-mainnet/indexers/default/transactions/${transactionHash}`,
-    hash: transactionHash,
-    blockHash,
-    blockHeight: block,
-    status: options.status ?? "CONFIRMED",
-    ethereum: {
-      index: options.index ?? "1",
-      blockTimestamp: options.timestamp ?? "2026-09-07T11:00:00Z",
-      tokenTransfers: options.transfers ?? [
-        tokenTransfer({
-          transactionIndex: options.index ?? "1",
-          transactionHash,
-          blockHash,
-          blockNumber: block,
-        }),
-      ],
+    block_hash: blockHash,
+    block_height: options.block ?? "100",
+    status: options.status ?? "complete",
+    transaction_hash: transactionHash,
+    network_id: options.networkId ?? "base-mainnet",
+    content: {
+      block_timestamp: options.timestamp ?? "2026-09-07T11:00:00Z",
+      hash: transactionHash,
+      index: options.index ?? 1,
+      token_transfers: options.transfers ?? [tokenTransfer()],
     },
   };
 }
 
-function page(addressTransactions: unknown[], nextPageToken?: string) {
+function page(data: unknown[], nextPage?: string) {
   return {
-    addressTransactions,
-    ...(nextPageToken === undefined ? {} : { nextPageToken }),
+    data,
+    has_more: nextPage !== undefined,
+    next_page: nextPage ?? "",
   };
 }
 
@@ -115,14 +111,32 @@ function history(transport: CdpAddressHistoryTransport) {
   });
 }
 
-async function expectCode(promise: Promise<unknown>, code: ChainDataErrorCode) {
+function restTransport(overrides: {
+  fetch?: CdpAddressHistoryFetch;
+  generateJwt?: (options: Parameters<NonNullable<Parameters<typeof createCdpAddressHistoryTransport>[0]["generateJwt"]>>[0]) => Promise<string>;
+  timeoutMs?: number;
+} = {}) {
+  return createCdpAddressHistoryTransport({
+    apiKeyId: FAKE_API_KEY_ID,
+    apiKeySecret: FAKE_API_KEY_SECRET,
+    generateJwt: overrides.generateJwt ?? (async () => FAKE_JWT),
+    fetch: overrides.fetch,
+    timeoutMs: overrides.timeoutMs,
+  });
+}
+
+async function capturedError(promise: Promise<unknown>): Promise<ChainDataError> {
   try {
     await promise;
     throw new Error("Expected request to fail");
   } catch (error) {
     expect(error).toBeInstanceOf(ChainDataError);
-    expect(error).toMatchObject({ code });
+    return error as ChainDataError;
   }
+}
+
+async function expectCode(promise: Promise<unknown>, code: ChainDataErrorCode) {
+  expect(await capturedError(promise)).toMatchObject({ code });
 }
 
 function transactionsForBlocks(blocks: readonly number[]): unknown[] {
@@ -134,18 +148,228 @@ function transactionsForBlocks(blocks: readonly number[]): unknown[] {
       transactionHash,
       blockHash,
       timestamp: new Date(new Date(TO).getTime() - (200 - block) * 1_000).toISOString(),
-      transfers: [tokenTransfer({
-        transactionHash,
-        blockHash,
-        blockNumber: String(block),
-        logIndex: "1",
-      })],
+      transfers: [tokenTransfer()],
     });
   });
 }
 
-describe("CDP Address History transfers", () => {
-  test("normalizes arbitrary incoming, outgoing, and self ERC-20 rows", async () => {
+describe("CDP Address History REST transport", () => {
+  test("signs the exact fixed GET path and sends bounded REST pagination", async () => {
+    const jwtOptions: unknown[] = [];
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const transport = restTransport({
+      generateJwt: async (options) => {
+        jwtOptions.push(options);
+        return FAKE_JWT;
+      },
+      fetch: (async (request, init) => {
+        calls.push({ url: String(request), init });
+        return Response.json(page([]));
+      }) as typeof fetch,
+    });
+    const mixedCaseOwner = OWNER.toUpperCase().replace("0X", "0x") as typeof OWNER;
+
+    await transport.listAddressTransactions({
+      address: mixedCaseOwner,
+      pageSize: "100",
+    });
+    await transport.listAddressTransactions({
+      address: mixedCaseOwner,
+      pageSize: "100",
+      pageToken: "next/page+=token",
+    });
+
+    const requestPath = `/platform/v1/networks/base-mainnet/addresses/${OWNER}/transactions`;
+    expect(jwtOptions).toEqual([
+      {
+        apiKeyId: FAKE_API_KEY_ID,
+        apiKeySecret: FAKE_API_KEY_SECRET,
+        requestMethod: "GET",
+        requestHost: "api.cdp.coinbase.com",
+        requestPath,
+        expiresIn: 120,
+      },
+      {
+        apiKeyId: FAKE_API_KEY_ID,
+        apiKeySecret: FAKE_API_KEY_SECRET,
+        requestMethod: "GET",
+        requestHost: "api.cdp.coinbase.com",
+        requestPath,
+        expiresIn: 120,
+      },
+    ]);
+    expect(calls.map(({ url }) => url)).toEqual([
+      `https://api.cdp.coinbase.com${requestPath}?limit=100`,
+      `https://api.cdp.coinbase.com${requestPath}?limit=100&page=next%2Fpage%2B%3Dtoken`,
+    ]);
+    for (const { url, init } of calls) {
+      expect(init?.method).toBe("GET");
+      expect(init?.cache).toBe("no-store");
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      expect(Object.fromEntries(new Headers(init?.headers).entries())).toEqual({
+        accept: "application/json",
+        authorization: `Bearer ${FAKE_JWT}`,
+      });
+      expect(url).not.toContain(FAKE_API_KEY_ID);
+      expect(url).not.toContain(FAKE_API_KEY_SECRET);
+      expect(JSON.stringify(init?.headers)).not.toContain(FAKE_API_KEY_SECRET);
+    }
+  });
+
+  test("maps JWT failures to redacted not-configured errors", async () => {
+    let fetchCalls = 0;
+    for (const generateJwt of [
+      async () => {
+        throw new Error(`private ${FAKE_API_KEY_SECRET}`);
+      },
+      async () => "",
+      async () => "jwt with whitespace",
+    ]) {
+      const transport = restTransport({
+        generateJwt,
+        fetch: async () => {
+          fetchCalls += 1;
+          return Response.json(page([]));
+        },
+      });
+      const error = await capturedError(
+        transport.listAddressTransactions({ address: OWNER, pageSize: "100" }),
+      );
+      expect(error.code).toBe("not-configured");
+      expect(error.message).not.toContain(FAKE_API_KEY_SECRET);
+      expect(error.cause).toBeUndefined();
+    }
+    expect(fetchCalls).toBe(0);
+  });
+
+  test("maps HTTP failures without reading or retaining provider bodies", async () => {
+    const cases = [
+      [400, "invalid-input"],
+      [401, "unauthorized"],
+      [403, "unauthorized"],
+      [402, "payment-required"],
+      [408, "timed-out"],
+      [504, "timed-out"],
+      [429, "rate-limited"],
+      [404, "upstream-error"],
+      [500, "upstream-error"],
+    ] as const;
+    for (const [status, code] of cases) {
+      const transport = restTransport({
+        fetch: async () => new Response(`private body ${FAKE_API_KEY_SECRET}`, { status }),
+      });
+      const error = await capturedError(
+        transport.listAddressTransactions({ address: OWNER, pageSize: "100" }),
+      );
+      expect(error).toMatchObject({ code, status });
+      expect(error.message).not.toContain("private body");
+      expect(error.message).not.toContain(FAKE_API_KEY_SECRET);
+      expect(error.cause).toBeUndefined();
+    }
+  });
+
+  test("maps malformed JSON, fetch failures, aborts, and local timeouts", async () => {
+    const malformed = restTransport({
+      fetch: async () => new Response("not json"),
+    });
+    await expectCode(
+      malformed.listAddressTransactions({ address: OWNER, pageSize: "100" }),
+      "invalid-response",
+    );
+
+    const unavailable = restTransport({
+      fetch: async () => {
+        throw new Error(`private transport failure ${FAKE_API_KEY_SECRET}`);
+      },
+    });
+    const unavailableError = await capturedError(
+      unavailable.listAddressTransactions({ address: OWNER, pageSize: "100" }),
+    );
+    expect(unavailableError).toMatchObject({ code: "upstream-error" });
+    expect(unavailableError.cause).toBeUndefined();
+    expect(unavailableError.message).not.toContain(FAKE_API_KEY_SECRET);
+
+    const timeout = restTransport({
+      timeoutMs: 1,
+      fetch: (_input, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true,
+        });
+      }),
+    });
+    await expectCode(
+      timeout.listAddressTransactions({ address: OWNER, pageSize: "100" }),
+      "timed-out",
+    );
+
+    let abortedFetchCalls = 0;
+    const caller = new AbortController();
+    caller.abort();
+    const aborted = restTransport({
+      fetch: async () => {
+        abortedFetchCalls += 1;
+        return Response.json(page([]));
+      },
+    });
+    await expectCode(
+      aborted.listAddressTransactions({
+        address: OWNER,
+        pageSize: "100",
+        signal: caller.signal,
+      }),
+      "timed-out",
+    );
+    expect(abortedFetchCalls).toBe(0);
+
+    const duringJwtController = new AbortController();
+    const abortedDuringJwt = restTransport({
+      generateJwt: async () => {
+        duringJwtController.abort();
+        return FAKE_JWT;
+      },
+      fetch: async () => {
+        abortedFetchCalls += 1;
+        return Response.json(page([]));
+      },
+    });
+    await expectCode(
+      abortedDuringJwt.listAddressTransactions({
+        address: OWNER,
+        pageSize: "100",
+        signal: duringJwtController.signal,
+      }),
+      "timed-out",
+    );
+    expect(abortedFetchCalls).toBe(0);
+  });
+
+  test("requires project API credentials and bounded transport options", () => {
+    const configuredEnv = {
+      CDP_API_KEY_ID: FAKE_API_KEY_ID,
+      CDP_API_KEY_SECRET: FAKE_API_KEY_SECRET,
+      BASE_RPC_URL: "https://mainnet.base.org",
+    };
+    expect(() => createCdpAddressHistoryFromEnv({})).toThrow(ChainDataError);
+    expect(() => createCdpAddressHistoryFromEnv({
+      CDP_API_KEY_ID: FAKE_API_KEY_ID,
+    })).toThrow(ChainDataError);
+    expect(() => createCdpAddressHistoryFromEnv({
+      CDP_API_KEY_SECRET: FAKE_API_KEY_SECRET,
+    })).toThrow(ChainDataError);
+    expect(() => createCdpAddressHistoryFromEnv(configuredEnv, {
+      generateJwt: async () => FAKE_JWT,
+      fetch: async () => Response.json(page([])),
+    })).not.toThrow();
+    expect(() => createCdpAddressHistoryTransport({
+      apiKeyId: FAKE_API_KEY_ID,
+      apiKeySecret: FAKE_API_KEY_SECRET,
+      timeoutMs: 10_001,
+    })).toThrow(ChainDataError);
+  });
+});
+
+describe("CDP Address History REST transfers", () => {
+  test("maps snake_case parent and ERC-20 rows into exact transfer identities", async () => {
     const transactionHash = hash("a");
     const blockHash = hash("b");
     const { transport, requests } = queuedTransport([
@@ -153,9 +377,9 @@ describe("CDP Address History transfers", () => {
         transactionHash,
         blockHash,
         transfers: [
-          tokenTransfer({ transactionHash, blockHash, logIndex: "1" }),
-          tokenTransfer({ transactionHash, blockHash, logIndex: "3", fromAddress: OWNER, toAddress: OTHER, value: "2" }),
-          tokenTransfer({ transactionHash, blockHash, logIndex: "2", fromAddress: OWNER, toAddress: OWNER, value: "3", tokenAddress: KNOWN_TOKEN }),
+          tokenTransfer({ log_index: 1 }),
+          tokenTransfer({ log_index: 3, from_address: OWNER, to_address: OTHER, value: "2" }),
+          tokenTransfer({ log_index: 2, from_address: OWNER, to_address: OWNER, value: "3", contract_address: KNOWN_TOKEN }),
         ],
       })]),
     ]);
@@ -167,19 +391,28 @@ describe("CDP Address History transfers", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({ address: OWNER, pageSize: "100" });
     expect(Object.hasOwn(requests[0]!, "pageToken")).toBe(false);
-    expect(result.transfers.map(({ direction, amountBaseUnits, assetId, logIndex }) => ({
+    expect(result.transfers.map(({
       direction,
       amountBaseUnits,
       assetId,
       logIndex,
+      transactionHash: mappedTransactionHash,
+      blockHash: mappedBlockHash,
+      blockNumber,
+    }) => ({
+      direction,
+      amountBaseUnits,
+      assetId,
+      logIndex,
+      transactionHash: mappedTransactionHash,
+      blockHash: mappedBlockHash,
+      blockNumber,
     }))).toEqual([
-      { direction: "outgoing", amountBaseUnits: "2", assetId: null, logIndex: "3" },
-      { direction: "self", amountBaseUnits: "3", assetId: "usdc", logIndex: "2" },
-      { direction: "incoming", amountBaseUnits: "1", assetId: null, logIndex: "1" },
+      { direction: "outgoing", amountBaseUnits: "2", assetId: null, logIndex: "3", transactionHash, blockHash, blockNumber: "100" },
+      { direction: "self", amountBaseUnits: "3", assetId: "usdc", logIndex: "2", transactionHash, blockHash, blockNumber: "100" },
+      { direction: "incoming", amountBaseUnits: "1", assetId: null, logIndex: "1", transactionHash, blockHash, blockNumber: "100" },
     ]);
-    expect(result.transfers[0]?.id).toBe(
-      `8453:${TOKEN}:${transactionHash}:3`,
-    );
+    expect(result.transfers[0]?.id).toBe(`8453:${TOKEN}:${transactionHash}:3`);
     expect(result.source).toEqual({
       provider: "cdp-address-history",
       cached: false,
@@ -190,27 +423,20 @@ describe("CDP Address History transfers", () => {
     });
   });
 
-  test("skips explicit NFTs, other typed NFTs, non-owner legs, and non-confirmed transactions", async () => {
-    const nftRows = [
-      tokenTransfer({ erc721: { tokenId: "1" }, value: "" }),
-      tokenTransfer({ erc1155: { tokenId: "2" }, value: "" }),
-      tokenTransfer({ erc3525: { tokenId: "3" }, value: "" }),
-      tokenTransfer({ type: "nft", value: "" }),
-      tokenTransfer({ futureTokenSubtype: { tokenId: "4" }, value: "" }),
+  test("accepts only exact erc20 and omits NFT, unknown, missing, and non-owner rows", async () => {
+    const rows = [
+      tokenTransfer({ token_transfer_type: "erc721", value: "not-validated" }),
+      tokenTransfer({ token_transfer_type: "erc1155", value: "not-validated" }),
+      tokenTransfer({ token_transfer_type: "unknown", value: "not-validated" }),
+      tokenTransfer({ token_transfer_type: "ERC20", value: "not-validated" }),
+      tokenTransfer({ token_transfer_type: undefined, value: "not-validated" }),
+      tokenTransfer({ from_address: OTHER, to_address: THIRD, value: "not-validated" }),
+      tokenTransfer({ future_scalar_metadata: "accepted" }),
     ];
-    const nonOwner = tokenTransfer({ fromAddress: OTHER, toAddress: THIRD, value: "not-validated" });
-    const pending = { ...transaction({ status: "PENDING" }), ethereum: undefined };
+    const pending = { ...transaction({ status: "pending" }), content: undefined };
+    const confirmedSpelling = { ...transaction({ status: "confirmed" }), content: undefined };
     const { transport } = queuedTransport([
-      page([
-        transaction({
-          transfers: [
-            ...nftRows,
-            nonOwner,
-            tokenTransfer({ futureScalarMetadata: "accepted" }),
-          ],
-        }),
-        pending,
-      ]),
+      page([transaction({ transfers: rows }), pending, confirmedSpelling]),
     ]);
 
     const result = await history(transport).listTransfers(input());
@@ -218,22 +444,64 @@ describe("CDP Address History transfers", () => {
     expect(result.transfers[0]?.amountBaseUnits).toBe("1");
   });
 
-  test("normalizes RFC3339 timestamps to ISO milliseconds", async () => {
+  test("requires exact Base mainnet network and a string status", async () => {
+    for (const invalid of [
+      transaction({ networkId: "base" }),
+      transaction({ networkId: "BASE-MAINNET" }),
+      { ...transaction(), network_id: undefined },
+      { ...transaction(), status: 1 },
+    ]) {
+      const { transport } = queuedTransport([page([invalid])]);
+      await expectCode(history(transport).listTransfers(input()), "invalid-response");
+    }
+  });
+
+  test("normalizes RFC3339 timestamps and safe numeric indices", async () => {
     const { transport } = queuedTransport([
-      page([transaction({ timestamp: "2026-09-07T12:30:45.123456+02:00" })]),
+      page([transaction({
+        index: 0,
+        timestamp: "2026-09-07T12:30:45.123456+02:00",
+        transfers: [tokenTransfer({ log_index: Number.MAX_SAFE_INTEGER })],
+      })]),
     ]);
     const result = await history(transport).listTransfers(input());
     expect(result.transfers[0]?.blockTimestamp).toBe("2026-09-07T10:30:45.123Z");
+    expect(result.transfers[0]?.logIndex).toBe(String(Number.MAX_SAFE_INTEGER));
   });
 
-  test("rejects malformed and out-of-range fields on owner-scoped ERC-20 rows", async () => {
+  test("rejects unsafe, negative, fractional, non-finite, and non-numeric indices", async () => {
+    const invalidIndices: unknown[] = [
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+      "1",
+    ];
+    for (const invalidIndex of invalidIndices) {
+      const transactionIndex = queuedTransport([
+        page([transaction({ index: invalidIndex })]),
+      ]);
+      await expectCode(
+        history(transactionIndex.transport).listTransfers(input()),
+        "invalid-response",
+      );
+
+      const logIndex = queuedTransport([
+        page([transaction({ transfers: [tokenTransfer({ log_index: invalidIndex })] })]),
+      ]);
+      await expectCode(
+        history(logIndex.transport).listTransfers(input()),
+        "invalid-response",
+      );
+    }
+  });
+
+  test("rejects malformed and out-of-range owner-scoped ERC-20 fields", async () => {
     const cases: Array<Record<string, unknown>> = [
-      { tokenAddress: "0x1234" },
-      { fromAddress: "not-an-address" },
-      { transactionHash: hash("g") },
-      { blockHash: "0x1234" },
-      { blockNumber: "01" },
-      { logIndex: 1 },
+      { contract_address: "0x1234" },
+      { from_address: "not-an-address" },
+      { to_address: "not-an-address" },
       { value: "1.5" },
       { value: UINT256_OVERFLOW },
     ];
@@ -245,16 +513,18 @@ describe("CDP Address History transfers", () => {
     }
   });
 
-  test("requires confirmed transaction identity and Ethereum history fields", async () => {
-    const confirmed = transaction();
+  test("requires completed parent identity and content hash agreement", async () => {
+    const completed = transaction();
     const cases = [
-      { ...confirmed, hash: undefined },
-      { ...confirmed, blockHash: undefined },
-      { ...confirmed, blockHeight: undefined },
-      { ...confirmed, blockHeight: UINT256_OVERFLOW },
-      { ...confirmed, ethereum: { tokenTransfers: [] } },
-      { ...confirmed, ethereum: { index: "01", blockTimestamp: TO, tokenTransfers: [] } },
-      { ...confirmed, ethereum: { index: "1", blockTimestamp: TO } },
+      { ...completed, transaction_hash: undefined },
+      { ...completed, transaction_hash: hash("g") },
+      { ...completed, block_hash: undefined },
+      { ...completed, block_height: undefined },
+      { ...completed, block_height: "01" },
+      { ...completed, block_height: UINT256_OVERFLOW },
+      { ...completed, content: undefined },
+      { ...completed, content: { ...completed.content, hash: hash("c") } },
+      { ...completed, content: { ...completed.content, block_timestamp: undefined } },
     ];
     for (const invalid of cases) {
       const { transport } = queuedTransport([page([invalid])]);
@@ -262,14 +532,86 @@ describe("CDP Address History transfers", () => {
     }
   });
 
-  test("requires each eligible owner transfer to match its parent transaction index", async () => {
+  test("accepts omitted or null token transfers but rejects present non-arrays", async () => {
+    const completed = transaction();
+    const contentWithoutTransfers: Record<string, unknown> = { ...completed.content };
+    delete contentWithoutTransfers.token_transfers;
+
+    for (const content of [
+      contentWithoutTransfers,
+      { ...completed.content, token_transfers: null },
+    ]) {
+      const { transport } = queuedTransport([page([{ ...completed, content }])]);
+      await expect(history(transport).listTransfers(input())).resolves.toMatchObject({
+        transfers: [],
+        nextCursor: null,
+      });
+    }
+
     const { transport } = queuedTransport([
-      page([transaction({
-        index: "2",
-        transfers: [tokenTransfer({ transactionIndex: "1" })],
-      })]),
+      page([{ ...completed, content: { ...completed.content, token_transfers: "invalid" } }]),
     ]);
     await expectCode(history(transport).listTransfers(input()), "invalid-response");
+  });
+
+  test("fails closed on malformed participants but skips valid non-owner legs before value parsing", async () => {
+    const malformedParticipant = queuedTransport([
+      page([transaction({
+        transfers: [tokenTransfer({ from_address: "malformed", to_address: OWNER })],
+      })]),
+    ]);
+    await expectCode(
+      history(malformedParticipant.transport).listTransfers(input()),
+      "invalid-response",
+    );
+
+    const nonOwner = queuedTransport([
+      page([transaction({
+        transfers: [tokenTransfer({
+          from_address: OTHER,
+          to_address: THIRD,
+          contract_address: "malformed",
+          log_index: "malformed",
+          value: "malformed",
+        })],
+      })]),
+    ]);
+    await expect(history(nonOwner.transport).listTransfers(input())).resolves.toMatchObject({
+      transfers: [],
+      nextCursor: null,
+    });
+  });
+
+  test("strictly validates the REST envelope and continuation consistency", async () => {
+    const invalidPages: unknown[] = [
+      null,
+      {},
+      { data: "not-an-array", has_more: false, next_page: "" },
+      { data: Array.from({ length: 101 }, () => ({})), has_more: false, next_page: "" },
+      { data: [], has_more: "false", next_page: "" },
+      { data: [], has_more: true },
+      { data: [], has_more: true, next_page: "" },
+      { data: [], has_more: true, next_page: "p".repeat(2049) },
+      { data: [], has_more: true, next_page: "bad\npage" },
+      { data: [], has_more: false, next_page: "unexpected" },
+      { data: [], has_more: false, next_page: 1 },
+    ];
+    for (const invalidPage of invalidPages) {
+      const { transport } = queuedTransport([invalidPage]);
+      await expectCode(history(transport).listTransfers(input()), "invalid-response");
+    }
+
+    for (const exhaustedPage of [
+      { data: [], has_more: false },
+      { data: [], has_more: false, next_page: null },
+      { data: [], has_more: false, next_page: "" },
+    ]) {
+      const { transport } = queuedTransport([exhaustedPage]);
+      await expect(history(transport).listTransfers(input())).resolves.toMatchObject({
+        transfers: [],
+        nextCursor: null,
+      });
+    }
   });
 });
 
@@ -330,25 +672,15 @@ describe("CDP Address History cursors and paging", () => {
     const lowHash = hash("a");
     const laterTransaction = transaction({
       block: "100",
-      index: "2",
+      index: 2,
       transactionHash: lowHash,
-      transfers: [tokenTransfer({
-        transactionIndex: "2",
-        transactionHash: lowHash,
-        blockNumber: "100",
-        logIndex: "2",
-      })],
+      transfers: [tokenTransfer({ log_index: 2 })],
     });
     const earlierTransaction = transaction({
       block: "100",
-      index: "1",
+      index: 1,
       transactionHash: highHash,
-      transfers: [tokenTransfer({
-        transactionIndex: "1",
-        transactionHash: highHash,
-        blockNumber: "100",
-        logIndex: "1",
-      })],
+      transfers: [tokenTransfer({ log_index: 1 })],
     });
     const { transport, requests } = queuedTransport([
       page([laterTransaction], "page-2"),
@@ -371,17 +703,17 @@ describe("CDP Address History cursors and paging", () => {
     ]);
   });
 
-  test("rejects provider chain-position violations within or across source pages", async () => {
+  test("rejects provider chain-position violations within or across REST pages", async () => {
     const low = transaction({ block: "99" });
     const high = transaction({ block: "100" });
     const sameBlockEarlier = transaction({
       block: "100",
-      index: "1",
+      index: 1,
       transactionHash: hash("f"),
     });
     const sameBlockLater = transaction({
       block: "100",
-      index: "2",
+      index: 2,
       transactionHash: hash("a"),
     });
     for (const results of [
@@ -428,11 +760,7 @@ describe("CDP Address History cursors and paging", () => {
   test("bounds sparse scans at three calls and returns an advancing empty cursor", async () => {
     const sparse = (block: string) => transaction({
       block,
-      transfers: [tokenTransfer({
-        blockNumber: block,
-        fromAddress: OTHER,
-        toAddress: THIRD,
-      })],
+      transfers: [tokenTransfer({ from_address: OTHER, to_address: THIRD })],
     });
     const { transport, requests } = queuedTransport([
       page([sparse("103")], "page-2"),
@@ -449,131 +777,5 @@ describe("CDP Address History cursors and paging", () => {
       pageToken: "page-4",
       lastEmittedKey: null,
     });
-  });
-});
-
-describe("CDP Address History errors and configuration", () => {
-  test.each([
-    [3, "invalid-input"],
-    [4, "timed-out"],
-    [7, "payment-required"],
-    [8, "rate-limited"],
-    [14, "upstream-error"],
-    [16, "unauthorized"],
-    [429, "rate-limited"],
-  ] as const)("maps result status code %d to %s", async (providerCode, expected) => {
-    const { transport } = queuedTransport([{ code: providerCode, message: "private provider detail" }]);
-    await expectCode(history(transport).listTransfers(input()), expected);
-  });
-
-  test("maps top-level JSON-RPC and HTTP failures without leaking provider details", async () => {
-    const rpcCases = [
-      [3, "invalid-input"],
-      [4, "timed-out"],
-      [7, "payment-required"],
-      [8, "rate-limited"],
-      [14, "upstream-error"],
-      [16, "unauthorized"],
-      [-32602, "invalid-input"],
-      [-32005, "rate-limited"],
-      [429, "rate-limited"],
-    ] as const;
-    for (const [rpcCode, expected] of rpcCases) {
-      const transport = createCdpAddressHistoryTransport({
-        rpcUrl: "https://api.developer.coinbase.com/rpc/v1/base/test-key",
-        fetch: async (_input, init) => {
-          const body = JSON.parse(String(init?.body)) as { id: number };
-          return Response.json({
-            jsonrpc: "2.0",
-            id: body.id,
-            error: { code: rpcCode, message: "SECRET provider detail" },
-          });
-        },
-      });
-      try {
-        await transport.listAddressTransactions({ address: OWNER, pageSize: "100" });
-        throw new Error("Expected request to fail");
-      } catch (error) {
-        expect(error).toMatchObject({ code: expected });
-        expect((error as Error).message).not.toContain("SECRET");
-      }
-    }
-
-    const httpCases = [
-      [400, "invalid-input"],
-      [401, "unauthorized"],
-      [403, "unauthorized"],
-      [402, "payment-required"],
-      [408, "timed-out"],
-      [504, "timed-out"],
-      [429, "rate-limited"],
-      [500, "upstream-error"],
-    ] as const;
-    for (const [status, expected] of httpCases) {
-      const transport = createCdpAddressHistoryTransport({
-        rpcUrl: "https://api.developer.coinbase.com/rpc/v1/base/test-key",
-        fetch: async () => new Response("SECRET provider detail", { status }),
-      });
-      await expectCode(
-        transport.listAddressTransactions({ address: OWNER, pageSize: "100" }),
-        expected,
-      );
-    }
-  });
-
-  test("enforces the bounded local timeout", async () => {
-    const transport = createCdpAddressHistoryTransport({
-      rpcUrl: "https://api.developer.coinbase.com/rpc/v1/base/test-key",
-      timeoutMs: 1,
-      fetch: async (_input, init) =>
-        await new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
-            once: true,
-          });
-        }),
-    });
-    await expectCode(
-      transport.listAddressTransactions({ address: OWNER, pageSize: "100" }),
-      "timed-out",
-    );
-    expect(() => createCdpAddressHistoryTransport({
-      rpcUrl: "https://api.developer.coinbase.com/rpc/v1/base/test-key",
-      timeoutMs: 10_001,
-    })).toThrow(ChainDataError);
-  });
-
-  test("maps malformed JSON and transport errors to existing typed failures", async () => {
-    const malformed = createCdpAddressHistoryTransport({
-      rpcUrl: "https://api.developer.coinbase.com/rpc/v1/base/test-key",
-      fetch: async () => new Response("not json"),
-    });
-    await expectCode(
-      malformed.listAddressTransactions({ address: OWNER, pageSize: "100" }),
-      "invalid-response",
-    );
-
-    const unavailable = createCdpAddressHistoryTransport({
-      rpcUrl: "https://api.developer.coinbase.com/rpc/v1/base/test-key",
-      fetch: async () => {
-        throw new Error("private transport failure");
-      },
-    });
-    await expectCode(
-      unavailable.listAddressTransactions({ address: OWNER, pageSize: "100" }),
-      "upstream-error",
-    );
-  });
-
-  test("requires an explicitly configured CDP Node Base RPC URL", () => {
-    expect(() => createCdpAddressHistoryFromEnv({})).toThrow(ChainDataError);
-    expect(() => createCdpAddressHistoryFromEnv({
-      BASE_RPC_URL: "https://mainnet.base.org",
-    })).toThrow(ChainDataError);
-    expect(() => createCdpAddressHistoryFromEnv({
-      BASE_RPC_URL: "https://rpc.example.com",
-    })).toThrow(ChainDataError);
-    expect(() => createCdpAddressHistoryFromEnv({
-      BASE_RPC_URL: "https://api.developer.coinbase.com/rpc/v1/base/test-key",
-    })).not.toThrow();
   });
 });

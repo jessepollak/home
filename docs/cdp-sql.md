@@ -1,6 +1,6 @@
 # CDP SQL chain-history adapter
 
-Status: available as the default Activity fallback while CDP Address History authentication and ordering remain unproven live.
+Status: available as the default Activity fallback while CDP Address History's REST/JWT transport awaits end-to-end Preview pagination and ordering acceptance.
 Last reviewed: 2026-09-14.
 
 Home uses CDP SQL only as a read-only indexed history source. It is **not** a spendable-balance, transaction-confirmation, vault-position, debt, or authorization source. Current spendable inventory uses CDP Onchain Data Token Balances for allowlisted directs and pinned-block RPC for Morpho vault conversion; receipts and protocol adapters remain the confirmation path. Do not query CoinbaSeQL for balances. Locked inventory direction: [balances inventory](balances-inventory-architecture.md); research detail on [#76](https://github.com/jessepollak/home/issues/76#issuecomment-5594452047).
@@ -28,7 +28,7 @@ The intended parent integration is:
 
 The chain-data adapter itself remains read-only and does not own authentication, database state, balance reads, or mutations; the private Activity route composes it with session authorization and token metadata resolution.
 
-`ACTIVITY_HISTORY_SOURCE` accepts only `cdp-sql` or `cdp-address-history`. Unset defaults to SQL, and an invalid value fails closed as not configured. Address History is the staged destination, but operators must not enable it until the live auth/order gate in [CDP Address History](cdp-address-history.md) passes. Existing deployments must redeploy after changing the source variable.
+`ACTIVITY_HISTORY_SOURCE` accepts only `cdp-sql` or `cdp-address-history`. Unset defaults to SQL, and an invalid value fails closed as not configured. Address History is the staged destination using the server CDP project key and fixed REST endpoint; operators must not enable it in Production until the end-to-end Preview auth/order gate in [CDP Address History](cdp-address-history.md) passes. Existing deployments must redeploy after changing the source variable.
 
 ## Authentication decision
 

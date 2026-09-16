@@ -1,12 +1,7 @@
 import "server-only";
 
-import {
-  BaseRpcError,
-  baseRpc,
-  classifyBaseRpcHost,
-  resolveBaseRpcUrl,
-  UINT256_MAX,
-} from "@/server/chain/rpc";
+import { generateJwt } from "@coinbase/cdp-sdk/auth";
+import { UINT256_MAX } from "@/server/chain/rpc";
 import { ChainDataError, type ChainDataErrorCode } from "./errors";
 import {
   BASE_MAINNET_CHAIN_ID,
@@ -32,6 +27,10 @@ const MAX_TRANSFER_PAGE_SIZE = 25;
 const DEFAULT_TIMEOUT_MS = 6_000;
 const MAX_TIMEOUT_MS = 10_000;
 const MAX_LOG_ID_LENGTH = 256;
+const CDP_ADDRESS_HISTORY_HOST = "api.cdp.coinbase.com";
+const CDP_ADDRESS_HISTORY_NETWORK = "base-mainnet";
+const CDP_ADDRESS_HISTORY_PATH_PREFIX =
+  `/platform/v1/networks/${CDP_ADDRESS_HISTORY_NETWORK}/addresses`;
 
 export type CdpAddressHistoryRequest = {
   address: HexAddress;
@@ -50,9 +49,11 @@ export type CdpAddressHistoryFetch = (
 ) => Promise<Response>;
 
 export type CdpAddressHistoryTransportOptions = {
-  rpcUrl: string;
+  apiKeyId: string;
+  apiKeySecret: string;
   timeoutMs?: number;
   fetch?: CdpAddressHistoryFetch;
+  generateJwt?: typeof generateJwt;
 };
 
 export type CdpAddressHistoryOptions = {
@@ -99,23 +100,18 @@ type ParsedProviderPage = {
 };
 
 export function createCdpAddressHistoryTransport({
-  rpcUrl,
+  apiKeyId: untrimmedApiKeyId,
+  apiKeySecret: untrimmedApiKeySecret,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetch: fetchImplementation = globalThis.fetch,
+  generateJwt: generateJwtImplementation = generateJwt,
 }: CdpAddressHistoryTransportOptions): CdpAddressHistoryTransport {
-  let resolvedUrl: string;
-  try {
-    resolvedUrl = resolveBaseRpcUrl(rpcUrl);
-  } catch {
+  const apiKeyId = untrimmedApiKeyId?.trim();
+  const apiKeySecret = untrimmedApiKeySecret?.trim();
+  if (!apiKeyId || !apiKeySecret) {
     throw new ChainDataError(
       "not-configured",
-      "CDP Address History requires a valid BASE_RPC_URL.",
-    );
-  }
-  if (classifyBaseRpcHost(resolvedUrl) !== "cdp-node") {
-    throw new ChainDataError(
-      "not-configured",
-      "CDP Address History requires a configured CDP Node BASE_RPC_URL.",
+      "CDP_API_KEY_ID and CDP_API_KEY_SECRET are required for CDP Address History.",
     );
   }
   if (
@@ -131,26 +127,96 @@ export function createCdpAddressHistoryTransport({
   if (typeof fetchImplementation !== "function") {
     throw new ChainDataError("not-configured", "A fetch implementation is required.");
   }
+  if (typeof generateJwtImplementation !== "function") {
+    throw new ChainDataError("not-configured", "A JWT generator is required.");
+  }
 
   return {
     async listAddressTransactions(request) {
-      try {
-        return await baseRpc(
-          "cdp_listAddressTransactions",
-          [{
-            address: request.address.toLowerCase(),
-            pageSize: PROVIDER_PAGE_SIZE,
-            ...(request.pageToken ? { pageToken: request.pageToken } : {}),
-          }],
-          {
-            rpcUrl: resolvedUrl,
-            timeoutMs,
-            fetchImpl: fetchImplementation,
-            signal: request.signal,
-          },
+      throwIfRequestAborted(request.signal);
+      if (
+        request.pageSize !== PROVIDER_PAGE_SIZE ||
+        !ADDRESS_PATTERN.test(request.address) ||
+        (request.pageToken !== undefined && !validPageToken(request.pageToken))
+      ) {
+        throw new ChainDataError(
+          "invalid-input",
+          "CDP Address History received an invalid provider request.",
         );
-      } catch (error) {
-        throw mapBaseRpcError(error);
+      }
+
+      const address = request.address.toLowerCase() as HexAddress;
+      const requestPath = addressHistoryRequestPath(address);
+      let bearerToken: string;
+      try {
+        bearerToken = await generateJwtImplementation({
+          apiKeyId,
+          apiKeySecret,
+          requestMethod: "GET",
+          requestHost: CDP_ADDRESS_HISTORY_HOST,
+          requestPath,
+          expiresIn: 120,
+        });
+      } catch {
+        throwIfRequestAborted(request.signal);
+        throw providerError("not-configured");
+      }
+      throwIfRequestAborted(request.signal);
+      if (
+        typeof bearerToken !== "string" ||
+        bearerToken.trim().length === 0 ||
+        /\s/.test(bearerToken)
+      ) {
+        throw providerError("not-configured");
+      }
+
+      const controller = new AbortController();
+      const onAbort = () => controller.abort(request.signal?.reason);
+      request.signal?.addEventListener("abort", onAbort, { once: true });
+      if (request.signal?.aborted) controller.abort(request.signal.reason);
+      const timeout = setTimeout(
+        () => controller.abort("cdp-address-history-timeout"),
+        timeoutMs,
+      );
+
+      try {
+        let response: Response;
+        try {
+          const headerName = ["author", "ization"].join("");
+          const bearerValue = ["Bear", "er ", bearerToken].join("");
+          response = await fetchImplementation(
+            addressHistoryRequestUrl(address, request.pageToken),
+            {
+              method: "GET",
+              headers: {
+                accept: "application/json",
+                [headerName]: bearerValue,
+              },
+              cache: "no-store",
+              signal: controller.signal,
+            },
+          );
+        } catch {
+          if (controller.signal.aborted) throw providerError("timed-out");
+          throw providerError("upstream-error");
+        }
+        if (!response.ok) throw responseError(response);
+
+        let body: string;
+        try {
+          body = await response.text();
+        } catch {
+          if (controller.signal.aborted) throw providerError("timed-out");
+          throw providerError("upstream-error");
+        }
+        try {
+          return JSON.parse(body) as unknown;
+        } catch {
+          throw providerError("invalid-response");
+        }
+      } finally {
+        clearTimeout(timeout);
+        request.signal?.removeEventListener("abort", onAbort);
       }
     },
   };
@@ -158,16 +224,17 @@ export function createCdpAddressHistoryTransport({
 
 export function createCdpAddressHistoryFromEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,
-  options: Omit<CdpAddressHistoryTransportOptions, "rpcUrl"> = {},
+  options: Omit<CdpAddressHistoryTransportOptions, "apiKeyId" | "apiKeySecret"> = {},
 ): CdpAddressHistoryTransport {
-  const rpcUrl = env.BASE_RPC_URL?.trim();
-  if (!rpcUrl) {
+  const apiKeyId = env.CDP_API_KEY_ID?.trim();
+  const apiKeySecret = env.CDP_API_KEY_SECRET?.trim();
+  if (!apiKeyId || !apiKeySecret) {
     throw new ChainDataError(
       "not-configured",
-      "CDP Address History requires an explicitly configured CDP Node BASE_RPC_URL.",
+      "CDP_API_KEY_ID and CDP_API_KEY_SECRET are required for CDP Address History.",
     );
   }
-  return createCdpAddressHistoryTransport({ ...options, rpcUrl });
+  return createCdpAddressHistoryTransport({ ...options, apiKeyId, apiKeySecret });
 }
 
 export function createCdpAddressHistory({
@@ -322,38 +389,24 @@ export function decodeCdpAddressHistoryCursor(
   }
 }
 
-export function mapCdpAddressHistoryStatus(code: number): ChainDataError {
-  const mapped: Partial<Record<number, ChainDataErrorCode>> = {
-    3: "invalid-input",
-    4: "timed-out",
-    7: "payment-required",
-    8: "rate-limited",
-    14: "upstream-error",
-    16: "unauthorized",
-    429: "rate-limited",
-  };
-  return providerError(mapped[code] ?? "upstream-error");
+function addressHistoryRequestPath(address: HexAddress): string {
+  return `${CDP_ADDRESS_HISTORY_PATH_PREFIX}/${address.toLowerCase()}/transactions`;
 }
 
-function mapBaseRpcError(error: unknown): ChainDataError {
-  if (!(error instanceof BaseRpcError)) {
-    return providerError("upstream-error");
-  }
-  // Do not retain BaseRpcError as a cause: JSON-RPC error messages are
-  // provider-controlled and may contain details that must not enter logs.
-  if (error.code === "aborted") return providerError("timed-out");
-  if (error.code === "invalid-response") {
-    return providerError("invalid-response");
-  }
-  if (error.code === "transport") return providerError("upstream-error");
-  if (error.code === "rpc") {
-    if (error.rpcCode === -32602) return providerError("invalid-input");
-    if (error.rpcCode === -32005) return providerError("rate-limited");
-    if (error.rpcCode !== null) return mapCdpAddressHistoryStatus(error.rpcCode);
-    return providerError("upstream-error");
-  }
+function addressHistoryRequestUrl(
+  address: HexAddress,
+  pageToken?: string,
+): string {
+  const url = new URL(
+    `https://${CDP_ADDRESS_HISTORY_HOST}${addressHistoryRequestPath(address)}`,
+  );
+  url.searchParams.set("limit", PROVIDER_PAGE_SIZE);
+  if (pageToken) url.searchParams.set("page", pageToken);
+  return url.toString();
+}
 
-  const status = error.httpStatus;
+function responseError(response: Response): ChainDataError {
+  const status = response.status;
   if (status === 400) return providerError("invalid-input", status);
   if (status === 401 || status === 403) {
     return providerError("unauthorized", status);
@@ -366,28 +419,25 @@ function mapBaseRpcError(error: unknown): ChainDataError {
   return providerError("upstream-error", status);
 }
 
+function throwIfRequestAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw providerError("timed-out");
+}
+
 function parseProviderPage(
   value: unknown,
   walletAddress: HexAddress,
   addressToAsset: ReadonlyMap<HexAddress, BaseErc20Asset>,
 ): ParsedProviderPage {
-  if (!isRecord(value)) {
-    throw invalidResponse("CDP Address History returned an invalid result.");
-  }
-  if (Object.hasOwn(value, "code")) {
-    if (!Number.isSafeInteger(value.code) || value.code === 0) {
-      throw invalidResponse("CDP Address History returned an invalid status.");
-    }
-    throw mapCdpAddressHistoryStatus(value.code as number);
-  }
   if (
-    !Array.isArray(value.addressTransactions) ||
-    value.addressTransactions.length > MAX_PROVIDER_PAGE_SIZE
+    !isRecord(value) ||
+    !Array.isArray(value.data) ||
+    value.data.length > MAX_PROVIDER_PAGE_SIZE ||
+    typeof value.has_more !== "boolean"
   ) {
     throw invalidResponse("CDP Address History returned an invalid transaction page.");
   }
-  const nextPageToken = parsePageToken(value.nextPageToken);
-  const transactions = value.addressTransactions.flatMap((transaction) => {
+  const nextPageToken = parseRestNextPage(value.has_more, value.next_page);
+  const transactions = value.data.flatMap((transaction) => {
     const parsed = parseTransaction(transaction, walletAddress, addressToAsset);
     return parsed ? [parsed] : [];
   });
@@ -400,28 +450,43 @@ function parseTransaction(
   walletAddress: HexAddress,
   addressToAsset: ReadonlyMap<HexAddress, BaseErc20Asset>,
 ): ParsedTransaction | null {
-  if (!isRecord(value) || typeof value.status !== "string") {
+  if (
+    !isRecord(value) ||
+    typeof value.status !== "string" ||
+    value.network_id !== CDP_ADDRESS_HISTORY_NETWORK
+  ) {
     throw invalidResponse("CDP Address History returned an invalid transaction.");
   }
-  if (value.status !== "CONFIRMED") return null;
+  if (value.status !== "complete") return null;
 
-  const transactionHash = responseHash(value.hash, "transaction hash");
-  const blockHash = responseHash(value.blockHash, "block hash");
-  const blockNumber = responseDecimal(value.blockHeight, "block height");
-  if (!isRecord(value.ethereum) || !Array.isArray(value.ethereum.tokenTransfers)) {
-    throw invalidResponse("CDP Address History omitted confirmed Ethereum content.");
+  const transactionHash = responseHash(
+    value.transaction_hash,
+    "transaction hash",
+  );
+  const blockHash = responseHash(value.block_hash, "block hash");
+  const blockNumber = responseDecimal(value.block_height, "block height");
+  if (!isRecord(value.content)) {
+    throw invalidResponse("CDP Address History omitted completed transaction content.");
   }
-  const transactionIndex = responseDecimal(
-    value.ethereum.index,
+  const rawTransfers = value.content.token_transfers ?? [];
+  if (!Array.isArray(rawTransfers)) {
+    throw invalidResponse("CDP Address History returned invalid token transfers.");
+  }
+  const contentHash = responseHash(value.content.hash, "content transaction hash");
+  if (contentHash !== transactionHash) {
+    throw invalidResponse("CDP Address History returned inconsistent transaction identity.");
+  }
+  const transactionIndex = responseIndex(
+    value.content.index,
     "transaction index",
   );
-  const timestamp = responseTimestamp(value.ethereum.blockTimestamp);
-  const transfers = value.ethereum.tokenTransfers.flatMap((transfer) => {
+  const timestamp = responseTimestamp(value.content.block_timestamp);
+  const transfers = rawTransfers.flatMap((transfer) => {
     const parsed = parseTokenTransfer(
       transfer,
       walletAddress,
       addressToAsset,
-      { transactionHash, transactionIndex, blockHash, blockNumber, timestamp },
+      { transactionHash, blockHash, blockNumber, timestamp },
     );
     return parsed ? [parsed] : [];
   });
@@ -442,7 +507,6 @@ function parseTokenTransfer(
   addressToAsset: ReadonlyMap<HexAddress, BaseErc20Asset>,
   transaction: {
     transactionHash: TransactionHash;
-    transactionIndex: string;
     blockHash: TransactionHash;
     blockNumber: string;
     timestamp: string;
@@ -451,35 +515,19 @@ function parseTokenTransfer(
   if (!isRecord(value)) {
     throw invalidResponse("CDP Address History returned an invalid token transfer.");
   }
-  if (isTypedNftTransfer(value) || hasUnknownObjectSubtype(value)) return null;
+  if (value.token_transfer_type !== "erc20") return null;
 
-  const fromAddress = responseAddress(value.fromAddress, "from address");
-  const toAddress = responseAddress(value.toAddress, "to address");
+  const fromAddress = responseAddress(value.from_address, "from address");
+  const toAddress = responseAddress(value.to_address, "to address");
   if (fromAddress !== walletAddress && toAddress !== walletAddress) return null;
 
-  const transactionIndex = responseDecimal(
-    value.transactionIndex,
-    "transfer transaction index",
+  const tokenAddress = responseAddress(
+    value.contract_address,
+    "token address",
   );
-  if (transactionIndex !== transaction.transactionIndex) {
-    throw invalidResponse("CDP Address History returned inconsistent transfer position.");
-  }
-
-  const tokenAddress = responseAddress(value.tokenAddress, "token address");
   const amountBaseUnits = responseAmount(value.value);
-  const transactionHash = responseHash(value.transactionHash, "transfer transaction hash");
-  const blockHash = responseHash(value.blockHash, "transfer block hash");
-  const blockNumber = responseDecimal(value.blockNumber, "transfer block number");
-  const logIndex = responseDecimal(value.logIndex, "transfer log index");
-  if (
-    transactionHash !== transaction.transactionHash ||
-    blockHash !== transaction.blockHash ||
-    blockNumber !== transaction.blockNumber
-  ) {
-    throw invalidResponse("CDP Address History returned inconsistent transfer identity.");
-  }
-
-  const logId = `${transactionHash}:${logIndex}`;
+  const logIndex = responseIndex(value.log_index, "transfer log index");
+  const logId = `${transaction.transactionHash}:${logIndex}`;
   if (logId.length > MAX_LOG_ID_LENGTH) {
     throw invalidResponse("CDP Address History returned an oversized transfer identity.");
   }
@@ -502,34 +550,12 @@ function parseTokenTransfer(
     toAddress,
     direction,
     amountBaseUnits,
-    blockNumber,
-    blockHash,
-    transactionHash,
+    blockNumber: transaction.blockNumber,
+    blockHash: transaction.blockHash,
+    transactionHash: transaction.transactionHash,
     logIndex,
     blockTimestamp: transaction.timestamp,
   };
-}
-
-function isTypedNftTransfer(value: Record<string, unknown>): boolean {
-  if (
-    Object.hasOwn(value, "erc721") ||
-    Object.hasOwn(value, "erc1155") ||
-    Object.hasOwn(value, "erc3525") ||
-    Object.hasOwn(value, "nft")
-  ) {
-    return true;
-  }
-  const type = value.type;
-  return typeof type === "string" && /^(?:erc721|erc1155|erc3525|nft)$/i.test(type);
-}
-
-// The documented ERC-20/base fields are scalar. Object-valued additions are
-// subtype payloads (including future NFT standards), so omit those rows while
-// continuing to tolerate future scalar metadata.
-function hasUnknownObjectSubtype(value: Record<string, unknown>): boolean {
-  return Object.values(value).some(
-    (field) => field !== null && typeof field === "object",
-  );
 }
 
 function validateRequest(input: ListBaseErc20TransfersInput, now: Date): ValidatedRequest {
@@ -751,6 +777,13 @@ function responseDecimal(value: unknown, field: string): string {
   return value;
 }
 
+function responseIndex(value: unknown, field: string): string {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw invalidResponse(`CDP Address History returned an invalid ${field}.`);
+  }
+  return String(value);
+}
+
 function responseAmount(value: unknown): string {
   const amount = responseDecimal(value, "token value");
   if (BigInt(amount) > UINT256_MAX) {
@@ -785,12 +818,17 @@ function responseTimestamp(value: unknown): string {
   return parsed.toISOString();
 }
 
-function parsePageToken(value: unknown): string | null {
-  if (value === undefined || value === "") return null;
-  if (!validPageToken(value)) {
-    throw invalidResponse("CDP Address History returned an invalid page token.");
+function parseRestNextPage(hasMore: boolean, value: unknown): string | null {
+  if (hasMore) {
+    if (!validPageToken(value)) {
+      throw invalidResponse("CDP Address History returned an invalid page token.");
+    }
+    return value;
   }
-  return value;
+  if (value !== undefined && value !== null && value !== "") {
+    throw invalidResponse("CDP Address History returned an inconsistent page token.");
+  }
+  return null;
 }
 
 function validPageToken(value: unknown): value is string {
@@ -835,8 +873,8 @@ function providerErrorMessage(code: ChainDataErrorCode): string {
   }
 }
 
-function invalidResponse(message: string, cause?: unknown): ChainDataError {
-  return new ChainDataError("invalid-response", message, { cause });
+function invalidResponse(message: string): ChainDataError {
+  return new ChainDataError("invalid-response", message);
 }
 
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {

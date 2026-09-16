@@ -18,7 +18,7 @@ The server SDK's usage tracking and error reporting are disabled by Home before 
 
 ## Activity history source
 
-`ACTIVITY_HISTORY_SOURCE` is server-only and accepts `cdp-sql` (the default) or `cdp-address-history`. Invalid values fail closed. Address History also requires an explicitly configured CDP Node Base mainnet `BASE_RPC_URL`; a public/default or non-CDP RPC is rejected. Its current Client API Key returns provider status `code: 16`, so do not enable it outside an authorized smoke environment until the staged auth/order gate in [CDP Address History](cdp-address-history.md) passes. Changing deployment environment variables requires a redeploy.
+`ACTIVITY_HISTORY_SOURCE` is server-only and accepts `cdp-sql` (the default) or `cdp-address-history`. Invalid values fail closed. Address History uses the same server-only `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` described above to generate a fresh request-bound JWT for its fixed REST endpoint. It does not use `BASE_RPC_URL`, which remains independent configuration for existing Base RPC reads. The REST/JWT transport was live-verified directly after CDP Node JSON-RPC Address History returned `code: 16`; do not enable it in Production until the staged end-to-end auth/order gate in [CDP Address History](cdp-address-history.md) passes. Changing deployment environment variables requires a redeploy.
 
 ## Preview auth
 
