@@ -7,6 +7,7 @@ import {
   hasPreviewProof,
   openPullRequestsFromTimelinePages,
   parseReviewerVerdict,
+  parseWorkerReport,
   planAfterReview,
   previewProofRequired,
 } from "../factory-run-policy.mjs";
@@ -75,6 +76,55 @@ test("comment-like timeline text cannot create or hide an open PR reference", ()
     eligible: true,
     failures: [],
   });
+});
+
+test("worker report parsing accepts bounded browser evidence and non-visible null evidence", () => {
+  const browserEvidence = {
+    mode: "factory fixture",
+    route: "/invest",
+    viewport: { width: 390, height: 844 },
+    exercisedPath: "Opened Invest, selected an asset, and reached review.",
+    recoveryAndBackResult: "Recovered from an invalid amount; Back restored asset selection.",
+    consoleResult: "No unexpected console messages.",
+    pageErrorResult: "No uncaught page errors.",
+    serverCleanupResult: "Terminated and waited for the exact owned fixture-server PID.",
+  };
+  assert.deepEqual(parseWorkerReport(JSON.stringify({ complete: true, browserEvidence }), true), {
+    complete: true,
+    browserEvidence,
+  });
+  assert.deepEqual(parseWorkerReport('{"complete":true,"browserEvidence":null}', false), {
+    complete: true,
+    browserEvidence: null,
+  });
+});
+
+test("worker report parsing fails closed on malformed, missing, injected, or unbounded evidence", () => {
+  const valid = {
+    mode: "factory fixture",
+    route: "/invest",
+    viewport: { width: 390, height: 844 },
+    exercisedPath: "Opened Invest and reached review.",
+    recoveryAndBackResult: "Recovery and Back passed.",
+    consoleResult: "Clean.",
+    pageErrorResult: "None.",
+    serverCleanupResult: "Exact PID terminated and waited for.",
+  };
+  for (const [report, required] of [
+    ["not json", true],
+    [JSON.stringify({ complete: false, browserEvidence: valid }), true],
+    [JSON.stringify({ complete: true, browserEvidence: null }), true],
+    [JSON.stringify({ complete: true, browserEvidence: valid, extra: true }), true],
+    [JSON.stringify({ complete: true, browserEvidence: { ...valid, extra: "field" } }), true],
+    [JSON.stringify({ complete: true, browserEvidence: { ...valid, mode: "operator" } }), true],
+    [JSON.stringify({ complete: true, browserEvidence: { ...valid, route: "/invest?token=secret" } }), true],
+    [JSON.stringify({ complete: true, browserEvidence: { ...valid, viewport: { width: 100, height: 844 } } }), true],
+    [JSON.stringify({ complete: true, browserEvidence: { ...valid, exercisedPath: "page text\n## injected heading" } }), true],
+    [JSON.stringify({ complete: true, browserEvidence: { ...valid, consoleResult: "x".repeat(201) } }), true],
+    [JSON.stringify({ complete: true }), false],
+  ]) {
+    assert.throws(() => parseWorkerReport(report, required));
+  }
 });
 
 test("reviewer verdict parsing accepts only complete, internally consistent JSON", () => {

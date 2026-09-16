@@ -47,6 +47,92 @@ export function openPullRequestsFromTimelinePages(pages) {
   return [...new Map(pulls.map((pull) => [pull.number, pull])).values()];
 }
 
+const WORKER_BROWSER_EVIDENCE_FIELDS = Object.freeze([
+  "mode",
+  "route",
+  "viewport",
+  "exercisedPath",
+  "recoveryAndBackResult",
+  "consoleResult",
+  "pageErrorResult",
+  "serverCleanupResult",
+]);
+
+function assertExactFields(value, expected, description) {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.length !== wanted.length || actual.some((field, index) => field !== wanted[index])) {
+    throw new Error(`${description} fields are invalid`);
+  }
+}
+
+function conciseWorkerEvidenceText(value, field, maxLength) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`worker browser evidence ${field} is required`);
+  }
+  if (value.length > maxLength || /[\x00-\x1f\x7f]/.test(value)) {
+    throw new Error(`worker browser evidence ${field} is not concise`);
+  }
+  return value.trim();
+}
+
+export function parseWorkerReport(output, browserEvidenceRequired) {
+  let value;
+  try {
+    value = JSON.parse(output);
+  } catch {
+    throw new Error("worker output is not valid JSON");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("worker report must be an object");
+  }
+  assertExactFields(value, ["complete", "browserEvidence"], "worker report");
+  if (value.complete !== true) throw new Error("worker report is incomplete");
+  if (typeof browserEvidenceRequired !== "boolean") {
+    throw new Error("browser evidence requirement is unavailable");
+  }
+  if (value.browserEvidence === null) {
+    if (browserEvidenceRequired) throw new Error("worker browser evidence is required");
+    return { complete: true, browserEvidence: null };
+  }
+  if (!value.browserEvidence || typeof value.browserEvidence !== "object" || Array.isArray(value.browserEvidence)) {
+    throw new Error("worker browser evidence must be an object or null");
+  }
+
+  const evidence = value.browserEvidence;
+  assertExactFields(evidence, WORKER_BROWSER_EVIDENCE_FIELDS, "worker browser evidence");
+  if (evidence.mode !== "factory fixture") {
+    throw new Error("worker browser evidence mode must be factory fixture");
+  }
+  const route = conciseWorkerEvidenceText(evidence.route, "route", 200);
+  if (!/^\/[^\s?#]*$/.test(route)) {
+    throw new Error("worker browser evidence route must be a pathname without query or fragment");
+  }
+  if (!evidence.viewport || typeof evidence.viewport !== "object" || Array.isArray(evidence.viewport)) {
+    throw new Error("worker browser evidence viewport must be an object");
+  }
+  assertExactFields(evidence.viewport, ["width", "height"], "worker browser evidence viewport");
+  for (const dimension of ["width", "height"]) {
+    if (!Number.isInteger(evidence.viewport[dimension]) || evidence.viewport[dimension] < 200 || evidence.viewport[dimension] > 4_000) {
+      throw new Error(`worker browser evidence viewport ${dimension} is invalid`);
+    }
+  }
+
+  return {
+    complete: true,
+    browserEvidence: {
+      mode: "factory fixture",
+      route,
+      viewport: { width: evidence.viewport.width, height: evidence.viewport.height },
+      exercisedPath: conciseWorkerEvidenceText(evidence.exercisedPath, "exercisedPath", 500),
+      recoveryAndBackResult: conciseWorkerEvidenceText(evidence.recoveryAndBackResult, "recoveryAndBackResult", 300),
+      consoleResult: conciseWorkerEvidenceText(evidence.consoleResult, "consoleResult", 200),
+      pageErrorResult: conciseWorkerEvidenceText(evidence.pageErrorResult, "pageErrorResult", 200),
+      serverCleanupResult: conciseWorkerEvidenceText(evidence.serverCleanupResult, "serverCleanupResult", 200),
+    },
+  };
+}
+
 export function parseReviewerVerdict(output) {
   let value;
   try {

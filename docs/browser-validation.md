@@ -50,18 +50,21 @@ Load `bunx agent-browser skills get dogfood` for exploratory QA or a bug hunt. L
 - Do not use `--profile`, `--state`, `--restore`, `--auto-connect`, auth-vault state, or saved cookies. State files can contain plaintext session tokens.
 - Use only the session created for this worktree and close only that session. Never run `close --all`.
 
-A secret-free server launch in a factory worktree looks like:
+A secret-free server launch in a factory worktree looks like the following. Start it from the shell that will perform cleanup, capture the owned process PID immediately, and keep the log out of the repository:
 
 ```sh
+export HOME_FIXTURE_SERVER_LOG="$(mktemp "${TMPDIR:-/tmp}/home-fixture-server.XXXXXX")"
 env -i \
   HOME="$HOME" \
   PATH="$PATH" \
   NEXT_TELEMETRY_DISABLED=1 \
   HOME_PLAYWRIGHT_SMOKE=1 \
-  bun --cwd apps/web dev -- --port 3200
+  bun --cwd apps/web dev -- --port 3200 \
+  >"$HOME_FIXTURE_SERVER_LOG" 2>&1 &
+export HOME_FIXTURE_SERVER_PID=$!
 ```
 
-Use a different non-3199 port when `3200` is occupied. Do not use root `bun dev`, which runs the database migration.
+Use a different non-3199 port when `3200` is occupied. Do not use root `bun dev`, which runs the database migration. The captured PID is the only fixture-server process this run owns; never use `pkill`, `killall`, or a name/port-wide kill.
 
 ### Operator mode
 
@@ -142,13 +145,25 @@ Run `a11y --json` only when accessibility is in scope or a semantic concern was 
 
 When the preview-proof policy requires media, capture one current-head screenshot at the documented viewport or one short current-head video for motion. `screenshot --if-changed` is preferred for repeated captures. Do not commit transcripts, raw console dumps, state files, or incidental browser output.
 
-Close only the owned session:
+Close only the owned session, then terminate and wait for the exact fixture-server PID captured at launch:
 
 ```sh
 bunx agent-browser close
 rm -f /tmp/home-browser-init.js
+if [ -n "${HOME_FIXTURE_SERVER_PID:-}" ]; then
+  if kill -0 "$HOME_FIXTURE_SERVER_PID" 2>/dev/null; then
+    kill "$HOME_FIXTURE_SERVER_PID"
+  fi
+  wait "$HOME_FIXTURE_SERVER_PID" 2>/dev/null || HOME_FIXTURE_SERVER_WAIT_STATUS=$?
+fi
+if [ -n "${HOME_FIXTURE_SERVER_LOG:-}" ]; then
+  rm -f "$HOME_FIXTURE_SERVER_LOG"
+fi
 unset AGENT_BROWSER_SESSION AGENT_BROWSER_ALLOWED_DOMAINS AGENT_BROWSER_MAX_OUTPUT
+unset HOME_FIXTURE_SERVER_PID HOME_FIXTURE_SERVER_LOG HOME_FIXTURE_SERVER_WAIT_STATUS
 ```
+
+Run this cleanup on normal completion and interrupted/failed iteration. Never substitute `pkill`, `killall`, or a broad name/port match. Evidence must state that the exact owned fixture-server PID was terminated (or had already exited) and waited for.
 
 ## Evidence to report
 
@@ -160,6 +175,7 @@ Summarize, do not paste a transcript:
 - user path exercised, including recovery and Back behavior;
 - final semantic state;
 - console and uncaught-error result;
+- exact owned fixture-server process cleanup result (terminated or already exited, then waited for);
 - selective a11y/vitals result when used;
 - current-head screenshot/video in the existing PR **Preview** section when required;
 - any operator-only behavior not performed.

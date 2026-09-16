@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  browserEvidenceSection,
   createGitHubAdapter,
   factoryIssuePromptInput,
   reviewerPrompt,
@@ -27,6 +28,18 @@ const ISSUE = {
 };
 const PASS = '{"complete":true,"verdict":"pass","findings":[]}';
 const FAIL = '{"complete":true,"verdict":"fail","findings":[{"severity":"blocking","file":"runner.mjs:1","description":"fix it"}]}';
+const NULL_WORKER_REPORT = '{"complete":true,"browserEvidence":null}';
+const BROWSER_EVIDENCE = {
+  mode: "factory fixture",
+  route: "/save",
+  viewport: { width: 390, height: 844 },
+  exercisedPath: "Opened Save, selected USDC, and reached review.",
+  recoveryAndBackResult: "Invalid amount recovered; Back returned to asset selection.",
+  consoleResult: "No unexpected console messages.",
+  pageErrorResult: "No uncaught page errors.",
+  serverCleanupResult: "Terminated and waited for owned fixture-server PID.",
+};
+const BROWSER_WORKER_REPORT = JSON.stringify({ complete: true, browserEvidence: BROWSER_EVIDENCE });
 
 function completed(stdout = "") {
   return { code: 0, timedOut: false, outputExceeded: false, stdout };
@@ -40,9 +53,12 @@ function fakeRun({
   worktreeFailure = false,
   setupFailure = false,
   ciFailure = false,
+  workerReports = [NULL_WORKER_REPORT],
 } = {}) {
   const calls = [];
+  const pullRequestUpdates = [];
   let reviewIndex = 0;
+  let workerIndex = 0;
   const github = {
     repositoryOwner: "jessepollak",
     async verifyAuthentication() {
@@ -59,7 +75,10 @@ function fakeRun({
     },
     async verifyPreviewProof() { calls.push("preview"); },
     async setPullRequestStatus(_url, from, to) { calls.push(`pr-status:${from}->${to}`); },
-    async updatePullRequest({ reviewFindings = [] }) { calls.push(`pr-evidence:${reviewFindings.length}`); },
+    async updatePullRequest(update) {
+      pullRequestUpdates.push(structuredClone(update));
+      calls.push(`pr-evidence:${update.reviewFindings?.length ?? 0}`);
+    },
   };
   const local = {
     async createWorktree() {
@@ -79,12 +98,12 @@ function fakeRun({
     async runWorker(_cwd, _issue, findings) {
       calls.push(findings.length ? "remediation" : "worker");
       if (workerFailure) throw new Error("worker failed");
-      return completed();
+      return completed(workerReports[Math.min(workerIndex++, workerReports.length - 1)]);
     },
     async validateCommitAndPush(_cwd, _issue, _branch, loop) { calls.push(`validate:${loop}`); },
     async runReviewer() { calls.push("reviewer"); return completed(reviews[reviewIndex++]); },
   };
-  return { github, local, calls };
+  return { github, local, calls, pullRequestUpdates };
 }
 
 async function withRunPaths(operation) {
@@ -133,8 +152,21 @@ test("worker prompt requires the browser-validation contract for user-visible wo
   assert.match(prompt, /docs\/browser-validation\.md/);
   assert.match(prompt, /repository-pinned agent-browser/);
   assert.match(prompt, /secret-free factory fixture mode before and after editing/);
-  assert.match(prompt, /mode\/route\/viewport\/path evidence/);
+  assert.match(prompt, /Return exactly one final JSON object and no markdown or commentary/);
+  assert.match(prompt, /serverCleanupResult/);
   assert.match(prompt, /Playwright only for committed regression/);
+});
+
+test("browser evidence rendering is concise and escapes inline markdown", () => {
+  const section = browserEvidenceSection({
+    ...BROWSER_EVIDENCE,
+    exercisedPath: "Clicked [untrusted](https://example.test) `text`.",
+  });
+  assert.match(section, /Mode: factory fixture/);
+  assert.match(section, /Route \/ viewport: \/save — 390x844 CSS px/);
+  assert.match(section, /Fixture server cleanup: Terminated and waited/);
+  assert.doesNotMatch(section, /\[untrusted\]\(https:\/\/example\.test\)/);
+  assert.match(browserEvidenceSection(null), /Not required/);
 });
 
 test("supervisor waits for current-head CI before promoting a normal PR", async () => {
@@ -143,6 +175,8 @@ test("supervisor waits for current-head CI before promoting a normal PR", async 
     const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
     assert.equal(evidence.outcome, "passed");
     assert.equal(evidence.prUrl, "https://github.test/pr/1");
+    assert.equal(evidence.browserEvidence, null);
+    assert.equal(fake.pullRequestUpdates.at(-1).browserEvidence, null);
     assert.deepEqual(fake.calls, [
       "auth", "issue", "references", "status:status:todo->status:working",
       "worktree", "setup", "preflight", "worker", "validate:0", "pr:agent/546-factory-run",
@@ -151,6 +185,62 @@ test("supervisor waits for current-head CI before promoting a normal PR", async 
       "pr-status:status:working->status:needs-jesse", "cleanup:true:true",
     ]);
     assert.ok(evidence.stages.every((stage) => Number.isInteger(stage.durationMs)));
+  });
+});
+
+test("required valid browser evidence reaches run evidence and the PR update", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:frontend" } : label) };
+    const fake = fakeRun({ issue, workerReports: [BROWSER_WORKER_REPORT] });
+    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
+
+    assert.deepEqual(evidence.browserEvidence, BROWSER_EVIDENCE);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).browserEvidence, BROWSER_EVIDENCE);
+    assert.ok(fake.calls.indexOf("worker") < fake.calls.indexOf("validate:0"));
+  });
+});
+
+test("missing or malformed required browser evidence fails before validation and publication", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:design" } : label) };
+    for (const report of [NULL_WORKER_REPORT, "not-json", '{"complete":true}']) {
+      const fake = fakeRun({ issue, workerReports: [report] });
+      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /worker (?:browser evidence is required|output is not valid JSON|report fields are invalid)/);
+      assert.equal(fake.calls.some((call) => call.startsWith("validate:")), false);
+      assert.equal(fake.calls.some((call) => call.startsWith("pr:")), false);
+      assert.ok(fake.calls.includes("status:status:working->status:todo"));
+    }
+  });
+});
+
+test("remediation replaces retained browser evidence before revalidation and handoff", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:frontend" } : label) };
+    const refreshed = {
+      ...BROWSER_EVIDENCE,
+      exercisedPath: "Retested Save after remediation and reached the corrected review.",
+    };
+    const fake = fakeRun({
+      issue,
+      reviews: [FAIL, PASS],
+      workerReports: [BROWSER_WORKER_REPORT, JSON.stringify({ complete: true, browserEvidence: refreshed })],
+    });
+    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
+
+    assert.deepEqual(evidence.browserEvidence, refreshed);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).browserEvidence, refreshed);
+    assert.ok(fake.calls.indexOf("remediation") < fake.calls.indexOf("validate:1"));
+  });
+});
+
+test("malformed remediation evidence fails before remediation validation and retains prior valid evidence", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:frontend" } : label) };
+    const fake = fakeRun({ issue, reviews: [FAIL], workerReports: [BROWSER_WORKER_REPORT, "bad report"] });
+    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /worker output is not valid JSON/);
+
+    assert.equal(fake.calls.includes("validate:1"), false);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).browserEvidence, BROWSER_EVIDENCE);
   });
 });
 
