@@ -1,6 +1,6 @@
 # Delivery brief
 
-Use this in the existing GitHub issue. Link the relevant workstream and strategy section. Keep routine fixes short; omit inapplicable detail.
+Use this in the existing GitHub issue. Factory refinements belong in a marked proposal comment, not an overwrite of the executable issue body. Jesse must author the unmarked executable body; neither a factory proposal nor Jesse's approval of a comment bypasses the trusted-human-body check. Link the relevant workstream and strategy section. Keep routine fixes short; omit inapplicable detail.
 
 ## Outcome
 Customer problem and observable improvement.
@@ -20,4 +20,4 @@ Provider access and technical dependencies. Recommend answers to unresolved choi
 ## Done and delivery
 Observable acceptance, required repository gates, focused evidence, rollout/recovery, and documentation. Link implementation issues and PRs. A merged screen or adapter alone does not prove a live journey.
 
-Follow the operating manual for labels, authorization, review, and merge. A complete brief does not grant `factory:ready`. End factory-authored issue bodies with the required marker.
+Follow the operating manual for labels, authorization, review, and merge. A complete brief does not grant `factory:ready`. End factory-authored proposal comments and non-executable tracking bodies with `<!-- factory -->`; never remove that marker to make generated issue text eligible.

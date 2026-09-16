@@ -1,0 +1,56 @@
+name: Home Project sync
+
+on:
+  issues:
+    types: [opened, reopened, closed, labeled, unlabeled, milestoned, demilestoned]
+  schedule:
+    # Native issue events do not reliably cover hierarchy changes; reconcile hourly.
+    - cron: "23 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Read and report without changing Project membership or fields"
+        type: boolean
+        default: true
+
+concurrency:
+  group: home-project-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    name: Reconcile issue delivery fields
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    environment: home-project
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout trusted default-branch sync code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/delivery
+            package.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.13.1
+          package-manager-cache: false
+
+      - name: Reconcile trusted issue state into the Home Project
+        env:
+          HOME_PROJECT_TOKEN: ${{ secrets.HOME_PROJECT_TOKEN }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = "true" ]; then
+            node scripts/delivery/sync-home-project.mjs --dry-run
+          else
+            node scripts/delivery/sync-home-project.mjs
+          fi
