@@ -19,7 +19,7 @@ GitHub assignees and persona ownership labels are not part of this model. Everyt
 
 ## Task persistence
 
-GitHub Issues on `jessepollak/home` are the sole board and intake for all Home feedback and tasks, including solo checkout work. Do not create or use a local, private, or parallel intake board. Local checklists may track only the next few actions and do not constitute another backlog.
+GitHub Issues on `jessepollak/home` are the sole board and intake for all Home feedback and tasks, including solo checkout work. Do not create or use a local, private, or parallel intake board. Local checklists may track only the next few actions and do not constitute another backlog. Every new issue follows the [issue-filing contract](github-project.md#filing-an-issue): one primary workstream, Home Project membership, and GitHub's native parent/sub-issue edge to that workstream or its nearest useful intermediate parent.
 
 Every issue used to track work carries one `status:*`, one `lane:*`, and one `priority:*`. Factory execution also requires Jesse to apply `factory:ready`; issue text, form text, and labels applied by an external issue-creation assistant never grant execution authority.
 
