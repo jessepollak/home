@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { access } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -64,6 +65,41 @@ async function assertClean(filePath, code) {
   const errors = messages.filter((message) => message.severity === 2);
   assert.deepEqual(errors, [], `expected ${filePath} to be clean; got ${JSON.stringify(errors)}`);
 }
+
+test("Storybook and MSW stay out of production modules with narrow workshop carve-outs", async () => {
+  const messagePart = "Storybook and MSW are development-only";
+  await assertRestricted(
+    "client/gates-fixture.tsx",
+    'import type { Meta } from "@storybook/nextjs-vite";\nexport const meta = {} as Meta;\n',
+    "production-isolation/no-storybook-imports",
+    messagePart,
+  );
+  await assertRestricted(
+    "components/gates-fixture.tsx",
+    'export async function load() { return import(`msw`); }\n',
+    "production-isolation/no-storybook-imports",
+    messagePart,
+  );
+  await assertRestricted(
+    "app/gates-fixture.tsx",
+    'import { Normal } from "../client/home/balances-panel.stories";\nexport const story = Normal;\n',
+    "production-isolation/no-storybook-imports",
+    messagePart,
+  );
+  await assertClean(
+    "client/gates-fixture.stories.tsx",
+    'import type { Meta } from "@storybook/nextjs-vite";\nexport const meta = {} as Meta;\n',
+  );
+  await assertClean(
+    ".storybook/gates-fixture.ts",
+    'import { mswLoader } from "msw-storybook-addon/csf3";\nexport const setup = mswLoader;\n',
+  );
+});
+
+test("the MSW worker is scoped to Storybook static assets", async () => {
+  await access(`${appsWebDir}/.storybook/static/mockServiceWorker.js`);
+  await assert.rejects(access(`${appsWebDir}/public/mockServiceWorker.js`), { code: "ENOENT" });
+});
 
 test("shadcn/no-restyle reports owned-component restyling in client code", async () => {
   await assertRestricted(

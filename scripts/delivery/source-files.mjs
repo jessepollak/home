@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 // Directories that never carry repository source for gate scans.
-const DEFAULT_SKIP_DIRS = new Set(["node_modules", ".next", ".vercel", "test-results", "playwright-report"]);
+const DEFAULT_SKIP_DIRS = new Set(["node_modules", ".next", ".vercel", "storybook-static", "test-results", "playwright-report"]);
 
 // Load source files under rootDir as { path, content } with POSIX-relative paths,
 // filtered by extension. Gate helpers stay pure; tests use this to feed them.

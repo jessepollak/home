@@ -129,7 +129,7 @@ function ItemContent({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 const itemTitleVariants = cva(
-  "line-clamp-1 flex w-fit items-center gap-2 text-sm leading-snug font-medium underline-offset-4",
+  "flex w-fit items-center gap-2 text-sm leading-snug font-medium underline-offset-4",
   {
     variants: {
       tone: {
@@ -142,10 +142,15 @@ const itemTitleVariants = cva(
         true: "tabular-nums",
         false: "",
       },
+      truncate: {
+        true: "line-clamp-1",
+        false: "whitespace-nowrap",
+      },
     },
     defaultVariants: {
       tone: "default",
       numeric: false,
+      truncate: true,
     },
   }
 )
@@ -154,12 +159,13 @@ function ItemTitle({
   className,
   tone = "default",
   numeric = false,
+  truncate = true,
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof itemTitleVariants>) {
   return (
     <div
       data-slot="item-title"
-      className={cn(itemTitleVariants({ tone, numeric, className }))}
+      className={cn(itemTitleVariants({ tone, numeric, truncate, className }))}
       {...props}
     />
   )
