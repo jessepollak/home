@@ -1,4 +1,5 @@
 const REQUIRED_LABELS = ["factory:ready", "status:todo"];
+const GENERATED_BODY_MARKERS = ["<!-- factory -->", "<!-- hugo -->"];
 const MAX_FIX_LOOPS = 2;
 
 function labelNames(issue) {
@@ -6,10 +7,18 @@ function labelNames(issue) {
   return issue.labels.map((label) => typeof label === "string" ? label : label?.name).filter(Boolean);
 }
 
-export function evaluateFactoryRunEligibility(issue, openPullRequests = []) {
+export function evaluateFactoryRunEligibility(issue, openPullRequests = [], repositoryOwner) {
   const failures = [];
   if (!issue || typeof issue !== "object") failures.push("issue is unavailable");
   if (issue?.state !== "OPEN") failures.push("issue must be OPEN");
+  if (typeof repositoryOwner !== "string" || repositoryOwner === "") {
+    failures.push("repository owner is unavailable");
+  } else if (issue?.author?.login !== repositoryOwner) {
+    failures.push("issue must be authored by the repository owner");
+  }
+  if (typeof issue?.body === "string" && GENERATED_BODY_MARKERS.some((marker) => issue.body.includes(marker))) {
+    failures.push("issue body must not contain a generated-text marker");
+  }
 
   const names = labelNames(issue);
   const labels = new Set(names);
@@ -31,6 +40,7 @@ export function openPullRequestsFromTimelinePages(pages) {
   if (!Array.isArray(pages)) throw new Error("issue timeline is unavailable");
   const events = pages.length > 0 && Array.isArray(pages[0]) ? pages.flat() : pages;
   const pulls = events
+    .filter((event) => event?.event === "cross-referenced")
     .map((event) => event?.source?.issue)
     .filter((issue) => issue?.pull_request && String(issue.state).toLowerCase() === "open")
     .map((issue) => ({ number: issue.number, url: issue.html_url }));
@@ -112,6 +122,7 @@ export function planAfterReview(verdict, completedFixLoops) {
 }
 
 export const factoryRunPolicyConstants = Object.freeze({
+  generatedBodyMarkers: Object.freeze([...GENERATED_BODY_MARKERS]),
   maxFixLoops: MAX_FIX_LOOPS,
   requiredLabels: Object.freeze([...REQUIRED_LABELS]),
 });

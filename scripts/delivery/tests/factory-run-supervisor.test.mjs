@@ -4,12 +4,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { runFactorySupervisor } from "../factory-run.mjs";
+import {
+  createGitHubAdapter,
+  factoryIssuePromptInput,
+  reviewerPrompt,
+  runFactorySupervisor,
+  workerPrompt,
+} from "../factory-run.mjs";
 
 const ISSUE = {
   number: 546,
   title: "Bounded runner",
   body: "Implement the bounded runner.",
+  author: { login: "jessepollak" },
   state: "OPEN",
   labels: [
     { name: "factory:ready" },
@@ -37,6 +44,7 @@ function fakeRun({
   const calls = [];
   let reviewIndex = 0;
   const github = {
+    repositoryOwner: "jessepollak",
     async verifyAuthentication() {
       calls.push("auth");
       if (authFailure) throw new Error("auth failed");
@@ -91,6 +99,33 @@ async function withRunPaths(operation) {
     await rm(directory, { recursive: true, force: true });
   }
 }
+
+test("repository owner is derived from the configured owner/repo", () => {
+  assert.equal(createGitHubAdapter({ repository: "configured-owner/home", environment: {} }).repositoryOwner, "configured-owner");
+  assert.throws(() => createGitHubAdapter({ repository: "unscoped-repository", environment: {} }), /owner\/repo/);
+});
+
+test("model prompts receive only the bounded issue fields and no timeline or comment text", () => {
+  const issue = {
+    ...ISSUE,
+    title: "Bounded runner",
+    url: "https://github.test/issues/546",
+    author: { ...ISSUE.author, name: "AUTHOR-NAME-SENTINEL" },
+    labels: ISSUE.labels.map((label) => ({ ...label, description: "LABEL-DESCRIPTION-SENTINEL" })),
+    comments: [{ body: "COMMENT-BODY-SENTINEL" }],
+    timeline: [{ body: "TIMELINE-BODY-SENTINEL" }],
+    arbitrary: "ARBITRARY-FIELD-SENTINEL",
+  };
+  const input = factoryIssuePromptInput(issue);
+  assert.deepEqual(Object.keys(input), ["number", "title", "body", "author", "state", "labels", "url"]);
+  assert.deepEqual(input.author, { login: "jessepollak" });
+  assert.deepEqual(input.labels, ISSUE.labels);
+
+  for (const prompt of [workerPrompt(issue), reviewerPrompt(issue, "safe diff")]) {
+    assert.match(prompt, /Bounded runner/);
+    assert.doesNotMatch(prompt, /AUTHOR-NAME-SENTINEL|LABEL-DESCRIPTION-SENTINEL|COMMENT-BODY-SENTINEL|TIMELINE-BODY-SENTINEL|ARBITRARY-FIELD-SENTINEL/);
+  }
+});
 
 test("supervisor waits for current-head CI before promoting a normal PR", async () => {
   await withRunPaths(async (paths) => {
