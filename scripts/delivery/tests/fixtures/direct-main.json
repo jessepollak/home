@@ -8,7 +8,7 @@
     "merged": false,
     "base": { "ref": "main" },
     "labels": [
-      { "name": "owner:hugo" },
+      { "name": "priority:p1" },
       { "name": "lane:ops" },
       { "name": "status:ready-for-review" }
     ]

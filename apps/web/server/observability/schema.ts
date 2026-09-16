@@ -26,7 +26,11 @@ export const ACTIVITY_READ_REASONS = [
   "request",
   "primary-source",
 ] as const;
-export const ACTIVITY_READ_SOURCES = ["none", "cdp-sql"] as const;
+export const ACTIVITY_READ_SOURCES = [
+  "none",
+  "cdp-sql",
+  "cdp-address-history",
+] as const;
 export type ActivityReadOutcome = (typeof ACTIVITY_READ_OUTCOMES)[number];
 export type ActivityReadReason = (typeof ACTIVITY_READ_REASONS)[number];
 export type ActivityReadSource = (typeof ACTIVITY_READ_SOURCES)[number];
@@ -93,6 +97,7 @@ export const SERVER_EVENT_OUTCOMES = [
 ] as const;
 export const FUNDING_ORDER_CODES = [
   "ORDER_UNAVAILABLE",
+  "FUNDING_PROVIDER_CONFIGURATION",
   "FUNDING_SANDBOX_MIGRATION_REQUIRED",
   "OFFRAMP_DISCOVERY_CONFIGURATION",
   "OFFRAMP_DISCOVERY_PROVIDER",
@@ -103,6 +108,7 @@ export const FUNDING_ORDER_CODES = [
   "PROVIDER_HTTP_4XX",
   "PROVIDER_HTTP_5XX",
   "PROVIDER_TRANSPORT",
+  "PROVIDER_INVALID_RESPONSE",
 ] as const;
 export type ServerEventKind = (typeof SERVER_EVENT_KINDS)[number];
 export type ServerEventOutcome = (typeof SERVER_EVENT_OUTCOMES)[number];
@@ -162,6 +168,7 @@ export type ObservabilityEvent =
       code: string;
       outcome: ServerEventOutcome;
       provider?: string;
+      region?: string;
       ownerHash?: string;
       durationMs: number;
     };
@@ -272,6 +279,7 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         code: string;
         outcome: ServerEventOutcome;
         provider?: string;
+        region?: string;
         ownerHash?: string;
         durationMs: number;
       }
@@ -423,6 +431,9 @@ export function normalizeObservabilityEvent(
     const provider = event.provider
       ? sanitizeIdentifier(event.provider, "unknown").slice(0, 64)
       : undefined;
+    const region = event.region && /^[A-Z]{2}$/.test(event.region)
+      ? event.region
+      : undefined;
     const ownerHash = event.ownerHash && /^[a-f0-9]{32}$/.test(event.ownerHash)
       ? event.ownerHash
       : undefined;
@@ -436,6 +447,7 @@ export function normalizeObservabilityEvent(
       code,
       outcome,
       ...(provider ? { provider } : {}),
+      ...(region ? { region } : {}),
       ...(ownerHash ? { ownerHash } : {}),
       durationMs: boundedInteger(event.durationMs, 60_000),
     };

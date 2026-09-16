@@ -1,101 +1,82 @@
-# Coinbase headless Onramp
+# Coinbase web Embedded Orders
 
-Status: implemented on the funding provider seam for #294. Sandbox quote, create, and status were verified live on September 13, 2026 through both the adapter and the running app. Coinbase's payment pages (`/v3/api-onramp/embedded-order` and `/v3/api-onramp/apple-pay`) returned HTTP 500 for every sandbox order that day; the failure was on Coinbase's side. Production embedded create still returns `400 Email is required` pending account enablement.
+Status: implemented on the funding-provider seam for #294. Home uses Coinbase's server-authenticated Headless Orders API and renders Coinbase's hosted payment link in an iframe. Home does not call the iOS/React Native end-user endpoint, open the Cross-Platform FundModal popup, or collect Coinbase verification fields.
 
-## Binding
+## Flow and eligibility
 
-- Region: United States (`US`)
-- Asset: USDC on Base (`base:usdc`)
-- Payment method: Apple Pay (`apple-pay`)
-- Provider reference policy: Coinbase assigns the provider order ID
-- Quotes: enabled
-
-The binding is eligible only when both existing server variables are configured:
+The `US` binding buys USDC on Base with Apple Pay. It is eligible for both `base-account` and `cdp-embedded` sessions when these server-only variables are configured:
 
 - `CDP_API_KEY_ID`
 - `CDP_API_KEY_SECRET`
 
-The adapter supports the core-owned local sandbox switch described below. It does not introduce a provider-specific sandbox variable, a `NEXT_PUBLIC_` variable, or customer-token storage.
+The verified Home session supplies the Base destination. Each request uses a short-lived CDP JWT scoped to its exact method, host, and path.
 
-## API calls
+1. `POST /platform/v2/onramp/orders` with `isQuote: true` obtains pricing without reserving an order or payment link.
+2. Home signs the quote and creates exactly once with the quoted USDC `purchaseAmount`, preserving the Home order ID as `partnerOrderRef`.
+   September 13, 2026 sandbox validation found Coinbase required `clientIp` despite its optional API-reference status. On September 16, 2026, Coinbase support reported IP-validation failures, disabled that validation, and requested a retry without `clientIp`; the Coinbase adapter now omits it unconditionally. This records the provider-requested retry configuration, not a permanent API contract.
+3. Coinbase returns an allowlisted `https://pay.coinbase.com` payment link.
+4. `GET /platform/v2/onramp/orders/{orderId}` reconciles status. Home independently verifies the exact Base USDC transfer before reporting `received`.
 
-All requests use the seam-owned `ctx.fetch` allowlist and a per-request CDP JWT generated for the exact method, host, and path.
+Quote and create omit `phoneNumber`, `email`, `agreementAcceptedAt`, `phoneNumberVerifiedAt`, `smsVerificationId`, and `emailVerificationId`. Those omissions select **Embedded Orders**, where Coinbase collects and verifies contact, OTP, identity, limits-upgrade, and agreement information in its hosted experience. In standard Headless mode the integrator supplies verified contact/agreement fields and may receive an Apple Pay button link instead. Cross-Platform FundModal is a separate popup SDK and is not used here. See Coinbase's official [Onramp overview](https://docs.cdp.coinbase.com/onramp-&-offramp/introduction/welcome) and [Create an Onramp Order API reference](https://docs.cdp.coinbase.com/api-reference/v2/rest-api/onramp/create-an-onramp-order).
 
-- `POST https://api.cdp.coinbase.com/platform/v2/onramp/orders` with `isQuote: true` creates a pricing-only quote.
-- `POST https://api.cdp.coinbase.com/platform/v2/onramp/orders` with the signed quote's exact USDC `purchaseAmount` creates an order.
-- `GET https://api.cdp.coinbase.com/platform/v2/onramp/orders/{orderId}` reconciles status and transaction hash.
+Coinbase may include a top-level `userAuthToken` in its response. Home ignores it: it is not returned to the browser, logged, or persisted. Secure caching to reduce repeat Coinbase verification is a follow-up; never put it in `customer_ref` or plaintext ad hoc storage.
 
-The adapter does not use the retired `/platform/v2/onramp/sessions` hosted-session endpoint.
+## Iframe and domain requirements
 
-## Embedded-mode assumptions
+Home accepts both `PAYMENT_LINK_TYPE_EMBEDDED_ORDER` and the documented standard Apple Pay button type, but only persists HTTPS links on the exact `https://pay.coinbase.com` origin with no userinfo or fragment. The iframe uses:
 
-Coinbase collects contact details, OTP, required identity checks, and its own terms inside the cross-origin payment session. Home renders only an Apple Pay iframe returned from `https://pay.coinbase.com`, after Home's economics review and only while the order is awaiting payment. The iframe uses:
+```html
+sandbox="allow-scripts allow-same-origin"
+referrerpolicy="no-referrer"
+allow="payment"
+```
 
-- `sandbox="allow-scripts allow-same-origin"`
-- `referrerPolicy="no-referrer"`
-- `allow="payment"`
+Messages can trigger a debounced status refetch only when both `event.origin` and `event.source` match the current iframe. A message cannot create an order, navigate Home, or set funding state.
 
-The `domain` request field is the hostname of the Home request origin. `localhost` requires no CDP registration. Production and preview domains must be allowlisted and verified in CDP Portal, including Coinbase's hosted domain-verification file.
+Production Embedded Orders require Coinbase Onramp approval/enablement plus allowlisting and verification of every top-level production or preview domain. Home sends that request hostname as `domain`; deploy Coinbase's required domain-verification file where applicable. Apple Pay in a cross-origin iframe also depends on the supported browser and secure-context requirements.
 
-Home accepts Coinbase `postMessage` events only from the iframe's exact origin and window. Selected completion/error events trigger one debounced server refetch; messages never navigate, create an order, or set local status copy.
+## Sandbox
 
-## Echo rules
-
-Quote responses must echo USD, USDC, Base, and the exact destination. Decimal values are compared atomically, so equivalent strings such as `"10"` and `"10.00"` match. The fee-inclusive `paymentTotal` must equal `paymentSubtotal` plus all USD fees. `purchaseAmount` must fit USDC's six decimals.
-
-Order creation pins `purchaseAmount` to the signed quote's exact USDC atomic amount and sends the Home order ID as `partnerOrderRef`. A successful response must echo the payment method, currencies, Base network, destination, deterministic `partnerUserRef`, exact purchase amount, coherent USD fee equation, and an Apple Pay payment link on `https://pay.coinbase.com` with no userinfo or fragment.
-
-Status reconciliation requires the same provider order ID, destination, Base network, USDC currency, and exact purchase amount. Contradictory create echoes are ambiguous and are never retried. Contradictory status echoes remain unknown.
-
-## Quote and status behavior
-
-Coinbase quotes are not lockable. Home therefore requests the exact quoted token amount on create and displays the resulting fee-inclusive fiat total from the created order above the Apple Pay iframe. A changed fiat total is allowed because the Apple Pay sheet is the final charge consent.
-
-Status mapping:
-
-| Coinbase status | Seam state |
-|---|---|
-| `PENDING_VERIFICATION`, `PENDING_PAYMENT` | `awaiting-payment` |
-| `PROCESSING` | `settling` |
-| `COMPLETED` | `sent` (core verifies the Base transfer before `received`) |
-| `FAILED` | `failed` |
-| `CANCELLED` | `cancelled` |
-| `EXPIRED` | `expired` |
-| `UNSPECIFIED` or unknown | `unknown` |
-
-A transaction hash is forwarded only when it is exactly a 32-byte hexadecimal hash.
-
-## Sandbox dry run
-
-Sandbox mode is for local dry runs only and must never be enabled on Vercel:
+Sandbox is local-only:
 
 ```sh
 COINBASE_ONRAMP_MODE=sandbox
 ```
 
-The mode applies only to Coinbase onramp; other providers and directions keep their own production/default mode. Coinbase uses the production CDP API key, prefixes `partnerUserRef` with `sandbox-`, sends the request's forwarded client IP, and appends `useApplePaySandbox=true` to the returned payment link. Use `+1000…` phone numbers, `*@sandbox.test` email addresses, and OTP `000000` inside the sandbox flow. Coinbase sandbox never moves real USDC, so Home stops at `sent-unverified` and displays the run as complete without receipt verification. Coinbase rejects loopback/private client IPs, which is all a local run has, so set `FUNDING_SANDBOX_CLIENT_IP` to your public IP for a local dry run; the core substitutes it only in sandbox mode and only when the forwarded IP is missing or private. Production never reads it.
+The mode applies only to Coinbase onramp; other providers and directions keep their own production/default mode. Coinbase uses the production CDP API key, prefixes `partnerUserRef` with `sandbox-`, appends `useApplePaySandbox=true` to the payment link, and omits `clientIp`. The generic core client-IP seam remains available to other providers. Use `+1000…` phone numbers, `*@sandbox.test` email addresses, and OTP `000000` inside Coinbase. Sandbox never moves real USDC: Home stops at `sent-unverified`, displays the run as complete, and does not resume it as an open order.
 
-## How to test
+A pre-existing `dispatch-ambiguous` sandbox row remains resumable and has no UI recovery. Delete that local proof row before retrying; do not retry provider create for the same reservation.
 
-Automated tests use only fixtures marked `source: "synthetic"`:
+## Status and evidence
+
+| Coinbase status | Home state |
+|---|---|
+| `PENDING_VERIFICATION`, `PENDING_PAYMENT` | `awaiting-payment` |
+| `PROCESSING` | `settling` |
+| `COMPLETED` | `sent-unverified`, then `received` only after exact Base receipt evidence |
+| `FAILED`, `CANCELLED`, `EXPIRED` | matching terminal state |
+| unknown or contradictory response | `unknown` |
+
+September 16, 2026 evidence:
+
+- A complete authenticated sandbox run driven through `agent-browser` omitted `clientIp`, completed quote, exactly one create, repeated generic GET status, and loaded the Embedded Orders iframe. Coinbase accepted `+1000…` phone and `@sandbox.test` email inputs with OTP `000000`, approved the synthetic limits-upgrade inputs, displayed the exact 4.88 USDC / $5.00 review, and completed the fake Apple Pay confirmation. Generic status reached `COMPLETED`; Home reached `sent-unverified` and displayed **Sandbox complete — no real funds moved**.
+- The local production quote returned HTTP 400 with `Email is required`. This records the observed response only; production Embedded Orders still require Coinbase enablement confirmation.
+- The September 13 and 15 HTTP 500s used the prior `clientIp` payload. A September 16 retry without `clientIp` used a non-sandbox phone number and ended with `ERROR_CODE_INTERNAL`; the subsequent valid sandbox run completed. These earlier failures are superseded by the valid end-to-end proof and are not provider blockers.
+
+No funded authorization was performed.
+
+## Validation
 
 ```sh
+bun test apps/web/server/funding/providers/coinbase/adapter.test.ts
 bun test apps/web/server/funding apps/web/shared/funding apps/web/client/funding
+bun check
 ```
 
-Jesse's funded proof:
-
-1. In `apps/web/.env.local`, configure `HOME_SESSION_SECRET`, `DATABASE_URL`, `FUNDING_QUOTE_SECRET`, the existing `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET`, and `BASE_RPC_URL`. Unset `NEXT_PUBLIC_CDP_PROJECT_ID` to use Home-native Base Account sign-in.
-2. Run migrations and Home, then open `http://localhost:3000` in Safari with Apple Pay configured.
-3. Choose United States, sign in with Base Account, then Add money → Deposit USD → Apple Pay.
-4. Enter $5–10, review the quote, confirm, review the created-order economics, open the payment instructions, and tap Apple Pay inside the iframe.
-5. Confirm Touch ID and wait for Home to reach `received`; verify the transaction hash appears in Activity.
-
-Apple Pay in a cross-origin iframe on localhost remains unverified until this run. If Safari requires a secure top-level context, retry with Next.js development HTTPS.
+Tests lock contact-field omission, exact purchase amount, one create, generic status GET, embedded payment-link acceptance, sandbox query/reference behavior, account-provider eligibility, `userAuthToken` containment, iframe attributes, trusted messages, and receipt-gated completion.
 
 ## Operator actions
 
 - In CDP Portal, allowlist and verify Home's production and preview domains for Apple Pay. `localhost` needs no registration.
 - Confirm the existing CDP API credentials remain configured in Vercel.
 - Never set `COINBASE_ONRAMP_MODE` on production Vercel; it is only for local dry runs.
-- A pre-existing `dispatch-ambiguous` order has no UI recovery and remains resumable; for a local proof, delete that row before retrying.

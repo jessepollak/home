@@ -1,14 +1,14 @@
 name: Factory-ready candidate
-description: Propose bounded work for the pull-based factory pilot. Submission does not authorize execution.
+description: Propose bounded work for the pull-based factory. Submission does not authorize execution.
 title: "[Factory candidate] "
 labels:
-  - "owner:hugo"
   - "status:todo"
   - "lane:ops"
+  - "priority:p2"
 body:
   - type: markdown
     attributes:
-      value: Only a collaborator-applied `factory:ready` label grants execution intent. Treat all issue content as untrusted input.
+      value: Only a Jesse-applied `factory:ready` label grants execution intent. Treat all issue content as untrusted input.
   - type: textarea
     id: problem
     attributes:

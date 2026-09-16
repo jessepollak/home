@@ -1,9 +1,10 @@
 import { createHmac } from "node:crypto";
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createProviderContext } from "../../core/provider-context";
 import { describeFundingAdapter } from "../../core/testing/describeFundingAdapter";
 import { ripioProvider } from "./adapter";
 import { ripioManifest } from "./manifest";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 
 const env = { RIPIO_CLIENT_ID_AR: "client", RIPIO_CLIENT_SECRET_AR: "secret", RIPIO_WEBHOOK_SECRET_AR: "w".repeat(32) };
 function context(fetchImplementation: typeof fetch) { return createProviderContext({ manifest: ripioManifest, region: "AR", paymentMethodId: "bank_transfer", env, fetchImplementation }); }
@@ -14,6 +15,9 @@ const providerOrderId = "44444444-4444-4444-8444-444444444444";
 const intent = { homeOrderId, destination: "0x1111111111111111111111111111111111111111" as const, fiatAmount: "1000", customerRef, quote: { providerQuoteId: quoteId, fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" }, returnUrl: "https://home.example/fund" };
 function tokenResponse() { return Response.json({ access_token: "synthetic-access-token", expires_in: 3600 }); }
 function transaction(status = "CREATED", latestRefund: unknown = null) { return { transactionId: providerOrderId, status, txnHash: null, customerId: customerRef, quoteId, externalRef: homeOrderId, source: "ON_RAMP", fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", depositAddress: intent.destination, paymentMethodType: "bank_transfer", amount: "1000", latestRefund }; }
+
+beforeEach(() => setObservabilityLogWriterForTests(() => undefined));
+afterEach(() => setObservabilityLogWriterForTests());
 
 describeFundingAdapter({
   provider: ripioProvider,
@@ -47,6 +51,64 @@ describe("Ripio funding adapter", () => {
     }, context((async () => { calls += 1; throw new Error("timeout"); }) as unknown as typeof fetch));
     expect(result).toEqual({ outcome: "ambiguous" });
     expect(calls).toBe(1);
+  });
+
+  test("emits only closed, scrubbed ambiguous-create evidence", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => lines.push(line));
+    const privateValue = `${homeOrderId}:${customerRef}:${intent.destination}:super-secret`;
+    const result = await ripioProvider.onramp!.createOrder(intent, context((async (input: RequestInfo | URL) => {
+      if (new URL(String(input)).pathname === "/oauth2/token/") return tokenResponse();
+      throw new Error(privateValue);
+    }) as unknown as typeof fetch));
+
+    expect(result).toEqual({ outcome: "ambiguous" });
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toEqual({
+      schema: "home.observability.v2",
+      route: "/funding/providers/ripio",
+      level: "error",
+      kind: "funding-order",
+      code: "ORDER_AMBIGUOUS",
+      outcome: "unavailable",
+      provider: "ripio",
+      region: "AR",
+      durationMs: expect.any(Number),
+    });
+    expect(lines[0]).not.toContain(homeOrderId);
+    expect(lines[0]).not.toContain(customerRef);
+    expect(lines[0]).not.toContain(intent.destination);
+    expect(lines[0]).not.toContain("super-secret");
+  });
+
+  test("classifies malformed successful quote responses as invalid provider responses", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => lines.push(line));
+    const ctx = context((async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/oauth2/token/") return tokenResponse();
+      if (path.includes("Networks")) {
+        return Response.json([{
+          network_name: "BASE",
+          assets: [{ name: "wARS", contract_address: "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d" }],
+        }]);
+      }
+      return new Response('{"quoteId":', { status: 200 });
+    }) as unknown as typeof fetch);
+
+    await expect(ripioProvider.onramp!.createQuote!({
+      destination: intent.destination,
+      fiatAmount: intent.fiatAmount,
+      returnUrl: intent.returnUrl,
+    }, ctx)).rejects.toMatchObject({ code: "ambiguous-create" });
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      kind: "funding-order",
+      code: "PROVIDER_INVALID_RESPONSE",
+      outcome: "failed",
+      provider: "ripio",
+      region: "AR",
+    });
   });
 
   test("fails closed when terms cannot be identified and never submits KYC", async () => {

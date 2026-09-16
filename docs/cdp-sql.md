@@ -1,6 +1,6 @@
 # CDP SQL chain-history adapter
 
-Status: signed-JWT authentication and one basic bounded `base.events` query verified live by the parent; the transfer template and pagination remain pending live verification.
+Status: available as the default Activity fallback while CDP Address History's REST/JWT transport awaits end-to-end Preview pagination and ordering acceptance.
 Last reviewed: 2026-09-14.
 
 Home uses CDP SQL only as a read-only indexed history source. It is **not** a spendable-balance, transaction-confirmation, vault-position, debt, or authorization source. Current spendable inventory uses CDP Onchain Data Token Balances for allowlisted directs and pinned-block RPC for Morpho vault conversion; receipts and protocol adapters remain the confirmation path. Do not query CoinbaSeQL for balances. Locked inventory direction: [balances inventory](balances-inventory-architecture.md); research detail on [#76](https://github.com/jessepollak/home/issues/76#issuecomment-5594452047).
@@ -10,8 +10,8 @@ Home uses CDP SQL only as a read-only indexed history source. It is **not** a sp
 `apps/web/server/chain-data` provides:
 
 - A fixed Base mainnet ERC-20 `Transfer(address,address,uint256)` history template over `base.events`.
-- Runtime validation for a session-verified wallet address, optional operator-supplied asset allowlists, all-contract wallet scope, a maximum 31-day time window, page sizes of 1–200, and cache ages of 500–900,000 ms. Activity uses all-contract mode with `includeUnknownAssets: true` and no static asset IDs.
-- Deterministic descending keyset pagination by block number, transaction hash, log index, and CDP log ID.
+- Runtime validation for a session-verified wallet address, optional operator-supplied asset allowlists, all-contract wallet scope, a maximum 31-day time window, page sizes of 1–200, and cache ages of 500–900,000 ms. Activity's SQL fallback uses all-contract mode with `includeUnknownAssets: true` and no static asset IDs.
+- Deterministic descending keyset pagination by Ethereum chain-log position: block number, numeric block-scoped log index, transaction hash, token address, and CDP log ID. This matches the public Activity order `(blockNumber, logIndex, transactionHash, id)`.
 - Re-org-aware event selection using `sum(toInt8(action)) AS net_action` in the grouped subquery and `WHERE net_action > 0` outside it. CoinbaSeQL's published `selectStatement` has no `HAVING`. The adapter does not filter naively to added rows.
 - Numeric ordering and cursor comparisons use distinct internal aliases before block numbers and log indexes are cast to lossless public strings. Runtime parsing rejects numeric block/index values. Numeric token amounts are rejected in allowlist mode and omitted as unclassified in all-contract mode, so already-rounded JavaScript numbers are never accepted as base units.
 - Response validation matches official CDP `OnchainDataResult`: empty page is `result: []`, or live CoinbaSeQL `result: null` with `metadata.rowCount === 0`. `schema` and `metadata` plus every metadata field are optional. Present metadata is type-checked; missing `cached` / timestamp / duration default to uncached, fetch time, and `0`. `rowCount` may equal the page or exceed it on a truncated page. Partial derived `schema` is ignored, not a 502. A 200 **without** a `result` field stays `invalid-response` — do not invent an empty list from an error-shaped body. `result: null` with a non-zero or missing `rowCount` also stays invalid. Returned participants must still match the verified wallet. Allowlist mode also requires every returned contract to match the requested allowlist. In all-contract mode, valid-envelope rows with a present decoded amount that is null, empty, numeric, or non-decimal are treated as unclassified/NFT-like and omitted without failing the page; an omitted `amount_base_units` response field and malformed addresses, hashes, log IDs, timestamps, or wallet scope still fail closed. Pagination cursors come from the last limited source row even when that row is omitted.
@@ -23,10 +23,12 @@ The intended parent integration is:
 1. Validate the browser session on the server.
 2. Resolve the session's smart-account address from trusted provider data.
 3. Pass that address as `verifiedWalletAddress`; never accept an unverified browser wallet as authority.
-4. For Activity, request all wallet-scoped decoded transfers with `includeUnknownAssets: true` and `assetIds: []`. Resolve token metadata after the single SQL request by exact contract: Home's full Base registry first, then Codex, then a bounded fail-soft Base RPC multicall for unresolved contracts. Activity-specific enrichment caps Codex and Base RPC at 3 seconds each so the serial SQL-plus-enrichment path stays within the route's 30-second budget.
+4. With the default `ACTIVITY_HISTORY_SOURCE=cdp-sql`, request all wallet-scoped decoded transfers with `includeUnknownAssets: true` and `assetIds: []`. Resolve token metadata after the single SQL request by exact contract: Home's full Base registry first, then Codex, then a bounded fail-soft Base RPC multicall for unresolved contracts. Activity-specific enrichment caps Codex and Base RPC at 3 seconds each so the serial SQL-plus-enrichment path stays within the route's 30-second budget.
 5. Return the normalized page to the authenticated caller with private/no-shared-cache response policy. Unknown metadata remains null; only an individual `decimals()` revert positively classifies an unresolved contract as NFT-like and allows its rows to be omitted.
 
 The chain-data adapter itself remains read-only and does not own authentication, database state, balance reads, or mutations; the private Activity route composes it with session authorization and token metadata resolution.
+
+`ACTIVITY_HISTORY_SOURCE` accepts only `cdp-sql` or `cdp-address-history`. Unset defaults to SQL, and an invalid value fails closed as not configured. Address History is the staged destination using the server CDP project key and fixed REST endpoint; operators must not enable it in Production until the end-to-end Preview auth/order gate in [CDP Address History](cdp-address-history.md) passes. Existing deployments must redeploy after changing the source variable.
 
 ## Authentication decision
 

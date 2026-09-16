@@ -8,7 +8,7 @@
     "merged": false,
     "base": { "ref": "feature/already-landed" },
     "labels": [
-      { "name": "owner:hugo" },
+      { "name": "priority:p2" },
       { "name": "lane:ops" }
     ]
   }

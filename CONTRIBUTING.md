@@ -30,8 +30,8 @@ Do not add provider credentials or funded-wallet checks to pull-request CI.
 - Token amounts are `bigint`; exact review facts stay on confirm.
 - Update the matching current doc when a contract changes.
 
-## Agent team & merge policy
+## Factory & merge policy
 
-The in-repo agent crew follows the [operating manual](docs/operating-manual.md). GitHub Issues and labels are the sole intake and execution board.
+The factory follows the [operating manual](docs/operating-manual.md). GitHub Issues and lane/status/priority labels are the sole intake and execution board.
 
 **Only Jesse (`jessepollak`) gives the final +1 and merges.** User-visible pull requests need proof in the description; see [UI PR previews](docs/ui-pr-previews.md).

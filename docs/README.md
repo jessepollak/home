@@ -1,6 +1,6 @@
 # Docs
 
-Start with [Architecture](architecture.md), the one normative design document; [Actions](actions.md) and [Balances](balances.md) are its subsystem designs. [Build status](build-status.md) records the local-app boundary; [Fork and extend](fork-and-extend.md) is the operator path.
+For product intent and MVP scope, start with [Product strategy](product-strategy.md). For technical design, start with [Architecture](architecture.md), the one normative design document; [Actions](actions.md) and [Balances](balances.md) are its subsystem designs. [Build status](build-status.md) records the local-app boundary; [Fork and extend](fork-and-extend.md) is the operator path.
 
 | Doc | Description |
 | --- | --- |
@@ -14,7 +14,8 @@ Start with [Architecture](architecture.md), the one normative design document; [
 | [Architecture audit 2026-09-12](architecture-audit-2026-09-12.md) | Post-reset audit of server, funding seam, and client; ranked cleanup lanes and decisions. |
 | [CDP error reporting](cdp-error-reporting.md) | Default CDP error-reporting policy. |
 | [CDP setup](cdp-setup.md) | CDP project, sessions, and allowed origins. |
-| [CDP SQL](cdp-sql.md) | Indexed Base-history adapter notes. |
+| [CDP Address History](cdp-address-history.md) | Staged wallet-scoped Base Activity source and rollout gate. |
+| [CDP SQL](cdp-sql.md) | Indexed Base-history fallback adapter notes. |
 | [Codex prices](codex-prices.md) | Server-side Invest price integration. |
 | [Currency defaults](currency-defaults.md) | Default asset choices by currency. |
 | [Delivery gates](delivery-gates.md) | Repository and deployment gate boundary. |
@@ -33,9 +34,13 @@ Start with [Architecture](architecture.md), the one normative design document; [
 | [Verified Morpho markets](morpho-markets.md) | Shared registry, math, pinned RPC reader, and product projection boundary for isolated markets. |
 | [Observability](observability.md) | Privacy-safe application observability. |
 | [Performance observability](performance-observability.md) | Speed Insights, closed Home startup events, and balance-latency verification. |
-| [Operating manual](operating-manual.md) | Team workflow, labels, and proof bar. |
+| [Operating manual](operating-manual.md) | Jesse/factory workflow, labels, and proof bar. |
 | [PR previews](pr-previews/README.md) | Preview capture conventions. |
-| [Product scope](product-scope.md) | Product intent, not delivery status. |
+| [Product strategy](product-strategy.md) | Customer, vision, MVP scope, and completion proofs. |
+| [PRD template](prd-template.md) | Bounded delivery brief for an existing issue. |
+| [GitHub Project](github-project.md) | Workstream index, views, and synchronization handoff. |
+| [Agent instruction review](agent-instruction-review.md) | Astra guide application and remaining instruction cleanup. |
+| [Historical product scope](product-scope.md) | Livestream-era intent; current scope is in Product strategy. |
 | [Public transfer feed spec](public-transfer-feed-spec.md) | Proposed public ERC-20 transfer feed. |
 | [QA checking shimmer spec](qa/checking-97/CHECKING-SHIMMER-SPEC.md) | Checking shimmer QA specification. |
 | [README capture guide](readme/README.md) | Screenshot provenance and regeneration. |
@@ -45,3 +50,4 @@ Start with [Architecture](architecture.md), the one normative design document; [
 | [UI direction](ui-direction.md) | Product UI rules and visual direction. |
 | [UI PR previews](ui-pr-previews.md) | Required proof for user-visible changes. |
 | [Vercel deploy](vercel-deploy.md) | Bun monorepo Vercel setup. |
+

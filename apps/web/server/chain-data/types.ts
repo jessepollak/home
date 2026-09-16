@@ -38,7 +38,7 @@ export type BaseErc20Transfer = {
 };
 
 export type ChainDataSource = {
-  provider: "cdp-sql";
+  provider: "cdp-sql" | "cdp-address-history";
   cached: boolean;
   stale: boolean;
   executionTimestamp: string;

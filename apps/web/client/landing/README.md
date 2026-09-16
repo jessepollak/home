@@ -43,11 +43,13 @@ surrounding layout in the parent.
   The renderer uses documented WebGL 1 APIs with two programs/two draw calls:
   a shaded orthographic sphere and sourced land points. No added dependencies,
   textures, remote assets, scene graph, physics or animation packages.
-- Default rotation is 2.5°/second. Horizontal primary-pointer dragging follows the
-  pointer (180° per stage width), with release velocity capped at ±180°/second.
-  Exact exponential integration decays to the default with a 900ms time constant.
-  A stationary hold before release discards stale velocity. Repeated drags reset
-  the prior gesture; cancel/lost capture clears inertia and releases capture.
+- Default rotation is 2.5°/second. Horizontal one-finger swipes and mouse dragging
+  follow the pointer (180° per stage width); vertical one-finger swipes remain native
+  page scroll. Mouse dragging can also tilt the globe vertically. Release velocity is
+  capped at ±180°/second, and exact exponential integration decays to the default
+  with a 900ms time constant. A stationary hold before release discards stale velocity.
+  Repeated drags reset the prior gesture; cancel/lost capture clears inertia and releases
+  capture.
 - Draw workload, including pointer movement, is capped at 30 frames/second (apart
   from initialization/resize), DPR 1.5 and a 960×960 backing buffer. Tab visibility
   and intersection suspend rAF, release any drag, discard inertia and reset the

@@ -40,7 +40,7 @@ describe("public coverage page", () => {
 
   test("globe detail and description use the stablecoin, 1:1 onramp, and integrated signal labels", async () => {
     const { SupportedGlobe } = await import("@/client/landing/supported-globe");
-    const { coverageGlobeCountries, coverageGlobeDescription, coverageGlobePointCount } = await import("@/client/coverage/coverage-globe");
+    const { coverageGlobeCountries, coverageGlobeDescription, coverageGlobePointCount, coverageGlobePriorityCountryCodes } = await import("@/client/coverage/coverage-globe");
     const { coverageRegistry } = await import("@/config/coverage");
     const html = renderToStaticMarkup(
       <SupportedGlobe
@@ -49,19 +49,24 @@ describe("public coverage page", () => {
         ariaLabel="Interactive globe of local-money coverage research"
         description={`${coverageGlobePointCount} sourced inventory points. ${coverageGlobeDescription}`}
         interactiveMarkerTones={["positive", "caution", "negative"]}
+        interactiveCountryCodes={coverageGlobePriorityCountryCodes}
       />,
     );
 
-    expect(html).toContain("239 sourced inventory points. Marker tones describe 1:1 onramp research, not stablecoin availability or integration status.");
-    expect(html).toContain("Stablecoin candidate identified; 1:1 onramp research: Conditional; Integrated: Sandbox");
-    expect(coverageGlobeCountries.find((country) => country.countryCode === "US")?.detail).toBe("Stablecoin candidate identified; 1:1 onramp research: Conditional; Integrated: Sandbox");
-    expect(coverageGlobeCountries.find((country) => country.countryCode === "CN")?.detail).toBe("No stablecoin candidate identified; 1:1 onramp research: Not researched; Not integrated");
+    expect(html).toContain("239 sourced inventory points. Marker tones describe 1:1 onramp research only; portfolio priority does not change marker tone or imply availability.");
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "US")?.detail).toBe("Stablecoin candidate identified; 1:1 onramp research: Conditional; Portfolio: Not scoped; Integrated: Sandbox");
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "CN")?.detail).toBe("No stablecoin candidate identified; 1:1 onramp research: Not found; Portfolio: Deferred; Not integrated");
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "MX")?.detail).toContain("Portfolio: Priority (MXN→MXNB via Juno / Bitso, planned; MXN→wMXN via Ripio, planned)");
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "DE")?.detail).toContain("Portfolio: Priority (EUR→EURC via Coinbase, planned, country eligibility pending)");
     expect(coverageGlobeCountries.find((country) => country.countryCode === "BR")?.markerTone).toBe("positive");
-    expect(coverageGlobeCountries.find((country) => country.countryCode === "CN")?.markerTone).toBe("neutral");
-    expect((html.match(/<button/g) ?? []).length).toBe(coverageRegistry.filter((record) => record.issuerRoute.status !== "not-researched").length);
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "CL")?.markerTone).toBe("caution");
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "CN")?.markerTone).toBe("negative");
+    expect(coverageGlobeCountries.find((country) => country.countryCode === "MT")?.markerTone).toBe("neutral");
+    expect(html).toContain('aria-label="Malta, EUR.');
+    expect((html.match(/<button/g) ?? []).length).toBe(new Set(coverageRegistry.filter((record) => record.issuerRoute.status !== "not-researched" || record.portfolio.status === "priority").map((record) => record.countryCode)).size);
   });
 
-  test("keeps seven split columns and renders icon-only accessible traffic-light triggers in status cells", async () => {
+  test("keeps eight split columns and renders icon-only accessible status triggers", async () => {
     const html = await renderCoverage({ q: "United States" });
     expect(html).toContain("data-slot=\"table\"");
     expect(html).toMatch(/<th[^>]+scope="col">Country<\/th>/);
@@ -70,6 +75,7 @@ describe("public coverage page", () => {
     expect(html).toContain(">Issuer</th>");
     expect(html).toMatch(/<th[^>]+scope="col"><span[^>]*>Stablecoin<\/span><\/th>/);
     expect(html).toMatch(/<th[^>]+scope="col"><span[^>]*>1:1 onramp<\/span><\/th>/);
+    expect(html).toMatch(/<th[^>]+scope="col"><span[^>]*>Portfolio<\/span><\/th>/);
     expect(html).toMatch(/<th[^>]+scope="col"><span[^>]*>Integrated<\/span><\/th>/);
     expect(html).not.toContain(">GDP (2024)</th>");
     expect(html).toMatch(/aria-hidden="true"[^>]*>🇺🇸<\/span>/);
@@ -80,11 +86,13 @@ describe("public coverage page", () => {
     expect(visibleText(cells[3] ?? "")).toBe("");
     expect(visibleText(cells[4] ?? "")).toBe("");
     expect(visibleText(cells[5] ?? "")).toBe("");
+    expect(visibleText(cells[6] ?? "")).toBe("");
     expect(cells[3]).toContain("<button type=\"button\"");
     expect(cells[3]).toContain("aria-label=\"Yellow — Stablecoin candidate identified\"");
     expect(cells[3]).toContain("data-indicator=\"solid\"");
     expect(cells[4]).toContain("aria-label=\"Yellow — Conditional 1:1 onramp\"");
-    expect(cells[5]).toContain("aria-label=\"Yellow — Sandbox integration\"");
+    expect(cells[5]).toContain("aria-label=\"Yellow — Not scoped portfolio\"");
+    expect(cells[6]).toContain("aria-label=\"Yellow — Sandbox integration\"");
     expect(row).not.toContain("<details");
     expect(row).not.toContain("Evidence checked");
     expect(row).not.toContain("Registry checked");
@@ -114,8 +122,8 @@ describe("public coverage page", () => {
     const unknown = await renderCoverage({ q: "China" });
     const unknownRow = unknown.match(/<tr[^>]+id="country-CN"[\s\S]*?<\/tr>/)?.[0] ?? "";
     expect(unknownRow).toContain("aria-label=\"Red — No stablecoin candidate identified\"");
-    expect(unknownRow).toContain("aria-label=\"Yellow — Not researched 1:1 onramp\"");
-    expect(unknownRow).toContain("data-indicator=\"hollow\"");
+    expect(unknownRow).toContain("aria-label=\"Red — Not found 1:1 onramp\"");
+    expect(unknownRow).toContain("aria-label=\"Yellow — Deferred portfolio\"");
     expect(unknownRow).toContain("aria-label=\"Red — Not integrated\"");
   });
 
@@ -128,11 +136,19 @@ describe("public coverage page", () => {
 
   test("searches visible issuer names", async () => {
     const html = await renderCoverage({ q: "Ripio" });
-    expect(html).toContain("Showing 5 of 250 countries and territories");
+    expect(html).toContain("Showing 6 of 250 countries and territories");
     expect(html).toContain("Argentina");
     expect(html).toContain("Brazil");
     expect(html).toContain("Colombia");
     expect(html).toContain("Country, code, currency, asset, or issuer");
+  });
+
+  test("applies a URL-addressable priority filter", async () => {
+    const html = await renderCoverage({ priority: "priority", sort: "alphabetical" });
+    expect(html).toContain("Showing 33 of 250 countries and territories");
+    expect(html).toContain("<option value=\"priority\" selected=\"\">Priority</option>");
+    expect(html).toContain("Canada");
+    expect(html).not.toContain("United States <span");
   });
 
   test("applies GET search, status filters, and alphabetical sorting", async () => {

@@ -1,14 +1,17 @@
-# Safety net for Neon Free’s 10-branch project cap.
-# If preview/* count is >= 8, delete the oldest preview branches until
-# count is < 8. Never deletes main / production / default / protected /
-# non-preview branches.
+# Safety net for Neon Free’s 10-branch project cap: keep the newest five
+# preview branches, so the project holds main + five previews = six total,
+# four slots under the 10-branch cap. Runs every 15 minutes.
+#
+# If preview/* count is >= 6 (the exclusive keep_below threshold), delete the
+# oldest preview branches until count is < 6, so the newest five survive.
+# Never deletes main / production / default / protected / non-preview branches.
 #
 # Assumptions (see docs/vercel-deploy.md):
 # - Vercel-Managed and Neon-Managed integrations name preview DBs
 #   preview/<git-branch> (https://neon.com/docs/guides/vercel-branch-cleanup).
 # - Only those names are eligible. Other branches are left alone.
-# - Oldest-first may drop a still-open PR’s preview DB if 8+ exist;
-#   PR-close cleanup is the primary path.
+# - Oldest-first can delete the preview DB of a still-open older PR once six
+#   preview branches exist; PR-close cleanup is the primary path.
 #
 # Uses the Neon HTTP API (same surface as neon/neonctl). No-op when
 # credentials are missing so forks without Neon stay green.
@@ -17,14 +20,14 @@ name: Prune Neon preview branches
 
 on:
   schedule:
-    # Daily safety net. PR-close cleanup is the primary path.
-    - cron: "17 8 * * *"
+    # Every 15 minutes; aggressive safety net for Neon Free’s 10-branch cap.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       keep_below:
-        description: "Delete oldest preview/* branches until count is below this"
+        description: "Exclusive threshold: delete oldest preview/* until count is below this (6 keeps the newest five)"
         type: string
-        default: "8"
+        default: "6"
       dry_run:
         description: "List deletions without calling DELETE"
         type: boolean
@@ -39,13 +42,13 @@ permissions:
 
 jobs:
   prune:
-    name: Prune oldest preview/* if at least 8
+    name: Prune preview/* to newest five
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID || secrets.NEON_PROJECT_ID }}
-      PREVIEW_KEEP_BELOW: ${{ github.event.inputs.keep_below || '8' }}
+      PREVIEW_KEEP_BELOW: ${{ github.event.inputs.keep_below || '6' }}
       DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
     steps:
       - name: Require Neon credentials
@@ -110,7 +113,7 @@ jobs:
           ' <<<"$all")"
 
           count="$(jq 'length' <<<"$preview")"
-          echo "Deletable preview/* count: ${count} (threshold ${PREVIEW_KEEP_BELOW})"
+          echo "Deletable preview/* count: ${count} (exclusive keep_below ${PREVIEW_KEEP_BELOW}; keep newest $((PREVIEW_KEEP_BELOW - 1)))"
           jq -r '.[] | "- \(.name) (\(.id), created \(.created_at))"' <<<"$preview"
 
           if [ "$count" -lt "$PREVIEW_KEEP_BELOW" ]; then

@@ -1,5 +1,8 @@
 # Home — livestream product and technical scope
 
+> Historical livestream scope. [Product strategy](product-strategy.md) defines current product scope; this document is retained for context.
+
+
 Status: product intent and livestream UX draft. A local finance spike exists in `apps/web/`; this file is **not** current delivery state or an implementation checklist.
 Current delivery: [build status](build-status.md). Current tree: [architecture review](architecture-review-2026-09.md). Run: [Get started](../README.md#get-started), [fork and extend](fork-and-extend.md).
 Date: 2026-09-07 (header updated 2026-09-08)
@@ -105,3 +108,4 @@ The [dashboard source registry](https://dune.com/queries/4780995) has now been r
 - [CDP webhooks](https://docs.cdp.coinbase.com/webhooks/overview), [onramp events](https://docs.cdp.coinbase.com/webhooks/onramp): documented wallet lifecycle, funding status and Base activity notifications; subscription setup and delivery testing remain preflight work.
 
 - [Vercel geolocation](https://vercel.com/kb/guide/geo-ip-headers-geolocation-vercel-functions): country headers available on deployments; local development needs fixtures.
+

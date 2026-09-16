@@ -135,7 +135,7 @@ FROM (
   GROUP BY log_id, address
 )
 WHERE net_action > 0${cursorClause}
-ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, token_address DESC, log_id DESC
+ORDER BY block_number_numeric DESC, log_index_numeric DESC, transaction_hash DESC, token_address DESC, log_id DESC
 LIMIT ${request.limit + 1}`;
 
   return { sql, request };
@@ -456,10 +456,10 @@ function buildCursorPredicate(cursor: TransferHistoryCursor): string {
   const tokenAddress = sqlString(cursor.tokenAddress);
   const logId = sqlString(cursor.logId);
   return `(block_number_numeric < ${block}
-    OR (block_number_numeric = ${block} AND transaction_hash < ${transactionHash})
-    OR (block_number_numeric = ${block} AND transaction_hash = ${transactionHash} AND log_index_numeric < ${logIndex})
-    OR (block_number_numeric = ${block} AND transaction_hash = ${transactionHash} AND log_index_numeric = ${logIndex} AND token_address < ${tokenAddress})
-    OR (block_number_numeric = ${block} AND transaction_hash = ${transactionHash} AND log_index_numeric = ${logIndex} AND token_address = ${tokenAddress} AND log_id < ${logId}))`;
+    OR (block_number_numeric = ${block} AND log_index_numeric < ${logIndex})
+    OR (block_number_numeric = ${block} AND log_index_numeric = ${logIndex} AND transaction_hash < ${transactionHash})
+    OR (block_number_numeric = ${block} AND log_index_numeric = ${logIndex} AND transaction_hash = ${transactionHash} AND token_address < ${tokenAddress})
+    OR (block_number_numeric = ${block} AND log_index_numeric = ${logIndex} AND transaction_hash = ${transactionHash} AND token_address = ${tokenAddress} AND log_id < ${logId}))`;
 }
 
 function validateCursor(value: unknown): asserts value is TransferHistoryCursor {

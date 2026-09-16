@@ -40,6 +40,7 @@ export function emitServerEvent(
     code: string;
     outcome: ServerEventOutcome;
     provider?: string;
+    region?: string;
     owner?: { subject: string; accountProvider: string };
     durationMs?: number;
   },
@@ -56,6 +57,7 @@ export function emitServerEvent(
     code: fields.code,
     outcome: fields.outcome,
     ...(fields.provider ? { provider: fields.provider } : {}),
+    ...(fields.region ? { region: fields.region } : {}),
     ...(ownerHash ? { ownerHash } : {}),
     durationMs: fields.durationMs ?? 0,
   });

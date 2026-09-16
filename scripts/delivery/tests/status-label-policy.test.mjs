@@ -15,7 +15,7 @@ function jsonResponse(value, status = 200) {
   return { status, async json() { return structuredClone(value); } };
 }
 
-test("closed issue cleanup strips every status label and preserves owner/lane", async () => {
+test("closed issue cleanup strips every status label and preserves lane/priority", async () => {
   const payload = await fixture("closed-verification-record");
   assert.deepEqual(planStatusLabelChanges("issues", payload), {
     issueNumber: 69,
@@ -226,7 +226,7 @@ test("a stale stacked event skips promotion deletion after retarget to main", as
 test("cleanup refuses non-status mutations and unsafe repositories", async () => {
   await assert.rejects(
     removeStatusLabels(
-      { issueNumber: 1, labelsToRemove: ["owner:hugo"] },
+      { issueNumber: 1, labelsToRemove: ["lane:ops"] },
       { repository: "jessepollak/home", token: "fixture-token" },
     ),
     /non-status/,

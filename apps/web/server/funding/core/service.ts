@@ -21,6 +21,7 @@ export type FundingCoreDependencies = {
   currentBaseBlock: () => Promise<string>;
   verifyReceipt: (order: FundingOrder, hash: `0x${string}`) => Promise<ReceiptMatch>;
   logUnmatchedWebhook?: (event: { providerId: string; reason: "invalid" | "unmatched" | "region-mismatch" }) => void;
+  logMatchedWebhook?: (event: { providerId: string; region: string }) => void;
   logProviderDiscoveryFailure?: (event: { providerId: string; reason: "configuration" | "provider"; code: FundingConfigurationCode }) => void;
   markStale?: (address: `0x${string}`, at: Date) => Promise<void>;
   now?: () => Date;
@@ -313,7 +314,9 @@ export class FundingCore {
         this.deps.logUnmatchedWebhook?.({ providerId, reason: "region-mismatch" });
         return { accepted: true, matched: false };
       }
+      verifiedRegion = order.region;
     }
+    this.deps.logMatchedWebhook?.({ providerId, region: verifiedRegion });
     await this.refresh(order, true);
     return { accepted: true, matched: true };
   }

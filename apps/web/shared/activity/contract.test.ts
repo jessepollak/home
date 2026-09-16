@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { ActivityResponseError, parseActivityPage } from "./contract";
+import {
+  ActivityResponseError,
+  compareActivityTransferKeys,
+  parseActivityPage,
+} from "./contract";
 import type { ActivityPage } from "./types";
 
 const WALLET = "0x1111111111111111111111111111111111111111" as const;
@@ -82,6 +86,60 @@ describe("activity response parser", () => {
     ]);
   });
 
+
+  test("orders same-block transfers by block-scoped log index before transaction hash", () => {
+    const base = validPage().transfers[0]!;
+    const higherLogLowHash = {
+      ...base,
+      id: `8453:${base.tokenAddress.toLowerCase()}:higher-log`,
+      logId: "higher-log",
+      logIndex: "10",
+      transactionHash: `0x${"a".repeat(64)}` as const,
+    };
+    const lowerLogHighHash = {
+      ...base,
+      id: `8453:${base.tokenAddress.toLowerCase()}:lower-log`,
+      logId: "lower-log",
+      logIndex: "9",
+      transactionHash: `0x${"f".repeat(64)}` as const,
+    };
+
+    expect(compareActivityTransferKeys(higherLogLowHash, lowerLogHighHash)).toBe(1);
+    expect(parseActivityPage(
+      {
+        ...validPage(),
+        transfers: [higherLogLowHash, lowerLogHighHash],
+        nextCursor: null,
+      },
+      session,
+      TO,
+    ).transfers).toHaveLength(2);
+  });
+
+  test("accepts the staged CDP Address History source discriminator", () => {
+    const parsed = parseActivityPage(
+      {
+        ...validPage(),
+        source: {
+          ...validPage().source,
+          provider: "cdp-address-history",
+          cached: false,
+          stale: false,
+        },
+      },
+      session,
+      TO,
+    );
+    expect(parsed.source.provider).toBe("cdp-address-history");
+    expect(() => parseActivityPage(
+      {
+        ...validPage(),
+        source: { ...validPage().source, provider: "unknown" },
+      },
+      session,
+      TO,
+    )).toThrow(ActivityResponseError);
+  });
 
   test("accepts ZORA metadata with canonical contract identity and no registry id", () => {
     const base = validPage();
