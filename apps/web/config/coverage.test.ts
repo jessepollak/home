@@ -6,8 +6,10 @@ import {
   coverageGdpSnapshot,
   coverageHomeStatuses,
   coverageIssuerStatuses,
+  coveragePortfolioStatuses,
   coverageRegistry,
   sortCoverage,
+  top100ResearchedCountryCodes,
   type CoverageRecord,
 } from "./coverage";
 import { countryRegionIds, presentationRegions } from "./regions";
@@ -33,13 +35,78 @@ describe("local money coverage registry", () => {
     expect(byCode.get("AQ")?.currencyCodes).toEqual([]);
   });
 
-  test("assigns issuer research by explicit country, never by shared currency", () => {
-    expect(byCode.get("US")?.issuerRoute.status).toBe("conditional");
-    expect(byCode.get("EC")?.currencyCodes).toContain("USD");
-    expect(byCode.get("EC")?.issuerRoute.status).toBe("not-researched");
-    expect(byCode.get("DE")?.currencyCodes).toContain("EUR");
-    expect(byCode.get("DE")?.issuerRoute.status).toBe("not-researched");
+  test("represents exactly 100 researched countries with the corrected #539 classifications", () => {
+    expect(top100ResearchedCountryCodes).toHaveLength(100);
+    expect(new Set(top100ResearchedCountryCodes).size).toBe(100);
+    const top100Records = coverageRegistry.filter((record) => top100ResearchedCountryCodes.includes(record.countryCode as (typeof top100ResearchedCountryCodes)[number]));
+    expect(top100Records).toHaveLength(100);
+    expect(top100Records.every((record) => record.issuerRoute.status !== "not-researched")).toBe(true);
+    expect(Object.fromEntries(coverageIssuerStatuses.map((status) => [status, top100Records.filter((record) => record.issuerRoute.status === status).length]))).toEqual({
+      documented: 39,
+      conditional: 11,
+      "not-found": 50,
+      "not-researched": 0,
+    });
+    expect(Object.fromEntries(coverageIssuerStatuses.map((status) => [status, coverageRegistry.filter((record) => record.issuerRoute.status === status).length]))).toEqual({
+      documented: 39,
+      conditional: 12,
+      "not-found": 50,
+      "not-researched": 149,
+    });
+    expect(byCode.get("DE")?.issuerRoute).toMatchObject({
+      status: "documented",
+      audience: expect.stringContaining("country-specific operational eligibility remains unproven"),
+    });
+    expect(byCode.get("CL")?.issuerRoute.status).toBe("conditional");
+    expect(byCode.get("CN")?.issuerRoute.status).toBe("not-found");
+    expect(byCode.get("US")?.issuerRoute).toMatchObject({ status: "conditional", rail: "Fedwire / RTP / ACH-style wires" });
     expect(byCode.get("XK")?.issuerRoute.status).toBe("not-researched");
+  });
+
+  test("records the exact country-explicit priority portfolio without changing runtime safety", () => {
+    const priority = coverageRegistry.filter((record) => record.portfolio.status === "priority");
+    expect(priority).toHaveLength(33);
+    expect(coverageRegistry.filter((record) => record.portfolio.status === "deferred")).toHaveLength(68);
+    expect(coverageRegistry.filter((record) => record.portfolio.status === "not-scoped")).toHaveLength(149);
+    for (const record of coverageRegistry) expect(coveragePortfolioStatuses).toContain(record.portfolio.status);
+
+    const euroPriority = priority.filter((record) => record.currencyCodes.includes("EUR"));
+    expect(euroPriority).toHaveLength(21);
+    for (const record of euroPriority) {
+      expect(record.portfolio.workstreams).toEqual([expect.objectContaining({ assetSymbol: "EURC", provider: "Coinbase", issueNumber: 294, stage: "planned", note: expect.stringContaining("country eligibility") })]);
+      if (record.countryCode === "MT") {
+        expect(record.issuerRoute.status).toBe("not-researched");
+      } else {
+        expect(record.issuerRoute.status).toBe("documented");
+        expect(record.issuerRoute.rail).toContain("EURe");
+      }
+    }
+    expect(byCode.get("MT")?.portfolio.status).toBe("priority");
+
+    const nonEuroRoutes = priority.flatMap((record) => record.portfolio.workstreams.filter((route) => route.currencyCode !== "EUR").map((route) => `${record.countryCode}:${route.assetSymbol}:${route.provider}:${route.issueNumber}:${route.stage}`));
+    expect(nonEuroRoutes).toEqual([
+      "AR:wARS:Ripio:512:in-build",
+      "AU:AUDD:AUDD Mint:556:blocked",
+      "BR:wBRL:Ripio:512:in-build",
+      "CA:CADD:Tetra Trust:551:blocked",
+      "CL:wCLP:Ripio:512:blocked",
+      "CO:wCOP:Ripio:512:in-build",
+      "ID:IDRX:IDRX:555:in-build",
+      "MX:MXNB:Juno / Bitso:552:planned",
+      "MX:wMXN:Ripio:512:planned",
+      "NG:cNGN:Africa Stablecoin Consortium:553:blocked",
+      "PE:wPEN:Ripio:512:blocked",
+      "SG:XSGD:StraitsX:557:planned",
+      "ZA:ZARP:ZARP:554:blocked",
+    ]);
+    const workstreams = priority.flatMap((record) => record.portfolio.workstreams);
+    expect(workstreams.some((route) => route.assetSymbol === "CADC")).toBe(false);
+    for (const route of workstreams) {
+      expect(route.issueUrl).toBe(`https://github.com/jessepollak/home/issues/${route.issueNumber}`);
+      expect([294, 512, 551, 552, 553, 554, 555, 556, 557]).toContain(route.issueNumber);
+    }
+    expect(byCode.get("US")?.portfolio).toEqual({ status: "not-scoped", workstreams: [] });
+    expect(coverageRegistry.filter((record) => record.homeRoute.status === "live")).toHaveLength(0);
   });
 
   test("requires dated research evidence and hosted production proof for live claims", () => {
@@ -89,8 +156,12 @@ describe("local money coverage registry", () => {
     expect(normal).toContain("PS,Palestinian Territories,ILS|JOD,false,");
     expect(normal).toContain("XK,Kosovo,EUR,false,");
     expect(normal).not.toContain("undefined");
-    expect(normal.split("\n")[0]).toContain("quote_observed_at,quote_spread_bps,quote_fee_summary,quote_source_url");
-    expect(new Bun.CryptoHasher("sha256").update(normal).digest("hex")).toBe("b4e710cd3ae1d6c2b133d0c0db1a667e980f5bb8345da6d48c17ae4f65f126d4");
+    const header = normal.split("\n")[0];
+    expect(header).toContain("portfolio_status,portfolio_route_ids,portfolio_route_currencies,portfolio_route_assets,portfolio_route_providers,portfolio_route_issue_numbers,portfolio_route_issue_urls,portfolio_route_stages");
+    expect(header).toContain("quote_observed_at,quote_spread_bps,quote_fee_summary,quote_source_url");
+    const mxRow = normal.split("\n").find((row) => row.startsWith("MX,Mexico,")) ?? "";
+    expect(mxRow).toContain("priority,coverage:mx:mxnb:juno-bitso|coverage:mx:wmxn:ripio,MXN|MXN,MXNB|wMXN,Juno / Bitso|Ripio,552|512,https://github.com/jessepollak/home/issues/552|https://github.com/jessepollak/home/issues/512,planned|planned");
+    expect(new Bun.CryptoHasher("sha256").update(normal).digest("hex")).toBe("d5a867d91e9e61f832302e64db55a12828dac7bc89eb384eaf15516f3c81ef1f");
   });
 
   test("exports dated quote observations without turning them into route promises", () => {

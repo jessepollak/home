@@ -14,10 +14,12 @@ type CoverageFiltersProps = {
   values: {
     q: string;
     issuer: string;
+    priority: string;
     home: string;
     sort: string;
   };
   issuerOptions: readonly FilterOption[];
+  priorityOptions: readonly FilterOption[];
   homeOptions: readonly FilterOption[];
 };
 
@@ -29,10 +31,11 @@ function setSelectValue(select: HTMLSelectElement | null, value: string | null, 
   if (select.selectedIndex === -1) select.value = fallback;
 }
 
-export function CoverageFilters({ values, issuerOptions, homeOptions }: CoverageFiltersProps) {
+export function CoverageFilters({ values, issuerOptions, priorityOptions, homeOptions }: CoverageFiltersProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const issuerRef = useRef<HTMLSelectElement>(null);
+  const priorityRef = useRef<HTMLSelectElement>(null);
   const homeRef = useRef<HTMLSelectElement>(null);
   const sortRef = useRef<HTMLSelectElement>(null);
   const [initialSearchValue] = useState(values.q);
@@ -45,6 +48,7 @@ export function CoverageFilters({ values, issuerOptions, homeOptions }: Coverage
       const params = new URL(window.location.href).searchParams;
       if (searchRef.current) searchRef.current.value = params.get("q") ?? "";
       setSelectValue(issuerRef.current, params.get("issuer"), "");
+      setSelectValue(priorityRef.current, params.get("priority"), "");
       setSelectValue(homeRef.current, params.get("home"), "");
       setSelectValue(sortRef.current, params.get("sort"), "gdp");
     };
@@ -66,6 +70,10 @@ export function CoverageFilters({ values, issuerOptions, homeOptions }: Coverage
   useEffect(() => {
     if (document.activeElement !== issuerRef.current) setSelectValue(issuerRef.current, values.issuer, "");
   }, [values.issuer]);
+
+  useEffect(() => {
+    if (document.activeElement !== priorityRef.current) setSelectValue(priorityRef.current, values.priority, "");
+  }, [values.priority]);
 
   useEffect(() => {
     if (document.activeElement !== homeRef.current) setSelectValue(homeRef.current, values.home, "");
@@ -107,6 +115,13 @@ export function CoverageFilters({ values, issuerOptions, homeOptions }: Coverage
         <NativeSelect ref={issuerRef} name="issuer" defaultValue={values.issuer} onChange={submitNow}>
           <option value="">All</option>
           {issuerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </NativeSelect>
+      </label>
+      <label className="flex w-44 flex-col gap-1 text-xs font-medium">
+        Portfolio
+        <NativeSelect ref={priorityRef} name="priority" defaultValue={values.priority} onChange={submitNow}>
+          <option value="">All</option>
+          {priorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </NativeSelect>
       </label>
       <label className="flex w-44 flex-col gap-1 text-xs font-medium">

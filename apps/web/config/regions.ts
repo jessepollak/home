@@ -160,7 +160,7 @@ const currencyPresentations = {
     code: "CAD",
     name: "Canadian dollar",
     symbol: "C$",
-    candidateAsset: candidateAsset("CADD", "Moneda", "Additional verification"),
+    candidateAsset: candidateAsset("CADD", "Tetra Trust", "Additional verification"),
   },
   CHF: {
     code: "CHF",
