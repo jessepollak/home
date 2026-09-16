@@ -9,9 +9,11 @@ import { fileURLToPath } from "node:url";
 
 import {
   evaluateFactoryRunEligibility,
+  hasPreviewProof,
   openPullRequestsFromTimelinePages,
   parseReviewerVerdict,
   planAfterReview,
+  previewProofRequired,
 } from "./factory-run-policy.mjs";
 import { piInvocation, runBoundedProcess } from "./factory-run-process.mjs";
 
@@ -20,6 +22,7 @@ const REPOSITORY = "jessepollak/home";
 const WORKER_TIMEOUT_MS = 45 * 60 * 1_000;
 const REVIEWER_TIMEOUT_MS = 15 * 60 * 1_000;
 const COMMAND_TIMEOUT_MS = 30 * 60 * 1_000;
+const CI_TIMEOUT_MS = 30 * 60 * 1_000;
 
 function assertIssueNumber(value) {
   const issueNumber = Number(value);
@@ -44,6 +47,24 @@ async function command(commandName, args, options = {}) {
 
 function labelsFrom(issue, prefix) {
   return issue.labels.map((label) => label.name).filter((label) => label.startsWith(prefix));
+}
+
+function defaultPreviewSection(issue) {
+  if (previewProofRequired(issue)) {
+    return "Required before handoff: add the current Vercel preview URL and a screenshot or short video here.";
+  }
+  const lane = labelsFrom(issue, "lane:")[0] ?? "non-user-visible";
+  return `Not applicable to ${lane} work because this change is not user-visible.`;
+}
+
+function previewSectionFrom(body, issue) {
+  const match = body?.match(/(?:^|\n)## Preview proof\n\n([\s\S]*?)(?=\n## |\n<!-- factory -->|$)/);
+  return match?.[1]?.trim() || defaultPreviewSection(issue);
+}
+
+function publicFailureFor(stages) {
+  const failedStage = [...stages].reverse().find((stage) => stage.outcome === "failed");
+  return failedStage ? `Factory run stopped during ${failedStage.name}.` : "Factory run stopped before completion.";
 }
 
 function workerPrompt(issue, remediationFindings = []) {
@@ -88,7 +109,9 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
         "",
         "Bounded single-issue implementation. The supervisor will append validation evidence after independent review.",
         "",
-        "Preview proof is not applicable to delivery tooling.",
+        "## Preview proof",
+        "",
+        defaultPreviewSection(issue),
         "",
         "<!-- factory -->",
       ].join("\n");
@@ -98,27 +121,50 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
         ...labels.flatMap((label) => ["--label", label]),
       ], { environment });
     },
+    async waitForRequiredChecks(url) {
+      const before = JSON.parse(await command("gh", ["pr", "view", url, "--json", "headRefOid"], { environment })).headRefOid;
+      if (!before) throw new Error("pull request head is unavailable");
+      await command("gh", [
+        "pr", "checks", url, "--required", "--watch", "--fail-fast", "--interval", "10",
+      ], { environment, timeout: CI_TIMEOUT_MS });
+      const after = JSON.parse(await command("gh", ["pr", "view", url, "--json", "headRefOid"], { environment })).headRefOid;
+      if (after !== before) throw new Error("pull request head changed while waiting for CI");
+    },
+    async verifyPreviewProof({ url, issue }) {
+      if (!previewProofRequired(issue)) return;
+      const body = JSON.parse(await command("gh", ["pr", "view", url, "--json", "body"], { environment })).body;
+      if (!hasPreviewProof(body)) throw new Error("current-head preview URL and screenshot or video are required");
+    },
     async setPullRequestStatus(url, from, to) {
       await command("gh", ["pr", "edit", url, "--remove-label", from, "--add-label", to], { environment });
     },
-    async updatePullRequest({ url, issueNumber, outcome, stages, error }) {
+    async updatePullRequest({ url, issue, outcome, stages, error, reviewFindings = [] }) {
       const validation = stages
         .filter((stage) => stage.outcome === "passed")
         .map((stage) => `- ${stage.name}: ${stage.durationMs}ms`)
         .join("\n");
+      const currentBody = JSON.parse(await command("gh", ["pr", "view", url, "--json", "body"], { environment })).body;
       const body = [
-        `Closes #${issueNumber}`,
+        `Closes #${issue.number}`,
         "",
         "## Factory result",
         "",
         `Outcome: ${outcome}`,
         ...(error ? ["", `Failure: ${error}`] : []),
+        ...(reviewFindings.length > 0 ? [
+          "",
+          "### Blocking review findings",
+          "",
+          ...reviewFindings.map((finding) => `- ${finding.file}: ${finding.description}`),
+        ] : []),
         "",
         "### Validation",
         "",
         validation || "- No completed validation stages.",
         "",
-        "Preview proof is not applicable to delivery tooling.",
+        "## Preview proof",
+        "",
+        previewSectionFrom(currentBody, issue),
         "",
         "<!-- factory -->",
       ].join("\n");
@@ -129,6 +175,7 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
 
 export function createLocalAdapter({ root, environment = process.env, signal } = {}) {
   let worktreePath;
+  let ownedBranch;
   return {
     async commonGitDirectory() {
       const value = await command("git", ["rev-parse", "--git-common-dir"], { cwd: root, environment });
@@ -141,18 +188,22 @@ export function createLocalAdapter({ root, environment = process.env, signal } =
       if (localBranch || remoteBranch) throw new Error(`branch already exists: ${branch}`);
       worktreePath = await mkdtemp(join(tmpdir(), `home-factory-${branch.split("/")[1]}-`));
       await command("git", ["worktree", "add", "-b", branch, worktreePath, "origin/main"], { cwd: root, environment });
-      await command("bun", ["install", "--frozen-lockfile"], { cwd: worktreePath, environment });
+      ownedBranch = branch;
       return worktreePath;
     },
-    async removeWorktree(branch, preserveBranch) {
+    async setupWorktree(cwd) {
+      await command("bun", ["install", "--frozen-lockfile"], { cwd, environment });
+    },
+    async removeWorktree(branch, preserveBranch, branchOwnedByRun) {
       if (worktreePath) {
         const path = worktreePath;
         worktreePath = undefined;
         await command("git", ["worktree", "remove", "--force", path], { cwd: root, environment })
           .catch(() => rm(path, { recursive: true, force: true }));
       }
-      if (!preserveBranch) {
+      if (!preserveBranch && branchOwnedByRun && ownedBranch === branch) {
         await command("git", ["branch", "-D", branch], { cwd: root, environment }).catch(() => {});
+        ownedBranch = undefined;
       }
     },
     async preflight(cwd) {
@@ -177,7 +228,7 @@ export function createLocalAdapter({ root, environment = process.env, signal } =
         ? `ops(factory): implement issue ${issueNumber}`
         : `fix(factory): address review for issue ${issueNumber}`;
       await command("git", [
-        "-c", "user.name=Home Factory", "-c", "user.email=1097953+jessepollak@users.noreply.github.com",
+        "-c", "user.name=Jesse Pollak", "-c", "user.email=1097953+jessepollak@users.noreply.github.com",
         "commit", "-m", subject, "-m", "<!-- factory -->",
       ], { cwd, environment });
       await command("git", ["push", "origin", branch], { cwd, environment });
@@ -233,7 +284,9 @@ export async function runFactorySupervisor(issueValue, {
   let releaseLock;
   let claimed = false;
   let preserveBranch = false;
+  let branchOwnedByRun = false;
   let worktree;
+  let issue;
 
   const checkKillSwitch = async () => {
     try {
@@ -259,7 +312,7 @@ export async function runFactorySupervisor(issueValue, {
   try {
     releaseLock = await acquireHostLock(hostLockPath);
     await stage("github-auth", () => github.verifyAuthentication());
-    const issue = await stage("eligibility", async () => {
+    issue = await stage("eligibility", async () => {
       const currentIssue = await github.getIssue(issueNumber);
       const openPullRequests = await github.openPullRequestsReferencing(issueNumber);
       const eligibility = evaluateFactoryRunEligibility(currentIssue, openPullRequests);
@@ -269,6 +322,8 @@ export async function runFactorySupervisor(issueValue, {
     await stage("claim", () => github.setStatus(issueNumber, "status:todo", "status:working"));
     claimed = true;
     worktree = await stage("worktree", () => local.createWorktree(branch));
+    branchOwnedByRun = true;
+    await stage("worktree-setup", () => local.setupWorktree(worktree));
     await stage("preflight", () => local.preflight(worktree));
 
     const worker = await stage("worker", () => local.runWorker(worktree, issue, []));
@@ -285,16 +340,22 @@ export async function runFactorySupervisor(issueValue, {
       }
       const verdict = await stage(`verdict-${fixLoops}`, async () => parseReviewerVerdict(reviewProcess.stdout.trim()));
       const next = planAfterReview(verdict, fixLoops);
-      if (next.action === "complete") {
-        evidence.outcome = "passed";
-        await stage("handoff", async () => {
-          await github.setStatus(issueNumber, "status:working", "status:needs-jesse");
-          await github.setPullRequestStatus(evidence.prUrl, "status:working", "status:needs-jesse");
-        });
-        break;
-      }
-      if (next.action === "stop-for-jesse") {
-        evidence.outcome = "needs-jesse";
+      if (next.action === "complete" || next.action === "stop-for-jesse") {
+        if (next.action === "stop-for-jesse") {
+          evidence.blockingReviewFindings = verdict.findings
+            .filter((finding) => finding.severity === "blocking")
+            .map(({ file, description }) => ({ file, description }));
+        }
+        await stage("ci", () => github.waitForRequiredChecks(evidence.prUrl));
+        await stage("preview-proof", () => github.verifyPreviewProof({ url: evidence.prUrl, issue }));
+        evidence.outcome = next.action === "complete" ? "passed" : "needs-jesse";
+        await stage("pull-request-evidence", () => github.updatePullRequest({
+          url: evidence.prUrl,
+          issue,
+          outcome: evidence.outcome,
+          stages: evidence.stages,
+          reviewFindings: evidence.blockingReviewFindings,
+        }));
         await stage("handoff", async () => {
           await github.setStatus(issueNumber, "status:working", "status:needs-jesse");
           await github.setPullRequestStatus(evidence.prUrl, "status:working", "status:needs-jesse");
@@ -308,32 +369,24 @@ export async function runFactorySupervisor(issueValue, {
       }
       await stage(`validation-${fixLoops}`, () => local.validateCommitAndPush(worktree, issueNumber, branch, fixLoops));
     }
-    await stage("pull-request-evidence", () => github.updatePullRequest({
-      url: evidence.prUrl,
-      issueNumber,
-      outcome: evidence.outcome,
-      stages: evidence.stages,
-    }));
     return evidence;
   } catch (error) {
     evidence.error = error instanceof Error ? error.message : "factory run failed";
     if (claimed && !evidence.prUrl) {
       await github.setStatus(issueNumber, "status:working", "status:todo").catch(() => {});
     } else if (claimed && evidence.prUrl) {
-      await github.setStatus(issueNumber, "status:working", "status:needs-jesse").catch(() => {});
-      await github.setPullRequestStatus(evidence.prUrl, "status:working", "status:needs-jesse").catch(() => {});
       await github.updatePullRequest({
         url: evidence.prUrl,
-        issueNumber,
+        issue: issue ?? { number: issueNumber, labels: [] },
         outcome: "failed",
-        error: evidence.error,
+        error: publicFailureFor(evidence.stages),
         stages: evidence.stages,
       }).catch(() => {});
     }
     throw Object.assign(new Error(evidence.error), { evidence });
   } finally {
     evidence.durationMs = Date.now() - startedAt;
-    await local.removeWorktree(branch, preserveBranch).catch(() => {});
+    await local.removeWorktree(branch, preserveBranch, branchOwnedByRun).catch(() => {});
     if (releaseLock) await releaseLock().catch(() => {});
     await writeEvidence(commonGitDirectory, evidence).catch(() => null);
   }

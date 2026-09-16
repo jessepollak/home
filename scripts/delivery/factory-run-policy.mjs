@@ -11,9 +11,16 @@ export function evaluateFactoryRunEligibility(issue, openPullRequests = []) {
   if (!issue || typeof issue !== "object") failures.push("issue is unavailable");
   if (issue?.state !== "OPEN") failures.push("issue must be OPEN");
 
-  const labels = new Set(labelNames(issue));
+  const names = labelNames(issue);
+  const labels = new Set(names);
   for (const label of REQUIRED_LABELS) {
     if (!labels.has(label)) failures.push(`issue must have ${label}`);
+  }
+  for (const [prefix, expected] of [["status:", "status:todo"], ["lane:", null], ["priority:", null]]) {
+    const matching = names.filter((label) => label.startsWith(prefix));
+    if (matching.length !== 1 || (expected && matching[0] !== expected)) {
+      failures.push(`issue must have exactly one ${prefix} label${expected ? ` (${expected})` : ""}`);
+    }
   }
   if (openPullRequests.length > 0) failures.push("issue already has an open pull request");
 
@@ -54,15 +61,18 @@ export function parseReviewerVerdict(output) {
     if (finding.severity !== "blocking" && finding.severity !== "non-blocking") {
       throw new Error("reviewer finding severity is invalid");
     }
-    for (const field of ["file", "description"]) {
+    for (const [field, maxLength] of [["file", 160], ["description", 500]]) {
       if (typeof finding[field] !== "string" || finding[field].trim() === "") {
         throw new Error(`reviewer finding ${field} is required`);
+      }
+      if (finding[field].length > maxLength || /[\r\n\0]/.test(finding[field])) {
+        throw new Error(`reviewer finding ${field} is not concise`);
       }
     }
     return {
       severity: finding.severity,
-      file: finding.file,
-      description: finding.description,
+      file: finding.file.trim(),
+      description: finding.description.trim(),
     };
   });
 
@@ -75,6 +85,18 @@ export function parseReviewerVerdict(output) {
   }
 
   return { complete: true, verdict: value.verdict, findings };
+}
+
+export function previewProofRequired(issue) {
+  const labels = labelNames(issue);
+  return labels.includes("lane:frontend") || labels.includes("lane:design");
+}
+
+export function hasPreviewProof(body) {
+  if (typeof body !== "string") return false;
+  const hasPreviewUrl = /https:\/\/[^\s)]+\.vercel\.app(?:[\/\w.?=&%#-]*)?/i.test(body);
+  const hasMedia = /!\[[^\]]*\]\(https:\/\/[^)]+\)|<video\b[^>]*>|https:\/\/github\.com\/user-attachments\/assets\//i.test(body);
+  return hasPreviewUrl && hasMedia;
 }
 
 export function planAfterReview(verdict, completedFixLoops) {

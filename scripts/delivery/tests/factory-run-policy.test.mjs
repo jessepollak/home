@@ -4,15 +4,17 @@ import test from "node:test";
 import {
   evaluateFactoryRunEligibility,
   factoryRunPolicyConstants,
+  hasPreviewProof,
   openPullRequestsFromTimelinePages,
   parseReviewerVerdict,
   planAfterReview,
+  previewProofRequired,
 } from "../factory-run-policy.mjs";
 
 const READY_ISSUE = {
   number: 546,
   state: "OPEN",
-  labels: [{ name: "factory:ready" }, { name: "status:todo" }, { name: "lane:ops" }],
+  labels: [{ name: "factory:ready" }, { name: "status:todo" }, { name: "lane:ops" }, { name: "priority:p1" }],
 };
 
 test("eligibility fails closed unless the issue is open, ready, todo, and unreferenced", () => {
@@ -22,6 +24,9 @@ test("eligibility fails closed unless the issue is open, ready, todo, and unrefe
     [{ ...READY_ISSUE, state: "CLOSED" }, [], "OPEN"],
     [{ ...READY_ISSUE, labels: [{ name: "status:todo" }] }, [], "factory:ready"],
     [{ ...READY_ISSUE, labels: [{ name: "factory:ready" }] }, [], "status:todo"],
+    [{ ...READY_ISSUE, labels: [...READY_ISSUE.labels, { name: "status:blocked" }] }, [], "exactly one status"],
+    [{ ...READY_ISSUE, labels: READY_ISSUE.labels.filter(({ name }) => !name.startsWith("lane:")) }, [], "exactly one lane"],
+    [{ ...READY_ISSUE, labels: [...READY_ISSUE.labels, { name: "priority:p2" }] }, [], "exactly one priority"],
     [READY_ISSUE, [{ number: 1 }], "open pull request"],
   ]) {
     const result = evaluateFactoryRunEligibility(issue, pulls);
@@ -55,6 +60,14 @@ test("reviewer verdict parsing accepts only complete, internally consistent JSON
   ]) {
     assert.throws(() => parseReviewerVerdict(output));
   }
+});
+
+test("preview policy derives applicability and requires both URL and media", () => {
+  assert.equal(previewProofRequired(READY_ISSUE), false);
+  assert.equal(previewProofRequired({ ...READY_ISSUE, labels: [{ name: "lane:frontend" }] }), true);
+  assert.equal(hasPreviewProof("https://example.vercel.app"), false);
+  assert.equal(hasPreviewProof("![current head](https://github.com/user-attachments/assets/1)"), false);
+  assert.equal(hasPreviewProof("https://example.vercel.app\n![current head](https://github.com/user-attachments/assets/1)"), true);
 });
 
 test("the state policy mechanically caps remediation at two loops", () => {
