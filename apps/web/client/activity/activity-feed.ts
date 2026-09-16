@@ -1,4 +1,5 @@
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import { compareActivityTransferKeys } from "@/shared/activity/contract";
 import type { ActivityTransfer } from "@/shared/activity/types";
 
 export type ActivityFeedItem =
@@ -59,5 +60,8 @@ function compareActivityFeedItems(left: ActivityFeedItem, right: ActivityFeedIte
   const time = Date.parse(right.timestamp) - Date.parse(left.timestamp);
   if (time !== 0) return time;
   if (left.kind !== right.kind) return left.kind === "transfer" ? -1 : 1;
+  if (left.kind === "transfer" && right.kind === "transfer") {
+    return -compareActivityTransferKeys(left.transfer, right.transfer);
+  }
   return left.id.localeCompare(right.id);
 }

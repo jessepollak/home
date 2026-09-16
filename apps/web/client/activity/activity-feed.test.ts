@@ -74,6 +74,27 @@ describe("combined Activity feed", () => {
     ]);
   });
 
+  test("preserves canonical order for same-transaction transfers", () => {
+    const newerLog = {
+      ...transfer(`${HASH_A}:9`, "2026-09-15T12:01:00.000Z", HASH_A),
+      blockNumber: "2",
+      logIndex: "9",
+    };
+    const olderLog = {
+      ...transfer(`${HASH_A}:2`, "2026-09-15T12:01:00.000Z", HASH_A),
+      blockNumber: "2",
+      logIndex: "2",
+    };
+
+    const items = mergeActivityFeed({
+      transfers: [newerLog, olderLog],
+      nextCursor: null,
+      operations: [],
+    });
+
+    expect(items.map(({ id }) => id)).toEqual([newerLog.id, olderLog.id]);
+  });
+
   test("deduplicates loaded transaction hashes and withholds unmatched hashed actions while pages remain", () => {
     const transfers = [
       transfer("page-1", "2026-09-15T12:02:00.000Z", HASH_A),
