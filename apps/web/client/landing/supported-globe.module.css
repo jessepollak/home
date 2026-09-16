@@ -18,8 +18,6 @@
 }
 
 .stage[tabindex] {
-  /* The ready globe uses one finger for two-axis rotation; two fingers remain browser pinch zoom. */
-  touch-action: pinch-zoom;
   cursor: grab;
 }
 

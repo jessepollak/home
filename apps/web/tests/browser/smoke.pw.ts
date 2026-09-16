@@ -384,6 +384,7 @@ test("coverage fixture keeps public chrome and automatic GET filters usable", as
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1374);
 
   await page.setViewportSize({ width: 390, height: 844 });
+  expect(await globe.evaluate((node) => getComputedStyle(node).touchAction)).toBe("pan-y pinch-zoom");
   await expect(page.getByRole("combobox", { name: "Sort" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
