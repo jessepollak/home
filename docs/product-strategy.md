@@ -42,7 +42,7 @@ There are **six capability workstreams and two shared quality workstreams**. All
 
 | Workstream | Outcome | Required in MVP |
 | --- | --- | --- |
-| **Money in/out** | Customers can bring local money in and take it back out. | USD plus the regional portfolio in section 3; onramps, offramps, necessary conversion, quotes/fees, status, and recovery. |
+| **Money in/out** | Customers can bring local money in and take it back out. | USD plus the regional portfolio in section 3, including Peer.xyz for both onramp and offramp; onramps, offramps, necessary conversion, quotes/fees, status, and recovery. |
 | **Save and spend** | Customers can earn on their money and use it day to day. | Dollar yield and local-currency yield wherever an accessible product exists; deposit/withdraw, balances and variable APY; P2P send/receive; one usable card program with funding, controls, purchases, declines, refunds, and Activity. |
 | **Invest** | Customers can discover, understand, buy, hold, and sell investments. | All stocks on Base, plus memes and major crypto assets; search, good charts, basic research, buying/selling, holdings, and valuation. Stocks remain central to the experience. |
 | **Credit** | Customers can do more with their capital. | All available Base borrow markets for Coinbase assets (cb assets); market discovery, collateral, borrowing capacity, rates, loan health, borrow/repay, and collateral withdrawal. |
@@ -91,6 +91,8 @@ Use the portfolio from [GitHub #539](https://github.com/jessepollak/home/issues/
 | IDR → IDRX | IDRX | [#555](https://github.com/jessepollak/home/issues/555) |
 | AUD → AUDD | AUDD Mint | [#556](https://github.com/jessepollak/home/issues/556) |
 | SGD → XSGD | StraitsX | [#557](https://github.com/jessepollak/home/issues/557) |
+
+**Peer.xyz is also required in MVP for both onramp and offramp**, alongside the regional issuer routes above. Reuse [#436](https://github.com/jessepollak/home/issues/436). Define its supported countries, currencies, payment methods, settlement assets, eligibility, liquidity, fees, status, and recovery paths; verify cash-in and cash-out separately. Record missing or blocked paths explicitly. Peer does not replace any agreed regional route, and its bindings are additional to the thirteen listed above until inventoried.
 
 For each binding, track country/audience, local payment rail, exact Base asset, cash-in, cash-out, fees, status/recovery, provider access, and evidence. Confirm exits separately: earlier onramp research did not establish every withdrawal route.
 
