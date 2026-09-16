@@ -55,7 +55,11 @@ function fakeRun({ reviews = [PASS], workerFailure = false } = {}) {
 async function withRunPaths(operation) {
   const directory = await mkdtemp(join(tmpdir(), "factory-supervisor-test-"));
   try {
-    return await operation({ commonGitDirectory: directory, killSwitchPath: join(directory, "stop") });
+    return await operation({
+      commonGitDirectory: directory,
+      killSwitchPath: join(directory, "stop"),
+      hostLockPath: join(directory, "lock"),
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -116,6 +120,7 @@ test("malformed reviewer output is a failure and never a pass", async () => {
     await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /not valid JSON/);
     assert.ok(fake.calls.includes("status:status:working->status:needs-jesse"));
     assert.ok(fake.calls.includes("pr-status:status:working->status:needs-jesse"));
+    assert.ok(fake.calls.includes("pr-evidence"));
     assert.ok(fake.calls.includes("cleanup:true"));
   });
 });

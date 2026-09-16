@@ -101,7 +101,7 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
     async setPullRequestStatus(url, from, to) {
       await command("gh", ["pr", "edit", url, "--remove-label", from, "--add-label", to], { environment });
     },
-    async updatePullRequest({ url, issueNumber, outcome, stages }) {
+    async updatePullRequest({ url, issueNumber, outcome, stages, error }) {
       const validation = stages
         .filter((stage) => stage.outcome === "passed")
         .map((stage) => `- ${stage.name}: ${stage.durationMs}ms`)
@@ -112,6 +112,7 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
         "## Factory result",
         "",
         `Outcome: ${outcome}`,
+        ...(error ? ["", `Failure: ${error}`] : []),
         "",
         "### Validation",
         "",
@@ -145,8 +146,10 @@ export function createLocalAdapter({ root, environment = process.env, signal } =
     },
     async removeWorktree(branch, preserveBranch) {
       if (worktreePath) {
-        await command("git", ["worktree", "remove", "--force", worktreePath], { cwd: root, environment });
+        const path = worktreePath;
         worktreePath = undefined;
+        await command("git", ["worktree", "remove", "--force", path], { cwd: root, environment })
+          .catch(() => rm(path, { recursive: true, force: true }));
       }
       if (!preserveBranch) {
         await command("git", ["branch", "-D", branch], { cwd: root, environment }).catch(() => {});
@@ -216,7 +219,13 @@ async function writeEvidence(commonGitDirectory, evidence) {
   return path;
 }
 
-export async function runFactorySupervisor(issueValue, { github, local, commonGitDirectory, killSwitchPath }) {
+export async function runFactorySupervisor(issueValue, {
+  github,
+  local,
+  commonGitDirectory,
+  killSwitchPath,
+  hostLockPath = join(tmpdir(), "home-factory-run.lock"),
+}) {
   const issueNumber = assertIssueNumber(issueValue);
   const branch = `agent/${issueNumber}-factory-run`;
   const startedAt = Date.now();
@@ -248,7 +257,7 @@ export async function runFactorySupervisor(issueValue, { github, local, commonGi
   };
 
   try {
-    releaseLock = await acquireHostLock(join(tmpdir(), "home-factory-run.lock"));
+    releaseLock = await acquireHostLock(hostLockPath);
     await stage("github-auth", () => github.verifyAuthentication());
     const issue = await stage("eligibility", async () => {
       const currentIssue = await github.getIssue(issueNumber);
@@ -313,6 +322,13 @@ export async function runFactorySupervisor(issueValue, { github, local, commonGi
     } else if (claimed && evidence.prUrl) {
       await github.setStatus(issueNumber, "status:working", "status:needs-jesse").catch(() => {});
       await github.setPullRequestStatus(evidence.prUrl, "status:working", "status:needs-jesse").catch(() => {});
+      await github.updatePullRequest({
+        url: evidence.prUrl,
+        issueNumber,
+        outcome: "failed",
+        error: evidence.error,
+        stages: evidence.stages,
+      }).catch(() => {});
     }
     throw Object.assign(new Error(evidence.error), { evidence });
   } finally {
