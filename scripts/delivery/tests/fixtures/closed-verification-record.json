@@ -6,7 +6,7 @@
     "state": "closed",
     "body": "Verification record. References pull request #101; automation must not mutate any linked record.",
     "labels": [
-      { "name": "owner:hank" },
+      { "name": "priority:p2" },
       { "name": "lane:backend" },
       { "name": "status:needs-jesse" },
       { "name": "status:legacy-value" }

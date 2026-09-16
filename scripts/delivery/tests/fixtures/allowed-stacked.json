@@ -9,7 +9,7 @@
     "base": { "ref": "feature/dependency" },
     "labels": [
       { "name": "delivery:stacked" },
-      { "name": "owner:hugo" },
+      { "name": "priority:p2" },
       { "name": "lane:ops" },
       { "name": "status:working" }
     ]

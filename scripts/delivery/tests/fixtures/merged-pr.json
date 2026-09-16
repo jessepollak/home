@@ -9,7 +9,7 @@
     "body": "Refs #69 and #70 without closing either verification issue.",
     "base": { "ref": "main" },
     "labels": [
-      { "name": "owner:hugo" },
+      { "name": "priority:p1" },
       { "name": "lane:ops" },
       { "name": "status:needs-jesse" }
     ]

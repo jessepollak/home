@@ -1,10 +1,10 @@
 name: Factory-ready candidate
-description: Propose bounded work for the pull-based factory pilot. Submission does not authorize execution.
+description: Propose bounded work for the pull-based factory. Submission does not authorize execution.
 title: "[Factory candidate] "
 labels:
-  - "owner:hugo"
   - "status:todo"
   - "lane:ops"
+  - "priority:p2"
 body:
   - type: markdown
     attributes:
