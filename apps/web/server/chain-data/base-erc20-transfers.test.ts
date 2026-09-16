@@ -92,7 +92,7 @@ describe("Base ERC20 transfer query", () => {
     expect(sql).toContain("formatDateTime(event_timestamp,");
     expect(sql).not.toContain("any(block_timestamp) AS block_timestamp");
     expect(sql).toContain(
-      "ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, token_address DESC, log_id DESC",
+      "ORDER BY block_number_numeric DESC, log_index_numeric DESC, transaction_hash DESC, token_address DESC, log_id DESC",
     );
     expect(sql).not.toContain("ORDER BY block_number DESC");
     expect(sql).toContain("LIMIT 51");
@@ -264,8 +264,14 @@ describe("Base ERC20 transfer adapter", () => {
     expect(sql).toContain(
       "block_number_numeric < toUInt64('18446744073709551615')",
     );
+    const blockCursor = "block_number_numeric = toUInt64('18446744073709551615')";
     expect(sql).toContain("log_index_numeric < toUInt32('2')");
-    expect(sql).toContain(`transaction_hash < '${TX_B}'`);
+    expect(sql).toContain(
+      `${blockCursor} AND log_index_numeric = toUInt32('2') AND transaction_hash < '${TX_B}'`,
+    );
+    expect(sql.indexOf("log_index_numeric < toUInt32('2')")).toBeLessThan(
+      sql.indexOf(`transaction_hash < '${TX_B}'`),
+    );
   });
 
   test("paginates numeric log indexes 100, 10, and 9 without lexical gaps", async () => {
@@ -277,7 +283,7 @@ describe("Base ERC20 transfer adapter", () => {
     const transport: CdpSqlTransport = {
       async run(request) {
         expect(request.sql).toContain(
-          "ORDER BY block_number_numeric DESC, transaction_hash DESC, log_index_numeric DESC, token_address DESC, log_id DESC",
+          "ORDER BY block_number_numeric DESC, log_index_numeric DESC, transaction_hash DESC, token_address DESC, log_id DESC",
         );
         const cursorIndex = request.sql.match(
           /log_index_numeric < toUInt32\('(\d+)'\)/,

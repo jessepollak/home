@@ -41,6 +41,7 @@ function tokenTransfer(overrides: Record<string, unknown> = {}) {
 
 function transaction(options: {
   block?: string;
+  index?: string;
   transactionHash?: `0x${string}`;
   blockHash?: `0x${string}`;
   timestamp?: string;
@@ -57,9 +58,15 @@ function transaction(options: {
     blockHeight: block,
     status: options.status ?? "CONFIRMED",
     ethereum: {
+      index: options.index ?? "1",
       blockTimestamp: options.timestamp ?? "2026-09-07T11:00:00Z",
       tokenTransfers: options.transfers ?? [
-        tokenTransfer({ transactionHash, blockHash, blockNumber: block }),
+        tokenTransfer({
+          transactionIndex: options.index ?? "1",
+          transactionHash,
+          blockHash,
+          blockNumber: block,
+        }),
       ],
     },
   };
@@ -189,12 +196,19 @@ describe("CDP Address History transfers", () => {
       tokenTransfer({ erc1155: { tokenId: "2" }, value: "" }),
       tokenTransfer({ erc3525: { tokenId: "3" }, value: "" }),
       tokenTransfer({ type: "nft", value: "" }),
+      tokenTransfer({ futureTokenSubtype: { tokenId: "4" }, value: "" }),
     ];
     const nonOwner = tokenTransfer({ fromAddress: OTHER, toAddress: THIRD, value: "not-validated" });
     const pending = { ...transaction({ status: "PENDING" }), ethereum: undefined };
     const { transport } = queuedTransport([
       page([
-        transaction({ transfers: [...nftRows, nonOwner, tokenTransfer()] }),
+        transaction({
+          transfers: [
+            ...nftRows,
+            nonOwner,
+            tokenTransfer({ futureScalarMetadata: "accepted" }),
+          ],
+        }),
         pending,
       ]),
     ]);
@@ -239,12 +253,23 @@ describe("CDP Address History transfers", () => {
       { ...confirmed, blockHeight: undefined },
       { ...confirmed, blockHeight: UINT256_OVERFLOW },
       { ...confirmed, ethereum: { tokenTransfers: [] } },
-      { ...confirmed, ethereum: { blockTimestamp: TO } },
+      { ...confirmed, ethereum: { index: "01", blockTimestamp: TO, tokenTransfers: [] } },
+      { ...confirmed, ethereum: { index: "1", blockTimestamp: TO } },
     ];
     for (const invalid of cases) {
       const { transport } = queuedTransport([page([invalid])]);
       await expectCode(history(transport).listTransfers(input()), "invalid-response");
     }
+  });
+
+  test("requires each eligible owner transfer to match its parent transaction index", async () => {
+    const { transport } = queuedTransport([
+      page([transaction({
+        index: "2",
+        transfers: [tokenTransfer({ transactionIndex: "1" })],
+      })]),
+    ]);
+    await expectCode(history(transport).listTransfers(input()), "invalid-response");
   });
 });
 
@@ -300,40 +325,68 @@ describe("CDP Address History cursors and paging", () => {
     expect(Object.hasOwn(requests[1]!, "pageToken")).toBe(false);
   });
 
-  test("crosses provider pages and preserves a canonical split-block boundary", async () => {
+  test("paginates a split block by chain-log order when hash order contradicts transaction index", async () => {
     const highHash = hash("f");
     const lowHash = hash("a");
-    const first = transaction({
+    const laterTransaction = transaction({
       block: "100",
-      transactionHash: highHash,
+      index: "2",
+      transactionHash: lowHash,
       transfers: [tokenTransfer({
-        transactionHash: highHash,
+        transactionIndex: "2",
+        transactionHash: lowHash,
         blockNumber: "100",
-        fromAddress: OTHER,
-        toAddress: THIRD,
+        logIndex: "2",
       })],
     });
-    const second = transaction({
+    const earlierTransaction = transaction({
       block: "100",
-      transactionHash: lowHash,
-      transfers: [tokenTransfer({ transactionHash: lowHash, blockNumber: "100" })],
+      index: "1",
+      transactionHash: highHash,
+      transfers: [tokenTransfer({
+        transactionIndex: "1",
+        transactionHash: highHash,
+        blockNumber: "100",
+        logIndex: "1",
+      })],
     });
     const { transport, requests } = queuedTransport([
-      page([first], "page-2"),
-      page([second]),
+      page([laterTransaction], "page-2"),
+      page([laterTransaction], "page-2"),
+      page([earlierTransaction]),
     ]);
+    const lister = history(transport);
 
-    const result = await history(transport).listTransfers(input());
-    expect(result.transfers.map(({ transactionHash }) => transactionHash)).toEqual([lowHash]);
-    expect(result.nextCursor).toBeNull();
-    expect(requests.map(({ pageToken }) => pageToken ?? null)).toEqual([null, "page-2"]);
+    const first = await lister.listTransfers(input({ limit: 1 }));
+    const second = await lister.listTransfers(input({ limit: 1, cursor: first.nextCursor }));
+
+    expect(first.transfers.map(({ transactionHash }) => transactionHash)).toEqual([lowHash]);
+    expect(second.transfers.map(({ transactionHash }) => transactionHash)).toEqual([highHash]);
+    expect(second.nextCursor).toBeNull();
+    expect(new Set([...first.transfers, ...second.transfers].map(({ id }) => id)).size).toBe(2);
+    expect(requests.map(({ pageToken }) => pageToken ?? null)).toEqual([
+      null,
+      null,
+      "page-2",
+    ]);
   });
 
-  test("rejects provider order violations within or across source pages", async () => {
+  test("rejects provider chain-position violations within or across source pages", async () => {
     const low = transaction({ block: "99" });
     const high = transaction({ block: "100" });
+    const sameBlockEarlier = transaction({
+      block: "100",
+      index: "1",
+      transactionHash: hash("f"),
+    });
+    const sameBlockLater = transaction({
+      block: "100",
+      index: "2",
+      transactionHash: hash("a"),
+    });
     for (const results of [
       [page([low, high])],
+      [page([sameBlockEarlier, sameBlockLater])],
       [page([high], "page-2"), page([high])],
     ]) {
       const { transport } = queuedTransport(results);
@@ -407,6 +460,7 @@ describe("CDP Address History errors and configuration", () => {
     [8, "rate-limited"],
     [14, "upstream-error"],
     [16, "unauthorized"],
+    [429, "rate-limited"],
   ] as const)("maps result status code %d to %s", async (providerCode, expected) => {
     const { transport } = queuedTransport([{ code: providerCode, message: "private provider detail" }]);
     await expectCode(history(transport).listTransfers(input()), expected);
@@ -421,6 +475,8 @@ describe("CDP Address History errors and configuration", () => {
       [14, "upstream-error"],
       [16, "unauthorized"],
       [-32602, "invalid-input"],
+      [-32005, "rate-limited"],
+      [429, "rate-limited"],
     ] as const;
     for (const [rpcCode, expected] of rpcCases) {
       const transport = createCdpAddressHistoryTransport({

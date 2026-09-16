@@ -84,7 +84,10 @@ type ValidatedRequest = {
 };
 
 type ParsedTransaction = {
-  key: Pick<CdpAddressHistoryKey, "blockNumber" | "transactionHash">;
+  key: {
+    blockNumber: string;
+    transactionIndex: string;
+  };
   timestamp: string;
   timestampMs: number;
   transfers: BaseErc20Transfer[];
@@ -327,6 +330,7 @@ export function mapCdpAddressHistoryStatus(code: number): ChainDataError {
     8: "rate-limited",
     14: "upstream-error",
     16: "unauthorized",
+    429: "rate-limited",
   };
   return providerError(mapped[code] ?? "upstream-error");
 }
@@ -344,6 +348,7 @@ function mapBaseRpcError(error: unknown): ChainDataError {
   if (error.code === "transport") return providerError("upstream-error");
   if (error.code === "rpc") {
     if (error.rpcCode === -32602) return providerError("invalid-input");
+    if (error.rpcCode === -32005) return providerError("rate-limited");
     if (error.rpcCode !== null) return mapCdpAddressHistoryStatus(error.rpcCode);
     return providerError("upstream-error");
   }
@@ -406,13 +411,17 @@ function parseTransaction(
   if (!isRecord(value.ethereum) || !Array.isArray(value.ethereum.tokenTransfers)) {
     throw invalidResponse("CDP Address History omitted confirmed Ethereum content.");
   }
+  const transactionIndex = responseDecimal(
+    value.ethereum.index,
+    "transaction index",
+  );
   const timestamp = responseTimestamp(value.ethereum.blockTimestamp);
   const transfers = value.ethereum.tokenTransfers.flatMap((transfer) => {
     const parsed = parseTokenTransfer(
       transfer,
       walletAddress,
       addressToAsset,
-      { transactionHash, blockHash, blockNumber, timestamp },
+      { transactionHash, transactionIndex, blockHash, blockNumber, timestamp },
     );
     return parsed ? [parsed] : [];
   });
@@ -420,7 +429,7 @@ function parseTransaction(
   assertTransferOrder(transfers);
 
   return {
-    key: { blockNumber, transactionHash },
+    key: { blockNumber, transactionIndex },
     timestamp,
     timestampMs: new Date(timestamp).getTime(),
     transfers,
@@ -433,6 +442,7 @@ function parseTokenTransfer(
   addressToAsset: ReadonlyMap<HexAddress, BaseErc20Asset>,
   transaction: {
     transactionHash: TransactionHash;
+    transactionIndex: string;
     blockHash: TransactionHash;
     blockNumber: string;
     timestamp: string;
@@ -441,11 +451,19 @@ function parseTokenTransfer(
   if (!isRecord(value)) {
     throw invalidResponse("CDP Address History returned an invalid token transfer.");
   }
-  if (isTypedNftTransfer(value)) return null;
+  if (isTypedNftTransfer(value) || hasUnknownObjectSubtype(value)) return null;
 
   const fromAddress = responseAddress(value.fromAddress, "from address");
   const toAddress = responseAddress(value.toAddress, "to address");
   if (fromAddress !== walletAddress && toAddress !== walletAddress) return null;
+
+  const transactionIndex = responseDecimal(
+    value.transactionIndex,
+    "transfer transaction index",
+  );
+  if (transactionIndex !== transaction.transactionIndex) {
+    throw invalidResponse("CDP Address History returned inconsistent transfer position.");
+  }
 
   const tokenAddress = responseAddress(value.tokenAddress, "token address");
   const amountBaseUnits = responseAmount(value.value);
@@ -503,6 +521,15 @@ function isTypedNftTransfer(value: Record<string, unknown>): boolean {
   }
   const type = value.type;
   return typeof type === "string" && /^(?:erc721|erc1155|erc3525|nft)$/i.test(type);
+}
+
+// The documented ERC-20/base fields are scalar. Object-valued additions are
+// subtype payloads (including future NFT standards), so omit those rows while
+// continuing to tolerate future scalar metadata.
+function hasUnknownObjectSubtype(value: Record<string, unknown>): boolean {
+  return Object.values(value).some(
+    (field) => field !== null && typeof field === "object",
+  );
 }
 
 function validateRequest(input: ListBaseErc20TransfersInput, now: Date): ValidatedRequest {
@@ -651,25 +678,33 @@ function pageHasTransferAfterBoundary(
 }
 
 function compareTransactionKeys(
-  left: Pick<CdpAddressHistoryKey, "blockNumber" | "transactionHash">,
-  right: Pick<CdpAddressHistoryKey, "blockNumber" | "transactionHash">,
+  left: ParsedTransaction["key"],
+  right: ParsedTransaction["key"],
 ): number {
   const block = compareDecimals(left.blockNumber, right.blockNumber);
   if (block !== 0) return block;
-  if (left.transactionHash === right.transactionHash) return 0;
-  return left.transactionHash > right.transactionHash ? 1 : -1;
+  return compareDecimals(left.transactionIndex, right.transactionIndex);
 }
 
 function compareHistoryKeys(
   left: CdpAddressHistoryKey,
   right: CdpAddressHistoryKey,
 ): number {
-  const transaction = compareTransactionKeys(left, right);
-  if (transaction !== 0) return transaction;
+  const block = compareDecimals(left.blockNumber, right.blockNumber);
+  if (block !== 0) return block;
   const log = compareDecimals(left.logIndex, right.logIndex);
   if (log !== 0) return log;
-  if (left.tokenAddress === right.tokenAddress) return 0;
-  return left.tokenAddress > right.tokenAddress ? 1 : -1;
+  if (left.transactionHash !== right.transactionHash) {
+    return left.transactionHash > right.transactionHash ? 1 : -1;
+  }
+  const leftId = historyKeyId(left);
+  const rightId = historyKeyId(right);
+  if (leftId === rightId) return 0;
+  return leftId > rightId ? 1 : -1;
+}
+
+function historyKeyId(key: CdpAddressHistoryKey): string {
+  return `${BASE_MAINNET_CHAIN_ID}:${key.tokenAddress}:${key.transactionHash}:${key.logIndex}`;
 }
 
 function compareDecimals(left: string, right: string): number {
