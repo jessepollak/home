@@ -29,5 +29,8 @@
   "trustedDependencies": [
     "sharp",
     "unrs-resolver"
-  ]
+  ],
+  "devDependencies": {
+    "agent-browser": "0.38.1"
+  }
 }

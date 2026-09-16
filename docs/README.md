@@ -9,6 +9,7 @@ For product intent and MVP scope, start with [Product strategy](product-strategy
 | [Archived implementation plan](archive/implementation-plan-2026-09-07.md) | September 7 livestream plan; not a current backlog. |
 | [Balances inventory architecture](balances-inventory-architecture.md) | Bounded wallet and savings inventory decisions. |
 | [Base Account](base-account.md) | Optional Base Account configuration. |
+| [Browser validation](browser-validation.md) | Normative `agent-browser` iteration, Playwright regression, and provider-acceptance boundary. |
 | [Build status](build-status.md) | Local-app scope and validation boundary. |
 | [Checkpoint 2026-09-12](checkpoint-2026-09-12.md) | State of main after the Home-is-thin reset; decisions, open items, how to resume. |
 | [Architecture audit 2026-09-12](architecture-audit-2026-09-12.md) | Post-reset audit of server, funding seam, and client; ranked cleanup lanes and decisions. |

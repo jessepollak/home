@@ -15,4 +15,4 @@ Closes #
 
 ## Preview
 
-<!-- User-visible changes only: the Vercel preview link plus one screenshot (~390px) or one short video from the current head. See docs/ui-pr-previews.md. Otherwise write N/A: docs-only / CI-only / pure server. -->
+<!-- User-visible changes only: include the Vercel preview link, one screenshot (~390px) or one short video from the current head, and concise agent-browser evidence: mode (factory fixture/operator), route, CSS-pixel viewport, and exercised path including recovery/Back. Keep media here; do not add duplicate proof fields. See docs/browser-validation.md and docs/ui-pr-previews.md. Otherwise write N/A: docs-only / CI-only / pure server. -->

@@ -127,6 +127,16 @@ test("model prompts receive only the bounded issue fields and no timeline or com
   }
 });
 
+test("worker prompt requires the browser-validation contract for user-visible work", () => {
+  const prompt = workerPrompt(ISSUE);
+
+  assert.match(prompt, /docs\/browser-validation\.md/);
+  assert.match(prompt, /repository-pinned agent-browser/);
+  assert.match(prompt, /secret-free factory fixture mode before and after editing/);
+  assert.match(prompt, /mode\/route\/viewport\/path evidence/);
+  assert.match(prompt, /Playwright only for committed regression/);
+});
+
 test("supervisor waits for current-head CI before promoting a normal PR", async () => {
   await withRunPaths(async (paths) => {
     const fake = fakeRun();
