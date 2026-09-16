@@ -131,9 +131,12 @@ export function ActivityPanelView({
   return (
     <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled}>
       {activity.status === "error" ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          Onchain transfers are unavailable. Recorded Home actions are still shown.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p role="status" className="text-sm text-muted-foreground">
+            Onchain transfers are unavailable. Recorded Home actions are still shown.
+          </p>
+          <Button variant="secondary" onClick={activity.retry}>Try again</Button>
+        </div>
       ) : null}
       {actionsStatus === "error" ? (
         <p role="status" className="text-sm text-muted-foreground">

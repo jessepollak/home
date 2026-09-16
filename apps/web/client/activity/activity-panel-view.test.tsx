@@ -1,11 +1,11 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityPage, ActivityTransfer } from "@/shared/activity/types";
 import type { UseActivityResult } from "./use-activity";
 
-const { cleanup, render, within } = await import("@testing-library/react");
+const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const { ActivityPanelView } = await import("./activity-panel");
 
 const WALLET = "0x1111111111111111111111111111111111111111" as const;
@@ -93,7 +93,7 @@ function ready(
   };
 }
 
-function failed(): UseActivityResult {
+function failed(retry: () => void = noop): UseActivityResult {
   return {
     status: "error",
     page: null,
@@ -101,7 +101,7 @@ function failed(): UseActivityResult {
     loadMoreError: false,
     autoLoadPaused: false,
     error: { code: "ACTIVITY_UPSTREAM", message: "Recent Base activity could not be loaded." },
-    retry: noop,
+    retry,
     refresh: noop,
     loadMore: noop,
     retryLoadMore: noop,
@@ -126,14 +126,18 @@ describe("combined Activity panel", () => {
     expect(view.getByRole("list").textContent).toMatch(/Received.*action-5.*Received.*action-3.*Received/);
   });
 
-  test("keeps recorded actions visible when onchain activity fails", () => {
+  test("keeps recorded actions visible and retries when onchain activity fails", () => {
+    const retry = mock(() => undefined);
     const view = render(
-      <ActivityPanelView activity={failed()} operations={[operation("recorded-action", 5)]} actionsStatus="ready" />,
+      <ActivityPanelView activity={failed(retry)} operations={[operation("recorded-action", 5)]} actionsStatus="ready" />,
     );
 
     expect(view.getByText("recorded-action")).toBeTruthy();
     expect(view.getByRole("status").textContent).toContain("Onchain transfers are unavailable");
     expect(view.queryByRole("alert")).toBeNull();
+
+    fireEvent.click(view.getByRole("button", { name: "Try again" }));
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 
   test("keeps onchain rows visible and names an actions-source failure", () => {

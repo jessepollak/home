@@ -73,6 +73,30 @@ describe("combined Activity feed", () => {
     ]);
   });
 
+  test("orders equal-time action ids by code unit rather than runtime locale collation", () => {
+    const items = mergeActivityFeed({
+      transfers: [],
+      operations: [
+        operation("alpha", "2026-09-15T12:00:00.000Z"),
+        operation("Beta", "2026-09-15T12:00:00.000Z"),
+      ],
+    });
+
+    expect(items.map(({ id }) => id)).toEqual(["Beta", "alpha"]);
+  });
+
+  test("keeps input order for equal-time actions that share an id", () => {
+    const first = { ...operation("same-action", "2026-09-15T12:00:00.000Z"), status: "pending" as const };
+    const second = { ...operation("same-action", "2026-09-15T12:00:00.000Z"), status: "confirmed" as const };
+
+    const items = mergeActivityFeed({ transfers: [], operations: [first, second] });
+
+    expect(items.map((item) => item.kind === "action" ? item.operation.status : null)).toEqual([
+      "pending",
+      "confirmed",
+    ]);
+  });
+
   test("preserves canonical order for same-transaction transfers", () => {
     const newerLog = {
       ...transfer(`${HASH_A}:9`, "2026-09-15T12:01:00.000Z", HASH_A),
