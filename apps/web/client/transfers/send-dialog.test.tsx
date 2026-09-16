@@ -185,6 +185,43 @@ describe("SendDialog Peer cash-out", () => {
     await waitFor(() => expect(fetches).toHaveLength(2));
   });
 
+  test("renders mobile-safe cash-out handle fields with input hints", async () => {
+    render(
+      <SendDialog
+        open immediate address={ACCOUNT} ownerBoundary="owner-peer-hints" regionId="US"
+        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
+          ? offrampResponse
+          : { version: 3, recoveryEligible: false, orders: [] }}
+        prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    const peer = await page().findByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ });
+    fireEvent.click(peer);
+    fireEvent.click(page().getByRole("button", { name: "Cash App" }));
+
+    const handle = page().getByLabelText("Cash App handle") as HTMLInputElement;
+    expect(handle.className).toContain("h-11");
+    expect(handle.getAttribute("autocomplete")).toBe("off");
+    expect(handle.getAttribute("autocapitalize")).toBe("none");
+    expect(handle.getAttribute("autocorrect")).toBe("off");
+    expect(handle.getAttribute("spellcheck")).toBe("false");
+    expect(handle.getAttribute("enterkeyhint")).toBe("next");
+
+    fireEvent.input(handle, { target: { value: "$alice" } });
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    const confirmation = page().getByLabelText("Re-enter handle") as HTMLInputElement;
+    expect(confirmation.className).toContain("h-11");
+    expect(confirmation.getAttribute("autocomplete")).toBe("off");
+    expect(confirmation.getAttribute("autocapitalize")).toBe("none");
+    expect(confirmation.getAttribute("autocorrect")).toBe("off");
+    expect(confirmation.getAttribute("spellcheck")).toBe("false");
+    expect(confirmation.getAttribute("enterkeyhint")).toBe("done");
+  });
+
   test("does not show Peer when discovery is unavailable", async () => {
     render(
       <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-no-peer"

@@ -380,12 +380,33 @@ export function SendDialog({
         </div> : null}
         {step === "handle" && selectedPlatform ? <div className="grid gap-2">
           <Label htmlFor="peer-payout-handle">{selectedPlatform.label} handle</Label>
-          <Input id="peer-payout-handle" value={payoutHandle} onInput={(event) => setPayoutHandle(event.currentTarget.value)} placeholder={selectedPlatform.handleHint} />
+          <Input
+            id="peer-payout-handle"
+            className="h-11"
+            value={payoutHandle}
+            onInput={(event) => setPayoutHandle(event.currentTarget.value)}
+            placeholder={selectedPlatform.handleHint}
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="next"
+          />
         </div> : null}
         {step === "handle-confirm" && selectedPlatform ? <div className="grid gap-2">
           <StatusMessage>Confirm the payout handle exactly: <strong>{canonicalHandle}</strong></StatusMessage>
           <Label htmlFor="peer-payout-confirmation">Re-enter handle</Label>
-          <Input id="peer-payout-confirmation" value={handleConfirmation} onInput={(event) => setHandleConfirmation(event.currentTarget.value)} />
+          <Input
+            id="peer-payout-confirmation"
+            className="h-11"
+            value={handleConfirmation}
+            onInput={(event) => setHandleConfirmation(event.currentTarget.value)}
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="done"
+          />
         </div> : null}
         {(request || cashout) && (!request || requestAsset) && (step === "confirm" || step === "pending" || step === "error") ? <>
           <MoneyConfirmSummary amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [

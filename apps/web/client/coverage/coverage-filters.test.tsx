@@ -57,6 +57,15 @@ describe("CoverageFilters", () => {
     expect(view.queryByRole("link", { name: "Reset" })).toBeNull();
   });
 
+  test("renders native selects at mobile-safe font size while allowing compact desktop", () => {
+    const view = render(<CoverageFilters {...props} />);
+    for (const name of ["1:1 onramp", "Portfolio", "Integrated", "Sort"]) {
+      const select = view.getByRole("combobox", { name }) as HTMLSelectElement;
+      expect(select.className).toContain("text-base");
+      expect(select.className).toContain("md:text-sm");
+    }
+  });
+
   test("submits select changes immediately with the complete URL-addressable query", () => {
     const view = render(<CoverageFilters {...props} values={{ q: "yen", issuer: "", priority: "priority", home: "live", sort: "gdp" }} />);
 
