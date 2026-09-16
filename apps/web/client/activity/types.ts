@@ -12,9 +12,6 @@ export type ActivityPanelProps = {
   session: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   regionId?: RegionId;
-  onTransactionHashesChange?: (hashes: string[]) => void;
-  leading?: ReactNode;
-  suppressEmpty?: boolean;
   density?: ActivityPanelDensity;
   header?: ReactNode | null;
 };
