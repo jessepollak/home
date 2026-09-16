@@ -50,7 +50,8 @@ const RECOVERY = Object.freeze({
   "coinbase-screen": "recovery: close the failed order and start a new Coinbase sandbox order",
   "payment-guard": "recovery: stop and rerun only after every Home and Coinbase sandbox label is visible",
   terminal: "recovery: inspect local server logs, then rerun with a new sandbox order",
-  signal: "recovery: rerun the command; the named session was closed",
+  cleanup: `recovery: run agent-browser --session ${SESSION} close, verify it succeeds, then rerun`,
+  signal: "recovery: rerun the command after the named session is closed",
   "step-order": "recovery: report the harness ordering failure before retrying",
   unknown: "recovery: verify local setup and rerun the sandbox harness",
 });
@@ -271,12 +272,15 @@ export async function runAgentBrowserHarness({
   WebSocketImpl = globalThis.WebSocket,
   processRunner = runProcess,
   registerSignals = true,
+  exitProcess = (code) => process.exit(code),
 } = {}) {
   let configDirectory;
   let execAgent;
   let cleanupPromise;
   let cdp;
   let signalled = false;
+  let cleanupReported = false;
+  let resultStatus = 1;
   const order = createStepOrder();
   const binary = environment.HOME_AGENT_BROWSER_BIN || "agent-browser";
   const childEnvironment = createAgentBrowserEnvironment(environment);
@@ -284,11 +288,31 @@ export async function runAgentBrowserHarness({
   const cleanup = async () => {
     if (cleanupPromise) return cleanupPromise;
     cleanupPromise = (async () => {
-      try { cdp?.close(); } catch { /* The named session close below remains authoritative. */ }
-      if (execAgent) await execAgent(["close"], { allowFailure: true }).catch(() => undefined);
+      try { cdp?.close(); } catch { /* The named agent-browser close below is authoritative. */ }
+      let sessionClosed = true;
+      if (execAgent) {
+        try {
+          const result = await execAgent(["close"], { allowFailure: true });
+          sessionClosed = result.code === 0;
+        } catch {
+          sessionClosed = false;
+        }
+      }
       if (configDirectory) await rm(configDirectory, { recursive: true, force: true }).catch(() => undefined);
+      return sessionClosed;
     })();
     return cleanupPromise;
+  };
+
+  const reportCleanup = (sessionClosed) => {
+    if (cleanupReported) return;
+    cleanupReported = true;
+    if (sessionClosed) {
+      emit(output, "cleanup-named-session", "passed");
+    } else {
+      emit(output, "cleanup-named-session", "failed");
+      emit(output, RECOVERY.cleanup, "required");
+    }
   };
 
   const signalHandler = () => {
@@ -296,7 +320,9 @@ export async function runAgentBrowserHarness({
     signalled = true;
     emit(output, "signal", "failed");
     emit(output, RECOVERY.signal, "required");
-    void cleanup().finally(() => { process.exit(130); });
+    void cleanup()
+      .then(reportCleanup)
+      .finally(() => { exitProcess(130); });
   };
 
   try {
@@ -427,22 +453,24 @@ export async function runAgentBrowserHarness({
     if (!terminal) throw new HarnessError("terminal", "Home sandbox terminal screen timed out");
     order.advance("complete");
     emit(output, "home-sandbox-terminal", "passed");
-    return 0;
+    resultStatus = 0;
   } catch (error) {
     if (!signalled) {
       const code = error instanceof HarnessError ? error.code : "unknown";
       emit(output, code, "failed");
       emit(output, RECOVERY[code] ?? RECOVERY.unknown, "required");
     }
-    return 1;
+    resultStatus = 1;
   } finally {
     if (registerSignals) {
       process.removeListener("SIGINT", signalHandler);
       process.removeListener("SIGTERM", signalHandler);
     }
-    await cleanup();
-    emit(output, "cleanup-named-session", "passed");
+    const sessionClosed = await cleanup();
+    reportCleanup(sessionClosed);
+    if (!sessionClosed) resultStatus = 1;
   }
+  return resultStatus;
 }
 
 let direct = false;

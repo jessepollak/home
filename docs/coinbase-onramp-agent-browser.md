@@ -81,11 +81,12 @@ Each failure emits one `failed` summary followed by exactly one `recovery: …` 
 | Unexpected Coinbase screen | Close the failed order and start a new sandbox order. |
 | Sandbox guard failure | Stop; rerun only when all five sandbox indicators are visible. |
 | Home terminal timeout | Inspect local Home server logs, then rerun with a new sandbox order. |
+| Named-session cleanup failure | Run `agent-browser --session home-coinbase-onramp-sandbox close`, verify it succeeds, then rerun. |
 
 Do not work around a guard, reuse a failed provider order, or substitute real customer data.
 
 ## Cleanup and automation boundary
 
-The `finally` path closes only `home-coinbase-onramp-sandbox`. It does not save a browser profile/state, inspect existing auth state, delete database rows, alter provider/CDP settings, or touch Vercel. If a local sandbox row must be removed before another attempt, that remains an explicit operator action using the local database procedure appropriate to the development environment.
+The `finally` path closes only `home-coinbase-onramp-sandbox`. A nonzero or failed close is reported as `cleanup-named-session` failure and makes the command exit nonzero, even when the sandbox flow itself succeeded. It does not save a browser profile/state, inspect existing auth state, delete database rows, alter provider/CDP settings, or touch Vercel. If a local sandbox row must be removed before another attempt, that remains an explicit operator action using the local database procedure appropriate to the development environment.
 
 `bun run gates` runs deterministic tests for the safety contracts but does not launch a browser. Neither CI nor `bun check` executes the live provider flow. This harness is sandbox-only: it does not support a funded payment, production origin, production Apple Pay, database cleanup, or unattended Home authentication.

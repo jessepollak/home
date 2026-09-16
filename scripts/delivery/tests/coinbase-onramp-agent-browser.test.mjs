@@ -242,6 +242,96 @@ test("orchestrator pre-closes and cleans up only the named session when launch f
   for (const line of output.trim().split("\n")) assert.deepEqual(Object.keys(JSON.parse(line)), ["stage", "status"]);
 });
 
+for (const closeMode of ["nonzero", "throw"]) {
+  test(`cleanup ${closeMode} failure is sanitized after a main failure without duplicate ordinary output`, async () => {
+    let closeCalls = 0;
+    const sensitiveCloseError = "close failed for person@sandbox.test at 203.0.113.42";
+    const processRunner = async (_binary, args) => {
+      if (args[0] === "--version") return { code: 0, stdout: "agent-browser 0.21.4", stderr: "" };
+      if (args.includes("close")) {
+        closeCalls += 1;
+        if (closeCalls === 2) {
+          if (closeMode === "throw") throw new Error(sensitiveCloseError);
+          return { code: 1, stdout: "", stderr: sensitiveCloseError };
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      if (args.includes("open")) throw new HarnessError("home-flow", "synthetic launch failure");
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    let output = "";
+    const status = await runAgentBrowserHarness({
+      environment: { COINBASE_ONRAMP_AGENT_BROWSER_LIVE: "1", PATH: process.env.PATH },
+      output: { write(chunk) { output += chunk; } },
+      processRunner,
+      registerSignals: false,
+    });
+
+    assert.equal(status, 1);
+    assert.equal(closeCalls, 2);
+    const summaries = output.trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(summaries.filter(({ stage }) => stage === "home-flow").length, 1);
+    assert.equal(summaries.filter(({ stage }) => stage === "recovery: verify the local sandbox server environment and restart the command").length, 1);
+    assert.equal(summaries.filter(({ stage }) => stage === "cleanup-named-session").length, 1);
+    assert.deepEqual(summaries.slice(-2), [
+      { stage: "cleanup-named-session", status: "failed" },
+      {
+        stage: "recovery: run agent-browser --session home-coinbase-onramp-sandbox close, verify it succeeds, then rerun",
+        status: "required",
+      },
+    ]);
+    assert.ok(summaries.every((summary) => Object.keys(summary).join(",") === "stage,status"));
+    assert.equal(output.includes("person@sandbox.test"), false);
+    assert.equal(output.includes("203.0.113.42"), false);
+  });
+}
+
+test("signal cleanup exits 130 once without duplicate ordinary failure output", async () => {
+  let closeCalls = 0;
+  let rejectAuth;
+  let markAuthStarted;
+  const authStarted = new Promise((resolve) => { markAuthStarted = resolve; });
+  const processRunner = async (_binary, args) => {
+    if (args[0] === "--version") return { code: 0, stdout: "agent-browser 0.21.4", stderr: "" };
+    if (args.includes("close")) {
+      closeCalls += 1;
+      return { code: 0, stdout: "", stderr: "" };
+    }
+    if (args.includes("url")) {
+      markAuthStarted();
+      return new Promise((_resolve, reject) => { rejectAuth = reject; });
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const exitCodes = [];
+  let output = "";
+  const harness = runAgentBrowserHarness({
+    environment: { COINBASE_ONRAMP_AGENT_BROWSER_LIVE: "1", PATH: process.env.PATH },
+    output: { write(chunk) { output += chunk; } },
+    processRunner,
+    exitProcess: (code) => { exitCodes.push(code); },
+  });
+
+  await authStarted;
+  process.emit("SIGINT");
+  await new Promise((resolve) => setImmediate(resolve));
+  rejectAuth(new HarnessError("home-flow", "must not be emitted"));
+  const status = await harness;
+
+  assert.equal(status, 1);
+  assert.equal(closeCalls, 2);
+  assert.deepEqual(exitCodes, [130]);
+  const summaries = output.trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(summaries, [
+    { stage: "preflight", status: "passed" },
+    { stage: "home-auth-checkpoint", status: "waiting-for-human" },
+    { stage: "signal", status: "failed" },
+    { stage: "recovery: rerun the command after the named session is closed", status: "required" },
+    { stage: "cleanup-named-session", status: "passed" },
+  ]);
+  assert.equal(output.includes("must not be emitted"), false);
+});
+
 test("orchestrator classifies a bounded quote badge wait failure as payment-guard", async () => {
   const calls = [];
   const processRunner = async (_binary, args, options) => {
@@ -401,6 +491,48 @@ test("orchestrator happy path reaches /home, applies every guard, and cleans up 
     "passed",
     "passed",
   ]);
+
+  socketState = "phone";
+  confirmationReadsRemaining = 0;
+  clickStates.length = 0;
+  processCalls.length = 0;
+  fetchCalls.length = 0;
+  output = "";
+  let closeCalls = 0;
+  const nonzeroFinalCloseRunner = async (binary, args, options) => {
+    if (args.includes("close")) {
+      closeCalls += 1;
+      if (closeCalls === 2) {
+        processCalls.push({ args, options });
+        return { code: 1, stdout: "", stderr: "sensitive close failure" };
+      }
+    }
+    return processRunner(binary, args, options);
+  };
+  const cleanupFailureStatus = await runAgentBrowserHarness({
+    environment: {
+      COINBASE_ONRAMP_AGENT_BROWSER_LIVE: "1",
+      PATH: process.env.PATH,
+    },
+    output: { write(chunk) { output += chunk; } },
+    processRunner: nonzeroFinalCloseRunner,
+    fetchImpl,
+    WebSocketImpl: HappySocket,
+    registerSignals: false,
+  });
+
+  assert.equal(cleanupFailureStatus, 1);
+  const cleanupFailureSummaries = output.trim().split("\n").map((line) => JSON.parse(line));
+  assert.ok(cleanupFailureSummaries.some(({ stage, status: stageStatus }) => stage === "home-sandbox-terminal" && stageStatus === "passed"));
+  assert.deepEqual(cleanupFailureSummaries.slice(-2), [
+    { stage: "cleanup-named-session", status: "failed" },
+    {
+      stage: "recovery: run agent-browser --session home-coinbase-onramp-sandbox close, verify it succeeds, then rerun",
+      status: "required",
+    },
+  ]);
+  assert.ok(!cleanupFailureSummaries.some(({ stage, status: stageStatus }) => stage === "cleanup-named-session" && stageStatus === "passed"));
+  assert.equal(output.includes("sensitive close failure"), false);
 });
 
 test("CDP helper assigns bounded IDs and resolves commands in send order", async () => {
