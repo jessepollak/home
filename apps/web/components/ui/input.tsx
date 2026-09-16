@@ -11,6 +11,7 @@ const inputVariants = cva(
         default: "",
         otp: "text-center text-xl font-medium tracking-[0.24em] tabular-nums",
         code: "font-mono",
+        touch: "md:text-base",
       },
     },
     defaultVariants: {

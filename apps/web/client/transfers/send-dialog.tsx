@@ -383,6 +383,7 @@ export function SendDialog({
           <Input
             id="peer-payout-handle"
             className="h-11"
+            variant="touch"
             value={payoutHandle}
             onInput={(event) => setPayoutHandle(event.currentTarget.value)}
             placeholder={selectedPlatform.handleHint}
@@ -399,6 +400,7 @@ export function SendDialog({
           <Input
             id="peer-payout-confirmation"
             className="h-11"
+            variant="touch"
             value={handleConfirmation}
             onInput={(event) => setHandleConfirmation(event.currentTarget.value)}
             autoComplete="off"

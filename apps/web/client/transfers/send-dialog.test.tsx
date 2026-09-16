@@ -205,6 +205,8 @@ describe("SendDialog Peer cash-out", () => {
 
     const handle = page().getByLabelText("Cash App handle") as HTMLInputElement;
     expect(handle.className).toContain("h-11");
+    expect(handle.className).toContain("md:text-base");
+    expect(handle.className).not.toContain("md:text-sm");
     expect(handle.getAttribute("autocomplete")).toBe("off");
     expect(handle.getAttribute("autocapitalize")).toBe("none");
     expect(handle.getAttribute("autocorrect")).toBe("off");
@@ -215,6 +217,8 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     const confirmation = page().getByLabelText("Re-enter handle") as HTMLInputElement;
     expect(confirmation.className).toContain("h-11");
+    expect(confirmation.className).toContain("md:text-base");
+    expect(confirmation.className).not.toContain("md:text-sm");
     expect(confirmation.getAttribute("autocomplete")).toBe("off");
     expect(confirmation.getAttribute("autocapitalize")).toBe("none");
     expect(confirmation.getAttribute("autocorrect")).toBe("off");

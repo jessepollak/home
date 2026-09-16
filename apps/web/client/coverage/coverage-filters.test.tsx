@@ -57,12 +57,12 @@ describe("CoverageFilters", () => {
     expect(view.queryByRole("link", { name: "Reset" })).toBeNull();
   });
 
-  test("renders native selects at mobile-safe font size while allowing compact desktop", () => {
+  test("renders native selects at mobile-safe font size at every viewport width", () => {
     const view = render(<CoverageFilters {...props} />);
     for (const name of ["1:1 onramp", "Portfolio", "Integrated", "Sort"]) {
       const select = view.getByRole("combobox", { name }) as HTMLSelectElement;
       expect(select.className).toContain("text-base");
-      expect(select.className).toContain("md:text-sm");
+      expect(select.className).not.toContain("md:text-sm");
     }
   });
 
