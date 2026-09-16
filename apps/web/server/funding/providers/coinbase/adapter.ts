@@ -242,7 +242,6 @@ function createOrderBody(
     destinationAddress: input.destination,
     partnerUserRef: partnerUserRef(input.destination, ctx.sandbox),
     partnerOrderRef: input.homeOrderId,
-    ...(input.clientIp ? { clientIp: input.clientIp } : {}),
     domain,
   };
 }

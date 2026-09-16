@@ -1,6 +1,6 @@
 # Funding provider seam
 
-Status: design of record, September 11, 2026, v2 after Jesse's review; implemented by the #301 candidate on September 12, 2026. Directional provider contract added September 14, 2026 under [#436](https://github.com/jessepollak/home/issues/436). Reconciliation intent and adapter echo validation were amended during implementation review. Tracking: [#301](https://github.com/jessepollak/home/issues/301).
+Status: design of record, September 11, 2026, v2 after Jesse's review; implemented by the #301 candidate on September 12, 2026. Directional provider contract added September 14, 2026 under [#436](https://github.com/jessepollak/home/issues/436). Coinbase Embedded Orders evidence updated September 16, 2026 under [#294](https://github.com/jessepollak/home/issues/294). Reconciliation intent and adapter echo validation were amended during implementation review. Tracking: [#301](https://github.com/jessepollak/home/issues/301).
 
 Related: [regional money](regional-money.md), [currency defaults](currency-defaults.md), [fork and extend](fork-and-extend.md), [current engineering rules](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers).
 
@@ -24,7 +24,7 @@ Everything in this document serves that. Anything that does not is deliberately 
 
 | Route | State | What remains |
 |---|---|---|
-| Coinbase Onramp (US, USDC) | Headless Apple Pay provider on the seam (`providers/coinbase/`), embedded orders, core-owned sandbox mode | Awaiting Coinbase's production enablement of embedded orders and the funded end-to-end proof ([#294](https://github.com/jessepollak/home/issues/294)); CDP domain allowlisting for hosted previews. |
+| Coinbase Onramp (US, USDC) | Generic v2 Orders API, Embedded Orders iframe, provider-scoped sandbox mode | Complete non-funded `agent-browser` sandbox flow and generic status proven September 16; production enablement and domain verification remain unconfirmed ([#294](https://github.com/jessepollak/home/issues/294)). |
 | Ripio Ramps (AR wARS, BR wBRL, CO wCOP) | Adapter and Add money flow on `main`; inert until every binding environment variable is set | Ripio must run the per-provider checklist; no live provider call has been made. |
 | IDRX (ID) | Adapter and Add money flow on `main`; inert until every binding environment variable is set | IDRX must run the per-provider checklist; no live provider call has been made. |
 | MXNB, XSGD, TRYB | Issuer scaffolds tracked in [#295](https://github.com/jessepollak/home/issues/295) have not started | Adapter, manifest, fixtures, and issuer confirmation. |
@@ -204,6 +204,16 @@ Cut after review to keep the first version small. Each is a follow-up if a real 
 - Choosing between multiple ramps in one country — all configured bindings are listed; ordering and selection UX is P2.
 - Hosted-session provider kind — Coinbase moves to the headless API instead.
 
+## Coinbase web Embedded Orders (#294)
+
+Coinbase remains under the directional `provider.onramp` port and uses the server-authenticated generic v2 Orders API for both `base-account` and `cdp-embedded` sessions: `POST /platform/v2/onramp/orders` for a pricing-only quote and exactly one create, then `GET /platform/v2/onramp/orders/{orderId}` for status. Create preserves the Home `partnerOrderRef`, destination, and exact quoted USDC `purchaseAmount`; the allowlisted `https://pay.coinbase.com` link is rendered in the existing iframe. Production Embedded Orders enablement and verified domains remain unconfirmed.
+
+Quote and create omit `phoneNumber`, `email`, `agreementAcceptedAt`, `phoneNumberVerifiedAt`, `smsVerificationId`, and `emailVerificationId`, so Coinbase collects contact, OTP, identity, limits-upgrade, and agreement data inside its hosted flow. Home does not use the iOS/React Native end-user endpoint or Cross-Platform FundModal popup. A top-level `userAuthToken`, when present, is dropped before browser response, logging, or persistence.
+
+The generic core may still supply ephemeral `OrderIntent.clientIp` for providers that need it, but Coinbase create omits it unconditionally. September 13 evidence had indicated the optional field was required; on September 16, 2026, Coinbase support reported IP-validation failures, disabled that validation, and requested a retry without it. This records dated provider guidance, not a permanent API contract.
+
+A complete September 16 `agent-browser` sandbox run without `clientIp` passed quote, exactly one create, repeated generic status, iframe loading, Coinbase-hosted phone/email OTP, synthetic limits upgrade, exact purchase review, and fake Apple Pay confirmation. Generic status reached `COMPLETED`; Home correctly displayed sandbox completion at `sent-unverified` with no real funds moved. A production quote still returned HTTP 400 with `Email is required`, so production enablement remains unconfirmed.
+
 ## Implementation notes (#294)
 
 - `Instruction` now has a distinct `embed` kind. The first presentation is `apple-pay`; the instruction carries the allowlisted iframe URL and the fee-inclusive fiat amount/currency the payer will authorize.
@@ -211,7 +221,7 @@ Cut after review to keep the first version small. Each is a follow-up if a real 
 - After a provider reports `created`, the core validates every `redirect` and `embed` URL before persisting instructions: HTTPS, an origin declared by `manifest.redirectOrigins`, no username/password/fragment, and at most 4096 characters. Failure is `dispatch-ambiguous` because the provider request may have succeeded.
 - If a provider cannot lock a quote, the adapter requests the exact quoted token amount on create and reports the resulting fiat total on the instruction. Coinbase follows this rule by pinning USDC `purchaseAmount`; a changed USD total is reviewed in Home and authorized again in Apple Pay.
 - Coinbase's hosted redirect and `/platform/v2/onramp/sessions` path were removed. Migration `003_coinbase_hosted_retired.sql` terminalizes any remaining open `coinbase` / `hosted` rows so they no longer block or resume the US flow.
-- Live sandbox validation found that Coinbase requires `clientIp` on order creation even though its reference marks the field optional. The orders route passes the first `x-forwarded-for` hop (falling back to `x-real-ip`) through the core as an ephemeral `OrderIntent.clientIp`; it is never persisted, signed into quote claims, logged, or returned publicly.
+- The orders route still derives the first `x-forwarded-for` hop (falling back to `x-real-ip`) as an ephemeral `OrderIntent.clientIp` for provider ports that need it; it is never persisted, signed into quote claims, logged, or returned publicly. Coinbase alone omits it from create per the September 16 provider request above.
 - Sandbox mode is core-owned and provider-direction scoped through manifest `modeEnv`: `COINBASE_ONRAMP_MODE=sandbox` affects only Coinbase onramp and `PEER_OFFRAMP_MODE=sandbox` affects only Peer offramp. Missing variables default to production; invalid values, unsupported sandbox selection, and any legacy `FUNDING_SANDBOX` presence fail closed. The core passes `ctx.sandbox`, binds onramp mode into signed quote tokens and persisted orders, and rejects quote/create mode drift. Refresh always uses the persisted order boolean. Sandbox orders never run receipt verification; when a provider reports `sent`, the client treats `sent-unverified` as complete and the row is excluded from open-order resume.
 
 The design originally cut sandbox from v1, then reversed that decision on September 13, 2026 because production embedded create returned `Email is required`. The core owns the mode shape: provider-direction eligibility through `modeEnv` and declared sandbox capability, adapter context through `ProviderContext.sandbox`, quote-mode binding, persisted `FundingOrder.sandbox`, receipt-verification suppression, and client presentation.

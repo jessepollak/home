@@ -1,6 +1,6 @@
 # Issuer integration guide
 
-Status: issuer walkthrough for the funding-provider seam on `main`, September 13, 2026. This page does not authorize a funded test, deployment, provider enablement, or merge. Provider hosted acceptance is a separate loop; see [local development versus provider hosted acceptance](#local-development-versus-provider-hosted-acceptance).
+Status: issuer walkthrough for the funding-provider seam on `main`, updated September 16, 2026. This page does not authorize a funded test, deployment, provider enablement, or merge. Provider hosted acceptance is a separate loop; see [local development versus provider hosted acceptance](#local-development-versus-provider-hosted-acceptance).
 
 ## Current status and prerequisites
 
@@ -9,7 +9,7 @@ Status: issuer walkthrough for the funding-provider seam on `main`, September 13
 | Provider contract, IDRX/Ripio/Coinbase adapters, orders/evidence, and Add money order UI | Shipped in [#284](https://github.com/jessepollak/home/pull/284) / [#301](https://github.com/jessepollak/home/issues/301) | The checked-in seam and provider READMEs |
 | Home-native Base Account sign-in | Shipped ([#404](https://github.com/jessepollak/home/pull/404)); Base Account always uses Home-native SIWE and needs only `HOME_SESSION_SECRET` (at least 32 characters) | No CDP project required; `NEXT_PUBLIC_CDP_PROJECT_ID` only adds email sign-in |
 | Local Postgres | Shipped via `docker-compose.yml` and `bun run db:up` | Docker and the local `DATABASE_URL` below |
-| Coinbase headless Orders API | In review in [#398](https://github.com/jessepollak/home/pull/398) | `main` still uses the Coinbase hosted redirect |
+| Coinbase generic v2 Embedded Orders | Implemented under [#294](https://github.com/jessepollak/home/issues/294); complete non-funded sandbox flow proven September 16 | Production enablement and verified domains remain unconfirmed |
 
 The seam contract is [`apps/web/shared/funding/provider-contract.ts`](../../apps/web/shared/funding/provider-contract.ts), assets are registered in [`apps/web/shared/funding/assets.ts`](../../apps/web/shared/funding/assets.ts), and IDRX, Ripio, and Coinbase adapters live under [`apps/web/server/funding/providers/`](../../apps/web/server/funding/providers/). The API exposes providers, quotes, orders/list/status, and provider webhooks under [`apps/web/app/api/funding/`](../../apps/web/app/api/funding/). Root `bun run db:migrate` applies both database and funding migrations; the legacy Ripio store, reconciliation, migration, contract, and bespoke webhook stack has been removed.
 
@@ -44,6 +44,16 @@ The seam contract is [`apps/web/shared/funding/provider-contract.ts`](../../apps
 
 7. **Open a bounded upstream PR.** Include the adapter, manifest, synthetic fixtures/tests, and README. Attach one 390px clip of the local flow and add a dated local-development line — for Ripio, exactly `Local development completed against Ripio production API on YYYY-MM-DD` — without credentials, customer data, payment details, or wallet secrets. That line records that local development happened; it is not a validated claim. Run `bun check`; fresh review is required, and only Jesse approves and merges.
 
+## Coinbase web Embedded Orders
+
+Coinbase uses the directional `provider.onramp` port and is eligible for both `base-account` and `cdp-embedded` sessions when `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` are configured. It calls `POST /platform/v2/onramp/orders` for a pricing-only quote and exactly one create with the quoted USDC `purchaseAmount`, renders the allowlisted `https://pay.coinbase.com` link in the existing iframe, and reconciles through `GET /platform/v2/onramp/orders/{orderId}`.
+
+Quote and create omit `phoneNumber`, `email`, `agreementAcceptedAt`, `phoneNumberVerifiedAt`, `smsVerificationId`, and `emailVerificationId`; Coinbase collects those verification inputs inside its hosted flow. Home does not use the iOS/React Native end-user endpoint or Cross-Platform FundModal popup. Extra top-level `userAuthToken` response data is not returned, logged, or persisted.
+
+Coinbase create also omits `clientIp` even if the generic core seam supplies one. September 13 evidence had indicated the optional field was required; on September 16, 2026, Coinbase support reported IP-validation failures, disabled that validation, and requested a retry without it. This is dated provider guidance, not a permanent API contract.
+
+With `COINBASE_ONRAMP_MODE=sandbox`, a complete September 16 `agent-browser` run passed quote, exactly one create, repeated generic status, iframe loading, Coinbase-hosted phone/email OTP, synthetic limits upgrade, exact purchase review, and fake Apple Pay confirmation. Status reached `COMPLETED`, and Home correctly displayed sandbox `sent-unverified` completion with no real funds moved. A production quote still returned HTTP 400 with `Email is required`; production enablement and domain verification remain unconfirmed.
+
 ## Local development versus provider hosted acceptance
 
 The seven steps complete **local adapter development**: a local clone walk of the flow is the development proof, and it is where issuer iteration happens. It is not release acceptance. Acceptance for a provider integrating with Home's own hosted deployment is a separate loop with its own gates — sequential funded tests per rail on Home's protected production alias, explicit approval for every payment, and a recorded evidence trail.
@@ -54,7 +64,7 @@ Provider-specific acceptance playbooks belong beside their adapters so implement
 
 The seam core—not an adapter—owns the session-derived Base destination, configured binding and exact registry asset, one reservation/no retry after ambiguous create, quote binding, owner-scoped private/no-store reads, status observation, verified webhooks, and receipt/log evidence before `received`. A provider can report provider state; it cannot declare funds received.
 
-The Coinbase adapter on `main` still creates a hosted redirect and cannot reconcile status. The headless replacement, `embed` instruction, `QuoteIntent.returnUrl`, and core redirect validation are in review in #398, not merged. Read the checked-in provider contract, routes, store, and conformance harness rather than copying this summary into an API manual.
+Coinbase uses the generic v2 Orders API and Embedded Orders iframe described above. The core still owns one dispatch and exact receipt evidence; Coinbase's sandbox completion stops at `sent-unverified`, while a live order can reach `received` only after the Base receipt matches.
 
 ## Authority and safety
 
