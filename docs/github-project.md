@@ -19,6 +19,22 @@ Credit and Design reuse existing programs. Their historical bodies need reconcil
 
 Use native sub-issues for delivery work, preserving existing hierarchy when it is already useful. An intermediate program such as #15 can sit beneath a workstream. A child has one primary workstream; cross-cutting dependencies are links. The selected native edges and MVP membership below have been audited; other checklist links remain proposals, not automatic release scope.
 
+## Filing an issue
+
+This is the canonical creation contract; `AGENTS.md` points here. Decide placement before creating, then attach hierarchy and Project membership deliberately.
+
+1. **Search and reuse.** Search open and closed issues — text, labels, milestone, and existing hierarchy — before creating. Update the issue that already tracks the work; do not duplicate it or start a parallel board.
+2. **Choose the primary workstream and nearest useful parent before creating.** Pick one of the eight [Workstream index](#workstream-index) roots, then choose the nearest useful parent in that workstream: either the root itself or an intermediate program such as #15 when it is the right container.
+3. **Create with labels, not routing.** One `status:*`, one `lane:*`, one `priority:*`. No `owner:*` labels, no GitHub assignee routing, no `factory:ready` — only Jesse applies that label.
+4. **Establish the native parent edge.** Attach the issue to that parent through GitHub's native parent/sub-issue relation. A body mention, checklist link, or "related to" reference does not create hierarchy.
+5. **Ensure Home Project membership.** Add the issue to the [Home Project](https://github.com/users/jessepollak/projects/1), or confirm it arrived through native auto-add or the repository sync. Membership is verified, not assumed.
+6. **Keep dependencies as links.** Cross-cutting and blocking dependencies stay ordinary issue links or named dependencies; only the primary workstream ancestor is a native parent.
+7. **Verify source state immediately.** Through the API, confirm the native parent, Project membership, and exactly one `status:*`/`lane:*`/`priority:*`. API verification is required; Project UI confirmation is optional.
+8. **Verify derived fields after reconciliation.** The derived **Delivery status**, **Workstream**, and **Level** fields are synchronized from issue state, labels, and the native parent chain, so they can lag source state by up to one hourly interval — an issue can be opened before its native parent is attached. Confirm them after the next hourly reconciliation or an authorized manual reconciliation. Never hand-edit a derived field as the remedy: fix the source (parent edge, labels, state) and let reconciliation repair it ([sync operation and recovery](#sync-operation-and-recovery)). The Project's built-in `Status` field is intentionally unused, and hand-edited derived values are not source state.
+9. **Parentless is limited to the configured roots.** Only the eight [Workstream index](#workstream-index) roots may have no native parent. The sync policy validates that the checked-in configuration contains exactly eight roots; it does not repair a parentless non-root issue, which remains unclassified until its native edge is fixed. Intermediate programs and tracking containers need a native parent under a configured root, and delivery issues get no exception — an absent parent is otherwise an unfiled hierarchy edge. Changing the configured root set is not an ordinary filing choice: it requires reviewed updates to this guide, `scripts/delivery/home-project-config.json`, the eight-root sync policy, and the Project's **Workstream** options as applicable.
+
+Membership and mentions are not hierarchy. An issue that sits in the Home Project and links its workstream only in prose is mis-filed: it has no native parent, sub-issue progress rollups exclude it, and the derived Workstream stays empty until the native edge exists. Creating that edge is the recovery step.
+
 ## Views
 
 Use one **Home MVP** repository milestone for agreed release work. Keep later work visible outside that milestone.
@@ -36,7 +52,7 @@ Use native fields for title, labels, milestone, linked PRs, parent, and sub-issu
 
 ## One-way synchronization contract
 
-The reviewed repository sync is implemented under #564 and the administrative backfill is verified. Ongoing automation is not active until the workflow is merged and its dedicated token is provisioned in the protected `home-project` Actions environment. The Project's built-in `Status` field is intentionally unused; only the three Home-derived fields below are synchronized.
+The reviewed repository sync is implemented under #564, the administrative backfill is verified, and the workflow is merged on `main`. `HOME_PROJECT_TOKEN` is provisioned in the protected `home-project` Actions environment, and successful issue-triggered and manual runs were observed on 2026-09-16; the scheduled hourly run is not yet verified. The Project's built-in `Status` field is intentionally unused; only the three Home-derived fields below are synchronized.
 
 | Issue state | Delivery status |
 | --- | --- |
@@ -53,9 +69,9 @@ Closed state takes precedence. Derive Workstream from the nearest ancestor in th
 
 Trigger reconciliation on issue creation, label/state changes, milestone changes, and hierarchy changes where supported; use a periodic full reconciliation to repair missed events. Backfill existing issues explicitly. Native auto-add can collect new matching issues but does not replace initial backfill or custom-field synchronization. Keep PRs linked to issues rather than duplicating every PR as a delivery card.
 
-Run ongoing Project writes only in the dedicated default-branch workflow's protected `home-project` environment with `HOME_PROJECT_TOKEN`; the default repository GITHUB_TOKEN cannot access this user Project. GitHub [does not support fine-grained PAT access to user-owned Projects](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens). Provision a dedicated, expiring classic PAT with `project` scope only: this repository is public and the sync does not write repository data. Do not grant `repo` or `public_repo` merely for public issue reads. The `project` scope inherently reaches the user's Projects, not only Home; mitigate that platform limit with expiration, the dedicated environment restricted exactly to `main`, and the checked-in Project/field allowlist. The dedicated-token execution path remains untested until provisioning.
+Run ongoing Project writes only in the dedicated default-branch workflow's protected `home-project` environment with `HOME_PROJECT_TOKEN`; the default repository GITHUB_TOKEN cannot access this user Project. GitHub [does not support fine-grained PAT access to user-owned Projects](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens). Provision a dedicated, expiring classic PAT with `project` scope only: this repository is public and the sync does not write repository data. Do not grant `repo` or `public_repo` merely for public issue reads. The `project` scope inherently reaches the user's Projects, not only Home; mitigate that platform limit with expiration, the dedicated environment restricted exactly to `main`, and the checked-in Project/field allowlist. The dedicated-token execution path now runs from that protected environment; only the scheduled hourly path remains unverified.
 
-The environment exists but has no token provisioned. Keep the token step-local: never copy it into app `.env` files, factory workers, untrusted PR workflows, artifacts, or repository-wide secrets. The workflow checks out trusted `main`, installs no dependencies, and never executes issue content. Project, field, option, milestone, repository, and root IDs are non-secret configuration. For the reviewed one-time administrative backfill, the authenticated parent uses `gh api graphql` as the transport without extracting its keyring credential, exporting it to workers, or uploading its broader OAuth token to Actions.
+The environment and its token are provisioned. Keep the token step-local: never copy it into app `.env` files, factory workers, untrusted PR workflows, artifacts, or repository-wide secrets. The workflow checks out trusted `main`, installs no dependencies, and never executes issue content. Project, field, option, milestone, repository, and root IDs are non-secret configuration. For the reviewed one-time administrative backfill, the authenticated parent uses `gh api graphql` as the transport without extracting its keyring credential, exporting it to workers, or uploading its broader OAuth token to Actions.
 
 ## Activation checklist
 
@@ -74,7 +90,7 @@ A recovery check deliberately changed only #564's derived Project status from Wo
 
 Saved-view API results matched independently computed item sets: [MVP overview](https://github.com/users/jessepollak/projects/1/views/1) **8**, [Delivery](https://github.com/users/jessepollak/projects/1/views/2) **40**, [Needs Jesse](https://github.com/users/jessepollak/projects/1/views/3) **7**, and [Ready for factory](https://github.com/users/jessepollak/projects/1/views/4) **7**. Counts are a dated snapshot, not fixed acceptance targets. Delivery uses `milestone:"Home MVP" Level:Delivery -delivery-status:"Not planned"`, with Workstream swimlanes and Delivery status columns. The API accepts the hyphenated field key; quoting the field name produced an empty view and was corrected.
 
-The implementation passed independent review, 19 focused tests, clean-environment factory preflight, frozen-lockfile installation, and `bun check`. Browser rendering and dedicated-token hosted issue-event/manual/hourly runs remain unverified. Token provisioning and authorized merge belong to Jesse; do not infer scheduled-sync health from the unmerged workflow or tokenless environment.
+The implementation passed independent review, 19 focused tests, clean-environment factory preflight, frozen-lockfile installation, and `bun check`. Token provisioning and the authorized merge are complete: successful dedicated-token issue-event and manual runs were observed on 2026-09-16. Browser rendering and the scheduled hourly hosted run remain unverified; do not infer scheduled-sync health from the triggered runs.
 
 ### Native hierarchy and milestone audit
 

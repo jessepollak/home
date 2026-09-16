@@ -38,7 +38,7 @@ For product intent and MVP scope, start with [Product strategy](product-strategy
 | [PR previews](pr-previews/README.md) | Preview capture conventions. |
 | [Product strategy](product-strategy.md) | Customer, vision, MVP scope, and completion proofs. |
 | [PRD template](prd-template.md) | Bounded delivery brief for an existing issue. |
-| [GitHub Project](github-project.md) | Workstream index, views, and synchronization handoff. |
+| [GitHub Project](github-project.md) | Issue-filing contract, workstream index, views, and synchronization handoff. |
 | [Agent instruction review](agent-instruction-review.md) | Astra guide application and remaining instruction cleanup. |
 | [Historical product scope](product-scope.md) | Livestream-era intent; current scope is in Product strategy. |
 | [Public transfer feed spec](public-transfer-feed-spec.md) | Proposed public ERC-20 transfer feed. |
