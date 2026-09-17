@@ -145,6 +145,24 @@ describe("SavingsMoneyDialog", () => {
     expect(prepareCalls).toBe(0);
   });
 
+  test("forces every number and drawer layer into deterministic reduced motion", () => {
+    const view = render(
+      <SavingsMoneyDialog
+        open mode="deposit" motion="reduced" session={session} candidate={candidate}
+        availableLabel="$50.00 available" availableBaseUnits="50000000"
+        prepareMoneyAction={async () => prepared()}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+
+    const tickers = view.container.ownerDocument.querySelectorAll("[data-slot='money-ticker']");
+    expect(tickers).toHaveLength(3);
+    for (const ticker of tickers) expect(ticker.getAttribute("data-animated")).toBe("false");
+    expect(view.container.ownerDocument.querySelector("[data-money-sheet]")?.hasAttribute("data-immediate")).toBe(true);
+    expect(view.container.ownerDocument.querySelector("[data-slot='drawer-overlay']")?.hasAttribute("data-immediate")).toBe(true);
+  });
+
   test("reopens the same controlled dialog after close", async () => {
     render(<ReopenHarness />);
     fireEvent.click(await page().findByRole("button", { name: "Close deposit dialog" }));

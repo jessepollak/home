@@ -3,6 +3,7 @@
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { LoaderCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { MoneyMotionProvider } from "@/components/money-ticker";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
@@ -27,12 +28,15 @@ import { formatApy, formatUsdcUsd, parseUsdcAmount } from "@/client/savings/form
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 
 export type SavingsActionMode = "deposit" | "withdraw";
+export type SavingsDialogMotion = "system" | "reduced";
 
 export type SavingsMoneyDialogProps = {
   open: boolean;
   mode: SavingsActionMode;
   session: VerifiedAccountSession;
   candidate: MorphoVaultCandidate;
+  /** System preference in production; explicit reduced mode makes a deterministic review fixture. */
+  motion?: SavingsDialogMotion;
   availableLabel?: string;
   availableBaseUnits?: string | null;
   /** Presentation overrides for deterministic design fixtures. A non-matching asset can be viewed but never submitted to the configured candidate route. */
@@ -54,6 +58,7 @@ export function SavingsMoneyDialog({
   mode,
   session,
   candidate,
+  motion = "system",
   availableLabel,
   availableBaseUnits,
   assetId: selectedAssetId,
@@ -201,9 +206,10 @@ export function SavingsMoneyDialog({
   };
 
   return (
-    <>
+    <MoneyMotionProvider reducedMotion={motion === "reduced" ? true : undefined}>
       <MoneyModal
         open={open}
+        immediate={motion === "reduced"}
         labelledBy="savings-action-title"
         describedBy={step === "pending" ? "savings-action-pending" : undefined}
         onCancel={closeIfAllowed}
@@ -308,8 +314,7 @@ export function SavingsMoneyDialog({
           />
         ) : null}
       </MoneyModal>
-
-    </>
+    </MoneyMotionProvider>
   );
 }
 

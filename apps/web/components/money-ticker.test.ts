@@ -24,6 +24,7 @@ window.matchMedia = (() => reducedMotionMedia) as typeof window.matchMedia;
 
 const { act, cleanup, render } = await import("@testing-library/react");
 const {
+  MoneyMotionProvider,
   MoneyTicker,
   moneyTickerAnimationsEnabled,
   splitMoneyTickerValue,
@@ -61,6 +62,16 @@ test("the default ticker animates normally and disables animation when reduced m
   act(() => setReducedMotion(true));
   expect(ticker.getAttribute("data-animated")).toBe("false");
   expect(ticker.getAttribute("aria-label")).toBe("$250.00");
+});
+
+test("a scoped review fixture can force reduced motion without changing the system preference", () => {
+  const view = render(createElement(
+    MoneyMotionProvider,
+    { reducedMotion: true },
+    createElement(MoneyTicker, { value: "$250.00" }),
+  ));
+  expect(view.getByRole("img", { name: "$250.00" }).getAttribute("data-animated")).toBe("false");
+  expect(reducedMotion).toBe(false);
 });
 
 test("reduced motion disables digit transitions without suppressing value updates", () => {

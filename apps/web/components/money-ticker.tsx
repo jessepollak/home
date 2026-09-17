@@ -2,13 +2,17 @@
 
 import NumberFlow from "@number-flow/react";
 import {
+  createContext,
+  useContext,
   useState,
   useSyncExternalStore,
   type ComponentPropsWithoutRef,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const MoneyMotionContext = createContext<boolean | undefined>(undefined);
 
 const asciiDigitValues = {
   "0": 0,
@@ -85,7 +89,23 @@ function reducedMotionSnapshot(): boolean {
 }
 
 function useMoneyTickerReducedMotion(): boolean {
-  return useSyncExternalStore(subscribeToReducedMotion, reducedMotionSnapshot, () => false);
+  const systemPreference = useSyncExternalStore(subscribeToReducedMotion, reducedMotionSnapshot, () => false);
+  return useContext(MoneyMotionContext) ?? systemPreference;
+}
+
+/** A scoped review/test override; production callers omit it and follow the system preference. */
+export function MoneyMotionProvider({
+  reducedMotion,
+  children,
+}: {
+  reducedMotion?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <MoneyMotionContext.Provider value={reducedMotion}>
+      {children}
+    </MoneyMotionContext.Provider>
+  );
 }
 
 export function MoneyTicker({

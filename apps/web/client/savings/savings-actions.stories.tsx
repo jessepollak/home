@@ -17,6 +17,7 @@ import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import {
   SavingsMoneyDialog,
   type SavingsActionMode,
+  type SavingsDialogMotion,
 } from "./savings-actions";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
@@ -117,12 +118,14 @@ const failedExecution: AccountWalletClient["executeMoneyAction"] = async (action
 
 type DialogStorySurfaceProps = {
   mode?: SavingsActionMode;
+  motion?: SavingsDialogMotion;
   storyCandidate?: MorphoVaultCandidate;
   executeMoneyAction?: AccountWalletClient["executeMoneyAction"];
 };
 
 function DialogStorySurface({
   mode = "deposit",
+  motion = "system",
   storyCandidate = candidate,
   executeMoneyAction = rejectedExecution,
 }: DialogStorySurfaceProps) {
@@ -142,6 +145,7 @@ function DialogStorySurface({
       <SavingsMoneyDialog
         open={open}
         mode={mode}
+        motion={motion}
         session={session}
         candidate={storyCandidate}
         availableLabel={selectedAssetId === "idrx" ? "Rp 250 available" : selectedAssetId === "eurc" ? "€250.00 available" : "$250.00 available"}
@@ -191,6 +195,7 @@ const meta = {
   component: DialogStorySurface,
   args: {
     mode: "deposit",
+    motion: "system",
     storyCandidate: candidate,
     executeMoneyAction: rejectedExecution,
   },
@@ -298,11 +303,37 @@ export const BackAndCancel: Story = {
 };
 
 export const ReducedMotionReference: Story = {
+  args: { motion: "reduced" },
+  play: async ({ canvasElement }) => {
+    const document = canvasElement.ownerDocument;
+    const screen = within(document.body);
+    const expectReducedSurface = async () => {
+      const tickers = [...document.querySelectorAll<HTMLElement>("[data-slot='money-ticker']")];
+      await expect(tickers).toHaveLength(3);
+      for (const ticker of tickers) {
+        await expect(ticker).toHaveAttribute("data-animated", "false");
+      }
+      for (const selector of ["[data-money-sheet]", "[data-slot='drawer-overlay']", "[data-slot='drawer-content']"]) {
+        const node = document.querySelector<HTMLElement>(selector);
+        if (!node) throw new Error(`Reduced-motion node is missing: ${selector}`);
+        const style = getComputedStyle(node);
+        await expect(style.transitionDuration).toBe("0s");
+        await expect(style.animationDuration).toBe("0s");
+      }
+    };
+
+    await screen.findByRole("dialog", { name: "Deposit" });
+    await expectReducedSurface();
+    await userEvent.click(await screen.findByRole("button", { name: "Close deposit dialog" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Reopen deposit dialog" }));
+    await screen.findByRole("dialog", { name: "Deposit" });
+    await expectReducedSurface();
+  },
   parameters: {
     viewport: { defaultViewport: "mobile" },
     docs: {
       description: {
-        story: "Stable review target only. This story does not emulate prefers-reduced-motion; apply real browser media emulation during review.",
+        story: "Deterministic reduced-motion review fixture: primary, alternate, and available numbers do not animate, and close/reopen has no drawer motion without changing OS settings. Production still follows prefers-reduced-motion; retain separate real-browser media-emulation proof.",
       },
     },
   },
