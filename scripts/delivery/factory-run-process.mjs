@@ -212,7 +212,7 @@ export function piInvocation(role, prompt) {
     command: "cbcode",
     args: [
       "--agent", "pi", "--",
-      "--print", "--no-session", "--no-extensions", "--no-skills",
+      "--print", "--no-session", "--no-skills",
       "--no-prompt-templates", "--no-themes", "--tools", tools,
       "--", prompt,
     ],
