@@ -29,8 +29,8 @@ const longLabelLargeAmountRow = {
   group: "asset",
   name: "International diversified treasury reserve position",
   mark: { kind: "symbol", symbol: "RESERVE" },
-  primary: "$123,456,789,012,345,678,901,234.56 USD",
-  secondary: "99,999,999,999.0000 RESERVE",
+  primary: "$123,456,789,012,345,678,901,234.56",
+  secondary: "99,999,999,999 RESERVE",
   tone: "default",
 } satisfies BalanceRowModel;
 
