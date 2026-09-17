@@ -86,6 +86,55 @@ test("Storybook and MSW stay out of production modules with narrow workshop carv
     "production-isolation/no-storybook-imports",
     messagePart,
   );
+  // Every production source directory outside the layered five stays covered, so
+  // a workshop import cannot hop into production through config, lib, or types.
+  await assertRestricted(
+    "config/gates-fixture.ts",
+    'import type { Meta } from "@storybook/nextjs-vite";\nexport const meta = {} as Meta;\n',
+    "production-isolation/no-storybook-imports",
+    messagePart,
+  );
+  await assertRestricted(
+    "lib/gates-fixture.ts",
+    'export async function load() { return import("msw"); }\n',
+    "production-isolation/no-storybook-imports",
+    messagePart,
+  );
+  await assertRestricted(
+    "types/gates-fixture.d.ts",
+    'import type { SetupWorker } from "msw/browser";\nexport type Worker = SetupWorker;\n',
+    "production-isolation/no-storybook-imports",
+    messagePart,
+  );
+  // Root production/build entrypoints are covered alongside the directories.
+  await assertRestricted(
+    "instrumentation.ts",
+    'import { Normal } from "./client/home/balances-panel.stories";\nexport const story = Normal;\n',
+    "production-isolation/no-storybook-imports",
+    messagePart,
+  );
+  await assertRestricted(
+    "instrumentation-client.ts",
+    'import { mswLoader } from "msw-storybook-addon/csf3";\nexport const setup = mswLoader;\n',
+    "production-isolation/no-storybook-imports",
+    messagePart,
+  );
+  await assertRestricted(
+    "proxy.ts",
+    'export async function load() { return import(`msw`); }\n',
+    "production-isolation/no-storybook-imports",
+    messagePart,
+  );
+  await assertRestricted(
+    "next.config.ts",
+    'import { setupServer } from "msw/node";\nexport const server = setupServer;\n',
+    "production-isolation/no-storybook-imports",
+    messagePart,
+  );
+  await assertClean(
+    "config/gates-fixture.stories.ts",
+    'import { mswLoader } from "msw-storybook-addon/csf3";\nexport const setup = mswLoader;\n',
+  );
   await assertClean(
     "client/gates-fixture.stories.tsx",
     'import type { Meta } from "@storybook/nextjs-vite";\nexport const meta = {} as Meta;\n',
