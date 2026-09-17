@@ -52,7 +52,7 @@ export function routeIssue(issue) {
   }
   return {
     tier: money ? "money" : "product",
-    writer: "cbhq-deepseek/deepseek-v4-pro",
+    writer: "cbhq-deepseek/deepseek-v4.1-flash:max",
     reviewer: money ? "cbhq-openai/gpt-6-astra:medium" : "cbhq-openai/gpt-5.6-sol:medium",
   };
 }

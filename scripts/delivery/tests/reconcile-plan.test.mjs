@@ -115,14 +115,14 @@ test("plan converges: applying the launches makes the next tick a no-op", () => 
   assert.deepEqual(p2.actions, []);
 });
 
-test("routing: docs → Terra; backend money → Sol writer + Astra reviewer; frontend money → DeepSeek + Astra; plain → DeepSeek + Sol", () => {
+test("routing: docs → Terra; backend money → Sol writer + Astra reviewer; frontend money → DeepSeek V4.1 Flash + Astra; plain → DeepSeek V4.1 Flash + Sol", () => {
   assert.equal(routeIssue(issue(1, { labels: ["lane:dx"] })).writer, "cbhq-openai/gpt-5.6-terra:medium");
   const money = routeIssue(issue(1, { title: "fix(funding): ripio webhook", labels: ["lane:backend"] }));
   assert.deepEqual([money.tier, money.writer, money.reviewer], ["money", "cbhq-openai/gpt-5.6-sol:medium", "cbhq-openai/gpt-6-astra:medium"]);
   const fe = routeIssue(issue(1, { title: "fix(balances): unavailable rows", labels: ["lane:frontend"] }));
-  assert.deepEqual([fe.writer, fe.reviewer], ["cbhq-deepseek/deepseek-v4-pro", "cbhq-openai/gpt-6-astra:medium"]);
+  assert.deepEqual([fe.writer, fe.reviewer], ["cbhq-deepseek/deepseek-v4.1-flash:max", "cbhq-openai/gpt-6-astra:medium"]);
   const plain = routeIssue(issue(1, { title: "fix(ui): caret spacing", labels: ["lane:frontend"] }));
-  assert.deepEqual([plain.tier, plain.reviewer], ["product", "cbhq-openai/gpt-5.6-sol:medium"]);
+  assert.deepEqual([plain.tier, plain.writer, plain.reviewer], ["product", "cbhq-deepseek/deepseek-v4.1-flash:max", "cbhq-openai/gpt-5.6-sol:medium"]);
 });
 
 test("laneUsage sums cost and turns across the lane session and nested child sessions", () => {
