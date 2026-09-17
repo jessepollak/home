@@ -549,9 +549,8 @@ export async function runFactorySupervisor(issueValue, {
     issue = await stage("eligibility", async () => {
       const currentIssue = await github.getIssue(issueNumber);
       const openPullRequests = await github.openPullRequestsReferencing(issueNumber);
-      authorization = github.authorizeIssue
-        ? await github.authorizeIssue(currentIssue, openPullRequests)
-        : legacyAuthorization(currentIssue);
+      if (typeof github.authorizeIssue !== "function") throw new Error("factory authorization adapter is unavailable");
+      authorization = await github.authorizeIssue(currentIssue, openPullRequests);
       const eligibility = evaluateFactoryRunEligibility(currentIssue, openPullRequests, github.repositoryOwner, authorization.route);
       if (!eligibility.eligible) throw new Error(eligibility.failures.join("; "));
       return currentIssue;

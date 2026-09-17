@@ -50,7 +50,7 @@ Use one **Home MVP** repository milestone for agreed release work. Keep later wo
 | Needs Jesse | Table filtered to `status:needs-jesse`; priority and decision links | What needs a decision or merge? |
 | Ready for factory | MVP delivery issues with `factory:ready` and `status:todo` | Which issues are candidates for the supervisor? |
 
-The factory view is not an eligibility check. The supervisor still validates owner authorship or an exact approved brief, issue state, required labels, and linked open PRs. Current and legacy attribution markers in an issue body neither grant nor deny eligibility; only the specific `factory-brief-child` marker selects the exact-brief route. Parent issues are tracking containers, not runnable tasks.
+The factory view is not an eligibility check. The supervisor still validates owner authorship or an exact approved brief, issue state, required labels, and linked open PRs. Current and legacy attribution markers in an issue body neither grant nor deny eligibility. The specific `factory-brief-child` marker or current/historical `factory:brief-child` provenance selects the exact-brief route; removing a current marker or label never restores legacy eligibility. Parent issues are tracking containers, not runnable tasks.
 
 Use native fields for title, labels, milestone, linked PRs, parent, and sub-issue progress. Add only three derived fields: **Delivery status**, **Workstream**, and **Level** (Workstream or Delivery). Display priority labels initially; add a derived sortable field only if needed. Completion counts show task progress, not proof that money journeys work.
 

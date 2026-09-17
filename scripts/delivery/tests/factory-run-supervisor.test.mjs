@@ -77,6 +77,7 @@ function fakeRun({
       if (authFailure) throw new Error("auth failed");
     },
     async getIssue() { calls.push("issue"); return structuredClone(issue); },
+    async authorizeIssue(currentIssue) { return { route: "legacy-human-body/v1", child: { number: currentIssue.number, title: currentIssue.title, body: currentIssue.body } }; },
     async openPullRequestsReferencing() {
       calls.push("references");
       return pullRequestSnapshots[Math.min(pullRequestIndex++, pullRequestSnapshots.length - 1)] ?? [];
@@ -141,6 +142,15 @@ async function withRunPaths(operation) {
 test("repository owner is derived from the configured owner/repo", () => {
   assert.equal(createGitHubAdapter({ repository: "configured-owner/home", environment: {} }).repositoryOwner, "configured-owner");
   assert.throws(() => createGitHubAdapter({ repository: "unscoped-repository", environment: {} }), /owner\/repo/);
+});
+
+test("supervisor refuses an adapter without an authorization decision", async () => {
+  await withRunPaths(async (paths) => {
+    const fake = fakeRun();
+    delete fake.github.authorizeIssue;
+    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /authorization adapter is unavailable/);
+    assert.equal(fake.calls.includes("worker"), false);
+  });
 });
 
 test("model prompts receive only the bounded issue fields and no timeline or comment text", () => {

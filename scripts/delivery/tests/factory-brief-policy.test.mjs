@@ -67,7 +67,7 @@ test("lean brief validates six proposal fields, 1–5 outcomes, and exact mapped
   for (const mutate of [
     (brief) => { brief.repository = "someone/else"; }, (brief) => { brief.baseCommit = "a".repeat(40); }, (brief) => { brief.designRefs = []; },
     (brief) => { delete brief.designReferences; }, (brief) => { brief.designReferences = [{ label: "insecure", url: "http://example.test/reference" }]; },
-    (brief) => { brief.designReferences = [{ label: "extra", url: "https://example.test/reference", type: "mock" }]; },
+    (brief) => { brief.designReferences = []; }, (brief) => { brief.designReferences = [{ label: "extra", url: "https://example.test/reference", type: "mock" }]; },
     (brief) => { brief.children[0].evidenceKinds = ["test"]; }, (brief) => { brief.children[0].labels.push("factory:ready"); },
     (brief) => { brief.children[0].outcomeIds = ["unknown"]; }, (brief) => { brief.children[0].parent = { nodeId: "other", number: 1 }; },
   ]) { const brief = structuredClone(BASE); mutate(brief); assert.throws(() => validateBriefBundle(brief)); }
