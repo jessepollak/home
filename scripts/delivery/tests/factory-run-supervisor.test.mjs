@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -44,6 +44,10 @@ const BROWSER_EVIDENCE = {
 };
 const BROWSER_WORKER_REPORT = JSON.stringify({ complete: true, browserEvidence: BROWSER_EVIDENCE });
 
+function approvedWorkerReport(outcomeAssessments, browserEvidence = null) {
+  return JSON.stringify({ complete: true, browserEvidence, outcomeAssessments });
+}
+
 function completed(stdout = "") {
   return { code: 0, timedOut: false, outputExceeded: false, stdout };
 }
@@ -62,6 +66,7 @@ function fakeRun({
 } = {}) {
   const calls = [];
   const pullRequestUpdates = [];
+  const workerFindings = [];
   let reviewIndex = 0;
   let workerIndex = 0;
   let pullRequestIndex = 0;
@@ -110,13 +115,14 @@ function fakeRun({
     async preflight() { calls.push("preflight"); },
     async runWorker(_cwd, _issue, findings) {
       calls.push(findings.length ? "remediation" : "worker");
+      workerFindings.push(structuredClone(findings));
       if (workerFailure) throw new Error("worker failed");
       return completed(workerReports[Math.min(workerIndex++, workerReports.length - 1)]);
     },
     async validateCommitAndPush(_cwd, _issue, _branch, loop) { calls.push(`validate:${loop}`); },
     async runReviewer() { calls.push("reviewer"); return completed(reviews[reviewIndex++]); },
   };
-  return { github, local, calls, pullRequestUpdates };
+  return { github, local, calls, pullRequestUpdates, workerFindings };
 }
 
 async function withRunPaths(operation) {
@@ -177,6 +183,11 @@ test("approved prompts contain only retained exact child spec and mapped outcome
     assert.match(prompt, /Required/);
     assert.doesNotMatch(prompt, /MUTABLE-PROSE-SENTINEL|COMMENT-SENTINEL|bodySha256|outcomeIds/);
   }
+  const worker = workerPrompt(mutableIssue, [], authorization);
+  assert.match(worker, /Return exactly one final JSON object and no markdown or commentary/);
+  assert.match(worker, /"browserEvidence":null/);
+  assert.match(worker, /"outcomeAssessments":\[\{"id":"one","status":"Met","evidence":"concise evidence or reason"\}\]/);
+  assert.match(worker, /status must be exactly Met, Not met, or Unverified/);
 });
 
 test("worker prompt requires the browser-validation contract for user-visible work", () => {
@@ -223,13 +234,16 @@ test("factory PR bodies standardize Preview and preserve proof during rewrites",
       outcome: "passed",
       stages: [{ name: "validation", outcome: "passed", durationMs: 12 }],
       requiredOutcomes: [{ id: "operator-branding", text: "Operator branding renders safely." }],
-      outcomeAssessments: [{ id: "operator-branding", status: "Met", evidence: "Focused contract test passed." }],
+      workerOutcomeAssessments: [{ id: "operator-branding", status: "Met", evidence: "Worker contract test passed." }],
+      reviewerOutcomeAssessments: [{ id: "operator-branding", status: "Met", evidence: "Independent review confirmed it." }],
     });
     assert.match(rewritten, /^## Preview$/m);
     assert.doesNotMatch(rewritten, /^## Preview proof$/m);
     assert.match(rewritten, /- validation: 12ms/);
-    assert.match(rewritten, /^### Required outcomes$/m);
-    assert.match(rewritten, /operator-branding — Operator branding renders safely\.: \*\*Met\*\* — Focused contract test passed\./);
+    assert.match(rewritten, /^### Worker required outcomes$/m);
+    assert.match(rewritten, /^### Independent reviewer required outcomes$/m);
+    assert.match(rewritten, /operator-branding — Operator branding renders safely\.: \*\*Met\*\* — Worker contract test passed\./);
+    assert.match(rewritten, /operator-branding — Operator branding renders safely\.: \*\*Met\*\* — Independent review confirmed it\./);
     assert.match(rewritten, /https:\/\/preview\.example\.test/);
     assert.match(rewritten, /!\[Screen\]\(https:\/\/images\.example\.test\/screen\.png\)/);
   }
@@ -269,16 +283,104 @@ test("approved remediation revalidates before every worker and final handoff", a
     const fake = fakeRun({
       issue, authorization,
       reviews: [JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: failed }), JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: assessments })],
+      workerReports: [approvedWorkerReport(assessments), approvedWorkerReport(assessments)],
     });
     const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
-    assert.deepEqual(evidence.outcomeAssessments, assessments);
+    assert.deepEqual(evidence.workerOutcomeAssessments, assessments);
+    assert.deepEqual(evidence.reviewerOutcomeAssessments, assessments);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, assessments);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, assessments);
     assert.deepEqual(fake.pullRequestUpdates.at(-1).requiredOutcomes, authorization.outcomes);
+    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
+    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
+    assert.deepEqual(durableEvidence.workerOutcomeAssessments, assessments);
+    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, assessments);
     assert.equal(evidence.authorization.child.body, issue.body);
     const positions = fake.calls.map((value, index) => value === "revalidate" ? index : -1).filter((index) => index >= 0);
     assert.equal(positions.length, 4);
     assert.ok(positions[0] < fake.calls.indexOf("worker"));
     assert.ok(positions[1] < fake.calls.indexOf("remediation"));
     assert.ok(positions[2] < fake.calls.indexOf("pr-evidence:0"));
+  });
+});
+
+test("approved worker outcome gaps trigger remediation and refreshed assessments replace them", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const authorization = {
+      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
+      approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
+      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
+      outcomes: [{ id: "one", text: "One" }], outcomeIds: ["one"],
+    };
+    const met = [{ id: "one", status: "Met", evidence: "Focused validation passed." }];
+    const notMet = [{ id: "one", status: "Not met", evidence: "Focused validation still fails." }];
+    const reviewerPass = JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: met });
+    const fake = fakeRun({
+      issue,
+      authorization,
+      reviews: [reviewerPass, reviewerPass],
+      workerReports: [approvedWorkerReport(notMet), approvedWorkerReport(met)],
+    });
+
+    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
+    assert.equal(evidence.outcome, "passed");
+    assert.deepEqual(evidence.workerOutcomeAssessments, met);
+    assert.deepEqual(evidence.reviewerOutcomeAssessments, met);
+    assert.equal(fake.calls.filter((call) => call === "remediation").length, 1);
+    assert.deepEqual(fake.workerFindings[1], [{
+      severity: "blocking", source: "worker", outcomeId: "one", description: "Focused validation still fails.",
+    }]);
+  });
+});
+
+test("approved runs cannot pass while current worker assessments remain non-Met", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const authorization = {
+      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
+      approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
+      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
+      outcomes: [{ id: "one", text: "One" }], outcomeIds: ["one"],
+    };
+    const met = [{ id: "one", status: "Met", evidence: "Independent review passed." }];
+    const unverified = [{ id: "one", status: "Unverified", evidence: "Worker could not verify the outcome." }];
+    const reviewerPass = JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: met });
+    const fake = fakeRun({
+      issue,
+      authorization,
+      reviews: [reviewerPass, reviewerPass, reviewerPass],
+      workerReports: [approvedWorkerReport(unverified), approvedWorkerReport(unverified), approvedWorkerReport(unverified)],
+    });
+
+    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
+    assert.equal(evidence.outcome, "needs-jesse");
+    assert.deepEqual(evidence.workerOutcomeAssessments, unverified);
+    assert.deepEqual(evidence.reviewerOutcomeAssessments, met);
+    assert.equal(fake.calls.filter((call) => call === "remediation").length, 2);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, unverified);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, met);
+  });
+});
+
+test("approved non-UI reports with malformed outcome coverage fail before validation", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const authorization = {
+      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
+      approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
+      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
+      outcomes: [{ id: "one", text: "One" }, { id: "two", text: "Two" }], outcomeIds: ["one", "two"],
+    };
+    const fake = fakeRun({
+      issue,
+      authorization,
+      workerReports: [approvedWorkerReport([{ id: "one", status: "Met", evidence: "Only one." }])],
+    });
+
+    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /exactly cover required outcomes/);
+    assert.equal(fake.calls.some((call) => call.startsWith("validate:")), false);
+    assert.equal(fake.calls.some((call) => call.startsWith("pr:")), false);
   });
 });
 

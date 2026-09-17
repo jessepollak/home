@@ -11,7 +11,7 @@ Use this skill when an outcome needs product shaping before implementation. A pr
 
 1. Read `AGENTS.md`, `docs/product-strategy.md`, the relevant workstream root, and current delivery policy. Inspect current code, issues, native hierarchy, and pull requests; reuse existing work.
 2. Keep the parent proposal to exactly six concise sections: **Outcome**, **Proposal**, **Boundary**, **Done**, **Decision**, and **Delivery**.
-3. Define 1–5 stable, observable outcomes without filler. Put design references and evidence expectations in the proposal or child prose.
+3. Define 1–5 stable, observable outcomes without filler. Put design references and evidence expectations in the proposal or child prose. Before publishing any user-visible proposal, include a concrete, relevant visual reference or a bounded mock of the proposed surface and explicitly label it **Shaping reference — not acceptance proof**. A generic inspiration link or prose-only visual direction is insufficient.
 4. Define 1–4 exact children. Each has a stable key, optional existing issue identity, title, complete body, `status:todo`, one lane, one priority, exact native parent, and mapped outcome IDs. Map every outcome. Do not create speculative backlog.
 
 When an existing bounded pilot issue already records an exact owner-facing outcome, reference that issue and reuse its exact outcome text instead of restating product wording here. A pilot is referenced by a general skill, never redefined inside one.

@@ -104,6 +104,49 @@ test("worker report parsing accepts bounded browser evidence and non-visible nul
   });
 });
 
+test("approved non-UI worker reports require exact outcome assessment coverage", () => {
+  const outcomes = [{ id: "one" }, { id: "two" }];
+  const assessments = [
+    { id: "one", status: "Met", evidence: "Focused policy test passed." },
+    { id: "two", status: "Unverified", evidence: "Provider evidence was unavailable." },
+  ];
+  assert.deepEqual(parseWorkerReport(JSON.stringify({
+    complete: true,
+    browserEvidence: null,
+    outcomeAssessments: assessments,
+  }), false, outcomes), {
+    complete: true,
+    browserEvidence: null,
+    outcomeAssessments: assessments,
+  });
+
+  for (const outcomeAssessments of [
+    undefined,
+    assessments.slice(0, 1),
+    [...assessments, { id: "extra", status: "Met", evidence: "Unexpected." }],
+    [assessments[0], assessments[0]],
+    [{ ...assessments[0], id: "unknown" }, assessments[1]],
+    [{ ...assessments[0], status: "met" }, assessments[1]],
+    [{ ...assessments[0], evidence: "" }, assessments[1]],
+    [{ ...assessments[0], evidence: "line one\nline two" }, assessments[1]],
+    [{ ...assessments[0], extra: true }, assessments[1]],
+  ]) {
+    const report = { complete: true, browserEvidence: null, ...(outcomeAssessments ? { outcomeAssessments } : {}) };
+    assert.throws(() => parseWorkerReport(JSON.stringify(report), false, outcomes));
+  }
+  assert.throws(() => parseWorkerReport(JSON.stringify({
+    complete: true,
+    browserEvidence: null,
+    outcomeAssessments: assessments,
+    extra: true,
+  }), false, outcomes), /fields are invalid/);
+  assert.throws(() => parseWorkerReport(JSON.stringify({
+    complete: true,
+    browserEvidence: {},
+    outcomeAssessments: assessments,
+  }), false, outcomes), /must be null when not required/);
+});
+
 test("worker report parsing fails closed on malformed, missing, injected, or unbounded evidence", () => {
   const valid = {
     mode: "factory fixture",

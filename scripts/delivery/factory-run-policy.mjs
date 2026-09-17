@@ -56,11 +56,42 @@ const WORKER_BROWSER_EVIDENCE_FIELDS = Object.freeze([
 ]);
 
 function assertExactFields(value, expected, description) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${description} must be an object`);
+  }
   const actual = Object.keys(value).sort();
   const wanted = [...expected].sort();
   if (actual.length !== wanted.length || actual.some((field, index) => field !== wanted[index])) {
     throw new Error(`${description} fields are invalid`);
   }
+}
+
+function parseOutcomeAssessments(value, requiredOutcomes, description) {
+  if (!Array.isArray(requiredOutcomes)) throw new Error("required outcomes are unavailable");
+  if (!Array.isArray(value)) throw new Error(`${description}s are required`);
+  const requiredIds = requiredOutcomes.map((outcome) => outcome?.id);
+  if (requiredIds.some((id) => typeof id !== "string" || id === "") || new Set(requiredIds).size !== requiredIds.length) {
+    throw new Error("required outcome IDs are invalid");
+  }
+  const seen = new Set();
+  const assessments = value.map((assessment) => {
+    assertExactFields(assessment, ["id", "status", "evidence"], description);
+    if (!requiredIds.includes(assessment.id) || seen.has(assessment.id)) {
+      throw new Error(`${description} IDs are invalid`);
+    }
+    seen.add(assessment.id);
+    if (!["Met", "Not met", "Unverified"].includes(assessment.status)) {
+      throw new Error(`${description} status is invalid`);
+    }
+    if (typeof assessment.evidence !== "string" || assessment.evidence.trim() === "" || assessment.evidence.length > 500 || /[\r\n\0]/.test(assessment.evidence)) {
+      throw new Error(`${description} evidence is not concise`);
+    }
+    return { id: assessment.id, status: assessment.status, evidence: assessment.evidence.trim() };
+  });
+  if (seen.size !== requiredIds.length || requiredIds.some((id) => !seen.has(id))) {
+    throw new Error(`${description}s must exactly cover required outcomes`);
+  }
+  return assessments;
 }
 
 function conciseWorkerEvidenceText(value, field, maxLength) {
@@ -73,7 +104,7 @@ function conciseWorkerEvidenceText(value, field, maxLength) {
   return value.trim();
 }
 
-export function parseWorkerReport(output, browserEvidenceRequired) {
+export function parseWorkerReport(output, browserEvidenceRequired, requiredOutcomes) {
   let value;
   try {
     value = JSON.parse(output);
@@ -83,41 +114,44 @@ export function parseWorkerReport(output, browserEvidenceRequired) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("worker report must be an object");
   }
-  assertExactFields(value, ["complete", "browserEvidence"], "worker report");
+  const approvedBriefReport = requiredOutcomes !== undefined;
+  assertExactFields(value, approvedBriefReport ? ["complete", "browserEvidence", "outcomeAssessments"] : ["complete", "browserEvidence"], "worker report");
   if (value.complete !== true) throw new Error("worker report is incomplete");
   if (typeof browserEvidenceRequired !== "boolean") {
     throw new Error("browser evidence requirement is unavailable");
   }
+
+  let browserEvidence = null;
   if (value.browserEvidence === null) {
     if (browserEvidenceRequired) throw new Error("worker browser evidence is required");
-    return { complete: true, browserEvidence: null };
-  }
-  if (!value.browserEvidence || typeof value.browserEvidence !== "object" || Array.isArray(value.browserEvidence)) {
-    throw new Error("worker browser evidence must be an object or null");
-  }
-
-  const evidence = value.browserEvidence;
-  assertExactFields(evidence, WORKER_BROWSER_EVIDENCE_FIELDS, "worker browser evidence");
-  if (evidence.mode !== "factory fixture") {
-    throw new Error("worker browser evidence mode must be factory fixture");
-  }
-  const route = conciseWorkerEvidenceText(evidence.route, "route", 200);
-  if (!/^\/[^\s?#]*$/.test(route)) {
-    throw new Error("worker browser evidence route must be a pathname without query or fragment");
-  }
-  if (!evidence.viewport || typeof evidence.viewport !== "object" || Array.isArray(evidence.viewport)) {
-    throw new Error("worker browser evidence viewport must be an object");
-  }
-  assertExactFields(evidence.viewport, ["width", "height"], "worker browser evidence viewport");
-  for (const dimension of ["width", "height"]) {
-    if (!Number.isInteger(evidence.viewport[dimension]) || evidence.viewport[dimension] < 200 || evidence.viewport[dimension] > 4_000) {
-      throw new Error(`worker browser evidence viewport ${dimension} is invalid`);
+  } else {
+    if (approvedBriefReport && !browserEvidenceRequired) {
+      throw new Error("worker browser evidence must be null when not required");
     }
-  }
+    if (!value.browserEvidence || typeof value.browserEvidence !== "object" || Array.isArray(value.browserEvidence)) {
+      throw new Error("worker browser evidence must be an object or null");
+    }
 
-  return {
-    complete: true,
-    browserEvidence: {
+    const evidence = value.browserEvidence;
+    assertExactFields(evidence, WORKER_BROWSER_EVIDENCE_FIELDS, "worker browser evidence");
+    if (evidence.mode !== "factory fixture") {
+      throw new Error("worker browser evidence mode must be factory fixture");
+    }
+    const route = conciseWorkerEvidenceText(evidence.route, "route", 200);
+    if (!/^\/[^\s?#]*$/.test(route)) {
+      throw new Error("worker browser evidence route must be a pathname without query or fragment");
+    }
+    if (!evidence.viewport || typeof evidence.viewport !== "object" || Array.isArray(evidence.viewport)) {
+      throw new Error("worker browser evidence viewport must be an object");
+    }
+    assertExactFields(evidence.viewport, ["width", "height"], "worker browser evidence viewport");
+    for (const dimension of ["width", "height"]) {
+      if (!Number.isInteger(evidence.viewport[dimension]) || evidence.viewport[dimension] < 200 || evidence.viewport[dimension] > 4_000) {
+        throw new Error(`worker browser evidence viewport ${dimension} is invalid`);
+      }
+    }
+
+    browserEvidence = {
       mode: "factory fixture",
       route,
       viewport: { width: evidence.viewport.width, height: evidence.viewport.height },
@@ -126,7 +160,15 @@ export function parseWorkerReport(output, browserEvidenceRequired) {
       consoleResult: conciseWorkerEvidenceText(evidence.consoleResult, "consoleResult", 200),
       pageErrorResult: conciseWorkerEvidenceText(evidence.pageErrorResult, "pageErrorResult", 200),
       serverCleanupResult: conciseWorkerEvidenceText(evidence.serverCleanupResult, "serverCleanupResult", 200),
-    },
+    };
+  }
+
+  return {
+    complete: true,
+    browserEvidence,
+    ...(approvedBriefReport ? {
+      outcomeAssessments: parseOutcomeAssessments(value.outcomeAssessments, requiredOutcomes, "worker outcome assessment"),
+    } : {}),
   };
 }
 
@@ -174,20 +216,7 @@ export function parseReviewerVerdict(output, requiredOutcomes = []) {
   if (requiredOutcomes.length === 0) {
     if (Object.hasOwn(value, "outcomeAssessments")) throw new Error("legacy reviewer verdict must not add outcome assessments");
   } else {
-    if (!Array.isArray(value.outcomeAssessments)) throw new Error("reviewer outcome assessments are required");
-    const requiredIds = requiredOutcomes.map((outcome) => outcome.id);
-    const seen = new Set();
-    outcomeAssessments = value.outcomeAssessments.map((assessment) => {
-      assertExactFields(assessment, ["id", "status", "evidence"], "reviewer outcome assessment");
-      if (!requiredIds.includes(assessment.id) || seen.has(assessment.id)) throw new Error("reviewer outcome assessment IDs are invalid");
-      seen.add(assessment.id);
-      if (!["Met", "Not met", "Unverified"].includes(assessment.status)) throw new Error("reviewer outcome assessment status is invalid");
-      if (typeof assessment.evidence !== "string" || assessment.evidence.trim() === "" || assessment.evidence.length > 500 || /[\r\n\0]/.test(assessment.evidence)) {
-        throw new Error("reviewer outcome assessment evidence is not concise");
-      }
-      return { id: assessment.id, status: assessment.status, evidence: assessment.evidence.trim() };
-    });
-    if (seen.size !== requiredIds.length || requiredIds.some((id) => !seen.has(id))) throw new Error("reviewer outcome assessments must exactly cover required outcomes");
+    outcomeAssessments = parseOutcomeAssessments(value.outcomeAssessments, requiredOutcomes, "reviewer outcome assessment");
   }
 
   const hasBlockingFinding = findings.some((finding) => finding.severity === "blocking");
