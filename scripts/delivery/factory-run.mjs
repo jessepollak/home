@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   evaluateFactoryRunEligibility,
+  hasFactoryBriefProvenance,
   hasPreviewProof,
   openPullRequestsFromTimelinePages,
   parseReviewerVerdict,
@@ -50,6 +51,7 @@ export function factoryIssuePromptInput(issue, authorization) {
       authorization: {
         route: authorization.route,
         outcomes: authorization.outcomes,
+        designReferences: authorization.designReferences ?? [],
       },
     };
   }
@@ -307,8 +309,10 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
       return githubIssueShape(value);
     },
     async authorizeIssue(issue, openPullRequests, revalidation = false) {
-      if (!issue.body?.includes(FACTORY_BRIEF_CHILD_MARKER)) return legacyAuthorization(issue);
-      if (!issue.parent) throw new Error("marked issue has no native parent");
+      const timeline = responsePages(await runGh(["api", "--paginate", "--slurp", `repos/${repository}/issues/${issue.number}/timeline?per_page=100`]), "issue timeline");
+      const exactBriefRequired = issue.body?.includes(FACTORY_BRIEF_CHILD_MARKER) || hasFactoryBriefProvenance(issue, timeline);
+      if (!exactBriefRequired) return legacyAuthorization(issue);
+      if (!issue.parent) throw new Error("factory brief child has no native parent");
       const comments = responsePages(await runGh(["api", "--paginate", "--slurp", `repos/${repository}/issues/${issue.parent.number}/comments?per_page=100`]), "issue comments");
       const matching = comments.filter((comment) => {
         try { return parseProposalComment(comment.body).children.some((child) => child.number === issue.number && child.nodeId === issue.nodeId); } catch { return false; }
@@ -565,6 +569,7 @@ export async function runFactorySupervisor(issueValue, {
         outcomeIds: authorization.outcomeIds,
       },
       outcomes: authorization.outcomes,
+      designReferences: authorization.designReferences,
     } : { route: authorization.route };
     await stage("claim", () => github.setStatus(issueNumber, "status:todo", "status:working"));
     claimed = true;

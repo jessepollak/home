@@ -1,3 +1,5 @@
+import { FACTORY_BRIEF_CHILD_LABEL } from "./factory-brief-policy.mjs";
+
 const REQUIRED_LABELS = ["factory:ready", "status:todo"];
 const MAX_FIX_LOOPS = 2;
 
@@ -33,9 +35,21 @@ export function evaluateFactoryRunEligibility(issue, openPullRequests = [], repo
   return { eligible: failures.length === 0, failures };
 }
 
-export function openPullRequestsFromTimelinePages(pages) {
+function timelineEvents(pages) {
   if (!Array.isArray(pages)) throw new Error("issue timeline is unavailable");
   const events = pages.length > 0 && Array.isArray(pages[0]) ? pages.flat() : pages;
+  if (!events.every((event) => event && typeof event === "object" && !Array.isArray(event))) throw new Error("issue timeline response shape is invalid");
+  return events;
+}
+
+export function hasFactoryBriefProvenance(issue, pages) {
+  const current = labelNames(issue).includes(FACTORY_BRIEF_CHILD_LABEL);
+  const historical = timelineEvents(pages).some((event) => event.event === "labeled" && event.label?.name === FACTORY_BRIEF_CHILD_LABEL);
+  return current || historical;
+}
+
+export function openPullRequestsFromTimelinePages(pages) {
+  const events = timelineEvents(pages);
   const pulls = events
     .filter((event) => event?.event === "cross-referenced")
     .map((event) => event?.source?.issue)

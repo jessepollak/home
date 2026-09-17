@@ -170,17 +170,24 @@ test("approved prompts contain only retained exact child spec and mapped outcome
     route: "approved-factory-brief/v1",
     child: { number: 600, title: "Approved", body: "Exact approved body", bodySha256: "a".repeat(64) },
     outcomeIds: ["one"], outcomes: [{ id: "one", text: "Required" }],
+    designReferences: [{ label: "Base settings", url: "https://base.org/account/settings" }],
   };
   const mutableIssue = { ...ISSUE, body: "MUTABLE-PROSE-SENTINEL", comments: [{ body: "COMMENT-SENTINEL" }] };
   assert.deepEqual(factoryIssuePromptInput(mutableIssue, authorization), {
     number: 600,
     title: "Approved",
     body: "Exact approved body",
-    authorization: { route: "approved-factory-brief/v1", outcomes: [{ id: "one", text: "Required" }] },
+    authorization: {
+      route: "approved-factory-brief/v1",
+      outcomes: [{ id: "one", text: "Required" }],
+      designReferences: [{ label: "Base settings", url: "https://base.org/account/settings" }],
+    },
   });
   for (const prompt of [workerPrompt(mutableIssue, [], authorization), reviewerPrompt(mutableIssue, "safe", authorization)]) {
     assert.match(prompt, /Exact approved body/);
     assert.match(prompt, /Required/);
+    assert.match(prompt, /Base settings/);
+    assert.match(prompt, /https:\/\/base\.org\/account\/settings/);
     assert.doesNotMatch(prompt, /MUTABLE-PROSE-SENTINEL|COMMENT-SENTINEL|bodySha256|outcomeIds/);
   }
   const worker = workerPrompt(mutableIssue, [], authorization);
@@ -291,6 +298,7 @@ test("approved remediation revalidates before every worker and final handoff", a
       child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
       outcomes: [{ id: "one", text: "One" }, { id: "two", text: "Two" }, { id: "three", text: "Three" }],
       outcomeIds: ["one", "two", "three"],
+      designReferences: [{ label: "Workflow reference", url: "https://base.org/workflow" }],
     };
     const assessments = authorization.outcomes.map(({ id }) => ({ id, status: "Met", evidence: `${id} passed` }));
     const failed = assessments.map((value, index) => index === 0 ? { ...value, status: "Not met", evidence: "one missing" } : value);
@@ -310,6 +318,8 @@ test("approved remediation revalidates before every worker and final handoff", a
     assert.deepEqual(durableEvidence.workerOutcomeAssessments, assessments);
     assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, assessments);
     assert.equal(evidence.authorization.child.body, issue.body);
+    assert.deepEqual(evidence.authorization.designReferences, authorization.designReferences);
+    assert.deepEqual(durableEvidence.authorization.designReferences, authorization.designReferences);
     const positions = fake.calls.map((value, index) => value === "revalidate" ? index : -1).filter((index) => index >= 0);
     assert.equal(positions.length, 4);
     assert.ok(positions[0] < fake.calls.indexOf("worker"));

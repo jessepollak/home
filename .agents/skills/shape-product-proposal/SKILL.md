@@ -11,7 +11,7 @@ Use this skill when an outcome needs product shaping before implementation. A pr
 
 1. Read `AGENTS.md`, `docs/product-strategy.md`, the relevant workstream root, and current delivery policy. Inspect current code, issues, native hierarchy, and pull requests; reuse existing work.
 2. Keep the parent proposal to exactly six concise sections: **Outcome**, **Proposal**, **Boundary**, **Done**, **Decision**, and **Delivery**.
-3. Define 1–5 stable, observable outcomes without filler. Put design references and evidence expectations in the proposal or child prose. Before publishing any user-visible proposal, include a concrete, relevant visual reference or a bounded mock of the proposed surface and explicitly label it **Shaping reference — not acceptance proof**. A generic inspiration link or prose-only visual direction is insufficient.
+3. Define 1–5 stable, observable outcomes without filler. Put exact design references in the brief's structured `designReferences` array as `{ "label": "…", "url": "https://…" }`; do not rely on parent or child prose to preserve them. Before publishing any user-visible proposal, include at least one concrete, relevant visual reference or bounded mock of the proposed surface. The published proposal labels these **Shaping references — not acceptance proof**. A generic inspiration link or prose-only visual direction is insufficient.
 4. Define 1–4 exact children. Each has a stable key, optional existing issue identity, title, complete body, `status:todo`, one lane, one priority, exact native parent, and mapped outcome IDs. Map every outcome. Do not create speculative backlog.
 
 When an existing bounded pilot issue already records an exact owner-facing outcome, reference that issue and reuse its exact outcome text instead of restating product wording here. A pilot is referenced by a general skill, never redefined inside one.
@@ -25,7 +25,7 @@ bun run factory:brief validate path/to/brief.json
 bun run factory:brief publish path/to/brief.json
 ```
 
-Publication deterministically reuses parent-namespaced stable child markers after partial retries, creates only missing children, establishes native parent/Project/labels, and posts or reuses one exact machine-readable proposal comment. It preserves unrelated labels, fails closed on conflicting `status:*`/`lane:*`/`priority:*` labels, and does not add `factory:ready`.
+Publication deterministically reuses parent-namespaced stable child markers after partial retries, creates only missing children, establishes native parent/Project/labels, and posts or reuses one exact machine-readable proposal comment. It applies the non-authorizing `factory:brief-child` provenance label, preserves unrelated labels, fails closed on conflicting `status:*`/`lane:*`/`priority:*` labels, and does not add `factory:ready`.
 
 Jesse approves only with one current repository-owner 👍 on the exact unedited factory-marked parent proposal comment. Other reactions are irrelevant; removing Jesse's reaction revokes approval. After that reaction, the deterministic parent operation may validate the full proposal and mechanically ready every selected child:
 

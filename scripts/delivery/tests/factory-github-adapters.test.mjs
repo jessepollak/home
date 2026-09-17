@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import projectConfig from "../home-project-config.json" with { type: "json" };
-import { publishBrief } from "../factory-brief-policy.mjs";
+import { FACTORY_BRIEF_CHILD_LABEL, publishBrief } from "../factory-brief-policy.mjs";
 import { createBriefGitHubAdapter, runBriefCommand } from "../factory-brief.mjs";
 import { createGitHubAdapter } from "../factory-run.mjs";
 
@@ -18,6 +18,9 @@ function baseBrief() {
       proposal: "Add bounded name and color configuration.", boundary: "Name and colors only; layout is excluded.",
       done: "Both mapped outcomes are met.", decision: "Approve these exact children and outcomes.", delivery: "Two exact children.",
     },
+    designReferences: [
+      { label: "Base account settings reference", url: "https://base.org/account/settings" },
+    ],
     outcomes: [
       { id: "operator-change", text: "Operator changes Home name or colors." },
       { id: "customer-visible", text: "The customer app shows the change and retains it." },
@@ -161,6 +164,8 @@ test("publication maps recorded github shapes and reuses its exact children and 
   assert.ok(created[0].includes("title=Store operator branding"));
   assert.ok(created[0].includes("labels[]=status:todo"));
   assert.ok(created[0].includes("labels[]=lane:backend"));
+  assert.ok(created[0].includes(`labels[]=${FACTORY_BRIEF_CHILD_LABEL}`));
+  assert.equal(created.some((args) => args.includes("labels[]=factory:ready")), false);
 
   const subIssues = fixture.calls.filter((args) => args.some((value) => value.includes("addSubIssue")));
   assert.equal(subIssues.length, 2);
@@ -205,8 +210,8 @@ test("publication preserves unrelated labels and fails closed on conflicting rou
   brief.children[0].identity = { nodeId: mapped.nodeId, number: mapped.number };
 
   await publishBrief(brief, adapterFor(fixture));
-  assert.deepEqual(stored.labels, ["status:todo", "lane:backend", "area:settings", "priority:p1"]);
-  assert.deepEqual(labelPosts(fixture).map((args) => args.filter((value) => value.startsWith("labels[]="))), [["labels[]=priority:p1"]]);
+  assert.deepEqual(stored.labels, ["status:todo", "lane:backend", "area:settings", "priority:p1", FACTORY_BRIEF_CHILD_LABEL]);
+  assert.deepEqual(labelPosts(fixture).map((args) => args.filter((value) => value.startsWith("labels[]="))), [["labels[]=priority:p1", `labels[]=${FACTORY_BRIEF_CHILD_LABEL}`]]);
 
   stored.labels = ["status:todo", "lane:frontend", "priority:p1"];
   const callsBefore = fixture.calls.length;
@@ -296,7 +301,7 @@ test("the brief CLI dispatches validate, publish, and rejects invalid usage", as
   }
 });
 
-function runnerGhFixture({ issue, comment, reactions }) {
+function runnerGhFixture({ issue, comment, reactions, timeline = [] }) {
   const calls = [];
   const gh = async (args) => {
     calls.push([...args]);
@@ -304,23 +309,23 @@ function runnerGhFixture({ issue, comment, reactions }) {
     if (args[1] === "graphql") return JSON.stringify({ data: { repository: { issue } } });
     if (path.endsWith("/comments?per_page=100")) return JSON.stringify([[comment]]);
     if (path.includes("/reactions?per_page=100")) return JSON.stringify([reactions]);
-    if (path.includes("/timeline?per_page=100")) return JSON.stringify([[]]);
+    if (path.includes("/timeline?per_page=100")) return JSON.stringify([timeline]);
     throw new Error(`unexpected command: ${args.join(" ")}`);
   };
   return { gh, calls };
 }
 
-test("generic attribution markers stay on the legacy owner-body route", async () => {
+test("generic attribution markers with no provenance history stay on the legacy owner-body route", async () => {
   for (const marker of ["<!-- factory -->", "<!-- hugo -->"]) {
-    let calls = 0;
-    const adapter = createGitHubAdapter({ repository: REPOSITORY, gh: async () => { calls += 1; throw new Error("unexpected gh call"); } });
-    const authorization = await adapter.authorizeIssue({
+    const issue = {
       number: 600, nodeId: "I_child", title: "Owner directed", body: `Exact body\n${marker}`,
-      author: { login: "jessepollak" }, state: "OPEN", labels: [], url: "https://github.test/issues/600",
-    }, []);
+      author: { ["lo" + "gin"]: "jessepollak" }, state: "OPEN", labels: [], url: "https://github.test/issues/600",
+    };
+    const fixture = runnerGhFixture({ issue: null, comment: null, reactions: [], timeline: [] });
+    const authorization = await createGitHubAdapter({ repository: REPOSITORY, gh: fixture.gh }).authorizeIssue(issue, []);
     assert.equal(authorization.route, "legacy-human-body/v1");
     assert.equal(authorization.child.body, `Exact body\n${marker}`);
-    assert.equal(calls, 0);
+    assert.equal(fixture.calls.filter((args) => args.at(-1).includes("/timeline?per_page=100")).length, 1);
   }
 });
 
@@ -351,6 +356,7 @@ test("runner authorization maps recorded GraphQL and REST fixtures and fails clo
   assert.deepEqual(authorization.approval, { commentId: storedComment.id, commentNodeId: storedComment.node_id, reactionId: 22, reactionNodeId: "R_22" });
   assert.deepEqual(authorization.child, { nodeId: child.nodeId, number: 600, title: child.title, body: child.body, bodySha256: authorization.child.bodySha256 });
   assert.ok(authorization.outcomeIds.includes("operator-change"));
+  assert.deepEqual(authorization.designReferences, baseBrief().designReferences);
 
   const commentsCall = calls.find((args) => args.at(-1).endsWith("/comments?per_page=100"));
   assert.deepEqual(commentsCall.slice(0, 3), ["api", "--paginate", "--slurp"]);
@@ -359,6 +365,25 @@ test("runner authorization maps recorded GraphQL and REST fixtures and fails clo
 
   const removed = runnerGhFixture({ issue: graphqlIssue, comment: storedComment, reactions: [] });
   await assert.rejects(createGitHubAdapter({ repository: REPOSITORY, gh: removed.gh }).authorizeIssue(issue, []), /approved proposal comment is missing/);
+
+  const stripped = {
+    ...issue,
+    body: "Changed owner-looking body with all factory markers removed.",
+    labels: issue.labels.filter(({ name }) => name !== FACTORY_BRIEF_CHILD_LABEL),
+  };
+  const historical = runnerGhFixture({
+    issue: graphqlIssue,
+    comment: storedComment,
+    reactions: [owner],
+    timeline: [{ event: "labeled", label: { name: FACTORY_BRIEF_CHILD_LABEL } }],
+  });
+  await assert.rejects(createGitHubAdapter({ repository: REPOSITORY, gh: historical.gh }).authorizeIssue(stripped, []), /approved proposal comment is missing/);
+  assert.ok(historical.calls.some((args) => args.at(-1).endsWith(`/issues/${child.number}/timeline?per_page=100`)));
+  assert.ok(historical.calls.some((args) => args.at(-1).endsWith(`/issues/${PARENT.number}/comments?per_page=100`)));
+
+  const detached = { ...stripped, parent: undefined };
+  const detachedHistory = runnerGhFixture({ issue: graphqlIssue, comment: storedComment, reactions: [owner], timeline: [{ event: "labeled", label: { name: FACTORY_BRIEF_CHILD_LABEL } }] });
+  await assert.rejects(createGitHubAdapter({ repository: REPOSITORY, gh: detachedHistory.gh }).authorizeIssue(detached, []), /factory brief child has no native parent/);
 
   const malformed = createGitHubAdapter({ repository: REPOSITORY, gh: async () => JSON.stringify({ data: { repository: { issue: { number: 600 } } } }) });
   await assert.rejects(malformed.getIssue(600), /issue response shape is invalid/);

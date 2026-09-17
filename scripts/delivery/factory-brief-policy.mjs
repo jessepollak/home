@@ -4,6 +4,7 @@ export const BRIEF_SCHEMA = "home.factory-brief/v1";
 export const PROPOSAL_SCHEMA = "home.factory-proposal/v1";
 export const ROUTING_LABEL_PREFIXES = Object.freeze(["status:", "lane:", "priority:"]);
 export const FACTORY_REPOSITORY = "jessepollak/home";
+export const FACTORY_BRIEF_CHILD_LABEL = "factory:brief-child";
 const FACTORY_MARKER = "<!-- factory -->";
 
 export function labelNames(value) {
@@ -55,10 +56,31 @@ function labels(value, name) {
   const result = value.map((label) => text(label, name, 80));
   unique(result, name);
   if (result.includes("factory:ready")) throw new Error("brief publication must never add factory:ready");
+  if (result.includes(FACTORY_BRIEF_CHILD_LABEL)) throw new Error(`${FACTORY_BRIEF_CHILD_LABEL} is publication-managed`);
   for (const prefix of ROUTING_LABEL_PREFIXES) {
     if (result.filter((label) => label.startsWith(prefix)).length !== 1) throw new Error(`${name} must have exactly one ${prefix} label`);
   }
   if (!result.includes("status:todo")) throw new Error(`${name} must start status:todo`);
+  return result;
+}
+
+function designReferences(value, name, { allowMissing = false } = {}) {
+  if (value === undefined && allowMissing) return [];
+  if (!Array.isArray(value) || value.length > 8) throw new Error(`${name} must define 0–8 references`);
+  const result = value.map((reference, index) => {
+    const item = `${name}[${index}]`;
+    exactFields(reference, ["label", "url"], item);
+    const label = text(reference.label, `${item}.label`, 120);
+    if (/[\x00-\x1f\x7f]/.test(label)) throw new Error(`${item}.label must be single-line text`);
+    const rawUrl = text(reference.url, `${item}.url`, 500);
+    let url;
+    try { url = new URL(rawUrl); } catch { throw new Error(`${item}.url is invalid`); }
+    if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.hostname === "" || url.href !== rawUrl) {
+      throw new Error(`${item}.url must be an exact HTTPS URL without credentials`);
+    }
+    return { label, url: rawUrl };
+  });
+  unique(result.map(({ url }) => url), `${name} URLs`);
   return result;
 }
 
@@ -75,12 +97,16 @@ function outcomes(value, name) {
 }
 
 function validateContract(input, published) {
-  exactFields(input, ["schema", "repository", "parent", ...(published ? [] : ["proposal"]), "outcomes", "children"], published ? "proposal manifest" : "brief");
+  const legacyPublishedManifest = published && input && typeof input === "object" && !Object.hasOwn(input, "designReferences");
+  exactFields(input, ["schema", "repository", "parent", ...(published ? [] : ["proposal"]), ...(legacyPublishedManifest ? [] : ["designReferences"]), "outcomes", "children"], published ? "proposal manifest" : "brief");
   const schema = published ? PROPOSAL_SCHEMA : BRIEF_SCHEMA;
   if (input.schema !== schema) throw new Error(`schema must be ${schema}`);
   const repository = text(input.repository, "repository", 200);
   if (repository !== FACTORY_REPOSITORY) throw new Error(`repository must be ${FACTORY_REPOSITORY}`);
   const parent = identity(input.parent, "parent");
+  // Compatibility: already-published v1 manifests predate structured design references. They
+  // remain authorizable with an empty list; every newly validated brief must provide the field.
+  const approvedDesignReferences = designReferences(input.designReferences, "designReferences", { allowMissing: legacyPublishedManifest });
   const requiredOutcomes = outcomes(input.outcomes, "outcomes");
   const outcomeIds = new Set(requiredOutcomes.map(({ id }) => id));
 
@@ -114,6 +140,8 @@ function validateContract(input, published) {
     unique(children.map(({ number }) => number), "child numbers");
   }
   if (requiredOutcomes.some(({ id }) => !children.some((child) => child.outcomeIds.includes(id)))) throw new Error("every outcome must map to a child");
+  const userVisible = children.some((child) => child.labels.includes("lane:frontend") || child.labels.includes("lane:design"));
+  if (!published && userVisible && approvedDesignReferences.length === 0) throw new Error("user-visible briefs require a structured design reference");
 
   let proposal;
   if (!published) {
@@ -121,7 +149,7 @@ function validateContract(input, published) {
     proposal = Object.fromEntries(Object.entries(input.proposal).map(([key, value]) => [key, text(value, `proposal.${key}`, 600)]));
     if (Object.values(proposal).some((value) => value.includes(FACTORY_MARKER) || value.includes("```json factory-proposal"))) throw new Error("proposal text contains a reserved marker");
   }
-  return { schema, repository, parent, ...(proposal ? { proposal } : {}), outcomes: requiredOutcomes, children };
+  return { schema, repository, parent, ...(proposal ? { proposal } : {}), designReferences: approvedDesignReferences, outcomes: requiredOutcomes, children };
 }
 
 export function bodySha256(body) {
@@ -138,9 +166,12 @@ function publishedBody(child, parent) {
 }
 
 export function renderProposalComment(manifest, proposal) {
+  const references = manifest.designReferences.length > 0
+    ? ["", "Shaping references — not acceptance proof:", ...manifest.designReferences.map(({ label, url }) => `- ${label}: ${url}`)]
+    : [];
   return [
     "## Outcome", proposal.outcome, "", "## Proposal", proposal.proposal,
-    "", "## Boundary", proposal.boundary, "", "## Done", proposal.done,
+    "", "## Boundary", proposal.boundary, "", "## Done", proposal.done, ...references,
     "", "## Decision", proposal.decision, "", "## Delivery", proposal.delivery,
     "", "```json factory-proposal", JSON.stringify(manifest), "```", FACTORY_MARKER,
   ].join("\n");
@@ -170,17 +201,17 @@ export async function publishBrief(input, adapter) {
     resolved.push({ spec, body, issue });
   }
   for (const item of resolved) {
-    item.issue ??= await adapter.createIssue({ title: item.spec.title, body: item.body, labels: item.spec.labels });
+    item.issue ??= await adapter.createIssue({ title: item.spec.title, body: item.body, labels: [...item.spec.labels, FACTORY_BRIEF_CHILD_LABEL] });
     if (item.issue.title !== item.spec.title || item.issue.body !== item.body) throw new Error(`mapped child ${item.spec.key} does not match the exact spec`);
   }
   const publishedChildren = [];
   for (const { spec, body, issue } of resolved) {
     await adapter.attachNativeParent(issue, brief.parent);
     await adapter.ensureProjectMembership(issue);
-    await adapter.ensureLabels(issue, spec.labels);
+    await adapter.ensureLabels(issue, [...spec.labels, FACTORY_BRIEF_CHILD_LABEL]);
     publishedChildren.push({ key: spec.key, nodeId: issue.nodeId, number: issue.number, title: spec.title, bodySha256: bodySha256(body), labels: spec.labels, outcomeIds: spec.outcomeIds });
   }
-  const manifest = validateContract({ schema: PROPOSAL_SCHEMA, repository: brief.repository, parent: brief.parent, outcomes: brief.outcomes, children: publishedChildren }, true);
+  const manifest = validateContract({ schema: PROPOSAL_SCHEMA, repository: brief.repository, parent: brief.parent, designReferences: brief.designReferences, outcomes: brief.outcomes, children: publishedChildren }, true);
   const body = renderProposalComment(manifest, brief.proposal);
   const matches = await adapter.findParentCommentsByBody(brief.parent.number, body);
   if (!Array.isArray(matches) || matches.length > 1) throw new Error("proposal comment is ambiguous");
@@ -233,6 +264,7 @@ export function verifyBriefApproval({ repository, repositoryOwner, parent, comme
     route: "approved-factory-brief/v1", repository, parent: manifest.parent,
     approval: Object.freeze({ commentId: comment.id, commentNodeId: comment.nodeId, reactionId: ownerThumbs[0].id, reactionNodeId: ownerThumbs[0].nodeId }),
     child: Object.freeze({ nodeId: currentChild.nodeId, number: currentChild.number, title: spec.title, body: currentChild.body, bodySha256: spec.bodySha256 }),
+    designReferences: Object.freeze(manifest.designReferences.map((value) => Object.freeze({ ...value }))),
     outcomes: Object.freeze(selectedOutcomes.map((value) => Object.freeze({ ...value }))), outcomeIds: Object.freeze([...spec.outcomeIds]),
   });
 }

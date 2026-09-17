@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   evaluateFactoryRunEligibility,
   factoryRunPolicyConstants,
+  hasFactoryBriefProvenance,
   hasPreviewProof,
   openPullRequestsFromTimelinePages,
   parseReviewerVerdict,
@@ -60,6 +61,14 @@ test("current and legacy attribution markers do not affect otherwise eligible bo
       body,
     }, [], REPOSITORY_OWNER), { eligible: true, failures: [] });
   }
+});
+
+test("factory brief provenance survives current-label removal through paginated label history", () => {
+  const label = { name: "factory:brief-child" };
+  assert.equal(hasFactoryBriefProvenance({ labels: [label] }, []), true);
+  assert.equal(hasFactoryBriefProvenance({ labels: [] }, [[{ event: "labeled", label }], [{ event: "unlabeled", label }]]), true);
+  assert.equal(hasFactoryBriefProvenance({ labels: [] }, [[{ event: "labeled", label: { name: "factory:ready" } }]]), false);
+  assert.throws(() => hasFactoryBriefProvenance({ labels: [] }, { nodes: [] }), /timeline is unavailable/);
 });
 
 test("open PR references are deduplicated across paginated timeline results", () => {

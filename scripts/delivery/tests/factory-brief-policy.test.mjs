@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activateBrief, bodySha256, parseProposalComment, publishBrief, sameApprovalIdentity, selectApprovedBrief, validateBriefBundle, verifyBriefApproval } from "../factory-brief-policy.mjs";
+import { activateBrief, bodySha256, FACTORY_BRIEF_CHILD_LABEL, parseProposalComment, publishBrief, sameApprovalIdentity, selectApprovedBrief, validateBriefBundle, verifyBriefApproval } from "../factory-brief-policy.mjs";
 
 const PARENT = { nodeId: "I_parent", number: 568 };
 const BASE = {
@@ -11,6 +11,9 @@ const BASE = {
     done: "The mapped outcomes are met with the evidence required by each child body.",
     decision: "Approve these exact children and outcomes.", delivery: "Two exact implementation children.",
   },
+  designReferences: [
+    { label: "Base account settings reference", url: "https://base.org/account/settings" },
+  ],
   outcomes: [
     { id: "operator-change", text: "Authenticated operator changes Home name/colors." },
     { id: "customer-visible", text: "The customer app shows the change and retains it across an update." },
@@ -58,11 +61,13 @@ function approvalInput(result, childIndex = 0) {
 }
 
 test("lean brief validates six proposal fields, 1–5 outcomes, and exact mapped child specs", () => {
-  assert.deepEqual(Object.keys(validateBriefBundle(structuredClone(BASE))), ["schema", "repository", "parent", "proposal", "outcomes", "children"]);
+  assert.deepEqual(Object.keys(validateBriefBundle(structuredClone(BASE))), ["schema", "repository", "parent", "proposal", "designReferences", "outcomes", "children"]);
   const one = structuredClone(BASE); one.outcomes = [one.outcomes[0]]; one.children = [one.children[0]];
   assert.equal(validateBriefBundle(one).outcomes.length, 1);
   for (const mutate of [
     (brief) => { brief.repository = "someone/else"; }, (brief) => { brief.baseCommit = "a".repeat(40); }, (brief) => { brief.designRefs = []; },
+    (brief) => { delete brief.designReferences; }, (brief) => { brief.designReferences = [{ label: "insecure", url: "http://example.test/reference" }]; },
+    (brief) => { brief.designReferences = [{ label: "extra", url: "https://example.test/reference", type: "mock" }]; },
     (brief) => { brief.children[0].evidenceKinds = ["test"]; }, (brief) => { brief.children[0].labels.push("factory:ready"); },
     (brief) => { brief.children[0].outcomeIds = ["unknown"]; }, (brief) => { brief.children[0].parent = { nodeId: "other", number: 1 }; },
   ]) { const brief = structuredClone(BASE); mutate(brief); assert.throws(() => validateBriefBundle(brief)); }
@@ -81,8 +86,20 @@ test("publication is safely rerunnable after a partial failure and reuses its ex
   await assert.rejects(publishBrief(structuredClone(BASE), adapter), /interrupted/); assert.equal(adapter.children.length, 1);
   const first = await publishBrief(structuredClone(BASE), adapter); const second = await publishBrief(structuredClone(BASE), adapter);
   assert.equal(adapter.children.length, 2); assert.equal(adapter.comments.length, 1); assert.equal(second.comment.id, first.comment.id);
-  assert.deepEqual(Object.keys(parseProposalComment(first.body)), ["schema", "repository", "parent", "outcomes", "children"]);
+  assert.ok(adapter.children.every((child) => child.labels.includes(FACTORY_BRIEF_CHILD_LABEL)));
+  assert.ok(adapter.children.every((child) => !child.labels.includes("factory:ready")));
+  assert.deepEqual(Object.keys(parseProposalComment(first.body)), ["schema", "repository", "parent", "designReferences", "outcomes", "children"]);
+  assert.deepEqual(first.manifest.designReferences, BASE.designReferences);
+  assert.match(first.body, /Shaping references — not acceptance proof:/);
   assert.equal(first.manifest.children[0].bodySha256, bodySha256(adapter.children[0].body));
+});
+
+test("legacy v1 proposal manifests remain parseable with no design references", async () => {
+  const result = await published();
+  const legacy = structuredClone(result.manifest);
+  delete legacy.designReferences;
+  const body = result.body.replace(JSON.stringify(result.manifest), JSON.stringify(legacy));
+  assert.deepEqual(parseProposalComment(body).designReferences, []);
 });
 
 test("approval ignores non-owner thumbs, maps only its child outcomes, and revocation defeats stale ready", async () => {
@@ -90,6 +107,7 @@ test("approval ignores non-owner thumbs, maps only its child outcomes, and revoc
   input.reactions.push({ id: 93, nodeId: "R_93", content: "+1", user: Object.fromEntries([["lo" + "gin", "other"]]) });
   const authorization = verifyBriefApproval(input);
   assert.deepEqual(authorization.outcomeIds, ["operator-change"]); assert.deepEqual(authorization.outcomes, [BASE.outcomes[0]]);
+  assert.deepEqual(authorization.designReferences, BASE.designReferences);
   assert.equal(sameApprovalIdentity(authorization, structuredClone(authorization)), true);
   assert.throws(() => verifyBriefApproval({ ...input, reactions: input.reactions.slice(1) }), /owner \+1/);
 });
@@ -163,8 +181,8 @@ test("publication preserves unrelated labels and fails closed on conflicting rou
   brief.children[0].identity = { nodeId: mapped.nodeId, number: mapped.number };
 
   await publishBrief(brief, adapter);
-  assert.deepEqual(adapter.children[0].labels, ["status:todo", "lane:frontend", "area:settings", "priority:p1"]);
-  assert.deepEqual(adapter.labelMutations, [{ number: mapped.number, added: ["priority:p1"] }]);
+  assert.deepEqual(adapter.children[0].labels, ["status:todo", "lane:frontend", "area:settings", "priority:p1", FACTORY_BRIEF_CHILD_LABEL]);
+  assert.deepEqual(adapter.labelMutations, [{ number: mapped.number, added: ["priority:p1", FACTORY_BRIEF_CHILD_LABEL] }]);
 
   const conflicting = memoryAdapter();
   conflicting.children.push({ ...structuredClone(mapped), labels: ["status:todo", "lane:backend", "priority:p1"] });
