@@ -87,7 +87,6 @@ function designReferences(value, name, { allowMissing = false } = {}) {
     const label = text(reference.label, `${item}.label`, 120);
     if (/[\x00-\x1f\x7f]/.test(label)) throw new Error(`${item}.label must be single-line text`);
     if (!storybook) return { label, url: exactHttpsUrl(reference.url, `${item}.url`) };
-    if (reference.type !== "storybook") throw new Error(`${item}.type must be storybook`);
     if (!/^[0-9a-f]{40}$/.test(reference.commitSha)) throw new Error(`${item}.commitSha must be a 40-hex commit SHA`);
     if (!/^dpl_[A-Za-z0-9]+$/.test(reference.deploymentId)) throw new Error(`${item}.deploymentId is invalid`);
     if (!Array.isArray(reference.criteria) || reference.criteria.length < 1 || reference.criteria.length > 8) {

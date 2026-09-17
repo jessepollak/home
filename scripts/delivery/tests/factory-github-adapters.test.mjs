@@ -345,7 +345,8 @@ test("runner authorization maps recorded GraphQL and REST fixtures and fails clo
     parent: { id: "I_parent", number: 568 },
   };
   const owner = { id: 22, node_id: "R_22", content: "+1", user: Object.fromEntries([["lo" + "gin", "jessepollak"]]) };
-  const { gh, calls } = runnerGhFixture({ issue: graphqlIssue, comment: storedComment, reactions: [owner] });
+  const reactions = [owner];
+  const { gh, calls } = runnerGhFixture({ issue: graphqlIssue, comment: storedComment, reactions });
   const adapter = createGitHubAdapter({ repository: REPOSITORY, gh });
 
   const issue = await adapter.getIssue(600);
@@ -374,6 +375,11 @@ test("runner authorization maps recorded GraphQL and REST fixtures and fails clo
   assert.deepEqual(commentsCall.slice(0, 3), ["api", "--paginate", "--slurp"]);
   const reactionsCall = calls.find((args) => args.at(-1).includes("/reactions?per_page=100"));
   assert.ok(reactionsCall.includes("Accept: application/vnd.github+json"));
+  graphqlIssue.labels.nodes = graphqlIssue.labels.nodes.map(({ name }) => ({ name: name === "status:todo" ? "status:working" : name }));
+  assert.equal(await adapter.revalidateAuthorization(authorization), authorization);
+  reactions.splice(0);
+  await assert.rejects(adapter.revalidateAuthorization(authorization), /approved proposal comment is missing/);
+  reactions.push(owner);
 
   const removed = runnerGhFixture({ issue: graphqlIssue, comment: storedComment, reactions: [] });
   await assert.rejects(createGitHubAdapter({ repository: REPOSITORY, gh: removed.gh }).authorizeIssue(issue, []), /approved proposal comment is missing/);
