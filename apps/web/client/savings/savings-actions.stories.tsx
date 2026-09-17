@@ -3,6 +3,7 @@ import { expect, userEvent, within } from "storybook/test";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { Button } from "@/components/ui/button";
+import type { MoneyAssetOption } from "@/client/money-modal";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   OperationResult,
@@ -55,6 +56,30 @@ const simulatedFailureCandidate: MorphoVaultCandidate = {
   name: "Storybook simulated failure vault",
 };
 
+const currencyOptions = [
+  {
+    id: "usdc",
+    label: "USDC",
+    description: "US dollar",
+    currency: "USD",
+    mark: { assetKey: "usdc", name: "US dollar", symbol: "USDC", imageUrl: null, pending: false, currency: "USD" },
+  },
+  {
+    id: "eurc",
+    label: "EURC",
+    description: "Euro",
+    currency: "EUR",
+    mark: { assetKey: "eurc", name: "Euro", symbol: "EURC", imageUrl: null, pending: false, currency: "EUR" },
+  },
+  {
+    id: "idrx",
+    label: "IDRX",
+    description: "Indonesian rupiah",
+    currency: "IDR",
+    mark: { assetKey: "idrx", name: "Indonesian rupiah", symbol: "IDRX", imageUrl: null, pending: false, currency: "IDR" },
+  },
+] satisfies ReadonlyArray<MoneyAssetOption>;
+
 function preparedAction(kind: string): PreparedMoneyAction {
   const actionKind = kind === "savings-withdraw"
     ? "savings-withdraw"
@@ -102,29 +127,30 @@ function DialogStorySurface({
   executeMoneyAction = rejectedExecution,
 }: DialogStorySurfaceProps) {
   const [open, setOpen] = useState(true);
-  const [dialogKey, setDialogKey] = useState(0);
+  const [selectedAssetId, setSelectedAssetId] = useState("usdc");
+  const selectedAsset = currencyOptions.find((option) => option.id === selectedAssetId) ?? currencyOptions[0];
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-2xl items-center justify-center p-4">
       {!open ? (
         <Button
           type="button"
-          onClick={() => {
-            setDialogKey((key) => key + 1);
-            setOpen(true);
-          }}
+          onClick={() => setOpen(true)}
         >
           Reopen {mode} dialog
         </Button>
       ) : null}
       <SavingsMoneyDialog
-        key={dialogKey}
         open={open}
         mode={mode}
         session={session}
         candidate={storyCandidate}
-        availableLabel="$250.00 available"
-        balanceAgeLabel="Updated 4 min ago"
-        availableBaseUnits="250000000"
+        availableLabel={selectedAssetId === "idrx" ? "Rp 250 available" : selectedAssetId === "eurc" ? "€250.00 available" : "$250.00 available"}
+        availableBaseUnits={selectedAssetId === "idrx" ? "25000" : "250000000"}
+        assetId={selectedAssetId}
+        assetLabel={selectedAsset.label}
+        assetDecimals={selectedAssetId === "idrx" ? 2 : 6}
+        assetOptions={currencyOptions}
+        onAssetChange={setSelectedAssetId}
         prepareMoneyAction={prepareMoneyAction}
         executeMoneyAction={executeMoneyAction}
         onClose={() => setOpen(false)}
@@ -178,7 +204,25 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const AmountEntry: Story = {
-  parameters: { viewport: { defaultViewport: "smallMobile" } },
+  parameters: {
+    docs: {
+      description: {
+        story: "The selector includes deterministic USD/USDC, EUR/EURC, and IDR/IDRX presentation fixtures. Non-USDC choices review selector and amount layout only; they do not claim a configured savings route.",
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    const assetInput = await screen.findByRole("combobox", { name: "Asset" });
+    const trigger = assetInput.parentElement?.querySelector("button");
+    if (!trigger) throw new Error("Asset picker trigger is missing");
+    await userEvent.click(trigger);
+    await userEvent.click(await screen.findByRole("option", { name: "EUR EURC" }));
+    await expect(await screen.findByRole("combobox", { name: "Asset" })).toHaveValue("EUR");
+    await expect(await screen.findByText("EURC is available for presentation review only", { exact: false })).toBeVisible();
+    await expect(await screen.findByRole("button", { name: "Continue" })).toBeDisabled();
+    await expect(screen.queryByText(/Updated \d+ min ago/)).not.toBeInTheDocument();
+  },
 };
 
 export const ValidationFailure: Story = {
@@ -226,7 +270,7 @@ export const FailureRecovery: Story = {
     await expect(recoveryButtons.length).toBeGreaterThan(0);
     await expect(recoveryButtons.at(-1)!).toBeEnabled();
   },
-  parameters: { viewport: { defaultViewport: "desktop" } },
+  parameters: { viewport: { defaultViewport: "mobile" } },
 };
 
 export const BackAndCancel: Story = {
@@ -239,7 +283,10 @@ export const BackAndCancel: Story = {
     const closeButton = await screen.findByRole("button", { name: "Close deposit dialog" });
     await expect(closeButton).toBeEnabled();
     await userEvent.click(closeButton);
-    await expect(await screen.findByRole("button", { name: "Reopen deposit dialog" })).toBeVisible();
+    const reopen = await screen.findByRole("button", { name: "Reopen deposit dialog" });
+    await expect(reopen).toBeVisible();
+    await userEvent.click(reopen);
+    await expect(await screen.findByRole("dialog", { name: "Deposit" })).toBeVisible();
   },
   parameters: {
     docs: {
@@ -252,7 +299,7 @@ export const BackAndCancel: Story = {
 
 export const ReducedMotionReference: Story = {
   parameters: {
-    viewport: { defaultViewport: "desktop" },
+    viewport: { defaultViewport: "mobile" },
     docs: {
       description: {
         story: "Stable review target only. This story does not emulate prefers-reduced-motion; apply real browser media emulation during review.",

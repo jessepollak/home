@@ -91,7 +91,10 @@ describe("HomeBalanceRowView", () => {
     const ticker = view.getByRole("img", { name: exactValue });
 
     expect(ticker.getAttribute("aria-label")).toBe(exactValue);
-    expect(ticker.querySelector('[aria-hidden="true"]')?.textContent).toBe(exactValue);
+    expect(ticker.querySelector('[aria-hidden="true"]')?.textContent).toBe("$1.23457e23 USD");
+    const valueColumn = view.container.querySelector<HTMLElement>("[data-slot='finance-row-value']");
+    expect(valueColumn?.className).toContain("overflow-hidden");
+    expect(valueColumn?.className).not.toContain("overflow-x-auto");
     expect(view.getByText(longRow.name).textContent).toBe(longRow.name);
   });
 

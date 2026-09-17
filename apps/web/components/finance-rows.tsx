@@ -84,9 +84,12 @@ function FinanceRow({
           </ItemDescription>
         )}
       </ItemContent>
-      <ItemContent className="max-w-2/3 min-w-0 !flex-auto items-stretch overflow-x-auto text-right">
+      <ItemContent
+        className="max-w-2/3 min-w-0 !flex-auto items-stretch overflow-hidden text-right"
+        data-slot="finance-row-value"
+      >
         <ItemTitle
-          className="min-w-full w-max justify-end"
+          className="w-full min-w-0 justify-end"
           numeric
           truncate={false}
           tone={

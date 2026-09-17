@@ -94,7 +94,7 @@ export const LongLabelLargeAmount: Story = {
   },
   parameters: {
     viewport: {
-      defaultViewport: "smallMobile",
+      defaultViewport: "mobile",
     },
   },
 };
