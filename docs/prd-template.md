@@ -15,6 +15,7 @@ Included journey and explicit exclusions.
 
 ## Done
 One to five stable outcomes plus the design references and evidence needed to assess them.
+For a user-visible outcome, include at least one concrete relevant visual reference—an observed current screen, product/design reference, Storybook scenario, or bounded mock—before publication. Label shaping references explicitly; they guide approval but never substitute for current-head running-app or Preview acceptance evidence.
 
 ## Decision
 Exact owner decision requested. Approval is one owner 👍 on the exact unedited factory-marked proposal comment.
