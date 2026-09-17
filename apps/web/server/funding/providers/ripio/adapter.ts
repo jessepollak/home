@@ -28,13 +28,16 @@ export const ripioProvider: FundingProvider = {
       const startedAt = Date.now();
       try {
         const email = input.fields.email?.trim();
-        if (!email) throw new RipioProviderError("invalid-request");
+        // Ripio records the address the customer accepted the terms from, so a
+        // request with no observable client address cannot accept them. Home
+        // forwards only what it observed and never substitutes a placeholder.
+        if (!email || !input.clientIp) throw new RipioProviderError("invalid-request");
         const client = clientFor(ctx);
         const customer = await client.createCustomer({ email });
         const terms = await client.getTerms();
         const termsId = readTermsId(terms);
         if (!termsId) throw new RipioProviderError("invalid-response");
-        await client.acceptTerms(customer.customerId, termsId);
+        await client.acceptTerms(customer.customerId, termsId, input.clientIp);
         const kyc = Object.fromEntries(
           Object.entries(input.fields).filter(([name]) => name !== "email"),
         );

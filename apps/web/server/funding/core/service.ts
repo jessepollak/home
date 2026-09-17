@@ -147,6 +147,7 @@ export class FundingCore {
     session: VerifiedAccountSession,
     body: unknown,
     returnOrigin: string,
+    headers?: Headers,
   ) {
     const quoteSecret = this.quoteSecret();
     if (quoteSecret.length < 32) throw new FundingCoreError("FUNDING_NOT_CONFIGURED", 424);
@@ -169,7 +170,8 @@ export class FundingCore {
     let customerRef = await this.deps.store.findCustomerRef(owner, provider.manifest.id, binding.region);
     if (onrampManifest.kyc && !customerRef) {
       if (!onramp.ensureCustomer || !parsed.kycFields) throw new FundingCoreError("KYC_REQUIRED", 400);
-      customerRef = (await onramp.ensureCustomer({ subject: session.user.subject, fields: parsed.kycFields }, ctx)).customerRef;
+      const clientIp = resolveClientIp(headers, this.env, sandbox);
+      customerRef = (await onramp.ensureCustomer({ subject: session.user.subject, fields: parsed.kycFields, ...(clientIp ? { clientIp } : {}) }, ctx)).customerRef;
     }
     const quote: Quote = onramp.createQuote
       ? await onramp.createQuote({

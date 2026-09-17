@@ -75,7 +75,7 @@ export type FundingProvider = {
 
 export type FundingOnrampProvider = {
   ensureCustomer?(
-    input: { subject: string; fields: Record<string, string> },
+    input: { subject: string; fields: Record<string, string>; clientIp?: string },
     ctx: ProviderContext,
   ): Promise<{ customerRef: string }>;
   createQuote?(input: QuoteIntent, ctx: ProviderContext): Promise<Quote>;

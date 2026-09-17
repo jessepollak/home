@@ -13,7 +13,7 @@ export async function POST(request: Request): Promise<Response> {
   if (request.headers.get("content-type")?.split(";", 1)[0] !== "application/json") return fundingError("INVALID_QUOTE_REQUEST", "A valid funding request is required.", 400);
   let body: unknown;
   try { body = await request.json(); } catch { return fundingError("INVALID_QUOTE_REQUEST", "A valid funding request is required.", 400); }
-  try { return fundingJson(await getFundingCore().createQuote(authorized.session, body, fundingRequestOrigin(request))); }
+  try { return fundingJson(await getFundingCore().createQuote(authorized.session, body, fundingRequestOrigin(request), request.headers)); }
   catch (error) {
     if (error instanceof FundingCoreError) return fundingError(error.code, "The funding quote could not be created.", error.status);
     if (error instanceof FundingProviderConfigurationError) {

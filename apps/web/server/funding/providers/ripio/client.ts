@@ -140,7 +140,7 @@ export type RipioClient = {
   getTransaction(transactionId: string, expected?: RipioTransactionBinding): Promise<RipioTransactionReference>;
   getCustomer(customerId: string): Promise<unknown>;
   getTerms(): Promise<unknown>;
-  acceptTerms(customerId: string, termsId: string): Promise<unknown>;
+  acceptTerms(customerId: string, termsId: string, ipAddress: string): Promise<unknown>;
   submitKyc(customerId: string, body: Record<string, unknown>): Promise<unknown>;
   getDepositNetworks(): Promise<unknown>;
   getWithdrawalNetworks(): Promise<unknown>;
@@ -296,9 +296,9 @@ export function createRipioClient(country: RipioCountry, options: {
       return request(`/api/v1/customers/${customerId}/`);
     },
     getTerms: () => request("/api/v1/termsAndConditions/"),
-    acceptTerms(customerId, termsId) {
-      if (!validUuid(customerId) || !validUuid(termsId)) throw new RipioProviderError("invalid-request");
-      return request(`/api/v1/customers/${customerId}/acceptTerms/`, { method: "POST", body: JSON.stringify({ termsId }) }, true);
+    acceptTerms(customerId, termsId, ipAddress) {
+      if (!validUuid(customerId) || !validUuid(termsId) || !validIpAddress(ipAddress)) throw new RipioProviderError("invalid-request");
+      return request(`/api/v1/customers/${customerId}/acceptTerms/`, { method: "POST", body: JSON.stringify({ termsId, ipAddress }) }, true);
     },
     submitKyc(customerId, body) {
       if (!validUuid(customerId) || !isRecord(body)) throw new RipioProviderError("invalid-request");
@@ -545,6 +545,9 @@ function validPixCode(value: string, expectedAmount: string): boolean {
   return offset === value.length && hasCrc && amount !== undefined && sameDecimal(amount, expectedAmount);
 }
 function validDate(value: unknown): value is string { return typeof value === "string" && Number.isFinite(Date.parse(value)); }
+// Ripio records the address the customer accepted the terms from. Home only
+// ever forwards an address it observed on the request; it never invents one.
+function validIpAddress(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f.:]{2,45}$/i.test(value); }
 function validEmail(value: string): boolean { return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 function safeHttps(value: string): boolean { try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password; } catch { return false; } }
 function catalogEntitles(value: unknown, country: RipioEnabledCountry): boolean {

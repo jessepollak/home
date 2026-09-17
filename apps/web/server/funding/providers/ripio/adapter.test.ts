@@ -123,6 +123,28 @@ describe("Ripio funding adapter", () => {
     expect(calls).toBe(0);
   });
 
+  test("accepts terms from the address the request was observed on", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const ctx = context((async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/oauth2/token/") return tokenResponse();
+      if (init?.body) bodies.push(JSON.parse(String(init.body)));
+      if (path === "/api/v1/customers/") return Response.json({ customerId: customerRef, createdAt: "2026-09-12T00:00:00.000Z" });
+      if (path === "/api/v1/termsAndConditions/") return Response.json({ termsId: quoteId });
+      return Response.json({});
+    }) as unknown as typeof fetch);
+    await ripioProvider.onramp!.ensureCustomer!({ subject: "user", fields: { email: "person@example.com" }, clientIp: "203.0.113.7" }, ctx);
+    expect(bodies).toContainEqual({ termsId: quoteId, ipAddress: "203.0.113.7" });
+  });
+
+  test("never accepts terms for a request with no observable client address", async () => {
+    let calls = 0;
+    const ctx = context((async () => { calls += 1; return tokenResponse(); }) as unknown as typeof fetch);
+    await expect(ripioProvider.onramp!.ensureCustomer!({ subject: "user", fields: { email: "person@example.com" } }, ctx))
+      .rejects.toMatchObject({ code: "invalid-request" });
+    expect(calls).toBe(0);
+  });
+
   test("fails closed when terms cannot be identified and never submits KYC", async () => {
     const paths: string[] = [];
     const ctx = context((async (input: RequestInfo | URL) => {
@@ -132,7 +154,7 @@ describe("Ripio funding adapter", () => {
       if (path === "/api/v1/termsAndConditions/") return Response.json({ results: [] });
       throw new Error("unexpected request");
     }) as unknown as typeof fetch);
-    await expect(ripioProvider.onramp!.ensureCustomer!({ subject: "user", fields: { email: "person@example.com", firstName: "A" } }, ctx)).rejects.toMatchObject({ code: "invalid-response" });
+    await expect(ripioProvider.onramp!.ensureCustomer!({ subject: "user", fields: { email: "person@example.com", firstName: "A" }, clientIp: "203.0.113.7" }, ctx)).rejects.toMatchObject({ code: "invalid-response" });
     expect(paths).not.toContain(`/api/v1/customers/${customerRef}/kyc/`);
   });
 
