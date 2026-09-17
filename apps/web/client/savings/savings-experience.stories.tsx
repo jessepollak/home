@@ -135,8 +135,25 @@ function preparedAction(kind: string): PreparedMoneyAction {
     createdAt: "2026-09-10T12:03:00.000Z",
     expiresAt: "2099-09-10T12:03:00.000Z",
     calls: [],
-    amounts: [],
+    amounts: [
+      { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "25000000", direction: actionKind === "savings-deposit" ? "spend" : "receive" },
+      { assetId: "vault", symbol: "vault shares", decimals: 18, amountBaseUnits: "24000000000000000000", direction: actionKind === "savings-deposit" ? "receive" : "spend", estimated: true },
+    ],
     warnings: [],
+    metadata: {
+      product: "savings",
+      operation: actionKind === "savings-deposit" ? "deposit" : "withdraw",
+      vaultAddress: GAUNTLET,
+      vaultName: gauntlet.name,
+      network: { name: "Base", chainId: 8453 },
+      feeWad: "100000000000000000",
+      limitBaseUnits: "250000000",
+      previewSharesBaseUnits: "24000000000000000000",
+      shareDecimals: 18,
+      exchangeConstraint: actionKind === "savings-deposit" ? "deposit-preview-no-minimum-shares" : "withdraw-exact-assets-or-revert",
+      discoveryRate: { status: "current", netApy: "0.041", fetchedAt: FIXTURE_TIME, stateAsOf: FIXTURE_TIME },
+      source: { blockNumber: "51026404", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1789041840" },
+    },
     owner: {
       subject: session.user.subject,
       address: ACCOUNT,
@@ -220,6 +237,19 @@ export const Loading: Story = {
   args: {
     balanceStatus: "loading",
     balancePositions: null,
+  },
+};
+
+export const StaleRates: Story = {
+  args: {
+    metadata: { ...fixedVaults, stale: true },
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "A retained discovery snapshot is visibly stale and offers an explicit retry without upgrading its APY.",
+      },
+    },
   },
 };
 

@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page, type Route } from "@playwright/t
 import type { RegionId } from "../../config/regions";
 import type { BalancesSnapshot } from "../../shared/balances/types";
 import { balancesSnapshot, scrollableBalancesSnapshot } from "./balances-fixtures";
+import { portfolioVaults, PORTFOLIO_USDC_ADDRESS } from "../../config/portfolio-assets";
 
 // Local laptops paint balances in ~350-620ms; hosted CI runners measure 1.0-2.2s.
 const BALANCES_PAINTED_BUDGET_MS = process.env.CI ? 3_500 : 1_000;
@@ -255,6 +256,43 @@ async function installApiFixtures(
           instructions: null,
           providerStatus: "completed",
         },
+      });
+    }
+    if (path === "/api/savings/vaults") {
+      return json(route, {
+        version: "v1",
+        chainId: 8453,
+        asset: { address: PORTFOLIO_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
+        candidates: [{
+          version: "v1",
+          vaultAddress: portfolioVaults[0].address,
+          name: portfolioVaults[0].name,
+          symbol: portfolioVaults[0].symbol,
+          listed: true,
+          chainId: 8453,
+          asset: { address: PORTFOLIO_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
+          curatorAddress: null,
+          grossApy: 0.04,
+          netApy: 0.035,
+          feeRate: 0.1,
+          totalAssetsRaw: "100000000",
+          liquidityRaw: "50000000",
+          stateAsOf: "2026-09-12T12:00:00.000Z",
+          blockNumber: "51026404",
+          source: {
+            provider: "Morpho GraphQL",
+            endpoint: "https://api.morpho.org/graphql",
+            query: "vaults",
+            fetchedAt: "2026-09-12T12:00:01.000Z",
+          },
+        }],
+        source: {
+          provider: "Morpho GraphQL",
+          endpoint: "https://api.morpho.org/graphql",
+          query: "vaults",
+          fetchedAt: "2026-09-12T12:00:01.000Z",
+        },
+        stale: false,
       });
     }
     if (path === "/api/basename-profile") return json(route, { profile: null });
@@ -526,6 +564,73 @@ test("canonical routing preserves the shell and one balances read", async ({ pag
   ].every((node) => node && (node as HTMLElement & { __shellProbe?: boolean }).__shellProbe)))
     .toBe(true);
   expect(fixtures.balancesReads()).toBe(1);
+});
+
+test("Save flow dismissal preserves canonical routing and exact opener focus", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+
+  await page.goto("/home");
+  await page.goto("/save?flow=save-deposit");
+  await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
+  await page.getByRole("button", { name: "Close deposit dialog" }).click();
+  await expect(page.getByRole("dialog", { name: "Deposit" })).toBeHidden();
+  await expect(page).toHaveURL(/\/save$/);
+
+  await page.goto("/home");
+  await page.goto("/save?flow=save-deposit");
+  await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("dialog", { name: "Deposit" })).toBeHidden();
+  await expect(page).toHaveURL(/\/save$/);
+
+  const deposit = page.getByRole("button", { name: "Deposit", exact: true });
+  await deposit.click();
+  await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
+  await page.getByRole("button", { name: "Close deposit dialog" }).click();
+  await expect(page.getByRole("dialog", { name: "Deposit" })).toBeHidden();
+  await expect(page).toHaveURL(/\/save$/);
+  await expect(deposit).toBeFocused();
+
+  const withdraw = page.getByRole("button", { name: "Withdraw", exact: true });
+  await withdraw.click();
+  await expect(page.getByRole("dialog", { name: "Withdraw" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Withdraw" })).toBeHidden();
+  await expect(page).toHaveURL(/\/save$/);
+  await expect(withdraw).toBeFocused();
+
+  await deposit.click();
+  await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("dialog", { name: "Deposit" })).toBeHidden();
+  await expect(page).toHaveURL(/\/save$/);
+  await expect(deposit).toBeFocused();
+});
+
+test("signed-out dashboard and Save routes enter sign-in before returning to Save", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installApiFixtures(page);
+
+  await page.goto("/home");
+  await expect(page).toHaveURL(/\/?\?account=signin$/);
+  await expect(page.getByRole("dialog", { name: "Sign in to Home" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main navigation" })).toHaveCount(0);
+
+  await page.goto("/save");
+  await expect(page).toHaveURL(/\/?\?account=signin$/);
+  await expect(page.getByRole("dialog", { name: "Sign in to Home" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Save" })).toHaveCount(0);
+
+  await page.getByLabel("Email address").fill("fixture@example.test");
+  await page.getByLabel("Email address").press("Enter");
+  await page.getByLabel("Verification code").fill("123456");
+  await page.getByRole("button", { name: "Verify and continue" }).click();
+  await expect(page).toHaveURL(/\/home$/);
+  await page.getByRole("button", { name: "Open Save" }).click();
+  await expect(page).toHaveURL(/\/save$/);
+  await expect(page.getByRole("region", { name: "Save" })).toBeVisible();
 });
 
 test("browser Back restores the Balances reveal and scroll offset", async ({ page }) => {

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, type ComponentProps, type ReactNode } from "react";
+import { useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { LoaderCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { MoneyMotionProvider } from "@/components/money-ticker";
+import { useReactiveExpiry } from "@/client/actions/expiry";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
@@ -25,6 +26,11 @@ import type {
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
 import { formatApy, formatUsdcUsd, parseUsdcAmount } from "@/client/savings/format";
+import { formatExactPresentationTokenAmount, formatPresentationDate } from "@/shared/formatting";
+import {
+  readSavingsPreparedReview,
+  type SavingsPreparedReview,
+} from "@/shared/savings/review";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 
 export type SavingsActionMode = "deposit" | "withdraw";
@@ -48,12 +54,18 @@ export type SavingsMoneyDialogProps = {
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
   onClose: () => void;
+  onClosed?: () => void;
   onConfirmed?: (result: OperationResult) => void | Promise<void>;
 };
 
 type DialogStep = "amount" | "confirm" | "pending" | "error" | "failed";
 
-export function SavingsMoneyDialog({
+export function SavingsMoneyDialog(props: SavingsMoneyDialogProps) {
+  const ownerIdentity = savingsDialogOwnerIdentity(props.session);
+  return <OwnerBoundSavingsMoneyDialog key={ownerIdentity} {...props} />;
+}
+
+function OwnerBoundSavingsMoneyDialog({
   open,
   mode,
   session,
@@ -69,6 +81,7 @@ export function SavingsMoneyDialog({
   prepareMoneyAction,
   executeMoneyAction,
   onClose,
+  onClosed,
   onConfirmed,
 }: SavingsMoneyDialogProps) {
   const [amount, setAmount] = useState("");
@@ -77,10 +90,15 @@ export function SavingsMoneyDialog({
   const [attemptedAction, setAttemptedAction] = useState(false);
   const [step, setStep] = useState<DialogStep>("amount");
   const [error, setError] = useState<string | null>(null);
-  const [openedAt] = useState(() => Date.now());
-  const expiredPrepared = preparedAction
-    ? Date.parse(preparedAction.expiresAt) <= openedAt
-    : false;
+  const ownerIdentity = savingsDialogOwnerIdentity(session);
+  const currentPreparationIdentity = useRef(ownerIdentity);
+  const preparedReview = preparedAction
+    ? readSavingsPreparedReview(preparedAction)
+    : null;
+  const {
+    expired: expiredPrepared,
+    recheckExpired,
+  } = useReactiveExpiry(preparedAction?.expiresAt ?? null);
   const confirmAmount = amountBaseUnits ? formatUsdcUsd(amountBaseUnits) : "";
   const configuredAssetId = candidate.asset.symbol.toLocaleLowerCase();
   const assetId = selectedAssetId ?? configuredAssetId;
@@ -140,6 +158,7 @@ export function SavingsMoneyDialog({
           throw Object.assign(new Error("limit"), { status: 409, code: "SAVINGS_ACTION_LIMIT_EXCEEDED" });
         }
       }
+      const preparationIdentity = ownerIdentity;
       setAmountBaseUnits(nextAmount);
       setError(null);
       setStep("pending");
@@ -148,11 +167,17 @@ export function SavingsMoneyDialog({
         vaultAddress: candidate.vaultAddress,
         amountBaseUnits: nextAmount,
       });
+      const review = readSavingsPreparedReview(action);
       if (
+        currentPreparationIdentity.current !== preparationIdentity ||
         action.kind !== (mode === "deposit" ? "savings-deposit" : "savings-withdraw") ||
         action.owner.subject !== session.user.subject ||
         action.owner.accountProvider !== session.accountProvider ||
-        action.owner.address.toLowerCase() !== session.smartAccount.address.toLowerCase()
+        action.owner.address.toLowerCase() !== session.smartAccount.address.toLowerCase() ||
+        !review ||
+        review.operation !== mode ||
+        review.vaultAddress.toLowerCase() !== candidate.vaultAddress.toLowerCase() ||
+        review.exactUsdcBaseUnits !== nextAmount
       ) {
         throw new SavingsActionClientError(
           "The prepared action did not match the verified account or requested savings action.",
@@ -169,7 +194,11 @@ export function SavingsMoneyDialog({
   }
 
   async function confirm() {
-    if (!preparedAction || step === "pending") return;
+    if (!preparedAction || !preparedReview || step === "pending") return;
+    if (recheckExpired()) {
+      setError(`This ${mode} expired. Go back and continue again.`);
+      return;
+    }
     setError(null);
     setStep("pending");
     try {
@@ -216,6 +245,7 @@ export function SavingsMoneyDialog({
         onClose={() => {
           reset();
           onClose();
+          onClosed?.();
         }}
       >
         <MoneyModalHeader
@@ -260,10 +290,8 @@ export function SavingsMoneyDialog({
               <MoneyConfirmSummary
                 amount={confirmAmount}
                 lead={mode === "deposit" ? "Deposit to Save" : "Withdraw from Save"}
-                rows={[
-                  { label: "Vault", value: candidate.name },
-                  { label: "APY", value: formatApy(candidate.netApy) },
-                  { label: "Amount", value: confirmAmount },
+                rows={preparedReview ? savingsReviewRows(preparedReview) : [
+                  { label: "Review", value: "Prepared facts unavailable" },
                 ]}
               />
               {step === "pending" ? (
@@ -291,7 +319,7 @@ export function SavingsMoneyDialog({
         {step === "confirm" ? (
           <MoneyModalFooter
             primaryLabel={attemptedAction ? "Retry" : `${mode === "deposit" ? "Deposit" : "Withdraw"} ${confirmAmount}`}
-            primaryDisabled={expiredPrepared && !attemptedAction}
+            primaryDisabled={!preparedReview || (expiredPrepared && !attemptedAction)}
             onPrimary={() => void confirm()}
             secondaryLabel="Back"
             onSecondary={goBack}
@@ -316,6 +344,46 @@ export function SavingsMoneyDialog({
       </MoneyModal>
     </MoneyMotionProvider>
   );
+}
+
+function savingsDialogOwnerIdentity(session: VerifiedAccountSession): string {
+  return `${session.user.subject}\u0000${session.smartAccount?.address.toLowerCase() ?? ""}\u0000${session.smartAccount?.chainId ?? ""}\u0000${session.accountProvider}`;
+}
+
+function savingsReviewRows(review: SavingsPreparedReview) {
+  const apy = review.discoveryRate.status === "unavailable"
+    ? "Unavailable"
+    : `${formatApy(Number(review.discoveryRate.netApy))} · ${review.discoveryRate.status}`;
+  const fee = `${formatWadPercent(review.feeWad)} (current)`;
+  const preview = formatExactPresentationTokenAmount(
+    review.previewSharesBaseUnits,
+    review.shareDecimals,
+    "vault shares",
+  );
+  const constraint = review.exchangeConstraint === "deposit-preview-no-minimum-shares"
+    ? "Estimated shares; no minimum-shares protection"
+    : "Exact USDC; reverts if shares are insufficient";
+  return [
+    { label: "Vault", value: review.vaultName },
+    { label: "Network", value: `${review.network.name} (${review.network.chainId})` },
+    { label: "Discovery APY", value: apy },
+    { label: "Current vault fee", value: fee },
+    { label: "Amount", value: formatUsdcUsd(review.exactUsdcBaseUnits) },
+    { label: "Share preview", value: preview },
+    { label: "Exchange constraint", value: constraint },
+    { label: "Valid until", value: formatPresentationDate(review.expiresAt, { style: "date-time-zone" }) },
+  ];
+}
+
+function formatWadPercent(value: string): string {
+  const wad = BigInt(value);
+  const scaled = wad * BigInt(100_000_000) / BigInt("1000000000000000000");
+  const whole = scaled / BigInt(1_000_000);
+  const fraction = (scaled % BigInt(1_000_000))
+    .toString()
+    .padStart(6, "0")
+    .replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}%` : `${whole}%`;
 }
 
 function StatusMessage({

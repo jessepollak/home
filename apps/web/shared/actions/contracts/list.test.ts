@@ -77,6 +77,37 @@ describe("recent Home action activity", () => {
     });
   });
 
+  test("preserves validated savings metadata for confirmed Activity rows", () => {
+    const savings = {
+      ...row(),
+      kind: "savings-deposit",
+      summary: {
+        ...row().summary,
+        metadata: {
+          product: "savings",
+          operation: "deposit",
+          vaultAddress: "0x2222222222222222222222222222222222222222",
+          vaultName: "Configured USDC vault",
+          network: { name: "Base", chainId: 8453 },
+          feeWad: "0",
+          limitBaseUnits: "500000000",
+          previewSharesBaseUnits: "1000000000000000000",
+          shareDecimals: 18,
+          exchangeConstraint: "deposit-preview-no-minimum-shares",
+          discoveryRate: { status: "unavailable", netApy: null, fetchedAt: null, stateAsOf: null },
+          source: {
+            blockNumber: "51026404",
+            blockHash: `0x${"ab".repeat(32)}`,
+            blockTimestamp: "1789214400",
+          },
+        },
+      },
+    };
+
+    expect(parseRecentMoneyActions({ actions: [savings] }, session)[0]?.action.metadata)
+      .toMatchObject({ product: "savings", operation: "deposit" });
+  });
+
   test("keeps pending rows without transaction hashes and rejects non-derived statuses", () => {
     const pending = { ...row(undefined, "pending"), transactionHash: undefined };
     const parsed = parseRecentMoneyActions({ actions: [pending] }, session);

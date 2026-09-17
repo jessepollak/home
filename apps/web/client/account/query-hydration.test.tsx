@@ -431,7 +431,7 @@ describe("owner query hydration lifecycle", () => {
     expect(window.localStorage.getItem(ownerQueryStorageKey(ownerKey)!)).not.toBeNull();
   });
 
-  test("owner switch and sign-out clear every persisted owner store", async () => {
+  test("owner switch and sign-out clear every persisted owner store and cached Save balance", async () => {
     let activeSession = verifiedSession("subject-a", ADDRESS_A);
     const ownerAKey = dataOwnerKey(activeSession);
     const ownerBKey = dataOwnerKey(verifiedSession("subject-b", ADDRESS_B));
@@ -446,15 +446,26 @@ describe("owner query hydration lifecycle", () => {
     );
     const view = render(owner(sdk("sdk-owner-a")));
     await waitFor(() => expect(view.getByTestId("valuation").textContent).toBe("1"));
+    const ownerASavingsKey = ownerQueryKey(ownerAKey, "balances", "US");
+    getHomeQueryClient().setQueryData(ownerASavingsKey, {
+      holdings: [{ id: "morpho-steakhouse-usdc", balance: { status: "ready", baseUnits: "1000000000000000000" } }],
+    });
+    expect(getHomeQueryClient().getQueryData(ownerASavingsKey)).toBeTruthy();
 
     activeSession = verifiedSession("subject-b", ADDRESS_B);
     view.rerender(owner(sdk("sdk-owner-b")));
     await waitFor(() => expect(observedClient?.session?.user.subject).toBe("subject-b"));
     expect(window.localStorage.getItem(ownerQueryStorageKey(ownerAKey)!)).toBeNull();
     expect(window.localStorage.getItem(ownerQueryStorageKey(ownerBKey)!)).toBeNull();
+    expect(getHomeQueryClient().getQueryData(ownerASavingsKey)).toBeUndefined();
 
+    const ownerBSavingsKey = ownerQueryKey(ownerBKey, "balances", "US");
+    getHomeQueryClient().setQueryData(ownerBSavingsKey, {
+      holdings: [{ id: "morpho-steakhouse-usdc", balance: { status: "ready", baseUnits: "2000000000000000000" } }],
+    });
     persistValuation(ownerBKey, "3");
     await act(async () => { await observedClient?.signOut(); });
     expect(window.localStorage.getItem(ownerQueryStorageKey(ownerBKey)!)).toBeNull();
+    expect(getHomeQueryClient().getQueryData(ownerBSavingsKey)).toBeUndefined();
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -83,6 +83,10 @@ type SavingsExperienceProps = {
   balancePositions?: ReturnType<typeof selectVaultPositions> | null;
   balanceStatus?: "idle" | "loading" | "ready" | "error";
   balanceRevalidating?: boolean;
+  balanceRefreshError?: boolean;
+  balanceStale?: boolean;
+  balanceFetchedAt?: string | null;
+  onRetryBalances?: () => void;
   growthAuthority?: SavingsGrowthAuthority | null;
   prepareMoneyAction?: (
     endpoint: string,
@@ -146,6 +150,10 @@ export function AuthenticatedSavingsExperience() {
       balancePositions={balancePositions}
       balanceStatus={balances.status === "unavailable" ? "idle" : balances.status}
       balanceRevalidating={balances.revalidating === true}
+      balanceRefreshError={balances.refreshError === true}
+      balanceStale={balances.snapshot?.stale === true}
+      balanceFetchedAt={balances.snapshot?.fetchedAt ?? null}
+      onRetryBalances={() => void balances.retry()}
       growthAuthority={growthAuthority}
       prepareMoneyAction={account.prepareMoneyAction}
       executeMoneyAction={account.executeMoneyAction}
@@ -162,6 +170,10 @@ export function SavingsExperience({
   balancePositions = null,
   balanceStatus,
   balanceRevalidating = false,
+  balanceRefreshError = false,
+  balanceStale = false,
+  balanceFetchedAt = null,
+  onRetryBalances,
   growthAuthority = null,
   prepareMoneyAction,
   executeMoneyAction,
@@ -171,7 +183,9 @@ export function SavingsExperience({
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [actionMode, setActionMode] = useState<SavingsActionMode | null>(null);
   const routing = useOptionalHomeShellRouting();
-  const openedActionInAppRef = useRef(false);
+  const depositOpenerRef = useRef<HTMLButtonElement>(null);
+  const withdrawOpenerRef = useRef<HTMLButtonElement>(null);
+  const pendingFocusModeRef = useRef<SavingsActionMode | null>(null);
   const routedActionMode: SavingsActionMode | null =
     routing?.state.flow === "save-deposit"
       ? "deposit"
@@ -179,6 +193,8 @@ export function SavingsExperience({
         ? "withdraw"
         : null;
   const visibleActionMode = routing ? routedActionMode : actionMode;
+  const initialRoutedActionModeRef = useRef(routing ? routedActionMode : null);
+  const normalizedInitialRouteRef = useRef(false);
   const hosted = Boolean(useOptionalAppChrome());
   const hasSession = Boolean(session?.smartAccount);
   const metadataQuery = useHomeQuery({
@@ -203,6 +219,16 @@ export function SavingsExperience({
           : { status: "loading", data: null },
     [metadataQuery.data, metadataQuery.isError],
   );
+  useEffect(() => {
+    const initialMode = initialRoutedActionModeRef.current;
+    if (!routing || !initialMode || normalizedInitialRouteRef.current) return;
+    normalizedInitialRouteRef.current = true;
+    routing.clearFlow({ mode: "replace" });
+    routing.setFlow(
+      initialMode === "deposit" ? "save-deposit" : "save-withdraw",
+    );
+  }, [routing]);
+
   useEffect(() => {
     if (balanceStatus !== "ready" || !balancePositions) return;
     let active = true;
@@ -236,12 +262,18 @@ export function SavingsExperience({
         status: "ready",
         data: balancePositions,
         refreshing: balanceRevalidating,
-        refreshError: false,
+        refreshError: balanceRefreshError,
       };
     }
     if (balanceStatus === "error") return { status: "error" };
     return { status: "loading" };
-  }, [balancePositions, balanceRevalidating, balanceStatus, hasSession]);
+  }, [
+    balancePositions,
+    balanceRefreshError,
+    balanceRevalidating,
+    balanceStatus,
+    hasSession,
+  ]);
 
   const allCandidates = useMemo(() => {
     if (loadState.status !== "ready") return [];
@@ -298,6 +330,12 @@ export function SavingsExperience({
     positionState.status === "ready" && positionState.refreshing;
   const refreshError =
     positionState.status === "ready" && positionState.refreshError;
+  const balancePartiallyAvailable = positionState.status === "ready" &&
+    positionState.data.some((entry) => entry.position !== null) &&
+    positionState.data.some((entry) => entry.position === null);
+  const retainedBalanceIsStale = Boolean(
+    availableBalanceOrPositions(positionState) && (balanceStale || refreshError),
+  );
   const funded = portfolioSummary?.funded ?? false;
   const availableBalance =
     portfolioSummary?.balance.status === "available"
@@ -322,11 +360,11 @@ export function SavingsExperience({
   );
 
   function openAction(mode: SavingsActionMode) {
+    pendingFocusModeRef.current = mode;
     if (!routing) {
       setActionMode(mode);
       return;
     }
-    openedActionInAppRef.current = true;
     routing.setFlow(mode === "deposit" ? "save-deposit" : "save-withdraw");
   }
 
@@ -335,12 +373,14 @@ export function SavingsExperience({
       setActionMode(null);
       return;
     }
-    if (openedActionInAppRef.current) {
-      openedActionInAppRef.current = false;
-      window.history.back();
-      return;
-    }
     routing.clearFlow({ mode: "replace" });
+  }
+
+  function restoreActionFocus() {
+    const mode = pendingFocusModeRef.current;
+    pendingFocusModeRef.current = null;
+    if (mode === "deposit") depositOpenerRef.current?.focus();
+    if (mode === "withdraw") withdrawOpenerRef.current?.focus();
   }
 
   return (
@@ -414,11 +454,6 @@ export function SavingsExperience({
                   }
                 />
               )}
-              {refreshError ? (
-                <p className="text-xs text-muted-foreground" role="status">
-                  Refresh unavailable
-                </p>
-              ) : null}
             </>
           ) : !hasSession ? (
             <>
@@ -440,13 +475,38 @@ export function SavingsExperience({
                 <MoneyTicker value="—" />
               </p>
               <p className="text-sm text-muted-foreground" role="status">
-                Balance unavailable
+                {balancePartiallyAvailable
+                  ? "Saved balance partially unavailable"
+                  : "Saved balance unavailable"}
               </p>
             </>
           )}
           </div>
+          {retainedBalanceIsStale ? (
+            <Alert className="mt-4" role="status">
+              <AlertDescription>
+                Saved balance stale{formatSnapshotAge(balanceFetchedAt, rateNowMs)}.
+              </AlertDescription>
+              {onRetryBalances ? (
+                <AlertAction>
+                  <Button variant="ghost" onClick={onRetryBalances}>Retry</Button>
+                </AlertAction>
+              ) : null}
+            </Alert>
+          ) : null}
         </CardContent>
       </Card>
+
+      {loadState.status === "ready" && loadState.data.stale ? (
+        <Alert role="status">
+          <AlertDescription>
+            Vault rates stale{formatSnapshotAge(loadState.data.source.fetchedAt, rateNowMs)}.
+          </AlertDescription>
+          <AlertAction>
+            <Button variant="ghost" onClick={() => void metadataQuery.refetch()}>Retry</Button>
+          </AlertAction>
+        </Alert>
+      ) : null}
 
       {loadState.status === "loading" ? (
         <section className="space-y-3" aria-label="Vaults" aria-busy="true">
@@ -454,9 +514,12 @@ export function SavingsExperience({
           <SavingsNotice visuallyHidden>Loading vaults…</SavingsNotice>
         </section>
       ) : loadState.status === "error" ? (
-        <SavingsNotice tone="error" role="alert">
-          Vaults are temporarily unavailable.
-        </SavingsNotice>
+        <Alert role="alert">
+          <AlertDescription>Vaults are temporarily unavailable.</AlertDescription>
+          <AlertAction>
+            <Button variant="ghost" onClick={() => void metadataQuery.refetch()}>Retry</Button>
+          </AlertAction>
+        </Alert>
       ) : !coldLoading && !positionFailed && candidates.length > 0 ? (
         <section className="space-y-4" aria-label="Vaults">
           <div className="space-y-4" role="radiogroup" aria-label="Vault">
@@ -569,6 +632,7 @@ export function SavingsExperience({
       {loadState.status !== "error" && (availableBalance || !hasSession) ? (
         <div className={`grid gap-2 ${funded ? "grid-cols-2" : "grid-cols-1"}`}>
           <Button className="h-11"
+            ref={depositOpenerRef}
             size="lg"
             disabled={!actionsReady}
             onClick={() => openAction("deposit")}
@@ -577,6 +641,7 @@ export function SavingsExperience({
           </Button>
           {funded ? (
             <Button className="h-11"
+              ref={withdrawOpenerRef}
               size="lg"
               variant="outline"
               disabled={!actionsReady || !canWithdraw}
@@ -611,10 +676,23 @@ export function SavingsExperience({
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
           onClose={closeAction}
+          onClosed={restoreActionFocus}
         />
       ) : null}
     </section>
   );
+}
+
+function availableBalanceOrPositions(state: PositionState): boolean {
+  return state.status === "ready" && state.data.some((entry) => entry.position !== null);
+}
+
+function formatSnapshotAge(fetchedAt: string | null, nowMs: number): string {
+  if (!fetchedAt) return "";
+  const fetchedAtMs = Date.parse(fetchedAt);
+  if (!Number.isFinite(fetchedAtMs)) return "";
+  const ageMinutes = Math.max(0, Math.floor((nowMs - fetchedAtMs) / 60_000));
+  return ` · updated ${ageMinutes < 1 ? "less than a minute" : `${ageMinutes} min`} ago`;
 }
 
 function vaultInitials(name: string): string {

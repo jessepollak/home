@@ -9,7 +9,7 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 
-const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { SavingsMoneyDialog } = await import("./savings-actions");
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
@@ -17,6 +17,11 @@ const VAULT = MORPHO_V1_CANDIDATE_ADDRESSES[0];
 const session: VerifiedAccountSession = {
   user: { subject: "subject-a" },
   smartAccount: { address: ACCOUNT, chainId: 8453 },
+  accountProvider: "cdp-embedded",
+};
+const sessionB: VerifiedAccountSession = {
+  user: { subject: "subject-b" },
+  smartAccount: { address: "0x2222222222222222222222222222222222222222", chainId: 8453 },
   accountProvider: "cdp-embedded",
 };
 const candidate: MorphoVaultCandidate = {
@@ -38,7 +43,12 @@ const candidate: MorphoVaultCandidate = {
   source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: "2026-09-12T12:00:01.000Z" },
 };
 
-function prepared(kind: "savings-deposit" | "savings-withdraw" = "savings-deposit"): PreparedMoneyAction {
+function prepared(
+  kind: "savings-deposit" | "savings-withdraw" = "savings-deposit",
+  amountBaseUnits = "1000000",
+  owner: VerifiedAccountSession = session,
+): PreparedMoneyAction {
+  const deposit = kind === "savings-deposit";
   return {
     id: "action-1",
     kind,
@@ -46,9 +56,31 @@ function prepared(kind: "savings-deposit" | "savings-withdraw" = "savings-deposi
     createdAt: "2026-09-12T00:00:00.000Z",
     expiresAt: "2099-09-12T00:00:00.000Z",
     calls: [],
-    amounts: [],
-    warnings: [],
-    owner: { subject: "subject-a", address: ACCOUNT, chainId: 8453, accountProvider: "cdp-embedded" },
+    amounts: [
+      { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits, direction: deposit ? "spend" : "receive" },
+      { assetId: "vault", symbol: "vault shares", decimals: 18, amountBaseUnits: amountBaseUnits.padEnd(18, "0"), direction: deposit ? "receive" : "spend", estimated: true },
+    ],
+    warnings: ["warning prose is not review authority"],
+    metadata: {
+      product: "savings",
+      operation: deposit ? "deposit" : "withdraw",
+      vaultAddress: VAULT,
+      vaultName: candidate.name,
+      network: { name: "Base", chainId: 8453 },
+      feeWad: "100000000000000000",
+      limitBaseUnits: "500000000",
+      previewSharesBaseUnits: amountBaseUnits.padEnd(18, "0"),
+      shareDecimals: 18,
+      exchangeConstraint: deposit ? "deposit-preview-no-minimum-shares" : "withdraw-exact-assets-or-revert",
+      discoveryRate: { status: "stale", netApy: "0.035", fetchedAt: "2026-09-12T12:00:01.000Z", stateAsOf: "2026-09-12T12:00:00.000Z" },
+      source: { blockNumber: "51026404", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1789214400" },
+    },
+    owner: {
+      subject: owner.user.subject,
+      address: owner.smartAccount!.address,
+      chainId: 8453,
+      accountProvider: owner.accountProvider,
+    },
   };
 }
 function typeAmount(digits: string) {
@@ -84,7 +116,7 @@ describe("SavingsMoneyDialog", () => {
       <SavingsMoneyDialog
         open mode="deposit" session={session} candidate={candidate}
         availableLabel="$50.00 available" availableBaseUnits="50000000"
-        prepareMoneyAction={async (kind, input) => { requests.push({ kind, input }); return prepared(); }}
+        prepareMoneyAction={async (kind, input) => { requests.push({ kind, input }); return prepared("savings-deposit", "1234567"); }}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
         onClose={() => {}}
       />,
@@ -92,6 +124,10 @@ describe("SavingsMoneyDialog", () => {
     typeAmount("1.234567");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $1.234567" })).toBeTruthy();
+    expect(document.body.textContent).toContain("Base (8453)");
+    expect(document.body.textContent).toContain("3.50% · stale");
+    expect(document.body.textContent).toContain("10% (current)");
+    expect(document.body.textContent).toContain("no minimum-shares protection");
     expect(requests).toEqual([{ kind: "savings-deposit", input: { kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1234567" } }]);
   });
 
@@ -171,21 +207,202 @@ describe("SavingsMoneyDialog", () => {
     await waitFor(() => expect(page().getByRole("dialog", { name: "Deposit" })).toBeTruthy());
   });
 
-  test("retries the same prepared action after an ambiguous dispatch", async () => {
-    let executions = 0;
+  test("Back and a rejected action preserve the selected vault, amount, and owner", async () => {
+    let prepares = 0;
     render(
       <SavingsMoneyDialog
         open mode="deposit" session={session} candidate={candidate}
-        prepareMoneyAction={async () => prepared()}
-        executeMoneyAction={async () => { executions += 1; if (executions === 1) throw new Error("ambiguous"); return { id: "action-1", status: "submitted" }; }}
+        prepareMoneyAction={async () => { prepares += 1; return prepared(); }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "rejected" })}
         onClose={() => {}}
       />,
     );
     typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    expect((await page().findByRole("alert")).textContent).toContain("wallet request was rejected");
+    fireEvent.click(page().getAllByRole("button", { name: "Back" }).at(-1)!);
+    expect(await page().findByRole("dialog", { name: "Deposit" })).toBeTruthy();
+    expect(document.body.textContent).toContain("1.00 USDC");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
+    expect(prepares).toBe(2);
+  });
+
+  test("drops an in-flight owner-A preparation after relogin", async () => {
+    let resolveOwnerA!: (action: PreparedMoneyAction) => void;
+    const ownerAPreparation = new Promise<PreparedMoneyAction>((resolve) => {
+      resolveOwnerA = resolve;
+    });
+    const ownerBRequests: unknown[] = [];
+    const view = render(
+      <SavingsMoneyDialog
+        open mode="deposit" motion="reduced" session={session} candidate={candidate}
+        prepareMoneyAction={() => ownerAPreparation}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await page().findByText("Waiting for your wallet…");
+
+    view.rerender(
+      <SavingsMoneyDialog
+        open mode="deposit" motion="reduced" session={sessionB} candidate={candidate}
+        prepareMoneyAction={async (_kind, input) => {
+          ownerBRequests.push(input);
+          return prepared("savings-deposit", "1000000", sessionB);
+        }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    expect(page().queryByText("Waiting for your wallet…")).toBeNull();
+    expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
+    expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      resolveOwnerA(prepared("savings-deposit", "1000000", session));
+      await ownerAPreparation;
+      await Promise.resolve();
+    });
+    expect(page().queryByRole("alert")).toBeNull();
+    expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
+
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
+    expect(ownerBRequests).toEqual([{
+      kind: "deposit",
+      vaultAddress: VAULT,
+      amountBaseUnits: "1000000",
+    }]);
+    view.unmount();
+  });
+
+  test("clears a completed owner-A review and amount before owner B can confirm", async () => {
+    const ownerBRequests: unknown[] = [];
+    const view = render(
+      <SavingsMoneyDialog
+        open mode="deposit" motion="reduced" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared("savings-deposit", "1234567", session)}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+
+    typeAmount("1.234567");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByRole("button", { name: "Deposit $1.234567" })).toBeTruthy();
+    expect(document.body.textContent).toContain("Base (8453)");
+
+    view.rerender(
+      <SavingsMoneyDialog
+        open mode="deposit" motion="reduced" session={sessionB} candidate={candidate}
+        prepareMoneyAction={async (_kind, input) => {
+          ownerBRequests.push(input);
+          return prepared("savings-deposit", "2000000", sessionB);
+        }}
+        executeMoneyAction={async () => ({ id: "action-2", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(page().queryByRole("button", { name: "Deposit $1.234567" })).toBeNull();
+    expect(document.body.textContent).not.toContain("Base (8453)");
+    expect(document.body.textContent).not.toContain("$1.234567");
+    expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+
+    typeAmount("2");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByRole("button", { name: "Deposit $2.00" })).toBeTruthy();
+    expect(document.body.textContent).toContain("Base (8453)");
+    expect(ownerBRequests).toEqual([{
+      kind: "deposit",
+      vaultAddress: VAULT,
+      amountBaseUnits: "2000000",
+    }]);
+  });
+
+  test("does not restore a completed review after sign-out and sign-in", async () => {
+    const dialog = (
+      <SavingsMoneyDialog
+        open mode="deposit" motion="reduced" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared()}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />
+    );
+    const view = render(dialog);
+
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
+
+    view.rerender(<></>);
+    expect(page().queryByRole("dialog")).toBeNull();
+    view.rerender(dialog);
+
+    expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
+    expect(document.body.textContent).not.toContain("Base (8453)");
+    expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("retries the same prepared action after an ambiguous dispatch", async () => {
+    let executions = 0;
+    let closes = 0;
+    render(
+      <SavingsMoneyDialog
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared()}
+        executeMoneyAction={async () => { executions += 1; if (executions === 1) throw new Error("ambiguous"); return { id: "action-1", status: "submitted" }; }}
+        onClose={() => { closes += 1; }}
+      />,
+    );
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     fireEvent.click(await page().findByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(closes).toBe(1));
     expect(executions).toBe(2);
+  });
+
+  test("disables confirm when prepared savings metadata becomes unavailable", async () => {
+    const action = prepared();
+    const validMetadata = action.metadata;
+    let reads = 0;
+    Object.defineProperty(action, "metadata", {
+      configurable: true,
+      get: () => {
+        reads += 1;
+        return reads === 1
+          ? validMetadata
+          : { ...validMetadata, source: { blockNumber: "invalid" } };
+      },
+    });
+    let executions = 0;
+    render(
+      <SavingsMoneyDialog
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async () => action}
+        executeMoneyAction={async () => {
+          executions += 1;
+          return { id: "action-1", status: "submitted" };
+        }}
+        onClose={() => {}}
+      />,
+    );
+
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    const confirm = await page().findByRole("button", { name: "Deposit $1.00" }) as HTMLButtonElement;
+
+    expect(document.body.textContent).toContain("Prepared facts unavailable");
+    expect(confirm.disabled).toBe(true);
+    fireEvent.click(confirm);
+    expect(executions).toBe(0);
   });
 
   test("surfaces typed prepare errors", async () => {

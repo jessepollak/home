@@ -18,6 +18,7 @@ import {
 } from "@/shared/savings/types";
 
 const REQUEST_TIMEOUT_MS = 8_000;
+const REQUEST_RETRY_LIMIT = 1;
 const FRESH_CACHE_MS = 30_000;
 const STALE_FALLBACK_MS = 5 * 60_000;
 
@@ -140,7 +141,7 @@ async function fetchVaultCandidates(
   now: () => Date,
 ): Promise<MorphoVaultsResult> {
   const source = createSource("vaults", now());
-  const payload = await executeGraphql(
+  const payload = await executeGraphqlWithRetry(
     VAULTS_QUERY,
     undefined,
     fetchImpl,
@@ -174,6 +175,27 @@ async function fetchVaultCandidates(
     source,
     stale: false,
   };
+}
+
+async function executeGraphqlWithRetry(
+  query: string,
+  variables: Record<string, string> | undefined,
+  fetchImpl: FetchLike,
+  externalSignal: AbortSignal | undefined,
+) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await executeGraphql(query, variables, fetchImpl, externalSignal);
+    } catch (error) {
+      if (
+        attempt >= REQUEST_RETRY_LIMIT ||
+        externalSignal?.aborted ||
+        !(error instanceof MorphoUpstreamError)
+      ) {
+        throw error;
+      }
+    }
+  }
 }
 
 async function executeGraphql(

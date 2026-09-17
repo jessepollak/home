@@ -76,7 +76,45 @@ export type CashoutMoneyActionMetadata = CashoutMoneyActionMetadataBase & (
   | { operation: "deposit"; canonicalHandle: string; depositId?: never }
   | { operation: "withdraw"; canonicalHandle?: never; depositId: string }
 );
-export type MoneyActionMetadata = BorrowMoneyActionMetadata | CashoutMoneyActionMetadata;
+
+/** Server-authored facts used to render a savings review without parsing warning prose. */
+export type SavingsMoneyActionMetadata = {
+  product: "savings";
+  operation: "deposit" | "withdraw";
+  vaultAddress: `0x${string}`;
+  vaultName: string;
+  network: { name: "Base"; chainId: 8453 };
+  feeWad: string;
+  limitBaseUnits: string;
+  previewSharesBaseUnits: string;
+  shareDecimals: number;
+  exchangeConstraint:
+    | "deposit-preview-no-minimum-shares"
+    | "withdraw-exact-assets-or-revert";
+  discoveryRate:
+    | {
+        status: "current" | "stale";
+        netApy: string;
+        fetchedAt: string;
+        stateAsOf: string;
+      }
+    | {
+        status: "unavailable";
+        netApy: null;
+        fetchedAt: null;
+        stateAsOf: null;
+      };
+  source: {
+    blockNumber: string;
+    blockHash: `0x${string}`;
+    blockTimestamp: string;
+  };
+};
+
+export type MoneyActionMetadata =
+  | BorrowMoneyActionMetadata
+  | CashoutMoneyActionMetadata
+  | SavingsMoneyActionMetadata;
 
 export type MoneyActionDraft = {
   kind: ActionKind;

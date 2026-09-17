@@ -127,7 +127,7 @@ describe("getMorphoVaultCandidates", () => {
     currentTime += 30_001;
     const stale = await reader({ now: controlledNow });
 
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
     expect(first.stale).toBeFalse();
     expect(stale.stale).toBeTrue();
     expect(stale.source.fetchedAt).toBe("2026-09-07T20:30:00.000Z");
@@ -152,7 +152,23 @@ describe("getMorphoVaultCandidates", () => {
     await expect(reader({ now: controlledNow })).rejects.toBeInstanceOf(
       MorphoUpstreamError,
     );
+    expect(calls).toBe(3);
+  });
+
+  test("retries one transient metadata failure and then succeeds", async () => {
+    let calls = 0;
+    const reader = createMorphoVaultCandidatesReader(
+      (async () => {
+        calls += 1;
+        return calls === 1
+          ? jsonResponse({ error: "unavailable" }, 503)
+          : jsonResponse(candidatesResponse());
+      }) as unknown as typeof fetch,
+    );
+
+    const result = await reader({ now });
     expect(calls).toBe(2);
+    expect(result.stale).toBeFalse();
   });
 
   test("clears a failed in-flight read so a manual retry can succeed", async () => {
@@ -161,9 +177,10 @@ describe("getMorphoVaultCandidates", () => {
     const reader = createMorphoVaultCandidatesReader(
       (() => {
         calls += 1;
-        return calls === 1
-          ? pendingFailure.promise
-          : Promise.resolve(jsonResponse(candidatesResponse()));
+        if (calls === 1) return pendingFailure.promise;
+        return Promise.resolve(calls === 2
+          ? jsonResponse({ error: "still unavailable" }, 503)
+          : jsonResponse(candidatesResponse()));
       }) as unknown as typeof fetch,
     );
 
@@ -180,7 +197,7 @@ describe("getMorphoVaultCandidates", () => {
     ]);
 
     const retried = await reader({ now });
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
     expect(retried.stale).toBeFalse();
     expect(retried.source.fetchedAt).toBe("2026-09-07T20:30:00.000Z");
   });

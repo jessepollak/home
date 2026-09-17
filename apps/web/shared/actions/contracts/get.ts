@@ -2,8 +2,9 @@
 // GET /api/actions/:id
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type {
-  ActionKind,
+import {
+  isActionKind,
+  type ActionKind,
   DerivedActionStatus,
   MoneyActionCall,
   MoneyActionAmount,
@@ -11,6 +12,7 @@ import type {
   MoneyActionOwner,
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
+import { isSavingsMetadata } from "@/shared/savings/review";
 
 export type ActionSummaryResponse = {
   title: string;
@@ -50,7 +52,7 @@ export function parsePendingActionResponse(
   if (
     !isRecord(value) ||
     value.id !== id ||
-    (value.kind !== "send" && value.kind !== "cash-out" && value.kind !== "cash-out-withdraw") ||
+    !isActionKind(value.kind) ||
     !isRecord(value.summary) ||
     typeof value.summary.title !== "string" ||
     !Array.isArray(value.summary.amounts) ||
@@ -92,6 +94,7 @@ function isMoneyActionMetadata(value: unknown): value is MoneyActionMetadata {
       typeof value.intentAmountRange.min === "string" && typeof value.intentAmountRange.max === "string" &&
       typeof value.estimateAsOf === "string" && typeof value.escrow === "string";
   }
+  if (value.product === "savings") return isSavingsMetadata(value);
   return value.product === "borrow";
 }
 

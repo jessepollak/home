@@ -8,11 +8,13 @@ import {
   shouldPersistOwnerQuery,
 } from "@/client/query/query-client";
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
-import type { BalancesState, FetchBalances } from "@/shared/balances/types";
+import { presentBalances } from "@/shared/balances/present";
+import type { FetchBalances } from "@/shared/balances/types";
 import {
   balancesStaleRefetchMs,
   nextStaleRefetchDelay,
   useBalances,
+  type RecoverableBalancesState,
 } from "./use-balances";
 
 const session = {
@@ -26,6 +28,22 @@ function Harness({ fetchBalances }: { fetchBalances: FetchBalances }) {
   return <output>{state.status === "ready" ? `${state.snapshot.region}:${state.snapshot.holdings.filter((holding) => holding.source === "catalog").length}` : state.status}</output>;
 }
 
+function RetryHarness({ fetchBalances }: { fetchBalances: FetchBalances }) {
+  const state = useBalances(session, "US", fetchBalances);
+  return (
+    <>
+      <output>{state.status === "ready"
+        ? `${state.snapshot.fetchedAt}:${state.snapshot.stale === true ? "stale" : "current"}:${state.refreshError === true ? "refresh-error" : "current"}`
+        : state.status}</output>
+      <span>{presentBalances(state, {
+        showSmallBalances: false,
+        nowMs: Date.parse("2026-09-13T12:03:00.000Z"),
+      }).statusLabel}</span>
+      <button type="button" onClick={() => void state.retry()}>retry balances</button>
+    </>
+  );
+}
+
 function IdentityHarness({
   fetchBalances,
   revision,
@@ -33,7 +51,7 @@ function IdentityHarness({
 }: {
   fetchBalances: FetchBalances;
   revision: number;
-  onState: (state: BalancesState & { revalidating?: true }) => void;
+  onState: (state: RecoverableBalancesState) => void;
 }) {
   const state = useBalances(session, "US", fetchBalances);
   onState(state);
@@ -77,7 +95,7 @@ describe("useBalances", () => {
   });
 
   test("keeps the returned state identity stable across unrelated rerenders", async () => {
-    const states: Array<BalancesState & { revalidating?: true }> = [];
+    const states: RecoverableBalancesState[] = [];
     const fetchBalances = async () => balancesSnapshotFixture;
     const view = render(
       <IdentityHarness
@@ -98,6 +116,28 @@ describe("useBalances", () => {
     );
 
     expect(states.at(-1)).toBe(readyState);
+  });
+
+  test("retains the last verified snapshot with an explicit refresh error and manual retry", async () => {
+    let calls = 0;
+    const fetchBalances: FetchBalances = async () => {
+      calls += 1;
+      if (calls === 2) throw new Error("temporary failure");
+      return balancesSnapshotFixture;
+    };
+    const view = render(<RetryHarness fetchBalances={fetchBalances} />);
+    await waitFor(() => expect(view.getByText(/:current:current$/)).toBeTruthy());
+
+    view.getByRole("button", { name: "retry balances" }).click();
+    await waitFor(() => expect(view.getByText(/:stale:refresh-error$/)).toBeTruthy());
+    expect(view.getByText(/:stale:refresh-error$/).textContent).toContain(
+      balancesSnapshotFixture.fetchedAt,
+    );
+    expect(view.getByText(/Updated .* ago/).textContent).toContain("Updated");
+
+    view.getByRole("button", { name: "retry balances" }).click();
+    await waitFor(() => expect(view.getByText(/:current:current$/)).toBeTruthy());
+    expect(calls).toBe(3);
   });
 
   test("fails closed when the response scope does not match the verified owner", async () => {

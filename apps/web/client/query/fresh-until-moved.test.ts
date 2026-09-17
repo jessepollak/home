@@ -60,7 +60,11 @@ function balancesSnapshot(balance: string | null) {
     version: 3,
     holdings: balance === null
       ? []
-      : [{ id: "usdc", balance: { status: "ready", baseUnits: balance } }],
+      : [{
+          id: "usdc",
+          key: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          balance: { status: "ready", baseUnits: balance },
+        }],
   };
 }
 
@@ -98,6 +102,12 @@ describe("balance freshness across cached regions", () => {
       name: "preserves unchanged single-region behavior",
       regions: [{ id: "US", initial: "10", fresh: "10" }],
       expectedMoved: false,
+    },
+    {
+      name: "matches savings action CAIP asset ids to balance holding keys",
+      regions: [{ id: "US", initial: "10", fresh: "11" }],
+      assetIdentity: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      expectedMoved: true,
     },
     {
       name: "a stale inactive region cached first does not report a false move",
@@ -158,7 +168,7 @@ describe("balance freshness across cached regions", () => {
           return {
             actions: [{
               id: "action-1",
-              summary: { amounts: [{ assetId: "usdc" }] },
+              summary: { amounts: [{ assetId: "assetIdentity" in scenario ? scenario.assetIdentity : "usdc" }] },
             }],
           };
         },
