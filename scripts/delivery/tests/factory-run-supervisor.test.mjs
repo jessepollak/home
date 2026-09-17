@@ -497,12 +497,12 @@ test("initial approved worker failure preserves complete unverified durable asse
   });
 });
 
-test("approved reviewer timeout or malformed output rewrites PR and durable evidence with unverified review", async (t) => {
-  for (const reviewCase of [
-    { name: "timeout", result: { code: null, timedOut: true, outputExceeded: false, stdout: "private partial output" }, message: /bounded reviewer did not complete/ },
-    { name: "malformed", result: "private malformed output", message: /reviewer output is not valid JSON/ },
-  ]) {
-    await t.test(reviewCase.name, async () => withRunPaths(async (paths) => {
+for (const reviewCase of [
+  { name: "timeout", result: { code: null, timedOut: true, outputExceeded: false, stdout: "private partial output" }, message: /bounded reviewer did not complete/ },
+  { name: "malformed", result: "private malformed output", message: /reviewer output is not valid JSON/ },
+]) {
+  test(`approved reviewer ${reviewCase.name} rewrites PR and durable evidence with unverified review`, async () => {
+    await withRunPaths(async (paths) => {
       const issue = { ...ISSUE, nodeId: "I_child" };
       const outcomes = [{ id: "one", text: "One" }];
       const authorization = approvedAuthorization(issue, outcomes);
@@ -521,24 +521,19 @@ test("approved reviewer timeout or malformed output rewrites PR and durable evid
       const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
       assert.deepEqual(durableEvidence.workerOutcomeAssessments, met);
       assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
-    }));
-  }
-});
+    });
+  });
+}
 
-test("failed later remediation and review attempts reset only the current actor assessment set", async (t) => {
-  await t.test("malformed remediation resets stale worker assessments", async () => withRunPaths(async (paths) => {
+test("malformed remediation resets stale worker assessments", async () => {
+  await withRunPaths(async (paths) => {
     const issue = { ...ISSUE, nodeId: "I_child" };
     const outcomes = [{ id: "one", text: "One" }];
     const authorization = approvedAuthorization(issue, outcomes);
     const workerMet = [{ id: "one", status: "Met", evidence: "Initial worker validation passed." }];
     const reviewerNotMet = [{ id: "one", status: "Not met", evidence: "Review found a remaining gap." }];
     const review = JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: reviewerNotMet });
-    const fake = fakeRun({
-      issue,
-      authorization,
-      workerReports: [approvedWorkerReport(workerMet), "malformed remediation"],
-      reviews: [review],
-    });
+    const fake = fakeRun({ issue, authorization, workerReports: [approvedWorkerReport(workerMet), "malformed remediation"], reviews: [review] });
 
     await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /worker output is not valid JSON/);
 
@@ -548,9 +543,11 @@ test("failed later remediation and review attempts reset only the current actor 
     const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
     assert.deepEqual(durableEvidence.workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
     assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, reviewerNotMet);
-  }));
+  });
+});
 
-  await t.test("timed-out later review resets stale reviewer assessments", async () => withRunPaths(async (paths) => {
+test("timed-out later review resets stale reviewer assessments", async () => {
+  await withRunPaths(async (paths) => {
     const issue = { ...ISSUE, nodeId: "I_child" };
     const outcomes = [{ id: "one", text: "One" }];
     const authorization = approvedAuthorization(issue, outcomes);
@@ -558,12 +555,7 @@ test("failed later remediation and review attempts reset only the current actor 
     const reviewerNotMet = [{ id: "one", status: "Not met", evidence: "Initial review found a gap." }];
     const firstReview = JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: reviewerNotMet });
     const timedOutReview = { code: null, timedOut: true, outputExceeded: false, stdout: "private partial output" };
-    const fake = fakeRun({
-      issue,
-      authorization,
-      workerReports: [approvedWorkerReport(workerMet), approvedWorkerReport(workerMet)],
-      reviews: [firstReview, timedOutReview],
-    });
+    const fake = fakeRun({ issue, authorization, workerReports: [approvedWorkerReport(workerMet), approvedWorkerReport(workerMet)], reviews: [firstReview, timedOutReview] });
 
     await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /bounded reviewer did not complete/);
 
@@ -573,7 +565,7 @@ test("failed later remediation and review attempts reset only the current actor 
     const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
     assert.deepEqual(durableEvidence.workerOutcomeAssessments, workerMet);
     assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
-  }));
+  });
 });
 
 test("required valid browser evidence reaches run evidence and the PR update", async () => {
