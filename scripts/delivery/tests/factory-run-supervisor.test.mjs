@@ -57,11 +57,14 @@ function fakeRun({
   setupFailure = false,
   ciFailure = false,
   workerReports = [NULL_WORKER_REPORT],
+  pullRequestSnapshots = [],
+  authorization = null,
 } = {}) {
   const calls = [];
   const pullRequestUpdates = [];
   let reviewIndex = 0;
   let workerIndex = 0;
+  let pullRequestIndex = 0;
   const github = {
     repositoryOwner: "jessepollak",
     async verifyAuthentication() {
@@ -69,7 +72,10 @@ function fakeRun({
       if (authFailure) throw new Error("auth failed");
     },
     async getIssue() { calls.push("issue"); return structuredClone(issue); },
-    async openPullRequestsReferencing() { calls.push("references"); return []; },
+    async openPullRequestsReferencing() {
+      calls.push("references");
+      return pullRequestSnapshots[Math.min(pullRequestIndex++, pullRequestSnapshots.length - 1)] ?? [];
+    },
     async setStatus(_number, from, to) { calls.push(`status:${from}->${to}`); },
     async createPullRequest({ branch }) { calls.push(`pr:${branch}`); return "https://github.test/pr/1"; },
     async waitForRequiredChecks() {
@@ -83,6 +89,10 @@ function fakeRun({
       calls.push(`pr-evidence:${update.reviewFindings?.length ?? 0}`);
     },
   };
+  if (authorization) {
+    github.authorizeIssue = async () => { calls.push("authorize"); return authorization; };
+    github.revalidateAuthorization = async (expected) => { calls.push("revalidate"); assert.equal(expected, authorization); return expected; };
+  }
   const local = {
     async createWorktree() {
       calls.push("worktree");
@@ -149,8 +159,23 @@ test("model prompts receive only the bounded issue fields and no timeline or com
   }
 });
 
+test("approved prompts contain only retained exact child spec and mapped outcomes", () => {
+  const authorization = {
+    route: "approved-factory-brief/v1",
+    child: { number: 600, title: "Approved", body: "Exact approved body", bodySha256: "a".repeat(64) },
+    outcomeIds: ["one"], outcomes: [{ id: "one", text: "Required" }],
+  };
+  const mutableIssue = { ...ISSUE, body: "MUTABLE-PROSE-SENTINEL", comments: [{ body: "COMMENT-SENTINEL" }] };
+  for (const prompt of [workerPrompt(mutableIssue, [], authorization), reviewerPrompt(mutableIssue, "safe", authorization)]) {
+    assert.match(prompt, /Exact approved body/);
+    assert.match(prompt, /Required/);
+    assert.doesNotMatch(prompt, /MUTABLE-PROSE-SENTINEL|COMMENT-SENTINEL/);
+  }
+});
+
 test("worker prompt requires the browser-validation contract for user-visible work", () => {
-  const prompt = workerPrompt(ISSUE);
+  const frontendIssue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:frontend" } : label) };
+  const prompt = workerPrompt(frontendIssue);
 
   assert.match(prompt, /docs\/browser-validation\.md/);
   assert.match(prompt, /repository-pinned agent-browser/);
@@ -210,12 +235,40 @@ test("supervisor waits for current-head CI before promoting a normal PR", async 
     assert.equal(fake.pullRequestUpdates.at(-1).browserEvidence, null);
     assert.deepEqual(fake.calls, [
       "auth", "issue", "references", "status:status:todo->status:working",
-      "worktree", "setup", "preflight", "worker", "validate:0", "pr:agent/546-factory-run",
+      "worktree", "setup", "preflight", "worker", "validate:0", "references", "pr:agent/546-factory-run",
       "reviewer", "ci", "preview", "pr-evidence:0",
       "status:status:working->status:needs-jesse",
       "pr-status:status:working->status:needs-jesse", "cleanup:true:true",
     ]);
     assert.ok(evidence.stages.every((stage) => Number.isInteger(stage.durationMs)));
+  });
+});
+
+test("approved remediation revalidates before every worker and final handoff", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child", body: "Marked exact child.\n<!-- factory -->" };
+    const authorization = {
+      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
+      approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
+      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
+      outcomes: [{ id: "one", text: "One" }, { id: "two", text: "Two" }, { id: "three", text: "Three" }],
+      outcomeIds: ["one", "two", "three"],
+    };
+    const assessments = authorization.outcomes.map(({ id }) => ({ id, status: "Met", evidence: `${id} passed` }));
+    const failed = assessments.map((value, index) => index === 0 ? { ...value, status: "Not met", evidence: "one missing" } : value);
+    const fake = fakeRun({
+      issue, authorization,
+      reviews: [JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: failed }), JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: assessments })],
+    });
+    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
+    assert.deepEqual(evidence.outcomeAssessments, assessments);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).requiredOutcomes, authorization.outcomes);
+    assert.equal(evidence.authorization.child.body, issue.body);
+    const positions = fake.calls.map((value, index) => value === "revalidate" ? index : -1).filter((index) => index >= 0);
+    assert.equal(positions.length, 4);
+    assert.ok(positions[0] < fake.calls.indexOf("worker"));
+    assert.ok(positions[1] < fake.calls.indexOf("remediation"));
+    assert.ok(positions[2] < fake.calls.indexOf("pr-evidence:0"));
   });
 });
 
@@ -272,6 +325,15 @@ test("malformed remediation evidence fails before remediation validation and ret
 
     assert.equal(fake.calls.includes("validate:1"), false);
     assert.deepEqual(fake.pullRequestUpdates.at(-1).browserEvidence, BROWSER_EVIDENCE);
+  });
+});
+
+test("a conflicting PR appearing after work blocks publication", async () => {
+  await withRunPaths(async (paths) => {
+    const fake = fakeRun({ pullRequestSnapshots: [[], [{ number: 9, url: "https://github.test/pr/9" }]] });
+    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /gained a conflicting open pull request/);
+    assert.ok(fake.calls.includes("validate:0"));
+    assert.equal(fake.calls.some((call) => call.startsWith("pr:agent/")), false);
   });
 });
 

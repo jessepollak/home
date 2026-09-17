@@ -146,6 +146,20 @@ test("reviewer verdict parsing accepts only complete, internally consistent JSON
   }
 });
 
+test("approved outcome assessments exactly cover outcomes and block non-Met passes", () => {
+  const outcomes = [{ id: "one" }, { id: "two" }, { id: "three" }];
+  const met = outcomes.map(({ id }) => ({ id, status: "Met", evidence: `${id} evidence` }));
+  assert.deepEqual(parseReviewerVerdict(JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: met }), outcomes).outcomeAssessments, met);
+
+  const nonMet = met.map((assessment, index) => index === 1 ? { ...assessment, status: "Unverified" } : assessment);
+  assert.throws(() => parseReviewerVerdict(JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: nonMet }), outcomes), /non-Met/);
+  assert.equal(parseReviewerVerdict(JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: nonMet }), outcomes).verdict, "fail");
+  for (const assessments of [undefined, met.slice(1), [...met, { id: "extra", status: "Met", evidence: "extra" }], [met[0], met[0], met[2]]]) {
+    assert.throws(() => parseReviewerVerdict(JSON.stringify({ complete: true, verdict: "pass", findings: [], ...(assessments ? { outcomeAssessments: assessments } : {}) }), outcomes));
+  }
+  assert.throws(() => parseReviewerVerdict(JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: met }), []), /legacy/);
+});
+
 test("preview policy derives applicability and requires both URL and media", () => {
   assert.equal(previewProofRequired(READY_ISSUE), false);
   assert.equal(previewProofRequired({ ...READY_ISSUE, labels: [{ name: "lane:frontend" }] }), true);

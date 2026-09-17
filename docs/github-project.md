@@ -35,6 +35,10 @@ This is the canonical creation contract; `AGENTS.md` points here. Decide placeme
 
 Membership and mentions are not hierarchy. An issue that sits in the Home Project and links its workstream only in prose is mis-filed: it has no native parent, sub-issue progress rollups exclude it, and the derived Workstream stays empty until the native edge exists. Creating that edge is the recovery step.
 
+### Factory brief publication
+
+For a bounded multi-child capability, use the [product-proposal skill](../.agents/skills/shape-product-proposal/SKILL.md) and deterministic `factory:brief` validator/publisher. The brief carries repository and exact parent identity, six concise proposal fields, 1–5 outcomes, and 1–4 exact mapped children. Publication safely reuses stable child markers and an exact proposal comment after retries; it never adds `factory:ready` or treats publication as approval. Jesse's one current +1 on the exact unedited comment approves it. `factory:brief activate <parent-number>` then verifies every listed child before mechanically adding ready labels; reaction removal still revokes execution.
+
 ## Views
 
 Use one **Home MVP** repository milestone for agreed release work. Keep later work visible outside that milestone.

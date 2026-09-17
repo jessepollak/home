@@ -1,23 +1,29 @@
 # Delivery brief
 
-Use this in the existing GitHub issue. Factory refinements belong in a marked proposal comment, not an overwrite of the executable issue body. Jesse must author the unmarked executable body; neither a factory proposal nor Jesse's approval of a comment bypasses the trusted-human-body check. Link the relevant workstream and strategy section. Keep routine fixes short; omit inapplicable detail.
+Use this to shape a bounded outcome in an existing parent issue. Follow [the shaping skill](../.agents/skills/shape-product-proposal/SKILL.md), inspect current strategy/code/issues first, and reuse existing work.
+
+The one-screen proposal has six sections:
 
 ## Outcome
-Customer problem and observable improvement.
+Customer or operator problem and observable improvement.
 
-## Current state and gap
-Verified code or behavior, evidence, and existing issues/PRs. Distinguish working, incomplete, missing, and externally blocked.
+## Proposal
+Smallest coherent capability and reused work.
 
-## Scope
-Included journeys, coverage, languages, and operator controls. Explicit exclusions.
+## Boundary
+Included journey and explicit exclusions.
 
-## Experience
-Flow or mockup using the current design system. Include exit, pending, failure, recovery, mobile/desktop, and motion where relevant.
+## Done
+One to five stable outcomes plus the design references and evidence needed to assess them.
 
-## Dependencies and decisions
-Provider access and technical dependencies. Recommend answers to unresolved choices and identify decisions Jesse owns.
+## Decision
+Exact owner decision requested. Approval is one owner 👍 on the exact unedited factory-marked proposal comment.
 
-## Done and delivery
-Observable acceptance, required repository gates, focused evidence, rollout/recovery, and documentation. Link implementation issues and PRs. A merged screen or adapter alone does not prove a live journey.
+## Delivery
+One to four exact children, each with stable identity, title, complete body, labels, native parent, and mapped outcome IDs. Map every outcome and avoid filler or speculative backlog.
 
-Follow the operating manual for labels, authorization, review, and merge. A complete brief does not grant `factory:ready`. End factory-authored proposal comments and non-executable tracking bodies with `<!-- factory -->`; never remove that marker to make generated issue text eligible.
+Encode this as `home.factory-brief/v1`; validate and publish with `bun run factory:brief`. Publication is non-authorizing and never adds `factory:ready`. Once Jesse reacts, `bun run factory:brief activate <parent-number>` revalidates the exact proposal and mechanically readies all selected children. Removing the reaction revokes execution even if ready labels remain.
+
+A marked child executes only while its retained approval identity, exact approved body, native parent, mapped outcomes, and normal eligibility remain valid. The older unmarked owner-authored route remains `legacy-human-body/v1`; existing marked text is never retroactively approved. The reaction has an explicitly accepted shared-account/keychain risk and is not a cryptographic authorship guarantee.
+
+For the #568 pilot, preserve this outcome exactly: **authenticated operator changes Home name/colors, sees it in customer app, retains it across an update**. Arbitrary CSS/layout is excluded. Do not publish the live pilot without separate authorization.

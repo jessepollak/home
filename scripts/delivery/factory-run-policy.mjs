@@ -7,18 +7,19 @@ function labelNames(issue) {
   return issue.labels.map((label) => typeof label === "string" ? label : label?.name).filter(Boolean);
 }
 
-export function evaluateFactoryRunEligibility(issue, openPullRequests = [], repositoryOwner) {
+export function evaluateFactoryRunEligibility(issue, openPullRequests = [], repositoryOwner, authorizationRoute = "legacy-human-body/v1") {
   const failures = [];
   if (!issue || typeof issue !== "object") failures.push("issue is unavailable");
   if (issue?.state !== "OPEN") failures.push("issue must be OPEN");
   if (typeof repositoryOwner !== "string" || repositoryOwner === "") {
     failures.push("repository owner is unavailable");
-  } else if (issue?.author?.login !== repositoryOwner) {
+  } else if (authorizationRoute === "legacy-human-body/v1" && issue?.author?.login !== repositoryOwner) {
     failures.push("issue must be authored by the repository owner");
   }
-  if (typeof issue?.body === "string" && GENERATED_BODY_MARKERS.some((marker) => issue.body.includes(marker))) {
+  if (authorizationRoute === "legacy-human-body/v1" && typeof issue?.body === "string" && GENERATED_BODY_MARKERS.some((marker) => issue.body.includes(marker))) {
     failures.push("issue body must not contain a generated-text marker");
   }
+  if (!["legacy-human-body/v1", "approved-factory-brief/v1"].includes(authorizationRoute)) failures.push("authorization route is invalid");
 
   const names = labelNames(issue);
   const labels = new Set(names);
@@ -133,7 +134,7 @@ export function parseWorkerReport(output, browserEvidenceRequired) {
   };
 }
 
-export function parseReviewerVerdict(output) {
+export function parseReviewerVerdict(output, requiredOutcomes = []) {
   let value;
   try {
     value = JSON.parse(output);
@@ -149,6 +150,7 @@ export function parseReviewerVerdict(output) {
     throw new Error("reviewer verdict must be pass or fail");
   }
   if (!Array.isArray(value.findings)) throw new Error("reviewer findings must be an array");
+  if (!Array.isArray(requiredOutcomes)) throw new Error("required outcomes are unavailable");
 
   const findings = value.findings.map((finding) => {
     if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
@@ -172,15 +174,36 @@ export function parseReviewerVerdict(output) {
     };
   });
 
-  const hasBlockingFinding = findings.some((finding) => finding.severity === "blocking");
-  if (value.verdict === "pass" && hasBlockingFinding) {
-    throw new Error("passing verdict contains a blocking finding");
-  }
-  if (value.verdict === "fail" && !hasBlockingFinding) {
-    throw new Error("failing verdict has no blocking finding");
+  let outcomeAssessments;
+  if (requiredOutcomes.length === 0) {
+    if (Object.hasOwn(value, "outcomeAssessments")) throw new Error("legacy reviewer verdict must not add outcome assessments");
+  } else {
+    if (!Array.isArray(value.outcomeAssessments)) throw new Error("reviewer outcome assessments are required");
+    const requiredIds = requiredOutcomes.map((outcome) => outcome.id);
+    const seen = new Set();
+    outcomeAssessments = value.outcomeAssessments.map((assessment) => {
+      assertExactFields(assessment, ["id", "status", "evidence"], "reviewer outcome assessment");
+      if (!requiredIds.includes(assessment.id) || seen.has(assessment.id)) throw new Error("reviewer outcome assessment IDs are invalid");
+      seen.add(assessment.id);
+      if (!["Met", "Not met", "Unverified"].includes(assessment.status)) throw new Error("reviewer outcome assessment status is invalid");
+      if (typeof assessment.evidence !== "string" || assessment.evidence.trim() === "" || assessment.evidence.length > 500 || /[\r\n\0]/.test(assessment.evidence)) {
+        throw new Error("reviewer outcome assessment evidence is not concise");
+      }
+      return { id: assessment.id, status: assessment.status, evidence: assessment.evidence.trim() };
+    });
+    if (seen.size !== requiredIds.length || requiredIds.some((id) => !seen.has(id))) throw new Error("reviewer outcome assessments must exactly cover required outcomes");
   }
 
-  return { complete: true, verdict: value.verdict, findings };
+  const hasBlockingFinding = findings.some((finding) => finding.severity === "blocking");
+  const hasBlockingOutcome = outcomeAssessments?.some((assessment) => assessment.status !== "Met") ?? false;
+  if (value.verdict === "pass" && (hasBlockingFinding || hasBlockingOutcome)) {
+    throw new Error("passing verdict contains blocking findings or non-Met outcomes");
+  }
+  if (value.verdict === "fail" && !hasBlockingFinding && !hasBlockingOutcome) {
+    throw new Error("failing verdict has no blocking finding or outcome");
+  }
+
+  return { complete: true, verdict: value.verdict, findings, ...(outcomeAssessments ? { outcomeAssessments } : {}) };
 }
 
 export function previewProofRequired(issue) {
