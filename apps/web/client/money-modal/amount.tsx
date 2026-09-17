@@ -61,14 +61,6 @@ export function matchesMoneyAssetOption(
     .includes(normalized);
 }
 
-export function shouldAnimatePrimaryAmount(
-  previousAmount: string,
-  amount: string,
-  changeSource: MoneyAmountChangeSource,
-): boolean {
-  return previousAmount === amount || changeSource === "programmatic";
-}
-
 /**
  * Scales a formatted amount to fit the available width without changing,
  * rounding, abbreviating, ellipsizing, or clipping the value. Returns the
@@ -108,6 +100,7 @@ export function prefersReducedMotion(): boolean {
 export function triggerKeyHaptic(durationMs = 12): void {
   if (prefersReducedMotion()) return;
   if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+  if (navigator.userActivation && !navigator.userActivation.isActive) return;
   try {
     navigator.vibrate(durationMs);
   } catch {
@@ -209,7 +202,6 @@ export function MoneyAmountDisplay({
   onAmountChange,
   availableLabel,
   availableAmount,
-  availableSuffix,
   assetId,
   assetLabel,
   assetCurrency,
@@ -222,14 +214,12 @@ export function MoneyAmountDisplay({
   nativeSymbol,
   fiatCurrency,
   initialUnit = "local",
-  amountChangeSource = "programmatic",
   assetControl = "body",
 }: {
   amount: string;
   onAmountChange?: (value: string, source: MoneyAmountChangeSource) => void;
   availableLabel?: string;
   availableAmount?: string | null;
-  availableSuffix?: string;
   assetId?: string;
   assetLabel?: string;
   assetCurrency?: string | null;
@@ -242,7 +232,6 @@ export function MoneyAmountDisplay({
   nativeSymbol: string;
   fiatCurrency?: string;
   initialUnit?: MoneyPrimaryUnit;
-  amountChangeSource?: MoneyAmountChangeSource;
   /** The header owns the sole picker when set to `header`. */
   assetControl?: "body" | "header";
 }) {
@@ -288,10 +277,10 @@ export function MoneyAmountDisplay({
       ) : null}
       <MoneyPrimaryAmount
         amount={amount}
-        changeSource={amountChangeSource}
         unit={primaryUnit}
         pricing={pricing}
         fiatCurrency={fiatCurrency}
+        nativeSymbol={nativeSymbol}
       />
       <div className="grid justify-items-center gap-1">
         {pricing.status === "priced" ? (
@@ -305,7 +294,6 @@ export function MoneyAmountDisplay({
         {availableLine ? (
           <div className="text-center text-sm text-muted-foreground">
             <MoneyTicker value={availableLine} reserveDigits={false} />
-            {availableSuffix ? ` · ${availableSuffix}` : null}
           </div>
         ) : null}
       </div>
@@ -315,37 +303,30 @@ export function MoneyAmountDisplay({
 
 export function MoneyPrimaryAmount({
   amount,
-  changeSource,
   unit,
   pricing,
   fiatCurrency,
+  nativeSymbol,
 }: {
   amount: string;
-  changeSource: MoneyAmountChangeSource;
   unit: MoneyPrimaryUnit;
   pricing: MoneyAssetPricing;
   fiatCurrency?: string;
+  nativeSymbol: string;
 }) {
-  const text = formatPrimaryAmount(amount, unit, pricing, fiatCurrency);
-  const [rendered, setRendered] = useState({ amount, text, animated: true });
-  let animated = rendered.animated;
-  if (rendered.amount !== amount || rendered.text !== text) {
-    animated = shouldAnimatePrimaryAmount(rendered.amount, amount, changeSource);
-    setRendered({ amount, text, animated });
-  }
+  const text = formatPrimaryAmount(amount, unit, pricing, fiatCurrency, nativeSymbol);
   const { containerRef, sizerRef, fontSize, scaleX } = useAutoFitAmountText(text);
 
   return (
     <>
       <div
         ref={containerRef}
-        className="flex w-full max-w-full justify-center whitespace-nowrap px-4 py-3 text-5xl font-semibold leading-none tabular-nums"
+        className="flex w-full min-w-0 max-w-full justify-center overflow-hidden whitespace-nowrap px-4 py-3 text-5xl font-semibold leading-none tabular-nums"
         data-primary-amount
         style={fontSize === undefined ? undefined : { fontSize }}
       >
         <MoneyTicker
           value={text}
-          animated={animated}
           reserveDigits={false}
           style={scaleX < 1 ? { transform: `scaleX(${scaleX})`, transformOrigin: "center" } : undefined}
         />

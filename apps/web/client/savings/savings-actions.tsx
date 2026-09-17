@@ -3,6 +3,7 @@
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { LoaderCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { MoneyMotionProvider } from "@/components/money-ticker";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
@@ -17,7 +18,7 @@ import {
   decimalFromBaseUnits,
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
-  type MoneyAmountChangeSource,
+  type MoneyAssetOption,
 } from "@/client/money-modal";
 import type {
   OperationResult,
@@ -27,15 +28,23 @@ import { formatApy, formatUsdcUsd, parseUsdcAmount } from "@/client/savings/form
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 
 export type SavingsActionMode = "deposit" | "withdraw";
+export type SavingsDialogMotion = "system" | "reduced";
 
 export type SavingsMoneyDialogProps = {
   open: boolean;
   mode: SavingsActionMode;
   session: VerifiedAccountSession;
   candidate: MorphoVaultCandidate;
+  /** System preference in production; explicit reduced mode makes a deterministic review fixture. */
+  motion?: SavingsDialogMotion;
   availableLabel?: string;
-  balanceAgeLabel?: string;
   availableBaseUnits?: string | null;
+  /** Presentation overrides for deterministic design fixtures. A non-matching asset can be viewed but never submitted to the configured candidate route. */
+  assetId?: string;
+  assetLabel?: string;
+  assetDecimals?: number;
+  assetOptions?: ReadonlyArray<MoneyAssetOption>;
+  onAssetChange?: (assetId: string) => void;
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
   onClose: () => void;
@@ -49,17 +58,20 @@ export function SavingsMoneyDialog({
   mode,
   session,
   candidate,
+  motion = "system",
   availableLabel,
-  balanceAgeLabel,
   availableBaseUnits,
+  assetId: selectedAssetId,
+  assetLabel: selectedAssetLabel,
+  assetDecimals: selectedAssetDecimals,
+  assetOptions,
+  onAssetChange,
   prepareMoneyAction,
   executeMoneyAction,
   onClose,
   onConfirmed,
 }: SavingsMoneyDialogProps) {
   const [amount, setAmount] = useState("");
-  const [amountChangeSource, setAmountChangeSource] =
-    useState<MoneyAmountChangeSource>("programmatic");
   const [amountBaseUnits, setAmountBaseUnits] = useState<string | null>(null);
   const [preparedAction, setPreparedAction] = useState<PreparedMoneyAction | null>(null);
   const [attemptedAction, setAttemptedAction] = useState(false);
@@ -70,20 +82,26 @@ export function SavingsMoneyDialog({
     ? Date.parse(preparedAction.expiresAt) <= openedAt
     : false;
   const confirmAmount = amountBaseUnits ? formatUsdcUsd(amountBaseUnits) : "";
-  const pricing = useMoneyAssetPricing(candidate.asset.symbol);
+  const configuredAssetId = candidate.asset.symbol.toLocaleLowerCase();
+  const assetId = selectedAssetId ?? configuredAssetId;
+  const assetLabel = selectedAssetLabel ?? candidate.asset.symbol;
+  const assetDecimals = selectedAssetDecimals ?? candidate.asset.decimals;
+  const assetRouteConfigured = assetId === configuredAssetId
+    && assetLabel.toLocaleUpperCase() === candidate.asset.symbol.toLocaleUpperCase()
+    && assetDecimals === candidate.asset.decimals;
+  const pricing = useMoneyAssetPricing(assetLabel);
   const title = step === "confirm" || step === "pending" || step === "error" || step === "failed"
     ? "Confirm"
     : mode === "deposit"
       ? "Deposit"
       : "Withdraw";
 
-  function changeAmount(value: string, source: MoneyAmountChangeSource) {
-    setAmountChangeSource(source);
+  function changeAmount(value: string) {
     setAmount(value);
   }
 
   function reset() {
-    changeAmount("", "programmatic");
+    changeAmount("");
     setAmountBaseUnits(null);
     setPreparedAction(null);
     setAttemptedAction(false);
@@ -107,6 +125,11 @@ export function SavingsMoneyDialog({
 
   async function continueFromAmount() {
     try {
+      if (!assetRouteConfigured) {
+        throw new SavingsActionClientError(
+          `${assetLabel} is available for presentation review only. Savings actions remain ${candidate.asset.symbol}-only.`,
+        );
+      }
       if (!session.smartAccount) {
         throw new SavingsActionClientError("Verify a Base smart account to continue.");
       }
@@ -171,12 +194,22 @@ export function SavingsMoneyDialog({
     }
   }
 
-  const amountAssetProps = { assetId: "usdc", assetLabel: "USDC", locked: true };
+  const selectedAssetOption = assetOptions?.find((option) => option.id === assetId);
+  const amountAssetProps = {
+    assetId,
+    assetLabel,
+    assetCurrency: selectedAssetOption?.currency,
+    assetMark: selectedAssetOption?.mark,
+    assetOptions,
+    onAssetChange,
+    locked: !assetOptions || !onAssetChange,
+  };
 
   return (
-    <>
+    <MoneyMotionProvider reducedMotion={motion === "reduced" ? true : undefined}>
       <MoneyModal
         open={open}
+        immediate={motion === "reduced"}
         labelledBy="savings-action-title"
         describedBy={step === "pending" ? "savings-action-pending" : undefined}
         onCancel={closeIfAllowed}
@@ -203,19 +236,22 @@ export function SavingsMoneyDialog({
             <>
               <MoneyAmountDisplay
                 amount={amount}
-                amountChangeSource={amountChangeSource}
                 onAmountChange={changeAmount}
                 availableLabel={availableLabel}
-                availableAmount={decimalFromBaseUnits(availableBaseUnits ?? "", 6)}
-                availableSuffix={balanceAgeLabel}
-                assetId="usdc"
-                assetLabel="USDC"
+                availableAmount={decimalFromBaseUnits(availableBaseUnits ?? "", assetDecimals)}
+                assetId={assetId}
+                assetLabel={assetLabel}
                 assetControl="header"
                 chipSet="max"
                 pricing={pricing}
-                nativeSymbol="USDC"
+                nativeSymbol={assetLabel}
               />
-              <MoneyNumpad value={amount} maxDecimals={6} onChange={changeAmount} />
+              <MoneyNumpad value={amount} maxDecimals={assetDecimals} onChange={changeAmount} />
+              {!assetRouteConfigured ? (
+                <StatusMessage>
+                  {assetLabel} is available for presentation review only. Savings actions remain {candidate.asset.symbol}-only.
+                </StatusMessage>
+              ) : null}
             </>
           ) : null}
 
@@ -247,7 +283,7 @@ export function SavingsMoneyDialog({
         {step === "amount" ? (
           <MoneyModalFooter
             primaryLabel="Continue"
-            primaryDisabled={!isPositiveDecimalAmount(amount)}
+            primaryDisabled={!assetRouteConfigured || !isPositiveDecimalAmount(amount)}
             onPrimary={() => void continueFromAmount()}
           />
         ) : null}
@@ -278,8 +314,7 @@ export function SavingsMoneyDialog({
           />
         ) : null}
       </MoneyModal>
-
-    </>
+    </MoneyMotionProvider>
   );
 }
 

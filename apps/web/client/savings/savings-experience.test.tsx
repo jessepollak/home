@@ -175,7 +175,7 @@ describe("Save simplify", () => {
     expect(curator.textContent).not.toContain(CURATOR);
   });
 
-  test("appends a stale snapshot age to the Save max label", async () => {
+  test("does not append snapshot age to the Save max label", async () => {
     render(
       <SavingsExperience
         now={testNow}
@@ -184,14 +184,14 @@ describe("Save simplify", () => {
         balanceStatus="ready"
         balancePositions={balancePositions()}
         availableUsdcBaseUnits="50000000"
-        balanceAgeLabel="Updated 3 min ago"
         prepareMoneyAction={async () => preparedAction("savings-deposit")}
         executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
       />,
     );
 
     fireEvent.click(await page().findByRole("button", { name: "Get started" }));
-    expect(page().getByText("Updated 3 min ago", { exact: false })).toBeTruthy();
+    expect(document.body.textContent).toContain("$50.00 available");
+    expect(document.body.textContent).not.toContain("Updated");
   });
 
   test("sums every funded vault from the balances snapshot", async () => {

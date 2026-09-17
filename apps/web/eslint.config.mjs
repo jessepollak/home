@@ -13,6 +13,8 @@ const baseUiMessage =
 const literalStyleMessage =
   "Use semantic theme tokens instead of hex/rgba, arbitrary-px, or raw palette colors in utility strings.";
 const serverLayerMessage = "server modules must not import web client or app layers";
+const storybookIsolationMessage =
+  "Storybook and MSW are development-only; production modules must not import workshop packages, config, or stories";
 const baseUiImportRestriction = {
   group: ["@base-ui/react", "@base-ui/react/**"],
   message: baseUiMessage,
@@ -101,6 +103,60 @@ function restrictedDynamicImports(pattern, message) {
   ];
 }
 
+function isStorybookOnlyImport(value) {
+  return typeof value === "string" && (
+    /^(?:@storybook|storybook|msw|msw-storybook-addon)(?:\/|$)/.test(value)
+    || /(?:^|\/)\.storybook(?:\/|$)/.test(value)
+    || /(?:^|\/)[^/]+\.stories(?:\.|$)/.test(value)
+  );
+}
+
+const productionIsolationPlugin = {
+  rules: {
+    "no-storybook-imports": {
+      meta: {
+        type: "problem",
+        schema: [],
+      },
+      create(context) {
+        function sourceValue(node) {
+          if (node?.type === "Literal") return node.value;
+          if (node?.type === "TemplateLiteral" && node.expressions.length === 0) {
+            return node.quasis[0]?.value.cooked;
+          }
+          return undefined;
+        }
+
+        function checkSource(node) {
+          if (isStorybookOnlyImport(sourceValue(node))) {
+            context.report({ node, message: storybookIsolationMessage });
+          }
+        }
+
+        return {
+          ImportDeclaration(node) {
+            checkSource(node.source);
+          },
+          ExportNamedDeclaration(node) {
+            if (node.source) checkSource(node.source);
+          },
+          ExportAllDeclaration(node) {
+            checkSource(node.source);
+          },
+          ImportExpression(node) {
+            checkSource(node.source);
+          },
+          CallExpression(node) {
+            if (node.callee.type === "Identifier" && node.callee.name === "require") {
+              checkSource(node.arguments[0]);
+            }
+          },
+        };
+      },
+    },
+  },
+};
+
 const serverOnlyPlugin = {
   rules: {
     "require-server-only": {
@@ -138,8 +194,32 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "storybook-static/**",
+    ".storybook/static/mockServiceWorker.js",
     "next-env.d.ts",
   ]),
+  // Keep development-only workshop code unreachable from production entrypoints.
+  {
+    files: [
+      "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "config/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "lib/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+      // Root production/build entrypoints that sit outside the layered directories.
+      "instrumentation*.ts",
+      "next.config.ts",
+      "proxy.ts",
+    ],
+    ignores: ["**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+    plugins: { "production-isolation": productionIsolationPlugin },
+    rules: {
+      "production-isolation/no-storybook-imports": "error",
+    },
+  },
   // Product code may only use layout classes on owned UI components.
   {
     files: [

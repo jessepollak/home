@@ -1,11 +1,18 @@
 "use client";
 
-import NumberFlow, { usePrefersReducedMotion } from "@number-flow/react";
+import NumberFlow from "@number-flow/react";
 import {
+  createContext,
+  useContext,
   useState,
+  useSyncExternalStore,
   type ComponentPropsWithoutRef,
   type CSSProperties,
+  type ReactNode,
 } from "react";
+
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const MoneyMotionContext = createContext<boolean | undefined>(undefined);
 
 const asciiDigitValues = {
   "0": 0,
@@ -68,6 +75,39 @@ export function moneyTickerAnimationsEnabled(animated: boolean, reducedMotion: b
   return animated && !reducedMotion;
 }
 
+function subscribeToReducedMotion(onChange: () => void): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
+  const media = window.matchMedia(REDUCED_MOTION_QUERY);
+  media.addEventListener("change", onChange);
+  return () => media.removeEventListener("change", onChange);
+}
+
+function reducedMotionSnapshot(): boolean {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia(REDUCED_MOTION_QUERY).matches;
+}
+
+function useMoneyTickerReducedMotion(): boolean {
+  const systemPreference = useSyncExternalStore(subscribeToReducedMotion, reducedMotionSnapshot, () => false);
+  return useContext(MoneyMotionContext) ?? systemPreference;
+}
+
+/** A scoped review/test override; production callers omit it and follow the system preference. */
+export function MoneyMotionProvider({
+  reducedMotion,
+  children,
+}: {
+  reducedMotion?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <MoneyMotionContext.Provider value={reducedMotion}>
+      {children}
+    </MoneyMotionContext.Provider>
+  );
+}
+
 export function MoneyTicker({
   value,
   animated = true,
@@ -77,7 +117,7 @@ export function MoneyTicker({
   style,
   ...props
 }: MoneyTickerProps) {
-  const reducedMotion = usePrefersReducedMotion();
+  const reducedMotion = useMoneyTickerReducedMotion();
   const parts = splitMoneyTickerValue(value);
   const characters = Array.from(parts.numeric);
   const digitCount = characters.filter(isAsciiDigit).length;

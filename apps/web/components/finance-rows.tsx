@@ -84,10 +84,14 @@ function FinanceRow({
           </ItemDescription>
         )}
       </ItemContent>
-      <ItemContent className="min-w-0 items-end text-right">
+      <ItemContent
+        className="max-w-2/3 min-w-0 !flex-auto items-stretch overflow-hidden text-right"
+        data-slot="finance-row-value"
+      >
         <ItemTitle
-          className="w-full justify-end"
+          className="w-full min-w-0 justify-end"
           numeric
+          truncate={false}
           tone={
             valueTone === "success" || valueTone === "accent"
               ? "primary"

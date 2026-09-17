@@ -72,10 +72,13 @@ export function formatPrimaryAmount(
   unit: MoneyPrimaryUnit,
   pricing: MoneyAssetPricing,
   fiatCurrency?: string,
+  nativeSymbol?: string,
 ): string {
   const figure = amount || "0";
   if (fiatCurrency) return formatLocalDisplay(figure, fiatCurrency);
-  if (unit === "native" || pricing.status === "unpriced") return figure;
+  if (unit === "native" || pricing.status === "unpriced") {
+    return nativeSymbol ? `${figure} ${nativeSymbol}` : figure;
+  }
   return formatLocalDisplay(figure, pricing.localCurrency);
 }
 

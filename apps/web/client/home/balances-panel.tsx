@@ -12,6 +12,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { MoneyTicker } from "@/components/money-ticker";
+import { compactFinancialValue } from "@/components/compact-financial-value";
 import { CurrencyMark } from "@/components/currency-mark";
 import { BalanceRow } from "@/components/finance-rows";
 import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
@@ -452,7 +453,13 @@ export function HomeBalanceRowView({ row }: { row: BalanceRowModel }) {
       iconTone="mark"
       label={row.name}
       context={row.secondary ?? undefined}
-      value={<MoneyTicker value={row.primary} />}
+      value={
+        <MoneyTicker
+          value={compactFinancialValue(row.primary)}
+          aria-label={row.primary}
+          reserveDigits={false}
+        />
+      }
       valueTone={row.tone}
     />
   );
