@@ -4,9 +4,10 @@
 
 **GitHub Issues and labels** on `jessepollak/home` are the sole intake and execution board for all Home feedback and tasks, including solo checkout work.
 
-The Jesse/factory actor model, labels, delivery loop, proof bar, merge policy, and docs policy: [docs/operating-manual.md](docs/operating-manual.md).
+The Jesse/factory actor model, harness delegation, labels, delivery loop, proof bar, merge policy, and docs policy: [docs/operating-manual.md](docs/operating-manual.md).
 
 - Jesse owns product intent, `factory:ready`, decisions, privileged actions, final approval, and merge. The factory owns issue refinement, implementation coordination, independent review, evidence, and pull-request delivery.
+- **Harness delegation.** Delegated engineering work follows the [harness delegation contract](docs/operating-manual.md#harness-delegation): the DeepSeek routine-worker/reviewer chain is the default implementation and review lane, and Sol worker, Fable, Luna, and Astra are reserved as described there. Factory delivery coordination never displaces the Sol parent's scope, decision, integration, or final-acceptance authority.
 - File and update issues on `jessepollak/home`. Apply one `status:{todo,working,ready-for-review,blocked,needs-jesse}`, one `lane:{backend,frontend,design,dx,product,ops}`, and one `priority:{p0,p1,p2,p3}`. Persona `owner:*` labels and GitHub assignees are not routing mechanisms.
 - One `status:*` at a time (swap, do not stack; prefer `working`; if you see `status:in-progress`, remove it). ADD/REMOVE for `ready-for-review` and `needs-jesse`: [operating manual — status label hygiene](docs/operating-manual.md#status-label-hygiene).
 - Use the existing issue when work is already tracked; do not start a duplicate issue, parallel board, or shadow inbox. Follow the [delivery loop](docs/operating-manual.md#delivery-loop).
