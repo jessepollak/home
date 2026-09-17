@@ -25,7 +25,7 @@ This is the canonical creation contract; `AGENTS.md` points here. Decide placeme
 
 1. **Search and reuse.** Search open and closed issues — text, labels, milestone, and existing hierarchy — before creating. Update the issue that already tracks the work; do not duplicate it or start a parallel board.
 2. **Choose the primary workstream and nearest useful parent before creating.** Pick one of the eight [Workstream index](#workstream-index) roots, then choose the nearest useful parent in that workstream: either the root itself or an intermediate program such as #15 when it is the right container.
-3. **Create with labels, not routing.** One `status:*`, one `lane:*`, one `priority:*`. No `owner:*` labels, no GitHub assignee routing, no `factory:ready` — only Jesse applies that label.
+3. **Create with labels, not routing.** One `status:*`, one `lane:*`, one `priority:*`. No `owner:*` labels, no GitHub assignee routing, and no `factory:ready` at creation. Jesse applies readiness directly for legacy work; for an exact approved brief, the deterministic supervisor may apply it only after Jesse's approved reaction.
 4. **Establish the native parent edge.** Attach the issue to that parent through GitHub's native parent/sub-issue relation. A body mention, checklist link, or "related to" reference does not create hierarchy.
 5. **Ensure Home Project membership.** Add the issue to the [Home Project](https://github.com/users/jessepollak/projects/1), or confirm it arrived through native auto-add or the repository sync. Membership is verified, not assumed.
 6. **Keep dependencies as links.** Cross-cutting and blocking dependencies stay ordinary issue links or named dependencies; only the primary workstream ancestor is a native parent.

@@ -222,10 +222,14 @@ test("factory PR bodies standardize Preview and preserve proof during rewrites",
       issue: ISSUE,
       outcome: "passed",
       stages: [{ name: "validation", outcome: "passed", durationMs: 12 }],
+      requiredOutcomes: [{ id: "operator-branding", text: "Operator branding renders safely." }],
+      outcomeAssessments: [{ id: "operator-branding", status: "Met", evidence: "Focused contract test passed." }],
     });
     assert.match(rewritten, /^## Preview$/m);
     assert.doesNotMatch(rewritten, /^## Preview proof$/m);
     assert.match(rewritten, /- validation: 12ms/);
+    assert.match(rewritten, /^### Required outcomes$/m);
+    assert.match(rewritten, /operator-branding — Operator branding renders safely\.: \*\*Met\*\* — Focused contract test passed\./);
     assert.match(rewritten, /https:\/\/preview\.example\.test/);
     assert.match(rewritten, /!\[Screen\]\(https:\/\/images\.example\.test\/screen\.png\)/);
   }

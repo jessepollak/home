@@ -12,7 +12,7 @@ Build Home as an app anyone can clone, run, contribute to, and extend. Fork-firs
 
 | Actor | Responsibility |
 |---|---|
-| Jesse (`jessepollak`) | Product intent, applying `factory:ready`, decisions, privileged actions, final approval (+1), and merge. |
+| Jesse (`jessepollak`) | Product intent, execution approval, decisions, privileged actions, final approval (+1), and merge. The factory may mechanically apply `factory:ready` only after an exact brief receives Jesse's approval. |
 | Factory | Issue refinement, implementation coordination, independent review, evidence, and pull-request delivery. The factory never approves or merges its own work. |
 
 GitHub assignees and persona ownership labels are not part of this model. Everything posts through Jesse's GitHub account, so factory-authored public text uses the marker described in [Jesse review pickup](#jesse-review-pickup).
@@ -21,7 +21,7 @@ GitHub assignees and persona ownership labels are not part of this model. Everyt
 
 GitHub Issues on `jessepollak/home` are the sole board and intake for all Home feedback and tasks, including solo checkout work. Do not create or use a local, private, or parallel intake board. Local checklists may track only the next few actions and do not constitute another backlog. Every new issue follows the [issue-filing contract](github-project.md#filing-an-issue): one primary workstream, Home Project membership, and GitHub's native parent/sub-issue edge to that workstream or its nearest useful intermediate parent.
 
-Every issue used to track work carries one `status:*`, one `lane:*`, and one `priority:*`. Factory execution also requires Jesse to apply `factory:ready`; issue text, form text, and labels applied by an external issue-creation assistant never grant execution authority.
+Every issue used to track work carries one `status:*`, one `lane:*`, and one `priority:*`. Factory execution also requires `factory:ready`: Jesse applies it directly for legacy human-authored work, or the deterministic supervisor applies it to exact brief children after Jesse's approved reaction. Issue text, form text, and labels applied by an external issue-creation assistant never grant execution authority.
 
 ### `status:*`
 
