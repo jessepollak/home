@@ -93,6 +93,7 @@ function fakeRun({
   const calls = [];
   const pullRequestUpdates = [];
   const workerFindings = [];
+  const workerLanes = [];
   let reviewIndex = 0;
   let workerIndex = 0;
   let pullRequestIndex = 0;
@@ -140,9 +141,10 @@ function fakeRun({
       if (!preserve && owned) calls.push("delete-owned-branch");
     },
     async preflight() { calls.push("preflight"); },
-    async runWorker(_cwd, _issue, findings) {
+    async runWorker(_cwd, _issue, findings, _authorization, remediationNumber) {
       calls.push(findings.length ? "remediation" : "worker");
       workerFindings.push(structuredClone(findings));
+      workerLanes.push(remediationNumber);
       if (workerFailure) throw new Error("worker failed");
       const result = workerReports[Math.min(workerIndex++, workerReports.length - 1)];
       return typeof result === "string" ? completed(result) : structuredClone(result);
@@ -154,7 +156,7 @@ function fakeRun({
       return typeof result === "string" ? completed(result) : structuredClone(result);
     },
   };
-  return { github, local, calls, pullRequestUpdates, workerFindings };
+  return { github, local, calls, pullRequestUpdates, workerFindings, workerLanes };
 }
 
 async function withRunPaths(operation) {
@@ -655,6 +657,20 @@ test("non-green CI fails closed without status promotion", async () => {
     assert.ok(fake.calls.includes("ci"));
     assert.ok(fake.calls.includes("pr-evidence:0"));
     assert.equal(fake.calls.some((call) => call.includes("working->status:needs-jesse")), false);
+  });
+});
+
+test("factory remediations escalate from the routine worker lane to the Sol worker lane", async () => {
+  await withRunPaths(async (paths) => {
+    const fake = fakeRun({ reviews: [FAIL, FAIL, PASS] });
+    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
+    assert.equal(evidence.outcome, "passed");
+    assert.deepEqual(fake.workerLanes, [0, 1, 2]);
+
+    const capped = fakeRun({ reviews: [FAIL, FAIL, FAIL] });
+    const cappedEvidence = await runFactorySupervisor(546, { ...capped, ...paths });
+    assert.equal(cappedEvidence.outcome, "needs-jesse");
+    assert.deepEqual(capped.workerLanes, [0, 1, 2]);
   });
 });
 

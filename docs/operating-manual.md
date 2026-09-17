@@ -17,6 +17,31 @@ Build Home as an app anyone can clone, run, contribute to, and extend. Fork-firs
 
 GitHub assignees and persona ownership labels are not part of this model. Everything posts through Jesse's GitHub account, so factory-authored public text uses the marker described in [Jesse review pickup](#jesse-review-pickup).
 
+### Harness delegation
+
+The actor model above decides who may deliver, approve, and merge Home changes. It does not decide which agent harness runs the work. Delegated engineering work follows the global harness delegation contract:
+
+| Role | Used for |
+|---|---|
+| Sol parent | Owns scope, decisions, integration, and final acceptance of the delegated task. |
+| DeepSeek V4.1 Flash routine-worker | Default implementation lane for any clear task with settled acceptance criteria and a known validation path, including multi-file, cross-cutting, and ordinary public-interface changes. |
+| DeepSeek reviewer | Default final review of the implemented change. |
+| DeepSeek repair | One targeted repair of a failed implementation, using the existing diff and failure evidence; a second failure escalates the same diff and evidence to a Sol worker. |
+| Sol worker | Ambiguous or reproduction-unknown debugging, unresolved architecture, and genuinely sensitive security/authentication, money-movement, migration, or production-host risk. |
+| Fable | Material unresolved design or critical-risk review boundaries only. |
+| Luna | Optional scouting. |
+| Astra | Exceptional, explicitly requested cases only. |
+
+The factory may coordinate delivery and evidence, but it does not displace the Sol parent's task decision and final-acceptance authority or the configured worker/reviewer chain. Sol parent acceptance of a delegated task is not Jesse's product approval: Jesse alone gives final approval (+1) and merges, and every safety, credential, validation, review, and merge rule in this manual still applies.
+
+`bun run factory:run` applies this chain to its own bounded children instead of giving every role one shared model: the initial implementation and the first targeted repair run the `routine-worker` lane, the second repair runs the `worker` (Sol) lane, and independent review runs the `reviewer` lane. Model resolution precedence, highest first:
+
+1. An explicit `PI_PROVIDER`/`PI_MODEL` environment override, which applies to every factory child. An enclosing pi session exports these values for its children, so unset them when launching the factory from such a session to use lane routing.
+2. The installed `subagents.agentOverrides.<lane>.model` selector, which must be a `provider/model` pair; a malformed configured selector fails the run before the child starts.
+3. The installed global `defaultProvider`/`defaultModel`.
+
+Lane routing selects only the child's provider and model. Child tool restrictions, the isolated home, credential scrubbing, timeouts, review semantics, and the two-loop cap are unchanged.
+
 ## Task persistence
 
 GitHub Issues on `jessepollak/home` are the sole durable board and intake for all Home feedback and tasks, including solo checkout work. Do not create or use a local, private, or parallel intake board. Local checklists may track only the next few actions and do not constitute another backlog. Every new issue follows the [issue-filing contract](github-project.md#filing-an-issue): one primary workstream, Home Project membership, and GitHub's native parent/sub-issue edge to that workstream or its nearest useful intermediate parent.

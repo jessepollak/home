@@ -179,11 +179,11 @@ For completed **local development**, that clip and line are the proof. The crew 
 
 Order matters only where noted; everything else can run in parallel under the [delivery loop](operating-manual.md#delivery-loop).
 
-1. **Contract + IDRX** — `assets.ts`, `provider-contract.ts`, `core/provider-context.ts`, `core/testing/describeFundingAdapter.ts`, `providers/idrx/` ported from #120. IDRX first because it is the simplest full shape. Astra review.
-2. **Ripio adapter** — port of `ripio-client.ts`: home reference, quotes, KYC fields and terms, webhook. Amends the contract where porting demands; doc updated in the same PR. Depends on 1. Astra review.
-3. **Native Base Account sign-in** — nonce, verify (viem, ERC-1271/6492), signed session cookie, `accountProvider: "base-account"`. Works without any CDP variable. Astra review. Independent of 1–2.
+1. **Contract + IDRX** — `assets.ts`, `provider-contract.ts`, `core/provider-context.ts`, `core/testing/describeFundingAdapter.ts`, `providers/idrx/` ported from #120. IDRX first because it is the simplest full shape. Independent review.
+2. **Ripio adapter** — port of `ripio-client.ts`: home reference, quotes, KYC fields and terms, webhook. Amends the contract where porting demands; doc updated in the same PR. Depends on 1. Independent review.
+3. **Native Base Account sign-in** — nonce, verify (viem, ERC-1271/6492), signed session cookie, `accountProvider: "base-account"`. Works without any CDP variable. Independent review. Independent of 1–2.
 4. **Local Postgres** — `docker-compose.yml`, `bun run db:up`, README/env notes. Independent.
-5. **Core + routes** — `funding_orders` store and migration, quotes, orders, status, webhooks, received. Depends on 1. Astra review.
+5. **Core + routes** — `funding_orders` store and migration, quotes, orders, status, webhooks, received. Depends on 1. Independent review.
 6. **UI** — method list and order flow. Depends on 5 for the API; can start against the types.
 7. **Guide** — `docs/integrations/README.md`, `.env.example`, CONTRIBUTING pointer. Depends on 3–6 being real.
 8. **Ripio cleanup** — delete the bespoke store/reconciliation/webhook/inbox/preview UI once 2 and 5 pass Ripio's existing test expectations. Check whether any deployment ran `001_ripio_funding.sql` before dropping.
