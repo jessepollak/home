@@ -29,6 +29,13 @@ const ISSUE = {
     { name: "priority:p1" },
   ],
 };
+const STORYBOOK_REFERENCE = {
+  type: "storybook", label: "Account settings",
+  managerUrl: "https://storybook.example.test/?path=/docs/account--docs",
+  canvasUrl: "https://storybook.example.test/iframe.html?id=account--default&viewMode=story",
+  commitSha: "a".repeat(40), deploymentId: "dpl_AbCd1234",
+  criteria: ["Name field is visible and editable."],
+};
 const PASS = '{"complete":true,"verdict":"pass","findings":[]}';
 const FAIL = '{"complete":true,"verdict":"fail","findings":[{"severity":"blocking","file":"runner.mjs:1","description":"fix it"}]}';
 const NULL_WORKER_REPORT = '{"complete":true,"browserEvidence":null}';
@@ -205,7 +212,7 @@ test("approved prompts contain only retained exact child spec and mapped outcome
     child: { number: 600, title: "Approved", body: "Exact approved body", bodySha256: "a".repeat(64) },
     outcomeIds: ["one"], outcomes: [{ id: "one", text: "Required" }],
     evidenceMap: [{ outcomeId: "one", childKey: "approved-child", evidence: "Focused contract test and current-head proof." }],
-    designReferences: [{ label: "Base settings", url: "https://base.org/account/settings" }],
+    designReferences: [STORYBOOK_REFERENCE],
   };
   const mutableIssue = { ...ISSUE, body: "MUTABLE-PROSE-SENTINEL", comments: [{ body: "COMMENT-SENTINEL" }] };
   assert.deepEqual(factoryIssuePromptInput(mutableIssue, authorization), {
@@ -216,14 +223,16 @@ test("approved prompts contain only retained exact child spec and mapped outcome
       route: "approved-factory-brief/v1",
       outcomes: [{ id: "one", text: "Required" }],
       evidenceMap: [{ outcomeId: "one", childKey: "approved-child", evidence: "Focused contract test and current-head proof." }],
-      designReferences: [{ label: "Base settings", url: "https://base.org/account/settings" }],
+      designReferences: [STORYBOOK_REFERENCE],
     },
   });
   for (const prompt of [workerPrompt(mutableIssue, [], authorization), reviewerPrompt(mutableIssue, "safe", authorization)]) {
     assert.match(prompt, /Exact approved body/);
     assert.match(prompt, /Required/);
-    assert.match(prompt, /Base settings/);
-    assert.match(prompt, /https:\/\/base\.org\/account\/settings/);
+    assert.match(prompt, /Account settings/);
+    assert.match(prompt, /storybook\.example\.test/);
+    assert.match(prompt, /dpl_AbCd1234/);
+    assert.match(prompt, /Name field is visible and editable/);
     assert.match(prompt, /Focused contract test and current-head proof/);
     assert.doesNotMatch(prompt, /MUTABLE-PROSE-SENTINEL|COMMENT-SENTINEL|bodySha256|outcomeIds/);
   }
@@ -353,7 +362,12 @@ test("approved remediation revalidates before every worker and final handoff", a
     const issue = { ...ISSUE, nodeId: "I_child", body: "Marked exact child.\n<!-- factory -->" };
     const authorization = {
       route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
-      approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
+      approval: {
+        source: "github-issue-comment-owner-plus-one/v1", state: "active",
+        commentId: 10, commentNodeId: "IC_10", proposalBodySha256: "b".repeat(64),
+        reactionId: 11, reactionNodeId: "R_11",
+        revocation: { action: "remove-reaction", contract: "removing this exact owner +1 reaction revokes authorization on mechanical revalidation" },
+      },
       child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
       outcomes: [{ id: "one", text: "One" }, { id: "two", text: "Two" }, { id: "three", text: "Three" }],
       outcomeIds: ["one", "two", "three"],
@@ -362,7 +376,7 @@ test("approved remediation revalidates before every worker and final handoff", a
         { outcomeId: "two", childKey: "runner", evidence: "Focused test proves two." },
         { outcomeId: "three", childKey: "runner", evidence: "Focused test proves three." },
       ],
-      designReferences: [{ label: "Workflow reference", url: "https://base.org/workflow" }],
+      designReferences: [STORYBOOK_REFERENCE],
     };
     const assessments = authorization.outcomes.map(({ id }) => ({ id, status: "Met", evidence: `${id} passed` }));
     const failed = assessments.map((value, index) => index === 0 ? { ...value, status: "Not met", evidence: "one missing" } : value);
@@ -381,6 +395,7 @@ test("approved remediation revalidates before every worker and final handoff", a
     const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
     assert.deepEqual(durableEvidence.workerOutcomeAssessments, assessments);
     assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, assessments);
+    assert.deepEqual(durableEvidence.authorization.approval, authorization.approval);
     assert.equal(evidence.authorization.child.body, issue.body);
     assert.deepEqual(evidence.authorization.evidenceMap, authorization.evidenceMap);
     assert.deepEqual(durableEvidence.authorization.evidenceMap, authorization.evidenceMap);

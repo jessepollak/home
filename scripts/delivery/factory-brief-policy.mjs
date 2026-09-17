@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 export const BRIEF_SCHEMA = "home.factory-brief/v1";
 export const PROPOSAL_SCHEMA = "home.factory-proposal/v1";
@@ -64,23 +65,48 @@ function labels(value, name) {
   return result;
 }
 
+function exactHttpsUrl(value, name) {
+  const rawUrl = text(value, name, 500);
+  let url;
+  try { url = new URL(rawUrl); } catch { throw new Error(`${name} is invalid`); }
+  if (rawUrl !== value || url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.hostname === "" || url.href !== rawUrl) {
+    throw new Error(`${name} must be an exact HTTPS URL without credentials`);
+  }
+  return rawUrl;
+}
+
 function designReferences(value, name, { allowMissing = false } = {}) {
   if (value === undefined && allowMissing) return [];
   if (!Array.isArray(value) || value.length > 8) throw new Error(`${name} must define 0–8 references`);
   const result = value.map((reference, index) => {
     const item = `${name}[${index}]`;
-    exactFields(reference, ["label", "url"], item);
+    const storybook = reference?.type === "storybook";
+    exactFields(reference, storybook
+      ? ["type", "label", "managerUrl", "canvasUrl", "commitSha", "deploymentId", "criteria"]
+      : ["label", "url"], item);
     const label = text(reference.label, `${item}.label`, 120);
     if (/[\x00-\x1f\x7f]/.test(label)) throw new Error(`${item}.label must be single-line text`);
-    const rawUrl = text(reference.url, `${item}.url`, 500);
-    let url;
-    try { url = new URL(rawUrl); } catch { throw new Error(`${item}.url is invalid`); }
-    if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.hostname === "" || url.href !== rawUrl) {
-      throw new Error(`${item}.url must be an exact HTTPS URL without credentials`);
+    if (!storybook) return { label, url: exactHttpsUrl(reference.url, `${item}.url`) };
+    if (reference.type !== "storybook") throw new Error(`${item}.type must be storybook`);
+    if (!/^[0-9a-f]{40}$/.test(reference.commitSha)) throw new Error(`${item}.commitSha must be a 40-hex commit SHA`);
+    if (!/^dpl_[A-Za-z0-9]+$/.test(reference.deploymentId)) throw new Error(`${item}.deploymentId is invalid`);
+    if (!Array.isArray(reference.criteria) || reference.criteria.length < 1 || reference.criteria.length > 8) {
+      throw new Error(`${item}.criteria must define 1–8 observable criteria`);
     }
-    return { label, url: rawUrl };
+    const criteria = reference.criteria.map((criterion, criterionIndex) => {
+      const result = text(criterion, `${item}.criteria[${criterionIndex}]`, 240);
+      if (result !== criterion || /[\x00-\x1f\x7f]/.test(result)) throw new Error(`${item}.criteria must be concise single-line text`);
+      return result;
+    });
+    unique(criteria, `${item}.criteria`);
+    return {
+      type: "storybook", label,
+      managerUrl: exactHttpsUrl(reference.managerUrl, `${item}.managerUrl`),
+      canvasUrl: exactHttpsUrl(reference.canvasUrl, `${item}.canvasUrl`),
+      commitSha: reference.commitSha, deploymentId: reference.deploymentId, criteria,
+    };
   });
-  unique(result.map(({ url }) => url), `${name} URLs`);
+  unique(result.flatMap((reference) => reference.type === "storybook" ? [reference.managerUrl, reference.canvasUrl] : [reference.url]), `${name} URLs`);
   return result;
 }
 
@@ -200,9 +226,21 @@ function markdownTableValue(value) {
     .replace(/[|`*_[\]<>]/g, (character) => `\\${character}`);
 }
 
+function renderDesignReference(reference) {
+  if (reference.type !== "storybook") return [`- ${reference.label}: ${reference.url}`];
+  return [
+    `- **${markdownTableValue(reference.label)}** — Proposed — unreviewed design reference; factory evidence is not design approval`,
+    `  - Immutable identity: commit \`${reference.commitSha}\`; deployment \`${reference.deploymentId}\``,
+    `  - Manager: ${reference.managerUrl}`,
+    `  - Canvas: ${reference.canvasUrl}`,
+    "  - Observable criteria:",
+    ...reference.criteria.map((criterion, index) => `    ${index + 1}. ${markdownTableValue(criterion)}`),
+  ];
+}
+
 export function renderProposalComment(manifest, proposal) {
   const references = manifest.designReferences.length > 0
-    ? ["", "Shaping references — not acceptance proof:", ...manifest.designReferences.map(({ label, url }) => `- ${label}: ${url}`)]
+    ? ["", "Shaping references — not acceptance proof:", ...manifest.designReferences.flatMap(renderDesignReference)]
     : [];
   const evidenceRows = manifest.evidenceMap.map(({ outcomeId, childKey, evidence }) => {
     const outcome = manifest.outcomes.find(({ id }) => id === outcomeId);
@@ -306,9 +344,14 @@ export function verifyBriefApproval({ repository, repositoryOwner, parent, comme
   const selectedOutcomes = manifest.outcomes.filter(({ id }) => spec.outcomeIds.includes(id));
   return Object.freeze({
     route: "approved-factory-brief/v1", repository, parent: manifest.parent,
-    approval: Object.freeze({ commentId: comment.id, commentNodeId: comment.nodeId, reactionId: ownerThumbs[0].id, reactionNodeId: ownerThumbs[0].nodeId }),
+    approval: Object.freeze({
+      source: "github-issue-comment-owner-plus-one/v1", state: "active",
+      commentId: comment.id, commentNodeId: comment.nodeId, proposalBodySha256: bodySha256(comment.body),
+      reactionId: ownerThumbs[0].id, reactionNodeId: ownerThumbs[0].nodeId,
+      revocation: Object.freeze({ action: "remove-reaction", contract: "removing this exact owner +1 reaction revokes authorization on mechanical revalidation" }),
+    }),
     child: Object.freeze({ nodeId: currentChild.nodeId, number: currentChild.number, title: spec.title, body: currentChild.body, bodySha256: spec.bodySha256 }),
-    designReferences: Object.freeze(manifest.designReferences.map((value) => Object.freeze({ ...value }))),
+    designReferences: Object.freeze(manifest.designReferences.map((value) => Object.freeze({ ...value, ...(value.criteria ? { criteria: Object.freeze([...value.criteria]) } : {}) }))),
     outcomes: Object.freeze(selectedOutcomes.map((value) => Object.freeze({ ...value }))), outcomeIds: Object.freeze([...spec.outcomeIds]),
     evidenceMap: Object.freeze(manifest.evidenceMap.filter(({ childKey }) => childKey === spec.key).map((value) => Object.freeze({ ...value }))),
   });
@@ -358,8 +401,7 @@ export async function activateBrief({ repository, repositoryOwner, parent, candi
 
 export function sameApprovalIdentity(expected, actual) {
   if (expected?.route !== "approved-factory-brief/v1" || actual?.route !== expected.route) return false;
-  return expected.repository === actual.repository && expected.parent.nodeId === actual.parent.nodeId && expected.parent.number === actual.parent.number &&
-    expected.child.nodeId === actual.child.nodeId && expected.child.number === actual.child.number && expected.child.bodySha256 === actual.child.bodySha256 &&
-    expected.approval.commentId === actual.approval.commentId && expected.approval.commentNodeId === actual.approval.commentNodeId &&
-    expected.approval.reactionId === actual.approval.reactionId && expected.approval.reactionNodeId === actual.approval.reactionNodeId;
+  // The authorization returned by verifyBriefApproval can only be active. A missing exact reaction
+  // is the mechanically revalidated revoked state and throws before an authorization is returned.
+  return isDeepStrictEqual(expected, actual);
 }

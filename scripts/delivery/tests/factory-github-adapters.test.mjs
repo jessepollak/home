@@ -357,7 +357,14 @@ test("runner authorization maps recorded GraphQL and REST fixtures and fails clo
   });
   const authorization = await adapter.authorizeIssue(issue, []);
   assert.equal(authorization.route, "approved-factory-brief/v1");
-  assert.deepEqual(authorization.approval, { commentId: storedComment.id, commentNodeId: storedComment.node_id, reactionId: 22, reactionNodeId: "R_22" });
+  assert.deepEqual(authorization.approval, {
+    source: "github-issue-comment-owner-plus-one/v1", state: "active",
+    commentId: storedComment.id, commentNodeId: storedComment.node_id,
+    proposalBodySha256: authorization.approval.proposalBodySha256,
+    reactionId: 22, reactionNodeId: "R_22",
+    revocation: { action: "remove-reaction", contract: "removing this exact owner +1 reaction revokes authorization on mechanical revalidation" },
+  });
+  assert.match(authorization.approval.proposalBodySha256, /^[0-9a-f]{64}$/);
   assert.deepEqual(authorization.child, { nodeId: child.nodeId, number: 600, title: child.title, body: child.body, bodySha256: authorization.child.bodySha256 });
   assert.ok(authorization.outcomeIds.includes("operator-change"));
   assert.deepEqual(authorization.evidenceMap, [baseBrief().evidenceMap[0]]);

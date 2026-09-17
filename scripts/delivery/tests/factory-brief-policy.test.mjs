@@ -3,6 +3,15 @@ import test from "node:test";
 import { activateBrief, bodySha256, FACTORY_BRIEF_CHILD_LABEL, parseProposalComment, publishBrief, sameApprovalIdentity, selectApprovedBrief, validateBriefBundle, verifyBriefApproval } from "../factory-brief-policy.mjs";
 
 const PARENT = { nodeId: "I_parent", number: 568 };
+const STORYBOOK_REFERENCE = {
+  type: "storybook",
+  label: "Account settings scenarios",
+  managerUrl: "https://storybook.example.test/?path=/docs/account-settings--docs",
+  canvasUrl: "https://storybook.example.test/iframe.html?id=account-settings--default&viewMode=story",
+  commitSha: "a".repeat(40),
+  deploymentId: "dpl_AbCd1234",
+  criteria: ["Name field is visible and editable.", "Saved colors are visible in the preview."],
+};
 const BASE = {
   schema: "home.factory-brief/v1", repository: "jessepollak/home", parent: PARENT,
   proposal: {
@@ -78,6 +87,47 @@ test("lean brief validates six proposal fields, 1–5 outcomes, exact mapped chi
   ]) { const brief = structuredClone(BASE); mutate(brief); assert.throws(() => validateBriefBundle(brief)); }
 });
 
+test("Storybook design references validate an exact immutable deployment and reject partial or malformed objects", () => {
+  const enhanced = structuredClone(BASE);
+  enhanced.designReferences = [structuredClone(STORYBOOK_REFERENCE)];
+  assert.deepEqual(validateBriefBundle(enhanced).designReferences, [STORYBOOK_REFERENCE]);
+
+  const mutations = [
+    (reference) => { delete reference.canvasUrl; },
+    (reference) => { reference.url = reference.managerUrl; },
+    (reference) => { reference.managerUrl = "http://storybook.example.test/"; },
+    (reference) => { reference.canvasUrl += " "; },
+    (reference) => { reference.commitSha = "A".repeat(40); },
+    (reference) => { reference.deploymentId = "deployment_123"; },
+    (reference) => { reference.criteria = []; },
+    (reference) => { reference.criteria = Array.from({ length: 9 }, (_, index) => `Criterion ${index}`); },
+    (reference) => { reference.criteria = ["line one\nline two"]; },
+    (reference) => { reference.criteria = ["duplicate", "duplicate"]; },
+  ];
+  for (const mutate of mutations) {
+    const malformed = structuredClone(enhanced);
+    mutate(malformed.designReferences[0]);
+    assert.throws(() => validateBriefBundle(malformed));
+  }
+});
+
+test("publication renders and authorizes the unchanged Storybook identity, links, criteria, and unreviewed status", async () => {
+  const brief = structuredClone(BASE);
+  brief.designReferences = [structuredClone(STORYBOOK_REFERENCE)];
+  const adapter = memoryAdapter();
+  const result = await publishBrief(brief, adapter);
+  assert.deepEqual(result.manifest.designReferences, [STORYBOOK_REFERENCE]);
+  assert.match(result.body, /Proposed — unreviewed design reference; factory evidence is not design approval/);
+  assert.match(result.body, new RegExp(STORYBOOK_REFERENCE.commitSha));
+  assert.match(result.body, new RegExp(STORYBOOK_REFERENCE.deploymentId));
+  assert.ok(result.body.includes(STORYBOOK_REFERENCE.managerUrl));
+  assert.ok(result.body.includes(STORYBOOK_REFERENCE.canvasUrl));
+  assert.match(result.body, /1\. Name field is visible and editable\./);
+
+  const authorization = verifyBriefApproval(approvalInput({ ...result, adapter }));
+  assert.deepEqual(authorization.designReferences, [STORYBOOK_REFERENCE]);
+});
+
 test("publication verifies the exact parent before creating children", async () => {
   const adapter = memoryAdapter();
   adapter.verifyParent = async () => { throw new Error("brief parent identity changed"); };
@@ -148,7 +198,27 @@ test("approval ignores non-owner thumbs, maps only its child outcomes, and revoc
   assert.deepEqual(authorization.outcomeIds, ["operator-change"]); assert.deepEqual(authorization.outcomes, [BASE.outcomes[0]]);
   assert.deepEqual(authorization.designReferences, BASE.designReferences);
   assert.deepEqual(authorization.evidenceMap, [BASE.evidenceMap[0]]);
+  assert.deepEqual(authorization.approval, {
+    source: "github-issue-comment-owner-plus-one/v1", state: "active",
+    commentId: result.comment.id, commentNodeId: result.comment.nodeId,
+    proposalBodySha256: bodySha256(result.body), reactionId: 92, reactionNodeId: "R_92",
+    revocation: { action: "remove-reaction", contract: "removing this exact owner +1 reaction revokes authorization on mechanical revalidation" },
+  });
   assert.equal(sameApprovalIdentity(authorization, structuredClone(authorization)), true);
+  for (const mutate of [
+    (value) => { value.approval.state = "revoked"; },
+    (value) => { value.approval.source = "other"; },
+    (value) => { value.approval.proposalBodySha256 = "0".repeat(64); },
+    (value) => { value.approval.revocation.action = "other"; },
+    (value) => { value.child.title = "changed"; },
+    (value) => { value.designReferences[0].url = "https://example.test/changed"; },
+    (value) => { value.outcomes[0].text = "Changed"; },
+    (value) => { value.evidenceMap[0].evidence = "Changed"; },
+  ]) {
+    const changed = structuredClone(authorization);
+    mutate(changed);
+    assert.equal(sameApprovalIdentity(authorization, changed), false);
+  }
   assert.throws(() => verifyBriefApproval({ ...input, reactions: input.reactions.slice(1) }), /owner \+1/);
 });
 
