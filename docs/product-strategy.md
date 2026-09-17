@@ -17,7 +17,7 @@ This document defines product direction and scope. GitHub issues track delivery.
 1. Read the relevant workstream below and the repository's current `AGENTS.md`.
 2. Inspect the code and existing issues. Identify what works, what remains, and what needs external access. Reuse existing issues.
 3. Turn a bounded gap into a PRD using section 6. Bring a recommendation for consequential open decisions.
-4. Execute under the repository's operating manual. This strategy grants no additional execution, release, or merge authority.
+4. Execute under the repository's operating manual: local interactive work runs on Jesse's explicit current-session instruction for a named issue, while `factory:ready` and the fail-closed checks gate only factory supervisor runs ([execution modes](operating-manual.md#execution-modes)). This strategy grants no additional execution, release, or merge authority.
 
 ## 1. Vision and product principles
 

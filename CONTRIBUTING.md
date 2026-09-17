@@ -57,6 +57,8 @@ Do not add provider credentials or funded-wallet checks to pull-request CI.
 
 ## Factory & merge policy
 
-The factory follows the [operating manual](docs/operating-manual.md). GitHub Issues and lane/status/priority labels are the sole intake and execution board.
+The factory follows the [operating manual](docs/operating-manual.md). GitHub Issues and lane/status/priority labels are the sole durable intake and delivery board; they track work but do not by themselves authorize execution.
+
+Tracking, local interactive authorization, and factory eligibility are separate ([execution modes](docs/operating-manual.md#execution-modes)): a local session implements a named issue on Jesse's explicit current-session instruction, while `factory:ready` and the other fail-closed checks gate only factory supervisor runs.
 
 **Only Jesse (`jessepollak`) gives the final +1 and merges.** User-visible pull requests need proof in the description; see [UI PR previews](docs/ui-pr-previews.md).

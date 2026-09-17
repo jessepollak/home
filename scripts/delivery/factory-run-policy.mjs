@@ -1,5 +1,4 @@
 const REQUIRED_LABELS = ["factory:ready", "status:todo"];
-const GENERATED_BODY_MARKERS = ["<!-- factory -->", "<!-- hugo -->"];
 const MAX_FIX_LOOPS = 2;
 
 function labelNames(issue) {
@@ -15,9 +14,6 @@ export function evaluateFactoryRunEligibility(issue, openPullRequests = [], repo
     failures.push("repository owner is unavailable");
   } else if (authorizationRoute === "legacy-human-body/v1" && issue?.author?.login !== repositoryOwner) {
     failures.push("issue must be authored by the repository owner");
-  }
-  if (authorizationRoute === "legacy-human-body/v1" && typeof issue?.body === "string" && GENERATED_BODY_MARKERS.some((marker) => issue.body.includes(marker))) {
-    failures.push("issue body must not contain a generated-text marker");
   }
   if (!["legacy-human-body/v1", "approved-factory-brief/v1"].includes(authorizationRoute)) failures.push("authorization route is invalid");
 
@@ -231,7 +227,6 @@ export function planAfterReview(verdict, completedFixLoops) {
 }
 
 export const factoryRunPolicyConstants = Object.freeze({
-  generatedBodyMarkers: Object.freeze([...GENERATED_BODY_MARKERS]),
   maxFixLoops: MAX_FIX_LOOPS,
   requiredLabels: Object.freeze([...REQUIRED_LABELS]),
 });

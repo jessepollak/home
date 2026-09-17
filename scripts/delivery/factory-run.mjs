@@ -21,7 +21,7 @@ import { parseProposalComment, sameApprovalIdentity, selectApprovedBrief } from 
 
 const execFile = promisify(execFileCallback);
 const REPOSITORY = "jessepollak/home";
-const FACTORY_MARKERS = Object.freeze(["<!-- factory -->", "<!-- hugo -->"]);
+const FACTORY_BRIEF_CHILD_MARKER = "<!-- factory-brief-child:";
 const WORKER_TIMEOUT_MS = 45 * 60 * 1_000;
 const REVIEWER_TIMEOUT_MS = 15 * 60 * 1_000;
 const COMMAND_TIMEOUT_MS = 30 * 60 * 1_000;
@@ -271,7 +271,7 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
       return githubIssueShape(value);
     },
     async authorizeIssue(issue, openPullRequests, revalidation = false) {
-      if (!FACTORY_MARKERS.some((marker) => issue.body?.includes(marker))) return legacyAuthorization(issue);
+      if (!issue.body?.includes(FACTORY_BRIEF_CHILD_MARKER)) return legacyAuthorization(issue);
       if (!issue.parent) throw new Error("marked issue has no native parent");
       const comments = responsePages(await runGh(["api", "--paginate", "--slurp", `repos/${repository}/issues/${issue.parent.number}/comments?per_page=100`]), "issue comments");
       const matching = comments.filter((comment) => {

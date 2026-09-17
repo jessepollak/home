@@ -1,6 +1,6 @@
 # Delivery brief
 
-Use this to shape a bounded outcome in an existing parent issue. Follow [the shaping skill](../.agents/skills/shape-product-proposal/SKILL.md), inspect current strategy/code/issues first, and reuse existing work.
+Use this to shape a bounded outcome in an existing parent issue. Follow [the shaping skill](../.agents/skills/shape-product-proposal/SKILL.md), inspect current strategy/code/issues first, and reuse existing work. When Jesse directly requests ordinary issue creation in an interactive session, that issue body is Jesse-directed and does not receive `<!-- factory -->`; factory proposal comments remain marked.
 
 The one-screen proposal has six sections:
 
@@ -22,8 +22,8 @@ Exact owner decision requested. Approval is one owner 👍 on the exact unedited
 ## Delivery
 One to four exact children, each with stable identity, title, complete body, labels, native parent, and mapped outcome IDs. Map every outcome and avoid filler or speculative backlog.
 
-Encode this as `home.factory-brief/v1`; validate and publish with `bun run factory:brief`. Publication is non-authorizing and never adds `factory:ready`. Once Jesse reacts, `bun run factory:brief activate <parent-number>` revalidates the exact proposal and mechanically readies all selected children. Removing the reaction revokes execution even if ready labels remain.
+Encode an exact multi-child proposal as `home.factory-brief/v1`; validate and publish with `bun run factory:brief`. Publication is non-authorizing and never adds `factory:ready`. Once Jesse reacts, `bun run factory:brief activate <parent-number>` revalidates the exact proposal and mechanically readies all selected children. Removing the reaction revokes execution even if ready labels remain.
 
-A marked child executes only while its retained approval identity, exact approved body, native parent, mapped outcomes, and normal eligibility remain valid; unrelated labels that do not change routing are tolerated. The older unmarked owner-authored route remains `legacy-human-body/v1`; existing marked text is never retroactively approved. The reaction has an explicitly accepted shared-account/keychain risk and is not a cryptographic authorship guarantee.
+A `factory-brief-child` executes only while its retained approval identity, exact body, native parent, mapped outcomes, and normal eligibility remain valid; unrelated labels that do not change routing are tolerated. Ordinary owner-authored issues stay on `legacy-human-body/v1`, where generic attribution markers neither grant nor deny eligibility. Existing generic marked text is never treated as an exact approval. The reaction has an explicitly accepted shared-account/keychain risk and is not a cryptographic authorship guarantee.
 
-When a bounded pilot already exists, reference that pilot issue and reuse its exact approved outcome text instead of introducing new product wording. A pilot is referenced by the general template, not embedded in it.
+When a bounded pilot already exists, reference that pilot issue and reuse its exact approved outcome text instead of introducing new product wording. End factory-authored proposal comments, thread replies, reviews, and PR bodies with `<!-- factory -->`; never remove an attribution marker as execution recovery.

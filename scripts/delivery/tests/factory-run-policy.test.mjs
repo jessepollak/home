@@ -39,22 +39,27 @@ test("eligibility fails closed unless the issue is open, ready, todo, and unrefe
   }
 });
 
-test("eligibility requires the configured repository owner and an unmarked issue body", () => {
-  for (const [issue, failure] of [
-    [{ ...READY_ISSUE, author: { login: "someone-else" } }, "repository owner"],
-    [{ ...READY_ISSUE, author: undefined }, "repository owner"],
-    [{ ...READY_ISSUE, body: "Generated intake\n<!-- factory -->" }, "generated-text marker"],
-    [{ ...READY_ISSUE, body: "Legacy generated intake\n<!-- hugo -->" }, "generated-text marker"],
+test("eligibility requires the configured repository owner", () => {
+  for (const issue of [
+    { ...READY_ISSUE, author: { login: "someone-else" } },
+    { ...READY_ISSUE, author: undefined },
   ]) {
     const result = evaluateFactoryRunEligibility(issue, [], REPOSITORY_OWNER);
     assert.equal(result.eligible, false);
-    assert.match(result.failures.join("\n"), new RegExp(failure));
+    assert.match(result.failures.join("\n"), /repository owner/);
   }
+});
 
-  assert.deepEqual(evaluateFactoryRunEligibility({
-    ...READY_ISSUE,
-    body: "Jesse-authored issue body without a generated marker.",
-  }, [], REPOSITORY_OWNER), { eligible: true, failures: [] });
+test("current and legacy attribution markers do not affect otherwise eligible bodies", () => {
+  for (const body of [
+    "Current attributed intake\n<!-- factory -->",
+    "Legacy attributed intake\n<!-- hugo -->",
+  ]) {
+    assert.deepEqual(evaluateFactoryRunEligibility({
+      ...READY_ISSUE,
+      body,
+    }, [], REPOSITORY_OWNER), { eligible: true, failures: [] });
+  }
 });
 
 test("open PR references are deduplicated across paginated timeline results", () => {
