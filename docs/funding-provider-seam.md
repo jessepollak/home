@@ -64,7 +64,7 @@ export type FundingProviderManifest = {
 
 export type FundingProvider = {
   manifest: FundingProviderManifest;
-  ensureCustomer?(input: { subject: string; fields: Record<string, string> }, ctx: ProviderContext): Promise<{ customerRef: string }>;
+  ensureCustomer?(input: { subject: string; fields: Record<string, string>; clientIp?: string }, ctx: ProviderContext): Promise<{ customerRef: string }>;
   createQuote?(input: QuoteIntent, ctx: ProviderContext): Promise<Quote>;
   createOrder(input: OrderIntent, ctx: ProviderContext): Promise<CreateOrderResult>;
   getOrder(input: ReconciliationIntent, ctx: ProviderContext): Promise<Observation>;
@@ -78,7 +78,7 @@ export type ProviderContext = {
   fetch: typeof fetch;                     // origin allowlist, redirect: "manual", timeout
 };
 
-export type QuoteIntent = { destination: `0x${string}`; fiatAmount: string; returnUrl: string };
+export type QuoteIntent = { destination: `0x${string}`; fiatAmount: string; returnUrl: string; customerRef?: string };
 export type Quote = { providerQuoteId?: string; fiatAmount: string; tokenAmountAtomic: string; fees: Array<{ label: string; amount: string; currency: string }>; expiresAt: string };
 
 export type OrderIntent = {
@@ -207,6 +207,8 @@ Cut after review to keep the first version small. Each is a follow-up if a real 
 ## Implementation notes (#294)
 
 - `Instruction` now has a distinct `embed` kind. The first presentation is `apple-pay`; the instruction carries the allowlisted iframe URL and the fee-inclusive fiat amount/currency the payer will authorize.
+- `ensureCustomer` receives `clientIp`, the address Home observed on the request, for providers that record where a customer accepted their terms. It is the same value `OrderIntent.clientIp` already carries and is absent when no forwarded address was observed; an adapter that needs it fails closed rather than substituting one. Ripio needs it.
+- `QuoteIntent.customerRef` carries the verified customer to adapters whose provider prices a quote against that customer, matching `OrderIntent.customerRef`. The core supplies it whenever a customer reference exists; a provider that does not price per customer ignores it, and one that requires it fails the quote closed when it is absent. Ripio requires it.
 - `QuoteIntent.returnUrl` gives quote-capable adapters the same request-origin context already supplied to order creation. Coinbase derives its required web `domain` from that URL without reading browser-visible environment variables.
 - After a provider reports `created`, the core validates every `redirect` and `embed` URL before persisting instructions: HTTPS, an origin declared by `manifest.redirectOrigins`, no username/password/fragment, and at most 4096 characters. Failure is `dispatch-ambiguous` because the provider request may have succeeded.
 - If a provider cannot lock a quote, the adapter requests the exact quoted token amount on create and reports the resulting fiat total on the instruction. Coinbase follows this rule by pinning USDC `purchaseAmount`; a changed USD total is reviewed in Home and authorized again in Apple Pay.
