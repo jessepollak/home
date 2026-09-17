@@ -61,4 +61,26 @@ describe("development canonical host proxy", () => {
     );
     expect(production.headers.get("location")).toBeNull();
   });
+
+  test("does not redirect the apple pay domain association file in development", () => {
+    const association = canonicalDevelopmentNavigationResponse(
+      new NextRequest(
+        "http://127.0.0.1:3000/.well-known/apple-developer-merchantid-domain-association",
+        { headers: { ...navigationHeaders, host: "127.0.0.1:3000" } },
+      ),
+      "development",
+    );
+    expect(association.headers.get("location")).toBeNull();
+
+    const neighbor = canonicalDevelopmentNavigationResponse(
+      new NextRequest(
+        "http://127.0.0.1:3000/.well-known/apple-developer-merchantid-domain-association-other",
+        { headers: { ...navigationHeaders, host: "127.0.0.1:3000" } },
+      ),
+      "development",
+    );
+    expect(neighbor.headers.get("location")).toBe(
+      "http://localhost:3000/.well-known/apple-developer-merchantid-domain-association-other",
+    );
+  });
 });
