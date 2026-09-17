@@ -128,6 +128,17 @@ export function factoryPullRequestBody(issue) {
   ].join("\n");
 }
 
+function unverifiedOutcomeAssessments(requiredOutcomes, actor) {
+  const evidence = `No valid ${actor} assessment is available for the current run.`;
+  return requiredOutcomes.map(({ id }) => ({ id, status: "Unverified", evidence }));
+}
+
+function assessmentSetExactlyCovers(assessments, requiredOutcomes) {
+  if (!Array.isArray(assessments) || assessments.length !== requiredOutcomes.length) return false;
+  const ids = new Set(assessments.map((assessment) => assessment?.id));
+  return ids.size === requiredOutcomes.length && requiredOutcomes.every(({ id }) => ids.has(id));
+}
+
 function outcomeAssessmentSection(heading, assessments, requiredOutcomes) {
   if (assessments.length === 0) return [];
   return [
@@ -157,6 +168,14 @@ export function factoryResultBody({
     .filter((stage) => stage.outcome === "passed")
     .map((stage) => `- ${stage.name}: ${stage.durationMs}ms`)
     .join("\n");
+  const renderedWorkerAssessments = requiredOutcomes.length > 0 &&
+    !assessmentSetExactlyCovers(workerOutcomeAssessments, requiredOutcomes)
+    ? unverifiedOutcomeAssessments(requiredOutcomes, "worker")
+    : workerOutcomeAssessments;
+  const renderedReviewerAssessments = requiredOutcomes.length > 0 &&
+    !assessmentSetExactlyCovers(reviewerOutcomeAssessments, requiredOutcomes)
+    ? unverifiedOutcomeAssessments(requiredOutcomes, "independent reviewer")
+    : reviewerOutcomeAssessments;
   return [
     `Closes #${issue.number}`,
     "",
@@ -170,8 +189,8 @@ export function factoryResultBody({
       "",
       ...reviewFindings.map((finding) => `- ${finding.file}: ${finding.description}`),
     ] : []),
-    ...outcomeAssessmentSection("Worker required outcomes", workerOutcomeAssessments, requiredOutcomes),
-    ...outcomeAssessmentSection("Independent reviewer required outcomes", reviewerOutcomeAssessments, requiredOutcomes),
+    ...outcomeAssessmentSection("Worker required outcomes", renderedWorkerAssessments, requiredOutcomes),
+    ...outcomeAssessmentSection("Independent reviewer required outcomes", renderedReviewerAssessments, requiredOutcomes),
     "",
     "### Validation",
     "",
@@ -499,9 +518,9 @@ async function writeEvidence(commonGitDirectory, evidence) {
 }
 
 function assessmentsMeetAllRequiredOutcomes(assessments, requiredOutcomes) {
-  if (!Array.isArray(assessments) || assessments.length !== requiredOutcomes.length) return false;
+  if (!assessmentSetExactlyCovers(assessments, requiredOutcomes)) return false;
   const byId = new Map(assessments.map((assessment) => [assessment.id, assessment]));
-  return byId.size === requiredOutcomes.length && requiredOutcomes.every(({ id }) => byId.get(id)?.status === "Met");
+  return requiredOutcomes.every(({ id }) => byId.get(id)?.status === "Met");
 }
 
 export async function runFactorySupervisor(issueValue, {
@@ -522,6 +541,13 @@ export async function runFactorySupervisor(issueValue, {
   let worktree;
   let issue;
   let authorization;
+  let requiredOutcomes = [];
+
+  const resetOutcomeAssessments = (actor) => {
+    if (authorization?.route !== "approved-factory-brief/v1") return;
+    const key = actor === "worker" ? "workerOutcomeAssessments" : "reviewerOutcomeAssessments";
+    evidence[key] = unverifiedOutcomeAssessments(requiredOutcomes, actor === "worker" ? "worker" : "independent reviewer");
+  };
 
   const checkKillSwitch = async () => {
     try {
@@ -552,6 +578,11 @@ export async function runFactorySupervisor(issueValue, {
       const openPullRequests = await github.openPullRequestsReferencing(issueNumber);
       if (typeof github.authorizeIssue !== "function") throw new Error("factory authorization adapter is unavailable");
       authorization = await github.authorizeIssue(currentIssue, openPullRequests);
+      if (authorization.route === "approved-factory-brief/v1") {
+        requiredOutcomes = authorization.outcomes;
+        resetOutcomeAssessments("worker");
+        resetOutcomeAssessments("reviewer");
+      }
       const eligibility = evaluateFactoryRunEligibility(currentIssue, openPullRequests, github.repositoryOwner, authorization.route);
       if (!eligibility.eligible) throw new Error(eligibility.failures.join("; "));
       return currentIssue;
@@ -583,7 +614,7 @@ export async function runFactorySupervisor(issueValue, {
       if (!github.revalidateAuthorization) throw new Error("approved authorization cannot be revalidated");
       await stage("approval-before-worker", () => github.revalidateAuthorization(authorization));
     }
-    const requiredOutcomes = authorization.route === "approved-factory-brief/v1" ? authorization.outcomes : [];
+    resetOutcomeAssessments("worker");
     const worker = await stage("worker", () => local.runWorker(worktree, issue, [], authorization));
     if (worker.code !== 0 || worker.timedOut || worker.outputExceeded) throw new Error("bounded worker did not complete");
     const workerReport = await stage("worker-report", async () => parseWorkerReport(
@@ -605,6 +636,7 @@ export async function runFactorySupervisor(issueValue, {
 
     let fixLoops = 0;
     while (true) {
+      resetOutcomeAssessments("reviewer");
       const reviewProcess = await stage(`review-${fixLoops}`, () => local.runReviewer(worktree, issue, authorization));
       if (reviewProcess.code !== 0 || reviewProcess.timedOut || reviewProcess.outputExceeded) {
         throw new Error("bounded reviewer did not complete");
@@ -659,6 +691,7 @@ export async function runFactorySupervisor(issueValue, {
           severity: "blocking", source: "reviewer", outcomeId: assessment.id, description: assessment.evidence,
         })),
       ];
+      resetOutcomeAssessments("worker");
       const remediation = await stage(`remediation-${fixLoops}`, () => local.runWorker(worktree, issue, remediationItems, authorization));
       if (remediation.code !== 0 || remediation.timedOut || remediation.outputExceeded) {
         throw new Error("bounded remediation worker did not complete");

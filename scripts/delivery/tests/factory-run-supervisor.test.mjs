@@ -48,6 +48,25 @@ function approvedWorkerReport(outcomeAssessments, browserEvidence = null) {
   return JSON.stringify({ complete: true, browserEvidence, outcomeAssessments });
 }
 
+function approvedAuthorization(issue, outcomes) {
+  return {
+    route: "approved-factory-brief/v1",
+    parent: { nodeId: "I_parent", number: 568 },
+    approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
+    child: { nodeId: "I_child", number: issue.number, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
+    outcomes,
+    outcomeIds: outcomes.map(({ id }) => id),
+  };
+}
+
+function unverifiedAssessments(outcomes, actor) {
+  return outcomes.map(({ id }) => ({
+    id,
+    status: "Unverified",
+    evidence: `No valid ${actor} assessment is available for the current run.`,
+  }));
+}
+
 function completed(stdout = "") {
   return { code: 0, timedOut: false, outputExceeded: false, stdout };
 }
@@ -118,10 +137,15 @@ function fakeRun({
       calls.push(findings.length ? "remediation" : "worker");
       workerFindings.push(structuredClone(findings));
       if (workerFailure) throw new Error("worker failed");
-      return completed(workerReports[Math.min(workerIndex++, workerReports.length - 1)]);
+      const result = workerReports[Math.min(workerIndex++, workerReports.length - 1)];
+      return typeof result === "string" ? completed(result) : structuredClone(result);
     },
     async validateCommitAndPush(_cwd, _issue, _branch, loop) { calls.push(`validate:${loop}`); },
-    async runReviewer() { calls.push("reviewer"); return completed(reviews[reviewIndex++]); },
+    async runReviewer() {
+      calls.push("reviewer");
+      const result = reviews[reviewIndex++];
+      return typeof result === "string" ? completed(result) : structuredClone(result);
+    },
   };
   return { github, local, calls, pullRequestUpdates, workerFindings };
 }
@@ -283,6 +307,28 @@ test("factory PR bodies standardize Preview and preserve proof during rewrites",
   }
 });
 
+test("approved failure PR bodies render complete unverified worker and reviewer sections", () => {
+  const requiredOutcomes = [
+    { id: "one", text: "First required outcome." },
+    { id: "two", text: "Second required outcome." },
+  ];
+  const body = factoryResultBody({
+    currentBody: factoryPullRequestBody(ISSUE),
+    issue: ISSUE,
+    outcome: "failed",
+    error: "Factory run stopped during review-0.",
+    stages: [{ name: "review-0", outcome: "failed", durationMs: 4 }],
+    requiredOutcomes,
+  });
+
+  assert.match(body, /^### Worker required outcomes$/m);
+  assert.match(body, /^### Independent reviewer required outcomes$/m);
+  assert.equal(body.match(/\*\*Unverified\*\*/g)?.length, requiredOutcomes.length * 2);
+  for (const { id } of requiredOutcomes) {
+    assert.equal(body.match(new RegExp(`^- ${id} —`, "gm"))?.length, 2);
+  }
+});
+
 test("supervisor waits for current-head CI before promoting a normal PR", async () => {
   await withRunPaths(async (paths) => {
     const fake = fakeRun();
@@ -426,6 +472,108 @@ test("approved non-UI reports with malformed outcome coverage fail before valida
     assert.equal(fake.calls.some((call) => call.startsWith("validate:")), false);
     assert.equal(fake.calls.some((call) => call.startsWith("pr:")), false);
   });
+});
+
+test("initial approved worker failure preserves complete unverified durable assessments", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const outcomes = [{ id: "one", text: "One" }, { id: "two", text: "Two" }];
+    const authorization = approvedAuthorization(issue, outcomes);
+    const fake = fakeRun({ issue, authorization, workerFailure: true });
+    let failure;
+
+    await assert.rejects(
+      runFactorySupervisor(546, { ...fake, ...paths }),
+      (error) => { failure = error; return error.message === "worker failed"; },
+    );
+
+    assert.deepEqual(failure.evidence.workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
+    assert.deepEqual(failure.evidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
+    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
+    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
+    assert.deepEqual(durableEvidence.workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
+    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
+    assert.equal(fake.pullRequestUpdates.length, 0);
+  });
+});
+
+test("approved reviewer timeout or malformed output rewrites PR and durable evidence with unverified review", async (t) => {
+  for (const reviewCase of [
+    { name: "timeout", result: { code: null, timedOut: true, outputExceeded: false, stdout: "private partial output" }, message: /bounded reviewer did not complete/ },
+    { name: "malformed", result: "private malformed output", message: /reviewer output is not valid JSON/ },
+  ]) {
+    await t.test(reviewCase.name, async () => withRunPaths(async (paths) => {
+      const issue = { ...ISSUE, nodeId: "I_child" };
+      const outcomes = [{ id: "one", text: "One" }];
+      const authorization = approvedAuthorization(issue, outcomes);
+      const met = [{ id: "one", status: "Met", evidence: "Worker validation passed." }];
+      const fake = fakeRun({ issue, authorization, workerReports: [approvedWorkerReport(met)], reviews: [reviewCase.result] });
+
+      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), reviewCase.message);
+
+      const update = fake.pullRequestUpdates.at(-1);
+      assert.equal(update.outcome, "failed");
+      assert.match(update.error, /^Factory run stopped (?:before completion|during verdict-0)\.$/);
+      assert.deepEqual(update.workerOutcomeAssessments, met);
+      assert.deepEqual(update.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
+      assert.doesNotMatch(update.error, /private/);
+      const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
+      const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
+      assert.deepEqual(durableEvidence.workerOutcomeAssessments, met);
+      assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
+    }));
+  }
+});
+
+test("failed later remediation and review attempts reset only the current actor assessment set", async (t) => {
+  await t.test("malformed remediation resets stale worker assessments", async () => withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const outcomes = [{ id: "one", text: "One" }];
+    const authorization = approvedAuthorization(issue, outcomes);
+    const workerMet = [{ id: "one", status: "Met", evidence: "Initial worker validation passed." }];
+    const reviewerNotMet = [{ id: "one", status: "Not met", evidence: "Review found a remaining gap." }];
+    const review = JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: reviewerNotMet });
+    const fake = fakeRun({
+      issue,
+      authorization,
+      workerReports: [approvedWorkerReport(workerMet), "malformed remediation"],
+      reviews: [review],
+    });
+
+    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /worker output is not valid JSON/);
+
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, reviewerNotMet);
+    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
+    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
+    assert.deepEqual(durableEvidence.workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
+    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, reviewerNotMet);
+  }));
+
+  await t.test("timed-out later review resets stale reviewer assessments", async () => withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const outcomes = [{ id: "one", text: "One" }];
+    const authorization = approvedAuthorization(issue, outcomes);
+    const workerMet = [{ id: "one", status: "Met", evidence: "Remediation validation passed." }];
+    const reviewerNotMet = [{ id: "one", status: "Not met", evidence: "Initial review found a gap." }];
+    const firstReview = JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: reviewerNotMet });
+    const timedOutReview = { code: null, timedOut: true, outputExceeded: false, stdout: "private partial output" };
+    const fake = fakeRun({
+      issue,
+      authorization,
+      workerReports: [approvedWorkerReport(workerMet), approvedWorkerReport(workerMet)],
+      reviews: [firstReview, timedOutReview],
+    });
+
+    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /bounded reviewer did not complete/);
+
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, workerMet);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
+    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
+    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
+    assert.deepEqual(durableEvidence.workerOutcomeAssessments, workerMet);
+    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
+  }));
 });
 
 test("required valid browser evidence reaches run evidence and the PR update", async () => {
