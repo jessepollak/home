@@ -1,6 +1,6 @@
 # Actions
 
-Subsystem design under [architecture.md](architecture.md); this is the former "Home is thin" document (Jesse-locked September 11, 2026; revised September 12; principles, client architecture, performance, and test policy moved to architecture.md on September 13). It supersedes `docs/architecture-review-2026-09.md` sections B.2, B.4, B.5, "Required tests before a finance PR", and "Money-safety invariants".
+Subsystem design under [architecture.md](architecture.md), Jesse-locked September 11, 2026 and revised September 12. Architecture owns the cross-cutting principles, client architecture, performance rules, and test policy; this document owns the action contract.
 
 An action is the onchain flow: Home prepares calldata, the user signs, Home tracks one id to a receipt. The `actions` table is a **record** (architecture.md principle 2): a confirmed action is the one thing a provider cannot give back to Home.
 

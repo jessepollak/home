@@ -22,7 +22,7 @@ The server SDK's usage tracking and error reporting are disabled by Home before 
 
 ## Preview auth
 
-Email OTP is only testable on `http://localhost:3000` and the production alias (`https://home-web-jessepollaks-projects.vercel.app`) right now. Those origins stay on Embedded Wallet CORS. Vercel preview hosts are not allowlisted, so email sign-in fails there (`We could not send a code…`). This is a CDP client rejection after the app loads, not Vercel Deployment Protection. Base Account uses Home-native SIWE and does not depend on CDP origin allowlisting. Background: [#67](https://github.com/jessepollak/home/issues/67). Hosting notes: [Vercel deploy](vercel-deploy.md#preview-auth).
+Email OTP is only testable on `http://localhost:3000` and the production alias (`https://home-web-jessepollaks-projects.vercel.app`) right now. Those origins stay on Embedded Wallet CORS. Vercel preview hosts are not allowlisted, so email sign-in fails there (`We could not send a code…`). This is a CDP client rejection after the app loads, not Vercel Deployment Protection. Base Account uses Home-native SIWE and does not depend on CDP origin allowlisting. Background: [#67](https://github.com/jessepollak/home/issues/67). Hosting notes: [Vercel deploy](vercel-deploy.md).
 
 **Default (A).** Smoke auth on localhost or production. PR previews stay UI/layout.
 

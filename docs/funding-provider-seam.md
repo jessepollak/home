@@ -2,7 +2,7 @@
 
 Status: design of record, September 11, 2026, v2 after Jesse's review; implemented by the #301 candidate on September 12, 2026. Directional provider contract added September 14, 2026 under [#436](https://github.com/jessepollak/home/issues/436). Coinbase Embedded Orders evidence updated September 16, 2026 under [#294](https://github.com/jessepollak/home/issues/294). Reconciliation intent and adapter echo validation were amended during implementation review. Tracking: [#301](https://github.com/jessepollak/home/issues/301).
 
-Related: [regional money](regional-money.md), [currency defaults](currency-defaults.md), [fork and extend](fork-and-extend.md), [current engineering rules](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers).
+Related: [regional money](regional-money.md), [currency defaults](currency-defaults.md), [fork and extend](fork-and-extend.md), and the [contribution contract](../CONTRIBUTING.md#contribution-contract).
 
 ## Directional extension (#436)
 

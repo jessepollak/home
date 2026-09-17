@@ -56,7 +56,7 @@ The API validates the session, resolves the one smart account the caller may act
 | Order | a funding operation at an edge, created against a provider and settled by a verified receipt |
 | Presentation currency | the fiat the user reads totals in; changes presentation, never holdings |
 
-Each economic position counts once: vault shares are valued as a position, not again as their underlying; collateral is not liquid cash; a card allocation is not a second holding. Net worth includes collateral and subtracts accrued debt ([target architecture](target-architecture.md)); today's hero is a holdings total, and a net-worth total is a later feature.
+Each economic position counts once: vault shares are valued as a position, not again as their underlying; collateral is not liquid cash; a card allocation is not a second holding. Net worth includes collateral and subtracts accrued debt; today's hero is a holdings total, and a net-worth total is a later feature.
 
 ## Seams
 

@@ -2,7 +2,7 @@
 
 Status: factory operating contract, September 15, 2026. How Jesse and the factory deliver Home changes. Not a product inventory and not production authorization.
 
-**Current-state docs:** [build status](build-status.md), [contribution contract](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers), [browser validation](browser-validation.md), [UI direction](ui-direction.md), [UI PR previews](ui-pr-previews.md), [docs index](README.md). Human onboarding: [CONTRIBUTING](../CONTRIBUTING.md).
+**Current-state docs:** [architecture](architecture.md), [actions](actions.md), [balances](balances.md), [browser validation](browser-validation.md), [UI direction](ui-direction.md), [UI PR previews](ui-pr-previews.md), and the [docs index](README.md). Engineering onboarding and contribution rules: [CONTRIBUTING](../CONTRIBUTING.md).
 
 ## Mission
 
@@ -52,7 +52,16 @@ One `status:*` at a time. Swap; do not stack. `status:in-progress` is deprecated
 | `lane:product` | Product / triage |
 | `lane:ops` | Ops / playbook |
 
-Keep an issue and its PR within one lane. If work crosses lanes, split it unless the change cannot be safely separated. Shared files are listed in the [architecture review](architecture-review-2026-09.md#appendix--merge-hotspots-coordinate-dont-both-edit).
+Keep an issue and its PR within one lane. If work crosses lanes, split it unless the change cannot be safely separated. Coordinate before editing the shared files below.
+
+### Shared merge hotspots
+
+- `apps/web/client/account/cdp-session-lifecycle.tsx`
+- `apps/web/client/account/cdp-money-action-execution.ts`
+- `apps/web/client/home/shell.tsx`
+- `apps/web/client/query/query-client.tsx`
+- `apps/web/server/money-actions/`
+- `apps/web/config/portfolio-assets.ts` and `apps/web/shared/savings/config.ts`
 
 ### `priority:*`
 
@@ -148,7 +157,7 @@ This repository change removes persona routing but intentionally does not bulk-e
 
 ## PRs
 
-Small, reviewable, one lane. Same contribution contract as any engineer: [architecture review § D](architecture-review-2026-09.md#d-contribution-contract-for-new-engineers).
+Small, reviewable, one lane. Follow the same [contribution contract](../CONTRIBUTING.md#contribution-contract) as any engineer.
 
 Money invariants:
 
@@ -169,7 +178,7 @@ Test Home's logic: calldata issuance, auth scope, amount parsing and formatting,
 
 **Pre-lock research stays off `main`.** Design and architecture spikes live on the issue thread (or Discussions) until Jesse locks direction. After lock, land a short summary in `docs/`: locked answers, the chosen path, and a pointer to the issue.
 
-**Product docs ship with the feature.** When a feature changes a delivered contract, update the matching current-tree doc in the same PR ([architecture review — doc update expectations](architecture-review-2026-09.md#doc-update-expectations)). Process and ops docs may be docs-only.
+**Product docs ship with the feature.** When a feature changes a delivered contract, update the matching current doc in the same PR, as required by the [contribution contract](../CONTRIBUTING.md#contribution-contract). Process and ops docs may be docs-only.
 
 | Kind | Where |
 |---|---|

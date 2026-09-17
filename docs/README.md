@@ -1,52 +1,42 @@
-# Docs
+# Home docs
 
-For product intent and MVP scope, start with [Product strategy](product-strategy.md). For technical design, start with [Architecture](architecture.md), the one normative design document; [Actions](actions.md) and [Balances](balances.md) are its subsystem designs. [Build status](build-status.md) records the local-app boundary; [Fork and extend](fork-and-extend.md) is the operator path.
+This map points to Home's current product, engineering, delivery, setup, and integration references. Git history and closed issues retain superseded plans and audit snapshots.
 
-| Doc | Description |
-| --- | --- |
-| [Architecture review](architecture-review-2026-09.md) | Current-tree boundaries, risks, and contribution rules. |
-| [Archive index](archive/README.md) | Historical documents and why they moved. |
-| Historical implementation plan ([archive](archive/implementation-plan-2026-09-07.md), [compatibility stub](implementation-plan.md)) | September 7 livestream plan; retained for compatibility, not a current backlog. |
-| [Balances inventory architecture](balances-inventory-architecture.md) | Bounded wallet and savings inventory decisions. |
-| [Base Account](base-account.md) | Optional Base Account configuration. |
-| [Browser validation](browser-validation.md) | Normative `agent-browser` iteration, Playwright regression, and provider-acceptance boundary. |
-| [Build status](build-status.md) | Local-app scope and validation boundary. |
-| [Checkpoint 2026-09-12](checkpoint-2026-09-12.md) | State of main after the Home-is-thin reset; decisions, open items, how to resume. |
-| [Architecture audit 2026-09-12](architecture-audit-2026-09-12.md) | Post-reset audit of server, funding seam, and client; ranked cleanup lanes and decisions. |
-| [CDP error reporting](cdp-error-reporting.md) | Default CDP error-reporting policy. |
-| [CDP setup](cdp-setup.md) | CDP project, sessions, and allowed origins. |
-| [CDP Address History](cdp-address-history.md) | Staged wallet-scoped Base Activity source and rollout gate. |
-| [CDP SQL](cdp-sql.md) | Indexed Base-history fallback adapter notes. |
-| [Codex prices](codex-prices.md) | Server-side Invest price integration. |
-| [Currency defaults](currency-defaults.md) | Default asset choices by currency. |
-| [Delivery gates](delivery-gates.md) | Repository and deployment gate boundary. |
-| [UI system](design-system.md) | Owned shadcn components, Home theme tokens, lint rules, and testing stance. |
-| [Docs index](README.md) | This complete documentation index. |
-| [Fork and extend](fork-and-extend.md) | Operator customization and hosting guide. |
-| [Funding provider seam](funding-provider-seam.md) | Funding adapter contract and design history. |
-| [Architecture](architecture.md) | Principles, seams, data model, flows, client, quality bar, fork contract. Wins over every other doc. |
-| [Actions](actions.md) | The action record, derived status, prepare → confirm → dispatch → handle, SDK-verified retry semantics, owner fence. |
-| [Balances](balances.md) | One balances pipeline and snapshot: enumerate → resolve → read → price; device and server caching. |
-| [Issuer integration guide](integrations/README.md) | Funding-provider adapter walkthrough. |
-| [Invest data](invest-data.md) | Invest asset identity and data notes. |
-| [Local money coverage](local-money-coverage.md) | Global country, currency, issuer-research, Home-route, GDP, and map inventory. |
-| [Morpho setup](morpho-setup.md) | Morpho vault configuration and verification. |
-| [Verified Morpho markets](morpho-markets.md) | Shared registry, math, pinned RPC reader, and product projection boundary for isolated markets. |
-| [Observability](observability.md) | Privacy-safe application observability. |
-| [Performance observability](performance-observability.md) | Speed Insights, closed Home startup events, and balance-latency verification. |
-| [Operating manual](operating-manual.md) | Jesse/factory workflow, labels, and proof bar. |
-| [PR previews](pr-previews/README.md) | Preview capture conventions. |
-| [Product strategy](product-strategy.md) | Customer, vision, MVP scope, and completion proofs. |
-| [PRD template](prd-template.md) | Bounded delivery brief for an existing issue. |
-| [GitHub Project](github-project.md) | Issue-filing contract, workstream index, views, and synchronization handoff. |
-| [Agent instruction review](agent-instruction-review.md) | Astra guide application and remaining instruction cleanup. |
-| [Historical product scope](product-scope.md) | Livestream-era intent; current scope is in Product strategy. |
-| [Public transfer feed spec](public-transfer-feed-spec.md) | Proposed public ERC-20 transfer feed. |
-| [QA checking shimmer spec](qa/checking-97/CHECKING-SHIMMER-SPEC.md) | Checking shimmer QA specification. |
-| [README capture guide](readme/README.md) | Screenshot provenance and regeneration. |
-| [Regional money](regional-money.md) | Regional presentation and stablecoin candidates. |
-| Historical target architecture ([plan](target-architecture.md), [technical-design stub](technical-design.md)) | September 7 build plan and compatibility stub; superseded by [Architecture](architecture.md) where they disagree. |
-| [UI direction](ui-direction.md) | Product UI rules and visual direction. |
-| [UI PR previews](ui-pr-previews.md) | Required proof for user-visible changes. |
-| [Vercel deploy](vercel-deploy.md) | Bun monorepo Vercel setup. |
+## Start here
 
+- [Product strategy](product-strategy.md) — customer, vision, MVP scope, and completion proofs.
+- [Architecture](architecture.md) — the normative technical direction and seams; it wins when another document disagrees.
+- [Contributing](../CONTRIBUTING.md) — local checks, app boundaries, and the engineering contribution contract.
+- [Repository README](../README.md#get-started) — install and run Home; [Fork and extend](fork-and-extend.md) covers operator customization.
+
+## Core contracts
+
+- [Actions](actions.md) — prepare → confirm → dispatch → handle, records, status, retries, and owner fencing.
+- [Balances](balances.md) — enumeration, pinned reads, resolution, pricing, snapshots, and cache behavior.
+- [Borrow](borrow.md) and [Morpho markets](morpho-markets.md) — isolated-market product and protocol boundaries.
+- [Funding provider seam](funding-provider-seam.md) — adapter contract, order lifecycle, receipt rules, and provider rollout evidence.
+- [Regional money](regional-money.md) and [currency defaults](currency-defaults.md) — presentation, asset mapping, and default selection.
+
+## Delivery and design
+
+- [Operating manual](operating-manual.md) — Jesse/factory roles, issue intake, delivery loop, proof bar, and merge policy.
+- [GitHub Project](github-project.md), [PRD template](prd-template.md), and [delivery gates](delivery-gates.md) — issue placement, shaping, and repository/deployment checks.
+- [Browser validation](browser-validation.md) and [UI PR previews](ui-pr-previews.md) — interactive iteration, regression ownership, and current-head visual proof.
+- [UI direction](ui-direction.md) and [design system](design-system.md) — product presentation rules, owned components, tokens, and lint contracts.
+- [Observability](observability.md) and [performance observability](performance-observability.md) — privacy-safe events, performance marks, and verification.
+- [Vercel deploy](vercel-deploy.md) — Bun monorepo deployment and database migration setup.
+
+## Integrations and data
+
+- [Issuer integration guide](integrations/README.md) — funding-provider adapter walkthrough.
+- [Base Account](base-account.md) — native account configuration and sign-in boundary.
+- [CDP setup](cdp-setup.md), [error reporting](cdp-error-reporting.md), [Address History](cdp-address-history.md), and [CDP SQL](cdp-sql.md) — CDP configuration and Activity data sources.
+- [Codex prices](codex-prices.md) and [Invest data](invest-data.md) — market-data integration and asset identity.
+- [Morpho setup](morpho-setup.md) — Save vault configuration, candidate evidence, and verification commands.
+- [Local money coverage](local-money-coverage.md) and [stablecoin candidates](stablecoin-candidates.json) — regional research inventory and contract candidates.
+- [README capture guide](readme/README.md) and [PR preview captures](pr-previews/README.md) — screenshot provenance and storage conventions.
+
+## Proposed specs
+
+- [Public transfer feed](public-transfer-feed-spec.md) — active implementation-ready proposal for a public ERC-20 transfer feed.
+- [Checking shimmer](qa/checking-97/CHECKING-SHIMMER-SPEC.md) — active QA specification for the checking loading state.

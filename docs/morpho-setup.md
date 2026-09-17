@@ -1,6 +1,6 @@
 # Morpho USDC savings read integration
 
-Status: this file documents Save's Morpho V1 vault adapter and the candidate comparison verified 2026-09-07. Save is Home's only user-facing lending product. Local deposit and withdrawal preparation against the three configured USDC vaults is integrated with pinned reads and ordered smart-account batch simulation; live vault execution has not been performed. Current delivery: [build status](build-status.md).
+Status: this file documents Save's Morpho V1 vault adapter and the candidate comparison verified 2026-09-07. Save is Home's only user-facing lending product. Local deposit and withdrawal preparation against the three configured USDC vaults is integrated with pinned reads and ordered smart-account batch simulation; live vault execution has not been performed. The execution contract is in [Actions](actions.md), and portfolio observation is in [Balances](balances.md).
 
 Verified (read path): 2026-09-07 UTC.
 
@@ -101,7 +101,7 @@ The parent shell can render:
 
 The component fetches the public candidate route, starts with no selected vault, and only reveals current APY after a successful sourced response. Passing a session changes private-position status copy only; it does not authorize or issue a private request.
 
-The original read-only lane did not ship transaction calldata. Local deposit and withdrawal against these three vaults is now integrated; live vault execution has not been performed. See [build status](build-status.md).
+The original read-only lane did not ship transaction calldata. Local deposit and withdrawal against these three vaults is now integrated through the [action flow](actions.md); live vault execution has not been performed.
 
 ## Verification
 
