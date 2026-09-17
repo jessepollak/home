@@ -301,6 +301,20 @@ function runnerGhFixture({ issue, comment, reactions }) {
   return { gh, calls };
 }
 
+test("generic attribution markers stay on the legacy owner-body route", async () => {
+  for (const marker of ["<!-- factory -->", "<!-- hugo -->"]) {
+    let calls = 0;
+    const adapter = createGitHubAdapter({ repository: REPOSITORY, gh: async () => { calls += 1; throw new Error("unexpected gh call"); } });
+    const authorization = await adapter.authorizeIssue({
+      number: 600, nodeId: "I_child", title: "Owner directed", body: `Exact body\n${marker}`,
+      author: { login: "jessepollak" }, state: "OPEN", labels: [], url: "https://github.test/issues/600",
+    }, []);
+    assert.equal(authorization.route, "legacy-human-body/v1");
+    assert.equal(authorization.child.body, `Exact body\n${marker}`);
+    assert.equal(calls, 0);
+  }
+});
+
 test("runner authorization maps recorded GraphQL and REST fixtures and fails closed", async () => {
   const { fixture } = await publishedFixture();
   await activateFixture(fixture);
