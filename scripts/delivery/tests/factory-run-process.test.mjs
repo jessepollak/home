@@ -4,8 +4,144 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { childModelEnvironment, piInvocation, runBoundedProcess } from "../factory-run-process.mjs";
+import {
+  childModelEnvironment,
+  factoryChildModelAgent,
+  parseModelSelector,
+  piInvocation,
+  resolveChildModelSelection,
+  runBoundedProcess,
+} from "../factory-run-process.mjs";
 import { runDryExercise } from "../factory-run.mjs";
+
+const INSTALLED_SETTINGS = {
+  defaultProvider: "cbhq-openai",
+  defaultModel: "gpt-5.6-sol",
+  subagents: {
+    agentOverrides: {
+      "routine-worker": { model: "cbhq-deepseek/deepseek-v4.1-flash" },
+      worker: { model: "cbhq-openai/gpt-5.6-sol" },
+      reviewer: { model: "cbhq-deepseek/deepseek-v4.1-flash" },
+    },
+  },
+};
+
+test("factory lanes escalate from the routine worker to the Sol worker on the second repair", () => {
+  assert.equal(factoryChildModelAgent("worker", 0), "routine-worker");
+  assert.equal(factoryChildModelAgent("worker", 1), "routine-worker");
+  assert.equal(factoryChildModelAgent("worker", 2), "worker");
+  assert.equal(factoryChildModelAgent("worker", 7), "worker");
+  assert.equal(factoryChildModelAgent("reviewer"), "reviewer");
+  assert.equal(factoryChildModelAgent("reviewer", 2), "reviewer");
+  assert.throws(() => factoryChildModelAgent("planner", 0), /role is unsupported/);
+  assert.throws(() => factoryChildModelAgent("worker", -1), /remediation number/);
+  assert.throws(() => factoryChildModelAgent("worker", 1.5), /remediation number/);
+});
+
+test("every factory lane resolves its installed agent model override", () => {
+  for (const [role, remediationNumber, lane, expected] of [
+    ["worker", 0, "routine-worker", { provider: "cbhq-deepseek", model: "deepseek-v4.1-flash" }],
+    ["worker", 1, "routine-worker", { provider: "cbhq-deepseek", model: "deepseek-v4.1-flash" }],
+    ["worker", 2, "worker", { provider: "cbhq-openai", model: "gpt-5.6-sol" }],
+    ["reviewer", 0, "reviewer", { provider: "cbhq-deepseek", model: "deepseek-v4.1-flash" }],
+  ]) {
+    const modelAgent = factoryChildModelAgent(role, remediationNumber);
+    assert.equal(modelAgent, lane);
+    assert.deepEqual(resolveChildModelSelection({ PATH: process.env.PATH }, INSTALLED_SETTINGS, modelAgent), expected);
+  }
+  assert.deepEqual(
+    resolveChildModelSelection({}, { defaultProvider: "fallback-provider", defaultModel: "fallback-model" }, "routine-worker"),
+    { provider: "fallback-provider", model: "fallback-model" },
+  );
+});
+
+test("explicit PI_PROVIDER and PI_MODEL overrides keep winning over lane routing", () => {
+  assert.deepEqual(
+    resolveChildModelSelection({ PI_PROVIDER: "explicit-provider", PI_MODEL: "explicit-model" }, INSTALLED_SETTINGS, "routine-worker"),
+    { provider: "explicit-provider", model: "explicit-model" },
+  );
+  for (const modelAgent of ["routine-worker", "worker", "reviewer"]) {
+    assert.deepEqual(resolveChildModelSelection({ PI_MODEL: "explicit-model" }, INSTALLED_SETTINGS, modelAgent), {
+      provider: "cbhq-openai",
+      model: "explicit-model",
+    });
+    assert.deepEqual(resolveChildModelSelection({ PI_PROVIDER: "explicit-provider" }, INSTALLED_SETTINGS, modelAgent), {
+      provider: "explicit-provider",
+      model: "gpt-5.6-sol",
+    });
+  }
+});
+
+test("malformed installed model selectors fail closed", () => {
+  assert.deepEqual(parseModelSelector(" cbhq-deepseek/deepseek-v4.1-flash "), {
+    provider: "cbhq-deepseek",
+    model: "deepseek-v4.1-flash",
+  });
+  assert.equal(parseModelSelector(undefined), undefined);
+  assert.equal(parseModelSelector(null), undefined);
+  for (const malformed of ["deepseek-v4.1-flash", "cbhq-deepseek/", "/deepseek-v4.1-flash", "cbhq/a/b", "cbhq-deepseek /deepseek", 7, {}, ""]) {
+    assert.throws(() => parseModelSelector(malformed), /provider\/model/);
+  }
+  const malformedSettings = { subagents: { agentOverrides: { reviewer: { model: "deepseek-v4.1-flash" } } } };
+  assert.throws(() => resolveChildModelSelection({}, malformedSettings, "reviewer"), /provider\/model/);
+});
+
+test("isolated child settings use only the lane model and its provider credentials", async () => {
+  const sourceHome = await mkdtemp(join(tmpdir(), "factory-process-lane-"));
+  try {
+    const agentDirectory = join(sourceHome, ".pi", "agent");
+    await mkdir(agentDirectory, { recursive: true });
+    await writeFile(join(agentDirectory, "settings.json"), JSON.stringify(INSTALLED_SETTINGS));
+    await writeFile(join(agentDirectory, "models.json"), JSON.stringify({
+      providers: {
+        "cbhq-deepseek": { apiKey: "deepseek-credential", models: [{ id: "deepseek-v4.1-flash" }] },
+        "cbhq-openai": { apiKey: "openai-credential", models: [{ id: "gpt-5.6-sol" }] },
+      },
+    }));
+    await writeFile(join(agentDirectory, "auth.json"), JSON.stringify({
+      "cbhq-deepseek": { token: "deepseek-auth" },
+      "cbhq-openai": { token: "openai-auth" },
+    }));
+    const script = `
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const dir = path.join(process.env.HOME, ".pi", "agent");
+      const read = (name) => JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+      process.stdout.write(JSON.stringify({
+        settings: read("settings.json"),
+        providers: Object.keys(read("models.json").providers),
+        auth: Object.keys(read("auth.json")),
+      }));
+    `;
+    const observations = {};
+    for (const [role, remediationNumber] of [["worker", 0], ["worker", 2], ["reviewer", 0]]) {
+      const result = await runBoundedProcess({
+        command: process.execPath,
+        args: ["-e", script],
+        cwd: process.cwd(),
+        environment: { PATH: process.env.PATH, HOME: sourceHome },
+        role,
+        modelAgent: factoryChildModelAgent(role, remediationNumber),
+        timeoutMs: 5_000,
+      });
+      assert.equal(result.code, 0);
+      observations[`${role}:${remediationNumber}`] = JSON.parse(result.stdout);
+    }
+    const initialLane = { defaultProvider: "cbhq-deepseek", defaultModel: "deepseek-v4.1-flash", quietStartup: true };
+    assert.deepEqual(observations["worker:0"].settings, initialLane);
+    assert.deepEqual(observations["worker:0"].providers, ["cbhq-deepseek"]);
+    assert.deepEqual(observations["worker:0"].auth, ["cbhq-deepseek"]);
+    assert.deepEqual(observations["worker:2"].settings, {
+      defaultProvider: "cbhq-openai", defaultModel: "gpt-5.6-sol", quietStartup: true,
+    });
+    assert.deepEqual(observations["worker:2"].providers, ["cbhq-openai"]);
+    assert.deepEqual(observations["worker:2"].auth, ["cbhq-openai"]);
+    assert.deepEqual(observations["reviewer:0"].settings, initialLane);
+    assert.deepEqual(observations["reviewer:0"].providers, ["cbhq-deepseek"]);
+  } finally {
+    await rm(sourceHome, { recursive: true, force: true });
+  }
+});
 
 test("child model environments isolate config and disable GitHub credentials", () => {
   const environment = childModelEnvironment({

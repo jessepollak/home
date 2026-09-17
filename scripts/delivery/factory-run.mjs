@@ -17,7 +17,7 @@ import {
   planAfterReview,
   previewProofRequired,
 } from "./factory-run-policy.mjs";
-import { piInvocation, runBoundedProcess } from "./factory-run-process.mjs";
+import { factoryChildModelAgent, piInvocation, runBoundedProcess } from "./factory-run-process.mjs";
 import { parseProposalComment, sameApprovalIdentity, selectApprovedBrief } from "./factory-brief-policy.mjs";
 
 const execFile = promisify(execFileCallback);
@@ -456,15 +456,31 @@ export function createLocalAdapter({ root, environment = process.env, signal } =
     async preflight(cwd) {
       await command(process.execPath, [join(cwd, "scripts/delivery/factory-preflight.mjs")], { cwd, environment });
     },
-    async runWorker(cwd, issue, findings, authorization) {
+    async runWorker(cwd, issue, findings, authorization, remediationNumber = 0) {
       const invocation = piInvocation("worker", workerPrompt(issue, findings, authorization));
-      return runBoundedProcess({ ...invocation, cwd, environment, role: "worker", timeoutMs: WORKER_TIMEOUT_MS, signal });
+      return runBoundedProcess({
+        ...invocation,
+        cwd,
+        environment,
+        role: "worker",
+        modelAgent: factoryChildModelAgent("worker", remediationNumber),
+        timeoutMs: WORKER_TIMEOUT_MS,
+        signal,
+      });
     },
     async runReviewer(cwd, issue, authorization) {
       const diff = await command("git", ["diff", "--no-ext-diff", "--unified=80", "origin/main...HEAD"], { cwd, environment });
       if (Buffer.byteLength(diff) > 512 * 1024) throw new Error("review diff exceeds bounded reviewer input");
       const invocation = piInvocation("reviewer", reviewerPrompt(issue, diff, authorization));
-      return runBoundedProcess({ ...invocation, cwd, environment, role: "reviewer", timeoutMs: REVIEWER_TIMEOUT_MS, signal });
+      return runBoundedProcess({
+        ...invocation,
+        cwd,
+        environment,
+        role: "reviewer",
+        modelAgent: factoryChildModelAgent("reviewer"),
+        timeoutMs: REVIEWER_TIMEOUT_MS,
+        signal,
+      });
     },
     async validateCommitAndPush(cwd, issueNumber, branch, remediationNumber) {
       const changes = await command("git", ["status", "--porcelain"], { cwd, environment });
@@ -615,7 +631,7 @@ export async function runFactorySupervisor(issueValue, {
       await stage("approval-before-worker", () => github.revalidateAuthorization(authorization));
     }
     resetOutcomeAssessments("worker");
-    const worker = await stage("worker", () => local.runWorker(worktree, issue, [], authorization));
+    const worker = await stage("worker", () => local.runWorker(worktree, issue, [], authorization, 0));
     if (worker.code !== 0 || worker.timedOut || worker.outputExceeded) throw new Error("bounded worker did not complete");
     const workerReport = await stage("worker-report", async () => parseWorkerReport(
       worker.stdout.trim(),
@@ -692,7 +708,7 @@ export async function runFactorySupervisor(issueValue, {
         })),
       ];
       resetOutcomeAssessments("worker");
-      const remediation = await stage(`remediation-${fixLoops}`, () => local.runWorker(worktree, issue, remediationItems, authorization));
+      const remediation = await stage(`remediation-${fixLoops}`, () => local.runWorker(worktree, issue, remediationItems, authorization, fixLoops));
       if (remediation.code !== 0 || remediation.timedOut || remediation.outputExceeded) {
         throw new Error("bounded remediation worker did not complete");
       }

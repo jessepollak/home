@@ -22,6 +22,59 @@ function isGitHubCredentialName(name) {
     (/^(?:GH|GITHUB)_/.test(name) && /(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY|CREDENTIAL)/.test(name));
 }
 
+function nonEmptyString(value) {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+/**
+ * Parses an installed composite `provider/model` agent selector.
+ * Absent values mean "no installed override"; malformed values fail closed.
+ */
+export function parseModelSelector(value) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") throw new Error("installed agent model selector must be a provider/model string");
+  const parts = value.trim().split("/");
+  if (parts.length !== 2 || parts.some((part) => part === "" || /\s/.test(part))) {
+    throw new Error("installed agent model selector must use provider/model format");
+  }
+  return { provider: parts[0], model: parts[1] };
+}
+
+/**
+ * Factory model routing: the initial implementation and the first targeted repair use the
+ * routine-worker lane, the second repair escalates to the worker lane, and review uses the
+ * reviewer lane. Lane names are installed pi agent override keys.
+ */
+export function factoryChildModelAgent(role, remediationNumber = 0) {
+  if (role === "reviewer") return "reviewer";
+  if (role !== "worker") throw new Error("factory child role is unsupported");
+  if (!Number.isSafeInteger(remediationNumber) || remediationNumber < 0) {
+    throw new Error("factory remediation number must be a non-negative integer");
+  }
+  return remediationNumber <= 1 ? "routine-worker" : "worker";
+}
+
+/**
+ * Resolves the provider/model pair for one factory child. Precedence, highest first:
+ * an explicit PI_PROVIDER/PI_MODEL operator override, the installed agent override for the
+ * child's lane, then the source settings global defaults.
+ */
+export function resolveChildModelSelection(environment, sourceSettings, modelAgent) {
+  const roleSelector = parseModelSelector(sourceSettings?.subagents?.agentOverrides?.[modelAgent]?.model);
+  const explicitProvider = nonEmptyString(environment?.PI_PROVIDER);
+  const explicitModel = nonEmptyString(environment?.PI_MODEL);
+  if (explicitProvider !== undefined || explicitModel !== undefined) {
+    return {
+      provider: explicitProvider ?? sourceSettings?.defaultProvider,
+      model: explicitModel ?? sourceSettings?.defaultModel,
+    };
+  }
+  return {
+    provider: roleSelector?.provider ?? sourceSettings?.defaultProvider,
+    model: roleSelector?.model ?? sourceSettings?.defaultModel,
+  };
+}
+
 async function readJson(path) {
   try {
     return JSON.parse(await readFile(path, "utf8"));
@@ -35,7 +88,7 @@ async function writeJson(path, value) {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
-async function prepareIsolatedModelHome(environment) {
+async function prepareIsolatedModelHome(environment, { modelAgent } = {}) {
   const isolatedHome = await mkdtemp(join(tmpdir(), "home-factory-child-"));
   try {
     const agentDirectory = join(isolatedHome, ".pi", "agent");
@@ -54,8 +107,7 @@ async function prepareIsolatedModelHome(environment) {
     }
 
     const sourceSettings = await readJson(join(sourceAgentDirectory, "settings.json"));
-    const provider = environment.PI_PROVIDER || sourceSettings?.defaultProvider;
-    const model = environment.PI_MODEL || sourceSettings?.defaultModel;
+    const { provider, model } = resolveChildModelSelection(environment, sourceSettings, modelAgent);
     if (provider || model) {
       await writeJson(join(agentDirectory, "settings.json"), {
         ...(provider ? { defaultProvider: provider } : {}),
@@ -130,13 +182,16 @@ export async function runBoundedProcess({
   cwd,
   environment,
   role,
+  modelAgent,
   timeoutMs,
   signal,
   maxOutputBytes = MAX_OUTPUT_BYTES,
 }) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error("process timeout is required");
 
-  const isolatedHome = await prepareIsolatedModelHome(environment);
+  const isolatedHome = await prepareIsolatedModelHome(environment, {
+    modelAgent: modelAgent ?? factoryChildModelAgent(role, 0),
+  });
   try {
     return await new Promise((resolve, reject) => {
       const child = spawn(command, args, {

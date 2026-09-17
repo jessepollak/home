@@ -34,6 +34,14 @@ The actor model above decides who may deliver, approve, and merge Home changes. 
 
 The factory may coordinate delivery and evidence, but it does not displace the Sol parent's task decision and final-acceptance authority or the configured worker/reviewer chain. Sol parent acceptance of a delegated task is not Jesse's product approval: Jesse alone gives final approval (+1) and merges, and every safety, credential, validation, review, and merge rule in this manual still applies.
 
+`bun run factory:run` applies this chain to its own bounded children instead of giving every role one shared model: the initial implementation and the first targeted repair run the `routine-worker` lane, the second repair runs the `worker` (Sol) lane, and independent review runs the `reviewer` lane. Model resolution precedence, highest first:
+
+1. An explicit `PI_PROVIDER`/`PI_MODEL` environment override, which applies to every factory child. An enclosing pi session exports these values for its children, so unset them when launching the factory from such a session to use lane routing.
+2. The installed `subagents.agentOverrides.<lane>.model` selector, which must be a `provider/model` pair; a malformed configured selector fails the run before the child starts.
+3. The installed global `defaultProvider`/`defaultModel`.
+
+Lane routing selects only the child's provider and model. Child tool restrictions, the isolated home, credential scrubbing, timeouts, review semantics, and the two-loop cap are unchanged.
+
 ## Task persistence
 
 GitHub Issues on `jessepollak/home` are the sole durable board and intake for all Home feedback and tasks, including solo checkout work. Do not create or use a local, private, or parallel intake board. Local checklists may track only the next few actions and do not constitute another backlog. Every new issue follows the [issue-filing contract](github-project.md#filing-an-issue): one primary workstream, Home Project membership, and GitHub's native parent/sub-issue edge to that workstream or its nearest useful intermediate parent.
