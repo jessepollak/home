@@ -13,6 +13,7 @@ import { providerFetchImplementation, resolveWebhookEnvironment } from "../../co
 import {
   createRipioClient,
   RipioProviderError,
+  sameRipioDecimal,
   type RipioClient,
   type RipioOrderReference,
 } from "./client";
@@ -68,7 +69,11 @@ export const ripioProvider: FundingProvider = {
         });
         return {
           providerQuoteId: quote.quoteId,
-          fiatAmount: quote.finalFromAmount,
+          // Ripio pads the amount to its own precision, so the requested form
+          // is restored when the two are the same debit. A provider that
+          // actually changed the debit is passed through unchanged and the core
+          // rejects it, which keeps that decision where it is documented.
+          fiatAmount: sameRipioDecimal(quote.finalFromAmount, input.fiatAmount) ? input.fiatAmount : quote.finalFromAmount,
           tokenAmountAtomic: ripioDecimalToAtomic(quote.finalToAmount, ctx.binding.asset.decimals, "invalid-response"),
           fees: quote.fees.map((fee) => ({
             label: fee.type,

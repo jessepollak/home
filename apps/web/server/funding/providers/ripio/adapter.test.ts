@@ -145,6 +145,22 @@ describe("Ripio funding adapter", () => {
     expect(calls).toBe(0);
   });
 
+  test("restores the requested debit when the provider only reformats it", async () => {
+    const ctx = context((async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/oauth2/token/") return tokenResponse();
+      if (path.includes("Networks")) return Response.json([{ network_name: "BASE", assets: [{ name: "wARS", contract_address: "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d" }] }]);
+      return Response.json({ quoteId, customerId: customerRef, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "1000.00000000", finalFromAmount: "1000.00000000", toAmount: "1000.00000000", finalToAmount: "1000.00000000", rate: "1.00000000", expiration: "2099-01-01T00:00:00.000Z", fees: [] });
+    }) as unknown as typeof fetch);
+    const quote = await ripioProvider.onramp!.createQuote!({
+      destination: intent.destination,
+      fiatAmount: "1000",
+      returnUrl: intent.returnUrl,
+      customerRef: intent.customerRef,
+    }, ctx);
+    expect(quote.fiatAmount).toBe("1000");
+  });
+
   test("fails closed when terms cannot be identified and never submits KYC", async () => {
     const paths: string[] = [];
     const ctx = context((async (input: RequestInfo | URL) => {

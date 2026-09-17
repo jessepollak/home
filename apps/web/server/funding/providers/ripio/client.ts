@@ -502,6 +502,10 @@ function exactRipioEntitlement(input: RipioQuoteRequest): boolean {
     && validDecimal(input.fromAmount)
     && /[1-9]/.test(input.fromAmount);
 }
+// Ripio pads amounts to its own precision, so "2300" and "2300.00000000" are
+// the same debit. Callers compare by value; whether a *changed* debit is
+// rejected stays the core's decision.
+export function sameRipioDecimal(left: string, right: string): boolean { return sameDecimal(left, right); }
 function sameDecimal(left: string, right: string): boolean {
   if (!validDecimal(left) || !validDecimal(right)) return false;
   const normalize = (value: string) => value.replace(/\.0+$/, "").replace(/(\.[0-9]*?)0+$/, "$1");
