@@ -256,7 +256,7 @@ describe("IDRX adapter behavior", () => {
         fetchImplementation: (async () =>
           Response.json({ ...historyMintedQrisLiveFixture, records: [fixture.record] })) as unknown as typeof fetch,
       });
-      await expect(vaProvider.getOrder(liveIntent, ctx), fixture.name).resolves.toMatchObject({
+      await expect(vaProvider.onramp!.getOrder(liveIntent, ctx), fixture.name).resolves.toMatchObject({
         state: "unknown",
         providerStatus: "INTENT_MISMATCH",
       });

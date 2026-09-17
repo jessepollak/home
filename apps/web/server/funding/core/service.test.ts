@@ -575,11 +575,13 @@ describe("FundingCore", () => {
     let orders = 0;
     const provider: FundingProvider = {
       manifest,
-      async createOrder(input, ctx) {
-        orders += 1;
-        return { outcome: "created", order: { providerOrderId: `fixture-order-${orders}`, tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
+      onramp: {
+        async createOrder(input, ctx) {
+          orders += 1;
+          return { outcome: "created", order: { providerOrderId: `fixture-order-${orders}`, tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
+        },
+        async getOrder() { return { state: "sent", providerStatus: "MINTED:PAID", transactionHash: `0x${"2".repeat(64)}`, settledTokenAmountAtomic: settled, fees: [{ label: "QRIS Fee (0.7%)", amount: "140", currency: "IDR" }] }; },
       },
-      async getOrder() { return { state: "sent", providerStatus: "MINTED:PAID", transactionHash: `0x${"2".repeat(64)}`, settledTokenAmountAtomic: settled, fees: [{ label: "QRIS Fee (0.7%)", amount: "140", currency: "IDR" }] }; },
     };
     let date = new Date("2026-09-12T00:00:00.000Z");
     const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32) }, currentBaseBlock: async () => "500", verifyReceipt: async (order, hash) => { verified.push(order.expectedTokenAmountAtomic!); return { transactionHash: hash, logIndex: 4 }; }, now: () => date });

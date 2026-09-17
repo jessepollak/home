@@ -196,7 +196,7 @@ const homeRoutes: Partial<Record<CountryCode, CoverageRecord["homeRoute"]>> = {
   AR: { status: "in-build", providerId: "ripio", assetId: "base:wars", paymentMethodIds: ["bank_transfer"], evidence: null },
   BR: { status: "in-build", providerId: "ripio", assetId: "base:wbrl", paymentMethodIds: ["pix"], evidence: null },
   CO: { status: "in-build", providerId: "ripio", assetId: "base:wcop", paymentMethodIds: ["bank_transfer", "breb", "r2p_bancolombia", "r2p_nequi"], evidence: null },
-  ID: { status: "in-build", providerId: "idrx", assetId: "base:idrx", paymentMethodIds: ["bank-va-mandiri", "bank-va-bri", "qris"], evidence: null },
+  ID: { status: "in-build", providerId: "idrx", assetId: "base:idrx", paymentMethodIds: ["qris"], evidence: null },
   US: { status: "sandbox", providerId: "coinbase", assetId: "base:usdc", paymentMethodIds: ["apple-pay"], evidence: null },
 };
 
