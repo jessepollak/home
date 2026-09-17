@@ -202,6 +202,20 @@ test("worker prompt requires the browser-validation contract for user-visible wo
   assert.match(prompt, /Playwright only for committed regression/);
 });
 
+test("legacy non-UI workers retain their exact structured completion report", async () => {
+  const prompt = workerPrompt(ISSUE);
+  assert.match(prompt, /\{\"complete\":true,\"browserEvidence\":null\}/);
+
+  await withRunPaths(async (paths) => {
+    for (const report of ["implementation summary", '{"complete":true}', '{"complete":false,"browserEvidence":null}']) {
+      const fake = fakeRun({ workerReports: [report] });
+      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /worker (?:output is not valid JSON|report fields are invalid|report is incomplete)/);
+      assert.equal(fake.calls.some((call) => call.startsWith("validate:")), false);
+      assert.equal(fake.calls.some((call) => call.startsWith("pr:")), false);
+    }
+  });
+});
+
 test("browser evidence rendering is concise and escapes inline markdown", () => {
   const section = browserEvidenceSection({
     ...BROWSER_EVIDENCE,
