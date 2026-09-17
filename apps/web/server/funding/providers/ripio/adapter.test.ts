@@ -100,6 +100,7 @@ describe("Ripio funding adapter", () => {
       destination: intent.destination,
       fiatAmount: intent.fiatAmount,
       returnUrl: intent.returnUrl,
+      customerRef: intent.customerRef,
     }, ctx)).rejects.toMatchObject({ code: "ambiguous-create" });
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0]!)).toMatchObject({
@@ -109,6 +110,17 @@ describe("Ripio funding adapter", () => {
       provider: "ripio",
       region: "AR",
     });
+  });
+
+  test("never asks the provider to price a quote without a verified customer", async () => {
+    let calls = 0;
+    const ctx = context((async () => { calls += 1; return tokenResponse(); }) as unknown as typeof fetch);
+    await expect(ripioProvider.onramp!.createQuote!({
+      destination: intent.destination,
+      fiatAmount: intent.fiatAmount,
+      returnUrl: intent.returnUrl,
+    }, ctx)).rejects.toMatchObject({ code: "invalid-request" });
+    expect(calls).toBe(0);
   });
 
   test("fails closed when terms cannot be identified and never submits KYC", async () => {

@@ -176,6 +176,7 @@ export class FundingCore {
           destination: session.smartAccount.address,
           fiatAmount: parsed.fiatAmount,
           returnUrl: `${returnOrigin}/fund?return=funding`,
+          ...(customerRef ? { customerRef } : {}),
         }, ctx)
       : localOneToOneQuote(parsed.fiatAmount, asset.decimals, this.now());
     if (quote.fiatAmount !== parsed.fiatAmount || !validAtomic(quote.tokenAmountAtomic) || Date.parse(quote.expiresAt) <= this.now().getTime()) {

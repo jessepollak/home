@@ -49,8 +49,13 @@ export const ripioProvider: FundingProvider = {
     async createQuote(input, ctx) {
       const startedAt = Date.now();
       try {
+        // Ripio prices a quote against the customer, so the verified customer
+        // must already exist. Without it the provider rejects the create, and
+        // a quote bound to the wrong customer could not be ordered against.
+        if (!input.customerRef) throw new RipioProviderError("invalid-request");
         const quote = await clientFor(ctx).createQuote({
           country: countryFor(ctx),
+          customerId: input.customerRef,
           fromCurrency: ctx.binding.asset.fiatCurrency as "ARS" | "BRL" | "COP",
           toCurrency: ctx.binding.asset.symbol as "wARS" | "wBRL" | "wCOP",
           fromAmount: input.fiatAmount,

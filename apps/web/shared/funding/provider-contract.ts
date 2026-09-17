@@ -213,6 +213,7 @@ export type QuoteIntent = {
   destination: `0x${string}`;
   fiatAmount: string;
   returnUrl: string;
+  customerRef?: string;
 };
 
 export type Quote = {

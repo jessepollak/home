@@ -9,6 +9,7 @@ type RipioEnabledCountry = keyof typeof RIPIO_ASSETS;
 type RipioPaymentMethod = "bank_transfer" | "pix" | "breb" | "r2p_bancolombia" | "r2p_nequi";
 type RipioQuoteRequest = {
   country: RipioEnabledCountry;
+  customerId: string;
   fromCurrency: "ARS" | "BRL" | "COP";
   toCurrency: "wARS" | "wBRL" | "wCOP";
   fromAmount: string;
@@ -251,6 +252,7 @@ export function createRipioClient(country: RipioCountry, options: {
         throw new RipioProviderError("binding-conflict");
       }
       const providerInput = {
+        customerId: input.customerId,
         fromCurrency: input.fromCurrency,
         toCurrency: input.toCurrency,
         fromAmount: input.fromAmount,
@@ -322,6 +324,11 @@ function parseCustomer(value: unknown): RipioCustomerReference {
 
 function parseQuote(value: unknown, request: RipioQuoteRequest): RipioQuote {
   if (!isRecord(value) || !validUuid(value.quoteId) || value.fromCurrency !== request.fromCurrency || value.toCurrency !== request.toCurrency || !validDate(value.expiration) || !Array.isArray(value.fees)) {
+    throw new RipioProviderError("invalid-response");
+  }
+  // A quote echoing a different customer would be unorderable: the order create
+  // binds quote and customer together. Absent is accepted, conflicting is not.
+  if (value.customerId !== undefined && value.customerId !== request.customerId) {
     throw new RipioProviderError("invalid-response");
   }
   const decimalFields = ["fromAmount", "finalFromAmount", "toAmount", "finalToAmount", "rate"] as const;
@@ -489,6 +496,7 @@ function exactRipioEntitlement(input: RipioQuoteRequest): boolean {
   return input.fromCurrency === asset.fiatCurrency
     && input.toCurrency === asset.token
     && input.chain === RIPIO_BASE_CHAIN
+    && validUuid(input.customerId)
     && /^0x[0-9a-fA-F]{40}$/.test(input.destination)
     && asset.paymentMethods.includes(input.paymentMethodType as never)
     && validDecimal(input.fromAmount)

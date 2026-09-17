@@ -74,7 +74,7 @@ describe("Ripio production REST client", () => {
   test("rejects cross-country/token/rail quote combinations before provider I/O", async () => {
     let calls = 0;
     const client = createRipioClient("AR", { env, fetchImplementation: async () => { calls += 1; return token(); } });
-    await expect(client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wCOP", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toBeInstanceOf(RipioProviderError);
+    await expect(client.createQuote({ country: "AR", customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wCOP", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toBeInstanceOf(RipioProviderError);
     expect(calls).toBe(0);
   });
 
@@ -90,10 +90,44 @@ describe("Ripio production REST client", () => {
         return Response.json({ transaction: productionTransaction(), fiatPaymentInstructions: { cvu: "1234567890123456789012", alias: "home.ripio" } });
       },
     });
-    const quote = await client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION });
+    const quote = await client.createQuote({ country: "AR", customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION });
     expect(quote.fees[0]).toMatchObject({ amount: "10", appliesOnFromAmount: true });
     const order = await client.createOnramp({ customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION, fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", paymentMethodType: "bank_transfer", finalToAmount: "2100", fiatAmount: "2110" });
     expect(order.instructions).toEqual({ kind: "ar-bank-transfer", cvu: "1234567890123456789012", alias: "home.ripio" });
+  });
+
+  test("prices the quote against the verified customer", async () => {
+    let call = 0;
+    let quoteBody: unknown;
+    const client = createRipioClient("AR", {
+      env,
+      fetchImplementation: async (_input, init) => {
+        call += 1;
+        if (call === 1) return token();
+        if (call === 2 || call === 3) return arCatalog();
+        quoteBody = JSON.parse(String(init?.body));
+        return Response.json({ quoteId: QUOTE, customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", finalFromAmount: "2100", toAmount: "2100", finalToAmount: "2100", rate: "1", expiration: "2099-01-01T00:00:00.000Z", fees: [] });
+      },
+    });
+    await client.createQuote({ country: "AR", customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION });
+    expect(quoteBody).toMatchObject({ customerId: CUSTOMER });
+  });
+
+  test("treats a quote priced against a different customer as ambiguous and rejects a non-uuid customer before provider I/O", async () => {
+    let call = 0;
+    const client = createRipioClient("AR", {
+      env,
+      fetchImplementation: async () => {
+        call += 1;
+        if (call === 1) return token();
+        if (call === 2 || call === 3) return arCatalog();
+        return Response.json({ quoteId: QUOTE, customerId: ID, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", finalFromAmount: "2100", toAmount: "2100", finalToAmount: "2100", rate: "1", expiration: "2099-01-01T00:00:00.000Z", fees: [] });
+      },
+    });
+    await expect(client.createQuote({ country: "AR", customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "ambiguous-create" });
+    const calledAfterEcho = call;
+    await expect(client.createQuote({ country: "AR", customerId: "not-a-uuid", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "invalid-request" });
+    expect(call).toBe(calledAfterEcho);
   });
 
   test("fails closed when either live production catalog lacks the exact Base token contract", async () => {
@@ -107,7 +141,7 @@ describe("Ripio production REST client", () => {
         return Response.json([{ network_name: "ETHEREUM_SEPOLIA", assets: [{ name: "RTEST", contract_address: "0x0472eDf217331A7809e33AA0920b8ab864EEB437" }] }]);
       },
     });
-    await expect(client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "binding-conflict" });
+    await expect(client.createQuote({ country: "AR", customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "binding-conflict" });
     expect(calls).toBe(3);
   });
 
@@ -122,9 +156,9 @@ describe("Ripio production REST client", () => {
         return Response.json({ quoteId: QUOTE, fromCurrency: "BRL", toCurrency: "wBRL", fromAmount: "100.00", finalFromAmount: "100.00", toAmount: "100", finalToAmount: "100", rate: "1", expiration: "2099-01-01T00:00:00.000Z", fees: [] });
       },
     });
-    await expect(client.createQuote({ country: "AR", fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "invalid-request" });
+    await expect(client.createQuote({ country: "AR", customerId: CUSTOMER, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "100", chain: "BASE", paymentMethodType: "bank_transfer", destination: DESTINATION })).rejects.toMatchObject({ code: "invalid-request" });
     expect(calls).toBe(0);
-    await expect(client.createQuote({ country: "BR", fromCurrency: "BRL", toCurrency: "wBRL", fromAmount: "100.00", chain: "BASE", paymentMethodType: "pix", destination: DESTINATION })).resolves.toMatchObject({ finalToAmount: "100" });
+    await expect(client.createQuote({ country: "BR", customerId: CUSTOMER, fromCurrency: "BRL", toCurrency: "wBRL", fromAmount: "100.00", chain: "BASE", paymentMethodType: "pix", destination: DESTINATION })).resolves.toMatchObject({ finalToAmount: "100" });
     expect(calls).toBe(4);
   });
 
