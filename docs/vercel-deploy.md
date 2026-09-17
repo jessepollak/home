@@ -47,6 +47,8 @@ Storybook must use a separate Vercel project; it is not another output of `home-
 
 Do not add `apps/web/vercel.json`: both projects share that root, so a repository-level override could change the production Home application. Per-project Vercel settings are the isolation boundary. Project creation, team ownership, Git integration, and deployment protection are privileged Jesse actions; these documented settings do not claim that `home-storybook` or any hosted URL exists.
 
+When this project is created before Storybook reaches `main`, the initial production deployment from `main` is expected to fail because that branch does not yet contain the Storybook build script. Keep **Production Branch** set to `main`; create or trigger the PR-head preview instead of temporarily treating the feature branch as production. After merge, verify that the first `main` deployment succeeds before calling current-main hosting complete.
+
 A review reference records the project owner, relevant settings, commit SHA, deployment-specific URL, and direct [manager and canvas story links](design-system.md#component-workshop). Do not use a moving branch or project alias as the approval reference. Protected hosted access is operator-only under the [browser-validation contract](browser-validation.md); credential-free local start and static build are the separate reproduction path.
 
 After Jesse provisions the project, verify without weakening protection:
