@@ -27,6 +27,7 @@ function memoryAdapter({ failCreateOnce = false } = {}) {
   return {
     children, comments, labelMutations,
     async getIssue(number) { return children.find((child) => child.number === number); },
+    async verifyParent() {},
     async findChildrenByMarker(parent, key) { return children.filter((child) => child.body.includes(`factory-brief-child:${parent.number}:${key}`)); },
     async createIssue(issue) {
       if (failCreateOnce && children.length === 1 && !failed) { failed = true; throw new Error("interrupted"); }
@@ -61,10 +62,18 @@ test("lean brief validates six proposal fields, 1–5 outcomes, and exact mapped
   const one = structuredClone(BASE); one.outcomes = [one.outcomes[0]]; one.children = [one.children[0]];
   assert.equal(validateBriefBundle(one).outcomes.length, 1);
   for (const mutate of [
-    (brief) => { brief.baseCommit = "a".repeat(40); }, (brief) => { brief.designRefs = []; },
+    (brief) => { brief.repository = "someone/else"; }, (brief) => { brief.baseCommit = "a".repeat(40); }, (brief) => { brief.designRefs = []; },
     (brief) => { brief.children[0].evidenceKinds = ["test"]; }, (brief) => { brief.children[0].labels.push("factory:ready"); },
     (brief) => { brief.children[0].outcomeIds = ["unknown"]; }, (brief) => { brief.children[0].parent = { nodeId: "other", number: 1 }; },
   ]) { const brief = structuredClone(BASE); mutate(brief); assert.throws(() => validateBriefBundle(brief)); }
+});
+
+test("publication verifies the exact parent before creating children", async () => {
+  const adapter = memoryAdapter();
+  adapter.verifyParent = async () => { throw new Error("brief parent identity changed"); };
+  await assert.rejects(publishBrief(structuredClone(BASE), adapter), /parent identity changed/);
+  assert.equal(adapter.children.length, 0);
+  assert.equal(adapter.comments.length, 0);
 });
 
 test("publication is safely rerunnable after a partial failure and reuses its exact proposal comment", async () => {

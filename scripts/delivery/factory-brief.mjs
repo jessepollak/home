@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import projectConfig from "./home-project-config.json" with { type: "json" };
-import { activateBrief, childMarker, conflictingRoutingLabels, labelNames, publishBrief, validateBriefBundle } from "./factory-brief-policy.mjs";
+import { activateBrief, childMarker, conflictingRoutingLabels, FACTORY_REPOSITORY, labelNames, publishBrief, validateBriefBundle } from "./factory-brief-policy.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -87,6 +87,10 @@ export function createBriefGitHubAdapter(repository, { execute = gh } = {}) {
   const listComments = async (number) => paginatedItems(await execute(["api", "--paginate", "--slurp", `repos/${repository}/issues/${number}/comments?per_page=100`]));
   return {
     getIssue,
+    async verifyParent(parent) {
+      const current = await getIssue(parent.number);
+      if (current.nodeId !== parent.nodeId || current.number !== parent.number) throw new Error("brief parent identity changed");
+    },
     async findChildrenByMarker(parent, key) {
       const pages = await execute(["api", "--paginate", "--slurp", `repos/${repository}/issues?state=all&per_page=100`]);
       const marker = childMarker(parent, key);
@@ -154,7 +158,7 @@ export async function runBriefCommand(argv, { execute = gh, read = readFile } = 
   if (operation === "activate") {
     const number = Number(value);
     if (!Number.isSafeInteger(number) || number < 1) throw new Error("usage: bun run factory:brief activate <parent-number>");
-    const repository = "jessepollak/home";
+    const repository = FACTORY_REPOSITORY;
     const adapter = createBriefGitHubAdapter(repository, { execute });
     const parentIssue = await adapter.getIssue(number);
     const result = await activateBrief({ repository, repositoryOwner: repository.split("/")[0], parent: { nodeId: parentIssue.nodeId, number }, candidates: await adapter.listApprovalCandidates(number) }, adapter);

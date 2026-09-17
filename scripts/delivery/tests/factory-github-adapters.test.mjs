@@ -228,6 +228,15 @@ test("brief adapter fails closed on malformed github responses", async () => {
   await assert.rejects(malformedSearch.findChildrenByMarker(PARENT, "backend"), /response shape is invalid/);
 });
 
+test("brief adapter verifies parent identity before publication mutations", async () => {
+  const fixture = briefGitHubFixture({ issues: [PARENT_SEED] });
+  const adapter = adapterFor(fixture);
+  await adapter.verifyParent(PARENT);
+  const callsBefore = fixture.calls.length;
+  await assert.rejects(adapter.verifyParent({ ...PARENT, nodeId: "I_wrong" }), /parent identity changed/);
+  assert.deepEqual(fixture.calls.slice(callsBefore).filter((args) => args.includes("--method")), []);
+});
+
 test("brief adapter maps recorded comments, timestamps, and reactions", async () => {
   const { fixture, result } = await publishedFixture();
   const comment = fixture.state.comments.at(-1);

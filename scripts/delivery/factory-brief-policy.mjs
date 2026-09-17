@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 export const BRIEF_SCHEMA = "home.factory-brief/v1";
 export const PROPOSAL_SCHEMA = "home.factory-proposal/v1";
 export const ROUTING_LABEL_PREFIXES = Object.freeze(["status:", "lane:", "priority:"]);
+export const FACTORY_REPOSITORY = "jessepollak/home";
 const FACTORY_MARKER = "<!-- factory -->";
 
 export function labelNames(value) {
@@ -78,7 +79,7 @@ function validateContract(input, published) {
   const schema = published ? PROPOSAL_SCHEMA : BRIEF_SCHEMA;
   if (input.schema !== schema) throw new Error(`schema must be ${schema}`);
   const repository = text(input.repository, "repository", 200);
-  if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) throw new Error("repository must use owner/repo format");
+  if (repository !== FACTORY_REPOSITORY) throw new Error(`repository must be ${FACTORY_REPOSITORY}`);
   const parent = identity(input.parent, "parent");
   const requiredOutcomes = outcomes(input.outcomes, "outcomes");
   const outcomeIds = new Set(requiredOutcomes.map(({ id }) => id));
@@ -147,6 +148,7 @@ export function renderProposalComment(manifest, proposal) {
 
 export async function publishBrief(input, adapter) {
   const brief = validateBriefBundle(input);
+  await adapter.verifyParent(brief.parent);
   const resolved = [];
   for (const spec of brief.children) {
     const body = publishedBody(spec, brief.parent);
