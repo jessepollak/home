@@ -351,6 +351,8 @@ function mapOrder(order: CashOrder, owner: `0x${string}`, ctx: OfframpContext): 
   const payout = order.payouts?.length === 1 ? order.payouts[0] : undefined;
   const currency = payout?.currency;
   if (!payout || !currency || !/^[A-Z]{3}$/.test(currency)) fail("Peer order payout identity is unavailable.");
+  const remaining = order.totalAmount - order.filledAmount - order.returnedAmount;
+  if (remaining < 0n) fail("Peer order amounts are inconsistent.");
   return {
     depositId: order.depositId,
     owner,
@@ -360,7 +362,7 @@ function mapOrder(order: CashOrder, owner: `0x${string}`, ctx: OfframpContext): 
     canonicalHandle: null,
     payeeHash: requirePayeeHash(payout.payeeHash),
     amountAtomic: order.totalAmount.toString(10),
-    remainingAmountAtomic: (order.totalAmount - order.filledAmount - order.returnedAmount).toString(10),
+    remainingAmountAtomic: remaining.toString(10),
     nextActions: order.nextActions.includes("withdraw") ? ["withdraw"] : [],
     updatedAt: new Date((order.updatedAt ?? 0) * 1000).toISOString(),
   };
@@ -387,12 +389,16 @@ function requirePayeeHash(value: unknown): Hex {
   return value;
 }
 
+const MAX_UINT256_DIGITS = 78; // 2^256 - 1 has 78 decimal digits
+
 function parseDepositId(value: string, ctx: OfframpContext): bigint {
   const split = value.lastIndexOf("_");
   if (split < 1 || value.slice(0, split).toLowerCase() !== ctx.deployment.contracts.escrow.toLowerCase()) fail();
   const raw = value.slice(split + 1);
-  if (!/^(0|[1-9]\d*)$/.test(raw)) fail();
-  return BigInt(raw);
+  if (!/^(0|[1-9]\d*)$/.test(raw) || raw.length > MAX_UINT256_DIGITS) fail();
+  const parsed = BigInt(raw);
+  if (parsed > (1n << 256n) - 1n) fail();
+  return parsed;
 }
 
 function attributionSuffix(codes: readonly string[]): Hex {
