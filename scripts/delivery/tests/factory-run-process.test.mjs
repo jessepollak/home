@@ -127,6 +127,8 @@ test("Pi invocations are ephemeral and reviewer tools are read-only", () => {
   const reviewer = piInvocation("reviewer", "review");
   assert.ok(worker.args.includes("--no-session"));
   assert.ok(reviewer.args.includes("--no-session"));
+  assert.ok(!worker.args.includes("--no-extensions"));
+  assert.ok(!reviewer.args.includes("--no-extensions"));
   assert.equal(reviewer.args[reviewer.args.indexOf("--tools") + 1], "read,grep,find,ls");
   assert.notEqual(worker.args[worker.args.indexOf("--tools") + 1], reviewer.args[reviewer.args.indexOf("--tools") + 1]);
 });
