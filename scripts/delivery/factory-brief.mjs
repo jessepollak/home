@@ -13,7 +13,7 @@ const execFile = promisify(execFileCallback);
 export function createGhExecutor(execute) {
   return async (args) => {
     try {
-      const { stdout } = await execute("gh", args, { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
+      const { stdout } = await execute("gh", args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
       return stdout.trim() ? JSON.parse(stdout) : undefined;
     } catch (error) {
       throw new Error("gh command failed", { cause: error });

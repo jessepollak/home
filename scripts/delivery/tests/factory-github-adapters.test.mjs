@@ -3,11 +3,21 @@ import test from "node:test";
 
 import projectConfig from "../home-project-config.json" with { type: "json" };
 import { FACTORY_BRIEF_CHILD_LABEL, publishBrief } from "../factory-brief-policy.mjs";
-import { createBriefGitHubAdapter, runBriefCommand } from "../factory-brief.mjs";
+import { createBriefGitHubAdapter, createGhExecutor, runBriefCommand } from "../factory-brief.mjs";
 import { createGitHubAdapter } from "../factory-run.mjs";
 
 const REPOSITORY = "jessepollak/home";
 const PARENT = { nodeId: "I_parent", number: 568 };
+
+test("brief GitHub commands retain a bounded response budget above the repository issue inventory", async () => {
+  let options;
+  const execute = createGhExecutor(async (_command, _args, commandOptions) => {
+    options = commandOptions;
+    return { stdout: "[]" };
+  });
+  assert.deepEqual(await execute(["api", "--paginate", "--slurp", "repos/jessepollak/home/issues"]), []);
+  assert.equal(options.maxBuffer, 16 * 1024 * 1024);
+});
 const PARENT_SEED = { nodeId: "I_parent", number: 568, title: "Parent proposal", body: "Parent body without markers.", state: "OPEN", labels: [], parent: null, projectIds: [] };
 
 function baseBrief() {
