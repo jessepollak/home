@@ -180,6 +180,7 @@ test("approved prompts contain only retained exact child spec and mapped outcome
     route: "approved-factory-brief/v1",
     child: { number: 600, title: "Approved", body: "Exact approved body", bodySha256: "a".repeat(64) },
     outcomeIds: ["one"], outcomes: [{ id: "one", text: "Required" }],
+    evidenceMap: [{ outcomeId: "one", childKey: "approved-child", evidence: "Focused contract test and current-head proof." }],
     designReferences: [{ label: "Base settings", url: "https://base.org/account/settings" }],
   };
   const mutableIssue = { ...ISSUE, body: "MUTABLE-PROSE-SENTINEL", comments: [{ body: "COMMENT-SENTINEL" }] };
@@ -190,6 +191,7 @@ test("approved prompts contain only retained exact child spec and mapped outcome
     authorization: {
       route: "approved-factory-brief/v1",
       outcomes: [{ id: "one", text: "Required" }],
+      evidenceMap: [{ outcomeId: "one", childKey: "approved-child", evidence: "Focused contract test and current-head proof." }],
       designReferences: [{ label: "Base settings", url: "https://base.org/account/settings" }],
     },
   });
@@ -198,6 +200,7 @@ test("approved prompts contain only retained exact child spec and mapped outcome
     assert.match(prompt, /Required/);
     assert.match(prompt, /Base settings/);
     assert.match(prompt, /https:\/\/base\.org\/account\/settings/);
+    assert.match(prompt, /Focused contract test and current-head proof/);
     assert.doesNotMatch(prompt, /MUTABLE-PROSE-SENTINEL|COMMENT-SENTINEL|bodySha256|outcomeIds/);
   }
   const worker = workerPrompt(mutableIssue, [], authorization);
@@ -308,6 +311,11 @@ test("approved remediation revalidates before every worker and final handoff", a
       child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
       outcomes: [{ id: "one", text: "One" }, { id: "two", text: "Two" }, { id: "three", text: "Three" }],
       outcomeIds: ["one", "two", "three"],
+      evidenceMap: [
+        { outcomeId: "one", childKey: "runner", evidence: "Focused test proves one." },
+        { outcomeId: "two", childKey: "runner", evidence: "Focused test proves two." },
+        { outcomeId: "three", childKey: "runner", evidence: "Focused test proves three." },
+      ],
       designReferences: [{ label: "Workflow reference", url: "https://base.org/workflow" }],
     };
     const assessments = authorization.outcomes.map(({ id }) => ({ id, status: "Met", evidence: `${id} passed` }));
@@ -328,6 +336,8 @@ test("approved remediation revalidates before every worker and final handoff", a
     assert.deepEqual(durableEvidence.workerOutcomeAssessments, assessments);
     assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, assessments);
     assert.equal(evidence.authorization.child.body, issue.body);
+    assert.deepEqual(evidence.authorization.evidenceMap, authorization.evidenceMap);
+    assert.deepEqual(durableEvidence.authorization.evidenceMap, authorization.evidenceMap);
     assert.deepEqual(evidence.authorization.designReferences, authorization.designReferences);
     assert.deepEqual(durableEvidence.authorization.designReferences, authorization.designReferences);
     const positions = fake.calls.map((value, index) => value === "revalidate" ? index : -1).filter((index) => index >= 0);

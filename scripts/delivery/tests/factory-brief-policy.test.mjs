@@ -22,6 +22,10 @@ const BASE = {
     { key: "operator-config", identity: { nodeId: null, number: null }, title: "Add bounded operator branding controls", body: "Implement controls. Validate with the references and evidence named in this approved prose.", labels: ["status:todo", "lane:frontend", "priority:p1"], parent: PARENT, outcomeIds: ["operator-change"] },
     { key: "customer-branding", identity: { nodeId: null, number: null }, title: "Render retained customer branding", body: "Render and retain the configured branding.", labels: ["status:todo", "lane:frontend", "priority:p1"], parent: PARENT, outcomeIds: ["customer-visible"] },
   ],
+  evidenceMap: [
+    { outcomeId: "operator-change", childKey: "operator-config", evidence: "Focused tests and operator-flow browser proof show the saved configuration." },
+    { outcomeId: "customer-visible", childKey: "customer-branding", evidence: "Current-head browser proof shows the retained branding in the customer app." },
+  ],
 };
 
 function memoryAdapter({ failCreateOnce = false } = {}) {
@@ -60,9 +64,9 @@ function approvalInput(result, childIndex = 0) {
   return { repository: BASE.repository, repositoryOwner: "jessepollak", parent: PARENT, ...candidate({ ...result.comment, body: result.body }), currentChild: { ...child, labels: [...child.labels, "factory:ready"] } };
 }
 
-test("lean brief validates six proposal fields, 1–5 outcomes, and exact mapped child specs", () => {
-  assert.deepEqual(Object.keys(validateBriefBundle(structuredClone(BASE))), ["schema", "repository", "parent", "proposal", "designReferences", "outcomes", "children"]);
-  const one = structuredClone(BASE); one.outcomes = [one.outcomes[0]]; one.children = [one.children[0]];
+test("lean brief validates six proposal fields, 1–5 outcomes, exact mapped child specs, and completion evidence", () => {
+  assert.deepEqual(Object.keys(validateBriefBundle(structuredClone(BASE))), ["schema", "repository", "parent", "proposal", "designReferences", "outcomes", "children", "evidenceMap"]);
+  const one = structuredClone(BASE); one.outcomes = [one.outcomes[0]]; one.children = [one.children[0]]; one.evidenceMap = [one.evidenceMap[0]];
   assert.equal(validateBriefBundle(one).outcomes.length, 1);
   for (const mutate of [
     (brief) => { brief.repository = "someone/else"; }, (brief) => { brief.baseCommit = "a".repeat(40); }, (brief) => { brief.designRefs = []; },
@@ -70,6 +74,7 @@ test("lean brief validates six proposal fields, 1–5 outcomes, and exact mapped
     (brief) => { brief.designReferences = []; }, (brief) => { brief.designReferences = [{ label: "extra", url: "https://example.test/reference", type: "mock" }]; },
     (brief) => { brief.children[0].evidenceKinds = ["test"]; }, (brief) => { brief.children[0].labels.push("factory:ready"); },
     (brief) => { brief.children[0].outcomeIds = ["unknown"]; }, (brief) => { brief.children[0].parent = { nodeId: "other", number: 1 }; },
+    (brief) => { brief.evidenceMap[0].evidence = "line one\nline two"; },
   ]) { const brief = structuredClone(BASE); mutate(brief); assert.throws(() => validateBriefBundle(brief)); }
 });
 
@@ -88,18 +93,52 @@ test("publication is safely rerunnable after a partial failure and reuses its ex
   assert.equal(adapter.children.length, 2); assert.equal(adapter.comments.length, 1); assert.equal(second.comment.id, first.comment.id);
   assert.ok(adapter.children.every((child) => child.labels.includes(FACTORY_BRIEF_CHILD_LABEL)));
   assert.ok(adapter.children.every((child) => !child.labels.includes("factory:ready")));
-  assert.deepEqual(Object.keys(parseProposalComment(first.body)), ["schema", "repository", "parent", "designReferences", "outcomes", "children"]);
+  assert.deepEqual(Object.keys(parseProposalComment(first.body)), ["schema", "repository", "parent", "designReferences", "outcomes", "children", "evidenceMap"]);
   assert.deepEqual(first.manifest.designReferences, BASE.designReferences);
+  assert.deepEqual(first.manifest.evidenceMap, BASE.evidenceMap);
   assert.match(first.body, /Shaping references — not acceptance proof:/);
+  assert.match(first.body, /\| operator-change — Authenticated operator changes Home name\/colors\. \| #600 — Add bounded operator branding controls \| Focused tests and operator-flow browser proof show the saved configuration\. \|/);
   assert.equal(first.manifest.children[0].bodySha256, bodySha256(adapter.children[0].body));
 });
 
-test("legacy v1 proposal manifests remain parseable with no design references", async () => {
+test("completion evidence maps reject missing, extra, duplicate, and wrong child-outcome edges", () => {
+  const cases = [
+    ["missing map", (brief) => { delete brief.evidenceMap; }, /brief fields are invalid/],
+    ["missing edge", (brief) => { brief.evidenceMap.pop(); }, /cover every child-outcome edge exactly once/],
+    ["extra", (brief) => { brief.evidenceMap.push({ outcomeId: "unknown", childKey: "operator-config", evidence: "Extra evidence." }); }, /actual child-outcome edges/],
+    ["duplicate", (brief) => { brief.evidenceMap[1] = { ...brief.evidenceMap[0] }; }, /child-outcome edges must be unique/],
+    ["wrong edge", (brief) => { brief.evidenceMap[0].childKey = "customer-branding"; }, /actual child-outcome edges/],
+  ];
+  for (const [name, mutate, error] of cases) {
+    const brief = structuredClone(BASE);
+    mutate(brief);
+    assert.throws(() => validateBriefBundle(brief), error, name);
+  }
+});
+
+test("published Delivery evidence table resolves issue identities and safely escapes Markdown", async () => {
+  const brief = structuredClone(BASE);
+  brief.outcomes[0].text = "Operator changes Home | safely.";
+  brief.children[0].title = "Add [bounded] | controls";
+  brief.evidenceMap[0].evidence = "Focused test | current-head proof.";
+  const result = await publishBrief(brief, memoryAdapter());
+
+  assert.ok(result.body.includes("#600 — Add \\[bounded\\] \\| controls"));
+  assert.ok(result.body.includes("Operator changes Home \\| safely."));
+  assert.ok(result.body.includes("Focused test \\| current-head proof."));
+  assert.ok(result.body.indexOf("| Required outcome | Delivery child | Completion evidence |") < result.body.indexOf("```json factory-proposal"));
+});
+
+test("legacy v1 proposal manifests remain parseable with explicit empty compatibility fields", async () => {
   const result = await published();
-  const legacy = structuredClone(result.manifest);
-  delete legacy.designReferences;
-  const body = result.body.replace(JSON.stringify(result.manifest), JSON.stringify(legacy));
-  assert.deepEqual(parseProposalComment(body).designReferences, []);
+  for (const omitted of [["evidenceMap"], ["designReferences"], ["designReferences", "evidenceMap"]]) {
+    const legacy = structuredClone(result.manifest);
+    for (const field of omitted) delete legacy[field];
+    const body = result.body.replace(JSON.stringify(result.manifest), JSON.stringify(legacy));
+    const parsed = parseProposalComment(body);
+    assert.deepEqual(parsed.designReferences, omitted.includes("designReferences") ? [] : BASE.designReferences);
+    assert.deepEqual(parsed.evidenceMap, omitted.includes("evidenceMap") ? [] : BASE.evidenceMap);
+  }
 });
 
 test("approval ignores non-owner thumbs, maps only its child outcomes, and revocation defeats stale ready", async () => {
@@ -108,6 +147,7 @@ test("approval ignores non-owner thumbs, maps only its child outcomes, and revoc
   const authorization = verifyBriefApproval(input);
   assert.deepEqual(authorization.outcomeIds, ["operator-change"]); assert.deepEqual(authorization.outcomes, [BASE.outcomes[0]]);
   assert.deepEqual(authorization.designReferences, BASE.designReferences);
+  assert.deepEqual(authorization.evidenceMap, [BASE.evidenceMap[0]]);
   assert.equal(sameApprovalIdentity(authorization, structuredClone(authorization)), true);
   assert.throws(() => verifyBriefApproval({ ...input, reactions: input.reactions.slice(1) }), /owner \+1/);
 });

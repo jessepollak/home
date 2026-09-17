@@ -17,11 +17,13 @@ Included journey and explicit exclusions.
 One to five stable outcomes plus the evidence needed to assess them.
 Record exact visual references in the brief's structured `designReferences` array using only `{ "label": "…", "url": "https://…" }`; parent prose alone is not durable input. For a user-visible outcome, include at least one concrete relevant reference—an observed current screen, product/design reference, Storybook scenario, or bounded mock—before publication. Published shaping references guide approval but never substitute for current-head running-app or Preview acceptance evidence.
 
+Add a top-level `evidenceMap` with exactly one `{ "outcomeId": "…", "childKey": "…", "evidence": "…" }` entry for every child-to-outcome edge. IDs and keys must be stable, and evidence must be concise and single-line. This structured required-outcome → delivery-child → completion-evidence map is mandatory; evidence stated only in parent or child prose is insufficient.
+
 ## Decision
 Exact owner decision requested. Approval is one owner 👍 on the exact unedited factory-marked proposal comment.
 
 ## Delivery
-One to four exact children, each with stable identity, title, complete body, labels, native parent, and mapped outcome IDs. Map every outcome and avoid filler or speculative backlog.
+One to four exact children, each with stable identity, title, complete body, labels, native parent, and mapped outcome IDs. Map every outcome and avoid filler or speculative backlog. Publication renders the `evidenceMap` here with resolved issue numbers and titles so Jesse can review each outcome, child, and expected completion evidence together.
 
 Encode an exact multi-child proposal as `home.factory-brief/v1`; validate and publish with `bun run factory:brief`. Publication is non-authorizing and never adds `factory:ready`. Once Jesse reacts, `bun run factory:brief activate <parent-number>` revalidates the exact proposal and mechanically readies all selected children. Removing the reaction revokes execution even if ready labels remain.
 

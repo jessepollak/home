@@ -96,9 +96,34 @@ function outcomes(value, name) {
   return result;
 }
 
+function completionEvidenceMap(value, children, name, { allowMissing = false } = {}) {
+  if (value === undefined && allowMissing) return [];
+  if (!Array.isArray(value) || value.length === 0 || value.length > 20) throw new Error(`${name} must define 1–20 child-outcome edges`);
+  const result = value.map((entry, index) => {
+    const item = `${name}[${index}]`;
+    exactFields(entry, ["outcomeId", "childKey", "evidence"], item);
+    const outcomeId = text(entry.outcomeId, `${item}.outcomeId`, 64);
+    const childKey = text(entry.childKey, `${item}.childKey`, 64);
+    if (!/^[a-z][a-z0-9-]*$/.test(outcomeId)) throw new Error(`${item}.outcomeId is unstable`);
+    if (!/^[a-z][a-z0-9-]*$/.test(childKey)) throw new Error(`${item}.childKey is unstable`);
+    const evidence = text(entry.evidence, `${item}.evidence`, 240);
+    if (/[\x00-\x1f\x7f]/.test(evidence)) throw new Error(`${item}.evidence must be concise single-line text`);
+    return { outcomeId, childKey, evidence };
+  });
+  const edgeIds = result.map(({ outcomeId, childKey }) => `${childKey}\0${outcomeId}`);
+  unique(edgeIds, `${name} child-outcome edges`);
+  const actualEdges = new Set(children.flatMap((child) => child.outcomeIds.map((outcomeId) => `${child.key}\0${outcomeId}`)));
+  if (edgeIds.some((edge) => !actualEdges.has(edge))) throw new Error(`${name} entries must correspond to actual child-outcome edges`);
+  if (edgeIds.length !== actualEdges.size || [...actualEdges].some((edge) => !edgeIds.includes(edge))) {
+    throw new Error(`${name} must cover every child-outcome edge exactly once`);
+  }
+  return result;
+}
+
 function validateContract(input, published) {
-  const legacyPublishedManifest = published && input && typeof input === "object" && !Object.hasOwn(input, "designReferences");
-  exactFields(input, ["schema", "repository", "parent", ...(published ? [] : ["proposal"]), ...(legacyPublishedManifest ? [] : ["designReferences"]), "outcomes", "children"], published ? "proposal manifest" : "brief");
+  const legacyPublishedDesignReferences = published && input && typeof input === "object" && !Object.hasOwn(input, "designReferences");
+  const legacyPublishedEvidenceMap = published && input && typeof input === "object" && !Object.hasOwn(input, "evidenceMap");
+  exactFields(input, ["schema", "repository", "parent", ...(published ? [] : ["proposal"]), ...(legacyPublishedDesignReferences ? [] : ["designReferences"]), "outcomes", "children", ...(legacyPublishedEvidenceMap ? [] : ["evidenceMap"])], published ? "proposal manifest" : "brief");
   const schema = published ? PROPOSAL_SCHEMA : BRIEF_SCHEMA;
   if (input.schema !== schema) throw new Error(`schema must be ${schema}`);
   const repository = text(input.repository, "repository", 200);
@@ -106,7 +131,7 @@ function validateContract(input, published) {
   const parent = identity(input.parent, "parent");
   // Compatibility: already-published v1 manifests predate structured design references. They
   // remain authorizable with an empty list; every newly validated brief must provide the field.
-  const approvedDesignReferences = designReferences(input.designReferences, "designReferences", { allowMissing: legacyPublishedManifest });
+  const approvedDesignReferences = designReferences(input.designReferences, "designReferences", { allowMissing: legacyPublishedDesignReferences });
   const requiredOutcomes = outcomes(input.outcomes, "outcomes");
   const outcomeIds = new Set(requiredOutcomes.map(({ id }) => id));
 
@@ -140,6 +165,9 @@ function validateContract(input, published) {
     unique(children.map(({ number }) => number), "child numbers");
   }
   if (requiredOutcomes.some(({ id }) => !children.some((child) => child.outcomeIds.includes(id)))) throw new Error("every outcome must map to a child");
+  // Compatibility is deliberately field-presence based: old published v1 manifests without the
+  // field authorize with no invented evidence, while any manifest that declares it is strict.
+  const evidenceMap = completionEvidenceMap(input.evidenceMap, children, "evidenceMap", { allowMissing: legacyPublishedEvidenceMap });
   const userVisible = children.some((child) => child.labels.includes("lane:frontend") || child.labels.includes("lane:design"));
   if (!published && userVisible && approvedDesignReferences.length === 0) throw new Error("user-visible briefs require a structured design reference");
 
@@ -149,7 +177,7 @@ function validateContract(input, published) {
     proposal = Object.fromEntries(Object.entries(input.proposal).map(([key, value]) => [key, text(value, `proposal.${key}`, 600)]));
     if (Object.values(proposal).some((value) => value.includes(FACTORY_MARKER) || value.includes("```json factory-proposal"))) throw new Error("proposal text contains a reserved marker");
   }
-  return { schema, repository, parent, ...(proposal ? { proposal } : {}), designReferences: approvedDesignReferences, outcomes: requiredOutcomes, children };
+  return { schema, repository, parent, ...(proposal ? { proposal } : {}), designReferences: approvedDesignReferences, outcomes: requiredOutcomes, children, evidenceMap };
 }
 
 export function bodySha256(body) {
@@ -165,14 +193,30 @@ function publishedBody(child, parent) {
   return `${child.body.trim()}\n\n${childMarker(parent, child.key)}\n${FACTORY_MARKER}`;
 }
 
+function markdownTableValue(value) {
+  return String(value)
+    .replaceAll("\\", "\\\\")
+    .replace(/\r?\n/g, "<br>")
+    .replace(/[|`*_[\]<>]/g, (character) => `\\${character}`);
+}
+
 export function renderProposalComment(manifest, proposal) {
   const references = manifest.designReferences.length > 0
     ? ["", "Shaping references — not acceptance proof:", ...manifest.designReferences.map(({ label, url }) => `- ${label}: ${url}`)]
     : [];
+  const evidenceRows = manifest.evidenceMap.map(({ outcomeId, childKey, evidence }) => {
+    const outcome = manifest.outcomes.find(({ id }) => id === outcomeId);
+    const child = manifest.children.find(({ key }) => key === childKey);
+    return `| ${markdownTableValue(`${outcome.id} — ${outcome.text}`)} | ${markdownTableValue(`#${child.number} — ${child.title}`)} | ${markdownTableValue(evidence)} |`;
+  });
+  const evidenceTable = evidenceRows.length > 0 ? [
+    "", "| Required outcome | Delivery child | Completion evidence |",
+    "|---|---|---|", ...evidenceRows,
+  ] : [];
   return [
     "## Outcome", proposal.outcome, "", "## Proposal", proposal.proposal,
     "", "## Boundary", proposal.boundary, "", "## Done", proposal.done, ...references,
-    "", "## Decision", proposal.decision, "", "## Delivery", proposal.delivery,
+    "", "## Decision", proposal.decision, "", "## Delivery", proposal.delivery, ...evidenceTable,
     "", "```json factory-proposal", JSON.stringify(manifest), "```", FACTORY_MARKER,
   ].join("\n");
 }
@@ -211,7 +255,7 @@ export async function publishBrief(input, adapter) {
     await adapter.ensureLabels(issue, [...spec.labels, FACTORY_BRIEF_CHILD_LABEL]);
     publishedChildren.push({ key: spec.key, nodeId: issue.nodeId, number: issue.number, title: spec.title, bodySha256: bodySha256(body), labels: spec.labels, outcomeIds: spec.outcomeIds });
   }
-  const manifest = validateContract({ schema: PROPOSAL_SCHEMA, repository: brief.repository, parent: brief.parent, designReferences: brief.designReferences, outcomes: brief.outcomes, children: publishedChildren }, true);
+  const manifest = validateContract({ schema: PROPOSAL_SCHEMA, repository: brief.repository, parent: brief.parent, designReferences: brief.designReferences, outcomes: brief.outcomes, children: publishedChildren, evidenceMap: brief.evidenceMap }, true);
   const body = renderProposalComment(manifest, brief.proposal);
   const matches = await adapter.findParentCommentsByBody(brief.parent.number, body);
   if (!Array.isArray(matches) || matches.length > 1) throw new Error("proposal comment is ambiguous");
@@ -266,6 +310,7 @@ export function verifyBriefApproval({ repository, repositoryOwner, parent, comme
     child: Object.freeze({ nodeId: currentChild.nodeId, number: currentChild.number, title: spec.title, body: currentChild.body, bodySha256: spec.bodySha256 }),
     designReferences: Object.freeze(manifest.designReferences.map((value) => Object.freeze({ ...value }))),
     outcomes: Object.freeze(selectedOutcomes.map((value) => Object.freeze({ ...value }))), outcomeIds: Object.freeze([...spec.outcomeIds]),
+    evidenceMap: Object.freeze(manifest.evidenceMap.filter(({ childKey }) => childKey === spec.key).map((value) => Object.freeze({ ...value }))),
   });
 }
 

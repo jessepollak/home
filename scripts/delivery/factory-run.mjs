@@ -51,6 +51,7 @@ export function factoryIssuePromptInput(issue, authorization) {
       authorization: {
         route: authorization.route,
         outcomes: authorization.outcomes,
+        evidenceMap: authorization.evidenceMap ?? [],
         designReferences: authorization.designReferences ?? [],
       },
     };
@@ -568,6 +569,7 @@ export async function runFactorySupervisor(issueValue, {
         outcomeIds: authorization.outcomeIds,
       },
       outcomes: authorization.outcomes,
+      evidenceMap: authorization.evidenceMap,
       designReferences: authorization.designReferences,
     } : { route: authorization.route };
     await stage("claim", () => github.setStatus(issueNumber, "status:todo", "status:working"));

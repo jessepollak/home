@@ -29,6 +29,10 @@ function baseBrief() {
       { key: "backend", identity: { nodeId: null, number: null }, title: "Store operator branding", body: "Store the bounded branding values.", labels: ["status:todo", "lane:backend", "priority:p1"], parent: PARENT, outcomeIds: ["operator-change"] },
       { key: "frontend", identity: { nodeId: null, number: null }, title: "Render retained customer branding", body: "Render the configured branding.", labels: ["status:todo", "lane:frontend", "priority:p1"], parent: PARENT, outcomeIds: ["customer-visible"] },
     ],
+    evidenceMap: [
+      { outcomeId: "operator-change", childKey: "backend", evidence: "Focused persistence tests prove the bounded branding values are stored." },
+      { outcomeId: "customer-visible", childKey: "frontend", evidence: "Current-head browser proof shows retained branding in the customer app." },
+    ],
   };
 }
 
@@ -356,6 +360,7 @@ test("runner authorization maps recorded GraphQL and REST fixtures and fails clo
   assert.deepEqual(authorization.approval, { commentId: storedComment.id, commentNodeId: storedComment.node_id, reactionId: 22, reactionNodeId: "R_22" });
   assert.deepEqual(authorization.child, { nodeId: child.nodeId, number: 600, title: child.title, body: child.body, bodySha256: authorization.child.bodySha256 });
   assert.ok(authorization.outcomeIds.includes("operator-change"));
+  assert.deepEqual(authorization.evidenceMap, [baseBrief().evidenceMap[0]]);
   assert.deepEqual(authorization.designReferences, baseBrief().designReferences);
 
   const commentsCall = calls.find((args) => args.at(-1).endsWith("/comments?per_page=100"));
