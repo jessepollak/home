@@ -25,7 +25,7 @@ This is the canonical creation contract; `AGENTS.md` points here. Decide placeme
 
 1. **Search and reuse.** Search open and closed issues — text, labels, milestone, and existing hierarchy — before creating. Update the issue that already tracks the work; do not duplicate it or start a parallel board.
 2. **Choose the primary workstream and nearest useful parent before creating.** Pick one of the eight [Workstream index](#workstream-index) roots, then choose the nearest useful parent in that workstream: either the root itself or an intermediate program such as #15 when it is the right container.
-3. **Create with labels, not routing.** One `status:*`, one `lane:*`, one `priority:*`. No `owner:*` labels, no GitHub assignee routing, no `factory:ready` — only Jesse applies that label; agents and external creation assistants never do. If Jesse directly requests creation in an interactive session, the issue body is Jesse-directed and does not receive `<!-- factory -->`.
+3. **Create with labels, not routing.** One `status:*`, one `lane:*`, one `priority:*`. No `owner:*` labels, no GitHub assignee routing, and no `factory:ready` at creation; agents and external creation assistants never apply readiness during filing. Jesse applies it directly for legacy work, while the deterministic supervisor may apply it to exact brief children only after Jesse's approved reaction. If Jesse directly requests creation in an interactive session, the issue body is Jesse-directed and does not receive `<!-- factory -->`.
 4. **Establish the native parent edge.** Attach the issue to that parent through GitHub's native parent/sub-issue relation. A body mention, checklist link, or "related to" reference does not create hierarchy.
 5. **Ensure Home Project membership.** Add the issue to the [Home Project](https://github.com/users/jessepollak/projects/1), or confirm it arrived through native auto-add or the repository sync. Membership is verified, not assumed.
 6. **Keep dependencies as links.** Cross-cutting and blocking dependencies stay ordinary issue links or named dependencies; only the primary workstream ancestor is a native parent.
@@ -34,6 +34,10 @@ This is the canonical creation contract; `AGENTS.md` points here. Decide placeme
 9. **Parentless is limited to the configured roots.** Only the eight [Workstream index](#workstream-index) roots may have no native parent. The sync policy validates that the checked-in configuration contains exactly eight roots; it does not repair a parentless non-root issue, which remains unclassified until its native edge is fixed. Intermediate programs and tracking containers need a native parent under a configured root, and delivery issues get no exception — an absent parent is otherwise an unfiled hierarchy edge. Changing the configured root set is not an ordinary filing choice: it requires reviewed updates to this guide, `scripts/delivery/home-project-config.json`, the eight-root sync policy, and the Project's **Workstream** options as applicable.
 
 Membership and mentions are not hierarchy. An issue that sits in the Home Project and links its workstream only in prose is mis-filed: it has no native parent, sub-issue progress rollups exclude it, and the derived Workstream stays empty until the native edge exists. Creating that edge is the recovery step.
+
+### Factory brief publication
+
+For a bounded multi-child capability, use the [product-proposal skill](../.agents/skills/shape-product-proposal/SKILL.md) and deterministic `factory:brief` validator/publisher. The brief carries repository and exact parent identity, six concise proposal fields, 1–5 outcomes, and 1–4 exact mapped children. Publication safely reuses parent-namespaced stable child markers and an exact proposal comment after retries; it preserves unrelated labels, never adds `factory:ready`, and never treats publication as approval. Jesse's one current +1 on the exact unedited comment approves it. `factory:brief activate <parent-number>` then verifies every listed child before mechanically adding ready labels; reaction removal still revokes execution.
 
 ## Views
 
@@ -46,7 +50,7 @@ Use one **Home MVP** repository milestone for agreed release work. Keep later wo
 | Needs Jesse | Table filtered to `status:needs-jesse`; priority and decision links | What needs a decision or merge? |
 | Ready for factory | MVP delivery issues with `factory:ready` and `status:todo` | Which issues are candidates for the supervisor? |
 
-The factory view is not an eligibility check. The supervisor still validates owner authorship, issue state, required labels, and linked open PRs. Current and legacy attribution markers in an issue body neither grant nor deny eligibility. Parent issues are tracking containers, not runnable tasks.
+The factory view is not an eligibility check. The supervisor still validates owner authorship or an exact approved brief, issue state, required labels, and linked open PRs. Current and legacy attribution markers in an issue body neither grant nor deny eligibility. The specific `factory-brief-child` marker or current/historical `factory:brief-child` provenance selects the exact-brief route; removing a current marker or label never restores legacy eligibility. Parent issues are tracking containers, not runnable tasks.
 
 Use native fields for title, labels, milestone, linked PRs, parent, and sub-issue progress. Add only three derived fields: **Delivery status**, **Workstream**, and **Level** (Workstream or Delivery). Display priority labels initially; add a derived sortable field only if needed. Completion counts show task progress, not proof that money journeys work.
 

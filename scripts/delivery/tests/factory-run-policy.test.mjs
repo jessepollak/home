@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   evaluateFactoryRunEligibility,
   factoryRunPolicyConstants,
+  hasFactoryBriefProvenance,
   hasPreviewProof,
   openPullRequestsFromTimelinePages,
   parseReviewerVerdict,
@@ -62,6 +63,14 @@ test("current and legacy attribution markers do not affect otherwise eligible bo
   }
 });
 
+test("factory brief provenance survives current-label removal through paginated label history", () => {
+  const label = { name: "factory:brief-child" };
+  assert.equal(hasFactoryBriefProvenance({ labels: [label] }, []), true);
+  assert.equal(hasFactoryBriefProvenance({ labels: [] }, [[{ event: "labeled", label }], [{ event: "unlabeled", label }]]), true);
+  assert.equal(hasFactoryBriefProvenance({ labels: [] }, [[{ event: "labeled", label: { name: "factory:ready" } }]]), false);
+  assert.throws(() => hasFactoryBriefProvenance({ labels: [] }, { nodes: [] }), /timeline is unavailable/);
+});
+
 test("open PR references are deduplicated across paginated timeline results", () => {
   const open = { event: "cross-referenced", source: { issue: { number: 7, state: "open", html_url: "https://example.test/7", pull_request: {} } } };
   const closed = { event: "cross-referenced", source: { issue: { number: 8, state: "closed", html_url: "https://example.test/8", pull_request: {} } } };
@@ -102,6 +111,49 @@ test("worker report parsing accepts bounded browser evidence and non-visible nul
     complete: true,
     browserEvidence: null,
   });
+});
+
+test("approved non-UI worker reports require exact outcome assessment coverage", () => {
+  const outcomes = [{ id: "one" }, { id: "two" }];
+  const assessments = [
+    { id: "one", status: "Met", evidence: "Focused policy test passed." },
+    { id: "two", status: "Unverified", evidence: "Provider evidence was unavailable." },
+  ];
+  assert.deepEqual(parseWorkerReport(JSON.stringify({
+    complete: true,
+    browserEvidence: null,
+    outcomeAssessments: assessments,
+  }), false, outcomes), {
+    complete: true,
+    browserEvidence: null,
+    outcomeAssessments: assessments,
+  });
+
+  for (const outcomeAssessments of [
+    undefined,
+    assessments.slice(0, 1),
+    [...assessments, { id: "extra", status: "Met", evidence: "Unexpected." }],
+    [assessments[0], assessments[0]],
+    [{ ...assessments[0], id: "unknown" }, assessments[1]],
+    [{ ...assessments[0], status: "met" }, assessments[1]],
+    [{ ...assessments[0], evidence: "" }, assessments[1]],
+    [{ ...assessments[0], evidence: "line one\nline two" }, assessments[1]],
+    [{ ...assessments[0], extra: true }, assessments[1]],
+  ]) {
+    const report = { complete: true, browserEvidence: null, ...(outcomeAssessments ? { outcomeAssessments } : {}) };
+    assert.throws(() => parseWorkerReport(JSON.stringify(report), false, outcomes));
+  }
+  assert.throws(() => parseWorkerReport(JSON.stringify({
+    complete: true,
+    browserEvidence: null,
+    outcomeAssessments: assessments,
+    extra: true,
+  }), false, outcomes), /fields are invalid/);
+  assert.throws(() => parseWorkerReport(JSON.stringify({
+    complete: true,
+    browserEvidence: {},
+    outcomeAssessments: assessments,
+  }), false, outcomes), /must be null when not required/);
 });
 
 test("worker report parsing fails closed on malformed, missing, injected, or unbounded evidence", () => {
@@ -149,6 +201,20 @@ test("reviewer verdict parsing accepts only complete, internally consistent JSON
   ]) {
     assert.throws(() => parseReviewerVerdict(output));
   }
+});
+
+test("approved outcome assessments exactly cover outcomes and block non-Met passes", () => {
+  const outcomes = [{ id: "one" }, { id: "two" }, { id: "three" }];
+  const met = outcomes.map(({ id }) => ({ id, status: "Met", evidence: `${id} evidence` }));
+  assert.deepEqual(parseReviewerVerdict(JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: met }), outcomes).outcomeAssessments, met);
+
+  const nonMet = met.map((assessment, index) => index === 1 ? { ...assessment, status: "Unverified" } : assessment);
+  assert.throws(() => parseReviewerVerdict(JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: nonMet }), outcomes), /non-Met/);
+  assert.equal(parseReviewerVerdict(JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: nonMet }), outcomes).verdict, "fail");
+  for (const assessments of [undefined, met.slice(1), [...met, { id: "extra", status: "Met", evidence: "extra" }], [met[0], met[0], met[2]]]) {
+    assert.throws(() => parseReviewerVerdict(JSON.stringify({ complete: true, verdict: "pass", findings: [], ...(assessments ? { outcomeAssessments: assessments } : {}) }), outcomes));
+  }
+  assert.throws(() => parseReviewerVerdict(JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: met }), []), /legacy/);
 });
 
 test("preview policy derives applicability and requires both URL and media", () => {

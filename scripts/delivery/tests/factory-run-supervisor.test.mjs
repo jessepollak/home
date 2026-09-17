@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -29,6 +29,13 @@ const ISSUE = {
     { name: "priority:p1" },
   ],
 };
+const STORYBOOK_REFERENCE = {
+  type: "storybook", label: "Account settings",
+  managerUrl: "https://storybook.example.test/?path=/docs/account--docs",
+  canvasUrl: "https://storybook.example.test/iframe.html?id=account--default&viewMode=story",
+  commitSha: "a".repeat(40), deploymentId: "dpl_AbCd1234",
+  criteria: ["Name field is visible and editable."],
+};
 const PASS = '{"complete":true,"verdict":"pass","findings":[]}';
 const FAIL = '{"complete":true,"verdict":"fail","findings":[{"severity":"blocking","file":"runner.mjs:1","description":"fix it"}]}';
 const NULL_WORKER_REPORT = '{"complete":true,"browserEvidence":null}';
@@ -44,6 +51,29 @@ const BROWSER_EVIDENCE = {
 };
 const BROWSER_WORKER_REPORT = JSON.stringify({ complete: true, browserEvidence: BROWSER_EVIDENCE });
 
+function approvedWorkerReport(outcomeAssessments, browserEvidence = null) {
+  return JSON.stringify({ complete: true, browserEvidence, outcomeAssessments });
+}
+
+function approvedAuthorization(issue, outcomes) {
+  return {
+    route: "approved-factory-brief/v1",
+    parent: { nodeId: "I_parent", number: 568 },
+    approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
+    child: { nodeId: "I_child", number: issue.number, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
+    outcomes,
+    outcomeIds: outcomes.map(({ id }) => id),
+  };
+}
+
+function unverifiedAssessments(outcomes, actor) {
+  return outcomes.map(({ id }) => ({
+    id,
+    status: "Unverified",
+    evidence: `No valid ${actor} assessment is available for the current run.`,
+  }));
+}
+
 function completed(stdout = "") {
   return { code: 0, timedOut: false, outputExceeded: false, stdout };
 }
@@ -57,11 +87,15 @@ function fakeRun({
   setupFailure = false,
   ciFailure = false,
   workerReports = [NULL_WORKER_REPORT],
+  pullRequestSnapshots = [],
+  authorization = null,
 } = {}) {
   const calls = [];
   const pullRequestUpdates = [];
+  const workerFindings = [];
   let reviewIndex = 0;
   let workerIndex = 0;
+  let pullRequestIndex = 0;
   const github = {
     repositoryOwner: "jessepollak",
     async verifyAuthentication() {
@@ -69,7 +103,11 @@ function fakeRun({
       if (authFailure) throw new Error("auth failed");
     },
     async getIssue() { calls.push("issue"); return structuredClone(issue); },
-    async openPullRequestsReferencing() { calls.push("references"); return []; },
+    async authorizeIssue(currentIssue) { return { route: "legacy-human-body/v1", child: { number: currentIssue.number, title: currentIssue.title, body: currentIssue.body } }; },
+    async openPullRequestsReferencing() {
+      calls.push("references");
+      return pullRequestSnapshots[Math.min(pullRequestIndex++, pullRequestSnapshots.length - 1)] ?? [];
+    },
     async setStatus(_number, from, to) { calls.push(`status:${from}->${to}`); },
     async createPullRequest({ branch }) { calls.push(`pr:${branch}`); return "https://github.test/pr/1"; },
     async waitForRequiredChecks() {
@@ -83,6 +121,10 @@ function fakeRun({
       calls.push(`pr-evidence:${update.reviewFindings?.length ?? 0}`);
     },
   };
+  if (authorization) {
+    github.authorizeIssue = async () => { calls.push("authorize"); return authorization; };
+    github.revalidateAuthorization = async (expected) => { calls.push("revalidate"); assert.equal(expected, authorization); return expected; };
+  }
   const local = {
     async createWorktree() {
       calls.push("worktree");
@@ -100,13 +142,19 @@ function fakeRun({
     async preflight() { calls.push("preflight"); },
     async runWorker(_cwd, _issue, findings) {
       calls.push(findings.length ? "remediation" : "worker");
+      workerFindings.push(structuredClone(findings));
       if (workerFailure) throw new Error("worker failed");
-      return completed(workerReports[Math.min(workerIndex++, workerReports.length - 1)]);
+      const result = workerReports[Math.min(workerIndex++, workerReports.length - 1)];
+      return typeof result === "string" ? completed(result) : structuredClone(result);
     },
     async validateCommitAndPush(_cwd, _issue, _branch, loop) { calls.push(`validate:${loop}`); },
-    async runReviewer() { calls.push("reviewer"); return completed(reviews[reviewIndex++]); },
+    async runReviewer() {
+      calls.push("reviewer");
+      const result = reviews[reviewIndex++];
+      return typeof result === "string" ? completed(result) : structuredClone(result);
+    },
   };
-  return { github, local, calls, pullRequestUpdates };
+  return { github, local, calls, pullRequestUpdates, workerFindings };
 }
 
 async function withRunPaths(operation) {
@@ -125,6 +173,15 @@ async function withRunPaths(operation) {
 test("repository owner is derived from the configured owner/repo", () => {
   assert.equal(createGitHubAdapter({ repository: "configured-owner/home", environment: {} }).repositoryOwner, "configured-owner");
   assert.throws(() => createGitHubAdapter({ repository: "unscoped-repository", environment: {} }), /owner\/repo/);
+});
+
+test("supervisor refuses an adapter without an authorization decision", async () => {
+  await withRunPaths(async (paths) => {
+    const fake = fakeRun();
+    delete fake.github.authorizeIssue;
+    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /authorization adapter is unavailable/);
+    assert.equal(fake.calls.includes("worker"), false);
+  });
 });
 
 test("model prompts receive only the bounded issue fields and no timeline or comment text", () => {
@@ -149,8 +206,46 @@ test("model prompts receive only the bounded issue fields and no timeline or com
   }
 });
 
+test("approved prompts contain only retained exact child spec and mapped outcomes", () => {
+  const authorization = {
+    route: "approved-factory-brief/v1",
+    child: { number: 600, title: "Approved", body: "Exact approved body", bodySha256: "a".repeat(64) },
+    outcomeIds: ["one"], outcomes: [{ id: "one", text: "Required" }],
+    evidenceMap: [{ outcomeId: "one", childKey: "approved-child", evidence: "Focused contract test and current-head proof." }],
+    designReferences: [STORYBOOK_REFERENCE],
+  };
+  const mutableIssue = { ...ISSUE, body: "MUTABLE-PROSE-SENTINEL", comments: [{ body: "COMMENT-SENTINEL" }] };
+  assert.deepEqual(factoryIssuePromptInput(mutableIssue, authorization), {
+    number: 600,
+    title: "Approved",
+    body: "Exact approved body",
+    authorization: {
+      route: "approved-factory-brief/v1",
+      outcomes: [{ id: "one", text: "Required" }],
+      evidenceMap: [{ outcomeId: "one", childKey: "approved-child", evidence: "Focused contract test and current-head proof." }],
+      designReferences: [STORYBOOK_REFERENCE],
+    },
+  });
+  for (const prompt of [workerPrompt(mutableIssue, [], authorization), reviewerPrompt(mutableIssue, "safe", authorization)]) {
+    assert.match(prompt, /Exact approved body/);
+    assert.match(prompt, /Required/);
+    assert.match(prompt, /Account settings/);
+    assert.match(prompt, /storybook\.example\.test/);
+    assert.match(prompt, /dpl_AbCd1234/);
+    assert.match(prompt, /Name field is visible and editable/);
+    assert.match(prompt, /Focused contract test and current-head proof/);
+    assert.doesNotMatch(prompt, /MUTABLE-PROSE-SENTINEL|COMMENT-SENTINEL|bodySha256|outcomeIds/);
+  }
+  const worker = workerPrompt(mutableIssue, [], authorization);
+  assert.match(worker, /Return exactly one final JSON object and no markdown or commentary/);
+  assert.match(worker, /"browserEvidence":null/);
+  assert.match(worker, /"outcomeAssessments":\[\{"id":"one","status":"Met","evidence":"concise evidence or reason"\}\]/);
+  assert.match(worker, /status must be exactly Met, Not met, or Unverified/);
+});
+
 test("worker prompt requires the browser-validation contract for user-visible work", () => {
-  const prompt = workerPrompt(ISSUE);
+  const frontendIssue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:frontend" } : label) };
+  const prompt = workerPrompt(frontendIssue);
 
   assert.match(prompt, /docs\/browser-validation\.md/);
   assert.match(prompt, /repository-pinned agent-browser/);
@@ -158,6 +253,20 @@ test("worker prompt requires the browser-validation contract for user-visible wo
   assert.match(prompt, /Return exactly one final JSON object and no markdown or commentary/);
   assert.match(prompt, /serverCleanupResult/);
   assert.match(prompt, /Playwright only for committed regression/);
+});
+
+test("legacy non-UI workers retain their exact structured completion report", async () => {
+  const prompt = workerPrompt(ISSUE);
+  assert.match(prompt, /\{\"complete\":true,\"browserEvidence\":null\}/);
+
+  await withRunPaths(async (paths) => {
+    for (const report of ["implementation summary", '{"complete":true}', '{"complete":false,"browserEvidence":null}']) {
+      const fake = fakeRun({ workerReports: [report] });
+      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /worker (?:output is not valid JSON|report fields are invalid|report is incomplete)/);
+      assert.equal(fake.calls.some((call) => call.startsWith("validate:")), false);
+      assert.equal(fake.calls.some((call) => call.startsWith("pr:")), false);
+    }
+  });
 });
 
 test("browser evidence rendering is concise and escapes inline markdown", () => {
@@ -191,12 +300,41 @@ test("factory PR bodies standardize Preview and preserve proof during rewrites",
       issue: ISSUE,
       outcome: "passed",
       stages: [{ name: "validation", outcome: "passed", durationMs: 12 }],
+      requiredOutcomes: [{ id: "operator-branding", text: "Operator branding renders safely." }],
+      workerOutcomeAssessments: [{ id: "operator-branding", status: "Met", evidence: "Worker contract test passed." }],
+      reviewerOutcomeAssessments: [{ id: "operator-branding", status: "Met", evidence: "Independent review confirmed it." }],
     });
     assert.match(rewritten, /^## Preview$/m);
     assert.doesNotMatch(rewritten, /^## Preview proof$/m);
     assert.match(rewritten, /- validation: 12ms/);
+    assert.match(rewritten, /^### Worker required outcomes$/m);
+    assert.match(rewritten, /^### Independent reviewer required outcomes$/m);
+    assert.match(rewritten, /operator-branding — Operator branding renders safely\.: \*\*Met\*\* — Worker contract test passed\./);
+    assert.match(rewritten, /operator-branding — Operator branding renders safely\.: \*\*Met\*\* — Independent review confirmed it\./);
     assert.match(rewritten, /https:\/\/preview\.example\.test/);
     assert.match(rewritten, /!\[Screen\]\(https:\/\/images\.example\.test\/screen\.png\)/);
+  }
+});
+
+test("approved failure PR bodies render complete unverified worker and reviewer sections", () => {
+  const requiredOutcomes = [
+    { id: "one", text: "First required outcome." },
+    { id: "two", text: "Second required outcome." },
+  ];
+  const body = factoryResultBody({
+    currentBody: factoryPullRequestBody(ISSUE),
+    issue: ISSUE,
+    outcome: "failed",
+    error: "Factory run stopped during review-0.",
+    stages: [{ name: "review-0", outcome: "failed", durationMs: 4 }],
+    requiredOutcomes,
+  });
+
+  assert.match(body, /^### Worker required outcomes$/m);
+  assert.match(body, /^### Independent reviewer required outcomes$/m);
+  assert.equal(body.match(/\*\*Unverified\*\*/g)?.length, requiredOutcomes.length * 2);
+  for (const { id } of requiredOutcomes) {
+    assert.equal(body.match(new RegExp(`^- ${id} —`, "gm"))?.length, 2);
   }
 });
 
@@ -210,12 +348,238 @@ test("supervisor waits for current-head CI before promoting a normal PR", async 
     assert.equal(fake.pullRequestUpdates.at(-1).browserEvidence, null);
     assert.deepEqual(fake.calls, [
       "auth", "issue", "references", "status:status:todo->status:working",
-      "worktree", "setup", "preflight", "worker", "validate:0", "pr:agent/546-factory-run",
+      "worktree", "setup", "preflight", "worker", "validate:0", "references", "pr:agent/546-factory-run",
       "reviewer", "ci", "preview", "pr-evidence:0",
       "status:status:working->status:needs-jesse",
       "pr-status:status:working->status:needs-jesse", "cleanup:true:true",
     ]);
     assert.ok(evidence.stages.every((stage) => Number.isInteger(stage.durationMs)));
+  });
+});
+
+test("approved remediation revalidates before every worker and final handoff", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child", body: "Marked exact child.\n<!-- factory -->" };
+    const authorization = {
+      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
+      approval: {
+        source: "github-issue-comment-owner-plus-one/v1", state: "active",
+        commentId: 10, commentNodeId: "IC_10", proposalBodySha256: "b".repeat(64),
+        reactionId: 11, reactionNodeId: "R_11",
+        revocation: { action: "remove-reaction", contract: "removing this exact owner +1 reaction revokes authorization on mechanical revalidation" },
+      },
+      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
+      outcomes: [{ id: "one", text: "One" }, { id: "two", text: "Two" }, { id: "three", text: "Three" }],
+      outcomeIds: ["one", "two", "three"],
+      evidenceMap: [
+        { outcomeId: "one", childKey: "runner", evidence: "Focused test proves one." },
+        { outcomeId: "two", childKey: "runner", evidence: "Focused test proves two." },
+        { outcomeId: "three", childKey: "runner", evidence: "Focused test proves three." },
+      ],
+      designReferences: [STORYBOOK_REFERENCE],
+    };
+    const assessments = authorization.outcomes.map(({ id }) => ({ id, status: "Met", evidence: `${id} passed` }));
+    const failed = assessments.map((value, index) => index === 0 ? { ...value, status: "Not met", evidence: "one missing" } : value);
+    const fake = fakeRun({
+      issue, authorization,
+      reviews: [JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: failed }), JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: assessments })],
+      workerReports: [approvedWorkerReport(assessments), approvedWorkerReport(assessments)],
+    });
+    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
+    assert.deepEqual(evidence.workerOutcomeAssessments, assessments);
+    assert.deepEqual(evidence.reviewerOutcomeAssessments, assessments);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, assessments);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, assessments);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).requiredOutcomes, authorization.outcomes);
+    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
+    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
+    assert.deepEqual(durableEvidence.workerOutcomeAssessments, assessments);
+    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, assessments);
+    assert.deepEqual(durableEvidence.authorization.approval, authorization.approval);
+    assert.equal(evidence.authorization.child.body, issue.body);
+    assert.deepEqual(evidence.authorization.evidenceMap, authorization.evidenceMap);
+    assert.deepEqual(durableEvidence.authorization.evidenceMap, authorization.evidenceMap);
+    assert.deepEqual(evidence.authorization.designReferences, authorization.designReferences);
+    assert.deepEqual(durableEvidence.authorization.designReferences, authorization.designReferences);
+    const positions = fake.calls.map((value, index) => value === "revalidate" ? index : -1).filter((index) => index >= 0);
+    assert.equal(positions.length, 4);
+    assert.ok(positions[0] < fake.calls.indexOf("worker"));
+    assert.ok(positions[1] < fake.calls.indexOf("remediation"));
+    assert.ok(positions[2] < fake.calls.indexOf("pr-evidence:0"));
+  });
+});
+
+test("approved worker outcome gaps trigger remediation and refreshed assessments replace them", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const authorization = {
+      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
+      approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
+      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
+      outcomes: [{ id: "one", text: "One" }], outcomeIds: ["one"],
+    };
+    const met = [{ id: "one", status: "Met", evidence: "Focused validation passed." }];
+    const notMet = [{ id: "one", status: "Not met", evidence: "Focused validation still fails." }];
+    const reviewerPass = JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: met });
+    const fake = fakeRun({
+      issue,
+      authorization,
+      reviews: [reviewerPass, reviewerPass],
+      workerReports: [approvedWorkerReport(notMet), approvedWorkerReport(met)],
+    });
+
+    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
+    assert.equal(evidence.outcome, "passed");
+    assert.deepEqual(evidence.workerOutcomeAssessments, met);
+    assert.deepEqual(evidence.reviewerOutcomeAssessments, met);
+    assert.equal(fake.calls.filter((call) => call === "remediation").length, 1);
+    assert.deepEqual(fake.workerFindings[1], [{
+      severity: "blocking", source: "worker", outcomeId: "one", description: "Focused validation still fails.",
+    }]);
+  });
+});
+
+test("approved runs cannot pass while current worker assessments remain non-Met", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const authorization = {
+      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
+      approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
+      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
+      outcomes: [{ id: "one", text: "One" }], outcomeIds: ["one"],
+    };
+    const met = [{ id: "one", status: "Met", evidence: "Independent review passed." }];
+    const unverified = [{ id: "one", status: "Unverified", evidence: "Worker could not verify the outcome." }];
+    const reviewerPass = JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: met });
+    const fake = fakeRun({
+      issue,
+      authorization,
+      reviews: [reviewerPass, reviewerPass, reviewerPass],
+      workerReports: [approvedWorkerReport(unverified), approvedWorkerReport(unverified), approvedWorkerReport(unverified)],
+    });
+
+    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
+    assert.equal(evidence.outcome, "needs-jesse");
+    assert.deepEqual(evidence.workerOutcomeAssessments, unverified);
+    assert.deepEqual(evidence.reviewerOutcomeAssessments, met);
+    assert.equal(fake.calls.filter((call) => call === "remediation").length, 2);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, unverified);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, met);
+  });
+});
+
+test("approved non-UI reports with malformed outcome coverage fail before validation", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const authorization = {
+      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
+      approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
+      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
+      outcomes: [{ id: "one", text: "One" }, { id: "two", text: "Two" }], outcomeIds: ["one", "two"],
+    };
+    const fake = fakeRun({
+      issue,
+      authorization,
+      workerReports: [approvedWorkerReport([{ id: "one", status: "Met", evidence: "Only one." }])],
+    });
+
+    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /exactly cover required outcomes/);
+    assert.equal(fake.calls.some((call) => call.startsWith("validate:")), false);
+    assert.equal(fake.calls.some((call) => call.startsWith("pr:")), false);
+  });
+});
+
+test("initial approved worker failure preserves complete unverified durable assessments", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const outcomes = [{ id: "one", text: "One" }, { id: "two", text: "Two" }];
+    const authorization = approvedAuthorization(issue, outcomes);
+    const fake = fakeRun({ issue, authorization, workerFailure: true });
+    let failure;
+
+    await assert.rejects(
+      runFactorySupervisor(546, { ...fake, ...paths }),
+      (error) => { failure = error; return error.message === "worker failed"; },
+    );
+
+    assert.deepEqual(failure.evidence.workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
+    assert.deepEqual(failure.evidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
+    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
+    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
+    assert.deepEqual(durableEvidence.workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
+    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
+    assert.equal(fake.pullRequestUpdates.length, 0);
+  });
+});
+
+for (const reviewCase of [
+  { name: "timeout", result: { code: null, timedOut: true, outputExceeded: false, stdout: "private partial output" }, message: /bounded reviewer did not complete/ },
+  { name: "malformed", result: "private malformed output", message: /reviewer output is not valid JSON/ },
+]) {
+  test(`approved reviewer ${reviewCase.name} rewrites PR and durable evidence with unverified review`, async () => {
+    await withRunPaths(async (paths) => {
+      const issue = { ...ISSUE, nodeId: "I_child" };
+      const outcomes = [{ id: "one", text: "One" }];
+      const authorization = approvedAuthorization(issue, outcomes);
+      const met = [{ id: "one", status: "Met", evidence: "Worker validation passed." }];
+      const fake = fakeRun({ issue, authorization, workerReports: [approvedWorkerReport(met)], reviews: [reviewCase.result] });
+
+      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), reviewCase.message);
+
+      const update = fake.pullRequestUpdates.at(-1);
+      assert.equal(update.outcome, "failed");
+      assert.match(update.error, /^Factory run stopped (?:before completion|during verdict-0)\.$/);
+      assert.deepEqual(update.workerOutcomeAssessments, met);
+      assert.deepEqual(update.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
+      assert.doesNotMatch(update.error, /private/);
+      const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
+      const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
+      assert.deepEqual(durableEvidence.workerOutcomeAssessments, met);
+      assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
+    });
+  });
+}
+
+test("malformed remediation resets stale worker assessments", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const outcomes = [{ id: "one", text: "One" }];
+    const authorization = approvedAuthorization(issue, outcomes);
+    const workerMet = [{ id: "one", status: "Met", evidence: "Initial worker validation passed." }];
+    const reviewerNotMet = [{ id: "one", status: "Not met", evidence: "Review found a remaining gap." }];
+    const review = JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: reviewerNotMet });
+    const fake = fakeRun({ issue, authorization, workerReports: [approvedWorkerReport(workerMet), "malformed remediation"], reviews: [review] });
+
+    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /worker output is not valid JSON/);
+
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, reviewerNotMet);
+    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
+    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
+    assert.deepEqual(durableEvidence.workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
+    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, reviewerNotMet);
+  });
+});
+
+test("timed-out later review resets stale reviewer assessments", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, nodeId: "I_child" };
+    const outcomes = [{ id: "one", text: "One" }];
+    const authorization = approvedAuthorization(issue, outcomes);
+    const workerMet = [{ id: "one", status: "Met", evidence: "Remediation validation passed." }];
+    const reviewerNotMet = [{ id: "one", status: "Not met", evidence: "Initial review found a gap." }];
+    const firstReview = JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: reviewerNotMet });
+    const timedOutReview = { code: null, timedOut: true, outputExceeded: false, stdout: "private partial output" };
+    const fake = fakeRun({ issue, authorization, workerReports: [approvedWorkerReport(workerMet), approvedWorkerReport(workerMet)], reviews: [firstReview, timedOutReview] });
+
+    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /bounded reviewer did not complete/);
+
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, workerMet);
+    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
+    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
+    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
+    assert.deepEqual(durableEvidence.workerOutcomeAssessments, workerMet);
+    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
   });
 });
 
@@ -272,6 +636,15 @@ test("malformed remediation evidence fails before remediation validation and ret
 
     assert.equal(fake.calls.includes("validate:1"), false);
     assert.deepEqual(fake.pullRequestUpdates.at(-1).browserEvidence, BROWSER_EVIDENCE);
+  });
+});
+
+test("a conflicting PR appearing after work blocks publication", async () => {
+  await withRunPaths(async (paths) => {
+    const fake = fakeRun({ pullRequestSnapshots: [[], [{ number: 9, url: "https://github.test/pr/9" }]] });
+    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /gained a conflicting open pull request/);
+    assert.ok(fake.calls.includes("validate:0"));
+    assert.equal(fake.calls.some((call) => call.startsWith("pr:agent/")), false);
   });
 });
 

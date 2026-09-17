@@ -19,6 +19,7 @@
     "check": "bun run gates && bun run test && bun run lint && bun run typecheck && bun run build",
     "gates": "node --test scripts/delivery/tests/*.test.mjs",
     "factory:preflight": "node scripts/delivery/factory-preflight.mjs",
+    "factory:brief": "node scripts/delivery/factory-brief.mjs",
     "factory:run": "node scripts/delivery/factory-run.mjs",
     "project:sync": "node scripts/delivery/sync-home-project.mjs",
     "project:sync:dry-run": "node scripts/delivery/sync-home-project.mjs --dry-run",
