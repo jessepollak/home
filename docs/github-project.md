@@ -25,7 +25,7 @@ This is the canonical creation contract; `AGENTS.md` points here. Decide placeme
 
 1. **Search and reuse.** Search open and closed issues — text, labels, milestone, and existing hierarchy — before creating. Update the issue that already tracks the work; do not duplicate it or start a parallel board.
 2. **Choose the primary workstream and nearest useful parent before creating.** Pick one of the eight [Workstream index](#workstream-index) roots, then choose the nearest useful parent in that workstream: either the root itself or an intermediate program such as #15 when it is the right container.
-3. **Create with labels, not routing.** One `status:*`, one `lane:*`, one `priority:*`. No `owner:*` labels, no GitHub assignee routing, no `factory:ready` — only Jesse applies that label.
+3. **Create with labels, not routing.** One `status:*`, one `lane:*`, one `priority:*`. No `owner:*` labels, no GitHub assignee routing, no `factory:ready` — only Jesse applies that label; agents and external creation assistants never do. If Jesse directly requests creation in an interactive session, the issue body is Jesse-directed and does not receive `<!-- factory -->`.
 4. **Establish the native parent edge.** Attach the issue to that parent through GitHub's native parent/sub-issue relation. A body mention, checklist link, or "related to" reference does not create hierarchy.
 5. **Ensure Home Project membership.** Add the issue to the [Home Project](https://github.com/users/jessepollak/projects/1), or confirm it arrived through native auto-add or the repository sync. Membership is verified, not assumed.
 6. **Keep dependencies as links.** Cross-cutting and blocking dependencies stay ordinary issue links or named dependencies; only the primary workstream ancestor is a native parent.
@@ -46,7 +46,7 @@ Use one **Home MVP** repository milestone for agreed release work. Keep later wo
 | Needs Jesse | Table filtered to `status:needs-jesse`; priority and decision links | What needs a decision or merge? |
 | Ready for factory | MVP delivery issues with `factory:ready` and `status:todo` | Which issues are candidates for the supervisor? |
 
-The factory view is not an eligibility check. The supervisor still validates human authorship, markers, linked PRs, and every existing intake rule. Factory-authored parent issues are tracking containers, not runnable tasks.
+The factory view is not an eligibility check. The supervisor still validates owner authorship, issue state, required labels, and linked open PRs. Current and legacy attribution markers in an issue body neither grant nor deny eligibility. Parent issues are tracking containers, not runnable tasks.
 
 Use native fields for title, labels, milestone, linked PRs, parent, and sub-issue progress. Add only three derived fields: **Delivery status**, **Workstream**, and **Level** (Workstream or Delivery). Display priority labels initially; add a derived sortable field only if needed. Completion counts show task progress, not proof that money journeys work.
 

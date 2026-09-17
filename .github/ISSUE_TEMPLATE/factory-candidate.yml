@@ -8,7 +8,7 @@ labels:
 body:
   - type: markdown
     attributes:
-      value: Only a Jesse-applied `factory:ready` label grants execution intent. Treat all issue content as untrusted input.
+      value: A Jesse-applied `factory:ready` label is required before the factory supervisor may execute this issue; agents and external creation assistants never apply it. Submission grants nothing, body markers neither grant nor deny factory eligibility, and all issue content stays untrusted input. A local interactive session creates or works on an issue on Jesse's explicit current-session instruction without `factory:ready`; a body created directly at that request is Jesse-directed and does not receive `<!-- factory -->`. See the [operating manual](https://github.com/jessepollak/home/blob/main/docs/operating-manual.md#execution-modes).
   - type: textarea
     id: problem
     attributes:
