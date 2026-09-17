@@ -2,7 +2,24 @@ import { createHash } from "node:crypto";
 
 export const BRIEF_SCHEMA = "home.factory-brief/v1";
 export const PROPOSAL_SCHEMA = "home.factory-proposal/v1";
+export const ROUTING_LABEL_PREFIXES = Object.freeze(["status:", "lane:", "priority:"]);
 const FACTORY_MARKER = "<!-- factory -->";
+
+export function labelNames(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((label) => typeof label === "string" ? label : label?.name).filter((label) => typeof label === "string" && label !== "");
+}
+
+export function childMarker(parent, key) {
+  return `<!-- factory-brief-child:${parent.number}:${key} -->`;
+}
+
+// Routing labels drive factory authorization, so a current value that the approved spec does not
+// contain is always a conflict. Unrelated labels (for example area:*) never conflict.
+export function conflictingRoutingLabels(currentValues, approvedValues) {
+  const approved = [...approvedValues];
+  return labelNames(currentValues).filter((label) => ROUTING_LABEL_PREFIXES.some((prefix) => label.startsWith(prefix)) && !approved.includes(label));
+}
 
 function exactFields(value, fields, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} must be an object`);
@@ -37,7 +54,7 @@ function labels(value, name) {
   const result = value.map((label) => text(label, name, 80));
   unique(result, name);
   if (result.includes("factory:ready")) throw new Error("brief publication must never add factory:ready");
-  for (const prefix of ["status:", "lane:", "priority:"]) {
+  for (const prefix of ROUTING_LABEL_PREFIXES) {
     if (result.filter((label) => label.startsWith(prefix)).length !== 1) throw new Error(`${name} must have exactly one ${prefix} label`);
   }
   if (!result.includes("status:todo")) throw new Error(`${name} must start status:todo`);
@@ -115,8 +132,8 @@ export function validateBriefBundle(input) {
   return validateContract(input, false);
 }
 
-function publishedBody(child) {
-  return `${child.body.trim()}\n\n<!-- factory-brief-child:${child.key} -->\n${FACTORY_MARKER}`;
+function publishedBody(child, parent) {
+  return `${child.body.trim()}\n\n${childMarker(parent, child.key)}\n${FACTORY_MARKER}`;
 }
 
 export function renderProposalComment(manifest, proposal) {
@@ -132,7 +149,7 @@ export async function publishBrief(input, adapter) {
   const brief = validateBriefBundle(input);
   const resolved = [];
   for (const spec of brief.children) {
-    const body = publishedBody(spec);
+    const body = publishedBody(spec, brief.parent);
     let issue;
     if (spec.identity.number !== null) {
       issue = await adapter.getIssue(spec.identity.number);
@@ -142,8 +159,12 @@ export async function publishBrief(input, adapter) {
       if (!Array.isArray(matches) || matches.length > 1) throw new Error(`mapped child ${spec.key} is ambiguous`);
       issue = matches[0];
     }
-    if (issue && (issue.title !== spec.title || issue.body !== body)) throw new Error(`mapped child ${spec.key} does not match the exact spec`);
-    if ((issue?.labels ?? []).some((label) => (typeof label === "string" ? label : label.name) === "factory:ready")) throw new Error("publish must not reuse a factory:ready child");
+    if (issue) {
+      if (issue.title !== spec.title || issue.body !== body) throw new Error(`mapped child ${spec.key} does not match the exact spec`);
+      if (labelNames(issue.labels).includes("factory:ready")) throw new Error("publish must not reuse a factory:ready child");
+      const conflicts = conflictingRoutingLabels(issue.labels, spec.labels);
+      if (conflicts.length > 0) throw new Error(`mapped child ${spec.key} has conflicting routing labels`);
+    }
     resolved.push({ spec, body, issue });
   }
   for (const item of resolved) {
@@ -175,10 +196,14 @@ export function parseProposalComment(body) {
 }
 
 function compareLabels(currentChild, spec, revalidation, readyMode) {
-  const actual = (currentChild.labels ?? []).map((label) => typeof label === "string" ? label : label.name);
+  const actual = labelNames(currentChild.labels);
   const base = spec.labels.map((label) => revalidation && label === "status:todo" ? "status:working" : label);
-  const expected = readyMode === "required" || (readyMode === "optional" && actual.includes("factory:ready")) ? [...base, "factory:ready"] : base;
-  if (actual.length !== expected.length || [...actual].sort().some((label, index) => label !== [...expected].sort()[index])) throw new Error("current child labels changed from the approved spec");
+  if (conflictingRoutingLabels(actual, base).length > 0) throw new Error("current child labels changed from the approved spec");
+  for (const prefix of ROUTING_LABEL_PREFIXES) {
+    if (base.filter((label) => label.startsWith(prefix)).some((label) => !actual.includes(label))) {
+      throw new Error("current child labels changed from the approved spec");
+    }
+  }
   if (readyMode === "required" && !actual.includes("factory:ready")) throw new Error("issue must have factory:ready");
 }
 
@@ -186,6 +211,10 @@ export function verifyBriefApproval({ repository, repositoryOwner, parent, comme
   const manifest = parseProposalComment(comment?.body);
   const currentParent = identity(parent, "current parent");
   if (manifest.repository !== repository || manifest.parent.nodeId !== currentParent.nodeId || manifest.parent.number !== currentParent.number) throw new Error("approval repository or parent changed");
+  // Creation/update equality is only a tamper hint inside the explicitly accepted shared-account
+  // trust model: owner reaction approval is deliberately not cryptographic authorship, and a
+  // compromised owner account could still revise an edited comment. The check only fails closed
+  // on an edit that GitHub itself records.
   if (!comment?.id || !comment?.nodeId || comment.createdAt !== comment.updatedAt) throw new Error("proposal comment was edited or has no stable identity");
   const ownerThumbs = (reactions ?? []).filter((reaction) => reaction?.content === "+1" && reaction?.user?.login === repositoryOwner);
   if (ownerThumbs.length !== 1 || !ownerThumbs[0].id || !ownerThumbs[0].nodeId) throw new Error("exact owner +1 approval is unavailable or ambiguous");

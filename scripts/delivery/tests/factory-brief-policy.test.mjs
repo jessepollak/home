@@ -22,19 +22,23 @@ const BASE = {
 };
 
 function memoryAdapter({ failCreateOnce = false } = {}) {
-  const children = [], comments = [];
+  const children = [], comments = [], labelMutations = [];
   let failed = false;
   return {
-    children, comments,
+    children, comments, labelMutations,
     async getIssue(number) { return children.find((child) => child.number === number); },
-    async findChildrenByMarker(_parent, key) { return children.filter((child) => child.body.includes(`factory-brief-child:${key}`)); },
+    async findChildrenByMarker(parent, key) { return children.filter((child) => child.body.includes(`factory-brief-child:${parent.number}:${key}`)); },
     async createIssue(issue) {
       if (failCreateOnce && children.length === 1 && !failed) { failed = true; throw new Error("interrupted"); }
       const child = { ...issue, nodeId: `I_child_${children.length + 1}`, number: 600 + children.length, state: "OPEN", parent: null };
       children.push(child); return child;
     },
     async attachNativeParent(issue, parent) { issue.parent = { ...parent }; }, async ensureProjectMembership() {},
-    async ensureLabels(issue, labels) { issue.labels = [...labels]; },
+    async ensureLabels(issue, labels) {
+      const missing = labels.filter((label) => !issue.labels.includes(label));
+      if (missing.length > 0) labelMutations.push({ number: issue.number, added: missing });
+      issue.labels.push(...missing);
+    },
     async findParentCommentsByBody(_number, body) { return comments.filter((comment) => comment.body === body); },
     async createParentComment(_number, body) {
       const id = 90 + comments.length;
@@ -97,8 +101,97 @@ test("activation validates one parent reaction before readying all split-outcome
   for (const child of result.adapter.children) {
     assert.ok(child.labels.includes("factory:ready"));
     const auth = verifyBriefApproval({ repository: BASE.repository, repositoryOwner: "jessepollak", parent: PARENT, ...approval, currentChild: child });
-    assert.deepEqual(auth.outcomeIds, BASE.children.find(({ key }) => child.body.includes(key)).outcomeIds);
+    assert.deepEqual(auth.outcomeIds, BASE.children.find(({ key }) => child.body.includes(`factory-brief-child:${PARENT.number}:${key}`)).outcomeIds);
   }
+});
+
+test("child markers are namespaced by parent so two briefs may reuse the same child key", async () => {
+  const adapter = memoryAdapter();
+  const first = await publishBrief(structuredClone(BASE), adapter);
+  const otherParent = { nodeId: "I_parent_other", number: 584 };
+  const secondBrief = structuredClone(BASE);
+  secondBrief.parent = otherParent;
+  for (const child of secondBrief.children) child.parent = otherParent;
+  const second = await publishBrief(secondBrief, adapter);
+
+  assert.equal(adapter.children.length, 4);
+  assert.deepEqual(second.manifest.children.map(({ number }) => number), [602, 603]);
+  assert.ok(adapter.children[0].body.includes(`<!-- factory-brief-child:568:${BASE.children[0].key} -->`));
+  assert.ok(adapter.children[2].body.includes(`<!-- factory-brief-child:584:${BASE.children[0].key} -->`));
+  assert.deepEqual(first.manifest.children.map(({ number }) => number), [600, 601]);
+
+  await publishBrief(structuredClone(BASE), adapter);
+  await publishBrief(secondBrief, adapter);
+  assert.equal(adapter.children.length, 4);
+  assert.equal(adapter.comments.length, 2);
+});
+
+test("publication reuses an exactly pre-mapped child without creating a duplicate", async () => {
+  const first = await published();
+  const mapped = first.adapter.children[0];
+  const adapter = memoryAdapter();
+  adapter.children.push({ ...structuredClone(mapped), labels: [...mapped.labels] });
+  const brief = structuredClone(BASE);
+  brief.children[0].identity = { nodeId: mapped.nodeId, number: mapped.number };
+
+  const result = await publishBrief(brief, adapter);
+  assert.equal(adapter.children.length, 2);
+  assert.equal(adapter.children.filter(({ nodeId }) => nodeId === mapped.nodeId).length, 1);
+  assert.equal(result.manifest.children[0].nodeId, mapped.nodeId);
+  assert.equal(result.manifest.children[0].bodySha256, bodySha256(mapped.body));
+
+  const changed = structuredClone(brief);
+  changed.children[0].identity.nodeId = "I_changed";
+  await assert.rejects(publishBrief(changed, adapter), /identity changed/);
+});
+
+test("publication preserves unrelated labels and fails closed on conflicting routing labels", async () => {
+  const first = await published();
+  const mapped = first.adapter.children[0];
+  const adapter = memoryAdapter();
+  adapter.children.push({ ...structuredClone(mapped), labels: ["status:todo", "lane:frontend", "area:settings"] });
+  const brief = structuredClone(BASE);
+  brief.children[0].identity = { nodeId: mapped.nodeId, number: mapped.number };
+
+  await publishBrief(brief, adapter);
+  assert.deepEqual(adapter.children[0].labels, ["status:todo", "lane:frontend", "area:settings", "priority:p1"]);
+  assert.deepEqual(adapter.labelMutations, [{ number: mapped.number, added: ["priority:p1"] }]);
+
+  const conflicting = memoryAdapter();
+  conflicting.children.push({ ...structuredClone(mapped), labels: ["status:todo", "lane:backend", "priority:p1"] });
+  await assert.rejects(publishBrief(structuredClone(brief), conflicting), /conflicting routing labels/);
+  assert.deepEqual(conflicting.labelMutations, []);
+
+  const ready = memoryAdapter();
+  ready.children.push({ ...structuredClone(mapped), labels: [...mapped.labels, "factory:ready"] });
+  await assert.rejects(publishBrief(structuredClone(brief), ready), /factory:ready/);
+  assert.deepEqual(ready.labelMutations, []);
+});
+
+test("activation tolerates unrelated labels but requires the approved routing labels", async () => {
+  const result = await published();
+  const approval = candidate({ ...result.comment, body: result.body });
+  for (const child of result.adapter.children) child.labels.push("area:settings");
+
+  const input = { repository: BASE.repository, repositoryOwner: "jessepollak", parent: PARENT, candidates: [approval] };
+  assert.deepEqual((await activateBrief(input, result.adapter)).children, [600, 601]);
+  for (const child of result.adapter.children) assert.ok(child.labels.includes("area:settings"));
+
+  const changed = ["factory:ready", "status:working", "lane:frontend", "priority:p1"];
+  result.adapter.children[0].labels = [...changed];
+  await assert.rejects(activateBrief(input, result.adapter), /approved proposal comment is missing/);
+  assert.deepEqual(result.adapter.children[0].labels, changed);
+  assert.equal(result.adapter.children[1].labels.includes("factory:ready"), true);
+});
+
+test("activation after reaction removal rejects and never readies children", async () => {
+  const result = await published();
+  const removed = { comment: { ...result.comment, body: result.body }, reactions: [] };
+  const nonOwner = { comment: { ...result.comment, body: result.body }, reactions: [{ id: 94, nodeId: "R_94", content: "+1", user: Object.fromEntries([["lo" + "gin", "other"]]) }] };
+  for (const candidateInput of [removed, nonOwner]) {
+    await assert.rejects(activateBrief({ repository: BASE.repository, repositoryOwner: "jessepollak", parent: PARENT, candidates: [candidateInput] }, result.adapter), /approved proposal comment is missing/);
+  }
+  assert.equal(result.adapter.children.some((child) => child.labels.includes("factory:ready")), false);
 });
 
 test("approval fails on edit, body/parent change, owner ambiguity, and conflicting PR", async () => {

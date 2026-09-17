@@ -49,8 +49,6 @@ export function factoryIssuePromptInput(issue, authorization) {
       body: authorization.child.body,
       authorization: {
         route: authorization.route,
-        specBodySha256: authorization.child.bodySha256,
-        outcomeIds: authorization.outcomeIds,
         outcomes: authorization.outcomes,
       },
     };
@@ -215,55 +213,78 @@ export function reviewerPrompt(issue, diff, authorization) {
   return `You are the fresh independent read-only reviewer for Home issue #${issue.number}. Review only the supplied current branch diff against origin/main and the immutable approved input for correctness, security, privacy, data loss, and repository delivery contracts. You have read-only tools to inspect relevant files for context. Do not modify files or invoke external services. Return exactly one JSON object and no markdown or commentary: {"complete":true,"verdict":"pass"|"fail","findings":[{"severity":"blocking"|"non-blocking","file":"path:line","description":"specific finding"}]}. A fail verdict must contain a blocking finding or non-Met outcome; a pass verdict must not.${outcomes}\n\nIssue input:\n${issueInput}\n\nDiff:\n${diff}`;
 }
 
-export function createGitHubAdapter({ repository = REPOSITORY, environment = process.env } = {}) {
+export function githubIssueShape(value) {
+  const labels = value?.labels?.nodes;
+  if (!value || typeof value !== "object" || typeof value.id !== "string" || value.id === "" || !Number.isSafeInteger(value.number) || value.number < 1 ||
+      !Array.isArray(labels) || !labels.every((label) => typeof label?.name === "string") ||
+      (value.parent !== null && value.parent !== undefined && (typeof value.parent.id !== "string" || !Number.isSafeInteger(value.parent.number)))) {
+    throw new Error("issue response shape is invalid");
+  }
+  return {
+    number: value.number, nodeId: value.id, title: value.title, body: value.body,
+    author: value.author, state: value.state, labels, url: value.url,
+    parent: value.parent ? { number: value.parent.number, nodeId: value.parent.id } : undefined,
+  };
+}
+
+export function approvalCommentShape(comment) {
+  if (!comment || typeof comment !== "object" || !Number.isSafeInteger(comment.id) || typeof comment.node_id !== "string" || comment.node_id === "" ||
+      typeof comment.body !== "string" || typeof comment.created_at !== "string" || typeof comment.updated_at !== "string") {
+    throw new Error("comment response shape is invalid");
+  }
+  return { id: comment.id, nodeId: comment.node_id, body: comment.body, createdAt: comment.created_at, updatedAt: comment.updated_at };
+}
+
+export function approvalReactionShape(reaction) {
+  if (!reaction || typeof reaction !== "object" || !Number.isSafeInteger(reaction.id) || typeof reaction.node_id !== "string" || reaction.node_id === "" ||
+      typeof reaction.content !== "string" || typeof reaction.user?.login !== "string" || reaction.user.login === "") {
+    throw new Error("reaction response shape is invalid");
+  }
+  return { id: reaction.id, nodeId: reaction.node_id, content: reaction.content, user: { login: reaction.user.login } };
+}
+
+function responsePages(output, description) {
+  const value = JSON.parse(output);
+  if (!Array.isArray(value)) throw new Error(`${description} response shape is invalid`);
+  const items = value.every(Array.isArray) ? value.flat() : value;
+  if (!items.every((item) => item && typeof item === "object" && !Array.isArray(item))) throw new Error(`${description} response shape is invalid`);
+  return items;
+}
+
+export function createGitHubAdapter({ repository = REPOSITORY, environment = process.env, gh } = {}) {
   const repositoryOwner = repositoryOwnerFrom(repository);
+  const runGh = gh ?? ((args, options = {}) => command("gh", args, { environment, ...options }));
   return {
     repository,
     repositoryOwner,
     async verifyAuthentication() {
-      await command("gh", ["auth", "status", "--hostname", "github.com"], { environment });
+      await runGh(["auth", "status", "--hostname", "github.com"]);
     },
     async getIssue(issueNumber) {
       const [owner, name] = repository.split("/");
-      const output = await command("gh", ["api", "graphql",
+      const output = await runGh(["api", "graphql",
         "-f", "query=query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){id number title body author{login} state labels(first:100){nodes{name}} url parent{id number}}}}",
         "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${issueNumber}`,
-      ], { environment });
+      ]);
       const value = JSON.parse(output).data?.repository?.issue;
       if (!value) throw new Error("issue is unavailable");
-      return {
-        number: value.number, nodeId: value.id, title: value.title, body: value.body,
-        author: value.author, state: value.state, labels: value.labels.nodes, url: value.url,
-        parent: value.parent ? { number: value.parent.number, nodeId: value.parent.id } : undefined,
-      };
+      return githubIssueShape(value);
     },
     async authorizeIssue(issue, openPullRequests, revalidation = false) {
       if (!FACTORY_MARKERS.some((marker) => issue.body?.includes(marker))) return legacyAuthorization(issue);
       if (!issue.parent) throw new Error("marked issue has no native parent");
-      const comments = JSON.parse(await command("gh", ["api", "--paginate", "--slurp", `repos/${repository}/issues/${issue.parent.number}/comments?per_page=100`], { environment })).flat();
+      const comments = responsePages(await runGh(["api", "--paginate", "--slurp", `repos/${repository}/issues/${issue.parent.number}/comments?per_page=100`]), "issue comments");
       const matching = comments.filter((comment) => {
         try { return parseProposalComment(comment.body).children.some((child) => child.number === issue.number && child.nodeId === issue.nodeId); } catch { return false; }
       });
       const candidates = await Promise.all(matching.map(async (comment) => {
-        const reactions = JSON.parse(await command("gh", ["api", "--paginate", "--slurp", "-H", "Accept: application/vnd.github+json", `repos/${repository}/issues/comments/${comment.id}/reactions?per_page=100`], { environment })).flat();
-        return {
-          comment: { id: comment.id, nodeId: comment.node_id, body: comment.body, createdAt: comment.created_at, updatedAt: comment.updated_at },
-          reactions: reactions.map((reaction) => ({ id: reaction.id, nodeId: reaction.node_id, content: reaction.content, user: reaction.user })),
-        };
+        const reactions = responsePages(await runGh(["api", "--paginate", "--slurp", "-H", "Accept: application/vnd.github+json", `repos/${repository}/issues/comments/${comment.id}/reactions?per_page=100`]), "comment reactions");
+        return { comment: approvalCommentShape(comment), reactions: reactions.map(approvalReactionShape) };
       }));
       return selectApprovedBrief({ repository, repositoryOwner, parent: issue.parent, candidates, currentChild: issue, openPullRequests, revalidation });
     },
     async revalidateAuthorization(expected, allowedPullRequestUrl) {
-      if (expected.route === "legacy-human-body/v1") {
-        const current = await this.getIssue(expected.child.number);
-        const labels = current.labels.map((label) => label.name);
-        if (current.nodeId !== expected.child.nodeId || current.title !== expected.child.title || current.body !== expected.child.body ||
-            current.author?.["log" + "in"] !== repositoryOwner || current.state !== "OPEN" ||
-            FACTORY_MARKERS.some((marker) => current.body?.includes(marker)) || !labels.includes("factory:ready") || !labels.includes("status:working")) {
-          throw new Error("legacy authorization context changed");
-        }
-        return expected;
-      }
+      if (expected?.route !== "approved-factory-brief/v1") throw new Error("approved authorization is unavailable");
       const current = await this.getIssue(expected.child.number);
       const pulls = await this.openPullRequestsReferencing(expected.child.number);
       const conflicting = pulls.filter((pull) => pull.url !== allowedPullRequestUrl);
@@ -272,45 +293,45 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
       return expected;
     },
     async openPullRequestsReferencing(issueNumber) {
-      const output = await command("gh", [
+      const output = await runGh([
         "api", "--paginate", "--slurp", `repos/${repository}/issues/${issueNumber}/timeline?per_page=100`,
-      ], { environment });
+      ]);
       return openPullRequestsFromTimelinePages(JSON.parse(output));
     },
     async setStatus(issueNumber, from, to) {
-      await command("gh", [
+      await runGh([
         "issue", "edit", String(issueNumber), "--repo", repository,
         "--remove-label", from, "--add-label", to,
-      ], { environment });
+      ]);
     },
     async createPullRequest({ issue, branch }) {
       const labels = ["status:working", ...labelsFrom(issue, "lane:"), ...labelsFrom(issue, "priority:")];
       const body = factoryPullRequestBody(issue);
-      return command("gh", [
+      return runGh([
         "pr", "create", "--repo", repository, "--base", "main", "--head", branch,
         "--title", issue.title, "--body", body,
         ...labels.flatMap((label) => ["--label", label]),
-      ], { environment });
+      ]);
     },
     async waitForRequiredChecks(url) {
-      const before = JSON.parse(await command("gh", ["pr", "view", url, "--json", "headRefOid"], { environment })).headRefOid;
+      const before = JSON.parse(await runGh(["pr", "view", url, "--json", "headRefOid"])).headRefOid;
       if (!before) throw new Error("pull request head is unavailable");
-      await command("gh", [
+      await runGh([
         "pr", "checks", url, "--required", "--watch", "--fail-fast", "--interval", "10",
-      ], { environment, timeout: CI_TIMEOUT_MS });
-      const after = JSON.parse(await command("gh", ["pr", "view", url, "--json", "headRefOid"], { environment })).headRefOid;
+      ], { timeout: CI_TIMEOUT_MS });
+      const after = JSON.parse(await runGh(["pr", "view", url, "--json", "headRefOid"])).headRefOid;
       if (after !== before) throw new Error("pull request head changed while waiting for CI");
     },
     async verifyPreviewProof({ url, issue }) {
       if (!previewProofRequired(issue)) return;
-      const body = JSON.parse(await command("gh", ["pr", "view", url, "--json", "body"], { environment })).body;
+      const body = JSON.parse(await runGh(["pr", "view", url, "--json", "body"])).body;
       if (!hasPreviewProof(body)) throw new Error("current-head preview URL and screenshot or video are required");
     },
     async setPullRequestStatus(url, from, to) {
-      await command("gh", ["pr", "edit", url, "--remove-label", from, "--add-label", to], { environment });
+      await runGh(["pr", "edit", url, "--remove-label", from, "--add-label", to]);
     },
     async updatePullRequest({ url, issue, outcome, stages, error, reviewFindings = [], browserEvidence = null, outcomeAssessments = [], requiredOutcomes = [] }) {
-      const currentBody = JSON.parse(await command("gh", ["pr", "view", url, "--json", "body"], { environment })).body;
+      const currentBody = JSON.parse(await runGh(["pr", "view", url, "--json", "body"])).body;
       const body = factoryResultBody({
         currentBody,
         issue,
@@ -322,7 +343,7 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
         outcomeAssessments,
         requiredOutcomes,
       });
-      await command("gh", ["pr", "edit", url, "--body", body], { environment });
+      await runGh(["pr", "edit", url, "--body", body]);
     },
   };
 }

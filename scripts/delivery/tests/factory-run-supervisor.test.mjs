@@ -166,10 +166,16 @@ test("approved prompts contain only retained exact child spec and mapped outcome
     outcomeIds: ["one"], outcomes: [{ id: "one", text: "Required" }],
   };
   const mutableIssue = { ...ISSUE, body: "MUTABLE-PROSE-SENTINEL", comments: [{ body: "COMMENT-SENTINEL" }] };
+  assert.deepEqual(factoryIssuePromptInput(mutableIssue, authorization), {
+    number: 600,
+    title: "Approved",
+    body: "Exact approved body",
+    authorization: { route: "approved-factory-brief/v1", outcomes: [{ id: "one", text: "Required" }] },
+  });
   for (const prompt of [workerPrompt(mutableIssue, [], authorization), reviewerPrompt(mutableIssue, "safe", authorization)]) {
     assert.match(prompt, /Exact approved body/);
     assert.match(prompt, /Required/);
-    assert.doesNotMatch(prompt, /MUTABLE-PROSE-SENTINEL|COMMENT-SENTINEL/);
+    assert.doesNotMatch(prompt, /MUTABLE-PROSE-SENTINEL|COMMENT-SENTINEL|bodySha256|outcomeIds/);
   }
 });
 
