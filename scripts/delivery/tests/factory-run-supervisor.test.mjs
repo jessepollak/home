@@ -8,6 +8,9 @@ import {
   browserEvidenceSection,
   createGitHubAdapter,
   factoryIssuePromptInput,
+  factoryPullRequestBody,
+  factoryResultBody,
+  previewSectionFrom,
   reviewerPrompt,
   runFactorySupervisor,
   workerPrompt,
@@ -167,6 +170,34 @@ test("browser evidence rendering is concise and escapes inline markdown", () => 
   assert.match(section, /Fixture server cleanup: Terminated and waited/);
   assert.doesNotMatch(section, /\[untrusted\]\(https:\/\/example\.test\)/);
   assert.match(browserEvidenceSection(null), /Not required/);
+});
+
+test("preview section parsing accepts the current and legacy headings", () => {
+  const proof = "https://preview.example.test\n\n![Current-head screen](https://images.example.test/screen.png)";
+
+  assert.equal(previewSectionFrom(`## Preview\n\n${proof}\n\n## Notes\n\nMore`, ISSUE), proof);
+  assert.equal(previewSectionFrom(`## Preview proof\n\n${proof}\n\n<!-- factory -->`, ISSUE), proof);
+});
+
+test("factory PR bodies standardize Preview and preserve proof during rewrites", () => {
+  const proof = "https://preview.example.test\n\n![Screen](https://images.example.test/screen.png)";
+  const initialBody = factoryPullRequestBody(ISSUE);
+  assert.match(initialBody, /^## Preview$/m);
+  assert.doesNotMatch(initialBody, /^## Preview proof$/m);
+
+  for (const heading of ["Preview", "Preview proof"]) {
+    const rewritten = factoryResultBody({
+      currentBody: `Closes #546\n\n## ${heading}\n\n${proof}\n\n<!-- factory -->`,
+      issue: ISSUE,
+      outcome: "passed",
+      stages: [{ name: "validation", outcome: "passed", durationMs: 12 }],
+    });
+    assert.match(rewritten, /^## Preview$/m);
+    assert.doesNotMatch(rewritten, /^## Preview proof$/m);
+    assert.match(rewritten, /- validation: 12ms/);
+    assert.match(rewritten, /https:\/\/preview\.example\.test/);
+    assert.match(rewritten, /!\[Screen\]\(https:\/\/images\.example\.test\/screen\.png\)/);
+  }
 });
 
 test("supervisor waits for current-head CI before promoting a normal PR", async () => {

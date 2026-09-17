@@ -17,9 +17,9 @@ This contract applies to every user-visible UI change and core-flow implementati
    5. otherwise, add no Playwright test.
 3. **Does proof require a human-authenticated provider sandbox?**
    - **No:** use ordinary `agent-browser` iteration.
-   - **Yes:** this is exceptional, opt-in provider/system acceptance. Use that provider's approved runbook and safety guards. It does not run in PR CI and does not replace ordinary iteration or deterministic tests.
+   - **Yes:** this is exceptional, opt-in provider/system acceptance. Use the provider runbook Jesse approved and its safety guards. A committed provider-specific harness is allowed only when the acceptance flow needs one; it remains outside PR CI and does not become the ordinary feature-iteration API or substitute product regression coverage. Deterministic tests of the harness's own safety and orchestration rules remain required.
 
-Playwright is the sole committed automated browser regression layer. Do not commit an `agent-browser` script, transcript, wrapper, generic feature DSL, profile/state file, or another CI browser job.
+Playwright is the sole committed automated browser regression layer. For ordinary feature iteration, do not commit an `agent-browser` script, transcript, wrapper, generic feature DSL, profile/state file, or another CI browser job. The narrowly approved provider-harness exception is governed by step 3.
 
 ## Use the reviewed repository version
 

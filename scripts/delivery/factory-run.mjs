@@ -83,9 +83,64 @@ function defaultPreviewSection(issue) {
   return `Not applicable to ${lane} work because this change is not user-visible.`;
 }
 
-function previewSectionFrom(body, issue) {
-  const match = body?.match(/(?:^|\n)## Preview proof\n\n([\s\S]*?)(?=\n## |\n<!-- factory -->|$)/);
-  return match?.[1]?.trim() || defaultPreviewSection(issue);
+export function previewSectionFrom(body, issue) {
+  for (const heading of ["Preview", "Preview proof"]) {
+    const pattern = new RegExp(`(?:^|\\n)## ${heading}\\r?\\n\\r?\\n([\\s\\S]*?)(?=\\n## |\\n<!-- factory -->|$)`);
+    const section = body?.match(pattern)?.[1]?.trim();
+    if (section) return section;
+  }
+  return defaultPreviewSection(issue);
+}
+
+export function factoryPullRequestBody(issue) {
+  return [
+    `Closes #${issue.number}`,
+    "",
+    "## Factory run",
+    "",
+    "Bounded single-issue implementation. The supervisor will append validation evidence after independent review.",
+    "",
+    "## Preview",
+    "",
+    defaultPreviewSection(issue),
+    "",
+    "<!-- factory -->",
+  ].join("\n");
+}
+
+export function factoryResultBody({ currentBody, issue, outcome, stages, error, reviewFindings = [], browserEvidence = null }) {
+  const validation = stages
+    .filter((stage) => stage.outcome === "passed")
+    .map((stage) => `- ${stage.name}: ${stage.durationMs}ms`)
+    .join("\n");
+  return [
+    `Closes #${issue.number}`,
+    "",
+    "## Factory result",
+    "",
+    `Outcome: ${outcome}`,
+    ...(error ? ["", `Failure: ${error}`] : []),
+    ...(reviewFindings.length > 0 ? [
+      "",
+      "### Blocking review findings",
+      "",
+      ...reviewFindings.map((finding) => `- ${finding.file}: ${finding.description}`),
+    ] : []),
+    "",
+    "### Validation",
+    "",
+    validation || "- No completed validation stages.",
+    "",
+    "### Browser evidence",
+    "",
+    browserEvidenceSection(browserEvidence),
+    "",
+    "## Preview",
+    "",
+    previewSectionFrom(currentBody, issue),
+    "",
+    "<!-- factory -->",
+  ].join("\n");
 }
 
 function publicFailureFor(stages) {
@@ -154,19 +209,7 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
     },
     async createPullRequest({ issue, branch }) {
       const labels = ["status:working", ...labelsFrom(issue, "lane:"), ...labelsFrom(issue, "priority:")];
-      const body = [
-        `Closes #${issue.number}`,
-        "",
-        "## Factory run",
-        "",
-        "Bounded single-issue implementation. The supervisor will append validation evidence after independent review.",
-        "",
-        "## Preview proof",
-        "",
-        defaultPreviewSection(issue),
-        "",
-        "<!-- factory -->",
-      ].join("\n");
+      const body = factoryPullRequestBody(issue);
       return command("gh", [
         "pr", "create", "--repo", repository, "--base", "main", "--head", branch,
         "--title", issue.title, "--body", body,
@@ -191,39 +234,16 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
       await command("gh", ["pr", "edit", url, "--remove-label", from, "--add-label", to], { environment });
     },
     async updatePullRequest({ url, issue, outcome, stages, error, reviewFindings = [], browserEvidence = null }) {
-      const validation = stages
-        .filter((stage) => stage.outcome === "passed")
-        .map((stage) => `- ${stage.name}: ${stage.durationMs}ms`)
-        .join("\n");
       const currentBody = JSON.parse(await command("gh", ["pr", "view", url, "--json", "body"], { environment })).body;
-      const body = [
-        `Closes #${issue.number}`,
-        "",
-        "## Factory result",
-        "",
-        `Outcome: ${outcome}`,
-        ...(error ? ["", `Failure: ${error}`] : []),
-        ...(reviewFindings.length > 0 ? [
-          "",
-          "### Blocking review findings",
-          "",
-          ...reviewFindings.map((finding) => `- ${finding.file}: ${finding.description}`),
-        ] : []),
-        "",
-        "### Validation",
-        "",
-        validation || "- No completed validation stages.",
-        "",
-        "### Browser evidence",
-        "",
-        browserEvidenceSection(browserEvidence),
-        "",
-        "## Preview proof",
-        "",
-        previewSectionFrom(currentBody, issue),
-        "",
-        "<!-- factory -->",
-      ].join("\n");
+      const body = factoryResultBody({
+        currentBody,
+        issue,
+        outcome,
+        stages,
+        error,
+        reviewFindings,
+        browserEvidence,
+      });
       await command("gh", ["pr", "edit", url, "--body", body], { environment });
     },
   };

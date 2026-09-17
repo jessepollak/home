@@ -1,6 +1,9 @@
 # Checkpoint — September 12, 2026: Home is thin
 
-State of `main` after the reset program. Read `home-is-thin.md` for the architecture; this file records where things stand and how to resume.
+> [!WARNING]
+> **Historical and superseded.** This compatibility document records a September 12 snapshot; do not follow its delivery mode or resuming instructions as current policy. Use the current [operating manual](operating-manual.md) and [architecture](architecture.md).
+
+State of `main` after the reset program. This file records where things stood at that checkpoint.
 
 ## State
 

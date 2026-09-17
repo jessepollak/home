@@ -11,7 +11,7 @@ metadata:
 
 # Browser iteration for Home
 
-Follow [`docs/browser-validation.md`](../../../docs/browser-validation.md); it is normative and wins over this operational summary. Home pins `agent-browser` `0.38.1` in the root package and lockfile. Never rely on a global installation and do not create a wrapper or committed browser script.
+Follow [`docs/browser-validation.md`](../../../docs/browser-validation.md); it is normative and wins over this operational summary. Home pins `agent-browser` `0.38.1` in the root package and lockfile. Never rely on a global installation. Ordinary feature iteration does not create a wrapper or committed browser script; only a provider-specific acceptance harness explicitly approved by Jesse may be committed under the contract's exceptional provider path.
 
 ## Start by loading matching upstream guidance
 
@@ -28,7 +28,7 @@ The version must be `0.38.1`. Load `bunx agent-browser skills get dogfood` for e
 
 - **User-visible UI or core flow:** `agent-browser` exploration before editing and verification after editing are required. For a new feature, explore its nearest existing entry path first. This produces ephemeral evidence only.
 - **Durable regression:** use Home unit/component tests first. Playwright is the only committed automated browser layer and receives a focused assertion only for browser-principal behavior under the decision tree in `docs/browser-validation.md`. Zero new Playwright tests is normal.
-- **Provider acceptance:** follow the provider's approved, opt-in runbook. It is not normal feature iteration and never runs in PR CI.
+- **Provider acceptance:** follow the provider's Jesse-approved, opt-in runbook. It is not normal feature iteration and never runs in PR CI. A committed provider-specific harness is allowed only when that approved acceptance flow requires one; keep deterministic safety/orchestration tests for the harness itself.
 
 ## Factory loop
 

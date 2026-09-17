@@ -182,6 +182,8 @@ Test Home's logic: calldata issuance, auth scope, amount parsing and formatting,
 
 User-visible work needs the Vercel preview link and one screenshot (or one short video for motion) in the PR description, captured from the current head. Interactive iteration and its concise mode/route/viewport/path evidence follow [Browser validation](browser-validation.md); media placement follows [UI PR previews](ui-pr-previews.md). A reviewer should understand the change without opening the branch.
 
+For factory runs, browser evidence is a bounded worker attestation whose required fields the supervisor validates structurally. The preview gate's URL and media checks establish structural presence only. Neither check determines that evidence came from the current head or is relevant to the change; the independent reviewer and Jesse remain responsible for that judgment.
+
 Docs-only, CI-only, and pure server PRs skip screenshots. They still need a clear claim of what changed and how it was checked (`bun check` at minimum).
 
 ## Merge policy

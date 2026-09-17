@@ -7,10 +7,17 @@ Home is meant to be cloned and run first. This guide is for focused pull request
 1. [README — Get started](README.md#get-started)
 2. [Architecture](docs/architecture.md) — principles, seams, and the thinness test; [Actions](docs/actions.md) for the action flow
 3. [Architecture review](docs/architecture-review-2026-09.md) — current-tree boundaries and contribution contract
-4. [Docs index](docs/README.md)
-5. [Operating manual](docs/operating-manual.md) — issue labels, proof bar, and merge policy
+4. [Browser validation](docs/browser-validation.md) — required before/after iteration and regression-test boundaries for user-visible and core-flow work
+5. [Docs index](docs/README.md)
+6. [Operating manual](docs/operating-manual.md) — issue labels, proof bar, and merge policy
 
 For hosting, see [Vercel deploy](docs/vercel-deploy.md). For a customized operator deployment, see [Fork and extend](docs/fork-and-extend.md).
+
+## Local environment
+
+The [README setup](README.md#install-and-run) bootstraps a fresh clone from the tracked `.env.example`. An ordinary Git worktree does not copy the ignored `apps/web/.env.local`; follow the [AGENTS worktree bootstrap](AGENTS.md#working-in-this-repo) to copy it from the primary checkout only when it is missing, without printing, overwriting, or committing it.
+
+Factory worktrees are different: they stay secret-free, run `bun run factory:preflight`, and never copy or read the operator's `.env.local` or receive provider, database, production, or Vercel credentials.
 
 ## Local checks
 

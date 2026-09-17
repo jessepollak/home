@@ -78,7 +78,7 @@ bun test       # deterministic unit and contract tests
 bun lint       # ESLint
 bun typecheck  # generated route types and strict TypeScript
 bun build      # production build
-bun check      # test, lint, typecheck, and build
+bun check      # repository gates, test, lint, typecheck, and build
 ```
 
 ## Customize it

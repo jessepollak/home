@@ -1,6 +1,9 @@
 # Architecture audit — September 12, 2026
 
-Audit of `main` at `b9ecca1` against `home-is-thin.md` (five invariants, deliberate data model, client architecture) and the Rainbow teardown lessons. Two independent read-only auditors (server + funding seam; client) produced the findings; the coordinator verified the load-bearing claims (F1, F4, A-12, A-21) by hand and wrote the plan.
+> [!WARNING]
+> **Historical and superseded.** This compatibility document audits a September 12 tree and is not current architecture or an implementation plan. Use the current [architecture](architecture.md) and [operating manual](operating-manual.md).
+
+Audit of `main` at `b9ecca1` against the then-current Home-is-thin design and the Rainbow teardown lessons. Two independent read-only auditors (server + funding seam; client) produced the findings; the coordinator verified the load-bearing claims (F1, F4, A-12, A-21) by hand and wrote the plan.
 
 ## Summary
 

@@ -6,7 +6,7 @@ For product intent and MVP scope, start with [Product strategy](product-strategy
 | --- | --- |
 | [Architecture review](architecture-review-2026-09.md) | Current-tree boundaries, risks, and contribution rules. |
 | [Archive index](archive/README.md) | Historical documents and why they moved. |
-| [Archived implementation plan](archive/implementation-plan-2026-09-07.md) | September 7 livestream plan; not a current backlog. |
+| Historical implementation plan ([archive](archive/implementation-plan-2026-09-07.md), [compatibility stub](implementation-plan.md)) | September 7 livestream plan; retained for compatibility, not a current backlog. |
 | [Balances inventory architecture](balances-inventory-architecture.md) | Bounded wallet and savings inventory decisions. |
 | [Base Account](base-account.md) | Optional Base Account configuration. |
 | [Browser validation](browser-validation.md) | Normative `agent-browser` iteration, Playwright regression, and provider-acceptance boundary. |
@@ -27,7 +27,6 @@ For product intent and MVP scope, start with [Product strategy](product-strategy
 | [Architecture](architecture.md) | Principles, seams, data model, flows, client, quality bar, fork contract. Wins over every other doc. |
 | [Actions](actions.md) | The action record, derived status, prepare → confirm → dispatch → handle, SDK-verified retry semantics, owner fence. |
 | [Balances](balances.md) | One balances pipeline and snapshot: enumerate → resolve → read → price; device and server caching. |
-| [Implementation plan](implementation-plan.md) | Redirect to the archived livestream plan. |
 | [Issuer integration guide](integrations/README.md) | Funding-provider adapter walkthrough. |
 | [Invest data](invest-data.md) | Invest asset identity and data notes. |
 | [Local money coverage](local-money-coverage.md) | Global country, currency, issuer-research, Home-route, GDP, and map inventory. |
@@ -46,8 +45,7 @@ For product intent and MVP scope, start with [Product strategy](product-strategy
 | [QA checking shimmer spec](qa/checking-97/CHECKING-SHIMMER-SPEC.md) | Checking shimmer QA specification. |
 | [README capture guide](readme/README.md) | Screenshot provenance and regeneration. |
 | [Regional money](regional-money.md) | Regional presentation and stablecoin candidates. |
-| [Target architecture](target-architecture.md) | Historical September 7 build plan; superseded by [Architecture](architecture.md) where they disagree. |
-| [Technical design](technical-design.md) | Redirect to target architecture. |
+| Historical target architecture ([plan](target-architecture.md), [technical-design stub](technical-design.md)) | September 7 build plan and compatibility stub; superseded by [Architecture](architecture.md) where they disagree. |
 | [UI direction](ui-direction.md) | Product UI rules and visual direction. |
 | [UI PR previews](ui-pr-previews.md) | Required proof for user-visible changes. |
 | [Vercel deploy](vercel-deploy.md) | Bun monorepo Vercel setup. |
