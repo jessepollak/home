@@ -4,6 +4,7 @@ import { authorizeSession } from "@/server/auth/authorize";
 import { fundingProviders } from "@/server/funding/providers";
 import { readCurrentBaseBlock, verifyBaseFundingReceipt } from "./base-receipt";
 import { createRuntimeFundingOrderStore } from "./postgres-store";
+import { createRuntimeFundingProviderCustomerStore } from "./customer-store";
 import { FundingCore } from "./service";
 import { emitServerEvent } from "@/server/observability/log";
 import { getBalanceSnapshotStore } from "@/server/balances/snapshot-store";
@@ -16,6 +17,7 @@ export function getFundingCore(): FundingCore {
   core ??= new FundingCore({
     providers: fundingProviders,
     store: createRuntimeFundingOrderStore(),
+    customerStore: createRuntimeFundingProviderCustomerStore(),
     currentBaseBlock: () => readCurrentBaseBlock(),
     verifyReceipt: (order, hash) => verifyBaseFundingReceipt(order, hash),
     markStale: (address, at) => getBalanceSnapshotStore().markStale(8453, address, at),

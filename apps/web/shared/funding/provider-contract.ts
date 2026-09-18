@@ -5,9 +5,10 @@ import type { FundingAsset } from "./assets";
 export type FundingDirection = "onramp" | "offramp";
 export type FundingPaymentMethod = { id: string; label: string };
 
-export type FundingKycManifest = {
+export type FundingCustomerManifest = {
+  handoffOrigins: ReadonlyArray<string>;
   terms?: { url: string };
-  fields?: ReadonlyArray<{
+  fields: ReadonlyArray<{
     name: string;
     label: string;
     type: "text" | "email" | "date" | "select";
@@ -41,7 +42,7 @@ export type FundingProviderManifest = {
     sandbox?: boolean;
     reference: "home" | "provider";
     quotes?: boolean;
-    kyc?: FundingKycManifest;
+    customer?: FundingCustomerManifest;
     webhook?: FundingWebhookManifest;
   };
   offramp?: {
@@ -74,10 +75,24 @@ export type FundingProvider = {
 };
 
 export type FundingOnrampProvider = {
-  ensureCustomer?(
-    input: { subject: string; fields: Record<string, string>; clientIp?: string },
-    ctx: ProviderContext,
-  ): Promise<{ customerRef: string }>;
+  customer?: {
+    create(
+      input: { subject: string; email: string },
+      ctx: ProviderContext,
+    ): Promise<
+      | { outcome: "created"; customerRef: string; providerCreatedAt: string }
+      | { outcome: "rejected" }
+      | { outcome: "ambiguous" }
+    >;
+    startVerification(
+      input: { customerRef: string; fields: Record<string, string>; clientIp?: string; returnUrl: string },
+      ctx: ProviderContext,
+    ): Promise<
+      | { outcome: "created"; submissionRef: string; providerUrl: string; createdAt: string }
+      | { outcome: "rejected" }
+      | { outcome: "ambiguous" }
+    >;
+  };
   createQuote?(input: QuoteIntent, ctx: ProviderContext): Promise<Quote>;
   createOrder(input: OrderIntent, ctx: ProviderContext): Promise<CreateOrderResult>;
   getOrder(input: ReconciliationIntent, ctx: ProviderContext): Promise<Observation>;

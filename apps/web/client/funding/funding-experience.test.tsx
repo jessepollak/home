@@ -562,3 +562,28 @@ describe("FundingExperience", () => {
     expect(page().queryByRole("button", { name: "Continue to Coinbase" })).toBeNull();
   });
 });
+
+describe("provider customer funding position", () => {
+  test("derives pending setup from owner-scoped state and issues hosted verification only on click", async () => {
+    const navigations: string[] = [];
+    let verificationPosts = 0;
+    const binding = { ...fundingBinding(), customerSetup: { fields: [] } };
+    const pending = { providerId: "ripio", region: "AR", state: "pending", verificationStartedAt: null, updatedAt: "2026-09-18T00:00:00.000Z" };
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string, options?: { method?: string }) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [binding] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) return { customers: [pending] };
+      if (path === "/api/funding/provider-customers/verification" && options?.method === "POST") {
+        verificationPosts += 1;
+        return { customer: { ...pending, verificationStartedAt: "2026-09-18T00:01:00.000Z" }, handoff: { url: "https://kyc.ripio.com/start?token=synthetic" } };
+      }
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={(url) => navigations.push(url)} regionId="AR" />);
+    expect(await page().findByRole("heading", { name: "Set up Ripio" })).toBeTruthy();
+    expect(verificationPosts).toBe(0);
+    fireEvent.click(page().getByRole("button", { name: "Continue to verification" }));
+    await waitFor(() => expect(verificationPosts).toBe(1));
+    await waitFor(() => expect(navigations).toEqual(["https://kyc.ripio.com/start?token=synthetic"]));
+  });
+});

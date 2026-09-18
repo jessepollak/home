@@ -88,6 +88,12 @@ export type RipioCustomerReference = {
   createdAt: string;
 };
 
+export type RipioKycHandoff = {
+  submissionId: string;
+  providerUrl: string;
+  createdAt: string;
+};
+
 export type RipioTransactionReference = {
   transactionId: string;
   status: string;
@@ -141,7 +147,7 @@ export type RipioClient = {
   getCustomer(customerId: string): Promise<unknown>;
   getTerms(): Promise<unknown>;
   acceptTerms(customerId: string, termsId: string, ipAddress: string): Promise<unknown>;
-  submitKyc(customerId: string, body: Record<string, unknown>): Promise<unknown>;
+  submitKyc(customerId: string, body: Record<string, unknown>): Promise<RipioKycHandoff>;
   getDepositNetworks(): Promise<unknown>;
   getWithdrawalNetworks(): Promise<unknown>;
 };
@@ -302,7 +308,10 @@ export function createRipioClient(country: RipioCountry, options: {
     },
     submitKyc(customerId, body) {
       if (!validUuid(customerId) || !isRecord(body)) throw new RipioProviderError("invalid-request");
-      return request(`/api/v1/customers/${customerId}/kyc/`, { method: "POST", body: JSON.stringify(body) }, true);
+      return parseCreateResponse(
+        () => request(`/api/v1/customers/${customerId}/kyc/`, { method: "POST", body: JSON.stringify(body) }, true),
+        parseKycHandoff,
+      );
     },
     getDepositNetworks: () => request("/api/v1/depositNetworks/?include_currency=true"),
     getWithdrawalNetworks: () => request("/api/v1/withdrawalNetworks/?include_currency=true"),
@@ -313,6 +322,13 @@ export function ripioCredentialState(country: RipioCountry, env: Environment = p
   const id = Boolean(env[`RIPIO_CLIENT_ID_${country}`]?.trim());
   const secret = Boolean(env[`RIPIO_CLIENT_SECRET_${country}`]?.trim());
   return id && secret ? "configured" : id || secret ? "partial" : "missing";
+}
+
+function parseKycHandoff(value: unknown): RipioKycHandoff {
+  if (!isRecord(value) || !validUuid(value.submissionId) || !validDate(value.createdAt) || typeof value.providerUrl !== "string" || value.providerUrl.length > 4096) {
+    throw new RipioProviderError("invalid-response");
+  }
+  return { submissionId: value.submissionId, providerUrl: value.providerUrl, createdAt: value.createdAt };
 }
 
 function parseCustomer(value: unknown): RipioCustomerReference {

@@ -55,7 +55,6 @@ export interface FundingOrderStore {
   getByIntent(owner: FundingOrderOwner, intentDigest: string): Promise<FundingOrder | null>;
   getOpen(owner: FundingOrderOwner, region: string): Promise<FundingOrder | null>;
   getByProviderOrderId(providerId: string, providerOrderId: string): Promise<FundingOrder | null>;
-  findCustomerRef(owner: FundingOrderOwner, providerId: string, region: string): Promise<string | null>;
   completeDispatch(id: string, input: {
     providerOrderId: string;
     expectedTokenAmountAtomic: string;
@@ -132,12 +131,6 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
   async getByProviderOrderId(providerId: string, providerOrderId: string) {
     const id = this.providerOrders.get(`${providerId}:${providerOrderId}`);
     return id ? clone(this.required(id)) : null;
-  }
-
-  async findCustomerRef(owner: FundingOrderOwner, providerId: string, region: string) {
-    return [...this.orders.values()].reverse().find((order) =>
-      sameOwner(order.owner, owner) && order.providerId === providerId && order.region === region && order.customerRef,
-    )?.customerRef ?? null;
   }
 
   async completeDispatch(id: string, input: Parameters<FundingOrderStore["completeDispatch"]>[1]) {

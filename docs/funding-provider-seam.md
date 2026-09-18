@@ -251,3 +251,11 @@ Ripio now fails closed when terms cannot be identified, treats uncertain create 
 Quote tokens now require one canonical unpadded base64url encoding. Existing owner-bound reservations are recovered from the authenticated canonical token even after quote expiry; expiry gates only a new reservation. Unknown fee economics are labeled unknown, and provider-returned receive/fee details are reviewed before payment instructions appear. Webhook bodies use capped timed streaming reads and treat `Content-Length` as advisory.
 
 Migration `002_funding_provider_seam.sql` remains candidate-only: it is absent from `origin/main` history and has never been published or deployed. It therefore remains a clean-install migration for #301; any future deployed predecessor requires a new additive migration instead of editing `002`.
+
+## Durable provider customers
+
+Provider-owned customer identity is separate from `funding_orders`. A provider opts in with the narrow `onramp.customer` capability; providers without it continue directly through quote/order creation. In particular, Coinbase Embedded Apple Pay and IDRX (including QRIS) are excluded from Home-owned customer setup.
+
+`funding_provider_customers` is owner-subject/account-provider/provider/region scoped. Creation reserves that row before the provider POST, persists the returned customer reference before terms or KYC writes, and uses version CAS for both creation and verification dispatch. A fresh concurrent reservation returns a conflict; an aged reservation becomes `dispatch-ambiguous` and is never automatically retried. Hosted handoff URLs are returned only by the explicit verification-start POST and are never persisted or returned by GET because their query may contain a bearer token.
+
+Migration `007_funding_provider_customers.sql` reconciles legacy non-null order customer references as `pending`: an order proves identity binding, not verification. Existing order references remain immutable snapshots, but runtime customer lookup no longer scans orders. Promotion to `verified` requires separately observed provider evidence.

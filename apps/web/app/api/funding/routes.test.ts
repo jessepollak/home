@@ -37,7 +37,7 @@ describe("funding route privacy and rejection", () => {
     expect(response.status).toBe(200);
     assertPrivate(response);
     expect(await response.json()).toEqual({
-      version: 2,
+      version: 3,
       direction: "onramp",
       providers: [],
     });
@@ -69,7 +69,7 @@ describe("funding route privacy and rejection", () => {
     assertPrivate(response);
     expect(requestedDirection).toBe("offramp");
     expect(await response.json()).toEqual({
-      version: 2,
+      version: 3,
       direction: "offramp",
       providers: [],
     });

@@ -41,6 +41,7 @@ import {
   readQuoteDraft,
   type QuoteDraft,
 } from "@/shared/funding/contracts/quotes";
+import { readFundingProviderCustomer, readVerificationHandoff, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import {
   readFundingOrder,
   type FundingOrderSummary,
@@ -65,6 +66,7 @@ export function FundingOrderFlow({
   onClose,
   onOpenRedirect,
   initialOrder,
+  initialCustomer,
 }: {
   binding: FundingBinding;
   fetchAccountResource: AccountFetch;
@@ -74,11 +76,13 @@ export function FundingOrderFlow({
   onClose: () => void;
   onOpenRedirect: (url: string) => void;
   initialOrder?: FundingOrderSummary | null;
+  initialCustomer?: FundingProviderCustomerSummary | null;
 }) {
   const [method, setMethod] = useState(binding.paymentMethods[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [fields, setFields] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState<QuoteDraft | null>(null);
+  const [customer, setCustomer] = useState<FundingProviderCustomerSummary | null>(initialCustomer ?? null);
   const [order, setOrder] = useState<FundingOrderSummary | null>(
     initialOrder ?? null,
   );
@@ -151,7 +155,6 @@ export function FundingOrderFlow({
           region: binding.region,
           paymentMethod: method,
           fiatAmount: amount,
-          ...(binding.kyc ? { kycFields: fields } : {}),
         },
       });
       const parsed = readQuoteDraft(value);
@@ -164,6 +167,32 @@ export function FundingOrderFlow({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function createCustomer() {
+    if (busy || !binding.customerSetup) return;
+    setBusy(true); setError(null);
+    try {
+      const value = await fetchAccountResource("/api/funding/provider-customers", { method: "POST", body: { providerId: binding.providerId, region: binding.region, email: fields.email } });
+      const next = readFundingProviderCustomer(value);
+      if (!next) throw new Error("customer");
+      setCustomer(next);
+    } catch { setError("Provider setup could not be created. Try again only if Home says the previous request was rejected."); }
+    finally { setBusy(false); }
+  }
+
+  async function startVerification() {
+    if (busy || !binding.customerSetup) return;
+    setBusy(true); setError(null);
+    try {
+      const value = await fetchAccountResource("/api/funding/provider-customers/verification", { method: "POST", body: { providerId: binding.providerId, region: binding.region, fields } });
+      const next = readFundingProviderCustomer(value);
+      if (next) setCustomer(next);
+      const handoff = readVerificationHandoff(value);
+      if (!handoff) throw new Error("handoff");
+      onOpenRedirect(handoff);
+    } catch { setError("Verification could not be started. Home will not repeat an uncertain provider request."); }
+    finally { setBusy(false); }
   }
 
   async function confirmOrder() {
@@ -220,6 +249,25 @@ export function FundingOrderFlow({
       </>
     );
   }
+  if (binding.customerSetup && customer?.state !== "verified") {
+    const pendingStarted = customer?.state === "pending" && Boolean(customer.verificationStartedAt);
+    const blocked = customer?.state === "reserving" || customer?.state === "dispatch-ambiguous";
+    const definitions = binding.customerSetup.fields;
+    const complete = !definitions.some((field) => !fields[field.name]?.trim());
+    return <>
+      <MoneyModalHeader title={`Set up ${binding.displayName}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" />
+      <MoneyModalBody hasFooter={!pendingStarted && !blocked} className="gap-4 pt-4">
+        {pendingStarted ? <FundingNotice tone="neutral">Verification is pending. Return here after Ripio completes its review. Home will not issue another hosted link automatically.</FundingNotice> : null}
+        {blocked ? <FundingNotice tone="error" role="alert">Home could not confirm the provider setup result. Do not try again until the operator reconciles it.</FundingNotice> : null}
+        {!pendingStarted && !blocked ? definitions.map((field) => {
+          const id = `funding-customer-${field.name}`; const value = fields[field.name] ?? "";
+          return <Field key={field.name}><FieldLabel htmlFor={id}>{field.label}</FieldLabel><Input id={id} type={field.type === "select" ? "text" : field.type} value={value} required onChange={(event) => setFields((current) => ({ ...current, [field.name]: event.currentTarget.value }))} /></Field>;
+        }) : null}
+        {error ? <FundingNotice tone="error" role="alert">{error}</FundingNotice> : null}
+      </MoneyModalBody>
+      {!pendingStarted && !blocked ? <MoneyModalFooter primaryLabel={busy ? "Working…" : customer?.state === "pending" ? "Continue to verification" : "Create provider profile"} primaryDisabled={busy || !complete} onPrimary={() => void (customer?.state === "pending" ? startVerification() : createCustomer())} secondaryLabel="Back" onSecondary={onBack} /> : null}
+    </>;
+  }
   if (draft) {
     return (
       <>
@@ -229,9 +277,7 @@ export function FundingOrderFlow({
     );
   }
 
-  const fieldsComplete = !binding.kyc?.fields?.some(
-    (field) => !fields[field.name]?.trim(),
-  );
+  const fieldsComplete = true;
   const amountAssetProps = {
     assetId: binding.currency.toLocaleLowerCase(),
     assetLabel: binding.currency,
@@ -274,44 +320,6 @@ export function FundingOrderFlow({
             </Select>
           </Field>
         ) : null}
-        {binding.kyc?.fields?.map((field) => {
-          const id = `funding-kyc-${field.name}`;
-          const value = fields[field.name] ?? "";
-          const onChange = (nextValue: string) =>
-            setFields((current) => ({ ...current, [field.name]: nextValue }));
-          return (
-            <Field key={field.name}>
-              <FieldLabel htmlFor={id}>{field.label}</FieldLabel>
-              {field.type === "select" ? (
-                <Select
-                  value={value || null}
-                  required
-                  onValueChange={(nextValue) => onChange(nextValue ?? "")}
-                >
-                  <SelectTrigger className="h-11 w-full" id={id}>
-                    <SelectValue placeholder="Choose" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {field.options?.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  className="h-11"
-                  id={id}
-                  type={field.type}
-                  value={value}
-                  required
-                  onChange={(event) => onChange(event.currentTarget.value)}
-                />
-              )}
-            </Field>
-          );
-        })}
         <MoneyAmountDisplay
           amount={amount}
           onAmountChange={changeAmount}

@@ -156,6 +156,7 @@ export function parseShellLocation(pathname: string): ShellLocation {
 export type ShellOverlayIntent = {
   account: ShellAccount | null;
   returnedFromFunding: boolean;
+  fundingReturn: "funding" | "verification" | null;
   addMoney: boolean;
   flow: ShellFlow | null;
   actionId: string | null;
@@ -167,9 +168,12 @@ export function parseShellOverlayIntent(
 ): ShellOverlayIntent {
   const flow = parseShellFlow(readSearchValue(search, SHELL_FLOW_PARAM));
   const action = readSearchValue(search, SHELL_ACTION_PARAM);
+  const returnValue = readSearchValue(search, "return");
+  const fundingReturn = returnValue === "funding" || returnValue === "verification" ? returnValue : null;
   return {
     account: readShellAccountParam(search),
-    returnedFromFunding: readSearchValue(search, "return") === "funding",
+    returnedFromFunding: fundingReturn !== null,
+    fundingReturn,
     addMoney: readSearchValue(search, "add-money") === "1",
     flow,
     actionId: flow === "send" && action && actionIdPattern.test(action) ? action : null,
@@ -267,7 +271,7 @@ export function homeHrefWithOverlays(search: ShellSearchInput): string {
   if (overlay.account) params.set(SHELL_ACCOUNT_PARAM, overlay.account);
   if (overlay.flow) params.set(SHELL_FLOW_PARAM, overlay.flow);
   if (overlay.actionId) params.set(SHELL_ACTION_PARAM, overlay.actionId);
-  if (overlay.returnedFromFunding) params.set("return", "funding");
+  if (overlay.fundingReturn) params.set("return", overlay.fundingReturn);
   if (overlay.addMoney) params.set("add-money", "1");
   const query = params.toString();
   return query ? `/home?${query}` : "/home";

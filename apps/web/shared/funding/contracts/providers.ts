@@ -1,7 +1,7 @@
 // Route contract.
 // GET /api/funding/providers?region=US&direction=onramp|offramp
 
-export const FUNDING_PROVIDERS_VERSION = 2 as const;
+export const FUNDING_PROVIDERS_VERSION = 3 as const;
 
 type FundingBindingBase = {
   providerId: string;
@@ -17,7 +17,7 @@ export type FundingOnrampBinding = FundingBindingBase & {
   direction: "onramp";
   paymentMethods: ReadonlyArray<{ id: string; label: string }>;
   quotes: boolean;
-  kyc: { terms?: { url: string }; fields?: ReadonlyArray<{ name: string; label: string; type: "text" | "email" | "date" | "select"; options?: ReadonlyArray<string> }> } | null;
+  customerSetup: { terms?: { url: string }; fields: ReadonlyArray<{ name: string; label: string; type: "text" | "email" | "date" | "select"; options?: ReadonlyArray<string> }> } | null;
 };
 
 export type FundingOfframpBinding = FundingBindingBase & {
@@ -34,7 +34,7 @@ export type FundingOfframpBinding = FundingBindingBase & {
     corridorConfirmedBy: string;
   }>;
   quotes: false;
-  kyc: null;
+  customerSetup: null;
 };
 
 export type FundingBinding = FundingOnrampBinding | FundingOfframpBinding;
@@ -52,22 +52,22 @@ export function readProviderBindings(value: unknown): ReadonlyArray<FundingBindi
     if (!isBaseBinding(item) || !Array.isArray(item.paymentMethods)) continue;
     const direction = item.direction === undefined ? "onramp" : item.direction;
     if (direction === "onramp") {
-      if (typeof item.quotes !== "boolean" || !(item.kyc === null || isRecord(item.kyc))) continue;
+      if (typeof item.quotes !== "boolean" || !(item.customerSetup === undefined || item.customerSetup === null || isCustomerSetup(item.customerSetup))) continue;
       const paymentMethods = item.paymentMethods.filter(isPaymentMethod);
       if (paymentMethods.length !== item.paymentMethods.length) continue;
       parsed.push({
         providerId: item.providerId, displayName: item.displayName, region: item.region,
         assetId: item.assetId, assetSymbol: item.assetSymbol, assetDecimals: item.assetDecimals,
         currency: item.currency, direction, paymentMethods, quotes: item.quotes,
-        kyc: item.kyc as FundingOnrampBinding["kyc"],
+        customerSetup: (item.customerSetup ?? null) as FundingOnrampBinding["customerSetup"],
       });
     } else if (direction === "offramp") {
       const paymentMethods = item.paymentMethods.filter(isOfframpPaymentMethod);
-      if (paymentMethods.length !== item.paymentMethods.length || item.quotes !== false || item.kyc !== null) continue;
+      if (paymentMethods.length !== item.paymentMethods.length || item.quotes !== false || !((item.customerSetup ?? item.kyc) === null)) continue;
       parsed.push({
         providerId: item.providerId, displayName: item.displayName, region: item.region,
         assetId: item.assetId, assetSymbol: item.assetSymbol, assetDecimals: item.assetDecimals,
-        currency: item.currency, direction, paymentMethods, quotes: false, kyc: null,
+        currency: item.currency, direction, paymentMethods, quotes: false, customerSetup: null,
       });
     }
   }
@@ -83,6 +83,10 @@ function isBaseBinding(value: unknown): value is Record<string, unknown> & Fundi
     typeof value.assetSymbol === "string" &&
     Number.isSafeInteger(value.assetDecimals) &&
     typeof value.currency === "string";
+}
+
+function isCustomerSetup(value: unknown): boolean {
+  return isRecord(value) && Array.isArray(value.fields) && value.fields.every((field) => isRecord(field) && typeof field.name === "string" && typeof field.label === "string" && ["text", "email", "date", "select"].includes(String(field.type)));
 }
 
 function isPaymentMethod(value: unknown): value is { id: string; label: string } {

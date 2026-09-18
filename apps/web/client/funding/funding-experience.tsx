@@ -10,6 +10,7 @@ import {
 } from "./add-money-dialog";
 import { readFundingOrder, readProviderId, type FundingOrderSummary } from "@/shared/funding/contracts/order";
 import { readProviderBindings, type FundingBinding } from "@/shared/funding/contracts/providers";
+import { readFundingProviderCustomers, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 
 export type FundingExperienceProps = {
@@ -73,6 +74,7 @@ function FundingExperienceBoundary({
   const [step, setStep] = useState<AddMoneyStep>(startStep);
   const [selectedBinding, setSelectedBinding] = useState<FundingBinding | null>(null);
   const [initialOrder, setInitialOrder] = useState<FundingOrderSummary | null>(null);
+  const [initialCustomer, setInitialCustomer] = useState<FundingProviderCustomerSummary | null>(null);
   const stepRef = useRef<AddMoneyStep>(startStep);
   const navigationEpochRef = useRef(0);
   const wasOpenRef = useRef(open);
@@ -96,6 +98,17 @@ function FundingExperienceBoundary({
         `/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=onramp`,
         { signal },
       ),
+  });
+  const customersQuery = useHomeQuery({
+    queryKey: queryOwnerKey
+      ? ownerQueryKey(queryOwnerKey, "funding-provider-customers", regionId)
+      : ["unauthenticated", "funding-provider-customers-disabled", regionId],
+    enabled: queryEnabled,
+    staleTime: 15_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
+    queryFn: ({ signal }) => wallet.fetchAccountResource(`/api/funding/provider-customers?region=${encodeURIComponent(regionId)}`, { signal }),
   });
   const ordersQuery = useHomeQuery({
     queryKey: queryOwnerKey
@@ -151,6 +164,20 @@ function FundingExperienceBoundary({
     });
   }, [ordersQuery.data, providerBindings]);
 
+  useEffect(() => {
+    if (readFundingOrder(ordersQuery.data) || stepRef.current !== "method") return;
+    const customers = readFundingProviderCustomers(customersQuery.data);
+    const customer = customers.find((candidate) => candidate.state !== "verified") ?? customers[0];
+    if (!customer) return;
+    const binding = providerBindings.find((candidate) => candidate.providerId === customer.providerId && candidate.customerSetup);
+    if (!binding) return;
+    const navigationEpoch = navigationEpochRef.current;
+    queueMicrotask(() => {
+      if (navigationEpochRef.current !== navigationEpoch || stepRef.current !== "method") return;
+      setSelectedBinding(binding); setInitialCustomer(customer); navigateTo("order", false);
+    });
+  }, [customersQuery.data, ordersQuery.data, providerBindings]);
+
   function navigateTo(next: AddMoneyStep, explicit = true) {
     if (explicit) navigationEpochRef.current += 1;
     stepRef.current = next;
@@ -161,6 +188,7 @@ function FundingExperienceBoundary({
     navigateTo("method");
     setSelectedBinding(null);
     setInitialOrder(null);
+    setInitialCustomer(null);
     onClose?.();
   }
 
@@ -168,6 +196,7 @@ function FundingExperienceBoundary({
     navigateTo("method");
     setSelectedBinding(null);
     setInitialOrder(null);
+    setInitialCustomer(null);
   }
 
   return (
@@ -197,11 +226,13 @@ function FundingExperienceBoundary({
       }
       selectedBinding={selectedBinding}
       initialOrder={initialOrder}
+      initialCustomer={initialCustomer}
       fetchAccountResource={wallet.fetchAccountResource}
       queryOwnerKey={queryOwnerKey}
       onSelectBinding={(binding) => {
         setSelectedBinding(binding);
         setInitialOrder(null);
+        setInitialCustomer(readFundingProviderCustomers(customersQuery.data).find((customer) => customer.providerId === binding.providerId) ?? null);
         navigateTo("order");
       }}
       onOpenRedirect={navigateToRedirect}

@@ -37,11 +37,6 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
   async getByIntent(owner: FundingOrderOwner, intentDigest: string) { return this.one("SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND intent_digest=$3", [owner.accountProvider, owner.subject, intentDigest]); }
   async getOpen(owner: FundingOrderOwner, region: string) { return this.one(`SELECT * FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 AND (state NOT IN (${TERMINAL_SQL}) OR state='dispatch-ambiguous') AND NOT (sandbox=true AND state='sent-unverified') ORDER BY updated_at DESC LIMIT 1`, [owner.accountProvider, owner.subject, region]); }
   async getByProviderOrderId(providerId: string, providerOrderId: string) { return this.one("SELECT * FROM funding_orders WHERE provider_id=$1 AND provider_order_id=$2", [providerId, providerOrderId]); }
-  async findCustomerRef(owner: FundingOrderOwner, providerId: string, region: string) {
-    const result = await this.sql.query("SELECT customer_ref FROM funding_orders WHERE account_provider=$1 AND owner_subject=$2 AND provider_id=$3 AND region=$4 AND customer_ref IS NOT NULL ORDER BY updated_at DESC LIMIT 1", [owner.accountProvider, owner.subject, providerId, region]);
-    return typeof result.rows[0]?.customer_ref === "string" ? result.rows[0].customer_ref : null;
-  }
-
   async completeDispatch(id: string, input: Parameters<FundingOrderStore["completeDispatch"]>[1]) {
     return this.updated(`UPDATE funding_orders SET state='awaiting-payment', provider_order_id=$2, expected_token_amount_atomic=$3, fees=$4::jsonb, expires_at=$5, instructions=$6::jsonb, version=version+1, updated_at=$8 WHERE id=$1 AND state='reserving' AND version=$7 RETURNING *`, [id, input.providerOrderId, input.expectedTokenAmountAtomic, JSON.stringify(input.fees), input.expiresAt, JSON.stringify(input.instructions), input.expectedVersion, input.updatedAt]);
   }

@@ -60,8 +60,10 @@ export function FundingActionsForWallet({
   const routedFlow = routing?.state.flow === "add-money" || routing?.state.flow === "receive"
     ? routing.state.flow
     : null;
+  const returnedFromVerification = mounted && returnedFromProvider &&
+    new URLSearchParams(window.location.search).get("return") === "verification";
   const requestedFlow: FundingFlow | null = routedFlow ?? initialFlow ?? (
-    returnedFromProvider ? "receive" : initialOpen ? "add-money" : null
+    returnedFromProvider ? returnedFromVerification ? "add-money" : "receive" : initialOpen ? "add-money" : null
   );
   const routeOpen = requestedFlow !== null && (routing !== null || !dismissed);
   const open = routing ? routeOpen : userOpen || routeOpen;

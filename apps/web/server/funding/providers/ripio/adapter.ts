@@ -25,29 +25,38 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 export const ripioProvider: FundingProvider = {
   manifest: ripioManifest,
   onramp: {
-    async ensureCustomer(input, ctx) {
-      const startedAt = Date.now();
-      try {
-        const email = input.fields.email?.trim();
-        // Ripio records the address the customer accepted the terms from, so a
-        // request with no observable client address cannot accept them. Home
-        // forwards only what it observed and never substitutes a placeholder.
-        if (!email || !input.clientIp) throw new RipioProviderError("invalid-request");
-        const client = clientFor(ctx);
-        const customer = await client.createCustomer({ email });
-        const terms = await client.getTerms();
-        const termsId = readTermsId(terms);
-        if (!termsId) throw new RipioProviderError("invalid-response");
-        await client.acceptTerms(customer.customerId, termsId, input.clientIp);
-        const kyc = Object.fromEntries(
-          Object.entries(input.fields).filter(([name]) => name !== "email"),
-        );
-        if (Object.keys(kyc).length > 0) await client.submitKyc(customer.customerId, kyc);
-        return { customerRef: customer.customerId };
-      } catch (error) {
-        emitRipioFailure("customer", error, startedAt, ctx.binding.region);
-        throw error;
-      }
+    customer: {
+      async create(input, ctx) {
+        const startedAt = Date.now();
+        try {
+          const email = input.email.trim();
+          if (!email) throw new RipioProviderError("invalid-request");
+          const customer = await clientFor(ctx).createCustomer({ email });
+          return { outcome: "created" as const, customerRef: customer.customerId, providerCreatedAt: customer.createdAt };
+        } catch (error) {
+          emitRipioFailure("customer", error, startedAt, ctx.binding.region);
+          if (error instanceof RipioProviderError && error.code === "invalid-request") return { outcome: "rejected" as const };
+          return { outcome: "ambiguous" as const };
+        }
+      },
+      async startVerification(input, ctx) {
+        const startedAt = Date.now();
+        try {
+          // Terms acceptance and KYC submission are provider writes. The core
+          // claims the durable customer row before entering this method, and any
+          // uncertainty after that point is never retried automatically.
+          if (!input.clientIp) throw new RipioProviderError("invalid-request");
+          const client = clientFor(ctx);
+          const termsId = readTermsId(await client.getTerms());
+          if (!termsId) throw new RipioProviderError("invalid-response");
+          await client.acceptTerms(input.customerRef, termsId, input.clientIp);
+          const handoff = await client.submitKyc(input.customerRef, { ...input.fields, returnUrl: input.returnUrl });
+          return { outcome: "created" as const, submissionRef: handoff.submissionId, providerUrl: handoff.providerUrl, createdAt: handoff.createdAt };
+        } catch (error) {
+          emitRipioFailure("customer", error, startedAt, ctx.binding.region);
+          return { outcome: "ambiguous" as const };
+        }
+      },
     },
 
     async createQuote(input, ctx) {

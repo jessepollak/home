@@ -29,6 +29,7 @@ import {
   type RegionId,
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
+import type { FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { MoneyModal, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
 import { ReceiveQr } from "./receive-qr";
 import {
@@ -53,6 +54,7 @@ export function AddMoneyDialog({
   fundingReadError,
   selectedBinding,
   initialOrder,
+  initialCustomer,
   fetchAccountResource,
   queryOwnerKey,
   onSelectBinding,
@@ -71,6 +73,7 @@ export function AddMoneyDialog({
   fundingReadError: { message: string; retry: () => void } | null;
   selectedBinding: FundingBinding | null;
   initialOrder: FundingOrderSummary | null;
+  initialCustomer?: FundingProviderCustomerSummary | null;
   fetchAccountResource: (
     path: string,
     options?: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal },
@@ -127,6 +130,7 @@ export function AddMoneyDialog({
           onClose={onClose}
           onOpenRedirect={onOpenRedirect}
           initialOrder={initialOrder}
+          initialCustomer={initialCustomer}
         />
       ) : null}
 

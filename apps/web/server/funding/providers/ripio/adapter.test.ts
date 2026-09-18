@@ -36,6 +36,7 @@ describe("Ripio funding adapter", () => {
   test("declares independently configured country bindings", () => {
     expect(ripioManifest.onramp.reference).toBe("home");
     expect(ripioManifest.onramp.quotes).toBe(true);
+    expect(ripioManifest.onramp.customer.handoffOrigins).toEqual(["https://kyc.ripio.com"]);
     expect(ripioManifest.bindings.map((binding) => binding.region)).toEqual(["AR", "BR", "CO"]);
     expect(ripioManifest.bindings[1]).toMatchObject({ region: "BR", assetId: "base:wbrl", currency: "BRL", directions: { onramp: { paymentMethods: [{ id: "pix" }], env: ["RIPIO_CLIENT_ID_BR", "RIPIO_CLIENT_SECRET_BR", "RIPIO_WEBHOOK_SECRET_BR"] } } });
   });
@@ -129,19 +130,20 @@ describe("Ripio funding adapter", () => {
       const path = new URL(String(input)).pathname;
       if (path === "/oauth2/token/") return tokenResponse();
       if (init?.body) bodies.push(JSON.parse(String(init.body)));
-      if (path === "/api/v1/customers/") return Response.json({ customerId: customerRef, createdAt: "2026-09-12T00:00:00.000Z" });
       if (path === "/api/v1/termsAndConditions/") return Response.json({ termsId: quoteId });
+      if (path.endsWith("/kyc/")) return Response.json({ submissionId: homeOrderId, providerUrl: "https://kyc.ripio.com/start?token=synthetic", createdAt: "2026-09-12T00:00:00.000Z" });
       return Response.json({});
     }) as unknown as typeof fetch);
-    await ripioProvider.onramp!.ensureCustomer!({ subject: "user", fields: { email: "person@example.com" }, clientIp: "203.0.113.7" }, ctx);
+    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, fields: { email: "person@example.com" }, clientIp: "203.0.113.7", returnUrl: "https://home.example/fund?return=verification" }, ctx)).resolves.toMatchObject({ outcome: "created" });
     expect(bodies).toContainEqual({ termsId: quoteId, ipAddress: "203.0.113.7" });
+    expect(bodies).toContainEqual({ email: "person@example.com", returnUrl: "https://home.example/fund?return=verification" });
   });
 
   test("never accepts terms for a request with no observable client address", async () => {
     let calls = 0;
     const ctx = context((async () => { calls += 1; return tokenResponse(); }) as unknown as typeof fetch);
-    await expect(ripioProvider.onramp!.ensureCustomer!({ subject: "user", fields: { email: "person@example.com" } }, ctx))
-      .rejects.toMatchObject({ code: "invalid-request" });
+    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, fields: { email: "person@example.com" }, returnUrl: "https://home.example/fund?return=verification" }, ctx))
+      .resolves.toEqual({ outcome: "ambiguous" });
     expect(calls).toBe(0);
   });
 
@@ -166,11 +168,10 @@ describe("Ripio funding adapter", () => {
     const ctx = context((async (input: RequestInfo | URL) => {
       const path = new URL(String(input)).pathname; paths.push(path);
       if (path === "/oauth2/token/") return tokenResponse();
-      if (path === "/api/v1/customers/") return Response.json({ customerId: customerRef, createdAt: "2026-09-12T00:00:00.000Z" });
       if (path === "/api/v1/termsAndConditions/") return Response.json({ results: [] });
       throw new Error("unexpected request");
     }) as unknown as typeof fetch);
-    await expect(ripioProvider.onramp!.ensureCustomer!({ subject: "user", fields: { email: "person@example.com", firstName: "A" }, clientIp: "203.0.113.7" }, ctx)).rejects.toMatchObject({ code: "invalid-response" });
+    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, fields: { email: "person@example.com", firstName: "A" }, clientIp: "203.0.113.7", returnUrl: "https://home.example/fund?return=verification" }, ctx)).resolves.toEqual({ outcome: "ambiguous" });
     expect(paths).not.toContain(`/api/v1/customers/${customerRef}/kyc/`);
   });
 
