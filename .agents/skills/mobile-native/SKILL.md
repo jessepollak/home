@@ -17,7 +17,7 @@ Apply the smallest platform-correct change to the named mobile-web surface. Home
 - Use CSS capabilities and existing components before JavaScript: media queries, `dvh`/`svh`, `env()`, and `touch-action` rather than device detection.
 - Touch and mouse can coexist. Gate behavior by `(hover)` and `(pointer)`, not user agent or width guesses.
 - Never disable zoom. Preserve selectable content, browser navigation, focus, and native scrolling unless the named control must own a gesture.
-- Keep reduced motion instant and Home timing within `docs/ui-direction.md` limits.
+- Keep reduced-motion behavior and Home timing within the `docs/ui-direction.md` limits.
 - Follow `docs/browser-validation.md`: the repository-pinned `agent-browser` is required for interactive iteration and proof before and after editing. Playwright remains the sole authoritative committed automated browser layer; use its existing configuration only when the permanent-test ladder calls for a browser assertion.
 - A real-device check is an operator action. State exactly what iOS or Android behavior remains unverified; do not claim an `agent-browser` viewport or emulation proves it.
 
