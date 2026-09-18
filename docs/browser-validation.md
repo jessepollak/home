@@ -46,6 +46,7 @@ Load `bunx agent-browser skills get dogfood` for exploratory QA or a bug hunt. L
 - Use a clean worktree with no operator `.env.local` or credentials.
 - Run `bunx agent-browser doctor --quick --json` before launch. An isolated factory home has no shared browser cache; if the diagnostic reports that Chrome is missing, run `bunx agent-browser install` in that worktree, then repeat the diagnostic.
 - Run the app with `HOME_PLAYWRIGHT_SMOKE=1`, headless unless the task needs visual judgment, and a dedicated port other than Playwright's `3199`.
+- When validating the optional deployment-access gate, generate a fresh random access password of at least 32 bytes for that run, pass it only through the owned server process environment, and remove it during cleanup. Never use a committed literal fixture password or retain the resulting cookie/profile.
 - Make no provider, database, production, funded, or destructive call. Route needed API responses to bounded local fixtures.
 - Do not use `--profile`, `--state`, `--restore`, `--auto-connect`, auth-vault state, or saved cookies. State files can contain plaintext session tokens.
 - Use only the session created for this worktree and close only that session. Never run `close --all`.

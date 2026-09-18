@@ -58,7 +58,7 @@ fi
 bun dev
 ```
 
-Open `http://localhost:3000`. Public surfaces work without credentials.
+Open `http://localhost:3000`. Public surfaces work without credentials. The optional pre-release deployment password gate is disabled unless `HOME_ACCESS_REQUIRED=1`; it is not Home customer or administrator authentication. Production rollout and rollback are documented in [Vercel deploy](docs/vercel-deploy.md#pre-release-production-access).
 
 | Sign-in method | Requirements | Guide |
 | --- | --- | --- |

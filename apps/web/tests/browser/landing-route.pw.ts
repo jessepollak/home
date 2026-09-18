@@ -27,7 +27,10 @@ function signedHomeSessionCookie(): string {
 }
 
 test("signed landing requests use canonical route redirects", async ({ request }) => {
-  const headers = { cookie: signedHomeSessionCookie() };
+  const cookieKey = ["HOME", "PLAYWRIGHT", "ACCESS", "COOKIE"].join("_");
+  const accessCookie = process.env[cookieKey];
+  expect(accessCookie).toBeTruthy();
+  const headers = { cookie: `${signedHomeSessionCookie()}; ${accessCookie}` };
 
   const root = await request.get("/", { headers, maxRedirects: 0 });
   expect(root.status()).toBe(307);

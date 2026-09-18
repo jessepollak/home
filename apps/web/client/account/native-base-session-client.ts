@@ -1,4 +1,5 @@
 import { deploymentHeaders } from "@/client/query/deployment-headers";
+import { redirectOnAccessRequired, type AccessNavigation } from "./access-response";
 import {
   ACCOUNT_PROVIDER_HEADER,
   type VerifiedAccountSession,
@@ -11,7 +12,13 @@ export type NativeBaseFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
-async function readSessionResponse(response: Response): Promise<VerifiedAccountSession> {
+async function readSessionResponse(
+  response: Response,
+  accessNavigation?: AccessNavigation,
+): Promise<VerifiedAccountSession> {
+  if (await redirectOnAccessRequired(response, accessNavigation)) {
+    throw new Error("Deployment access is required.");
+  }
   if (!response.ok) throw new Error("Native Base authentication failed.");
   let value: unknown;
   try {
@@ -27,6 +34,7 @@ async function readSessionResponse(response: Response): Promise<VerifiedAccountS
 export async function restoreNativeBaseSession(
   fetchImpl: NativeBaseFetch = fetch,
   signal?: AbortSignal,
+  accessNavigation?: AccessNavigation,
 ): Promise<VerifiedAccountSession | null> {
   let response: Response;
   try {
@@ -44,8 +52,11 @@ export async function restoreNativeBaseSession(
   } catch (error) {
     throw new Error("Native Base authentication failed.", { cause: error });
   }
+  if (await redirectOnAccessRequired(response, accessNavigation)) {
+    throw new Error("Deployment access is required.");
+  }
   if (response.status === 401) return null;
-  return readSessionResponse(response);
+  return readSessionResponse(response, accessNavigation);
 }
 
 export async function requestNativeBaseChallenge(
@@ -63,6 +74,9 @@ export async function requestNativeBaseChallenge(
     credentials: "same-origin",
     redirect: "error",
   });
+  if (await redirectOnAccessRequired(response)) {
+    throw new Error("Deployment access is required.");
+  }
   if (!response.ok) throw new Error("Native Base authentication failed.");
   const value = parseNativeBaseNonceResponse(await response.json().catch(() => null));
   if (!value) throw new Error("Native Base authentication failed.");
@@ -96,6 +110,7 @@ export async function verifyNativeBaseChallenge(
 
 export async function clearNativeBaseSession(
   fetchImpl: NativeBaseFetch = fetch,
+  accessNavigation?: AccessNavigation,
 ): Promise<void> {
   // Never pin sign-out to the serving deployment. Logout only clears cookies
   // and is valid on any deployment; a pinned request from a tab older than the
@@ -107,6 +122,9 @@ export async function clearNativeBaseSession(
     credentials: "same-origin",
     redirect: "error",
   });
+  if (await redirectOnAccessRequired(response, accessNavigation)) {
+    throw new Error("Deployment access is required.");
+  }
   if (!response.ok) throw new Error("Native Base sign-out failed.");
 }
 

@@ -58,6 +58,8 @@ There are **six capability workstreams and two shared quality workstreams**. All
 
 ### Scope details that matter
 
+**Deployment access.** The optional shared deployment password is a replaceable pre-release access control in front of Home authentication. It is one bounded Operator platform foundation and does not identify customers, establish administrators, authorize support or configuration, or change the eight equal MVP workstreams. Future administration composes deployment access when enabled, a verified Home session, and separate administrator authorization with its own bootstrap and recovery.
+
 **Regional languages.** Basic language support covers the supported regions: core journeys, account settings, transaction review, confirmations, actionable errors, and operator setup essentials. Define the region-to-language mapping. Let users choose language independently of country/currency, persist it, and format amounts/dates correctly. Review translated financial copy, text expansion, and right-to-left layouts where needed. Record limitations in provider-hosted screens.
 
 **Savings.** Inventory yield products for every supported local currency. Include existing accessible products with complete deposit and withdrawal paths. A dollar product displayed in local currency is still dollar yield. Currencies without an available yield product should say so; creating new yield products is outside MVP.

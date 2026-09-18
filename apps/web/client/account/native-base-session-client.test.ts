@@ -37,7 +37,18 @@ describe("native Base session restoration", () => {
     expect(new Headers(init?.headers).get(ACCOUNT_PROVIDER_HEADER)).toBe("base-account");
   });
 
-  test("distinguishes a confirmed signed-out response from unavailable restoration", async () => {
+  test("distinguishes deployment access expiry, signed out, and unavailable restoration", async () => {
+    const destinations: string[] = [];
+    await expect(restoreNativeBaseSession(
+      async () => jsonResponse({ version: 1, error: { code: "ACCESS_REQUIRED" } }, 401),
+      undefined,
+      {
+        currentPath: "/account",
+        navigate: (value) => destinations.push(value),
+      },
+    )).rejects.toThrow("Deployment access is required.");
+    expect(destinations).toEqual(["/access?next=%2Faccount"]);
+
     expect(await restoreNativeBaseSession(async () => jsonResponse({}, 401))).toBeNull();
 
     for (const fetchFixture of [
@@ -90,6 +101,15 @@ describe("native Base challenge and verification", () => {
 });
 
 describe("native Base sign-out", () => {
+  test("hard-navigates when deployment access expires during Home sign-out", async () => {
+    const destinations: string[] = [];
+    await expect(clearNativeBaseSession(
+      async () => jsonResponse({ version: 1, error: { code: "ACCESS_REQUIRED" } }, 401),
+      { currentPath: "/account", navigate: (value) => destinations.push(value) },
+    )).rejects.toThrow("Deployment access is required.");
+    expect(destinations).toEqual(["/access?next=%2Faccount"]);
+  });
+
   test("is never pinned to the serving deployment", async () => {
     const previous = process.env.NEXT_DEPLOYMENT_ID;
     process.env.NEXT_DEPLOYMENT_ID = "dpl_stale";
