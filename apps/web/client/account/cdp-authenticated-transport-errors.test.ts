@@ -83,11 +83,12 @@ describe("authenticated transport deployment expiry", () => {
       return response;
     }, accessNavigation);
 
-    await expect(transport.fetchBalances("US")).rejects.toThrow(
-      "Deployment access is required.",
-    );
-    await expect(transport.fetchAccountResource("/api/actions"))
-      .rejects.toBeInstanceOf(TransferExecutionError);
+    const [balanceError, actionError] = await Promise.all([
+      rejectionOf(transport.fetchBalances("US")),
+      rejectionOf(transport.fetchAccountResource("/api/actions")),
+    ]);
+    expect((balanceError as Error).message).toBe("Deployment access is required.");
+    expect(actionError).toBeInstanceOf(TransferExecutionError);
 
     expect(destinations).toEqual([
       "/access?next=%2Fprivate%3Fpanel%3Dactivity%23latest",

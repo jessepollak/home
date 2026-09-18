@@ -25,7 +25,7 @@ function responseHeaders(): Headers {
   return new Headers({
     "Cache-Control": "private, no-store, max-age=0",
     Pragma: "no-cache",
-    Vary: "Cookie",
+    Vary: `Cookie, ${ACCESS_RESPONSE_MODE_HEADER}`,
   });
 }
 

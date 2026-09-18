@@ -51,4 +51,35 @@ describe("account provider access-route boundary", () => {
       globalThis.fetch = previousFetch;
     }
   });
+
+  test("renders the configured account provider on non-access routes", async () => {
+    let observed: { status: string; projectConfigured: boolean } | null = null;
+    function Probe() {
+      const account = useAccountWallet();
+      useEffect(() => {
+        observed ??= {
+          status: account.status,
+          projectConfigured: account.projectConfigured,
+        };
+      }, [account]);
+      return <p>Home account</p>;
+    }
+
+    const view = render(
+      <AccountProviderForRoute
+        pathname="/home"
+        projectId="test-project"
+        baseAccountEnabled={false}
+        smokeFixture={false}
+        renderSeed={null}
+      >
+        <Probe />
+      </AccountProviderForRoute>,
+    );
+    await waitFor(() => expect(observed).not.toBeNull());
+
+    expect(view.getByText("Home account")).toBeTruthy();
+    expect(observed as unknown).toEqual({ status: "restoring", projectConfigured: true });
+    view.unmount();
+  });
 });
