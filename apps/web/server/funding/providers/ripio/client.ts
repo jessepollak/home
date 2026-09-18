@@ -85,7 +85,6 @@ export class RipioProviderError extends Error {
 
 export type RipioCustomerReference = {
   customerId: string;
-  createdAt: string;
 };
 
 export type RipioKycHandoff = {
@@ -330,7 +329,7 @@ export function ripioCredentialState(country: RipioCountry, env: Environment = p
 }
 
 function parseKycHandoff(value: unknown): RipioKycHandoff {
-  if (!isRecord(value) || !validUuid(value.submissionId) || !validDate(value.createdAt) || typeof value.providerUrl !== "string" || value.providerUrl.length > 4096) {
+  if (!isRecord(value) || typeof value.providerUrl !== "string" || value.providerUrl.length > 4096) {
     throw new RipioProviderError("invalid-response");
   }
   return { providerUrl: value.providerUrl };
@@ -343,16 +342,15 @@ function parseKycStatus(value: unknown, customerId: string): RipioKycStatus {
     || typeof value.status !== "string"
     || value.status.length === 0
     || value.status.length > 128
-    || !validDate(value.createdAt)
   ) throw new RipioProviderError("invalid-response");
   return value.status;
 }
 
 function parseCustomer(value: unknown): RipioCustomerReference {
-  if (!isRecord(value) || !validUuid(value.customerId) || !validDate(value.createdAt)) {
+  if (!isRecord(value) || !validUuid(value.customerId)) {
     throw new RipioProviderError("invalid-response");
   }
-  return { customerId: value.customerId, createdAt: value.createdAt };
+  return { customerId: value.customerId };
 }
 
 function parseQuote(value: unknown, request: RipioQuoteRequest): RipioQuote {

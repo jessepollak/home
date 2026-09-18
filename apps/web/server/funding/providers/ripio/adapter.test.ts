@@ -117,9 +117,13 @@ describe("Ripio funding adapter", () => {
     for (const [providerStatus, expected] of [["COMPLETED", "verified"], ["FAILED", "rejected"], ["IN_REVIEW", "pending"], ["UPDATE_REQUIRED", "pending"]] as const) {
       const ctx = context((async (input: RequestInfo | URL) => new URL(String(input)).pathname === "/oauth2/token/"
         ? tokenResponse()
-        : Response.json({ customerId: customerRef, status: providerStatus, createdAt: "2026-09-18T00:00:00.000Z" })) as unknown as typeof fetch);
+        : Response.json({ customerId: customerRef, status: providerStatus })) as unknown as typeof fetch);
       await expect(ripioProvider.onramp!.customer!.getStatus({ customerRef }, ctx)).resolves.toBe(expected);
     }
+    const mismatched = context((async (input: RequestInfo | URL) => new URL(String(input)).pathname === "/oauth2/token/"
+      ? tokenResponse()
+      : Response.json({ customerId: homeOrderId, status: "COMPLETED", createdAt: "2026-09-18T00:00:00.000Z" })) as unknown as typeof fetch);
+    await expect(ripioProvider.onramp!.customer!.getStatus({ customerRef }, mismatched)).rejects.toMatchObject({ code: "invalid-response" });
   });
 
   test("never asks the provider to price a quote without a verified customer", async () => {
@@ -140,12 +144,23 @@ describe("Ripio funding adapter", () => {
       if (path === "/oauth2/token/") return tokenResponse();
       if (init?.body) bodies.push(JSON.parse(String(init.body)));
       if (path === "/api/v1/termsAndConditions/") return Response.json({ termsId: quoteId });
-      if (path.endsWith("/kyc/")) return Response.json({ submissionId: homeOrderId, providerUrl: "https://kyc.ripio.com/start?token=synthetic", createdAt: "2026-09-12T00:00:00.000Z" });
+      if (path.endsWith("/kyc/")) return Response.json({ providerUrl: "https://kyc.ripio.com/start?token=synthetic" });
       return Response.json({});
     }) as unknown as typeof fetch);
     await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, clientIp: "203.0.113.7", redirectUrl: "https://home.example/fund?return=verification" }, ctx)).resolves.toMatchObject({ outcome: "created" });
     expect(bodies).toContainEqual({ termsId: quoteId, ipAddress: "203.0.113.7" });
     expect(bodies).toContainEqual({ redirectUrl: "https://home.example/fund?return=verification" });
+  });
+
+  test("treats a hosted-KYC success without a provider URL as ambiguous", async () => {
+    const ctx = context((async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/oauth2/token/") return tokenResponse();
+      if (path === "/api/v1/termsAndConditions/") return Response.json({ termsId: quoteId });
+      if (path.endsWith("/kyc/")) return Response.json({ submissionId: homeOrderId, createdAt: "2026-09-12T00:00:00.000Z" });
+      return Response.json({});
+    }) as unknown as typeof fetch);
+    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, clientIp: "203.0.113.7", redirectUrl: "https://home.example/fund?return=verification" }, ctx)).resolves.toEqual({ outcome: "ambiguous" });
   });
 
   test("treats a documented hosted-KYC 400 as rejected", async () => {
