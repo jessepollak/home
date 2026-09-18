@@ -6,6 +6,8 @@ Open-source software for building a global money app on Base. Customize the bran
 
 > **Development status:** Home is under active development. It is not production-authorized or a real-money deployment.
 
+Delivery work is tracked in repository issues and visualized in the private [Home GitHub Project](https://github.com/users/jessepollak/projects/1); see the [Project operating guide](docs/github-project.md).
+
 ## Product
 
 Real browser captures of the current app with sample data. Select an image for full size.
@@ -76,7 +78,7 @@ bun test       # deterministic unit and contract tests
 bun lint       # ESLint
 bun typecheck  # generated route types and strict TypeScript
 bun build      # production build
-bun check      # test, lint, typecheck, and build
+bun check      # repository gates, test, lint, typecheck, and build
 ```
 
 ## Customize it

@@ -319,6 +319,29 @@ describe("Home shell auth and privacy", () => {
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
   });
 
+  test("redirects a signed-out Save route without exposing savings content", async () => {
+    syncLocation("/save");
+    historyEntries = ["/save"];
+    render(
+      <HomeHarness
+        accountSdk={sdk()}
+        initialPanel="save"
+        initialLocation={{
+          panel: "save",
+          account: null,
+          shelf: null,
+          asset: null,
+          group: null,
+          market: null,
+        }}
+      />,
+    );
+
+    expect(page().queryByRole("region", { name: "Savings module" })).toBeNull();
+    await waitFor(() => expect(replaceCalls).toEqual(["/?account=signin"]));
+    expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
+  });
+
   test("redirects a verified landing session to Home, keeping only overlay intent", async () => {
     render(
       <HomeHarness

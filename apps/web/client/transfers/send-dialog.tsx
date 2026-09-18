@@ -31,7 +31,6 @@ import {
   MoneyNumpad,
   isPositiveDecimalAmount,
   useMoneyAssetPricing,
-  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import {
   assertTransferRequest,
@@ -101,7 +100,6 @@ export function SendDialog({
   const [assetId, setAssetId] = useState<string | null>(() => availableAssets?.[0]?.id ?? null);
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
-  const [amountChangeSource, setAmountChangeSource] = useState<MoneyAmountChangeSource>("programmatic");
   const [request, setRequest] = useState<TransferRequest | null>(null);
   const [cashout, setCashout] = useState<CashoutRequest | null>(null);
   const [offramps, setOfframps] = useState<ReadonlyArray<FundingOfframpBinding>>([]);
@@ -121,11 +119,11 @@ export function SendDialog({
   const resumedActionRef = useRef<string | null>(null);
   const selectedStillAvailable = !assetId || availableAssets?.some((asset) => asset.id === assetId) !== false;
   const activeAssetId = assetId && selectedStillAvailable ? assetId : availableAssets?.[0]?.id ?? null;
-  function changeAmount(value: string, source: MoneyAmountChangeSource) { setAmountChangeSource(source); setAmount(value); }
+  function changeAmount(value: string) { setAmount(value); }
 
   if (assetId && !selectedStillAvailable) {
     setAssetId(activeAssetId);
-    if (amount !== "") changeAmount("", "programmatic");
+    if (amount !== "") changeAmount("");
   }
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
   const pricing = useMoneyAssetPricing(selectedAsset?.symbol ?? "");
@@ -217,7 +215,7 @@ export function SendDialog({
   }, [availableAssets, onInvalidResume, open, ownerBoundary, resumeActionId, resumeMoneyAction]);
 
   function reset() {
-    setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("", "programmatic");
+    setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("");
     setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
     setCanonicalHandle(""); setHandleConfirmation(""); setAction(null); setStep("amount"); setError(null);
   }
@@ -345,7 +343,7 @@ export function SendDialog({
     assetLabel: selectedAsset?.symbol,
     assetCurrency: selectedAsset?.cashCurrency,
     assetOptions,
-    onAssetChange: (next: string) => { setAssetId(next); changeAmount("", "programmatic"); },
+    onAssetChange: (next: string) => { setAssetId(next); changeAmount(""); },
   };
   return (
     <MoneyModal open={open} labelledBy="send-title" immediate={immediate} onCancel={close} onClose={() => { reset(); (onClosed ?? onClose)(); }}>
@@ -361,7 +359,7 @@ export function SendDialog({
       />
       <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} amountChangeSource={amountChangeSource} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(selectedAvailability.balanceBaseUnits, selectedAvailability.decimals) : null} availableSuffix={selectedAvailability?.balanceAgeLabel} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
+          <MoneyAmountDisplay amount={amount} onAmountChange={changeAmount} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={selectedAvailability ? atomicToDecimal(selectedAvailability.balanceBaseUnits, selectedAvailability.decimals) : null} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={pricing.status === "priced" ? "quick-local" : "none"} pricing={pricing} nativeSymbol={selectedAsset?.symbol ?? ""} />
           {selectedAsset ? <MoneyNumpad value={amount} maxDecimals={selectedAsset.decimals} onChange={changeAmount} /> : <StatusMessage>No catalog balance is available to send.</StatusMessage>}
           {!selectedAsset && visibleActiveOrders.length > 0 ? <div className="grid gap-1">{visibleActiveOrders.map((order) => <RecoveryItem key={order.depositId} order={order} onWithdraw={() => void prepareWithdraw(order)} />)}</div> : null}
           {!selectedAsset && providersLoaded && ordersLoaded && recoveryEligible && !recoveryAttempted && visibleActiveOrders.length === 0 ? <Button variant="ghost" size="sm" onClick={() => void recoverCashouts()}>Recover a Peer cash-out</Button> : null}
@@ -380,12 +378,35 @@ export function SendDialog({
         </div> : null}
         {step === "handle" && selectedPlatform ? <div className="grid gap-2">
           <Label htmlFor="peer-payout-handle">{selectedPlatform.label} handle</Label>
-          <Input id="peer-payout-handle" value={payoutHandle} onInput={(event) => setPayoutHandle(event.currentTarget.value)} placeholder={selectedPlatform.handleHint} />
+          <Input
+            id="peer-payout-handle"
+            className="h-11"
+            variant="touch"
+            value={payoutHandle}
+            onInput={(event) => setPayoutHandle(event.currentTarget.value)}
+            placeholder={selectedPlatform.handleHint}
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="next"
+          />
         </div> : null}
         {step === "handle-confirm" && selectedPlatform ? <div className="grid gap-2">
           <StatusMessage>Confirm the payout handle exactly: <strong>{canonicalHandle}</strong></StatusMessage>
           <Label htmlFor="peer-payout-confirmation">Re-enter handle</Label>
-          <Input id="peer-payout-confirmation" value={handleConfirmation} onInput={(event) => setHandleConfirmation(event.currentTarget.value)} />
+          <Input
+            id="peer-payout-confirmation"
+            className="h-11"
+            variant="touch"
+            value={handleConfirmation}
+            onInput={(event) => setHandleConfirmation(event.currentTarget.value)}
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="done"
+          />
         </div> : null}
         {(request || cashout) && (!request || requestAsset) && (step === "confirm" || step === "pending" || step === "error") ? <>
           <MoneyConfirmSummary amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [

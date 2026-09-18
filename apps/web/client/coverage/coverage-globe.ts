@@ -31,7 +31,7 @@ const onrampTones: Record<CoverageIssuerStatus, GlobeMarkerTone> = {
   "not-researched": "neutral",
 };
 
-export const coverageGlobeDescription = "Marker tones describe 1:1 onramp research, not stablecoin availability or integration status.";
+export const coverageGlobeDescription = "Marker tones describe 1:1 onramp research only; portfolio priority does not change marker tone or imply availability.";
 
 export const coverageGlobeCountries: readonly GlobeCountry[] = coverageRegistry.map((record) => {
   const region = record.configuredInHome ? presentationRegions[record.countryCode as CountryCode] : null;
@@ -43,8 +43,12 @@ export const coverageGlobeCountries: readonly GlobeCountry[] = coverageRegistry.
       name: record.currencyCodes.join(", ") || "No current tender currency",
     },
     markerTone: onrampTones[record.issuerRoute.status],
-    detail: `${region?.candidateAsset ? "Stablecoin candidate identified" : "No stablecoin candidate identified"}; 1:1 onramp research: ${coverageOnrampLabels[record.issuerRoute.status]}; ${record.homeRoute.status === "none" ? "Not integrated" : `Integrated: ${coverageIntegratedLabels[record.homeRoute.status]}`}`,
+    detail: `${region?.candidateAsset ? "Stablecoin candidate identified" : "No stablecoin candidate identified"}; 1:1 onramp research: ${coverageOnrampLabels[record.issuerRoute.status]}; Portfolio: ${record.portfolio.status === "not-scoped" ? "Not scoped" : `${record.portfolio.status[0].toUpperCase()}${record.portfolio.status.slice(1)}`}${record.portfolio.workstreams.length > 0 ? ` (${record.portfolio.workstreams.map((route) => `${route.currencyCode}→${route.assetSymbol} via ${route.provider}, ${route.stage}${route.currencyCode === "EUR" ? ", country eligibility pending" : ""}`).join("; ")})` : ""}; ${record.homeRoute.status === "none" ? "Not integrated" : `Integrated: ${coverageIntegratedLabels[record.homeRoute.status]}`}`,
   };
 });
+
+export const coverageGlobePriorityCountryCodes = coverageRegistry
+  .filter((record) => record.portfolio.status === "priority")
+  .map((record) => record.countryCode);
 
 export const coverageGlobePointCount = locateCountries(coverageGlobeCountries).length;

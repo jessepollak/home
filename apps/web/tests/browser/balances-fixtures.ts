@@ -7,7 +7,6 @@ import {
   priced,
   pricedCash,
   ready,
-  unavailableBalance,
 } from "../../shared/balances/fixtures";
 import type { BalancesSnapshot, Holding } from "../../shared/balances/types";
 
@@ -97,38 +96,6 @@ export function balancesSnapshot(region: RegionId = "US"): BalancesSnapshot {
       ? { ...holding, imageUrl: CBBTC_IMAGE_URL }
       : holding),
   };
-}
-
-export function rowAnatomySnapshot(region: RegionId = "US"): BalancesSnapshot {
-  const currency = quoteCurrency(region);
-  if (!currency) throw new Error("The row-anatomy fixture needs a quote currency.");
-  return buildBalancesSnapshotFixture({
-    region,
-    owner: SMOKE_OWNER,
-    registry: {
-      usdc: {
-        balance: unavailableBalance,
-        value: { status: "unavailable" },
-        cashValue: { status: "unavailable" },
-      },
-      toshi: {
-        balance: ready("2500000000000000000"),
-        value: { status: "unpriced", reason: "price-unavailable" },
-      },
-      eth: {
-        balance: unavailableBalance,
-        value: { status: "unavailable" },
-      },
-      [portfolioVaults[0].id]: {
-        balance: ready("1000000000000000000"),
-        underlyingBalance: ready("1000000"),
-        value: priced(currency, "100"),
-      },
-    },
-    catalog: [recognizedCatalogHolding(region)],
-    coverage: { registry: "partial", catalog: "complete" },
-    total: { status: "partial", value: decimal("1920", 2), currency },
-  });
 }
 
 export function scrollableBalancesSnapshot(region: RegionId = "US"): BalancesSnapshot {

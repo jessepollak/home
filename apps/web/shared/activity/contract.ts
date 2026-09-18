@@ -222,7 +222,8 @@ function parseTokenMetadata(
 function parseSource(value: unknown): ActivityPage["source"] {
   if (
     !isRecord(value) ||
-    value.provider !== "cdp-sql" ||
+    (value.provider !== "cdp-sql" &&
+      value.provider !== "cdp-address-history") ||
     typeof value.cached !== "boolean" ||
     typeof value.stale !== "boolean" ||
     !Number.isSafeInteger(value.executionTimeMs) ||
@@ -232,7 +233,7 @@ function parseSource(value: unknown): ActivityPage["source"] {
   }
 
   return {
-    provider: "cdp-sql",
+    provider: value.provider,
     cached: value.cached,
     stale: value.stale,
     executionTimestamp: readTimestamp(value.executionTimestamp),
@@ -262,6 +263,7 @@ export function compareActivityTransferKeys(
 ): number {
   const numericComparisons = [
     [BigInt(left.blockNumber), BigInt(right.blockNumber)],
+    [BigInt(left.logIndex), BigInt(right.logIndex)],
   ] as const;
   for (const [leftValue, rightValue] of numericComparisons) {
     if (leftValue !== rightValue) return leftValue > rightValue ? 1 : -1;
@@ -269,9 +271,6 @@ export function compareActivityTransferKeys(
   if (left.transactionHash !== right.transactionHash) {
     return left.transactionHash > right.transactionHash ? 1 : -1;
   }
-  const leftLog = BigInt(left.logIndex);
-  const rightLog = BigInt(right.logIndex);
-  if (leftLog !== rightLog) return leftLog > rightLog ? 1 : -1;
   if (left.id === right.id) return 0;
   return left.id > right.id ? 1 : -1;
 }

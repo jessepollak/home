@@ -35,7 +35,7 @@ describe("primary unit and chips", () => {
 
   test("formats local/native primary and secondary without changing the native amount", () => {
     expect(formatPrimaryAmount("25", "local", usdUsdc)).toBe("$25");
-    expect(formatPrimaryAmount("25", "native", usdUsdc)).toBe("25");
+    expect(formatPrimaryAmount("25", "native", usdUsdc, undefined, "USDC")).toBe("25 USDC");
     expect(formatSecondaryAmount("25", "local", usdUsdc, "USDC")).toBe("25.00 USDC");
     expect(formatSecondaryAmount("25", "native", usdUsdc, "USDC")).toBe("$25.00");
     expect(convertDisplayAmount("25", "local", "native", usdUsdc)).toBe("25");

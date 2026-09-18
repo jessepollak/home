@@ -44,6 +44,9 @@ jobs:
       - name: Check
         run: bun check
 
+      - name: Build Storybook
+        run: bun run --cwd apps/web build-storybook
+
   browser-smoke:
     name: Chromium smoke
     runs-on: ubuntu-latest

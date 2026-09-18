@@ -10,7 +10,7 @@ import {
 } from "@/components/transaction-explorer";
 import type { OperationResult } from "@/shared/money-actions/types";
 import type { ActionKind, MoneyActionAmount } from "@/shared/money-actions/types";
-import type { RecentMoneyActionOperation } from "./recent-operations";
+import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 
 const VAULT_SHARE_SYMBOL = "vault shares";
 

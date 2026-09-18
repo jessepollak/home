@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const loopbackHostPattern = /^127\.0\.0\.1(?::([0-9]{1,5}))?$/;
+const applePayDomainAssociationPath =
+  "/.well-known/apple-developer-merchantid-domain-association";
 
 export function canonicalDevelopmentNavigationResponse(
   request: NextRequest,
@@ -20,7 +22,8 @@ export function canonicalDevelopmentNavigationResponse(
     (port && Number(port) > 65_535) ||
     !isDocumentNavigation ||
     request.nextUrl.pathname === "/api" ||
-    request.nextUrl.pathname.startsWith("/api/")
+    request.nextUrl.pathname.startsWith("/api/") ||
+    request.nextUrl.pathname === applePayDomainAssociationPath
   ) {
     return NextResponse.next();
   }

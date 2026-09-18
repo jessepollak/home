@@ -7,7 +7,10 @@ import {
   type SessionAuthorizer,
 } from "@/server/auth/authorize";
 import { ChainDataError } from "@/server/chain-data/errors";
-import type { ObservabilityEvent } from "@/server/observability/schema";
+import type {
+  ActivityReadSource,
+  ObservabilityEvent,
+} from "@/server/observability/schema";
 import type { ActivityReader } from "./types";
 
 type ActivityReadObservation = Extract<
@@ -27,6 +30,7 @@ const privateResponseHeaders = {
 export function createActivityHandler(dependencies: {
   authorize: SessionAuthorizer;
   readActivity: ActivityReader;
+  source: () => Exclude<ActivityReadSource, "none">;
   now?: () => Date;
   clock?: () => number;
   observe?: ActivityObservationSink;
@@ -88,13 +92,33 @@ export function createActivityHandler(dependencies: {
       );
     }
 
+    let source: Exclude<ActivityReadSource, "none">;
+    try {
+      source = dependencies.source();
+    } catch (error) {
+      const finishedAt = clock();
+      emitActivityObservation(observe, {
+        kind: "activity-read",
+        route: "/api/activity",
+        outcome: "failed",
+        reason: "primary-source",
+        source: "none",
+        durationMs: elapsedMs(finishedAt, requestStartedAt),
+        sourceDurationMs: 0,
+        sourceAttemptCount: 0,
+        pageCount: 0,
+        rowCount: 0,
+      });
+      return activityReadError(error);
+    }
+
     const sourceStartedAt = clock();
     emitActivityObservation(observe, {
       kind: "activity-read",
       route: "/api/activity",
       outcome: "started",
       reason: "primary-source",
-      source: "cdp-sql",
+      source,
       durationMs: elapsedMs(sourceStartedAt, requestStartedAt),
       sourceDurationMs: 0,
       sourceAttemptCount: 1,
@@ -122,7 +146,7 @@ export function createActivityHandler(dependencies: {
         route: "/api/activity",
         outcome: "succeeded",
         reason: "primary-source",
-        source: "cdp-sql",
+        source,
         durationMs: elapsedMs(finishedAt, requestStartedAt),
         sourceDurationMs: elapsedMs(primaryFinishedAt, sourceStartedAt),
         sourceAttemptCount: 1,
@@ -137,7 +161,7 @@ export function createActivityHandler(dependencies: {
         route: "/api/activity",
         outcome: request.signal.aborted ? "cancelled" : "failed",
         reason: request.signal.aborted ? "request" : "primary-source",
-        source: "cdp-sql",
+        source,
         durationMs: elapsedMs(finishedAt, requestStartedAt),
         sourceDurationMs: elapsedMs(
           primaryFinishedAt ?? finishedAt,
@@ -237,7 +261,7 @@ function activityReadError(error: unknown): Response {
       case "not-configured":
         return privateError(
           "ACTIVITY_NOT_CONFIGURED",
-          "CDP SQL activity is not configured. Set CDP_SQL_AUTH_MODE and its required server credentials.",
+          "Activity history is not configured. Check ACTIVITY_HISTORY_SOURCE and its required server credentials.",
           503,
         );
       case "timed-out":

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
@@ -14,6 +14,12 @@ import type {
 } from "@/shared/balances/types";
 
 type BalancesQuerySession = BalancesSession & { accountProvider?: string };
+
+export type RecoverableBalancesState = BalancesState & {
+  revalidating?: true;
+  refreshError?: true;
+  retry: () => Promise<void>;
+};
 
 export const balancesStaleTimeMs = 15_000;
 export const balancesStaleRefetchMs = 3_000;
@@ -56,7 +62,7 @@ export function useBalances(
   region: RegionId,
   fetchBalances: FetchBalances,
   options: { enabled?: boolean } = {},
-): BalancesState & { revalidating?: true } {
+): RecoverableBalancesState {
   const validSession = isBalancesSession(session) ? session : null;
   const ownerKey = validSession ? dataOwnerKey(validSession) : null;
   const stalePolling = useRef({ identity: "", dataUpdatedAt: 0, completedRefetches: 0 });
@@ -93,17 +99,41 @@ export function useBalances(
     },
   });
 
+  const refetch = query.refetch;
+  const retry = useCallback(async () => {
+    await refetch({ cancelRefetch: false });
+  }, [refetch]);
+
   return useMemo(() => {
-    if (!ownerKey) return { status: "unavailable", snapshot: null, error: null };
-    if (query.isPending) return { status: "loading", snapshot: null, error: null };
-    if (query.isError) return { status: "error", snapshot: null, error: "balances-unavailable" };
-    return {
-      status: "ready",
-      snapshot: query.data,
-      error: null,
-      ...(query.isFetching ? { revalidating: true as const } : {}),
-    };
-  }, [ownerKey, query.data, query.isError, query.isFetching, query.isPending]);
+    if (!ownerKey) {
+      return { status: "unavailable", snapshot: null, error: null, retry };
+    }
+    if (query.isPending) {
+      return { status: "loading", snapshot: null, error: null, retry };
+    }
+    if (query.data) {
+      const snapshot = query.isError
+        ? { ...query.data, stale: true as const }
+        : query.data;
+      return {
+        status: "ready",
+        snapshot,
+        error: null,
+        retry,
+        ...(query.isFetching ? { revalidating: true as const } : {}),
+        ...(query.isError ? { refreshError: true as const } : {}),
+      };
+    }
+    if (query.isError) {
+      return {
+        status: "error",
+        snapshot: null,
+        error: "balances-unavailable",
+        retry,
+      };
+    }
+    return { status: "loading", snapshot: null, error: null, retry };
+  }, [ownerKey, query.data, query.isError, query.isFetching, query.isPending, retry]);
 }
 
 function isBalancesSession(value: BalancesQuerySession | null): value is BalancesQuerySession {

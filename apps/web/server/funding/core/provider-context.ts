@@ -14,9 +14,11 @@ export const PROVIDER_FETCH_TIMEOUT_MS = 6_000;
 
 export const FUNDING_CONFIGURATION_CODE = "FUNDING_PROVIDER_CONFIGURATION" as const;
 export const FUNDING_SANDBOX_MIGRATION_CODE = "FUNDING_SANDBOX_MIGRATION_REQUIRED" as const;
+export const FUNDING_BINDING_ENVIRONMENT_CODE = "FUNDING_BINDING_ENVIRONMENT_MISSING" as const;
 export type FundingConfigurationCode =
   | typeof FUNDING_CONFIGURATION_CODE
-  | typeof FUNDING_SANDBOX_MIGRATION_CODE;
+  | typeof FUNDING_SANDBOX_MIGRATION_CODE
+  | typeof FUNDING_BINDING_ENVIRONMENT_CODE;
 
 export class FundingProviderConfigurationError extends Error {
   readonly code: FundingConfigurationCode;

@@ -18,7 +18,7 @@ Review only the named motion surface. Do not edit code or widen into a general U
 1. Read the relevant implementation, styles, tests, and diff.
 2. Identify the user action, frequency, purpose, normal final state, and reduced-motion final state.
 3. Check existing issues before recommending follow-up work.
-4. Treat Playwright behavior and a current preview as authoritative. Static inspection can prove code structure, not timing feel or real-device behavior.
+4. Follow `docs/browser-validation.md` and use the repository-pinned `agent-browser` on the current preview for interactive motion proof. Playwright is authoritative only as the committed automated browser layer. Static inspection can prove code structure, not timing feel or real-device behavior.
 
 ## Review bar
 
@@ -30,7 +30,7 @@ Review only the named motion surface. Do not edit code or widen into a general U
 - **Interruptibility:** Repeated actions retarget cleanly. Gesture motion preserves continuity; keyframes do not restart a rapid interaction from zero.
 - **Input:** Hover motion is capability-gated. Keyboard use, focus, semantics, and touch hit targets remain intact.
 - **Architecture:** Reuse the existing design system and Motion dependency. Do not recommend another UI system or runtime.
-- **Tests:** Ask for a test only when broken Home behavior would be a bug. Keep it proportional and avoid testing Motion itself.
+- **Tests:** Ask for a test only at the layer chosen by `docs/browser-validation.md`; zero new Playwright is normal. Keep it proportional and avoid testing Motion itself.
 
 ## Severity
 
@@ -40,4 +40,4 @@ Review only the named motion surface. Do not edit code or widen into a general U
 
 ## Output
 
-List findings first, highest severity first, as `severity — file:line — evidence — smallest remedy — proof`. Then give one verdict: `block`, `pass with follow-up`, or `pass`. Separate what code proves from preview or operator checks. Report “no valid finding” when appropriate; do not invent work to justify the review.
+List findings first, highest severity first, as `severity — file:line — evidence — smallest remedy — proof`. Then give one verdict: `block`, `pass with follow-up`, or `pass`. Separate what code proves from the `agent-browser` mode/route/viewport/path, committed Playwright coverage, and operator checks. Report “no valid finding” when appropriate; do not invent work to justify the review.

@@ -76,18 +76,15 @@ describe("deriveSendAvailability", () => {
     });
   }
 
-  test("carries a stale snapshot age for Send max labels", () => {
+  test("does not carry snapshot freshness into Send presentation data", () => {
     const snapshot = buildBalancesSnapshotFixture({
       fetchedAt: "2026-09-13T12:00:00.000Z",
       registry: { usdc: { balance: ready("12340000") } },
     });
-    const availability = deriveSendAvailability(
-      { ...snapshot, stale: true },
-      Date.parse("2026-09-13T12:03:00.000Z"),
-    );
+    const asset = deriveSendAvailability({ ...snapshot, stale: true })
+      .find((entry) => entry.id === "usdc");
 
-    expect(availability.find((asset) => asset.id === "usdc")?.balanceAgeLabel).toBe(
-      "Updated 3 min ago",
-    );
+    expect(asset).toBeDefined();
+    expect("balanceAgeLabel" in asset!).toBe(false);
   });
 });

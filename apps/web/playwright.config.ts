@@ -56,7 +56,7 @@ const executablePath = cachedChromiumExecutable();
 
 export default defineConfig({
   testDir: "./tests/browser",
-  testMatch: "smoke.pw.ts",
+  testMatch: ["smoke.pw.ts", "landing-route.pw.ts"],
   fullyParallel: false,
   workers: 1,
   // Hosted runners are 3-5x slower and render fonts differently; a real failure

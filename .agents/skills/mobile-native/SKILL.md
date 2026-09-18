@@ -18,12 +18,12 @@ Apply the smallest platform-correct change to the named mobile-web surface. Home
 - Touch and mouse can coexist. Gate behavior by `(hover)` and `(pointer)`, not user agent or width guesses.
 - Never disable zoom. Preserve selectable content, browser navigation, focus, and native scrolling unless the named control must own a gesture.
 - Keep reduced motion instant and Home timing within `docs/ui-direction.md` limits.
-- Playwright is the authoritative automated browser check. Use existing configuration and behavioral assertions, not screenshots or a new harness.
-- A real-device check is an operator action. State exactly what iOS or Android behavior remains unverified; do not claim emulation proves it.
+- Follow `docs/browser-validation.md`: the repository-pinned `agent-browser` is required for interactive iteration and proof before and after editing. Playwright remains the sole authoritative committed automated browser layer; use its existing configuration only when the permanent-test ladder calls for a browser assertion.
+- A real-device check is an operator action. State exactly what iOS or Android behavior remains unverified; do not claim an `agent-browser` viewport or emulation proves it.
 
 ## Review sequence
 
-1. Trace the interaction at a narrow viewport, including focus, software keyboard, scrolling, back navigation, and final state.
+1. Use the Home browser-iteration skill and repository-pinned `agent-browser` to trace the interaction at a narrow viewport, including focus, software keyboard, scrolling, back navigation, and final state.
 2. Inspect the viewport export and global styles before proposing local work.
 3. Check each applicable platform contract:
    - edge-to-edge content pairs `viewport-fit=cover` with safe-area padding on fixed chrome;
@@ -40,7 +40,7 @@ Apply the smallest platform-correct change to the named mobile-web surface. Home
 
 ## Proof
 
-Prefer assertions such as no horizontal overflow, visible and reachable primary controls, correct focus destination, usable back behavior, and stable final state with reduced motion. Do not assert browser implementation details. Keep tests proportional to the product change.
+Use `agent-browser` to prove no horizontal overflow, visible and reachable primary controls, correct focus destination, usable back behavior, and a stable final state with reduced motion. Add durable assertions only at the layer selected by `docs/browser-validation.md`; do not assert browser implementation details. Keep tests proportional to the product change.
 
 ## Report
 

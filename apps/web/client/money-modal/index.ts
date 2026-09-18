@@ -11,9 +11,9 @@ export {
   MoneyNumpad,
   MoneyQuickChips,
   MoneyUnitToggle,
-  shouldAnimatePrimaryAmount,
   useMoneyAssetPricing,
   type MoneyAmountChangeSource,
+  type MoneyAssetOption,
 } from "./amount";
 export { MoneyConfirmSummary, type MoneyConfirmRow } from "./confirm-summary";
 export { applyNumpadKey, isPositiveDecimalAmount, type NumpadKey } from "./numpad";

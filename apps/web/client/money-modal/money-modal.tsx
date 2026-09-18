@@ -29,7 +29,7 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, in
         aria-describedby={describedBy}
         initialFocus={initialFocusRef ?? (() => popupRef.current?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)") ?? true)}
         data-money-sheet=""
-        data-immediate={immediate ? "" : undefined}
+        immediate={immediate}
         className="max-h-[88svh] sm:mx-auto sm:max-w-md"
       >
         <DrawerSwipeHandle data-money-sheet-grabber="" />

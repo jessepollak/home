@@ -16,6 +16,14 @@ import { coinbaseManifest } from "./manifest";
 
 const DESTINATION = "0x1111111111111111111111111111111111111111" as const;
 const PAYMENT_URL = "https://pay.coinbase.com/embedded/apple-pay";
+const EMBEDDED_ORDERS_OMITTED_FIELDS = [
+  "phoneNumber",
+  "email",
+  "agreementAcceptedAt",
+  "phoneNumberVerifiedAt",
+  "smsVerificationId",
+  "emailVerificationId",
+] as const;
 const env = {
   CDP_API_KEY_ID: "synthetic-key-id",
   CDP_API_KEY_SECRET: "synthetic-key-secret",
@@ -95,6 +103,7 @@ function quoteResponse(overrides: Record<string, unknown> = {}): Response {
 function createResponse(
   orderOverrides: Record<string, unknown> = {},
   linkOverrides: Record<string, unknown> = {},
+  envelopeOverrides: Record<string, unknown> = {},
 ): Response {
   return Response.json({
     source: "synthetic",
@@ -104,6 +113,7 @@ function createResponse(
       paymentLinkType: "PAYMENT_LINK_TYPE_APPLE_PAY_BUTTON",
       ...linkOverrides,
     },
+    ...envelopeOverrides,
   }, { status: 201 });
 }
 
@@ -199,7 +209,8 @@ describe("Coinbase headless funding adapter", () => {
       expiresIn: 120,
     }]);
     expect(requests[0]?.url).toBe("https://api.cdp.coinbase.com/platform/v2/onramp/orders");
-    expect(JSON.parse(String(requests[0]?.init.body))).toEqual({
+    const body = JSON.parse(String(requests[0]?.init.body));
+    expect(body).toEqual({
       isQuote: true,
       paymentMethod: "GUEST_CHECKOUT_APPLE_PAY",
       paymentCurrency: "USD",
@@ -210,6 +221,9 @@ describe("Coinbase headless funding adapter", () => {
       partnerUserRef: partnerUserRef(),
       domain: "home.example",
     });
+    for (const field of EMBEDDED_ORDERS_OMITTED_FIELDS) {
+      expect(body).not.toHaveProperty(field);
+    }
     expect(quote).toMatchObject({
       fiatAmount: "25",
       tokenAmountAtomic: "24500000",
@@ -272,20 +286,26 @@ describe("Coinbase headless funding adapter", () => {
     });
     expect(body).not.toHaveProperty("paymentAmount");
     expect(body).not.toHaveProperty("isQuote");
+    for (const field of EMBEDDED_ORDERS_OMITTED_FIELDS) {
+      expect(body).not.toHaveProperty(field);
+    }
     expect(result).toMatchObject({ outcome: "created" });
   });
 
-  test("includes the core-supplied client IP only when present", async () => {
+  test("omits client IP from quote and create even when the core supplies one", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const fetchImplementation = (async (_input: RequestInfo | URL, init: RequestInit = {}) => {
-      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-      return createResponse();
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      bodies.push(body);
+      return body.isQuote === true ? quoteResponse() : createResponse();
     }) as unknown as typeof fetch;
+    const ctx = context(fetchImplementation);
 
-    await provider.onramp!.createOrder({ ...intent, clientIp: "203.0.113.4" }, context(fetchImplementation));
-    await provider.onramp!.createOrder(intent, context(fetchImplementation));
+    await provider.onramp!.createQuote!(quoteIntent, ctx);
+    await provider.onramp!.createOrder({ ...intent, clientIp: "203.0.113.4" }, ctx);
 
-    expect(bodies[0]?.clientIp).toBe("203.0.113.4");
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).not.toHaveProperty("clientIp");
     expect(bodies[1]).not.toHaveProperty("clientIp");
   });
 
@@ -400,19 +420,88 @@ describe("Coinbase headless funding adapter", () => {
     }
   });
 
-  test("accepts the embedded-order payment link type observed live on 2026-09-13", async () => {
+  test("accepts the Embedded Orders link and drops a top-level userAuthToken", async () => {
+    const userAuthToken = "synthetic-user-auth-token-must-not-escape";
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => lines.push(line));
     const result = await provider.onramp!.createOrder(
       intent,
       context((async () => createResponse({}, {
         url: "https://pay.coinbase.com/v3/api-onramp/embedded-order?sessionToken=synthetic",
         paymentLinkType: "PAYMENT_LINK_TYPE_EMBEDDED_ORDER",
-      })) as unknown as typeof fetch),
+      }, { userAuthToken })) as unknown as typeof fetch),
     );
 
     expect(result.outcome).toBe("created");
     if (result.outcome !== "created") throw new Error("unreachable");
     expect(result.order.instructions.kind).toBe("embed");
     expect(new URL((result.order.instructions as { url: string }).url).pathname).toBe("/v3/api-onramp/embedded-order");
+    expect(JSON.stringify(result)).not.toContain(userAuthToken);
+
+    await provider.onramp!.createOrder(
+      intent,
+      context((async () => createResponse(
+        { purchaseAmount: "1" },
+        {},
+        { userAuthToken },
+      )) as unknown as typeof fetch),
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines.join("\n")).not.toContain(userAuthToken);
+  });
+
+  test("never returns, logs, or persists a provider userAuthToken", async () => {
+    const userAuthToken = "synthetic-user-auth-token-must-not-escape";
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const lines: string[] = [];
+    const store = new MemoryFundingOrderStore();
+    const session: VerifiedAccountSession = {
+      user: { subject: "subject-token-safety" },
+      smartAccount: { address: DESTINATION, chainId: 8453 },
+      accountProvider: "base-account",
+    };
+    setObservabilityLogWriterForTests((line) => lines.push(line));
+    const core = new FundingCore({
+      providers: [provider],
+      store,
+      env: {
+        ...env,
+        FUNDING_QUOTE_SECRET: "synthetic-quote-secret-at-least-32-characters",
+      },
+      fetchImplementation: (async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        requestBodies.push(body);
+        return body.isQuote === true
+          ? quoteResponse()
+          : createResponse({}, {
+              url: "https://pay.coinbase.com/v3/api-onramp/embedded-order?sessionToken=synthetic",
+              paymentLinkType: "PAYMENT_LINK_TYPE_EMBEDDED_ORDER",
+            }, { userAuthToken });
+      }) as unknown as typeof fetch,
+      currentBaseBlock: async () => "1",
+      verifyReceipt: async () => null,
+    });
+
+    const quote = await core.createQuote(session, {
+      providerId: "coinbase",
+      region: "US",
+      paymentMethod: "apple-pay",
+      fiatAmount: "25",
+    }, "https://home.example");
+    const publicResult = await core.createOrder(
+      session,
+      { quoteToken: quote.quoteToken },
+      "https://home.example",
+    );
+    const stored = await store.getOwned(publicResult.id, {
+      subject: session.user.subject,
+      accountProvider: session.accountProvider,
+    });
+
+    expect(requestBodies.filter((body) => body.isQuote !== true)).toHaveLength(1);
+    expect(JSON.stringify(publicResult)).not.toContain(userAuthToken);
+    expect(JSON.stringify(stored)).not.toContain(userAuthToken);
+    expect(lines.join("\n")).not.toContain(userAuthToken);
   });
 
   test("maps a create fee-equation mismatch to ambiguous after one call", async () => {
@@ -588,12 +677,19 @@ describe("Coinbase headless funding adapter", () => {
     expect(lines[0]).not.toContain(intent.quote.tokenAmountAtomic);
   });
 
-  test("lists the binding only when both CDP API keys are configured", async () => {
-    const session: VerifiedAccountSession = {
-      user: { subject: "subject-a" },
-      smartAccount: { address: DESTINATION, chainId: 8453 },
-      accountProvider: "base-account",
-    };
+  test("lists the server-authenticated binding for both supported account providers", async () => {
+    const sessions: VerifiedAccountSession[] = [
+      {
+        user: { subject: "subject-base-account" },
+        smartAccount: { address: DESTINATION, chainId: 8453 },
+        accountProvider: "base-account",
+      },
+      {
+        user: { subject: "subject-cdp-embedded" },
+        smartAccount: { address: DESTINATION, chainId: 8453 },
+        accountProvider: "cdp-embedded",
+      },
+    ];
     const configured = new FundingCore({
       providers: [provider],
       store: new MemoryFundingOrderStore(),
@@ -609,14 +705,16 @@ describe("Coinbase headless funding adapter", () => {
       verifyReceipt: async () => null,
     });
 
-    await expect(configured.listProviders("US", session)).resolves.toEqual([
-      expect.objectContaining({
-        providerId: "coinbase",
-        region: "US",
-        assetId: "base:usdc",
-        quotes: true,
-      }),
-    ]);
-    await expect(missingSecret.listProviders("US", session)).resolves.toEqual([]);
+    for (const session of sessions) {
+      await expect(configured.listProviders("US", session)).resolves.toEqual([
+        expect.objectContaining({
+          providerId: "coinbase",
+          region: "US",
+          assetId: "base:usdc",
+          quotes: true,
+        }),
+      ]);
+      await expect(missingSecret.listProviders("US", session)).resolves.toEqual([]);
+    }
   });
 });

@@ -1,5 +1,8 @@
 # README product captures
 
+> [!IMPORTANT]
+> This is a specialized documentation asset generator for the root README. It does not replace the required `agent-browser` before/after iteration in [Browser validation](../browser-validation.md), committed Playwright regression coverage selected by that contract, or current-head PR preview proof.
+
 The capture set contains five full-size browser screenshots of the current Home implementation:
 
 - [`home.png`](home.png) — signed-in Home dashboard;

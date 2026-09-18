@@ -13,15 +13,20 @@ import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { MoneyTicker } from "@/components/money-ticker";
 import { ActivityRow } from "@/components/finance-rows";
 import { TransactionDetailsModal } from "@/components/transaction-details";
+import { OperationActivityRow } from "@/client/actions/operation-row";
+import { presentOperationDetails } from "@/client/actions/operation-details";
+import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import {
   presentActivityTransferDetails,
   presentActivityTransferRow,
 } from "./activity-presenter";
-import { useActivity } from "./use-activity";
+import { mergeActivityFeed } from "./activity-feed";
+import { useActivity, type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import {
   ACTIVITY_TEASER_LIMIT,
   type ActivityDirection,
+  type ActivityPanelDensity,
   type ActivityPanelProps,
   type ActivityTransfer,
 } from "./types";
@@ -30,55 +35,81 @@ export function ActivityPanel({
   session,
   fetchActivity,
   regionId = "GLOBAL",
-  onTransactionHashesChange,
-  leading,
-  suppressEmpty = false,
   density = "page",
   header,
 }: ActivityPanelProps) {
   const activity = useActivity(session, fetchActivity);
+  const ownerKey = session?.smartAccount
+    ? `${session.accountProvider}:${session.user.subject}:${session.smartAccount.address.toLowerCase()}`
+    : "signed-out";
+  return (
+    <ActivityPanelView
+      key={ownerKey}
+      activity={activity}
+      regionId={regionId}
+      density={density}
+      header={header}
+    />
+  );
+}
+
+export function ActivityPanelView({
+  activity,
+  operations = [],
+  actionsStatus = "ready",
+  regionId = "GLOBAL",
+  density = "page",
+  header,
+}: {
+  activity: UseActivityResult;
+  operations?: readonly RecentMoneyActionOperation[];
+  actionsStatus?: "loading" | "ready" | "error";
+  regionId?: ActivityPanelProps["regionId"];
+  density?: ActivityPanelDensity;
+  header?: ReactNode | null;
+}) {
   const [selectedTransfer, setSelectedTransfer] = useState<ActivityTransfer | null>(null);
+  const [selectedOperation, setSelectedOperation] = useState<RecentMoneyActionOperation | null>(null);
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);
-    if (activity.status !== "ready") setSelectedTransfer(null);
+    if (activity.status !== "ready") {
+      setSelectedTransfer(null);
+      setSelectedOperation(null);
+    }
   }
-  const transactionHashKey = activity.status === "ready"
-    ? [...new Set(activity.page.transfers.map((transfer) => transfer.transactionHash.toLowerCase()))].join("\u0000")
-    : "";
-
-  useEffect(() => {
-    onTransactionHashesChange?.(transactionHashKey ? transactionHashKey.split("\u0000") : []);
-  }, [onTransactionHashesChange, transactionHashKey]);
-
   const heading = header === undefined ? <DefaultActivityHeader /> : header;
   const labelledBy = header === null ? undefined : "activity-title";
   const labelled = header === null ? "Activity" : undefined;
-  const details = selectedTransfer
-    ? presentActivityTransferDetails(selectedTransfer, { regionId })
-    : null;
-  const detailsTitleId = "activity-transfer-details-title";
+  const transfers = activity.status === "ready" ? activity.page.transfers : [];
+  const items = mergeActivityFeed({ transfers, operations });
+  const visibleItems = density === "teaser" ? items.slice(0, ACTIVITY_TEASER_LIMIT) : items;
+  const hasRows = visibleItems.length > 0;
+  // Initial load waits for both Activity sources to settle so the panel never
+  // presents whichever source resolved first as the whole feed. Load-more is
+  // separate (status stays "ready" while loading more) and keeps existing rows.
+  const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
 
-  if (activity.status === "unavailable") {
+  if (activity.status === "unavailable" && !hasRows) {
     return (
-      <ActivitySurface heading={heading} leading={leading} labelledBy={labelledBy} label={labelled}>
-        {suppressEmpty ? null : <ActivityEmpty />}
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled}>
+        <ActivityEmpty />
       </ActivitySurface>
     );
   }
 
-  if (activity.status === "loading") {
+  if (sourcesPending) {
     return (
-      <ActivitySurface heading={heading} leading={leading} labelledBy={labelledBy} label={labelled} busy>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} busy>
         <ShimmerRows count={density === "teaser" ? 2 : 4} />
         <span className="sr-only">Loading recent activity…</span>
       </ActivitySurface>
     );
   }
 
-  if (activity.status === "error") {
+  if (activity.status === "error" && !hasRows) {
     return (
-      <ActivitySurface heading={heading} leading={leading} labelledBy={labelledBy} label={labelled}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled}>
         <Alert variant="destructive" role="alert">
           <AlertTitle>Activity is temporarily unavailable.</AlertTitle>
           {activity.error.message || activity.error.code ? (
@@ -92,34 +123,55 @@ export function ActivityPanel({
     );
   }
 
-  const { page } = activity;
-  const visibleTransfers = density === "teaser"
-    ? page.transfers.slice(0, ACTIVITY_TEASER_LIMIT)
-    : page.transfers;
-  const isEmpty = visibleTransfers.length === 0;
+  const details = selectedTransfer
+    ? presentActivityTransferDetails(selectedTransfer, { regionId })
+    : selectedOperation
+      ? presentOperationDetails(selectedOperation)
+      : null;
   return (
-    <ActivitySurface heading={heading} leading={null} labelledBy={labelledBy} label={labelled}>
-      {isEmpty && !suppressEmpty && !leading ? <ActivityEmpty /> : null}
-      <div className="flex flex-col gap-1">
-        {leading}
-        {isEmpty ? null : (
-          <ol className="list-none p-0 space-y-1">
-            {visibleTransfers.map((transfer) => (
-              <TransferActivityRow
-                key={transfer.id}
-                transfer={transfer}
-                regionId={regionId}
-                onActivate={() => setSelectedTransfer(transfer)}
-              />
-            ))}
-          </ol>
-        )}
-      </div>
+    <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled}>
+      {activity.status === "error" ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p role="status" className="text-sm text-muted-foreground">
+            Onchain transfers are unavailable. Recorded Home actions are still shown.
+          </p>
+          <Button variant="secondary" onClick={activity.retry}>Try again</Button>
+        </div>
+      ) : null}
+      {actionsStatus === "error" ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          Recorded Home actions are unavailable.{transfers.length > 0 ? " Onchain transfers are still shown." : ""}
+        </p>
+      ) : null}
+      {!hasRows ? <ActivityEmpty /> : (
+        <ol className="list-none p-0 space-y-1">
+          {visibleItems.map((item) => item.kind === "transfer" ? (
+            <TransferActivityRow
+              key={`transfer:${item.id}`}
+              transfer={item.transfer}
+              regionId={regionId}
+              onActivate={() => {
+                setSelectedOperation(null);
+                setSelectedTransfer(item.transfer);
+              }}
+            />
+          ) : (
+            <OperationActivityRow
+              key={`action:${item.id}`}
+              operation={item.operation}
+              onActivate={() => {
+                setSelectedTransfer(null);
+                setSelectedOperation(item.operation);
+              }}
+            />
+          ))}
+        </ol>
+      )}
 
-      {density === "page" ? (
+      {density === "page" && activity.status === "ready" ? (
         <ActivityPagination
-          nextCursor={page.nextCursor}
-          hasTransfers={!isEmpty}
+          nextCursor={activity.page.nextCursor}
+          hasTransfers={hasRows}
           loading={activity.loadingMore}
           failed={activity.loadMoreError}
           autoLoadPaused={activity.autoLoadPaused}
@@ -129,10 +181,13 @@ export function ActivityPanel({
       ) : null}
 
       <TransactionDetailsModal
-        open={selectedTransfer !== null}
-        titleId={detailsTitleId}
+        open={selectedTransfer !== null || selectedOperation !== null}
+        titleId="activity-transaction-details-title"
         details={details}
-        onClose={() => setSelectedTransfer(null)}
+        onClose={() => {
+          setSelectedTransfer(null);
+          setSelectedOperation(null);
+        }}
       />
     </ActivitySurface>
   );
@@ -140,14 +195,12 @@ export function ActivityPanel({
 
 function ActivitySurface({
   heading,
-  leading,
   labelledBy,
   label,
   busy = false,
   children,
 }: {
   heading: ReactNode;
-  leading: ReactNode;
   labelledBy?: string;
   label?: string;
   busy?: boolean;
@@ -158,10 +211,7 @@ function ActivitySurface({
       <Card>
         {heading ? <CardHeader>{heading}</CardHeader> : null}
         <CardContent inset="list">
-          <div className="space-y-3">
-            {leading}
-            {children}
-          </div>
+          <div className="space-y-3">{children}</div>
         </CardContent>
       </Card>
     </section>

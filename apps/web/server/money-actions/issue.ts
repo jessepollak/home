@@ -13,6 +13,7 @@ import {
 } from "@/shared/money-actions/types";
 import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
 import { getActionsStore } from "@/server/actions/store";
+import { isSavingsMetadata } from "@/shared/savings/review";
 import { moneyActionOwner } from "./session";
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -122,7 +123,9 @@ function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
   }
   const calls = draft.calls.map(normalizeCall);
   const amounts = draft.amounts.map(normalizeAmount);
-  const metadata = draft.metadata === undefined ? undefined : normalizeMetadata(draft.metadata);
+  const metadata = draft.metadata === undefined
+    ? undefined
+    : normalizeMetadata(draft.metadata, draft.kind);
   assertExactApprovalCaps(calls, amounts);
   return {
     kind: draft.kind,
@@ -136,7 +139,10 @@ function normalizeDraft(draft: MoneyActionDraft): MoneyActionDraft {
   };
 }
 
-function normalizeMetadata(value: MoneyActionMetadata): MoneyActionMetadata {
+function normalizeMetadata(
+  value: MoneyActionMetadata,
+  kind: MoneyActionDraft["kind"],
+): MoneyActionMetadata {
   if (value?.product === "cashout") {
     if (
       (value.operation !== "deposit" && value.operation !== "withdraw") ||
@@ -176,6 +182,44 @@ function normalizeMetadata(value: MoneyActionMetadata): MoneyActionMetadata {
     return value.operation === "deposit"
       ? { ...normalized, operation: "deposit", canonicalHandle: value.canonicalHandle.trim(), depositId: undefined }
       : { ...normalized, operation: "withdraw", canonicalHandle: undefined, depositId: value.depositId.trim() };
+  }
+  if (value?.product === "savings") {
+    const expectedKind = value.operation === "deposit"
+      ? "savings-deposit"
+      : "savings-withdraw";
+    if (!isSavingsMetadata(value) || kind !== expectedKind) {
+      throw new MoneyActionIssueError("invalid-draft");
+    }
+    return {
+      product: "savings",
+      operation: value.operation,
+      vaultAddress: value.vaultAddress.toLowerCase() as `0x${string}`,
+      vaultName: value.vaultName,
+      network: { name: "Base", chainId: 8453 },
+      feeWad: value.feeWad,
+      limitBaseUnits: value.limitBaseUnits,
+      previewSharesBaseUnits: value.previewSharesBaseUnits,
+      shareDecimals: value.shareDecimals,
+      exchangeConstraint: value.exchangeConstraint,
+      discoveryRate: value.discoveryRate.status === "unavailable"
+        ? {
+            status: "unavailable",
+            netApy: null,
+            fetchedAt: null,
+            stateAsOf: null,
+          }
+        : {
+            status: value.discoveryRate.status,
+            netApy: value.discoveryRate.netApy,
+            fetchedAt: value.discoveryRate.fetchedAt,
+            stateAsOf: value.discoveryRate.stateAsOf,
+          },
+      source: {
+        blockNumber: value.source.blockNumber,
+        blockHash: value.source.blockHash.toLowerCase() as `0x${string}`,
+        blockTimestamp: value.source.blockTimestamp,
+      },
+    };
   }
   if (!value || value.product !== "borrow" ||
     !["supply-collateral", "borrow", "supply-and-borrow", "repay", "repay-all", "withdraw-collateral", "close-position"].includes(value.operation) ||

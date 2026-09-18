@@ -2,6 +2,25 @@ import { describe, expect, test } from "bun:test";
 import { normalizeObservabilityEvent } from "./schema";
 
 describe("observability schema", () => {
+  test("preserves the staged Address History activity source", () => {
+    expect(normalizeObservabilityEvent({
+      kind: "activity-read",
+      route: "/api/activity",
+      outcome: "succeeded",
+      reason: "primary-source",
+      source: "cdp-address-history",
+      durationMs: 10,
+      sourceDurationMs: 8,
+      sourceAttemptCount: 1,
+      pageCount: 1,
+      rowCount: 2,
+    })).toMatchObject({
+      code: "ACTIVITY_READ",
+      source: "cdp-address-history",
+      rowCount: 2,
+    });
+  });
+
   test("preserves cache-first balance outcomes and rejects unknown ones", () => {
     const event = {
       kind: "balances-read" as const,
@@ -120,6 +139,7 @@ describe("observability schema", () => {
     "FUNDING_PROVIDER_CONFIGURATION",
     "PROVIDER_INVALID_RESPONSE",
     "FUNDING_SANDBOX_MIGRATION_REQUIRED",
+    "FUNDING_BINDING_ENVIRONMENT_MISSING",
     "OFFRAMP_DISCOVERY_CONFIGURATION",
     "OFFRAMP_DISCOVERY_PROVIDER",
   ])("preserves the scrubbed closed funding diagnostic %s", (code) => {

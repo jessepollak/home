@@ -5,7 +5,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { getFundingAsset } from "@/shared/funding/assets";
 import type { FundingDirection, FundingProvider, Instruction, Observation, Quote } from "@/shared/funding/provider-contract";
 import { decimalToAtomic } from "@/shared/formatting/atomic";
-import { FUNDING_CONFIGURATION_CODE, FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode, type FundingConfigurationCode } from "./provider-context";
+import { FUNDING_BINDING_ENVIRONMENT_CODE, FUNDING_CONFIGURATION_CODE, FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode, type FundingConfigurationCode } from "./provider-context";
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
 import { awaitBalanceSignal } from "@/server/balances/signal";
@@ -58,9 +58,20 @@ export class FundingCore {
         binding.region !== region ||
         !directional ||
         !(direction === "onramp" ? provider.onramp : provider.offramp) ||
-        !directionAvailable(provider, direction, sandbox) ||
-        !environmentAvailable(directional.env, this.env)
+        !directionAvailable(provider, direction, sandbox)
       ) return [];
+      if (!environmentAvailable(directional.env, this.env)) {
+        // The binding matches the request but stays inert because a declared
+        // variable is unset. Without this event a local operator sees an empty
+        // Add money list and nothing in the logs. Names and values stay out
+        // of the event.
+        this.deps.logProviderDiscoveryFailure?.({
+          providerId: provider.manifest.id,
+          reason: "configuration",
+          code: FUNDING_BINDING_ENVIRONMENT_CODE,
+        });
+        return [];
+      }
       const asset = getFundingAsset(binding.assetId);
       if (!asset) return [];
       return [{ provider, binding, directional, asset, sandbox }];

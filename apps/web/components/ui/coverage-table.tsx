@@ -13,6 +13,18 @@ export type CoverageTableRow = {
   asset: string;
   issuerName: string;
   stablecoin: { candidate: { symbol: string; issuer: string; verification: string } | null };
+  portfolio: {
+    status: "priority" | "deferred" | "not-scoped";
+    workstreams: readonly {
+      currencyCode: string;
+      assetSymbol: string;
+      provider: string;
+      issueNumber: number;
+      issueUrl: string;
+      stage: "planned" | "in-build" | "blocked";
+      note: string;
+    }[];
+  };
   issuer: { status: "documented" | "conditional" | "not-found" | "not-researched"; rail: string; audience: string; evidence: { url: string; checkedAt: string } | null };
   home: { status: "none" | "planned" | "in-build" | "sandbox" | "live"; provider: string | null; asset: string | null; paymentMethods: readonly string[]; evidence: { proofRef: string; checkedAt: string } | null };
   quote: { quotedAt: string; spreadBps: number | null; feeSummary: string; sourceUrl: string } | null;
@@ -23,6 +35,7 @@ const stablecoinTraffic = { identified: "Yellow", "not-identified": "Red" } as c
 const stablecoinLabels = { identified: "Identified", "not-identified": "Not identified" } as const;
 const issuerLabels = { documented: "Documented", conditional: "Conditional", "not-found": "Not found", "not-researched": "Not researched" } as const;
 const issuerTraffic = { documented: "Green", conditional: "Yellow", "not-found": "Red", "not-researched": "Yellow" } as const;
+const portfolioLabels = { priority: "Priority", deferred: "Deferred", "not-scoped": "Not scoped" } as const;
 const integratedLabels = { none: "Not integrated", planned: "Planned", "in-build": "In build", sandbox: "Sandbox", live: "Live" } as const;
 const integratedTraffic = { live: "Green", planned: "Yellow", "in-build": "Yellow", sandbox: "Yellow", none: "Red" } as const;
 
@@ -56,6 +69,19 @@ const columns: ColumnDef<CoverageTableRow>[] = [
       value.quote ? { label: "Quote observation", value: `Observed ${value.quote.quotedAt}; spread ${value.quote.spreadBps === null ? "not recorded" : `${value.quote.spreadBps} bps`}; fees: ${value.quote.feeSummary}`, href: value.quote.sourceUrl } : { label: "Quote observation", value: "None recorded" },
     ]} /></div>;
   } },
+  { id: "portfolio", header: () => <span className={styles.statusColumn}>Portfolio</span>, cell: ({ row }) => {
+    const value = row.original;
+    const status = value.portfolio.status;
+    const routeDetails = value.portfolio.workstreams.flatMap((route, index) => [
+      { label: `Route ${index + 1}`, value: `${route.currencyCode} → ${route.assetSymbol} via ${route.provider} — ${route.stage === "in-build" ? "In build" : `${route.stage[0].toUpperCase()}${route.stage.slice(1)}`}`, href: route.issueUrl },
+      { label: `Route ${index + 1} gate`, value: route.note },
+    ]);
+    return <div className={styles.statusColumn}><CoverageStatusPreview status="Yellow" indicatorVariant={status === "priority" ? "solid" : "hollow"} accessibleName={`Yellow — ${portfolioLabels[status]} portfolio`} heading={`${value.countryName} portfolio status`} details={[
+      { label: "Status", value: portfolioLabels[status] },
+      ...routeDetails,
+      ...(routeDetails.length === 0 ? [{ label: "Routes", value: status === "deferred" ? "Research retained; no active workstream" : "Outside the top-100 local non-USD pass" }] : []),
+    ]} /></div>;
+  } },
   { id: "home", header: () => <span className={styles.statusColumn}>Integrated</span>, cell: ({ row }) => {
     const value = row.original;
     const status = value.home.status;
@@ -70,5 +96,5 @@ const columns: ColumnDef<CoverageTableRow>[] = [
 ];
 
 export function CoverageTable({ rows }: { rows: CoverageTableRow[] }) {
-  return <DataTable columns={columns} data={rows} caption="Country stablecoin candidates, 1:1 onramp research, and integration status" density="compact" />;
+  return <DataTable columns={columns} data={rows} caption="Country stablecoin candidates, 1:1 onramp research, portfolio priority, and integration status" density="compact" />;
 }

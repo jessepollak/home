@@ -120,31 +120,6 @@ describe("SendDialog availability", () => {
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  test("appends a stale snapshot age to the available label", () => {
-    const usdc = getTransferAsset("usdc");
-    if (!usdc) throw new Error("missing USDC transfer asset");
-
-    render(
-      <SendDialog
-        open
-        immediate
-        address={ACCOUNT}
-        ownerBoundary="owner-a"
-        availableAssets={[{
-          ...usdc,
-          balanceBaseUnits: "1234567",
-          balanceLabel: "$1.23",
-          balanceAgeLabel: "Updated 3 min ago",
-        }]}
-        prepareMoneyAction={async () => resumedAction()}
-        resumeMoneyAction={async () => resumedAction()}
-        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
-        onClose={() => {}}
-      />,
-    );
-
-    expect(page().getByText("Updated 3 min ago", { exact: false })).toBeTruthy();
-  });
 });
 
 describe("SendDialog Peer cash-out", () => {
@@ -183,6 +158,47 @@ describe("SendDialog Peer cash-out", () => {
     expect(document.body.textContent).toContain("About 1 min");
     expect(prepares).toEqual([{ kind: "cash-out", params: expect.objectContaining({ payoutHandle: "$alice", canonicalHandleConfirmation: "alice", amountBaseUnits: "1000000" }) }]);
     await waitFor(() => expect(fetches).toHaveLength(2));
+  });
+
+  test("renders mobile-safe cash-out handle fields with input hints", async () => {
+    render(
+      <SendDialog
+        open immediate address={ACCOUNT} ownerBoundary="owner-peer-hints" regionId="US"
+        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
+          ? offrampResponse
+          : { version: 3, recoveryEligible: false, orders: [] }}
+        prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
+        executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
+    );
+
+    fireEvent.click(page().getByRole("button", { name: "1" }));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    const peer = await page().findByRole("button", { name: /Send to Zelle, Venmo, Cash App and more/ });
+    fireEvent.click(peer);
+    fireEvent.click(page().getByRole("button", { name: "Cash App" }));
+
+    const handle = page().getByLabelText("Cash App handle") as HTMLInputElement;
+    expect(handle.className).toContain("h-11");
+    expect(handle.className).toContain("md:text-base");
+    expect(handle.className).not.toContain("md:text-sm");
+    expect(handle.getAttribute("autocomplete")).toBe("off");
+    expect(handle.getAttribute("autocapitalize")).toBe("none");
+    expect(handle.getAttribute("autocorrect")).toBe("off");
+    expect(handle.getAttribute("spellcheck")).toBe("false");
+    expect(handle.getAttribute("enterkeyhint")).toBe("next");
+
+    fireEvent.input(handle, { target: { value: "$alice" } });
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    const confirmation = page().getByLabelText("Re-enter handle") as HTMLInputElement;
+    expect(confirmation.className).toContain("h-11");
+    expect(confirmation.className).toContain("md:text-base");
+    expect(confirmation.className).not.toContain("md:text-sm");
+    expect(confirmation.getAttribute("autocomplete")).toBe("off");
+    expect(confirmation.getAttribute("autocapitalize")).toBe("none");
+    expect(confirmation.getAttribute("autocorrect")).toBe("off");
+    expect(confirmation.getAttribute("spellcheck")).toBe("false");
+    expect(confirmation.getAttribute("enterkeyhint")).toBe("done");
   });
 
   test("does not show Peer when discovery is unavailable", async () => {

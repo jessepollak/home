@@ -136,6 +136,38 @@ describe("FundingCore", () => {
     expect(JSON.stringify(events)).not.toContain("secret-value");
   });
 
+  test("reports a binding hidden by a missing environment variable without naming it", async () => {
+    const events: Array<{ providerId: string; reason: string; code: string }> = [];
+    const core = new FundingCore({
+      providers: [{
+        manifest,
+        onramp: {
+          async createOrder() { return { outcome: "ambiguous" }; },
+          async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+        },
+      }],
+      store: new MemoryFundingOrderStore(),
+      env: { FIXTURE_KEY: "" },
+      currentBaseBlock: async () => "1",
+      verifyReceipt: async () => null,
+      logProviderDiscoveryFailure: (event) => { events.push(event); },
+    });
+
+    expect(await core.listProviders("ID", session)).toEqual([]);
+    expect(events).toEqual([{
+      providerId: "fixture",
+      reason: "configuration",
+      code: "FUNDING_BINDING_ENVIRONMENT_MISSING",
+    }]);
+    expect(JSON.stringify(events)).not.toContain("FIXTURE_KEY");
+
+    // A binding for another region is simply not listed; it is not a
+    // configuration failure and must stay quiet.
+    events.length = 0;
+    expect(await core.listProviders("US", session)).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
   test("rejects quote tokens when the core sandbox mode changes", async () => {
     const sandbox = setup("created", { sandbox: true, providerSandbox: true });
     const sandboxQuote = await sandbox.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");

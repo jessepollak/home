@@ -28,6 +28,7 @@ describe("SupportedGlobe variants", () => {
         ariaLabel="Coverage inventory"
         description="239 mapped inventory points"
         interactiveMarkerTones={["positive"]}
+        interactiveCountryCodes={["CN"]}
       />,
     );
     expect(html).toContain('aria-label="Coverage inventory"');
@@ -37,7 +38,8 @@ describe("SupportedGlobe variants", () => {
     expect(html).not.toContain("data-route=");
     expect((html.match(/data-country=/g) ?? []).length).toBe(239);
     expect((html.match(/<button/g) ?? []).length).toBe(
-      coverageRegistry.filter((record) => record.issuerRoute.status === "documented").length,
+      coverageRegistry.filter((record) => record.issuerRoute.status === "documented").length + 1,
     );
+    expect(html).toContain('aria-label="China, CNY.');
   });
 });

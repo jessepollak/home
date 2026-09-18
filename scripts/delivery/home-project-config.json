@@ -1,0 +1,66 @@
+{
+  "repository": {
+    "nameWithOwner": "jessepollak/home",
+    "id": "R_kgDOURh8sQ"
+  },
+  "project": {
+    "ownerType": "USER",
+    "ownerLogin": "jessepollak",
+    "number": 1,
+    "id": "PVT_kwHOABDA4c4Bju2Z",
+    "url": "https://github.com/users/jessepollak/projects/1"
+  },
+  "milestone": {
+    "title": "Home MVP",
+    "number": 1,
+    "id": "MI_kwDOURh8sc4BESUV"
+  },
+  "fields": {
+    "deliveryStatus": {
+      "name": "Delivery status",
+      "id": "PVTSSF_lAHOABDA4c4Bju2ZzhiiGx8",
+      "options": {
+        "Todo": "6fb23bfd",
+        "Working": "119cc413",
+        "Independent review": "73c77b10",
+        "Needs Jesse": "357ecd3c",
+        "Blocked": "9208fad8",
+        "Done": "e2671a6f",
+        "Not planned": "3e75fca4",
+        "Needs triage": "ee6d0f55"
+      }
+    },
+    "workstream": {
+      "name": "Workstream",
+      "id": "PVTSSF_lAHOABDA4c4Bju2ZzhiiGyA",
+      "options": {
+        "Money in/out": "d3b7364b",
+        "Save and spend": "c12f0581",
+        "Invest": "abcfa657",
+        "Credit": "4c4d7d6a",
+        "Operator platform": "2a195157",
+        "Identity and account": "00f43868",
+        "Design and experience": "1a2fdd12",
+        "Engineering, security, and privacy": "3aa4f8be"
+      }
+    },
+    "level": {
+      "name": "Level",
+      "id": "PVTSSF_lAHOABDA4c4Bju2ZzhiiGzA",
+      "options": {
+        "Workstream": "8a590056",
+        "Delivery": "4a1b64fc"
+      }
+    }
+  },
+  "roots": [
+    { "number": 565, "id": "I_kwDOURh8sc8AAAABRpRMiw", "workstream": "Money in/out" },
+    { "number": 566, "id": "I_kwDOURh8sc8AAAABRpRQEw", "workstream": "Save and spend" },
+    { "number": 567, "id": "I_kwDOURh8sc8AAAABRpRScQ", "workstream": "Invest" },
+    { "number": 395, "id": "I_kwDOURh8sc8AAAABRG2MkA", "workstream": "Credit" },
+    { "number": 568, "id": "I_kwDOURh8sc8AAAABRpRVfw", "workstream": "Operator platform" },
+    { "number": 569, "id": "I_kwDOURh8sc8AAAABRpRY4Q", "workstream": "Identity and account" },
+    { "number": 207, "id": "I_kwDOURh8sc8AAAABQr4SYA", "workstream": "Design and experience" },
+    { "number": 570, "id": "I_kwDOURh8sc8AAAABRpRb4A", "workstream": "Engineering, security, and privacy" }
+  ]
+}

@@ -26,7 +26,11 @@ export const ACTIVITY_READ_REASONS = [
   "request",
   "primary-source",
 ] as const;
-export const ACTIVITY_READ_SOURCES = ["none", "cdp-sql"] as const;
+export const ACTIVITY_READ_SOURCES = [
+  "none",
+  "cdp-sql",
+  "cdp-address-history",
+] as const;
 export type ActivityReadOutcome = (typeof ACTIVITY_READ_OUTCOMES)[number];
 export type ActivityReadReason = (typeof ACTIVITY_READ_REASONS)[number];
 export type ActivityReadSource = (typeof ACTIVITY_READ_SOURCES)[number];
@@ -95,6 +99,7 @@ export const FUNDING_ORDER_CODES = [
   "ORDER_UNAVAILABLE",
   "FUNDING_PROVIDER_CONFIGURATION",
   "FUNDING_SANDBOX_MIGRATION_REQUIRED",
+  "FUNDING_BINDING_ENVIRONMENT_MISSING",
   "OFFRAMP_DISCOVERY_CONFIGURATION",
   "OFFRAMP_DISCOVERY_PROVIDER",
   "QUOTE_ECHO_MISMATCH",

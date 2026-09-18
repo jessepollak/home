@@ -79,6 +79,77 @@ describe("actions HTTP handlers", () => {
     });
   });
 
+  test("a savings confirmation remains owner-scoped and derives confirmed action status", async () => {
+    const savingsRow: ActionRow = {
+      ...row,
+      kind: "savings-withdraw",
+      summary: {
+        ...row.summary,
+        title: "Withdraw USDC",
+        metadata: {
+          product: "savings",
+          operation: "withdraw",
+          vaultAddress: ADDRESS,
+          vaultName: "Configured USDC vault",
+          network: { name: "Base", chainId: 8453 },
+          feeWad: "0",
+          limitBaseUnits: "1000000",
+          previewSharesBaseUnits: "1000000000000000000",
+          shareDecimals: 18,
+          exchangeConstraint: "withdraw-exact-assets-or-revert",
+          discoveryRate: { status: "unavailable", netApy: null, fetchedAt: null, stateAsOf: null },
+          source: { blockNumber: "51026404", blockHash: HASH, blockTimestamp: "1789214400" },
+        },
+      },
+    };
+    let stored = savingsRow;
+    const store = {
+      get: async () => stored,
+      confirm: async () => {
+        stored = {
+          ...stored,
+          pending: null,
+          confirmed_at: "2026-09-12T12:05:00.000Z",
+          transaction_hash: HASH,
+        };
+        return { ...stored, pending: savingsRow.pending };
+      },
+      recordHandle: async () => null,
+    };
+    const confirm = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store,
+    });
+    const confirmed = await confirm(
+      request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }),
+      context(),
+    );
+    expect(confirmed.status).toBe(200);
+    expect(await confirmed.json()).toMatchObject({
+      summary: { metadata: { product: "savings", operation: "withdraw" } },
+    });
+
+    const get = createGetActionHandler({
+      authorize: authorize(),
+      store,
+      now: () => new Date("2026-09-12T12:10:00.000Z"),
+      readReceipt: async () => ({
+        status: "confirmed",
+        transactionHash: HASH,
+        blockNumber: "51026405",
+        success: true,
+      }),
+    });
+    const response = await get(request(`/api/actions/${ID}`), context());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      kind: "savings-withdraw",
+      status: "confirmed",
+      summary: { metadata: { product: "savings", operation: "withdraw" } },
+    });
+  });
+
   test("GET returns a confirmed row with derived status", async () => {
     const confirmed = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z" };
     const handler = createGetActionHandler({

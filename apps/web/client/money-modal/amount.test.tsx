@@ -3,7 +3,6 @@ import "@/client/account/dom-test-harness";
 import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { useState } from "react";
-import type { MoneyAmountChangeSource } from "./amount";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const {
@@ -11,7 +10,7 @@ const {
   MoneyAssetPicker,
   matchesMoneyAssetOption,
   MoneyNumpad,
-  shouldAnimatePrimaryAmount,
+  fitAmountFontSize,
 } = await import("./amount");
 const { moneyAssetPricing } = await import("./amount-units");
 
@@ -31,7 +30,6 @@ function AmountHarness({
   ],
   availableLabel = "$1,240.00 available",
   availableAmount,
-  availableSuffix,
 }: {
   chipSet?: "none" | "max" | "quick-local";
   pricing?: typeof usdUsdc;
@@ -42,24 +40,16 @@ function AmountHarness({
   assetOptions?: ReadonlyArray<{ id: string; label: string; description?: string }>;
   availableLabel?: string;
   availableAmount?: string | null;
-  availableSuffix?: string;
 }) {
   const [amount, setAmount] = useState("");
-  const [amountChangeSource, setAmountChangeSource] =
-    useState<MoneyAmountChangeSource>("programmatic");
-  const changeAmount = (value: string, source: MoneyAmountChangeSource) => {
-    setAmountChangeSource(source);
-    setAmount(value);
-  };
+  const changeAmount = (value: string) => setAmount(value);
   return (
     <>
       <MoneyAmountDisplay
         amount={amount}
-        amountChangeSource={amountChangeSource}
         onAmountChange={changeAmount}
         availableLabel={availableLabel}
         availableAmount={availableAmount}
-        availableSuffix={availableSuffix}
         assetId={assetId}
         assetLabel={assetLabel}
         assetOptions={assetOptions}
@@ -77,24 +67,10 @@ function AmountHarness({
 
 afterEach(cleanup);
 
-test("primary amount animation follows the authored change source", () => {
-  const cases: ReadonlyArray<{
-    name: string;
-    previousAmount: string;
-    amount: string;
-    source: MoneyAmountChangeSource;
-    expected: boolean;
-  }> = [
-    { name: "initial display", previousAmount: "", amount: "", source: "programmatic", expected: true },
-    { name: "keypad digit", previousAmount: "1", amount: "12", source: "keypad", expected: false },
-    { name: "keypad delete", previousAmount: "12", amount: "1", source: "keypad", expected: false },
-    { name: "quick amount", previousAmount: "1", amount: "25", source: "programmatic", expected: true },
-    { name: "unit toggle", previousAmount: "25", amount: "25", source: "keypad", expected: true },
-  ];
-
-  for (const { name, previousAmount, amount, source, expected } of cases) {
-    expect(shouldAnimatePrimaryAmount(previousAmount, amount, source), name).toBe(expected);
-  }
+test("primary amount auto-fit shrinks and clamps longer number and unit combinations", () => {
+  expect(fitAmountFontSize(280, 420, 48, 20)).toBe(32);
+  expect(fitAmountFontSize(280, 200, 48, 20)).toBe(48);
+  expect(fitAmountFontSize(100, 1000, 48, 20)).toBe(20);
 });
 
 describe("MoneyAmountDisplay", () => {
@@ -102,11 +78,13 @@ describe("MoneyAmountDisplay", () => {
     render(<AmountHarness />);
 
     fireEvent.click(page().getByRole("button", { name: "$25" }));
-    expect(document.querySelector("[data-primary-amount] [role='img']")?.getAttribute("aria-label")).toBe("$25");
+    const localPrimary = document.querySelector<HTMLElement>("[data-primary-amount] [role='img']");
+    expect(localPrimary?.getAttribute("aria-label")).toBe("$25");
     expect(page().getByLabelText("Native amount").textContent).toBe("25");
 
     fireEvent.click(page().getByRole("button", { name: "Show 25.00 USDC as the primary amount" }));
-    expect(document.querySelector("[data-primary-amount] [role='img']")?.getAttribute("aria-label")).toBe("25");
+    const primary = document.querySelector<HTMLElement>("[data-primary-amount] [role='img']");
+    expect(primary?.getAttribute("aria-label")).toBe("25 USDC");
     expect(page().getByLabelText("Native amount").textContent).toBe("25");
   });
 
@@ -201,19 +179,6 @@ describe("MoneyAmountDisplay", () => {
     expect((page().getByRole("button", { name: "$10" }) as HTMLButtonElement).disabled).toBe(true);
     expect((page().getByRole("button", { name: "$25" }) as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.click(page().getByRole("button", { name: "Max" }));
-    expect(page().getByLabelText("Native amount").textContent).toBe("1240.00");
-  });
-
-  test("renders an available suffix without changing the exact Max amount", () => {
-    render(
-      <AmountHarness
-        availableAmount="1240.00"
-        availableSuffix="Updated 3 min ago"
-      />,
-    );
-
-    expect(page().getByText("Updated 3 min ago", { exact: false })).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Max" }));
     expect(page().getByLabelText("Native amount").textContent).toBe("1240.00");
   });

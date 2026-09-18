@@ -2,7 +2,7 @@
 
 Status: design reference and candidate registry; no token routes enabled or transactions tested.
 Checked: 2026-09-07
-Related: [target architecture](target-architecture.md) (production destination, not current tree), [archived implementation plan](archive/implementation-plan-2026-09-07.md), [contract candidates](stablecoin-candidates.json). Current delivery: [build status](build-status.md).
+Related: [architecture](architecture.md), [product strategy](product-strategy.md), [currency defaults](currency-defaults.md), and [contract candidates](stablecoin-candidates.json).
 
 ## Currency is the primary UI
 

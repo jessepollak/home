@@ -19,7 +19,7 @@ Implement the smallest purposeful motion within the assigned task. Home's `AGENT
 - Home's limits are authoritative: tabs at most 180ms, chips at most 120ms, and CTA press feedback at most 100ms. Other motion should be comparably short and optical.
 - `prefers-reduced-motion: reduce` means instant: duration `0`, no smooth scrolling, and no fallback fade.
 - Use existing components, variants, tokens, and Base UI transform-origin contracts. Do not create a parallel easing or duration vocabulary for one change.
-- Tests cover Home behavior, not Motion or browser internals. Keep test code proportional; use existing Playwright for browser behavior.
+- Follow `docs/browser-validation.md`: use the repository-pinned `agent-browser` for required interactive iteration and motion proof before and after editing. Tests cover Home behavior, not Motion or browser internals; Playwright remains the sole committed automated browser layer and is used only when the permanent-test ladder calls for it.
 
 ## Decision sequence
 
@@ -37,8 +37,8 @@ Implement the smallest purposeful motion within the assigned task. Home's `AGENT
 - Trigger-anchored Base UI content uses its provided transform origin; dialogs remain centered.
 - Touch users receive press feedback without relying on hover.
 - Smooth scrolling has an `auto` reduced-motion path.
-- A complex or feel-dependent result is verified in the existing preview. Real-device feel checks are recorded as operator actions, never claimed from emulation.
+- Verify a complex or feel-dependent result in the existing preview with `agent-browser`, including normal and reduced-motion paths. Real-device feel checks are recorded as operator actions, never claimed from browser emulation.
 
 ## Report
 
-State the purpose, tool, properties, timing, reduced-motion behavior, validation run, and any operator feel check. If the gate rejects motion, report that outcome without manufacturing an implementation.
+State the purpose, tool, properties, timing, reduced-motion behavior, `agent-browser` mode/route/viewport/path and health result, and any operator feel check. Distinguish this ephemeral proof from committed Playwright regression coverage. If the gate rejects motion, report that outcome without manufacturing an implementation.

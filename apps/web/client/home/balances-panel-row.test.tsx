@@ -75,6 +75,29 @@ describe("HomeBalanceRowView", () => {
     expect(view.container.querySelector("img")?.getAttribute("src")).toBe(CATALOG_IMAGE);
   });
 
+  test("preserves the exact accessible monetary value when the label and amount are long", () => {
+    const exactValue = "$123,456,789,012,345,678,901,234.56 USD";
+    const longRow: BalanceRowModel = {
+      key: "long-value",
+      group: "asset",
+      name: "International diversified treasury reserve position",
+      mark: { kind: "symbol", symbol: "RESERVE" },
+      primary: exactValue,
+      secondary: "99,999,999,999.0000 RESERVE",
+      tone: "default",
+    };
+
+    const view = render(<HomeBalancesList rows={[longRow]} isLoading={false} />);
+    const ticker = view.getByRole("img", { name: exactValue });
+
+    expect(ticker.getAttribute("aria-label")).toBe(exactValue);
+    expect(ticker.querySelector('[aria-hidden="true"]')?.textContent).toBe("$1.23457e23 USD");
+    const valueColumn = view.container.querySelector<HTMLElement>("[data-slot='finance-row-value']");
+    expect(valueColumn?.className).toContain("overflow-hidden");
+    expect(valueColumn?.className).not.toContain("overflow-x-auto");
+    expect(view.getByText(longRow.name).textContent).toBe(longRow.name);
+  });
+
   test("the small-balances affordance reveals without writing the device preference", () => {
     const snapshot = buildBalancesSnapshotFixture({
       catalog: [catalogHolding({

@@ -29,7 +29,6 @@ import {
   MoneyModalFooter,
   MoneyModalHeader,
   MoneyNumpad,
-  type MoneyAmountChangeSource,
 } from "@/client/money-modal";
 import {
   ownerQueryKey,
@@ -78,8 +77,6 @@ export function FundingOrderFlow({
 }) {
   const [method, setMethod] = useState(binding.paymentMethods[0]?.id ?? "");
   const [amount, setAmount] = useState("");
-  const [amountChangeSource, setAmountChangeSource] =
-    useState<MoneyAmountChangeSource>("programmatic");
   const [fields, setFields] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState<QuoteDraft | null>(null);
   const [order, setOrder] = useState<FundingOrderSummary | null>(
@@ -95,8 +92,7 @@ export function FundingOrderFlow({
     initialOrder?.id ?? null,
   );
 
-  function changeAmount(value: string, source: MoneyAmountChangeSource) {
-    setAmountChangeSource(source);
+  function changeAmount(value: string) {
     setAmount(value);
   }
 
@@ -318,7 +314,6 @@ export function FundingOrderFlow({
         })}
         <MoneyAmountDisplay
           amount={amount}
-          amountChangeSource={amountChangeSource}
           onAmountChange={changeAmount}
           assetId={binding.currency.toLocaleLowerCase()}
           assetLabel={binding.currency}
