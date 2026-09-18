@@ -41,6 +41,20 @@ describe("access login", () => {
     expect(setCookie).not.toContain("home-session");
   });
 
+  test("returns a bounded JSON success without following the protected destination", async () => {
+    const response = await handle(request(
+      body(CREDENTIAL, "/save?asset=usdc"),
+      { "x-home-access-response": "json" },
+    ));
+    expect(response.status).toBe(200);
+    expect(response.headers.has("location")).toBe(false);
+    expect(response.headers.get("set-cookie")).toContain("home-access=");
+    expect(await response.json()).toEqual({
+      version: 1,
+      destination: "/save?asset=usdc",
+    });
+  });
+
   test("returns generic bounded failures with no cookie", async () => {
     const duplicate = new URLSearchParams(body(CREDENTIAL));
     duplicate.append(field, CREDENTIAL);

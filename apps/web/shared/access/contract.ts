@@ -5,6 +5,7 @@
 export const ACCESS_CONTRACT_VERSION = 1 as const;
 export const ACCESS_COOKIE_NAME = "home-access";
 export const ACCESS_CREDENTIAL_FIELD = ["pass", "word"].join("");
+export const ACCESS_RESPONSE_MODE_HEADER = "X-Home-Access-Response";
 export const ACCESS_MAX_DESTINATION_LENGTH = 2_048;
 
 export type AccessErrorCode =
@@ -15,6 +16,11 @@ export type AccessErrorCode =
 export type AccessErrorResponse = {
   version: typeof ACCESS_CONTRACT_VERSION;
   error: { code: AccessErrorCode };
+};
+
+export type AccessSuccessResponse = {
+  version: typeof ACCESS_CONTRACT_VERSION;
+  destination: string;
 };
 
 const forbiddenDestinationPattern = /[\\\u0000-\u001f\u007f]/;
@@ -42,6 +48,15 @@ export function parseSafeAccessDestination(value: unknown): string {
     parsed.pathname === "/api/access/logout"
   ) return "/";
   return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+}
+
+export function accessSuccessDestination(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const response = value as { version?: unknown; destination?: unknown };
+  if (response.version !== ACCESS_CONTRACT_VERSION) return null;
+  if (typeof response.destination !== "string") return null;
+  const destination = parseSafeAccessDestination(response.destination);
+  return destination === response.destination ? destination : null;
 }
 
 export function accessErrorCode(value: unknown): AccessErrorCode | null {

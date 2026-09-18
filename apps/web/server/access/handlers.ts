@@ -8,6 +8,7 @@ import {
   ACCESS_CONTRACT_VERSION,
   ACCESS_COOKIE_NAME,
   ACCESS_CREDENTIAL_FIELD,
+  ACCESS_RESPONSE_MODE_HEADER,
   parseSafeAccessDestination,
   type AccessErrorCode,
 } from "@/shared/access/contract";
@@ -113,6 +114,12 @@ export function createAccessLoginHandler(input: LoginDependencies = {}) {
         ACCESS_TOKEN_TTL_MS / 1_000,
       ),
     );
+    if (request.headers.get(ACCESS_RESPONSE_MODE_HEADER) === "json") {
+      return Response.json(
+        { version: ACCESS_CONTRACT_VERSION, destination },
+        { status: 200, headers },
+      );
+    }
     headers.set("Location", new URL(destination, origin).toString());
     return new Response(null, { status: 303, headers });
   };
