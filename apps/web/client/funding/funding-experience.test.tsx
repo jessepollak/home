@@ -394,6 +394,32 @@ describe("FundingExperience", () => {
     expect(navigations).toEqual([]);
   });
 
+  test("a redirect order settled below the quote shows the final receive amount and the fee lines", async () => {
+    const settledOrder = { id: "11111111-1111-4111-8111-111111111111", providerId: "idrx", state: "sent-unverified", fiatAmount: "20000", expectedTokenAmountAtomic: "1986000", fees: [{ label: "VA INA", amount: "3000", currency: "IDR" }, { label: "QRIS Fee (0.7%)", amount: "140", currency: "IDR" }], providerStatus: "MINTED:PAID", instructions: { kind: "redirect", url: REDIRECT_URL } };
+    const wallet = {
+      ...verifiedWallet(),
+      fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [redirectBinding()] };
+        if (path.startsWith("/api/funding/orders")) return { order: settledOrder };
+        throw new Error("unexpected request");
+      },
+    };
+
+    render(
+      <FundingExperienceForWallet
+        wallet={wallet}
+        navigateToRedirect={() => {}}
+        regionId="ID"
+      />,
+    );
+
+    expect(await page().findByText("Receive")).toBeTruthy();
+    expect(page().getByText(/19[,.]860/)).toBeTruthy();
+    expect(page().getByText("VA INA")).toBeTruthy();
+    expect(page().getByText("QRIS Fee (0.7%)")).toBeTruthy();
+    expect(page().getByText(/3[,.]000/)).toBeTruthy();
+  });
+
   test("renders Apple Pay only after economics review and refetches only for trusted messages", async () => {
     const navigations: string[] = [];
     const requests: Array<{ path: string; method?: string }> = [];

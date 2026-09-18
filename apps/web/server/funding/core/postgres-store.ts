@@ -50,7 +50,7 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
   }
   async applyObservation(id: string, input: Parameters<FundingOrderStore["applyObservation"]>[1]) {
     const terminal = ["expired", "cancelled", "failed", "refunded"].includes(input.state);
-    return this.updatedOrNull(`UPDATE funding_orders SET state=$2, provider_status=$3, provider_transaction_hash=COALESCE($4,provider_transaction_hash), instructions=CASE WHEN $6 THEN NULL ELSE instructions END, version=version+1, updated_at=$7 WHERE id=$1 AND version=$5 AND state NOT IN (${TERMINAL_SQL}) AND ($6 OR array_position(${PROGRESS_SQL}, $2) >= array_position(${PROGRESS_SQL}, state)) RETURNING *`, [id, input.state, input.providerStatus, input.providerTransactionHash ?? null, input.expectedVersion, terminal, input.updatedAt]);
+    return this.updatedOrNull(`UPDATE funding_orders SET state=$2, provider_status=$3, provider_transaction_hash=COALESCE($4,provider_transaction_hash), expected_token_amount_atomic=COALESCE($8,expected_token_amount_atomic), fees=COALESCE($9::jsonb,fees), instructions=CASE WHEN $6 THEN NULL ELSE instructions END, version=version+1, updated_at=$7 WHERE id=$1 AND version=$5 AND state NOT IN (${TERMINAL_SQL}) AND ($6 OR array_position(${PROGRESS_SQL}, $2) >= array_position(${PROGRESS_SQL}, state)) RETURNING *`, [id, input.state, input.providerStatus, input.providerTransactionHash ?? null, input.expectedVersion, terminal, input.updatedAt, input.expectedTokenAmountAtomic ?? null, input.fees ? JSON.stringify(input.fees) : null]);
   }
   async claimReceipt(id: string, input: Parameters<FundingOrderStore["claimReceipt"]>[1]) {
     try {

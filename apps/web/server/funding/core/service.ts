@@ -354,15 +354,25 @@ export class FundingCore {
         tokenAddress: asset.address,
         destination: order.destination,
         fiatAmount: order.fiatAmount,
-        expectedTokenAmountAtomic: order.expectedTokenAmountAtomic,
+        // The adapter bounds a lower settlement against the quoted amount, never
+        // against a settlement this core accepted earlier.
+        expectedTokenAmountAtomic: order.quote.tokenAmountAtomic,
         tokenDecimals: asset.decimals,
       }, ctx);
     } catch { return order; }
     const nextState = observation.state === "sent" ? "sent-unverified" : observation.state;
+    // A provider may settle less than requested when it deducts its own fee
+    // after creation (IDRX hosted QRIS). Never more: the adapter is not
+    // allowed to raise what counts as received. And only once: the quoted
+    // amount stays the baseline, so repeated lowering cannot ratchet past the
+    // adapter's bound.
+    const settled = settledAmount(observation, order.quote.tokenAmountAtomic, order.expectedTokenAmountAtomic);
+    if (settled === undefined) return order;
     let updated = await this.deps.store.applyObservation(order.id, {
       state: nextState,
       providerStatus: observation.providerStatus,
       providerTransactionHash: observation.transactionHash,
+      ...(settled ? { expectedTokenAmountAtomic: settled, ...(observation.fees ? { fees: observation.fees } : {}) } : {}),
       expectedVersion: order.version,
       updatedAt: this.now().toISOString(),
     });
@@ -392,6 +402,20 @@ export class FundingCore {
 
   private provider(id: string) { return this.deps.providers.find((provider) => provider.manifest.id === id); }
   private quoteSecret() { return this.env.FUNDING_QUOTE_SECRET?.trim() ?? ""; }
+}
+
+// Returns the settled amount to store, null when the observation carries none
+// or nothing changes, or undefined when the reported amount is invalid and the
+// whole observation must be ignored.
+function settledAmount(observation: Observation, quoted: string, current: string): string | null | undefined {
+  const reported = observation.settledTokenAmountAtomic;
+  if (reported === undefined) return null;
+  if (!/^[1-9][0-9]{0,77}$/.test(reported)) return undefined;
+  if (BigInt(reported) > BigInt(quoted)) return undefined;
+  // A settlement was already accepted: it is frozen. The provider may only
+  // keep reporting the same amount.
+  if (current !== quoted) return reported === current ? null : undefined;
+  return reported === quoted ? null : reported;
 }
 
 export class FundingCoreError extends Error { constructor(readonly code: string, readonly status: number) { super(code); } }
