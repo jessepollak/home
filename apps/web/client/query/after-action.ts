@@ -227,8 +227,10 @@ function selectAffectedBalances(
     assetIds.map((assetId) => [assetId, null]),
   );
   for (const holding of snapshot.holdings) {
-    if (!requested.has(holding.id)) continue;
-    result[holding.id] = holding.balance.baseUnits;
+    for (const identity of [holding.id, holding.key]) {
+      if (!requested.has(identity)) continue;
+      result[identity] = holding.balance.baseUnits;
+    }
   }
   return result;
 }

@@ -1,7 +1,10 @@
 import "server-only";
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import type { MoneyActionDraft } from "@/shared/money-actions/types";
+import type {
+  MoneyActionDraft,
+  SavingsMoneyActionMetadata,
+} from "@/shared/money-actions/types";
 import {
   BASE_CHAIN_ID,
   BASE_USDC_ADDRESS,
@@ -9,7 +12,11 @@ import {
   getVerifiedSaveVault,
   isSaveActionAllowed,
 } from "@/shared/savings/config";
-import type { Address } from "@/shared/savings/types";
+import { isSavingsMetadata } from "@/shared/savings/review";
+import type {
+  Address,
+  MorphoVaultsResult,
+} from "@/shared/savings/types";
 import {
   CoinbaseSmartAccountBatchSimulationError,
   getBaseCoinbaseSmartAccountBatch,
@@ -31,6 +38,7 @@ import type {
   SavingsActionInput,
   SavingsActionStateReader,
 } from "./types";
+import { getMorphoVaultCandidates } from "@/server/morpho";
 
 const ACTION_VALIDITY_MS = 5 * 60_000;
 const WAD = BigInt("1000000000000000000");
@@ -64,6 +72,7 @@ export function createPrepareSavingsAction(options: {
   now?: () => Date;
   retryDelayMs?: number;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  readVaults?: (signal?: AbortSignal) => Promise<MorphoVaultsResult>;
 } = {}): PrepareSavingsAction {
   const readState = options.readState ?? getSavingsActionState;
   const simulateBatch = options.simulateBatch ??
@@ -71,6 +80,7 @@ export function createPrepareSavingsAction(options: {
   const now = options.now ?? (() => new Date());
   const retryDelayMs = options.retryDelayMs ?? SAVINGS_ACTION_RPC_RETRY_DELAY_MS;
   const sleep = options.sleep ?? wait;
+  const readVaults = options.readVaults;
 
   return async function prepareSavingsAction({ session, action, signal }) {
     const accountAddress = verifiedAccountAddress(session);
@@ -123,10 +133,17 @@ export function createPrepareSavingsAction(options: {
       throw new SavingsActionError("unavailable", "The action preparation time is invalid.");
     }
     const expiresAt = new Date(preparedAt.getTime() + ACTION_VALIDITY_MS).toISOString();
+    const metadata = await createReviewMetadata(
+      normalizedAction,
+      state,
+      preparedAt,
+      readVaults,
+      signal,
+    );
 
     const draft = normalizedAction.kind === "deposit"
-      ? prepareDeposit(normalizedAction, accountAddress, amount, state, expiresAt)
-      : prepareWithdrawal(normalizedAction, accountAddress, amount, state, expiresAt);
+      ? prepareDeposit(normalizedAction, accountAddress, amount, state, expiresAt, metadata)
+      : prepareWithdrawal(normalizedAction, accountAddress, amount, state, expiresAt, metadata);
 
     const simulationSource = {
       blockNumber: state.block.number,
@@ -148,7 +165,9 @@ export function createPrepareSavingsAction(options: {
   };
 }
 
-export const prepareSavingsAction = createPrepareSavingsAction();
+export const prepareSavingsAction = createPrepareSavingsAction({
+  readVaults: (signal) => getMorphoVaultCandidates({ signal }),
+});
 
 function prepareDeposit(
   action: SavingsActionInput,
@@ -156,6 +175,7 @@ function prepareDeposit(
   amount: bigint,
   state: Awaited<ReturnType<SavingsActionStateReader>>,
   expiresAt: string,
+  metadata: SavingsMoneyActionMetadata,
 ): MoneyActionDraft {
   if (amount > state.usdcBalance) {
     throw new SavingsActionError(
@@ -213,6 +233,7 @@ function prepareDeposit(
         : "The existing USDC allowance covers this deposit, so no new approval is included.",
     ]),
     expiresAt,
+    metadata,
   };
 }
 
@@ -222,6 +243,7 @@ function prepareWithdrawal(
   amount: bigint,
   state: Awaited<ReturnType<SavingsActionStateReader>>,
   expiresAt: string,
+  metadata: SavingsMoneyActionMetadata,
 ): MoneyActionDraft {
   if (amount > state.limit || state.previewShares > state.sharesBalance) {
     throw new SavingsActionError(
@@ -259,6 +281,94 @@ function prepareWithdrawal(
       `Both receiver and owner are the verified smart account ${account}.`,
     ]),
     expiresAt,
+    metadata,
+  };
+}
+
+async function createReviewMetadata(
+  action: SavingsActionInput,
+  state: Awaited<ReturnType<SavingsActionStateReader>>,
+  preparedAt: Date,
+  readVaults: ((signal?: AbortSignal) => Promise<MorphoVaultsResult>) | undefined,
+  signal?: AbortSignal,
+): Promise<SavingsMoneyActionMetadata> {
+  const configuredVault = getVerifiedSaveVault(action.vaultAddress);
+  let discoveryRate: SavingsMoneyActionMetadata["discoveryRate"] = {
+    status: "unavailable",
+    netApy: null,
+    fetchedAt: null,
+    stateAsOf: null,
+  };
+  let vaultName = configuredVault?.name ?? "Configured USDC vault";
+
+  if (readVaults) {
+    try {
+      const result = await readVaults(signal);
+      const candidate = result.candidates.find(
+        (item) => item.vaultAddress.toLowerCase() === action.vaultAddress.toLowerCase(),
+      );
+      if (
+        candidate &&
+        candidate.netApy !== null &&
+        Number.isFinite(candidate.netApy) &&
+        candidate.stateAsOf !== null &&
+        isValidIso(candidate.source.fetchedAt) &&
+        isValidIso(candidate.stateAsOf)
+      ) {
+        vaultName = candidate.name;
+        const preparedAtMs = preparedAt.getTime();
+        const fetchedAtMs = Date.parse(candidate.source.fetchedAt);
+        const stateAsOfMs = Date.parse(candidate.stateAsOf);
+        const stale = result.stale ||
+          fetchedAtMs > preparedAtMs + 60_000 ||
+          stateAsOfMs > preparedAtMs + 60_000 ||
+          preparedAtMs - fetchedAtMs > 5 * 60_000 ||
+          preparedAtMs - stateAsOfMs > 24 * 60 * 60_000;
+        discoveryRate = {
+          status: stale ? "stale" : "current",
+          netApy: candidate.netApy.toString(),
+          fetchedAt: candidate.source.fetchedAt,
+          stateAsOf: candidate.stateAsOf,
+        };
+      }
+    } catch {
+      // Discovery data is display-only. An unavailable rate must not replace
+      // the current onchain fee, limit, preview, or otherwise block preparation.
+    }
+  }
+
+  const metadata: SavingsMoneyActionMetadata = {
+    product: "savings",
+    operation: action.kind,
+    vaultAddress: action.vaultAddress,
+    vaultName,
+    network: { name: "Base", chainId: BASE_CHAIN_ID },
+    feeWad: state.fee.toString(10),
+    limitBaseUnits: state.limit.toString(10),
+    previewSharesBaseUnits: state.previewShares.toString(10),
+    shareDecimals: state.shareDecimals,
+    exchangeConstraint: action.kind === "deposit"
+      ? "deposit-preview-no-minimum-shares"
+      : "withdraw-exact-assets-or-revert",
+    discoveryRate,
+    source: {
+      blockNumber: state.block.number,
+      blockHash: state.block.hash,
+      blockTimestamp: state.block.timestamp,
+    },
+  };
+  const validatedMetadata: unknown = metadata;
+  if (isSavingsMetadata(validatedMetadata)) return validatedMetadata;
+
+  return {
+    ...metadata,
+    vaultName: configuredVault?.name ?? "Configured USDC vault",
+    discoveryRate: {
+      status: "unavailable",
+      netApy: null,
+      fetchedAt: null,
+      stateAsOf: null,
+    },
   };
 }
 
@@ -376,6 +486,11 @@ function verifiedAccountAddress(session: VerifiedAccountSession): Address {
     );
   }
   return account.address.toLowerCase() as Address;
+}
+
+function isValidIso(value: string): boolean {
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
 }
 
 function formatWadPercent(value: bigint): string {

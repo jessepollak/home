@@ -1,9 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionCall } from "@/shared/money-actions/types";
-import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
-import type { Address } from "@/shared/savings/types";
+import {
+  BASE_USDC_ADDRESS,
+  getVerifiedSaveVault,
+  MORPHO_V1_CANDIDATE_ADDRESSES,
+} from "@/shared/savings/config";
+import type { Address, MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
+import { setActionsStoreForTests, type ActionsStore } from "@/server/actions/store";
 import { CoinbaseSmartAccountBatchSimulationError } from "@/server/chain/coinbase-smart-account";
+import { issueMoneyAction } from "@/server/money-actions/issue";
 import { SavingsActionError, createPrepareSavingsAction } from "./prepare";
 import { SavingsActionRpcError } from "./rpc";
 import type {
@@ -49,6 +55,37 @@ function addressWord(address: string) {
 }
 
 const simulateSuccessfully: SavingsActionBatchSimulator = async () => {};
+
+function vaultsResult(stale: boolean): MorphoVaultsResult {
+  const fetchedAt = "2026-09-08T09:59:00.000Z";
+  return {
+    version: "v1",
+    chainId: 8453,
+    asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
+    candidates: [{
+      version: "v1",
+      vaultAddress: VAULT,
+      name: "Server discovery vault",
+      symbol: "vault shares",
+      listed: true,
+      chainId: 8453,
+      asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
+      curatorAddress: null,
+      grossApy: 0.045,
+      netApy: 0.04,
+      feeRate: 0.1,
+      totalAssetsRaw: "1000000000",
+      liquidityRaw: "900000000",
+      stateAsOf: fetchedAt,
+      blockNumber: "34567880",
+      source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt },
+    }],
+    source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt },
+    stale,
+  };
+}
+
+afterEach(() => setActionsStoreForTests(null));
 
 describe("Morpho savings action preparation", () => {
   test("prepares and simulates exact approval then direct deposit in one ordered action plan", async () => {
@@ -124,6 +161,88 @@ describe("Morpho savings action preparation", () => {
     ]);
     expect(action.warnings.join(" ")).toContain("not a guaranteed minimum");
     expect(action.warnings.join(" ")).toContain("Current vault fee: 10%");
+    expect(action.metadata).toMatchObject({
+      product: "savings",
+      operation: "deposit",
+      vaultAddress: VAULT,
+      network: { name: "Base", chainId: 8453 },
+      feeWad: "100000000000000000",
+      limitBaseUnits: "8000000",
+      previewSharesBaseUnits: "1490000000000000000",
+      exchangeConstraint: "deposit-preview-no-minimum-shares",
+      discoveryRate: { status: "unavailable" },
+      source: { blockNumber: "34567890", blockHash: BLOCK_HASH },
+    });
+  });
+
+  test("authors discovery freshness and exchange constraints as typed review facts", async () => {
+    const prepare = createPrepareSavingsAction({
+      now: () => new Date("2026-09-08T10:00:00.000Z"),
+      readState: async () => baseState,
+      readVaults: async () => vaultsResult(true),
+      simulateBatch: simulateSuccessfully,
+    });
+
+    const action = await prepare({
+      session,
+      action: { kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1500000" },
+    });
+
+    expect(action.metadata).toMatchObject({
+      vaultName: "Server discovery vault",
+      discoveryRate: {
+        status: "stale",
+        netApy: "0.04",
+        fetchedAt: "2026-09-08T09:59:00.000Z",
+      },
+      exchangeConstraint: "deposit-preview-no-minimum-shares",
+    });
+  });
+
+  test.each([
+    {
+      description: "an exponent-form tiny APY",
+      candidate: { netApy: 1e-7 },
+    },
+    {
+      description: "an untrimmed overlong vault name",
+      candidate: { name: ` ${"x".repeat(129)} ` },
+    },
+  ] satisfies Array<{
+    description: string;
+    candidate: Partial<MorphoVaultCandidate>;
+  }>)("issues with fallback review metadata when discovery returns $description", async ({ candidate }) => {
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    const preparedAt = new Date();
+    const result = vaultsResult(false);
+    result.source.fetchedAt = preparedAt.toISOString();
+    Object.assign(result.candidates[0]!, candidate, {
+      stateAsOf: preparedAt.toISOString(),
+      source: { ...result.candidates[0]!.source, fetchedAt: preparedAt.toISOString() },
+    });
+    const prepare = createPrepareSavingsAction({
+      now: () => preparedAt,
+      readState: async () => baseState,
+      readVaults: async () => result,
+      simulateBatch: simulateSuccessfully,
+    });
+
+    const draft = await prepare({
+      session,
+      action: { kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1500000" },
+    });
+    const issued = await issueMoneyAction(session, draft);
+
+    expect(issued.metadata).toMatchObject({
+      product: "savings",
+      vaultName: getVerifiedSaveVault(VAULT)?.name,
+      discoveryRate: {
+        status: "unavailable",
+        netApy: null,
+        fetchedAt: null,
+        stateAsOf: null,
+      },
+    });
   });
 
   test("binds withdrawal ownership to the verified account, expires it, and rejects current-limit excess", async () => {

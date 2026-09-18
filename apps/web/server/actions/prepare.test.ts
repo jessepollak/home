@@ -1,6 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { SavingsActionError } from "@/server/savings/prepare";
+import type { MoneyActionDraft } from "@/shared/money-actions/types";
+import { setActionsStoreForTests, type ActionsStore } from "./store";
 import { createPrepareActionHandler } from "./prepare";
 
 const OWNER = "0x1111111111111111111111111111111111111111";
@@ -22,6 +24,36 @@ function request(kind = "savings-deposit") {
   });
 }
 
+function savingsDraft(operation: "deposit" | "withdraw"): MoneyActionDraft {
+  const deposit = operation === "deposit";
+  const vault = "0x2222222222222222222222222222222222222222" as const;
+  return {
+    kind: deposit ? "savings-deposit" : "savings-withdraw",
+    title: deposit ? "Deposit USDC" : "Withdraw USDC",
+    calls: [{ to: vault, data: "0x1234", value: "0" }],
+    amounts: [
+      { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: deposit ? "spend" : "receive" },
+      { assetId: "vault", symbol: "vault shares", decimals: 18, amountBaseUnits: "1000000000000000000", direction: deposit ? "receive" : "spend", estimated: true },
+    ],
+    warnings: ["The wallet shows the Base network fee."],
+    expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    metadata: {
+      product: "savings",
+      operation,
+      vaultAddress: vault,
+      vaultName: "Configured USDC vault",
+      network: { name: "Base", chainId: 8453 },
+      feeWad: "0",
+      limitBaseUnits: "500000000",
+      previewSharesBaseUnits: "1000000000000000000",
+      shareDecimals: 18,
+      exchangeConstraint: deposit ? "deposit-preview-no-minimum-shares" : "withdraw-exact-assets-or-revert",
+      discoveryRate: { status: "unavailable", netApy: null, fetchedAt: null, stateAsOf: null },
+      source: { blockNumber: "51026404", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1789214400" },
+    },
+  };
+}
+
 function authorized() {
   return Response.json({
     user: { subject: "prepare-test-user" },
@@ -30,7 +62,31 @@ function authorized() {
   });
 }
 
+afterEach(() => setActionsStoreForTests(null));
+
 describe("prepare action handler", () => {
+  test.each(["deposit", "withdraw"] as const)(
+    "issues a successful savings %s action through the shared prepare route",
+    async (operation) => {
+      const inserts: Array<Parameters<ActionsStore["insert"]>[0]> = [];
+      setActionsStoreForTests({
+        insert: async (input: Parameters<ActionsStore["insert"]>[0]) => { inserts.push(input); },
+      } as ActionsStore);
+      const handler = createPrepareActionHandler({
+        authorize: async () => authorized(),
+        prepareSavings: async () => savingsDraft(operation),
+      });
+
+      const response = await handler(request(`savings-${operation}`));
+      const body = await response.json() as { kind: string; metadata: { operation: string } };
+
+      expect(response.status).toBe(201);
+      expect(body).toMatchObject({ kind: `savings-${operation}`, metadata: { operation } });
+      expect(inserts).toHaveLength(1);
+      expect(inserts[0]?.summary.metadata).toMatchObject({ product: "savings", operation });
+    },
+  );
+
   test("preserves the unsupported savings vault response on the single prepare route", async () => {
     const handler = createPrepareActionHandler({
       authorize: async () => authorized(),

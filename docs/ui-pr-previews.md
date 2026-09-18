@@ -10,7 +10,7 @@ PRs that change user-visible UI or core flows. Skip docs-only, CI-only, and pure
 
 The **Vercel preview link** (posted automatically on every PR) is the primary proof. Add to the PR description:
 
-- **Non-motion UI:** one screenshot of the changed route on the current head, ~390px wide. Before/after only when the before genuinely helps.
+- **Non-motion UI:** at least one screenshot of the changed route on the current head, ~390px wide. Before/after only when the before genuinely helps. Attach every screenshot retained as PR evidence directly to the PR description and give each a descriptive state/viewport label; do not commit the files or upload only one representative from a larger retained set. This does not require capturing a screenshot matrix.
 - **Motion / animation:** one short video or GIF (roughly 30 seconds or less) showing the transition.
 
 Capture the live implementation in a real browser — preview, production, or localhost on the PR head. Design comps, empty scaffolds, and unlabeled `/dev` harness shots are not proof. If you push new UI changes after capturing, replace the screenshot; do not keep stale ones.
@@ -36,7 +36,7 @@ gh pr edit <n> --repo jessepollak/home --attach './after.png#Home after: quiet h
 gh pr edit <n> --repo jessepollak/home --attach ./motion.webm
 ```
 
-Or paste/drop the file into the PR description in the browser. Either way the description must show the image or video inline; bare links, `cursor.com/artifacts` URLs (they expire), and committed PNGs under `docs/pr-previews/` are not accepted.
+Or paste/drop the files into the PR description in the browser. Either way, every screenshot or clip retained as PR evidence must appear inline in that description with a descriptive state/viewport label; bare links, `cursor.com/artifacts` URLs (they expire), committed PNGs under `docs/pr-previews/`, and an unlabeled attachment set are not accepted.
 
 Stills render at a readable width with `<img src="https://github.com/user-attachments/assets/<id>" width="390" />`. Videos render as a player from their bare URL on its own line.
 
@@ -46,4 +46,4 @@ Immutable manifests, SHA-256 hashes, tile sets, per-state screenshot matrices, p
 
 ## Done
 
-A reviewer can open the PR, click the Vercel preview, and see one inline image or clip that matches the described change.
+A reviewer can open the PR, click the Vercel preview, and see every retained screenshot or clip inline with a descriptive label that matches the described change.

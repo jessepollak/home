@@ -94,16 +94,38 @@ function balancePositions(
   }));
 }
 
-function preparedAction(kind: "savings-deposit" | "savings-withdraw"): PreparedMoneyAction {
+function preparedAction(
+  kind: "savings-deposit" | "savings-withdraw",
+  amountBaseUnits = "100000000",
+): PreparedMoneyAction {
+  const deposit = kind === "savings-deposit";
+  const shares = `${amountBaseUnits}000000000000`;
   return {
     id: "action-1",
     kind,
-    title: kind === "savings-deposit" ? "Deposit" : "Withdraw",
+    title: deposit ? "Deposit" : "Withdraw",
     createdAt: "2026-09-09T00:00:00.000Z",
     expiresAt: "2099-09-09T00:00:00.000Z",
     calls: [],
-    amounts: [],
+    amounts: [
+      { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits, direction: deposit ? "spend" : "receive" },
+      { assetId: "vault", symbol: "vault shares", decimals: 18, amountBaseUnits: shares, direction: deposit ? "receive" : "spend", estimated: true },
+    ],
     warnings: [],
+    metadata: {
+      product: "savings",
+      operation: deposit ? "deposit" : "withdraw",
+      vaultAddress: GAUNTLET,
+      vaultName: gauntlet.name,
+      network: { name: "Base", chainId: 8453 },
+      feeWad: "100000000000000000",
+      limitBaseUnits: "9999999999999999",
+      previewSharesBaseUnits: shares,
+      shareDecimals: 18,
+      exchangeConstraint: deposit ? "deposit-preview-no-minimum-shares" : "withdraw-exact-assets-or-revert",
+      discoveryRate: { status: "current", netApy: "0.041", fetchedAt: "2026-09-10T12:00:01.000Z", stateAsOf: "2026-09-10T12:00:00.000Z" },
+      source: { blockNumber: "51026404", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1789041600" },
+    },
     owner: {
       subject: "subject-a",
       address: ADDRESS_A,
@@ -309,10 +331,51 @@ describe("Save simplify", () => {
       />,
     );
 
-    expect((await page().findByRole("status")).textContent).toBe("Balance unavailable");
+    expect((await page().findByRole("status")).textContent).toBe("Saved balance unavailable");
     expect(page().getByRole("region", { name: "Save" }).textContent).not.toContain("$0.00");
     expect(page().queryByRole("button", { name: "Get started" })).toBeNull();
     expect(page().queryByRole("radio")).toBeNull();
+  });
+
+  test("keeps a stale verified snapshot visible with age and an explicit retry", async () => {
+    let retries = 0;
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session()}
+        balanceStatus="ready"
+        balancePositions={balancePositions({ [GAUNTLET]: "99000000" })}
+        balanceStale
+        balanceFetchedAt="2026-09-10T12:00:00.000Z"
+        onRetryBalances={() => { retries += 1; }}
+      />,
+    );
+
+    expect((await page().findAllByText("$99.00")).length).toBeGreaterThan(0);
+    expect(page().getByRole("status").textContent).toContain(
+      "Saved balance stale · updated 4 min ago",
+    );
+    fireEvent.click(page().getByRole("button", { name: "Retry" }));
+    expect(retries).toBe(1);
+  });
+
+  test("labels a partial position read without summing it into an invented total", async () => {
+    render(
+      <SavingsExperience
+        now={testNow}
+        initialData={initialData}
+        session={session()}
+        balanceStatus="ready"
+        balancePositions={balancePositions({ [GAUNTLET]: "99000000", [STEAKHOUSE]: null })}
+      />,
+    );
+
+    expect((await page().findByRole("status")).textContent).toBe(
+      "Saved balance partially unavailable",
+    );
+    expect(page().getByRole("region", { name: "Save" }).textContent).not.toContain("$0.00");
+    expect(page().getAllByText("$99.00").length).toBeGreaterThan(0);
   });
 
   test("keeps verified balances visible while the snapshot revalidates", async () => {
@@ -363,7 +426,7 @@ describe("Save simplify", () => {
         }}
         prepareMoneyAction={async (_endpoint, input) => {
           prepares.push(input);
-          return preparedAction("savings-withdraw");
+          return preparedAction("savings-withdraw", authoritative);
         }}
         executeMoneyAction={async () => ({ id: "action-1", status: "confirmed" })}
       />,
@@ -391,13 +454,16 @@ describe("Save simplify", () => {
     ]);
   });
 
-  test("shows metadata failure beside a verified funded balance", async () => {
+  test("shows metadata failure beside a verified funded balance and Retry refetches", async () => {
+    let reads = 0;
     render(
       <SavingsExperience
         now={testNow}
         session={session()}
         fetchVaults={async () => {
-          throw new Error("offline");
+          reads += 1;
+          if (reads === 1) throw new Error("offline");
+          return initialData;
         }}
         balanceStatus="ready"
         balancePositions={balancePositions({ [GAUNTLET]: "125000000" })}
@@ -405,10 +471,15 @@ describe("Save simplify", () => {
     );
 
     const alert = await page().findByRole("alert");
-    expect(alert.textContent).toBe("Vaults are temporarily unavailable.");
+    expect(alert.textContent).toContain("Vaults are temporarily unavailable.");
     expect(page().getByRole("region", { name: "Save" }).textContent).toContain("$125.00");
     expect(page().queryByRole("button", { name: "Deposit" })).toBeNull();
     expect(page().queryByRole("button", { name: "Withdraw" })).toBeNull();
     expect(page().queryByRole("radio")).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Retry" }));
+
+    expect(await page().findByRole("radio", { name: /Gauntlet USDC Prime/ })).toBeTruthy();
+    expect(reads).toBe(2);
   });
 });
