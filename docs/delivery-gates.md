@@ -2,7 +2,7 @@
 
 Repository checks run without provider or funded-wallet secrets. Remaining delivery automation unit tests are part of `bun run gates`:
 
-- `bun run factory:preflight` as the generic automated-worktree boundary (pinned repository, `agent/*` branch, and secret-free worktree/ambient environment); it does not implement or invoke the standalone queue
+- optional `bun run factory:preflight` as a generic secret-free agent/automated-worktree check (pinned repository, `agent/*` branch, and secret-free worktree/ambient environment); the standalone factory uses its own external preflight, and this command does not implement or invoke that queue
 - `bun check`
 - Chromium product smoke
 - delivery automation tests (`bun run gates`: repository gate canaries plus PR-metadata algorithms; also run inside `bun check`)

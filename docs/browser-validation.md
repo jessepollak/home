@@ -41,9 +41,9 @@ Load `bunx agent-browser skills get dogfood` for exploratory QA or a bug hunt. L
 
 ## Modes
 
-### Factory/agent mode (default)
+### Secret-free agent mode (default)
 
-- Use a clean, secret-free worktree with no operator `.env.local`; `bun run factory:preflight` must pass.
+- Use a clean, secret-free worktree with no operator `.env.local`. Home's `bun run factory:preflight` is an optional generic repository check for this mode; the standalone factory uses its own external preflight.
 - Run `bunx agent-browser doctor --quick --json` before launch. An isolated factory home has no shared browser cache; if the diagnostic reports that Chrome is missing, run `bunx agent-browser install` in that worktree, then repeat the diagnostic.
 - Run the app with `HOME_PLAYWRIGHT_SMOKE=1`, headless unless the task needs visual judgment, and a dedicated port other than Playwright's `3199`.
 - Make no provider, database, production, funded, or destructive call. Route needed API responses to bounded local fixtures.

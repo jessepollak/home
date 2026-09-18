@@ -16,7 +16,7 @@ For hosting, see [Vercel deploy](docs/vercel-deploy.md). For a customized operat
 
 The [README setup](README.md#install-and-run) bootstraps a fresh clone from the tracked `.env.example`. An ordinary Git worktree does not copy the ignored `apps/web/.env.local`; follow the [AGENTS worktree bootstrap](AGENTS.md#working-in-this-repo) to copy it from the primary checkout only when it is missing, without printing, overwriting, or committing it.
 
-Automated factory worktrees are different: they stay secret-free, run `bun run factory:preflight`, and never copy or read the operator's `.env.local` or receive provider, database, production, or Vercel credentials. This repository gate does not implement the standalone queue.
+Secret-free agent and automated worktrees are different: they never copy or read the operator's `.env.local` or receive provider, database, production, or Vercel credentials. They may run `bun run factory:preflight` as an optional generic repository gate. The standalone factory uses its own external preflight; this repository command does not implement or invoke that queue.
 
 ## App boundaries
 
@@ -59,6 +59,6 @@ Do not add provider credentials or funded-wallet checks to pull-request CI.
 
 The factory follows the [operating manual](docs/operating-manual.md). GitHub Issues and lane/status/priority labels are the sole durable intake and delivery board; they track work but do not by themselves authorize execution.
 
-Tracking, local interactive authorization, and standalone queue eligibility are separate ([execution modes](docs/operating-manual.md#execution-modes)): a local session implements a named issue on Jesse's explicit current-session instruction, while the standalone queue accepts only an owner-authored eligible leaf with a Jesse-applied `factory:ready`, `status:todo`, and exactly one lane and priority. Queue implementation lives outside Home.
+Tracking, local interactive authorization, and standalone queue eligibility are separate ([execution modes](docs/operating-manual.md#execution-modes)): a local session implements a named issue on Jesse's explicit current-session instruction, while standalone eligibility still requires a Jesse-applied `factory:ready`. As a readiness discipline, Jesse applies that label only to an owner-authored delivery leaf with `status:todo` and exactly one lane and priority. Exact queue checks and implementation live outside Home.
 
 **Only Jesse (`jessepollak`) gives the final +1 and merges.** User-visible pull requests need proof in the description; see [UI PR previews](docs/ui-pr-previews.md).
