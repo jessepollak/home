@@ -96,7 +96,12 @@ export class FundingCore {
           currency: binding.currency,
           paymentMethods: directional.paymentMethods,
           quotes: manifest.quotes === true,
-          customerSetup: manifest.customer ?? null,
+          customerSetup: manifest.customer
+            ? {
+                ...(manifest.customer.terms ? { terms: manifest.customer.terms } : {}),
+                fields: manifest.customer.fields,
+              }
+            : null,
         }];
       }
       if (!provider.offramp || !session.smartAccount) return [];
@@ -175,7 +180,13 @@ export class FundingCore {
       return publicCustomer(reserved.customer);
     }
     const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: binding.directions.onramp!.paymentMethods[0]!.id, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox });
-    const result = await capability.create({ subject: session.user.subject, email: parsed.email }, ctx);
+    let result: Awaited<ReturnType<typeof capability.create>>;
+    try {
+      result = await capability.create({ subject: session.user.subject, email: parsed.email }, ctx);
+    } catch {
+      const ambiguous = await this.customerStore.markDispatchAmbiguous(reserved.customer.id, reserved.customer.version, this.now().toISOString());
+      return publicCustomer(ambiguous ?? { ...reserved.customer, state: "dispatch-ambiguous" });
+    }
     if (result.outcome === "rejected") {
       return publicCustomer((await this.customerStore.markCreateRejected(reserved.customer.id, reserved.customer.version, this.now().toISOString())) ?? reserved.customer);
     }
@@ -204,6 +215,10 @@ export class FundingCore {
     if (!claimed) throw new FundingCoreError("VERIFICATION_ALREADY_STARTED", 409);
     const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: binding.directions.onramp!.paymentMethods[0]!.id, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox });
     const result = await capability.startVerification({ customerRef: customer.customerRef, fields: parsed.fields, clientIp: resolveClientIp(headers, this.env, sandbox), returnUrl: `${returnOrigin}/fund?return=verification` }, ctx);
+    if (result.outcome === "rejected") {
+      const rejected = await this.customerStore.markVerificationRejected(customer.id, claimed.version, this.now().toISOString());
+      return { customer: publicCustomer(rejected ?? claimed) };
+    }
     if (result.outcome !== "created" || !safeHandoffUrl(result.providerUrl, provider.manifest.onramp?.customer?.handoffOrigins ?? [])) {
       const ambiguous = await this.customerStore.markDispatchAmbiguous(customer.id, claimed.version, this.now().toISOString());
       return { customer: publicCustomer(ambiguous ?? claimed) };
@@ -540,10 +555,18 @@ function parseVerificationRequest(value: unknown): { providerId: string; region:
   if (!record(value) || Object.keys(value).some((key) => !["providerId", "region", "fields"].includes(key)) || typeof value.providerId !== "string" || typeof value.region !== "string" || !record(value.fields) || Object.values(value.fields).some((field) => typeof field !== "string" || field.length > 512)) return null;
   return { providerId: value.providerId, region: value.region, fields: value.fields as Record<string, string> };
 }
-function validKycFields(fields: Record<string, string>, definitions: ReadonlyArray<{ name: string }>): boolean {
+function validKycFields(
+  fields: Record<string, string>,
+  definitions: ReadonlyArray<{ name: string; type: "text" | "email" | "date" | "select"; options?: ReadonlyArray<string> }>,
+): boolean {
   const expected = definitions.map((field) => field.name).sort();
   const supplied = Object.keys(fields).sort();
-  return expected.length === supplied.length && expected.every((name, index) => name === supplied[index] && fields[name].trim().length > 0);
+  return expected.length === supplied.length && definitions.every((definition) => {
+    const value = fields[definition.name]?.trim() ?? "";
+    return value.length > 0 && (
+      definition.type !== "select" || Boolean(definition.options?.includes(value))
+    );
+  });
 }
 function publicCustomer(customer: FundingProviderCustomer) {
   return { providerId: customer.providerId, region: customer.region, state: customer.state, verificationStartedAt: customer.verificationStartedAt, updatedAt: customer.updatedAt };

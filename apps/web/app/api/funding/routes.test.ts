@@ -4,6 +4,8 @@ import { handleFundingProvidersRequest } from "./providers/handler";
 import { POST as quotes } from "./quotes/route";
 import { GET as openOrders, POST as createOrder } from "./orders/route";
 import { GET as orderStatus } from "./orders/[id]/route";
+import { GET as providerCustomers, POST as createProviderCustomer } from "./provider-customers/route";
+import { POST as startProviderCustomerVerification } from "./provider-customers/verification/route";
 import { POST as webhook } from "./webhooks/[provider]/route";
 import { readBoundedWebhookBody } from "@/server/funding/core/webhook-body";
 
@@ -111,6 +113,9 @@ describe("funding route privacy and rejection", () => {
     ["open orders", () => openOrders(new Request("https://home.example/api/funding/orders?region=ID"))],
     ["create order", () => createOrder(new Request("https://home.example/api/funding/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }))],
     ["order status", () => orderStatus(new Request("https://home.example/api/funding/orders/11111111-1111-4111-8111-111111111111"), { params: Promise.resolve({ id: "11111111-1111-4111-8111-111111111111" }) })],
+    ["provider customers", () => providerCustomers(new Request("https://home.example/api/funding/provider-customers?region=AR"))],
+    ["create provider customer", () => createProviderCustomer(new Request("https://home.example/api/funding/provider-customers", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }))],
+    ["start provider customer verification", () => startProviderCustomerVerification(new Request("https://home.example/api/funding/provider-customers/verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }))],
     ] as const) {
       const response = await invoke();
       expect(response.ok).toBe(false);

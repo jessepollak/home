@@ -26,7 +26,10 @@ CREATE INDEX IF NOT EXISTS funding_provider_customers_owner_region_idx
 
 -- Legacy order references prove only that a customer ID was used. They do not
 -- prove verification, so reconcile them as pending and require provider/operator
--- evidence before any row can become verified. The order snapshot remains intact.
+-- evidence before any row can become verified. UNIQUE (provider_id, customer_ref)
+-- intentionally drops a conflicting legacy owner tuple fail-closed rather than
+-- allowing one provider identity to belong to two Home owners. The order snapshot
+-- remains intact.
 INSERT INTO funding_provider_customers
   (id, owner_subject, account_provider, provider_id, region, customer_ref, state,
    provider_created_at, version, created_at, updated_at)

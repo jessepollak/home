@@ -251,17 +251,54 @@ export function FundingOrderFlow({
   }
   if (binding.customerSetup && customer?.state !== "verified") {
     const pendingStarted = customer?.state === "pending" && Boolean(customer.verificationStartedAt);
-    const blocked = customer?.state === "reserving" || customer?.state === "dispatch-ambiguous";
+    const reserving = customer?.state === "reserving";
+    const ambiguous = customer?.state === "dispatch-ambiguous";
+    const rejected = customer?.state === "rejected";
+    const blocked = reserving || ambiguous || rejected;
     const definitions = binding.customerSetup.fields;
     const complete = !definitions.some((field) => !fields[field.name]?.trim());
     return <>
       <MoneyModalHeader title={`Set up ${binding.displayName}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" />
       <MoneyModalBody hasFooter={!pendingStarted && !blocked} className="gap-4 pt-4">
         {pendingStarted ? <FundingNotice tone="neutral">Verification is pending. Return here after Ripio completes its review. Home will not issue another hosted link automatically.</FundingNotice> : null}
-        {blocked ? <FundingNotice tone="error" role="alert">Home could not confirm the provider setup result. Do not try again until the operator reconciles it.</FundingNotice> : null}
+        {reserving ? <FundingNotice tone="neutral">Provider setup is still being created. Home will not start another request.</FundingNotice> : null}
+        {ambiguous ? <FundingNotice tone="error" role="alert">Home could not confirm the provider setup result. Do not try again until the operator reconciles it.</FundingNotice> : null}
+        {rejected ? <FundingNotice tone="error" role="alert">The provider rejected this setup. Home will not retry it automatically. Ask the operator to reconcile the provider result before restarting setup.</FundingNotice> : null}
         {!pendingStarted && !blocked ? definitions.map((field) => {
-          const id = `funding-customer-${field.name}`; const value = fields[field.name] ?? "";
-          return <Field key={field.name}><FieldLabel htmlFor={id}>{field.label}</FieldLabel><Input id={id} type={field.type === "select" ? "text" : field.type} value={value} required onChange={(event) => setFields((current) => ({ ...current, [field.name]: event.currentTarget.value }))} /></Field>;
+          const id = `funding-customer-${field.name}`;
+          const value = fields[field.name] ?? "";
+          return <Field key={field.name}>
+            <FieldLabel htmlFor={id}>{field.label}</FieldLabel>
+            {field.type === "select" ? (
+              <Select
+                value={value}
+                required
+                onValueChange={(next) => setFields((current) => ({ ...current, [field.name]: next ?? "" }))}
+              >
+                <SelectTrigger className="h-11 w-full" id={id}>
+                  <SelectValue>
+                    {(selected) => selected || `Choose ${field.label.toLocaleLowerCase()}`}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(field.options ?? []).map((option) => (
+                    <SelectItem value={option} key={option}>{option}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                id={id}
+                type={field.type}
+                value={value}
+                required
+                onInput={(event) => {
+                  const next = event.currentTarget.value;
+                  setFields((current) => ({ ...current, [field.name]: next }));
+                }}
+              />
+            )}
+          </Field>;
         }) : null}
         {error ? <FundingNotice tone="error" role="alert">{error}</FundingNotice> : null}
       </MoneyModalBody>

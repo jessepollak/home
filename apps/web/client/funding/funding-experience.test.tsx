@@ -35,6 +35,10 @@ function applePayOrder(state = "awaiting-payment", url = APPLE_PAY_URL) {
   return { id: "11111111-1111-4111-8111-111111111111", providerId: "coinbase", state, fiatAmount: "25", expectedTokenAmountAtomic: "24500000", fees: [{ label: "Coinbase fee", amount: "0.50", currency: "USD" }], providerStatus: null, instructions: { kind: "embed", url, presentation: "apple-pay", amount: "25.50", currency: "USD" } };
 }
 
+function customerBinding(fields: ReadonlyArray<{ name: string; label: string; type: "text" | "email" | "date" | "select"; options?: ReadonlyArray<string> }>) {
+  return { ...fundingBinding(), customerSetup: { fields } };
+}
+
 function multiMethodBinding() {
   return {
     ...fundingBinding(),
@@ -564,6 +568,68 @@ describe("FundingExperience", () => {
 });
 
 describe("provider customer funding position", () => {
+  test("captures a changed customer field synchronously and keeps profile creation enabled", async () => {
+    const binding = customerBinding([{ name: "email", label: "Email", type: "email" }]);
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [binding] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) return { customers: [] };
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    const email = page().getByRole("textbox", { name: "Email" });
+    fireEvent.input(email, { target: { value: "person@example.com" } });
+    expect(page().getByRole("heading", { name: "Set up Ripio" })).toBeTruthy();
+    await waitFor(() => expect(page().getByRole("button", { name: "Create provider profile" }).hasAttribute("disabled")).toBe(false));
+  });
+
+  test("renders manifest select fields as a constrained select control", async () => {
+    const binding = customerBinding([
+      { name: "email", label: "Email", type: "email" },
+      { name: "documentType", label: "Document type", type: "select", options: ["national-id", "passport"] },
+    ]);
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [binding] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) return { customers: [] };
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    expect(page().getByRole("combobox", { name: "Document type" })).toBeTruthy();
+    expect(page().queryByRole("textbox", { name: "Document type" })).toBeNull();
+  });
+
+  test("renders dispatch ambiguity without exposing an unsafe retry", async () => {
+    const binding = customerBinding([]);
+    const ambiguous = { providerId: "ripio", region: "AR", state: "dispatch-ambiguous", verificationStartedAt: null, updatedAt: "2026-09-18T00:00:00.000Z" };
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [binding] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) return { customers: [ambiguous] };
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    expect((await page().findByRole("alert")).textContent).toContain("Do not try again until the operator reconciles it.");
+    expect(page().queryByRole("button", { name: "Create provider profile" })).toBeNull();
+  });
+
+  test("renders provider rejection distinctly without a misleading create button", async () => {
+    const binding = customerBinding([]);
+    const rejected = { providerId: "ripio", region: "AR", state: "rejected", verificationStartedAt: null, updatedAt: "2026-09-18T00:00:00.000Z" };
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [binding] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) return { customers: [rejected] };
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    expect((await page().findByRole("alert")).textContent).toContain("The provider rejected this setup.");
+    expect(page().getByRole("alert").textContent).toContain("before restarting setup");
+    expect(page().queryByRole("button", { name: "Create provider profile" })).toBeNull();
+  });
+
   test("derives pending setup from owner-scoped state and issues hosted verification only on click", async () => {
     const navigations: string[] = [];
     let verificationPosts = 0;
