@@ -10,8 +10,17 @@ PRs that change user-visible UI or core flows. Skip docs-only, CI-only, and pure
 
 The **Vercel preview link** (posted automatically on every PR) is the primary proof. Add to the PR description:
 
-- **Non-motion UI:** at least one screenshot of the changed route on the current head, ~390px wide. Before/after only when the before genuinely helps. Attach every screenshot retained as PR evidence directly to the PR description and give each a descriptive state/viewport label; do not commit the files or upload only one representative from a larger retained set. This does not require capturing a screenshot matrix.
-- **Motion / animation:** one short video or GIF (roughly 30 seconds or less) showing the transition.
+- **Non-motion UI:** retain only screenshots that help review the changed route on the current head; ~390px is the default mobile viewport. Before/after only when the before genuinely helps.
+- **Motion / animation:** retain a short video or GIF (roughly 30 seconds or less) when it is the useful way to show the transition.
+
+Put every retained screenshot or clip directly in the PR description as a GitHub attachment in one compact Markdown table. Each row label describes the visible state and viewport:
+
+| State + viewport | Evidence |
+|---|---|
+| Save review — 390×844 CSS px | GitHub screenshot attachment |
+| Withdrawal recovery — desktop 1440×900 | GitHub clip attachment |
+
+Do not commit media or upload only one representative from a larger retained set. The table presents evidence you retained; it does not require capturing a screenshot matrix.
 
 Capture the live implementation in a real browser — preview, production, or localhost on the PR head. Design comps, empty scaffolds, and unlabeled `/dev` harness shots are not proof. If you push new UI changes after capturing, replace the screenshot; do not keep stale ones.
 
@@ -36,7 +45,7 @@ gh pr edit <n> --repo jessepollak/home --attach './after.png#Home after: quiet h
 gh pr edit <n> --repo jessepollak/home --attach ./motion.webm
 ```
 
-Or paste/drop the files into the PR description in the browser. Either way, every screenshot or clip retained as PR evidence must appear inline in that description with a descriptive state/viewport label; bare links, `cursor.com/artifacts` URLs (they expire), committed PNGs under `docs/pr-previews/`, and an unlabeled attachment set are not accepted.
+Or paste/drop the files into the PR description in the browser. Either way, every screenshot or clip retained as PR evidence must appear in the compact table with a descriptive state/viewport label. Bare links, `cursor.com/artifacts` URLs (they expire), committed PNGs under `docs/pr-previews/`, and an unlabeled attachment set are not accepted.
 
 Stills render at a readable width with `<img src="https://github.com/user-attachments/assets/<id>" width="390" />`. Videos render as a player from their bare URL on its own line.
 

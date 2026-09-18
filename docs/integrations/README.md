@@ -1,6 +1,6 @@
 # Issuer integration guide
 
-Status: issuer walkthrough for the funding-provider seam on `main`, updated September 16, 2026. This page does not authorize a funded test, deployment, provider enablement, or merge. Provider hosted acceptance is a separate loop; see [local development versus provider hosted acceptance](#local-development-versus-provider-hosted-acceptance).
+Status: issuer walkthrough for the funding-provider seam on `main`, updated September 18, 2026. This page does not authorize a funded test, deployment, provider enablement, or merge. Live validation follows the risk-based operator contract below.
 
 ## Current status and prerequisites
 
@@ -56,7 +56,7 @@ With `COINBASE_ONRAMP_MODE=sandbox`, a complete September 16 `agent-browser` run
 
 ## Local development versus provider hosted acceptance
 
-The seven steps complete **local adapter development**: a local clone walk of the flow is the development proof, and it is where issuer iteration happens. It is not release acceptance. Acceptance for a provider integrating with Home's own hosted deployment is a separate loop with its own gates — sequential funded tests per rail on Home's protected production alias, explicit approval for every payment, and a recorded evidence trail.
+The seven steps complete **local adapter development**: a local clone walk is where issuer iteration happens, but it proves only the environment and path actually exercised. Plan live validation proportionally under the [operating manual](../operating-manual.md#risk-based-live-money-validation). A safe operator-authorized bounded journey may be the strongest evidence before or after merge; provider-specific constraints can still require the protected production alias. One approval may cover multiple stated legs or rails when its exact maximum exposure, destination controls, ambiguity handling, and stop/recovery conditions cover them. Untested live paths say `Real money: not tested` and name the uncertainty.
 
 Provider-specific acceptance playbooks belong beside their adapters so implementation details, operational gates, and recovery procedures stay together. The Ripio provider folder contains the worked example: phase-by-phase checkbox gates with owners and approvers, the six-rail matrix, local recovery checklists, and claim semantics.
 
@@ -68,4 +68,4 @@ Coinbase uses the generic v2 Orders API and Embedded Orders iframe described abo
 
 ## Authority and safety
 
-No guide step grants access to a funded wallet, issuer account, production credentials, deployment, provider enablement, or merge authority. Live probes remain opt-in and outside CI. The operator controls credentials; Jesse alone gives final approval and merges. See the [operating manual](../operating-manual.md#delivery-loop) and [delivery gates](../delivery-gates.md).
+No guide step grants access to a funded wallet, issuer account, production credentials, deployment, provider enablement, or merge authority. Live probes remain explicitly operator-authorized and outside CI; factory children receive none of that authority. The operator controls credentials; Jesse alone gives final approval and merges. See the [operating manual](../operating-manual.md#risk-based-live-money-validation) and [delivery gates](../delivery-gates.md).

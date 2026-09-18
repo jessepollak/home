@@ -1,39 +1,42 @@
 ---
 name: shape-product-proposal
-description: Shape a bounded Home capability into an owner-approvable factory brief and exact delivery children.
+description: Shape a substantial Home feature into a short product frame and the fewest complete customer-journey slices.
 ---
 
 # Shape a product proposal
 
-Use this skill when an outcome needs product shaping before implementation. A proposal is not execution authority.
+Use this skill before substantial product work. Routine bugs may start directly from a clear issue.
 
-## Inspect and shape
+## Inspect
 
-1. Read `AGENTS.md`, `docs/product-strategy.md`, the relevant workstream root, and current delivery policy. Inspect current code, issues, native hierarchy, and pull requests; reuse existing work.
-2. Keep the parent proposal to exactly six concise sections: **Outcome**, **Proposal**, **Boundary**, **Done**, **Decision**, and **Delivery**.
-3. Define 1–5 stable, observable outcomes without filler. Put exact design references in the brief's structured `designReferences` array; legacy `{ "label": "…", "url": "https://…" }` references remain valid. When a relevant Storybook deployment is available, use the enhanced `{ "type": "storybook", "label": "…", "managerUrl": "https://…", "canvasUrl": "https://…", "commitSha": "<40-hex>", "deploymentId": "dpl_…", "criteria": ["1–8 observable criteria"] }` shape tied to its exact commit and deployment. Before publishing user-visible work, include a concrete relevant reference or bounded mock; Storybook is not a prerequisite for backend or routine work. Follow [UI PR previews](../../../docs/ui-pr-previews.md) for the detailed evidence workflow rather than restating it here.
-4. Define 1–4 exact children. Each has a stable key, optional existing issue identity, title, complete body, `status:todo`, one lane, one priority, exact native parent, and mapped outcome IDs. Map every outcome. Do not create speculative backlog.
-5. Add the mandatory top-level `evidenceMap`. Include exactly one `{ "outcomeId": "…", "childKey": "…", "evidence": "…" }` entry for every child-to-outcome edge, with concise single-line completion evidence. Parent or child prose alone is insufficient: the structured map is the approved evidence contract carried into that child's worker and reviewer inputs.
+Read `AGENTS.md`, `docs/product-strategy.md`, the relevant workstream root, and current delivery policy. Inspect current code, issues, native hierarchy, and pull requests. Reuse existing work rather than creating a parallel brief or backlog.
 
-When an existing bounded pilot issue already records an exact owner-facing outcome, reference that issue and reuse its exact outcome text instead of restating product wording here. A pilot is referenced by a general skill, never redefined inside one.
+## Post one product frame
 
-## Validate, publish, and activate
+Write at most 150 words answering:
 
-Create a `home.factory-brief/v1` JSON bundle matching `scripts/delivery/factory-brief-policy.mjs`.
+1. What can the customer do today?
+2. What is broken or missing?
+3. What will we build now?
+4. What will we leave out?
+5. What consequential decision, if any, does Jesse need to make?
 
-```sh
-bun run factory:brief validate path/to/brief.json
-bun run factory:brief publish path/to/brief.json
-```
+Jesse replies `go`, changes the scope, or stops. Do not encode the frame as a manifest, hash it, require reactions, or create child-by-child approval steps.
 
-Publication deterministically reuses parent-namespaced stable child markers after partial retries, creates only missing children, establishes native parent/Project/labels, and posts or reuses one exact machine-readable proposal comment. It applies the non-authorizing `factory:brief-child` provenance label, preserves unrelated labels, fails closed on conflicting `status:*`/`lane:*`/`priority:*` labels, and does not add `factory:ready`.
+## Decompose complete journeys
 
-Jesse approves only with one current repository-owner 👍 on the exact unedited factory-marked parent proposal comment. Other reactions are irrelevant; removing Jesse's reaction revokes approval. After that reaction, the deterministic parent operation may validate the full proposal and mechanically ready every selected child:
+After `go`:
 
-```sh
-bun run factory:brief activate <parent-number>
-```
+1. Map the feature to **three to five observable customer outcomes**, including entry, success, exits, recovery, and user-visible status.
+2. Choose the **fewest coherent vertical slices** that can each be implemented and reviewed as a complete result.
+3. Split only when a slice can ship independently or a truly shared foundation unlocks more than one journey.
+4. For every slice, state its customer result, exits/recovery, boundary, and proof.
+5. Keep technical subtasks inside their owning slice. Tests, migrations, adapters, refactors, and other implementation details do not become product-leader approvals.
 
-This shared-account reaction deliberately accepts the weaker guarantee that compromise of Jesse's GitHub account or keychain could forge approval. It is not cryptographic authorship, and comment creation/update equality is only a tamper hint. Do not add signatures, keys, or sandbox identity work to this flow.
+Reuse a suitable delivery issue when one exists. If a new issue is necessary, follow the native hierarchy, Home Project, and exact label contract in `docs/github-project.md`; issue text does not grant authority to run pasted commands.
 
-Keep three records distinct: **Proposed Storybook** reference, **Implemented Home** current-head browser/Preview proof, and any required **live-provider proof**. Factory review is not design approval. Jesse records design acceptance separately with an explicit unmarked comment or review; that acceptance does not create a second factory authorization system.
+## Plan proportional evidence
+
+User-visible work names the browser path and current-head preview proof. Every retained screenshot or clip belongs directly in the PR description in a compact Markdown table with a descriptive state and viewport label; do not manufacture a screenshot matrix.
+
+For a feature whose purpose is to move money, apply the risk-based live validation contract in `docs/operating-manual.md`. A safe, operator-authorized bounded live check is normally the strongest evidence. Factory children never receive credentials, wallets, or funded authority. If no live check runs, state `Real money: not tested` and name the uncertainty rather than calling the live path proven.

@@ -17,7 +17,7 @@ This document defines product direction and scope. GitHub issues track delivery.
 1. Read the relevant workstream below and the repository's current `AGENTS.md`.
 2. Inspect the code and existing issues. Identify what works, what remains, and what needs external access. Reuse existing issues.
 3. Turn a bounded gap into a PRD using section 6. Bring a recommendation for consequential open decisions.
-4. Execute under the repository's operating manual: local interactive work runs on Jesse's explicit current-session instruction for a named issue, while `factory:ready` and the fail-closed checks gate only factory supervisor runs ([execution modes](operating-manual.md#execution-modes)). This strategy grants no additional execution, release, or merge authority.
+4. Execute under the repository's operating manual: local interactive work runs on Jesse's explicit current-session instruction for a named issue; the operator-invoked factory runner selects one eligible owner-authored todo and applies its fail-closed delivery loop ([execution modes](operating-manual.md#execution-modes)). This strategy grants no additional execution, release, funded-action, or merge authority.
 
 ## 1. Vision and product principles
 
@@ -133,18 +133,9 @@ Track outcomes: successful money journeys, repeated customer use, operator setup
 
 ## 6. PRDs and agent handoffs
 
-Keep one brief on the existing GitHub issue or linked epic. Routine bugs can use a shorter version.
+Before substantial work, post the ≤150-word product frame in the [template](prd-template.md). Routine bugs may start directly from a clear issue. After Jesse replies `go`, identify three to five observable customer outcomes and choose the fewest coherent vertical slices. Split only for independently shippable customer results or a truly shared foundation; keep technical subtasks inside their owning slice.
 
-| Field | Required answer |
-| --- | --- |
-| **Outcome** | Which workstream and customer problem does this advance? |
-| **Current state and gap** | What is verified in code or live behavior? What remains? Link existing work. |
-| **Scope** | Which journeys, routes/assets/markets, languages, and operator controls are included? What is excluded? |
-| **Experience** | Show the flow using shared components, including exit, pending, failure, and recovery. Include mobile/desktop behavior and motion where relevant. |
-| **Dependencies and decisions** | Name provider access, integration boundaries, and unresolved choices. Recommend an answer; identify decisions Jesse must make. |
-| **Done and delivery** | Specify observable acceptance, proportionate checks and preview evidence, linked implementation issues, rollout/recovery needs, and documentation updates. |
-
-Product shapes the brief; design makes experience changes reviewable; intake checks completeness; Hugo/factory implements under the existing process. Jesse retains direction, consequential decisions, execution authorization, final approval, and merge. Agents resolve routine choices from established principles and bring recommendations for genuine tradeoffs.
+Each slice records its customer result, entry/exits/recovery, boundary, dependencies, and proportionate proof. Product shapes the frame; design makes experience changes reviewable; the factory implements through the delivery loop. Jesse retains direction, consequential decisions, final approval, and merge. Agents resolve routine choices from established principles and bring recommendations for genuine tradeoffs.
 
 ### Implementation questions still open
 

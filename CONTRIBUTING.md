@@ -8,7 +8,7 @@ Home is meant to be cloned and run first. This guide is for focused pull request
 2. [Architecture](docs/architecture.md) — principles, seams, and the thinness test; [Actions](docs/actions.md) and [Balances](docs/balances.md) for subsystem contracts
 3. [Browser validation](docs/browser-validation.md) — required before/after iteration and regression-test boundaries for user-visible and core-flow work
 4. [Docs index](docs/README.md)
-5. [Operating manual](docs/operating-manual.md) — issue labels, proof bar, and merge policy
+5. [Operating manual](docs/operating-manual.md) — product framing, issue state, execution modes, delivery loop, live-money validation, PR evidence, and completion authority
 
 For hosting, see [Vercel deploy](docs/vercel-deploy.md). For a customized operator deployment, see [Fork and extend](docs/fork-and-extend.md).
 
@@ -55,10 +55,10 @@ Do not add provider credentials or funded-wallet checks to pull-request CI.
 - Run `bun check`; run the browser smoke for shell, session, or action-flow changes. Keep live provider and funded-wallet checks out of CI.
 - Update the matching current doc in the same change when a delivered, user-visible, or execution contract changes.
 
-## Factory & merge policy
+## Factory delivery
 
 The factory follows the [operating manual](docs/operating-manual.md). GitHub Issues and lane/status/priority labels are the sole durable intake and delivery board; they track work but do not by themselves authorize execution.
 
-Tracking, local interactive authorization, and factory eligibility are separate ([execution modes](docs/operating-manual.md#execution-modes)): a local session implements a named issue on Jesse's explicit current-session instruction, while `factory:ready` and the other fail-closed checks gate only factory supervisor runs.
+Tracking, local interactive authorization, and factory execution are separate ([execution modes](docs/operating-manual.md#execution-modes)): a local session implements a named issue on Jesse's explicit current-session instruction, while an operator invocation selects one factory issue and the supervisor fails closed on issue state, ownership, labels, conflicting PRs, child isolation, review, CI, and proof.
 
 **Only Jesse (`jessepollak`) gives the final +1 and merges.** User-visible pull requests need proof in the description; see [UI PR previews](docs/ui-pr-previews.md).
