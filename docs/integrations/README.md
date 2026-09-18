@@ -26,7 +26,7 @@ The seam contract is [`apps/web/shared/funding/provider-contract.ts`](../../apps
 
    If `apps/web/.env.local` already exists, keep it and add only the missing names. It is gitignored; never commit values.
 
-2. **Start and migrate local Postgres.** Run `bun run db:up`, set `DATABASE_URL=postgresql://home:home@127.0.0.1:54320/home_local` in `apps/web/.env.local`, then run `bun run db:migrate`. Use `bun run db:down` when finished.
+2. **Start and migrate local Postgres.** Run `bun run db:up`, set `DATABASE_URL=postgresql://home:home@127.0.0.1:54320/home_local` in `apps/web/.env.local`, then run `bun run db:migrate`. Use `bun run db:down` when finished. The Compose project is named after the checkout folder, so every clone in a folder called `home` shares one `home_postgres-data` volume and its migrations and funding orders: a second checkout (for example a PR branch next to `main`) sees the first one's rows, and `db:migrate` reports only the migrations the shared volume is missing. Give a second checkout a different folder name, or run Compose with its own project name (`docker compose -p <name>`), before you rely on a clean local database.
 
 3. **Sign in with Base Account.** Set server-only `HOME_SESSION_SECRET` to at least 32 characters; a CDP project is not needed (`NEXT_PUBLIC_CDP_PROJECT_ID` only adds email sign-in). Run `bun dev`, open `http://localhost:3000`, pick the country for the binding, and choose **Continue with Base Account**. The verified server session, not a browser address, region, or provider customer ID, supplies the destination address.
 
