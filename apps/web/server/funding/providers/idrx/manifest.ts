@@ -30,6 +30,10 @@ export const idrxManifest = {
     apiOrigins: [IDRX_API_ORIGIN],
     redirectOrigins: [IDRX_CHECKOUT_ORIGIN],
     reference: "provider",
+    // `mint-quote` returns the IDRX delivered and the itemized fees for the
+    // chosen method before any order exists, so the quote review shows the
+    // net amount instead of "Fees: Not yet available".
+    quotes: true,
   },
   bindings: [
     {

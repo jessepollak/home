@@ -8,6 +8,8 @@ import type {
   OrderIntent,
   ProviderContext,
   ProviderOrder,
+  Quote,
+  QuoteIntent,
   ReconciliationIntent,
 } from "@/shared/funding/provider-contract";
 import { decimalToAtomic } from "@/shared/formatting/atomic";
@@ -15,7 +17,13 @@ import { emitFundingProviderFailure, type FundingProviderFailureCode } from "../
 import { IDRX_API_ORIGIN, IDRX_CHECKOUT_ORIGIN, idrxManifest } from "./manifest";
 
 const MINT_PATH = "/transaction/mint-request";
+const QUOTE_PATH = "/v2/transaction/mint-quote";
 const HISTORY_PATH = "/transaction/user-transaction-history";
+// The generic QRIS channel the IDRX checkout itself uses.
+const QRIS_CHANNEL = "QR";
+// IDRX quotes carry no expiry of their own: the fee schedule is per method and
+// per organization, not per request. Five minutes matches the local quote.
+const QUOTE_TTL_MS = 5 * 60_000;
 const HISTORY_TAKE = 10;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const RESPONSE_BODY_TIMEOUT_MS = 6_000;
@@ -31,6 +39,25 @@ type JsonRecord = Record<string, unknown>;
 export const idrxProvider: FundingProvider = {
   manifest: idrxManifest,
   onramp: {
+    async createQuote(input, ctx) {
+      const channel = quoteChannel(ctx);
+      if (!channel) throw new Error("The selected IDRX payment method is not supported.");
+      const url = new URL(QUOTE_PATH, IDRX_API_ORIGIN);
+      url.searchParams.set("amount", input.fiatAmount);
+      url.searchParams.set("chainId", String(ctx.binding.asset.chainId));
+      url.searchParams.set("paymentMethod", channel.paymentMethod);
+      url.searchParams.set("channelId", channel.channelId);
+      const serializedUrl = url.toString();
+      const response = await ctx.fetch(serializedUrl, {
+        method: "GET",
+        headers: createRequestHeaders(ctx, "GET", serializedUrl, ""),
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`IDRX quote failed with HTTP ${response.status}.`);
+      const data = readData(parseProviderJson(await readBoundedText(response)));
+      return readQuote(data, input, ctx, channel);
+    },
+
     async createOrder(input, ctx) {
     const atomic = input.fiatAmount.length <= MAX_IDRX_DECIMAL_LENGTH
       ? idrxAtomicAmount(input.fiatAmount, ctx.binding.asset.decimals)
@@ -218,9 +245,80 @@ function createMintBody(
     };
   }
   if (ctx.binding.paymentMethod.id === "qris") {
-    return { ...common, returnUrl: input.returnUrl };
+    // `flow: "hosted"` keeps the IDRX checkout page but opens it directly on
+    // QRIS, so the user pays with the method this order was quoted for and
+    // cannot switch to a Virtual Account (different fees) on that page.
+    return {
+      ...common,
+      returnUrl: input.returnUrl,
+      paymentMethod: "qris",
+      channelId: QRIS_CHANNEL,
+      flow: "hosted",
+    };
   }
   return null;
+}
+
+function quoteChannel(
+  ctx: ProviderContext,
+): { paymentMethod: "va" | "qris"; channelId: string } | null {
+  const channel = channelForPaymentMethod(ctx.binding.paymentMethod.id);
+  if (channel) return { paymentMethod: "va", channelId: channel };
+  if (ctx.binding.paymentMethod.id === "qris") {
+    return { paymentMethod: "qris", channelId: QRIS_CHANNEL };
+  }
+  return null;
+}
+
+// A quote is trusted only when its own arithmetic closes: the base amount is
+// the one asked for, the fees deducted from the mint explain the whole gap
+// between base and `toBeMinted`, and the fees added to the payment explain
+// the whole gap between base and `paymentAmount`. Anything else is a
+// mismatch, never something to display.
+function readQuote(
+  data: JsonRecord,
+  input: QuoteIntent,
+  ctx: ProviderContext,
+  channel: { paymentMethod: "va" | "qris"; channelId: string },
+): Quote {
+  const decimals = ctx.binding.asset.decimals;
+  assertOptionalExactString(data.paymentMethod, channel.paymentMethod);
+  assertOptionalExactString(data.channelId, channel.channelId);
+  assertOptionalInteger(data.chainId, ctx.binding.asset.chainId);
+  const baseAtomic = idrxAtomicAmount(readDecimal(data.baseAmount), decimals);
+  const expectedAtomic = idrxAtomicAmount(input.fiatAmount, decimals);
+  if (baseAtomic === null || expectedAtomic === null || baseAtomic !== expectedAtomic) {
+    throw new Error("IDRX quoted a different base amount.");
+  }
+  const mintedAtomic = idrxAtomicAmount(readDecimal(data.toBeMinted), decimals);
+  const paymentAtomic = idrxAtomicAmount(readDecimal(data.paymentAmount), decimals);
+  if (mintedAtomic === null || paymentAtomic === null || mintedAtomic <= BigInt(0) || mintedAtomic > baseAtomic || paymentAtomic < baseAtomic) {
+    throw new Error("IDRX quote amounts are outside the requested amount.");
+  }
+  if (!Array.isArray(data.fees) || data.fees.length > 20) throw new Error("Invalid IDRX quote fees.");
+  let deducted = BigInt(0);
+  let added = BigInt(0);
+  const fees: Quote["fees"] = [];
+  for (const fee of data.fees) {
+    if (!isRecord(fee)) throw new Error("Invalid IDRX quote fee.");
+    const amount = readDecimal(fee.amount);
+    const atomic = idrxAtomicAmount(amount, decimals);
+    if (atomic === null || atomic < BigInt(0)) throw new Error("Invalid IDRX quote fee amount.");
+    if (fee.appliedTo === "toBeMinted") deducted += atomic;
+    else if (fee.appliedTo === "paymentAmount") added += atomic;
+    else throw new Error("Invalid IDRX quote fee target.");
+    fees.push({ label: readBoundedString(fee.name, 128), amount, currency: "IDR" });
+  }
+  if (baseAtomic - mintedAtomic !== deducted || paymentAtomic - baseAtomic !== added) {
+    throw new Error("IDRX quote fees do not add up.");
+  }
+  return {
+    fiatAmount: input.fiatAmount,
+    tokenAmountAtomic: mintedAtomic.toString(10),
+    fees,
+    feesKnown: true,
+    expiresAt: new Date(Date.now() + QUOTE_TTL_MS).toISOString(),
+  };
 }
 
 function channelForPaymentMethod(id: string): "MANDIRI" | "BRI" | null {

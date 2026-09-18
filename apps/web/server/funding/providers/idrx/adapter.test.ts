@@ -12,6 +12,7 @@ import createQrisFixture from "./fixtures/create-qris.synthetic.json";
 import createVaFixture from "./fixtures/create-va.synthetic.json";
 import historyMintedQrisLiveFixture from "./fixtures/history-minted-qris.live.json";
 import historyUnknownFixture from "./fixtures/history-unknown.synthetic.json";
+import quoteQrisFixture from "./fixtures/quote-qris.synthetic.json";
 import { createIdrxSignature, idrxAtomicAmount, idrxProvider } from "./adapter";
 import { IDRX_VA_PAYMENT_METHODS, idrxManifest } from "./manifest";
 
@@ -400,6 +401,127 @@ describe("IDRX adapter behavior", () => {
         },
       });
     }
+  });
+
+  test("opens the hosted checkout on QRIS so the user pays with the quoted method", async () => {
+    const requests: Array<{ url: string; init: RequestInit }> = [];
+    const ctx = createProviderContext({
+      manifest: idrxManifest,
+      region: "ID",
+      paymentMethodId: "qris",
+      env,
+      fetchImplementation: (async (input: RequestInfo | URL, init: RequestInit) => {
+        requests.push({ url: String(input), init });
+        return jsonFixture(createQrisFixture);
+      }) as unknown as typeof fetch,
+    });
+
+    const result = await idrxProvider.onramp!.createOrder(intent, ctx);
+    expect(result.outcome).toBe("created");
+    expect(JSON.parse(String(requests[0]?.init.body))).toEqual({
+      toBeMinted: "20000.50",
+      destinationWalletAddress: DESTINATION,
+      networkChainId: "8453",
+      requestType: "idrx",
+      expiryPeriod: 60,
+      returnUrl: intent.returnUrl,
+      paymentMethod: "qris",
+      channelId: "QR",
+      flow: "hosted",
+    });
+    if (result.outcome === "created") {
+      expect(result.order.instructions.kind).toBe("redirect");
+    }
+  });
+
+  test("quotes the net mint and the itemized fees from mint-quote", async () => {
+    const requests: Array<{ url: string; init: RequestInit }> = [];
+    const ctx = createProviderContext({
+      manifest: idrxManifest,
+      region: "ID",
+      paymentMethodId: "qris",
+      env,
+      fetchImplementation: (async (input: RequestInfo | URL, init: RequestInit) => {
+        requests.push({ url: String(input), init });
+        return jsonFixture(quoteQrisFixture);
+      }) as unknown as typeof fetch,
+    });
+
+    const quote = await idrxProvider.onramp!.createQuote(
+      { destination: DESTINATION, fiatAmount: "20000.50", returnUrl: intent.returnUrl },
+      ctx,
+    );
+
+    const url = new URL(requests[0]!.url);
+    expect(url.origin + url.pathname).toBe("https://api.idrx.co/v2/transaction/mint-quote");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      amount: "20000.50",
+      chainId: "8453",
+      paymentMethod: "qris",
+      channelId: "QR",
+    });
+    expect(requests[0]?.init.method).toBe("GET");
+    const headers = new Headers(requests[0]?.init.headers);
+    expect(headers.get("idrx-api-key")).toBe(env.IDRX_CLIENT_ID);
+    expect(headers.get("idrx-api-sig")).toBe(
+      createIdrxSignature({
+        method: "GET",
+        url: requests[0]!.url,
+        body: "",
+        timestamp: headers.get("idrx-api-ts")!,
+        secretKey: env.IDRX_CLIENT_SECRET,
+      }),
+    );
+    expect(quote).toMatchObject({
+      fiatAmount: "20000.50",
+      tokenAmountAtomic: "1986050",
+      feesKnown: true,
+      fees: [
+        { label: "VA INA", amount: "3000", currency: "IDR" },
+        { label: "QRIS Fee (0.7%)", amount: "140", currency: "IDR" },
+      ],
+    });
+    expect(Date.parse(quote.expiresAt)).toBeGreaterThan(Date.now());
+  });
+
+  test("rejects a quote whose fees do not explain its amounts", async () => {
+    const cases: Array<{ name: string; data: Record<string, unknown> }> = [
+      { name: "different base amount", data: { baseAmount: "21000.50" } },
+      { name: "mint above base", data: { toBeMinted: "20000.51" } },
+      { name: "payment below base", data: { paymentAmount: "19999" } },
+      { name: "deducted fees short of the gap", data: { fees: [{ name: "VA INA", amount: "3000", type: "flat", appliedTo: "paymentAmount" }] } },
+      { name: "added fees short of the gap", data: { fees: [{ name: "QRIS Fee (0.7%)", amount: "140", type: "percentage", appliedTo: "toBeMinted" }] } },
+      { name: "unknown fee target", data: { fees: [{ name: "x", amount: "140", type: "percentage", appliedTo: "elsewhere" }] } },
+      { name: "wrong method echo", data: { paymentMethod: "va" } },
+      { name: "wrong chain echo", data: { chainId: 137 } },
+    ];
+    for (const scenario of cases) {
+      const ctx = createProviderContext({
+        manifest: idrxManifest,
+        region: "ID",
+        paymentMethodId: "qris",
+        env,
+        fetchImplementation: (async () =>
+          jsonFixture({ ...quoteQrisFixture, data: { ...quoteQrisFixture.data, ...scenario.data } })) as unknown as typeof fetch,
+      });
+      await expect(
+        idrxProvider.onramp!.createQuote({ destination: DESTINATION, fiatAmount: "20000.50", returnUrl: intent.returnUrl }, ctx),
+        scenario.name,
+      ).rejects.toThrow();
+    }
+  });
+
+  test("does not quote when IDRX answers with an error", async () => {
+    const ctx = createProviderContext({
+      manifest: idrxManifest,
+      region: "ID",
+      paymentMethodId: "qris",
+      env,
+      fetchImplementation: (async () => Response.json({ statusCode: 404, message: "Not Found" }, { status: 404 })) as unknown as typeof fetch,
+    });
+    await expect(
+      idrxProvider.onramp!.createQuote({ destination: DESTINATION, fiatAmount: "20000.50", returnUrl: intent.returnUrl }, ctx),
+    ).rejects.toThrow("HTTP 404");
   });
 
   test("requires a checkout URL for QRIS while accepting documented URL-free VA", async () => {
