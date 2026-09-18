@@ -154,6 +154,22 @@ describe("session validation boundary", () => {
     }
   });
 
+  test("hard-navigates on deployment access expiry instead of reporting Home signed out", async () => {
+    const destinations: string[] = [];
+    await expect(validateAccountSession(
+      "test-access-token",
+      undefined,
+      async () => jsonResponse({ version: 1, error: { code: "ACCESS_REQUIRED" } }, 401),
+      {
+        accessNavigation: {
+          currentPath: "/save?asset=usdc",
+          navigate: (value) => destinations.push(value),
+        },
+      },
+    )).rejects.toMatchObject({ reason: "access-required" });
+    expect(destinations).toEqual(["/access?next=%2Fsave%3Fasset%3Dusdc"]);
+  });
+
   test("fails closed for unauthorized and malformed responses", async () => {
     const unauthorizedFetch: SessionFetch = async () =>
       jsonResponse(

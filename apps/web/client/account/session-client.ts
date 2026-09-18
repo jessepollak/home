@@ -1,4 +1,5 @@
 import { recordAuthDiagnostic } from "./auth-diagnostics";
+import { redirectOnAccessRequired, type AccessNavigation } from "./access-response";
 import { deploymentHeaders } from "@/client/query/deployment-headers";
 import { parseSession } from "@/shared/account/contracts/session";
 import {
@@ -11,6 +12,7 @@ export { BASE_CHAIN_ID } from "@/shared/account/session-types";
 export type { VerifiedAccountSession } from "@/shared/account/session-types";
 
 export type SessionValidationFailure =
+  | "access-required"
   | "unauthenticated"
   | "provider-disabled"
   | "unavailable"
@@ -45,6 +47,7 @@ export type SessionValidationOptions = {
   accountProvider?: AccountProviderRequest;
   expectedAddress?: `0x${string}`;
   authentication?: "cdp" | "native-base";
+  accessNavigation?: AccessNavigation;
 };
 
 export async function validateAccountSession(
@@ -94,6 +97,10 @@ export async function validateAccountSession(
       throw error;
     }
     throw new SessionValidationError("unavailable");
+  }
+
+  if (await redirectOnAccessRequired(response, options.accessNavigation)) {
+    throw new SessionValidationError("access-required");
   }
 
   recordAuthDiagnostic({

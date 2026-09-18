@@ -1,3 +1,4 @@
+import { createHmac, randomBytes } from "node:crypto";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -54,9 +55,30 @@ function findExecutable(
 
 const executablePath = cachedChromiumExecutable();
 
+const playwrightCredentialKey = ["HOME", "PLAYWRIGHT", "ACCESS", "CREDENTIAL"].join("_");
+const playwrightCookieKey = ["HOME", "PLAYWRIGHT", "ACCESS", "COOKIE"].join("_");
+const accessCredential = process.env[playwrightCredentialKey] ?? randomBytes(32).toString("base64url");
+const accessIssuedAt = new Date();
+const accessPayload = JSON.stringify({
+  version: 1,
+  issuedAt: accessIssuedAt.toISOString(),
+  expiresAt: new Date(accessIssuedAt.getTime() + 7 * 24 * 60 * 60 * 1_000).toISOString(),
+});
+const accessKey = createHmac("sha256", Buffer.from(accessCredential, "utf8"))
+  .update("home:deployment-access:v1:signing-key")
+  .digest();
+const accessEncoded = Buffer.from(accessPayload, "utf8").toString("base64url");
+const accessInput = `v1.${accessEncoded}`;
+const accessToken = `${accessInput}.${createHmac("sha256", accessKey).update(accessInput).digest("base64url")}`;
+const accessCookie = `home-access=${accessToken}`;
+process.env[playwrightCredentialKey] = accessCredential;
+process.env[playwrightCookieKey] = accessCookie;
+process.env.HOME_ACCESS_REQUIRED = "1";
+process.env["HOME_ACCESS_PASSWORD"] = accessCredential;
+
 export default defineConfig({
   testDir: "./tests/browser",
-  testMatch: ["smoke.pw.ts", "landing-route.pw.ts"],
+  testMatch: ["smoke.pw.ts", "landing-route.pw.ts", "access.pw.ts"],
   fullyParallel: false,
   workers: 1,
   // Hosted runners are 3-5x slower and render fonts differently; a real failure
@@ -70,6 +92,8 @@ export default defineConfig({
       ...process.env,
       HOME_PLAYWRIGHT_SMOKE: "1",
       HOME_SESSION_SECRET: "playwright-smoke-home-session-secret-32-bytes!!",
+      HOME_ACCESS_REQUIRED: "1",
+      HOME_ACCESS_PASSWORD: accessCredential,
     },
   },
   use: {
@@ -77,6 +101,19 @@ export default defineConfig({
     headless: true,
     trace: "retain-on-failure",
     video: "retain-on-failure",
+    storageState: {
+      cookies: [{
+        name: "home-access",
+        value: accessToken,
+        domain: "localhost",
+        path: "/",
+        expires: Math.floor(accessIssuedAt.getTime() / 1_000) + 7 * 24 * 60 * 60,
+        httpOnly: true,
+        secure: false,
+        sameSite: "Lax",
+      }],
+      origins: [],
+    },
   },
   projects: [
     {

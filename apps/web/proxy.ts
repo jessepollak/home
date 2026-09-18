@@ -1,4 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { readAccessConfig } from "@/server/access/config";
+import { enforceAccess } from "@/server/access/policy";
 
 const loopbackHostPattern = /^127\.0\.0\.1(?::([0-9]{1,5}))?$/;
 const applePayDomainAssociationPath =
@@ -35,9 +37,11 @@ export function canonicalDevelopmentNavigationResponse(
 }
 
 export function proxy(request: NextRequest): NextResponse {
+  const accessResponse = enforceAccess(request, readAccessConfig());
+  if (accessResponse) return accessResponse;
   return canonicalDevelopmentNavigationResponse(request);
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/:path*"],
 };

@@ -14,6 +14,16 @@ The existing `home-web` Vercel project uses **Root Directory** `apps/web`; Verce
 | Build Command | `bun run build` |
 | Node.js | 22+ |
 
+### Pre-release production access
+
+Home can place a replaceable shared deployment-access gate before customer authentication. Set `HOME_ACCESS_REQUIRED=1` and configure the server-only `HOME_ACCESS_PASSWORD` with at least 32 UTF-8 bytes. This credential and the `home-access` cookie are independent from Home customer sessions and any future administrator session; passing the gate never identifies or authorizes a customer, administrator, support agent, or configuration change.
+
+Keep Vercel Authentication enabled while deploying and verifying the gate. After authorized verification, change **Project Settings → Deployment Protection** to exactly **Only Preview Deployments**. This keeps previews behind Vercel Authentication and removes it only from production so the public Apple association file and signed webhook endpoints can reach Home. Roll back by restoring Vercel Authentication for production; do not widen the application's public-route allowlist.
+
+Before that setting change, an operator must configure cross-instance Vercel Firewall rate-limit rules for failed access submissions and unauthenticated cost-bearing endpoints, including `POST /api/access`, `POST /api/auth/base/nonce`, `POST /api/auth/base/verify`, and `/api/market-prices/history`. Home intentionally has no in-memory or database rate limiter for this deployment boundary. Firewall configuration, protected-deployment checks, and WAF inspection are privileged operator actions, not CI proof.
+
+After the setting change, the operator runs unauthenticated live probes for the exact Apple file, protected pages and APIs, and rejected CDP/funding webhook deliveries, then separately verifies deployment access, Home sign-in, Home sign-out, and access logout. These live probes must record the deployment and commit without recording the shared credential. Local tests and preview evidence do not establish that production, Deployment Protection, Firewall, or webhook delivery was verified.
+
 ### Skew Protection
 
 For the Vercel project `home-web`, **Project Settings → Advanced → Skew Protection** is enabled with a 12-hour max age.
