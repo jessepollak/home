@@ -607,6 +607,47 @@ describe("FundingCore", () => {
     expect(verified).toEqual(["1986000"]);
   });
 
+  test("keeps the quoted amount as the baseline and freezes the first accepted settlement", async () => {
+    const seen: string[] = [];
+    let settled = "1900000";
+    const provider: FundingProvider = {
+      manifest,
+      onramp: {
+        async createOrder(input, ctx) {
+          return { outcome: "created", order: { providerOrderId: "fixture-order-1", tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
+        },
+        async getOrder(input) {
+          seen.push(input.expectedTokenAmountAtomic);
+          return { state: "sent", providerStatus: "PROCESSING:PAID", settledTokenAmountAtomic: settled, fees: [{ label: "Fee", amount: "1000", currency: "IDR" }] };
+        },
+      },
+    };
+    let date = new Date("2026-09-12T00:00:00.000Z");
+    const core = new FundingCore({ providers: [provider], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32) }, currentBaseBlock: async () => "500", verifyReceipt: async () => null, now: () => date });
+    const quote = await core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const created = await core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    date = new Date("2026-09-12T00:00:10.000Z");
+    const lowered = await core.getOrder(session, created.id);
+    expect(lowered.state).toBe("sent-unverified");
+    expect(lowered.expectedTokenAmountAtomic).toBe("1900000");
+
+    // A second, lower settlement is bounded by the adapter against the quoted
+    // amount, and the core drops it regardless: the first one is frozen.
+    settled = "1805000";
+    date = new Date("2026-09-12T00:00:20.000Z");
+    const again = await core.getOrder(session, created.id);
+    expect(again.expectedTokenAmountAtomic).toBe("1900000");
+    expect(again.updatedAt).toBe(lowered.updatedAt);
+    expect(seen).toEqual(["2000000", "2000000"]);
+
+    // Reporting the accepted amount again is fine and keeps the refresh alive.
+    settled = "1900000";
+    date = new Date("2026-09-12T00:00:30.000Z");
+    const same = await core.getOrder(session, created.id);
+    expect(same.expectedTokenAmountAtomic).toBe("1900000");
+    expect(same.updatedAt).toBe("2026-09-12T00:00:30.000Z");
+  });
+
   test("logs unmatched webhooks without raw bodies or provider order identifiers", async () => {
     const events: Array<{ providerId: string; reason: "invalid" | "unmatched" | "region-mismatch" }> = [];
     const provider: FundingProvider = { manifest, onramp: { createOrder: async () => ({ outcome: "ambiguous" }), getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }), verifyWebhook: () => ({ providerOrderId: "secret-provider-order" }) } };
