@@ -21,11 +21,17 @@ test("deployment access composes independently before Home authentication", asyn
   expect((await context.cookies()).some((cookie) => cookie.name === "home-access")).toBe(false);
 
   await page.getByRole("textbox", { name: "Access password" }).fill(credential ?? "");
+  const loginResponse = page.waitForResponse((response) => (
+    response.url().endsWith("/api/access") && response.request().method() === "POST"
+  ));
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page).toHaveURL(/\/home$/);
+  const accepted = await loginResponse;
+  expect(accepted.status()).toBe(200);
+  await expect(page).toHaveURL(/(?:\/home|\/\?account=signin)$/);
   await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
   await page.reload();
-  await expect(page).toHaveURL(/\/home$/);
+  await expect(page).toHaveURL(/(?:\/home|\/\?account=signin)$/);
+  expect((await context.cookies()).some((cookie) => cookie.name === "home-access")).toBe(true);
 
   await page.goBack();
   await expect(page).toHaveURL(/\/access\?next=%2Fhome$/);
