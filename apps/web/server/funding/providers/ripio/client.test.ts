@@ -308,29 +308,52 @@ describe("Ripio production REST client", () => {
     expect(calls).toBe(2);
   });
 
-  test("submits hosted KYC with exactly redirectUrl", async () => {
+  test("requires only a valid customer ID from customer creation", async () => {
+    const create = (body: unknown) => createRipioClient("AR", { env, fetchImplementation: async (input) => new URL(String(input)).pathname === "/oauth2/token/" ? token() : Response.json(body) }).createCustomer({ email: "person@example.com" });
+    await expect(create({ customerId: CUSTOMER })).resolves.toEqual({ customerId: CUSTOMER });
+    await expect(create({ customerId: CUSTOMER, createdAt: "not-a-date", upstreamStatus: "ACTIVE" })).resolves.toEqual({ customerId: CUSTOMER });
+    for (const body of [{}, { customerId: "not-a-uuid" }, { createdAt: "2026-09-18T00:00:00.000Z" }]) {
+      await expect(create(body)).rejects.toMatchObject({ code: "ambiguous-create" });
+    }
+  });
+
+  test("submits hosted KYC with exactly redirectUrl and ignores extra provider fields", async () => {
     const bodies: unknown[] = [];
     const client = createRipioClient("AR", { env, fetchImplementation: async (_input, init) => {
       if (!init?.body || String(init.body) === "grant_type=client_credentials") return token();
       bodies.push(JSON.parse(String(init.body)));
-      return Response.json({ submissionId: ID, providerUrl: "https://kyc.ripio.com/start?token=synthetic", createdAt: "2026-09-18T00:00:00.000Z" });
+      return Response.json({ submissionId: ID, providerUrl: "https://kyc.ripio.com/start?token=synthetic", createdAt: "not-a-date", submissionState: "IN_REVIEW" });
     } });
     await expect(client.submitHostedKyc(CUSTOMER, { redirectUrl: "https://home.example/fund?return=verification" })).resolves.toEqual({ providerUrl: "https://kyc.ripio.com/start?token=synthetic" });
     expect(bodies).toEqual([{ redirectUrl: "https://home.example/fund?return=verification" }]);
   });
 
-  test("retrieves and exact-parses the latest customer KYC submission", async () => {
+  test("requires only a bounded provider URL from hosted KYC", async () => {
+    const submit = (body: unknown) => createRipioClient("AR", { env, fetchImplementation: async (_input, init) => String(init?.body) === "grant_type=client_credentials" ? token() : Response.json(body) }).submitHostedKyc(CUSTOMER, { redirectUrl: "https://home.example/fund?return=verification" });
+    await expect(submit({ providerUrl: "https://kyc.ripio.com/start?token=synthetic" })).resolves.toEqual({ providerUrl: "https://kyc.ripio.com/start?token=synthetic" });
+    for (const body of [
+      {},
+      { submissionId: ID, createdAt: "2026-09-18T00:00:00.000Z" },
+      { providerUrl: 42 },
+      { providerUrl: `https://kyc.ripio.com/${"x".repeat(5000)}` },
+    ]) await expect(submit(body)).rejects.toMatchObject({ code: "ambiguous-create" });
+  });
+
+  test("retrieves the latest customer KYC submission requiring only the exact customer echo and a bounded status", async () => {
     const urls: string[] = [];
     const client = createRipioClient("AR", { env, fetchImplementation: async (input) => {
       urls.push(String(input));
-      return urls.length === 1 ? token() : Response.json({ customerId: CUSTOMER, status: "COMPLETED", createdAt: "2026-09-18T00:00:00.000Z" });
+      return urls.length === 1 ? token() : Response.json({ customerId: CUSTOMER, status: "COMPLETED" });
     } });
     await expect(client.getKycStatus(CUSTOMER)).resolves.toBe("COMPLETED");
     expect(urls[1]).toBe(`https://skala.ripio.com/api/v1/customers/${CUSTOMER}/kycSubmissions/`);
+    const withExtras = createRipioClient("AR", { env, fetchImplementation: async (_input, init) => init?.method === "POST" ? token() : Response.json({ customerId: CUSTOMER, status: "IN_REVIEW", createdAt: "not-a-date", submissionId: ID }) });
+    await expect(withExtras.getKycStatus(CUSTOMER)).resolves.toBe("IN_REVIEW");
     for (const payload of [
-      { customerId: ID, status: "COMPLETED", createdAt: "2026-09-18T00:00:00.000Z" },
-      { customerId: CUSTOMER, status: 1, createdAt: "2026-09-18T00:00:00.000Z" },
-      { customerId: CUSTOMER, status: "COMPLETED", createdAt: "invalid" },
+      { customerId: ID, status: "COMPLETED" },
+      { customerId: CUSTOMER, status: 1 },
+      { customerId: CUSTOMER, status: "" },
+      { customerId: CUSTOMER, status: "x".repeat(129) },
     ]) {
       const malformed = createRipioClient("AR", { env, fetchImplementation: async (_input, init) => init?.method === "POST" ? token() : Response.json(payload) });
       await expect(malformed.getKycStatus(CUSTOMER)).rejects.toMatchObject({ code: "invalid-response" });
