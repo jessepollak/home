@@ -63,7 +63,7 @@ export function readProviderBindings(value: unknown): ReadonlyArray<FundingBindi
       });
     } else if (direction === "offramp") {
       const paymentMethods = item.paymentMethods.filter(isOfframpPaymentMethod);
-      if (paymentMethods.length !== item.paymentMethods.length || item.quotes !== false || !((item.customerSetup ?? item.kyc) === null)) continue;
+      if (paymentMethods.length !== item.paymentMethods.length || item.quotes !== false || !((item.customerSetup ?? item.kyc ?? null) === null)) continue;
       parsed.push({
         providerId: item.providerId, displayName: item.displayName, region: item.region,
         assetId: item.assetId, assetSymbol: item.assetSymbol, assetDecimals: item.assetDecimals,
