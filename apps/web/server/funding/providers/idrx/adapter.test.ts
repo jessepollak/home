@@ -434,6 +434,62 @@ describe("IDRX adapter behavior", () => {
     }
   });
 
+  test("a quoted order expects the quoted net mint and reconciles the record against the requested amount", async () => {
+    const quote = {
+      fiatAmount: "20000",
+      tokenAmountAtomic: "1986000",
+      fees: [{ label: "QRIS Fee (0.7%)", amount: "140", currency: "IDR" }],
+      feesKnown: true,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    };
+    const ctx = createProviderContext({
+      manifest: idrxManifest,
+      region: "ID",
+      paymentMethodId: "qris",
+      env,
+      fetchImplementation: (async (input: RequestInfo | URL) =>
+        String(input).includes("mint-request")
+          ? jsonFixture({ ...createQrisFixture, data: { ...createQrisFixture.data, toBeMinted: "20000", expectedTokenAmountAtomic: "2000000" } })
+          : jsonFixture(historyMintedQrisLiveFixture)) as unknown as typeof fetch,
+    });
+
+    const created = await idrxProvider.onramp!.createOrder({ ...intent, fiatAmount: "20000", quote }, ctx);
+    expect(created.outcome).toBe("created");
+    if (created.outcome === "created") {
+      expect(created.order.expectedTokenAmountAtomic).toBe("1986000");
+      expect(created.order.fees).toEqual(quote.fees);
+    }
+
+    // The live record: requested 20000, minted 19860. Against the quoted net
+    // amount that is an exact settlement, so nothing is lowered again.
+    const liveRecord = historyMintedQrisLiveFixture.records[0]!;
+    const observation = await idrxProvider.onramp!.getOrder(
+      {
+        ...reconciliationIntent,
+        providerOrderId: liveRecord.merchantOrderId,
+        destination: liveRecord.destinationWalletAddress as `0x${string}`,
+        fiatAmount: "20000",
+        expectedTokenAmountAtomic: "1986000",
+      },
+      ctx,
+    );
+    expect(observation.state).toBe("sent");
+    expect(observation.settledTokenAmountAtomic).toBeUndefined();
+
+    // A record whose base amount is not the requested amount stays unresolved.
+    const other = await idrxProvider.onramp!.getOrder(
+      {
+        ...reconciliationIntent,
+        providerOrderId: liveRecord.merchantOrderId,
+        destination: liveRecord.destinationWalletAddress as `0x${string}`,
+        fiatAmount: "21000",
+        expectedTokenAmountAtomic: "1986000",
+      },
+      ctx,
+    );
+    expect(other).toEqual({ state: "unknown", providerStatus: "INTENT_MISMATCH" });
+  });
+
   test("quotes the net mint and the itemized fees from mint-quote", async () => {
     const requests: Array<{ url: string; init: RequestInit }> = [];
     const ctx = createProviderContext({
@@ -447,7 +503,7 @@ describe("IDRX adapter behavior", () => {
       }) as unknown as typeof fetch,
     });
 
-    const quote = await idrxProvider.onramp!.createQuote(
+    const quote = await idrxProvider.onramp!.createQuote!(
       { destination: DESTINATION, fiatAmount: "20000.50", returnUrl: intent.returnUrl },
       ctx,
     );
@@ -505,7 +561,7 @@ describe("IDRX adapter behavior", () => {
           jsonFixture({ ...quoteQrisFixture, data: { ...quoteQrisFixture.data, ...scenario.data } })) as unknown as typeof fetch,
       });
       await expect(
-        idrxProvider.onramp!.createQuote({ destination: DESTINATION, fiatAmount: "20000.50", returnUrl: intent.returnUrl }, ctx),
+        idrxProvider.onramp!.createQuote!({ destination: DESTINATION, fiatAmount: "20000.50", returnUrl: intent.returnUrl }, ctx),
         scenario.name,
       ).rejects.toThrow();
     }
@@ -520,7 +576,7 @@ describe("IDRX adapter behavior", () => {
       fetchImplementation: (async () => Response.json({ statusCode: 404, message: "Not Found" }, { status: 404 })) as unknown as typeof fetch,
     });
     await expect(
-      idrxProvider.onramp!.createQuote({ destination: DESTINATION, fiatAmount: "20000.50", returnUrl: intent.returnUrl }, ctx),
+      idrxProvider.onramp!.createQuote!({ destination: DESTINATION, fiatAmount: "20000.50", returnUrl: intent.returnUrl }, ctx),
     ).rejects.toThrow("HTTP 404");
   });
 

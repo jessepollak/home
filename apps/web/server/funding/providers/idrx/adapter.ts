@@ -114,17 +114,25 @@ export const idrxProvider: FundingProvider = {
         data,
         ctx.binding.paymentMethod.id === "qris",
       );
+      // With a quote the expected amount is the quoted net mint, which the
+      // core checks the created order against; the create echoes above are
+      // still checked against the requested amount, because IDRX deducts the
+      // QRIS fee only when the payment lands.
       const common = {
         providerOrderId,
         tokenAddress: ctx.binding.asset.address,
-        expectedTokenAmountAtomic: atomic.toString(10),
+        expectedTokenAmountAtomic: input.quote
+          ? input.quote.tokenAmountAtomic
+          : atomic.toString(10),
       } as const;
 
       if (ctx.binding.paymentMethod.id === "qris") {
         if (!checkoutUrl) throw new Error("Missing IDRX checkout URL.");
         return created({
           ...common,
-          fees: paymentEchoes?.fees ?? [],
+          // The hosted session carries no fee lines; the quote already
+          // itemized them for this method.
+          fees: paymentEchoes?.fees ?? input.quote?.fees ?? [],
           expiresAt: null,
           instructions: {
             kind: "redirect",
@@ -768,7 +776,18 @@ function readReconciliationSettlement(
   ctx: ProviderContext,
 ): Settlement | null {
   try {
+    // `expectedTokenAmountAtomic` is the amount the core will verify on Base:
+    // the quoted net mint when the order was quoted, the requested amount
+    // otherwise. IDRX's record still speaks in the requested amount
+    // (`baseAmount`) minus the fee it deducted, so the record is checked
+    // against the requested amount and the settlement against the expected one.
     const expectedAtomic = BigInt(input.expectedTokenAmountAtomic);
+    const requestedAtomic = input.fiatAmount === undefined
+      ? expectedAtomic
+      : idrxAtomicAmount(input.fiatAmount, input.tokenDecimals);
+    if (requestedAtomic === null || requestedAtomic < expectedAtomic) {
+      throw new Error("IDRX requested amount below the expected amount.");
+    }
     assertOrderIdAliases(record, input.providerOrderId, true);
     assertReferenceAliases(record, input.providerOrderId);
     assertTransactionTypeAliases(record, input.transactionType);
@@ -777,12 +796,12 @@ function readReconciliationSettlement(
     assertDestinationAliases(record, input.destination);
     const settledAtomic = readSettledAmount(
       record,
-      expectedAtomic,
+      requestedAtomic,
       input.tokenDecimals,
     );
     const fees = readHistoryPaymentEchoes(record, settledAtomic, input.tokenDecimals);
-    if (settledAtomic < expectedAtomic) {
-      assertBoundedShortfall(expectedAtomic, settledAtomic, fees, input.tokenDecimals);
+    if (settledAtomic < requestedAtomic) {
+      assertBoundedShortfall(requestedAtomic, settledAtomic, fees, input.tokenDecimals);
     }
     assertRailEchoes(
       record,
@@ -798,17 +817,17 @@ function readReconciliationSettlement(
 
 function readSettledAmount(
   record: JsonRecord,
-  expectedAtomic: bigint,
+  requestedAtomic: bigint,
   decimals: number,
 ): bigint {
   for (const value of [record.decimals, record.tokenDecimals, record.assetDecimals]) {
     assertOptionalInteger(value, decimals);
   }
-  assertOptionalAtomicAmount(record.baseAmount, expectedAtomic, decimals);
-  let settled = expectedAtomic;
+  assertOptionalAtomicAmount(record.baseAmount, requestedAtomic, decimals);
+  let settled = requestedAtomic;
   if (record.toBeMinted !== undefined) {
     const minted = idrxAtomicAmount(readDecimal(record.toBeMinted), decimals);
-    if (minted === null || minted <= BigInt(0) || minted > expectedAtomic) {
+    if (minted === null || minted <= BigInt(0) || minted > requestedAtomic) {
       throw new Error("IDRX settled amount outside the requested amount.");
     }
     settled = minted;
