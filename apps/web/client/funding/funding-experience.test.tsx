@@ -20,19 +20,23 @@ type FundingWallet = Pick<
 >;
 
 function fundingBinding() {
-  return { providerId: "ripio", displayName: "Ripio", region: "AR", assetId: "base:wars", assetSymbol: "wARS", assetDecimals: 18, currency: "ARS", paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }], quotes: true, kyc: null };
+  return { providerId: "ripio", displayName: "Ripio", region: "AR", assetId: "base:wars", assetSymbol: "wARS", assetDecimals: 18, currency: "ARS", paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }], quotes: true, customerSetup: null };
 }
 
 function redirectBinding() {
-  return { providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx", assetSymbol: "IDRX", assetDecimals: 2, currency: "IDR", paymentMethods: [{ id: "qris", label: "QRIS" }], quotes: false, kyc: null };
+  return { providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx", assetSymbol: "IDRX", assetDecimals: 2, currency: "IDR", paymentMethods: [{ id: "qris", label: "QRIS" }], quotes: false, customerSetup: null };
 }
 
 function applePayBinding() {
-  return { providerId: "coinbase", displayName: "Coinbase", region: "US", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6, currency: "USD", paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }], quotes: true, kyc: null };
+  return { providerId: "coinbase", displayName: "Coinbase", region: "US", assetId: "base:usdc", assetSymbol: "USDC", assetDecimals: 6, currency: "USD", paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }], quotes: true, customerSetup: null };
 }
 
 function applePayOrder(state = "awaiting-payment", url = APPLE_PAY_URL) {
   return { id: "11111111-1111-4111-8111-111111111111", providerId: "coinbase", state, fiatAmount: "25", expectedTokenAmountAtomic: "24500000", fees: [{ label: "Coinbase fee", amount: "0.50", currency: "USD" }], providerStatus: null, instructions: { kind: "embed", url, presentation: "apple-pay", amount: "25.50", currency: "USD" } };
+}
+
+function customerBinding() {
+  return { ...fundingBinding(), customerSetup: { hosted: true } };
 }
 
 function multiMethodBinding() {
@@ -560,5 +564,132 @@ describe("FundingExperience", () => {
     );
     expect(page().queryByRole("button", { name: /Receive crypto/ })).toBeNull();
     expect(page().queryByRole("button", { name: "Continue to Coinbase" })).toBeNull();
+  });
+});
+
+describe("provider customer funding position", () => {
+  test("shows only email and dispatches one combined hosted verification action", async () => {
+    const navigations: string[] = [];
+    const requests: unknown[] = [];
+    const binding = customerBinding();
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string, options?: { method?: string; body?: unknown }) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [binding] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) return { customers: [] };
+      if (path === "/api/funding/provider-customers/verification" && options?.method === "POST") {
+        requests.push(options.body);
+        return { customer: { providerId: "ripio", region: "AR", state: "pending", verificationStartedAt: "2026-09-18T00:01:00.000Z", updatedAt: "2026-09-18T00:01:00.000Z" }, handoff: { url: "https://kyc.ripio.com/start?token=synthetic" } };
+      }
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={(url) => navigations.push(url)} regionId="AR" />);
+    fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+    expect(page().getByRole("heading", { name: "Set up Ripio" })).toBeTruthy();
+    expect(page().getAllByRole("textbox")).toHaveLength(1);
+    fireEvent.input(page().getByRole("textbox", { name: "Email" }), { target: { value: "person@example.com" } });
+    fireEvent.click(page().getByRole("button", { name: "Continue to Ripio verification" }));
+    await waitFor(() => expect(requests).toEqual([{ providerId: "ripio", region: "AR", email: "person@example.com" }]));
+    expect(navigations).toEqual(["https://kyc.ripio.com/start?token=synthetic"]);
+  });
+
+  test("does not auto-enter setup from an ordinary method-list visit", async () => {
+    const binding = customerBinding();
+    const pending = { providerId: "ripio", region: "AR", state: "pending", verificationStartedAt: null, updatedAt: "2026-09-18T00:00:00.000Z" };
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [binding] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) return { customers: [pending] };
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    expect(await page().findByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
+  });
+
+  test("does not open a customer-capable provider before its customer lookup resolves", async () => {
+    let orderReads = 0;
+    let customerReads = 0;
+    let resolveCustomers!: (value: unknown) => void;
+    const customersRead = new Promise<unknown>((resolve) => { resolveCustomers = resolve; });
+    const verified = { providerId: "ripio", region: "AR", state: "verified", verificationStartedAt: null, updatedAt: "2026-09-18T00:00:00.000Z" };
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [customerBinding()] };
+      if (path.startsWith("/api/funding/orders?")) { orderReads += 1; return { order: null }; }
+      if (path.startsWith("/api/funding/provider-customers?")) { customerReads += 1; return customersRead; }
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    const provider = await page().findByRole("button", { name: /Deposit ARS/ });
+    await waitFor(() => expect(orderReads).toBe(1));
+    await waitFor(() => expect(customerReads).toBe(1));
+    expect(provider.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(provider);
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
+
+    await act(async () => { resolveCustomers({ customers: [verified] }); await customersRead; });
+    await waitFor(() => expect(provider.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(provider);
+    expect(page().getByRole("heading", { name: "Deposit ARS" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Review quote" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
+  });
+
+  test("keeps a failed provider-customer read retryable before the flow opens", async () => {
+    let customerReads = 0;
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [customerBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) {
+        customerReads += 1;
+        if (customerReads === 1) throw new Error("CUSTOMERS_UNAVAILABLE");
+        return { customers: [] };
+      }
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    const provider = await page().findByRole("button", { name: /Deposit ARS/ });
+    await waitFor(() => expect(page().getByRole("alert").textContent).toContain("Home couldn't check your provider setup. Retry."));
+    expect(provider.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(provider);
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(customerReads).toBe(2));
+    await waitFor(() => expect(provider.hasAttribute("disabled")).toBe(false));
+    expect(page().queryByRole("alert")).toBeNull();
+    fireEvent.click(provider);
+    expect(page().getByRole("heading", { name: "Set up Ripio" })).toBeTruthy();
+  });
+
+  test("resumes pending setup only on the explicit verification return", async () => {
+    const binding = customerBinding();
+    const pending = { providerId: "ripio", region: "AR", state: "pending", verificationStartedAt: "2026-09-18T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z" };
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [binding] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) return { customers: [pending] };
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} returnedFromProvider returnedFromVerification initialStep="method" regionId="AR" />);
+    expect(await page().findByRole("heading", { name: "Set up Ripio" })).toBeTruthy();
+    expect(page().getByText(/Verification is pending/)).toBeTruthy();
+  });
+
+  test("keeps Coinbase and IDRX usable when the customer endpoint would fail", async () => {
+    for (const [binding, region] of [[applePayBinding(), "US"], [redirectBinding(), "ID"]] as const) {
+      let customerGets = 0;
+      const wallet = { ...verifiedWallet(), ownerKey: `owner-${region}`, fetchAccountResource: async (path: string) => {
+        if (path.startsWith("/api/funding/providers")) return { providers: [binding] };
+        if (path.startsWith("/api/funding/orders?")) return { order: null };
+        if (path.startsWith("/api/funding/provider-customers?")) { customerGets += 1; throw new Error("customer read unavailable"); }
+        throw new Error("unexpected request");
+      } };
+      const view = render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId={region} />);
+      expect(await page().findByRole("button", { name: new RegExp(`Deposit ${binding.currency}`) })).toBeTruthy();
+      expect(customerGets).toBe(0);
+      view.unmount();
+      getHomeQueryClient().clear();
+    }
   });
 });

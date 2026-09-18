@@ -9,6 +9,7 @@ type RipioEnabledCountry = keyof typeof RIPIO_ASSETS;
 type RipioPaymentMethod = "bank_transfer" | "pix" | "breb" | "r2p_bancolombia" | "r2p_nequi";
 type RipioQuoteRequest = {
   country: RipioEnabledCountry;
+  customerId: string;
   fromCurrency: "ARS" | "BRL" | "COP";
   toCurrency: "wARS" | "wBRL" | "wCOP";
   fromAmount: string;
@@ -87,6 +88,12 @@ export type RipioCustomerReference = {
   createdAt: string;
 };
 
+export type RipioKycHandoff = {
+  providerUrl: string;
+};
+
+export type RipioKycStatus = string;
+
 export type RipioTransactionReference = {
   transactionId: string;
   status: string;
@@ -139,8 +146,9 @@ export type RipioClient = {
   getTransaction(transactionId: string, expected?: RipioTransactionBinding): Promise<RipioTransactionReference>;
   getCustomer(customerId: string): Promise<unknown>;
   getTerms(): Promise<unknown>;
-  acceptTerms(customerId: string, termsId: string): Promise<unknown>;
-  submitKyc(customerId: string, body: Record<string, unknown>): Promise<unknown>;
+  acceptTerms(customerId: string, termsId: string, ipAddress: string): Promise<unknown>;
+  submitHostedKyc(customerId: string, input: { redirectUrl: string }): Promise<RipioKycHandoff>;
+  getKycStatus(customerId: string): Promise<RipioKycStatus>;
   getDepositNetworks(): Promise<unknown>;
   getWithdrawalNetworks(): Promise<unknown>;
 };
@@ -251,6 +259,7 @@ export function createRipioClient(country: RipioCountry, options: {
         throw new RipioProviderError("binding-conflict");
       }
       const providerInput = {
+        customerId: input.customerId,
         fromCurrency: input.fromCurrency,
         toCurrency: input.toCurrency,
         fromAmount: input.fromAmount,
@@ -294,13 +303,20 @@ export function createRipioClient(country: RipioCountry, options: {
       return request(`/api/v1/customers/${customerId}/`);
     },
     getTerms: () => request("/api/v1/termsAndConditions/"),
-    acceptTerms(customerId, termsId) {
-      if (!validUuid(customerId) || !validUuid(termsId)) throw new RipioProviderError("invalid-request");
-      return request(`/api/v1/customers/${customerId}/acceptTerms/`, { method: "POST", body: JSON.stringify({ termsId }) }, true);
+    acceptTerms(customerId, termsId, ipAddress) {
+      if (!validUuid(customerId) || !validUuid(termsId) || !validIpAddress(ipAddress)) throw new RipioProviderError("invalid-request");
+      return request(`/api/v1/customers/${customerId}/acceptTerms/`, { method: "POST", body: JSON.stringify({ termsId, ipAddress }) }, true);
     },
-    submitKyc(customerId, body) {
-      if (!validUuid(customerId) || !isRecord(body)) throw new RipioProviderError("invalid-request");
-      return request(`/api/v1/customers/${customerId}/kyc/`, { method: "POST", body: JSON.stringify(body) }, true);
+    submitHostedKyc(customerId, input) {
+      if (!validUuid(customerId) || !validRedirectUrl(input.redirectUrl)) throw new RipioProviderError("invalid-request");
+      return parseCreateResponse(
+        () => request(`/api/v1/customers/${customerId}/kyc/`, { method: "POST", body: JSON.stringify({ redirectUrl: input.redirectUrl }) }, true),
+        parseKycHandoff,
+      );
+    },
+    async getKycStatus(customerId) {
+      if (!validUuid(customerId)) throw new RipioProviderError("invalid-request");
+      return parseKycStatus(await request(`/api/v1/customers/${customerId}/kycSubmissions/`), customerId);
     },
     getDepositNetworks: () => request("/api/v1/depositNetworks/?include_currency=true"),
     getWithdrawalNetworks: () => request("/api/v1/withdrawalNetworks/?include_currency=true"),
@@ -313,6 +329,25 @@ export function ripioCredentialState(country: RipioCountry, env: Environment = p
   return id && secret ? "configured" : id || secret ? "partial" : "missing";
 }
 
+function parseKycHandoff(value: unknown): RipioKycHandoff {
+  if (!isRecord(value) || !validUuid(value.submissionId) || !validDate(value.createdAt) || typeof value.providerUrl !== "string" || value.providerUrl.length > 4096) {
+    throw new RipioProviderError("invalid-response");
+  }
+  return { providerUrl: value.providerUrl };
+}
+
+function parseKycStatus(value: unknown, customerId: string): RipioKycStatus {
+  if (
+    !isRecord(value)
+    || value.customerId !== customerId
+    || typeof value.status !== "string"
+    || value.status.length === 0
+    || value.status.length > 128
+    || !validDate(value.createdAt)
+  ) throw new RipioProviderError("invalid-response");
+  return value.status;
+}
+
 function parseCustomer(value: unknown): RipioCustomerReference {
   if (!isRecord(value) || !validUuid(value.customerId) || !validDate(value.createdAt)) {
     throw new RipioProviderError("invalid-response");
@@ -322,6 +357,11 @@ function parseCustomer(value: unknown): RipioCustomerReference {
 
 function parseQuote(value: unknown, request: RipioQuoteRequest): RipioQuote {
   if (!isRecord(value) || !validUuid(value.quoteId) || value.fromCurrency !== request.fromCurrency || value.toCurrency !== request.toCurrency || !validDate(value.expiration) || !Array.isArray(value.fees)) {
+    throw new RipioProviderError("invalid-response");
+  }
+  // A quote echoing a different customer would be unorderable: the order create
+  // binds quote and customer together. Absent is accepted, conflicting is not.
+  if (value.customerId !== undefined && value.customerId !== request.customerId) {
     throw new RipioProviderError("invalid-response");
   }
   const decimalFields = ["fromAmount", "finalFromAmount", "toAmount", "finalToAmount", "rate"] as const;
@@ -489,11 +529,16 @@ function exactRipioEntitlement(input: RipioQuoteRequest): boolean {
   return input.fromCurrency === asset.fiatCurrency
     && input.toCurrency === asset.token
     && input.chain === RIPIO_BASE_CHAIN
+    && validUuid(input.customerId)
     && /^0x[0-9a-fA-F]{40}$/.test(input.destination)
     && asset.paymentMethods.includes(input.paymentMethodType as never)
     && validDecimal(input.fromAmount)
     && /[1-9]/.test(input.fromAmount);
 }
+// Ripio pads amounts to its own precision, so "2300" and "2300.00000000" are
+// the same debit. Callers compare by value; whether a *changed* debit is
+// rejected stays the core's decision.
+export function sameRipioDecimal(left: string, right: string): boolean { return sameDecimal(left, right); }
 function sameDecimal(left: string, right: string): boolean {
   if (!validDecimal(left) || !validDecimal(right)) return false;
   const normalize = (value: string) => value.replace(/\.0+$/, "").replace(/(\.[0-9]*?)0+$/, "$1");
@@ -537,7 +582,17 @@ function validPixCode(value: string, expectedAmount: string): boolean {
   return offset === value.length && hasCrc && amount !== undefined && sameDecimal(amount, expectedAmount);
 }
 function validDate(value: unknown): value is string { return typeof value === "string" && Number.isFinite(Date.parse(value)); }
+// Ripio records the address the customer accepted the terms from. Home only
+// ever forwards an address it observed on the request; it never invents one.
+function validIpAddress(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f.:]{2,45}$/i.test(value); }
 function validEmail(value: string): boolean { return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
+function validRedirectUrl(value: string): boolean {
+  if (value.length > 4096) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && !url.hash;
+  } catch { return false; }
+}
 function safeHttps(value: string): boolean { try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password; } catch { return false; } }
 function catalogEntitles(value: unknown, country: RipioEnabledCountry): boolean {
   const catalog = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.networks) ? value.networks : null;

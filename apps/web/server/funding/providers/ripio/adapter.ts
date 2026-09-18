@@ -13,6 +13,7 @@ import { providerFetchImplementation, resolveWebhookEnvironment } from "../../co
 import {
   createRipioClient,
   RipioProviderError,
+  sameRipioDecimal,
   type RipioClient,
   type RipioOrderReference,
 } from "./client";
@@ -24,33 +25,63 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 export const ripioProvider: FundingProvider = {
   manifest: ripioManifest,
   onramp: {
-    async ensureCustomer(input, ctx) {
-      const startedAt = Date.now();
-      try {
-        const email = input.fields.email?.trim();
-        if (!email) throw new RipioProviderError("invalid-request");
-        const client = clientFor(ctx);
-        const customer = await client.createCustomer({ email });
-        const terms = await client.getTerms();
-        const termsId = readTermsId(terms);
-        if (!termsId) throw new RipioProviderError("invalid-response");
-        await client.acceptTerms(customer.customerId, termsId);
-        const kyc = Object.fromEntries(
-          Object.entries(input.fields).filter(([name]) => name !== "email"),
-        );
-        if (Object.keys(kyc).length > 0) await client.submitKyc(customer.customerId, kyc);
-        return { customerRef: customer.customerId };
-      } catch (error) {
-        emitRipioFailure("customer", error, startedAt, ctx.binding.region);
-        throw error;
-      }
+    customer: {
+      async create(input, ctx) {
+        const startedAt = Date.now();
+        try {
+          const email = input.email.trim();
+          if (!email) throw new RipioProviderError("invalid-request");
+          const customer = await clientFor(ctx).createCustomer({ email });
+          return { outcome: "created" as const, customerRef: customer.customerId };
+        } catch (error) {
+          emitRipioFailure("customer", error, startedAt, ctx.binding.region);
+          if (error instanceof RipioProviderError && error.code === "invalid-request") return { outcome: "rejected" as const };
+          return { outcome: "ambiguous" as const };
+        }
+      },
+      async startVerification(input, ctx) {
+        const startedAt = Date.now();
+        try {
+          // Terms acceptance and KYC submission are provider writes. The core
+          // claims the durable customer row before entering this method, and any
+          // uncertainty after that point is never retried automatically.
+          if (!input.clientIp) throw new RipioProviderError("invalid-request");
+          const client = clientFor(ctx);
+          const termsId = readTermsId(await client.getTerms());
+          if (!termsId) throw new RipioProviderError("invalid-response");
+          await client.acceptTerms(input.customerRef, termsId, input.clientIp);
+          const handoff = await client.submitHostedKyc(input.customerRef, { redirectUrl: input.redirectUrl });
+          return { outcome: "created" as const, providerUrl: handoff.providerUrl };
+        } catch (error) {
+          emitRipioFailure("customer", error, startedAt, ctx.binding.region);
+          if (error instanceof RipioProviderError && error.code === "invalid-request") return { outcome: "rejected" as const };
+          return { outcome: "ambiguous" as const };
+        }
+      },
+      async getStatus(input, ctx) {
+        const startedAt = Date.now();
+        try {
+          const status = await clientFor(ctx).getKycStatus(input.customerRef);
+          if (status === "COMPLETED") return "verified" as const;
+          if (status === "FAILED") return "rejected" as const;
+          return "pending" as const;
+        } catch (error) {
+          emitRipioFailure("status", error, startedAt, ctx.binding.region);
+          throw error;
+        }
+      },
     },
 
     async createQuote(input, ctx) {
       const startedAt = Date.now();
       try {
+        // Ripio prices a quote against the customer, so the verified customer
+        // must already exist. Without it the provider rejects the create, and
+        // a quote bound to the wrong customer could not be ordered against.
+        if (!input.customerRef) throw new RipioProviderError("invalid-request");
         const quote = await clientFor(ctx).createQuote({
           country: countryFor(ctx),
+          customerId: input.customerRef,
           fromCurrency: ctx.binding.asset.fiatCurrency as "ARS" | "BRL" | "COP",
           toCurrency: ctx.binding.asset.symbol as "wARS" | "wBRL" | "wCOP",
           fromAmount: input.fiatAmount,
@@ -60,7 +91,11 @@ export const ripioProvider: FundingProvider = {
         });
         return {
           providerQuoteId: quote.quoteId,
-          fiatAmount: quote.finalFromAmount,
+          // Ripio pads the amount to its own precision, so the requested form
+          // is restored when the two are the same debit. A provider that
+          // actually changed the debit is passed through unchanged and the core
+          // rejects it, which keeps that decision where it is documented.
+          fiatAmount: sameRipioDecimal(quote.finalFromAmount, input.fiatAmount) ? input.fiatAmount : quote.finalFromAmount,
           tokenAmountAtomic: ripioDecimalToAtomic(quote.finalToAmount, ctx.binding.asset.decimals, "invalid-response"),
           fees: quote.fees.map((fee) => ({
             label: fee.type,

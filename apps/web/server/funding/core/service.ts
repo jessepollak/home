@@ -8,6 +8,7 @@ import { decimalToAtomic } from "@/shared/formatting/atomic";
 import { FUNDING_BINDING_ENVIRONMENT_CODE, FUNDING_CONFIGURATION_CODE, FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode, type FundingConfigurationCode } from "./provider-context";
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
 import type { FundingOrder, FundingOrderOwner, FundingOrderStore } from "./store";
+import { MemoryFundingProviderCustomerStore, type FundingProviderCustomer, type FundingProviderCustomerStore } from "./customer-store";
 import { awaitBalanceSignal } from "@/server/balances/signal";
 
 export type ReceiptMatch = { transactionHash: `0x${string}`; logIndex: number } | null;
@@ -16,6 +17,7 @@ type Environment = Readonly<Record<string, string | undefined>>;
 export type FundingCoreDependencies = {
   providers: ReadonlyArray<FundingProvider>;
   store: FundingOrderStore;
+  customerStore?: FundingProviderCustomerStore;
   env?: Environment;
   fetchImplementation?: typeof fetch;
   currentBaseBlock: () => Promise<string>;
@@ -30,9 +32,11 @@ export type FundingCoreDependencies = {
 export class FundingCore {
   private readonly env: Environment;
   private readonly now: () => Date;
+  private readonly customerStore: FundingProviderCustomerStore;
   constructor(private readonly deps: FundingCoreDependencies) {
     this.env = deps.env ?? process.env;
     this.now = deps.now ?? (() => new Date());
+    this.customerStore = deps.customerStore ?? new MemoryFundingProviderCustomerStore();
   }
 
   async listProviders(
@@ -81,9 +85,6 @@ export class FundingCore {
       if (direction === "onramp") {
         const manifest = provider.manifest.onramp;
         if (!manifest || !provider.onramp) return [];
-        const existingCustomer = manifest.kyc
-          ? await this.deps.store.findCustomerRef(ownerFor(session), provider.manifest.id, binding.region)
-          : null;
         return [{
           direction,
           providerId: provider.manifest.id,
@@ -95,7 +96,7 @@ export class FundingCore {
           currency: binding.currency,
           paymentMethods: directional.paymentMethods,
           quotes: manifest.quotes === true,
-          kyc: existingCustomer ? null : manifest.kyc ?? null,
+          customerSetup: manifest.customer ? { hosted: true as const } : null,
         }];
       }
       if (!provider.offramp || !session.smartAccount) return [];
@@ -140,7 +141,7 @@ export class FundingCore {
           currency: binding.currency,
           paymentMethods: platforms,
           quotes: false,
-          kyc: null,
+          customerSetup: null,
         }];
       } catch (error) {
         this.deps.logProviderDiscoveryFailure?.({
@@ -152,6 +153,116 @@ export class FundingCore {
       }
     }));
     return results.flat();
+  }
+
+  async listProviderCustomers(session: VerifiedAccountSession, region: string) {
+    const customers = await this.customerStore.list(ownerFor(session), region);
+    return Promise.all(customers.map(async (customer) => publicCustomer(await this.refreshProviderCustomer(customer))));
+  }
+
+  async startProviderCustomerVerification(session: VerifiedAccountSession, body: unknown, returnOrigin: string, headers?: Headers) {
+    const parsed = parseVerificationRequest(body);
+    const resolved = parsed ? this.customerCapability(parsed.providerId, parsed.region) : null;
+    if (!parsed || !resolved) throw new FundingCoreError("INVALID_VERIFICATION_REQUEST", 400);
+    const { provider, binding, capability, sandbox } = resolved;
+    const timestamp = this.now().toISOString();
+    const reserved = await this.customerStore.reserve({ id: randomUUID(), owner: ownerFor(session), providerId: provider.manifest.id, region: binding.region, createdAt: timestamp });
+    let customer = reserved.customer;
+
+    if (reserved.created) {
+      let result: Awaited<ReturnType<typeof capability.create>>;
+      try {
+        result = await capability.create({ email: parsed.email }, this.customerContext(resolved));
+      } catch {
+        result = { outcome: "ambiguous" };
+      }
+      if (result.outcome === "rejected") {
+        const rejected = await this.customerStore.markRejected(customer.id, customer.version, this.now().toISOString());
+        return { customer: publicCustomer(rejected ?? customer) };
+      }
+      if (result.outcome === "ambiguous") {
+        const ambiguous = await this.customerStore.markDispatchAmbiguous(customer.id, customer.version, this.now().toISOString());
+        return { customer: publicCustomer(ambiguous ?? customer) };
+      }
+      try {
+        const completed = await this.customerStore.completeCreate(customer.id, { customerRef: result.customerRef, expectedVersion: customer.version, updatedAt: this.now().toISOString() });
+        if (!completed) throw new Error("customer-create-state-conflict");
+        customer = completed;
+      } catch {
+        const ambiguous = await this.customerStore.markDispatchAmbiguous(customer.id, customer.version, this.now().toISOString());
+        return { customer: publicCustomer(ambiguous ?? { ...customer, state: "dispatch-ambiguous" }) };
+      }
+    } else if (customer.state === "reserving") {
+      if (this.now().getTime() - Date.parse(customer.updatedAt) < 120_000) throw new FundingCoreError("CUSTOMER_CREATION_IN_PROGRESS", 409);
+      const ambiguous = await this.customerStore.markDispatchAmbiguous(customer.id, customer.version, timestamp);
+      return { customer: publicCustomer(ambiguous ?? customer) };
+    }
+
+    if (!customer.customerRef || customer.state !== "pending") throw new FundingCoreError("CUSTOMER_NOT_READY", 409);
+    if (customer.verificationStartedAt) throw new FundingCoreError("VERIFICATION_ALREADY_STARTED", 409);
+    const claimed = await this.customerStore.claimVerification(customer.id, customer.version, this.now().toISOString());
+    if (!claimed) throw new FundingCoreError("VERIFICATION_ALREADY_STARTED", 409);
+    let result: Awaited<ReturnType<typeof capability.startVerification>>;
+    try {
+      result = await capability.startVerification({
+        customerRef: customer.customerRef,
+        clientIp: resolveClientIp(headers, this.env, sandbox),
+        redirectUrl: `${returnOrigin}/fund?return=verification`,
+      }, this.customerContext(resolved));
+    } catch {
+      result = { outcome: "ambiguous" };
+    }
+    if (result.outcome === "rejected") {
+      const rejected = await this.customerStore.markRejected(customer.id, claimed.version, this.now().toISOString());
+      return { customer: publicCustomer(rejected ?? claimed) };
+    }
+    if (result.outcome !== "created" || !safeHandoffUrl(result.providerUrl, provider.manifest.onramp?.customer?.handoffOrigins ?? [])) {
+      const ambiguous = await this.customerStore.markDispatchAmbiguous(customer.id, claimed.version, this.now().toISOString());
+      return { customer: publicCustomer(ambiguous ?? claimed) };
+    }
+    // The URL may contain a bearer token. It is returned only by this explicit
+    // POST and is deliberately absent from the durable/public customer record.
+    return { customer: publicCustomer(claimed), handoff: { url: result.providerUrl } };
+  }
+
+  private customerCapability(providerId: string, region: string) {
+    const provider = this.provider(providerId);
+    const binding = provider?.manifest.bindings.find((candidate) => candidate.region === region && candidate.directions.onramp);
+    const capability = provider?.onramp?.customer;
+    if (!provider || !binding || !capability || !provider.manifest.onramp?.customer || !environmentAvailable(binding.directions.onramp!.env, this.env)) return null;
+    const sandbox = resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox";
+    return { provider, binding, capability, sandbox };
+  }
+
+  private customerContext(resolved: NonNullable<ReturnType<FundingCore["customerCapability"]>>) {
+    return createProviderContext({
+      manifest: resolved.provider.manifest,
+      region: resolved.binding.region,
+      direction: "onramp",
+      paymentMethodId: resolved.binding.directions.onramp!.paymentMethods[0]!.id,
+      env: this.env,
+      fetchImplementation: this.deps.fetchImplementation,
+      sandbox: resolved.sandbox,
+    });
+  }
+
+  private async refreshProviderCustomer(customer: FundingProviderCustomer): Promise<FundingProviderCustomer> {
+    if (customer.state !== "pending" || !customer.verificationStartedAt || !customer.customerRef) return customer;
+    const resolved = this.customerCapability(customer.providerId, customer.region);
+    if (!resolved) return customer;
+    let status: "pending" | "verified" | "rejected";
+    try {
+      status = await resolved.capability.getStatus({ customerRef: customer.customerRef }, this.customerContext(resolved));
+    } catch {
+      return customer;
+    }
+    if (status === "verified") {
+      return await this.customerStore.markVerified(customer.id, customer.version, this.now().toISOString()) ?? customer;
+    }
+    if (status === "rejected") {
+      return await this.customerStore.markRejected(customer.id, customer.version, this.now().toISOString()) ?? customer;
+    }
+    return customer;
   }
 
   async createQuote(
@@ -172,21 +283,20 @@ export class FundingCore {
     if (!parsed || !provider || !binding || !directional || !asset || !onramp || !onrampManifest || !session.smartAccount || !directionAvailable(provider, "onramp", sandbox) || !environmentAvailable(directional.env, this.env) || (!onramp.createQuote && binding.currency !== asset.fiatCurrency)) {
       throw new FundingCoreError("INVALID_QUOTE_REQUEST", 400);
     }
-    if (parsed.kycFields && !validKycFields(parsed.kycFields, onrampManifest.kyc?.fields ?? [])) {
-      throw new FundingCoreError("INVALID_KYC_FIELDS", 400);
-    }
     const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: parsed.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox });
-    const owner = ownerFor(session);
-    let customerRef = await this.deps.store.findCustomerRef(owner, provider.manifest.id, binding.region);
-    if (onrampManifest.kyc && !customerRef) {
-      if (!onramp.ensureCustomer || !parsed.kycFields) throw new FundingCoreError("KYC_REQUIRED", 400);
-      customerRef = (await onramp.ensureCustomer({ subject: session.user.subject, fields: parsed.kycFields }, ctx)).customerRef;
+    const customer = onrampManifest.customer
+      ? await this.customerStore.get(ownerFor(session), provider.manifest.id, binding.region)
+      : null;
+    if (onrampManifest.customer && customer?.state !== "verified") {
+      throw new FundingCoreError("CUSTOMER_VERIFICATION_REQUIRED", 409);
     }
+    const customerRef = customer?.customerRef ?? null;
     const quote: Quote = onramp.createQuote
       ? await onramp.createQuote({
           destination: session.smartAccount.address,
           fiatAmount: parsed.fiatAmount,
           returnUrl: `${returnOrigin}/fund?return=funding`,
+          ...(customerRef ? { customerRef } : {}),
         }, ctx)
       : localOneToOneQuote(parsed.fiatAmount, asset.decimals, this.now());
     if (quote.fiatAmount !== parsed.fiatAmount || !validAtomic(quote.tokenAmountAtomic) || Date.parse(quote.expiresAt) <= this.now().getTime()) {
@@ -457,17 +567,27 @@ function instructionUrlIsSafe(
     return false;
   }
 }
-function parseQuoteRequest(value: unknown): { providerId: string; region: string; paymentMethod: string; fiatAmount: string; kycFields: Record<string, string> | null } | null {
-  if (!record(value) || !["providerId", "region", "paymentMethod", "fiatAmount", "kycFields"].every((key) => !(key in value) || key === "kycFields" || typeof value[key] === "string")) return null;
+function parseQuoteRequest(value: unknown): { providerId: string; region: string; paymentMethod: string; fiatAmount: string } | null {
+  if (!record(value) || Object.keys(value).some((key) => !["providerId", "region", "paymentMethod", "fiatAmount"].includes(key))) return null;
   if (typeof value.providerId !== "string" || typeof value.region !== "string" || typeof value.paymentMethod !== "string" || typeof value.fiatAmount !== "string" || !/^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value.fiatAmount) || value.fiatAmount.length > 64) return null;
-  let kycFields: Record<string, string> | null = null;
-  if (value.kycFields !== undefined) { if (!record(value.kycFields) || Object.values(value.kycFields).some((field) => typeof field !== "string" || field.length > 512)) return null; kycFields = value.kycFields as Record<string, string>; }
-  return { providerId: value.providerId, region: value.region, paymentMethod: value.paymentMethod, fiatAmount: value.fiatAmount, kycFields };
+  return { providerId: value.providerId, region: value.region, paymentMethod: value.paymentMethod, fiatAmount: value.fiatAmount };
 }
-function validKycFields(fields: Record<string, string>, definitions: ReadonlyArray<{ name: string }>): boolean {
-  const expected = definitions.map((field) => field.name).sort();
-  const supplied = Object.keys(fields).sort();
-  return expected.length === supplied.length && expected.every((name, index) => name === supplied[index] && fields[name].trim().length > 0);
+function parseVerificationRequest(value: unknown): { providerId: string; region: string; email: string } | null {
+  if (!record(value) || Object.keys(value).some((key) => !["providerId", "region", "email"].includes(key)) || typeof value.providerId !== "string" || typeof value.region !== "string" || typeof value.email !== "string") return null;
+  const email = value.email.trim();
+  // 254 is the RFC 5321 address limit the provider clients enforce; rejecting
+  // it here keeps an uncreatable address from reserving a customer row first.
+  return email.length > 3 && email.length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? { providerId: value.providerId, region: value.region, email } : null;
+}
+function publicCustomer(customer: FundingProviderCustomer) {
+  return { providerId: customer.providerId, region: customer.region, state: customer.state, verificationStartedAt: customer.verificationStartedAt, updatedAt: customer.updatedAt };
+}
+function safeHandoffUrl(value: string, origins: ReadonlyArray<string>): boolean {
+  if (value.length > 4096) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && origins.includes(url.origin) && !url.username && !url.password && !url.hash;
+  } catch { return false; }
 }
 function clientIpFromHeaders(headers: Headers | undefined): string | undefined {
   const forwarded = headers?.get("x-forwarded-for")?.split(",")[0]?.trim();

@@ -5,14 +5,8 @@ import type { FundingAsset } from "./assets";
 export type FundingDirection = "onramp" | "offramp";
 export type FundingPaymentMethod = { id: string; label: string };
 
-export type FundingKycManifest = {
-  terms?: { url: string };
-  fields?: ReadonlyArray<{
-    name: string;
-    label: string;
-    type: "text" | "email" | "date" | "select";
-    options?: ReadonlyArray<string>;
-  }>;
+export type FundingCustomerManifest = {
+  handoffOrigins: ReadonlyArray<string>;
 };
 
 export type FundingWebhookManifest = {
@@ -41,7 +35,7 @@ export type FundingProviderManifest = {
     sandbox?: boolean;
     reference: "home" | "provider";
     quotes?: boolean;
-    kyc?: FundingKycManifest;
+    customer?: FundingCustomerManifest;
     webhook?: FundingWebhookManifest;
   };
   offramp?: {
@@ -73,11 +67,31 @@ export type FundingProvider = {
   offramp?: FundingOfframpProvider;
 };
 
+export type FundingCustomerStatus = "pending" | "verified" | "rejected";
+
 export type FundingOnrampProvider = {
-  ensureCustomer?(
-    input: { subject: string; fields: Record<string, string> },
-    ctx: ProviderContext,
-  ): Promise<{ customerRef: string }>;
+  customer?: {
+    create(
+      input: { email: string },
+      ctx: ProviderContext,
+    ): Promise<
+      | { outcome: "created"; customerRef: string }
+      | { outcome: "rejected" }
+      | { outcome: "ambiguous" }
+    >;
+    startVerification(
+      input: { customerRef: string; clientIp?: string; redirectUrl: string },
+      ctx: ProviderContext,
+    ): Promise<
+      | { outcome: "created"; providerUrl: string }
+      | { outcome: "rejected" }
+      | { outcome: "ambiguous" }
+    >;
+    getStatus(
+      input: { customerRef: string },
+      ctx: ProviderContext,
+    ): Promise<FundingCustomerStatus>;
+  };
   createQuote?(input: QuoteIntent, ctx: ProviderContext): Promise<Quote>;
   createOrder(input: OrderIntent, ctx: ProviderContext): Promise<CreateOrderResult>;
   getOrder(input: ReconciliationIntent, ctx: ProviderContext): Promise<Observation>;
@@ -213,6 +227,7 @@ export type QuoteIntent = {
   destination: `0x${string}`;
   fiatAmount: string;
   returnUrl: string;
+  customerRef?: string;
 };
 
 export type Quote = {

@@ -10,10 +10,12 @@ import {
 } from "./add-money-dialog";
 import { readFundingOrder, readProviderId, type FundingOrderSummary } from "@/shared/funding/contracts/order";
 import { readProviderBindings, type FundingBinding } from "@/shared/funding/contracts/providers";
+import { readFundingProviderCustomers, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 
 export type FundingExperienceProps = {
   returnedFromProvider?: boolean;
+  returnedFromVerification?: boolean;
   open?: boolean;
   onClose?: () => void;
   initialStep?: AddMoneyStep;
@@ -57,6 +59,7 @@ function FundingExperienceBoundary({
   wallet,
   navigateToRedirect,
   returnedFromProvider = false,
+  returnedFromVerification = false,
   open = true,
   onClose,
   initialStep,
@@ -73,6 +76,7 @@ function FundingExperienceBoundary({
   const [step, setStep] = useState<AddMoneyStep>(startStep);
   const [selectedBinding, setSelectedBinding] = useState<FundingBinding | null>(null);
   const [initialOrder, setInitialOrder] = useState<FundingOrderSummary | null>(null);
+  const [initialCustomer, setInitialCustomer] = useState<FundingProviderCustomerSummary | null>(null);
   const stepRef = useRef<AddMoneyStep>(startStep);
   const navigationEpochRef = useRef(0);
   const wasOpenRef = useRef(open);
@@ -97,6 +101,24 @@ function FundingExperienceBoundary({
         { signal },
       ),
   });
+  const providerBindings = useMemo(
+    () => providerQuery.data ? readProviderBindings(providerQuery.data) : [],
+    [providerQuery.data],
+  );
+  const customerSetupRequired = providerBindings.some(
+    (binding) => binding.customerSetup !== null,
+  );
+  const customersQuery = useHomeQuery({
+    queryKey: queryOwnerKey
+      ? ownerQueryKey(queryOwnerKey, "funding-provider-customers", regionId)
+      : ["unauthenticated", "funding-provider-customers-disabled", regionId],
+    enabled: queryEnabled && customerSetupRequired,
+    staleTime: 15_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
+    queryFn: ({ signal }) => wallet.fetchAccountResource(`/api/funding/provider-customers?region=${encodeURIComponent(regionId)}`, { signal }),
+  });
   const ordersQuery = useHomeQuery({
     queryKey: queryOwnerKey
       ? ownerQueryKey(queryOwnerKey, "funding-open-order", regionId)
@@ -112,11 +134,6 @@ function FundingExperienceBoundary({
         { signal },
       ),
   });
-
-  const providerBindings = useMemo(
-    () => providerQuery.data ? readProviderBindings(providerQuery.data) : [],
-    [providerQuery.data],
-  );
 
   useEffect(() => {
     onStepChangeRef.current?.(step);
@@ -151,6 +168,41 @@ function FundingExperienceBoundary({
     });
   }, [ordersQuery.data, providerBindings]);
 
+  useEffect(() => {
+    if (!returnedFromVerification || !ordersQuery.isSuccess || readFundingOrder(ordersQuery.data) || stepRef.current !== "method") return;
+    const customers = readFundingProviderCustomers(customersQuery.data);
+    const customer = customers.find((candidate) => candidate.state !== "verified") ?? customers[0];
+    if (!customer) return;
+    const binding = providerBindings.find((candidate) => candidate.providerId === customer.providerId && candidate.customerSetup);
+    if (!binding) return;
+    const navigationEpoch = navigationEpochRef.current;
+    queueMicrotask(() => {
+      if (navigationEpochRef.current !== navigationEpoch || stepRef.current !== "method") return;
+      setSelectedBinding(binding); setInitialCustomer(customer); navigateTo("order", false);
+    });
+  }, [customersQuery.data, ordersQuery.data, ordersQuery.isSuccess, providerBindings, returnedFromVerification]);
+
+  // The order flow snapshots the customer record once, so a customer-capable
+  // binding stays unselectable until the lookup that yields that record has
+  // succeeded. Direct Coinbase/IDRX bindings never wait on it.
+  const customerSetupReady = customersQuery.isSuccess || !customerSetupRequired;
+  const fundingReadError = providerQuery.isError
+    ? {
+        message: "Funding methods are unavailable. Try again.",
+        retry: () => void providerQuery.refetch(),
+      }
+    : ordersQuery.isError && providerBindings.length > 0
+      ? {
+          message: "Home couldn't check for an open deposit. Retry.",
+          retry: () => void ordersQuery.refetch(),
+        }
+      : customersQuery.isError && customerSetupRequired
+        ? {
+            message: "Home couldn't check your provider setup. Retry.",
+            retry: () => void customersQuery.refetch(),
+          }
+        : null;
+
   function navigateTo(next: AddMoneyStep, explicit = true) {
     if (explicit) navigationEpochRef.current += 1;
     stepRef.current = next;
@@ -161,6 +213,7 @@ function FundingExperienceBoundary({
     navigateTo("method");
     setSelectedBinding(null);
     setInitialOrder(null);
+    setInitialCustomer(null);
     onClose?.();
   }
 
@@ -168,6 +221,7 @@ function FundingExperienceBoundary({
     navigateTo("method");
     setSelectedBinding(null);
     setInitialOrder(null);
+    setInitialCustomer(null);
   }
 
   return (
@@ -182,26 +236,17 @@ function FundingExperienceBoundary({
       onSelectReceive={() => navigateTo("receive")}
       providerBindings={providerBindings}
       providerBindingsDisabled={!ordersQuery.isSuccess}
-      fundingReadError={
-        providerQuery.isError
-          ? {
-              message: "Funding methods are unavailable. Try again.",
-              retry: () => void providerQuery.refetch(),
-            }
-          : ordersQuery.isError && providerBindings.length > 0
-            ? {
-                message: "Home couldn't check for an open deposit. Retry.",
-                retry: () => void ordersQuery.refetch(),
-              }
-            : null
-      }
+      customerSetupReady={customerSetupReady}
+      fundingReadError={fundingReadError}
       selectedBinding={selectedBinding}
       initialOrder={initialOrder}
+      initialCustomer={initialCustomer}
       fetchAccountResource={wallet.fetchAccountResource}
       queryOwnerKey={queryOwnerKey}
       onSelectBinding={(binding) => {
         setSelectedBinding(binding);
         setInitialOrder(null);
+        setInitialCustomer(readFundingProviderCustomers(customersQuery.data).find((customer) => customer.providerId === binding.providerId) ?? null);
         navigateTo("order");
       }}
       onOpenRedirect={navigateToRedirect}

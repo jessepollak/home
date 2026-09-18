@@ -64,7 +64,7 @@ export type FundingProviderManifest = {
 
 export type FundingProvider = {
   manifest: FundingProviderManifest;
-  ensureCustomer?(input: { subject: string; fields: Record<string, string> }, ctx: ProviderContext): Promise<{ customerRef: string }>;
+  ensureCustomer?(input: { subject: string; fields: Record<string, string>; clientIp?: string }, ctx: ProviderContext): Promise<{ customerRef: string }>;
   createQuote?(input: QuoteIntent, ctx: ProviderContext): Promise<Quote>;
   createOrder(input: OrderIntent, ctx: ProviderContext): Promise<CreateOrderResult>;
   getOrder(input: ReconciliationIntent, ctx: ProviderContext): Promise<Observation>;
@@ -78,7 +78,7 @@ export type ProviderContext = {
   fetch: typeof fetch;                     // origin allowlist, redirect: "manual", timeout
 };
 
-export type QuoteIntent = { destination: `0x${string}`; fiatAmount: string; returnUrl: string };
+export type QuoteIntent = { destination: `0x${string}`; fiatAmount: string; returnUrl: string; customerRef?: string };
 export type Quote = { providerQuoteId?: string; fiatAmount: string; tokenAmountAtomic: string; fees: Array<{ label: string; amount: string; currency: string }>; expiresAt: string };
 
 export type OrderIntent = {
@@ -133,7 +133,7 @@ export type Observation = { state: ReportedState; providerStatus: string; transa
 export type OrderState = ReportedState | "reserving" | "dispatch-ambiguous" | "sent-unverified" | "received";
 ```
 
-How the ports fit: Ripio is `reference: "home"`, `quotes: true`, `kyc: { terms, fields }`, webhook, `bank-transfer`/`payment-key`/`redirect`/`qr` instructions, per-country env. IDRX is `reference: "provider"`, no quotes, no per-user KYC (the operator's issuer account), polling only, `bank-transfer` (VA) or `redirect` (QRIS), 2-decimal asset.
+How the ports fit: Ripio is `reference: "home"`, `quotes: true`, an email-created customer with Ripio-hosted verification, webhook, `bank-transfer`/`payment-key`/`redirect`/`qr` instructions, and per-country env. IDRX is `reference: "provider"`, no quotes, no per-user KYC (the operator's issuer account), polling only, `bank-transfer` (VA) or `redirect` (QRIS), 2-decimal asset.
 
 `shared/funding/assets.ts` is the crew-owned token registry (`base:usdc`, `base:wars`, `base:wbrl`, `base:wcop`, `base:idrx` to start): chain ID, address, decimals, symbol, issuer doc URL. `docs/stablecoin-candidates.json` stays a research file; it is not read at runtime.
 
@@ -141,7 +141,7 @@ How the ports fit: Ripio is `reference: "home"`, `quotes: true`, `kyc: { terms, 
 
 **When the core/routes delivery lands, configured means eligible.** A binding will appear in `GET /api/funding/providers?region=` when every variable in its `env` is set. Nothing else is planned to gate it. The contract/IDRX candidate in delivery item 1 does not implement that route or read provider environment at runtime, so setting IDRX variables alone does not enable anything.
 
-**KYC.** If the manifest has `kyc`, the flow shows the terms link and a form generated from `fields`, posts them once to `ensureCustomer`, and stores only the returned `customerRef` against the subject. Field values are not persisted. This is enough for Ripio's customer + terms + KYC submission; if a provider needs a document upload later, that is a new field type added by the crew.
+**KYC.** A manifest customer capability makes the flow collect email and offer one explicit hosted-verification action. Home creates and stores the provider customer reference before terms acceptance and sends Ripio exactly `{ redirectUrl }` for hosted KYC; it never collects or stores partner-submitted KYC fields.
 
 **Quotes.** `POST /api/funding/quotes` calls `createQuote` and returns the quote plus a `quoteToken`: an HMAC (server secret) over `{ subject, region, providerId, paymentMethod, destination, fiatAmount, tokenAmountAtomic, providerQuoteId, expiresAt }`. `POST /api/funding/orders` accepts only the token, recomputes the HMAC, and rejects any mismatch or expiry. No quote table.
 
@@ -180,7 +180,7 @@ For completed **local development**, that clip and line prove only the path and 
 Order matters only where noted; everything else can run in parallel under the [delivery loop](operating-manual.md#delivery-loop).
 
 1. **Contract + IDRX** — `assets.ts`, `provider-contract.ts`, `core/provider-context.ts`, `core/testing/describeFundingAdapter.ts`, `providers/idrx/` ported from #120. IDRX first because it is the simplest full shape. Independent review.
-2. **Ripio adapter** — port of `ripio-client.ts`: home reference, quotes, KYC fields and terms, webhook. Amends the contract where porting demands; doc updated in the same PR. Depends on 1. Independent review.
+2. **Ripio adapter** — port of `ripio-client.ts`: home reference, quotes, hosted KYC and terms, webhook. Amends the contract where porting demands; doc updated in the same PR. Depends on 1. Independent review.
 3. **Native Base Account sign-in** — nonce, verify (viem, ERC-1271/6492), signed session cookie, `accountProvider: "base-account"`. Works without any CDP variable. Independent review. Independent of 1–2.
 4. **Local Postgres** — `docker-compose.yml`, `bun run db:up`, README/env notes. Independent.
 5. **Core + routes** — `funding_orders` store and migration, quotes, orders, status, webhooks, received. Depends on 1. Independent review.
@@ -217,6 +217,8 @@ A complete September 16 `agent-browser` sandbox run without `clientIp` passed qu
 ## Implementation notes (#294)
 
 - `Instruction` now has a distinct `embed` kind. The first presentation is `apple-pay`; the instruction carries the allowlisted iframe URL and the fee-inclusive fiat amount/currency the payer will authorize.
+- `ensureCustomer` receives `clientIp`, the address Home observed on the request, for providers that record where a customer accepted their terms. It is the same value `OrderIntent.clientIp` already carries and is absent when no forwarded address was observed; an adapter that needs it fails closed rather than substituting one. Ripio needs it.
+- `QuoteIntent.customerRef` carries the verified customer to adapters whose provider prices a quote against that customer, matching `OrderIntent.customerRef`. The core supplies it whenever a customer reference exists; a provider that does not price per customer ignores it, and one that requires it fails the quote closed when it is absent. Ripio requires it.
 - `QuoteIntent.returnUrl` gives quote-capable adapters the same request-origin context already supplied to order creation. Coinbase derives its required web `domain` from that URL without reading browser-visible environment variables.
 - After a provider reports `created`, the core validates every `redirect` and `embed` URL before persisting instructions: HTTPS, an origin declared by `manifest.redirectOrigins`, no username/password/fragment, and at most 4096 characters. Failure is `dispatch-ambiguous` because the provider request may have succeeded.
 - If a provider cannot lock a quote, the adapter requests the exact quoted token amount on create and reports the resulting fiat total on the instruction. Coinbase follows this rule by pinning USDC `purchaseAmount`; a changed USD total is reviewed in Home and authorized again in Apple Pay.
@@ -231,7 +233,7 @@ The design originally cut sandbox from v1, then reversed that decision on Septem
 ## Implementation notes and deviations (#301)
 
 - `FundingProvider.getOrder` receives a core-owned `ReconciliationIntent`, rather than only a provider order ID, so adapters can reject contradictory asset, destination, amount, chain, and transaction-type echoes before the core considers receipt evidence.
-- `POST /api/funding/quotes` also accepts ephemeral manifest KYC fields when no stored customer reference exists. The fields go directly to `ensureCustomer` and are not persisted; the returned customer reference is bound into the signed quote token. `POST /api/funding/orders` accepts only that token.
+- `POST /api/funding/quotes` never accepts KYC fields. Ripio customer creation and hosted verification use the private owner-scoped provider-customer route, and quote creation requires the stored customer state to be `verified`. `POST /api/funding/orders` accepts only the signed quote token.
 - Ripio keeps per-country client credentials and webhook secrets. Configure the same `POST /api/funding/webhooks/ripio` URL in each AR, BR, and CO dashboard, then place each generated secret in the matching `RIPIO_WEBHOOK_SECRET_AR`, `_BR`, or `_CO` Vercel variable. There is no shared fallback. When migrating from the former shared `RIPIO_WEBHOOK_SECRET`, set every required suffixed Vercel variable before deploying this code or removing the shared variable so bindings and open orders do not become inert during the rename.
 - `GET /api/funding/orders?region=` is added as the owner-scoped resume endpoint used when Add money opens. It has the same private/no-store response contract as the specified status route.
 - Coinbase moved behind the manifest seam on Sept 12 (`providers/coinbase/{manifest,adapter}.ts`, registered in `providers/index.ts`); the legacy Ripio store/reconciliation files are tracked for removal in #293.
@@ -249,3 +251,13 @@ Ripio now fails closed when terms cannot be identified, treats uncertain create 
 Quote tokens now require one canonical unpadded base64url encoding. Existing owner-bound reservations are recovered from the authenticated canonical token even after quote expiry; expiry gates only a new reservation. Unknown fee economics are labeled unknown, and provider-returned receive/fee details are reviewed before payment instructions appear. Webhook bodies use capped timed streaming reads and treat `Content-Length` as advisory.
 
 Migration `002_funding_provider_seam.sql` remains candidate-only: it is absent from `origin/main` history and has never been published or deployed. It therefore remains a clean-install migration for #301; any future deployed predecessor requires a new additive migration instead of editing `002`.
+
+## Durable provider customers
+
+Provider-owned customer identity is separate from `funding_orders`. A provider opts in with the narrow `onramp.customer` capability; providers without it continue directly through quote/order creation. In particular, Coinbase Embedded Apple Pay and IDRX (including QRIS) are excluded from Home-owned customer setup.
+
+`funding_provider_customers` is owner-subject/account-provider/provider/region scoped. One explicit `POST /api/funding/provider-customers/verification` accepts `{ providerId, region, email }`: it reserves the row, creates the provider customer when absent, persists the returned customer reference before terms or KYC writes, then CAS-claims hosted verification. A fresh concurrent reservation returns a conflict; an aged reservation becomes `dispatch-ambiguous` and is never automatically retried. Pending unstarted rows may continue, while pending started, rejected, and ambiguous rows cannot reissue automatically. Hosted handoff URLs are returned only by that POST and are never persisted or returned by GET because their query may contain a bearer token. There is no separate customer-creation POST.
+
+Migration `007_funding_provider_customers.sql` reconciles legacy non-null order customer references as `pending`: an order proves identity binding, not verification. Existing order references remain immutable snapshots, but runtime customer lookup no longer scans orders. Owner-scoped customer GET performs at most one Ripio status read for each pending-started row on that query. Exact `COMPLETED` promotes by CAS to `verified`; exact `FAILED` promotes by CAS to `rejected`; every other status, 404, malformed/contradictory response, and HTTP/transport uncertainty preserves pending. Status refresh is read-only at the provider and never issues a write. Quote creation still requires stored `verified` state.
+
+A provider-rejected or dispatch-ambiguous customer setup is terminal in the customer flow and is never retried automatically. An operator must reconcile the durable row with the provider and explicitly restart setup through a separately reviewed recovery process. Ripio follows the public documentation as the implemented contract; production behavior remains unverified and requires separately authorized acceptance. No live acceptance is claimed. If merged independently, PR #614 supersedes PR #603's code while preserving exact head `74db447b` and its contributor attribution in branch ancestry.
