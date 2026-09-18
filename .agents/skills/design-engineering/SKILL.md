@@ -1,6 +1,6 @@
 ---
 name: design-engineering
-description: Apply Home's design-engineering craft to any user-visible implementation or review — trained taste, cohesive defaults, hierarchy, interaction edges, and purposeful motion. Use together with browser-iteration; animate, review-animations, and mobile-native stay focused lenses.
+description: Apply Home's design-engineering craft to any user-visible implementation or review — trained taste, cohesive defaults, hierarchy, interaction edges, and purposeful motion. Use with browser-iteration for implementation or interactive review of a rendered surface; animate, review-animations, and mobile-native stay focused lenses.
 license: MIT
 metadata:
   source: https://github.com/emilkowalski/skills/tree/85e8e2363b713506e1d5b6e07a0eb2da66be1bc3/skills/emil-design-eng
@@ -26,7 +26,7 @@ Home's craft standard for user-visible work, adapted from Emil Kowalski's design
 2. **Name hierarchy and default-state intent.** State the primary action, secondary actions, and the intended default, empty, loading, error, recovery, disabled, and focused states before editing.
 3. **Review interaction edges.** Check press, focus-visible, keyboard, touch, capability-gated hover, long or translated content, partial data, slow or failed responses, and reduced motion — not only the happy path.
 4. **Prefer the smallest cohesive improvement.** Improve the existing pattern rather than replacing it. A dependency, second component system, or demo route needs a separate approved decision.
-5. **Validate the production component.** Follow the browser-validation contract and prove the production component in Home with the repository-pinned `agent-browser`, not a mock, a story, or a separately styled copy.
+5. **Validate at the applicable layer.** For implementation or interactive review of a rendered surface, follow the browser-validation contract and prove the production component in Home with the repository-pinned `agent-browser`, not a mock, a story, or a separately styled copy. Static or read-only diff review uses the available code and evidence without manufacturing a browser run.
 6. **Review with fresh eyes.** For feel-dependent craft, replay the interaction slowly and revisit it later or the next day when the schedule allows; otherwise use a fresh reviewer. Working-state attention misses timing and detail problems that a reset can reveal.
 
 ## Motion
