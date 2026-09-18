@@ -150,6 +150,13 @@ test("child model environments isolate config and disable GitHub credentials", (
     HOME: "/source/home",
     XDG_CONFIG_HOME: "/source/config",
     GH_CONFIG_DIR: "/source/gh",
+    XDG_RUNTIME_DIR: "/parent-sentinel/run",
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/parent-sentinel/run/bus-sentinel",
+    DBUS_SESSION_BUS_PID: "parent-dbus-pid-sentinel",
+    DBUS_STARTER_ADDRESS: "unix:path=/parent-sentinel/run/starter-sentinel",
+    DBUS_STARTER_BUS_TYPE: "parent-bus-type-sentinel",
+    GNOME_KEYRING_CONTROL: "/parent-sentinel/keyring-sentinel",
+    GNOME_KEYRING_PID: "parent-keyring-pid-sentinel",
     GH_TOKEN: "secret-gh-value",
     GITHUB_TOKEN: "secret-github-value",
     GH_ENTERPRISE_TOKEN: "enterprise-secret",
@@ -167,13 +174,20 @@ test("child model environments isolate config and disable GitHub credentials", (
   assert.equal(environment.SSH_AUTH_SOCK, undefined);
   assert.equal(environment.HOME, "/isolated/home");
   assert.equal(environment.XDG_CONFIG_HOME, "/isolated/home/.config");
+  assert.equal(environment.XDG_RUNTIME_DIR, "/isolated/home/.run");
+  assert.equal(environment.DBUS_SESSION_BUS_ADDRESS, "unix:path=/isolated/home/.run/bus");
+  assert.equal(environment.DBUS_SESSION_BUS_PID, undefined);
+  assert.equal(environment.DBUS_STARTER_ADDRESS, undefined);
+  assert.equal(environment.DBUS_STARTER_BUS_TYPE, undefined);
+  assert.equal(environment.GNOME_KEYRING_CONTROL, undefined);
+  assert.equal(environment.GNOME_KEYRING_PID, undefined);
   assert.equal(environment.GH_CONFIG_DIR, "/isolated/home/.config/gh");
   assert.equal(environment.MODEL_SETTING, "safe");
   assert.equal(environment.FACTORY_CHILD_ROLE, "worker");
   assert.equal(environment.GIT_CONFIG_VALUE_0, "disabled://factory-child");
   assert.equal(environment.GIT_CONFIG_KEY_1, "credential.helper");
   assert.equal(environment.GIT_CONFIG_VALUE_1, "");
-  assert.doesNotMatch(JSON.stringify(environment), /secret-gh-value|secret-github-value|enterprise-secret|custom-secret|secret\/helper|secret\/agent|source\/home|source\/config|source\/gh/);
+  assert.doesNotMatch(JSON.stringify(environment), /secret-gh-value|secret-github-value|enterprise-secret|custom-secret|secret\/helper|secret\/agent|source\/home|source\/config|source\/gh|parent-sentinel|sentinel/);
 });
 
 test("bounded child receives only selected model config and its temporary home is removed", async () => {
@@ -205,8 +219,11 @@ test("bounded child receives only selected model config and its temporary home i
       const path = require("node:path");
       const dir = path.join(process.env.HOME, ".pi", "agent");
       const read = (name) => JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+      const busPath = process.env.DBUS_SESSION_BUS_ADDRESS.slice("unix:path=".length);
       process.stdout.write(JSON.stringify({
         home: process.env.HOME,
+        runtimeMode: fs.statSync(process.env.XDG_RUNTIME_DIR).mode & 0o777,
+        dbusSocketExists: fs.existsSync(busPath),
         settings: read("settings.json"),
         providers: Object.keys(read("models.json").providers),
         auth: Object.keys(read("auth.json")),
@@ -234,6 +251,8 @@ test("bounded child receives only selected model config and its temporary home i
     });
     assert.equal(output.gatewayConfigured, true);
     assert.equal(output.ghAuthExists, false);
+    assert.equal(output.runtimeMode, 0o700);
+    assert.equal(output.dbusSocketExists, false);
     await assert.rejects(access(output.home), { code: "ENOENT" });
   } finally {
     await rm(sourceHome, { recursive: true, force: true });

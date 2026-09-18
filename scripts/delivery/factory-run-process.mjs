@@ -95,6 +95,7 @@ async function prepareIsolatedModelHome(environment, { modelAgent } = {}) {
     const agentDirectory = join(isolatedHome, ".pi", "agent");
     await mkdir(agentDirectory, { recursive: true, mode: 0o700 });
     await mkdir(join(isolatedHome, ".config", "gh"), { recursive: true, mode: 0o700 });
+    await mkdir(join(isolatedHome, ".run"), { recursive: true, mode: 0o700 });
 
     const sourceHome = environment.HOME;
     if (!sourceHome) return isolatedHome;
@@ -139,7 +140,9 @@ export function childModelEnvironment(environment, role, isolatedHome) {
   const scrubbed = {};
   for (const [name, value] of Object.entries(environment)) {
     if (!isGitHubCredentialName(name) && ![
-      "HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "GH_CONFIG_DIR",
+      "HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR", "GH_CONFIG_DIR",
+      "DBUS_SESSION_BUS_ADDRESS", "DBUS_SESSION_BUS_PID", "DBUS_STARTER_ADDRESS", "DBUS_STARTER_BUS_TYPE",
+      "GNOME_KEYRING_CONTROL", "GNOME_KEYRING_PID",
       "PI_CODING_AGENT_DIR", "PI_SESSION_FILE", "CBHQ_GUARD_AUDIT_LOG", "CBHQ_SESSION_LOG",
     ].includes(name)) {
       scrubbed[name] = value;
@@ -150,6 +153,8 @@ export function childModelEnvironment(environment, role, isolatedHome) {
   scrubbed.XDG_CACHE_HOME = join(isolatedHome, ".cache");
   scrubbed.XDG_DATA_HOME = join(isolatedHome, ".local", "share");
   scrubbed.XDG_STATE_HOME = join(isolatedHome, ".local", "state");
+  scrubbed.XDG_RUNTIME_DIR = join(isolatedHome, ".run");
+  scrubbed.DBUS_SESSION_BUS_ADDRESS = `unix:path=${join(isolatedHome, ".run", "bus")}`;
   scrubbed.GH_CONFIG_DIR = join(isolatedHome, ".config", "gh");
   scrubbed.PI_CODING_AGENT_DIR = join(isolatedHome, ".pi", "agent");
   scrubbed.CBHQ_GUARD_AUDIT_LOG = join(isolatedHome, ".cbcode", "pi-audit.log");
