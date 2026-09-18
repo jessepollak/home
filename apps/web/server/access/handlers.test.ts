@@ -49,6 +49,7 @@ describe("access login", () => {
     expect(response.status).toBe(200);
     expect(response.headers.has("location")).toBe(false);
     expect(response.headers.get("set-cookie")).toContain("home-access=");
+    expect(response.headers.get("vary")).toBe("Cookie, X-Home-Access-Response");
     expect(await response.json()).toEqual({
       version: 1,
       destination: "/save?asset=usdc",
@@ -70,7 +71,7 @@ describe("access login", () => {
       expect(response.status).toBeGreaterThanOrEqual(400);
       expect(response.headers.has("set-cookie")).toBe(false);
       expect(response.headers.get("cache-control")).toContain("private");
-      expect(response.headers.get("vary")).toContain("Cookie");
+      expect(response.headers.get("vary")).toBe("Cookie, X-Home-Access-Response");
       expect(await response.json()).toEqual({ version: 1, error: { code: "INVALID_ACCESS" } });
     }
   });

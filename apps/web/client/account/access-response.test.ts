@@ -6,20 +6,30 @@ function json(value: unknown, status: number) {
 }
 
 describe("access response navigation", () => {
-  test("hard-navigates only for the versioned deployment access denial", async () => {
+  test("deduplicates concurrent versioned access denials without swallowing later expiry", async () => {
     const destinations: string[] = [];
     const navigate = (value: string) => destinations.push(value);
-    const redirected = await redirectOnAccessRequired(
-      json({ version: 1, error: { code: "ACCESS_REQUIRED" } }, 401),
-      { currentPath: "/borrow?asset=usdc#review", navigate },
-    );
-    expect(redirected).toBe(true);
+    const concurrent = await Promise.all([
+      redirectOnAccessRequired(
+        json({ version: 1, error: { code: "ACCESS_REQUIRED" } }, 401),
+        { currentPath: "/borrow?asset=usdc#review", navigate },
+      ),
+      redirectOnAccessRequired(
+        json({ version: 1, error: { code: "ACCESS_REQUIRED" } }, 401),
+        { currentPath: "/borrow?asset=usdc#review", navigate },
+      ),
+    ]);
+    expect(concurrent).toEqual([true, true]);
     expect(destinations).toEqual(["/access?next=%2Fborrow%3Fasset%3Dusdc%23review"]);
+
     expect(await redirectOnAccessRequired(
       json({ version: 1, error: { code: "ACCESS_REQUIRED" } }, 401),
       { currentPath: "/borrow?asset=usdc#review", navigate },
     )).toBe(true);
-    expect(destinations).toHaveLength(1);
+    expect(destinations).toEqual([
+      "/access?next=%2Fborrow%3Fasset%3Dusdc%23review",
+      "/access?next=%2Fborrow%3Fasset%3Dusdc%23review",
+    ]);
 
     const accessDestinations: string[] = [];
     expect(await redirectOnAccessRequired(
@@ -38,6 +48,6 @@ describe("access response navigation", () => {
     ]) expect(await redirectOnAccessRequired(response, {
       currentPath: "/", navigate: (value) => destinations.push(value),
     })).toBe(false);
-    expect(destinations).toHaveLength(1);
+    expect(destinations).toHaveLength(2);
   });
 });

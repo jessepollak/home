@@ -5,8 +5,39 @@ export type AccessNavigation = {
   navigate?: (destination: string) => void;
 };
 
-const pendingInjectedNavigations = new WeakMap<(destination: string) => void, string>();
-let pendingBrowserDestination: string | null = null;
+type NavigationTarget = (destination: string) => void;
+
+const pendingNavigations = new WeakMap<object, Map<string, Promise<void>>>();
+const browserNavigationTarget = {};
+
+async function navigateOnce(
+  target: object,
+  destination: string,
+  navigate: NavigationTarget,
+  releaseAfterNavigation: boolean,
+): Promise<void> {
+  let targetNavigations = pendingNavigations.get(target);
+  if (!targetNavigations) {
+    targetNavigations = new Map();
+    pendingNavigations.set(target, targetNavigations);
+  }
+
+  const pending = targetNavigations.get(destination);
+  if (pending) {
+    await pending;
+    return;
+  }
+
+  const navigation = Promise.resolve().then(() => navigate(destination));
+  targetNavigations.set(destination, navigation);
+  try {
+    await navigation;
+  } finally {
+    if (releaseAfterNavigation && targetNavigations.get(destination) === navigation) {
+      targetNavigations.delete(destination);
+    }
+  }
+}
 
 function browserPath(): string {
   if (typeof window === "undefined") return "/";
@@ -37,16 +68,17 @@ export async function redirectOnAccessRequired(
   const query = new URLSearchParams({ next: current });
   const destination = `/access?${query.toString()}`;
   if (navigation.navigate) {
-    if (pendingInjectedNavigations.get(navigation.navigate) === destination) return true;
-    pendingInjectedNavigations.set(navigation.navigate, destination);
-    navigation.navigate(destination);
+    // Injected navigation represents a soft lifecycle: concurrent denials share
+    // one transition, then a later expiry may legitimately navigate again.
+    await navigateOnce(navigation.navigate, destination, navigation.navigate, true);
   } else if (typeof window !== "undefined") {
-    if (pendingBrowserDestination === destination) return true;
-    pendingBrowserDestination = destination;
     // Access expiry crosses the proxy boundary and must replace client state with
     // a full document request rather than becoming an in-app auth transition.
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.assign(destination);
+    // Keep that hard navigation one-shot because a successful assign unloads this
+    // module; if it does not unload, repeated protected calls must not loop.
+    await navigateOnce(browserNavigationTarget, destination, (value) => {
+      window.location.assign(value);
+    }, false);
   }
   return true;
 }

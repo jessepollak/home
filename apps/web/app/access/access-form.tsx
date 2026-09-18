@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,11 +13,10 @@ import {
 export function AccessForm({ next }: { next: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [hydrated, setHydrated] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => setHydrated(true));
-    return () => window.cancelAnimationFrame(frame);
+    formRef.current?.setAttribute("data-hydrated", "true");
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -60,6 +59,7 @@ export function AccessForm({ next }: { next: string }) {
 
   return (
     <form
+      ref={formRef}
       className="grid gap-4"
       action="/api/access"
       method="post"
@@ -79,7 +79,7 @@ export function AccessForm({ next }: { next: string }) {
         />
       </label>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-      <Button type="submit" size="lg" className="w-full" disabled={!hydrated || pending}>
+      <Button type="submit" size="lg" className="w-full" disabled={pending}>
         {pending ? "Checking…" : "Continue"}
       </Button>
     </form>
