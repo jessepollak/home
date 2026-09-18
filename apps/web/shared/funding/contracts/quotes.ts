@@ -9,14 +9,11 @@ export type FundingQuoteRequest = {
   region: string;
   paymentMethod: string;
   fiatAmount: string;
-  kycFields?: Record<string, string>;
 };
 export type QuoteDraft = { quote: FundingQuote; quoteToken: string; sandbox: boolean };
 export type FundingQuoteResponse = QuoteDraft;
 export type FundingQuoteErrorCode =
   | "INVALID_QUOTE_REQUEST"
-  | "INVALID_KYC_FIELDS"
-  | "KYC_REQUIRED"
   | "INVALID_PROVIDER_QUOTE"
   | "QUOTE_UNAVAILABLE"
   | string;

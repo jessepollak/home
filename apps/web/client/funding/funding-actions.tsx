@@ -113,6 +113,7 @@ export function FundingActionsForWallet({
       open={open}
       onClose={close}
       returnedFromProvider={returnedFromProvider}
+      returnedFromVerification={returnedFromVerification}
       initialStep={requestedFlow === "receive" ? "receive" : "method"}
       onStepChange={onStepChange}
       regionId={regionId}

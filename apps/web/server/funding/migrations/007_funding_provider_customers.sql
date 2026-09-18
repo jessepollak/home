@@ -6,9 +6,7 @@ CREATE TABLE IF NOT EXISTS funding_provider_customers (
   region text NOT NULL CHECK (length(region) BETWEEN 2 AND 16),
   customer_ref text CHECK (customer_ref IS NULL OR length(customer_ref) BETWEEN 1 AND 512),
   state text NOT NULL CHECK (state IN ('reserving','pending','verified','rejected','dispatch-ambiguous')),
-  provider_created_at timestamptz,
   verification_started_at timestamptz,
-  provider_submission_ref text CHECK (provider_submission_ref IS NULL OR length(provider_submission_ref) BETWEEN 1 AND 512),
   version integer NOT NULL DEFAULT 0 CHECK (version >= 0),
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
@@ -32,10 +30,10 @@ CREATE INDEX IF NOT EXISTS funding_provider_customers_owner_region_idx
 -- remains intact.
 INSERT INTO funding_provider_customers
   (id, owner_subject, account_provider, provider_id, region, customer_ref, state,
-   provider_created_at, version, created_at, updated_at)
+   version, created_at, updated_at)
 SELECT DISTINCT ON (account_provider, owner_subject, provider_id, region)
   gen_random_uuid(), owner_subject, account_provider, provider_id, region,
-  customer_ref, 'pending', created_at, 0, created_at, updated_at
+  customer_ref, 'pending', 0, created_at, updated_at
 FROM funding_orders
 WHERE customer_ref IS NOT NULL
   AND length(customer_ref) BETWEEN 1 AND 512

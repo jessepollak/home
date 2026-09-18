@@ -89,10 +89,10 @@ export type RipioCustomerReference = {
 };
 
 export type RipioKycHandoff = {
-  submissionId: string;
   providerUrl: string;
-  createdAt: string;
 };
+
+export type RipioKycStatus = string;
 
 export type RipioTransactionReference = {
   transactionId: string;
@@ -147,7 +147,8 @@ export type RipioClient = {
   getCustomer(customerId: string): Promise<unknown>;
   getTerms(): Promise<unknown>;
   acceptTerms(customerId: string, termsId: string, ipAddress: string): Promise<unknown>;
-  submitKyc(customerId: string, body: Record<string, unknown>): Promise<RipioKycHandoff>;
+  submitHostedKyc(customerId: string, input: { redirectUrl: string }): Promise<RipioKycHandoff>;
+  getKycStatus(customerId: string): Promise<RipioKycStatus>;
   getDepositNetworks(): Promise<unknown>;
   getWithdrawalNetworks(): Promise<unknown>;
 };
@@ -306,12 +307,16 @@ export function createRipioClient(country: RipioCountry, options: {
       if (!validUuid(customerId) || !validUuid(termsId) || !validIpAddress(ipAddress)) throw new RipioProviderError("invalid-request");
       return request(`/api/v1/customers/${customerId}/acceptTerms/`, { method: "POST", body: JSON.stringify({ termsId, ipAddress }) }, true);
     },
-    submitKyc(customerId, body) {
-      if (!validUuid(customerId) || !isRecord(body)) throw new RipioProviderError("invalid-request");
+    submitHostedKyc(customerId, input) {
+      if (!validUuid(customerId) || !validRedirectUrl(input.redirectUrl)) throw new RipioProviderError("invalid-request");
       return parseCreateResponse(
-        () => request(`/api/v1/customers/${customerId}/kyc/`, { method: "POST", body: JSON.stringify(body) }, true),
+        () => request(`/api/v1/customers/${customerId}/kyc/`, { method: "POST", body: JSON.stringify({ redirectUrl: input.redirectUrl }) }, true),
         parseKycHandoff,
       );
+    },
+    async getKycStatus(customerId) {
+      if (!validUuid(customerId)) throw new RipioProviderError("invalid-request");
+      return parseKycStatus(await request(`/api/v1/customers/${customerId}/kycSubmissions/`), customerId);
     },
     getDepositNetworks: () => request("/api/v1/depositNetworks/?include_currency=true"),
     getWithdrawalNetworks: () => request("/api/v1/withdrawalNetworks/?include_currency=true"),
@@ -328,7 +333,19 @@ function parseKycHandoff(value: unknown): RipioKycHandoff {
   if (!isRecord(value) || !validUuid(value.submissionId) || !validDate(value.createdAt) || typeof value.providerUrl !== "string" || value.providerUrl.length > 4096) {
     throw new RipioProviderError("invalid-response");
   }
-  return { submissionId: value.submissionId, providerUrl: value.providerUrl, createdAt: value.createdAt };
+  return { providerUrl: value.providerUrl };
+}
+
+function parseKycStatus(value: unknown, customerId: string): RipioKycStatus {
+  if (
+    !isRecord(value)
+    || value.customerId !== customerId
+    || typeof value.status !== "string"
+    || value.status.length === 0
+    || value.status.length > 128
+    || !validDate(value.createdAt)
+  ) throw new RipioProviderError("invalid-response");
+  return value.status;
 }
 
 function parseCustomer(value: unknown): RipioCustomerReference {
@@ -569,6 +586,13 @@ function validDate(value: unknown): value is string { return typeof value === "s
 // ever forwards an address it observed on the request; it never invents one.
 function validIpAddress(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f.:]{2,45}$/i.test(value); }
 function validEmail(value: string): boolean { return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
+function validRedirectUrl(value: string): boolean {
+  if (value.length > 4096) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && !url.hash;
+  } catch { return false; }
+}
 function safeHttps(value: string): boolean { try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password; } catch { return false; } }
 function catalogEntitles(value: unknown, country: RipioEnabledCountry): boolean {
   const catalog = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.networks) ? value.networks : null;

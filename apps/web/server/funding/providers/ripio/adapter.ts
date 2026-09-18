@@ -32,7 +32,7 @@ export const ripioProvider: FundingProvider = {
           const email = input.email.trim();
           if (!email) throw new RipioProviderError("invalid-request");
           const customer = await clientFor(ctx).createCustomer({ email });
-          return { outcome: "created" as const, customerRef: customer.customerId, providerCreatedAt: customer.createdAt };
+          return { outcome: "created" as const, customerRef: customer.customerId };
         } catch (error) {
           emitRipioFailure("customer", error, startedAt, ctx.binding.region);
           if (error instanceof RipioProviderError && error.code === "invalid-request") return { outcome: "rejected" as const };
@@ -50,11 +50,24 @@ export const ripioProvider: FundingProvider = {
           const termsId = readTermsId(await client.getTerms());
           if (!termsId) throw new RipioProviderError("invalid-response");
           await client.acceptTerms(input.customerRef, termsId, input.clientIp);
-          const handoff = await client.submitKyc(input.customerRef, { ...input.fields, returnUrl: input.returnUrl });
-          return { outcome: "created" as const, submissionRef: handoff.submissionId, providerUrl: handoff.providerUrl, createdAt: handoff.createdAt };
+          const handoff = await client.submitHostedKyc(input.customerRef, { redirectUrl: input.redirectUrl });
+          return { outcome: "created" as const, providerUrl: handoff.providerUrl };
         } catch (error) {
           emitRipioFailure("customer", error, startedAt, ctx.binding.region);
+          if (error instanceof RipioProviderError && error.code === "invalid-request") return { outcome: "rejected" as const };
           return { outcome: "ambiguous" as const };
+        }
+      },
+      async getStatus(input, ctx) {
+        const startedAt = Date.now();
+        try {
+          const status = await clientFor(ctx).getKycStatus(input.customerRef);
+          if (status === "COMPLETED") return "verified" as const;
+          if (status === "FAILED") return "rejected" as const;
+          return "pending" as const;
+        } catch (error) {
+          emitRipioFailure("status", error, startedAt, ctx.binding.region);
+          throw error;
         }
       },
     },

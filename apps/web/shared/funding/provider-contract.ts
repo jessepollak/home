@@ -7,13 +7,6 @@ export type FundingPaymentMethod = { id: string; label: string };
 
 export type FundingCustomerManifest = {
   handoffOrigins: ReadonlyArray<string>;
-  terms?: { url: string };
-  fields: ReadonlyArray<{
-    name: string;
-    label: string;
-    type: "text" | "email" | "date" | "select";
-    options?: ReadonlyArray<string>;
-  }>;
 };
 
 export type FundingWebhookManifest = {
@@ -74,24 +67,30 @@ export type FundingProvider = {
   offramp?: FundingOfframpProvider;
 };
 
+export type FundingCustomerStatus = "pending" | "verified" | "rejected";
+
 export type FundingOnrampProvider = {
   customer?: {
     create(
-      input: { subject: string; email: string },
+      input: { email: string },
       ctx: ProviderContext,
     ): Promise<
-      | { outcome: "created"; customerRef: string; providerCreatedAt: string }
+      | { outcome: "created"; customerRef: string }
       | { outcome: "rejected" }
       | { outcome: "ambiguous" }
     >;
     startVerification(
-      input: { customerRef: string; fields: Record<string, string>; clientIp?: string; returnUrl: string },
+      input: { customerRef: string; clientIp?: string; redirectUrl: string },
       ctx: ProviderContext,
     ): Promise<
-      | { outcome: "created"; submissionRef: string; providerUrl: string; createdAt: string }
+      | { outcome: "created"; providerUrl: string }
       | { outcome: "rejected" }
       | { outcome: "ambiguous" }
     >;
+    getStatus(
+      input: { customerRef: string },
+      ctx: ProviderContext,
+    ): Promise<FundingCustomerStatus>;
   };
   createQuote?(input: QuoteIntent, ctx: ProviderContext): Promise<Quote>;
   createOrder(input: OrderIntent, ctx: ProviderContext): Promise<CreateOrderResult>;

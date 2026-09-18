@@ -11,9 +11,7 @@ export type FundingProviderCustomer = {
   region: string;
   customerRef: string | null;
   state: FundingProviderCustomerState;
-  providerCreatedAt: string | null;
   verificationStartedAt: string | null;
-  providerSubmissionRef: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -23,12 +21,11 @@ export interface FundingProviderCustomerStore {
   reserve(input: { id: string; owner: FundingOrderOwner; providerId: string; region: string; createdAt: string }): Promise<{ created: boolean; customer: FundingProviderCustomer }>;
   get(owner: FundingOrderOwner, providerId: string, region: string): Promise<FundingProviderCustomer | null>;
   list(owner: FundingOrderOwner, region: string): Promise<ReadonlyArray<FundingProviderCustomer>>;
-  completeCreate(id: string, input: { customerRef: string; providerCreatedAt: string; expectedVersion: number; updatedAt: string }): Promise<FundingProviderCustomer | null>;
-  markCreateRejected(id: string, expectedVersion: number, updatedAt: string): Promise<FundingProviderCustomer | null>;
+  completeCreate(id: string, input: { customerRef: string; expectedVersion: number; updatedAt: string }): Promise<FundingProviderCustomer | null>;
+  markRejected(id: string, expectedVersion: number, updatedAt: string): Promise<FundingProviderCustomer | null>;
   markDispatchAmbiguous(id: string, expectedVersion: number, updatedAt: string): Promise<FundingProviderCustomer | null>;
   claimVerification(id: string, expectedVersion: number, updatedAt: string): Promise<FundingProviderCustomer | null>;
-  markVerificationRejected(id: string, expectedVersion: number, updatedAt: string): Promise<FundingProviderCustomer | null>;
-  completeVerificationStart(id: string, input: { providerSubmissionRef: string; expectedVersion: number; updatedAt: string }): Promise<FundingProviderCustomer | null>;
+  markVerified(id: string, expectedVersion: number, updatedAt: string): Promise<FundingProviderCustomer | null>;
 }
 
 export class MemoryFundingProviderCustomerStore implements FundingProviderCustomerStore {
@@ -38,21 +35,28 @@ export class MemoryFundingProviderCustomerStore implements FundingProviderCustom
     const key = this.key(input.owner, input.providerId, input.region);
     const existing = this.customers.get(key);
     if (existing) return { created: false, customer: structuredClone(existing) };
-    const customer: FundingProviderCustomer = { ...structuredClone(input), customerRef: null, state: "reserving", providerCreatedAt: null, verificationStartedAt: null, providerSubmissionRef: null, version: 0, updatedAt: input.createdAt };
+    const customer: FundingProviderCustomer = { ...structuredClone(input), customerRef: null, state: "reserving", verificationStartedAt: null, version: 0, updatedAt: input.createdAt };
     this.customers.set(key, customer);
     return { created: true, customer: structuredClone(customer) };
   }
   async get(owner: FundingOrderOwner, providerId: string, region: string) { const value = this.customers.get(this.key(owner, providerId, region)); return value ? structuredClone(value) : null; }
   async list(owner: FundingOrderOwner, region: string) { return [...this.customers.values()].filter((value) => value.region === region && value.owner.subject === owner.subject && value.owner.accountProvider === owner.accountProvider).map((value) => structuredClone(value)); }
-  async completeCreate(id: string, input: { customerRef: string; providerCreatedAt: string; expectedVersion: number; updatedAt: string }) { return this.update(id, input.expectedVersion, "reserving", { customerRef: input.customerRef, providerCreatedAt: input.providerCreatedAt, state: "pending", updatedAt: input.updatedAt }); }
-  async markCreateRejected(id: string, expectedVersion: number, updatedAt: string) { return this.update(id, expectedVersion, "reserving", { state: "rejected", updatedAt }); }
-  async markDispatchAmbiguous(id: string, expectedVersion: number, updatedAt: string) { return this.update(id, expectedVersion, undefined, { state: "dispatch-ambiguous", updatedAt }); }
-  async claimVerification(id: string, expectedVersion: number, updatedAt: string) { return this.update(id, expectedVersion, "pending", { verificationStartedAt: updatedAt, updatedAt }); }
-  async markVerificationRejected(id: string, expectedVersion: number, updatedAt: string) { return this.update(id, expectedVersion, "pending", { state: "rejected", updatedAt }); }
-  async completeVerificationStart(id: string, input: { providerSubmissionRef: string; expectedVersion: number; updatedAt: string }) { return this.update(id, input.expectedVersion, "pending", { providerSubmissionRef: input.providerSubmissionRef, updatedAt: input.updatedAt }); }
-  private async update(id: string, version: number, state: FundingProviderCustomerState | undefined, patch: Partial<FundingProviderCustomer>) {
+  async completeCreate(id: string, input: { customerRef: string; expectedVersion: number; updatedAt: string }) { return this.update(id, input.expectedVersion, ["reserving"], { customerRef: input.customerRef, state: "pending", updatedAt: input.updatedAt }); }
+  async markRejected(id: string, expectedVersion: number, updatedAt: string) { return this.update(id, expectedVersion, ["reserving", "pending"], { state: "rejected", updatedAt }); }
+  async markDispatchAmbiguous(id: string, expectedVersion: number, updatedAt: string) { return this.update(id, expectedVersion, ["reserving", "pending"], { state: "dispatch-ambiguous", updatedAt }); }
+  async claimVerification(id: string, expectedVersion: number, updatedAt: string) {
     const value = [...this.customers.values()].find((candidate) => candidate.id === id);
-    if (!value || value.version !== version || (state && value.state !== state)) return null;
+    if (value?.verificationStartedAt) return null;
+    return this.update(id, expectedVersion, ["pending"], { verificationStartedAt: updatedAt, updatedAt });
+  }
+  async markVerified(id: string, expectedVersion: number, updatedAt: string) {
+    const value = [...this.customers.values()].find((candidate) => candidate.id === id);
+    if (!value?.verificationStartedAt) return null;
+    return this.update(id, expectedVersion, ["pending"], { state: "verified", updatedAt });
+  }
+  private async update(id: string, version: number, states: ReadonlyArray<FundingProviderCustomerState>, patch: Partial<FundingProviderCustomer>) {
+    const value = [...this.customers.values()].find((candidate) => candidate.id === id);
+    if (!value || value.version !== version || !states.includes(value.state)) return null;
     Object.assign(value, patch, { version: value.version + 1 });
     return structuredClone(value);
   }
@@ -71,14 +75,13 @@ export class PostgresFundingProviderCustomerStore implements FundingProviderCust
   }
   async get(owner: FundingOrderOwner, providerId: string, region: string) { return this.one("SELECT * FROM funding_provider_customers WHERE account_provider=$1 AND owner_subject=$2 AND provider_id=$3 AND region=$4", [owner.accountProvider,owner.subject,providerId,region]); }
   async list(owner: FundingOrderOwner, region: string) { const result = await this.sql.query("SELECT * FROM funding_provider_customers WHERE account_provider=$1 AND owner_subject=$2 AND region=$3 ORDER BY updated_at DESC", [owner.accountProvider,owner.subject,region]); return result.rows.map((row) => fromRow(row as Row)); }
-  async completeCreate(id: string, input: { customerRef: string; providerCreatedAt: string; expectedVersion: number; updatedAt: string }) { return this.one("UPDATE funding_provider_customers SET customer_ref=$2,provider_created_at=$3,state='pending',version=version+1,updated_at=$5 WHERE id=$1 AND state='reserving' AND version=$4 RETURNING *", [id,input.customerRef,input.providerCreatedAt,input.expectedVersion,input.updatedAt]); }
-  async markCreateRejected(id: string, version: number, updatedAt: string) { return this.one("UPDATE funding_provider_customers SET state='rejected',version=version+1,updated_at=$3 WHERE id=$1 AND state='reserving' AND version=$2 RETURNING *", [id,version,updatedAt]); }
+  async completeCreate(id: string, input: { customerRef: string; expectedVersion: number; updatedAt: string }) { return this.one("UPDATE funding_provider_customers SET customer_ref=$2,state='pending',version=version+1,updated_at=$4 WHERE id=$1 AND state='reserving' AND version=$3 RETURNING *", [id,input.customerRef,input.expectedVersion,input.updatedAt]); }
+  async markRejected(id: string, version: number, updatedAt: string) { return this.one("UPDATE funding_provider_customers SET state='rejected',version=version+1,updated_at=$3 WHERE id=$1 AND state IN ('reserving','pending') AND version=$2 RETURNING *", [id,version,updatedAt]); }
   async markDispatchAmbiguous(id: string, version: number, updatedAt: string) { return this.one("UPDATE funding_provider_customers SET state='dispatch-ambiguous',version=version+1,updated_at=$3 WHERE id=$1 AND state IN ('reserving','pending') AND version=$2 RETURNING *", [id,version,updatedAt]); }
   async claimVerification(id: string, version: number, updatedAt: string) { return this.one("UPDATE funding_provider_customers SET verification_started_at=$3,version=version+1,updated_at=$3 WHERE id=$1 AND state='pending' AND verification_started_at IS NULL AND version=$2 RETURNING *", [id,version,updatedAt]); }
-  async markVerificationRejected(id: string, version: number, updatedAt: string) { return this.one("UPDATE funding_provider_customers SET state='rejected',version=version+1,updated_at=$3 WHERE id=$1 AND state='pending' AND version=$2 RETURNING *", [id,version,updatedAt]); }
-  async completeVerificationStart(id: string, input: { providerSubmissionRef: string; expectedVersion: number; updatedAt: string }) { return this.one("UPDATE funding_provider_customers SET provider_submission_ref=$2,version=version+1,updated_at=$4 WHERE id=$1 AND state='pending' AND version=$3 RETURNING *", [id,input.providerSubmissionRef,input.expectedVersion,input.updatedAt]); }
+  async markVerified(id: string, version: number, updatedAt: string) { return this.one("UPDATE funding_provider_customers SET state='verified',version=version+1,updated_at=$3 WHERE id=$1 AND state='pending' AND verification_started_at IS NOT NULL AND version=$2 RETURNING *", [id,version,updatedAt]); }
   private async one(text: string, values: unknown[]) { const result = await this.sql.query(text, values); return result.rows[0] ? fromRow(result.rows[0] as Row) : null; }
 }
 export function createRuntimeFundingProviderCustomerStore(env: Readonly<Record<string,string|undefined>> = process.env) { return new PostgresFundingProviderCustomerStore(getSqlExecutor(env)); }
-function fromRow(row: Row): FundingProviderCustomer { return { id:String(row.id),owner:{subject:String(row.owner_subject),accountProvider:String(row.account_provider) as FundingOrderOwner["accountProvider"]},providerId:String(row.provider_id),region:String(row.region),customerRef:row.customer_ref===null?null:String(row.customer_ref),state:String(row.state) as FundingProviderCustomerState,providerCreatedAt:date(row.provider_created_at),verificationStartedAt:date(row.verification_started_at),providerSubmissionRef:row.provider_submission_ref===null?null:String(row.provider_submission_ref),version:Number(row.version),createdAt:new Date(String(row.created_at)).toISOString(),updatedAt:new Date(String(row.updated_at)).toISOString()}; }
+function fromRow(row: Row): FundingProviderCustomer { return { id:String(row.id),owner:{subject:String(row.owner_subject),accountProvider:String(row.account_provider) as FundingOrderOwner["accountProvider"]},providerId:String(row.provider_id),region:String(row.region),customerRef:row.customer_ref===null?null:String(row.customer_ref),state:String(row.state) as FundingProviderCustomerState,verificationStartedAt:date(row.verification_started_at),version:Number(row.version),createdAt:new Date(String(row.created_at)).toISOString(),updatedAt:new Date(String(row.updated_at)).toISOString()}; }
 function date(value: unknown) { return value === null ? null : new Date(String(value)).toISOString(); }

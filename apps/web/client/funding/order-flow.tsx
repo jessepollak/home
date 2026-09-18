@@ -80,7 +80,7 @@ export function FundingOrderFlow({
 }) {
   const [method, setMethod] = useState(binding.paymentMethods[0]?.id ?? "");
   const [amount, setAmount] = useState("");
-  const [fields, setFields] = useState<Record<string, string>>({});
+  const [email, setEmail] = useState("");
   const [draft, setDraft] = useState<QuoteDraft | null>(null);
   const [customer, setCustomer] = useState<FundingProviderCustomerSummary | null>(initialCustomer ?? null);
   const [order, setOrder] = useState<FundingOrderSummary | null>(
@@ -169,23 +169,11 @@ export function FundingOrderFlow({
     }
   }
 
-  async function createCustomer() {
-    if (busy || !binding.customerSetup) return;
-    setBusy(true); setError(null);
-    try {
-      const value = await fetchAccountResource("/api/funding/provider-customers", { method: "POST", body: { providerId: binding.providerId, region: binding.region, email: fields.email } });
-      const next = readFundingProviderCustomer(value);
-      if (!next) throw new Error("customer");
-      setCustomer(next);
-    } catch { setError("Provider setup could not be created. Try again only if Home says the previous request was rejected."); }
-    finally { setBusy(false); }
-  }
-
   async function startVerification() {
     if (busy || !binding.customerSetup) return;
     setBusy(true); setError(null);
     try {
-      const value = await fetchAccountResource("/api/funding/provider-customers/verification", { method: "POST", body: { providerId: binding.providerId, region: binding.region, fields } });
+      const value = await fetchAccountResource("/api/funding/provider-customers/verification", { method: "POST", body: { providerId: binding.providerId, region: binding.region, email } });
       const next = readFundingProviderCustomer(value);
       if (next) setCustomer(next);
       const handoff = readVerificationHandoff(value);
@@ -255,8 +243,6 @@ export function FundingOrderFlow({
     const ambiguous = customer?.state === "dispatch-ambiguous";
     const rejected = customer?.state === "rejected";
     const blocked = reserving || ambiguous || rejected;
-    const definitions = binding.customerSetup.fields;
-    const complete = !definitions.some((field) => !fields[field.name]?.trim());
     return <>
       <MoneyModalHeader title={`Set up ${binding.displayName}`} titleId={titleId} onBack={onBack} onClose={onClose} closeLabel="Close add money" />
       <MoneyModalBody hasFooter={!pendingStarted && !blocked} className="gap-4 pt-4">
@@ -264,45 +250,19 @@ export function FundingOrderFlow({
         {reserving ? <FundingNotice tone="neutral">Provider setup is still being created. Home will not start another request.</FundingNotice> : null}
         {ambiguous ? <FundingNotice tone="error" role="alert">Home could not confirm the provider setup result. Do not try again until the operator reconciles it.</FundingNotice> : null}
         {rejected ? <FundingNotice tone="error" role="alert">The provider rejected this setup. Home will not retry it automatically. Ask the operator to reconcile the provider result before restarting setup.</FundingNotice> : null}
-        {!pendingStarted && !blocked ? definitions.map((field) => {
-          const id = `funding-customer-${field.name}`;
-          const value = fields[field.name] ?? "";
-          return <Field key={field.name}>
-            <FieldLabel htmlFor={id}>{field.label}</FieldLabel>
-            {field.type === "select" ? (
-              <Select
-                value={value}
-                required
-                onValueChange={(next) => setFields((current) => ({ ...current, [field.name]: next ?? "" }))}
-              >
-                <SelectTrigger className="h-11 w-full" id={id}>
-                  <SelectValue>
-                    {(selected) => selected || `Choose ${field.label.toLocaleLowerCase()}`}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {(field.options ?? []).map((option) => (
-                    <SelectItem value={option} key={option}>{option}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input
-                id={id}
-                type={field.type}
-                value={value}
-                required
-                onInput={(event) => {
-                  const next = event.currentTarget.value;
-                  setFields((current) => ({ ...current, [field.name]: next }));
-                }}
-              />
-            )}
-          </Field>;
-        }) : null}
+        {!pendingStarted && !blocked ? <Field>
+          <FieldLabel htmlFor="funding-customer-email">Email</FieldLabel>
+          <Input
+            id="funding-customer-email"
+            type="email"
+            value={email}
+            required
+            onInput={(event) => setEmail(event.currentTarget.value)}
+          />
+        </Field> : null}
         {error ? <FundingNotice tone="error" role="alert">{error}</FundingNotice> : null}
       </MoneyModalBody>
-      {!pendingStarted && !blocked ? <MoneyModalFooter primaryLabel={busy ? "Working…" : customer?.state === "pending" ? "Continue to verification" : "Create provider profile"} primaryDisabled={busy || !complete} onPrimary={() => void (customer?.state === "pending" ? startVerification() : createCustomer())} secondaryLabel="Back" onSecondary={onBack} /> : null}
+      {!pendingStarted && !blocked ? <MoneyModalFooter primaryLabel={busy ? "Working…" : "Continue to Ripio verification"} primaryDisabled={busy || !email.trim()} onPrimary={() => void startVerification()} secondaryLabel="Back" onSecondary={onBack} /> : null}
     </>;
   }
   if (draft) {
@@ -314,7 +274,6 @@ export function FundingOrderFlow({
     );
   }
 
-  const fieldsComplete = true;
   const amountAssetProps = {
     assetId: binding.currency.toLocaleLowerCase(),
     assetLabel: binding.currency,
@@ -381,7 +340,7 @@ export function FundingOrderFlow({
       </MoneyModalBody>
       <MoneyModalFooter
         primaryLabel={busy ? "Getting quote…" : "Review quote"}
-        primaryDisabled={busy || !fieldsComplete || !positiveDecimal(amount)}
+        primaryDisabled={busy || !positiveDecimal(amount)}
         onPrimary={() => void requestQuote()}
         secondaryLabel="Back"
         onSecondary={onBack}

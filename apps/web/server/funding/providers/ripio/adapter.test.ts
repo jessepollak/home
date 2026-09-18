@@ -113,6 +113,15 @@ describe("Ripio funding adapter", () => {
     });
   });
 
+  test("maps only exact KYC completion and failure statuses", async () => {
+    for (const [providerStatus, expected] of [["COMPLETED", "verified"], ["FAILED", "rejected"], ["IN_REVIEW", "pending"], ["UPDATE_REQUIRED", "pending"]] as const) {
+      const ctx = context((async (input: RequestInfo | URL) => new URL(String(input)).pathname === "/oauth2/token/"
+        ? tokenResponse()
+        : Response.json({ customerId: customerRef, status: providerStatus, createdAt: "2026-09-18T00:00:00.000Z" })) as unknown as typeof fetch);
+      await expect(ripioProvider.onramp!.customer!.getStatus({ customerRef }, ctx)).resolves.toBe(expected);
+    }
+  });
+
   test("never asks the provider to price a quote without a verified customer", async () => {
     let calls = 0;
     const ctx = context((async () => { calls += 1; return tokenResponse(); }) as unknown as typeof fetch);
@@ -134,16 +143,27 @@ describe("Ripio funding adapter", () => {
       if (path.endsWith("/kyc/")) return Response.json({ submissionId: homeOrderId, providerUrl: "https://kyc.ripio.com/start?token=synthetic", createdAt: "2026-09-12T00:00:00.000Z" });
       return Response.json({});
     }) as unknown as typeof fetch);
-    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, fields: { email: "person@example.com" }, clientIp: "203.0.113.7", returnUrl: "https://home.example/fund?return=verification" }, ctx)).resolves.toMatchObject({ outcome: "created" });
+    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, clientIp: "203.0.113.7", redirectUrl: "https://home.example/fund?return=verification" }, ctx)).resolves.toMatchObject({ outcome: "created" });
     expect(bodies).toContainEqual({ termsId: quoteId, ipAddress: "203.0.113.7" });
-    expect(bodies).toContainEqual({ email: "person@example.com", returnUrl: "https://home.example/fund?return=verification" });
+    expect(bodies).toContainEqual({ redirectUrl: "https://home.example/fund?return=verification" });
+  });
+
+  test("treats a documented hosted-KYC 400 as rejected", async () => {
+    const ctx = context((async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/oauth2/token/") return tokenResponse();
+      if (path === "/api/v1/termsAndConditions/") return Response.json({ termsId: quoteId });
+      if (path.endsWith("/kyc/")) return Response.json({ code: 20000 }, { status: 400 });
+      return Response.json({});
+    }) as unknown as typeof fetch);
+    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, clientIp: "203.0.113.7", redirectUrl: "https://home.example/fund?return=verification" }, ctx)).resolves.toEqual({ outcome: "rejected" });
   });
 
   test("never accepts terms for a request with no observable client address", async () => {
     let calls = 0;
     const ctx = context((async () => { calls += 1; return tokenResponse(); }) as unknown as typeof fetch);
-    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, fields: { email: "person@example.com" }, returnUrl: "https://home.example/fund?return=verification" }, ctx))
-      .resolves.toEqual({ outcome: "ambiguous" });
+    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, redirectUrl: "https://home.example/fund?return=verification" }, ctx))
+      .resolves.toEqual({ outcome: "rejected" });
     expect(calls).toBe(0);
   });
 
@@ -171,7 +191,7 @@ describe("Ripio funding adapter", () => {
       if (path === "/api/v1/termsAndConditions/") return Response.json({ results: [] });
       throw new Error("unexpected request");
     }) as unknown as typeof fetch);
-    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, fields: { email: "person@example.com", firstName: "A" }, clientIp: "203.0.113.7", returnUrl: "https://home.example/fund?return=verification" }, ctx)).resolves.toEqual({ outcome: "ambiguous" });
+    await expect(ripioProvider.onramp!.customer!.startVerification({ customerRef, clientIp: "203.0.113.7", redirectUrl: "https://home.example/fund?return=verification" }, ctx)).resolves.toEqual({ outcome: "ambiguous" });
     expect(paths).not.toContain(`/api/v1/customers/${customerRef}/kyc/`);
   });
 

@@ -83,6 +83,9 @@ describePostgres("PostgresFundingProviderCustomerStore production contract", () 
     const migrated = await sql.query("SELECT owner_subject, state, customer_ref FROM funding_provider_customers");
     expect(migrated.rows).toHaveLength(1);
     expect(migrated.rows[0]).toMatchObject({ state: "pending", customer_ref: "shared-provider-customer" });
+    const columns = await admin.unsafe("SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'funding_provider_customers'", [TEST_SCHEMA]);
+    expect(Array.from(columns, (row) => (row as { column_name: string }).column_name)).not.toContain("provider_created_at");
+    expect(Array.from(columns, (row) => (row as { column_name: string }).column_name)).not.toContain("provider_submission_ref");
   });
 
   test("single-flights reservations, isolates owners, and applies create and verification CAS", async () => {
@@ -97,7 +100,6 @@ describePostgres("PostgresFundingProviderCustomerStore production contract", () 
     const id = results[0].customer.id;
     const pending = await store.completeCreate(id, {
       customerRef: "provider-customer",
-      providerCreatedAt: createdAt,
       expectedVersion: 0,
       updatedAt: "2026-09-18T00:00:01.000Z",
     });
@@ -108,17 +110,9 @@ describePostgres("PostgresFundingProviderCustomerStore production contract", () 
     ]);
     expect(claims.filter(Boolean)).toHaveLength(1);
     const claimed = claims.find(Boolean)!;
-    const completed = await store.completeVerificationStart(id, {
-      providerSubmissionRef: "provider-submission",
-      expectedVersion: claimed.version,
-      updatedAt: "2026-09-18T00:00:03.000Z",
-    });
-    expect(completed).toMatchObject({ state: "pending", providerSubmissionRef: "provider-submission", version: 3 });
-    expect(await store.completeVerificationStart(id, {
-      providerSubmissionRef: "stale-submission",
-      expectedVersion: claimed.version,
-      updatedAt: "2026-09-18T00:00:04.000Z",
-    })).toBeNull();
+    const verified = await store.markVerified(id, claimed.version, "2026-09-18T00:00:03.000Z");
+    expect(verified).toMatchObject({ state: "verified", version: 3 });
+    expect(await store.markVerified(id, claimed.version, "2026-09-18T00:00:04.000Z")).toBeNull();
   });
 
   test("persists ambiguous and rejected transitions and enforces state and identity constraints", async () => {
@@ -127,25 +121,23 @@ describePostgres("PostgresFundingProviderCustomerStore production contract", () 
     expect((await store.markDispatchAmbiguous(ambiguousInput.id, 0, "2026-09-18T00:01:00.000Z"))?.state).toBe("dispatch-ambiguous");
     expect(await store.completeCreate(ambiguousInput.id, {
       customerRef: "late-customer",
-      providerCreatedAt: createdAt,
       expectedVersion: 1,
       updatedAt: "2026-09-18T00:01:01.000Z",
     })).toBeNull();
 
     const createRejectedInput = reservation({ providerId: "create-rejected-provider" });
     await store.reserve(createRejectedInput);
-    expect((await store.markCreateRejected(createRejectedInput.id, 0, "2026-09-18T00:02:00.000Z"))?.state).toBe("rejected");
+    expect((await store.markRejected(createRejectedInput.id, 0, "2026-09-18T00:02:00.000Z"))?.state).toBe("rejected");
 
     const verificationRejectedInput = reservation({ providerId: "verification-rejected-provider" });
     await store.reserve(verificationRejectedInput);
     const pending = await store.completeCreate(verificationRejectedInput.id, {
       customerRef: "verification-customer",
-      providerCreatedAt: createdAt,
       expectedVersion: 0,
       updatedAt: "2026-09-18T00:03:00.000Z",
     });
     const claimed = await store.claimVerification(verificationRejectedInput.id, pending!.version, "2026-09-18T00:03:01.000Z");
-    expect((await store.markVerificationRejected(verificationRejectedInput.id, claimed!.version, "2026-09-18T00:03:02.000Z"))?.state).toBe("rejected");
+    expect((await store.markRejected(verificationRejectedInput.id, claimed!.version, "2026-09-18T00:03:02.000Z"))?.state).toBe("rejected");
     expect(await store.markDispatchAmbiguous(verificationRejectedInput.id, claimed!.version + 1, "2026-09-18T00:03:03.000Z")).toBeNull();
 
     await expect(sql.query(`INSERT INTO funding_provider_customers (
@@ -159,7 +151,6 @@ describePostgres("PostgresFundingProviderCustomerStore production contract", () 
     await store.reserve(duplicate);
     await expect(store.completeCreate(duplicate.id, {
       customerRef: "verification-customer",
-      providerCreatedAt: createdAt,
       expectedVersion: 0,
       updatedAt: "2026-09-18T00:04:00.000Z",
     })).rejects.toThrow();

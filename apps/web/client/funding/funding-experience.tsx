@@ -15,6 +15,7 @@ import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/quer
 
 export type FundingExperienceProps = {
   returnedFromProvider?: boolean;
+  returnedFromVerification?: boolean;
   open?: boolean;
   onClose?: () => void;
   initialStep?: AddMoneyStep;
@@ -58,6 +59,7 @@ function FundingExperienceBoundary({
   wallet,
   navigateToRedirect,
   returnedFromProvider = false,
+  returnedFromVerification = false,
   open = true,
   onClose,
   initialStep,
@@ -99,11 +101,15 @@ function FundingExperienceBoundary({
         { signal },
       ),
   });
+  const providerBindings = useMemo(
+    () => providerQuery.data ? readProviderBindings(providerQuery.data) : [],
+    [providerQuery.data],
+  );
   const customersQuery = useHomeQuery({
     queryKey: queryOwnerKey
       ? ownerQueryKey(queryOwnerKey, "funding-provider-customers", regionId)
       : ["unauthenticated", "funding-provider-customers-disabled", regionId],
-    enabled: queryEnabled,
+    enabled: queryEnabled && providerBindings.some((binding) => binding.customerSetup !== null),
     staleTime: 15_000,
     retry: false,
     refetchOnWindowFocus: false,
@@ -125,11 +131,6 @@ function FundingExperienceBoundary({
         { signal },
       ),
   });
-
-  const providerBindings = useMemo(
-    () => providerQuery.data ? readProviderBindings(providerQuery.data) : [],
-    [providerQuery.data],
-  );
 
   useEffect(() => {
     onStepChangeRef.current?.(step);
@@ -165,7 +166,7 @@ function FundingExperienceBoundary({
   }, [ordersQuery.data, providerBindings]);
 
   useEffect(() => {
-    if (readFundingOrder(ordersQuery.data) || stepRef.current !== "method") return;
+    if (!returnedFromVerification || !ordersQuery.isSuccess || readFundingOrder(ordersQuery.data) || stepRef.current !== "method") return;
     const customers = readFundingProviderCustomers(customersQuery.data);
     const customer = customers.find((candidate) => candidate.state !== "verified") ?? customers[0];
     if (!customer) return;
@@ -176,7 +177,7 @@ function FundingExperienceBoundary({
       if (navigationEpochRef.current !== navigationEpoch || stepRef.current !== "method") return;
       setSelectedBinding(binding); setInitialCustomer(customer); navigateTo("order", false);
     });
-  }, [customersQuery.data, ordersQuery.data, providerBindings]);
+  }, [customersQuery.data, ordersQuery.data, ordersQuery.isSuccess, providerBindings, returnedFromVerification]);
 
   function navigateTo(next: AddMoneyStep, explicit = true) {
     if (explicit) navigationEpochRef.current += 1;

@@ -17,7 +17,7 @@ export type FundingOnrampBinding = FundingBindingBase & {
   direction: "onramp";
   paymentMethods: ReadonlyArray<{ id: string; label: string }>;
   quotes: boolean;
-  customerSetup: { terms?: { url: string }; fields: ReadonlyArray<{ name: string; label: string; type: "text" | "email" | "date" | "select"; options?: ReadonlyArray<string> }> } | null;
+  customerSetup: { hosted: true } | null;
 };
 
 export type FundingOfframpBinding = FundingBindingBase & {
@@ -63,7 +63,7 @@ export function readProviderBindings(value: unknown): ReadonlyArray<FundingBindi
       });
     } else if (direction === "offramp") {
       const paymentMethods = item.paymentMethods.filter(isOfframpPaymentMethod);
-      if (paymentMethods.length !== item.paymentMethods.length || item.quotes !== false || !((item.customerSetup ?? item.kyc) === null)) continue;
+      if (paymentMethods.length !== item.paymentMethods.length || item.quotes !== false || item.customerSetup !== null) continue;
       parsed.push({
         providerId: item.providerId, displayName: item.displayName, region: item.region,
         assetId: item.assetId, assetSymbol: item.assetSymbol, assetDecimals: item.assetDecimals,
@@ -86,7 +86,7 @@ function isBaseBinding(value: unknown): value is Record<string, unknown> & Fundi
 }
 
 function isCustomerSetup(value: unknown): boolean {
-  return isRecord(value) && Array.isArray(value.fields) && value.fields.every((field) => isRecord(field) && typeof field.name === "string" && typeof field.label === "string" && ["text", "email", "date", "select"].includes(String(field.type)));
+  return isRecord(value) && value.hosted === true && Object.keys(value).length === 1;
 }
 
 function isPaymentMethod(value: unknown): value is { id: string; label: string } {

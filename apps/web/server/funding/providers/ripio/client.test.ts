@@ -307,4 +307,33 @@ describe("Ripio production REST client", () => {
     await expect(client.createCustomer({ email: "person@example.com" })).rejects.toMatchObject({ code: "ambiguous-create" });
     expect(calls).toBe(2);
   });
+
+  test("submits hosted KYC with exactly redirectUrl", async () => {
+    const bodies: unknown[] = [];
+    const client = createRipioClient("AR", { env, fetchImplementation: async (_input, init) => {
+      if (!init?.body || String(init.body) === "grant_type=client_credentials") return token();
+      bodies.push(JSON.parse(String(init.body)));
+      return Response.json({ submissionId: ID, providerUrl: "https://kyc.ripio.com/start?token=synthetic", createdAt: "2026-09-18T00:00:00.000Z" });
+    } });
+    await expect(client.submitHostedKyc(CUSTOMER, { redirectUrl: "https://home.example/fund?return=verification" })).resolves.toEqual({ providerUrl: "https://kyc.ripio.com/start?token=synthetic" });
+    expect(bodies).toEqual([{ redirectUrl: "https://home.example/fund?return=verification" }]);
+  });
+
+  test("retrieves and exact-parses the latest customer KYC submission", async () => {
+    const urls: string[] = [];
+    const client = createRipioClient("AR", { env, fetchImplementation: async (input) => {
+      urls.push(String(input));
+      return urls.length === 1 ? token() : Response.json({ customerId: CUSTOMER, status: "COMPLETED", createdAt: "2026-09-18T00:00:00.000Z" });
+    } });
+    await expect(client.getKycStatus(CUSTOMER)).resolves.toBe("COMPLETED");
+    expect(urls[1]).toBe(`https://skala.ripio.com/api/v1/customers/${CUSTOMER}/kycSubmissions/`);
+    for (const payload of [
+      { customerId: ID, status: "COMPLETED", createdAt: "2026-09-18T00:00:00.000Z" },
+      { customerId: CUSTOMER, status: 1, createdAt: "2026-09-18T00:00:00.000Z" },
+      { customerId: CUSTOMER, status: "COMPLETED", createdAt: "invalid" },
+    ]) {
+      const malformed = createRipioClient("AR", { env, fetchImplementation: async (_input, init) => init?.method === "POST" ? token() : Response.json(payload) });
+      await expect(malformed.getKycStatus(CUSTOMER)).rejects.toMatchObject({ code: "invalid-response" });
+    }
+  });
 });
