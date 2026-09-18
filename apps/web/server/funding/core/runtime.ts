@@ -7,7 +7,7 @@ import { createRuntimeFundingOrderStore } from "./postgres-store";
 import { FundingCore } from "./service";
 import { emitServerEvent } from "@/server/observability/log";
 import { getBalanceSnapshotStore } from "@/server/balances/snapshot-store";
-import { FUNDING_SANDBOX_MIGRATION_CODE } from "./provider-context";
+import { FUNDING_BINDING_ENVIRONMENT_CODE, FUNDING_SANDBOX_MIGRATION_CODE } from "./provider-context";
 
 export const authorizeFundingSession = authorizeSession;
 
@@ -41,7 +41,7 @@ export function getFundingCore(): FundingCore {
     logProviderDiscoveryFailure: ({ providerId, reason, code }) => {
       emitServerEvent("funding-order", {
         route: "/api/funding/providers",
-        code: code === FUNDING_SANDBOX_MIGRATION_CODE
+        code: code === FUNDING_SANDBOX_MIGRATION_CODE || code === FUNDING_BINDING_ENVIRONMENT_CODE
           ? code
           : reason === "configuration" ? "OFFRAMP_DISCOVERY_CONFIGURATION" : "OFFRAMP_DISCOVERY_PROVIDER",
         outcome: "unavailable",

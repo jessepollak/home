@@ -139,6 +139,7 @@ describe("observability schema", () => {
     "FUNDING_PROVIDER_CONFIGURATION",
     "PROVIDER_INVALID_RESPONSE",
     "FUNDING_SANDBOX_MIGRATION_REQUIRED",
+    "FUNDING_BINDING_ENVIRONMENT_MISSING",
     "OFFRAMP_DISCOVERY_CONFIGURATION",
     "OFFRAMP_DISCOVERY_PROVIDER",
   ])("preserves the scrubbed closed funding diagnostic %s", (code) => {
