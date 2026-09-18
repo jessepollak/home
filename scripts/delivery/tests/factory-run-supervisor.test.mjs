@@ -22,19 +22,9 @@ const ISSUE = {
   body: "Implement the bounded runner.",
   author: { login: "jessepollak" },
   state: "OPEN",
-  labels: [
-    { name: "factory:ready" },
-    { name: "status:todo" },
-    { name: "lane:ops" },
-    { name: "priority:p1" },
-  ],
-};
-const STORYBOOK_REFERENCE = {
-  type: "storybook", label: "Account settings",
-  managerUrl: "https://storybook.example.test/?path=/docs/account--docs",
-  canvasUrl: "https://storybook.example.test/iframe.html?id=account--default&viewMode=story",
-  commitSha: "a".repeat(40), deploymentId: "dpl_AbCd1234",
-  criteria: ["Name field is visible and editable."],
+  labels: [{ name: "status:todo" }, { name: "lane:ops" }, { name: "priority:p1" }],
+  parent: { number: 568, nodeId: "I_parent" },
+  subIssuesTotalCount: 0,
 };
 const PASS = '{"complete":true,"verdict":"pass","findings":[]}';
 const FAIL = '{"complete":true,"verdict":"fail","findings":[{"severity":"blocking","file":"runner.mjs:1","description":"fix it"}]}';
@@ -50,32 +40,10 @@ const BROWSER_EVIDENCE = {
   serverCleanupResult: "Terminated and waited for owned fixture-server PID.",
 };
 const BROWSER_WORKER_REPORT = JSON.stringify({ complete: true, browserEvidence: BROWSER_EVIDENCE });
+const REVIEWED_HEAD = "a".repeat(40);
 
-function approvedWorkerReport(outcomeAssessments, browserEvidence = null) {
-  return JSON.stringify({ complete: true, browserEvidence, outcomeAssessments });
-}
-
-function approvedAuthorization(issue, outcomes) {
-  return {
-    route: "approved-factory-brief/v1",
-    parent: { nodeId: "I_parent", number: 568 },
-    approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
-    child: { nodeId: "I_child", number: issue.number, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
-    outcomes,
-    outcomeIds: outcomes.map(({ id }) => id),
-  };
-}
-
-function unverifiedAssessments(outcomes, actor) {
-  return outcomes.map(({ id }) => ({
-    id,
-    status: "Unverified",
-    evidence: `No valid ${actor} assessment is available for the current run.`,
-  }));
-}
-
-function completed(stdout = "") {
-  return { code: 0, timedOut: false, outputExceeded: false, stdout };
+function completed(stdout = "", extra = {}) {
+  return { code: 0, timedOut: false, outputExceeded: false, stdout, ...extra };
 }
 
 function fakeRun({
@@ -88,63 +56,41 @@ function fakeRun({
   ciFailure = false,
   workerReports = [NULL_WORKER_REPORT],
   pullRequestSnapshots = [],
-  authorization = null,
 } = {}) {
   const calls = [];
   const pullRequestUpdates = [];
   const workerFindings = [];
   const workerLanes = [];
+  const ciHeads = [];
   let reviewIndex = 0;
   let workerIndex = 0;
   let pullRequestIndex = 0;
   const github = {
     repositoryOwner: "jessepollak",
-    async verifyAuthentication() {
-      calls.push("auth");
-      if (authFailure) throw new Error("auth failed");
-    },
+    async verifyAuthentication() { calls.push("auth"); if (authFailure) throw new Error("auth failed"); },
     async getIssue() { calls.push("issue"); return structuredClone(issue); },
-    async authorizeIssue(currentIssue) { return { route: "legacy-human-body/v1", child: { number: currentIssue.number, title: currentIssue.title, body: currentIssue.body } }; },
     async openPullRequestsReferencing() {
       calls.push("references");
       return pullRequestSnapshots[Math.min(pullRequestIndex++, pullRequestSnapshots.length - 1)] ?? [];
     },
     async setStatus(_number, from, to) { calls.push(`status:${from}->${to}`); },
     async createPullRequest({ branch }) { calls.push(`pr:${branch}`); return "https://github.test/pr/1"; },
-    async waitForRequiredChecks() {
-      calls.push("ci");
+    async waitForRequiredChecks(_url, reviewedHead) {
+      calls.push("ci"); ciHeads.push(reviewedHead);
       if (ciFailure) throw new Error("CI is not green");
     },
     async verifyPreviewProof() { calls.push("preview"); },
     async setPullRequestStatus(_url, from, to) { calls.push(`pr-status:${from}->${to}`); },
-    async updatePullRequest(update) {
-      pullRequestUpdates.push(structuredClone(update));
-      calls.push(`pr-evidence:${update.reviewFindings?.length ?? 0}`);
-    },
+    async updatePullRequest(update) { pullRequestUpdates.push(structuredClone(update)); calls.push(`pr-evidence:${update.reviewFindings?.length ?? 0}`); },
   };
-  if (authorization) {
-    github.authorizeIssue = async () => { calls.push("authorize"); return authorization; };
-    github.revalidateAuthorization = async (expected) => { calls.push("revalidate"); assert.equal(expected, authorization); return expected; };
-  }
   const local = {
-    async createWorktree() {
-      calls.push("worktree");
-      if (worktreeFailure) throw new Error("branch already exists");
-      return "/fake/worktree";
-    },
-    async setupWorktree() {
-      calls.push("setup");
-      if (setupFailure) throw new Error("setup failed");
-    },
-    async removeWorktree(_branch, preserve, owned) {
-      calls.push(`cleanup:${preserve}:${owned}`);
-      if (!preserve && owned) calls.push("delete-owned-branch");
-    },
+    async createWorktree() { calls.push("worktree"); if (worktreeFailure) throw new Error("branch already exists"); return "/fake/worktree"; },
+    async setupWorktree() { calls.push("setup"); if (setupFailure) throw new Error("setup failed"); },
+    async removeWorktree(_branch, preserve, owned) { calls.push(`cleanup:${preserve}:${owned}`); if (!preserve && owned) calls.push("delete-owned-branch"); },
     async preflight() { calls.push("preflight"); },
-    async runWorker(_cwd, _issue, findings, _authorization, remediationNumber) {
+    async runWorker(_cwd, _issue, findings, remediationNumber) {
       calls.push(findings.length ? "remediation" : "worker");
-      workerFindings.push(structuredClone(findings));
-      workerLanes.push(remediationNumber);
+      workerFindings.push(structuredClone(findings)); workerLanes.push(remediationNumber);
       if (workerFailure) throw new Error("worker failed");
       const result = workerReports[Math.min(workerIndex++, workerReports.length - 1)];
       return typeof result === "string" ? completed(result) : structuredClone(result);
@@ -153,580 +99,194 @@ function fakeRun({
     async runReviewer() {
       calls.push("reviewer");
       const result = reviews[reviewIndex++];
-      return typeof result === "string" ? completed(result) : structuredClone(result);
+      return typeof result === "string" ? completed(result, { reviewedHead: REVIEWED_HEAD }) : { ...structuredClone(result), reviewedHead: result.reviewedHead ?? REVIEWED_HEAD };
     },
   };
-  return { github, local, calls, pullRequestUpdates, workerFindings, workerLanes };
+  return { github, local, calls, pullRequestUpdates, workerFindings, workerLanes, ciHeads };
 }
 
 async function withRunPaths(operation) {
   const directory = await mkdtemp(join(tmpdir(), "factory-supervisor-test-"));
   try {
-    return await operation({
-      commonGitDirectory: directory,
-      killSwitchPath: join(directory, "stop"),
-      hostLockPath: join(directory, "lock"),
-    });
+    return await operation({ commonGitDirectory: directory, killSwitchPath: join(directory, "stop"), hostLockPath: join(directory, "lock") });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 }
 
-test("repository owner is derived from the configured owner/repo", () => {
-  assert.equal(createGitHubAdapter({ repository: "configured-owner/home", environment: {} }).repositoryOwner, "configured-owner");
-  assert.throws(() => createGitHubAdapter({ repository: "unscoped-repository", environment: {} }), /owner\/repo/);
-});
-
-test("supervisor refuses an adapter without an authorization decision", async () => {
-  await withRunPaths(async (paths) => {
-    const fake = fakeRun();
-    delete fake.github.authorizeIssue;
-    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /authorization adapter is unavailable/);
-    assert.equal(fake.calls.includes("worker"), false);
-  });
-});
-
-test("model prompts receive only the bounded issue fields and no timeline or comment text", () => {
+test("model prompts receive only bounded issue fields and no assessment protocol", () => {
   const issue = {
     ...ISSUE,
-    title: "Bounded runner",
     url: "https://github.test/issues/546",
     author: { ...ISSUE.author, name: "AUTHOR-NAME-SENTINEL" },
     labels: ISSUE.labels.map((label) => ({ ...label, description: "LABEL-DESCRIPTION-SENTINEL" })),
     comments: [{ body: "COMMENT-BODY-SENTINEL" }],
-    timeline: [{ body: "TIMELINE-BODY-SENTINEL" }],
-    arbitrary: "ARBITRARY-FIELD-SENTINEL",
   };
-  const input = factoryIssuePromptInput(issue);
-  assert.deepEqual(Object.keys(input), ["number", "title", "body", "author", "state", "labels", "url"]);
-  assert.deepEqual(input.author, { login: "jessepollak" });
-  assert.deepEqual(input.labels, ISSUE.labels);
-
+  assert.deepEqual(Object.keys(factoryIssuePromptInput(issue)), ["number", "title", "body", "author", "state", "labels", "url"]);
   for (const prompt of [workerPrompt(issue), reviewerPrompt(issue, "safe diff")]) {
     assert.match(prompt, /Bounded runner/);
-    assert.doesNotMatch(prompt, /AUTHOR-NAME-SENTINEL|LABEL-DESCRIPTION-SENTINEL|COMMENT-BODY-SENTINEL|TIMELINE-BODY-SENTINEL|ARBITRARY-FIELD-SENTINEL/);
+    assert.doesNotMatch(prompt, /AUTHOR-NAME-SENTINEL|LABEL-DESCRIPTION-SENTINEL|COMMENT-BODY-SENTINEL/);
   }
+  assert.match(workerPrompt(issue), /no wallet, provider, production, database, funded/);
+  assert.match(reviewerPrompt(issue, "safe diff"), /fresh independent read-only reviewer/);
 });
 
-test("approved prompts contain only retained exact child spec and mapped outcomes", () => {
-  const authorization = {
-    route: "approved-factory-brief/v1",
-    child: { number: 600, title: "Approved", body: "Exact approved body", bodySha256: "a".repeat(64) },
-    outcomeIds: ["one"], outcomes: [{ id: "one", text: "Required" }],
-    evidenceMap: [{ outcomeId: "one", childKey: "approved-child", evidence: "Focused contract test and current-head proof." }],
-    designReferences: [STORYBOOK_REFERENCE],
-  };
-  const mutableIssue = { ...ISSUE, body: "MUTABLE-PROSE-SENTINEL", comments: [{ body: "COMMENT-SENTINEL" }] };
-  assert.deepEqual(factoryIssuePromptInput(mutableIssue, authorization), {
-    number: 600,
-    title: "Approved",
-    body: "Exact approved body",
-    authorization: {
-      route: "approved-factory-brief/v1",
-      outcomes: [{ id: "one", text: "Required" }],
-      evidenceMap: [{ outcomeId: "one", childKey: "approved-child", evidence: "Focused contract test and current-head proof." }],
-      designReferences: [STORYBOOK_REFERENCE],
-    },
-  });
-  for (const prompt of [workerPrompt(mutableIssue, [], authorization), reviewerPrompt(mutableIssue, "safe", authorization)]) {
-    assert.match(prompt, /Exact approved body/);
-    assert.match(prompt, /Required/);
-    assert.match(prompt, /Account settings/);
-    assert.match(prompt, /storybook\.example\.test/);
-    assert.match(prompt, /dpl_AbCd1234/);
-    assert.match(prompt, /Name field is visible and editable/);
-    assert.match(prompt, /Focused contract test and current-head proof/);
-    assert.doesNotMatch(prompt, /MUTABLE-PROSE-SENTINEL|COMMENT-SENTINEL|bodySha256|outcomeIds/);
-  }
-  const worker = workerPrompt(mutableIssue, [], authorization);
-  assert.match(worker, /Return exactly one final JSON object and no markdown or commentary/);
-  assert.match(worker, /"browserEvidence":null/);
-  assert.match(worker, /"outcomeAssessments":\[\{"id":"one","status":"Met","evidence":"concise evidence or reason"\}\]/);
-  assert.match(worker, /status must be exactly Met, Not met, or Unverified/);
-});
-
-test("worker prompt requires the browser-validation contract for user-visible work", () => {
-  const frontendIssue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:frontend" } : label) };
-  const prompt = workerPrompt(frontendIssue);
-
+test("frontend worker prompt keeps secret-free browser proof", () => {
+  const issue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:frontend" } : label) };
+  const prompt = workerPrompt(issue);
   assert.match(prompt, /docs\/browser-validation\.md/);
-  assert.match(prompt, /repository-pinned agent-browser/);
   assert.match(prompt, /secret-free factory fixture mode before and after editing/);
-  assert.match(prompt, /Return exactly one final JSON object and no markdown or commentary/);
   assert.match(prompt, /serverCleanupResult/);
   assert.match(prompt, /Playwright only for committed regression/);
 });
 
-test("legacy non-UI workers retain their exact structured completion report", async () => {
-  const prompt = workerPrompt(ISSUE);
-  assert.match(prompt, /\{\"complete\":true,\"browserEvidence\":null\}/);
-
-  await withRunPaths(async (paths) => {
-    for (const report of ["implementation summary", '{"complete":true}', '{"complete":false,"browserEvidence":null}']) {
-      const fake = fakeRun({ workerReports: [report] });
-      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /worker (?:output is not valid JSON|report fields are invalid|report is incomplete)/);
-      assert.equal(fake.calls.some((call) => call.startsWith("validate:")), false);
-      assert.equal(fake.calls.some((call) => call.startsWith("pr:")), false);
-    }
-  });
-});
-
-test("browser evidence rendering is concise and escapes inline markdown", () => {
-  const section = browserEvidenceSection({
-    ...BROWSER_EVIDENCE,
-    exercisedPath: "Clicked [untrusted](https://example.test) `text`.",
-  });
-  assert.match(section, /Mode: factory fixture/);
-  assert.match(section, /Route \/ viewport: \/save — 390x844 CSS px/);
-  assert.match(section, /Fixture server cleanup: Terminated and waited/);
-  assert.doesNotMatch(section, /\[untrusted\]\(https:\/\/example\.test\)/);
-  assert.match(browserEvidenceSection(null), /Not required/);
-});
-
-test("preview section parsing accepts the current and legacy headings", () => {
-  const proof = "https://preview.example.test\n\n![Current-head screen](https://images.example.test/screen.png)";
-
-  assert.equal(previewSectionFrom(`## Preview\n\n${proof}\n\n## Notes\n\nMore`, ISSUE), proof);
-  assert.equal(previewSectionFrom(`## Preview proof\n\n${proof}\n\n<!-- factory -->`, ISSUE), proof);
-});
-
-test("factory PR bodies standardize Preview and preserve proof during rewrites", () => {
-  const proof = "https://preview.example.test\n\n![Screen](https://images.example.test/screen.png)";
-  const initialBody = factoryPullRequestBody(ISSUE);
-  assert.match(initialBody, /^## Preview$/m);
-  assert.doesNotMatch(initialBody, /^## Preview proof$/m);
-
+test("factory PR bodies preserve preview proof and fall back when no real-money evidence exists", () => {
+  const proof = "https://preview.example.test\n\n| State + viewport | Evidence |\n| --- | --- |\n| Review — 390×844 | ![Screen](https://github.com/user-attachments/assets/1) |";
+  const initial = factoryPullRequestBody({ ...ISSUE, labels: [{ name: "lane:frontend" }] });
+  assert.match(initial, /\| State \+ viewport \| Evidence \|/);
+  assert.match(initial, /^## Real money\n\nReal money: not tested — factory children cannot run funded checks\.$/m);
   for (const heading of ["Preview", "Preview proof"]) {
-    const rewritten = factoryResultBody({
+    const body = factoryResultBody({
       currentBody: `Closes #546\n\n## ${heading}\n\n${proof}\n\n<!-- factory -->`,
       issue: ISSUE,
       outcome: "passed",
       stages: [{ name: "validation", outcome: "passed", durationMs: 12 }],
-      requiredOutcomes: [{ id: "operator-branding", text: "Operator branding renders safely." }],
-      workerOutcomeAssessments: [{ id: "operator-branding", status: "Met", evidence: "Worker contract test passed." }],
-      reviewerOutcomeAssessments: [{ id: "operator-branding", status: "Met", evidence: "Independent review confirmed it." }],
     });
-    assert.match(rewritten, /^## Preview$/m);
-    assert.doesNotMatch(rewritten, /^## Preview proof$/m);
-    assert.match(rewritten, /- validation: 12ms/);
-    assert.match(rewritten, /^### Worker required outcomes$/m);
-    assert.match(rewritten, /^### Independent reviewer required outcomes$/m);
-    assert.match(rewritten, /operator-branding — Operator branding renders safely\.: \*\*Met\*\* — Worker contract test passed\./);
-    assert.match(rewritten, /operator-branding — Operator branding renders safely\.: \*\*Met\*\* — Independent review confirmed it\./);
-    assert.match(rewritten, /https:\/\/preview\.example\.test/);
-    assert.match(rewritten, /!\[Screen\]\(https:\/\/images\.example\.test\/screen\.png\)/);
+    assert.match(body, /- validation: 12ms/);
+    assert.match(body, /github\.com\/user-attachments/);
+    assert.match(body, /^## Real money\n\nReal money: not tested — factory children cannot run funded checks\.$/m);
+    assert.equal(body.match(/^## Real money$/gm)?.length, 1);
+    assert.doesNotMatch(body, /Worker required outcomes|reviewer required outcomes|assessment/i);
   }
+  assert.equal(previewSectionFrom(`## Preview\n\n${proof}\n\n## Notes`, ISSUE), proof);
 });
 
-test("approved failure PR bodies render complete unverified worker and reviewer sections", () => {
-  const requiredOutcomes = [
-    { id: "one", text: "First required outcome." },
-    { id: "two", text: "Second required outcome." },
-  ];
+test("factory result preserves one existing non-empty real-money section", () => {
+  const retained = [
+    "Network: Base mainnet.",
+    "Asset and maximum: USDC, 1.00 USDC.",
+    "Result: bounded deposit and withdrawal completed under operator approval.",
+  ].join("\n");
   const body = factoryResultBody({
-    currentBody: factoryPullRequestBody(ISSUE),
+    currentBody: `## Real money\n\n${retained}\n\n## Preview\n\nN/A\n\n## Real money\n\nstale duplicate`,
     issue: ISSUE,
-    outcome: "failed",
-    error: "Factory run stopped during review-0.",
-    stages: [{ name: "review-0", outcome: "failed", durationMs: 4 }],
-    requiredOutcomes,
+    outcome: "passed",
+    stages: [],
   });
 
-  assert.match(body, /^### Worker required outcomes$/m);
-  assert.match(body, /^### Independent reviewer required outcomes$/m);
-  assert.equal(body.match(/\*\*Unverified\*\*/g)?.length, requiredOutcomes.length * 2);
-  for (const { id } of requiredOutcomes) {
-    assert.equal(body.match(new RegExp(`^- ${id} —`, "gm"))?.length, 2);
-  }
+  assert.match(body, new RegExp(retained.replaceAll(".", "\\.")));
+  assert.doesNotMatch(body, /factory children cannot run funded checks/);
+  assert.doesNotMatch(body, /stale duplicate/);
+  assert.equal(body.match(/^## Real money$/gm)?.length, 1);
 });
 
-test("supervisor waits for current-head CI before promoting a normal PR", async () => {
-  await withRunPaths(async (paths) => {
-    const fake = fakeRun();
-    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
-    assert.equal(evidence.outcome, "passed");
-    assert.equal(evidence.prUrl, "https://github.test/pr/1");
-    assert.equal(evidence.browserEvidence, null);
-    assert.equal(fake.pullRequestUpdates.at(-1).browserEvidence, null);
-    assert.deepEqual(fake.calls, [
-      "auth", "issue", "references", "status:status:todo->status:working",
-      "worktree", "setup", "preflight", "worker", "validate:0", "references", "pr:agent/546-factory-run",
-      "reviewer", "ci", "preview", "pr-evidence:0",
-      "status:status:working->status:needs-jesse",
-      "pr-status:status:working->status:needs-jesse", "cleanup:true:true",
-    ]);
-    assert.ok(evidence.stages.every((stage) => Number.isInteger(stage.durationMs)));
-  });
+test("browser evidence rendering is concise and escapes inline markdown", () => {
+  const section = browserEvidenceSection({ ...BROWSER_EVIDENCE, exercisedPath: "Clicked [untrusted](https://example.test) `text`." });
+  assert.match(section, /Route \/ viewport: \/save — 390x844 CSS px/);
+  assert.doesNotMatch(section, /\[untrusted\]\(https:\/\/example\.test\)/);
 });
 
-test("approved remediation revalidates before every worker and final handoff", async () => {
+test("supervisor rejects root and intermediate tracking containers before creating a worktree", async () => {
   await withRunPaths(async (paths) => {
-    const issue = { ...ISSUE, nodeId: "I_child", body: "Marked exact child.\n<!-- factory -->" };
-    const authorization = {
-      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
-      approval: {
-        source: "github-issue-comment-owner-plus-one/v1", state: "active",
-        commentId: 10, commentNodeId: "IC_10", proposalBodySha256: "b".repeat(64),
-        reactionId: 11, reactionNodeId: "R_11",
-        revocation: { action: "remove-reaction", contract: "removing this exact owner +1 reaction revokes authorization on mechanical revalidation" },
-      },
-      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
-      outcomes: [{ id: "one", text: "One" }, { id: "two", text: "Two" }, { id: "three", text: "Three" }],
-      outcomeIds: ["one", "two", "three"],
-      evidenceMap: [
-        { outcomeId: "one", childKey: "runner", evidence: "Focused test proves one." },
-        { outcomeId: "two", childKey: "runner", evidence: "Focused test proves two." },
-        { outcomeId: "three", childKey: "runner", evidence: "Focused test proves three." },
-      ],
-      designReferences: [STORYBOOK_REFERENCE],
-    };
-    const assessments = authorization.outcomes.map(({ id }) => ({ id, status: "Met", evidence: `${id} passed` }));
-    const failed = assessments.map((value, index) => index === 0 ? { ...value, status: "Not met", evidence: "one missing" } : value);
-    const fake = fakeRun({
-      issue, authorization,
-      reviews: [JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: failed }), JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: assessments })],
-      workerReports: [approvedWorkerReport(assessments), approvedWorkerReport(assessments)],
-    });
-    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
-    assert.deepEqual(evidence.workerOutcomeAssessments, assessments);
-    assert.deepEqual(evidence.reviewerOutcomeAssessments, assessments);
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, assessments);
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, assessments);
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).requiredOutcomes, authorization.outcomes);
-    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
-    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
-    assert.deepEqual(durableEvidence.workerOutcomeAssessments, assessments);
-    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, assessments);
-    assert.deepEqual(durableEvidence.authorization.approval, authorization.approval);
-    assert.equal(evidence.authorization.child.body, issue.body);
-    assert.deepEqual(evidence.authorization.evidenceMap, authorization.evidenceMap);
-    assert.deepEqual(durableEvidence.authorization.evidenceMap, authorization.evidenceMap);
-    assert.deepEqual(evidence.authorization.designReferences, authorization.designReferences);
-    assert.deepEqual(durableEvidence.authorization.designReferences, authorization.designReferences);
-    const positions = fake.calls.map((value, index) => value === "revalidate" ? index : -1).filter((index) => index >= 0);
-    assert.equal(positions.length, 4);
-    assert.ok(positions[0] < fake.calls.indexOf("worker"));
-    assert.ok(positions[1] < fake.calls.indexOf("remediation"));
-    assert.ok(positions[2] < fake.calls.indexOf("pr-evidence:0"));
-  });
-});
-
-test("approved worker outcome gaps trigger remediation and refreshed assessments replace them", async () => {
-  await withRunPaths(async (paths) => {
-    const issue = { ...ISSUE, nodeId: "I_child" };
-    const authorization = {
-      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
-      approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
-      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
-      outcomes: [{ id: "one", text: "One" }], outcomeIds: ["one"],
-    };
-    const met = [{ id: "one", status: "Met", evidence: "Focused validation passed." }];
-    const notMet = [{ id: "one", status: "Not met", evidence: "Focused validation still fails." }];
-    const reviewerPass = JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: met });
-    const fake = fakeRun({
-      issue,
-      authorization,
-      reviews: [reviewerPass, reviewerPass],
-      workerReports: [approvedWorkerReport(notMet), approvedWorkerReport(met)],
-    });
-
-    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
-    assert.equal(evidence.outcome, "passed");
-    assert.deepEqual(evidence.workerOutcomeAssessments, met);
-    assert.deepEqual(evidence.reviewerOutcomeAssessments, met);
-    assert.equal(fake.calls.filter((call) => call === "remediation").length, 1);
-    assert.deepEqual(fake.workerFindings[1], [{
-      severity: "blocking", source: "worker", outcomeId: "one", description: "Focused validation still fails.",
-    }]);
-  });
-});
-
-test("approved runs cannot pass while current worker assessments remain non-Met", async () => {
-  await withRunPaths(async (paths) => {
-    const issue = { ...ISSUE, nodeId: "I_child" };
-    const authorization = {
-      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
-      approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
-      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
-      outcomes: [{ id: "one", text: "One" }], outcomeIds: ["one"],
-    };
-    const met = [{ id: "one", status: "Met", evidence: "Independent review passed." }];
-    const unverified = [{ id: "one", status: "Unverified", evidence: "Worker could not verify the outcome." }];
-    const reviewerPass = JSON.stringify({ complete: true, verdict: "pass", findings: [], outcomeAssessments: met });
-    const fake = fakeRun({
-      issue,
-      authorization,
-      reviews: [reviewerPass, reviewerPass, reviewerPass],
-      workerReports: [approvedWorkerReport(unverified), approvedWorkerReport(unverified), approvedWorkerReport(unverified)],
-    });
-
-    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
-    assert.equal(evidence.outcome, "needs-jesse");
-    assert.deepEqual(evidence.workerOutcomeAssessments, unverified);
-    assert.deepEqual(evidence.reviewerOutcomeAssessments, met);
-    assert.equal(fake.calls.filter((call) => call === "remediation").length, 2);
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, unverified);
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, met);
-  });
-});
-
-test("approved non-UI reports with malformed outcome coverage fail before validation", async () => {
-  await withRunPaths(async (paths) => {
-    const issue = { ...ISSUE, nodeId: "I_child" };
-    const authorization = {
-      route: "approved-factory-brief/v1", parent: { nodeId: "I_parent", number: 568 },
-      approval: { commentId: 10, commentNodeId: "IC_10", reactionId: 11, reactionNodeId: "R_11" },
-      child: { nodeId: "I_child", number: 546, title: issue.title, body: issue.body, bodySha256: "a".repeat(64) },
-      outcomes: [{ id: "one", text: "One" }, { id: "two", text: "Two" }], outcomeIds: ["one", "two"],
-    };
-    const fake = fakeRun({
-      issue,
-      authorization,
-      workerReports: [approvedWorkerReport([{ id: "one", status: "Met", evidence: "Only one." }])],
-    });
-
-    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /exactly cover required outcomes/);
-    assert.equal(fake.calls.some((call) => call.startsWith("validate:")), false);
-    assert.equal(fake.calls.some((call) => call.startsWith("pr:")), false);
-  });
-});
-
-test("initial approved worker failure preserves complete unverified durable assessments", async () => {
-  await withRunPaths(async (paths) => {
-    const issue = { ...ISSUE, nodeId: "I_child" };
-    const outcomes = [{ id: "one", text: "One" }, { id: "two", text: "Two" }];
-    const authorization = approvedAuthorization(issue, outcomes);
-    const fake = fakeRun({ issue, authorization, workerFailure: true });
-    let failure;
-
-    await assert.rejects(
-      runFactorySupervisor(546, { ...fake, ...paths }),
-      (error) => { failure = error; return error.message === "worker failed"; },
-    );
-
-    assert.deepEqual(failure.evidence.workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
-    assert.deepEqual(failure.evidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
-    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
-    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
-    assert.deepEqual(durableEvidence.workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
-    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
-    assert.equal(fake.pullRequestUpdates.length, 0);
-  });
-});
-
-for (const reviewCase of [
-  { name: "timeout", result: { code: null, timedOut: true, outputExceeded: false, stdout: "private partial output" }, message: /bounded reviewer did not complete/ },
-  { name: "malformed", result: "private malformed output", message: /reviewer output is not valid JSON/ },
-]) {
-  test(`approved reviewer ${reviewCase.name} rewrites PR and durable evidence with unverified review`, async () => {
-    await withRunPaths(async (paths) => {
-      const issue = { ...ISSUE, nodeId: "I_child" };
-      const outcomes = [{ id: "one", text: "One" }];
-      const authorization = approvedAuthorization(issue, outcomes);
-      const met = [{ id: "one", status: "Met", evidence: "Worker validation passed." }];
-      const fake = fakeRun({ issue, authorization, workerReports: [approvedWorkerReport(met)], reviews: [reviewCase.result] });
-
-      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), reviewCase.message);
-
-      const update = fake.pullRequestUpdates.at(-1);
-      assert.equal(update.outcome, "failed");
-      assert.match(update.error, /^Factory run stopped (?:before completion|during verdict-0)\.$/);
-      assert.deepEqual(update.workerOutcomeAssessments, met);
-      assert.deepEqual(update.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
-      assert.doesNotMatch(update.error, /private/);
-      const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
-      const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
-      assert.deepEqual(durableEvidence.workerOutcomeAssessments, met);
-      assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
-    });
-  });
-}
-
-test("malformed remediation resets stale worker assessments", async () => {
-  await withRunPaths(async (paths) => {
-    const issue = { ...ISSUE, nodeId: "I_child" };
-    const outcomes = [{ id: "one", text: "One" }];
-    const authorization = approvedAuthorization(issue, outcomes);
-    const workerMet = [{ id: "one", status: "Met", evidence: "Initial worker validation passed." }];
-    const reviewerNotMet = [{ id: "one", status: "Not met", evidence: "Review found a remaining gap." }];
-    const review = JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: reviewerNotMet });
-    const fake = fakeRun({ issue, authorization, workerReports: [approvedWorkerReport(workerMet), "malformed remediation"], reviews: [review] });
-
-    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /worker output is not valid JSON/);
-
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, reviewerNotMet);
-    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
-    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
-    assert.deepEqual(durableEvidence.workerOutcomeAssessments, unverifiedAssessments(outcomes, "worker"));
-    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, reviewerNotMet);
-  });
-});
-
-test("timed-out later review resets stale reviewer assessments", async () => {
-  await withRunPaths(async (paths) => {
-    const issue = { ...ISSUE, nodeId: "I_child" };
-    const outcomes = [{ id: "one", text: "One" }];
-    const authorization = approvedAuthorization(issue, outcomes);
-    const workerMet = [{ id: "one", status: "Met", evidence: "Remediation validation passed." }];
-    const reviewerNotMet = [{ id: "one", status: "Not met", evidence: "Initial review found a gap." }];
-    const firstReview = JSON.stringify({ complete: true, verdict: "fail", findings: [], outcomeAssessments: reviewerNotMet });
-    const timedOutReview = { code: null, timedOut: true, outputExceeded: false, stdout: "private partial output" };
-    const fake = fakeRun({ issue, authorization, workerReports: [approvedWorkerReport(workerMet), approvedWorkerReport(workerMet)], reviews: [firstReview, timedOutReview] });
-
-    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /bounded reviewer did not complete/);
-
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).workerOutcomeAssessments, workerMet);
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
-    const evidenceFiles = await readdir(join(paths.commonGitDirectory, "factory-runs"));
-    const durableEvidence = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", evidenceFiles[0]), "utf8"));
-    assert.deepEqual(durableEvidence.workerOutcomeAssessments, workerMet);
-    assert.deepEqual(durableEvidence.reviewerOutcomeAssessments, unverifiedAssessments(outcomes, "independent reviewer"));
-  });
-});
-
-test("required valid browser evidence reaches run evidence and the PR update", async () => {
-  await withRunPaths(async (paths) => {
-    const issue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:frontend" } : label) };
-    const fake = fakeRun({ issue, workerReports: [BROWSER_WORKER_REPORT] });
-    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
-
-    assert.deepEqual(evidence.browserEvidence, BROWSER_EVIDENCE);
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).browserEvidence, BROWSER_EVIDENCE);
-    assert.ok(fake.calls.indexOf("worker") < fake.calls.indexOf("validate:0"));
-  });
-});
-
-test("missing or malformed required browser evidence fails before validation and publication", async () => {
-  await withRunPaths(async (paths) => {
-    const issue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:design" } : label) };
-    for (const report of [NULL_WORKER_REPORT, "not-json", '{"complete":true}']) {
-      const fake = fakeRun({ issue, workerReports: [report] });
-      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /worker (?:browser evidence is required|output is not valid JSON|report fields are invalid)/);
-      assert.equal(fake.calls.some((call) => call.startsWith("validate:")), false);
-      assert.equal(fake.calls.some((call) => call.startsWith("pr:")), false);
-      assert.ok(fake.calls.includes("status:status:working->status:todo"));
-    }
-  });
-});
-
-test("remediation replaces retained browser evidence before revalidation and handoff", async () => {
-  await withRunPaths(async (paths) => {
-    const issue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:frontend" } : label) };
-    const refreshed = {
-      ...BROWSER_EVIDENCE,
-      exercisedPath: "Retested Save after remediation and reached the corrected review.",
-    };
-    const fake = fakeRun({
-      issue,
-      reviews: [FAIL, PASS],
-      workerReports: [BROWSER_WORKER_REPORT, JSON.stringify({ complete: true, browserEvidence: refreshed })],
-    });
-    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
-
-    assert.deepEqual(evidence.browserEvidence, refreshed);
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).browserEvidence, refreshed);
-    assert.ok(fake.calls.indexOf("remediation") < fake.calls.indexOf("validate:1"));
-  });
-});
-
-test("malformed remediation evidence fails before remediation validation and retains prior valid evidence", async () => {
-  await withRunPaths(async (paths) => {
-    const issue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:frontend" } : label) };
-    const fake = fakeRun({ issue, reviews: [FAIL], workerReports: [BROWSER_WORKER_REPORT, "bad report"] });
-    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /worker output is not valid JSON/);
-
-    assert.equal(fake.calls.includes("validate:1"), false);
-    assert.deepEqual(fake.pullRequestUpdates.at(-1).browserEvidence, BROWSER_EVIDENCE);
-  });
-});
-
-test("a conflicting PR appearing after work blocks publication", async () => {
-  await withRunPaths(async (paths) => {
-    const fake = fakeRun({ pullRequestSnapshots: [[], [{ number: 9, url: "https://github.test/pr/9" }]] });
-    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /gained a conflicting open pull request/);
-    assert.ok(fake.calls.includes("validate:0"));
-    assert.equal(fake.calls.some((call) => call.startsWith("pr:agent/")), false);
-  });
-});
-
-test("non-green CI fails closed without status promotion", async () => {
-  await withRunPaths(async (paths) => {
-    const fake = fakeRun({ ciFailure: true });
-    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /CI is not green/);
-    assert.ok(fake.calls.includes("ci"));
-    assert.ok(fake.calls.includes("pr-evidence:0"));
-    assert.equal(fake.calls.some((call) => call.includes("working->status:needs-jesse")), false);
-  });
-});
-
-test("factory remediations escalate from the routine worker lane to the Sol worker lane", async () => {
-  await withRunPaths(async (paths) => {
-    const fake = fakeRun({ reviews: [FAIL, FAIL, PASS] });
-    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
-    assert.equal(evidence.outcome, "passed");
-    assert.deepEqual(fake.workerLanes, [0, 1, 2]);
-
-    const capped = fakeRun({ reviews: [FAIL, FAIL, FAIL] });
-    const cappedEvidence = await runFactorySupervisor(546, { ...capped, ...paths });
-    assert.equal(cappedEvidence.outcome, "needs-jesse");
-    assert.deepEqual(capped.workerLanes, [0, 1, 2]);
-  });
-});
-
-test("supervisor stops after exactly two remediation loops with concise findings", async () => {
-  await withRunPaths(async (paths) => {
-    const fake = fakeRun({ reviews: [FAIL, FAIL, FAIL] });
-    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
-    assert.equal(evidence.outcome, "needs-jesse");
-    assert.deepEqual(evidence.blockingReviewFindings, [{ file: "runner.mjs:1", description: "fix it" }]);
-    assert.equal(fake.calls.filter((call) => call === "remediation").length, 2);
-    assert.equal(fake.calls.filter((call) => call === "reviewer").length, 3);
-    assert.equal(fake.calls.filter((call) => call.startsWith("validate:")).length, 3);
-    assert.ok(fake.calls.includes("pr-evidence:1"));
-    assert.ok(fake.calls.indexOf("ci") < fake.calls.indexOf("status:status:working->status:needs-jesse"));
-  });
-});
-
-test("failure before publication restores todo and deletes only its owned branch", async () => {
-  await withRunPaths(async (paths) => {
-    const first = fakeRun({ workerFailure: true });
-    await assert.rejects(runFactorySupervisor(546, { ...first, ...paths }), /worker failed/);
-    assert.ok(first.calls.includes("status:status:working->status:todo"));
-    assert.ok(first.calls.includes("cleanup:false:true"));
-    assert.ok(first.calls.includes("delete-owned-branch"));
-
-    const second = fakeRun();
-    const result = await runFactorySupervisor(546, { ...second, ...paths });
-    assert.equal(result.outcome, "passed");
-  });
-});
-
-test("authentication, eligibility, and pre-existing branch failures never delete a branch", async () => {
-  await withRunPaths(async (paths) => {
-    const conflicting = { ...ISSUE, labels: [...ISSUE.labels, { name: "status:blocked" }] };
-    for (const fake of [
-      fakeRun({ authFailure: true }),
-      fakeRun({ issue: conflicting }),
-      fakeRun({ worktreeFailure: true }),
+    for (const [issue, message] of [
+      [{ ...ISSUE, parent: null }, /valid native parent/],
+      [{ ...ISSUE, subIssuesTotalCount: 1 }, /must have no sub-issues/],
     ]) {
-      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }));
-      assert.equal(fake.calls.includes("delete-owned-branch"), false);
+      const fake = fakeRun({ issue });
+      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), message);
+      assert.equal(fake.calls.includes("worktree"), false);
       assert.ok(fake.calls.includes("cleanup:false:false"));
     }
   });
 });
 
-test("setup failure deletes the branch created by this invocation", async () => {
+test("supervisor runs ordinary completion for a valid leaf, current-head review, CI, preview, and handoff", async () => {
+  await withRunPaths(async (paths) => {
+    const fake = fakeRun();
+    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
+    assert.equal(evidence.outcome, "passed");
+    assert.equal(evidence.reviewedHead, REVIEWED_HEAD);
+    assert.deepEqual(fake.ciHeads, [REVIEWED_HEAD]);
+    assert.deepEqual(fake.calls, [
+      "auth", "issue", "references", "status:status:todo->status:working", "worktree", "setup", "preflight",
+      "worker", "validate:0", "references", "pr:agent/546-factory-run", "reviewer", "ci", "preview", "pr-evidence:0",
+      "status:status:working->status:needs-jesse", "pr-status:status:working->status:needs-jesse", "cleanup:true:true",
+    ]);
+    const files = await readdir(join(paths.commonGitDirectory, "factory-runs"));
+    const durable = JSON.parse(await readFile(join(paths.commonGitDirectory, "factory-runs", files[0]), "utf8"));
+    assert.equal(durable.reviewedHead, REVIEWED_HEAD);
+    assert.deepEqual(Object.keys(durable).sort(), ["branch", "browserEvidence", "durationMs", "issue", "outcome", "prUrl", "reviewedHead", "stages"]);
+  });
+});
+
+test("supervisor allows at most two repair loops and escalates the final repair lane", async () => {
+  await withRunPaths(async (paths) => {
+    const fake = fakeRun({ reviews: [FAIL, FAIL, FAIL] });
+    const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
+    assert.equal(evidence.outcome, "needs-jesse");
+    assert.deepEqual(evidence.blockingReviewFindings, [{ file: "runner.mjs:1", description: "fix it" }]);
+    assert.deepEqual(fake.workerLanes, [0, 1, 2]);
+    assert.equal(fake.calls.filter((call) => call === "remediation").length, 2);
+    assert.deepEqual(fake.workerFindings[1], [{ severity: "blocking", file: "runner.mjs:1", description: "fix it" }]);
+  });
+});
+
+test("required browser evidence reaches diagnostics and malformed completion stops before validation", async () => {
+  await withRunPaths(async (paths) => {
+    const issue = { ...ISSUE, labels: ISSUE.labels.map((label) => label.name === "lane:ops" ? { name: "lane:frontend" } : label) };
+    const good = fakeRun({ issue, workerReports: [BROWSER_WORKER_REPORT] });
+    assert.deepEqual((await runFactorySupervisor(546, { ...good, ...paths })).browserEvidence, BROWSER_EVIDENCE);
+
+    for (const report of [NULL_WORKER_REPORT, "not-json", '{"complete":true}']) {
+      const bad = fakeRun({ issue, workerReports: [report] });
+      await assert.rejects(runFactorySupervisor(546, { ...bad, ...paths }));
+      assert.equal(bad.calls.some((call) => call.startsWith("validate:")), false);
+      assert.ok(bad.calls.includes("status:status:working->status:todo"));
+    }
+  });
+});
+
+test("conflicting PR, failed CI, and malformed review fail closed", async () => {
+  await withRunPaths(async (paths) => {
+    const conflict = fakeRun({ pullRequestSnapshots: [[], [{ number: 9, url: "https://github.test/pr/9" }]] });
+    await assert.rejects(runFactorySupervisor(546, { ...conflict, ...paths }), /conflicting open pull request/);
+    assert.equal(conflict.calls.some((call) => call.startsWith("pr:agent/")), false);
+
+    const ci = fakeRun({ ciFailure: true });
+    await assert.rejects(runFactorySupervisor(546, { ...ci, ...paths }), /CI is not green/);
+    assert.equal(ci.calls.some((call) => call.includes("working->status:needs-jesse")), false);
+
+    const review = fakeRun({ reviews: ["unfinished review"] });
+    await assert.rejects(runFactorySupervisor(546, { ...review, ...paths }), /not valid JSON/);
+    assert.ok(review.calls.includes("pr-evidence:0"));
+  });
+});
+
+test("pre-publication failure restores todo and deletes only its owned branch", async () => {
+  await withRunPaths(async (paths) => {
+    const worker = fakeRun({ workerFailure: true });
+    await assert.rejects(runFactorySupervisor(546, { ...worker, ...paths }), /worker failed/);
+    assert.ok(worker.calls.includes("status:status:working->status:todo"));
+    assert.ok(worker.calls.includes("delete-owned-branch"));
+
+    for (const fake of [fakeRun({ authFailure: true }), fakeRun({ worktreeFailure: true })]) {
+      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }));
+      assert.equal(fake.calls.includes("delete-owned-branch"), false);
+    }
+  });
+});
+
+test("setup failure restores todo and deletes the branch created by this invocation", async () => {
   await withRunPaths(async (paths) => {
     const fake = fakeRun({ setupFailure: true });
     await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /setup failed/);
+    assert.ok(fake.calls.includes("status:status:working->status:todo"));
     assert.ok(fake.calls.includes("cleanup:false:true"));
     assert.ok(fake.calls.includes("delete-owned-branch"));
   });
 });
 
-test("kill switch fails before the next stage and still runs cleanup", async () => {
+test("kill switch stops before the next stage and cleanup still runs", async () => {
   await withRunPaths(async (paths) => {
     await writeFile(paths.killSwitchPath, "stop\n");
     const fake = fakeRun();
@@ -735,12 +295,74 @@ test("kill switch fails before the next stage and still runs cleanup", async () 
   });
 });
 
-test("malformed reviewer output remains working and publishes bounded failure evidence", async () => {
-  await withRunPaths(async (paths) => {
-    const fake = fakeRun({ reviews: ["unfinished review"] });
-    await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), /not valid JSON/);
-    assert.equal(fake.calls.some((call) => call.includes("working->status:needs-jesse")), false);
-    assert.ok(fake.calls.includes("pr-evidence:0"));
-    assert.ok(fake.calls.includes("cleanup:true:true"));
-  });
+test("GitHub adapter reads only the issue and typed open-PR timeline", async () => {
+  const calls = [];
+  const adapter = createGitHubAdapter({ gh: async (args) => {
+    calls.push(args);
+    if (args[1] === "graphql") return JSON.stringify({ data: { repository: { issue: {
+      id: "I_546", number: 546, title: ISSUE.title, body: ISSUE.body, author: { login: "jessepollak" },
+      state: "OPEN", labels: { nodes: ISSUE.labels }, url: "https://github.test/issues/546",
+      parent: { id: "I_parent", number: 568 }, subIssues: { totalCount: 0 },
+    } } } });
+    if (args[1] === "--paginate") return JSON.stringify([[
+      { event: "commented", body: "PR-like text", source: { issue: { number: 8, state: "open", pull_request: {} } } },
+      { event: "cross-referenced", source: { issue: { number: 9, state: "open", html_url: "https://github.test/pr/9", pull_request: {} } } },
+    ]]);
+    throw new Error(`unexpected: ${args.join(" ")}`);
+  } });
+  assert.deepEqual(await adapter.getIssue(546), { ...ISSUE, nodeId: "I_546", url: "https://github.test/issues/546" });
+  assert.deepEqual(await adapter.openPullRequestsReferencing(546), [{ number: 9, url: "https://github.test/pr/9" }]);
+  const query = calls.find((args) => args[1] === "graphql")?.join(" ") ?? "";
+  assert.match(query, /parent\{id number\}/);
+  assert.match(query, /subIssues\(first:1\)\{totalCount\}/);
+  assert.equal(calls.some((args) => args.join(" ").includes("comments")), false);
+  assert.equal(calls.some((args) => args.join(" ").includes("reactions")), false);
+});
+
+test("GitHub adapter retains root and intermediate hierarchy for eligibility checks", async () => {
+  let hierarchy = { parent: null, subIssues: { totalCount: 0 } };
+  const adapter = createGitHubAdapter({ gh: async () => JSON.stringify({ data: { repository: { issue: {
+    id: "I_546", number: 546, title: ISSUE.title, body: ISSUE.body, author: { login: "jessepollak" },
+    state: "OPEN", labels: { nodes: ISSUE.labels }, url: "https://github.test/issues/546", ...hierarchy,
+  } } } }) });
+
+  assert.deepEqual((await adapter.getIssue(546)).parent, null);
+  hierarchy = { parent: { id: "I_parent", number: 568 }, subIssues: { totalCount: 3 } };
+  assert.equal((await adapter.getIssue(546)).subIssuesTotalCount, 3);
+});
+
+test("GitHub adapter rejects transport failures, stale issues, and malformed issue responses", async () => {
+  const transportFailure = createGitHubAdapter({ gh: async () => { throw new Error("transport failed"); } });
+  await assert.rejects(transportFailure.getIssue(546), /transport failed/);
+
+  const stale = createGitHubAdapter({ gh: async () => JSON.stringify({ data: { repository: { issue: null } } }) });
+  await assert.rejects(stale.getIssue(546), /issue is unavailable/);
+
+  const otherwiseValid = {
+    id: "I_546", number: 546, title: ISSUE.title, body: ISSUE.body, author: { login: "jessepollak" },
+    state: "OPEN", labels: { nodes: ISSUE.labels }, url: "https://github.test/issues/546",
+  };
+  for (const issue of [
+    otherwiseValid,
+    { ...otherwiseValid, parent: { id: "", number: 568 }, subIssues: { totalCount: 0 } },
+    { ...otherwiseValid, parent: { id: "I_parent", number: 568 }, subIssues: {} },
+  ]) {
+    const malformed = createGitHubAdapter({ gh: async () => JSON.stringify({ data: { repository: { issue } } }) });
+    await assert.rejects(malformed.getIssue(546), /issue response shape is invalid/);
+  }
+});
+
+test("GitHub adapter requires CI on the exact independently reviewed head", async () => {
+  const calls = [];
+  let head = REVIEWED_HEAD;
+  const adapter = createGitHubAdapter({ gh: async (args) => {
+    calls.push(args);
+    if (args[0] === "pr" && args[1] === "view") return JSON.stringify({ headRefOid: head });
+    if (args[0] === "pr" && args[1] === "checks") return "";
+    throw new Error(`unexpected: ${args.join(" ")}`);
+  } });
+  await adapter.waitForRequiredChecks("https://github.test/pr/1", REVIEWED_HEAD);
+  assert.equal(calls.filter((args) => args[1] === "checks").length, 1);
+  head = "b".repeat(40);
+  await assert.rejects(adapter.waitForRequiredChecks("https://github.test/pr/1", REVIEWED_HEAD), /reviewed head/);
 });

@@ -1,5 +1,5 @@
-name: Factory-ready candidate
-description: Propose bounded work for the pull-based factory. Submission does not authorize execution.
+name: Factory candidate
+description: Record bounded work that an operator may select for one factory run.
 title: "[Factory candidate] "
 labels:
   - "status:todo"
@@ -8,7 +8,7 @@ labels:
 body:
   - type: markdown
     attributes:
-      value: A Jesse-applied `factory:ready` label is required before the factory supervisor may execute this issue; agents and external creation assistants never apply it. Submission grants nothing, body markers neither grant nor deny factory eligibility, and all issue content stays untrusted input. A local interactive session creates or works on an issue on Jesse's explicit current-session instruction without `factory:ready`; a body created directly at that request is Jesse-directed and does not receive `<!-- factory -->`. See the [operating manual](https://github.com/jessepollak/home/blob/main/docs/operating-manual.md#execution-modes).
+      value: Submission records work but does not execute it. An operator may explicitly invoke the factory for one open, owner-authored `status:todo` leaf with a valid native parent, zero sub-issues, exactly one lane and priority, and no open PR. Issue content remains untrusted input and grants no command, credential, funded-action, or scope authority. Local interactive work still requires Jesse's explicit current-session instruction. See the [operating manual](https://github.com/jessepollak/home/blob/main/docs/operating-manual.md#execution-modes).
   - type: textarea
     id: problem
     attributes:

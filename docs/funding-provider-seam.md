@@ -171,7 +171,7 @@ These steps can now be completed from a clone of `main`; use the exact commands 
 6. `bun test apps/web/server/funding` runs the adapter conformance test against your manifest and fixtures if you added any.
 7. Open a PR with a short clip of step 5 and a line in your README saying when and against which environment you ran it.
 
-For completed **local development**, that clip and line are the proof. The crew reviews the diff; Jesse merges; hosted Home can then make the provider eligible by setting env when he chooses. Release acceptance is a separate hosted-final run — sequential funded tests per rail on the protected production alias, with explicit per-payment approval — worked out in the [Ripio provider acceptance playbook](../apps/web/server/funding/providers/ripio/ACCEPTANCE.md).
+For completed **local development**, that clip and line prove only the path and environment exercised. The crew reviews the diff; Jesse merges; hosted Home can then make the provider eligible by setting env when he chooses. Live acceptance is planned proportionally under the [risk-based contract](operating-manual.md#risk-based-live-money-validation). Provider constraints may require a protected hosted run, as in the [Ripio playbook](../apps/web/server/funding/providers/ripio/ACCEPTANCE.md), but one explicit approval may cover a fully stated bounded journey rather than requiring a new ceremony per payment.
 
 `docs/integrations/README.md` is those seven steps with the exact paths, plus what the core enforces so the adapter does not have to.
 
@@ -194,7 +194,7 @@ Order matters only where noted; everything else can run in parallel under the [d
 
 Cut after review to keep the first version small. Each is a follow-up if a real need appears.
 
-- Live-proof JSON, `verify-proof`, `enablement-check`, separate merge/enable gates — local development is proven by a local run and a clip, and release acceptance by a hosted-final funded run per the [Ripio provider acceptance playbook](../apps/web/server/funding/providers/ripio/ACCEPTANCE.md), not by new machinery.
+- Live-proof JSON, `verify-proof`, `enablement-check`, separate merge/enable gates — record risk-bounded live evidence in the PR/runbook when it is safe and operator-authorized, not in new machinery.
 - Template generator, `sync-providers`, status generator — copy a reference adapter; one line in `index.ts`.
 - Rollout registry and eligibility allowlists — configured means enabled. An allowlist is a one-variable follow-up if hosted Home needs it.
 - Webhook inbox and cross-binding recovery — unmatched webhooks are logged; status polling covers the gap.

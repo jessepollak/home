@@ -19,7 +19,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 
 ## Delivery and design
 
-- [Operating manual](operating-manual.md) — Jesse/factory roles, issue intake, delivery loop, proof bar, and merge policy.
+- [Operating manual](operating-manual.md) — Jesse/factory roles, product framing, board and execution modes, delivery loop, live-money validation, PR evidence, and completion authority.
 - [GitHub Project](github-project.md), [PRD template](prd-template.md), and [delivery gates](delivery-gates.md) — issue placement, shaping, and repository/deployment checks.
 - [Browser validation](browser-validation.md) and [UI PR previews](ui-pr-previews.md) — interactive iteration, regression ownership, and current-head visual proof.
 - [UI direction](ui-direction.md) and [design system](design-system.md) — product presentation rules, owned components, tokens, and lint contracts.

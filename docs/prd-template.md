@@ -1,32 +1,35 @@
-# Delivery brief
+# Product frame
 
-Use this to shape a bounded outcome in an existing parent issue. Follow [the shaping skill](../.agents/skills/shape-product-proposal/SKILL.md), inspect current strategy/code/issues first, and reuse existing work. When Jesse directly requests ordinary issue creation in an interactive session, that issue body is Jesse-directed and does not receive `<!-- factory -->`; factory proposal comments remain marked.
+Use this before substantial product work. Inspect current strategy, code, issues, hierarchy, and pull requests first; reuse existing work. Routine bugs may start directly from a clear issue.
 
-The one-screen proposal has six sections:
+Post one frame of at most 150 words that answers:
 
-## Outcome
-Customer or operator problem and observable improvement.
+- **Today:** What can the customer do today?
+- **Gap:** What is broken or missing?
+- **Now:** What will we build now?
+- **Not now:** What will we leave out?
+- **Decision:** What consequential decision, if any, does Jesse need to make?
 
-## Proposal
-Smallest coherent capability and reused work.
+Jesse replies `go`, changes the scope, or stops. Do not add a machine-readable proposal, approval hash, reaction requirement, or per-child approval. A frame clarifies product intent; it is not standing authority for unrelated work.
 
-## Boundary
-Included journey and explicit exclusions.
+## Journey decomposition after `go`
 
-## Done
-One to five stable outcomes plus the evidence needed to assess them.
-Record exact visual references in the brief's structured `designReferences` array; legacy `{ "label": "…", "url": "https://…" }` references remain valid. When relevant Storybook is available, use `{ "type": "storybook", "label": "…", "managerUrl": "https://…", "canvasUrl": "https://…", "commitSha": "<40-hex>", "deploymentId": "dpl_…", "criteria": ["1–8 observable criteria"] }`, tied to the exact commit and deployment. Storybook is not a backend or routine-work prerequisite. Keep Proposed Storybook, Implemented Home current-head browser/Preview proof, and live-provider proof distinct; follow [UI PR previews](ui-pr-previews.md) for the detailed evidence workflow. Factory review is not design approval: Jesse records design acceptance in an explicit unmarked comment or review, without creating a second factory approval system.
+Map the feature to **three to five observable customer outcomes**. Include the complete journey: entry, successful result, exits, failure recovery, and any user-visible status. Then choose the **fewest coherent vertical slices** that can each be implemented and reviewed as a complete result.
 
-Add a top-level `evidenceMap` with exactly one `{ "outcomeId": "…", "childKey": "…", "evidence": "…" }` entry for every child-to-outcome edge. IDs and keys must be stable, and evidence must be concise and single-line. This structured required-outcome → delivery-child → completion-evidence map is mandatory; evidence stated only in parent or child prose is insufficient.
+Split only when:
 
-## Decision
-Exact owner decision requested. Approval is one owner 👍 on the exact unedited factory-marked proposal comment.
+1. a slice can ship independently and still produce a customer result; or
+2. a truly shared foundation unlocks more than one journey.
 
-## Delivery
-One to four exact children, each with stable identity, title, complete body, labels, native parent, and mapped outcome IDs. Map every outcome and avoid filler or speculative backlog. Publication renders the `evidenceMap` here with resolved issue numbers and titles so Jesse can review each outcome, child, and expected completion evidence together.
+Every slice states:
 
-Encode an exact multi-child proposal as `home.factory-brief/v1`; validate and publish with `bun run factory:brief`. Publication is non-authorizing and never adds `factory:ready`. Once Jesse reacts, `bun run factory:brief activate <parent-number>` revalidates the exact proposal and mechanically readies all selected children. Removing the reaction revokes execution even if ready labels remain.
+- the customer result;
+- entry, exits, and recovery;
+- what is inside and outside its boundary;
+- the proof that will show it works.
 
-A factory-brief child executes only while its retained approval identity, exact body, native parent, mapped outcomes, design references, and normal eligibility remain valid. Publication applies the non-authorizing `factory:brief-child` provenance label. Current or historical provenance forces exact-brief authorization even if the label or body marker is later removed; unrelated labels that do not change routing are tolerated. Ordinary owner-authored issues stay on `legacy-human-body/v1`, where generic attribution markers neither grant nor deny eligibility. Existing generic marked text is never treated as an exact approval. The reaction has an explicitly accepted shared-account/keychain risk and is not a cryptographic authorship guarantee.
+Keep implementation details, migrations, test additions, adapters, and other technical subtasks inside the owning slice. They are engineering work, not separate product approvals. Preserve the native parent/sub-issue hierarchy and Project membership when a new delivery issue is needed.
 
-When a bounded pilot already exists, reference that pilot issue and reuse its exact approved outcome text instead of introducing new product wording. End factory-authored proposal comments, thread replies, reviews, and PR bodies with `<!-- factory -->`; never remove an attribution marker as execution recovery.
+## Evidence planning
+
+For user-visible work, name the relevant browser path and current-head preview evidence. For money-moving work, plan risk-based live validation under the [operating manual](operating-manual.md#risk-based-live-money-validation). If it will not run, write `Real money: not tested` and name the remaining uncertainty.

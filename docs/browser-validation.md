@@ -15,9 +15,9 @@ This contract applies to every user-visible UI change and core-flow implementati
    3. reuse an existing Chromium smoke path if it already fails on the bug;
    4. add one assertion to the existing fixture-backed Playwright suite only when the failure is principally observable through layout or geometry, scrolling, focus, history, persisted browser state, media queries, hydration/first paint, browser dispatch integration, or a critical cross-page journey;
    5. otherwise, add no Playwright test.
-3. **Does proof require a human-authenticated provider sandbox?**
+3. **Does proof require human-authenticated provider or live-money behavior?**
    - **No:** use ordinary `agent-browser` iteration.
-   - **Yes:** this is exceptional, opt-in provider/system acceptance. Use the provider runbook Jesse approved and its safety guards. A committed provider-specific harness is allowed only when the acceptance flow needs one; it remains outside PR CI and does not become the ordinary feature-iteration API or substitute product regression coverage. Deterministic tests of the harness's own safety and orchestration rules remain required.
+   - **Yes:** use operator mode and the applicable provider runbook plus the [risk-based live-money contract](operating-manual.md#risk-based-live-money-validation). A safe, bounded, explicitly operator-authorized live journey is normal strong evidence for money-moving features; it remains outside PR CI and factory-child authority. A committed provider-specific harness is allowed only when the acceptance flow needs one and does not become the ordinary feature-iteration API. Deterministic tests of the harness's safety and orchestration rules remain required.
 
 Playwright is the sole committed automated browser regression layer. For ordinary feature iteration, do not commit an `agent-browser` script, transcript, wrapper, generic feature DSL, profile/state file, or another CI browser job. The narrowly approved provider-harness exception is governed by step 3.
 
@@ -69,9 +69,10 @@ Use a different non-3199 port when `3200` is occupied. Do not use root `bun dev`
 ### Operator mode
 
 - Use a headed, fresh browser on local Home or an approved preview/sandbox.
-- Stop at an explicit human checkpoint for sign-in, OTP, wallet, or provider authentication. Never automate or capture a real OTP, secret, recovery code, or funded action.
-- Do not persist a browser profile or auth state. Keep the action within the provider runbook's authority and safety limits.
-- Record any unperformed real-device, provider, or authentication check as an operator action; emulation is not real-device proof.
+- Stop at explicit human checkpoints for sign-in, OTP, wallet, provider authentication, and final confirmation. Never automate or capture a real OTP, secret, recovery code, or payment detail.
+- A funded action may proceed only after the operator explicitly approves the bounded live plan required by the [operating manual](operating-manual.md#risk-based-live-money-validation): network, asset, maximum amount/loss, controlled destination, expected changes, privacy, ambiguity/retry behavior, and stop/recovery conditions. One approval may cover the stated complete journey. Stop whenever a bound or stop condition is reached.
+- Do not persist a browser profile or auth state. Keep every action within the approved runbook scope and safety limits.
+- Record any unperformed real-device, provider, authentication, or money check precisely. For an unperformed live-money path, write `Real money: not tested` and name the uncertainty; emulation is not real-device or funded proof.
 
 Factory mode stays local and secret-free by default. A protected Vercel preview is operator-only unless an operator explicitly authorizes and provisions automation access. First load the version-matched `protected-vercel-deployments` skill and prefer its short-lived approved access path. Protection Bypass for Automation requires explicit operator authorization: read `VERCEL_AUTOMATION_BYPASS_SECRET` only from the approved environment, inject it through the documented bypass header/cookie flow, and never print, persist, commit, or capture it. Do not disable protection or make the deployment public.
 

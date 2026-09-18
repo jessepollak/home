@@ -1,6 +1,4 @@
-import { FACTORY_BRIEF_CHILD_LABEL } from "./factory-brief-policy.mjs";
-
-const REQUIRED_LABELS = ["factory:ready", "status:todo"];
+const REQUIRED_LABELS = ["status:todo"];
 const MAX_FIX_LOOPS = 2;
 
 function labelNames(issue) {
@@ -8,16 +6,24 @@ function labelNames(issue) {
   return issue.labels.map((label) => typeof label === "string" ? label : label?.name).filter(Boolean);
 }
 
-export function evaluateFactoryRunEligibility(issue, openPullRequests = [], repositoryOwner, authorizationRoute = "legacy-human-body/v1") {
+export function evaluateFactoryRunEligibility(issue, openPullRequests = [], repositoryOwner) {
   const failures = [];
   if (!issue || typeof issue !== "object") failures.push("issue is unavailable");
   if (issue?.state !== "OPEN") failures.push("issue must be OPEN");
   if (typeof repositoryOwner !== "string" || repositoryOwner === "") {
     failures.push("repository owner is unavailable");
-  } else if (authorizationRoute === "legacy-human-body/v1" && issue?.author?.login !== repositoryOwner) {
+  } else if (issue?.author?.login !== repositoryOwner) {
     failures.push("issue must be authored by the repository owner");
   }
-  if (!["legacy-human-body/v1", "approved-factory-brief/v1"].includes(authorizationRoute)) failures.push("authorization route is invalid");
+  if (!issue?.parent || typeof issue.parent !== "object" || typeof issue.parent.nodeId !== "string" || issue.parent.nodeId === "" ||
+      !Number.isSafeInteger(issue.parent.number) || issue.parent.number < 1) {
+    failures.push("issue must have a valid native parent");
+  }
+  if (!Number.isSafeInteger(issue?.subIssuesTotalCount) || issue.subIssuesTotalCount < 0) {
+    failures.push("issue sub-issue hierarchy is unavailable");
+  } else if (issue.subIssuesTotalCount !== 0) {
+    failures.push("issue must have no sub-issues");
+  }
 
   const names = labelNames(issue);
   const labels = new Set(names);
@@ -40,12 +46,6 @@ function timelineEvents(pages) {
   const events = pages.length > 0 && Array.isArray(pages[0]) ? pages.flat() : pages;
   if (!events.every((event) => event && typeof event === "object" && !Array.isArray(event))) throw new Error("issue timeline response shape is invalid");
   return events;
-}
-
-export function hasFactoryBriefProvenance(issue, pages) {
-  const current = labelNames(issue).includes(FACTORY_BRIEF_CHILD_LABEL);
-  const historical = timelineEvents(pages).some((event) => event.event === "labeled" && event.label?.name === FACTORY_BRIEF_CHILD_LABEL);
-  return current || historical;
 }
 
 export function openPullRequestsFromTimelinePages(pages) {
@@ -80,34 +80,6 @@ function assertExactFields(value, expected, description) {
   }
 }
 
-function parseOutcomeAssessments(value, requiredOutcomes, description) {
-  if (!Array.isArray(requiredOutcomes)) throw new Error("required outcomes are unavailable");
-  if (!Array.isArray(value)) throw new Error(`${description}s are required`);
-  const requiredIds = requiredOutcomes.map((outcome) => outcome?.id);
-  if (requiredIds.some((id) => typeof id !== "string" || id === "") || new Set(requiredIds).size !== requiredIds.length) {
-    throw new Error("required outcome IDs are invalid");
-  }
-  const seen = new Set();
-  const assessments = value.map((assessment) => {
-    assertExactFields(assessment, ["id", "status", "evidence"], description);
-    if (!requiredIds.includes(assessment.id) || seen.has(assessment.id)) {
-      throw new Error(`${description} IDs are invalid`);
-    }
-    seen.add(assessment.id);
-    if (!["Met", "Not met", "Unverified"].includes(assessment.status)) {
-      throw new Error(`${description} status is invalid`);
-    }
-    if (typeof assessment.evidence !== "string" || assessment.evidence.trim() === "" || assessment.evidence.length > 500 || /[\r\n\0]/.test(assessment.evidence)) {
-      throw new Error(`${description} evidence is not concise`);
-    }
-    return { id: assessment.id, status: assessment.status, evidence: assessment.evidence.trim() };
-  });
-  if (seen.size !== requiredIds.length || requiredIds.some((id) => !seen.has(id))) {
-    throw new Error(`${description}s must exactly cover required outcomes`);
-  }
-  return assessments;
-}
-
 function conciseWorkerEvidenceText(value, field, maxLength) {
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(`worker browser evidence ${field} is required`);
@@ -118,18 +90,14 @@ function conciseWorkerEvidenceText(value, field, maxLength) {
   return value.trim();
 }
 
-export function parseWorkerReport(output, browserEvidenceRequired, requiredOutcomes) {
+export function parseWorkerReport(output, browserEvidenceRequired) {
   let value;
   try {
     value = JSON.parse(output);
   } catch {
     throw new Error("worker output is not valid JSON");
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("worker report must be an object");
-  }
-  const approvedBriefReport = requiredOutcomes !== undefined;
-  assertExactFields(value, approvedBriefReport ? ["complete", "browserEvidence", "outcomeAssessments"] : ["complete", "browserEvidence"], "worker report");
+  assertExactFields(value, ["complete", "browserEvidence"], "worker report");
   if (value.complete !== true) throw new Error("worker report is incomplete");
   if (typeof browserEvidenceRequired !== "boolean") {
     throw new Error("browser evidence requirement is unavailable");
@@ -139,9 +107,6 @@ export function parseWorkerReport(output, browserEvidenceRequired, requiredOutco
   if (value.browserEvidence === null) {
     if (browserEvidenceRequired) throw new Error("worker browser evidence is required");
   } else {
-    if (approvedBriefReport && !browserEvidenceRequired) {
-      throw new Error("worker browser evidence must be null when not required");
-    }
     if (!value.browserEvidence || typeof value.browserEvidence !== "object" || Array.isArray(value.browserEvidence)) {
       throw new Error("worker browser evidence must be an object or null");
     }
@@ -177,16 +142,10 @@ export function parseWorkerReport(output, browserEvidenceRequired, requiredOutco
     };
   }
 
-  return {
-    complete: true,
-    browserEvidence,
-    ...(approvedBriefReport ? {
-      outcomeAssessments: parseOutcomeAssessments(value.outcomeAssessments, requiredOutcomes, "worker outcome assessment"),
-    } : {}),
-  };
+  return { complete: true, browserEvidence };
 }
 
-export function parseReviewerVerdict(output, requiredOutcomes = []) {
+export function parseReviewerVerdict(output) {
   let value;
   try {
     value = JSON.parse(output);
@@ -194,20 +153,15 @@ export function parseReviewerVerdict(output, requiredOutcomes = []) {
     throw new Error("reviewer output is not valid JSON");
   }
 
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("reviewer verdict must be an object");
-  }
+  assertExactFields(value, ["complete", "verdict", "findings"], "reviewer verdict");
   if (value.complete !== true) throw new Error("reviewer verdict is incomplete");
   if (value.verdict !== "pass" && value.verdict !== "fail") {
     throw new Error("reviewer verdict must be pass or fail");
   }
   if (!Array.isArray(value.findings)) throw new Error("reviewer findings must be an array");
-  if (!Array.isArray(requiredOutcomes)) throw new Error("required outcomes are unavailable");
 
   const findings = value.findings.map((finding) => {
-    if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
-      throw new Error("reviewer finding must be an object");
-    }
+    assertExactFields(finding, ["severity", "file", "description"], "reviewer finding");
     if (finding.severity !== "blocking" && finding.severity !== "non-blocking") {
       throw new Error("reviewer finding severity is invalid");
     }
@@ -226,23 +180,15 @@ export function parseReviewerVerdict(output, requiredOutcomes = []) {
     };
   });
 
-  let outcomeAssessments;
-  if (requiredOutcomes.length === 0) {
-    if (Object.hasOwn(value, "outcomeAssessments")) throw new Error("legacy reviewer verdict must not add outcome assessments");
-  } else {
-    outcomeAssessments = parseOutcomeAssessments(value.outcomeAssessments, requiredOutcomes, "reviewer outcome assessment");
-  }
-
   const hasBlockingFinding = findings.some((finding) => finding.severity === "blocking");
-  const hasBlockingOutcome = outcomeAssessments?.some((assessment) => assessment.status !== "Met") ?? false;
-  if (value.verdict === "pass" && (hasBlockingFinding || hasBlockingOutcome)) {
-    throw new Error("passing verdict contains blocking findings or non-Met outcomes");
+  if (value.verdict === "pass" && hasBlockingFinding) {
+    throw new Error("passing verdict contains blocking findings");
   }
-  if (value.verdict === "fail" && !hasBlockingFinding && !hasBlockingOutcome) {
-    throw new Error("failing verdict has no blocking finding or outcome");
+  if (value.verdict === "fail" && !hasBlockingFinding) {
+    throw new Error("failing verdict has no blocking finding");
   }
 
-  return { complete: true, verdict: value.verdict, findings, ...(outcomeAssessments ? { outcomeAssessments } : {}) };
+  return { complete: true, verdict: value.verdict, findings };
 }
 
 export function previewProofRequired(issue) {

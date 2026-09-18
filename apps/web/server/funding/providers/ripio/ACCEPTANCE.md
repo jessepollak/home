@@ -13,7 +13,7 @@ Related: [issuer integration guide](../../../../../../docs/integrations/README.m
 
 **Ripio has no sandbox.** `https://skala.ripio.com` is production-only. Every Home **Get quote** and **Confirm** — including from a local run — already writes production Ripio records: customer creation, terms acceptance, KYC submission, quote creation, and order creation. Treat every write with production care.
 
-**Payments require explicit Jesse approval** — each payment, local or hosted. Hosted funded tests additionally require explicit per-country, per-rail approval.
+**Funded execution requires explicit Jesse approval.** Before approval, record the network, assets/rails, maximum total amount and loss/fees, controlled destinations, expected balance/status changes, privacy handling, ambiguity/retry rule, and stop/recovery conditions. One approval may cover the complete listed local or hosted journey, including multiple sequential rails, while every action remains inside those bounds. Any deviation or ambiguous result stops the run and requires recovery before a new approval.
 
 ## Non-negotiables
 
@@ -30,7 +30,7 @@ Use role labels in evidence, not personal names.
 
 | Role | Side | Authority |
 | --- | --- | --- |
-| Jesse | Home | Approves every payment, every hosted funded order, schema sign-off, and merge. Only Jesse edits production Neon. |
+| Jesse | Home | Approves each bounded live plan, schema sign-off, and merge. Only Jesse edits production Neon. |
 | Ripio lead | Provider | Confirms API schema answers, provides a dev account if one exists, owns Ripio-side lookups and cancels by `externalRef`. |
 | Ripio tester | Provider | Drives the acceptance browser in local and hosted runs with a dedicated test Base Account, supplies its production-approved identity/KYC data, and initiates each local-bank, Pix, Bre-B, Bancolombia, and Nequi payment. |
 | Home operator | Environment | Runs the local and hosted environments, privately supplies protected-alias and bypass URLs, may run the guarded local SQL after provider confirmation. |
@@ -89,10 +89,10 @@ Performed outside Home: Home has no read-only provider UI, and **Get quote** in 
 
 ## Phase 2 — local live adapter iteration (polling-only)
 
-Required for adapter completion. **Blocking prerequisite: [#520](https://github.com/jessepollak/home/issues/520) (Ripio acceptance observability) merged, or applied to the local branch, before live iteration — do not start live iteration before it lands. Deploying it is required only before hosted Phase 5.** Owner: Ripio engineer. Approver: Jesse for the first order-creating write per country, and for every payment.
+Required for adapter completion. **Blocking prerequisite: [#520](https://github.com/jessepollak/home/issues/520) (Ripio acceptance observability) merged, or applied to the local branch, before live iteration — do not start live iteration before it lands. Deploying it is required only before hosted Phase 5.** Owner: Ripio engineer. Approver: Jesse for the bounded local live plan.
 
 - [ ] #520 merged, or applied to the local branch (deployment is deferred to hosted Phase 5)
-- [ ] Jesse approves the first local order-creating test per country, knowing each write creates production Ripio records
+- [ ] Jesse approves a bounded local plan listing the in-scope countries/rails and knowing each write creates production Ripio records
 - [ ] Orders created only from dedicated test Base Accounts; one open order per account per country
 - [ ] No **Back** navigation on pending; rails serialized within a country
 - [ ] Status polling drives progression (the client polls every four seconds; the core limits refreshes to one per three seconds). Webhooks are not received locally without a tunnel (Phase 3).
@@ -123,12 +123,12 @@ Required for any code change. Owner: Ripio engineer. Approver: Jesse (only Jesse
 
 ## Phase 5 — hosted final acceptance (protected production alias)
 
-Required for any *validated* claim. Owners: the Home operator runs and observes the hosted environment; Ripio testers drive the browser and the payments. Approver: Jesse per country and rail.
+Required for any *validated* claim. Owners: the Home operator runs and observes the hosted environment; Ripio testers drive the browser and payments. Approver: Jesse for the exact bounded hosted plan.
 
 The host is Home's protected production alias. The **webhook bypass URL** is Home's private webhook callback URL with a Vercel Protection Bypass for Automation token appended; the production alias is protected, so the callback needs the bypass to receive webhooks. Never print it or commit it. The Home operator privately supplies the browser URL and the webhook bypass URL to named participants. **Bypass tokens never enter the repo, docs, or evidence.**
 
 - [ ] Hosted run starts only after the Phase 4 merge, with #520 deployed
-- [ ] Jesse approves each funded order in advance, per country and rail
+- [ ] Jesse approves the hosted plan in advance, including its exact countries/rails, total maximum exposure, sequence, and stop/recovery conditions
 - [ ] Ripio tester drives the browser: dedicated test Base Account, production-approved identity/KYC data, and initiating each local-bank/Pix/Bre-B/Bancolombia/Nequi payment
 - [ ] Home operator runs and observes the hosted environment and records evidence
 - [ ] No separate hosted unfunded matrix: local instruction proof is not repeated as hosted unfunded tests; hosted final goes directly to funded orders
