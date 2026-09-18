@@ -81,6 +81,20 @@ describe("provider customer service", () => {
     await expect(service.startProviderCustomerVerification(session, { providerId: manifest.id, region: "AR", email: "person@example.com" }, "https://home.example")).rejects.toMatchObject({ code: "VERIFICATION_ALREADY_STARTED" });
   });
 
+  test("rejects an overlong email before reserving a customer row or creating a provider customer", async () => {
+    const atLimit = `${"a".repeat(242)}@example.com`;
+    const overLimit = `${"a".repeat(243)}@example.com`;
+    expect(atLimit).toHaveLength(254);
+    expect(overLimit).toHaveLength(255);
+    let creates = 0;
+    const provider = customerProvider();
+    provider.onramp!.customer!.create = async () => { creates += 1; return { outcome: "created", customerRef: "22222222-2222-4222-8222-222222222222" }; };
+    await expect(core(provider, untouchedCustomerStore()).startProviderCustomerVerification(session, { providerId: manifest.id, region: "AR", email: overLimit }, "https://home.example")).rejects.toMatchObject({ code: "INVALID_VERIFICATION_REQUEST", status: 400 });
+    expect(creates).toBe(0);
+    await expect(core(provider, new MemoryFundingProviderCustomerStore()).startProviderCustomerVerification(session, { providerId: manifest.id, region: "AR", email: atLimit }, "https://home.example")).resolves.toHaveProperty("handoff.url");
+    expect(creates).toBe(1);
+  });
+
   test("continues a durable pending-unstarted row without creating another provider customer", async () => {
     const store = new MemoryFundingProviderCustomerStore();
     const reserved = await store.reserve({ id: "11111111-1111-4111-8111-111111111111", owner: { subject: session.user.subject, accountProvider: session.accountProvider }, providerId: manifest.id, region: "AR", createdAt: "2026-09-18T00:00:00.000Z" });

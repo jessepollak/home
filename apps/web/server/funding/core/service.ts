@@ -575,7 +575,9 @@ function parseQuoteRequest(value: unknown): { providerId: string; region: string
 function parseVerificationRequest(value: unknown): { providerId: string; region: string; email: string } | null {
   if (!record(value) || Object.keys(value).some((key) => !["providerId", "region", "email"].includes(key)) || typeof value.providerId !== "string" || typeof value.region !== "string" || typeof value.email !== "string") return null;
   const email = value.email.trim();
-  return email.length > 3 && email.length <= 320 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? { providerId: value.providerId, region: value.region, email } : null;
+  // 254 is the RFC 5321 address limit the provider clients enforce; rejecting
+  // it here keeps an uncreatable address from reserving a customer row first.
+  return email.length > 3 && email.length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? { providerId: value.providerId, region: value.region, email } : null;
 }
 function publicCustomer(customer: FundingProviderCustomer) {
   return { providerId: customer.providerId, region: customer.region, state: customer.state, verificationStartedAt: customer.verificationStartedAt, updatedAt: customer.updatedAt };

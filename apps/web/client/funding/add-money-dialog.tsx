@@ -51,6 +51,7 @@ export function AddMoneyDialog({
   onSelectReceive,
   providerBindings,
   providerBindingsDisabled,
+  customerSetupReady,
   fundingReadError,
   selectedBinding,
   initialOrder,
@@ -70,6 +71,9 @@ export function AddMoneyDialog({
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
   providerBindingsDisabled: boolean;
+  // Customer-capable bindings stay unselectable until the customer lookup that
+  // feeds the order flow has succeeded.
+  customerSetupReady: boolean;
   fundingReadError: { message: string; retry: () => void } | null;
   selectedBinding: FundingBinding | null;
   initialOrder: FundingOrderSummary | null;
@@ -113,6 +117,7 @@ export function AddMoneyDialog({
           onSelectReceive={onSelectReceive}
           providerBindings={providerBindings}
           providerBindingsDisabled={providerBindingsDisabled}
+          customerSetupReady={customerSetupReady}
           fundingReadError={fundingReadError}
           onSelectBinding={onSelectBinding}
         />
@@ -152,12 +157,14 @@ export function MethodBody({
   onSelectReceive,
   providerBindings,
   providerBindingsDisabled,
+  customerSetupReady,
   fundingReadError,
   onSelectBinding,
 }: {
   onSelectReceive: () => void;
   providerBindings: ReadonlyArray<FundingBinding>;
   providerBindingsDisabled: boolean;
+  customerSetupReady: boolean;
   fundingReadError: { message: string; retry: () => void } | null;
   onSelectBinding: (binding: FundingBinding) => void;
 }) {
@@ -205,7 +212,10 @@ export function MethodBody({
                     <Button
                       variant="ghost"
                       type="button"
-                      disabled={providerBindingsDisabled}
+                      disabled={
+                        providerBindingsDisabled ||
+                        (binding.customerSetup !== null && !customerSetupReady)
+                      }
                       onClick={() => onSelectBinding(binding)}
                       aria-describedby={`funding-method-${binding.providerId}-${binding.assetId}`}
                     />

@@ -606,6 +606,62 @@ describe("provider customer funding position", () => {
     expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
   });
 
+  test("does not open a customer-capable provider before its customer lookup resolves", async () => {
+    let orderReads = 0;
+    let customerReads = 0;
+    let resolveCustomers!: (value: unknown) => void;
+    const customersRead = new Promise<unknown>((resolve) => { resolveCustomers = resolve; });
+    const verified = { providerId: "ripio", region: "AR", state: "verified", verificationStartedAt: null, updatedAt: "2026-09-18T00:00:00.000Z" };
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [customerBinding()] };
+      if (path.startsWith("/api/funding/orders?")) { orderReads += 1; return { order: null }; }
+      if (path.startsWith("/api/funding/provider-customers?")) { customerReads += 1; return customersRead; }
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    const provider = await page().findByRole("button", { name: /Deposit ARS/ });
+    await waitFor(() => expect(orderReads).toBe(1));
+    await waitFor(() => expect(customerReads).toBe(1));
+    expect(provider.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(provider);
+    expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
+
+    await act(async () => { resolveCustomers({ customers: [verified] }); await customersRead; });
+    await waitFor(() => expect(provider.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(provider);
+    expect(page().getByRole("heading", { name: "Deposit ARS" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Review quote" })).toBeTruthy();
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
+  });
+
+  test("keeps a failed provider-customer read retryable before the flow opens", async () => {
+    let customerReads = 0;
+    const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+      if (path.startsWith("/api/funding/providers")) return { providers: [customerBinding()] };
+      if (path.startsWith("/api/funding/orders?")) return { order: null };
+      if (path.startsWith("/api/funding/provider-customers?")) {
+        customerReads += 1;
+        if (customerReads === 1) throw new Error("CUSTOMERS_UNAVAILABLE");
+        return { customers: [] };
+      }
+      throw new Error("unexpected request");
+    } };
+    render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+    const provider = await page().findByRole("button", { name: /Deposit ARS/ });
+    await waitFor(() => expect(page().getByRole("alert").textContent).toContain("Home couldn't check your provider setup. Retry."));
+    expect(provider.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(provider);
+    expect(page().queryByRole("heading", { name: "Set up Ripio" })).toBeNull();
+
+    fireEvent.click(page().getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(customerReads).toBe(2));
+    await waitFor(() => expect(provider.hasAttribute("disabled")).toBe(false));
+    expect(page().queryByRole("alert")).toBeNull();
+    fireEvent.click(provider);
+    expect(page().getByRole("heading", { name: "Set up Ripio" })).toBeTruthy();
+  });
+
   test("resumes pending setup only on the explicit verification return", async () => {
     const binding = customerBinding();
     const pending = { providerId: "ripio", region: "AR", state: "pending", verificationStartedAt: "2026-09-18T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z" };

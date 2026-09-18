@@ -105,11 +105,14 @@ function FundingExperienceBoundary({
     () => providerQuery.data ? readProviderBindings(providerQuery.data) : [],
     [providerQuery.data],
   );
+  const customerSetupRequired = providerBindings.some(
+    (binding) => binding.customerSetup !== null,
+  );
   const customersQuery = useHomeQuery({
     queryKey: queryOwnerKey
       ? ownerQueryKey(queryOwnerKey, "funding-provider-customers", regionId)
       : ["unauthenticated", "funding-provider-customers-disabled", regionId],
-    enabled: queryEnabled && providerBindings.some((binding) => binding.customerSetup !== null),
+    enabled: queryEnabled && customerSetupRequired,
     staleTime: 15_000,
     retry: false,
     refetchOnWindowFocus: false,
@@ -179,6 +182,27 @@ function FundingExperienceBoundary({
     });
   }, [customersQuery.data, ordersQuery.data, ordersQuery.isSuccess, providerBindings, returnedFromVerification]);
 
+  // The order flow snapshots the customer record once, so a customer-capable
+  // binding stays unselectable until the lookup that yields that record has
+  // succeeded. Direct Coinbase/IDRX bindings never wait on it.
+  const customerSetupReady = customersQuery.isSuccess || !customerSetupRequired;
+  const fundingReadError = providerQuery.isError
+    ? {
+        message: "Funding methods are unavailable. Try again.",
+        retry: () => void providerQuery.refetch(),
+      }
+    : ordersQuery.isError && providerBindings.length > 0
+      ? {
+          message: "Home couldn't check for an open deposit. Retry.",
+          retry: () => void ordersQuery.refetch(),
+        }
+      : customersQuery.isError && customerSetupRequired
+        ? {
+            message: "Home couldn't check your provider setup. Retry.",
+            retry: () => void customersQuery.refetch(),
+          }
+        : null;
+
   function navigateTo(next: AddMoneyStep, explicit = true) {
     if (explicit) navigationEpochRef.current += 1;
     stepRef.current = next;
@@ -212,19 +236,8 @@ function FundingExperienceBoundary({
       onSelectReceive={() => navigateTo("receive")}
       providerBindings={providerBindings}
       providerBindingsDisabled={!ordersQuery.isSuccess}
-      fundingReadError={
-        providerQuery.isError
-          ? {
-              message: "Funding methods are unavailable. Try again.",
-              retry: () => void providerQuery.refetch(),
-            }
-          : ordersQuery.isError && providerBindings.length > 0
-            ? {
-                message: "Home couldn't check for an open deposit. Retry.",
-                retry: () => void ordersQuery.refetch(),
-              }
-            : null
-      }
+      customerSetupReady={customerSetupReady}
+      fundingReadError={fundingReadError}
       selectedBinding={selectedBinding}
       initialOrder={initialOrder}
       initialCustomer={initialCustomer}
