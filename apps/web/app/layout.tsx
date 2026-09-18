@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { brand } from "@/config/brand";
-import { CdpAccountProvider } from "@/client/account/cdp-client";
+import { AccountRouteProvider } from "@/client/account/account-route-provider";
 import { normalizeProjectId } from "@/client/account/session-client";
 import { isHomeSessionConfigured } from "@/server/auth/native-base-session";
 import { readRenderSession } from "@/server/auth/render-session";
@@ -19,14 +19,14 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   const smokeFixture = process.env.HOME_PLAYWRIGHT_SMOKE === "1" && !process.env.VERCEL;
   const renderSeed = smokeFixture ? null : readRenderSession(await cookies());
   const accountProvider = (
-    <CdpAccountProvider
+    <AccountRouteProvider
       projectId={normalizeProjectId(process.env.NEXT_PUBLIC_CDP_PROJECT_ID)}
       baseAccountEnabled={isHomeSessionConfigured(process.env.HOME_SESSION_SECRET)}
       smokeFixture={smokeFixture}
       renderSeed={renderSeed}
     >
       {children}
-    </CdpAccountProvider>
+    </AccountRouteProvider>
   );
 
   return (

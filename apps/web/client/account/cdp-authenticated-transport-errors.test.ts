@@ -2,6 +2,7 @@ import "./dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import type { OwnerGenerationFence } from "./owner-generation-fence";
+import type { AccessNavigation } from "./access-response";
 import type { SessionFetch, VerifiedAccountSession } from "./session-client";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
@@ -33,7 +34,10 @@ afterEach(() => {
   else process.env.NEXT_DEPLOYMENT_ID = previousDeploymentId;
 });
 
-async function transportWith(sessionFetch: SessionFetch) {
+async function transportWith(
+  sessionFetch: SessionFetch,
+  accessNavigation?: AccessNavigation,
+) {
   return await new Promise<ReturnType<typeof useAuthenticatedTransport>>((resolve) => {
     function Probe() {
       const transport = useAuthenticatedTransport({
@@ -45,6 +49,7 @@ async function transportWith(sessionFetch: SessionFetch) {
         getAccessToken: async () => null,
         sessionFetch,
         authentication: "native-base",
+        accessNavigation,
       });
       useEffect(() => resolve(transport), [transport]);
       return null;
@@ -62,6 +67,42 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
 }
 
 describe("authenticated transport deployment expiry", () => {
+  test("routes access expiry before endpoint parsing and preserves the response body", async () => {
+    const destinations: string[] = [];
+    const responses: Response[] = [];
+    const accessNavigation = {
+      currentPath: "/private?panel=activity#latest",
+      navigate: (destination: string) => destinations.push(destination),
+    };
+    const transport = await transportWith(async () => {
+      const response = Response.json(
+        { version: 1, error: { code: "ACCESS_REQUIRED" } },
+        { status: 401 },
+      );
+      responses.push(response);
+      return response;
+    }, accessNavigation);
+
+    const [balanceError, actionError] = await Promise.all([
+      rejectionOf(transport.fetchBalances("US")),
+      rejectionOf(transport.fetchAccountResource("/api/actions")),
+    ]);
+    expect((balanceError as Error).message).toBe("Deployment access is required.");
+    expect(actionError).toBeInstanceOf(TransferExecutionError);
+
+    expect(destinations).toEqual([
+      "/access?next=%2Fprivate%3Fpanel%3Dactivity%23latest",
+    ]);
+    expect(responses).toHaveLength(2);
+    for (const response of responses) {
+      expect(response.bodyUsed).toBe(false);
+      expect(await response.json()).toEqual({
+        version: 1,
+        error: { code: "ACCESS_REQUIRED" },
+      });
+    }
+  });
+
   test("preserves a Home 404 error envelope when a deployment header is sent", async () => {
     process.env.NEXT_DEPLOYMENT_ID = "dpl_current";
     const transport = await transportWith(async (_input, init) => {

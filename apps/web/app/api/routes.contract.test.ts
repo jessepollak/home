@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 const routeGlob = new Bun.Glob("**/route.ts");
 const routePaths = [...routeGlob.scanSync({ cwd: import.meta.dir })].sort();
 const publicRoutes = new Set([
+  "access/logout/route.ts",
+  "access/route.ts",
   "auth/base/logout/route.ts",
   "auth/base/nonce/route.ts",
   "auth/base/verify/route.ts",
