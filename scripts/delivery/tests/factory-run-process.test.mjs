@@ -7,12 +7,13 @@ import test from "node:test";
 import {
   childModelEnvironment,
   factoryChildModelAgent,
+  factoryRunProcessConstants,
   parseModelSelector,
   piInvocation,
   resolveChildModelSelection,
   runBoundedProcess,
 } from "../factory-run-process.mjs";
-import { runDryExercise } from "../factory-run.mjs";
+import { reviewerPrompt, runDryExercise } from "../factory-run.mjs";
 
 const INSTALLED_SETTINGS = {
   defaultProvider: "cbhq-openai",
@@ -221,6 +222,7 @@ test("bounded child receives only selected model config and its temporary home i
       role: "worker",
       timeoutMs: 5_000,
     });
+    assert.equal(result.stderr, "");
     assert.equal(result.code, 0);
     const output = JSON.parse(result.stdout);
     assert.deepEqual(output.providers, ["selected-provider"]);
@@ -265,8 +267,54 @@ test("Pi invocations are ephemeral and reviewer tools are read-only", () => {
   assert.ok(reviewer.args.includes("--no-session"));
   assert.ok(!worker.args.includes("--no-extensions"));
   assert.ok(!reviewer.args.includes("--no-extensions"));
+  assert.equal(worker.input, "work");
+  assert.equal(reviewer.input, "review");
+  assert.ok(!worker.args.includes("work"));
+  assert.ok(!reviewer.args.includes("review"));
   assert.equal(reviewer.args[reviewer.args.indexOf("--tools") + 1], "read,grep,find,ls");
   assert.notEqual(worker.args[worker.args.indexOf("--tools") + 1], reviewer.args[reviewer.args.indexOf("--tools") + 1]);
+});
+
+test("bounded processes deliver long prompts through stdin", async () => {
+  const input = "factory prompt ".repeat(800);
+  const script = `
+    let value = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => { value += chunk; });
+    process.stdin.on("end", () => process.stdout.write(value));
+  `;
+  const result = await runBoundedProcess({
+    command: process.execPath,
+    args: ["-e", script],
+    input,
+    cwd: process.cwd(),
+    environment: { PATH: process.env.PATH },
+    role: "worker",
+    timeoutMs: 5_000,
+  });
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout, input);
+});
+
+test("bounded input accommodates the guarded maximum reviewer diff", () => {
+  const issue = { number: 602, title: "review", body: "", author: { login: "owner" }, state: "OPEN", labels: [], url: "https://example.test" };
+  const prompt = reviewerPrompt(issue, "x".repeat(512 * 1024));
+  assert.ok(Buffer.byteLength(prompt) < factoryRunProcessConstants.maxInputBytes);
+});
+
+test("bounded processes reject oversized prompts before spawn", async () => {
+  await assert.rejects(
+    runBoundedProcess({
+      command: process.execPath,
+      args: ["-e", "process.exit(0)"],
+      input: "x".repeat(641 * 1024),
+      cwd: process.cwd(),
+      environment: { PATH: process.env.PATH },
+      role: "worker",
+      timeoutMs: 5_000,
+    }),
+    /process input exceeds bounded limit/,
+  );
 });
 
 test("dry-run uses distinct bounded child processes for worker and reviewer", async () => {

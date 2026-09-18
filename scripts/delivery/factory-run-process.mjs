@@ -16,6 +16,7 @@ const GITHUB_CREDENTIAL_NAMES = new Set([
   "SSH_AUTH_SOCK",
 ]);
 const MAX_OUTPUT_BYTES = 1024 * 1024;
+const MAX_INPUT_BYTES = 640 * 1024;
 
 function isGitHubCredentialName(name) {
   return GITHUB_CREDENTIAL_NAMES.has(name) ||
@@ -179,15 +180,21 @@ function terminateProcessGroup(child, signal) {
 export async function runBoundedProcess({
   command,
   args,
+  input,
   cwd,
   environment,
   role,
   modelAgent,
   timeoutMs,
   signal,
+  maxInputBytes = MAX_INPUT_BYTES,
   maxOutputBytes = MAX_OUTPUT_BYTES,
 }) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error("process timeout is required");
+  if (!Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1) throw new Error("process input limit is required");
+  if (input !== undefined && (typeof input !== "string" || Buffer.byteLength(input) > maxInputBytes)) {
+    throw new Error("process input exceeds bounded limit");
+  }
 
   const isolatedHome = await prepareIsolatedModelHome(environment, {
     modelAgent: modelAgent ?? factoryChildModelAgent(role, 0),
@@ -197,9 +204,13 @@ export async function runBoundedProcess({
       const child = spawn(command, args, {
         cwd,
         env: childModelEnvironment(environment, role, isolatedHome),
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
         detached: process.platform !== "win32",
       });
+      if (input !== undefined) {
+        child.stdin.on("error", () => {});
+        child.stdin.end(input);
+      }
       let stdout = Buffer.alloc(0);
       let stderr = Buffer.alloc(0);
       let outputExceeded = false;
@@ -269,9 +280,9 @@ export function piInvocation(role, prompt) {
       "--agent", "pi", "--",
       "--print", "--no-session", "--no-skills",
       "--no-prompt-templates", "--no-themes", "--tools", tools,
-      "--", prompt,
     ],
+    input: prompt,
   };
 }
 
-export const factoryRunProcessConstants = Object.freeze({ maxOutputBytes: MAX_OUTPUT_BYTES });
+export const factoryRunProcessConstants = Object.freeze({ maxInputBytes: MAX_INPUT_BYTES, maxOutputBytes: MAX_OUTPUT_BYTES });
