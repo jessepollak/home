@@ -1,11 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { ACCESS_CONTRACT_VERSION, parseSafeAccessDestination } from "./contract";
+import {
+  ACCESS_CONTRACT_VERSION,
+  accessSuccessDestination,
+  parseSafeAccessDestination,
+} from "./contract";
 
 describe("access contract", () => {
   test("is versioned and preserves bounded same-origin paths", () => {
     expect(ACCESS_CONTRACT_VERSION).toBe(1);
     expect(parseSafeAccessDestination("/borrow?asset=usdc#review")).toBe("/borrow?asset=usdc#review");
     expect(parseSafeAccessDestination("/" + "a".repeat(2047))).toHaveLength(2048);
+  });
+
+  test("accepts only versioned, already-safe success destinations", () => {
+    expect(accessSuccessDestination({ version: 1, destination: "/save?asset=usdc" }))
+      .toBe("/save?asset=usdc");
+    expect(accessSuccessDestination({ version: 1, destination: "/access" })).toBeNull();
+    expect(accessSuccessDestination({ version: 2, destination: "/save" })).toBeNull();
   });
 
   test("falls back for external, ambiguous, access-loop, control, and oversized destinations", () => {

@@ -20,6 +20,7 @@ import {
   resetBalanceFreshness,
   startBalanceFreshness,
 } from "@/client/query/after-action";
+import { redirectOnAccessRequired, type AccessNavigation } from "./access-response";
 import { dataOwnerKey } from "./owner-keys";
 
 type MoneyActionApiFetch = (path: string, init?: RequestInit) => Promise<unknown>;
@@ -91,6 +92,7 @@ export function useAuthenticatedTransport({
   getAccessToken,
   sessionFetch,
   authentication = "cdp",
+  accessNavigation,
 }: {
   session: VerifiedAccountSession | null;
   status: AccountSessionStatus;
@@ -100,6 +102,7 @@ export function useAuthenticatedTransport({
   getAccessToken: () => Promise<string | null>;
   sessionFetch?: SessionFetch;
   authentication?: "cdp" | "native-base";
+  accessNavigation?: AccessNavigation;
 }) {
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const freshnessState = useRef(createBalanceFreshnessState());
@@ -147,6 +150,9 @@ export function useAuthenticatedTransport({
         if (signal?.aborted) throw error;
         throw new Error("Authenticated resource is unavailable.");
       }
+      if (await redirectOnAccessRequired(response, accessNavigation)) {
+        throw new Error("Deployment access is required.");
+      }
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
         try {
@@ -165,7 +171,7 @@ export function useAuthenticatedTransport({
         throw new Error("Authenticated resource is unavailable.");
       }
     },
-    [authentication, getAccessToken, ownerKey, session, sessionFetch, status, verification],
+    [accessNavigation, authentication, getAccessToken, ownerKey, session, sessionFetch, status, verification],
   );
 
   const startActionBalanceFreshness = useCallback((actionId: string) => startBalanceFreshness({
@@ -220,6 +226,10 @@ export function useAuthenticatedTransport({
         throw new TransferExecutionError("unavailable", error);
       }
       assertActive();
+      if (await redirectOnAccessRequired(response, accessNavigation)) {
+        assertActive();
+        throw new TransferExecutionError("unavailable");
+      }
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
         try {
@@ -253,7 +263,7 @@ export function useAuthenticatedTransport({
         throw new TransferExecutionError("unavailable", error);
       }
     },
-    [authentication, getAccessToken, ownerFence, ownerKey, queryClient, session, sessionFetch, startActionBalanceFreshness, status, verification],
+    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, queryClient, session, sessionFetch, startActionBalanceFreshness, status, verification],
   );
 
   const fetchMoneyActionApi = useCallback<MoneyActionApiFetch>(

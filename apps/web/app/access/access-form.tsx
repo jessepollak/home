@@ -1,13 +1,24 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ACCESS_CREDENTIAL_FIELD, accessErrorCode } from "@/shared/access/contract";
+import {
+  ACCESS_CREDENTIAL_FIELD,
+  ACCESS_RESPONSE_MODE_HEADER,
+  accessErrorCode,
+  accessSuccessDestination,
+} from "@/shared/access/contract";
 
 export function AccessForm({ next }: { next: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setHydrated(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -21,17 +32,22 @@ export function AccessForm({ next }: { next: string }) {
       }
       const response = await fetch("/api/access", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          [ACCESS_RESPONSE_MODE_HEADER]: "json",
+        },
         body,
         credentials: "same-origin",
         cache: "no-store",
-        redirect: "follow",
+        redirect: "error",
       });
-      if (response.ok && response.redirected) {
-        window.location.assign(response.url);
+      const payload = await response.json().catch(() => null);
+      const destination = response.ok ? accessSuccessDestination(payload) : null;
+      if (destination) {
+        window.location.assign(destination);
         return;
       }
-      const code = accessErrorCode(await response.json().catch(() => null));
+      const code = accessErrorCode(payload);
       setError(code === "ACCESS_UNAVAILABLE"
         ? "Access is temporarily unavailable."
         : "Access denied. Try again.");
@@ -63,7 +79,7 @@ export function AccessForm({ next }: { next: string }) {
         />
       </label>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-      <Button type="submit" size="lg" className="w-full" disabled={pending}>
+      <Button type="submit" size="lg" className="w-full" disabled={!hydrated || pending}>
         {pending ? "Checking…" : "Continue"}
       </Button>
     </form>
