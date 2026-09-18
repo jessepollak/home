@@ -23,6 +23,8 @@ const ISSUE = {
   author: { login: "jessepollak" },
   state: "OPEN",
   labels: [{ name: "status:todo" }, { name: "lane:ops" }, { name: "priority:p1" }],
+  parent: { number: 568, nodeId: "I_parent" },
+  subIssuesTotalCount: 0,
 };
 const PASS = '{"complete":true,"verdict":"pass","findings":[]}';
 const FAIL = '{"complete":true,"verdict":"fail","findings":[{"severity":"blocking","file":"runner.mjs:1","description":"fix it"}]}';
@@ -138,7 +140,7 @@ test("frontend worker prompt keeps secret-free browser proof", () => {
   assert.match(prompt, /Playwright only for committed regression/);
 });
 
-test("factory PR bodies preserve preview proof and state that children cannot run funded checks", () => {
+test("factory PR bodies preserve preview proof and fall back when no real-money evidence exists", () => {
   const proof = "https://preview.example.test\n\n| State + viewport | Evidence |\n| --- | --- |\n| Review — 390×844 | ![Screen](https://github.com/user-attachments/assets/1) |";
   const initial = factoryPullRequestBody({ ...ISSUE, labels: [{ name: "lane:frontend" }] });
   assert.match(initial, /\| State \+ viewport \| Evidence \|/);
@@ -159,13 +161,46 @@ test("factory PR bodies preserve preview proof and state that children cannot ru
   assert.equal(previewSectionFrom(`## Preview\n\n${proof}\n\n## Notes`, ISSUE), proof);
 });
 
+test("factory result preserves one existing non-empty real-money section", () => {
+  const retained = [
+    "Network: Base mainnet.",
+    "Asset and maximum: USDC, 1.00 USDC.",
+    "Result: bounded deposit and withdrawal completed under operator approval.",
+  ].join("\n");
+  const body = factoryResultBody({
+    currentBody: `## Real money\n\n${retained}\n\n## Preview\n\nN/A\n\n## Real money\n\nstale duplicate`,
+    issue: ISSUE,
+    outcome: "passed",
+    stages: [],
+  });
+
+  assert.match(body, new RegExp(retained.replaceAll(".", "\\.")));
+  assert.doesNotMatch(body, /factory children cannot run funded checks/);
+  assert.doesNotMatch(body, /stale duplicate/);
+  assert.equal(body.match(/^## Real money$/gm)?.length, 1);
+});
+
 test("browser evidence rendering is concise and escapes inline markdown", () => {
   const section = browserEvidenceSection({ ...BROWSER_EVIDENCE, exercisedPath: "Clicked [untrusted](https://example.test) `text`." });
   assert.match(section, /Route \/ viewport: \/save — 390x844 CSS px/);
   assert.doesNotMatch(section, /\[untrusted\]\(https:\/\/example\.test\)/);
 });
 
-test("supervisor runs ordinary completion, current-head review, CI, preview, and handoff", async () => {
+test("supervisor rejects root and intermediate tracking containers before creating a worktree", async () => {
+  await withRunPaths(async (paths) => {
+    for (const [issue, message] of [
+      [{ ...ISSUE, parent: null }, /valid native parent/],
+      [{ ...ISSUE, subIssuesTotalCount: 1 }, /must have no sub-issues/],
+    ]) {
+      const fake = fakeRun({ issue });
+      await assert.rejects(runFactorySupervisor(546, { ...fake, ...paths }), message);
+      assert.equal(fake.calls.includes("worktree"), false);
+      assert.ok(fake.calls.includes("cleanup:false:false"));
+    }
+  });
+});
+
+test("supervisor runs ordinary completion for a valid leaf, current-head review, CI, preview, and handoff", async () => {
   await withRunPaths(async (paths) => {
     const fake = fakeRun();
     const evidence = await runFactorySupervisor(546, { ...fake, ...paths });
@@ -267,6 +302,7 @@ test("GitHub adapter reads only the issue and typed open-PR timeline", async () 
     if (args[1] === "graphql") return JSON.stringify({ data: { repository: { issue: {
       id: "I_546", number: 546, title: ISSUE.title, body: ISSUE.body, author: { login: "jessepollak" },
       state: "OPEN", labels: { nodes: ISSUE.labels }, url: "https://github.test/issues/546",
+      parent: { id: "I_parent", number: 568 }, subIssues: { totalCount: 0 },
     } } } });
     if (args[1] === "--paginate") return JSON.stringify([[
       { event: "commented", body: "PR-like text", source: { issue: { number: 8, state: "open", pull_request: {} } } },
@@ -276,8 +312,23 @@ test("GitHub adapter reads only the issue and typed open-PR timeline", async () 
   } });
   assert.deepEqual(await adapter.getIssue(546), { ...ISSUE, nodeId: "I_546", url: "https://github.test/issues/546" });
   assert.deepEqual(await adapter.openPullRequestsReferencing(546), [{ number: 9, url: "https://github.test/pr/9" }]);
+  const query = calls.find((args) => args[1] === "graphql")?.join(" ") ?? "";
+  assert.match(query, /parent\{id number\}/);
+  assert.match(query, /subIssues\(first:1\)\{totalCount\}/);
   assert.equal(calls.some((args) => args.join(" ").includes("comments")), false);
   assert.equal(calls.some((args) => args.join(" ").includes("reactions")), false);
+});
+
+test("GitHub adapter retains root and intermediate hierarchy for eligibility checks", async () => {
+  let hierarchy = { parent: null, subIssues: { totalCount: 0 } };
+  const adapter = createGitHubAdapter({ gh: async () => JSON.stringify({ data: { repository: { issue: {
+    id: "I_546", number: 546, title: ISSUE.title, body: ISSUE.body, author: { login: "jessepollak" },
+    state: "OPEN", labels: { nodes: ISSUE.labels }, url: "https://github.test/issues/546", ...hierarchy,
+  } } } }) });
+
+  assert.deepEqual((await adapter.getIssue(546)).parent, null);
+  hierarchy = { parent: { id: "I_parent", number: 568 }, subIssues: { totalCount: 3 } };
+  assert.equal((await adapter.getIssue(546)).subIssuesTotalCount, 3);
 });
 
 test("GitHub adapter rejects transport failures, stale issues, and malformed issue responses", async () => {
@@ -287,8 +338,18 @@ test("GitHub adapter rejects transport failures, stale issues, and malformed iss
   const stale = createGitHubAdapter({ gh: async () => JSON.stringify({ data: { repository: { issue: null } } }) });
   await assert.rejects(stale.getIssue(546), /issue is unavailable/);
 
-  const malformed = createGitHubAdapter({ gh: async () => JSON.stringify({ data: { repository: { issue: { number: 546 } } } }) });
-  await assert.rejects(malformed.getIssue(546), /issue response shape is invalid/);
+  const otherwiseValid = {
+    id: "I_546", number: 546, title: ISSUE.title, body: ISSUE.body, author: { login: "jessepollak" },
+    state: "OPEN", labels: { nodes: ISSUE.labels }, url: "https://github.test/issues/546",
+  };
+  for (const issue of [
+    otherwiseValid,
+    { ...otherwiseValid, parent: { id: "", number: 568 }, subIssues: { totalCount: 0 } },
+    { ...otherwiseValid, parent: { id: "I_parent", number: 568 }, subIssues: {} },
+  ]) {
+    const malformed = createGitHubAdapter({ gh: async () => JSON.stringify({ data: { repository: { issue } } }) });
+    await assert.rejects(malformed.getIssue(546), /issue response shape is invalid/);
+  }
 });
 
 test("GitHub adapter requires CI on the exact independently reviewed head", async () => {

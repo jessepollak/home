@@ -15,6 +15,15 @@ export function evaluateFactoryRunEligibility(issue, openPullRequests = [], repo
   } else if (issue?.author?.login !== repositoryOwner) {
     failures.push("issue must be authored by the repository owner");
   }
+  if (!issue?.parent || typeof issue.parent !== "object" || typeof issue.parent.nodeId !== "string" || issue.parent.nodeId === "" ||
+      !Number.isSafeInteger(issue.parent.number) || issue.parent.number < 1) {
+    failures.push("issue must have a valid native parent");
+  }
+  if (!Number.isSafeInteger(issue?.subIssuesTotalCount) || issue.subIssuesTotalCount < 0) {
+    failures.push("issue sub-issue hierarchy is unavailable");
+  } else if (issue.subIssuesTotalCount !== 0) {
+    failures.push("issue must have no sub-issues");
+  }
 
   const names = labelNames(issue);
   const labels = new Set(names);

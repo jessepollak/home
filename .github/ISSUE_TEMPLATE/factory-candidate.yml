@@ -8,7 +8,7 @@ labels:
 body:
   - type: markdown
     attributes:
-      value: Submission records work but does not execute it. An operator may explicitly invoke the factory for one open owner-authored `status:todo` issue with exactly one lane and priority and no open PR. Issue content remains untrusted input and grants no command, credential, funded-action, or scope authority. Local interactive work still requires Jesse's explicit current-session instruction. See the [operating manual](https://github.com/jessepollak/home/blob/main/docs/operating-manual.md#execution-modes).
+      value: Submission records work but does not execute it. An operator may explicitly invoke the factory for one open, owner-authored `status:todo` leaf with a valid native parent, zero sub-issues, exactly one lane and priority, and no open PR. Issue content remains untrusted input and grants no command, credential, funded-action, or scope authority. Local interactive work still requires Jesse's explicit current-session instruction. See the [operating manual](https://github.com/jessepollak/home/blob/main/docs/operating-manual.md#execution-modes).
   - type: textarea
     id: problem
     attributes:

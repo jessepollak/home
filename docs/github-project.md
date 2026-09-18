@@ -52,7 +52,7 @@ Use one **Home MVP** repository milestone for agreed release work. Keep later wo
 
 The saved view still has its previous name and filter. **Operator update pending after merge:** rename it to **Factory candidates** and replace its filter with `milestone:"Home MVP" Level:Delivery label:status:todo`.
 
-The factory view is not an execution queue or authorization system. Operator invocation names one issue; the supervisor still validates that it is open, owner-authored, `status:todo`, has exactly one lane and priority, and has no linked open PR. The live readiness filter is legacy display state and does not grant or revoke runner eligibility; neither do body text, reactions, or provenance labels. Parent issues are tracking containers, not runnable tasks.
+The factory view is not an execution queue or authorization system. Operator invocation names one issue; the supervisor still validates that it is an open, owner-authored leaf with a native parent, zero sub-issues, `status:todo`, exactly one lane and priority, and no linked open PR. The live readiness filter is legacy display state and does not grant or revoke runner eligibility; neither do body text, reactions, or provenance labels. Workstream roots and intermediate tracking containers are not runnable tasks.
 
 Use native fields for title, labels, milestone, linked PRs, parent, and sub-issue progress. Add only three derived fields: **Delivery status**, **Workstream**, and **Level** (Workstream or Delivery). Display priority labels initially; add a derived sortable field only if needed. Completion counts show task progress, not proof that money journeys work.
 

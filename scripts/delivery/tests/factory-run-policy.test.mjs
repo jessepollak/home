@@ -19,9 +19,11 @@ const TODO_ISSUE = {
   author: { login: REPOSITORY_OWNER },
   state: "OPEN",
   labels: [{ name: "status:todo" }, { name: "lane:ops" }, { name: "priority:p1" }],
+  parent: { number: 568, nodeId: "I_parent" },
+  subIssuesTotalCount: 0,
 };
 
-test("operator-invoked eligibility requires an open owner-authored todo with one lane and priority", () => {
+test("operator-invoked eligibility requires an open owner-authored leaf todo with one lane and priority", () => {
   assert.deepEqual(evaluateFactoryRunEligibility(TODO_ISSUE, [], REPOSITORY_OWNER), { eligible: true, failures: [] });
 
   for (const [issue, pulls, failure] of [
@@ -31,6 +33,8 @@ test("operator-invoked eligibility requires an open owner-authored todo with one
     [{ ...TODO_ISSUE, labels: [...TODO_ISSUE.labels, { name: "status:blocked" }] }, [], "exactly one status"],
     [{ ...TODO_ISSUE, labels: TODO_ISSUE.labels.filter(({ name }) => !name.startsWith("lane:")) }, [], "exactly one lane"],
     [{ ...TODO_ISSUE, labels: [...TODO_ISSUE.labels, { name: "priority:p2" }] }, [], "exactly one priority"],
+    [{ ...TODO_ISSUE, parent: undefined }, [], "valid native parent"],
+    [{ ...TODO_ISSUE, subIssuesTotalCount: undefined }, [], "sub-issue hierarchy is unavailable"],
     [TODO_ISSUE, [{ number: 1 }], "open pull request"],
   ]) {
     const result = evaluateFactoryRunEligibility(issue, pulls, REPOSITORY_OWNER);
@@ -38,6 +42,18 @@ test("operator-invoked eligibility requires an open owner-authored todo with one
     assert.match(result.failures.join("\n"), new RegExp(failure));
   }
   assert.deepEqual(factoryRunPolicyConstants.requiredLabels, ["status:todo"]);
+});
+
+test("eligibility rejects root and intermediate tracking containers but accepts a valid leaf", () => {
+  assert.equal(evaluateFactoryRunEligibility(TODO_ISSUE, [], REPOSITORY_OWNER).eligible, true);
+
+  const root = evaluateFactoryRunEligibility({ ...TODO_ISSUE, parent: null }, [], REPOSITORY_OWNER);
+  assert.equal(root.eligible, false);
+  assert.match(root.failures.join("\n"), /valid native parent/);
+
+  const intermediate = evaluateFactoryRunEligibility({ ...TODO_ISSUE, subIssuesTotalCount: 2 }, [], REPOSITORY_OWNER);
+  assert.equal(intermediate.eligible, false);
+  assert.match(intermediate.failures.join("\n"), /must have no sub-issues/);
 });
 
 test("unrelated labels and attribution text do not create another authorization route", () => {

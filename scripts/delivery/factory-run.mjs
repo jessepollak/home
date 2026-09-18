@@ -95,6 +95,18 @@ export function previewSectionFrom(body, issue) {
   return defaultPreviewSection(issue);
 }
 
+const DEFAULT_REAL_MONEY_SECTION = "Real money: not tested — factory children cannot run funded checks.";
+
+function realMoneySectionFrom(body) {
+  if (typeof body !== "string") return DEFAULT_REAL_MONEY_SECTION;
+  const pattern = /(?:^|\n)## Real money\r?\n\r?\n([\s\S]*?)(?=\n## |\n<!-- factory -->|$)/g;
+  for (const match of body.matchAll(pattern)) {
+    const section = match[1]?.trim();
+    if (section) return section;
+  }
+  return DEFAULT_REAL_MONEY_SECTION;
+}
+
 export function factoryPullRequestBody(issue) {
   return [
     `Closes #${issue.number}`,
@@ -105,7 +117,7 @@ export function factoryPullRequestBody(issue) {
     "",
     "## Real money",
     "",
-    "Real money: not tested — factory children cannot run funded checks.",
+    DEFAULT_REAL_MONEY_SECTION,
     "",
     "## Preview",
     "",
@@ -152,7 +164,7 @@ export function factoryResultBody({
     "",
     "## Real money",
     "",
-    "Real money: not tested — factory children cannot run funded checks.",
+    realMoneySectionFrom(currentBody),
     "",
     "## Preview",
     "",
@@ -206,13 +218,23 @@ export function reviewerPrompt(issue, diff) {
 
 export function githubIssueShape(value) {
   const labels = value?.labels?.nodes;
+  const parent = value?.parent;
+  const parentIsValid = parent === null || (
+    parent && typeof parent === "object" && typeof parent.id === "string" && parent.id !== "" &&
+    Number.isSafeInteger(parent.number) && parent.number > 0
+  );
+  const subIssuesTotalCount = value?.subIssues?.totalCount;
   if (!value || typeof value !== "object" || typeof value.id !== "string" || value.id === "" || !Number.isSafeInteger(value.number) || value.number < 1 ||
-      !Array.isArray(labels) || !labels.every((label) => typeof label?.name === "string")) {
+      !Array.isArray(labels) || !labels.every((label) => typeof label?.name === "string") ||
+      !Object.hasOwn(value, "parent") || !parentIsValid ||
+      !Number.isSafeInteger(subIssuesTotalCount) || subIssuesTotalCount < 0) {
     throw new Error("issue response shape is invalid");
   }
   return {
     number: value.number, nodeId: value.id, title: value.title, body: value.body,
     author: value.author, state: value.state, labels, url: value.url,
+    parent: parent === null ? null : { number: parent.number, nodeId: parent.id },
+    subIssuesTotalCount,
   };
 }
 
@@ -236,7 +258,7 @@ export function createGitHubAdapter({ repository = REPOSITORY, environment = pro
     async getIssue(issueNumber) {
       const [owner, name] = repository.split("/");
       const output = await runGh(["api", "graphql",
-        "-f", "query=query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){id number title body author{login} state labels(first:100){nodes{name}} url}}}}",
+        "-f", "query=query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){id number title body author{login} state labels(first:100){nodes{name}} url parent{id number} subIssues(first:1){totalCount}}}}}",
         "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${issueNumber}`,
       ]);
       const value = JSON.parse(output).data?.repository?.issue;

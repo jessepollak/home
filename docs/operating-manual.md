@@ -101,6 +101,7 @@ All factory changes use an issue, isolated branch/worktree, normal PR to `main`,
 From an authenticated clone, run `bun run factory:run <issue>`. The invocation itself selects and authorizes that one run. The supervisor fails closed unless the issue:
 
 - is open and authored by the configured repository owner;
+- has a valid native parent and no sub-issues, so workstream roots and intermediate tracking containers cannot run;
 - has exactly one status, specifically `status:todo`;
 - has exactly one lane and one priority; and
 - has no open PR reference.
