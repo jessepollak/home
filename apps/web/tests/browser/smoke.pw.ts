@@ -697,6 +697,10 @@ async function inputMetrics(locator: Locator) {
   });
 }
 
+async function controlHeight(locator: Locator) {
+  return locator.evaluate((element) => element.getBoundingClientRect().height);
+}
+
 test("coverage native selects keep a mobile-zoom-safe font size", async ({ page }) => {
   // A landscape iPhone's CSS width crosses the 768px breakpoint, so cover both
   // portrait and a landscape-iPhone-like viewport: both must stay at 16px.
@@ -788,6 +792,108 @@ test("representative canonical routes SSR and hydrate their selected panel", asy
     await expect(page.locator("[data-shell-header-title]").first()).toHaveText(title);
   }
   expect(hydrationErrors).toEqual([]);
+});
+
+test("mobile money controls and account header actions keep 44px touch targets and stay interactive", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+
+  await page.goto("/home");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByRole("dialog", { name: "Send" })).toBeVisible();
+
+  const quickChips = page.locator('[role="group"][aria-label="Quick amounts"] button');
+  await expect(quickChips).toHaveCount(3);
+  const ten = page.getByRole("button", { name: "$10" });
+  await expect.poll(async () => Math.min(...(await quickChips.evaluateAll((nodes) =>
+    nodes.map((node) => node.getBoundingClientRect().height))))).toBeGreaterThanOrEqual(44);
+
+  // The touch-target bump is mobile-only; desktop keeps the compact 28px chip.
+  await page.setViewportSize({ width: 900, height: 844 });
+  await expect.poll(async () => (await controlHeight(ten))).toBe(28);
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await ten.click();
+  await expect(page.locator('[data-primary-amount] [data-slot="money-ticker"]'))
+    .toHaveAttribute("aria-label", "$10");
+
+  const unitToggle = page.getByRole("button", { name: "Show 10.00 USDC as the primary amount" });
+  await expect(unitToggle).toBeVisible();
+  await expect.poll(async () => (await controlHeight(unitToggle))).toBeGreaterThanOrEqual(44);
+  await unitToggle.click();
+  await expect(page.locator('[data-primary-amount] [data-slot="money-ticker"]'))
+    .toHaveAttribute("aria-label", "10 USDC");
+
+  await page.getByRole("button", { name: "Close send dialog" }).click();
+  await expect(page.getByRole("dialog", { name: "Send" })).toHaveCount(0);
+
+  const accountButton = page.locator("header").getByRole("button", { name: "Account" });
+  await expect(accountButton).toBeVisible();
+  await accountButton.click();
+
+  const done = page.locator("header").getByRole("button", { name: "Done" });
+  await expect(done).toBeVisible();
+  await expect.poll(async () => (await controlHeight(done))).toBeGreaterThanOrEqual(44);
+
+  const smallBalances = page.getByRole("switch", { name: "Show small balances" });
+  await expect(smallBalances).toBeVisible();
+  await smallBalances.evaluate((element) =>
+    element.scrollIntoView({ block: "center", inline: "nearest" }));
+  const box = await smallBalances.boundingBox();
+  expect(box).not.toBeNull();
+  // The painted switch stays dense on mobile; only its hit area grows to 44px.
+  expect(Math.round(box!.height)).toBe(28);
+
+  // The invisible `::before` is absolutely positioned in the 26px padding box
+  // (28px minus the 1px borders), so its computed `top`/`bottom` offsets resolve
+  // the real hit-target extent. Assert it clears the 44px boundary.
+  const hitBox = await smallBalances.evaluate((element) => {
+    const root = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const before = getComputedStyle(element, "::before");
+    const borderTop = Number.parseFloat(style.borderTopWidth);
+    const borderBottom = Number.parseFloat(style.borderBottomWidth);
+    const top = root.top + borderTop + Number.parseFloat(before.top);
+    const bottom = root.bottom - borderBottom - Number.parseFloat(before.bottom);
+    return { height: bottom - top };
+  });
+  expect(Math.round(hitBox.height)).toBeGreaterThanOrEqual(44);
+
+  const hitsSwitch = async (x: number, y: number) =>
+    page.evaluate(({ x, y }) =>
+      document.elementFromPoint(x, y)?.closest?.('[data-slot="switch"]') != null,
+      { x, y });
+
+  // Click just inside the enlarged boundary (outside the painted switch) rather
+  // than an arbitrary 6px above, proving the extra area is interactive.
+  const probeX = box!.x + box!.width / 2;
+  const probeY = box!.y - 7.5;
+  await expect.poll(() => hitsSwitch(probeX, probeY)).toBe(true);
+
+  const beforeChecked = await smallBalances.getAttribute("aria-checked");
+  await page.mouse.click(probeX, probeY);
+  await expect(smallBalances).toHaveAttribute(
+    "aria-checked",
+    beforeChecked === "true" ? "false" : "true",
+  );
+});
+
+test("public header Sign in keeps a 44px touch target and still opens sign-in", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installApiFixtures(page);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "One home for your money." })).toBeVisible();
+  // The landing shell is server-painted; wait until it hydrates so the header
+  // action's handler is attached before clicking.
+  await expect.poll(() => page.evaluate(() =>
+    performance.getEntriesByName("shell:paint", "mark").length)).toBeGreaterThan(0);
+
+  const headerSignIn = page.locator("header").getByRole("button", { name: "Sign in" });
+  await expect(headerSignIn).toBeVisible();
+  await expect.poll(async () => (await controlHeight(headerSignIn))).toBeGreaterThanOrEqual(44);
+  await headerSignIn.click();
+  await expect(page.getByRole("dialog", { name: "Sign in to Home" })).toBeVisible();
 });
 
 test("cold and revalidated cached Balances stay anchored to the requested group", async ({ page }) => {
