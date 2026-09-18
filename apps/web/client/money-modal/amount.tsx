@@ -39,6 +39,9 @@ const AMOUNT_FIT_TOLERANCE_PX = 0.5;
 // and negative letter-spacing round at each size). Reserve a small headroom so
 // a measured fit never overflows the container by a subpixel rounding error.
 const AMOUNT_FIT_SAFETY_FACTOR = 0.97;
+// Quick chips and the unit toggle keep their compact 28px desktop height and
+// step up to a 44px touch target only below the `md` breakpoint.
+const MOBILE_TAP_TARGET_CLASS = "min-h-11 md:min-h-7";
 
 export type MoneyAmountChangeSource = "keypad" | "programmatic";
 
@@ -473,6 +476,7 @@ export function MoneyQuickChips({
           <Button
             variant="outline"
             size="sm"
+            className={MOBILE_TAP_TARGET_CLASS}
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("10", availableAmount))}
           >
@@ -481,6 +485,7 @@ export function MoneyQuickChips({
           <Button
             variant="outline"
             size="sm"
+            className={MOBILE_TAP_TARGET_CLASS}
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("25", availableAmount))}
           >
@@ -491,6 +496,7 @@ export function MoneyQuickChips({
       <Button
         variant="outline"
         size="sm"
+        className={MOBILE_TAP_TARGET_CLASS}
         disabled={!maxEnabled}
         onClick={() => {
           if (availableAmount) onSelect(availableAmount);
@@ -513,6 +519,7 @@ export function MoneyUnitToggle({
     <Button
       variant="outline"
       size="sm"
+      className={MOBILE_TAP_TARGET_CLASS}
       onClick={onToggle}
       aria-label={`Show ${secondaryLabel} as the primary amount`}
     >

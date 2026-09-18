@@ -13,6 +13,11 @@ import {
   shellContentFrameClassName,
 } from "@/components/shell-layout";
 
+// Text header actions keep the compact default height on desktop and step up to
+// a 44px touch target below the `md` breakpoint. The icon-only back and profile
+// marks already own their 44px mobile hit target.
+const HEADER_ACTION_BUTTON_CLASS = "min-h-11 md:min-h-8";
+
 export function ShellHeader({
   isAccountSettingsOpen,
   nestedChromeTitle,
@@ -93,7 +98,7 @@ export function ShellHeader({
       )}
       <div className="flex shrink-0 items-center">
         {isAccountSettingsOpen ? (
-          <Button variant="secondary" onClick={onCloseSettings}>Done</Button>
+          <Button variant="secondary" className={HEADER_ACTION_BUTTON_CLASS} onClick={onCloseSettings}>Done</Button>
         ) : (
           <HeaderAccountAction
             status={account.status}
@@ -135,7 +140,7 @@ function HeaderAccountAction({
   onOpenSettings: () => void;
 }) {
   if (status === "signout-error") {
-    return <Button onClick={onSignOut}>Retry sign out</Button>;
+    return <Button className={HEADER_ACTION_BUTTON_CLASS} onClick={onSignOut}>Retry sign out</Button>;
   }
   if (routeMode === "dashboard") {
     const checking = status === "restoring" || status === "validating";
@@ -153,12 +158,12 @@ function HeaderAccountAction({
     }
   }
   if (status === "restoring" || status === "validating") {
-    return <Button variant="secondary" disabled>Account</Button>;
+    return <Button variant="secondary" className={HEADER_ACTION_BUTTON_CLASS} disabled>Account</Button>;
   }
   if (status === "verified" || (status === "unavailable" && isSignedIn)) {
-    return <Button onClick={onDashboard}>Dashboard</Button>;
+    return <Button className={HEADER_ACTION_BUTTON_CLASS} onClick={onDashboard}>Dashboard</Button>;
   }
-  return <Button onClick={onSignIn}>Sign in</Button>;
+  return <Button className={HEADER_ACTION_BUTTON_CLASS} onClick={onSignIn}>Sign in</Button>;
 }
 
 export function SignedOutLanding({
