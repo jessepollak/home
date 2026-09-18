@@ -16,20 +16,20 @@ Implement the smallest purposeful motion within the assigned task. Home's `AGENT
 
 - Stay inside the requested feature and existing Home design system. Do not change dependencies, introduce a second component system, or create demo routes.
 - Motion is optional. Prefer an instant state change when motion has no clear purpose or the action is frequent.
-- Home's limits are authoritative: tabs at most 180ms, chips at most 120ms, and CTA press feedback at most 100ms. Other motion should be comparably short and optical.
-- `prefers-reduced-motion: reduce` means instant: duration `0`, no smooth scrolling, and no fallback fade.
+- Home's limits are authoritative: tabs at most 180ms, chips at most 120ms, and CTA press feedback 100–160ms. Other motion should be comparably short and optical.
+- `prefers-reduced-motion: reduce` removes spatial and transform motion. Keep short opacity or color transitions only when they aid comprehension; never add a decorative fallback, and smooth scrolling stays `auto`.
 - Use existing components, variants, tokens, and Base UI transform-origin contracts. Do not create a parallel easing or duration vocabulary for one change.
 - Follow `docs/browser-validation.md`: use the repository-pinned `agent-browser` for required interactive iteration and motion proof before and after editing. Tests cover Home behavior, not Motion or browser internals; Playwright remains the sole committed automated browser layer and is used only when the permanent-test ladder calls for it.
 
 ## Decision sequence
 
 1. **Gate the motion.** Name its purpose: feedback, spatial continuity, state indication, or preventing a jarring change. If none applies, do not animate.
-2. **Check frequency and content.** Repeated navigation and keyboard actions should be instant or nearly imperceptible. Never move financial data merely for decoration.
+2. **Check frequency and content.** Repeated navigation, keyboard actions, and frequently read financial surfaces should stay instant or nearly imperceptible; functional financial data does not move merely for decoration.
 3. **Choose the cheapest existing tool.** Prefer an existing CSS transition for simple state changes; use the repository's Motion dependency only for layout, exit, gesture, or spring behavior that CSS cannot express clearly.
 4. **Choose safe properties.** Prefer `transform` and `opacity`. Avoid layout animation unless the component's behavior requires it. Never use `transition: all` or enter from `scale(0)`.
 5. **Set timing from Home.** Movement on screen normally eases in and out; entrances and exits normally ease out. Reuse a nearby established curve rather than inventing one.
 6. **Make interaction motion interruptible.** Rapidly repeated actions must retarget from their current state rather than restart a keyframe sequence.
-7. **Ship instant reduced motion and capability-gated hover** with the change.
+7. **Ship the reduced-motion path and capability-gated hover** with the change.
 
 ## Implementation checks
 
@@ -37,6 +37,7 @@ Implement the smallest purposeful motion within the assigned task. Home's `AGENT
 - Trigger-anchored Base UI content uses its provided transform origin; dialogs remain centered.
 - Touch users receive press feedback without relying on hover.
 - Smooth scrolling has an `auto` reduced-motion path.
+- Under reduced motion, spatial and transform movement is gone; any remaining opacity or color transition aids comprehension and has no decorative fallback.
 - Verify a complex or feel-dependent result in the existing preview with `agent-browser`, including normal and reduced-motion paths. Real-device feel checks are recorded as operator actions, never claimed from browser emulation.
 
 ## Report

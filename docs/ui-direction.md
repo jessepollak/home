@@ -23,7 +23,8 @@ Base brand guidance (reviewed September 7, 2026) still informs the palette: `htt
 - Percent change is green up / red down — never blue. Chart stroke is Base blue (~1.5–2px) with fill only if `rgba(0, 82, 255, 0.06)`.
 - Region accent is a whisper on currency marks only.
 - No gradients, glass, heavy in-app drop shadows, or gamification chrome.
-- Motion is short and optical (tab ≤180ms, chip ≤120ms, CTA press ≤100ms). `prefers-reduced-motion` is instant.
+- Motion is short and optical, and must earn its place: purpose (feedback, spatial continuity, state indication, preventing a jarring change), frequency, and content sensitivity decide. Tab ≤180ms, chip ≤120ms, CTA press 100–160ms; other motion stays comparably short. Frequently read financial surfaces stay still — functional balances, amounts, and positions do not move merely for decoration.
+- `prefers-reduced-motion: reduce` removes spatial and transform motion, keeping short opacity or color transitions only when they aid comprehension. No decorative fallback, and smooth scrolling stays `auto`.
 - Base Sans and Base Mono are not bundled because reuse rights for this project are unverified. Home uses a system sans-serif stack.
 - Do not put legal disclosures, eligibility essays, contract lists, source roster walls, "not an endorsement," or similar compliance copy on product screens (Home, Save, Invest, Borrow, Fund, etc.). Registry and docs may record contracts and eligibility for builders. Product list and discovery UI must not surface them. Present disclosures only under Account → Disclosures / Terms (or an equivalent settings section). Account should gain that destination if it is missing.
 - Review and confirm screens may show the **actionable** facts needed to complete an action (amount, fee, slippage, network). Do not turn those into catalog footnotes on list surfaces.
