@@ -116,6 +116,7 @@ export function SendDialog({
   const [action, setAction] = useState<PreparedMoneyAction | null>(null);
   const [step, setStep] = useState<SendStep>("amount");
   const [error, setError] = useState<string | null>(null);
+  const [walletRequestPending, setWalletRequestPending] = useState(false);
   const resumedActionRef = useRef<string | null>(null);
   const selectedStillAvailable = !assetId || availableAssets?.some((asset) => asset.id === assetId) !== false;
   const activeAssetId = assetId && selectedStillAvailable ? assetId : availableAssets?.[0]?.id ?? null;
@@ -217,9 +218,12 @@ export function SendDialog({
   function reset() {
     setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("");
     setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
-    setCanonicalHandle(""); setHandleConfirmation(""); setAction(null); setStep("amount"); setError(null);
+    setCanonicalHandle(""); setHandleConfirmation(""); setAction(null); setStep("amount"); setError(null); setWalletRequestPending(false);
   }
-  function close() { onClose(); }
+  function close(): boolean | void {
+    if (walletRequestPending) return false;
+    onClose();
+  }
   function back() {
     setError(null);
     if (step === "destination") setStep("amount");
@@ -310,6 +314,7 @@ export function SendDialog({
   async function confirm() {
     if (!action || (!request && !cashout)) return;
     setStep("pending"); setError(null);
+    setWalletRequestPending(true);
     try {
       const result = await executeMoneyAction(action);
       if (result.status === "rejected") {
@@ -330,6 +335,8 @@ export function SendDialog({
         reset(); setError("This review is no longer available — start again."); onInvalidResume?.(); return;
       }
       setError(messageForError(caught, Boolean(cashout))); setStep("error");
+    } finally {
+      setWalletRequestPending(false);
     }
   }
 
@@ -354,7 +361,7 @@ export function SendDialog({
           ? { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
           : step === "pending" ? {} : { onBack: back })}
         onClose={close}
-        closeDisabled={step === "pending"}
+        closeDisabled={walletRequestPending}
         closeLabel="Close send dialog"
       />
       <MoneyModalBody hasFooter={["amount", "destination", "handle", "handle-confirm", "confirm", "error"].includes(step)} className="gap-4 pt-4">
