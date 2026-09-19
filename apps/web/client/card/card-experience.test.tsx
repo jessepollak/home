@@ -107,6 +107,8 @@ describe("CardExperience", () => {
 
     expect(page().getByText("$420.75 is allocated from your Home balance—not counted twice.")).toBeTruthy();
     expect(page().getByText("Card numbers stay behind the secure details step.")).toBeTruthy();
+    expect(page().getByText("Declined · Not charged · Today, 8:02 AM")).toBeTruthy();
+    expect(page().getByText("Refunded · Returned to available funds · Sep 17")).toBeTruthy();
 
     fireEvent.click(page().getByRole("button", { name: "Add funds" }));
     fireEvent.click(page().getByRole("button", { name: "View details" }));

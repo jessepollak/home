@@ -413,8 +413,8 @@ function RecentCardActivity({
                       </ItemMedia>
                       <ItemContent className="min-w-0">
                         <ItemTitle className="w-full">{item.merchant}</ItemTitle>
-                        <ItemDescription lines={1} title={item.statusDetail}>
-                          {presentation.label} · {item.occurredAt}
+                        <ItemDescription lines={2}>
+                          {presentation.label} · {item.statusDetail} · {item.occurredAt}
                         </ItemDescription>
                       </ItemContent>
                       <ItemContent className="min-w-fit flex-none items-end text-right">
