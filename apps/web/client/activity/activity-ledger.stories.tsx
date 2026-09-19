@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import {
   ActivityLedger,
   ActivityNeedsAttention,
@@ -236,7 +237,19 @@ export const AllDetailFamilies: Story = {
 };
 
 export const FocusBackAndClose: Story = {
-  render: () => <ControlledLedger defaultId={mixedItems[0]!.canonicalId} />,
+  render: () => <ControlledLedger defaultId={null} />,
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    const opener = await screen.findByRole("button", { name: "View Add money by bank transfer details" });
+    await userEvent.click(opener);
+    await expect(await screen.findByRole("dialog")).toBeVisible();
+    await userEvent.click(await screen.findByRole("button", { name: "Back" }));
+    await waitFor(() => expect(opener).toHaveFocus());
+    await userEvent.click(opener);
+    await expect(await screen.findByRole("dialog")).toBeVisible();
+    await userEvent.click(await screen.findByRole("button", { name: "Close activity details" }));
+    await waitFor(() => expect(opener).toHaveFocus());
+  },
 };
 
 export const HomeNeedsAttention: Story = {
@@ -287,4 +300,11 @@ export const Desktop: Story = {
 
 export const ReducedMotionReference: Story = {
   render: () => <ControlledLedger defaultId={mixedItems[2]!.canonicalId} />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Stable review target for real-browser prefers-reduced-motion emulation. This story does not force the operating-system media preference.",
+      },
+    },
+  },
 };

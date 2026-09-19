@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Banknote, CircleDollarSign, CreditCard, Landmark, WalletCards } from "lucide-react";
 import { ActivityRow } from "@/components/finance-rows";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -233,7 +233,6 @@ export function ActivityLedger({
 
   function closeDetails() {
     select(null);
-    openerRef.current?.focus();
   }
 
   return (
@@ -292,6 +291,7 @@ export function ActivityLedger({
       <ActivityLedgerDetailSheet
         item={selectedItem}
         open={selectedItem !== null}
+        finalFocusRef={openerRef}
         onBack={closeDetails}
         onClose={closeDetails}
         onNextAction={onNextAction}
@@ -334,12 +334,14 @@ export function ActivityNeedsAttention({
 export function ActivityLedgerDetailSheet({
   item,
   open,
+  finalFocusRef,
   onBack,
   onClose,
   onNextAction,
 }: {
   item: ActivityLedgerItem | null;
   open: boolean;
+  finalFocusRef: RefObject<HTMLElement | null>;
   onBack: () => void;
   onClose: () => void;
   onNextAction?: (item: ActivityLedgerItem, action: ActivityLedgerNextAction) => void;
@@ -357,6 +359,7 @@ export function ActivityLedgerDetailSheet({
       open={open}
       labelledBy={titleId}
       describedBy={descriptionId}
+      finalFocusRef={finalFocusRef}
       onCancel={onClose}
       onClose={onClose}
     >

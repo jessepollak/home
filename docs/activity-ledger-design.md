@@ -60,6 +60,6 @@ Owner identifiers, provider payloads, compliance prose and internal protocol sta
 
 ## Storybook review matrix
 
-`proposal-activity-ledger` includes deterministic scenarios for mixed chronology; all pending owners and terminal states; upstream deduplication; partial-source failure; all detail families; Home attention; long localized content; 200% text; 390px, 320px and desktop layouts; Back/Close focus controls; and reduced motion. Card rows are future presentation fixtures only.
+`proposal-activity-ledger` includes deterministic scenarios for mixed chronology; all pending owners and terminal states; upstream deduplication; partial-source failure; all detail families; Home attention; long localized content; 200% text; and 390px, 320px and desktop layouts. Its Back/Close play function asserts focus restoration. The reduced-motion story is a stable target verified separately with real-browser `prefers-reduced-motion` emulation; it does not force that operating-system preference itself. Card rows are future presentation fixtures only.
 
 The stories prove the production components and contracts in isolation. They do not prove routing/history, source integration, reload/relogin, owner fencing, provider behavior, card events, or money recovery. Those remain integration work after design acceptance.
