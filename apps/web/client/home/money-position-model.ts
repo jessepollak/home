@@ -47,6 +47,17 @@ export type MoneyPositionSummary = {
   status: "complete" | "stale" | "partial" | "unavailable";
 };
 
+export type MoneyPositionAmountSummary = {
+  amountMinor: bigint | null;
+  status: MoneyPositionSourceStatus;
+};
+
+export type BorrowPositionSummary = {
+  collateral: MoneyPositionAmountSummary;
+  debt: MoneyPositionAmountSummary;
+  positionAfterDebt: MoneyPositionAmountSummary;
+};
+
 function readMinorUnits(value: string | null, label: string): bigint | null {
   if (value === null) return null;
   if (!/^(?:0|[1-9][0-9]*)$/.test(value)) {
@@ -106,18 +117,57 @@ export function summarizeMoneyPosition(input: MoneyPositionInput): MoneyPosition
   };
 }
 
+export function summarizeMoneyPositionKind(
+  input: MoneyPositionInput,
+  kind: MoneyPositionKind,
+): MoneyPositionAmountSummary {
+  const slices = input.slices.filter((slice) => slice.kind === kind);
+  if (slices.some((slice) => slice.status === "unavailable" || slice.amountMinor === null)) {
+    return { amountMinor: null, status: "unavailable" };
+  }
+  return {
+    amountMinor: slices.reduce(
+      (total, slice) => total + (readMinorUnits(slice.amountMinor, slice.label) ?? BigInt(0)),
+      BigInt(0),
+    ),
+    status: slices.some((slice) => slice.status === "stale") ? "stale" : "ready",
+  };
+}
+
+export function summarizeMoneyPositionDebt(
+  input: MoneyPositionInput,
+): MoneyPositionAmountSummary {
+  if (input.debt.status === "unavailable" || input.debt.amountMinor === null) {
+    return { amountMinor: null, status: "unavailable" };
+  }
+  return {
+    amountMinor: readMinorUnits(input.debt.amountMinor, input.debt.label),
+    status: input.debt.status,
+  };
+}
+
+export function summarizeBorrowPosition(input: MoneyPositionInput): BorrowPositionSummary {
+  const collateral = summarizeMoneyPositionKind(input, "collateral");
+  const debt = summarizeMoneyPositionDebt(input);
+  let positionAfterDebt: MoneyPositionAmountSummary;
+  if (collateral.amountMinor === null || debt.amountMinor === null) {
+    positionAfterDebt = { amountMinor: null, status: "unavailable" };
+  } else {
+    positionAfterDebt = {
+      amountMinor: collateral.amountMinor - debt.amountMinor,
+      status: collateral.status === "stale" || debt.status === "stale"
+        ? "stale"
+        : "ready",
+    };
+  }
+  return { collateral, debt, positionAfterDebt };
+}
+
 export function moneyPositionKindTotal(
   input: MoneyPositionInput,
   kind: MoneyPositionKind,
 ): bigint | null {
-  const slices = input.slices.filter((slice) => slice.kind === kind);
-  if (slices.some((slice) => slice.status === "unavailable" || slice.amountMinor === null)) {
-    return null;
-  }
-  return slices.reduce(
-    (total, slice) => total + BigInt(slice.amountMinor ?? "0"),
-    BigInt(0),
-  );
+  return summarizeMoneyPositionKind(input, kind).amountMinor;
 }
 
 export function shouldPresentMoneyPositionDebt(

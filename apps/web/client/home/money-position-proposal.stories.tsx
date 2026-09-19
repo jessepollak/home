@@ -81,6 +81,21 @@ const completePosition = position(
   },
 );
 
+const staleProductPosition = position(
+  [
+    cash("620000"),
+    { ...saved("540000"), status: "stale" },
+    invested("990000"),
+    { ...collateral("800000"), status: "stale" },
+  ],
+  {
+    label: "Borrowed",
+    detail: "USDC debt · 4.8% variable APR",
+    amountMinor: "700000",
+    status: "stale",
+  },
+);
+
 const meta = {
   id: "proposal-money-position",
   title: "Proposals/Money Position",
@@ -123,6 +138,50 @@ export const SaveAndBorrowTiles: Story = {
 };
 
 export const BorrowPositionHeader: Story = {
+  render: ({ position }) => (
+    <div className="mx-auto w-full max-w-2xl">
+      <BorrowPositionHeaderProposal position={position} />
+    </div>
+  ),
+};
+
+export const StaleSaveAndBorrowTiles: Story = {
+  args: { position: staleProductPosition },
+  render: ({ position }) => (
+    <MoneyPositionProductTiles
+      position={position}
+      onOpenSave={() => undefined}
+      onOpenBorrow={() => undefined}
+    />
+  ),
+};
+
+export const StaleBorrowPositionHeader: Story = {
+  args: { position: staleProductPosition },
+  render: ({ position }) => (
+    <div className="mx-auto w-full max-w-2xl">
+      <BorrowPositionHeaderProposal position={position} />
+    </div>
+  ),
+};
+
+export const UnavailableBorrowPositionHeader: Story = {
+  args: {
+    position: position(
+      [{
+        ...collateral("0"),
+        amountMinor: null,
+        status: "unavailable",
+        unavailableReason: "Collateral value could not be verified",
+      }],
+      {
+        label: "Borrowed",
+        detail: "USDC debt · 4.8% variable APR",
+        amountMinor: "700000",
+        status: "ready",
+      },
+    ),
+  },
   render: ({ position }) => (
     <div className="mx-auto w-full max-w-2xl">
       <BorrowPositionHeaderProposal position={position} />

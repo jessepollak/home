@@ -22,10 +22,11 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "
 import { HomeProductTile } from "./product-tile";
 import {
   formatMoneyPositionAmount,
-  moneyPositionKindTotal,
   moneyPositionStatusMessage,
   shouldPresentMoneyPositionDebt,
+  summarizeBorrowPosition,
   summarizeMoneyPosition,
+  summarizeMoneyPositionKind,
   type MoneyPositionInput,
   type MoneyPositionKind,
   type MoneyPositionSlice,
@@ -203,10 +204,22 @@ export function MoneyPositionProductTiles({
   onOpenBorrow: () => void;
 }) {
   const id = useId();
-  const summary = summarizeMoneyPosition(position);
-  const savedMinor = moneyPositionKindTotal(position, "saved");
-  const collateralMinor = moneyPositionKindTotal(position, "collateral");
+  const saved = summarizeMoneyPositionKind(position, "saved");
+  const borrow = summarizeBorrowPosition(position);
   const format = (value: bigint | null) => formatMoneyPositionAmount(value, position);
+  const saveSecondary = saved.status === "stale"
+    ? "Saved outside available cash · Last verified value"
+    : "Saved outside available cash";
+  const borrowStaleLabels = [
+    ...(borrow.debt.status === "stale" ? ["Debt · Last verified"] : []),
+    ...(borrow.collateral.status === "stale" ? ["Collateral · Last verified"] : []),
+  ];
+  const collateralSecondary = borrow.collateral.amountMinor === null
+    ? "Collateral unavailable"
+    : `${format(borrow.collateral.amountMinor)} locked as collateral`;
+  const borrowSecondary = `${collateralSecondary}${
+    borrowStaleLabels.length > 0 ? ` · ${borrowStaleLabels.join(" · ")}` : ""
+  }`;
 
   return (
     <div className="mx-auto grid w-full max-w-2xl grid-cols-2 gap-2" aria-label="Save and Borrow position summaries">
@@ -217,8 +230,8 @@ export function MoneyPositionProductTiles({
             headingId={`${id}-save`}
             icon={<PiggyBank className="size-4" aria-hidden="true" />}
             onOpen={onOpenSave}
-            primary={format(savedMinor)}
-            secondary="Saved outside available cash"
+            primary={format(saved.amountMinor)}
+            secondary={saveSecondary}
             title="Save"
           />
         </Card>
@@ -230,8 +243,8 @@ export function MoneyPositionProductTiles({
             headingId={`${id}-borrow`}
             icon={<Landmark className="size-4" aria-hidden="true" />}
             onOpen={onOpenBorrow}
-            primary={format(summary.debtMinor === null ? null : -summary.debtMinor)}
-            secondary={`${format(collateralMinor)} locked as collateral`}
+            primary={format(borrow.debt.amountMinor === null ? null : -borrow.debt.amountMinor)}
+            secondary={borrowSecondary}
             title="Borrow"
           />
         </Card>
@@ -241,9 +254,10 @@ export function MoneyPositionProductTiles({
 }
 
 export function BorrowPositionHeaderProposal({ position }: { position: MoneyPositionInput }) {
-  const summary = summarizeMoneyPosition(position);
-  const collateralMinor = moneyPositionKindTotal(position, "collateral");
+  const borrow = summarizeBorrowPosition(position);
   const format = (value: bigint | null) => formatMoneyPositionAmount(value, position);
+  const label = (value: string, status: "ready" | "stale" | "unavailable") =>
+    status === "stale" ? `${value} · Last verified` : value;
 
   return (
     <Card>
@@ -254,18 +268,26 @@ export function BorrowPositionHeaderProposal({ position }: { position: MoneyPosi
       <CardContent>
         <dl className="grid grid-cols-1 gap-3 tabular-nums sm:grid-cols-3">
           <div className="min-w-0 rounded-lg bg-muted/50 p-3">
-            <dt className="text-xs text-muted-foreground">Borrowed</dt>
+            <dt className="text-xs text-muted-foreground">
+              {label("Borrowed", borrow.debt.status)}
+            </dt>
             <dd className="break-words font-semibold">
-              {format(summary.debtMinor === null ? null : -summary.debtMinor)}
+              {format(borrow.debt.amountMinor === null ? null : -borrow.debt.amountMinor)}
             </dd>
           </div>
           <div className="min-w-0 rounded-lg bg-muted/50 p-3">
-            <dt className="text-xs text-muted-foreground">Collateral locked</dt>
-            <dd className="break-words font-semibold">{format(collateralMinor)}</dd>
+            <dt className="text-xs text-muted-foreground">
+              {label("Collateral locked", borrow.collateral.status)}
+            </dt>
+            <dd className="break-words font-semibold">{format(borrow.collateral.amountMinor)}</dd>
           </div>
           <div className="min-w-0 rounded-lg bg-muted/50 p-3">
-            <dt className="text-xs text-muted-foreground">Position after debt</dt>
-            <dd className="break-words font-semibold">{format(summary.netPositionMinor)}</dd>
+            <dt className="text-xs text-muted-foreground">
+              {label("Position after debt", borrow.positionAfterDebt.status)}
+            </dt>
+            <dd className="break-words font-semibold">
+              {format(borrow.positionAfterDebt.amountMinor)}
+            </dd>
           </div>
         </dl>
       </CardContent>

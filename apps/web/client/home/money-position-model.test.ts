@@ -5,7 +5,9 @@ import {
   moneyPositionKindTotal,
   moneyPositionStatusMessage,
   shouldPresentMoneyPositionDebt,
+  summarizeBorrowPosition,
   summarizeMoneyPosition,
+  summarizeMoneyPositionKind,
 } from "./money-position-model";
 
 function input(overrides: Partial<MoneyPositionInput> = {}): MoneyPositionInput {
@@ -174,6 +176,139 @@ describe("money position presentation model", () => {
     });
 
     expect(moneyPositionKindTotal(position, "saved")).toBeNull();
+  });
+
+  test("derives borrow position from collateral minus debt only", () => {
+    const summary = summarizeBorrowPosition(input({
+      slices: [
+        {
+          id: "cash",
+          kind: "cash",
+          label: "Cash",
+          detail: "Available",
+          amountMinor: "100000",
+          status: "ready",
+        },
+        {
+          id: "collateral",
+          kind: "collateral",
+          label: "Collateral",
+          detail: "Locked",
+          amountMinor: "80000",
+          status: "ready",
+        },
+      ],
+      debt: {
+        label: "Borrowed",
+        detail: "USDC debt",
+        amountMinor: "70000",
+        status: "ready",
+      },
+    }));
+
+    expect(summary.positionAfterDebt).toEqual({
+      amountMinor: BigInt(10000),
+      status: "ready",
+    });
+  });
+
+  test("withholds borrow position and preserves stale source status", () => {
+    const unavailable = summarizeBorrowPosition(input({
+      slices: [{
+        id: "collateral",
+        kind: "collateral",
+        label: "Collateral",
+        detail: "Locked",
+        amountMinor: null,
+        status: "unavailable",
+      }],
+      debt: {
+        label: "Borrowed",
+        detail: "USDC debt",
+        amountMinor: "70000",
+        status: "stale",
+      },
+    }));
+    expect(unavailable.collateral.status).toBe("unavailable");
+    expect(unavailable.debt.status).toBe("stale");
+    expect(unavailable.positionAfterDebt).toEqual({
+      amountMinor: null,
+      status: "unavailable",
+    });
+
+    const stale = summarizeBorrowPosition(input({
+      slices: [{
+        id: "collateral",
+        kind: "collateral",
+        label: "Collateral",
+        detail: "Locked",
+        amountMinor: "80000",
+        status: "stale",
+      }],
+      debt: {
+        label: "Borrowed",
+        detail: "USDC debt",
+        amountMinor: "70000",
+        status: "ready",
+      },
+    }));
+    expect(stale.positionAfterDebt).toEqual({
+      amountMinor: BigInt(10000),
+      status: "stale",
+    });
+    const debtStale = summarizeBorrowPosition(input({
+      slices: [{
+        id: "collateral",
+        kind: "collateral",
+        label: "Collateral",
+        detail: "Locked",
+        amountMinor: "80000",
+        status: "ready",
+      }],
+      debt: {
+        label: "Borrowed",
+        detail: "USDC debt",
+        amountMinor: "70000",
+        status: "stale",
+      },
+    }));
+    expect(debtStale.positionAfterDebt).toEqual({
+      amountMinor: BigInt(10000),
+      status: "stale",
+    });
+    const debtUnavailable = summarizeBorrowPosition(input({
+      slices: [{
+        id: "collateral",
+        kind: "collateral",
+        label: "Collateral",
+        detail: "Locked",
+        amountMinor: "80000",
+        status: "ready",
+      }],
+      debt: {
+        label: "Borrowed",
+        detail: "USDC debt",
+        amountMinor: null,
+        status: "unavailable",
+      },
+    }));
+    expect(debtUnavailable.positionAfterDebt).toEqual({
+      amountMinor: null,
+      status: "unavailable",
+    });
+    expect(summarizeMoneyPositionKind(input({
+      slices: [{
+        id: "saved",
+        kind: "saved",
+        label: "Saved",
+        detail: "Vault",
+        amountMinor: "50000",
+        status: "stale",
+      }],
+    }), "saved")).toEqual({
+      amountMinor: BigInt(50000),
+      status: "stale",
+    });
   });
 
   test("hides only verified zero debt while preserving unavailable debt", () => {
