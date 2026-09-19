@@ -10,8 +10,6 @@ import { noDetachedClassConstantsRule } from "./no-detached-class-constants.mjs"
 // reports individually.
 RuleTester.describe = describe;
 RuleTester.it = it;
-if (typeof describe.only === "function") RuleTester.describeOnly = describe.only;
-if (typeof it.only === "function") RuleTester.itOnly = it.only;
 
 const ruleTester = new RuleTester({
   languageOptions: {
