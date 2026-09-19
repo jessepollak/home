@@ -1,8 +1,20 @@
 import type { RegionalHomeComposition } from "./regional-shell-proposal";
 
 const sharedActivity = [
-  { id: "salary", label: "Money added", detail: "Today", amount: "+ $1,250.00" },
-  { id: "send", label: "Sent", detail: "Yesterday", amount: "− $48.20" },
+  {
+    id: "salary",
+    direction: "incoming",
+    label: "Money added",
+    detail: "Today",
+    amount: "+ $1,250.00",
+  },
+  {
+    id: "send",
+    direction: "outgoing",
+    label: "Sent",
+    detail: "Yesterday",
+    amount: "− $48.20",
+  },
 ] as const;
 
 export const regionalHomeCompositions = {

@@ -121,6 +121,7 @@ function CountryPreferenceCombobox({
 function PreferenceSelect({
   ariaLabel,
   defaultDetail,
+  defaultDetailId,
   defaultLabel,
   onValueChange,
   options,
@@ -128,6 +129,7 @@ function PreferenceSelect({
 }: {
   ariaLabel: string;
   defaultDetail?: string;
+  defaultDetailId: string;
   defaultLabel?: string;
   onValueChange: (value: string) => void;
   options: readonly RegionalPreferenceOption[];
@@ -138,7 +140,13 @@ function PreferenceSelect({
       <Select value={value} onValueChange={(nextValue) => {
         if (nextValue) onValueChange(nextValue);
       }}>
-        <SelectTrigger className="min-h-11 w-full max-w-full" aria-label={ariaLabel}>
+        <SelectTrigger
+          className="min-h-11 w-full max-w-full"
+          aria-label={ariaLabel}
+          aria-describedby={
+            value === countryDefaultValue && defaultDetail ? defaultDetailId : undefined
+          }
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent align="end">
@@ -156,7 +164,12 @@ function PreferenceSelect({
         </SelectContent>
       </Select>
       {value === countryDefaultValue && defaultDetail ? (
-        <span className="max-w-52 text-right text-xs text-muted-foreground">{defaultDetail}</span>
+        <span
+          id={defaultDetailId}
+          className="max-w-52 text-right text-xs text-muted-foreground"
+        >
+          {defaultDetail}
+        </span>
       ) : null}
     </div>
   );
@@ -212,6 +225,7 @@ export function RegionalPreferencesProposal({
               <PreferenceSelect
                 ariaLabel={copy.displayCurrency}
                 defaultDetail={countryDefaultCurrency}
+                defaultDetailId="regional-display-currency-country-default-detail"
                 defaultLabel={copy.useCountryDefault}
                 options={currencyOptions}
                 value={value.displayCurrency}
@@ -230,6 +244,7 @@ export function RegionalPreferencesProposal({
               <PreferenceSelect
                 ariaLabel={copy.language}
                 defaultDetail={countryDefaultLanguage}
+                defaultDetailId="regional-language-country-default-detail"
                 defaultLabel={copy.useCountryDefault}
                 options={languageOptions}
                 value={value.language}

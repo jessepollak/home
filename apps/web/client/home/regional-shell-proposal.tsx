@@ -13,6 +13,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import {
   Card,
   CardContent,
@@ -32,16 +33,20 @@ export type RegionalShellNavigationId = "home" | "card" | "invest";
 export type RegionalHomeCopy = {
   account: string;
   activity: string;
+  activityEmpty: string;
   addMoney: string;
   card: string;
   cashOut: string;
   countryNeeded: string;
+  desktopPrimaryNavigation: string;
   dollarProducts: string;
   home: string;
   invest: string;
   illustrativeNonCoverage: string;
   localMoney: string;
   localYieldUnavailable: string;
+  mobilePrimaryNavigation: string;
+  moneyActions: string;
   send: string;
   shownSeparately: string;
   totalBalance: string;
@@ -67,6 +72,7 @@ export type RegionalHomeComposition = {
   };
   activity: readonly {
     id: string;
+    direction: "incoming" | "outgoing";
     label: string;
     detail: string;
     amount: string;
@@ -205,9 +211,9 @@ export function RegionalHomeShellProposal({
   return (
     <div className="min-h-svh bg-muted text-foreground" data-regional-shell={composition.regionLabel}>
       <div className="mx-auto flex min-h-svh w-full max-w-screen-2xl bg-background md:grid md:grid-cols-[13rem_minmax(0,1fr)]">
-        <aside className="hidden border-r bg-background p-4 md:flex md:flex-col" aria-label="Primary navigation">
+        <aside className="hidden border-r bg-background p-4 md:flex md:flex-col" aria-label={copy.desktopPrimaryNavigation}>
           <div className="flex min-h-11 items-center px-3 text-base font-semibold">Home</div>
-          <nav className="mt-6 flex flex-col gap-1" aria-label="Primary">
+          <nav className="mt-6 flex flex-col gap-1" aria-label={copy.desktopPrimaryNavigation}>
             <NavigationItems
               activeNavigation={activeNavigation}
               copy={copy}
@@ -251,7 +257,7 @@ export function RegionalHomeShellProposal({
                   </CardContent>
                 </Card>
 
-                <div className="grid grid-cols-3 gap-2" role="group" aria-label="Money actions">
+                <div className="grid grid-cols-3 gap-2" role="group" aria-label={copy.moneyActions}>
                   <MoneyAction
                     icon={ArrowDownToLine}
                     label={copy.addMoney}
@@ -320,20 +326,34 @@ export function RegionalHomeShellProposal({
                       </CardTitle>
                     </CardHeader>
                     <CardContent inset="list">
-                      <div role="list">
-                        {composition.activity.map((item) => (
-                          <Item key={item.id} role="listitem">
-                            <ItemMedia variant="avatar">
-                              <ArrowDownToLine aria-hidden />
-                            </ItemMedia>
-                            <ItemContent className="min-w-0">
-                              <ItemTitle truncate={false} className="whitespace-normal">{item.label}</ItemTitle>
-                              <ItemDescription>{item.detail}</ItemDescription>
-                            </ItemContent>
-                            <p className="max-w-full text-right text-sm font-medium tabular-nums">{item.amount}</p>
-                          </Item>
-                        ))}
-                      </div>
+                      {composition.activity.length === 0 ? (
+                        <Empty>
+                          <EmptyHeader>
+                            <EmptyTitle>{copy.activityEmpty}</EmptyTitle>
+                          </EmptyHeader>
+                        </Empty>
+                      ) : (
+                        <div role="list">
+                          {composition.activity.map((item) => {
+                            const activityIcon = item.direction === "incoming"
+                              ? { Component: ArrowDownToLine, name: "arrow-down-to-line" }
+                              : { Component: ArrowUpFromLine, name: "arrow-up-from-line" };
+                            const ActivityIcon = activityIcon.Component;
+                            return (
+                              <Item key={item.id} role="listitem">
+                                <ItemMedia variant="avatar" data-activity-direction={item.direction}>
+                                  <ActivityIcon data-activity-icon={activityIcon.name} aria-hidden />
+                                </ItemMedia>
+                                <ItemContent className="min-w-0">
+                                  <ItemTitle truncate={false} className="whitespace-normal">{item.label}</ItemTitle>
+                                  <ItemDescription>{item.detail}</ItemDescription>
+                                </ItemContent>
+                                <p className="max-w-full text-right text-sm font-medium tabular-nums">{item.amount}</p>
+                              </Item>
+                            );
+                          })}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </section>
@@ -341,7 +361,7 @@ export function RegionalHomeShellProposal({
             </div>
           </main>
 
-          <nav className="fixed inset-x-0 bottom-0 z-10 grid min-h-16 grid-cols-3 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Primary">
+          <nav className="fixed inset-x-0 bottom-0 z-10 grid min-h-16 grid-cols-3 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden" aria-label={copy.mobilePrimaryNavigation}>
             <NavigationItems
               activeNavigation={activeNavigation}
               copy={copy}

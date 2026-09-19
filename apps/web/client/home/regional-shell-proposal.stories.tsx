@@ -9,16 +9,20 @@ import { regionalHomeCompositions } from "./regional-shell-proposal-fixtures";
 const englishCopy: RegionalHomeCopy = {
   account: "Account",
   activity: "Activity",
+  activityEmpty: "No activity yet",
   addMoney: "Add money",
   card: "Card",
   cashOut: "Cash out",
   countryNeeded: "Country needed",
+  desktopPrimaryNavigation: "Desktop primary navigation",
   dollarProducts: "Dollar products",
   home: "Home",
   invest: "Invest",
   illustrativeNonCoverage: "Illustrative only — coverage not assessed",
   localMoney: "Local money",
   localYieldUnavailable: "Local yield unavailable",
+  mobilePrimaryNavigation: "Mobile primary navigation",
+  moneyActions: "Money actions",
   send: "Send",
   shownSeparately: "Shown separately from dollar products",
   totalBalance: "Total balance",
@@ -50,6 +54,11 @@ export const UnitedStates: Story = { args: { composition: regionalHomeCompositio
 export const Brazil: Story = { args: { composition: regionalHomeCompositions.BR } };
 export const Nigeria: Story = { args: { composition: regionalHomeCompositions.NG } };
 export const Indonesia: Story = { args: { composition: regionalHomeCompositions.ID } };
+export const EmptyActivity: Story = {
+  args: {
+    composition: { ...regionalHomeCompositions.GLOBAL, activity: [] },
+  },
+};
 
 export const IntentionalDesktop: Story = {
   args: { composition: regionalHomeCompositions.BR },
@@ -62,13 +71,17 @@ export const SmallMobileGermanLongCopy: Story = {
     copy: {
       ...englishCopy,
       account: "Konto",
+      activityEmpty: "Noch keine Aktivitäten",
       addMoney: "Geld hinzufügen",
       card: "Karte",
       cashOut: "Geld auszahlen",
+      desktopPrimaryNavigation: "Primäre Navigation für Desktop",
       dollarProducts: "Produkte in US-Dollar",
       home: "Startseite",
       invest: "Investieren",
       localMoney: "Geld in Landeswährung",
+      mobilePrimaryNavigation: "Primäre Navigation für Mobilgeräte",
+      moneyActions: "Geldaktionen",
       send: "Geld senden",
       totalBalance: "Gesamtguthaben in der gewählten Anzeigewährung",
     },
@@ -82,13 +95,17 @@ export const FrenchAtTwoHundredPercentText: Story = {
     copy: {
       ...englishCopy,
       account: "Compte",
+      activityEmpty: "Aucune activité pour le moment",
       addMoney: "Ajouter de l’argent",
       card: "Carte",
       cashOut: "Retirer des fonds",
+      desktopPrimaryNavigation: "Navigation principale sur ordinateur",
       dollarProducts: "Produits libellés en dollars américains",
       home: "Accueil",
       invest: "Investir",
       localMoney: "Argent en monnaie locale",
+      mobilePrimaryNavigation: "Navigation principale sur mobile",
+      moneyActions: "Actions financières",
       send: "Envoyer de l’argent",
       totalBalance: "Solde total dans la devise d’affichage choisie",
     },
@@ -102,7 +119,16 @@ export const FrenchAtTwoHundredPercentText: Story = {
 };
 
 export const RightToLeftDirection: Story = {
-  args: { composition: regionalHomeCompositions.ID },
+  args: {
+    composition: regionalHomeCompositions.ID,
+    copy: {
+      ...englishCopy,
+      activityEmpty: "لا يوجد نشاط حتى الآن",
+      desktopPrimaryNavigation: "التنقل الأساسي لسطح المكتب",
+      mobilePrimaryNavigation: "التنقل الأساسي للجوال",
+      moneyActions: "إجراءات الأموال",
+    },
+  },
   render: (args) => (
     <div dir="rtl">
       <RegionalHomeShellProposal {...args} />

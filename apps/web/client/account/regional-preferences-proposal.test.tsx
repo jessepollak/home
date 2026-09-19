@@ -76,7 +76,25 @@ describe("RegionalPreferencesProposal", () => {
       />,
     );
 
-    expect(view.getByText("IDR")).toBeTruthy();
-    expect(view.getByText("Bahasa Indonesia")).toBeTruthy();
+    const currency = view.getByRole("combobox", {
+      name: "Display currency",
+      description: "IDR",
+    });
+    const language = view.getByRole("combobox", {
+      name: "Language",
+      description: "Bahasa Indonesia",
+    });
+    expect(currency.getAttribute("aria-describedby")).toBe(
+      "regional-display-currency-country-default-detail",
+    );
+    expect(language.getAttribute("aria-describedby")).toBe(
+      "regional-language-country-default-detail",
+    );
+    expect(view.getByText("IDR").id).toBe(
+      "regional-display-currency-country-default-detail",
+    );
+    expect(view.getByText("Bahasa Indonesia").id).toBe(
+      "regional-language-country-default-detail",
+    );
   });
 });

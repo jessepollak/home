@@ -14,16 +14,20 @@ afterEach(cleanup);
 const copy: RegionalHomeCopy = {
   account: "Account",
   activity: "Activity",
+  activityEmpty: "No transactions yet",
   addMoney: "Add money",
   card: "Card",
   cashOut: "Cash out",
   countryNeeded: "Country needed",
+  desktopPrimaryNavigation: "Desktop navigation",
   dollarProducts: "Dollar products",
   home: "Home",
   invest: "Invest",
   illustrativeNonCoverage: "Illustrative only — coverage not assessed",
   localMoney: "Local money",
   localYieldUnavailable: "Local yield unavailable",
+  mobilePrimaryNavigation: "Mobile navigation",
+  moneyActions: "Balance actions",
   send: "Send",
   shownSeparately: "Shown separately",
   totalBalance: "Total balance",
@@ -100,6 +104,80 @@ describe("RegionalHomeShellProposal", () => {
       expect(region.getAttribute("aria-labelledby")).toBe(heading.id);
       expect(heading.parentElement?.getAttribute("data-slot")).toBe("card-title");
     }
+  });
+
+  test("renders the established localized empty presentation when activity has no rows", () => {
+    const view = render(
+      <RegionalHomeShellProposal
+        composition={composition}
+        copy={copy}
+        onAccount={() => {}}
+        onAction={() => {}}
+        onNavigate={() => {}}
+      />,
+    );
+
+    const empty = view.getByText("No transactions yet");
+    expect(empty.getAttribute("data-slot")).toBe("empty-title");
+  });
+
+  test("uses explicit activity direction for icons instead of signed amount text", () => {
+    const view = render(
+      <RegionalHomeShellProposal
+        composition={{
+          ...composition,
+          activity: [
+            {
+              id: "incoming-with-negative-copy",
+              direction: "incoming",
+              label: "Incoming transfer",
+              detail: "Today",
+              amount: "− $10.00",
+            },
+            {
+              id: "outgoing-with-positive-copy",
+              direction: "outgoing",
+              label: "Outgoing transfer",
+              detail: "Yesterday",
+              amount: "+ $20.00",
+            },
+          ],
+        }}
+        copy={copy}
+        onAccount={() => {}}
+        onAction={() => {}}
+        onNavigate={() => {}}
+      />,
+    );
+
+    const incomingRow = view.getByText("Incoming transfer").closest("[role='listitem']");
+    const outgoingRow = view.getByText("Outgoing transfer").closest("[role='listitem']");
+    expect(
+      incomingRow?.querySelector(
+        "[data-activity-direction='incoming'] [data-activity-icon='arrow-down-to-line']",
+      ),
+    ).toBeTruthy();
+    expect(
+      outgoingRow?.querySelector(
+        "[data-activity-direction='outgoing'] [data-activity-icon='arrow-up-from-line']",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("uses copy contracts for money-action and responsive navigation labels", () => {
+    const view = render(
+      <RegionalHomeShellProposal
+        composition={composition}
+        copy={copy}
+        onAccount={() => {}}
+        onAction={() => {}}
+        onNavigate={() => {}}
+      />,
+    );
+
+    expect(view.getByRole("group", { name: "Balance actions" })).toBeTruthy();
+    expect(view.getByRole("navigation", { name: "Desktop navigation" })).toBeTruthy();
+    expect(view.getByRole("navigation", { name: "Mobile navigation" })).toBeTruthy();
   });
 
   test("marks the US story fixture as illustrative without claiming coverage", () => {
