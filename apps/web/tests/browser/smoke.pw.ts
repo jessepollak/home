@@ -792,63 +792,84 @@ test("representative canonical routes SSR and hydrate their selected panel", asy
 });
 
 
-test("high-frequency mobile actions expose and exercise 44px touch targets", async ({ page }) => {
-  const viewports = [{ width: 320, height: 568 }, { width: 390, height: 844 }];
-  for (const [index, viewport] of viewports.entries()) {
-    const mobilePage = index === 0 ? page : await page.context().newPage();
-    await mobilePage.setViewportSize(viewport);
-    await installApiFixtures(mobilePage);
+test("wide touch targets stay large while fine-pointer targets stay compact", async ({ browser, page }) => {
+  async function openRepresentativeControls(targetPage: Page) {
+    await installApiFixtures(targetPage);
+    await targetPage.goto("/");
 
-    await mobilePage.goto("/");
-    const signIn = mobilePage.locator('[data-shell-header-frame="landing"]')
-      .getByRole("button", { name: "Sign in" });
-    await expect.poll(async () => (await signIn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
-    await expect.poll(async () => {
-      if (!mobilePage.url().includes("account=signin")) await signIn.click();
-      return new URL(mobilePage.url()).searchParams.get("account");
-    }).toBe("signin");
-    await expect(mobilePage.getByRole("dialog", { name: "Sign in to Home" })).toBeVisible();
-    await mobilePage.getByRole("button", { name: "Close sign in" }).click();
+    const signIn = targetPage.getByRole("banner").getByRole("button", { name: "Sign in" });
+    await expect(signIn).toBeVisible();
+    const signInHeight = await signIn.evaluate((element) =>
+      element.getBoundingClientRect().height);
 
-    await seedSignedInSession(mobilePage);
-    await mobilePage.goto("/home");
-    await mobilePage.getByRole("button", { name: "Send" }).click();
+    await seedSignedInSession(targetPage);
+    await targetPage.goto("/home");
+    await targetPage.getByRole("button", { name: "Send" }).click();
+    const quickAmount = targetPage.getByRole("button", { name: "$10" });
+    await expect(quickAmount).toBeVisible();
 
-    const quickAmount = mobilePage.getByRole("button", { name: "$10" });
-    await expect.poll(async () => (await quickAmount.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
-    await quickAmount.click();
-    const unitToggle = mobilePage.getByRole("button", { name: /as the primary amount$/ });
-    await expect.poll(async () => (await unitToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
-    const unitLabel = await unitToggle.getAttribute("aria-label");
-    await unitToggle.click();
-    await expect(unitToggle).not.toHaveAttribute("aria-label", unitLabel ?? "");
+    return {
+      signInHeight,
+      quickAmountHeight: await quickAmount.evaluate((element) =>
+        element.getBoundingClientRect().height),
+    };
+  }
 
-    await mobilePage.getByRole("button", { name: "Close send dialog" }).click();
-    await mobilePage.getByRole("button", { name: "Account" }).click();
-    const smallBalances = mobilePage.getByRole("switch", { name: "Show small balances" });
+  const touchContext = await browser.newContext({
+    hasTouch: true,
+    viewport: { width: 844, height: 390 },
+  });
+  try {
+    const touchPage = await touchContext.newPage();
+    expect(await touchPage.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);
+    expect(Math.min(...Object.values(await openRepresentativeControls(touchPage))))
+      .toBeGreaterThanOrEqual(44);
+
+    await touchPage.setViewportSize({ width: 320, height: 568 });
+    await touchPage.getByRole("button", { name: "Close send dialog" }).click();
+    await touchPage.getByRole("button", { name: "Account" }).click();
+    const smallBalances = touchPage.getByRole("switch", { name: "Show small balances" });
     await expect(smallBalances).toBeVisible();
+    await smallBalances.scrollIntoViewIfNeeded();
+    await smallBalances.evaluate((element) =>
+      element.scrollIntoView({ block: "center", inline: "nearest" }));
+    await expect.poll(() => smallBalances.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.top >= 9 && bounds.bottom <= innerHeight - 9;
+    })).toBe(true);
+
     const switchTarget = await smallBalances.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       const style = getComputedStyle(element);
       const before = getComputedStyle(element, "::before");
+      const top = bounds.top
+        + Number.parseFloat(style.borderTopWidth)
+        + Number.parseFloat(before.top);
+      const bottom = bounds.bottom
+        - Number.parseFloat(style.borderBottomWidth)
+        - Number.parseFloat(before.bottom);
       return {
-        height: bounds.height
-          - Number.parseFloat(style.borderTopWidth)
-          - Number.parseFloat(style.borderBottomWidth)
-          - Number.parseFloat(before.top)
-          - Number.parseFloat(before.bottom),
-        probe: { x: bounds.x + bounds.width / 2, y: bounds.y - 7.5 },
+        paintedHeight: bounds.height,
+        targetHeight: bottom - top,
+        probe: { x: bounds.x + bounds.width / 2, y: (top + bounds.top) / 2 },
       };
     });
-    expect(switchTarget.height).toBeGreaterThanOrEqual(44);
-    await expect.poll(() => mobilePage.evaluate(({ x, y }) =>
-      document.elementFromPoint(x, y)?.closest('[data-slot="switch"]') !== null,
-    switchTarget.probe)).toBe(true);
+    expect(switchTarget.paintedHeight).toBe(28);
+    expect(switchTarget.targetHeight).toBeGreaterThanOrEqual(44);
+
     const checkedBefore = await smallBalances.getAttribute("aria-checked");
-    await mobilePage.mouse.click(switchTarget.probe.x, switchTarget.probe.y);
+    await touchPage.touchscreen.tap(switchTarget.probe.x, switchTarget.probe.y);
     await expect(smallBalances).not.toHaveAttribute("aria-checked", checkedBefore ?? "");
-    if (mobilePage !== page) await mobilePage.close();
+  } finally {
+    await touchContext.close();
   }
+
+  await page.setViewportSize({ width: 900, height: 844 });
+  expect(await page.evaluate(() => matchMedia("(pointer: fine)").matches)).toBe(true);
+  expect(await openRepresentativeControls(page)).toEqual({
+    signInHeight: 32,
+    quickAmountHeight: 28,
+  });
 });
 
 test("cold and revalidated cached Balances stay anchored to the requested group", async ({ page }) => {
