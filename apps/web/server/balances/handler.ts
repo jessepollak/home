@@ -4,17 +4,11 @@ import { isRegionId, type RegionId } from "@/config/regions";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
-import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
+import { privateError, privateJson } from "@/server/http/private-response";
 import type {
   BalancesAddress,
   BalancesSnapshot,
 } from "@/shared/balances/types";
-
-const privateResponseHeaders = {
-  "Cache-Control": "private, no-store, max-age=0",
-  Pragma: "no-cache",
-  Vary: `Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
-} as const;
 
 export function createBalancesHandler(dependencies: {
   authorize: SessionAuthorizer;
@@ -32,12 +26,7 @@ export function createBalancesHandler(dependencies: {
   return async function GET(request: Request): Promise<Response> {
     const region = readRegion(request);
     if (!region) {
-      return privateJson({
-        error: {
-          code: "INVALID_REGION",
-          message: "A supported balances region is required.",
-        },
-      }, 400);
+      return privateError("INVALID_REGION", "A supported balances region is required.", 400);
     }
 
     const session = await authorizeSession(request, dependencies.authorize);
@@ -45,12 +34,7 @@ export function createBalancesHandler(dependencies: {
       return session;
     }
     if (!session.smartAccount) {
-      return privateJson({
-        error: {
-          code: "SMART_ACCOUNT_UNAVAILABLE",
-          message: "A verified Base smart account is not available yet.",
-        },
-      }, 503);
+      return privateError("SMART_ACCOUNT_UNAVAILABLE", "A verified Base smart account is not available yet.", 503);
     }
 
     const address = session.smartAccount.address.toLowerCase() as BalancesAddress;
@@ -68,12 +52,7 @@ export function createBalancesHandler(dependencies: {
       return privateJson(snapshot, 200);
     } catch {
       emitReadFailure(log);
-      return privateJson({
-        error: {
-          code: "BALANCES_UNAVAILABLE",
-          message: "Balances are temporarily unavailable.",
-        },
-      }, 502);
+      return privateError("BALANCES_UNAVAILABLE", "Balances are temporarily unavailable.", 502);
     }
   };
 }
@@ -107,11 +86,4 @@ function fireAndForgetSubscription(run: () => Promise<void> | undefined): void {
   } catch {
     // Subscription failures are non-fatal and logged by the subscription port.
   }
-}
-
-function privateJson(body: unknown, status: number): Response {
-  return Response.json(body, {
-    status,
-    headers: privateResponseHeaders,
-  });
 }

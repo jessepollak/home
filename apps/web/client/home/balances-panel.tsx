@@ -201,9 +201,7 @@ export function HomeBalancesList({
   if (rows.length > 0) {
     return <BalancesList rows={rows} />;
   }
-  if (isLoading) return <ShimmerRows count={2} />;
-  if (isUnavailable) return null;
-  return <BalancesEmpty />;
+  return <BalancesListFallback isLoading={isLoading} isUnavailable={isUnavailable} />;
 }
 
 function IncrementalBalancesList({
@@ -251,9 +249,7 @@ function IncrementalBalancesList({
   }, [active, hasMore, onRevealMore, revealedCount, rowCount]);
 
   if (rowCount === 0) {
-    if (isLoading) return <ShimmerRows count={2} />;
-    if (isUnavailable) return null;
-    return <BalancesEmpty />;
+    return <BalancesListFallback isLoading={isLoading} isUnavailable={isUnavailable} />;
   }
 
   const visibleGroups = groups.map((group, index) => {
@@ -410,6 +406,19 @@ function SmallBalancesControl({
       )}
     </div>
   );
+}
+
+/** The shared loading, unavailable, and empty presentation for both balance lists. */
+function BalancesListFallback({
+  isLoading,
+  isUnavailable,
+}: {
+  isLoading: boolean;
+  isUnavailable: boolean;
+}) {
+  if (isLoading) return <ShimmerRows count={2} />;
+  if (isUnavailable) return null;
+  return <BalancesEmpty />;
 }
 
 function BalancesEmpty() {

@@ -25,8 +25,13 @@ import type {
   OperationResult,
   PreparedMoneyAction,
 } from "@/shared/money-actions/types";
-import { formatApy, formatUsdcUsd, parseUsdcAmount } from "@/client/savings/format";
-import { formatExactPresentationTokenAmount, formatPresentationDate } from "@/shared/formatting";
+import { parseUsdcAmount } from "@/client/savings/format";
+import {
+  formatExactPresentationTokenAmount,
+  formatPresentationDate,
+  formatPresentationPercentage,
+  formatUsdStablecoinAmount,
+} from "@/shared/formatting";
 import {
   readSavingsPreparedReview,
   type SavingsPreparedReview,
@@ -99,7 +104,7 @@ function OwnerBoundSavingsMoneyDialog({
     expired: expiredPrepared,
     recheckExpired,
   } = useReactiveExpiry(preparedAction?.expiresAt ?? null);
-  const confirmAmount = amountBaseUnits ? formatUsdcUsd(amountBaseUnits) : "";
+  const confirmAmount = amountBaseUnits ? formatUsdStablecoinAmount(amountBaseUnits) : "";
   const configuredAssetId = candidate.asset.symbol.toLocaleLowerCase();
   const assetId = selectedAssetId ?? configuredAssetId;
   const assetLabel = selectedAssetLabel ?? candidate.asset.symbol;
@@ -353,7 +358,7 @@ function savingsDialogOwnerIdentity(session: VerifiedAccountSession): string {
 function savingsReviewRows(review: SavingsPreparedReview) {
   const apy = review.discoveryRate.status === "unavailable"
     ? "Unavailable"
-    : `${formatApy(Number(review.discoveryRate.netApy))} · ${review.discoveryRate.status}`;
+    : `${formatPresentationPercentage(Number(review.discoveryRate.netApy))} · ${review.discoveryRate.status}`;
   const fee = `${formatWadPercent(review.feeWad)} (current)`;
   const preview = formatExactPresentationTokenAmount(
     review.previewSharesBaseUnits,
@@ -368,7 +373,7 @@ function savingsReviewRows(review: SavingsPreparedReview) {
     { label: "Network", value: `${review.network.name} (${review.network.chainId})` },
     { label: "Discovery APY", value: apy },
     { label: "Current vault fee", value: fee },
-    { label: "Amount", value: formatUsdcUsd(review.exactUsdcBaseUnits) },
+    { label: "Amount", value: formatUsdStablecoinAmount(review.exactUsdcBaseUnits) },
     { label: "Share preview", value: preview },
     { label: "Exchange constraint", value: constraint },
     { label: "Valid until", value: formatPresentationDate(review.expiresAt, { style: "date-time-zone" }) },

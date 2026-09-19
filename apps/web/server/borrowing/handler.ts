@@ -1,17 +1,11 @@
 import "server-only";
 
-import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { BORROW_MARKETS, getBorrowMarketRef } from "@/shared/borrowing/config";
 import type { BorrowOverviewResponse, BorrowResponse } from "@/shared/borrowing/contract";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { emitServerEvent } from "@/server/observability/log";
+import { privateError, privateJson } from "@/server/http/private-response";
 import type { BorrowRpcReader } from "./rpc";
-
-const privateHeaders = {
-  "Cache-Control": "private, no-store, max-age=0",
-  Pragma: "no-cache",
-  Vary: `Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
-} as const;
 
 export function createBorrowHandler(dependencies: { authorize: SessionAuthorizer; rpc: BorrowRpcReader; now?: () => Date }) {
   return async function GET(request: Request) {
@@ -87,5 +81,3 @@ function marketIdentity(market: (typeof BORROW_MARKETS)[number]) {
     oracle: market.oracle, irm: market.irm, lltvWad: market.lltvWad.toString(10), rank: market.rank,
   };
 }
-function privateJson(body: unknown, status: number) { return Response.json(body, { status, headers: privateHeaders }); }
-function privateError(code: string, message: string, status: number) { return privateJson({ error: { code, message } }, status); }
