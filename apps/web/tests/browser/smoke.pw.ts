@@ -692,6 +692,7 @@ async function inputMetrics(locator: Locator) {
   });
 }
 
+
 test("coverage native selects keep a mobile-zoom-safe font size", async ({ page }) => {
   // A landscape iPhone's CSS width crosses the 768px breakpoint, so cover both
   // portrait and a landscape-iPhone-like viewport: both must stay at 16px.
@@ -783,6 +784,87 @@ test("representative canonical routes SSR and hydrate their selected panel", asy
     await expect(page.locator("[data-shell-header-title]").first()).toHaveText(title);
   }
   expect(hydrationErrors).toEqual([]);
+});
+
+
+test("wide touch targets stay large while fine-pointer targets stay compact", async ({ browser, page }) => {
+  async function openRepresentativeControls(targetPage: Page) {
+    await installApiFixtures(targetPage);
+    await targetPage.goto("/");
+
+    const signIn = targetPage.getByRole("banner").getByRole("button", { name: "Sign in" });
+    await expect(signIn).toBeVisible();
+    const signInHeight = await signIn.evaluate((element) =>
+      element.getBoundingClientRect().height);
+
+    await seedSignedInSession(targetPage);
+    await targetPage.goto("/home");
+    await targetPage.getByRole("button", { name: "Send" }).click();
+    const quickAmount = targetPage.getByRole("button", { name: "$10" });
+    await expect(quickAmount).toBeVisible();
+
+    return {
+      signInHeight,
+      quickAmountHeight: await quickAmount.evaluate((element) =>
+        element.getBoundingClientRect().height),
+    };
+  }
+
+  const touchContext = await browser.newContext({
+    hasTouch: true,
+    viewport: { width: 844, height: 390 },
+  });
+  try {
+    const touchPage = await touchContext.newPage();
+    expect(await touchPage.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);
+    expect(Math.min(...Object.values(await openRepresentativeControls(touchPage))))
+      .toBeGreaterThanOrEqual(44);
+
+    await touchPage.setViewportSize({ width: 320, height: 568 });
+    await touchPage.getByRole("button", { name: "Close send dialog" }).click();
+    await touchPage.getByRole("button", { name: "Account" }).click();
+    const smallBalances = touchPage.getByRole("switch", { name: "Show small balances" });
+    await expect(smallBalances).toBeVisible();
+    await smallBalances.scrollIntoViewIfNeeded();
+    await smallBalances.evaluate((element) =>
+      element.scrollIntoView({ block: "center", inline: "nearest" }));
+    await expect.poll(() => smallBalances.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.top >= 9 && bounds.bottom <= innerHeight - 9;
+    })).toBe(true);
+
+    const switchTarget = await smallBalances.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const before = getComputedStyle(element, "::before");
+      const top = bounds.top
+        + Number.parseFloat(style.borderTopWidth)
+        + Number.parseFloat(before.top);
+      const bottom = bounds.bottom
+        - Number.parseFloat(style.borderBottomWidth)
+        - Number.parseFloat(before.bottom);
+      return {
+        paintedHeight: bounds.height,
+        targetHeight: bottom - top,
+        probe: { x: bounds.x + bounds.width / 2, y: (top + bounds.top) / 2 },
+      };
+    });
+    expect(switchTarget.paintedHeight).toBe(28);
+    expect(switchTarget.targetHeight).toBeGreaterThanOrEqual(44);
+
+    const checkedBefore = await smallBalances.getAttribute("aria-checked");
+    await touchPage.touchscreen.tap(switchTarget.probe.x, switchTarget.probe.y);
+    await expect(smallBalances).not.toHaveAttribute("aria-checked", checkedBefore ?? "");
+  } finally {
+    await touchContext.close();
+  }
+
+  await page.setViewportSize({ width: 900, height: 844 });
+  expect(await page.evaluate(() => matchMedia("(pointer: fine)").matches)).toBe(true);
+  expect(await openRepresentativeControls(page)).toEqual({
+    signInHeight: 32,
+    quickAmountHeight: 28,
+  });
 });
 
 test("cold and revalidated cached Balances stay anchored to the requested group", async ({ page }) => {

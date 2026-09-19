@@ -63,13 +63,13 @@ export function ShellHeader({
         <div className="flex min-w-0 items-center gap-2" data-shell-header-main="">
           {hasNestedChrome ? (
             <div
-              className="flex h-11 w-11 shrink-0 items-center md:h-7 md:w-31"
+              className="flex h-11 w-11 shrink-0 items-center md:w-31 md:pointer-fine:h-7"
               data-shell-back=""
             >
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-11 md:size-7"
+                className="size-11 md:pointer-fine:size-7"
                 aria-label={nestedChromeBackLabel}
                 onClick={onNestedChromeBack}
               >
@@ -93,7 +93,7 @@ export function ShellHeader({
       )}
       <div className="flex shrink-0 items-center">
         {isAccountSettingsOpen ? (
-          <Button variant="secondary" onClick={onCloseSettings}>Done</Button>
+          <Button variant="secondary" className="h-11 md:pointer-fine:h-8" onClick={onCloseSettings}>Done</Button>
         ) : (
           <HeaderAccountAction
             status={account.status}
@@ -135,7 +135,7 @@ function HeaderAccountAction({
   onOpenSettings: () => void;
 }) {
   if (status === "signout-error") {
-    return <Button onClick={onSignOut}>Retry sign out</Button>;
+    return <Button className="h-11 md:pointer-fine:h-8" onClick={onSignOut}>Retry sign out</Button>;
   }
   if (routeMode === "dashboard") {
     const checking = status === "restoring" || status === "validating";
@@ -153,12 +153,12 @@ function HeaderAccountAction({
     }
   }
   if (status === "restoring" || status === "validating") {
-    return <Button variant="secondary" disabled>Account</Button>;
+    return <Button variant="secondary" className="h-11 md:pointer-fine:h-8" disabled>Account</Button>;
   }
   if (status === "verified" || (status === "unavailable" && isSignedIn)) {
-    return <Button onClick={onDashboard}>Dashboard</Button>;
+    return <Button className="h-11 md:pointer-fine:h-8" onClick={onDashboard}>Dashboard</Button>;
   }
-  return <Button onClick={onSignIn}>Sign in</Button>;
+  return <Button className="h-11 md:pointer-fine:h-8" onClick={onSignIn}>Sign in</Button>;
 }
 
 export function SignedOutLanding({

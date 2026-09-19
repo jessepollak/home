@@ -473,6 +473,7 @@ export function MoneyQuickChips({
           <Button
             variant="outline"
             size="sm"
+            className="h-11 md:pointer-fine:h-7"
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("10", availableAmount))}
           >
@@ -481,6 +482,7 @@ export function MoneyQuickChips({
           <Button
             variant="outline"
             size="sm"
+            className="h-11 md:pointer-fine:h-7"
             disabled={quickDisabled}
             onClick={() => onSelect(clampDecimal("25", availableAmount))}
           >
@@ -491,6 +493,7 @@ export function MoneyQuickChips({
       <Button
         variant="outline"
         size="sm"
+        className="h-11 md:pointer-fine:h-7"
         disabled={!maxEnabled}
         onClick={() => {
           if (availableAmount) onSelect(availableAmount);
@@ -513,6 +516,7 @@ export function MoneyUnitToggle({
     <Button
       variant="outline"
       size="sm"
+      className="h-11 md:pointer-fine:h-7"
       onClick={onToggle}
       aria-label={`Show ${secondaryLabel} as the primary amount`}
     >
