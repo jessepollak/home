@@ -252,7 +252,10 @@ export const FocusBackAndClose: Story = {
   render: () => <ControlledLedger defaultId={null} />,
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement.ownerDocument.body);
-    const opener = await screen.findByRole("button", { name: "View Add money by bank transfer details" });
+    const opener = await screen.findByRole("button", {
+      name: /Add money by bank transfer/,
+      description: "View Add money by bank transfer details",
+    });
     await userEvent.click(opener);
     await expect(await screen.findByRole("dialog")).toBeVisible();
     await userEvent.click(await screen.findByRole("button", { name: "Back" }));
