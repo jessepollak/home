@@ -144,7 +144,7 @@ const meta = {
     viewport: { defaultViewport: "mobile" },
     docs: {
       description: {
-        component: "Provider-independent presentation proposal for issue #635. These production components are intentionally not wired into Fund, Save, Invest, Borrow, or Account before Jesse review.",
+        component: "Provider-independent presentation proposal for issue #635. This is a shared vocabulary/menu, not a universal state machine: each capability declares only the subset that applies. Verification appears only for an authoritative KYC requirement such as funding, card, identity, or a provider-specific gate—never automatically for Save, Invest, or Borrow. Operational states such as no liquidity, stale quote, APY stale, health, and reducing-only remain feature-owned. The nine-state production component remains available and intentionally unwired before Jesse review.",
       },
     },
   },

@@ -53,7 +53,7 @@ Storybook can prove that a production component renders and supports fixture-bac
 
 ### Capability-state proposal
 
-Issue #635 defines a closed, provider-independent presentation taxonomy. It does not infer provider acceptance, authorize access, or replace feature-owned status and owner fences. Until Jesse reviews the proposal, consuming Fund, Save, Invest, Borrow, Card, and Account screens remain unchanged.
+Issue #635 defines a closed, provider-independent presentation vocabulary. The nine states are a shared menu, not a universal state machine: each capability declares only the subset that actually applies. Verification states apply only when an authoritative KYC requirement exists for funding, card, identity, or another provider-specific gate; they are never added automatically to Save, Invest, or Borrow. Feature-specific operational states—including no liquidity, stale quote, APY stale, health, and reducing-only—remain owned by their features rather than being projected into this vocabulary. This proposal does not infer provider acceptance, authorize access, or replace feature-owned status and owner fences. Until Jesse reviews the proposal, the nine-state component remains available and consuming Fund, Save, Invest, Borrow, Card, and Account screens remain unchanged.
 
 | Semantic state | Meaning | Allowed action |
 | --- | --- | --- |
