@@ -414,7 +414,7 @@ function RecentCardActivity({
                       <ItemContent className="min-w-0">
                         <ItemTitle className="w-full">{item.merchant}</ItemTitle>
                         <ItemDescription lines={2}>
-                          {presentation.label} · {item.statusDetail} · {item.occurredAt}
+                          {[presentation.label, item.statusDetail, item.occurredAt].filter(Boolean).join(" · ")}
                         </ItemDescription>
                       </ItemContent>
                       <ItemContent className="min-w-fit flex-none items-end text-right">

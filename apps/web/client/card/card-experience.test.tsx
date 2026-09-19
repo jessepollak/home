@@ -125,6 +125,25 @@ describe("CardExperience", () => {
     expect(onOpenActivity).toHaveBeenCalledWith("decline-1");
   });
 
+  test("renders activity metadata without an empty status detail separator", () => {
+    render(
+      <CardExperience
+        state={{
+          ...issuedState,
+          activity: [{
+            id: "purchase-1",
+            merchant: "Corner Market",
+            occurredAt: "Today",
+            amount: "$24.80",
+            status: "settled",
+          }],
+        }}
+      />,
+    );
+
+    expect(page().getByText("Completed · Today")).toBeTruthy();
+  });
+
   test("keeps observed data visible and pauses card changes during an outage", () => {
     const onFreezeChange = jest.fn();
     const onControlChange = jest.fn();
