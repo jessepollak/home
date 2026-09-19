@@ -29,7 +29,7 @@ The existing feed correlates an action with an onchain transfer by transaction h
 | `reversed` | Reversed | The original movement was reversed | Withdraw returned funds only when cash-out owns that recovery |
 | `refunded` | Refunded | A later return is established | None |
 
-The exported action predicate fails closed on both status and family: an invalid status/action pair is not rendered, `complete-payment` is restricted to funding orders, and `withdraw-returned-funds` is restricted to cash-out orders. Other actions retain the status semantics above. Verification wording reuses the selective shared cause language approved in #635 only when a real funding/provider gate owns it. Chain pending, quote expiry, cash-out withdrawal, card decline and other operational states remain feature-owned.
+The exported action predicate fails closed on both status and family: an invalid status/action pair is not rendered, `resume-verification` and `complete-payment` are restricted to funding orders, and `withdraw-returned-funds` is restricted to cash-out orders. Other actions retain the status semantics above. Verification wording reuses the selective shared cause language approved in #635 only when a real funding/provider gate owns it. Chain pending, quote expiry, cash-out withdrawal, card decline and other operational states remain feature-owned.
 
 ## Item and detail contracts
 

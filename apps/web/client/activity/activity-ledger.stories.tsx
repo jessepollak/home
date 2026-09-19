@@ -107,10 +107,22 @@ const mixedItems: ActivityLedgerItem[] = [
 ];
 
 const statusItems: ActivityLedgerItem[] = [
-  fixture("customer", "Verify your funding account", "$250.00 USD", "waiting-customer", {
-    kind: "resume-verification",
-    label: "Resume verification",
-  }),
+  {
+    canonicalId: "funding:verification:customer",
+    family: "funding-order",
+    title: "Verify your funding account",
+    exactAmount: "$250.00 USD",
+    occurredAt: "2026-09-19T02:00:00.000Z",
+    occurredAtLabel: "Today, 09:00",
+    status: "waiting-customer",
+    nextAction: { kind: "resume-verification", label: "Resume verification" },
+    detail: {
+      family: "funding-order",
+      provider: "Funding provider",
+      paymentMethod: "Bank account",
+      orderId: "verification-customer",
+    },
+  },
   fixture("provider", "Add money", "$250.00 USD", "waiting-provider"),
   fixture("chain", "Trade ETH for USDC", "$100.00 USDC", "waiting-chain"),
   fixture("home", "Repay loan", "$75.00 USDC", "waiting-home"),

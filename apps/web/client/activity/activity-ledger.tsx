@@ -225,7 +225,9 @@ export function isActivityLedgerNextActionAllowed(
     return false;
   }
 
-  if (action === "complete-payment") return family === "funding-order";
+  if (action === "resume-verification" || action === "complete-payment") {
+    return family === "funding-order";
+  }
   if (action === "withdraw-returned-funds") return family === "cash-out-order";
   return true;
 }

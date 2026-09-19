@@ -15,6 +15,7 @@ import type { ActivityLedgerItem, ActivityLedgerProps } from "./activity-ledger"
 afterEach(cleanup);
 
 type FundingLedgerItem = Extract<ActivityLedgerItem, { family: "funding-order" }>;
+type HomeActionLedgerItem = Extract<ActivityLedgerItem, { family: "home-action" }>;
 type CashOutLedgerItem = Extract<ActivityLedgerItem, { family: "cash-out-order" }>;
 
 function fundingItem(overrides: Partial<FundingLedgerItem> = {}): FundingLedgerItem {
@@ -32,6 +33,26 @@ function fundingItem(overrides: Partial<FundingLedgerItem> = {}): FundingLedgerI
       provider: "IDRX",
       paymentMethod: "Mandiri virtual account",
       orderId: "order-1",
+    },
+    ...overrides,
+  };
+}
+
+function homeActionItem(overrides: Partial<HomeActionLedgerItem> = {}): HomeActionLedgerItem {
+  return {
+    canonicalId: "action:verification:1",
+    family: "home-action",
+    title: "Verify your account",
+    exactAmount: "$250.00 USD",
+    occurredAt: "2026-09-19T04:12:00.000Z",
+    occurredAtLabel: "Today, 11:12",
+    status: "waiting-customer",
+    nextAction: { kind: "resume-verification", label: "Resume verification" },
+    detail: {
+      family: "home-action",
+      operation: "Verify account",
+      network: "Base",
+      actionId: "verification-1",
     },
     ...overrides,
   };
@@ -82,6 +103,8 @@ describe("ActivityLedger presentation contract", () => {
       "reversed",
       "refunded",
     ]);
+    expect(isActivityLedgerNextActionAllowed("waiting-customer", "resume-verification", "funding-order")).toBe(true);
+    expect(isActivityLedgerNextActionAllowed("waiting-customer", "resume-verification", "home-action")).toBe(false);
     expect(isActivityLedgerNextActionAllowed("waiting-customer", "complete-payment", "funding-order")).toBe(true);
     expect(isActivityLedgerNextActionAllowed("waiting-customer", "complete-payment", "cash-out-order")).toBe(false);
     expect(isActivityLedgerNextActionAllowed("waiting-chain", "retry", "home-action")).toBe(false);
@@ -158,6 +181,33 @@ describe("ActivityLedger presentation contract", () => {
 
     fireEvent.click(view.getByRole("button", { name: /Add money by bank transfer/ }));
     expect(await view.findByRole("heading", { name: "Add money by bank transfer" })).toBeTruthy();
+  });
+
+  test("exposes verification recovery only in a funding-owned detail sheet", async () => {
+    const verificationAction = { kind: "resume-verification", label: "Resume verification" } as const;
+    const view = render(
+      <ActivityLedger
+        items={[
+          fundingItem({
+            canonicalId: "funding:verification:1",
+            title: "Verify your funding account",
+            nextAction: verificationAction,
+          }),
+          homeActionItem(),
+        ]}
+        onNextAction={() => undefined}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: /Verify your funding account/ }));
+    expect(await view.findByRole("button", { name: "Resume verification" })).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(view.queryByRole("heading", { name: "Verify your funding account" })).toBeNull());
+
+    fireEvent.click(view.getByRole("button", { name: /Verify your account/ }));
+    expect(await view.findByRole("heading", { name: "Verify your account" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Resume verification" })).toBeNull();
+    expect(view.getByRole("dialog").querySelector('[data-slot="drawer-footer"]')).toBeNull();
   });
 
   test("shows a cash-out-owned returned-funds action in its detail sheet", async () => {
@@ -256,6 +306,31 @@ describe("ActivityLedger presentation contract", () => {
       .toContain("Rp 2.000.000,00 IDR");
     fireEvent.click(view.getByRole("button", { name: "Try again" }));
     expect(retry).toEqual(["retry"]);
+  });
+
+  test("exposes verification recovery only for a funding-owned Home attention item", () => {
+    const verificationAction = { kind: "resume-verification", label: "Resume verification" } as const;
+    const { rerender } = render(
+      <ActivityNeedsAttention
+        item={fundingItem({
+          title: "Verify your funding account",
+          nextAction: verificationAction,
+        })}
+        onNextAction={() => undefined}
+      />,
+    );
+
+    const body = within(document.body);
+    expect(body.getByRole("button", { name: "Resume verification" })).toBeTruthy();
+
+    rerender(
+      <ActivityNeedsAttention
+        item={homeActionItem()}
+        onNextAction={() => undefined}
+      />,
+    );
+    expect(body.queryByText("Needs your attention")).toBeNull();
+    expect(body.queryByRole("button", { name: "Resume verification" })).toBeNull();
   });
 
   test("shows the Home affordance only for an allowed customer-owned continuation", () => {
