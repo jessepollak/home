@@ -3,13 +3,14 @@ import "@/client/account/dom-test-harness";
 import { afterEach, describe, expect, test } from "bun:test";
 
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
+const { useState } = await import("react");
 const {
   ActivityLedger,
   ActivityNeedsAttention,
   activityLedgerStatuses,
   isActivityLedgerNextActionAllowed,
 } = await import("./activity-ledger");
-import type { ActivityLedgerItem } from "./activity-ledger";
+import type { ActivityLedgerItem, ActivityLedgerProps } from "./activity-ledger";
 
 afterEach(cleanup);
 
@@ -34,6 +35,17 @@ function fundingItem(overrides: Partial<FundingLedgerItem> = {}): FundingLedgerI
     },
     ...overrides,
   };
+}
+
+function ControlledLedger({ item }: { item: ActivityLedgerItem }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  return (
+    <ActivityLedger
+      items={[item]}
+      selectedId={selectedId}
+      onSelectedChange={setSelectedId}
+    />
+  );
 }
 
 function cashOutItem(overrides: Partial<CashOutLedgerItem> = {}): CashOutLedgerItem {
@@ -120,6 +132,32 @@ describe("ActivityLedger presentation contract", () => {
     await waitFor(() => expect(view.queryByRole("heading", { name: "Add money by bank transfer" })).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(opener));
     expect(selected).toEqual(["funding:idrx:order-1", null]);
+  });
+
+  test("opens and closes details when selection is controlled", async () => {
+    const view = render(<ControlledLedger item={fundingItem()} />);
+
+    fireEvent.click(view.getByRole("button", { name: /Add money by bank transfer/ }));
+    expect(await view.findByRole("heading", { name: "Add money by bank transfer" })).toBeTruthy();
+
+    fireEvent.click(view.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(view.queryByRole("heading", { name: "Add money by bank transfer" })).toBeNull());
+  });
+
+  test("falls back to working local selection for malformed controlled props without a handler", async () => {
+    // @ts-expect-error A selectedId requires onSelectedChange at the public TypeScript boundary.
+    const malformedProps: ActivityLedgerProps = {
+      items: [fundingItem()],
+      selectedId: "funding:idrx:order-1",
+    };
+    const view = render(<ActivityLedger {...malformedProps} />);
+
+    expect(await view.findByRole("heading", { name: "Add money by bank transfer" })).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(view.queryByRole("heading", { name: "Add money by bank transfer" })).toBeNull());
+
+    fireEvent.click(view.getByRole("button", { name: /Add money by bank transfer/ }));
+    expect(await view.findByRole("heading", { name: "Add money by bank transfer" })).toBeTruthy();
   });
 
   test("shows a cash-out-owned returned-funds action in its detail sheet", async () => {

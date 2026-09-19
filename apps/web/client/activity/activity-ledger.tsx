@@ -195,6 +195,27 @@ export type ActivitySourceFailure = {
   label: string;
 };
 
+type ActivityLedgerSharedProps = {
+  items: readonly ActivityLedgerItem[];
+  sourceFailures?: readonly ActivitySourceFailure[];
+  defaultSelectedId?: string | null;
+  onNextAction?: (item: ActivityLedgerItem, action: ActivityLedgerNextAction) => void;
+  onRetrySources?: () => void;
+  heading?: string;
+};
+
+type ActivityLedgerSelectionProps =
+  | {
+      selectedId: string | null;
+      onSelectedChange: (canonicalId: string | null) => void;
+    }
+  | {
+      selectedId?: undefined;
+      onSelectedChange?: (canonicalId: string | null) => void;
+    };
+
+export type ActivityLedgerProps = ActivityLedgerSharedProps & ActivityLedgerSelectionProps;
+
 export function isActivityLedgerNextActionAllowed(
   status: ActivityLedgerStatus,
   action: ActivityLedgerNextActionKind,
@@ -218,24 +239,18 @@ export function ActivityLedger({
   onNextAction,
   onRetrySources,
   heading = "Activity",
-}: {
-  items: readonly ActivityLedgerItem[];
-  sourceFailures?: readonly ActivitySourceFailure[];
-  selectedId?: string | null;
-  defaultSelectedId?: string | null;
-  onSelectedChange?: (canonicalId: string | null) => void;
-  onNextAction?: (item: ActivityLedgerItem, action: ActivityLedgerNextAction) => void;
-  onRetrySources?: () => void;
-  heading?: string;
-}) {
-  const [internalSelectedId, setInternalSelectedId] = useState(defaultSelectedId);
+}: ActivityLedgerProps) {
+  const [internalSelectedId, setInternalSelectedId] = useState(
+    selectedId === undefined ? defaultSelectedId : selectedId,
+  );
   const openerRef = useRef<HTMLElement | null>(null);
-  const activeId = selectedId === undefined ? internalSelectedId : selectedId;
+  const isControlled = selectedId !== undefined && onSelectedChange !== undefined;
+  const activeId = isControlled ? selectedId : internalSelectedId;
   const selectedItem = items.find((item) => item.canonicalId === activeId) ?? null;
 
   function select(next: string | null) {
     if (activeId === next) return;
-    if (selectedId === undefined) setInternalSelectedId(next);
+    if (!isControlled) setInternalSelectedId(next);
     onSelectedChange?.(next);
   }
 
