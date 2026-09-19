@@ -33,15 +33,20 @@ describe("capability state contract", () => {
     expect(isCapabilityActionAllowed("configuration-unavailable", "open")).toBe(false);
   });
 
-  test("rejects an action that would fabricate availability", () => {
-    expect(() => render(
+  test("fails closed without invoking an action that would fabricate availability", () => {
+    let actionCalls = 0;
+    const view = render(
       <CapabilityState
         capability="Save"
         state="not-yet-in-home"
         placement="detail"
-        action={{ kind: "open", onSelect: () => {} }}
+        action={{ kind: "open", onSelect: () => { actionCalls += 1; } }}
       />,
-    )).toThrow("Action open is not allowed for capability state not-yet-in-home.");
+    );
+
+    expect(view.getAllByText("Not yet in Home").length).toBeGreaterThan(0);
+    expect(view.queryByRole("button")).toBeNull();
+    expect(actionCalls).toBe(0);
   });
 });
 

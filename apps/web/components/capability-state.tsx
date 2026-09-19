@@ -212,19 +212,18 @@ export function CapabilityState({
   icon,
   announce = false,
 }: CapabilityStateProps) {
-  if (action && !isCapabilityActionAllowed(state, action.kind)) {
-    throw new Error(`Action ${action.kind} is not allowed for capability state ${state}.`);
-  }
-
+  const allowedAction = action && isCapabilityActionAllowed(state, action.kind)
+    ? action
+    : undefined;
   const headingId = useId();
   const resolvedCopy = { ...defaultCopy[state], ...copy };
-  const actionLabel = action?.label ?? resolvedCopy.actionLabel;
+  const actionLabel = allowedAction?.label ?? resolvedCopy.actionLabel;
   const statusIcon = icon ?? <StateIcon state={state} />;
-  const actionControl = action && actionLabel ? (
+  const actionControl = allowedAction && actionLabel ? (
     <Button
       type="button"
       variant={state === "available" ? "default" : "secondary"}
-      onClick={action.onSelect}
+      onClick={allowedAction.onSelect}
     >
       {actionLabel}
     </Button>
