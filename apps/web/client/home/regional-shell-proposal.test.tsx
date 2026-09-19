@@ -23,7 +23,6 @@ const copy: RegionalHomeCopy = {
   dollarProducts: "Dollar products",
   home: "Home",
   invest: "Invest",
-  illustrativeNonCoverage: "Illustrative only — coverage not assessed",
   localMoney: "Local money",
   localYieldUnavailable: "Local yield unavailable",
   mobilePrimaryNavigation: "Mobile navigation",
@@ -180,7 +179,7 @@ describe("RegionalHomeShellProposal", () => {
     expect(view.getByRole("navigation", { name: "Mobile navigation" })).toBeTruthy();
   });
 
-  test("marks the US story fixture as illustrative without claiming coverage", () => {
+  test("omits local yield and disclaimer copy from the US story fixture", () => {
     const view = render(
       <RegionalHomeShellProposal
         composition={regionalHomeCompositions.US}
@@ -191,16 +190,60 @@ describe("RegionalHomeShellProposal", () => {
       />,
     );
 
-    const state = view.getByText(copy.illustrativeNonCoverage);
-    expect(state.getAttribute("data-capability-state")).toBe("illustrative");
-    expect(
-      view.getByText(
-        "Illustrative placement only; this fixture does not assess regional coverage.",
-      ),
-    ).toBeTruthy();
+    expect(view.container.querySelector("#local-yield-heading")).toBeNull();
+    expect(view.container.querySelector("[data-capability-state]")).toBeNull();
+    expect(view.queryByText("Dollar savings layout")).toBeNull();
+    expect(view.container.textContent).not.toMatch(/coverage|illustrative placement/i);
     expect(view.queryByText(copy.shownSeparately)).toBeNull();
     expect(view.queryByText(copy.localYieldUnavailable)).toBeNull();
     expect(view.queryByText(copy.countryNeeded)).toBeNull();
+  });
+
+  test("retains the intended local-yield states in the other deterministic fixtures", () => {
+    const fixtures = [
+      {
+        composition: regionalHomeCompositions.GLOBAL,
+        heading: "Local savings",
+        state: "choose-country",
+        stateCopy: copy.countryNeeded,
+      },
+      {
+        composition: regionalHomeCompositions.BR,
+        heading: "Rendimento em reais",
+        state: "unavailable",
+        stateCopy: copy.localYieldUnavailable,
+      },
+      {
+        composition: regionalHomeCompositions.NG,
+        heading: "Naira savings",
+        state: "unavailable",
+        stateCopy: copy.localYieldUnavailable,
+      },
+      {
+        composition: regionalHomeCompositions.ID,
+        heading: "Tabungan rupiah",
+        state: "unavailable",
+        stateCopy: copy.localYieldUnavailable,
+      },
+    ] as const;
+
+    for (const fixture of fixtures) {
+      const view = render(
+        <RegionalHomeShellProposal
+          composition={fixture.composition}
+          copy={copy}
+          onAccount={() => {}}
+          onAction={() => {}}
+          onNavigate={() => {}}
+        />,
+      );
+
+      expect(view.getByRole("region", { name: fixture.heading })).toBeTruthy();
+      expect(
+        view.getByText(fixture.stateCopy).getAttribute("data-capability-state"),
+      ).toBe(fixture.state);
+      view.unmount();
+    }
   });
 
   test("keeps Home, Card, Invest and Account as independent navigation intents", () => {

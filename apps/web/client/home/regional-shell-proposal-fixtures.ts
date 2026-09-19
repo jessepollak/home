@@ -51,11 +51,6 @@ export const regionalHomeCompositions = {
       value: "$2,140.08",
       detail: "Dollar savings and investments stay distinct from available cash.",
     },
-    localYield: {
-      title: "Dollar savings layout",
-      detail: "Illustrative placement only; this fixture does not assess regional coverage.",
-      state: "illustrative",
-    },
     activity: sharedActivity,
   },
   BR: {

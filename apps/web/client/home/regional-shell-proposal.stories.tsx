@@ -18,7 +18,6 @@ const englishCopy: RegionalHomeCopy = {
   dollarProducts: "Dollar products",
   home: "Home",
   invest: "Invest",
-  illustrativeNonCoverage: "Illustrative only — coverage not assessed",
   localMoney: "Local money",
   localYieldUnavailable: "Local yield unavailable",
   mobilePrimaryNavigation: "Mobile primary navigation",
@@ -50,7 +49,16 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Global: Story = {};
-export const UnitedStates: Story = { args: { composition: regionalHomeCompositions.US } };
+export const UnitedStates: Story = {
+  args: { composition: regionalHomeCompositions.US },
+  parameters: {
+    docs: {
+      description: {
+        story: "The United States fixture intentionally omits the local-yield proposal because this design fixture does not establish whether that product is available or unavailable.",
+      },
+    },
+  },
+};
 export const Brazil: Story = { args: { composition: regionalHomeCompositions.BR } };
 export const Nigeria: Story = { args: { composition: regionalHomeCompositions.NG } };
 export const Indonesia: Story = { args: { composition: regionalHomeCompositions.ID } };

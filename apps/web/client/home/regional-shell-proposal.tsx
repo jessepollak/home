@@ -42,7 +42,6 @@ export type RegionalHomeCopy = {
   dollarProducts: string;
   home: string;
   invest: string;
-  illustrativeNonCoverage: string;
   localMoney: string;
   localYieldUnavailable: string;
   mobilePrimaryNavigation: string;
@@ -65,10 +64,10 @@ export type RegionalHomeComposition = {
     value: string;
     detail: string;
   };
-  localYield: {
+  localYield?: {
     title: string;
     detail: string;
-    state: "available" | "unavailable" | "choose-country" | "illustrative";
+    state: "available" | "unavailable" | "choose-country";
   };
   activity: readonly {
     id: string;
@@ -294,29 +293,29 @@ export function RegionalHomeShellProposal({
               </section>
 
               <div className="min-w-0 space-y-4 lg:col-span-5">
-                <section aria-labelledby="local-yield-heading">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>
-                        <h2 id="local-yield-heading">{composition.localYield.title}</h2>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2">
-                        <p className="text-sm text-muted-foreground">{composition.localYield.detail}</p>
-                        <p className="text-xs font-medium text-muted-foreground" data-capability-state={composition.localYield.state}>
-                          {composition.localYield.state === "available"
-                            ? copy.shownSeparately
-                            : composition.localYield.state === "unavailable"
-                              ? copy.localYieldUnavailable
-                              : composition.localYield.state === "illustrative"
-                                ? copy.illustrativeNonCoverage
+                {composition.localYield ? (
+                  <section aria-labelledby="local-yield-heading">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>
+                          <h2 id="local-yield-heading">{composition.localYield.title}</h2>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <p className="text-sm text-muted-foreground">{composition.localYield.detail}</p>
+                          <p className="text-xs font-medium text-muted-foreground" data-capability-state={composition.localYield.state}>
+                            {composition.localYield.state === "available"
+                              ? copy.shownSeparately
+                              : composition.localYield.state === "unavailable"
+                                ? copy.localYieldUnavailable
                                 : copy.countryNeeded}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </section>
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </section>
+                ) : null}
 
                 <section aria-labelledby="regional-activity-heading">
                   <Card>
