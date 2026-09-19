@@ -287,10 +287,6 @@ describe("Home shell auth and privacy", () => {
     expect(page().queryByRole("navigation", { name: "Main navigation" })).toBeNull();
     expect(page().queryByRole("link", { name: "Explore local money coverage" })).toBeNull();
 
-    const landingHeader = document.querySelector<HTMLElement>('[data-shell-header-frame="landing"]');
-    expect(landingHeader?.className).not.toContain("max-w-2xl");
-    expect(landingHeader?.className).toContain("lg:px-8");
-
     fireEvent.click(within(page().getByRole("main")).getByRole("button", { name: "Sign in" }));
     expect(await page().findByRole("dialog", { name: "Sign in to Home" })).toBeTruthy();
     expect(`${window.location.pathname}${window.location.search}`).toBe("/?account=signin");
@@ -501,15 +497,6 @@ describe("Home shell auth and privacy", () => {
 });
 
 describe("Home shell routing and intents", () => {
-  test("keeps the dashboard header constrained while only the landing header is full width", async () => {
-    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
-    await waitForVerifiedShell();
-
-    const dashboardHeader = document.querySelector<HTMLElement>('[data-shell-header-frame="dashboard"]');
-    expect(dashboardHeader?.className).toContain("max-w-2xl");
-    expect(dashboardHeader?.className).not.toContain("lg:px-8");
-  });
-
   test("keeps one stable title slot while L2 destinations replace the Home mark with Back", async () => {
     const cases: Array<{
       title: string;
@@ -523,8 +510,6 @@ describe("Home shell routing and intents", () => {
       { title: "Save", leading: "back", props: { initialPanel: "save" } },
       { title: "Account", leading: "home", props: { initialAccountSettingsOpen: true } },
     ];
-    let titleClassName: string | null = null;
-
     for (const shellCase of cases) {
       render(
         <HomeHarness
@@ -549,9 +534,6 @@ describe("Home shell routing and intents", () => {
         expect(title.previousElementSibling?.hasAttribute("data-home-mark")).toBe(true);
         expect(within(headerMain!).getByRole("button", { name: "Home" })).toBeTruthy();
       }
-      titleClassName ??= title.className;
-      expect(title.className).toBe(titleClassName);
-
       cleanup();
       getHomeQueryClient().clear();
       resetHistory();
@@ -836,10 +818,8 @@ describe("Home shell routing and intents", () => {
 
     const saveTeaser = page().getByRole("button", { name: "Open Save" });
     expect(saveTeaser.textContent).toContain("Earn");
-    expect(saveTeaser.closest("section")?.parentElement?.className).toContain("grid-cols-2");
 
     const borrowTeaser = page().getByRole("button", { name: "Open Borrow" });
-    expect(borrowTeaser.className).toContain("whitespace-normal");
     expect(borrowTeaser.querySelector(".lucide-bitcoin")).toBeTruthy();
     fireEvent.click(borrowTeaser);
     expect(`${window.location.pathname}${window.location.search}`).toBe("/borrow");

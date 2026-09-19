@@ -2,9 +2,15 @@ import type {
   AccountSignOutPhase,
   AccountWalletSdkBoundary,
 } from "./cdp-client";
+import { scheduleBrowserTimeout, type TimeoutScheduler } from "./sdk-activation";
 import type { VerifiedAccountSession } from "./session-client";
 
 export const CDP_SIGN_OUT_TIMEOUT_MS = 2_500;
+
+export type SignOutTimeoutOptions = {
+  timeoutMs?: number;
+  scheduleTimeout?: TimeoutScheduler;
+};
 
 export type CompositeSdkBoundaryInput = {
   restorePlanCaptured: boolean;
@@ -23,6 +29,7 @@ export type CompositeSdkBoundaryInput = {
   cdpSignOut: (onPhase?: (phase: AccountSignOutPhase) => void) => Promise<void>;
   retryCdp: () => Promise<unknown>;
   shouldSignOutCdp: () => boolean;
+  signOutTimeout?: SignOutTimeoutOptions;
 };
 
 export function composeSdkBoundaries({
@@ -35,6 +42,7 @@ export function composeSdkBoundaries({
   cdpSignOut,
   retryCdp,
   shouldSignOutCdp,
+  signOutTimeout,
 }: CompositeSdkBoundaryInput): AccountWalletSdkBoundary {
   const nativeSignedIn = native.hasSettled && native.identity !== null;
   const cdpSignedIn = cdp.isInitialized && !nativeSignedIn && cdp.isSignedIn;
@@ -86,7 +94,7 @@ export function composeSdkBoundaries({
     signOut: async (onPhase) => {
       const nativeCleanup = clearNative(onPhase);
       const cdpCleanup = shouldSignOutCdp()
-        ? boundedCdpSignOut(cdpSignOut, onPhase)
+        ? boundedCdpSignOut(cdpSignOut, onPhase, signOutTimeout)
         : Promise.resolve();
       const results = await Promise.allSettled([nativeCleanup, cdpCleanup]);
       const failure = results.find(
@@ -100,35 +108,40 @@ export function composeSdkBoundaries({
 export function boundedCdpSignOut(
   cdpSignOut: CompositeSdkBoundaryInput["cdpSignOut"],
   onPhase?: (phase: AccountSignOutPhase) => void,
+  {
+    timeoutMs = CDP_SIGN_OUT_TIMEOUT_MS,
+    scheduleTimeout = scheduleBrowserTimeout,
+  }: SignOutTimeoutOptions = {},
 ): Promise<void> {
   let timedOut = false;
   return withTimeout(cdpSignOut((phase) => {
     if (!timedOut) onPhase?.(phase);
-  }), CDP_SIGN_OUT_TIMEOUT_MS, () => {
+  }), timeoutMs, () => {
     timedOut = true;
     onPhase?.({
       phase: "cdp-signout",
       outcome: "timeout",
-      durationMs: CDP_SIGN_OUT_TIMEOUT_MS,
+      durationMs: timeoutMs,
     });
-  });
+  }, scheduleTimeout);
 }
 
 function withTimeout(
   promise: Promise<void>,
   timeoutMs: number,
   onTimeout: () => void,
+  scheduleTimeout: TimeoutScheduler,
 ): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let cancel: (() => void) | null = null;
   return Promise.race([
     promise,
     new Promise<void>((_, reject) => {
-      timer = setTimeout(() => {
+      cancel = scheduleTimeout(() => {
         onTimeout();
         reject(new Error("CDP sign-out timed out."));
       }, timeoutMs);
     }),
   ]).finally(() => {
-    if (timer !== null) clearTimeout(timer);
+    cancel?.();
   });
 }

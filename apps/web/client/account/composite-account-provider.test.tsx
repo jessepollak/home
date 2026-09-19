@@ -4,6 +4,7 @@ import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { renderToString } from "react-dom/server";
 import type { AccountWalletClient } from "./cdp-client";
+import type { AccountProviderTiming } from "./composite-account-provider";
 import {
   hasCdpRestoreHint,
   hasCdpRestoreMarker,
@@ -236,14 +237,44 @@ function currentClient(): AccountWalletClient {
   return observedClient;
 }
 
-function renderProvider(showSignIn = false, waitForCdpRestore = false, baseAccountEnabled = true) {
+function renderProvider(
+  showSignIn = false,
+  waitForCdpRestore = false,
+  baseAccountEnabled = true,
+  timing?: AccountProviderTiming,
+) {
   if (waitForCdpRestore) writeCdpRestoreMarker();
   return render(
-    <CompositeAccountProvider projectId="project-id" baseAccountEnabled={baseAccountEnabled}>
+    <CompositeAccountProvider
+      projectId="project-id"
+      baseAccountEnabled={baseAccountEnabled}
+      timing={timing}
+    >
       <ClientProbe />
       {showSignIn ? <AccountSignInSheet open onClose={() => {}} /> : null}
     </CompositeAccountProvider>,
   );
+}
+
+type ManualTimer = { callback: () => void; cancelled: boolean; fired: boolean; timeoutMs: number };
+
+function manualScheduler() {
+  const timers: ManualTimer[] = [];
+  return {
+    timers,
+    scheduleTimeout: (callback: () => void, timeoutMs: number) => {
+      const timer: ManualTimer = { callback, cancelled: false, fired: false, timeoutMs };
+      timers.push(timer);
+      return () => { timer.cancelled = true; };
+    },
+    hasPending: () => timers.some((timer) => !timer.cancelled && !timer.fired),
+    fireNextPending: () => {
+      const timer = timers.find((entry) => !entry.cancelled && !entry.fired);
+      if (!timer) throw new Error("No pending manual timer to fire.");
+      timer.fired = true;
+      timer.callback();
+    },
+  };
 }
 
 function installSessionFetch() {
@@ -468,12 +499,15 @@ describe("composite account provider switches", () => {
     const lateCleanup = deferred();
     setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });
     cdpSignOutPending = lateCleanup.promise;
+    const signOut = manualScheduler();
     installSessionFetch();
-    renderProvider(false, true);
+    renderProvider(false, true, true, { scheduleSignOutTimeout: signOut.scheduleTimeout });
     await waitFor(() => expect(currentClient().status).toBe("verified"));
 
     let cleanup!: Promise<void>;
     act(() => { cleanup = currentClient().signOut(); });
+    expect(signOut.hasPending()).toBe(true);
+    act(() => { signOut.fireNextPending(); });
     expect(hasCdpRestoreMarker()).toBe(false);
     await act(async () => { await cleanup.catch(() => {}); });
 
@@ -482,7 +516,7 @@ describe("composite account provider switches", () => {
     lateCleanup.resolve();
     await waitFor(() => expect(hasCdpRestoreMarker()).toBe(false));
     expect(cdpSignOuts).toBe(1);
-  }, 6_000);
+  });
 
   test("does not repeat successful CDP cleanup when native cleanup is retried", async () => {
     setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });
@@ -607,10 +641,15 @@ describe("composite account provider switches", () => {
 
   test("fails a timed-out hinted CDP restore closed and retries without dropping its marker", async () => {
     cdpState = { isInitialized: false, isSignedIn: false, userId: null };
+    const activation = manualScheduler();
     installSessionFetch();
-    renderProvider(false, true);
+    renderProvider(false, true, true, { scheduleActivationTimeout: activation.scheduleTimeout });
 
-    await waitFor(() => expect(currentClient().status).toBe("unavailable"), { timeout: 12_000 });
+    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    expect(currentClient().status).toBe("restoring");
+    expect(activation.hasPending()).toBe(true);
+    act(() => { activation.fireNextPending(); });
+    await waitFor(() => expect(currentClient().status).toBe("unavailable"));
     expect(hasCdpRestoreMarker()).toBe(true);
     expect(hasCdpRestoreHint()).toBe(true);
     expect(nativeRestores).toBe(0);
@@ -624,7 +663,7 @@ describe("composite account provider switches", () => {
     await act(async () => { await retry; });
     await waitFor(() => expect(currentClient().status).toBe("signed-out"));
     expect(hasCdpRestoreMarker()).toBe(false);
-  }, 15_000);
+  });
 
   test("native to email preserves the newly verified CDP identity", async () => {
     const nativeClear = deferred();
@@ -681,14 +720,17 @@ describe("composite account provider switches", () => {
     const lateCleanup = deferred();
     setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });
     cdpSignOutPending = lateCleanup.promise;
+    const signOut = manualScheduler();
     installSessionFetch();
-    renderProvider(false, true);
+    renderProvider(false, true, true, { scheduleSignOutTimeout: signOut.scheduleTimeout });
 
     await waitFor(() => expect(currentClient().status).toBe("verified"));
     await act(async () => { await currentClient().signInWithBaseAccount(() => {}); });
     await waitFor(() => expect(currentClient().session?.accountProvider).toBe("base-account"));
     await waitFor(() => expect(cdpSignOuts).toBe(1));
-    await waitFor(() => expect(hasCdpRestoreMarker()).toBe(true), { timeout: 4_000 });
+    await waitFor(() => expect(signOut.hasPending()).toBe(true));
+    act(() => { signOut.fireNextPending(); });
+    await waitFor(() => expect(hasCdpRestoreMarker()).toBe(true));
 
     await act(async () => {
       setCdpState({ isSignedIn: false, userId: null });
@@ -701,7 +743,7 @@ describe("composite account provider switches", () => {
     lateCleanup.resolve();
     await waitFor(() => expect(hasCdpRestoreMarker()).toBe(false));
     expect(currentClient().session?.accountProvider).toBe("base-account");
-  }, 6_000);
+  });
 
   test("email to Base signs CDP out once without a stale session", async () => {
     setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });

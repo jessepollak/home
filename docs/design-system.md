@@ -83,7 +83,7 @@ These stay app-local because they encode Home product behavior, not general-purp
 
 ## Testing
 
-Keep tests for Home behavior: exact amounts, dispatch counts, owner fences, routing, cancellation, focus restoration, and other failures that would affect users or money. Do not test component styling, rendered copy, layout, Base UI internals, Tailwind output, or visual snapshots. The owner checks presentation manually; Home has no screenshot baselines.
+Keep tests for Home behavior: exact amounts, dispatch counts, owner fences, routing, cancellation, focus restoration, and other failures that would affect users or money. Follow the [test policy](architecture.md#test-policy) for what not to test. The owner checks presentation manually; Home has no screenshot baselines.
 
 ## Teardown measurements
 

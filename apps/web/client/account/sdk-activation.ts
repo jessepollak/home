@@ -6,7 +6,7 @@ export type SdkActivationGate<T> = {
   fail: (error: unknown) => void;
 };
 
-type ActivationTimeoutScheduler = (
+export type TimeoutScheduler = (
   onTimeout: () => void,
   timeoutMs: number,
 ) => () => void;
@@ -14,10 +14,10 @@ type ActivationTimeoutScheduler = (
 type SdkActivationGateOptions = {
   timeoutMs?: number;
   onTimeout?: () => void;
-  scheduleTimeout?: ActivationTimeoutScheduler;
+  scheduleTimeout?: TimeoutScheduler;
 };
 
-function scheduleBrowserTimeout(onTimeout: () => void, timeoutMs: number): () => void {
+export function scheduleBrowserTimeout(onTimeout: () => void, timeoutMs: number): () => void {
   const timer = setTimeout(onTimeout, timeoutMs);
   return () => clearTimeout(timer);
 }

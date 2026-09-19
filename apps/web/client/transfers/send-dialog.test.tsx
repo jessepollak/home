@@ -160,7 +160,7 @@ describe("SendDialog Peer cash-out", () => {
     await waitFor(() => expect(fetches).toHaveLength(2));
   });
 
-  test("renders mobile-safe cash-out handle fields with input hints", async () => {
+  test("renders cash-out handle fields with input hints", async () => {
     render(
       <SendDialog
         open immediate address={ACCOUNT} ownerBoundary="owner-peer-hints" regionId="US"
@@ -179,9 +179,6 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.click(page().getByRole("button", { name: "Cash App" }));
 
     const handle = page().getByLabelText("Cash App handle") as HTMLInputElement;
-    expect(handle.className).toContain("h-11");
-    expect(handle.className).toContain("md:text-base");
-    expect(handle.className).not.toContain("md:text-sm");
     expect(handle.getAttribute("autocomplete")).toBe("off");
     expect(handle.getAttribute("autocapitalize")).toBe("none");
     expect(handle.getAttribute("autocorrect")).toBe("off");
@@ -191,9 +188,6 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.input(handle, { target: { value: "$alice" } });
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     const confirmation = page().getByLabelText("Re-enter handle") as HTMLInputElement;
-    expect(confirmation.className).toContain("h-11");
-    expect(confirmation.className).toContain("md:text-base");
-    expect(confirmation.className).not.toContain("md:text-sm");
     expect(confirmation.getAttribute("autocomplete")).toBe("off");
     expect(confirmation.getAttribute("autocapitalize")).toBe("none");
     expect(confirmation.getAttribute("autocorrect")).toBe("off");

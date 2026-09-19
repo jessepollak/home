@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import type { SqlExecutor } from "@/server/db/sql";
+import { readMigrationSql } from "@/tests/helpers/migrations";
 import { PostgresPriceObservationStore } from "./price-observation-store";
 import { priceObservationStoreContract } from "./price-observation-store.contract";
 
@@ -18,14 +17,8 @@ let executor: SqlExecutor;
 describePostgres("PostgresPriceObservationStore production contract", () => {
   beforeAll(async () => {
     client = new Bun.SQL(connectionString!) as unknown as BunSqlClient;
-    const migration = await readFile(
-      resolve(import.meta.dir, "../db/migrations/005_balances.sql"),
-      "utf8",
-    );
-    const attemptsMigration = await readFile(
-      resolve(import.meta.dir, "../db/migrations/006_valuation_attempts.sql"),
-      "utf8",
-    );
+    const migration = await readMigrationSql("005_balances.sql");
+    const attemptsMigration = await readMigrationSql("006_valuation_attempts.sql");
     await client.unsafe("DROP TABLE IF EXISTS valuation_attempts");
     await client.unsafe("DROP TABLE IF EXISTS price_observations");
     await client.unsafe(migration);

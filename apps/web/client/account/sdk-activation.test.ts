@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createSdkActivationGate } from "./sdk-activation";
+import { CDP_ACTIVATION_TIMEOUT_MS, createSdkActivationGate } from "./sdk-activation";
 
 describe("CDP SDK activation gate", () => {
   test("deduplicates concurrent activation and reuses the ready boundary", async () => {
@@ -61,6 +61,20 @@ describe("CDP SDK activation gate", () => {
     gate.publish({ id: 2 }, true);
     await expect(retry).resolves.toEqual({ id: 2 });
     expect(scheduled[1]?.cancelled).toBe(true);
+  });
+
+  test("uses the published activation timeout when only a scheduler is injected", async () => {
+    const scheduledMs: number[] = [];
+    const gate = createSdkActivationGate<{ id: number }>(() => {}, {
+      scheduleTimeout: (_callback, timeoutMs) => {
+        scheduledMs.push(timeoutMs);
+        return () => {};
+      },
+    });
+
+    void gate.activate().catch(() => {});
+    expect(CDP_ACTIVATION_TIMEOUT_MS).toBe(10_000);
+    expect(scheduledMs).toEqual([CDP_ACTIVATION_TIMEOUT_MS]);
   });
 
   test("keeps activation pending through an uninitialized publication", async () => {

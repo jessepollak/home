@@ -153,4 +153,4 @@ jobs:
         run: bun run --cwd apps/web db:migrate
 
       - name: Test actions, funding, and balance stores against disposable PostgreSQL
-        run: bun test apps/web/server/actions/store.postgres.test.ts apps/web/server/funding/core/postgres-store.integration.test.ts apps/web/server/balances/postgres-snapshot-store.test.ts apps/web/server/balances/postgres-webhook-subscription-store.test.ts apps/web/server/balances/postgres-price-observation-store.test.ts
+        run: bun test apps/web/server/actions/store.postgres.test.ts apps/web/server/funding/core/postgres-store.integration.test.ts apps/web/server/funding/core/customer-postgres-store.integration.test.ts apps/web/server/balances/postgres-snapshot-store.test.ts apps/web/server/balances/postgres-webhook-subscription-store.test.ts apps/web/server/balances/postgres-price-observation-store.test.ts

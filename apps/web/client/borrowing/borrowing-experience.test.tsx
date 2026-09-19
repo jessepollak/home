@@ -240,30 +240,18 @@ describe("BorrowExperience redesign", () => {
     expect(body.queryByRole("link")).toBeNull();
   });
 
-  test("uses explicit responsive actions without a full-row hover target", async () => {
+  test("exposes explicit market actions and list semantics", async () => {
     render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} />);
     const body = within(document.body);
     const card = await body.findByTestId("borrow-market-card");
-    expect(card.className).toContain("overflow-hidden");
-    const borrowedSummary = body.getByText("Borrowed").parentElement?.parentElement;
-    expect(borrowedSummary?.className).toContain("grid-cols-1");
-    expect(borrowedSummary?.className).toContain("sm:grid-cols-2");
-    expect(body.getByText("Borrowed").nextElementSibling?.className).not.toContain("truncate");
-    const borrow = body.getByRole("button", { name: "Borrow more" });
-    expect(borrow.parentElement?.className).toContain("grid-cols-1");
-    expect(borrow.className).toContain("min-h-11");
     expect(body.getByRole("list", { name: "Borrow markets" })).toBeTruthy();
     expect(body.getByRole("listitem")).toBe(card);
     expect(body.queryByText("Manage", { exact: true })).toBeNull();
     const manage = body.getByRole("group", { name: "Manage Bitcoin position" });
     const manageButtons = within(manage).getAllByRole("button");
-    expect(manage.className).toContain("grid-cols-2");
-    expect(manage.className).not.toContain("border-t");
     expect(manageButtons.map((button) => button.textContent)).toEqual(["Add collateral", "Withdraw"]);
-    expect(manageButtons.every((button) => button.className.includes("min-h-11") && button.className.includes("w-full"))).toBe(true);
     expect(body.queryByRole("button", { name: "Repay all" })).toBeNull();
     expect(body.queryByRole("button", { name: "Close Bitcoin position" })).toBeNull();
-    expect(card.className).not.toContain("hover:bg-muted");
   });
 
   test("keeps the minimum action set in urgent state while disabling risk increases", async () => {
@@ -276,30 +264,13 @@ describe("BorrowExperience redesign", () => {
     expect((body.getByRole("button", { name: "Withdraw collateral from Bitcoin position" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  test("uses destructive buffer treatment below the 1.25 floor and immediate-risk copy at liquidation", async () => {
-    const belowFloor = detail({ position: { ...detail().position, healthFactorWad: "1200000000000000000" } });
-    const view = render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(belowFloor)} />);
-    const body = within(document.body);
-    const meter = await body.findByRole("meter", { name: "Liquidation buffer" });
-    expect(meter.previousElementSibling?.querySelector("p")?.className).toContain("text-destructive");
-    expect(meter.firstElementChild?.className).toContain("bg-destructive");
-
-    view.unmount();
-    getHomeQueryClient().clear();
+  test("announces immediate-risk copy at liquidation", async () => {
     const liquidatable = detail({ position: { ...detail().position, healthFactorWad: "1000000000000000000" } });
     render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(liquidatable)} />);
-    const nextBody = within(document.body);
-    const immediateMeter = await nextBody.findByRole("meter", { name: "Liquidation buffer" });
-    expect(immediateMeter.getAttribute("aria-valuetext")).toBe("Immediate liquidation risk");
-    expect(nextBody.queryByText(/can fall 0%/)).toBeNull();
-  });
-
-  test("keeps healthy buffer treatment on existing neutral tokens", async () => {
-    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(detail())} />);
     const body = within(document.body);
-    const meter = await body.findByRole("meter", { name: "Liquidation buffer" });
-    expect(meter.previousElementSibling?.querySelector("p")?.className).not.toContain("text-destructive");
-    expect(meter.firstElementChild?.className).toContain("bg-primary");
+    const immediateMeter = await body.findByRole("meter", { name: "Liquidation buffer" });
+    expect(immediateMeter.getAttribute("aria-valuetext")).toBe("Immediate liquidation risk");
+    expect(body.queryByText(/can fall 0%/)).toBeNull();
   });
 
   test("compacts prepared warnings into one accessible warning list", async () => {
