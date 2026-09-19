@@ -49,6 +49,29 @@ ruleTester.run("no-detached-class-constants", noDetachedClassConstantsRule, {
       "function List({ items }) { return <div className={items.map((item) => item.active && \"hidden\").join(\" \")} />; }",
       // Nested cn() calls inside className report once, not per path.
       "function Row({ active }) { return <div className={cn(cn(\"flex\"), active && \"text-primary\")} />; }",
+      // PR #632 false positive: `selected` is only a comparison operand inside
+      // the logical test — its value never becomes part of the class output.
+      "const selected = \"active\";\nfunction Row({ status }) { return <div className={cn(\"flex\", status === selected && \"bg-primary\")} />; }",
+      // The left side of `&&` is a truthiness test; only the right side is
+      // class data, so a static string there is fine.
+      "const selected = \"active\";\nfunction Row() { return <div className={cn(selected && \"bg-primary\")} />; }",
+      // A ternary test is condition data even when it holds a static string.
+      "const flag = \"yes\";\nfunction Row() { return <div className={cn(flag ? \"flex\" : \"hidden\")} />; }",
+      // cn() object values are conditions, not classes.
+      "const selected = \"active\";\nfunction Row({ status }) { return <div className={cn(\"flex\", { \"bg-primary\": status === selected })} />; }",
+      // Member/index positions are data; resolving aggregate object class
+      // sources is deferred to Home #633.
+      "const map = { active: \"flex\" };\nconst status = \"active\";\nfunction Row() { return <div className={cn(map[status])} />; }",
+      // PR #632 repair: a nested cn() used as a ternary test defers to the
+      // enclosing root's role classification — its value is condition data.
+      "const pad = \"px-4\";\nfunction Row({ active }) { return <div className={cn(cn(pad) ? \"flex\" : \"hidden\")} />; }",
+      // A nested cn() as an object condition value is condition data too.
+      "const pad = \"px-4\";\nfunction Row({ ready }) { return <div className={cn(\"flex\", { hidden: cn(pad) })} />; }",
+      // A nested cn() under a negation in a logical test never reaches output.
+      "const pad = \"px-4\";\nfunction Row({ ready }) { return <div className={cn(!cn(pad) && \"flex\")} />; }",
+      // The outer cn() root owns classification even without a className
+      // enclosure: the inner predicate cn() is condition data either way.
+      "const pad = \"px-4\";\nconst klass = cn(cn(pad) ? \"flex\" : \"hidden\");\nfunction Row() { return <div className={klass} />; }",
     ],
     invalid: [
       // The PR #626 pattern: a module constant of Tailwind utilities passed to className.
@@ -91,6 +114,48 @@ ruleTester.run("no-detached-class-constants", noDetachedClassConstantsRule, {
       {
         code: "function Row() { const presentation = \"overflow-hidden whitespace-nowrap\"; return <div className={presentation} />; }",
         errors: detached("presentation"),
+      },
+      // Role-aware traversal still analyzes class-producing logical branches:
+      // the right side of `&&` is the class when the test passes.
+      {
+        code: "const frame = \"mx-auto w-full\";\nfunction Row({ open }) { return <div className={cn(\"flex\", open && frame)} />; }",
+        errors: detached("frame"),
+      },
+      // A static string fallback on the left of `||` is the class when truthy.
+      {
+        code: "const fallback = \"text-muted\";\nfunction Row({ ready }) { return <div className={cn(ready || fallback)} />; }",
+        errors: detached("fallback"),
+      },
+      // Conditional branches are class data; the test above them is not.
+      {
+        code: "const tone = \"text-primary\";\nfunction Row({ active }) { return <div className={cn(active ? tone : \"hidden\")} />; }",
+        errors: detached("tone"),
+      },
+      {
+        code: "const alt = \"hidden\";\nfunction Row({ active }) { return <div className={cn(active ? \"flex\" : alt)} />; }",
+        errors: detached("alt"),
+      },
+      // Concatenation inside cn() is still class-producing.
+      {
+        code: "const pad = \"px-4 \";\nfunction Row() { return <div className={cn(\"flex \" + pad)} />; }",
+        errors: detached("pad"),
+      },
+      // A nested cn() in a class-producing argument is still flagged, and
+      // exactly once despite the overlapping visitors.
+      {
+        code: "const pad = \"px-4\";\nfunction Row() { return <div className={cn(cn(pad))} />; }",
+        errors: detached("pad"),
+      },
+      // The predicate cn() above the branches is skipped, but the
+      // class-producing branch constant is still flagged exactly once.
+      {
+        code: "const pad = \"px-4\";\nconst alt = \"hidden\";\nfunction Row({ active }) { return <div className={cn(cn(pad) ? alt : \"flex\")} />; }",
+        errors: detached("alt"),
+      },
+      // A nested cn() in a class-producing branch position flags once.
+      {
+        code: "const tone = \"text-primary\";\nfunction Row({ active }) { return <div className={cn(active ? cn(tone) : \"flex\")} />; }",
+        errors: detached("tone"),
       },
     ],
   });

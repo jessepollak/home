@@ -3,9 +3,18 @@
 // identifiers referenced by `className` attributes and `cn()` arguments back to
 // their local definitions and rejects the ones that resolve to static class
 // strings (literals, expression-free templates, and fully static
-// concatenations, including through local aliases). Resolution is by scope
-// binding, never by identifier naming, so shadowed props, parameters, imports,
-// and dynamic initializers all pass.
+// concatenations, including through local aliases). Traversal is
+// expression-role-aware: only positions whose value can become part of the
+// class output (results, branch bodies, template interpolations, and
+// concatenations) are analyzed, so condition tests, comparison operands, and
+// cn() object condition values are never treated as classes. The className and
+// standalone-cn() visitors coordinate: a nested cn() defers to its enclosing
+// relevant root (the className value or outer cn() argument) instead of
+// re-analyzing its own arguments, so a cn() in a predicate or condition
+// position is never treated as a class source while class-producing nested
+// calls stay flagged. Resolution is by scope binding, never by identifier
+// naming, so shadowed props, parameters, imports, and dynamic initializers all
+// pass.
 const MAX_RESOLVE_DEPTH = 10;
 
 // `resolveIdentifier` routes identifier operands (aliases) back through the
@@ -39,34 +48,130 @@ function isReferenceIdentifier(node) {
   return true;
 }
 
-// Collect reference identifiers inside a className/cn() value. Composition
-// (ternaries, logical expressions, templates, nested `cn()` calls) stays
-// reachable so detached constants cannot hide inside it; nested JSX and
-// function bodies are boundaries so unrelated identifiers are never visited.
+// Collect reference identifiers inside a className/cn() value, following only
+// expression roles whose value can actually become part of the class output:
+// results, branch bodies, template interpolations, and concatenations. A
+// detached constant in a predicate or data position (logical/conditional
+// tests, comparison operands, cn() object condition values, member/index
+// access) never reaches the class string, so those roles are not analyzed.
+// Nested JSX and function bodies remain boundaries so unrelated identifiers
+// are never visited. Aggregate object/array class sources are deliberately
+// not resolved.
 function collectReferenceIdentifiers(node, found) {
   if (!node || typeof node.type !== "string") return;
-  if (node.type === "JSXElement" || node.type === "JSXFragment") return;
-  if (node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression" || node.type === "FunctionDeclaration" || node.type === "ClassExpression" || node.type === "ClassDeclaration") return;
-  if (node.type === "Identifier") {
-    if (isReferenceIdentifier(node)) found.add(node);
-    return;
-  }
-  if (node.type === "CallExpression") {
-    collectReferenceIdentifiers(node.callee, found);
-    if (node.callee.type === "Identifier" && node.callee.name === "cn") {
-      for (const argument of node.arguments) collectReferenceIdentifiers(argument, found);
+  switch (node.type) {
+    // Boundaries: nested JSX and function bodies never name className values.
+    case "JSXElement":
+    case "JSXFragment":
+    case "ArrowFunctionExpression":
+    case "FunctionExpression":
+    case "FunctionDeclaration":
+    case "ClassExpression":
+    case "ClassDeclaration":
+      return;
+    case "Identifier":
+      if (isReferenceIdentifier(node)) found.add(node);
+      return;
+    case "CallExpression": {
+      collectReferenceIdentifiers(node.callee, found);
+      if (node.callee.type === "Identifier" && node.callee.name === "cn") {
+        for (const argument of node.arguments) collectReferenceIdentifiers(argument, found);
+      }
+      return;
     }
-    return;
+    case "LogicalExpression":
+      // `a && b`: `a` is only a truthiness test — falsy results are skipped by
+      // class composition, so its value can never land in the class output.
+      // `a || b` / `a ?? b`: a truthy `a` is the result, so it is class data.
+      if (node.operator === "&&") {
+        collectReferenceIdentifiers(node.right, found);
+      } else {
+        collectReferenceIdentifiers(node.left, found);
+        collectReferenceIdentifiers(node.right, found);
+      }
+      return;
+    case "ConditionalExpression":
+      // The test is condition data; the branches supply the class.
+      collectReferenceIdentifiers(node.consequent, found);
+      collectReferenceIdentifiers(node.alternate, found);
+      return;
+    case "BinaryExpression":
+      // Only `+` can build the class string; comparison and arithmetic
+      // operands are data.
+      if (node.operator === "+") {
+        collectReferenceIdentifiers(node.left, found);
+        collectReferenceIdentifiers(node.right, found);
+      }
+      return;
+    case "TemplateLiteral":
+      // Interpolations become part of the class string; quasis are literals.
+      for (const expression of node.expressions) collectReferenceIdentifiers(expression, found);
+      return;
+    case "ObjectExpression":
+      // `cn({ "bg-primary": cond })`: values are conditions, not classes.
+      return;
+    case "MemberExpression":
+      // `map[status]`: object and index are data, not class sources.
+      return;
+    case "UnaryExpression":
+    case "UpdateExpression":
+      // The operand is coerced to a boolean/number and never reaches output.
+      return;
+    default:
+      for (const key of Object.keys(node)) {
+        if (key === "parent" || key === "range" || key === "loc") continue;
+        const child = node[key];
+        if (Array.isArray(child)) {
+          for (const item of child) collectReferenceIdentifiers(item, found);
+        } else if (child && typeof child.type === "string") {
+          collectReferenceIdentifiers(child, found);
+        }
+      }
   }
-  for (const key of Object.keys(node)) {
-    if (key === "parent" || key === "range" || key === "loc") continue;
-    const child = node[key];
-    if (Array.isArray(child)) {
-      for (const item of child) collectReferenceIdentifiers(item, found);
-    } else if (child && typeof child.type === "string") {
-      collectReferenceIdentifiers(child, found);
+}
+
+// Decide whether a cn() call sits in a region whose role classification the
+// enclosing relevant root — the className attribute value or an outer cn()
+// argument — already owns. The standalone CallExpression visitor defers in
+// that case: the root's role-aware traversal either analyzes the region as
+// class-producing or deliberately ignores it as predicate/data, and
+// re-analyzing from the nested call would flag condition data (a ternary
+// test, an object condition value, a negation operand) as classes. The walk
+// stops — returning false so the standalone visitor stays the safety net — at
+// the same regions the traversal never classifies: nested function and class
+// bodies, nested JSX, arguments of non-cn calls, and member-access
+// subexpressions (where a nested cn() result can still be class-producing,
+// e.g. `cn(pad).trim()`).
+function isOwnedByEnclosingRoot(node) {
+  let child = node;
+  for (let parent = child.parent; parent; child = parent, parent = parent.parent) {
+    switch (parent.type) {
+      case "ArrowFunctionExpression":
+      case "FunctionExpression":
+      case "FunctionDeclaration":
+      case "ClassExpression":
+      case "ClassDeclaration":
+      case "JSXElement":
+      case "JSXFragment":
+        return false;
+      case "CallExpression":
+        // A callee keeps the walk going: the root classifies callee
+        // expressions transitively. An argument of an enclosing cn() call is
+        // inside that root's role-aware traversal; an argument of any other
+        // call is outside the traversal's ownership.
+        if (parent.callee === child) break;
+        return parent.callee.type === "Identifier" && parent.callee.name === "cn";
+      case "JSXAttribute":
+        return parent.name.type === "JSXIdentifier" && parent.name.name === "className";
+      case "MemberExpression":
+        return false;
+      default:
+        // Every other position between the nested call and the root is one
+        // the role-aware traversal either analyzes or deliberately ignores.
+        break;
     }
   }
+  return false;
 }
 
 function findBinding(sourceCode, identifier) {
@@ -135,6 +240,9 @@ export const noDetachedClassConstantsRule = {
       },
       CallExpression(node) {
         if (node.callee.type !== "Identifier" || node.callee.name !== "cn") return;
+        // The enclosing relevant root owns role classification for this
+        // region; only standalone cn() calls re-analyze their arguments.
+        if (isOwnedByEnclosingRoot(node)) return;
         for (const argument of node.arguments) checkValue(argument);
       },
     };
