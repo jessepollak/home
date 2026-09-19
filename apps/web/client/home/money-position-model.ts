@@ -30,6 +30,7 @@ export type MoneyPositionDebt = {
 
 export type MoneyPositionInput = {
   currency: string;
+  quoteCurrencyMinorUnitScale: number;
   regionId: RegionId;
   slices: readonly MoneyPositionSlice[];
   debt: MoneyPositionDebt;
@@ -119,14 +120,25 @@ export function moneyPositionKindTotal(
   );
 }
 
+export function shouldPresentMoneyPositionDebt(
+  summary: Pick<MoneyPositionSummary, "debtMinor">,
+): boolean {
+  return summary.debtMinor === null || summary.debtMinor > BigInt(0);
+}
+
 export function formatMoneyPositionAmount(
   amountMinor: bigint | null,
-  input: Pick<MoneyPositionInput, "currency" | "regionId">,
+  input: Pick<MoneyPositionInput, "currency" | "quoteCurrencyMinorUnitScale" | "regionId">,
 ): string {
   if (amountMinor === null) return "Unavailable";
-  return formatFiatAmount(amountMinor, 2, input.currency, {
+  const scale = input.quoteCurrencyMinorUnitScale;
+  if (!Number.isSafeInteger(scale) || scale < 0 || scale > 20) {
+    throw new TypeError("Quote currency minor-unit scale must be an integer from 0 through 20.");
+  }
+  return formatFiatAmount(amountMinor, scale, input.currency, {
     regionId: input.regionId,
-    fractionDigits: 2,
+    fractionDigits: scale,
+    minimumFractionDigits: scale,
   });
 }
 
@@ -134,7 +146,10 @@ export function moneyPositionStatusMessage(
   summary: MoneyPositionSummary,
 ): string | null {
   if (summary.status === "partial") {
-    return `Position total unavailable. Missing: ${summary.missingLabels.join(", ")}. Known amounts remain itemized below.`;
+    const stale = summary.staleLabels.length > 0
+      ? ` Last verified values shown for: ${summary.staleLabels.join(", ")}.`
+      : "";
+    return `Position total unavailable. Missing: ${summary.missingLabels.join(", ")}.${stale} Known amounts remain itemized below.`;
   }
   if (summary.status === "unavailable") {
     return `Position unavailable. Missing: ${summary.missingLabels.join(", ")}. Missing amounts are not zero.`;

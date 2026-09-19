@@ -62,7 +62,13 @@ function position(
   slices: readonly MoneyPositionSlice[],
   debt: MoneyPositionInput["debt"] = noDebt,
 ): MoneyPositionInput {
-  return { currency: "USD", regionId: "US", slices, debt };
+  return {
+    currency: "USD",
+    quoteCurrencyMinorUnitScale: 2,
+    regionId: "US",
+    slices,
+    debt,
+  };
 }
 
 const completePosition = position(
@@ -139,6 +145,23 @@ export const Empty: Story = {
 
 export const CashOnly: Story = {
   args: { position: position([cash("125075")]) },
+};
+
+export const ZeroDecimalCurrency: Story = {
+  args: {
+    headline: "assets-and-debt",
+    position: {
+      currency: "CLP",
+      quoteCurrencyMinorUnitScale: 0,
+      regionId: "CL",
+      slices: [{
+        ...cash("123456789"),
+        id: "cash-clp",
+        detail: "Available Chilean pesos",
+      }],
+      debt: noDebt,
+    },
+  },
 };
 
 export const SavedOnly: Story = {

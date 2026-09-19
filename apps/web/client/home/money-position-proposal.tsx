@@ -24,6 +24,7 @@ import {
   formatMoneyPositionAmount,
   moneyPositionKindTotal,
   moneyPositionStatusMessage,
+  shouldPresentMoneyPositionDebt,
   summarizeMoneyPosition,
   type MoneyPositionInput,
   type MoneyPositionKind,
@@ -37,7 +38,7 @@ type PositionGroup = (typeof groupOrder)[number];
 
 const groupLabels: Record<PositionGroup, string> = {
   available: "Available",
-  growing: "Growing",
+  growing: "Saved & invested",
   committed: "Committed",
 };
 
@@ -76,6 +77,7 @@ export function MoneyPositionProposal({
 }) {
   const summary = summarizeMoneyPosition(position);
   const statusMessage = moneyPositionStatusMessage(summary);
+  const showDebtFact = shouldPresentMoneyPositionDebt(summary);
   const format = (value: bigint | null) => formatMoneyPositionAmount(value, position);
   const visibleSlices = position.slices.filter((slice) =>
     slice.amountMinor === null ||
@@ -97,7 +99,10 @@ export function MoneyPositionProposal({
                 {format(summary.netPositionMinor)}
               </p>
               <p className="text-sm text-muted-foreground tabular-nums">
-                Assets {format(summary.assetsMinor)} · Debt {format(summary.debtMinor === null ? null : -summary.debtMinor)}
+                Assets {format(summary.assetsMinor)}
+                {showDebtFact
+                  ? <> · Debt {format(summary.debtMinor === null ? null : -summary.debtMinor)}</>
+                  : null}
               </p>
             </>
           ) : (
@@ -106,16 +111,18 @@ export function MoneyPositionProposal({
               <p className="break-words text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl">
                 {format(summary.assetsMinor)}
               </p>
-              <dl className="grid grid-cols-1 gap-3 border-t pt-3 tabular-nums sm:grid-cols-2">
-                <div className="min-w-0">
-                  <dt className="text-xs text-muted-foreground">Debt</dt>
-                  <dd className="break-words font-medium">{format(summary.debtMinor === null ? null : -summary.debtMinor)}</dd>
-                </div>
-                <div className="min-w-0 border-t pt-3 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-3">
-                  <dt className="text-xs text-muted-foreground">Position after debt</dt>
-                  <dd className="break-words font-semibold">{format(summary.netPositionMinor)}</dd>
-                </div>
-              </dl>
+              {showDebtFact ? (
+                <dl className="grid grid-cols-1 gap-3 border-t pt-3 tabular-nums sm:grid-cols-2">
+                  <div className="min-w-0">
+                    <dt className="text-xs text-muted-foreground">Debt</dt>
+                    <dd className="break-words font-medium">{format(summary.debtMinor === null ? null : -summary.debtMinor)}</dd>
+                  </div>
+                  <div className="min-w-0 border-t pt-3 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-3">
+                    <dt className="text-xs text-muted-foreground">Position after debt</dt>
+                    <dd className="break-words font-semibold">{format(summary.netPositionMinor)}</dd>
+                  </div>
+                </dl>
+              ) : null}
             </>
           )}
           <p className="text-xs text-muted-foreground tabular-nums">
@@ -238,7 +245,7 @@ export function MoneyPositionProductTiles({
             icon={<PiggyBank className="size-4" aria-hidden="true" />}
             onOpen={onOpenSave}
             primary={format(savedMinor)}
-            secondary="Growing outside available cash"
+            secondary="Saved outside available cash"
             title="Save"
           />
         </Card>

@@ -9,8 +9,8 @@ Every verified amount appears once according to its current job:
 | Slice | Included in assets | Available to use | Required presentation |
 | --- | --- | --- | --- |
 | Cash | Yes | Yes | Available |
-| Saved | Yes | No | Growing; show the applicable rate only when verified |
-| Invested | Yes | No | Growing; identify as market value |
+| Saved | Yes | No | Saved & invested; show the applicable rate only when verified |
+| Invested | Yes | No | Saved & invested; identify as market value |
 | Collateral | Yes | No | Committed; explicitly **locked, not available to spend** |
 | Card allocation (future) | Yes | No | Committed; allocated to card and not in cash |
 | Debt | Subtracted from position | No | Owed; display as a negative amount |
@@ -30,13 +30,14 @@ Selecting one alternative is a product decision, not an implementation default. 
 
 - A complete headline requires every included asset slice and debt to be verified. Missing debt is never zero.
 - If any slice is unavailable, the headline is `Unavailable`, known slices stay itemized, and the status names every missing slice.
-- Stale amounts remain itemized and name the last-verified source; they do not silently read as current.
+- Stale amounts remain itemized and name the last-verified source; they do not silently read as current. When missing and stale sources coexist, the status names both sets.
+- Verified zero debt is omitted from the hero and Owed list. Positive or unavailable debt remains explicit.
 - Empty state shows zero position and leads to Add money through an injected callback; the proposal owns no action authority.
-- Exact integer minor units feed the shared fiat formatter. Presentation code does not use floating-point arithmetic.
+- Exact integer minor units and an explicit `quoteCurrencyMinorUnitScale` feed the shared fiat formatter. USD fixtures use scale 2 and CLP proves scale 0; presentation code does not use floating-point arithmetic.
 - Long labels and values wrap within the component at 390 CSS px and 200% text zoom; financial values do not animate.
 
 ## Review scenarios
 
-`apps/web/client/home/money-position-proposal.stories.tsx` covers empty, cash only, saved only, invested only, collateral without debt, collateral plus debt, future card allocation, partial, unavailable, long-value, both headline alternatives, Save/Borrow tiles, and the Borrow position header. Stories render the production components (`MoneyPositionProposal`, `MoneyPositionProductTiles`, and `BorrowPositionHeaderProposal`) and make no network or provider request. Supporting direct IDs are `proposal-money-position--save-and-borrow-tiles` and `proposal-money-position--borrow-position-header`.
+`apps/web/client/home/money-position-proposal.stories.tsx` covers empty, cash only, a zero-decimal quote currency, saved only, invested only, collateral without debt, collateral plus debt, future card allocation, partial plus stale, unavailable, long-value, both headline alternatives, Save/Borrow tiles, and the Borrow position header. Stories render the production components (`MoneyPositionProposal`, `MoneyPositionProductTiles`, and `BorrowPositionHeaderProposal`) and make no network or provider request. Supporting direct IDs are `proposal-money-position--save-and-borrow-tiles` and `proposal-money-position--borrow-position-header`.
 
 After headline approval, a separate implementation leaf must map reconciled Home/Save/Invest/Borrow/Card sources into this contract, prove each source is counted once, and verify the same production component in Home under `docs/browser-validation.md`. That follow-up—not this proposal—owns integrated routing, recovery, and Back behavior evidence.
